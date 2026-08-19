@@ -43,6 +43,19 @@ at the solstice and solar-utils answers `01:00` for *both* civil boundaries; bel
 printed that fabricated minute twice, once as a blue hour two and a half hours before a 03:32
 sunrise. A twilight boundary that does not bracket its own event is now treated as missing.
 
+**A third far-north defect, and the two frontend gaps, came out of a 15-agent adversarial review.**
+The twilight guard above closed only the dusk half. solar-utils does not answer null when an event
+never occurs — it answers **midnight of the requested date**, and at 60.8°N (Unst, a real UK
+postcode) that sentinel lands on the *civil* pair in midsummer and on the *golden* pair in midwinter.
+Midnight genuinely is before sunrise, so the morning bracket test accepted it and the row printed
+`01:00 blue · 03:29 golden · 22:40 golden · 23:10 blue` — a blue hour claimed two and a half hours
+before sunrise on a day that has none. The first test written for this asserted only that the two
+civil times differed and that the four ran in order, both of which the defective output satisfies;
+it was green with the bug present. Every boundary now passes a sentinel gate *and* a bracket gate,
+and the test asserts values. Separately, a failed `/light` request no longer resolves to the same
+value as a 204: "you have no postcode" is a claim about the reader's account that a 502 is no
+evidence for.
+
 **No home postcode is a designed state, not an error.** The endpoint answers `204`, the rule goes
 unlit, and a nudge offers to fix it. Three states are kept distinguishable in one value
 (`undefined` unresolved / `null` no home / the day), because collapsing the first two flashes "set

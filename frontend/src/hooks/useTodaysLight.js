@@ -9,11 +9,13 @@ import { getTodaysLight } from '../api/lightApi.js';
  * postcode, which is what `settingsVersion` is for: `App.jsx` already bumps a counter when the
  * settings modal closes, for exactly this reason, so the rule lights up without a reload.
  *
- * <p><b>Three states in one value.</b> `undefined` while the answer is outstanding, `null` once it
- * has arrived and there is no home saved, the day's light otherwise. The masthead renders all three
- * differently, and a separate `ready` flag would be a second thing every call site has to remember
- * to thread through — the reason the "set a postcode" nudge would otherwise flash at every reader
- * who already has one.
+ * <p><b>Three states in one value.</b> `undefined` when there is no answer — not asked yet, or asked
+ * and the request failed; `null` once the server has answered that there is no home saved; the day's
+ * light otherwise. The masthead renders all three differently, and a separate `ready` flag would be
+ * a second thing every call site has to remember to thread through — the reason the "set a postcode"
+ * nudge would otherwise flash at every reader who already has one.
+ *
+ * <p>A failure resolving to `undefined` rather than `null` is deliberate: see the catch below.
  *
  * <p>`enabled` exists because only the window-first arm has this masthead, and a hook cannot be
  * called conditionally. Without it, every v1 reader would pay for a request whose answer nothing
@@ -32,11 +34,17 @@ export default function useTodaysLight(enabled, settingsVersion = 0) {
     if (!enabled) return undefined;
     let live = true;
     getTodaysLight()
-      // A failure is the empty state, not an error state: the band degrades to its nudge. The
-      // masthead is chrome, and it must never be the thing that reports a backend problem.
-      .catch(() => null)
       .then((result) => {
         if (live) setLight(result ?? null);
+      })
+      // ⚠️ `undefined`, NOT `null`. A failed request and a 204 are different facts and the masthead
+      // says different things about them: `null` renders "Set your home postcode…", which is a
+      // positive claim about the reader's ACCOUNT that a 502 or a dropped connection is no evidence
+      // for. `undefined` renders the unlit rule and a blank row — no claim at all, which is the
+      // honest picture and needs no fourth state. This was `null` and an adversarial review caught
+      // that it contradicted the principle stated two lines up in MastheadLight's own docs.
+      .catch(() => {
+        if (live) setLight(undefined);
       });
     return () => { live = false; };
   }, [enabled, settingsVersion]);

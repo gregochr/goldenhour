@@ -97,27 +97,32 @@ public class TodaysLightService {
         if (sunrise == null || sunset == null) {
             return null;
         }
-        // A twilight boundary that does not bracket its own event is not a time. At 60.8°N — Unst,
-        // a real UK postcode — the sun never reaches −6° at the solstice, and solar-utils answers
-        // 01:00 for BOTH civil dawn and civil dusk. Taken at face value the row prints
-        // "01:00 blue · 03:32 golden · 22:43 golden · 01:00 blue": the same fabricated minute
-        // twice, one of them claiming to be a blue hour two and a half hours after it ended. So an
-        // unusable boundary is treated exactly like a missing one.
-        LocalDateTime civilDawn = usableOr(solarService.civilDawnUtc(lat, lon, date),
-                t -> t.isBefore(sunrise), sunrise.minusMinutes(30));
-        LocalDateTime civilDusk = usableOr(solarService.civilDuskUtc(lat, lon, date),
-                t -> t.isAfter(sunset), sunset.plusMinutes(30));
         SolarService.SolarWindow morning = solarService.goldenBlueWindow(lat, lon, date, true);
         SolarService.SolarWindow evening = solarService.goldenBlueWindow(lat, lon, date, false);
+
+        // Every boundary but sunrise and sunset goes through the same two gates — see #boundary.
+        // Which of them needs it changes with the season, which is why none of them is exempt:
+        // measured at 60.8°N (Unst, a real UK postcode) against solar-utils 2.1.0, the sentinel
+        // lands on the CIVIL pair at midsummer and on the GOLDEN pair at midwinter.
+        LocalDateTime civilDawn = boundary(solarService.civilDawnUtc(lat, lon, date), date,
+                t -> t.isBefore(sunrise), sunrise.minusMinutes(30));
+        LocalDateTime civilDusk = boundary(solarService.civilDuskUtc(lat, lon, date), date,
+                t -> t.isAfter(sunset), sunset.plusMinutes(30));
+        LocalDateTime goldenMorningEnd = boundary(morning.goldenHourEnd(), date,
+                t -> t.isAfter(sunrise) && t.isBefore(sunset), sunrise.plusMinutes(60));
+        LocalDateTime goldenEveningStart = boundary(evening.goldenHourStart(), date,
+                t -> t.isBefore(sunset) && t.isAfter(sunrise), sunset.minusMinutes(60));
+        LocalDateTime solarNoon = boundary(solarService.solarNoonUtc(lat, lon, date), date,
+                t -> t.isAfter(sunrise) && t.isBefore(sunset), midpoint(sunrise, sunset));
 
         List<TodaysLightResponse.Stop> stops = ascending(List.of(
                 new TodaysLightResponse.Stop("NIGHT_START", 0),
                 stop("NAUTICAL_DAWN", civilDawn.minusMinutes(35), date),
                 stop("CIVIL_DAWN", civilDawn, date),
                 stop("SUNRISE", sunrise, date),
-                stop("GOLDEN_MORNING_END", orElse(morning.goldenHourEnd(), sunrise.plusMinutes(60)), date),
-                stop("SOLAR_NOON", orElse(solarService.solarNoonUtc(lat, lon, date), midpoint(sunrise, sunset)), date),
-                stop("GOLDEN_EVENING_START", orElse(evening.goldenHourStart(), sunset.minusMinutes(60)), date),
+                stop("GOLDEN_MORNING_END", goldenMorningEnd, date),
+                stop("SOLAR_NOON", solarNoon, date),
+                stop("GOLDEN_EVENING_START", goldenEveningStart, date),
                 stop("SUNSET", sunset, date),
                 stop("CIVIL_DUSK", civilDusk, date),
                 stop("NAUTICAL_DUSK", civilDusk.plusMinutes(35), date),
@@ -217,27 +222,40 @@ public class TodaysLightService {
     }
 
     /**
-     * The first value, or the fallback when it is null.
+     * A solar boundary, believed only when it is present, real, and in the right place.
      *
-     * @param value    the preferred value
-     * @param fallback the value to use when {@code value} is null
-     * @return whichever is non-null
-     */
-    private static LocalDateTime orElse(LocalDateTime value, LocalDateTime fallback) {
-        return value != null ? value : fallback;
-    }
-
-    /**
-     * The first value when it is both present and sane, or the fallback.
+     * <p><b>Two gates, because one boundary can be wrong in two unrelated ways.</b>
      *
-     * @param value    the preferred value
-     * @param usable   the test the value must pass to be believed
-     * @param fallback the value to use when {@code value} is null or fails the test
-     * @return whichever is usable
+     * <p>The first is the library's <em>sentinel</em>. When an event does not occur at all,
+     * solar-utils does not return null — it returns midnight of the requested date, to the second.
+     * Measured against 2.1.0 at 60.8°N (Unst, a real UK postcode): on 21 June civil dawn and civil
+     * dusk are both {@code 00:00} because the sun never reaches −6°, and on 21 December the two
+     * golden-hour boundaries are both {@code 00:00} because it never reaches +6°. A null check alone
+     * passes all four straight through. So the sentinel is tested for by value, on every boundary
+     * rather than on the pair that happened to expose it — which of them is affected changes with
+     * the season.
+     *
+     * <p>The second is <em>bracketing</em>: a morning boundary belongs before sunrise, an evening
+     * one after sunset, a midday one between them. This catches a wrong-but-not-sentinel value, and
+     * it is the gate that would still hold if the library's sentinel ever changed.
+     *
+     * <p>What a rejected boundary costs is a fixed offset instead of a computed one, which is a
+     * plausible time in the right place. What believing one costs is a row that reads
+     * {@code 01:00 blue · 03:29 golden · 22:40 golden · 23:10 blue} — a blue hour claimed two and a
+     * half hours before sunrise, on a day that has no blue hour at all.
+     *
+     * @param value    the boundary solar-utils returned
+     * @param date     the date it was asked for, which is also the sentinel's value
+     * @param brackets where this boundary must sit relative to its own event
+     * @param fallback the offset-derived stand-in
+     * @return the boundary, or the fallback
      */
-    private static LocalDateTime usableOr(LocalDateTime value, Predicate<LocalDateTime> usable,
-            LocalDateTime fallback) {
-        return value != null && usable.test(value) ? value : fallback;
+    private static LocalDateTime boundary(LocalDateTime value, LocalDate date,
+            Predicate<LocalDateTime> brackets, LocalDateTime fallback) {
+        if (value == null || value.equals(date.atStartOfDay()) || !brackets.test(value)) {
+            return fallback;
+        }
+        return value;
     }
 
     /**

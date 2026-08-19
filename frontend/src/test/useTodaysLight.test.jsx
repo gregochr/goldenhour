@@ -56,13 +56,33 @@ describe('useTodaysLight', () => {
     await waitFor(() => expect(state()).toBe('no-home'));
   });
 
-  it('degrades a failed request to the empty state, never to an error', async () => {
-    // The masthead is chrome. It must not be the thing that reports a backend problem, and the
-    // band it draws has an honest unlit form to fall back to.
+  it('degrades a failed request to no-answer, NOT to "you have no postcode"', async () => {
+    // The distinction that separates a fact about the server from a claim about the reader. `null`
+    // renders "Set your home postcode…", which a 502 or a dropped connection is no evidence for;
+    // `undefined` renders the unlit rule and a blank row, claiming nothing. The masthead is chrome
+    // and must not report a backend problem — but it must not invent an account state either.
     getTodaysLight.mockRejectedValue(new Error('network'));
     render(<Probe />);
 
-    await waitFor(() => expect(state()).toBe('no-home'));
+    // Waiting on the call rather than on the value, because the value is unchanged by the failure —
+    // a `waitFor` on `state()` would be satisfied by the initial render, before the request settled.
+    await waitFor(() => expect(getTodaysLight).toHaveBeenCalledTimes(1));
+    await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 0); }); });
+
+    expect(state()).toBe('unresolved');
+  });
+
+  it('drops back to no-answer when a refetch fails after a good one', async () => {
+    // The arm of the rule above that the initial state cannot fake: a reader whose light resolved,
+    // then saved a postcode while the backend was down, must not be told they have no postcode.
+    getTodaysLight.mockResolvedValueOnce(LIGHT);
+    const { rerender } = render(<Probe settingsVersion={0} />);
+    await waitFor(() => expect(state()).toBe('Home · NE66 1NG'));
+
+    getTodaysLight.mockRejectedValueOnce(new Error('network'));
+    rerender(<Probe settingsVersion={1} />);
+
+    await waitFor(() => expect(state()).toBe('unresolved'));
   });
 
   it('asks for nothing when the arm does not render a band', async () => {

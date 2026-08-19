@@ -156,6 +156,37 @@ describe('MastheadLight — the labelled row', () => {
     expect(within(row).getByText('NE66 1NG')).toBeInTheDocument();
   });
 
+  /**
+   * Every long/short pair in this component, and why presence alone does not cover them.
+   *
+   * These three pairs each render BOTH forms and let CSS pick one. `getByText` reads text nodes and
+   * no class attribute, so emptying, deleting or SWAPPING the two visibility classes changes
+   * nothing any presence assertion can see — an adversarial review found all three unpinned. The
+   * concrete result of the swap: at 375px the label renders "NE66 1NGHome · NE66 1NG" inside a
+   * `whitespace-nowrap` span beside two clock times, and the desktop gets the bare postcode.
+   *
+   * jsdom resolves no media query, so the class pair IS the observable. Asserted as an exact,
+   * complementary pair — one hidden below `sm`, one hidden from `sm` up — because asserting only
+   * that both carry "some visibility class" is what let this through.
+   */
+  it.each([
+    ['location label', () => screen.getByText('NE66 1NG'), () => screen.getByText('Home · NE66 1NG'), LIGHT],
+    ['nudge sentence',
+      () => screen.getByText('Set a postcode for light and drive times.'),
+      () => screen.getByText(/Set your home postcode for your light times/), null],
+    ['nudge link text', () => screen.getByText('Set'), () => screen.getByText('Set postcode'), null],
+  ])('shows exactly one of the %s pair at any width', (_label, phoneForm, wideForm, light) => {
+    renderLight({ light });
+
+    // The phone form must be hidden from `sm` up, and carry no class that hides it below `sm`.
+    expect(phoneForm().className).toContain('sm:hidden');
+    expect(phoneForm().className.split(/\s+/)).not.toContain('hidden');
+
+    // The wide form must be hidden below `sm`, and shown from `sm` up.
+    expect(wideForm().className.split(/\s+/)).toContain('hidden');
+    expect(wideForm().className).toContain('sm:inline');
+  });
+
   it('shows the two golden times and the two blue ones', () => {
     renderLight({ light: LIGHT });
 

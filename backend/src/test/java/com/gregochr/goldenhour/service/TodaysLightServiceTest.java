@@ -64,6 +64,12 @@ class TodaysLightServiceTest {
         return new UserSettingsService.HomeLocation(7L, lat, lon, 30, postcode);
     }
 
+    /** The UK civil clock string for a UTC instant — the same conversion the service renders. */
+    private static String clockAt(LocalDateTime utc) {
+        return utc.atOffset(ZoneOffset.UTC).atZoneSameInstant(java.time.ZoneId.of("Europe/London"))
+                .toLocalDateTime().format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"));
+    }
+
     private static double positionOf(TodaysLightResponse light, String key) {
         return light.stops().stream()
                 .filter(s -> s.key().equals(key))
@@ -265,17 +271,64 @@ class TodaysLightServiceTest {
         @Test
         @DisplayName("A twilight that never happens is not reported as a time")
         void allNightTwilightFallsBackRatherThanPrintingASentinel() {
-            // At 60.8°N the sun never reaches −6° at the solstice, and solar-utils answers 01:00
-            // for BOTH boundaries. Believed, the row prints that same fabricated minute twice —
-            // once as a blue hour two and a half hours before a 03:32 sunrise, once as one two
-            // hours after a 22:43 sunset.
+            // At 60.8°N the sun never reaches −6° at the solstice. solar-utils does not answer null
+            // for that — it answers 00:00, the requested date's own midnight, for BOTH civil
+            // boundaries. Believed, the row prints "01:00 blue · 03:29 golden · 22:40 golden ·
+            // 23:10 blue": a blue hour claimed two and a half hours before sunrise, on a day that
+            // has no blue hour at all.
+            //
+            // ⚠️ Asserted as VALUES against the offsets the fallback uses, derived from the same
+            // SolarService this reads. The first version of this test asserted only that the two
+            // civil times differed and that the four ran in order — and the defective output above
+            // satisfies both, because only the dusk half was being rejected. It was green with the
+            // bug present, which is how an adversarial review found the bug and not this suite.
             TodaysLightResponse light = serviceAt("2026-06-21T09:00:00Z")
                     .buildFor(UNST_LAT, UNST_LON, POSTCODE, MIDSUMMER);
 
-            assertThat(light.civilDawn()).isNotEqualTo(light.civilDusk());
+            assertThat(light.civilDawn()).isEqualTo(
+                    clockAt(solarService.sunriseUtc(UNST_LAT, UNST_LON, MIDSUMMER).minusMinutes(30)));
+            assertThat(light.civilDusk()).isEqualTo(
+                    clockAt(solarService.sunsetUtc(UNST_LAT, UNST_LON, MIDSUMMER).plusMinutes(30)));
             assertThat(List.of(light.civilDawn(), light.sunrise(), light.sunset(), light.civilDusk()))
-                    .as("the four times must still run in order across the day")
                     .isSorted();
+        }
+
+        @Test
+        @DisplayName("A golden hour that never happens does not collapse onto the stop beside it")
+        void midwinterGoldenSentinelFallsBackToo() {
+            // The same sentinel, on the other pair and in the other season: at Unst on 21 December
+            // the sun never reaches +6°, so BOTH golden boundaries come back as 00:00. Passed
+            // through, each computes position 0.0 and the ascending guard then lifts them onto
+            // sunrise and solar noon — golden renders as two over-wide ramps with hard seams
+            // instead of two bands, and the written ±60-minute fallbacks are unreachable in exactly
+            // the case they exist for.
+            //
+            // Lerwick cannot reach this: its 21 December golden hours are real times. The latitude
+            // is the fixture, and it has to be the higher one.
+            TodaysLightResponse light = serviceAt("2026-12-21T09:00:00Z")
+                    .buildFor(UNST_LAT, UNST_LON, POSTCODE, MIDWINTER);
+
+            assertThat(positionOf(light, "GOLDEN_MORNING_END"))
+                    .isGreaterThan(positionOf(light, "SUNRISE"));
+            assertThat(positionOf(light, "GOLDEN_EVENING_START"))
+                    .isLessThan(positionOf(light, "SUNSET"))
+                    .isGreaterThan(positionOf(light, "SOLAR_NOON"));
+        }
+
+        @Test
+        @DisplayName("Midsummer golden hours are real there, so the guard is not blanket-rejecting")
+        void theGuardBelievesARealBoundary() {
+            // The other half of the pair above, and the reason it is here: a guard that rejected
+            // everything would make both assertions above pass. Unst's midsummer golden hours ARE
+            // computed times, and they must survive rather than be replaced by ±60 minutes.
+            TodaysLightResponse light = serviceAt("2026-06-21T09:00:00Z")
+                    .buildFor(UNST_LAT, UNST_LON, POSTCODE, MIDSUMMER);
+
+            assertThat(positionOf(light, "GOLDEN_MORNING_END"))
+                    .isNotEqualTo(positionOf(light, "SUNRISE") + 60.0 / 1440 * 100);
+            assertThat(positionOf(light, "GOLDEN_MORNING_END"))
+                    .isGreaterThan(positionOf(light, "SUNRISE"))
+                    .isLessThan(positionOf(light, "SOLAR_NOON"));
         }
 
         @Test

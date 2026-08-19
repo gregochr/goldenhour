@@ -10,8 +10,9 @@ import apiClient from './axiosClient.js';
  *
  * <p>Resolves to `null` for a caller who has saved no home postcode — the normal first-run state,
  * answered by a `204` rather than an error, because the masthead has a designed empty state for it.
- * A failed request resolves to `null` too: the band degrades to its nudge, which is a worse first
- * impression than the rule but a better one than a broken header.
+ * A failure is left to REJECT and is not folded onto that null: "no postcode saved" is a claim about
+ * the reader's account, and a dropped connection is no evidence for it. `useTodaysLight` turns a
+ * rejection into the no-answer state instead.
  *
  * @returns {Promise<{label: string, shortLabel: string, civilDawn: string, sunrise: string,
  *   sunset: string, civilDusk: string, stops: Array<{key: string, position: number}>}|null>}
