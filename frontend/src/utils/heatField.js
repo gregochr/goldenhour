@@ -392,6 +392,10 @@ export function drawGeo(cv, w, h, spots, win, opts) {
   const ctx = fit(cv, w, h);
   const projection = proj(w, h, opts.fit);
   const path = geoPath(projection, ctx);
+  // ⚠️ `#13100e` is mirrored by `--color-heat-sea` in `index.css`, which the Plan thumbnails carry
+  // as a CSS background so an unpainted canvas is the same ground as a painted one. The two are
+  // independent constants — this host takes no CSS — so they must be moved together; a mismatch
+  // shows as a flash of the wrong colour on every first paint. The token's own note says the same.
   ctx.fillStyle = opts.sea || '#13100e';
   ctx.fillRect(0, 0, w, h);
   ctx.beginPath();

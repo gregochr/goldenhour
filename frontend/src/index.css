@@ -39,6 +39,12 @@
   --color-sunset-700: #7e22ce;
 
   /* Verdicts — the only colour in the UI that carries meaning. */
+  /* ⚠️ These three are also ramp stops. `utils/scoreRamp.js` holds the v2 heat ramp as five hex
+     literals, and stops 5, 3 and 2 are exactly the three below — the canvas is painted from those
+     numbers and the verdict pills from these tokens, so an edit here that does not move
+     `RAMP_STOPS` leaves the field disagreeing with the word printed beside it, with nothing
+     failing. Move both, or neither. (`scoreRamp.js` asked for this pointer to be added when P2
+     first put heat tokens in this file; it is the other half of the note in its own header.) */
   --color-verdict-go: #8AAE72;
   --color-verdict-marginal: #E0A542;
   --color-verdict-standdown: #C8452F;
@@ -161,6 +167,29 @@
   /* The active segment of a segmented control — the one non-badge member, here because it is the
      same trick: readable type on a 13% tint of --color-close-to-home. */
   --color-segment-active: #EBD9A8;
+
+  /* ── Heat field, the two colours the canvas and the DOM both need ──
+     Everything else the field paints comes from `scoreRamp.js`, which is the single source for the
+     ramp and is read by the kernel and by the legend gradient alike (plan §8: JS-side hexes live
+     there, not in CSS vars, so canvas and CSS cannot desynchronise silently). These two are the
+     exception in the other direction — they are CANVAS constants that a DOM rule also has to
+     match, so they are declared once here and referenced from both ends.
+
+     ⚠️ The sea MIRRORS `heatField.drawGeo`'s `opts.sea` default (`heatField.js`, the `#13100e`
+     literal, pinned by `heatField.test.js`); it does not feed it. The strip passes no `sea` option,
+     so the two are independent constants that must hold the same value — the canvas carries this
+     one as a CSS background so a canvas that has not painted yet is the same ground as one that
+     has, and a mismatch shows as a flash of the wrong colour on every first paint. `heatField.js`
+     carries the pointer back. Making the kernel read a CSS variable was rejected: the kernel is
+     deliberately framework-free and is shared with the Leaflet host, which has no sea at all. */
+  --color-heat-sea: #13100e;
+  /* Near-black ink for the BEST BET flag, which is a solid fill of the go green rather than a
+     tint — so it needs the inverse ink the badge tints never do. Computed 6.08:1 against
+     rgba(138,174,114,.94) composited over --color-plex-panel, which clears AA for the flag's 8px
+     bold. (Pure black on that fill reaches only 7.57:1, so there is no version of this that reads
+     like body ink — the fill is the bright half of the pair by design.) Not a --color-badge-* :
+     those are lifted TEXT on a tint, the opposite relationship. */
+  --color-heat-flag-ink: #15200f;
 
   /* ── Two v1-arm synonyms that were never declared anywhere ──
      `CloseToHome.jsx:48-49` and `CardHoverPreview.jsx:85` name these; nothing declared them, so
@@ -670,7 +699,7 @@
    have to guess that number, and it moves with the column count.
 
    ⚠️ `overflow-x` computes `overflow-y` to `auto` as well — the pair cannot be split, which is the
-   note `.rail-scroller` and `.wf-tabs` both already carry. So the room a focus ring and the cells'
+   note `.wf-tabs` also carries. So the room a focus ring and the cells'
    `hover:scale` need outside the padding box is bought here and handed straight back with a
    negative margin, leaving surrounding layout where it was. The hover TOOLTIP needs nothing: it is
    portalled to `<body>`, which is why it was portalled.
@@ -975,12 +1004,6 @@
 .wf-mast {
   padding: 16px var(--wf-gutter) 14px;
 }
-/* The rail's own inset, worn by the empty-state line that stands in for it, so the two agree by
-   construction when the gutter changes. */
-.wf-rail-empty {
-  font-size: 10.5px;
-  padding: 13px var(--wf-gutter) 0;
-}
 .wf-railfoot {
   font-size: 10px;
   gap: 8px;
@@ -988,9 +1011,10 @@
 }
 /* A scroller from four tabs on, and the trigger was written into `WindowFirstShell` when the bar
    had two: a fourth tab needs `overflow-x: auto` PLUS bottom room, because the overflow computes
-   `overflow-y` to `auto` and clips a focus ring drawn outside the padding box. `.rail-scroller`
-   documents the technique — buy the room, give it straight back with a negative margin so nothing
-   below moves.
+   `overflow-y` to `auto` and clips a focus ring drawn outside the padding box. The technique is
+   buy the room, then give it straight back with a negative margin so nothing below moves —
+   `.cth-window-grid` above carries the same pair for the same reason. (It was documented on the
+   retired day rail's `.rail-scroller`, which went with the rail at P2.)
 
    ⚠️ The threshold is much lower than the trigger assumed. Measured on the running app at the phone
    type scale, all four tabs present: content extent 296.3px, so the bar FITS from 360px up and
@@ -1061,120 +1085,255 @@
     --wf-lens-reserve: 158px;
   }
   .wf-mast { padding: 13px var(--wf-gutter) 12px; }
-  .wf-rail-empty { padding: 11px var(--wf-gutter) 0; }
-  /* `.rail-scroller`'s own phone padding is NOT here — it sits directly beneath that class below,
-     because this block is written above it and the two selectors have equal specificity (0,1,0).
-     From here the base rule would come later in the file and win on source order alone, which it
-     did: measured on the running app, the rail kept its 13px desktop top while every sibling moved
-     to 14px sides. A media query buys no specificity. */
   /* Restates the 4px. A `padding` shorthand ending in `0` is exactly how this file has twice
-     zeroed a focus-ring reservation while its paired negative margin still applied — see
-     `.rail-scroller`'s note. */
+     zeroed a focus-ring reservation while its paired negative margin still applied. */
   .wf-tabs { padding: 10px var(--wf-gutter) 4px; }
   .wf-tab { padding: 8px 11px; font-size: 12px; }
   .wf-body { padding: 12px var(--wf-gutter) 18px; }
 }
 
-/* ── Window-first day rail ──
-   One tile per upcoming day. The mock makes the rail a scroller only on the phone
-   (`.wrap.mob .rail{overflow-x:auto}` + `.wrap.mob .day{flex:0 0 150px}`) and leaves it a plain
-   flex row on desktop (`.day{flex:1}`). Both fall out of ONE declaration instead of a breakpoint:
-   the tiles carry `flex: 1 0 150px` inline, so four of them fit and grow to equal quarters at
-   1080px and refuse to shrink below 150px on a 390px phone, where this scroller then earns its
-   overflow. A media query would have to restate the tile width in two places to say the same. */
-.rail-scroller {
-  overflow-x: auto;
-  scrollbar-width: none;
-  /* All four sides here, not three here and three inline. `overflow-x: auto` computes overflow-y to
-     auto as well, so the rail clips its own children's focus rings — 1px of outline at 2px offset
-     needs ~4px of room. The top and side padding already have it; only the bottom edge is tight, so
-     it is bought here and given straight back to the layout, keeping the rail flush with whatever
-     follows. Same technique as `.cth-window-grid` above, different numbers.
+/* ── Window-first heat strip ──
+   Six solar-window thumbnails under the lens bar, replacing the day rail (plan D1, §1.1). The
+   design's own class names are kept (`hstrip`, `hc`, `sumfoot`) so the mock and this file can be
+   read side by side; the `wf-` prefix marks the arm, as everywhere else here.
 
-     The bottom 4px is the fragile one and every override below must restate it: an inline `padding`
-     shorthand in the component once zeroed it at inline priority while `margin-bottom: -4px` still
-     applied, so the ring room was silently nil and the rail sat 4px tight. One owner retires that,
-     but a shorthand in a media query would recreate it exactly. */
-  padding: 13px var(--wf-gutter) 4px;
-  margin-bottom: -4px;
+   ⚠️ The colours in this block are the ONLY place the ramp is spelled in CSS, and they are not
+   spelled here at all: the legend bar's gradient is built in JS from `scoreRamp.js`'s stops
+   (`RAMP_GRADIENT`), because the canvas beside it is painted from those same numbers and a
+   hand-written gradient is a second copy that drifts with nothing failing. The verdict colours
+   below are the app's existing `--color-verdict-*` tokens, which ARE `scoreRamp`'s stops 2, 3 and
+   5 — see `scoreRamp.js`, which points back here. */
+.wf-hstrip-block {
+  border-bottom: 1px solid var(--color-plex-border);
+  padding-bottom: 12px;
 }
-.rail-scroller::-webkit-scrollbar { display: none; }
-/* Immediately after the base rule, and that placement is load-bearing rather than tidy: both
-   selectors are (0,1,0), so a media query above the base rule loses to it on source order. Written
-   in the shell-chrome block above, this override silently did nothing.
-
-   The shorthand is safe here ONLY because it restates the 4px the focus ring needs. Do not shorten
-   it to `11px var(--wf-gutter) 0` — that is the trap the base rule's comment describes, recreated
-   one file over. */
-@media (max-width: 639px) {
-  .rail-scroller { padding: 11px var(--wf-gutter) 4px; }
+.wf-hstrip-h {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-bottom: 8px;
 }
-
-/* The tile itself is a read-out, as the design draws it — the ACTION inside it is the widget, so
-   the hover treatment belongs there. The v1 pill this is copied from lifts the whole card because
-   the whole card is its button; here that would be a container inviting a press it cannot take. */
-.rail-day-show-on-map {
-  /* Same Preflight gap as the window card's controls below — this one shipped without it at P4c. */
+/* Secondary, not muted, and this is the seventh time this file has made the correction. Measured:
+   at this size on --color-plex-panel muted is 3.55:1 and fails AA, secondary is 6.88:1 (7.06:1 on
+   --color-plex-bg). The lens bar's own `.wf-lens-k` is still muted — pre-existing and out of this
+   phase's scope — but a NEW element must not add an eighth instance. */
+.wf-hstrip-k {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+  white-space: nowrap;
+}
+.wf-hstrip-rule {
+  flex: 1;
+  min-width: 10px;
+  height: 1px;
+  background: var(--color-plex-border);
+}
+/* Six across at desktop, 3×2 on a phone — never a horizontal scroller. The rail this replaces WAS
+   one, and that is the half of it worth not repeating: on a 390px screen its fourth tile sat off
+   the right edge with nothing saying so, whereas six thumbnails at a third of the width are all
+   on screen at once. Two rows of three is what makes that fit; the strip is a picture, and a
+   picture you have to swipe to finish is not a glance. */
+.wf-hstrip {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 7px;
+}
+.wf-hc {
+  border: 1px solid var(--color-plex-border);
+  border-radius: 9px;
+  background: var(--color-plex-panel);
+  padding: 6px 6px 7px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  position: relative;
+  overflow: hidden;
+  transition: border-color 0.14s ease, background 0.14s ease;
+}
+/* Tailwind v4's Preflight no longer restores `cursor: pointer` on `button` — the gap this file has
+   now closed in five places. Only the BUTTON gets it: an away cell is a `<div>` and is not a
+   control, and a pointer over one would promise a press it cannot take. */
+button.wf-hc {
   cursor: pointer;
-  color: var(--color-tide);
-  transition: color 0.14s ease;
 }
-.rail-day-show-on-map:hover {
+button.wf-hc:hover {
+  border-color: var(--color-plex-border-light);
+  background: var(--color-plex-surface);
+}
+/* Bone at 2px, for the reason this file records in four other places: `--color-plex-border-light`
+   measures ~1.7:1 and fails SC 1.4.11's 3:1 for a non-text indicator, and on the OPEN thumbnail the
+   resting gold border is brighter than it, so focus would read as noise beside an unfocused edge.
+   9px to match the card's own corner, so the ring traces the shape it is around. */
+button.wf-hc:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+  border-radius: 9px;
+}
+/* The open row's thumbnail. `.on` rather than `[data-open]` alone so the selector reads as the
+   design's does; the attribute is carried too, and is what the tests assert against. */
+.wf-hc.on {
+  border-color: rgba(201, 162, 75, 0.62);
+  background: rgba(201, 162, 75, 0.09);
+}
+/* An away window is a read-out, not a control: no hover, no pointer, and the whole cell sits back
+   so the eye runs past it to the days that were forecast.
+
+   ⚠️ 0.78, not the design's 0.62, and the difference is AA. `opacity` composites the WHOLE cell, so
+   it multiplies ink that is already an alpha: secondary × 0.62 measures 3.43:1 against the 4.5:1
+   floor (and the muted this rule originally sat over gave 2.14:1). × 0.78 measures 4.68:1. The two
+   strings inside are the only thing an away thumbnail has to say — its state and its sun time,
+   which `windowFirstStrip.js` keeps precisely because they are almanac — so they are the last
+   text in the strip that may be dimmed below legibility. The mock has no away thumbnail; its
+   `.ev.weak{opacity:.62}` is a different element. */
+.wf-hc-away {
+  opacity: 0.78;
+}
+.wf-hc-top {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+/* 6.88:1 on the panel. At 9px muted measures 3.55:1 — see `.wf-hstrip-k` above. */
+.wf-hc-dow {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+}
+.wf-hc.on .wf-hc-dow {
+  color: var(--color-close-to-home);
+}
+.wf-hc-ar {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--color-plex-text-secondary);
+  margin-left: auto;
+}
+/* The canvas well. Unpadded and full width, which is not cosmetic: the strip measures THIS box to
+   size all six canvases, so anything but a bare content box would put a constant in
+   `WindowFirstHeatStrip.jsx` that silently rots the next time this padding changes. */
+.wf-hc-cv {
+  display: block;
+}
+.wf-hc-cv canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 5px;
+  /* The kernel's own sea colour, so a canvas that has not painted yet is the same ground as one
+     that has — a lighter placeholder would flash on every first paint. */
+  background: var(--color-heat-sea);
+}
+.wf-hc-bot {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.wf-hc-t {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--color-plex-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.wf-hc.on .wf-hc-t {
   color: var(--color-plex-text);
 }
-/* Bone at 2px, not --color-plex-border-light at 1px. This file already made this exact fix once,
-   160 lines up: border-light "measures ~1.6:1 and fails WCAG 2.2 SC 1.4.11's 3:1 for a non-text
-   indicator... replacing the UA ring with something invisible is worse than not styling it at
-   all." Measured here: 1.71:1 against the page the ring is drawn on, and on today's tile the
-   RESTING gold border is brighter than it, so focus read as noise beside an unfocused edge. Bone
-   is the palette's stated interactive accent and clears ~13.9:1. Not --color-close-to-home, which
-   passes but is the same hue as today's border — a gold ring 2px outside a gold border reads
-   worst on the one tile that most needs it. */
-.rail-day-show-on-map:focus-visible {
-  outline: 2px solid var(--color-plex-gold);
-  outline-offset: 2px;
-  border-radius: 3px;
-}
+/* The verdict word takes the verdict channel, keyed on the attribute so the vocabulary and the
+   colour come from one place — the payload. AWAITING and the away state take chrome ink rather
+   than a verdict hue: neither is a judgement about the sky.
 
-@media (prefers-reduced-motion: reduce) {
-  .rail-day-show-on-map { transition: none; }
+   ⚠️ The LIFTED --color-badge-* variants, never the --color-verdict-* fills, and the token block
+   above says why in general ("A badge is ~10px type … the full-strength channel colour does not
+   carry — these are the lifted versions that do"). Here it is not a preference: at 9px on the panel
+   the fills measure go 7.06:1, marginal 8.12:1 and standdown **3.66:1** — so "Poor", the one word a
+   reader most needs to read at a glance, would be the only verdict below AA. The lifted trio
+   measures 9.50 / 10.74 / 7.05 on the panel and 8.21 / 9.29 / 6.09 on the open thumbnail's gold
+   wash. The FILLS still name the channel everywhere a fill is drawn; this is 9px type. */
+.wf-hc-vd {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  margin-left: auto;
+  white-space: nowrap;
+  color: var(--color-plex-text-secondary);
 }
+.wf-hc-vd[data-verdict="WORTH_IT"] { color: var(--color-badge-go); }
+.wf-hc-vd[data-verdict="MAYBE"] { color: var(--color-badge-maybe); }
+.wf-hc-vd[data-verdict="STAND_DOWN"] { color: var(--color-badge-poor); }
+/* Below the top row, deliberately: the movement chip P6 adds lands in that row, and a flag
+   overlapping it would cover the one element on the thumbnail that changes between runs.
 
-/* The rail's pick chip, which became a control when the plan's "pick chips open the pick's prose"
-   was finally discharged. Its own class rather than `.window-card-pick`, which the card's badge
-   uses: that rule forces `border-radius: 999px` on its focus ring for a pill, and this chip is a
-   two-line 5px rectangle whose box is what `DATE_ROW_MIN_HEIGHT_PX` is computed from — a pill ring
-   around it would sit visibly wrong and imply the two are the same shape of thing.
-
-   `cursor: pointer` because Tailwind v4's Preflight no longer restores it on `button`, the gap this
-   file has now closed in four places. Brightness rather than a colour change on hover: the chip's
-   colour IS its channel (go/also), and swapping it would say the pick had changed kind. No lift —
-   the chip sits in a horizontal scroller where a transform fights the scroll. */
-.rail-pick-flag {
-  cursor: pointer;
-  transition: filter 0.14s ease;
+   ⚠️ The clearance is a CONSTANT, not a layout — the flag is `position: absolute`, so `top` is
+   measured rather than derived. 22px = the card's 6px top padding + the top row's line box (9px
+   mono × ~1.5) ≈ 19.5px, rounded up. P6's chip is padded type in that same row and will make it
+   taller, so P6 must either re-measure this pair or make the flag a second flex row. Recorded here
+   because a silent overlap is exactly what the "below the top row" rule exists to prevent. */
+.wf-hc-flag {
+  position: absolute;
+  top: 22px;
+  right: 6px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: rgba(138, 174, 114, 0.94);
+  /* Near-black on the go green — see the token's own note. */
+  color: var(--color-heat-flag-ink);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
 }
-.rail-pick-flag:hover {
-  filter: brightness(1.14);
+.wf-hstrip-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 7px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
+  flex-wrap: wrap;
 }
-/* Bone at 2px, matching `.rail-day-show-on-map` above and for the reason recorded there: the
-   border-light ring measures 1.71:1 and fails SC 1.4.11's 3:1, worst on the flagged tile whose
-   resting gold border is brighter than the ring. 5px to match the chip's own corner rather than
-   the 3px its sibling uses, so the ring traces the shape it is around. */
-.rail-pick-flag:focus-visible {
-  outline: 2px solid var(--color-plex-gold);
-  outline-offset: 2px;
-  border-radius: 5px;
+.wf-hstrip-legbar {
+  width: 60px;
+  height: 6px;
+  border-radius: 999px;
+  flex: none;
 }
-
-/* Only the transition, never the hover RESULT. `filter: brightness()` is a paint change, not
-   motion, and cancelling it left this chip the one control in the file whose affordance vanished
-   for a reduced-motion pointer user — while its twin, the card's pick badge, kept its brightness.
-   Measured on the running app: with `reduce` on, `.window-card-pick` hovers to brightness(1.14) and
-   this hovered to `none`. Two triggers of one control must not differ. Every other reduced-motion
-   block in this file touches only transition/transform/animation; this now matches them. */
-@media (prefers-reduced-motion: reduce) {
-  .rail-pick-flag { transition: none; }
+.wf-hstrip-sp {
+  margin-left: auto;
+}
+/* Named regions only. ⚠️ NOT the design's 34% bone (`.chgline.beyond`, `Plan Tab with Heat.html`):
+   that measures 2.75:1 at 10px and this is prose — region names, and until P7 the only thing the
+   strip says about coverage outside the glance. The mock is not a contrast authority, which is why
+   this file records ratios. Secondary is 6.88:1 on the panel and 7.06:1 on the frame; the line
+   still sits back from the thumbnails through size and position rather than through ink. */
+.wf-hstrip-beyond {
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--color-plex-text-secondary);
+}
+/* The Order control's note, drawn once above the away rows it explains. */
+.wf-order-note {
+  font-size: 10px;
+  line-height: 1.5;
+}
+@media (max-width: 639px) {
+  .wf-hstrip { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .wf-hc-flag { font-size: 7px; padding: 1px 3px; top: 20px; right: 4px; }
+  /* The third footer clause goes: two of them decode the picture and the third qualifies it, and a
+     phone bar has room for the two that are load-bearing. */
+  .wf-hstrip-sp { display: none; }
 }
 
 /* Briefing summary strip — actionable pills lift on hover */
@@ -1226,76 +1385,6 @@
 .summary-region-chip[data-pick]:hover { filter: brightness(1.14); }
 .summary-region-chip .rn-mark { margin-right: 2px; opacity: 0.9; }
 
-/* ── v2 rail only: the tile's verdict owns every chip's colour ──────────────────────────────────
-   Opt-in by class. `WindowFirstDayRail` adds `rail-region-chip`; `BriefingSummaryStrip` does not,
-   so the frozen v1 arm keeps the pick hues above at rest and this file reaches it nowhere. That
-   gating is the point rather than a formality — the two arms are a live side-by-side comparison,
-   and a shared-selector edit moves the control (see the phone-heatmap regression, where the
-   headline edit provably could not reach v1 and a one-token change in the same commit did).
-
-   Why v2 diverges: the rail is a SCANNING surface. Six tiles sit in a row and the eye runs across
-   them, so a hue inside a tile is read as that tile's verdict, not as a chip's own identity. The
-   pick rules above are keyed to `data-pick` ALONE, so a Best-bet chip painted `--color-verdict-go`
-   at rest landed on a `maybe` tile 4px under an amber verdict line reading "Maybe · sunset" — one
-   tile stating two verdicts, in the one channel `index.css:41` calls "the only colour in the UI
-   that carries meaning". The v1 pill escapes this because it is a standing card read one at a
-   time, not a row scanned at a glance.
-
-   So the verdict takes the SCAN channel — the 10.5px text colour, which is what the eye reads
-   running across six tiles — and the pick keeps the DETAIL channel, the 1px dotted underline at 60%
-   alpha that you only register once you are looking at one chip. Hence `color` here and no
-   `border-bottom-color`: the underline still resolves through `[data-pick="best"]`/`["also"]`
-   above, and a plain chip still takes the base muted hairline at `.summary-region-chip`.
-
-   ⚠️ That split is load-bearing and was an adversarial-review finding, not the first cut. These
-   rules originally set `border-bottom-color` too, which displaced BOTH pick declarations — and
-   since the ◎ mark is one unbranched glyph (`WindowFirstDayRail.jsx`, `rn-mark`) and
-   `font-weight: 600` is identical in both rules above, colour was the ONLY channel separating a
-   Best bet from an Also good. Taking it left the two kinds pixel-identical wherever both landed on
-   one tile, which `buildRailTiles` produces routinely: it stamps `pickKind` on every peak-tier
-   chip on every tile, while the tile's own pick flag shows only ONE pick per day and names an
-   event rather than a region. So "the ◎ and the weight still carry the pick" is true of
-   pick-vs-plain and was false of best-vs-also. Do not fold the underline back in.
-
-   ⚠️ The best-vs-also half of that gap (colour as the ONLY differentiator) was a live WCAG 1.4.1
-   violation, not just a risk the comment above was hedging against, and stood unfixed from #537
-   until a later pass branched `rn-mark` itself: `WindowFirstDayRail.jsx` now renders ◎ for `best`
-   and ● for `also`, a shape difference that reads without colour. This underline split remains —
-   it is a legitimate secondary, redundant cue, and removing it would still lose the accent-colour
-   match to the Best bet / Also good cards — but it is no longer load-bearing for compliance the
-   way the paragraph above describes. Scoped to v2 only, same as everything else in this block: v1's
-   `BriefingSummaryStrip` renders the unbranched ◎ untouched, per the frozen-control rule this file
-   already follows for `rail-region-chip`. See `regionChipVerdictColour.test.jsx` for both halves.
-
-   All four `peak` values are named, deliberately and exhaustively (the PropTypes enum is
-   go/maybe/poor/away), because a fall-through would leave exactly the pick hues these rules exist
-   to displace. ⚠️ `poor` and `away` are a GUARD, not a live case: `windowFirstRail.js` defines
-   `peak` as `entries.length === 0 ? 'poor' : …` and derives `regions` from those same entries, and
-   the away branch hard-codes `regions: []`, so neither tile renders a chip at all today and no
-   chip can currently carry either value. They are here so that a future builder which starts
-   emitting chips on such a tile fails safe rather than silently reverting to a pick hue. (An
-   earlier version of this comment claimed a Best pick "can land on a poor day" as a live case.
-   It cannot — a poor day has no chips to land on.)
-
-   Specificity is doing real work here: these are (0,3,0) against the pick rules' (0,2,0), so they
-   win on the cascade rather than on source order. Written as two classes for that reason; do not
-   "simplify" `.summary-region-chip.rail-region-chip` down to `.rail-region-chip`, which ties
-   (0,2,0) and then depends on staying below the pick block in this file. */
-.summary-region-chip.rail-region-chip[data-peak="go"] {
-  color: var(--color-verdict-go);
-}
-.summary-region-chip.rail-region-chip[data-peak="maybe"] {
-  color: var(--color-verdict-marginal);
-}
-.summary-region-chip.rail-region-chip[data-peak="poor"],
-.summary-region-chip.rail-region-chip[data-peak="away"] {
-  color: inherit;
-}
-/* Every v2 chip brightens on hover, not just a picked one. The rules above make the resting colour
-   the verdict colour, which is exactly what `[data-peak=…]:not([data-pick]):hover` was changing a
-   plain chip TO — so without this line a plain v2 chip hovers to the colour it already is and the
-   only interactive affordance on a control the user is invited to click disappears. */
-.summary-region-chip.rail-region-chip:hover { filter: brightness(1.14); }
 
 /* Portalled to <body> and positioned via JS (position: fixed), so no clipping/transform ancestor
    can eat its edge. Generous right padding keeps the widest gloss line off the border. */
@@ -1676,7 +1765,23 @@
 /* ── Window-first window card ──
    The card itself is a read-out; the two controls it can carry (the pick badge, and from P9 the
    expander) are real buttons and own their own states. Focus rings are bone at 2px for the reason
-   written above .rail-day-show-on-map: the border-light ring measures 1.71:1 and fails SC 1.4.11. */
+   this file records in four places: the border-light ring measures 1.71:1 and fails SC 1.4.11. */
+
+/* The Order control's ordinal, drawn only under `Best`. Bordered rather than filled: it is a
+   position in a list the reader asked to rank, not a quality — and every filled chip on this
+   header already means something about the sky. Secondary ink at 10px (6.88:1); muted is 3.55:1
+   and fails AA, which is the correction this file keeps making. */
+.wf-wh-ord {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-plex-text-secondary);
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 5px;
+  padding: 1px 5px;
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
 
 /* The header row (mock `.wh` :156, phone `:265-269`). One wrapping flex line at desktop; on a phone
    it becomes three stacked rows, which is what README:225 asks for in words — "rule hidden; meta and
@@ -2069,6 +2174,15 @@
 .wf-seg-rating .wf-seg-btn.on {
   background: rgba(138, 174, 114, 0.16);
   color: var(--color-badge-go);
+}
+/* The ordering axis takes the TIDE channel's blue-green, on the per-axis rule the block above
+   settles. It is the one control on the bar that is not a filter — reach and rated remove spots,
+   Order removes nothing — so it must not read as a third gate in the same amber-and-green pair.
+   `--color-badge-tide` (#9CCBD1) is the design's own value for this segment and is already the
+   arm's lifted tide ink, so it costs no new token. */
+.wf-seg-order .wf-seg-btn.on {
+  background: rgba(111, 168, 176, 0.18);
+  color: var(--color-badge-tide);
 }
 .wf-seg-btn:focus-visible {
   outline: 2px solid var(--color-plex-gold);
@@ -2786,7 +2900,7 @@
   border-color: var(--color-plex-border-light);
 }
 .wf-spot:hover .wf-spot-open { color: var(--color-tide); }
-/* Bone at 2px, for the reason written above `.rail-day-show-on-map`: `--color-plex-border-light`
+/* Bone at 2px, for the reason this file records in four places: `--color-plex-border-light`
    measures ~1.7:1 and fails SC 1.4.11's 3:1 for a non-text indicator.
 
    `position: relative; z-index: 3` is NOT decoration — it is what keeps the ring visible. The two

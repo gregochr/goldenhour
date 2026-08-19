@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, within, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import React from 'react';
 import usePlanLayout, { PLAN_LAYOUT_KEY, PLAN_V1, PLAN_V2 } from '../hooks/usePlanLayout.js';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
@@ -151,22 +151,15 @@ describe('WindowFirstShell', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
   });
 
-  it('greys the day rail with the pane, because the rail is forecast data too', () => {
-    // The rail sits outside the pane (it is the whole screen's date context, not one pane's
-    // content), so it needs the treatment applied to it explicitly. A DOWN backend leaving a
-    // live-looking rail beside a greyed pane says the days are current when they may not be.
+  it('never greys the tab bar, which is navigation rather than forecast data', () => {
+    // The day rail used to need this treatment applied to it EXPLICITLY, because it sat outside the
+    // pane. Its replacement — the heat strip — is inside the pane and inherits it (plan D1, §1.1),
+    // so what is left to pin here is the boundary: the treatment stops at the chrome.
     renderShell({ contentDisabled: true });
 
-    expect(screen.getByTestId('window-first-rail-region').className).toContain('pointer-events-none');
     expect(screen.getByTestId('window-first-tabs').className).not.toContain('pointer-events-none');
-  });
-
-  it('says so plainly when there are no days to show', () => {
-    // The provider's default value is an empty rail, which is also what a 204 and a failed first
-    // fetch produce. Rendering nothing at all leaves a gap above the tabs that reads as a broken
-    // layout rather than as an absent forecast.
-    renderShell();
-    expect(screen.getByTestId('window-first-rail-empty')).toBeInTheDocument();
+    expect(screen.getByTestId('window-first-railfoot').className)
+      .not.toContain('pointer-events-none');
   });
 
   it('shows no forecast age until there is a forecast to age', () => {
@@ -217,7 +210,14 @@ const RATING_LENS = {
   selectFloor: () => {},
 };
 
-describe('WindowFirstShell — the rail it hosts', () => {
+/** The bar's third axis. Not a filter — it re-ranks the pane and gates nothing. */
+const ORDER_LENS = {
+  order: { id: 'when', label: 'When' },
+  orderId: 'when',
+  selectOrder: () => {},
+};
+
+describe('WindowFirstShell — the strip it hosts', () => {
   const CARD = {
     key: '2026-08-04:SUNSET',
     date: '2026-08-04',
@@ -261,35 +261,35 @@ describe('WindowFirstShell — the rail it hosts', () => {
     // that care about away rows pass their own.
     paneItems: paneItems || windowCards.map((card) => ({ kind: 'card', key: card.key, card })),
     // The doors read these. `upcomingEvents` empty keeps the regional door out of the tests that
-    // are about the rail and the pane; the two files that are about the doors supply their own.
+    // are about the strip and the pane; the two files that are about the doors supply their own.
     upcomingEvents: [],
     travelDayDates: new Set(),
     reachById: new Map(),
     isPro: true,
     isLiteUser: false,
     evaluationScores,
-    railTiles: [{
+    // The heat strip's thumbnails, as the provider hands them over. They replaced the day rail's
+    // tiles at P2 (plan D1) — see `WindowFirstHeatStrip.test.jsx` for the strip's own behaviour;
+    // these files are about the shell's wiring.
+    heatStripCards: [{
+      key: '2026-08-04:SUNSET',
       date: '2026-08-04',
-      isToday: true,
       targetType: 'SUNSET',
       dow: 'Tue',
-      dayNum: '4',
-      dayLabel: 'Today',
-      sunriseTime: '05:15',
-      sunsetTime: '21:11',
-      peak: 'go',
-      peakLabel: 'Worth it · sunset',
-      countLabel: null,
-      pick: null,
-      regions: [{
-        regionName: 'Northumberland & Tyneside', shortName: 'N&T', targetType: 'SUNSET',
-        verdictLabel: 'Worth it sunset', wx: '', summary: 's', glossHeadline: '', glossDetail: '',
-        pickKind: null,
-      }],
-      ratedCount: 1,
-      isAway: false,
+      sunrise: false,
+      label: 'Tonight Sunset',
+      time: '21:11',
+      verdict: 'WORTH_IT',
+      verdictLabel: 'Worth it',
+      bestBet: false,
+      away: false,
       confidence: 'high',
     }],
+    // The strip needs a catalogue to draw, and withdraws entirely without one. Every test in this
+    // file that is not about the strip therefore renders without it, which is what these two empties
+    // mean — the same state a session with no roster or a failed scores fetch produces.
+    heatSpots: [],
+    heatPointSets: new Map(),
     todayStr: '2026-08-04',
     tomorrowStr: '2026-08-05',
     // The lens as the provider hands it over. A frozen value rather than the live hook: these
@@ -297,7 +297,27 @@ describe('WindowFirstShell — the rail it hosts', () => {
     // dimmed by — and the hook's own behaviour has its own file.
     reachLens: LENS,
     ratingLens: RATING_LENS,
+    orderLens: ORDER_LENS,
     homePlace: undefined,
+  });
+
+  /**
+   * The same fixture WITH a heat catalogue, so the strip renders.
+   *
+   * <p>Separate rather than the default because the strip withdraws entirely with no spots — which
+   * is the honest degrade and is what every test here that is not about the strip wants. Two
+   * regions and one point set is the smallest thing that exercises the framing and the beyond line
+   * without turning every other test into a canvas test.
+   */
+  const briefingWithSpots = (generatedAt, extra = {}) => ({
+    ...briefingWith(generatedAt),
+    heatSpots: [
+      { id: 1, name: 'Bamburgh Beach', lat: 55.61, lng: -1.71, regionName: 'Northumberland & Tyneside', rid: 'Northumberland & Tyneside', skySubject: true, bortleClass: 3, scores: [4] },
+    ],
+    heatPointSets: new Map([
+      ['2026-08-04:SUNSET', [{ id: 1, name: 'Bamburgh Beach', lat: 55.61, lng: -1.71, rid: 'Northumberland & Tyneside', r: [4] }]],
+    ]),
+    ...extra,
   });
 
   const renderWithBriefing = (ctx, props = {}) => {
@@ -311,32 +331,43 @@ describe('WindowFirstShell — the rail it hosts', () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  it('places the rail above the tab bar, where every tab can still see it', () => {
-    // The rail is the screen's date context, not the Plan pane's content: Coming up and Map ask
-    // about the same days. Inside the pane it would vanish on a tab that still needs it.
-    renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
+  it('puts the heat strip INSIDE the Plan pane, below the tab bar — the recorded reversal', async () => {
+    // Until P2 a day rail sat ABOVE the tab bar and this file pinned it there, on the reasoning
+    // that the rail was the whole screen's date context rather than one pane's. Decision D1
+    // (owner-confirmed 2026-08-18, plan §1.1) reverses that: the strip is a Plan-pane element,
+    // rendered under the lens bar whose label explains it, and the other tabs have since grown
+    // their own date context — the Map pane its `DateStrip`, every Coming-up row its dates.
+    //
+    // ⚠️ If this assertion is ever inverted back, §1.1's rejected alternative 2 is the argument to
+    // read first: moving the strip above the tab bar detaches it from the lens and forces
+    // Plan-row-opening click semantics onto tabs with no window rows.
+    renderWithBriefing(briefingWithSpots('2026-08-04T12:00:00'));
 
-    const rail = screen.getByTestId('window-first-day-rail');
+    // Awaited because the strip sits behind a `lazy()` boundary — see `WindowFirstShell`'s note on
+    // why (a static import would put `d3-geo` in the entry chunk for every v1 reader).
+    const strip = await screen.findByTestId('wf-heat-strip');
+    const pane = screen.getByTestId('window-first-pane');
     const tabs = screen.getByTestId('window-first-tabs');
-    expect(rail.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(pane).toContainElement(strip);
+    expect(tabs.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('hands a day to the map with that day and its best event', () => {
-    const { onShowOnMap } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
-    fireEvent.click(screen.getByTestId('rail-day-show-on-map'));
-    expect(onShowOnMap).toHaveBeenCalledWith('2026-08-04', 'SUNSET');
-  });
-
-  it('hands a region chip to the map as a region, not as a day', () => {
-    // `onShowOnMap` reads a positional (date, eventType) OR a {region, …} object, and the two open
-    // different things. Passing the tile's handler for both would silently drop the region the
-    // user pointed at and open the whole day instead.
-    const { onShowOnMap } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
-    fireEvent.click(screen.getByTestId('rail-region-chip'));
-
-    expect(onShowOnMap).toHaveBeenCalledWith({
-      region: 'Northumberland & Tyneside', date: '2026-08-04', eventType: 'SUNSET',
+  it('draws the strip above the promoted strip, which is a different thing that also stays', async () => {
+    // Plan §4.3 names both and says so explicitly, because "the strip" is ambiguous between them.
+    // The heat strip is the index into the window list; the promoted strip names one coincidence.
+    renderWithBriefing({
+      ...briefingWithSpots('2026-08-04T12:00:00'),
+      promotedStrip: {
+        channel: 'tide',
+        adjacent: true,
+        reason: 'rarity',
+        topics: [{ key: 'KING_TIDE', label: 'King tide', figureValue: null, detail: null }],
+      },
     });
+
+    const heat = await screen.findByTestId('wf-heat-strip');
+    const promo = screen.getByTestId('window-first-promo');
+    expect(heat.compareDocumentPosition(promo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('states the forecast\'s age, and never the model that produced it', () => {
@@ -361,18 +392,16 @@ describe('WindowFirstShell — the rail it hosts', () => {
     vi.useRealTimers();
   });
 
-  it('drops the empty-state line once there are days', () => {
-    renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
-    expect(screen.queryByTestId('window-first-rail-empty')).toBeNull();
-  });
-
   it('says nothing about days while the first fetch is still in flight', () => {
-    // "No forecast days to show yet" during a cold load is a claim about the forecast made before
-    // anyone has asked it. Silence until the answer arrives.
+    // "No windows to show" during a cold load is a claim about the forecast made before anyone has
+    // asked it. Silence until the answer arrives — and the strip is absent too, rather than six
+    // empty coastlines under a header claiming to summarise them.
     renderWithBriefing({
       briefing: null,
       loading: true,
-      railTiles: [],
+      heatStripCards: [],
+      heatSpots: [],
+      heatPointSets: new Map(),
       windowCards: [],
       paneItems: [],
       upcomingEvents: [],
@@ -383,8 +412,9 @@ describe('WindowFirstShell — the rail it hosts', () => {
       evaluationScores: new Map(),
       todayStr: '2026-08-04',
       tomorrowStr: '2026-08-05',
+      orderLens: ORDER_LENS,
     });
-    expect(screen.queryByTestId('window-first-rail-empty')).toBeNull();
+    expect(screen.queryByTestId('wf-heat-strip')).toBeNull();
     expect(screen.queryByTestId('window-first-pane-empty')).toBeNull();
   });
 
@@ -587,92 +617,285 @@ describe('WindowFirstShell — the rail it hosts', () => {
     expect(onEvaluationScoresChange).toHaveBeenCalledWith(scores);
   });
 
-  // ── The rail's pick chip and the card's pick badge are one control with two triggers ──
-  //
-  // They carry the same words in the same accent, so a reader who taps one and then the other must
-  // not be shown two different things. This is the assertion that proves it, and it is the reason
-  // the chip opens the EXISTING dialog rather than a second surface of its own.
-  describe('the rail pick chip', () => {
-    // TWO sunset cards on different dates, and that is the whole point of the fixture rather than
-    // incidental setup. With one card the shell's lookup passes on `targetType` alone, so the `date`
-    // half is pinned by nothing — verified by mutation: deleting `c.date === date` left all 3028
-    // tests green. Two same-event cards is also the real shape, not a contrivance: the picks are
-    // forecast-wide rank-1 and rank-2, so a BEST sunset on one day and an ALSO sunset on another
-    // puts exactly this in the list. The chip points at the LATER card, so a date-blind lookup
-    // returns the earlier one and the prose assertion catches it.
-    const OTHER_CARD = {
-      ...CARD,
-      key: '2026-08-06:SUNSET',
-      date: '2026-08-06',
-      lead: false,
-      kicker: null,
-      pick: {
-        kind: 'also',
-        regionName: 'Yorkshire Dales',
-        headline: 'A different sky entirely',
-        detail: 'High cloud thins from the south.',
-        locationName: 'Malham Cove',
-        locationId: 2,
-      },
-    };
-
-    const withRailPick = () => {
-      const base = briefingWith('2026-08-04T12:00:00', new Map(), [CARD, OTHER_CARD]);
-      return {
-        ...base,
-        railTiles: [{
-          ...base.railTiles[0],
-          // The tile is the 6th, not the 4th: same targetType as the other card, different date.
-          date: '2026-08-06',
-          dayLabel: 'Thursday',
-          isToday: false,
-          pick: { kind: 'also', event: 'sunset', targetType: 'SUNSET' },
-        }],
-      };
-    };
-
-    it('opens the same prose the window card opens, word for word', () => {
-      renderWithBriefing(withRailPick());
-      fireEvent.click(screen.getByTestId('rail-pick-flag'));
-      const fromRail = screen.getByTestId('window-pick-dialog').textContent;
-      // The LATER card's prose specifically. A lookup that ignored the date would return the first
-      // sunset card and this would read "Breaking clear" instead — which is the mutation that
-      // walked through the whole suite before this fixture carried two cards.
-      expect(fromRail).toContain('A different sky entirely');
-      expect(fromRail).toContain('High cloud thins from the south.');
-      expect(fromRail).not.toContain('Breaking clear');
-      // `renderWithBriefing` returns the harness's handlers, not RTL's result, so the second
-      // render needs an explicit teardown or both dialogs would be in the document at once.
-      cleanup();
-
-      renderWithBriefing(withRailPick());
-      // The badge on the card the chip pointed at — the second one, since both cards carry a pick.
-      fireEvent.click(screen.getAllByTestId('window-card-pick')[1]);
-      expect(screen.getByTestId('window-pick-dialog').textContent).toBe(fromRail);
-    });
-
-    // The shell half of the same guard: the rail only knows to suppress if it is TOLD. Dropping
-    // `peeksSuppressed={modalOpen}` passed every other test in the suite.
-    it('silences the rail gloss while the pick dialog it opened is up', () => {
-      renderWithBriefing(withRailPick());
-      fireEvent.click(screen.getByTestId('rail-pick-flag'));
-      expect(screen.getByTestId('window-pick-dialog')).toBeInTheDocument();
-
-      fireEvent.mouseEnter(screen.getByTestId('rail-region-chip'));
-      expect(screen.queryByTestId('popover-host')).toBeNull();
-    });
-
-    it('opens nothing when no window matches, rather than an empty dialog', () => {
-      // The guard, exercised through a rail tile flagged for an event no card carries. The lookup
-      // is total by construction today; this pins that a future divergence degrades to inert rather
-      // than to a dialog about nothing.
-      const base = briefingWith('2026-08-04T12:00:00');
+  // ── The shell's own wiring into the strip ──
+  describe('what the shell hands the strip', () => {
+    it('opens and reveals the window a thumbnail names', async () => {
+      // The thumbnail's only job beyond the picture. Deleting `onOpenWindow={revealWindow}` leaves
+      // six inert buttons, and every other test in this file passes — which is exactly what the
+      // retired rail's own "hands a day to the map" test used to catch one level up.
       renderWithBriefing({
-        ...base,
-        railTiles: [{ ...base.railTiles[0], pick: { kind: 'best', event: 'sunrise', targetType: 'SUNRISE' } }],
+        ...briefingWithSpots('2026-08-04T12:00:00'),
+        // Collapsed to start with, so the click has something to change.
+        windowCards: [{ ...CARD, key: '2026-08-04:SUNSET' }, {
+          ...CARD, key: '2026-08-05:SUNRISE', date: '2026-08-05', lead: false, kicker: null, when: 'Tomorrow sunrise',
+        }],
+        paneItems: [
+          { kind: 'card', key: '2026-08-04:SUNSET', card: { ...CARD, key: '2026-08-04:SUNSET' } },
+          {
+            kind: 'card',
+            key: '2026-08-05:SUNRISE',
+            card: {
+              ...CARD, key: '2026-08-05:SUNRISE', date: '2026-08-05', lead: false, kicker: null, when: 'Tomorrow sunrise',
+            },
+          },
+        ],
+        heatStripCards: [
+          {
+            key: '2026-08-04:SUNSET', date: '2026-08-04', targetType: 'SUNSET', dow: 'Tue', sunrise: false, label: 'Tonight Sunset', time: '21:11', verdict: 'WORTH_IT', verdictLabel: 'Worth it', bestBet: false, away: false, confidence: 'high',
+          },
+          {
+            key: '2026-08-05:SUNRISE', date: '2026-08-05', targetType: 'SUNRISE', dow: 'Wed', sunrise: true, label: 'Tomorrow sunrise', time: '05:20', verdict: 'WORTH_IT', verdictLabel: 'Worth it', bestBet: false, away: false, confidence: 'high',
+          },
+        ],
+      });
+      await screen.findByTestId('wf-heat-strip');
+
+      // The SECOND card is closed by default (lead-open, rest-collapsed), so its body is hidden.
+      const second = screen.getAllByTestId('window-card')[1];
+      expect(second).toHaveAttribute('data-open', 'false');
+
+      // Scoped to the strip: the card's own expander is also named for this window, which is the
+      // point — two triggers for one disclosure, and this test is about the strip's.
+      const strip = screen.getByTestId('wf-heat-strip');
+      fireEvent.click(within(strip).getByRole('button', { name: /Tomorrow sunrise/ }));
+
+      expect(screen.getAllByTestId('window-card')[1]).toHaveAttribute('data-open', 'true');
+      // And the thumbnail now says so in the accessibility tree, not only in the stylesheet.
+      expect(within(strip).getAllByTestId('wf-heat-card')[1])
+        .toHaveAttribute('aria-expanded', 'true');
+    });
+
+    it('marks the LEAD card thumbnail as open on first paint, before anything is toggled', async () => {
+      // `openWindowKeys` is derived from the same lead-open predicate the cards are drawn with, not
+      // from `cardOverrides` — which holds only what the reader has CHANGED. Keyed on the overrides
+      // alone, the one card that is always open would be the one thumbnail never marked.
+      renderWithBriefing(briefingWithSpots('2026-08-04T12:00:00'));
+      await screen.findByTestId('wf-heat-strip');
+
+      expect(screen.getByTestId('wf-heat-card')).toHaveAttribute('data-open', 'true');
+      expect(screen.getByTestId('window-card')).toHaveAttribute('data-open', 'true');
+    });
+  });
+
+  // ── The Order control: it ranks the ROWS and never the strip ──
+  describe('Order · Best', () => {
+    const CARDS = [
+      { ...CARD, key: '2026-08-04:SUNSET', date: '2026-08-04', topMeanRating: 2.1 },
+      {
+        ...CARD,
+        key: '2026-08-05:SUNRISE',
+        date: '2026-08-05',
+        targetType: 'SUNRISE',
+        lead: false,
+        kicker: null,
+        when: 'Tomorrow sunrise',
+        topMeanRating: 4.4,
+      },
+    ];
+
+    const STRIP = CARDS.map((c) => ({
+      key: c.key,
+      date: c.date,
+      targetType: c.targetType,
+      dow: 'Tue',
+      sunrise: c.targetType === 'SUNRISE',
+      label: c.when,
+      time: c.time,
+      verdict: 'WORTH_IT',
+      verdictLabel: 'Worth it',
+      bestBet: false,
+      away: false,
+      confidence: 'high',
+    }));
+
+    const ranked = (extra = {}) => ({
+      ...briefingWithSpots('2026-08-04T12:00:00'),
+      windowCards: CARDS,
+      paneItems: CARDS.map((card) => ({ kind: 'card', key: card.key, card })),
+      heatStripCards: STRIP,
+      orderLens: { order: { id: 'best', label: 'Best' }, orderId: 'best', selectOrder: vi.fn() },
+      ...extra,
+    });
+
+    it('re-orders the window cards by the best region mean', () => {
+      renderWithBriefing(ranked());
+      expect(screen.getAllByTestId('window-card-when').map((n) => n.textContent))
+        .toEqual(['Tomorrow sunrise', 'Sunset']);
+    });
+
+    it('numbers them, so the broken date order reads as a ranking rather than a bug', () => {
+      renderWithBriefing(ranked());
+      expect(screen.getAllByTestId('window-card-rank').map((n) => n.textContent))
+        .toEqual(['1', '2']);
+    });
+
+    it('leaves the STRIP chronological, whatever the rows are doing', async () => {
+      // ⚠️ The design's own headline note about this control, and the invariant the plan asks for by
+      // name (§7.2): "reordering the strip would destroy its time axis, which is the only reason the
+      // shape of the week is legible at a glance". Asserted on the SAME render as the ranking above,
+      // so a change that sorted one list would have to leave the other alone to pass.
+      renderWithBriefing(ranked());
+
+      await screen.findByTestId('wf-heat-strip');
+      const thumbs = screen.getAllByTestId('wf-heat-card').map((c) => c.textContent);
+      expect(thumbs[0]).toContain('Sunset');
+      expect(thumbs[1]).toContain('Tomorrow sunrise');
+      expect(screen.getAllByTestId('window-card-when')[0]).toHaveTextContent('Tomorrow sunrise');
+    });
+
+    it('numbers nothing in date order', () => {
+      renderWithBriefing(briefingWithSpots('2026-08-04T12:00:00'));
+      expect(screen.queryByTestId('window-card-rank')).toBeNull();
+    });
+
+    it('re-answers the promoted strip\'s adjacency against the order actually rendered', () => {
+      // ⚠️ `buildPromotedStrip` computes `adjacent` from the DATE order and the strip withholds its
+      // "Go to" control when it is true, because that control would scroll to the element directly
+      // beneath it — §6 bans a control with no visible effect. Under `Best` the pane no longer
+      // renders date order, so the flag inverts in both directions. Here the promoted window is
+      // chronologically first (`adjacent: true`) and ranks SECOND, so the reader would be left with
+      // a full-width strip naming a card further down the pane and no route to it.
+      renderWithBriefing(ranked({
+        promotedStrip: {
+          channel: 'tide',
+          adjacent: true,
+          reason: 'rarity',
+          windowKey: '2026-08-04:SUNSET',
+          topics: [{ key: 'KING_TIDE', label: 'King tide', figureValue: null, detail: null }],
+        },
+      }));
+
+      expect(screen.getByTestId('window-first-promo-go')).toBeInTheDocument();
+    });
+
+    it('withholds it again when the ranking puts the promoted window first', () => {
+      // The mirror case, and the half that keeps the original rule: a "Go to" that scrolls one
+      // element down is the thing the gate exists to forbid, whichever order produced the adjacency.
+      renderWithBriefing(ranked({
+        promotedStrip: {
+          channel: 'tide',
+          adjacent: false,
+          reason: 'rarity',
+          windowKey: '2026-08-05:SUNRISE',
+          topics: [{ key: 'KING_TIDE', label: 'King tide', figureValue: null, detail: null }],
+        },
+      }));
+
+      expect(screen.queryByTestId('window-first-promo-go')).toBeNull();
+    });
+
+    it('sinks the away rows below the ranked cards and says so', () => {
+      // A day with no forecast has no rank, so slotting it between two ranked cards would imply
+      // one. The note is what stops the move reading as a bug.
+      const away = { kind: 'away', key: 'away:2026-08-06', dates: ['2026-08-06'], label: 'Thu 6', note: null, windowCount: 2 };
+      renderWithBriefing(ranked({
+        paneItems: [
+          { kind: 'card', key: CARDS[0].key, card: CARDS[0] },
+          away,
+          { kind: 'card', key: CARDS[1].key, card: CARDS[1] },
+        ],
+      }));
+
+      // Position asserted through `compareDocumentPosition` rather than a `querySelectorAll` over
+      // the pane — the standards ban the latter ("a test that stopped describing the UI and started
+      // describing the DOM"), and this says the same thing about the two elements that matter.
+      const lastCard = screen.getAllByTestId('window-card').at(-1);
+      const awayRow = screen.getByTestId('window-away-row');
+      expect(lastCard.compareDocumentPosition(awayRow) & Node.DOCUMENT_POSITION_FOLLOWING)
+        .toBeTruthy();
+      expect(screen.getByTestId('window-first-order-note'))
+        .toHaveTextContent('days you are away follow, in date order');
+    });
+
+    it('says nothing about away days in date order, where they are not moved', () => {
+      const away = { kind: 'away', key: 'away:2026-08-06', dates: ['2026-08-06'], label: 'Thu 6', note: null, windowCount: 2 };
+      renderWithBriefing({
+        ...briefingWithSpots('2026-08-04T12:00:00'),
+        paneItems: [{ kind: 'card', key: CARD.key, card: CARD }, away],
       });
 
-      fireEvent.click(screen.getByTestId('rail-pick-flag'));
+      expect(screen.queryByTestId('window-first-order-note')).toBeNull();
+    });
+
+    it('still explains the ranking when there is no away day to move', () => {
+      // ⚠️ An INVERTED assertion, and the earlier version was the defect. It read "says nothing when
+      // Best is active but no day is an away day", on the reasoning that the note explains a move —
+      // but the note's first clause explains the RANKING, which is the common case (most weeks have
+      // no travel days), and without it the pane offers ordinals 1…6 with nothing saying what they
+      // rank by. Only the second clause is about the away rows.
+      renderWithBriefing(ranked());
+
+      const note = screen.getByTestId('window-first-order-note');
+      expect(note).toHaveTextContent('Ranked by the best region in each window.');
+      expect(note.textContent).not.toMatch(/away/i);
+    });
+
+    it('says nothing at all in date order', () => {
+      renderWithBriefing(briefingWithSpots('2026-08-04T12:00:00'));
+      expect(screen.queryByTestId('window-first-order-note')).toBeNull();
+    });
+
+    it('draws ONE note however many away rows there are', () => {
+      // `getByTestId` throws on a second match, so this fails loudly if the note is ever emitted
+      // per away row rather than once for the pane.
+      const away = (date) => ({ kind: 'away', key: `away:${date}`, dates: [date], label: date, note: null, windowCount: 2 });
+      renderWithBriefing(ranked({
+        paneItems: [
+          { kind: 'card', key: CARDS[0].key, card: CARDS[0] },
+          away('2026-08-06'),
+          away('2026-08-08'),
+        ],
+      }));
+
+      expect(screen.getByTestId('window-first-order-note')).toBeInTheDocument();
+    });
+  });
+
+  // ── The rail's pick chip is GONE, and the card's pick badge is the whole control now ──
+  //
+  // Through P14 the day rail carried a flag chip that opened the same `WindowPickDialog` the card's
+  // badge opens, and this file pinned that the two showed identical prose. The rail was retired at
+  // P2 (plan D1, §1.1): the strip's `BEST BET` flag is a PASSIVE span, because the thumbnail is
+  // itself a button and interactive content inside a button is invalid HTML — the same
+  // nested-interactive defect the rail's own comment recorded fixing one level up. §1.1's
+  // relocation table names the card's badge as where the dialog stays reachable, so what is left to
+  // pin is that it still is, and that the strip offers no second trigger.
+  describe('the pick dialog, after the rail chip went', () => {
+    it('opens the pick prose from the window card badge', () => {
+      renderWithBriefing(briefingWithSpots('2026-08-04T12:00:00'));
+      fireEvent.click(screen.getByTestId('window-card-pick'));
+
+      const dialog = screen.getByTestId('window-pick-dialog').textContent;
+      expect(dialog).toContain('Breaking clear');
+      expect(dialog).toContain('Low cloud clears.');
+    });
+
+    it('offers no second trigger on the strip — the BEST BET flag is passive', async () => {
+      // The rule the plan states and the exit criterion the review checks: a nested interactive
+      // control inside the thumbnail button. `within(button).queryAllByRole('button')` would find
+      // the button itself, so the flag is queried directly and its tag asserted.
+      renderWithBriefing({
+        ...briefingWithSpots('2026-08-04T12:00:00'),
+        heatStripCards: [{
+          key: '2026-08-04:SUNSET',
+          date: '2026-08-04',
+          targetType: 'SUNSET',
+          dow: 'Tue',
+          sunrise: false,
+          label: 'Tonight Sunset',
+          time: '21:11',
+          verdict: 'WORTH_IT',
+          verdictLabel: 'Worth it',
+          bestBet: true,
+          away: false,
+          confidence: 'high',
+        }],
+      });
+
+      await screen.findByTestId('wf-heat-strip');
+      const flag = screen.getByTestId('wf-heat-flag');
+      expect(flag.tagName).toBe('SPAN');
+      fireEvent.click(flag);
       expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
     });
   });
@@ -714,7 +937,7 @@ describe('WindowFirstShell — the rail it hosts', () => {
     });
 
     it('stays live when the backend is DOWN, because it filters what is already in memory', () => {
-      // The pane and the rail take the greying because they are forecast data. The lens is a
+      // The pane takes the greying because it is forecast data. The lens is a
       // client-side filter over data already fetched, so `pointer-events: none` would make a
       // working control look broken in order to say nothing true.
       //
@@ -911,10 +1134,11 @@ describe('WindowFirstShell — the rail it hosts', () => {
       // passes whether the button is greyed or not. The footer lived inside the greyed rail
       // region when this test was written and the click assertion passed anyway; only the
       // containment check failed. The one control that fixes an empty lens must not go inert
-      // exactly when a user is most likely to be poking at it.
+      // exactly when a user is most likely to be poking at it. (The rail went at P2; the pane is
+      // now the greyed region, and the footer must still sit outside it.)
       renderWithBriefing(briefingWith('2026-08-04T12:00:00'), { contentDisabled: true });
 
-      expect(screen.getByTestId('window-first-rail-region').className)
+      expect(screen.getByTestId('window-first-pane').className)
         .toContain('pointer-events-none');
       expect(dimmedAncestorOf(screen.getByTestId('window-first-edit-reach'))).toBeNull();
     });

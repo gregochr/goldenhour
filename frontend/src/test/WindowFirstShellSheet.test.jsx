@@ -73,7 +73,12 @@ const ctx = (overrides = {}) => {
   return {
     briefing: { generatedAt: `${TODAY}T12:00:00`, hotTopics: [] },
     loading: false,
-    railTiles: [],
+    // The heat strip's thumbnails replaced the day rail's tiles at P2 (plan D1). Empty here, with an
+    // empty catalogue beside it: the strip withdraws entirely without spots to draw, which keeps
+    // these files about the shell's wiring rather than about a canvas.
+    heatStripCards: [],
+    heatSpots: [],
+    heatPointSets: new Map(),
     windowCards: cards,
     paneItems: cards.map((c) => ({ kind: 'card', key: c.key, card: c })),
     upcomingEvents: [],
@@ -104,6 +109,13 @@ const ctx = (overrides = {}) => {
       floorId: 'any',
       minRating: null,
       selectFloor: vi.fn(),
+    },
+    // The third axis. It gates nothing — it re-ranks the pane — so the shell's wiring tests sit on
+    // the chronological default, and `windowFirstOrder.test.js` owns the ranking itself.
+    orderLens: {
+      order: { id: 'when', label: 'When' },
+      orderId: 'when',
+      selectOrder: vi.fn(),
     },
     ...overrides,
   };

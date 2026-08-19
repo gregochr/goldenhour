@@ -31,12 +31,18 @@ describe('WindowAwayRow', () => {
   });
 
   it('points at the sun times that are still on screen', () => {
-    // Not filler. P4c settled that an away tile KEEPS its sunrise and sunset, because those are
+    // Not filler. P4c settled that an away WINDOW keeps its sunrise or sunset, because those are
     // almanac and true whether or not a forecast ran — so this row has something to offer a reader
     // who was going to shoot anyway. Without it the row is purely a subtraction.
+    //
+    // ⚠️ The line used to name "the rail", and the day rail was retired at P2 of the heat-field
+    // plan (D1). Live copy pointing at a component that no longer exists sends the reader looking
+    // for something that is not there — the guarantee moved to the heat strip's away thumbnail
+    // (`windowFirstStrip.js`), so only the noun changed.
     renderRow();
     expect(screen.getByTestId('window-away-almanac'))
-      .toHaveTextContent('Sun times still show in the rail');
+      .toHaveTextContent('Sun times still show above');
+    expect(screen.getByTestId('window-away-almanac').textContent).not.toMatch(/rail/i);
   });
 
   it('shows the operator\'s own note when there is one', () => {

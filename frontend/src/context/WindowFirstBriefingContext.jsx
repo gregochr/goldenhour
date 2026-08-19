@@ -7,13 +7,14 @@ import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import { getReach, getSettings } from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
+import usePlanOrder from '../hooks/usePlanOrder.js';
 import useRatingLens from '../hooks/useRatingLens.js';
 import useReachLens from '../hooks/useReachLens.js';
 import { cacheGeneration, readSwrCache, writeSwrCache } from '../utils/swrCache.js';
 import { isTravelDate } from '../utils/conversions.js';
 import { isEventPast } from '../utils/briefingDisplay.js';
-import { buildRailTiles } from '../utils/windowFirstRail.js';
 import { buildWindowCards } from '../utils/windowFirstCards.js';
+import { buildHeatStripCards } from '../utils/windowFirstStrip.js';
 import { buildPaneItems } from '../utils/windowFirstAway.js';
 import { buildPromotedStrip } from '../utils/windowFirstPromoted.js';
 import { buildBriefingScoreIndex } from '../utils/briefingScoreIndex.js';
@@ -41,10 +42,18 @@ const EMPTY_REACH = new Map();
  */
 const EMPTY_ARRAY = [];
 
+/**
+ * The heat point sets' empty value, which is a MAP — the shape `buildHeatPointSets` returns and the
+ * shape `WindowFirstHeatStrip`'s PropTypes require. It was `EMPTY_ARRAY`, which every consumer
+ * survived only because they reach for it as `pointSets?.get?.(key)`; a consumer that iterated it,
+ * or a PropTypes check on a provider-less render, would have found an array under a Map's name.
+ */
+const EMPTY_POINT_SETS = new Map();
+
 const WindowFirstBriefingContext = createContext({
   briefing: null,
   loading: false,
-  railTiles: [],
+  heatStripCards: [],
   windowCards: [],
   paneItems: [],
   promotedStrip: null,
@@ -52,7 +61,7 @@ const WindowFirstBriefingContext = createContext({
   travelDayDates: new Set(),
   evaluationScores: EMPTY_SCORES,
   heatSpots: EMPTY_ARRAY,
-  heatPointSets: EMPTY_ARRAY,
+  heatPointSets: EMPTY_POINT_SETS,
   reachById: EMPTY_REACH,
   todayStr: '',
   tomorrowStr: '',
@@ -343,6 +352,13 @@ export function WindowFirstBriefingProvider({
   // the hook), so nothing new crosses plan §5c's line.
   const ratingLens = useRatingLens();
 
+  // The pane's third axis. It lives here beside the other two because the lens bar renders all
+  // three and the shell orders the pane by this one — a value read in two places is derived in one.
+  // Unlike reach and rating it gates nothing: `paneItems` below stays chronological, and the
+  // ordering is applied by the shell at render (see `orderPaneItems`), so `buildPromotedStrip`
+  // keeps reading the date order its "is the promoted card the very next item" test depends on.
+  const orderLens = usePlanOrder();
+
   // Keyed on the briefing OBJECT, not on generatedAt. Keying on the timestamp looks like the
   // cheaper choice — a poll returning a byte-identical payload still hands back a fresh object —
   // but generatedAt is the BUILD time, and this payload is re-derived at SERVE time: the window
@@ -365,13 +381,6 @@ export function WindowFirstBriefingProvider({
     };
   }, [briefing, travelRanges]);
 
-  const railTiles = useMemo(
-    () => (briefing
-      ? buildRailTiles(upcomingEvents, briefing.days, todayStr, tomorrowStr, travelDayDates)
-      : []),
-    [briefing, upcomingEvents, travelDayDates, todayStr, tomorrowStr],
-  );
-
   const windowCards = useMemo(
     () => (briefing
       ? buildWindowCards(
@@ -388,6 +397,26 @@ export function WindowFirstBriefingProvider({
     [briefing, upcomingEvents, travelDayDates, todayStr, tomorrowStr, reachById,
       reachLens.tier.limitMinutes, reachLens.tierId, defaultLimitMinutes,
       ratingLens.minRating, ratingLens.floorId],
+  );
+
+  /**
+   * The heat strip's six thumbnails, chronological and travel days included.
+   *
+   * <p>Derived after the cards and FROM them, because every word a thumbnail prints about a window
+   * is already on that window's card — deriving them independently would give the strip and the
+   * row it opens two chances to disagree about one night. Away days have no card and keep their
+   * slot here, which is why the event list is the spine rather than the card list.
+   *
+   * <p>It replaces {@code railTiles} outright (plan D1, owner-confirmed 2026-08-18): the strip is
+   * the rail's job done at the window list's own grain.
+   */
+  const heatStripCards = useMemo(
+    () => (briefing
+      ? buildHeatStripCards(
+        upcomingEvents, windowCards, travelDayDates, briefing.days, todayStr, tomorrowStr,
+      )
+      : []),
+    [briefing, upcomingEvents, windowCards, travelDayDates, todayStr, tomorrowStr],
   );
 
   // The pane's ordered contents — the cards with the away days folded back in where they fall. It
@@ -448,15 +477,15 @@ export function WindowFirstBriefingProvider({
 
   const value = useMemo(
     () => ({
-      briefing, loading, railTiles, windowCards, paneItems, promotedStrip, upcomingEvents,
+      briefing, loading, heatStripCards, windowCards, paneItems, promotedStrip, upcomingEvents,
       travelDayDates, evaluationScores, scoreIndex, heatSpots: heatSpotList, heatPointSets,
       reachById, todayStr, tomorrowStr, reachLens,
-      ratingLens, homePlace, isPro, isLiteUser,
+      ratingLens, orderLens, homePlace, isPro, isLiteUser,
     }),
-    [briefing, loading, railTiles, windowCards, paneItems, promotedStrip, upcomingEvents,
+    [briefing, loading, heatStripCards, windowCards, paneItems, promotedStrip, upcomingEvents,
       travelDayDates, evaluationScores, scoreIndex, heatSpotList, heatPointSets,
       reachById, todayStr, tomorrowStr, reachLens,
-      ratingLens, homePlace, isPro, isLiteUser],
+      ratingLens, orderLens, homePlace, isPro, isLiteUser],
   );
 
   return (
@@ -484,13 +513,14 @@ WindowFirstBriefingProvider.propTypes = {
 };
 
 /**
- * The window-first briefing, its loading flag, the day rail's tiles, the pane's ordered contents
- * and the reach lens.
+ * The window-first briefing, its loading flag, the heat strip's thumbnails, the pane's ordered
+ * contents and the three lens axes.
  *
- * @returns {{briefing: ?object, loading: boolean, railTiles: Array, windowCards: Array,
+ * @returns {{briefing: ?object, loading: boolean, heatStripCards: Array, windowCards: Array,
  *           paneItems: Array, promotedStrip: ?object, upcomingEvents: Array,
- *           travelDayDates: Set, heatSpots: Array, heatPointSets: Array, reachById: Map,
- *           reachLens: object, ratingLens: object, homePlace: ?string, todayStr: string,
+ *           travelDayDates: Set, heatSpots: Array, heatPointSets: Map, reachById: Map,
+ *           reachLens: object, ratingLens: object, orderLens: object, homePlace: ?string,
+ *           todayStr: string,
  *           tomorrowStr: string, isPro: boolean, isLiteUser: boolean}}
  */
 export function useWindowFirstBriefing() {

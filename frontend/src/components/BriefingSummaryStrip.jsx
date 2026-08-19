@@ -197,8 +197,10 @@ export default function BriefingSummaryStrip({ pills, onPillClick, onRegionClick
                           role="button"
                           tabIndex={0}
                           // Non-visual only: no visible rendering changes, so this holds even though
-                          // the component is otherwise a frozen copy of the v2 rail's chip (see
-                          // WindowFirstDayRail.jsx for the full rationale). The ◎ mark is
+                          // the component is otherwise a frozen copy of the chip the v2 day rail
+                          // carried. (That rail was retired at P2 of the heat-field plan; the
+                          // scan-channel-vs-detail-channel rationale it held now lives only in git
+                          // history and in `regionChipVerdictColour.test.jsx`'s v1 half.) The ◎ mark is
                           // `aria-hidden`, so a pick chip's accessible name was just `shortName` —
                           // identical to a plain chip's, with no way to tell a Best bet apart by ear.
                           // `aria-label` replaces name-from-contents rather than adding to it, so the

@@ -96,6 +96,11 @@ function payloadFor(dateStr, { generatedAt = null } = {}) {
 function reserved(dateStr, generatedAt, displayVerdict) {
   const payload = payloadFor(dateStr, { generatedAt });
   payload.days[0].eventSummaries[0].regions[0].displayVerdict = displayVerdict;
+  // The WINDOW's own verdict moves too, and that is the half the assertions read since the day rail
+  // was retired at P2. It is also the more faithful fixture: the comment on the test that uses this
+  // names "the window projection, the picks and each region's confidence" as the serve-time
+  // quantities, and the window projection is the one every surface in the arm now renders.
+  payload.days[0].eventSummaries[0].window.verdict = displayVerdict;
   payload.days[0].peak.verdict = displayVerdict;
   payload.days[0].peak.regions[0].displayVerdict = displayVerdict;
   return payload;
@@ -126,8 +131,8 @@ const heatPointIdentities = [];
 /** A real consumer rather than a bespoke harness: this is what the shell reads. */
 function Consumer() {
   const {
-    briefing, loading, railTiles, windowCards, evaluationScores, reachLens: lens, ratingLens,
-    homePlace, promotedStrip, heatSpots, heatPointSets,
+    briefing, loading, heatStripCards, windowCards, evaluationScores, reachLens: lens, ratingLens,
+    orderLens, homePlace, promotedStrip, heatSpots, heatPointSets,
   } = useWindowFirstBriefing();
   // Identity, not content: plan §5.4 requires the join to be memoised on its real inputs, and a
   // recomputation is invisible in the rendered text. Collected here rather than in a bespoke
@@ -138,9 +143,16 @@ function Consumer() {
     <div>
       <span data-testid="loading">{String(loading)}</span>
       <span data-testid="generated">{briefing?.generatedAt ?? 'none'}</span>
-      <span data-testid="tiles">{railTiles.length}</span>
-      <span data-testid="labels">{railTiles.map((t) => t.peakLabel).join('|')}</span>
-      <span data-testid="dates">{railTiles.map((t) => t.date).join('|')}</span>
+      {/* The heat strip's thumbnails, which replaced the day rail's tiles at P2 (plan D1). The
+          strip is per WINDOW where the rail was per DAY, so `strip-days` is the distinct-date span
+          — the quantity the assertions below were always about — and `strip-windows` is the new
+          one, since the six events are now the only cap. */}
+      <span data-testid="strip-windows">{heatStripCards.length}</span>
+      <span data-testid="strip-days">{new Set(heatStripCards.map((c) => c.date)).size}</span>
+      <span data-testid="strip-dates">
+        {[...new Set(heatStripCards.map((c) => c.date))].join('|')}
+      </span>
+      <span data-testid="strip-verdicts">{heatStripCards.map((c) => c.verdictLabel).join('|')}</span>
       <span data-testid="scores">{[...evaluationScores.keys()].join('|') || 'none'}</span>
       <span data-testid="cards">{windowCards.length}</span>
       {/* One descriptor or nothing — the shape is the cap. */}
@@ -175,10 +187,11 @@ function Consumer() {
           .map(([key, set]) => `${key}=${set.map((p) => p.name).join(',') || '-'}`)
           .join(' ') || 'none'}
       </span>
-      {lens && ratingLens && (
+      {lens && ratingLens && orderLens && (
         <WindowFirstLensBar
           lens={lens}
           ratingLens={ratingLens}
+          orderLens={orderLens}
           spotCount={0}
           windowCount={0}
         />
@@ -278,25 +291,28 @@ describe('WindowFirstBriefingProvider', () => {
 
   afterEach(() => vi.useRealTimers());
 
-  it('fetches the briefing once on mount and derives the rail from it', async () => {
+  it('fetches the briefing once on mount and derives the strip from it', async () => {
     getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
     renderProvider();
 
-    expect(await screen.findByText('Worth it · sunset')).toBeInTheDocument();
-    expect(screen.getByTestId('tiles')).toHaveTextContent('1');
-    expect(screen.getByTestId('labels')).toHaveTextContent('Worth it · sunset');
+    // Waited on the thumbnail's own verdict word, which exists only once the response has been
+    // folded in — the strip reads the WINDOW's verdict, so it is the same word the card carries
+    // rather than the retired rail's separately rolled-up day peak.
+    expect(await screen.findByText('Worth it')).toBeInTheDocument();
+    expect(screen.getByTestId('strip-days')).toHaveTextContent('1');
+    expect(screen.getByTestId('strip-verdicts')).toHaveTextContent('Worth it');
     expect(getDailyBriefing).toHaveBeenCalledTimes(1);
   });
 
-  it('paints instantly from the cache, so a cold mount is not an empty rail', async () => {
+  it('paints instantly from the cache, so a cold mount is not an empty strip', async () => {
     // The briefing IS the page here; waiting a round-trip to draw anything is the difference
-    // between a rail that is there and one that appears.
+    // between a summary that is there and one that appears.
     writeSwrCache(CACHE_KEY, payloadFor(TODAY));
     getDailyBriefing.mockReturnValue(new Promise(() => {})); // never resolves
     renderProvider();
 
     expect(screen.getByTestId('loading')).toHaveTextContent('false');
-    expect(screen.getByTestId('tiles')).toHaveTextContent('1');
+    expect(screen.getByTestId('strip-days')).toHaveTextContent('1');
   });
 
   it('keys the cache by role, so one account never paints another\'s briefing', async () => {
@@ -304,7 +320,7 @@ describe('WindowFirstBriefingProvider', () => {
     getDailyBriefing.mockReturnValue(new Promise(() => {}));
     renderProvider(); // mounts as PRO_USER
 
-    expect(screen.getByTestId('tiles')).toHaveTextContent('0');
+    expect(screen.getByTestId('strip-days')).toHaveTextContent('0');
   });
 
   it('ignores an empty revalidation rather than blanking a good rail', async () => {
@@ -315,7 +331,7 @@ describe('WindowFirstBriefingProvider', () => {
     renderProvider();
 
     await act(async () => {});
-    expect(screen.getByTestId('tiles')).toHaveTextContent('1');
+    expect(screen.getByTestId('strip-days')).toHaveTextContent('1');
     expect(screen.getByTestId('loading')).toHaveTextContent('false');
   });
 
@@ -325,7 +341,7 @@ describe('WindowFirstBriefingProvider', () => {
     renderProvider();
 
     await act(async () => {});
-    expect(screen.getByTestId('tiles')).toHaveTextContent('1');
+    expect(screen.getByTestId('strip-days')).toHaveTextContent('1');
   });
 
   it('stops loading even when the very first fetch fails', async () => {
@@ -336,7 +352,7 @@ describe('WindowFirstBriefingProvider', () => {
 
     await act(async () => {});
     expect(screen.getByTestId('loading')).toHaveTextContent('false');
-    expect(screen.getByTestId('tiles')).toHaveTextContent('0');
+    expect(screen.getByTestId('strip-days')).toHaveTextContent('0');
   });
 
   it('writes a successful fetch back to the cache for the next cold start', async () => {
@@ -355,17 +371,17 @@ describe('WindowFirstBriefingProvider', () => {
     fetchTravelDayRanges.mockResolvedValue([{ startDate: TODAY, endDate: TODAY }]);
     renderProvider();
 
-    expect(await screen.findByText('✈ Away')).toBeInTheDocument();
+    expect(await screen.findByText('Not forecast')).toBeInTheDocument();
   });
 
-  it('still renders the rail when the travel-day fetch fails', async () => {
+  it('still renders the strip when the travel-day fetch fails', async () => {
     // Travel days are an overlay on the forecast, not a precondition for it. A failure there must
     // not take the whole rail with it.
     getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
     fetchTravelDayRanges.mockRejectedValue(new Error('nope'));
     renderProvider();
 
-    expect(await screen.findByText('Worth it · sunset')).toBeInTheDocument();
+    expect(await screen.findByText('Worth it')).toBeInTheDocument();
   });
 
   it('re-fetches on window focus, so a laptop reopened at dawn is not showing last night', async () => {
@@ -409,18 +425,18 @@ describe('WindowFirstBriefingProvider', () => {
   it('picks up re-derived content even when generatedAt has not moved', async () => {
     // The trap this guards. generatedAt is the BUILD time, but the window projection, the picks and
     // each region's confidence are all computed at SERVE time — so two responses can carry the same
-    // timestamp and different content. A rail memoised on generatedAt holds the stale one, and a
+    // timestamp and different content. A summary memoised on generatedAt holds the stale one, and a
     // pick that moved between two serves of the same build would never appear.
     getDailyBriefing.mockResolvedValueOnce(payloadFor(TODAY, { generatedAt: `${TODAY}T12:00:00` }));
     renderProvider();
     await act(async () => {});
-    expect(screen.getByTestId('labels')).toHaveTextContent('Worth it · sunset');
+    expect(screen.getByTestId('strip-verdicts')).toHaveTextContent('Worth it');
 
     // SAME build, re-derived content.
     getDailyBriefing.mockResolvedValue(reserved(TODAY, `${TODAY}T12:00:00`, 'MAYBE'));
 
     await act(async () => { window.dispatchEvent(new Event('focus')); });
-    expect(screen.getByTestId('labels')).toHaveTextContent('Maybe · sunset');
+    expect(screen.getByTestId('strip-verdicts')).toHaveTextContent('Maybe');
   });
 
   it('picks up a genuinely newer forecast', async () => {
@@ -431,10 +447,10 @@ describe('WindowFirstBriefingProvider', () => {
     getDailyBriefing.mockResolvedValue(reserved(TODAY, `${TODAY}T18:00:00`, 'MAYBE'));
 
     await act(async () => { window.dispatchEvent(new Event('focus')); });
-    expect(screen.getByTestId('labels')).toHaveTextContent('Maybe · sunset');
+    expect(screen.getByTestId('strip-verdicts')).toHaveTextContent('Maybe');
   });
 
-  describe('which events reach the rail', () => {
+  describe('which events reach the strip', () => {
     // The ORDER and the six-event CAP are the backend's since Phase 3 — the projector publishes
     // `renderedEvents` and scopes the BEST/ALSO picks to exactly that list, so a pick can no longer
     // name a window with no card. What remains here is the stale-cache defence and the degrade, and
@@ -453,22 +469,24 @@ describe('WindowFirstBriefingProvider', () => {
       renderProvider();
       await act(async () => {});
 
-      expect(screen.getByTestId('dates')).toHaveTextContent('2026-08-05|2026-08-04');
+      expect(screen.getByTestId('strip-dates')).toHaveTextContent('2026-08-05|2026-08-04');
     });
 
     it('drops an event that has passed since the payload was built', async () => {
       // The stale-cache guard, and the only aggregation-adjacent thing left in the provider. The
       // payload was served at 02:00Z when both events were live; the browser is now at 09:00Z, past
-      // the 04:15Z sunrise and its 30-minute afterglow. So the day rolls up from the sunset alone
-      // and reads "· sunset". Delete the guard and both are rated, so it reads "· both" — which is
-      // what makes this assertion discriminating rather than decorative.
+      // the 04:15Z sunrise and its 30-minute afterglow. So ONE thumbnail survives, the sunset's.
+      // Delete the guard and there are two — which is what makes this discriminating rather than
+      // decorative. The window COUNT is the observable now that the strip is per window: the date
+      // span cannot see it, since both events sit on the same date.
       getDailyBriefing.mockResolvedValue(
         multiDayPayload('2026-08-04', 1, '2026-08-04T02:00:00Z'),
       );
       renderProvider();
       await act(async () => {});
 
-      expect(screen.getByTestId('labels')).toHaveTextContent('Worth it · sunset');
+      expect(screen.getByTestId('strip-windows')).toHaveTextContent(/^1$/);
+      expect(screen.getByTestId('card-keys')).toHaveTextContent('2026-08-04:SUNSET');
     });
 
     it('spans four days when the first live event is a sunset, three when it is a sunrise', async () => {
@@ -482,7 +500,7 @@ describe('WindowFirstBriefingProvider', () => {
       );
       const first = renderProvider();
       await act(async () => {});
-      expect(screen.getByTestId('dates')).toHaveTextContent(
+      expect(screen.getByTestId('strip-dates')).toHaveTextContent(
         '2026-08-04|2026-08-05|2026-08-06|2026-08-07',
       );
       first.unmount();
@@ -493,7 +511,7 @@ describe('WindowFirstBriefingProvider', () => {
       );
       renderProvider();
       await act(async () => {});
-      expect(screen.getByTestId('dates')).toHaveTextContent('2026-08-04|2026-08-05|2026-08-06');
+      expect(screen.getByTestId('strip-dates')).toHaveTextContent('2026-08-04|2026-08-05|2026-08-06');
     });
 
     it('gives back the far day when the payload already excluded the elapsed event', async () => {
@@ -507,7 +525,7 @@ describe('WindowFirstBriefingProvider', () => {
       renderProvider();
       await act(async () => {});
 
-      expect(screen.getByTestId('dates')).toHaveTextContent(
+      expect(screen.getByTestId('strip-dates')).toHaveTextContent(
         '2026-08-04|2026-08-05|2026-08-06|2026-08-07',
       );
     });
@@ -543,7 +561,7 @@ describe('WindowFirstBriefingProvider', () => {
         '2026-08-04:SUNSET|2026-08-05:SUNRISE|2026-08-05:SUNSET|2026-08-06:SUNRISE|2026-08-06:SUNSET',
       );
       expect(screen.getByTestId('cards')).toHaveTextContent(/^5$/);
-      expect(screen.getByTestId('dates')).toHaveTextContent('2026-08-04|2026-08-05|2026-08-06');
+      expect(screen.getByTestId('strip-dates')).toHaveTextContent('2026-08-04|2026-08-05|2026-08-06');
     });
 
     it('falls back to walking the days when the payload names no rendered events', async () => {
@@ -553,8 +571,7 @@ describe('WindowFirstBriefingProvider', () => {
       //
       // The day peak is deleted TOO, because that is the only payload production can actually
       // produce: both fields come from the same projector call, so one cannot be absent while the
-      // other is present. Deleting only `renderedEvents` builds a shape the backend cannot emit and
-      // hides what such a payload does to the rail — which is the whole of its user-visible effect.
+      // other is present. Deleting only `renderedEvents` builds a shape the backend cannot emit.
       const payload = multiDayPayload('2026-08-04', 3);
       delete payload.renderedEvents;
       payload.days.forEach((d) => { delete d.peak; });
@@ -563,14 +580,16 @@ describe('WindowFirstBriefingProvider', () => {
       await act(async () => {});
 
       // Six events would stop at the 6th; the walk keeps going, so the third day survives.
-      expect(screen.getByTestId('dates')).toHaveTextContent(
+      expect(screen.getByTestId('strip-dates')).toHaveTextContent(
         '2026-08-04|2026-08-05|2026-08-06',
       );
-      // And the tiles say they have no answer rather than asserting a stand-down. Such a payload
-      // still carries its windows, so the CARDS read Worth it — "All poor" beside them would be
-      // the exact contradiction this phase exists to remove.
-      expect(screen.getByTestId('labels')).toHaveTextContent('Awaiting|Awaiting|Awaiting');
-      expect(screen.getByTestId('labels').textContent).not.toMatch(/poor/i);
+      // And the thumbnails read what the CARDS read. The retired rail rolled its own day peak up
+      // from `BriefingDay.peak`, so a payload without that field left it saying "Awaiting" beside
+      // cards saying "Worth it" — one screen, two answers. The strip takes each window's own
+      // verdict from the projection the card reads, so the two cannot diverge at all, which is
+      // exactly the improvement §1.1 claims for it.
+      expect(screen.getByTestId('strip-verdicts')).toHaveTextContent('Worth it');
+      expect(screen.getByTestId('strip-verdicts').textContent).not.toMatch(/poor|awaiting/i);
     });
 
     it('draws nothing when the backend published an empty list', async () => {
@@ -582,25 +601,29 @@ describe('WindowFirstBriefingProvider', () => {
       renderProvider();
       await act(async () => {});
 
-      expect(screen.getByTestId('tiles')).toHaveTextContent('0');
+      expect(screen.getByTestId('strip-days')).toHaveTextContent('0');
     });
 
-    it('never draws more than four days however many the briefing carries', async () => {
-      // The cap belongs to the rail, not to the event window: six events could in principle span
-      // six dates if a day ever carried one event.
+    it('draws one thumbnail per rendered event, with no day cap of its own', async () => {
+      // ⚠️ A REPLACED ASSERTION. The retired day rail carried `RAIL_MAX_DAYS = 4` and this test
+      // pinned it. The strip has no such constant: the backend's six-event `renderedEvents` list is
+      // the whole cap, and the date span it happens to reach is a consequence of parity rather than
+      // a rule (the test two above pins both arms of that — three dates before the day's sunrise,
+      // four after). Asserting the window count is what a lost cap would now break.
       getDailyBriefing.mockResolvedValue(multiDayPayload('2026-08-04', 5));
       renderProvider();
       await act(async () => {});
 
-      expect(screen.getByTestId('tiles')).toHaveTextContent('4');
+      expect(screen.getByTestId('strip-windows')).toHaveTextContent(/^6$/);
+      expect(screen.getByTestId('strip-days')).toHaveTextContent('4');
     });
   });
 
   describe('the window cards', () => {
-    it('derives a card for every window the rail rolled up, from ONE event evaluation', async () => {
+    it('derives a card for every window the strip draws, from ONE event evaluation', async () => {
       // The past-event rule and the six-event cap are applied once and shared. Run separately, the
-      // rail and the pane could disagree about which windows exist — and the card's pick badge and
-      // the rail's pick flag would then point at different sets.
+      // strip and the pane could disagree about which windows exist — and a thumbnail would open a
+      // row that is not there.
       getDailyBriefing.mockResolvedValue(multiDayPayload('2026-08-04', 5));
       renderProvider();
 
@@ -608,22 +631,25 @@ describe('WindowFirstBriefingProvider', () => {
       expect(await screen.findByText(
         '2026-08-04:SUNSET|2026-08-05:SUNRISE|2026-08-05:SUNSET|2026-08-06:SUNRISE|2026-08-06:SUNSET|2026-08-07:SUNRISE',
       )).toBeInTheDocument();
-      expect(screen.getByTestId('dates')).toHaveTextContent(
+      expect(screen.getByTestId('strip-dates')).toHaveTextContent(
         '2026-08-04|2026-08-05|2026-08-06|2026-08-07',
       );
     });
 
-    it('draws no card for a day the rail is showing as Away', async () => {
+    it('draws no card for a day the strip is showing as away', async () => {
       // The travel day still carries slots, so the projector gives it a verdict — a naive card list
-      // would put a "Poor" card under a rail tile reading "Not forecast".
+      // would put a "Poor" card under a thumbnail saying nothing was forecast.
       getDailyBriefing.mockResolvedValue(multiDayPayload(TODAY, 2));
       fetchTravelDayRanges.mockResolvedValue([{ startDate: TODAY, endDate: TODAY }]);
       renderProvider();
 
       await act(async () => {});
       expect(screen.getByTestId('card-keys').textContent).not.toContain(TODAY);
-      // And the rail still shows the day, so the absence is explained on screen.
-      expect(screen.getByTestId('labels')).toHaveTextContent('✈ Away');
+      // And the strip keeps the day's slot, so the absence is explained on screen rather than the
+      // shape of the week silently renumbering. "Not forecast" is the arm's own word for it,
+      // borrowed from `WindowAwayRow` rather than invented.
+      expect(screen.getByTestId('strip-dates')).toHaveTextContent(TODAY);
+      expect(screen.getByTestId('strip-verdicts')).toHaveTextContent('Not forecast');
     });
 
     it('is empty with no briefing, rather than undefined', () => {
@@ -659,13 +685,13 @@ describe('WindowFirstBriefingProvider', () => {
       expect(screen.getByTestId('scores')).toHaveTextContent('none');
     });
 
-    it('still renders the rail when the scores fetch fails', async () => {
+    it('still renders the strip when the scores fetch fails', async () => {
       // They are an input to a downstream surface, not a precondition for this one.
       getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
       getAllEvaluationScores.mockRejectedValue(new Error('nope'));
       renderProvider();
 
-      expect(await screen.findByText('Worth it · sunset')).toBeInTheDocument();
+      expect(await screen.findByText('Worth it')).toBeInTheDocument();
     });
   });
 
@@ -957,11 +983,11 @@ describe('WindowFirstBriefingProvider', () => {
     });
   });
 
-  it('degrades to an empty rail rather than throwing with no provider above it', () => {
+  it('degrades to an empty strip rather than throwing with no provider above it', () => {
     // The context default. A consumer rendered outside the provider — in a test, or after a badly
     // ordered refactor — should render nothing, not crash the arm.
     render(<Consumer />);
-    expect(screen.getByTestId('tiles')).toHaveTextContent('0');
+    expect(screen.getByTestId('strip-days')).toHaveTextContent('0');
     expect(screen.getByTestId('generated')).toHaveTextContent('none');
   });
   describe('the promoted strip', () => {
@@ -991,7 +1017,7 @@ describe('WindowFirstBriefingProvider', () => {
       // Here it made a §6 clause 3 test pass vacuously in the exact shape that clause names: with
       // no cards drawn, "no strip" is true of an empty pane and says nothing about the rule. Under
       // full-suite load it lost the race outright and failed on `cards` reading 0.
-      expect(await screen.findByText('Worth it · sunset')).toBeInTheDocument();
+      expect(await screen.findByText('Worth it')).toBeInTheDocument();
       expect(screen.getByTestId('cards')).toHaveTextContent('1');
       expect(screen.getByTestId('promo')).toHaveTextContent('none');
     });
@@ -1007,7 +1033,7 @@ describe('WindowFirstBriefingProvider', () => {
       // Same reason as the sibling above: `promo` is on screen from the first paint reading
       // "none", so waiting for the element proves nothing about the fetch. This one has not been
       // seen to fail, and it is the same defect — it wins the race rather than avoiding it.
-      expect(await screen.findByText('Worth it · sunset')).toBeInTheDocument();
+      expect(await screen.findByText('Worth it')).toBeInTheDocument();
       expect(screen.getByTestId('promo')).toHaveTextContent(`${TODAY}:SUNSET`);
       expect(screen.getByTestId('promo-topics')).toHaveTextContent('King tide|Aurora');
     });
@@ -1084,7 +1110,7 @@ describe('WindowFirstBriefingProvider', () => {
       getAllEvaluationScores.mockResolvedValue([scoreRow(7, 'Bamburgh', 4)]);
       renderProvider();
 
-      expect(await screen.findByText('Worth it · sunset')).toBeInTheDocument();
+      expect(await screen.findByText('Worth it')).toBeInTheDocument();
       expect(screen.getByTestId('heat-spots')).toHaveTextContent('none');
       expect(screen.getByTestId('cards')).toHaveTextContent('1');
     });
@@ -1097,7 +1123,7 @@ describe('WindowFirstBriefingProvider', () => {
       getAllEvaluationScores.mockRejectedValue(new Error('502'));
       renderProviderWithLocations(ROSTER);
 
-      expect(await screen.findByText('Worth it · sunset')).toBeInTheDocument();
+      expect(await screen.findByText('Worth it')).toBeInTheDocument();
       // The rejection leaves no trace in the rendered output, so waiting on the briefing proves
       // nothing about it: flush the microtask queue and assert the request was actually made,
       // or this test passes identically with the whole scores effect deleted.

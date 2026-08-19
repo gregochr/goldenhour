@@ -42,7 +42,7 @@ same ratings from the same `GET /api/briefing` payload; they disagree because:
 |---|---|---|---|---|
 | Window row | every non-canopy slot, **all** regions | **max** | `>= 4` (integer) | `PlanWindowProjector.bestRating`/`verdict`, `DisplayVerdict.resolve` |
 | Grid cell | one region's slots | **mean** | `>= 3.5` | `BriefingRatingStats` (:134-145) |
-| Day card | the day's region verdicts | any-of | any region `>= 2.5` | client roll-up, `windowFirstRail.js:202-226` |
+| Day card | the day's region verdicts | any-of | any region `>= 2.5` | client roll-up, `windowFirstRail.js:202-226` (**deleted** — see note below) |
 
 One 4★ location anywhere in the roster promotes a whole window's badge while its own region's mean
 sits below 2.5. The max-based row rule was a deliberate, documented choice
@@ -261,7 +261,14 @@ client aggregates nothing.**
    client.
 2. Backend emits per-cell mean rating; `HeatmapGrid` drops the name-keyed `/evaluate/scores` join
    for the star (D2).
-3. Backend emits the per-day peak; retire the `windowFirstRail.js:202-226` roll-up.
+3. Backend emits the per-day peak; retire the `windowFirstRail.js:202-226` (**deleted** — see note below) roll-up.
+
+   > ⚠️ **Discharged by deletion, 2026-08-19.** P2 of `heat-field-plan.md` retired
+   > `WindowFirstDayRail` and `windowFirstRail.js` outright (decision D1, owner-confirmed): the v2
+   > arm's day summary is now `WindowFirstHeatStrip`, six per-window thumbnails that read
+   > `BriefingWindow.verdict` directly. So this client roll-up no longer exists to retire. The
+   > BACKEND half — `BriefingDay.peak` — stays: it is still served, still read by cached payloads,
+   > and this plan's Phase 4 is the right place to decide its fate after the flag flips.
 4. Update `plan-panel-data-contracts.md` as described in §3 above.
 
 ### Phase 4 — Kill the second best-bet system (post-flip)
@@ -293,7 +300,7 @@ someone to re-wire. Each removal lands in the phase that makes it dead, in the s
 - The `:52-57` design comment defending the max rule — replaced, not appended to.
 
 **Phase 3**
-- `windowFirstRail.js:202-226` — the client day-peak roll-up (day cards render the backend
+- `windowFirstRail.js:202-226` (**deleted** — see note below) — the client day-peak roll-up (day cards render the backend
   `dayPeak` field instead).
 - `HeatmapGrid.jsx:630-643` — the star-from-`/evaluate/scores` computation: the name-keyed prefix
   join, the client-side mean, and its silent `region.slots` fallback (the cell renders the backend

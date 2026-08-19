@@ -26,14 +26,15 @@ import WindowFirstWindowCard from '../components/WindowFirstWindowCard.jsx';
  * file pins that hook for the components it renders — the shell, both panes and the window card —
  * so a rename cannot silently orphan a rule.
  *
- * It does NOT cover the whole arm, and the gap is worth naming rather than implying: the rail's
- * `.rail-scroller` is pinned in `WindowFirstDayRail.test.jsx` instead, beside that component's own
- * tests, and the lens bar's `.wf-lens*` classes predate this phase and are covered by
- * `WindowFirstLensBar.test.jsx`.
+ * It does NOT cover the whole arm, and the gap is worth naming rather than implying: the heat
+ * strip's own `.wf-hstrip` grid is pinned in `WindowFirstHeatStrip.test.jsx`, beside that
+ * component's other tests, and the lens bar's `.wf-lens*` classes predate this phase and are
+ * covered by `WindowFirstLensBar.test.jsx`. (The day rail's `.rail-scroller` used to be named here;
+ * the rail was retired at P2 of the heat-field plan, D1.)
  *
- * The pixel side — gutters, the four-row phone header, the rail's 150px tile, the bar that must not
- * wrap — is measured in a browser and recorded in §5i of the redesign plan. Neither half covers the
- * other, and neither should be read as if it did.
+ * The pixel side — gutters, the four-row phone header, the bar that must not wrap — is measured in
+ * a browser and recorded in §5i of the redesign plan. Neither half covers the other, and neither
+ * should be read as if it did.
  */
 
 const TODAY = '2026-08-09';
@@ -80,11 +81,6 @@ describe('P14 responsive hooks — shell chrome', () => {
     ['window-first-railfoot', 'wf-railfoot'],
     ['window-first-tabs', 'wf-tabs'],
     ['window-first-pane', 'wf-body'],
-    // Renders only with no rail tiles, which is the bare harness's own state — the context defaults
-    // to `railTiles: []`. Included because it is the one class this phase invented that has its own
-    // phone rule; without this row a rename would leave the empty-state line at browser-default
-    // size and flush to the frame, with the whole suite still green.
-    ['window-first-rail-empty', 'wf-rail-empty'],
   ])('%s carries %s, the class its phone rule selects', (testId, className) => {
     renderShell();
     expect(screen.getByTestId(testId)).toHaveClass(className);

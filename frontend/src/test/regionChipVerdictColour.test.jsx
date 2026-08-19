@@ -3,7 +3,6 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { render, screen } from '@testing-library/react';
-import WindowFirstDayRail from '../components/WindowFirstDayRail.jsx';
 import BriefingSummaryStrip from '../components/BriefingSummaryStrip.jsx';
 
 /**
@@ -15,6 +14,11 @@ import BriefingSummaryStrip from '../components/BriefingSummaryStrip.jsx';
  * pins — a Best-bet chip painted `--color-verdict-go` at rest on an amber `maybe` tile, because
  * `.summary-region-chip[data-pick="best"]` is keyed to `data-pick` alone — was invisible to a
  * green suite.
+ *
+ * <p><b>Scope, since P2:</b> the v2 half of this file went with the day rail (plan D1). The rules it
+ * pinned — `.summary-region-chip.rail-region-chip[data-peak=…]` — existed only for that component
+ * and are deleted from `index.css`; what remains is the v1 arm, which is the frozen comparison
+ * control and must keep resolving to the pick hues below.
  *
  * <h2>What this file can and cannot prove</h2>
  *
@@ -88,13 +92,13 @@ function assertSliceIsIntact(slice) {
   expect(slice, 'no .summary-region-chip rules were extracted from index.css').not.toBe('');
   expect(slice).toContain('.summary-region-chip[data-pick="best"]');
   expect(slice).toContain('.summary-region-chip[data-pick="also"]');
-  expect(slice).toContain('.summary-region-chip.rail-region-chip[data-peak="maybe"]');
-  expect(slice).toContain('.summary-region-chip.rail-region-chip[data-peak="go"]');
-  // Both halves of the grouped poor/away selector, named separately. They share one rule, so
-  // deleting either half alone leaves the other matching — and `away` is exercised by only one
-  // test below, which is not enough to notice its half going missing.
-  expect(slice).toContain('.summary-region-chip.rail-region-chip[data-peak="poor"]');
-  expect(slice).toContain('.summary-region-chip.rail-region-chip[data-peak="away"]');
+  // ⚠️ The `.rail-region-chip` opt-in rules used to be named here as well, and they are gone with
+  // the day rail (P2 of the heat-field plan, D1). They existed only for the v2 rail — a scanning
+  // surface where a chip's own pick hue read as its tile's verdict — and v2 now has no region chip
+  // at all until P3's region rail. What survives is the v1 side, which was always the frozen
+  // control: `BriefingSummaryStrip` never carried the opt-in, so these two rules are exactly what
+  // it has always resolved to. If a v2 chip returns, it must earn its own opt-in and its own tests
+  // rather than inheriting these.
 }
 
 let styleEl;
@@ -107,8 +111,8 @@ beforeAll(() => {
 });
 afterAll(() => styleEl?.remove());
 
-/** A v2 rail tile carrying one plain chip and one Best-bet chip, so both are on the same verdict. */
-function railTile(peak, pickKind) {
+/** A summary pill carrying one plain chip and one picked chip, both on the same verdict. */
+function pillFor(peak, pickKind) {
   return {
     date: '2026-08-04',
     targetType: 'SUNSET',
@@ -129,13 +133,12 @@ function railTile(peak, pickKind) {
   };
 }
 
-/** The v1 pill equivalent — same regions, same peak, so any divergence is the arm and not the data. */
+/** The v1 pill, as `BriefingSummaryStrip` consumes it. */
 function v1Pill(peak, pickKind) {
-  return { ...railTile(peak, pickKind), subLabel: null, countLabel: null, confidence: null };
+  return { ...pillFor(peak, pickKind), subLabel: null, countLabel: null, confidence: null };
 }
 
 const GO = 'var(--color-verdict-go)';
-const MARGINAL = 'var(--color-verdict-marginal)';
 const ALSO = 'var(--color-pick-also)';
 
 // The dotted underline, which stays with the PICK while the verdict takes the text colour. These
@@ -147,127 +150,12 @@ const ALSO = 'var(--color-pick-also)';
 const GO_UNDERLINE = 'rgba(138, 174, 114, 0.6)';
 const ALSO_UNDERLINE = 'rgba(124, 141, 214, 0.6)';
 
-describe('region chip resting colour — v2 rail', () => {
-  it('paints BOTH the picked and the plain chip amber on a maybe tile', () => {
-    // The regression, stated exactly: before the v2 rules the picked chip resolved to
-    // `var(--color-verdict-go)` here — green, 4px under an amber "Worth it · sunset" verdict line,
-    // one tile asserting two verdicts in the only channel that carries meaning.
-    render(<WindowFirstDayRail tiles={[railTile('maybe', 'best')]} />);
-    const [picked, plain] = screen.getAllByTestId('rail-region-chip');
-
-    expect(getComputedStyle(picked).color).toBe(MARGINAL);
-    expect(getComputedStyle(plain).color).toBe(MARGINAL);
-    // The underline stays with the pick — see the best-vs-also test below for why that matters.
-    expect(getComputedStyle(picked).borderBottomColor).toBe(GO_UNDERLINE);
-  });
-
-  it('paints BOTH chips green on a go tile', () => {
-    render(<WindowFirstDayRail tiles={[railTile('go', 'best')]} />);
-    const [picked, plain] = screen.getAllByTestId('rail-region-chip');
-
-    expect(getComputedStyle(picked).color).toBe(GO);
-    expect(getComputedStyle(plain).color).toBe(GO);
-    expect(getComputedStyle(picked).borderBottomColor).toBe(GO_UNDERLINE);
-  });
-
-  it('gives an Also pick the tile verdict too, not the periwinkle it carries in v1', () => {
-    // `also` is a separate rule from `best` in the pick block, so displacing one says nothing
-    // about the other. On a maybe tile the v1 hue would read as a third verdict colour entirely.
-    render(<WindowFirstDayRail tiles={[railTile('maybe', 'also')]} />);
-    const [picked] = screen.getAllByTestId('rail-region-chip');
-
-    expect(getComputedStyle(picked).color).toBe(MARGINAL);
-    expect(getComputedStyle(picked).color).not.toBe(ALSO);
-    expect(getComputedStyle(picked).borderBottomColor).toBe(ALSO_UNDERLINE);
-  });
-
-  it('still tells a Best pick from an Also pick on the SAME tile', () => {
-    // The defect this guards was introduced by the first cut of these rules and caught in review:
-    // they set `border-bottom-color` as well as `color`, displacing BOTH pick declarations. At the
-    // time, the ◎ was one unbranched glyph and `font-weight: 600` was identical in both pick rules,
-    // so colour was the ONLY channel separating the two kinds — the two chips rendered
-    // pixel-identical apart from the region name. A later pass branched the glyph itself (◎ vs ●,
-    // asserted below), closing that WCAG 1.4.1 gap; the underline colour asserted here is now a
-    // redundant secondary cue, not the sole one — kept because it still matches the Best bet / Also
-    // good card accents, not because removing it would make the two chips indistinguishable.
-    //
-    // Reachable in ordinary operation, which is why it is a defect and not a nit: `buildRailTiles`
-    // stamps `pickKind` on every peak-tier chip on every tile, while the tile's own pick flag shows
-    // just ONE pick per day and names an event rather than a region — so nothing else on the tile
-    // disambiguates them. Colour asserted as a DIFFERENCE rather than against two literals, so it
-    // keeps holding if the palette moves.
-    render(<WindowFirstDayRail tiles={[{
-      ...railTile('maybe', 'best'),
-      regions: [
-        { regionName: 'Best', shortName: 'Best', targetType: 'SUNSET', pickKind: 'best' },
-        { regionName: 'Also', shortName: 'Also', targetType: 'SUNSET', pickKind: 'also' },
-      ],
-    }]} />);
-    const [best, also] = screen.getAllByTestId('rail-region-chip');
-
-    // Same verdict — that half of the change must survive.
-    expect(getComputedStyle(best).color).toBe(MARGINAL);
-    expect(getComputedStyle(also).color).toBe(MARGINAL);
-    // …and still distinguishable without colour: a shape difference, not just the underline hue.
-    expect(best).toHaveTextContent('◎');
-    expect(best).not.toHaveTextContent('●');
-    expect(also).toHaveTextContent('●');
-    expect(also).not.toHaveTextContent('◎');
-    expect(getComputedStyle(best).borderBottomColor)
-      .not.toBe(getComputedStyle(also).borderBottomColor);
-  });
-
-  // ⚠️ These two cover a state the CURRENT builder cannot produce, and say so rather than implying
-  // otherwise. `windowFirstRail.js` defines `peak` as `entries.length === 0 ? 'poor' : …` and
-  // derives `regions` from those same entries, so a poor tile always has `regions: []`; the away
-  // branch hard-codes `regions: []` too. `WindowFirstDayRail` renders chips only under
-  // `tile.regions?.length`, so no chip can currently carry either value — the builder's own comment
-  // says as much ("a poor tile has no chips, no pick flag and no 'show on map' button").
-  //
-  // They are kept as a FALL-THROUGH GUARD, because the failure they prevent is silent: if a future
-  // builder starts emitting chips on such a tile, an unhandled `peak` sends the chip straight back
-  // to `[data-pick="best"]`'s green — a poor day wearing the brightest go-signal on the rail. The
-  // fixture reaches the state directly because the guard is the thing under test.
-  it('leaves a pick on a poor tile un-tinted rather than falling through to a pick hue', () => {
-    render(<WindowFirstDayRail tiles={[railTile('poor', 'best')]} />);
-    const [picked] = screen.getAllByTestId('rail-region-chip');
-
-    expect(getComputedStyle(picked).color).not.toBe(GO);
-    // MARGINAL, not ALSO. `.not.toBe(ALSO)` was unfalsifiable here — the fixture is `pickKind:
-    // 'best'`, so `[data-pick="also"]` never matched and that value was never a candidate. The
-    // mutation this DOES catch is `color: inherit` → `var(--color-verdict-marginal)`, which the
-    // old pair passed.
-    expect(getComputedStyle(picked).color).not.toBe(MARGINAL);
-  });
-
-  it('does the same on an away tile — the other half of the grouped selector', () => {
-    // Its own test because `poor` and `away` share one rule: with only the poor case written, the
-    // `[data-peak="away"]` half could be deleted with the suite green.
-    render(<WindowFirstDayRail tiles={[railTile('away', 'best')]} />);
-    const [picked] = screen.getAllByTestId('rail-region-chip');
-
-    expect(getComputedStyle(picked).color).not.toBe(GO);
-    expect(getComputedStyle(picked).color).not.toBe(MARGINAL);
-  });
-
-  it('keeps the ◎ mark and the bold weight, so the pick is not carried by colour alone', () => {
-    // The whole change gives up the pick's hue. That is only defensible while the two non-colour
-    // channels survive, and they come from the v1 pick rules the v2 rules deliberately override
-    // for `color` only — if a later edit collapses those rules, this fails.
-    render(<WindowFirstDayRail tiles={[railTile('maybe', 'best')]} />);
-    const [picked, plain] = screen.getAllByTestId('rail-region-chip');
-
-    expect(picked).toHaveTextContent('◎');
-    expect(plain).not.toHaveTextContent('◎');
-    expect(getComputedStyle(picked).fontWeight).toBe('600');
-    expect(getComputedStyle(plain).fontWeight).not.toBe('600');
-  });
-});
-
 describe('region chip resting colour — v1 strip is the frozen control', () => {
   it('still paints a Best chip green on a maybe pill', () => {
-    // The blast-radius guard. The rules are shared by class, so the ONLY thing keeping v1 still is
-    // that its chips do not carry `rail-region-chip`. This fails the moment that stops being true.
+    // v1 is the pilot's frozen comparison control, and this is the assertion that keeps it frozen:
+    // the pick hue is keyed to `data-pick` ALONE, which is the shape the v2 rail's own opt-in rules
+    // existed to override. Those rules went with the rail (P2, D1); this one must not move with
+    // them, because a v1 chip that changed colour would change the thing the pilot measures.
     render(<BriefingSummaryStrip pills={[v1Pill('maybe', 'best')]} />);
     const [picked] = screen.getAllByTestId('summary-region-chip');
 
@@ -285,10 +173,11 @@ describe('region chip resting colour — v1 strip is the frozen control', () => 
     expect(getComputedStyle(picked).borderBottomColor).toBe(ALSO_UNDERLINE);
   });
 
-  it('never emits the v2 opt-in class, on any peak', () => {
-    // Stated over every peak because the class is added unconditionally in the rail and would be
-    // added unconditionally here too — a single-fixture check could not distinguish "not added"
-    // from "not added on this one tile".
+  it('never emits a v2 opt-in class, on any peak', () => {
+    // Kept after the rail's retirement rather than deleted with it: the class is the mechanism any
+    // future v2 chip would use to escape these rules, and a v1 chip that started carrying one would
+    // silently take whatever the new arm's rules say. Stated over every peak because a
+    // single-fixture check could not distinguish "not added" from "not added on this one tile".
     ['go', 'maybe', 'poor'].forEach((peak) => {
       const { unmount } = render(<BriefingSummaryStrip pills={[v1Pill(peak, 'best')]} />);
       screen.getAllByTestId('summary-region-chip').forEach((chip) => {
@@ -301,8 +190,9 @@ describe('region chip resting colour — v1 strip is the frozen control', () => 
   it('still renders the unbranched ◎ for both Best and Also — the shape fix is v2-only', () => {
     // Pins the deliberate scope boundary: v1 is the frozen comparison control (see
     // shared-component-blast-radius), so the WCAG 1.4.1 colour-only gap between a Best and an Also
-    // chip is NOT fixed here. This is documented, accepted debt, not an oversight — the fix lives
-    // entirely in `WindowFirstDayRail.jsx`'s own `rn-mark`, a separate render path v1 never shares.
+    // chip is NOT fixed here. This is documented, accepted debt, not an oversight — the ◎/● shape
+    // fix lived entirely in the v2 rail's own `rn-mark`, a render path v1 never shared, and went
+    // with that component at P2.
     const { unmount: unmountBest } = render(<BriefingSummaryStrip pills={[v1Pill('maybe', 'best')]} />);
     expect(screen.getAllByTestId('summary-region-chip')[0]).toHaveTextContent('◎');
     unmountBest();
@@ -311,32 +201,5 @@ describe('region chip resting colour — v1 strip is the frozen control', () => 
     const alsoChip = screen.getAllByTestId('summary-region-chip')[0];
     expect(alsoChip).toHaveTextContent('◎');
     expect(alsoChip).not.toHaveTextContent('●');
-  });
-});
-
-describe('the opt-in itself', () => {
-  it('is present on every v2 chip and is what admits the verdict rules', () => {
-    render(<WindowFirstDayRail tiles={[railTile('maybe', 'best')]} />);
-    const chips = screen.getAllByTestId('rail-region-chip');
-
-    expect(chips).toHaveLength(2);
-    chips.forEach((chip) => {
-      expect(chip.className).toContain('summary-region-chip');
-      expect(chip.className).toContain('rail-region-chip');
-      expect(chip).toHaveAttribute('data-peak', 'maybe');
-    });
-  });
-
-  it('is load-bearing — stripping it returns the chip to the v1 green', () => {
-    // Proves the class is the mechanism rather than a decoration that happens to sit beside one.
-    // Without this, every v2 assertion above would also pass if the rules were keyed to something
-    // else entirely and v1 were quietly following along.
-    render(<WindowFirstDayRail tiles={[railTile('maybe', 'best')]} />);
-    const [picked] = screen.getAllByTestId('rail-region-chip');
-    expect(getComputedStyle(picked).color).toBe(MARGINAL);
-
-    picked.classList.remove('rail-region-chip');
-
-    expect(getComputedStyle(picked).color).toBe(GO);
   });
 });

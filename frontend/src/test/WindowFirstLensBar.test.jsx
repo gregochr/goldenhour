@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import WindowFirstLensBar from '../components/WindowFirstLensBar.jsx';
+import usePlanOrder, { PLAN_ORDER_KEY } from '../hooks/usePlanOrder.js';
 import useRatingLens from '../hooks/useRatingLens.js';
 import useReachLens from '../hooks/useReachLens.js';
 import { PLAN_REACH_KEY } from '../utils/reachLens.js';
@@ -30,14 +31,36 @@ function Lens({
 }) {
   const lens = useReachLens(todayStr, locked);
   const ratingLens = useRatingLens();
+  const orderLens = usePlanOrder();
   return (
     <WindowFirstLensBar
       lens={lens}
       ratingLens={ratingLens}
+      orderLens={orderLens}
       spotCount={spotCount}
       reachedCount={reachedCount}
       windowCount={windowCount}
     />
+  );
+}
+
+/**
+ * The ordering hook's setter behind a button that can be handed anything.
+ *
+ * <p>A harness, on the exception the standards allow and for the same reason `useReachLens`'s is
+ * there: the bar only ever offers ids the hook already recognises, so no test driving the real
+ * component can reach the write guard, and one that clicked a real chip passed with the guard
+ * deleted. This is the only route to it.
+ */
+function HookHost() {
+  const { orderId, selectOrder } = usePlanOrder();
+  return (
+    <div>
+      <span data-testid="order-id">{orderId}</span>
+      <button type="button" data-testid="order-nonsense" onClick={() => selectOrder('sideways')}>
+        set nonsense
+      </button>
+    </div>
   );
 }
 
@@ -440,5 +463,83 @@ describe('WindowFirstLensBar — the phone branch', () => {
     expect(readout).toHaveAttribute('data-variant', 'summary');
     expect(readout).toHaveClass('wf-lens-res');
     expect(readout).toHaveTextContent('45 min · weekday default · any rating · 42 of 138 spots within reach across 6 windows');
+  });
+});
+
+describe('WindowFirstLensBar — the Order control', () => {
+  const orderButtons = () => within(screen.getByTestId('window-first-lens-orders')).getAllByRole('button');
+  const pressedOrder = () => orderButtons()
+    .filter((b) => b.getAttribute('aria-pressed') === 'true')
+    .map((b) => b.textContent);
+
+  it('offers When and Best, in that order, with When pressed by default', () => {
+    // The default is the pane's own spine: chronological, which is what every other surface in the
+    // arm speaks. A stored preference is what moves it, not a first paint.
+    render(<Lens />);
+
+    expect(orderButtons().map((b) => b.textContent)).toEqual(['When', 'Best']);
+    expect(pressedOrder()).toEqual(['When']);
+  });
+
+  it('names its group from the visible caption, as the other two do', () => {
+    // WCAG 2.5.3 by construction: an `aria-label` of its own could disagree with the word on
+    // screen, and this bar's captions change with the viewport.
+    render(<Lens />);
+    expect(screen.getByTestId('window-first-lens-orders')).toHaveAccessibleName('Order');
+  });
+
+  it('moves the selection when a chip is pressed', () => {
+    render(<Lens />);
+    fireEvent.click(screen.getByRole('button', { name: 'Best' }));
+    expect(pressedOrder()).toEqual(['Best']);
+  });
+
+  it('persists the choice under its own key, as a whole-value write', () => {
+    // One key per concern, on the rule `PLAN_REACH_KEY` states at length — so an expiry policy is
+    // structural rather than a naming convention, and so nothing read–modify–writes shared storage.
+    render(<Lens />);
+    fireEvent.click(screen.getByRole('button', { name: 'Best' }));
+
+    expect(JSON.parse(localStorage.getItem(PLAN_ORDER_KEY))).toBe('best');
+    expect(localStorage.getItem(PLAN_REACH_KEY)).toBeNull();
+  });
+
+  it('restores a stored choice on mount', () => {
+    localStorage.setItem(PLAN_ORDER_KEY, JSON.stringify('best'));
+    render(<Lens />);
+    expect(pressedOrder()).toEqual(['Best']);
+  });
+
+  it('falls back to When when the stored value is not an order', () => {
+    // A half-written key, or a value from a build the user has since rolled back. The failure it
+    // guards is narrow but total: an unrecognised order would rank the pane by nothing.
+    localStorage.setItem(PLAN_ORDER_KEY, JSON.stringify('sideways'));
+    render(<Lens />);
+    expect(pressedOrder()).toEqual(['When']);
+  });
+
+  it('refuses to store a value that is not an order', () => {
+    // The WRITE guard, which the read guard alone cannot pin — the rendered value would be right
+    // either way, and only storage distinguishes the two.
+    render(<HookHost />);
+    fireEvent.click(screen.getByTestId('order-nonsense'));
+
+    expect(screen.getByTestId('order-id')).toHaveTextContent('when');
+    expect(JSON.parse(localStorage.getItem(PLAN_ORDER_KEY))).toBe('when');
+  });
+
+  it('is never locked, because it needs no per-user data to be honest', () => {
+    // Reach is a PRO control and takes the LITE treatment; the rating floor is not, and neither is
+    // this. Ordering six windows the reader can already see withholds nothing a role could not
+    // reach, which is what "breadcrumbs not paywalls" asks for.
+    render(<Lens locked />);
+    orderButtons().forEach((button) => expect(button).not.toBeDisabled());
+  });
+
+  it('takes its own accent, so it does not read as a third filter', () => {
+    // Reach and Rated remove spots; Order removes nothing. The per-axis colour rule is settled in
+    // `index.css` beside `.wf-seg-rating`; the class is the hook a rename would orphan.
+    render(<Lens />);
+    expect(screen.getByTestId('window-first-lens-orders')).toHaveClass('wf-seg-order');
   });
 });

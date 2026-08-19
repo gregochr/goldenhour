@@ -49,16 +49,24 @@ import { badgeKey, buildWindowRows } from './windowFirstRows.js';
  * touched by the confidence channel applies here for the same reason.
  */
 
-/** Kickers and labels are day-relative; the rail speaks the same three words. */
-function dayLabelFor(dateStr, todayStr, tomorrowStr) {
+/**
+ * Kickers and labels are day-relative.
+ *
+ * <p>Exported so {@code windowFirstStrip.js} names a window the same way this module does. It was
+ * private while the day rail kept its own copy; with the rail retired at P2 there are two callers
+ * and one definition, which is the right way round — a strip thumbnail and the card it opens
+ * printing different words for one date is precisely the defect a second copy produces.
+ */
+export function dayLabelFor(dateStr, todayStr, tomorrowStr) {
   if (dateStr === todayStr) return 'Today';
   if (dateStr === tomorrowStr) return 'Tomorrow';
   return new Date(`${dateStr}T12:00:00Z`)
     .toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
 }
 
-/** 'sunrise' | 'sunset' — the window's own event, lower case for use inside a phrase. */
-function eventWord(targetType) {
+/** 'sunrise' | 'sunset' — the window's own event, lower case for use inside a phrase. Exported
+ *  beside {@link dayLabelFor} and for the same reason. */
+export function eventWord(targetType) {
   return targetType === 'SUNRISE' ? 'sunrise' : 'sunset';
 }
 
@@ -120,6 +128,48 @@ export const CONFIDENCE_VERDICTS = new Set(['WORTH_IT', 'MAYBE']);
 function withinReachCount(spots, limitMinutes, minRating) {
   if (limitMinutes == null || minRating != null || spots.length === 0) return null;
   return spots.every((spot) => spot.driveMinutes != null) ? spots.length : null;
+}
+
+/**
+ * The best REGION mean in a window, over the same regions the backend's own ranking votes on.
+ *
+ * <p><b>An all-woodland region is excluded, and that exclusion is the whole of this function.</b>
+ * {@code PlanWindowProjector.rank} drops a region holding no non-canopy slot before it ranks
+ * anything, unless the entire window is canopy — and {@code BriefingRegion.meanRating} falls back
+ * to canopy slots <em>per region</em>, so an all-wood region publishes a mean derived from
+ * inverted-polarity scores. Reducing over the raw region list therefore lets a wood rated 4.8 on a
+ * misty dawn outrank a sky window at 4.2 and take rank 1, under its own header reading "Poor" and
+ * beside a thumbnail that paints no heat there at all (the field is sky-gated — `heatSpots.js`).
+ * That is the same defect P1's review caught in the field itself, one surface along.
+ *
+ * <p>The gate is the presence of a sky slot, never whether one is <em>rated</em> — the projector's
+ * rule, copied here as {@code buildWindowSpots} already copies it, and the difference is an
+ * ordinary misty sunrise: the fog that leaves every sky slot unrated is the same fog that scores
+ * the wood well.
+ *
+ * @param {?object} es the event summary
+ * @returns {?number} the best eligible region mean, or null when none carries one
+ */
+function topMeanRating(es) {
+  const regions = es?.regions || [];
+  const slots = regions.flatMap((region) => region?.slots || []);
+  // An all-canopy WINDOW keeps its woods, exactly as the projector does: there is no sky answer to
+  // prefer, and dropping every region would leave the window unrankable rather than honestly ranked
+  // on what was measured.
+  const canopyCounts = slots.length > 0 && slots.every((slot) => slot.canopy);
+  let best = null;
+  for (const region of regions) {
+    const regionSlots = region?.slots || [];
+    // A region with NO slots is kept: it carries no canopy claim either way, and the projector's
+    // own filter passes it (`r.slots().isEmpty() || …anyMatch(s -> !s.canopy())`).
+    const eligible = canopyCounts || regionSlots.length === 0
+      || regionSlots.some((slot) => !slot.canopy);
+    if (!eligible) continue;
+    const mean = region?.meanRating;
+    if (typeof mean !== 'number' || !Number.isFinite(mean)) continue;
+    if (best === null || mean > best) best = mean;
+  }
+  return best;
 }
 
 /**
@@ -224,10 +274,18 @@ export function buildWindowCards(
       // Null is "nothing in this window is rated", which is a different statement from a low one:
       // the header omits the star rather than printing a placeholder.
       bestRating: win?.bestRating ?? null,
-      // The TOP REGION's confidence, and deliberately not the rail tile's — that one aggregates the
-      // most-confident of the day's peak-tier regions across both events, so the two can legitimately
-      // disagree. The rail derives its own and renders nothing from it precisely so this is the
-      // single render site.
+      // The best of the window's REGION means, for the Order control's `Best` ranking (plan §2.12
+      // and §4.3). Deliberately a different quantity from `bestRating` above, which is one
+      // location's score: ranking six windows by a single best spot would put a window with one
+      // exceptional location above one where a whole region is good, which is the opposite of what
+      // "which window is the best bet" means. Null when nothing in the window carries a mean, and
+      // `windowFirstOrder.js` ranks those last rather than treating the absence as a zero.
+      topMeanRating: topMeanRating(es),
+      // The TOP REGION's confidence. Through P14 this was "the single render site", because the
+      // retired day rail derived a day-level tier and deliberately rendered nothing from it. That is
+      // no longer true and the change is deliberate: the heat strip reads this same field per window
+      // and feeds it to the kernel's haze through `confidenceScalar`, so the picture and the badge
+      // decay by ONE number (plan D3). Two renderings of one value, never two derivations.
       confidence: CONFIDENCE_VERDICTS.has(verdict) ? (win?.confidence ?? null) : null,
       spots,
       // The set BEFORE the reach gate, carried for P11's drill-down — which owns its own reach
@@ -279,10 +337,9 @@ export function buildWindowCards(
   });
 
   // Belt-and-braces: an Also with no surviving Best badges a runner-up to a plan nobody on screen
-  // can see. windowFirstRail.js gets the same protection structurally rather than through an
-  // explicit check — its RAIL_MAX_DAYS=4 date window is narrow enough that both picks' dates
-  // almost always fall inside it — but that protection is emergent, not a rule this file can lean
-  // on, so the invariant is enforced explicitly here. The backend's own pick pool is scoped to the
+  // can see. This explicit check is now the ONLY protection — the day rail had an emergent one (a
+  // RAIL_MAX_DAYS=4 date window narrow enough that both picks' dates almost always fell inside it)
+  // and the rail went at P2, taking it with it. It was never a rule this file could lean on. The backend's own pick pool is scoped to the
   // rendered event set (plan-verdict-consolidation-plan.md Phase 1), so this should be a no-op
   // against a fresh payload — it exists for the payload that is not fresh: an SWR-cached response
   // can sit for up to 12h, during which the window the BEST pick named can fall out of

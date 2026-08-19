@@ -87,6 +87,21 @@ export default defineConfig(({ mode }) => {
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined;
           if (id.includes('leaflet')) return 'leaflet'; // leaflet, react-leaflet(-cluster), markercluster
+          // BEFORE the `d3-` catch below, and that order is the whole rule — appended after it this
+          // never fires at all (measured at P0, which is why the plan calls it out).
+          //
+          // `d3-geo` is imported by the heat field kernel, whose only consumer is the Plan tab's
+          // heat strip. Without this rule it falls into `recharts`, and `recharts` is reached today
+          // only behind `ManageView`'s lazy() boundary — ADMIN-only. Measured both ways: with the
+          // rule the strip's chunk statically imports `geo` at 24.14 KB / 9.19 KB gzip; without it,
+          // it imports `recharts` at 396.61 KB / 115.40 KB gzip. So every v2 reader opening Plan
+          // would fetch the whole charting library for ~20 KB of projection code.
+          //
+          // `d3-array` rides along because `d3-geo` depends on it. Splitting them would put `geo`
+          // downstream of `recharts` and reintroduce the same fetch by a longer route. The cost is
+          // that recharts' own d3-array usage lands here too — measured at 3.43 KB raw / 1.33 KB
+          // gzip off the recharts chunk, paid only by whoever loads either.
+          if (id.includes('d3-geo') || id.includes('d3-array')) return 'geo';
           if (id.includes('recharts') || id.includes('d3-') || id.includes('victory-vendor')) return 'recharts';
           if (id.includes('react-dom') || id.includes('/react/') || id.includes('scheduler')) return 'react';
           return undefined;
