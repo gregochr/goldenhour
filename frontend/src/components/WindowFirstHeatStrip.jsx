@@ -9,6 +9,7 @@ import { windowCardDomId } from '../utils/windowFirstCards.js';
 import { areaSpots, beyondRegions, GLANCE_MINUTES } from '../utils/planningArea.js';
 import { RAMP_STOPS } from '../utils/scoreRamp.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
+import { movementChip, topMovers } from '../utils/movement.js';
 
 /**
  * The thumbnail frame's aspect clamps.
@@ -124,8 +125,27 @@ export function thumbAspect(fitTo) {
  * Worth it, best bet" — and every visible string on it, canvas included, is {@code aria-hidden}.
  * That is not an {@code aria-label} in disguise: the sentence is real text assembled from the same
  * fields the visible words are, in the same render, so the two cannot drift, and WCAG 2.5.3 holds
- * because it contains the visible time, the visible verdict word and "best bet" verbatim. Relying
- * on name-from-contents instead does not survive a browser — see the note at the render site.
+ * because it contains the visible time, the visible verdict word, "best bet" and (since P6) the
+ * movement magnitude verbatim. Relying on name-from-contents instead does not survive a browser —
+ * see the note at the render site.
+ *
+ * <p>The directional glyphs are deliberately NOT in the name. {@code ▲} and {@code ↓} are icons
+ * rather than words, so a speech-input user cannot utter them and 2.5.3 does not ask for them; the
+ * name spells the direction out instead. That rule predates P6 — the visible arrow and the visible
+ * weekday were already left out of it — and the movement chip follows it rather than setting one.
+ *
+ * <h2>Movement is one channel in two renderings, and neither may be the whole of it</h2>
+ *
+ * <p>Each thumbnail carries the delta of its own leading region as a chip; the line under the
+ * footer names the two biggest movers, their regions and how long ago the run was. They are not the
+ * same fact stated twice — the chip is a magnitude the eye can scan across six windows, and the
+ * line is the only place the REGION is named and the only place the age is stated. A chip alone
+ * would leave the reader with a number and no idea what moved; a line alone would put the movement
+ * on a different surface from the window it describes.
+ *
+ * <p>A null delta renders <b>nothing</b>, on both. See {@code movement.js} for why that is not the
+ * same as the flat {@code —}, and why collapsing them would light up every thumbnail on the first
+ * serve after a deploy.
  *
  * @param {object}   props
  * @param {Array}    props.cards      descriptors from {@code buildHeatStripCards}, chronological
@@ -134,10 +154,14 @@ export function thumbAspect(fitTo) {
  * @param {?Map}     [props.reachById] per-user reach, keyed by location id — framing only
  * @param {Set}      [props.openKeys] the window keys whose cards are open
  * @param {string}   props.todayStr   today's ISO date in Europe/London, for the horizon fallback
+ * @param {?string}  [props.runAge]   the last forecast run's age, already formatted by the shell
+ *                                    from {@code briefing.generatedAt} — passed rather than
+ *                                    recomputed so the strip's line and the footer's stamp can
+ *                                    never disagree by a rounding boundary
  * @param {Function} [props.onOpenWindow] opens and reveals a window's card
  */
 export default function WindowFirstHeatStrip({
-  cards, pointSets, spots, reachById, openKeys, todayStr, onOpenWindow,
+  cards, pointSets, spots, reachById, openKeys, todayStr, runAge, onOpenWindow,
 }) {
   // Framing is the ONE thing the planning area is allowed to decide about the field (planningArea's
   // own module comment): which regions are in shot. It must never become the point set — handing
@@ -147,6 +171,10 @@ export default function WindowFirstHeatStrip({
   const beyond = useMemo(() => beyondRegions(spots, reachById), [spots, reachById]);
   const fitTo = useMemo(() => bbox(framed), [framed]);
   const frameAspect = useMemo(() => thumbAspect(fitTo), [fitTo]);
+  // Only the windows that actually moved — see `topMovers`. Empty is the ordinary state on the
+  // first serve after a deploy (no previous build recorded) and whenever nothing changed, and the
+  // line is withheld entirely rather than printing an age with nothing attached to it.
+  const movers = useMemo(() => topMovers(cards), [cards]);
 
   /**
    * One paint for all six, at one size.
@@ -209,9 +237,20 @@ export default function WindowFirstHeatStrip({
         {cards.map((card) => {
           // Built once per card so the hidden sentence and the visible words cannot be assembled
           // from different values. The comma-separated form is what a screen reader pauses on.
+          // The chip is inside the `aria-hidden` top row and its mark is a glyph, so without this
+          // clause the movement channel would exist for sighted readers only. Spelled out ("up 0.6
+          // since the last forecast run") rather than transliterated, for the same reason the
+          // region band's dots spell out their direction glyph.
+          const chip = movementChip(card.movement?.delta);
+          // The REGION is named here and nowhere else on the thumbnail. The chip is the only
+          // region-grain figure on a cell whose every other element (time, verdict, best bet) is
+          // window-grain, and the change line names only the top two movers — so without this a
+          // reader who cannot see the change line has a number attributable to nothing. Sighted
+          // readers get the same answer from the change line for the two that matter most.
           const accessibleName = [card.label, card.time, card.verdictLabel]
             .filter(Boolean)
             .concat(card.bestBet ? ['best bet'] : [])
+            .concat(chip ? [`${card.movement.regionName} ${chip.spoken}`] : [])
             .join(', ');
           const nameId = `wf-heat-name-${card.key.replace(/:/g, '-')}`;
           const body = (
@@ -220,7 +259,7 @@ export default function WindowFirstHeatStrip({
                   one `sr-only` sentence below. That is deliberate and it is not an `aria-label` in
                   disguise — the sentence is real text built from the same fields in the same render,
                   so the two cannot drift, and WCAG 2.5.3 holds because it contains the visible time,
-                  the visible verdict word and "best bet" verbatim.
+                  the visible verdict word, "best bet" and the movement magnitude verbatim.
 
                   The alternative — name-from-contents over the visible spans — does not survive
                   contact with a browser. `.wf-hc` and `.wf-hc-bot` are flex containers, and CSS
@@ -233,6 +272,19 @@ export default function WindowFirstHeatStrip({
               <span id={nameId} className="sr-only">{accessibleName}</span>
               <span className="wf-hc-top" aria-hidden="true">
                 <span className="wf-hc-dow">{card.dow}</span>
+                {/* Unpadded vertically and at the row's own 9px, on purpose: `.wf-hc-flag` is
+                    absolutely positioned at a MEASURED `top: 22px` clearing this row, and a chip
+                    that grew the line box would slide the flag over the canvas with nothing
+                    failing. The stylesheet's own note at that rule records the pair. */}
+                {chip && (
+                  <span
+                    data-testid="wf-heat-move"
+                    className="wf-hc-mv"
+                    data-tone={chip.tone}
+                  >
+                    {chip.mark}
+                  </span>
+                )}
                 <span className="wf-hc-ar">
                   {card.away ? '✈' : (card.sunrise ? '↑' : '↓')}
                 </span>
@@ -323,6 +375,68 @@ export default function WindowFirstHeatStrip({
         </span>
       </div>
 
+      {/* Under the footer and above the beyond line: it is a statement about the whole strip, so it
+          sits with the legend that decodes the strip rather than among the window rows — and the
+          beyond line stays last, because that one is the tail about what is NOT drawn.
+
+          ⚠️ THE VERB IS "MOVED AT", NEVER "SINCE", and the two are not interchangeable here.
+          The delta's basis is the build BEFORE the one whose age this line prints — the interval
+          measured is [previous build → now], while `generatedAt` names the LAST build. "Since the
+          last forecast run 52m ago" (the plan's own sample copy) therefore claims the one interval
+          in which almost none of the movement happened: with builds ~11h apart, a reader at 14:52
+          would be told a ten-hour change occurred in fifty-two minutes. "Moved at" attributes the
+          change to the run rather than to the period after it, which is true of the run-to-run
+          component and honest about the rest.
+
+          The age stays `generatedAt` (not the served `previousGeneratedAt`) because it is the
+          stamp the shell footer already prints, and two different ages for one forecast on one
+          screen is its own defect. The residual caveat is on the field itself
+          (`BriefingRegion.meanRatingDelta`): the current side is re-derived at serve time, so the
+          quantity includes post-build batch drift as well as run-to-run change. */}
+      {movers.length > 0 && (
+        <p data-testid="wf-heat-change" className="wf-hstrip-change">
+          {runAge
+            ? `Moved at the last forecast run, ${runAge}`
+            : 'Moved at the last forecast run'}
+          {movers.map((mover) => (
+            <span key={mover.key} data-testid="wf-heat-change-item">
+              {/* ⚠️ THE SEPARATOR AND THE REGION SIT OUTSIDE THE `nowrap` ATOM, and that is a
+                  reflow fix rather than a preference. With `white-space: nowrap` on the whole item
+                  the clause was ONE unbreakable run — JSX strips the whitespace-only lines between
+                  array elements, so the last break opportunity in the paragraph was the space
+                  before the run age, and a 25-character region name (the arm's own
+                  "Northumberland & Tyneside") put ~328px of unbreakable text into a 315px line at
+                  375px. That is a horizontal page scroller, which is exactly what `.wf-hstrip`'s
+                  own comment says the strip exists not to be. Only `label ▲0.6` may not break.
+
+                  The middle dot is `aria-hidden` with a real comma beside it: NVDA, JAWS and
+                  VoiceOver do not speak `·` at default punctuation levels and do not pause on it,
+                  so without the comma the clauses fuse into one run-on — while this file's own
+                  accessible-name rule is that "the comma-separated form is what a screen reader
+                  pauses on". */}
+              <span aria-hidden="true">{' · '}</span>
+              <span className="sr-only">{', '}</span>
+              <span className="wf-hstrip-chg">
+                {mover.label}
+                {' '}
+                {/* The glyph carries the direction visually and is unreadable aloud, so it is
+                    hidden and the words beside it say the same thing — the treatment the region
+                    band's direction dots already use. */}
+                <b
+                  data-testid="wf-heat-change-mark"
+                  data-tone={mover.chip.tone}
+                  aria-hidden="true"
+                >
+                  {mover.chip.mark}
+                </b>
+              </span>
+              <span className="sr-only">{` ${mover.chip.shortSpoken}`}</span>
+              {` in ${mover.regionName}`}
+            </span>
+          ))}
+        </p>
+      )}
+
       {/* Named, never counted, and only where a drive was actually measured: `beyondRegions`
           withholds an unmeasured region precisely so this line cannot claim a distance nobody
           computed. The search link that would let a reader plan from one arrives with P7; until
@@ -349,11 +463,16 @@ WindowFirstHeatStrip.propTypes = {
     bestBet: PropTypes.bool,
     away: PropTypes.bool,
     confidence: PropTypes.string,
+    movement: PropTypes.shape({
+      regionName: PropTypes.string,
+      delta: PropTypes.number,
+    }),
   })).isRequired,
   pointSets: PropTypes.instanceOf(Map),
   spots: PropTypes.array.isRequired,
   reachById: PropTypes.instanceOf(Map),
   openKeys: PropTypes.instanceOf(Set),
   todayStr: PropTypes.string,
+  runAge: PropTypes.string,
   onOpenWindow: PropTypes.func,
 };

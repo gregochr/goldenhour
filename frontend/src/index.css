@@ -1294,9 +1294,16 @@ button.wf-hc:focus-visible {
 
    ⚠️ The clearance is a CONSTANT, not a layout — the flag is `position: absolute`, so `top` is
    measured rather than derived. 22px = the card's 6px top padding + the top row's line box (9px
-   mono × ~1.5) ≈ 19.5px, rounded up. P6's chip is padded type in that same row and will make it
-   taller, so P6 must either re-measure this pair or make the flag a second flex row. Recorded here
-   because a silent overlap is exactly what the "below the top row" rule exists to prevent. */
+   mono × ~1.5) ≈ 19.5px, rounded up.
+
+   ⚠️ P6 SHIPPED AND THIS PAIR IS RESOLVED — do not re-open it. The prediction above was that P6's
+   chip would be padded type in this row and would make it taller; P6 took a third route and
+   constrained the chip instead (`.wf-hc-mv` below: the row's own 9px, `line-height: 1`, no vertical
+   padding). `.wf-hc-top` is `align-items: baseline`, so the flex line's cross size is
+   `max(above baseline) + max(below baseline)` over its children — 10.125 + 3.375 = 13.5px from the
+   two 9px/1.5 siblings, and the chip is strictly smaller on BOTH sides of the baseline, so it
+   cannot be the max on either. The row is unchanged and 22px still clears it. Any FOURTH child of
+   this row must satisfy the same test. */
 .wf-hc-flag {
   position: absolute;
   top: 22px;
@@ -1332,6 +1339,69 @@ button.wf-hc:focus-visible {
 .wf-hstrip-sp {
   margin-left: auto;
 }
+/* ── Movement (heat-field plan §4.7) ─────────────────────────────────────────────────────────
+   The chip on a thumbnail's top row, and the change line under the footer. One channel, two
+   renderings; `movement.js` owns the vocabulary and the three states.
+
+   ⚠️ THE CHIP MUST NOT GROW THE TOP ROW'S LINE BOX. `.wf-hc-flag` sits at an absolutely-positioned,
+   MEASURED `top: 22px` chosen to clear that row, and its own note above predicted this chip. So:
+   the row's own 9px mono, no vertical padding, and `line-height: 1` — measured in the browser at
+   1280 and 390, the row's height is unchanged with a chip present and the flag still clears it.
+   Give this rule vertical padding and the flag slides over the canvas with nothing failing.
+
+   The LIFTED badge variants, never the `--color-verdict-*` fills, for the reason the verdict word
+   two rules up records: this is 9px type and the fills do not carry at that size. Measured on the
+   panel: `--color-badge-go` 9.50:1 and `--color-badge-poor` 7.05:1; on the open thumbnail's gold
+   wash 8.21:1 and 6.09:1. The flat mark takes secondary (6.88:1) — it is the absence of a
+   direction, so it must not borrow either direction's hue. */
+.wf-hc-mv {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1;
+  padding: 0;
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-plex-text-secondary);
+}
+.wf-hc-mv[data-tone="up"] { color: var(--color-badge-go); }
+.wf-hc-mv[data-tone="down"] { color: var(--color-badge-poor); }
+/* The change line. Prose, so it takes secondary ink at 10px for the reason the beyond line below
+   it does — and it sits between the footer and that line because it is a statement about the whole
+   strip while the beyond line is the tail about what is not drawn.
+
+   ⚠️ The ratio is 7.06:1 on the FRAME (`--color-plex-bg`), not 6.88:1 on the panel:
+   `.wf-hstrip-block` sets no background, so this element sits on the page ground. The beyond line's
+   own note four rules down states both figures and is the one to copy. */
+.wf-hstrip-change {
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--color-plex-text-secondary);
+}
+/* ⚠️ SCOPED TO THE ATOM, never to the whole clause. This holds `Wednesday sunrise ▲0.6` together;
+   the separator before it and the ` in <region>` after it are ordinary prose OUTSIDE this span, so
+   the paragraph can break between movers and before a region name. Applied to the whole item it
+   made the line one unbreakable ~328px run at 375px inside a 315px column — a horizontal page
+   scroller, which `.wf-hstrip`'s own comment says the strip exists not to be. */
+.wf-hstrip-chg {
+  white-space: nowrap;
+}
+/* The two paragraphs under the footer are typographically identical, and at `line-height: 1.5` on
+   10px type the leading INSIDE either one is ~5px — so a 4px gap between them made the paragraph
+   boundary the tightest gap on screen, and a wrapped beyond line read as a continuation of the
+   movement sentence. They are different kinds of claim (what moved vs what is out of reach), so
+   the boundary has to be the loosest gap in the stack rather than the tightest. */
+.wf-hstrip-change + .wf-hstrip-beyond {
+  margin-top: 9px;
+}
+.wf-hstrip-change b {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.wf-hstrip-change b[data-tone="up"] { color: var(--color-badge-go); }
+.wf-hstrip-change b[data-tone="down"] { color: var(--color-badge-poor); }
 /* Named regions only. ⚠️ NOT the design's 34% bone (`.chgline.beyond`, `Plan Tab with Heat.html`):
    that measures 2.75:1 at 10px and this is prose — region names, and until P7 the only thing the
    strip says about coverage outside the glance. The mock is not a contrast authority, which is why
@@ -1604,6 +1674,18 @@ button.wf-hc:focus-visible {
   font-weight: 600;
   color: var(--color-plex-text);
 }
+/* The movement figure's value takes the direction's hue where the other figures take plain ink.
+   At 13.5px the FULL-strength verdict fills would carry (this is not the strip's 9px type) — the
+   lifted variants are used anyway, so that one movement vocabulary exists across the arm and a
+   reader moving between the thumbnail chip and the band is not shown two greens for one claim.
+
+   ⚠️ Measured against `.wf-rband`'s OWN surface, not the bare panel: the band sets
+   `background: rgba(255, 255, 255, 0.022)`, which composites lighter and lowers every ratio in it.
+   go 9.01:1, poor 6.69:1 — both still clear AA at 13.5px bold with room to spare, but the panel
+   figures (9.50 / 7.05) are the wrong surface and would flatter a later darkening of this hue. The
+   flat mark keeps plain ink. */
+.wf-rband-fig b[data-tone="up"] { color: var(--color-badge-go); }
+.wf-rband-fig b[data-tone="down"] { color: var(--color-badge-poor); }
 .wf-rband-right {
   grid-column: 2;
   grid-row: 1 / span 3;

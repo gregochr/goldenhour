@@ -93,6 +93,7 @@ public class BriefingService {
     private final java.time.Clock clock;
     private final MarineWaveRefreshService marineWaveRefreshService;
     private final WindowTideRollupBuilder windowTideRollupBuilder;
+    private final BriefingRegionSnapshotService regionSnapshotService;
 
     /** UK civil-date zone for "today" derivation. */
     private static final ZoneId LONDON = ZoneId.of("Europe/London");
@@ -173,6 +174,8 @@ public class BriefingService {
      * @param clock                      UTC clock supplying "now" and (via London) "today"
      * @param marineWaveRefreshService   fetches + persists coastal sea-state each briefing cycle
      * @param windowTideRollupBuilder    derives the Plan tab's per-window tide rollup at serve time
+     * @param regionSnapshotService      records what each build displayed, and reads the previous
+     *                                   build back so the Plan strip can show which way it moved
      */
     public BriefingService(LocationService locationService,
             OpenMeteoClient openMeteoClient,
@@ -196,7 +199,8 @@ public class BriefingService {
             SurgeCurveService surgeCurveService,
             java.time.Clock clock,
             MarineWaveRefreshService marineWaveRefreshService,
-            WindowTideRollupBuilder windowTideRollupBuilder) {
+            WindowTideRollupBuilder windowTideRollupBuilder,
+            BriefingRegionSnapshotService regionSnapshotService) {
         this.locationService = locationService;
         this.openMeteoClient = openMeteoClient;
         this.jobRunService = jobRunService;
@@ -222,6 +226,7 @@ public class BriefingService {
         this.clock = clock;
         this.marineWaveRefreshService = marineWaveRefreshService;
         this.windowTideRollupBuilder = windowTideRollupBuilder;
+        this.regionSnapshotService = regionSnapshotService;
     }
 
     /**
@@ -327,7 +332,17 @@ public class BriefingService {
         // The fallback still runs on the ENRICHED response, so its FAILED test and the filter's
         // coverage test both read current state. Nothing else about it is order-sensitive: it
         // reads only bestBetStatus and passes the day hierarchy through untouched.
-        DailyBriefingResponse filtered = getServedBriefing();
+        // Movement is attached HERE and not inside getServedBriefing, and the distinction is the
+        // same one that method's own javadoc twenty lines up was written to make: CloseToHomeService
+        // shares that accessor and reads slots and bestBets only, so a movement step inside it would
+        // cost /api/user/settings/reach two queries and a full rebuild of the day hierarchy for a
+        // field it discards — the exact "paid twice per page, one copy thrown away" pattern the
+        // projection was moved out here to stop. Nothing renders a delta except the Plan tab, and
+        // this is the Plan tab's payload.
+        //
+        // Before the projector, deliberately: the projector is the outermost step and rebuilds the
+        // response through withPlan, which carries previousGeneratedAt and every region untouched.
+        DailyBriefingResponse filtered = attachMovement(getServedBriefing());
         // The tide rollup is derived here rather than inside the projector so the projector stays a
         // pure function of the response: it needs three repositories, and the projector has none.
         // It is fed the FILTERED days for one reason only — the same day list the windows are
@@ -373,6 +388,70 @@ public class BriefingService {
         return BriefingHonestyFilter.apply(
                 applyBestBetFallback(reEnrichVerdicts(getCachedBriefing())),
                 minCoverageRatio);
+    }
+
+    /**
+     * Attaches each region's movement since the previous briefing build, and names that build.
+     *
+     * <p>A sibling step beside {@link #enrichWithCachedScores} rather than a clause inside it,
+     * because the two run on different paths for different reasons. Enrichment runs on the build
+     * path as well, and a delta computed there would be persisted into
+     * {@code daily_briefing_cache} — where it would be a frozen figure measured against a build
+     * that is by then two behind, re-served for hours. Movement is a serve-time quantity only.
+     *
+     * <p><b>After {@link BriefingHonestyFilter}.</b> The filter blanks a zero-coverage region by
+     * rewriting it with a null {@code meanRating}, so running afterwards means a blanked region can
+     * never acquire a delta — no null check about it is needed here, and none can be forgotten.
+     * Running before would also have handed the filter's positional rewrite a field to drop
+     * silently.
+     *
+     * <p><b>Its cost is two indexed queries per Plan-tab serve, and the try/catch is what makes it
+     * safe.</b> {@code previousBuild} throws rather than swallowing — see its own javadoc for why a
+     * catch inside a transactional method cannot work — so the isolation is here, outside the bean
+     * boundary, exactly as {@link #recordRegionSnapshots} does on the write side. Every failure
+     * mode (no snapshot rows, no earlier build, a repository error) then resolves to no delta
+     * anywhere, which the frontend renders as nothing at all.
+     *
+     * @param response the honesty-filtered response (may be {@code null})
+     * @return a copy carrying per-region deltas and the basis they were measured against
+     */
+    private DailyBriefingResponse attachMovement(DailyBriefingResponse response) {
+        if (response == null || response.days().isEmpty()) {
+            return response;
+        }
+        BriefingRegionSnapshotService.PreviousBuild previous;
+        try {
+            previous = regionSnapshotService.previousBuild(response.generatedAt());
+        } catch (Exception e) {
+            LOG.warn("Movement lookup failed — the Plan tab renders no movement this serve: {}",
+                    e.getMessage());
+            return response;
+        }
+        if (previous.isEmpty()) {
+            // No basis: publish neither deltas nor a stamp. A `previousGeneratedAt` with no delta
+            // behind it would name a comparison the payload does not contain.
+            return response;
+        }
+        List<BriefingDay> withMovement = new ArrayList<>(response.days().size());
+        for (BriefingDay day : response.days()) {
+            List<BriefingEventSummary> events = new ArrayList<>(day.eventSummaries().size());
+            for (BriefingEventSummary es : day.eventSummaries()) {
+                List<BriefingRegion> regions = es.regions().stream()
+                        .map(region -> region.withMeanRatingDelta(
+                                BriefingRegionSnapshotService.delta(
+                                        region.meanRating(),
+                                        previous.meanByKey().get(BriefingRegionSnapshotService.key(
+                                                region.regionName(), day.date(),
+                                                es.targetType().name())))))
+                        .toList();
+                events.add(es.withRegions(regions));
+            }
+            // The WITHER, never `new BriefingDay(date, events)`: that form defaults `peak` away,
+            // and it is safe here only because the sole producer of a peak runs strictly after this
+            // step. The two-arg constructor's own javadoc names this as the trap it exists to avoid.
+            withMovement.add(day.withEventSummaries(events));
+        }
+        return response.withMovement(withMovement, previous.generatedAt());
     }
 
     /**
@@ -636,6 +715,7 @@ public class BriefingService {
             cache.set(response);
             lastKnownGood.set(response);
             persistBriefing(response);
+            recordRegionSnapshots(response);
             eventPublisher.publishEvent(new BriefingRefreshedEvent(this));
             jobRunService.completeRun(jobRun, succeeded, failed, dates);
             LOG.info("Briefing complete: {}/{} succeeded, {} failed, stale=false, circuit={}, duration={}ms",
@@ -659,6 +739,12 @@ public class BriefingService {
                         bestBetAdvisor.getModelDisplayName(), hotTopics, seasonalFeatures,
                         bestBetStatus);
                 cache.set(response);
+                // Snapshotted like the healthy branch, and deliberately: this partial response IS
+                // what gets served, so it is what the next run's movement must be measured
+                // against. The stale branch above is NOT snapshotted — it re-serves the previous
+                // build's own days under that build's own stamp, so writing rows for it would
+                // record one build twice and make the next delta read zero.
+                recordRegionSnapshots(response);
                 LOG.warn("Briefing complete: {}/{} succeeded, {} failed — below threshold, "
                         + "no LKG; using partial, circuit={}, duration={}ms",
                         succeeded, total, failed, circuit, totalMs);
@@ -675,6 +761,30 @@ public class BriefingService {
             return circuitBreakerRegistry.circuitBreaker("open-meteo-briefing").getState().name();
         } catch (Exception e) {
             return "UNKNOWN";
+        }
+    }
+
+    /**
+     * Records what this build displayed per region, so the next serve can say which way it moved.
+     *
+     * <p>Isolated like the NLC, meteor and surge refreshes above, and for the same reason: an
+     * optional enrichment sink must never abort a briefing cycle or leave its job run dangling. A
+     * failure here costs the movement chip until the next build, nothing else — and the frontend
+     * renders a null delta as silence, so there is no degraded state to explain.
+     *
+     * <p><b>After enrichment, and from the response's own days.</b> The rows must hold the
+     * {@code meanRating} the payload publishes, not a number recomputed here: the chip is printed
+     * beside that star, and a movement figure that cannot be reconciled with the number it
+     * qualifies is worse than none.
+     *
+     * @param response the response just cached
+     */
+    private void recordRegionSnapshots(DailyBriefingResponse response) {
+        try {
+            regionSnapshotService.record(response.generatedAt(), response.days());
+        } catch (Exception e) {
+            LOG.warn("Region snapshot write failed — the Plan strip shows no movement until the "
+                    + "next build: {}", e.getMessage());
         }
     }
 

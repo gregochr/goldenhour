@@ -43,6 +43,23 @@ public record BriefingDay(
     }
 
     /**
+     * Returns a copy carrying the given event summaries, leaving date and peak untouched.
+     *
+     * <p>A wither for the reason the two-arg constructor's own note gives: a positional rebuild is
+     * how a later component gets silently dropped. Any serve-time step that rewrites the events —
+     * {@code BriefingService.attachMovement} is the first — must use this rather than
+     * {@code new BriefingDay(date, events)}, which is safe today only because the one producer of
+     * {@code peak} runs strictly after it, and stops being safe the moment that ordering changes or
+     * a fourth component lands here.
+     *
+     * @param newEventSummaries the rewritten per-event summaries
+     * @return a copy carrying them
+     */
+    public BriefingDay withEventSummaries(List<BriefingEventSummary> newEventSummaries) {
+        return new BriefingDay(date, newEventSummaries, peak);
+    }
+
+    /**
      * Returns a copy carrying the given peak, leaving date and summaries untouched.
      *
      * @param newPeak the day's rendered-event roll-up, or null when the day is not rendered

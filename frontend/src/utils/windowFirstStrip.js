@@ -54,7 +54,7 @@ export const AWAY_STATE_LABEL = 'Not forecast';
  * @param {string} tomorrowStr    tomorrow's ISO date in Europe/London
  * @returns {Array<{key: string, date: string, targetType: string, dow: string, sunrise: boolean,
  *   label: string, time: string, verdict: ?string, verdictLabel: string, bestBet: boolean,
- *   away: boolean, confidence: ?string}>} thumbnail descriptors
+ *   away: boolean, confidence: ?string, movement: ?object}>} thumbnail descriptors
  */
 export function buildHeatStripCards(
   upcomingEvents, windowCards, travelDayDates, briefingDays, todayStr, tomorrowStr,
@@ -98,6 +98,17 @@ export function buildHeatStripCards(
       // Feeds the kernel's haze through `confidenceScalar`, so the picture and the card's badge
       // decay by the same number (plan D3).
       confidence: card?.confidence ?? null,
+      // Folded from the card like everything else here, never re-derived: the card already picked
+      // this window's leading region to rank it, and picking one again would give the thumbnail's
+      // chip and the card's own order two chances to name different regions.
+      //
+      // Suppressed on an away day — the pipeline skips evaluation there, so a build that wrote a
+      // snapshot for it wrote nothing to move, and a chip would state a change on a night nobody
+      // forecast. This is the same rule the verdict and the Best-bet flag already follow one line
+      // up, and it is not merely defensive: `buildWindowCards` drops away days, so `card` is null
+      // and the fold would resolve to null anyway — stating it keeps the reason where a future
+      // away-day card would land.
+      movement: away ? null : (card?.movement ?? null),
     };
   });
 }

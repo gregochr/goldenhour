@@ -135,6 +135,28 @@ describe('buildRegionRows — the served figures', () => {
     expect(rows[0].meanRating).toBeNull();
   });
 
+  it('copies the served movement through, including a MEASURED zero', () => {
+    // The client has no previous build to subtract from and could not reconstruct one — the
+    // comparand is a mean over the backend's voting-slot rule, from a payload since overwritten.
+    // The zero must survive: the band draws `—` for it and nothing at all for null.
+    const es = { regions: [region({ meanRatingDelta: 0 })] };
+    expect(buildRegionRows(es, [], [], {})[0].meanRatingDelta).toBe(0);
+  });
+
+  it('copies a non-zero movement through with its sign', () => {
+    // Without this the zero case above is satisfied by `region.meanRatingDelta === 0 ? 0 : null`,
+    // which drops every real delta and leaves the band showing `—` on regions that moved.
+    const es = { regions: [region({ meanRatingDelta: -0.4 })] };
+    expect(buildRegionRows(es, [], [], {})[0].meanRatingDelta).toBe(-0.4);
+  });
+
+  it('reads a missing movement as null rather than coercing it to zero', () => {
+    // A zero here would put a `—` on every region of every legacy payload, claiming a stillness
+    // nobody measured.
+    const es = { regions: [region({ meanRatingDelta: undefined })] };
+    expect(buildRegionRows(es, [], [], {})[0].meanRatingDelta).toBeNull();
+  });
+
   it('takes the verdict word from displayVerdict, and Awaiting where there is none', () => {
     const es = {
       regions: [

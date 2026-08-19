@@ -179,6 +179,34 @@ describe('buildHeatStripCards — the away day, which has no card', () => {
   });
 });
 
+describe('buildHeatStripCards — movement', () => {
+  const events = [{ date: TODAY, targetType: 'SUNSET' }];
+
+  it('folds the card\'s movement through untouched, rather than re-deriving it', () => {
+    // The card already picked this window's leading region to rank it. Deriving it a second time
+    // here would give the thumbnail's chip and the card's own order two chances to name different
+    // regions on one screen — the class of divergence this whole module exists to prevent.
+    const movement = { regionName: 'Cumbria', delta: -0.4 };
+
+    expect(build(events, [card({ movement })])[0].movement).toBe(movement);
+  });
+
+  it('is null when the card carries none', () => {
+    expect(build(events, [card()])[0].movement).toBeNull();
+  });
+
+  it('suppresses movement on an AWAY day', () => {
+    // A travel day is not evaluated, so there is nothing on it that could have moved. A chip there
+    // would state a change on a night nobody forecast — the same rule that already strips the
+    // verdict word and the Best-bet flag from an away thumbnail.
+    const away = build(events, [card({ movement: { regionName: 'Cumbria', delta: 0.6 } })],
+      new Set([TODAY]))[0];
+
+    expect(away.away).toBe(true);
+    expect(away.movement).toBeNull();
+  });
+});
+
 describe('buildHeatStripCards — absence', () => {
   it('returns an empty list for no events, rather than undefined', () => {
     expect(build([], [])).toEqual([]);
