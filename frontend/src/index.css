@@ -1001,8 +1001,29 @@
      in the same media query that stacks the bar, below. */
   --wf-lens-reserve: 60px;
 }
+/* ⚠️ SAFE AREAS ARE NOT HANDLED, and a `calc(env(safe-area-inset-top, 0px) + 16px)` here would not
+   handle them — it was written that way first and is wrong twice over. `env(safe-area-*)` resolves
+   to 0 unless the document opts in with `viewport-fit=cover`, which `index.html` does not; and this
+   is not the element that touches the top of the document anyway. `App.jsx` wraps the v2 arm in
+   `<main className="px-4 py-6">`, so the band already starts 24px down. On a notched phone with the
+   opt-in added, an inset term here would push the wordmark to 24 + 59 + 14 = 97px and leave the
+   notch strip painted in page colour rather than in the band. The inset belongs on the outermost
+   element, and the opt-in is an app-wide change every edge-anchored element in both arms would have
+   to answer for — so it is deliberately not made here, and not faked here either.
+
+   The lit band. Two things here are not decoration.
+
+   The vertical gradient gives the masthead a surface of its own, so the wordmark, the light rule
+   and the time row read as one object rather than as three things floating above the page. The
+   values are the handoff's, and both sit above `--color-plex-bg` (#181210) — the band lifts off
+   the page rather than cutting into it.
+
+   The bottom padding is ZERO on purpose: the time row inside supplies it (and the nudge, in the
+   empty state, supplies more). Putting it back here double-spaces the band under whichever row is
+   showing, which is the failure mode the design's own `16px 28px 0` is written to avoid. */
 .wf-mast {
-  padding: 16px var(--wf-gutter) 14px;
+  padding: 16px var(--wf-gutter) 0;
+  background: linear-gradient(180deg, #241B16 0%, #1B1411 100%);
 }
 .wf-railfoot {
   font-size: 10px;
@@ -1084,7 +1105,7 @@
        reservation exists to prevent. */
     --wf-lens-reserve: 158px;
   }
-  .wf-mast { padding: 13px var(--wf-gutter) 12px; }
+  .wf-mast { padding: 14px var(--wf-gutter) 0; }
   /* Restates the 4px. A `padding` shorthand ending in `0` is exactly how this file has twice
      zeroed a focus-ring reservation while its paired negative margin still applied. */
   .wf-tabs { padding: 10px var(--wf-gutter) 4px; }

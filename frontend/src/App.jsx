@@ -23,6 +23,7 @@ import { useHealthStatus } from './hooks/useHealthStatus.js';
 import { useRunNotifications } from './hooks/useRunNotifications.js';
 import useAfterFirstPaint from './hooks/useAfterFirstPaint.js';
 import usePlanLayout, { PLAN_V1, PLAN_V2 } from './hooks/usePlanLayout.js';
+import useTodaysLight from './hooks/useTodaysLight.js';
 import WindowFirstShell from './components/WindowFirstShell.jsx';
 import PlanLayoutErrorBoundary from './components/PlanLayoutErrorBoundary.jsx';
 import { WindowFirstBriefingProvider } from './context/WindowFirstBriefingContext.jsx';
@@ -161,6 +162,16 @@ function AppInner() {
   // change. A counter rather than the values themselves: the panel depends on server-side state
   // this component never sees.
   const [homeSettingsVersion, setHomeSettingsVersion] = useState(0);
+  /**
+   * Today's light at the reader's home, for the window-first masthead's light rule.
+   *
+   * <p>Resolved here rather than inside the shell so the shell stays a render layer, and gated on
+   * the arm because only that arm has a band to draw it in — a hook cannot be called conditionally,
+   * so the flag goes in as an argument. `homeSettingsVersion` is the same counter Close to home
+   * already refetches on, so saving a postcode lights the rule without a reload.
+   */
+  const todaysLight = useTodaysLight(planLayout === PLAN_V2, homeSettingsVersion);
+
   const loadHomeCoords = useCallback(() => {
     getSettings()
       .then((s) => {
@@ -503,6 +514,11 @@ function AppInner() {
                 onExit={() => setPlanLayout(PLAN_V1)}
                 onOpenSettings={() => setShowSettings(true)}
                 onSignOut={logout}
+                light={todaysLight}
+                // The band's nudge exists to get a postcode saved, so it lands ON that field
+                // rather than on the settings screen in general — the same handler the map's
+                // "you have no postcode" branch uses.
+                onSetPostcode={() => setSettingsFocus('postcode')}
                 contentDisabled={isDown}
                 onShowOnMap={handleShowOnMap}
                 // The same admin gate the Operations pane uses, and for the same reason: the role

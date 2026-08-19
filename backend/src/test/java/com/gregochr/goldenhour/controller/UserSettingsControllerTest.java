@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.model.DriveTimeRefreshResponse;
 import com.gregochr.goldenhour.model.PostcodeLookupResult;
 import com.gregochr.goldenhour.model.ReachEntry;
+import com.gregochr.goldenhour.model.TodaysLightResponse;
 import com.gregochr.goldenhour.model.UserSettingsResponse;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -186,5 +187,44 @@ class UserSettingsControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$[0].locationId").value(1))
                 .andExpect(jsonPath("$[0].driveMinutes").doesNotExist())
                 .andExpect(jsonPath("$[0].distanceMiles").doesNotExist());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/user/settings/light returns the labelled row and the gradient stops")
+    void getTodaysLight_returnsTheDaysLight() throws Exception {
+        when(todaysLightService.getTodaysLight(any())).thenReturn(new TodaysLightResponse(
+                "Home · NE66 1NG", "NE66 1NG", "05:32", "06:04", "19:58", "20:31",
+                List.of(new TodaysLightResponse.Stop("NIGHT_START", 0),
+                        new TodaysLightResponse.Stop("SUNRISE", 25.28),
+                        new TodaysLightResponse.Stop("NIGHT_END", 100))));
+
+        mockMvc.perform(get("/api/user/settings/light"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.label").value("Home · NE66 1NG"))
+                .andExpect(jsonPath("$.sunrise").value("06:04"))
+                .andExpect(jsonPath("$.civilDusk").value("20:31"))
+                .andExpect(jsonPath("$.stops.length()").value(3))
+                .andExpect(jsonPath("$.stops[1].key").value("SUNRISE"))
+                .andExpect(jsonPath("$.stops[1].position").value(25.28));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/user/settings/light is 204 with no postcode saved, not an error")
+    void getTodaysLight_noHome_returns204() throws Exception {
+        // The masthead's empty state — a dim rule and a nudge. A 4xx here would make the first-run
+        // state read as a fault in the console of every new user.
+        when(todaysLightService.getTodaysLight(any())).thenReturn(null);
+
+        mockMvc.perform(get("/api/user/settings/light"))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @DisplayName("GET /api/user/settings/light returns 401 without authentication")
+    void getTodaysLight_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(get("/api/user/settings/light"))
+                .andExpect(status().isUnauthorized());
     }
 }

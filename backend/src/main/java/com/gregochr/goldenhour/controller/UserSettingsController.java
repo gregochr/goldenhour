@@ -4,11 +4,14 @@ import com.gregochr.goldenhour.model.DriveTimeRefreshResponse;
 import com.gregochr.goldenhour.model.PostcodeLookupRequest;
 import com.gregochr.goldenhour.model.PostcodeLookupResult;
 import com.gregochr.goldenhour.model.SaveHomeRequest;
+import com.gregochr.goldenhour.model.TodaysLightResponse;
 import com.gregochr.goldenhour.model.UserSettingsResponse;
 import com.gregochr.goldenhour.service.DriveTimeResolver;
 import com.gregochr.goldenhour.model.ReachEntry;
 import com.gregochr.goldenhour.service.ReachService;
+import com.gregochr.goldenhour.service.TodaysLightService;
 import com.gregochr.goldenhour.service.UserSettingsService;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -32,6 +35,7 @@ public class UserSettingsController {
     private final UserSettingsService settingsService;
     private final DriveTimeResolver driveTimeResolver;
     private final ReachService reachService;
+    private final TodaysLightService todaysLightService;
 
     /**
      * Constructs a {@code UserSettingsController}.
@@ -39,13 +43,16 @@ public class UserSettingsController {
      * @param settingsService    the user settings service
      * @param driveTimeResolver  the drive time resolver for fetching per-user drive times
      * @param reachService       the caller's reach over the whole roster
+     * @param todaysLightService today's light at the caller's home, for the masthead
      */
     public UserSettingsController(UserSettingsService settingsService,
             DriveTimeResolver driveTimeResolver,
-            ReachService reachService) {
+            ReachService reachService,
+            TodaysLightService todaysLightService) {
         this.settingsService = settingsService;
         this.driveTimeResolver = driveTimeResolver;
         this.reachService = reachService;
+        this.todaysLightService = todaysLightService;
     }
 
     /**
@@ -124,5 +131,29 @@ public class UserSettingsController {
     @GetMapping("/reach")
     public List<ReachEntry> getReach(Authentication auth) {
         return reachService.getReach(auth);
+    }
+
+    /**
+     * Today's light at the caller's home — the masthead's light rule and its labelled time row.
+     *
+     * <p>Under {@code /api/user/settings} for the same reason {@code /reach} is: the payload names
+     * the caller's home postcode, and {@code HttpCachingConfig}'s revalidatable set is an
+     * exact-match allow-list, so a path here can never pick up the {@code Cache-Control: private,
+     * no-cache} that would persist it to a browser HTTP cache JavaScript cannot evict on logout.
+     *
+     * <p>Bearer, with no role gate. A LITE account may save a home postcode — light times are free,
+     * drive times are Pro — so gating this would leave the rule permanently dim for the users the
+     * masthead's "set a postcode" nudge is aimed at.
+     *
+     * <p>{@code 204 No Content} when no postcode is saved. That is the masthead's empty state, not
+     * an error: it renders a dim rule and the nudge.
+     *
+     * @param auth the current authentication context
+     * @return today's light, or 204 when the caller has saved no home postcode
+     */
+    @GetMapping("/light")
+    public ResponseEntity<TodaysLightResponse> getTodaysLight(Authentication auth) {
+        TodaysLightResponse light = todaysLightService.getTodaysLight(auth);
+        return light == null ? ResponseEntity.noContent().build() : ResponseEntity.ok(light);
     }
 }

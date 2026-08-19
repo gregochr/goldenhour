@@ -175,16 +175,43 @@ describe('UserSettingsModal', () => {
   // LITE — greyed out, disabled, upsell
   // ---------------------------------------------------------------------------
 
-  it('postcode input is disabled for LITE user', async () => {
+  // The postcode is FREE, and these three are the assertions that say so. It was Pro-gated on the
+  // reasoning that it exists for the drive times it feeds; it also feeds the masthead's light rule,
+  // whose empty state sends the reader here to set one. A nudge landing on a disabled input is a
+  // dead end, and the band would stay dim for exactly the accounts the nudge is written for.
+  it('lets a LITE user type a postcode — the light rule is free', async () => {
     getSettings.mockResolvedValue(LITE_SETTINGS);
     renderModal();
-    await waitFor(() => expect(screen.getByTestId('settings-postcode-input')).toBeDisabled());
+    await waitFor(() => expect(screen.getByTestId('settings-postcode-input')).toBeEnabled());
   });
 
-  it('lookup button is disabled for LITE user', async () => {
+  it('lets a LITE user look up and save a postcode', async () => {
     getSettings.mockResolvedValue(LITE_SETTINGS);
+    lookupPostcode.mockResolvedValue({
+      postcode: 'NE66 1NG', latitude: 55.413, longitude: -1.706, placeName: 'Alnwick',
+    });
+    saveHome.mockResolvedValue({ ...LITE_SETTINGS, homePostcode: 'NE66 1NG' });
     renderModal();
-    await waitFor(() => expect(screen.getByTestId('settings-lookup-btn')).toBeDisabled());
+
+    await waitFor(() => expect(screen.getByTestId('settings-postcode-input')).toBeEnabled());
+    fireEvent.change(screen.getByTestId('settings-postcode-input'), { target: { value: 'NE66 1NG' } });
+    fireEvent.click(screen.getByTestId('settings-lookup-btn'));
+
+    await waitFor(() => expect(screen.getByTestId('settings-save-home-btn')).toBeEnabled());
+    fireEvent.click(screen.getByTestId('settings-save-home-btn'));
+
+    // The whole point of the ungating: the request actually goes out for a LITE account.
+    await waitFor(() => expect(saveHome).toHaveBeenCalledWith('NE66 1NG', 55.413, -1.706, null));
+  });
+
+  it('keeps the local radius Pro-gated, since it frames Close to home', async () => {
+    // The split moved one level down rather than away: light times free, drive times and the
+    // radius they are ranked by still Pro.
+    getSettings.mockResolvedValue(LITE_WITH_HOME);
+    renderModal();
+    await waitFor(() => expect(screen.getByTestId('settings-radius-slider')).toBeDisabled());
+    expect(screen.getByTestId('settings-local-radius')).toHaveClass('opacity-45');
+    expect(screen.getByTestId('settings-local-radius')).toHaveClass('pointer-events-none');
   });
 
   it('refresh drive times button is disabled for LITE user', async () => {
@@ -196,17 +223,20 @@ describe('UserSettingsModal', () => {
   it('shows upsell text for LITE user', async () => {
     getSettings.mockResolvedValue(LITE_SETTINGS);
     renderModal();
-    await waitFor(() => expect(screen.getByText('Upgrade to Pro for personalised drive times')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText(
+      'Your postcode sets your light times. Upgrade to Pro for personalised drive times.',
+    )).toBeInTheDocument());
   });
 
-  it('home location wrapper is greyed out for LITE user', async () => {
+  it('does not grey the home location block for LITE user', async () => {
+    // The inverse of the assertion this replaced. Stated as "no greyed ancestor" rather than as a
+    // class check on one element, because the gate was a WRAPPER — reinstating it anywhere between
+    // the input and the section would restore the dead end without failing a narrower test.
     getSettings.mockResolvedValue(LITE_SETTINGS);
     renderModal();
     await waitFor(() => expect(screen.getByTestId('settings-postcode-input')).toBeInTheDocument());
-    const input = screen.getByTestId('settings-postcode-input');
-    const wrapper = input.closest('.opacity-45');
-    expect(wrapper).toBeInTheDocument();
-    expect(wrapper).toHaveClass('pointer-events-none');
+    expect(screen.getByTestId('settings-postcode-input').closest('.opacity-45')).toBeNull();
+    expect(screen.getByTestId('settings-lookup-btn').closest('.opacity-45')).toBeNull();
   });
 
   it('drive times wrapper is greyed out for LITE user', async () => {

@@ -94,19 +94,25 @@ public class UserSettingsService {
     public HomeLocation getHomeLocation(Authentication auth) {
         AppUserEntity user = getUser(auth);
         return new HomeLocation(user.getId(), user.getHomeLatitude(), user.getHomeLongitude(),
-                user.getLocalRadiusMiles());
+                user.getLocalRadiusMiles(), user.getHomePostcode());
     }
 
     /**
-     * A caller's home, as Close to home needs it.
+     * A caller's home, without the geocode.
+     *
+     * <p>The postcode here is the <em>stored</em> one, which is a column read — not the resolved
+     * place name {@link #getSettings} pays an uncached postcodes.io call for. That is the whole
+     * distinction this record carries, and it is why the masthead's light rule labels its row from
+     * this field rather than from the prettier one.
      *
      * @param userId        the user's id, for their drive times
      * @param latitude      home latitude, or null when no postcode is saved
      * @param longitude     home longitude, or null when no postcode is saved
      * @param radiusMiles   the chosen radius, or null to use the default
+     * @param postcode      the stored home postcode, or null when none is saved
      */
     public record HomeLocation(Long userId, Double latitude, Double longitude,
-            Integer radiusMiles) {
+            Integer radiusMiles, String postcode) {
     }
 
     /**

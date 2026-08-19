@@ -1,6 +1,7 @@
 import React, { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import BrandLockup from './shared/BrandLockup.jsx';
+import MastheadLight from './shared/MastheadLight.jsx';
 import WindowFirstLensBar from './WindowFirstLensBar.jsx';
 import WindowFirstWindowCard from './WindowFirstWindowCard.jsx';
 import WindowFirstPromotedStrip from './WindowFirstPromotedStrip.jsx';
@@ -223,10 +224,17 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  *        Sign out. Here the masthead is inside the shell, so gating the whole thing would take the
  *        cog, Sign out and the exit hatch with it — leaving a user staring at a greyed page with
  *        no route anywhere, at exactly the moment they most need one.
+ * @param {object|null} [props.light] today's light at the reader's home, for the masthead's light
+ *        rule. Resolved by {@code App}, not here, so the shell stays a render layer and every test
+ *        can put the band in any of its three states. {@code undefined} is "not yet answered" and
+ *        {@code null} is "answered, no home saved" — see {@link MastheadLight}.
+ * @param {function} [props.onSetPostcode] opens settings on the home-postcode field, for the
+ *        band's nudge. Defaults to {@code onOpenSettings}, so the nudge can never be a dead end.
  */
 export default function WindowFirstShell({
   onExit, onOpenSettings, onSignOut, contentDisabled, onShowOnMap, onEvaluationScoresChange,
   onSeasonalFeaturesChange, locations, mapPane, operationsPane, tabRequest, healthPill,
+  light, onSetPostcode,
 }) {
   const {
     heatStripCards, heatPointSets, heatSpots, reachById,
@@ -612,37 +620,44 @@ export default function WindowFirstShell({
       className="wf-shell mx-auto w-full"
       style={{ maxWidth: WRAP_MAX_WIDTH }}
     >
+      {/* The lit band. Three lines in a column, not one row: the lockup and its controls, then
+          today's light as a gradient, then the row that labels it. The band's own surface and its
+          zero bottom padding live on `.wf-mast` in index.css — the time row supplies the bottom
+          space, and a media query is a selector, so no inline style can reach it. */}
       <div
         data-testid="window-first-masthead"
-        className="wf-mast flex items-center gap-3 border-b border-plex-border"
+        className="wf-mast border-b border-plex-border"
       >
-        <BrandLockup variant="compact" />
-        <div className="ml-auto flex items-center gap-2">
-          {/* Leftmost of the three, which is where the v1 header put it relative to the same two
-              buttons — and it is a reading, not a control the reader operates to get somewhere, so
-              it sits before the pair rather than between them. Absent for everyone but an admin,
-              and the gap collapses on its own. */}
-          {healthPill}
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            data-testid="window-first-settings"
-            aria-label="Settings"
-            className="font-mono border border-plex-border text-plex-text-muted hover:text-plex-text hover:border-plex-border-light transition-colors"
-            style={{ fontSize: '10.5px', borderRadius: '7px', padding: '5px 10px' }}
-          >
-            ⚙
-          </button>
-          <button
-            type="button"
-            onClick={onSignOut}
-            data-testid="window-first-signout"
-            className="font-mono border border-plex-border text-plex-text-muted hover:text-plex-text hover:border-plex-border-light transition-colors"
-            style={{ fontSize: '10.5px', borderRadius: '7px', padding: '5px 10px' }}
-          >
-            Sign out
-          </button>
+        <div className="flex items-center gap-3">
+          <BrandLockup variant="masthead" />
+          <div className="ml-auto flex items-center gap-2">
+            {/* Leftmost of the three, which is where the v1 header put it relative to the same two
+                buttons — and it is a reading, not a control the reader operates to get somewhere,
+                so it sits before the pair rather than between them. Absent for everyone but an
+                admin, and the gap collapses on its own. */}
+            {healthPill}
+            <button
+              type="button"
+              onClick={onOpenSettings}
+              data-testid="window-first-settings"
+              aria-label="Settings"
+              className="font-mono border border-plex-border text-plex-text-muted hover:text-plex-text hover:border-plex-border-light transition-colors"
+              style={{ fontSize: '10.5px', borderRadius: '7px', padding: '5px 10px' }}
+            >
+              ⚙
+            </button>
+            <button
+              type="button"
+              onClick={onSignOut}
+              data-testid="window-first-signout"
+              className="font-mono border border-plex-border text-plex-text-muted hover:text-plex-text hover:border-plex-border-light transition-colors"
+              style={{ fontSize: '10.5px', borderRadius: '7px', padding: '5px 10px' }}
+            >
+              Sign out
+            </button>
+          </div>
         </div>
+        <MastheadLight light={light} onSetPostcode={onSetPostcode ?? onOpenSettings} />
       </div>
 
       {/* The rail footer, which OUTLIVES the rail (plan §1.1: "the rail *footer* is a separate
@@ -1015,4 +1030,13 @@ WindowFirstShell.propTypes = {
    * which is how the admin gate reaches this arm without a role crossing into it.
    */
   healthPill: PropTypes.node,
+  /**
+   * Today's light for the masthead's rule. Three states in one value — undefined while the answer
+   * is outstanding, null once it has arrived with no home saved, the day otherwise. Deliberately
+   * not shape-checked here: {@link MastheadLight} owns that contract, and restating it would give
+   * one payload two definitions that can drift.
+   */
+  light: PropTypes.object,
+  /** Opens settings on the postcode field for the band's nudge; falls back to onOpenSettings. */
+  onSetPostcode: PropTypes.func,
 };

@@ -48,6 +48,146 @@ reader opening Plan would fetch the whole charting library for ~20 KB of project
 Also: `scripts/dev-seed-locations.sh` seeds a local H2 database with regions, locations and the SQL
 recipe for ratings, because the local database starts empty and the field has nothing to draw
 without it.
+### Added — masthead presence: the lit band and today's light rule
+
+The window-first masthead gets its brand presence back, and a job. Compacting the header to one
+slim bar had taken the wordmark to 20px, dropped the coral kicker, and reduced the film-perforation
+spine to a decorative tick. This restores the presence **without** restoring the height, and gives
+the band something to do: the rule under the wordmark draws today's light as a gradient, so the top
+of the screen is the first piece of forecast rather than ornament.
+
+`BrandLockup` gains a `masthead` variant — wordmark back to 28px (25 on a tablet, 21 on a phone,
+the type floor), the kicker back, the italic tagline deliberately not. The tagline is the line that
+costs a whole row and says least to someone already signed in. Because the lockup is ~50px again
+the spine returns to the header gauge; `compact` keeps its tighter one and stays in use where the
+prose genuinely cannot fit. The `header` and `compact` variants are untouched, so the v1 arm — the
+pilot's frozen comparison control — renders exactly as before.
+
+**The rule's positions are data; only its colours are fixed.** `GET /api/user/settings/light`
+returns eleven named stops whose positions `TodaysLightService` computes from the day's real solar
+times at the caller's home, as a percentage of the local day, so the lit band genuinely narrows in
+winter and widens in summer. Colours never travel over the wire — the client maps stop key → colour
+from a fixed table, and drops a key it has no entry for rather than painting it a default.
+
+**The row that labels it is mandatory.** An unlabelled gradient is a guess wearing data's clothes:
+the UK spread between Cornwall and Northumberland is 20–30 minutes, honest at this precision only
+while the row names whose light it draws. Four times in a browser (`05:32 blue`, `06:04 golden`,
+`19:58 golden`, `20:31 blue`), the two goldens on a tablet and a phone; the kind of light stays in
+the accessible name at every width even where the phone hides the word. Solar noon is never
+labelled — the pale band already says midday.
+
+**Two far-north defects were found by review and fixed before landing, both reachable with real UK
+postcodes.** A stop whose local time falls on a neighbouring day was read as minutes-of-day alone:
+Lerwick's midsummer civil dusk is 00:27 the following morning, which placed the last light of the
+day at 0.2% — the far left of the rule — where the ascending guard then quietly dragged it up to
+sunset's position and deleted the evening blue hour from the gradient. Positions are now date-aware,
+pinning an earlier day to 0 and a later one to 100. Separately, at 60.8°N the sun never reaches −6°
+at the solstice and solar-utils answers `01:00` for *both* civil boundaries; believed, the row
+printed that fabricated minute twice, once as a blue hour two and a half hours before a 03:32
+sunrise. A twilight boundary that does not bracket its own event is now treated as missing.
+
+**A third far-north defect, and the two frontend gaps, came out of a 15-agent adversarial review.**
+The twilight guard above closed only the dusk half. solar-utils does not answer null when an event
+never occurs — it answers **midnight of the requested date**, and at 60.8°N (Unst, a real UK
+postcode) that sentinel lands on the *civil* pair in midsummer and on the *golden* pair in midwinter.
+Midnight genuinely is before sunrise, so the morning bracket test accepted it and the row printed
+`01:00 blue · 03:29 golden · 22:40 golden · 23:10 blue` — a blue hour claimed two and a half hours
+before sunrise on a day that has none. The first test written for this asserted only that the two
+civil times differed and that the four ran in order, both of which the defective output satisfies;
+it was green with the bug present. Every boundary now passes a sentinel gate *and* a bracket gate,
+and the test asserts values. Separately, a failed `/light` request no longer resolves to the same
+value as a 204: "you have no postcode" is a claim about the reader's account that a 502 is no
+evidence for.
+
+**The eleven unverified charges from that review were then triaged: eight real and fixed, three
+declined with reasons.** The two that change behaviour: the time row now announces the solar *event*
+to assistive technology (`06:04 sunrise`) while keeping the *kind* as the visible label — the rule is
+`aria-hidden`, so the row is the whole accessible answer, and "golden" is the same word for sunrise
+and sunset, leaving DOM order as the only thing separating morning from evening. And the light now
+refetches when a tab returns on a later UK day: this is a planning dashboard, a tab left open
+overnight is ordinary, and nothing on the band carries a date, so yesterday's gradient was
+indistinguishable from today's.
+
+The `env(safe-area-inset-top)` term was **removed**, not kept. It was on `.wf-mast`, which is not the
+element that touches the top of the document — `App.jsx` wraps the arm in `<main className="px-4
+py-6">` — so with the `viewport-fit=cover` opt-in it would have pushed the wordmark to 97px and left
+the notch strip painted in page colour. The comment claiming it was "correct either way" was wrong,
+and a stated gap beats a plausible-looking non-fix.
+
+**No home postcode is a designed state, not an error.** The endpoint answers `204`, the rule goes
+unlit, and a nudge offers to fix it. Three states are kept distinguishable in one value
+(`undefined` unresolved / `null` no home / the day), because collapsing the first two flashes "set
+a postcode" at every reader who already has one.
+
+The endpoint sits under `/api/user/settings` deliberately, next to `/reach` and for the same
+reason: it names the caller's home postcode, and `HttpCachingConfig`'s revalidatable set is an
+exact-match allow-list, so a path here can never pick up the `Cache-Control: private, no-cache`
+that would persist personal data to a browser HTTP cache JavaScript cannot evict on logout. It also
+never geocodes — the label is built from the *stored* postcode, since resolving a place name is an
+uncached third-party call and this runs on the masthead.
+
+### Changed — the home postcode is free; drive times and the local radius stay Pro
+
+The postcode input was Pro-gated on the reasoning that it exists for the drive times it feeds. It
+no longer does: the masthead's light rule is drawn from the same postcode, and its empty state
+sends the reader to that input. A nudge landing on a control the reader cannot operate is a dead
+end, and it would leave the band permanently dim for exactly the accounts the nudge is written for.
+So the split moved one level down — light times free, drive times and the radius they are ranked by
+still Pro — and is now enforced on those two controls individually rather than by a wrapper.
+
+Nothing was unlocked on the backend: `UserSettingsController` has only ever carried
+`@PreAuthorize("isAuthenticated()")`, so `PUT /home` was already open to any account. The gate was
+frontend-only.
+
+### Changed — the auth screens name their audience
+
+The sign-in, register and change-password screens carry `For landscape photographers` in place of
+`Field guide to light`, verbatim the landing page's own eyebrow. A stranger there has no
+landing-page context, so it is the one surface where the kicker says who the app is for. The
+signed-in variants are unchanged.
+### Added — Penshaw Monument (V143)
+
+A year-round sunrise/sunset viewpoint that is also a bluebell site, in `Northumberland & Tyneside`:
+LANDSCAPE + BLUEBELL, both solar events, `bluebell_exposure = OPEN_FELL`. One row for two subjects
+— the monument on the summit and the bluebells in Penshaw Wood below it — which is how Roseberry
+Topping and Allen Banks are already modelled.
+
+Coordinates are verified rather than estimated (OS grid NZ 33403 54376 converted through the
+OSGB36→WGS84 Helmert lands on 54.88302, -1.48088, agreeing with Wikidata's decimal pair to ~10 m).
+
+**`OPEN_FELL` is not a description of the wood, and the choice is load-bearing.** Penshaw Wood is
+closed canopy, so WOODLAND describes the flowers better — but that column is also the switch
+`ForecastTaskCollector` reads to decide whether a location gets a sky task at all in season
+(`bluebellWoodInSeason` is keyed on the exposure alone, *not* on `isWoodlandOnly()`), so WOODLAND
+would silently drop the monument out of the sunrise/sunset product for the whole bloom window.
+`OPEN_FELL` keeps the sky evaluation and pairs a bluebell task alongside it. The stated cost: for
+those weeks the bluebell half of the rating is scored with the open-fell weighting.
+
+`elevation_m = 136` is recorded as a fact, not a trigger — it is below
+`InversionScoreCalculator.MIN_ELEVATION_METRES` (200), so inversion scoring never fires for it.
+`bortle_class = 6` is an estimate in the manner of V84/V138. `grid_lat`/`grid_lng` are NULL, as for
+every raw-SQL location insert; re-saving through the admin UI runs the enrichment that fills them.
+
+### Added — the first `App` wiring test
+
+`App.jsx` is the composition root: every prop the two Plan arms receive is wired there, and none of
+it was pinned — the heat-field plan's P1 row records that deleting `locations={visibleLocations}`
+from the `WindowFirstBriefingProvider` mount emptied the v2 heat field with 3,697 tests green.
+`frontend/src/test/App.test.jsx` closes that gap with the highest-value pins rather than exhaustive
+prop coverage: the provider's roster (id-first join fields — id, lat/lon, byte-identical region
+name, bortle) and `homeSettingsVersion`; the v1/v2 flag branch in both directions, including that
+the v1 arm never *mounts* the provider — so hoisting it above the branch, which would double the
+`/api/briefing` poll for every v1 session, fails rather than passing on looks; the v1-header
+suppression in the v2 arm; and the two withheld panes (`mapPane` only once forecast dates exist,
+`operationsPane` only for an admin, each pinned from both sides).
+
+Mocked at the API-module boundary throughout, with auth seeded through localStorage so the real
+`AuthProvider` runs. The one seam that is not a fetch: the roster is observed with a *passthrough*
+spy on the provider export — the real provider still runs — because nothing renders from
+`heatPointSets` until P2; the file comment says to move that assertion onto the DOM when a P2
+surface exists. Verified by mutation on a scratchpad copy of the frontend, never the working tree:
+nine targeted `App.jsx` mutations, 9/9 killed, each by exactly the test written to pin it.
+
 
 ### Added — heat field P1: the catalogue join, the planning area, and a served `best N★`
 
