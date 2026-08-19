@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the Map tab's ramp key no longer explains a field that is not there
+
+The third and last surface to take the unscored channel, and the only one where the mark is not a
+hatch. `drawTiles` paints over basemap tiles rather than a vendored plate, so there is nothing to
+texture — and the Leaflet host already degrades honestly when a window has no ratings
+(`MapHeatLayer.fadesMarkers` keeps the markers at full opacity, so the map is simply the map). What
+did not degrade was the **ramp key**, whose own rule is that it must not explain a gradient nothing
+on screen is painted with: in heat view on an unrated window it sat above an empty map promising
+Poor → Worth it. It is now replaced — never accompanied — by `This window is not scored`.
+
+⚠️ **The predicate reads the UNFILTERED point set, never `heatPoints`.** That array is narrowed by
+the dark-sky toggle, so keying off it would turn a reader who has filtered every Bortle ≤ 4
+location out of a well-rated window into an accusation about the forecast — the exact mislabelling
+this channel exists to prevent. It is also distinct from `heatWindow` being null, which is the map
+sitting on a date the briefing does not reach: the selector already answers that, and it is a
+statement about the camera rather than about the forecast. Gated on the provider's `scoresLoaded`
+like the other two surfaces, and the note carries no `aria-hidden` — unlike the row map's chip this
+is toolbar chrome, not an annotation on a picture that does not exist for a screen reader, so it
+names its own scope rather than relying on sitting under the window selector.
+
 ### Fixed — an unrated window on the Plan strip no longer reads as a bad forecast
 
 A heat-strip thumbnail with no ratings rendered as bare coastline, which is also what a thumbnail

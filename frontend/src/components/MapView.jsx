@@ -1128,6 +1128,27 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
     return points.filter((p) => allowed.has(heatSpotKey(p)));
   }, [heatOn, heatWindow, heat, heatSpotPool]);
 
+  /**
+   * Whether the selected window carries no ratings at all — the Plan tab's unscored mark, adapted.
+   *
+   * <p><b>Off the UNFILTERED point set, never off {@code heatPoints}.</b> That array is narrowed by
+   * the dark-sky toggle, and a reader who has filtered every Bortle ≤ 4 location out of a
+   * perfectly well-rated window has emptied the field themselves. Labelling that "not scored" would
+   * blame the forecast for the reader's own control — the one mislabelling this whole channel
+   * exists to prevent.
+   *
+   * <p>It is also distinct from {@code heatWindow} being null, which is the map sitting on a date
+   * the briefing does not reach: the selector already says "No forecast window" for that, and it is
+   * a statement about the CAMERA rather than about the forecast.
+   *
+   * <p>Gated on {@code heat.scoresKnown} for the reason the strip and the row map are: an empty
+   * point set is also what an unfetched ratings response looks like.
+   */
+  const windowUnscored = Boolean(
+    heatOn && heatWindow && heat?.scoresKnown
+      && !(heat.pointsByKey?.get(heatWindow.key)?.length > 0),
+  );
+
   /** The camera's framing for each segment state — `null` when the roster cannot supply a box. */
   const heatBounds = (heatArea ? heat?.areaBounds : heat?.catalogueBounds) || null;
   /** The box the map OPENS on, which is the area one whenever a field exists at all. */
@@ -2055,7 +2076,22 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
                 `role="img"` with its own name: the gradient is `aria-hidden` and the two words alone
                 ("Poor", "Worth it") would reach a screen reader as a pair of adjectives with nothing
                 saying what they qualify. */}
-            {heatOn && (
+            {/* Its own state rather than a variant of the key, because it REPLACES the key: the
+                key's own rule one comment up is that it must not explain a ramp nothing on screen
+                is painted with, and an unrated window paints nothing. Leaving both would put a
+                colour key above an empty map and then deny it in the next line.
+
+                Real text with no `aria-hidden`, unlike the row map's chip: this is toolbar chrome
+                rather than an annotation on a picture that does not exist for a screen reader, and
+                it is the only thing on the tab that says why the field is missing. It names its
+                own scope — position under the window selector carries that for a sighted reader
+                and for nobody else. */}
+            {windowUnscored && (
+              <div data-testid="wf-map-heat-unscored" className="wf-map-key">
+                This window is not scored
+              </div>
+            )}
+            {heatOn && !windowUnscored && (
               <div
                 data-testid="wf-map-heat-legend"
                 className="wf-map-key"
@@ -2216,6 +2252,8 @@ MapView.propTypes = {
     spots: PropTypes.array,
     areaSpots: PropTypes.array,
     pointsByKey: PropTypes.instanceOf(Map),
+    /** Whether the ratings response has been received — gates the unscored note only. */
+    scoresKnown: PropTypes.bool,
     windows: PropTypes.arrayOf(PropTypes.shape({
       key: PropTypes.string,
       date: PropTypes.string,

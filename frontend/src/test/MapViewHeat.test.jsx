@@ -392,6 +392,79 @@ describe('MapView heat — the toolbar', () => {
   });
 });
 
+describe('MapView heat — a window nobody rated', () => {
+  /**
+   * The Plan tab's unscored mark, adapted to a host that has no plate to hatch. On the Leaflet
+   * side the field simply paints nothing and the markers keep full opacity (`MapHeatLayer`'s own
+   * `fadesMarkers` rule), which is a reasonable fallback — but the ramp key stays up, explaining a
+   * gradient nothing on screen carries, which is the exact thing that key's own rule forbids.
+   */
+  const emptySelectedWindow = (overrides = {}) => heatProp({
+    pointsByKey: new Map([[`${TODAY}:SUNSET`, []]]),
+    scoresKnown: true,
+    ...overrides,
+  });
+
+  it('names the unrated window and takes the ramp key down with it', async () => {
+    await renderMap({ heat: emptySelectedWindow() });
+    expect(screen.getByTestId('wf-map-heat-unscored'))
+      .toHaveTextContent('This window is not scored');
+    // Both would be a colour key above an empty map, denied by the line underneath it.
+    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+  });
+
+  it('keeps the key and says nothing when the window has ratings', async () => {
+    // The pair is the assertion: a note shown unconditionally is the same defect with the opposite
+    // sign, and it would take the ramp key down on every window.
+    await renderMap({ heat: heatProp({ scoresKnown: true }) });
+    expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
+    expect(screen.getByTestId('wf-map-heat-legend')).toHaveTextContent('Poor');
+  });
+
+  it('claims nothing until the ratings response has arrived', async () => {
+    // An unfetched response is an empty Map too, and it is the state this tab mounts in.
+    await renderMap({ heat: emptySelectedWindow({ scoresKnown: false }) });
+    expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
+    expect(screen.getByTestId('wf-map-heat-legend')).toBeInTheDocument();
+  });
+
+  it('does NOT blame the forecast when the dark-sky filter is what emptied the field', async () => {
+    // ⚠️ The reason the predicate reads the unfiltered point set. `heatPoints` is narrowed by the
+    // Bortle toggle, so keying off it turns a reader's own filter into an accusation about the
+    // forecast — the exact mislabelling this whole channel exists to prevent. The window here is
+    // well rated and every one of its points is Bortle > 4, so the toggle empties the field
+    // completely while the ratings are untouched.
+    await renderMap({
+      heat: heatProp({
+        scoresKnown: true,
+        pointsByKey: new Map([[`${TODAY}:SUNSET`, [
+          pointOf(SPOTS[1], 4), pointOf(SPOTS[3], 5), pointOf(SPOTS[4], 4),
+        ]]]),
+      }),
+    });
+    fireEvent.click(screen.getByTestId('dark-sky-filter-toggle'));
+
+    expect(heatLayerProps.last.points).toEqual([]);
+    expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
+    expect(screen.getByTestId('wf-map-heat-legend')).toBeInTheDocument();
+  });
+
+  it('says nothing in medallion view, where no field is claimed either way', async () => {
+    await renderMap({ heat: emptySelectedWindow() });
+    fireEvent.click(screen.getByRole('button', { name: 'Medallions' }));
+    expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
+    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+  });
+
+  it('is a different state from the map being on a date the briefing does not reach', async () => {
+    // The selector already answers that one, and it is a statement about the CAMERA rather than
+    // about the forecast: there is no window to be unrated.
+    await renderMap({ heat: heatProp({ scoresKnown: true }), date: '2026-01-25' });
+    expect(screen.getByTestId('wf-map-window')).toHaveValue('');
+    expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
+  });
+});
+
 describe('MapView heat — which window the field paints', () => {
   it('paints the window matching the map’s own date and event, with its confidence', async () => {
     await renderMap({ heat: heatProp() });
