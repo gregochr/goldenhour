@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Penshaw Monument (V143)
+
+A year-round sunrise/sunset viewpoint that is also a bluebell site, in `Northumberland & Tyneside`:
+LANDSCAPE + BLUEBELL, both solar events, `bluebell_exposure = OPEN_FELL`. One row for two subjects
+— the monument on the summit and the bluebells in Penshaw Wood below it — which is how Roseberry
+Topping and Allen Banks are already modelled.
+
+Coordinates are verified rather than estimated (OS grid NZ 33403 54376 converted through the
+OSGB36→WGS84 Helmert lands on 54.88302, -1.48088, agreeing with Wikidata's decimal pair to ~10 m).
+
+**`OPEN_FELL` is not a description of the wood, and the choice is load-bearing.** Penshaw Wood is
+closed canopy, so WOODLAND describes the flowers better — but that column is also the switch
+`ForecastTaskCollector` reads to decide whether a location gets a sky task at all in season
+(`bluebellWoodInSeason` is keyed on the exposure alone, *not* on `isWoodlandOnly()`), so WOODLAND
+would silently drop the monument out of the sunrise/sunset product for the whole bloom window.
+`OPEN_FELL` keeps the sky evaluation and pairs a bluebell task alongside it. The stated cost: for
+those weeks the bluebell half of the rating is scored with the open-fell weighting.
+
+`elevation_m = 136` is recorded as a fact, not a trigger — it is below
+`InversionScoreCalculator.MIN_ELEVATION_METRES` (200), so inversion scoring never fires for it.
+`bortle_class = 6` is an estimate in the manner of V84/V138. `grid_lat`/`grid_lng` are NULL, as for
+every raw-SQL location insert; re-saving through the admin UI runs the enrichment that fills them.
+
 ### Added — the first `App` wiring test
 
 `App.jsx` is the composition root: every prop the two Plan arms receive is wired there, and none of
@@ -24,6 +47,7 @@ spy on the provider export — the real provider still runs — because nothing 
 `heatPointSets` until P2; the file comment says to move that assertion onto the DOM when a P2
 surface exists. Verified by mutation on a scratchpad copy of the frontend, never the working tree:
 nine targeted `App.jsx` mutations, 9/9 killed, each by exactly the test written to pin it.
+
 
 ### Added — heat field P1: the catalogue join, the planning area, and a served `best N★`
 
