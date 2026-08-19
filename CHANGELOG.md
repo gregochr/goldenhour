@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the first `App` wiring test
+
+`App.jsx` is the composition root: every prop the two Plan arms receive is wired there, and none of
+it was pinned — the heat-field plan's P1 row records that deleting `locations={visibleLocations}`
+from the `WindowFirstBriefingProvider` mount emptied the v2 heat field with 3,697 tests green.
+`frontend/src/test/App.test.jsx` closes that gap with the highest-value pins rather than exhaustive
+prop coverage: the provider's roster (id-first join fields — id, lat/lon, byte-identical region
+name, bortle) and `homeSettingsVersion`; the v1/v2 flag branch in both directions, including that
+the v1 arm never *mounts* the provider — so hoisting it above the branch, which would double the
+`/api/briefing` poll for every v1 session, fails rather than passing on looks; the v1-header
+suppression in the v2 arm; and the two withheld panes (`mapPane` only once forecast dates exist,
+`operationsPane` only for an admin, each pinned from both sides).
+
+Mocked at the API-module boundary throughout, with auth seeded through localStorage so the real
+`AuthProvider` runs. The one seam that is not a fetch: the roster is observed with a *passthrough*
+spy on the provider export — the real provider still runs — because nothing renders from
+`heatPointSets` until P2; the file comment says to move that assertion onto the DOM when a P2
+surface exists. Verified by mutation on a scratchpad copy of the frontend, never the working tree:
+nine targeted `App.jsx` mutations, 9/9 killed, each by exactly the test written to pin it.
+
 ### Added — heat field P1: the catalogue join, the planning area, and a served `best N★`
 
 The data layer the heat map draws from (`docs/engineering/heat-field-plan.md` P1). Still no UI —
