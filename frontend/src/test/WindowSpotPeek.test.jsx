@@ -107,6 +107,25 @@ describe('WindowSpotPeek', () => {
       renderPeek({ driveMinutes: null, clause: 'Clear.' });
       expect(screen.queryByTestId('wf-peek-drive')).toBeNull();
     });
+
+    it('prints the leave-by chip beside the drive it is derived from', () => {
+      // Same row and the same chip class as the drive, because it is the same statement said in
+      // the form a reader can act on. The string is already formatted by `resolveSpotPeek` — the
+      // panel renders it, never re-derives it, so the card and this chip cannot disagree.
+      renderPeek({ driveMinutes: 66, leaveBy: '19:45', clause: 'Clear.' });
+      expect(screen.getByTestId('wf-peek-leave')).toHaveTextContent('↰ leave 19:45');
+    });
+
+    it('omits the leave-by chip when there is no departure time to state', () => {
+      // Null is what `leaveBy` answers whenever the drive or the slot's event time is unknown, and
+      // the panel states what it knows. Pinned here as well as through the strip, because the
+      // component's own default is what a `!= null` gate or a dropped prop would slip past — an
+      // empty string would otherwise render a bare `↰ leave` chip.
+      renderPeek({ driveMinutes: 66, leaveBy: null, clause: 'Clear.' });
+      expect(screen.queryByTestId('wf-peek-leave')).toBeNull();
+      renderPeek({ driveMinutes: 66, clause: 'Clear.' });
+      expect(screen.queryByTestId('wf-peek-leave')).toBeNull();
+    });
   });
 
   describe('the score bars — the part the card cannot show', () => {

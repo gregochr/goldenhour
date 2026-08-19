@@ -213,7 +213,10 @@ Before starting the next session, expect a `CHANGELOG.md` conflict if anything e
 > confirm P2+P3 are on `main`, create `feature/heat-p7-origin`. This is the largest phase —
 > re-read §4.8 in full before starting, and check §9 in the plan for any answers the owner has
 > recorded since (lead narrative is omitted unless §9.10 says otherwise; the search resting
-> list is windows-only per §9.11).
+> list is windows-only per §9.11). **Also from P5's row: re-check leave-by's wrapped-`HH:mm`
+> ambiguity once local drive times exist** — the charge was refuted only because no home-based
+> drive can exceed 4h03 against the 150-minute loosest tier, and the origin move changes that
+> basis. If a wrap becomes reachable, the departure line must say which day it means.
 >
 > Backend: region base columns (nullable — a baseless region cannot be an origin),
 > `region_drive_time` via the ORS matrix (hoist the `Semaphore(2)` out of

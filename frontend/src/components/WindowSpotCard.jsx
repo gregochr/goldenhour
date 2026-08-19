@@ -1,6 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
+import { leaveBy } from '../utils/leaveBy.js';
 import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 
 /**
@@ -21,7 +22,7 @@ import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
  * not touched to make the extraction land. It does grow in this commit, but by addition only, for
  * P11's own trigger and suppression rules.
  *
- * <h2>What is absent is deliberate in three places</h2>
+ * <h2>What is absent is deliberate in four places</h2>
  *
  * <ul>
  *   <li><b>No rating badge when the rating is null.</b> An unrated spot is one nothing has looked
@@ -31,6 +32,12 @@ import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
  *   <li><b>No drive line when the drive time is unknown.</b> Plan §2.5 rule 1: absence means
  *       "unknown", never "out of reach", and it is the normal state for a user with no home
  *       postcode.</li>
+ *   <li><b>No leave-by line without both a drive time and this slot's own event time.</b> The two
+ *       absences mean different things and both mean silence — {@link leaveBy} carries which and
+ *       why. Note it needs the <em>drive</em>, not the reach line: {@link reachLine} prints on
+ *       either half, so a user who has saved a postcode but never run the drive-time calculation
+ *       gets {@code 🚗 47 mi} with no leave-by under it. That state is ordinary, not
+ *       transitional.</li>
  *   <li><b>No type line unless a caller asks for one.</b> The strip has no type control, so a type
  *       word there would be a fact with nothing to do; the sheet has one, so the card and the
  *       control speak the same vocabulary. {@code typeLabels} defaults to nothing rather than to the
@@ -52,6 +59,7 @@ export default function WindowSpotCard({
 }) {
   const badge = spotBadgeStyle(spot.rating);
   const reach = reachLine(spot.driveMinutes, spot.distanceMiles);
+  const leave = leaveBy(spot.solarEventTime, spot.driveMinutes);
   // The region and the types share one line and one separator, so a spot with no region still
   // reads `Seascape` rather than ` · Seascape`. Both halves are independently absent.
   const meta = [spot.regionName, ...(typeLabels || [])].filter(Boolean).join(' · ');
@@ -127,6 +135,37 @@ export default function WindowSpotCard({
         </span>
       )}
 
+      {/* The plan, under the cost. Absent whenever either term is unknown — `leaveBy` carries the
+          two ways that happens and why both are silence rather than a guess.
+
+          The time takes the card's brightest ink at 600 while the words stay secondary: the
+          design's own two-tone (`.lv` / `.lv b`), expressed in this app's tokens rather than in its
+          #EBD9A8. That hex is `--color-segment-active`, whose meaning on this screen is "this
+          control is on", and it would be a third gold on a card already carrying the lead wash and
+          the badge — so the design's gold is REJECTED here and `--color-plex-text` carries the
+          emphasis instead. Measured over the card's own composited backdrop: 14.99:1 for the time
+          and 7.03:1 for the words, 13.98 and 6.74 on the lead card's gold wash.
+
+          The line takes no `far` tint, unlike the reach line above it. That mark says a DRIVE is
+          beyond today's default tier, and `index.css` justifies it as sitting on "the very line
+          that is tinted" — the line printing the drive figure. A second tinted line about the same
+          drive would double the accent without adding a fact. */}
+      {leave && (
+        <span
+          data-testid="window-spot-leave"
+          className="font-mono text-plex-text-secondary"
+          style={{ fontSize: '10px' }}
+        >
+          {/* Hidden from the accessible name: the card is a button named from its contents, and
+              U+21B0 is announced by some screen readers as "upwards arrow with tip leftwards" —
+              four words of furniture in front of the one line that tells a reader when to go.
+              The visible words are all still in the name, so 2.5.3 holds. */}
+          <span aria-hidden="true">↰</span>
+          {' leave '}
+          <b className="text-plex-text" style={{ fontWeight: 600 }}>{leave}</b>
+        </span>
+      )}
+
       <span
         className="wf-spot-open font-mono text-plex-text-secondary"
         style={{ fontSize: '10px', marginTop: 'auto' }}
@@ -151,6 +190,8 @@ export const SPOT_SHAPE = {
   locationId: PropTypes.number,
   locationName: PropTypes.string.isRequired,
   regionName: PropTypes.string,
+  /** This location's own solar event time, a bare UTC instant. Feeds {@link leaveBy}. */
+  solarEventTime: PropTypes.string,
   rating: PropTypes.number,
   driveMinutes: PropTypes.number,
   distanceMiles: PropTypes.number,

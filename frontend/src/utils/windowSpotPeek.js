@@ -1,4 +1,5 @@
 import { firstClause } from './firstClause.js';
+import { leaveBy } from './leaveBy.js';
 import { lookupBriefingScore } from './briefingScoreIndex.js';
 
 /**
@@ -115,8 +116,18 @@ export function spotPeekPlacement(anchorRect, stripRect) {
  * copied. What survives is the <em>principle</em> — a peek must carry something the card does not —
  * and under it a spot with scores but no sentence has earned one.
  *
- * <p>Rating and drive time are therefore not part of the gate: both are printed on the card. The
- * clause and the two score bars are, and a slot with none of the three gets no peek at all.
+ * <p>Rating, drive time and leave-by are therefore not part of the gate: all three are printed on
+ * the card. The clause and the two score bars are, and a slot with none of the three gets no peek
+ * at all.
+ *
+ * <p><b>Leave-by is computed here rather than taken from the card, and it is the one formatted
+ * string in an otherwise raw return.</b> The panel is built from the descriptor rather than from
+ * the card's DOM, so there is nothing to take it from; the alternative — passing
+ * {@code solarEventTime} through and calling {@code leaveBy} inside {@code WindowSpotPeek}, the way
+ * {@code driveMinutes} is formatted there — would put the same two-field derivation in a third
+ * place for no gain. {@code clause} is already a pre-derived string on the same reasoning. The two
+ * surfaces cannot disagree because both call one pure function on the same two fields of the same
+ * object; {@code rating} is taken from the descriptor for the same single-source reason.
  *
  * <p><b>Triage is deliberately not a fourth key.</b> The index also carries {@code triageReason} and
  * {@code triageMessage}, and a slot that was triaged out has neither scores nor a summary — so it
@@ -137,8 +148,9 @@ export function spotPeekPlacement(anchorRect, stripRect) {
  * @param {string}  date       the window's date
  * @param {string}  targetType SUNRISE or SUNSET
  * @param {?Map}    scoreIndex briefing-score index, from {@code buildBriefingScoreIndex}
- * @returns {?{rating: ?number, driveMinutes: ?number, fierySky: ?number, goldenHour: ?number,
- *          clause: ?string}} the peek's content, or null when there is nothing to show
+ * @returns {?{rating: ?number, driveMinutes: ?number, leaveBy: ?string, fierySky: ?number,
+ *          goldenHour: ?number, clause: ?string}} the peek's content, or null when there is
+ *          nothing to show
  */
 export function resolveSpotPeek(spot, date, targetType, scoreIndex) {
   const score = lookupBriefingScore(scoreIndex, spot.locationName, date, targetType);
@@ -153,6 +165,9 @@ export function resolveSpotPeek(spot, date, targetType, scoreIndex) {
     // would still hand back.
     rating: spot.rating ?? null,
     driveMinutes: spot.driveMinutes ?? null,
+    // Computed AFTER the gate, deliberately: a leave-by time is on the card, so a peek carrying
+    // nothing else would restate what the pointer is already resting on.
+    leaveBy: leaveBy(spot.solarEventTime, spot.driveMinutes),
     fierySky,
     goldenHour,
     clause,
