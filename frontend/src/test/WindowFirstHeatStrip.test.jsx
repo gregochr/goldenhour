@@ -79,6 +79,26 @@ function spot(overrides = {}) {
 }
 
 /**
+ * One point per non-away window — the ORDINARY case, and the default fixture for that reason.
+ *
+ * <p>The default used to be an empty {@code Map}, which every assertion survived because nothing
+ * read it but the mocked {@code drawGeo}. It stopped being harmless when the strip started marking
+ * a window with no points as unscored: an empty map means "nothing in the whole week was rated",
+ * which is not the state the tests below are describing. Built FROM the cards being rendered, so a
+ * test that passes its own set gets points for its own windows rather than for a key it never used.
+ *
+ * @param {Array} cards the thumbnail descriptors being rendered
+ * @returns {Map} window key → one kernel point
+ */
+function scoredWindows(cards) {
+  return new Map(cards
+    .filter((card) => !card.away)
+    .map((card) => [card.key, [{
+      id: 1, name: 'Bamburgh Beach', lat: 55.61, lng: -1.71, rid: 'Northumberland & Tyneside', r: [4],
+    }]]));
+}
+
+/**
  * Renders and lets the geometry promise settle.
  *
  * <p>`await act` rather than a bare render: the strip resolves {@link load} on mount and bumps a
@@ -88,15 +108,19 @@ function spot(overrides = {}) {
  */
 async function renderStrip(props = {}) {
   const onOpenWindow = vi.fn();
+  const cards = props.cards ?? [stripCard()];
   await act(async () => {
     render(
       <WindowFirstHeatStrip
-        cards={[stripCard()]}
-        pointSets={new Map()}
         spots={[spot()]}
+        // The loaded state, because that is what all but one block below is describing. The
+        // in-flight state has its own tests.
+        scoresKnown
         todayStr={TODAY}
         onOpenWindow={onOpenWindow}
         {...props}
+        cards={cards}
+        pointSets={props.pointSets ?? scoredWindows(cards)}
       />,
     );
   });
@@ -427,6 +451,129 @@ describe('WindowFirstHeatStrip — the movement channel', () => {
     const item = within(line).getByTestId('wf-heat-change-item');
     expect(item).toHaveTextContent('▲0.6');
     expect(item).toHaveTextContent('in Northumberland & Tyneside');
+  });
+});
+
+describe('WindowFirstHeatStrip — a window nobody rated', () => {
+  /**
+   * The defect this block exists for, in one sentence: a window with no ratings and a window whose
+   * whole roster was rated 1 rendered IDENTICALLY, because the kernel returns null for an empty
+   * point set and the tile falls back to bare geography — while the verdict word underneath comes
+   * from the briefing's weather thresholds, which run the full horizon and print a confident
+   * "Poor" either way. Reported against a real Saturday sunrise at T+3, where Gate 4 evaluates
+   * SETTLED cells only.
+   */
+  const SCORED = stripCard({ verdict: 'STAND_DOWN', verdictLabel: 'Poor' });
+  const UNSCORED = stripCard({
+    key: '2026-08-07:SUNRISE',
+    date: '2026-08-07',
+    dow: 'Sat',
+    sunrise: true,
+    label: 'Saturday sunrise',
+    time: '05:49',
+    verdict: 'STAND_DOWN',
+    verdictLabel: 'Poor',
+  });
+  /** Both tiles, same verdict, same word — only the ratings differ. */
+  const BOTH = [SCORED, UNSCORED];
+  const ONLY_SCORED = new Map([[SCORED.key, [
+    { id: 1, name: 'Bamburgh Beach', lat: 55.61, lng: -1.71, rid: 'R', r: [1] },
+  ]]]);
+
+  it('hatches the plate of the unrated window and leaves the rated one alone', async () => {
+    // The pair is the assertion. A test that rendered only the unscored tile would pass against a
+    // component that hatched every plate unconditionally — which is the same defect with the
+    // opposite sign, since a hatch on all six says nothing about any of them.
+    await withMeasuredThumbs(160, async () => {
+      await renderStrip({ cards: BOTH, pointSets: ONLY_SCORED });
+    });
+
+    expect(drawGeo).toHaveBeenCalledTimes(2);
+    expect(drawGeo.mock.calls.map((c) => c[5].hatch)).toEqual([false, true]);
+  });
+
+  it('marks the unrated tile and not its identically-worded neighbour', async () => {
+    await renderStrip({ cards: BOTH, pointSets: ONLY_SCORED });
+    const [scored, unrated] = screen.getAllByTestId('wf-heat-card');
+
+    expect(scored).not.toHaveAttribute('data-unscored');
+    expect(unrated).toHaveAttribute('data-unscored', 'true');
+    // Same word, same channel, on both — which is the point. The rating is what is missing, so
+    // the RATING channel is what is withheld; the weather verdict is a true statement either way,
+    // and `index.css` measured this 9px word to AA on the assumption it keeps its own colour.
+    const verdicts = screen.getAllByTestId('wf-heat-verdict');
+    expect(verdicts.map((v) => v.textContent)).toEqual(['Poor', 'Poor']);
+    verdicts.forEach((v) => expect(v).toHaveAttribute('data-verdict', 'STAND_DOWN'));
+  });
+
+  it('says "not scored" in the accessible name, straight after the verdict it qualifies', async () => {
+    // A hatch is not vocabulary. Without this clause the whole mark is invisible to a screen
+    // reader, which would hear the same sentence for both tiles above.
+    await renderStrip({ cards: BOTH, pointSets: ONLY_SCORED });
+
+    expect(screen.getByRole('button', { name: 'Saturday sunrise, 05:49, Poor, not scored' }))
+      .toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Poor' })).toBeInTheDocument();
+  });
+
+  it('names the convention in the footer only while a hatched plate is on screen', async () => {
+    await renderStrip({ cards: BOTH, pointSets: ONLY_SCORED });
+    expect(screen.getByTestId('wf-heat-foot')).toHaveTextContent('unshaded — not scored');
+
+    cleanup();
+    await renderStrip({ cards: BOTH });
+    expect(screen.queryByTestId('wf-heat-unscored-note')).toBeNull();
+  });
+
+  it('marks nothing until the provider says the ratings arrived', async () => {
+    // The flash this gate exists to prevent: an unfetched ratings response and a genuinely
+    // unrated week are the same empty Map, the locations prop routinely lands first, and ungated
+    // every mount painted six hatched plates and a footer clause before flipping to the real
+    // field. `scoresKnown` is the provider's own answer, set on a successful fetch only.
+    await withMeasuredThumbs(160, async () => {
+      await renderStrip({ cards: BOTH, pointSets: new Map(), scoresKnown: false });
+    });
+
+    expect(drawGeo.mock.calls.map((c) => c[5].hatch)).toEqual([false, false]);
+    screen.getAllByTestId('wf-heat-card').forEach((c) => {
+      expect(c).not.toHaveAttribute('data-unscored');
+    });
+    expect(screen.queryByTestId('wf-heat-unscored-note')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Saturday sunrise, 05:49, Poor' }))
+      .toBeInTheDocument();
+  });
+
+  it('marks the whole week once a response with no rows has come back', async () => {
+    // The one case the gate must NOT swallow: an answer carrying nothing is still an answer, and
+    // it is the state where every window really is unrated. `scoresLoaded` is set before the
+    // provider's own empty-response early return for exactly this.
+    await renderStrip({ cards: BOTH, pointSets: new Map() });
+
+    screen.getAllByTestId('wf-heat-card').forEach((c) => {
+      expect(c).toHaveAttribute('data-unscored', 'true');
+    });
+    expect(screen.getByTestId('wf-heat-foot')).toHaveTextContent('unshaded — not scored');
+  });
+
+  it('leaves an away window to its own truer word, and does not call it unscored', async () => {
+    // Its point set is empty too — nothing is evaluated on a travel day — so the naive predicate
+    // catches it. "Not forecast" is the stronger claim and the one the payload supports: the
+    // weather never ran for it, where an unscored live window has a real verdict and no rating.
+    const away = stripCard({
+      key: '2026-08-06:SUNSET',
+      date: '2026-08-06',
+      label: 'Thursday sunset',
+      time: '20:21',
+      verdict: null,
+      verdictLabel: 'Not forecast',
+      away: true,
+    });
+    await renderStrip({ cards: [SCORED, away] });
+
+    const cells = screen.getAllByTestId('wf-heat-card');
+    expect(cells[1]).toHaveAttribute('data-away', 'true');
+    expect(cells[1]).not.toHaveAttribute('data-unscored');
+    expect(screen.queryByTestId('wf-heat-unscored-note')).toBeNull();
   });
 });
 

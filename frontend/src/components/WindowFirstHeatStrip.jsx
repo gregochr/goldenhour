@@ -119,6 +119,28 @@ export function thumbAspect(fitTo) {
  * removing it would silently renumber the shape of the week, and it keeps its sun time because
  * that is almanac and true whether or not a forecast ran.
  *
+ * <h2>An unscored window is marked, not left blank</h2>
+ *
+ * <p>A window nobody rated has an empty point set, the kernel returns null for one, and the tile
+ * renders as bare geography — indistinguishable from a window whose field happened to paint
+ * nothing. That blank was read as a forecast, and the verdict word underneath made it worse: the
+ * word comes from the briefing's own weather thresholds, which run the whole horizon, so an
+ * unscored Saturday printed a confident "Poor" above an empty map next to a Thursday whose
+ * identical "Poor" was the roster actually rated bad.
+ *
+ * <p>It is gated on {@code scoresKnown}, and that gate is the difference between a mark and a
+ * flash. An empty point set is also what an unfetched ratings response looks like, and the
+ * locations prop routinely lands first — ungated, every mount painted six hatched plates and a
+ * footer clause for as long as that took, then flipped to the real field. So the strip marks
+ * nothing until the provider says the ratings actually arrived.
+ *
+ * <p>Three parts, one predicate ({@code unscored}). The plate takes {@code drawGeo}'s hatch; the
+ * footer names the convention in words, once, for as long as a hatched plate is on screen; and the
+ * accessible sentence carries "not scored" straight after the verdict it qualifies. The verdict
+ * word itself is untouched — it is a true statement about the weather, and it is the vocabulary
+ * {@code UnscoredPill} and the region band's swatch already settled: an unscored surface withholds
+ * the RATING channel and leaves everything else alone.
+ *
  * <h2>Canvases are decorative; the button's own words are the answer</h2>
  *
  * <p>Each thumbnail's accessible name is ONE visually-hidden sentence — "Tomorrow sunrise, 05:12,
@@ -151,6 +173,11 @@ export function thumbAspect(fitTo) {
  * @param {Array}    props.cards      descriptors from {@code buildHeatStripCards}, chronological
  * @param {Map}      props.pointSets  window key → kernel points, from {@code buildHeatPointSets}
  * @param {Array}    props.spots      the whole heat catalogue, for framing and the beyond line
+ * @param {boolean}  [props.scoresKnown] whether the ratings response has been received. Gates the
+ *   unscored mark ONLY: absent or false, a window with no points is left as it always rendered,
+ *   because "we have not fetched the ratings yet" and "nothing was rated" are the same empty map
+ *   and only the provider can tell them apart. Defaults false so a caller that has not thought
+ *   about it makes no claim.
  * @param {?Map}     [props.reachById] per-user reach, keyed by location id — framing only
  * @param {Set}      [props.openKeys] the window keys whose cards are open
  * @param {string}   props.todayStr   today's ISO date in Europe/London, for the horizon fallback
@@ -161,7 +188,7 @@ export function thumbAspect(fitTo) {
  * @param {Function} [props.onOpenWindow] opens and reveals a window's card
  */
 export default function WindowFirstHeatStrip({
-  cards, pointSets, spots, reachById, openKeys, todayStr, runAge, onOpenWindow,
+  cards, pointSets, spots, scoresKnown = false, reachById, openKeys, todayStr, runAge, onOpenWindow,
 }) {
   // Framing is the ONE thing the planning area is allowed to decide about the field (planningArea's
   // own module comment): which regions are in shot. It must never become the point set — handing
@@ -175,6 +202,30 @@ export default function WindowFirstHeatStrip({
   // first serve after a deploy (no previous build recorded) and whenever nothing changed, and the
   // line is withheld entirely rather than printing an age with nothing attached to it.
   const movers = useMemo(() => topMovers(cards), [cards]);
+
+  /**
+   * The windows carrying no ratings at all — the strip's own derivation, from the very map its
+   * paint callback reads.
+   *
+   * <p><b>The point set, never the paint result.</b> {@code field()} also returns null when every
+   * point is culled outside the frame, so "nothing painted" answers a framing question as well as
+   * a data one; {@code pointSets.get(key).length} answers only the data one, and it is the same
+   * expression the canvas is drawn from, so the mark and the picture cannot disagree.
+   *
+   * <p><b>An away window is excluded, because it already has a truer word.</b> Its point set is
+   * empty too — nothing is evaluated on a travel day — but "Not forecast" is the more specific
+   * claim and it is the one the payload supports: the weather was never run for it, whereas an
+   * unscored live window has a real verdict and only lacks a rating.
+   */
+  const unscored = useMemo(() => {
+    const keys = new Set();
+    if (!scoresKnown) return keys;
+    for (const card of cards) {
+      if (card.away) continue;
+      if (!(pointSets?.get?.(card.key)?.length > 0)) keys.add(card.key);
+    }
+    return keys;
+  }, [cards, pointSets, scoresKnown]);
 
   /**
    * One paint for all six, at one size.
@@ -203,10 +254,13 @@ export default function WindowFirstHeatStrip({
         // One scalar for the haze and the badge decay, so the picture cannot look more certain
         // than the word beside it (plan D3).
         conf: confidenceScalar(tier),
+        // Off the same Set the markup reads, rather than off `points.length` here: one predicate,
+        // so a hatched plate and an unmarked tile can never describe the same window.
+        hatch: unscored.has(card.key),
         fit: fitTo,
       });
     }
-  }, [cards, pointSets, fitTo, todayStr]);
+  }, [cards, pointSets, unscored, fitTo, todayStr]);
 
   const { attachFrame, canvasRef, geoFailed } = useHeatCanvas({
     enabled: cards.length > 0,
@@ -235,6 +289,7 @@ export default function WindowFirstHeatStrip({
 
       <div ref={attachFrame} data-testid="wf-heat-grid" className="wf-hstrip">
         {cards.map((card) => {
+          const notScored = unscored.has(card.key);
           // Built once per card so the hidden sentence and the visible words cannot be assembled
           // from different values. The comma-separated form is what a screen reader pauses on.
           // The chip is inside the `aria-hidden` top row and its mark is a glyph, so without this
@@ -247,8 +302,12 @@ export default function WindowFirstHeatStrip({
           // window-grain, and the change line names only the top two movers — so without this a
           // reader who cannot see the change line has a number attributable to nothing. Sighted
           // readers get the same answer from the change line for the two that matter most.
+          // "not scored" lands straight after the verdict because that is what it qualifies —
+          // "Poor" is a reading of the weather, and this says nothing rated it. The visible word
+          // is still in the name verbatim, so WCAG 2.5.3 holds.
           const accessibleName = [card.label, card.time, card.verdictLabel]
             .filter(Boolean)
+            .concat(notScored ? ['not scored'] : [])
             .concat(card.bestBet ? ['best bet'] : [])
             .concat(chip ? [`${card.movement.regionName} ${chip.spoken}`] : [])
             .join(', ');
@@ -331,6 +390,12 @@ export default function WindowFirstHeatStrip({
               key={card.key}
               type="button"
               data-testid="wf-heat-card"
+              // The same attribute name the region band's swatch uses for the same state, so the
+              // two unscored marks on the Plan screen are one convention rather than two. It
+              // drives no colour here: the mark is the canvas hatch, and dimming the verdict word
+              // instead would put "Poor" — measured to AA at 9px in `index.css`, and the one word
+              // a reader most needs at a glance — back under the floor that measurement set.
+              data-unscored={notScored ? 'true' : undefined}
               data-open={openKeys?.has(card.key) ? 'true' : undefined}
               // Which row is open was a CSS-only signal — a gold border tint and two recoloured
               // words — so a screen-reader user could not tell which of six windows they were in,
@@ -368,6 +433,19 @@ export default function WindowFirstHeatStrip({
         />
         <span>poor → worth it</span>
         <span>later days render hazier — lower confidence</span>
+        {/* Named in words because a texture is not vocabulary, and named HERE rather than on each
+            thumbnail because a 55px tile has no room for a second string — the same call the haze
+            clause beside it makes about the same picture.
+
+            ⚠️ NOT `.wf-hstrip-sp`, so it survives the phone. The desktop-only rule next to it is
+            about a PERMANENT third clause competing for a narrow bar; this one appears only while
+            a hatched plate is actually on screen, and the phone is where the misreading was
+            reported. It says nothing about WHY — "at this range" was drafted and dropped, because
+            the horizon is the usual cause and not the only one (a failed batch leaves T+0
+            unscored), and the client cannot tell those apart. */}
+        {unscored.size > 0 && (
+          <span data-testid="wf-heat-unscored-note">unshaded — not scored</span>
+        )}
         {/* Desktop only, as the design has it — the phone bar has no room for a third clause and
             the first two are the ones that decode the picture. */}
         <span className="wf-hstrip-sp">
@@ -470,6 +548,7 @@ WindowFirstHeatStrip.propTypes = {
   })).isRequired,
   pointSets: PropTypes.instanceOf(Map),
   spots: PropTypes.array.isRequired,
+  scoresKnown: PropTypes.bool,
   reachById: PropTypes.instanceOf(Map),
   openKeys: PropTypes.instanceOf(Set),
   todayStr: PropTypes.string,

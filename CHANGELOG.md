@@ -33,6 +33,68 @@ printed is the age of the *last* build — so "since the last forecast run 52m a
 sample copy) would attribute a change that took eleven hours to the last fifty-two minutes. It is
 also honest about a second thing: the current side is re-derived on every serve, so the figure
 includes any rating batch that has landed since the build, not only run-to-run change.
+### Fixed — the Map tab's ramp key no longer explains a field that is not there
+
+The third and last surface to take the unscored channel, and the only one where the mark is not a
+hatch. `drawTiles` paints over basemap tiles rather than a vendored plate, so there is nothing to
+texture — and the Leaflet host already degrades honestly when a window has no ratings
+(`MapHeatLayer.fadesMarkers` keeps the markers at full opacity, so the map is simply the map). What
+did not degrade was the **ramp key**, whose own rule is that it must not explain a gradient nothing
+on screen is painted with: in heat view on an unrated window it sat above an empty map promising
+Poor → Worth it. It is now replaced — never accompanied — by `This window is not scored`.
+
+⚠️ **The predicate reads the UNFILTERED point set, never `heatPoints`.** That array is narrowed by
+the dark-sky toggle, so keying off it would turn a reader who has filtered every Bortle ≤ 4
+location out of a well-rated window into an accusation about the forecast — the exact mislabelling
+this channel exists to prevent. It is also distinct from `heatWindow` being null, which is the map
+sitting on a date the briefing does not reach: the selector already answers that, and it is a
+statement about the camera rather than about the forecast. Gated on the provider's `scoresLoaded`
+like the other two surfaces, and the note carries no `aria-hidden` — unlike the row map's chip this
+is toolbar chrome, not an annotation on a picture that does not exist for a screen reader, so it
+names its own scope rather than relying on sitting under the window selector.
+
+### Fixed — an unrated window on the Plan strip no longer reads as a bad forecast
+
+A heat-strip thumbnail with no ratings rendered as bare coastline, which is also what a thumbnail
+whose field happened to paint nothing looks like — and the verdict word beneath it comes from the
+briefing's own weather thresholds, which run the full horizon either way. So a Saturday sunrise at
+T+3, where Gate 4 evaluates SETTLED cells only, printed a confident **Poor** above an empty map
+beside a Thursday whose identical **Poor** was the whole roster actually rated bad. The two states
+were indistinguishable, and only one of them was a forecast.
+
+The unrated plate now takes a 45° hatch (`drawGeo`'s new `hatch` option, defaulted off so no
+existing host changes), the strip's footer names the convention once — `unshaded — not scored` —
+for as long as a hatched plate is on screen, and the thumbnail's accessible sentence carries
+"not scored" straight after the verdict it qualifies. The verdict word itself is untouched: it is
+a true statement about the weather, and it is the vocabulary `UnscoredPill` and the region band's
+swatch already settled — an unscored surface withholds the RATING channel and leaves the rest
+alone. Dimming it was drafted and dropped, because `index.css` measured that 9px `Poor` to AA on
+the assumption it keeps its own colour.
+
+The mark is gated on a new `scoresLoaded` flag from `WindowFirstBriefingProvider`, and the gate is
+load-bearing. An empty point set is also what an *unfetched* ratings response looks like, and the
+locations prop routinely lands first — ungated, every mount painted six hatched plates and a
+footer clause before flipping to the real field. The flag is set on a successful fetch **before**
+the provider's own empty-response early return, because a response carrying no rows is still an
+answer and is the one case where every window genuinely is unrated; a failed or in-flight fetch
+sets nothing, since neither is evidence about the forecast.
+
+**The open row's field map takes the same mark.** It is the same defect one level down — with no
+points the kernel paints nothing, so the map is bare coastline — and quieter only because the
+region labels still sit on the plate, which reads as "these places, nothing doing" rather than as
+"nobody looked". Same hatch, same `scoresKnown` gate (carried on the card's `field` object), and a
+`Not scored` chip bottom-right of the map box, opposite the selection hint. The chip is
+`aria-hidden` with the canvas and the labels it sits among, which is this component's own doctrine
+rather than an omission: the picture does not exist for a screen reader, and the accessible answer
+is the region rail below, which already withholds `best N★` when nothing there is rated. Its
+wording is the strip's vocabulary but not the strip's sentence — there the footer says
+`unshaded — not scored` because it decodes six tiles at once, and here the whole of one plate is
+hatched, so "unshaded" would name nothing.
+
+The hatch says nothing about WHY. "at this range" was drafted and dropped: the horizon is the
+usual cause and not the only one (a failed batch leaves T+0 unrated), and the client cannot tell
+a stability skip from a triage stand-down from a failed run — all it sees is a window with no
+ratings.
 
 ### Added — heat field P5: leave-by, and the spot badge joins the one ramp
 

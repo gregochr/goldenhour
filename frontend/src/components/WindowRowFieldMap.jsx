@@ -73,6 +73,19 @@ const PICK_RADIUS_FRACTION = 0.26;
  * {@code line-height: 1.35} explicitly. Without it the selected region's dark plate paints 6px tall
  * behind 9.5px of text and reads as a strike-through rather than as a chip.
  *
+ * <h2>A window nobody rated is marked, not left blank</h2>
+ *
+ * <p>The heat strip's rule, one level down and for the same reason: with no points the kernel
+ * paints nothing, so the map is bare coastline — indistinguishable from a window whose field
+ * happened to paint nothing, while the card above it carries a verdict word the briefing's weather
+ * thresholds produced for the whole horizon either way. The plate takes {@code drawGeo}'s hatch
+ * and a {@code Not scored} chip names it, both gated on {@code scoresKnown} because an empty
+ * {@code points} is also what an unfetched ratings response looks like.
+ *
+ * <p>The chip is the strip's vocabulary, not its wording: there the footer says
+ * {@code unshaded — not scored} because it decodes six tiles at once, and here there is one map
+ * whose whole plate is hatched, so "unshaded" would name nothing.
+ *
  * <h2>Framing, focus, and the one thing the planning area may decide</h2>
  *
  * <p>The frame is the planning area's, exactly as the strip's is, so the row map and the six
@@ -90,6 +103,10 @@ const PICK_RADIUS_FRACTION = 0.26;
  * @param {?string}  props.confidence the window's served confidence tier
  * @param {Array}    props.spots      the whole heat catalogue
  * @param {Array}    props.points     this window's kernel points, from {@code buildHeatPointSets}
+ * @param {boolean}  [props.scoresKnown] whether the ratings response has been received. Gates the
+ *   unscored mark ONLY — absent or false, an empty {@code points} is left as it always rendered,
+ *   because it is also what an unfetched response looks like and only the provider can tell those
+ *   apart. Defaults false so a caller that has not thought about it makes no claim.
  * @param {Array}    props.regionNames the rail's regions, in rank order — the labellable set
  * @param {?string}  props.selectedRegion the focused region, or null
  * @param {?Map}     [props.reachById] per-user reach, keyed by location id — framing only
@@ -97,8 +114,8 @@ const PICK_RADIUS_FRACTION = 0.26;
  * @param {Function} [props.onSelectRegion] called with a region name, or null to clear
  */
 export default function WindowRowFieldMap({
-  windowKey, date, confidence, spots, points, regionNames, selectedRegion, reachById, todayStr,
-  onSelectRegion,
+  windowKey, date, confidence, spots, points, scoresKnown = false, regionNames, selectedRegion,
+  reachById, todayStr, onSelectRegion,
 }) {
   const isMobile = useIsMobile();
   const framed = useMemo(() => areaSpots(spots, reachById), [spots, reachById]);
@@ -118,6 +135,20 @@ export default function WindowRowFieldMap({
    * the frame or two before the labels catch up.
    */
   const [frame, setFrame] = useState(null);
+
+  /**
+   * Whether this window carries no ratings at all — the strip's mark, one level down.
+   *
+   * <p>The same defect and the same fix: with no points the kernel paints nothing and the map is
+   * bare coastline, which is also what a window whose field happened to paint nothing looks like.
+   * Here the misreading is quieter but not smaller — the region labels still sit on the plate, so
+   * it reads as "these places, nothing doing" rather than as "nobody looked".
+   *
+   * <p>Simpler than the strip's Set because this component is handed ONE window's points rather
+   * than a keyed map of six; the predicate is the same one, and the {@code scoresKnown} gate is
+   * the same gate, for the same reason (an unfetched response is also an empty array).
+   */
+  const notScored = scoresKnown && points.length === 0;
 
   // Fewer than two regions and there is nothing to choose between: the rail withdraws (§4.4) and so
   // does the click. Normally a P7 origin case; mechanically reachable now on a one-region payload.
@@ -159,6 +190,9 @@ export default function WindowRowFieldMap({
       blur: MAP_BLUR,
       line: MAP_LINE,
       conf: confidenceScalar(tier),
+      // The hatch is the caller's claim, never inferred from an empty field — `drawGeo`'s own note
+      // says why (a null field also answers a framing question).
+      hatch: notScored,
       fit: fitTo,
       // The kernel raises its own alpha to 238 when a focus is set, so a focused field reads as
       // deliberate rather than as a dimmer version of the unfocused one. Byte-identical, never
@@ -179,7 +213,8 @@ export default function WindowRowFieldMap({
       labels.push({ name, x: at[0], y: at[1] });
     }
     setFrame({ width, labels });
-  }, [windowKey, date, confidence, points, fitTo, framed, regionNames, focusRegion, todayStr]);
+  }, [windowKey, date, confidence, points, notScored, fitTo, framed, regionNames, focusRegion,
+    todayStr]);
 
   const { attachFrame, canvasRef, geoFailed } = useHeatCanvas({
     enabled: points.length > 0 || framed.length > 0,
@@ -254,6 +289,20 @@ export default function WindowRowFieldMap({
             {selectedRegion ? 'Select it again to clear' : 'Select a region'}
           </span>
         )}
+        {/* A chip on the thing it describes, rather than the strip's footer clause — there is one
+            map here and the whole of it is hatched, so "unshaded" would name nothing.
+
+            `aria-hidden` with the canvas and the labels it sits among, and that is this
+            component's own doctrine rather than an omission: the picture does not exist for a
+            screen reader, so a caption decoding it would be noise. The accessible answer is the
+            rail below, which already withholds `best N★` when nothing there is rated: it says
+            less rather than saying something false, which is what this chip does in the visual
+            channel. */}
+        {notScored && (
+          <span data-testid="wf-row-map-unscored" className="wf-mnote" aria-hidden="true">
+            Not scored
+          </span>
+        )}
       </div>
     </div>
   );
@@ -265,6 +314,7 @@ WindowRowFieldMap.propTypes = {
   confidence: PropTypes.string,
   spots: PropTypes.array.isRequired,
   points: PropTypes.array.isRequired,
+  scoresKnown: PropTypes.bool,
   regionNames: PropTypes.arrayOf(PropTypes.string).isRequired,
   selectedRegion: PropTypes.string,
   reachById: PropTypes.instanceOf(Map),

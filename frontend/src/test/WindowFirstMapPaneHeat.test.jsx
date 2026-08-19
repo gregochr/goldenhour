@@ -96,6 +96,19 @@ describe('WindowFirstMapPane — the heat prop', () => {
     expect(MapStub.lastProps.heat.pointsByKey).toBe(briefingValue.heatPointSets);
   });
 
+  it('passes the provider\'s ratings-received flag straight through', () => {
+    // `MapView` reads it to tell an unrated window from an unfetched response — the same empty
+    // point set either way — and only the provider knows which. Re-deriving it on the map side is
+    // exactly what this pass-through prevents.
+    renderPane(context({ scoresLoaded: true }));
+    expect(MapStub.lastProps.heat.scoresKnown).toBe(true);
+  });
+
+  it('reports nothing received while the ratings fetch is still in flight', () => {
+    renderPane();
+    expect(MapStub.lastProps.heat.scoresKnown).toBeFalsy();
+  });
+
   it('reports no field at all when the join produced no spots', () => {
     // The degrade path: a failed `evaluate/scores` fetch, an empty roster, a briefing that has not
     // arrived. `MapView` answers `enabled: false` by rendering neither the toolbar nor the layer.

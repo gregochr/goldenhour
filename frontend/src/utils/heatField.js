@@ -293,6 +293,68 @@ export function centroid(spots, rid, project) {
 }
 
 /**
+ * The unscored plate's hatch — spacing in CSS px, ink and line width.
+ *
+ * <p>CSS px rather than a fraction of the surface, so the texture reads the same on a 55px
+ * six-across thumbnail and a 110px three-across one; a proportional gap would give the small
+ * tile four lines and the large one four wider-spaced lines, which is a different mark rather
+ * than the same mark at two sizes.
+ *
+ * <p>The ink is the coastline's own bone at a lower alpha (.18 against the stroke's .30) —
+ * the hatch must read as part of the plate rather than as a second, competing coastline.
+ */
+const HATCH_GAP = 7;
+const HATCH_LINE = 0.6;
+const HATCH_INK = 'rgba(242,231,211,.18)';
+
+/**
+ * Rules a 45° hatch across the land plate, clipped to the coastline.
+ *
+ * <p><b>It marks "nothing was scored here", never "everything scored badly".</b> The two are
+ * indistinguishable on an unhatched plate — the kernel returns null for an empty point set, so a
+ * window nobody rated renders as bare geography, exactly as a window whose field happened to
+ * paint nothing would. That blank was being read as a forecast: on a Plan strip where the verdict
+ * word underneath comes from the briefing's own weather thresholds (which run the full horizon),
+ * an unscored Saturday printed a confident "Poor" above an empty map beside a Thursday whose
+ * identical "Poor" was 200 locations actually rated bad.
+ *
+ * <p>It is deliberately mute about WHY. The client cannot tell a stability skip from a triage
+ * stand-down from a failed batch — all it sees is a window with no ratings — so the mark says
+ * that and no more, and the strip's footer is where the convention is named in words.
+ *
+ * @param {CanvasRenderingContext2D} ctx target context
+ * @param {number} w surface width in CSS px
+ * @param {number} h surface height in CSS px
+ * @param {Function} clip lays the land path into {@code ctx}, taking NO arguments — it is the
+ *        caller's {@code geoPath}, which d3 has already bound to this context. {@code paint}'s
+ *        {@code opts.clip} is handed {@code ctx} for the same job, and that is a public option
+ *        whose arity is the caller's business; this one has a single call site and passing it an
+ *        argument the arrow never declared claimed a contract nothing honours.
+ * @param {{hatchGap?: number, hatchInk?: string, hatchLine?: number}} opts the hatch's dials
+ */
+function hatchPlate(ctx, w, h, clip, opts) {
+  ctx.save();
+  ctx.beginPath();
+  clip();
+  ctx.clip();
+  // Floored at 1: a zero or negative gap does not draw a denser hatch, it hangs the render
+  // thread. The option exists for the tests, and a shared kernel should not carry a loop a
+  // caller can freeze the tab with.
+  const gap = Math.max(1, opts.hatchGap || HATCH_GAP);
+  ctx.beginPath();
+  // 45°, drawn from below the left edge to beyond the right so both corners are covered: a line
+  // starting at (x, h) ends at (x + h, 0), so the sweep has to begin a full height to the left.
+  for (let x = -h; x < w; x += gap) {
+    ctx.moveTo(x, h);
+    ctx.lineTo(x + h, 0);
+  }
+  ctx.strokeStyle = opts.hatchInk || HATCH_INK;
+  ctx.lineWidth = opts.hatchLine || HATCH_LINE;
+  ctx.stroke();
+  ctx.restore();
+}
+
+/**
  * Host A: a static canvas with a d3 projection, clipped to real coastline (the Plan thumbnails
  * and the open row's field map).
  *
@@ -301,7 +363,11 @@ export function centroid(spots, rid, project) {
  * @param {number} h CSS px
  * @param {Array<{lat: number, lng: number, r: number[], rid: *}>} spots the catalogue
  * @param {number} win index into each spot's `r` scores
- * @param {object} [opts] `fit`, `sea`, `plate`, `stroke`, `line`, `focus` + everything {@link field} takes
+ * @param {object} [opts] `fit`, `sea`, `plate`, `stroke`, `line`, `focus`, `hatch` + everything
+ *        {@link field} takes. `hatch` rules {@link hatchPlate}'s no-data texture over the plate;
+ *        it is the CALLER's claim that this window carries no scores, never inferred from an
+ *        empty field — {@link field} also returns null when every point is culled outside the
+ *        frame, which is a framing answer rather than an absence of data.
  * @returns {Function|null} the projection used, or null when it declines — which happens for
  *          THREE different reasons: no canvas, a box 20px or smaller in either dimension (a
  *          zero measure throws on `cv.width`), or {@link load} not yet resolved. P2's rAF
@@ -330,6 +396,10 @@ export function drawGeo(cv, w, h, spots, win, opts) {
     return { x: p[0], y: p[1], sc: s.r[win], rid: s.rid };
   });
   paint(ctx, w, h, pts, { ...opts, alpha: opts.focus ? 238 : 206, clip: () => path(LAND) });
+  // After the field and before the coastline: the mark belongs to the plate, so it sits under the
+  // edge that defines the plate. Ordinary callers never set it, so every existing host's paint
+  // order is unchanged.
+  if (opts.hatch) hatchPlate(ctx, w, h, () => path(LAND), opts);
   ctx.beginPath();
   path(LAND);
   ctx.strokeStyle = opts.stroke || 'rgba(242,231,211,.30)';
