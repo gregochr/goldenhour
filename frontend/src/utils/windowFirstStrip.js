@@ -53,8 +53,8 @@ export const AWAY_STATE_LABEL = 'Not forecast';
  * @param {string} todayStr       today's ISO date in Europe/London
  * @param {string} tomorrowStr    tomorrow's ISO date in Europe/London
  * @returns {Array<{key: string, date: string, targetType: string, dow: string, sunrise: boolean,
- *   label: string, time: string, verdict: ?string, verdictLabel: string, bestBet: boolean,
- *   away: boolean, confidence: ?string, movement: ?object}>} thumbnail descriptors
+ *   label: string, time: string, verdict: ?string, verdictLabel: string, bestRating: ?number,
+ *   bestBet: boolean, away: boolean, confidence: ?string, movement: ?object}>} descriptors
  */
 export function buildHeatStripCards(
   upcomingEvents, windowCards, travelDayDates, briefingDays, todayStr, tomorrowStr,
@@ -90,6 +90,15 @@ export function buildHeatStripCards(
       // non-travel event — so the fallback is defensive rather than a branch the payload reaches.
       verdict: away ? null : (card?.verdict ?? 'AWAITING'),
       verdictLabel: away ? AWAY_STATE_LABEL : (card?.verdictLabel ?? 'Awaiting'),
+      // The payload's own answer to "is anything in this window rated" — null means nothing is,
+      // which is why the card header omits its star rather than printing a placeholder. Carried
+      // here because the thumbnail's unscored mark asks exactly that question, and this fold's
+      // rule is that a thumbnail says nothing its card does not already say.
+      //
+      // ⚠️ It is the WINDOW's served best, never re-derived from a gated set — `windowFirstCards`
+      // records why at length. So the mark cannot move when the reader touches the reach tier or
+      // the rating floor, which would be a quality control silently relabelling the forecast.
+      bestRating: card?.bestRating ?? null,
       // The forecast's own Best pick, served on the window projection — never a client-side
       // "which of these six looks best" (plan §2.12). Exactly two picks exist across the whole
       // forecast and only the Best one is flagged here.

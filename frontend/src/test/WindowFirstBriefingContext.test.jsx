@@ -132,7 +132,7 @@ const heatPointIdentities = [];
 function Consumer() {
   const {
     briefing, loading, heatStripCards, windowCards, evaluationScores, reachLens: lens, ratingLens,
-    orderLens, homePlace, promotedStrip, heatSpots, heatPointSets, scoresLoaded,
+    orderLens, homePlace, promotedStrip, heatSpots, heatPointSets,
   } = useWindowFirstBriefing();
   // Identity, not content: plan §5.4 requires the join to be memoised on its real inputs, and a
   // recomputation is invisible in the rendered text. Collected here rather than in a bespoke
@@ -154,9 +154,6 @@ function Consumer() {
       </span>
       <span data-testid="strip-verdicts">{heatStripCards.map((c) => c.verdictLabel).join('|')}</span>
       <span data-testid="scores">{[...evaluationScores.keys()].join('|') || 'none'}</span>
-      {/* Distinct from `scores` being empty, which is the whole reason it exists — see the heat
-          strip's unscored mark, which may not fire on an unfetched response. */}
-      <span data-testid="scores-loaded">{String(scoresLoaded)}</span>
       <span data-testid="cards">{windowCards.length}</span>
       {/* One descriptor or nothing — the shape is the cap. */}
       <span data-testid="promo">{promotedStrip ? promotedStrip.windowKey : 'none'}</span>
@@ -686,27 +683,6 @@ describe('WindowFirstBriefingProvider', () => {
 
       await act(async () => {});
       expect(screen.getByTestId('scores')).toHaveTextContent('none');
-    });
-
-    it('reports the response as received even when it carried no rows', async () => {
-      // The heat strip's unscored mark reads this to tell "not fetched yet" from "nothing was
-      // rated" — the same empty array either way. Set BEFORE the provider's own empty-response
-      // early return, which is where it would be easiest to lose.
-      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
-      getAllEvaluationScores.mockResolvedValue([]);
-      renderProvider();
-
-      await act(async () => {});
-      expect(screen.getByTestId('scores-loaded')).toHaveTextContent('true');
-    });
-
-    it('reports nothing received when the fetch fails, so no absence is claimed', async () => {
-      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
-      getAllEvaluationScores.mockRejectedValue(new Error('nope'));
-      renderProvider();
-
-      await act(async () => {});
-      expect(screen.getByTestId('scores-loaded')).toHaveTextContent('false');
     });
 
     it('still renders the strip when the scores fetch fails', async () => {

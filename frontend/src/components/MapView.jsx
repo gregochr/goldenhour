@@ -1129,25 +1129,21 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
   }, [heatOn, heatWindow, heat, heatSpotPool]);
 
   /**
-   * Whether the selected window carries no ratings at all — the Plan tab's unscored mark, adapted.
+   * Whether the payload says nothing in the selected window is rated — the Plan tab's mark, adapted
+   * to a host with no plate to hatch.
    *
-   * <p><b>Off the UNFILTERED point set, never off {@code heatPoints}.</b> That array is narrowed by
-   * the dark-sky toggle, and a reader who has filtered every Bortle ≤ 4 location out of a
-   * perfectly well-rated window has emptied the field themselves. Labelling that "not scored" would
-   * blame the forecast for the reader's own control — the one mislabelling this whole channel
-   * exists to prevent.
+   * <p>⚠️ <b>The window's served {@code bestRating}, never a point count.</b> Two different point
+   * counts were tried and both were wrong evidence. {@code heatPoints} is narrowed by the dark-sky
+   * toggle, so a reader who filtered every Bortle ≤ 4 location out of a well-rated window would
+   * have been told the forecast was unscored. The unfiltered set fixes that and is still wrong for
+   * a subtler reason the strip's class comment records: an empty point set is a fact about the
+   * join behind the picture, and in production three windows the payload was rating had one.
    *
-   * <p>It is also distinct from {@code heatWindow} being null, which is the map sitting on a date
-   * the briefing does not reach: the selector already says "No forecast window" for that, and it is
-   * a statement about the CAMERA rather than about the forecast.
-   *
-   * <p>Gated on {@code heat.scoresKnown} for the reason the strip and the row map are: an empty
-   * point set is also what an unfetched ratings response looks like.
+   * <p>It stays distinct from {@code heatWindow} being null, which is the map sitting on a date the
+   * briefing does not reach: the selector already says "No forecast window" for that, and it is a
+   * statement about the CAMERA rather than about the forecast.
    */
-  const windowUnscored = Boolean(
-    heatOn && heatWindow && heat?.scoresKnown
-      && !(heat.pointsByKey?.get(heatWindow.key)?.length > 0),
-  );
+  const windowUnscored = Boolean(heatOn && heatWindow && heatWindow.bestRating == null);
 
   /** The camera's framing for each segment state — `null` when the roster cannot supply a box. */
   const heatBounds = (heatArea ? heat?.areaBounds : heat?.catalogueBounds) || null;
@@ -2252,14 +2248,14 @@ MapView.propTypes = {
     spots: PropTypes.array,
     areaSpots: PropTypes.array,
     pointsByKey: PropTypes.instanceOf(Map),
-    /** Whether the ratings response has been received — gates the unscored note only. */
-    scoresKnown: PropTypes.bool,
     windows: PropTypes.arrayOf(PropTypes.shape({
       key: PropTypes.string,
       date: PropTypes.string,
       targetType: PropTypes.string,
       label: PropTypes.string,
       time: PropTypes.string,
+      /** The window's served best rating — null means nothing in it is rated. */
+      bestRating: PropTypes.number,
       conf: PropTypes.number,
     })),
     areaBounds: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),

@@ -75,12 +75,17 @@ const PICK_RADIUS_FRACTION = 0.26;
  *
  * <h2>A window nobody rated is marked, not left blank</h2>
  *
- * <p>The heat strip's rule, one level down and for the same reason: with no points the kernel
+ * <p>The heat strip's rule, one level down and for the same reason: with no rating the kernel
  * paints nothing, so the map is bare coastline — indistinguishable from a window whose field
  * happened to paint nothing, while the card above it carries a verdict word the briefing's weather
  * thresholds produced for the whole horizon either way. The plate takes {@code drawGeo}'s hatch
- * and a {@code Not scored} chip names it, both gated on {@code scoresKnown} because an empty
- * {@code points} is also what an unfetched ratings response looks like.
+ * and a {@code Not scored} chip names it.
+ *
+ * <p>⚠️ <b>Keyed on the window's served {@code bestRating}, never on {@code points} being empty.</b>
+ * The strip's class comment records what that cost in production: an empty point set is a fact
+ * about the join behind the picture, and three windows the payload was rating drew a plate saying
+ * nobody had. The rail directly below this map reads the same field for its All cell, so the two
+ * cannot disagree.
  *
  * <p>The chip is the strip's vocabulary, not its wording: there the footer says
  * {@code unshaded — not scored} because it decodes six tiles at once, and here there is one map
@@ -103,10 +108,10 @@ const PICK_RADIUS_FRACTION = 0.26;
  * @param {?string}  props.confidence the window's served confidence tier
  * @param {Array}    props.spots      the whole heat catalogue
  * @param {Array}    props.points     this window's kernel points, from {@code buildHeatPointSets}
- * @param {boolean}  [props.scoresKnown] whether the ratings response has been received. Gates the
- *   unscored mark ONLY — absent or false, an empty {@code points} is left as it always rendered,
- *   because it is also what an unfetched response looks like and only the provider can tell those
- *   apart. Defaults false so a caller that has not thought about it makes no claim.
+ * @param {?number}  [props.bestRating] the window's served best rating — null when the payload
+ *   says nothing in this window is rated, which is the one thing that draws the unscored mark.
+ *   Absent is treated as "not rated" only in the sense that a caller passing nothing gets no mark:
+ *   see {@code notScored}.
  * @param {Array}    props.regionNames the rail's regions, in rank order — the labellable set
  * @param {?string}  props.selectedRegion the focused region, or null
  * @param {?Map}     [props.reachById] per-user reach, keyed by location id — framing only
@@ -114,7 +119,7 @@ const PICK_RADIUS_FRACTION = 0.26;
  * @param {Function} [props.onSelectRegion] called with a region name, or null to clear
  */
 export default function WindowRowFieldMap({
-  windowKey, date, confidence, spots, points, scoresKnown = false, regionNames, selectedRegion,
+  windowKey, date, confidence, spots, points, bestRating = null, regionNames, selectedRegion,
   reachById, todayStr, onSelectRegion,
 }) {
   const isMobile = useIsMobile();
@@ -137,18 +142,17 @@ export default function WindowRowFieldMap({
   const [frame, setFrame] = useState(null);
 
   /**
-   * Whether this window carries no ratings at all — the strip's mark, one level down.
+   * Whether the payload says nothing in this window is rated — the strip's mark, one level down.
    *
-   * <p>The same defect and the same fix: with no points the kernel paints nothing and the map is
-   * bare coastline, which is also what a window whose field happened to paint nothing looks like.
-   * Here the misreading is quieter but not smaller — the region labels still sit on the plate, so
-   * it reads as "these places, nothing doing" rather than as "nobody looked".
+   * <p>The same predicate as the strip, off the same field, and deliberately NOT
+   * {@code points.length === 0}: that asks whether the FIELD can paint, which is a different
+   * question with a different answer (see the class comment). Here the misreading was quieter than
+   * on the strip but not smaller — the region labels still sit on the plate, so an unmarked bare
+   * map reads as "these places, nothing doing" rather than as "nobody looked".
    *
-   * <p>Simpler than the strip's Set because this component is handed ONE window's points rather
-   * than a keyed map of six; the predicate is the same one, and the {@code scoresKnown} gate is
-   * the same gate, for the same reason (an unfetched response is also an empty array).
+   * <p>Simpler than the strip's Set because this component is handed ONE window rather than six.
    */
-  const notScored = scoresKnown && points.length === 0;
+  const notScored = bestRating == null;
 
   // Fewer than two regions and there is nothing to choose between: the rail withdraws (§4.4) and so
   // does the click. Normally a P7 origin case; mechanically reachable now on a one-region payload.
@@ -314,7 +318,7 @@ WindowRowFieldMap.propTypes = {
   confidence: PropTypes.string,
   spots: PropTypes.array.isRequired,
   points: PropTypes.array.isRequired,
-  scoresKnown: PropTypes.bool,
+  bestRating: PropTypes.number,
   regionNames: PropTypes.arrayOf(PropTypes.string).isRequired,
   selectedRegion: PropTypes.string,
   reachById: PropTypes.instanceOf(Map),

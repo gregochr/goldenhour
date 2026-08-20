@@ -69,7 +69,6 @@ const WindowFirstBriefingContext = createContext({
   upcomingEvents: [],
   travelDayDates: new Set(),
   evaluationScores: EMPTY_SCORES,
-  scoresLoaded: false,
   heatSpots: EMPTY_ARRAY,
   heatPointSets: EMPTY_POINT_SETS,
   regionSeries: EMPTY_REGION_SERIES,
@@ -199,17 +198,6 @@ export function WindowFirstBriefingProvider({
   // heat join saw.
   const [scoreRows, setScoreRows] = useState(EMPTY_ARRAY);
 
-  /**
-   * Whether the ratings response has actually been received.
-   *
-   * <p>Not derivable from {@code scoreRows}: an empty array is the state BEFORE the fetch returns
-   * and also the state after one that returned nothing, and the heat strip's unscored mark has to
-   * tell those apart. Without it, the strip renders its whole week as unrated for as long as the
-   * locations prop lands ahead of this fetch — six hatched plates on every mount, flipping to the
-   * real field a moment later. Set on success only: a failed or in-flight fetch is not evidence
-   * that nothing was rated, and the mark is a claim about the forecast rather than about us.
-   */
-  const [scoresLoaded, setScoresLoaded] = useState(false);
   const [reachById, setReachById] = useState(EMPTY_REACH);
   // Three states, not two: `undefined` is "not answered yet or the request failed", and it renders
   // NOTHING. Collapsing it onto null would tell a user who has a home postcode that they have not
@@ -335,9 +323,6 @@ export function WindowFirstBriefingProvider({
   useEffect(() => {
     getAllEvaluationScores()
       .then((views) => {
-        // Before the early return: a response carrying no rows is still an ANSWER, and it is the
-        // one case where every window genuinely is unscored.
-        setScoresLoaded(true);
         if (!views || views.length === 0) return;
         setScoreRows(views);
         const next = new Map();
@@ -520,15 +505,13 @@ export function WindowFirstBriefingProvider({
   const value = useMemo(
     () => ({
       briefing, loading, heatStripCards, windowCards, paneItems, promotedStrip, upcomingEvents,
-      travelDayDates, evaluationScores, scoresLoaded, scoreIndex, heatSpots: heatSpotList,
-      heatPointSets,
+      travelDayDates, evaluationScores, scoreIndex, heatSpots: heatSpotList, heatPointSets,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
       ratingLens, orderLens, homePlace, isPro, isLiteUser,
     }),
     [briefing, loading, heatStripCards, windowCards, paneItems, promotedStrip, upcomingEvents,
-      travelDayDates, evaluationScores, scoresLoaded, scoreIndex, heatSpotList, heatPointSets,
-      regionSeries,
+      travelDayDates, evaluationScores, scoreIndex, heatSpotList, heatPointSets, regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
       ratingLens, orderLens, homePlace, isPro, isLiteUser],
   );
@@ -563,8 +546,7 @@ WindowFirstBriefingProvider.propTypes = {
  *
  * @returns {{briefing: ?object, loading: boolean, heatStripCards: Array, windowCards: Array,
  *           paneItems: Array, promotedStrip: ?object, upcomingEvents: Array,
- *           travelDayDates: Set, scoresLoaded: boolean, heatSpots: Array, heatPointSets: Map,
- *           regionSeries: Map,
+ *           travelDayDates: Set, heatSpots: Array, heatPointSets: Map, regionSeries: Map,
  *           reachById: Map,
  *           reachLens: object, ratingLens: object, orderLens: object, homePlace: ?string,
  *           todayStr: string,

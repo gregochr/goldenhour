@@ -5,6 +5,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the unscored mark was reading the wrong evidence, and contradicted the card beneath it
+
+Shipped in v2.18.13 and wrong in production the same evening. The mark asked "does this window's
+heat point set have anything in it", which is a fact about the **join behind the picture**, not
+about the forecast. The payload's own answer is `bestRating` — null means "nothing in this window
+is rated", and it is what the card header (`best spot N★`), the region rail's All cell and the
+drill-down have always read.
+
+On 2026-08-19 the two disagreed for three of six windows. A Saturday sunrise drew a hatched plate
+reading *not scored* directly above its own card reading **best spot 5★**, with the regional
+planner showing 3.7★ for the Lake District on the same morning — and the tile still carried the
+**BEST BET** flag. Only Sunday sunrise, the one window with no `best spot` figure anywhere, was
+marked correctly. Marking a window that every surface around it is rating is worse than the blank
+this channel was built to fix.
+
+All three surfaces now key on `bestRating`: the strip thumbnail, the open row's field map (whose
+rail reads the same field one element below, so the two can no longer disagree) and the Map tab's
+toolbar note. Because `bestRating` rides the briefing payload the cards are built from, the
+`scoresLoaded` flag added a day earlier is **gone** — there is no separate fetch left to be caught
+in flight, so the flash it prevented cannot happen. The mark cannot move with the reach tier or the
+rating floor either: `bestRating` is the window's served best and is never re-derived from a gated
+set.
+
+⚠️ **A scored window whose field has no points still paints nothing, and is deliberately left
+unmarked.** That is a real gap and it is the reason the Saturday tile looked blank in the first
+place — but it is a gap in the join between `GET /api/briefing/evaluate/scores` and the briefing's
+own region rollups, both nominally reading `cached_evaluation`, and the honest response to it is to
+find out why rather than to label the forecast.
+
 ## [v2.18.13] - 2026-08-19
 
 ### Added — heat field P6: which way the forecast moved

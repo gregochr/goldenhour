@@ -142,11 +142,16 @@ const POINTS_BY_KEY = new Map([
 ]);
 
 const WINDOWS = [
-  { key: `${TODAY}:SUNRISE`, date: TODAY, targetType: 'SUNRISE', label: 'This morning sunrise', time: '08:24', conf: 1 },
-  { key: `${TODAY}:SUNSET`, date: TODAY, targetType: 'SUNSET', label: 'Tonight sunset', time: '16:12', conf: 1 },
-  { key: `${TOMORROW}:SUNRISE`, date: TOMORROW, targetType: 'SUNRISE', label: 'Tomorrow sunrise', time: '08:24', conf: 0.72 },
-  { key: `${TOMORROW}:SUNSET`, date: TOMORROW, targetType: 'SUNSET', label: 'Tomorrow sunset', time: '16:14', conf: 0.72 },
+  { key: `${TODAY}:SUNRISE`, date: TODAY, targetType: 'SUNRISE', label: 'This morning sunrise', time: '08:24', bestRating: 3, conf: 1 },
+  { key: `${TODAY}:SUNSET`, date: TODAY, targetType: 'SUNSET', label: 'Tonight sunset', time: '16:12', bestRating: 5, conf: 1 },
+  { key: `${TOMORROW}:SUNRISE`, date: TOMORROW, targetType: 'SUNRISE', label: 'Tomorrow sunrise', time: '08:24', bestRating: 1, conf: 0.72 },
+  { key: `${TOMORROW}:SUNSET`, date: TOMORROW, targetType: 'SUNSET', label: 'Tomorrow sunset', time: '16:14', bestRating: null, conf: 0.72 },
 ];
+
+/** The same windows with tonight — the one the map opens on — carrying no served rating. */
+const WINDOWS_TONIGHT_UNRATED = WINDOWS.map(
+  (w) => (w.key === `${TODAY}:SUNSET` ? { ...w, bestRating: null } : w),
+);
 
 /**
  * ⚠️ The two boxes must carry DIFFERENT numbers. `toHaveBeenCalledWith` is deep equality, so with
@@ -399,44 +404,42 @@ describe('MapView heat — a window nobody rated', () => {
    * `fadesMarkers` rule), which is a reasonable fallback — but the ramp key stays up, explaining a
    * gradient nothing on screen carries, which is the exact thing that key's own rule forbids.
    */
-  const emptySelectedWindow = (overrides = {}) => heatProp({
-    pointsByKey: new Map([[`${TODAY}:SUNSET`, []]]),
-    scoresKnown: true,
-    ...overrides,
-  });
+  const unrated = (overrides = {}) => heatProp({ windows: WINDOWS_TONIGHT_UNRATED, ...overrides });
 
   it('names the unrated window and takes the ramp key down with it', async () => {
-    await renderMap({ heat: emptySelectedWindow() });
+    await renderMap({ heat: unrated() });
     expect(screen.getByTestId('wf-map-heat-unscored'))
       .toHaveTextContent('This window is not scored');
     // Both would be a colour key above an empty map, denied by the line underneath it.
     expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
   });
 
-  it('keeps the key and says nothing when the window has ratings', async () => {
+  it('keeps the key and says nothing when the window has a served rating', async () => {
     // The pair is the assertion: a note shown unconditionally is the same defect with the opposite
     // sign, and it would take the ramp key down on every window.
-    await renderMap({ heat: heatProp({ scoresKnown: true }) });
+    await renderMap({ heat: heatProp() });
     expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
     expect(screen.getByTestId('wf-map-heat-legend')).toHaveTextContent('Poor');
   });
 
-  it('claims nothing until the ratings response has arrived', async () => {
-    // An unfetched response is an empty Map too, and it is the state this tab mounts in.
-    await renderMap({ heat: emptySelectedWindow({ scoresKnown: false }) });
+  it('leaves a RATED window alone even when it has no points to paint', async () => {
+    // ⚠️ The production defect, and the reason this reads `bestRating` rather than any point
+    // count. An empty point set is a fact about the join behind the picture: on 2026-08-19 three
+    // windows the payload was rating had one, and the Plan tab hatched them while their own cards
+    // printed `best spot 5★`.
+    await renderMap({ heat: heatProp({ pointsByKey: new Map([[`${TODAY}:SUNSET`, []]]) }) });
+    expect(heatLayerProps.last.points).toEqual([]);
     expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
     expect(screen.getByTestId('wf-map-heat-legend')).toBeInTheDocument();
   });
 
   it('does NOT blame the forecast when the dark-sky filter is what emptied the field', async () => {
-    // ⚠️ The reason the predicate reads the unfiltered point set. `heatPoints` is narrowed by the
-    // Bortle toggle, so keying off it turns a reader's own filter into an accusation about the
-    // forecast — the exact mislabelling this whole channel exists to prevent. The window here is
-    // well rated and every one of its points is Bortle > 4, so the toggle empties the field
-    // completely while the ratings are untouched.
+    // The first cut read `heatPoints`, which the Bortle toggle narrows — so a reader who filtered
+    // every dark-sky location out of a well-rated window was told the forecast was unscored. The
+    // window here is rated and every one of its points is Bortle > 4, so the toggle empties the
+    // field completely while the rating is untouched.
     await renderMap({
       heat: heatProp({
-        scoresKnown: true,
         pointsByKey: new Map([[`${TODAY}:SUNSET`, [
           pointOf(SPOTS[1], 4), pointOf(SPOTS[3], 5), pointOf(SPOTS[4], 4),
         ]]]),
@@ -450,7 +453,7 @@ describe('MapView heat — a window nobody rated', () => {
   });
 
   it('says nothing in medallion view, where no field is claimed either way', async () => {
-    await renderMap({ heat: emptySelectedWindow() });
+    await renderMap({ heat: unrated() });
     fireEvent.click(screen.getByRole('button', { name: 'Medallions' }));
     expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
     expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
@@ -459,7 +462,7 @@ describe('MapView heat — a window nobody rated', () => {
   it('is a different state from the map being on a date the briefing does not reach', async () => {
     // The selector already answers that one, and it is a statement about the CAMERA rather than
     // about the forecast: there is no window to be unrated.
-    await renderMap({ heat: heatProp({ scoresKnown: true }), date: '2026-01-25' });
+    await renderMap({ heat: heatProp(), date: '2026-01-25' });
     expect(screen.getByTestId('wf-map-window')).toHaveValue('');
     expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
   });

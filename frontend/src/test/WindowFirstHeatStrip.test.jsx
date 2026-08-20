@@ -55,6 +55,9 @@ function stripCard(overrides = {}) {
     time: '21:11',
     verdict: 'WORTH_IT',
     verdictLabel: 'Worth it',
+    // Rated, because that is what all but one block below is describing. `null` is the payload's
+    // "nothing in this window is rated" and is what draws the mark.
+    bestRating: 4,
     bestBet: false,
     away: false,
     confidence: 'high',
@@ -82,10 +85,10 @@ function spot(overrides = {}) {
  * One point per non-away window — the ORDINARY case, and the default fixture for that reason.
  *
  * <p>The default used to be an empty {@code Map}, which every assertion survived because nothing
- * read it but the mocked {@code drawGeo}. It stopped being harmless when the strip started marking
- * a window with no points as unscored: an empty map means "nothing in the whole week was rated",
- * which is not the state the tests below are describing. Built FROM the cards being rendered, so a
- * test that passes its own set gets points for its own windows rather than for a key it never used.
+ * read it but the mocked {@code drawGeo}. It no longer decides the unscored mark (that is
+ * {@code bestRating}), but a strip whose every window has an empty field is still not the state
+ * these tests describe. Built FROM the cards being rendered, so a test that passes its own set
+ * gets points for its own windows rather than for a key it never used.
  *
  * @param {Array} cards the thumbnail descriptors being rendered
  * @returns {Map} window key → one kernel point
@@ -113,9 +116,6 @@ async function renderStrip(props = {}) {
     render(
       <WindowFirstHeatStrip
         spots={[spot()]}
-        // The loaded state, because that is what all but one block below is describing. The
-        // in-flight state has its own tests.
-        scoresKnown
         todayStr={TODAY}
         onOpenWindow={onOpenWindow}
         {...props}
@@ -463,7 +463,7 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
    * "Poor" either way. Reported against a real Saturday sunrise at T+3, where Gate 4 evaluates
    * SETTLED cells only.
    */
-  const SCORED = stripCard({ verdict: 'STAND_DOWN', verdictLabel: 'Poor' });
+  const SCORED = stripCard({ verdict: 'STAND_DOWN', verdictLabel: 'Poor', bestRating: 2 });
   const UNSCORED = stripCard({
     key: '2026-08-07:SUNRISE',
     date: '2026-08-07',
@@ -473,19 +473,17 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
     time: '05:49',
     verdict: 'STAND_DOWN',
     verdictLabel: 'Poor',
+    bestRating: null,
   });
-  /** Both tiles, same verdict, same word — only the ratings differ. */
+  /** Both tiles, same verdict, same word — only the served rating differs. */
   const BOTH = [SCORED, UNSCORED];
-  const ONLY_SCORED = new Map([[SCORED.key, [
-    { id: 1, name: 'Bamburgh Beach', lat: 55.61, lng: -1.71, rid: 'R', r: [1] },
-  ]]]);
 
   it('hatches the plate of the unrated window and leaves the rated one alone', async () => {
     // The pair is the assertion. A test that rendered only the unscored tile would pass against a
     // component that hatched every plate unconditionally — which is the same defect with the
     // opposite sign, since a hatch on all six says nothing about any of them.
     await withMeasuredThumbs(160, async () => {
-      await renderStrip({ cards: BOTH, pointSets: ONLY_SCORED });
+      await renderStrip({ cards: BOTH, });
     });
 
     expect(drawGeo).toHaveBeenCalledTimes(2);
@@ -493,7 +491,7 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
   });
 
   it('marks the unrated tile and not its identically-worded neighbour', async () => {
-    await renderStrip({ cards: BOTH, pointSets: ONLY_SCORED });
+    await renderStrip({ cards: BOTH });
     const [scored, unrated] = screen.getAllByTestId('wf-heat-card');
 
     expect(scored).not.toHaveAttribute('data-unscored');
@@ -509,7 +507,7 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
   it('says "not scored" in the accessible name, straight after the verdict it qualifies', async () => {
     // A hatch is not vocabulary. Without this clause the whole mark is invisible to a screen
     // reader, which would hear the same sentence for both tiles above.
-    await renderStrip({ cards: BOTH, pointSets: ONLY_SCORED });
+    await renderStrip({ cards: BOTH });
 
     expect(screen.getByRole('button', { name: 'Saturday sunrise, 05:49, Poor, not scored' }))
       .toBeInTheDocument();
@@ -517,46 +515,47 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
   });
 
   it('names the convention in the footer only while a hatched plate is on screen', async () => {
-    await renderStrip({ cards: BOTH, pointSets: ONLY_SCORED });
+    await renderStrip({ cards: BOTH });
     expect(screen.getByTestId('wf-heat-foot')).toHaveTextContent('unshaded — not scored');
 
     cleanup();
-    await renderStrip({ cards: BOTH });
+    await renderStrip({ cards: [SCORED] });
     expect(screen.queryByTestId('wf-heat-unscored-note')).toBeNull();
   });
 
-  it('marks nothing until the provider says the ratings arrived', async () => {
-    // The flash this gate exists to prevent: an unfetched ratings response and a genuinely
-    // unrated week are the same empty Map, the locations prop routinely lands first, and ungated
-    // every mount painted six hatched plates and a footer clause before flipping to the real
-    // field. `scoresKnown` is the provider's own answer, set on a successful fetch only.
+  it('leaves a RATED window alone even when its field has no points to paint', async () => {
+    // ⚠️ The production defect, in one test. An empty point set is a fact about the join behind
+    // the picture, not about the forecast — on 2026-08-19 three windows the payload was rating had
+    // one, and a Saturday drew a hatched plate reading "not scored" directly above its own card
+    // reading `best spot 5★`. Marking a window the surface beneath it is rating is worse than the
+    // blank this whole channel was built to fix.
     await withMeasuredThumbs(160, async () => {
-      await renderStrip({ cards: BOTH, pointSets: new Map(), scoresKnown: false });
+      await renderStrip({ cards: [stripCard({ bestRating: 5 })], pointSets: new Map() });
     });
 
-    expect(drawGeo.mock.calls.map((c) => c[5].hatch)).toEqual([false, false]);
-    screen.getAllByTestId('wf-heat-card').forEach((c) => {
-      expect(c).not.toHaveAttribute('data-unscored');
-    });
+    expect(drawGeo.mock.calls.at(-1)[5].hatch).toBe(false);
+    expect(screen.getByTestId('wf-heat-card')).not.toHaveAttribute('data-unscored');
     expect(screen.queryByTestId('wf-heat-unscored-note')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Saturday sunrise, 05:49, Poor' }))
-      .toBeInTheDocument();
   });
 
-  it('marks the whole week once a response with no rows has come back', async () => {
-    // The one case the gate must NOT swallow: an answer carrying nothing is still an answer, and
-    // it is the state where every window really is unrated. `scoresLoaded` is set before the
-    // provider's own empty-response early return for exactly this.
-    await renderStrip({ cards: BOTH, pointSets: new Map() });
-
-    screen.getAllByTestId('wf-heat-card').forEach((c) => {
-      expect(c).toHaveAttribute('data-unscored', 'true');
+  it('marks a window with no served rating even when its field DOES have points', async () => {
+    // The converse, and the reason the predicate is not "either signal will do": the two can
+    // disagree in both directions, and the payload's own answer is the one that governs.
+    await withMeasuredThumbs(160, async () => {
+      await renderStrip({
+        cards: [UNSCORED],
+        pointSets: new Map([[UNSCORED.key, [
+          { id: 1, name: 'Bamburgh Beach', lat: 55.61, lng: -1.71, rid: 'R', r: [4] },
+        ]]]),
+      });
     });
-    expect(screen.getByTestId('wf-heat-foot')).toHaveTextContent('unshaded — not scored');
+
+    expect(drawGeo.mock.calls.at(-1)[5].hatch).toBe(true);
+    expect(screen.getByTestId('wf-heat-card')).toHaveAttribute('data-unscored', 'true');
   });
 
   it('leaves an away window to its own truer word, and does not call it unscored', async () => {
-    // Its point set is empty too — nothing is evaluated on a travel day — so the naive predicate
+    // It carries no rating either — nothing is evaluated on a travel day — so the bare predicate
     // catches it. "Not forecast" is the stronger claim and the one the payload supports: the
     // weather never ran for it, where an unscored live window has a real verdict and no rating.
     const away = stripCard({
@@ -566,6 +565,7 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
       time: '20:21',
       verdict: null,
       verdictLabel: 'Not forecast',
+      bestRating: null,
       away: true,
     });
     await renderStrip({ cards: [SCORED, away] });

@@ -192,17 +192,20 @@ describe('WindowFirstShell — building the region layer', () => {
     expect(screen.getAllByTestId('window-card').length).toBe(2);
   });
 
-  it('marks only the card whose window carries no ratings', async () => {
-    // The join this file exists for: `scoresKnown` comes off the provider and `points` off the
-    // keyed map, and the mark is the two of them together. Neither component can see the pairing —
-    // the map is handed both as props — so a shell that passed the flag and forgot the lookup, or
-    // handed every card the same window's points, would leave both files green.
+  it('marks only the card whose window carries no served rating', async () => {
+    // The join this file exists for: the layer hands the map its OWN card's `bestRating`, and a
+    // wrapper that passed the first card's — or the window's point count, which is what the first
+    // cut read — leaves both component files green while every row on the page agrees with the
+    // wrong window. The point sets here are deliberately the reverse of the ratings, so a
+    // component reading them instead of the rating fails this outright.
+    // Both lists, from one array: the shell renders `paneItems` and builds `fieldByKey` from
+    // `windowCards`, so overriding one and not the other would test a page whose two halves
+    // disagree about which cards exist.
+    const both = [card(KEY_A, TODAY), { ...card(KEY_B, '2026-08-09'), bestRating: null }];
     await renderShell({
-      scoresLoaded: true,
-      heatPointSets: new Map([
-        [KEY_A, [{ lat: 6, lng: 4, rid: 'Coast', r: [5] }]],
-        [KEY_B, []],
-      ]),
+      windowCards: both,
+      paneItems: both.map((c) => ({ kind: 'card', key: c.key, card: c })),
+      heatPointSets: new Map([[KEY_A, []], [KEY_B, [{ lat: 6, lng: 4, rid: 'Coast', r: [5] }]]]),
     });
     // The second row is closed on arrival — only the lead opens itself — and the region layer
     // mounts per OPEN card, so the comparison needs it opened.
@@ -214,9 +217,9 @@ describe('WindowFirstShell — building the region layer', () => {
     expect(within(cards[1]).getByTestId('wf-row-map-unscored')).toHaveTextContent('Not scored');
   });
 
-  it('claims nothing about either card until the ratings response has arrived', async () => {
-    // Every window is pointless on mount, which is why the flag exists rather than a bare
-    // `points.length === 0` inside the map.
+  it('claims nothing about a rated card whose field has no points', async () => {
+    // Both windows are rated and neither has a point to paint — the production state this whole
+    // predicate had to be moved off.
     await renderShell({ heatPointSets: new Map([[KEY_A, []], [KEY_B, []]]) });
     expect(screen.queryAllByTestId('wf-row-map-unscored')).toHaveLength(0);
   });

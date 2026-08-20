@@ -128,11 +128,23 @@ export function thumbAspect(fitTo) {
  * unscored Saturday printed a confident "Poor" above an empty map next to a Thursday whose
  * identical "Poor" was the roster actually rated bad.
  *
- * <p>It is gated on {@code scoresKnown}, and that gate is the difference between a mark and a
- * flash. An empty point set is also what an unfetched ratings response looks like, and the
- * locations prop routinely lands first — ungated, every mount painted six hatched plates and a
- * footer clause for as long as that took, then flipped to the real field. So the strip marks
- * nothing until the provider says the ratings actually arrived.
+ * <p>⚠️ <b>The question is answered by {@code card.bestRating}, NOT by the window's point set,</b>
+ * and the first cut got this wrong in production. An empty point set means the heat FIELD has
+ * nothing to paint, which is a fact about the join behind the picture; {@code bestRating} is the
+ * payload's own "is anything in this window rated", and it is what the card header, the region
+ * rail and the drill-down already read. On 2026-08-19 the two disagreed for three of six windows:
+ * a Saturday sunrise drew a hatched plate reading "not scored" directly above its own card reading
+ * {@code best spot 5★}. Marking a window the surface beneath it is rating is worse than the blank
+ * this channel was built to fix, and no amount of gating helps — the evidence was simply the wrong
+ * evidence.
+ *
+ * <p>A scored window whose field has no points still paints nothing, and is deliberately left
+ * unmarked. That is a real gap, but it is a gap in the JOIN behind the picture rather than in the
+ * forecast, and labelling it "not scored" is the exact false claim above.
+ *
+ * <p>Reading the card also removes the need for any load gate: {@code bestRating} rides the
+ * briefing payload the cards are built from, so there is no separate fetch to be caught in flight
+ * — with no briefing there are no cards and the strip withdraws entirely.
  *
  * <p>Three parts, one predicate ({@code unscored}). The plate takes {@code drawGeo}'s hatch; the
  * footer names the convention in words, once, for as long as a hatched plate is on screen; and the
@@ -173,11 +185,6 @@ export function thumbAspect(fitTo) {
  * @param {Array}    props.cards      descriptors from {@code buildHeatStripCards}, chronological
  * @param {Map}      props.pointSets  window key → kernel points, from {@code buildHeatPointSets}
  * @param {Array}    props.spots      the whole heat catalogue, for framing and the beyond line
- * @param {boolean}  [props.scoresKnown] whether the ratings response has been received. Gates the
- *   unscored mark ONLY: absent or false, a window with no points is left as it always rendered,
- *   because "we have not fetched the ratings yet" and "nothing was rated" are the same empty map
- *   and only the provider can tell them apart. Defaults false so a caller that has not thought
- *   about it makes no claim.
  * @param {?Map}     [props.reachById] per-user reach, keyed by location id — framing only
  * @param {Set}      [props.openKeys] the window keys whose cards are open
  * @param {string}   props.todayStr   today's ISO date in Europe/London, for the horizon fallback
@@ -188,7 +195,7 @@ export function thumbAspect(fitTo) {
  * @param {Function} [props.onOpenWindow] opens and reveals a window's card
  */
 export default function WindowFirstHeatStrip({
-  cards, pointSets, spots, scoresKnown = false, reachById, openKeys, todayStr, runAge, onOpenWindow,
+  cards, pointSets, spots, reachById, openKeys, todayStr, runAge, onOpenWindow,
 }) {
   // Framing is the ONE thing the planning area is allowed to decide about the field (planningArea's
   // own module comment): which regions are in shot. It must never become the point set — handing
@@ -204,28 +211,25 @@ export default function WindowFirstHeatStrip({
   const movers = useMemo(() => topMovers(cards), [cards]);
 
   /**
-   * The windows carrying no ratings at all — the strip's own derivation, from the very map its
-   * paint callback reads.
+   * The windows the payload says carry no rating at all.
    *
-   * <p><b>The point set, never the paint result.</b> {@code field()} also returns null when every
-   * point is culled outside the frame, so "nothing painted" answers a framing question as well as
-   * a data one; {@code pointSets.get(key).length} answers only the data one, and it is the same
-   * expression the canvas is drawn from, so the mark and the picture cannot disagree.
+   * <p>{@code bestRating} and nothing else — the class comment records why the point set was the
+   * wrong evidence and what it cost. The descriptor carries it straight off the window card, so
+   * this tile and the row it opens answer one question from one field and cannot contradict one
+   * another.
    *
-   * <p><b>An away window is excluded, because it already has a truer word.</b> Its point set is
-   * empty too — nothing is evaluated on a travel day — but "Not forecast" is the more specific
-   * claim and it is the one the payload supports: the weather was never run for it, whereas an
-   * unscored live window has a real verdict and only lacks a rating.
+   * <p><b>An away window is excluded, because it already has a truer word.</b> It carries no
+   * rating either — nothing is evaluated on a travel day — but "Not forecast" is the more specific
+   * claim and the one the payload supports: the weather was never run for it, whereas an unscored
+   * live window has a real verdict and only lacks a rating.
    */
   const unscored = useMemo(() => {
     const keys = new Set();
-    if (!scoresKnown) return keys;
     for (const card of cards) {
-      if (card.away) continue;
-      if (!(pointSets?.get?.(card.key)?.length > 0)) keys.add(card.key);
+      if (!card.away && card.bestRating == null) keys.add(card.key);
     }
     return keys;
-  }, [cards, pointSets, scoresKnown]);
+  }, [cards]);
 
   /**
    * One paint for all six, at one size.
@@ -538,6 +542,7 @@ WindowFirstHeatStrip.propTypes = {
     time: PropTypes.string,
     verdict: PropTypes.string,
     verdictLabel: PropTypes.string,
+    bestRating: PropTypes.number,
     bestBet: PropTypes.bool,
     away: PropTypes.bool,
     confidence: PropTypes.string,
@@ -548,7 +553,6 @@ WindowFirstHeatStrip.propTypes = {
   })).isRequired,
   pointSets: PropTypes.instanceOf(Map),
   spots: PropTypes.array.isRequired,
-  scoresKnown: PropTypes.bool,
   reachById: PropTypes.instanceOf(Map),
   openKeys: PropTypes.instanceOf(Set),
   todayStr: PropTypes.string,
