@@ -5,6 +5,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the heat field froze for the life of the tab
+
+**This is the defect behind the blank Saturday, and it was never about the unscored mark.**
+
+`fetchBriefing` polls every ten minutes and again on window focus. The batch ratings the heat
+field is drawn from were a mount-only `useEffect(..., [])` — fetched once and never again. So on a
+tab left open, every verdict, star, grid cell and hot topic kept moving while the rows behind the
+*picture* stayed at whatever was true when the tab was opened. Leave the Plan tab open overnight
+and the 01:16 batch writes the T+2/T+3 ratings that session never sees: `best spot 5★` on the card,
+a blank thumbnail above it, for hours, with a hard reload the only cure.
+
+Both fetches now ride one `refresh`, so the two payloads a single screen joins can never be more
+than one cycle apart — and both are ETag-revalidated, so an unchanged cycle costs a 304 and no
+body. An empty or failed refresh leaves the previous rows in place, the same rule `fetchBriefing`'s
+catch already followed: a dropped request is not evidence that the ratings went away.
+
+Found by elimination against production, and every earlier theory was wrong. `cached_evaluation`
+held **163 of 163 entries rated** for the Saturday sunrise the strip was drawing empty; the only
+join-key failures were 12 `WOODLAND,BLUEBELL` locations, correctly withheld from a sky field; the
+freshness gate fired on **zero** slots; the endpoint returned those 163 rows to the client as
+`CACHED_EVALUATION` with window keys matching `/api/briefing` exactly; and replaying the frontend
+join against the live payloads produced **151 points**. Nothing was wrong with the data, the merge
+or the join — the session was holding yesterday's copy. The tell was that a hard reload fixed it
+instantly. Full trail in `docs/engineering/heat-field-scores-join-gap.md`.
+
 ### Fixed — the unscored mark was reading the wrong evidence, and contradicted the card beneath it
 
 Shipped in v2.18.13 and wrong in production the same evening. The mark asked "does this window's
