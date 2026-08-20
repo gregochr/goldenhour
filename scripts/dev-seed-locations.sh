@@ -160,13 +160,33 @@ fi
 cat >&2 <<'NOTE'
 
 Ratings, without spending on Claude — H2 console at http://localhost:8083/h2-console
-(JDBC jdbc:h2:file:./data/goldenhour, user sa, empty password). Use TODAY or FUTURE dates:
-rehydration ignores the past.
+(JDBC jdbc:h2:file:./data/goldenhour, user sa, empty password).
 
-  INSERT INTO cached_evaluation (cache_key, results_json, created_at) VALUES (
-    '2026-08-19|SUNSET',
-    '[{"locationName":"Bamburgh Beach","rating":5,"fierySkyPotential":78,"goldenHourPotential":71,"summary":"Broken cloud clearing west."}]',
-    CURRENT_TIMESTAMP);
+One row per region|date|event (V91), NOT per location: results_json is a JSON list of
+BriefingEvaluationResult covering every location of that region you want lit — a location
+missing from the list just renders unscored, and locationName must match the seeded name
+exactly (the enrichment joins on it). The three columns must mirror the cache_key's own
+components — the key is what the in-memory map is looked up by, the columns are what
+rehydration filters on — and the date must be TODAY or FUTURE (rehydrateCacheOnStartup
+ignores evaluation_date < today, silently). CURRENT_DATE in both places keeps the example
+evergreen and the key and column incapable of disagreeing:
+
+  INSERT INTO cached_evaluation
+    (cache_key, region_name, evaluation_date, target_type, results_json, source,
+     evaluated_at, updated_at)
+  VALUES (
+    'Northumberland & Tyneside|' || CURRENT_DATE || '|SUNSET',
+    'Northumberland & Tyneside',
+    CURRENT_DATE,
+    'SUNSET',
+    '[{"locationName":"Bamburgh Beach","rating":5,"fierySkyPotential":78,"goldenHourPotential":71,"summary":"Broken cloud clearing west."},
+      {"locationName":"Dunstanburgh Castle","rating":3,"fierySkyPotential":48,"goldenHourPotential":62,"summary":"Mid deck thinning late."}]',
+    'BATCH', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+(evaluated_at / updated_at are explicit because the local H2 schema is Hibernate-generated —
+`ddl-auto: update`, Flyway disabled in application-local.yml — so V91's DB defaults do not
+exist here and both columns are bare NOT NULL. Scripting the insert instead of using the
+console? The running backend holds the H2 file lock — stop, org.h2.tools.RunScript, start.)
 
 ⚠️ RESTART THE BACKEND after inserting, then POST /api/briefing/run. The briefing enrichment reads
 an in-memory ConcurrentHashMap populated from the DB only by `rehydrateCacheOnStartup`
