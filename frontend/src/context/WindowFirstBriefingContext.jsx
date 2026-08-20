@@ -206,12 +206,30 @@ export function WindowFirstBriefingProvider({
   const [travelRanges, setTravelRanges] = useState([]);
   const [evaluationScores, setEvaluationScores] = useState(EMPTY_SCORES);
   // The same response, kept unreduced. See the fetch effect below for why both shapes exist.
-  // Deliberately NOT on the context value: nothing outside this file needs a row yet. P5's
-  // leave-by and P8's four-day sheet do — their "why" prose is `LocationEvaluationView.summary`
-  // — and they should export THIS rather than read `scoreIndex`, which is name-keyed and drops
-  // every row missing a region or location name, i.e. a different population from the one the
-  // heat join saw.
+  //
+  // ⚠️ PUBLISHED on the context value since P8, and the note this replaces is why. It used to read
+  // "deliberately NOT on the context value: nothing outside this file needs a row yet. P5's
+  // leave-by and P8's four-day sheet do — their 'why' prose is `LocationEvaluationView.summary` —
+  // and they should export THIS rather than read `scoreIndex`, which is name-keyed and drops every
+  // row missing a region or location name, i.e. a different population from the one the heat join
+  // saw." P8's first cut read `scoreIndex` anyway and an adversarial review caught it: the sheet
+  // timed its rows id-first (`buildSlotIndex`) and rated them name-only, so a location renamed
+  // since the last evaluation run got a correct departure time under "Not scored yet", while the
+  // heat field behind the dialog — id-first — still painted its rating.
   const [scoreRows, setScoreRows] = useState(EMPTY_ARRAY);
+
+  /**
+   * Whether the ratings response has actually been received.
+   *
+   * <p>Not derivable from {@code scoreRows}: an empty array is the state BEFORE the fetch returns
+   * and also the state after one that returned nothing, and the heat strip's unscored mark has to
+   * tell those apart. Without it, the strip renders its whole week as unrated for as long as the
+   * locations prop lands ahead of this fetch — six hatched plates on every mount, flipping to the
+   * real field a moment later. Set on success only: a failed or in-flight fetch is not evidence
+   * that nothing was rated, and the mark is a claim about the forecast rather than about us.
+   * (Re-set on every briefing-beat refresh; true→true is a no-op.)
+   */
+  const [scoresLoaded, setScoresLoaded] = useState(false);
 
   const [reachById, setReachById] = useState(EMPTY_REACH);
   const [regions, setRegions] = useState(EMPTY_REGIONS);
@@ -261,6 +279,9 @@ export function WindowFirstBriefingProvider({
   const fetchScores = useCallback(() => {
     getAllEvaluationScores()
       .then((views) => {
+        // Before the early return: a response carrying no rows is still an ANSWER, and it is the
+        // one case where every window genuinely is unscored.
+        setScoresLoaded(true);
         if (!views || views.length === 0) return;
         setScoreRows(views);
         const next = new Map();
@@ -623,7 +644,9 @@ export function WindowFirstBriefingProvider({
   const value = useMemo(
     () => ({
       briefing, loading, heatStripCards, windowCards, paneItems, promotedStrip, upcomingEvents,
-      travelDayDates, evaluationScores, scoreIndex, heatSpots: heatSpotList, heatPointSets,
+      travelDayDates, evaluationScores, scoresLoaded, scoreIndex, scoreRows,
+      heatSpots: heatSpotList,
+      heatPointSets,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
       ratingLens, orderLens, homePlace, isPro, isLiteUser,
@@ -634,7 +657,9 @@ export function WindowFirstBriefingProvider({
       origin, setOrigin, regions, effectiveReachById,
     }),
     [briefing, loading, heatStripCards, windowCards, paneItems, promotedStrip, upcomingEvents,
-      travelDayDates, evaluationScores, scoreIndex, heatSpotList, heatPointSets, regionSeries,
+      travelDayDates, evaluationScores, scoresLoaded, scoreIndex, scoreRows,
+      heatSpotList, heatPointSets,
+      regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
       ratingLens, orderLens, homePlace, isPro, isLiteUser,
       origin, setOrigin, regions, effectiveReachById],

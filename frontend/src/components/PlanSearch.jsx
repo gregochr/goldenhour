@@ -44,7 +44,9 @@ import {
  * @param {Function} props.onClose      dismisses the dialog
  * @param {Function} props.onPickWindow opens a window's card, by key
  * @param {Function} props.onPickRegion moves the origin to a region record
- * @param {Function} [props.onPickLocation] shows a location on the map
+ * @param {Function} [props.onPickLocation] opens that location's four-day sheet (P8); it was a
+ *        jump straight to the map until §9.9 was resolved. The component itself is agnostic — it
+ *        hands back the spot and lets the shell decide what a location result means.
  */
 export default function PlanSearch({
   windows, regions, locations, originId = null, initialQuery = '',
