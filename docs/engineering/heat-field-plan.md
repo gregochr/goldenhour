@@ -54,7 +54,7 @@ in the running app at 1280 and 375 against two real briefing builds. Its row rec
 decided, including **one defect that would have disabled the whole feature in production and
 nowhere else** (a nanosecond/microsecond mismatch making every build compare against itself on
 Linux), the change line's wording deviation from §4.7's own sample copy, and the two indexes and
-one column the review corrected. **P7 is BUILT 2026-08-20** (`feature/heat-p7-origin`, unpushed;
+one column the review corrected. **P7 is MERGED** (#574, `0954ea94`, 2026-08-20;
 released base beneath it is **v2.18.13**, the deliberate pre-P7 rollback point) — region bases, the
 shared ORS matrix and its endpoint, the origin chip, search, `setOrigin`, the away lens relabel, the
 clash states and P2's deferred beyond-line link; adversarially reviewed (six lenses) with the
@@ -64,7 +64,9 @@ a clean lint and a successful build had all passed over** — a card whose heade
 the reader had just scoped away, a region selection that survived the origin move with every control
 that could clear it unmounted in the same commit, a reach tier persisted to `localStorage` by a
 gesture made on a different control, and an all-null ORS response that would have wiped a working
-matrix while the job logged that it had been preserved. **P8 (the four-day location sheet, owner-optional) is what remains.**
+matrix while the job logged that it had been preserved. **§9.9 is RESOLVED (owner, 2026-08-20): P8
+goes ahead, and the sheet hangs off the search ONLY** — card-click→map and the peek keep today's
+behaviour. **P8 is what remains, and it is the last phase.**
 The remaining §9 questions are
 open but none blocks a phase before its own row says so. Per-phase kickoff prompts for the
 implementing sessions: `docs/engineering/heat-field-prompts.md`. Every phase is bound by
@@ -667,15 +669,17 @@ Carried from the bundle, plus new ones this plan surfaced. None block P0/P1.
 4. **Should the field respect drive time?** (bundle Q3) Currently no, deliberately, stated in the
    strip footer. Revisit only with evidence.
 5. **`GLANCE` as a user setting** (bundle Q5), defaulting to the widest configured drive-time
-   habit; hard-coded 180 for the first cut. Same for `SETUP = 20`.
+   habit; hard-coded 180 for the first cut. Same for `SETUP = 20` — and same cluster for the
+   **`/` shortcut's WCAG 2.1.4 gap** (P7): a single-character shortcut with no turn-off or remap
+   is a Level A criterion honestly unmet; the fix is a setting here, not a hack in the handler.
 6. ~~**LITE gating**~~ **RESOLVED — ungated for the pilot (owner, 2026-08-19)**: the strip and
    heat render from the same scores payload LITE already receives; parity with the rest of v2.
    Revisit with the LITE pricing decision, which remains open project-wide.
 7. **Away-day windows on the strip**: the design doesn't address travel days. Proposal: thumbnails
    render normally with a small `✈` in the top row; away rows keep their place in the list.
 8. **"Somewhere is good, just not near you"** (bundle Q4): real feature, deliberately not built.
-9. **P8 scope**: does the four-day location sheet replace card-click→map, or hang off the search
-   only?
+9. ~~**P8 scope**~~ **RESOLVED (owner, 2026-08-20): the sheet hangs off the search only.**
+   Card-click→map and the peek keep today's behaviour; no card descriptor changes.
 10. **Region lead narrative** (the away-origin editorial paragraph): no content source exists.
     Options: reuse `glossHeadline`/`glossDetail`, generate at briefing build for regions with
     bases, or omit at P7. Recommendation: omit first, decide with real away usage.
