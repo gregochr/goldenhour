@@ -56,8 +56,12 @@ function extractMovementRules() {
       depth -= 1;
       if (depth === 0) {
         const selector = css.slice(selectorStart, blockStart).trim();
-        if (/\.wf-rband-fig\b/.test(selector) || /\.wf-hc-mv\b/.test(selector)
-          || /\.wf-hstrip-change\b/.test(selector)) {
+        // ⚠️ `.wf-hc-mv` used to be a third arm here. M1 deleted the per-card movement chip along
+        // with the whole class, so the arm matched nothing — and the guard below could not tell,
+        // because it checks only the region band's rules and the two tone attributes, which the
+        // change line still supplies. A dead clause in a slicer whose entire job is to fail loudly
+        // on an empty slice is exactly the thing that file exists not to have.
+        if (/\.wf-rband-fig\b/.test(selector) || /\.wf-hstrip-change\b/.test(selector)) {
           rules.push(`${selector} ${css.slice(blockStart, i + 1)}`);
         }
         selectorStart = i + 1;
@@ -82,6 +86,9 @@ function assertSliceIsIntact(slice) {
   expect(slice).toContain('.wf-rband-fig b');
   expect(slice).toContain('[data-tone="up"]');
   expect(slice).toContain('[data-tone="down"]');
+  // Named per surface, so an extractor arm that stops matching cannot hide behind a sibling's
+  // rules — which is how the deleted `.wf-hc-mv` arm went unnoticed.
+  expect(slice).toContain('.wf-hstrip-change b');
 }
 
 let styleEl;

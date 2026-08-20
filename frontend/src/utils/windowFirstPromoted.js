@@ -59,9 +59,12 @@ import { badgeChannel } from './windowFirstCards.js';
  * <h2>Nothing here disagrees with the attribute rows</h2>
  *
  * <p>{@code buildWindowRows} orders promoted rows by the same {@code rarityRank}, with the same
- * "absent sorts last" degrade, and says so in its own comment. The two surfaces therefore rank the
- * same topics the same way by construction rather than by review — which is what §6a asks whoever
- * lands P7b to check.
+ * "absent sorts last" degrade, and says so in its own comment. {@code windowFirstTopics.windowTopics}
+ * — the matrix card's topic row, added at M1 — is the THIRD, on the same one key for the same
+ * reason: it briefly carried a label tie-break as well, which is a better ordering in the abstract
+ * and would have put two equal-rarity snow topics in one order on the card and the other in the
+ * window row beneath it. All three surfaces therefore rank the same topics the same way by
+ * construction rather than by review — which is what §6a asks whoever lands P7b to check.
  */
 
 /** Two attributes. The definition is the spec's, and the whole predicate for a COINCIDENCE. */

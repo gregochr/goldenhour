@@ -1,6 +1,6 @@
 # Plan matrix — the day/window matrix replaces the strip-plus-list (design v3)
 
-**Status: PLANNED — no phase started.** Written 2026-08-20 against the v3 design bundle at
+**Status: IN PROGRESS — M1 landed, M2 next.** Written 2026-08-20 against the v3 design bundle at
 `docs/design/plan-matrix/` (README.md there is the pixel-level spec; this document is the port
 plan). Base: main at v2.18.14, heat-field series P0–P8 complete and merged, window-first flag
 still defaulting to v1. The plan itself was adversarially reviewed before landing (six lenses,
@@ -10,6 +10,18 @@ the codebase's boolean `card.lead`), A8's two join rules (NIGHT topics bucket on
 morning's card; aurora/NLC serve populated `regions` lists that are NOT eligibility rosters
 and must be exempted from the scope filter by type), and M3's sticky-chrome tasks. The six §8 owner decisions were all resolved by the owner on
 2026-08-20 (recommendations adopted) — no phase is decision-gated.
+
+### Phase log
+
+Later phases append a row. `notes` is what a reader of a *later* phase needs and would not get
+from the diff. The `commit` cell names the merge commit once the phase's PR lands — a phase
+cannot name its own hash, since writing it in changes it.
+
+| phase | branch | commit | date | notes |
+|---|---|---|---|---|
+| M1 — the matrix | `feature/plan-matrix-m1-matrix` | tip of that branch (merge hash lands with the PR) | 2026-08-20 | Six lenses + a per-charge refutation pass; the survivors are folded in and the CHANGELOG entry names them. **Five things a later phase should not rediscover.** (1) The card face is `overflow: visible` for the pick legend, so nothing inside it clips itself any more — the canvas well and the topic labels each carry their own clip, and anything new with a `nowrap` or an inline width needs one too. (2) `.wf-hc-pls > span` is a `(0,1,1)` selector: an override on a value-grid child must be written `.wf-hc-pls > .x`, or it silently loses. (3) `button.wf-hc:hover` is `(0,2,1)` and out-specifies every `.wf-hc.x` state rule — the pick and open-state borders each carry their own `:hover` arm, and a new state rule must too. jsdom cannot see any of this: it computes a selector list's specificity as the max over the list, so a sliced-cascade test here answers the *opposite* and passes. (4) The topic scope filter fails **open**, so `windowFirstTopics.js`'s two sets must together cover `TopicRarity.RANK_BY_TYPE`'s sixteen types — the test holds its own literal copy, and both have to move together. (5) Measured redraw: a full matrix repaint is 60–210 ms (median ~97 ms) over six canvases at DPR 2, against zero long tasks with the matrix hidden. The mitigation is a debounce on `useHeatCanvas`'s observer nonce, which the Map pane shares — M5 task 5. **Deviations from the bundle, both for measured contrast:** the best-reach rating is a filled `spotBadgeStyle` chip rather than bare ramp-coloured text, and the histogram sits in a `--color-heat-sea` well. **One deviation for SC 1.4.1:** today's column says the word "Today" in the weekday slot, because the bundle's reason for omitting it (the cards carry the day in their own labels) stopped being true when the card face changed. Charge refuted and worth not re-raising: the A8 scope filter DOES run at home — the bundle's own `HOME` origin is "every region in your area" at the same 180-minute rule — and `.wf-shell`'s `max-width: 1080px` bounds the widest a card can ever get, so there is no runaway-card case at 2560px. |
+
+---
 
 **Scope: v2 / window-first Plan arm only, behind `usePlanLayout` (default stays `v1`).** v1 is
 the pilot's frozen comparison control and nothing here touches it except where a shared

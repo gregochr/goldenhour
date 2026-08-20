@@ -1086,6 +1086,11 @@ export default function WindowFirstShell({
             pointSets={heatPointSets}
             spots={heatSpots}
             reachById={reachById}
+            /* The served topics, for the matrix's scope filter (plan-matrix A8). Read straight off
+               the briefing rather than through a derivation, because the join key is the topic's
+               OWN `eventType` + `date` and any client re-shaping is a chance to lose the NIGHT
+               bucketing. `WindowFirstDoors` reads the same field the same way. */
+            hotTopics={briefing?.hotTopics}
             openKeys={openWindowKeys}
             todayStr={todayStr}
             runAge={age}

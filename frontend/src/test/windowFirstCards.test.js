@@ -549,6 +549,139 @@ describe('buildWindowCards', () => {
       });
     });
 
+    describe('the pool the matrix measures, and its head', () => {
+      /**
+       * The reach-gated, pre-floor set the spread histogram and the best-reachable line read
+       * (plan-matrix A10/A11).
+       *
+       * <p>The rule worth mutating against is that the RATING FLOOR does not touch it. The design's
+       * own reason is that an average of things which already passed a 4★ filter always reads
+       * 4-something — so a floor applied here would flatten the histogram to one band and make the
+       * card's picture agree with its own control rather than with the sky.
+       */
+      it('is what reach left, with the rating floor NOT applied', () => {
+        // 4★ floor, 45-minute tier. `spots` keeps one; the pool keeps both the tier allowed,
+        // including the 3★ the floor removed.
+        const [card] = buildWithLens(THREE_SPOTS, REACH, {
+          limitMinutes: 45, defaultLimitMinutes: 45, tierId: '45', floorId: '4', minRating: 4,
+        });
+        expect(card.spots.map((s) => s.locationName)).toEqual(['Blyth Beach']);
+        expect(card.pool.map((s) => s.locationName)).toEqual(['Blyth Beach', 'Simonside']);
+      });
+
+      it('IS gated by reach, so it can never name a place beyond the tier', () => {
+        // The other half of the same rule: the histogram counts places to go, and a spot outside
+        // the tier is not one. Sycamore Gap at 66 minutes is beyond a 45-minute tier.
+        const [card] = buildWithLens(THREE_SPOTS, REACH, {
+          limitMinutes: 45, defaultLimitMinutes: 45, tierId: '45', floorId: 'any', minRating: null,
+        });
+        expect(card.pool.map((s) => s.locationName)).toEqual(['Blyth Beach', 'Simonside']);
+      });
+
+      it('counts the same array the bar\'s denominator counts', () => {
+        const [card] = buildWithLens(THREE_SPOTS, REACH, {
+          limitMinutes: 45, defaultLimitMinutes: 45, tierId: '45', floorId: '4', minRating: 4,
+        });
+        expect(card.pool).toHaveLength(card.reachedTotal);
+      });
+
+      it('excludes a canopy slot, so a rated wood never reaches the histogram', () => {
+        // Plan §3 rule 12: a rating that does not mean sky colour never reaches a pool. A woodland
+        // GO means heavy cloud and mist, so a wood rated 5 on a flat misty dawn would put a bar at
+        // the top of the ramp on precisely the morning the sky is at its worst.
+        const withWood = THREE_SPOTS.concat([
+          { locationId: 4, locationName: 'Allen Banks', claudeRating: 5, canopy: true },
+        ]);
+        const [card] = buildWithLens(withWood, REACH, {
+          limitMinutes: null, defaultLimitMinutes: 45,
+        });
+        expect(card.pool.map((s) => s.locationName)).not.toContain('Allen Banks');
+      });
+
+      it('takes its head from the existing comparator, never a second ordering', () => {
+        // A11: the best-reachable line is the head of THIS pool under `compareSpots` — rating
+        // descending, then drive. Nothing here re-ranks, so the head is `pool[0]` by construction
+        // and the assertion is that identity.
+        const [card] = buildWithLens(THREE_SPOTS, REACH, {
+          limitMinutes: null, defaultLimitMinutes: 45,
+        });
+        expect(card.bestReach).toBe(card.pool[0]);
+        expect(card.bestReach.locationName).toBe('Sycamore Gap');
+      });
+
+      it('takes the NEARER of two equal ratings, which is the comparator\'s second key', () => {
+        const tie = [
+          { locationId: 3, locationName: 'Sycamore Gap', claudeRating: 5, canopy: false },
+          { locationId: 1, locationName: 'Simonside', claudeRating: 5, canopy: false },
+        ];
+        const [card] = buildWithLens(tie, REACH, { limitMinutes: null, defaultLimitMinutes: 45 });
+        expect(card.bestReach.locationName).toBe('Simonside');
+      });
+
+      it('re-heads when the tier removes the best-rated spot', () => {
+        // What makes the line "the best you could actually reach" rather than "the best there is":
+        // the window's own `bestRating` is untouched, and this follows the lens.
+        const [card] = buildWithLens(THREE_SPOTS, REACH, {
+          limitMinutes: 45, defaultLimitMinutes: 45, tierId: '45',
+        });
+        expect(card.bestReach.locationName).toBe('Blyth Beach');
+      });
+
+      it('has NO head when nothing in the pool is rated, though the pool is not empty', () => {
+        // The ordinary far-horizon state — T+4 is never evaluated — and the one the card must not
+        // read as "nothing in reach". `compareSpots` sorts unrated last, so an unrated head means
+        // no rating was compared at all and the order that chose it was alphabetical: naming that
+        // spot "best" would claim a ranking that never ran.
+        const unrated = [
+          { locationId: 1, locationName: 'Simonside', claudeRating: null, canopy: false },
+          { locationId: 2, locationName: 'Blyth Beach', claudeRating: null, canopy: false },
+        ];
+        const [card] = buildWithLens(unrated, REACH, { limitMinutes: null, defaultLimitMinutes: 45 });
+        expect(card.pool).toHaveLength(2);
+        expect(card.bestReach).toBeNull();
+      });
+
+      it('has no head when the pool is empty', () => {
+        const [card] = buildWithLens(THREE_SPOTS, REACH, {
+          limitMinutes: 5, defaultLimitMinutes: 45, tierId: '45',
+        });
+        expect(card.pool).toEqual([]);
+        expect(card.bestReach).toBeNull();
+      });
+
+      it('keeps a rated head when only SOME of the pool is unrated', () => {
+        const mixed = [
+          { locationId: 1, locationName: 'Simonside', claudeRating: null, canopy: false },
+          { locationId: 2, locationName: 'Blyth Beach', claudeRating: 4, canopy: false },
+        ];
+        const [card] = buildWithLens(mixed, REACH, { limitMinutes: null, defaultLimitMinutes: 45 });
+        expect(card.bestReach.locationName).toBe('Blyth Beach');
+      });
+
+      it('is scoped by the origin BEFORE either gate, so it counts the region you asked for', () => {
+        const [card] = buildWindowCards(
+          events([TODAY, 'SUNSET']),
+          [day(TODAY, [{
+            targetType: 'SUNSET',
+            regions: [
+              { regionName: 'Northumberland & Tyneside', slots: [THREE_SPOTS[0]] },
+              { regionName: 'The Lake District', slots: [THREE_SPOTS[2]] },
+            ],
+            unregioned: [],
+            window: { verdict: 'WORTH_IT', badges: [] },
+          }])],
+          TODAY, TOMORROW, new Set(), REACH,
+          {
+            limitMinutes: null,
+            defaultLimitMinutes: 45,
+            origin: { name: 'The Lake District', baseName: 'Keswick' },
+          },
+        );
+        expect(card.pool.map((s) => s.locationName)).toEqual(['Sycamore Gap']);
+        expect(card.bestReach.locationName).toBe('Sycamore Gap');
+      });
+    });
+
     describe('the rating floor beside it', () => {
       it('drops a spot below the floor and keeps the one exactly on it', () => {
         const [card] = buildWithLens(THREE_SPOTS, REACH, {

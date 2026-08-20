@@ -441,12 +441,44 @@ export function buildWindowCards(
       // give it a control with nothing to reveal. It is the same array `reachTotal` counts, so the
       // sheet and the strip footer can never describe two different populations.
       allSpots,
+      // The set the reach gate LEFT, before the rating floor — the matrix's spread histogram and
+      // its best-reachable line are both measured over this (plan-matrix A10/A11).
+      //
+      // ⚠️ It is `reached` itself rather than a copy, and under the "Any" tier `gateSpotsByReach`
+      // returns its input untouched — so `pool === allSpots` there, the SAME array `reachTotal`
+      // counts and `WindowSpotSheet` browses. Nothing downstream mutates any of them (the sheet
+      // sorts a `slice()`), and nothing may start: an in-place sort in a future consumer would
+      // silently reorder the sheet's list from the card's own chip placer.
+      //
+      // ⚠️ The floor is deliberately NOT applied, and the design says why: "an average of things
+      // that already passed a 4★ filter always reads 4-something". The histogram's whole job is to
+      // show the shape of what is out there, which a floor would flatten to one band.
+      //
+      // The same array `reachedTotal` counts, so a count and a picture of the same set cannot
+      // describe two different populations.
+      pool: reached,
+      // The pool's HEAD — the best location this reader could actually drive to for this window.
+      //
+      // ⚠️ It is `reached[0]` and nothing else, because the pool arrives ordered by
+      // `compareSpots` (rating desc, then drive, then name) from `buildWindowSpots` and both gates
+      // are order-preserving filters. Writing a second "pick the best" comparator here would be a
+      // second answer to a question the strip, the drill-down and this line all ask, which is
+      // exactly what `compareSpots` was exported to prevent.
+      //
+      // Null when the head carries no rating, which is the ordinary state on a far-horizon window
+      // (T+4 is never evaluated). `compareSpots` sorts unrated last, so a rated head means every
+      // rating in the pool was compared — and an UNRATED head means nothing in the pool is rated
+      // at all, and the order that chose it was alphabetical. Naming that spot "the best you could
+      // reach" would claim a ranking that never ran, so the caller says "not scored yet" instead.
+      bestReach: reached[0]?.rating != null ? reached[0] : null,
       // How many the lens chose from. Equal to `spots.length` whenever nothing was gated, which is
       // exactly when the strip footer keeps P6's plain count rather than the design's "N of M".
       reachTotal: allSpots.length,
       // How many survived reach alone — the rating floor's own denominator, summed across the page
-      // into the bar's "42 of 138". Deliberately a scalar rather than a third array: nothing renders
-      // this set, only counts it.
+      // into the bar's "42 of 138". A scalar beside `pool`, which is the same set as an array: this
+      // is the number the bar states and `pool` is what the matrix draws, so they count one list by
+      // construction. (Until M1 this comment read "nothing renders this set, only counts it", which
+      // was true while the array did not exist.)
       reachedTotal: reached.length,
       // The header's claim, or null when the word "reach" would over-claim — see the module comment.
       withinReachCount: withinReachCount(spots, limitMinutes, minRating),

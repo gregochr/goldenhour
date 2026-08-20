@@ -80,7 +80,7 @@ describe('WindowFirstShell — the four-day location sheet', () => {
     time: '20:37',
     verdict: 'WORTH_IT',
     verdictLabel: 'Worth it',
-    bestBet: false,
+    pickKind: null,
     away: false,
     confidence: 'high',
   };

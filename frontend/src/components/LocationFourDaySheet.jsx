@@ -212,7 +212,7 @@ export default function LocationFourDaySheet({
                       {row.time && <span className="wf-loc-t font-mono">{row.time}</span>}
                       {/* Scoped in words, because "best" unqualified reads as the forecast's own
                           Best pick — a different, server-owned claim about the whole roster
-                          (`bestBet` on the strip). This one is a max over one location's own
+                          (`pickKind` on the matrix card). This one is a max over one location's own
                           windows, and only exists when more than one of them was rated. The glyph
                           is hidden: this arm wraps every decorative `◎`, and VoiceOver says
                           "bullseye" in the middle of the row's name otherwise. */}
