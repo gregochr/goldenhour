@@ -281,9 +281,12 @@ describe('WindowFirstShell — the strip it hosts', () => {
       time: '21:11',
       verdict: 'WORTH_IT',
       verdictLabel: 'Worth it',
-      bestBet: false,
+      pickKind: null,
       away: false,
       confidence: 'high',
+      pool: [],
+      bestReach: null,
+      badges: [],
     }],
     // The strip needs a catalogue to draw, and withdraws entirely without one. Every test in this
     // file that is not about the strip therefore renders without it, which is what these two empties
@@ -641,10 +644,10 @@ describe('WindowFirstShell — the strip it hosts', () => {
         ],
         heatStripCards: [
           {
-            key: '2026-08-04:SUNSET', date: '2026-08-04', targetType: 'SUNSET', dow: 'Tue', sunrise: false, label: 'Tonight Sunset', time: '21:11', verdict: 'WORTH_IT', verdictLabel: 'Worth it', bestBet: false, away: false, confidence: 'high',
+            key: '2026-08-04:SUNSET', date: '2026-08-04', targetType: 'SUNSET', dow: 'Tue', sunrise: false, label: 'Tonight Sunset', time: '21:11', verdict: 'WORTH_IT', verdictLabel: 'Worth it', pickKind: null, away: false, confidence: 'high',
           },
           {
-            key: '2026-08-05:SUNRISE', date: '2026-08-05', targetType: 'SUNRISE', dow: 'Wed', sunrise: true, label: 'Tomorrow sunrise', time: '05:20', verdict: 'WORTH_IT', verdictLabel: 'Worth it', bestBet: false, away: false, confidence: 'high',
+            key: '2026-08-05:SUNRISE', date: '2026-08-05', targetType: 'SUNRISE', dow: 'Wed', sunrise: true, label: 'Tomorrow sunrise', time: '05:20', verdict: 'WORTH_IT', verdictLabel: 'Worth it', pickKind: null, away: false, confidence: 'high',
           },
         ],
       });
@@ -703,7 +706,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
       time: c.time,
       verdict: 'WORTH_IT',
       verdictLabel: 'Worth it',
-      bestBet: false,
+      pickKind: null,
       away: false,
       confidence: 'high',
     }));
@@ -861,7 +864,62 @@ describe('WindowFirstShell — the strip it hosts', () => {
   // relocation table names the card's badge as where the dialog stays reachable, so what is left to
   // pin is that it still is, and that the strip offers no second trigger.
   describe('the pick dialog, after the rail chip went', () => {
-    it('opens the pick prose from the window card badge', () => {
+    it('⚠️ hands the matrix the served hot topics, or the scope filter never runs in the app', () => {
+    // The one wiring the A8 filter depends on, and its failure is SILENT: with `hotTopics`
+    // undefined the index is empty, every badge joins to nothing, and a badge with no topic is
+    // deliberately KEPT — byte-identical output to a healthy payload whose topics are all in scope.
+    // So `windowFirstTopics.js`'s whole rule would be inert in production with every unit test
+    // green. Asserted through a topic the scope must DROP, because that is the only observable
+    // difference between "wired" and "not wired".
+    renderWithBriefing({
+      ...briefingWithSpots('2026-08-04T12:00:00'),
+      origin: { name: 'The Lake District', baseName: 'Keswick' },
+      heatSpots: [{
+        id: 9,
+        name: 'Derwentwater',
+        lat: 54.58,
+        lng: -3.14,
+        regionName: 'The Lake District',
+        rid: 'The Lake District',
+        skySubject: true,
+        bortleClass: 3,
+        scores: [4],
+      }],
+      heatStripCards: [{
+        key: '2026-08-04:SUNSET',
+        date: '2026-08-04',
+        targetType: 'SUNSET',
+        dow: 'Tue',
+        sunrise: false,
+        label: 'Tonight Sunset',
+        time: '21:11',
+        verdict: 'WORTH_IT',
+        verdictLabel: 'Worth it',
+        pickKind: null,
+        away: false,
+        confidence: 'high',
+        pool: [],
+        bestReach: null,
+        badges: [{ type: 'KING_TIDE', label: 'King tide', rarityRank: 4 }],
+      }],
+      briefing: {
+        generatedAt: '2026-08-04T12:00:00',
+        hotTopics: [{
+          type: 'KING_TIDE',
+          label: 'King tide',
+          date: '2026-08-04',
+          eventType: 'SUNSET',
+          regions: ['Northumberland & Tyneside'],
+          rarityRank: 4,
+        }],
+      },
+    });
+
+    expect(screen.getByTestId('wf-heat-strip')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-heat-topic')).toBeNull();
+  });
+
+  it('opens the pick prose from the window card badge', () => {
       renderWithBriefing(briefingWithSpots('2026-08-04T12:00:00'));
       fireEvent.click(screen.getByTestId('window-card-pick'));
 
@@ -870,10 +928,14 @@ describe('WindowFirstShell — the strip it hosts', () => {
       expect(dialog).toContain('Low cloud clears.');
     });
 
-    it('offers no second trigger on the strip — the BEST BET flag is passive', async () => {
-      // The rule the plan states and the exit criterion the review checks: a nested interactive
-      // control inside the thumbnail button. `within(button).queryAllByRole('button')` would find
-      // the button itself, so the flag is queried directly and its tag asserted.
+    it('offers no second trigger on the matrix — the pick legend is passive', async () => {
+      // The rule the plan states and the exit criterion the review checks: no nested interactive
+      // control inside the card button. `within(button).queryAllByRole('button')` would find the
+      // button itself, so the legend is queried directly and its tag asserted.
+      //
+      // M1 replaced the strip's BEST BET flag with a border legend carrying BOTH pick kinds; the
+      // passivity rule is unchanged, and the dialog stays reachable from the window row's own pick
+      // badge (asserted directly above).
       renderWithBriefing({
         ...briefingWithSpots('2026-08-04T12:00:00'),
         heatStripCards: [{
@@ -886,16 +948,20 @@ describe('WindowFirstShell — the strip it hosts', () => {
           time: '21:11',
           verdict: 'WORTH_IT',
           verdictLabel: 'Worth it',
-          bestBet: true,
+          pickKind: 'best',
           away: false,
           confidence: 'high',
+          pool: [],
+          bestReach: null,
+          badges: [],
         }],
       });
 
       await screen.findByTestId('wf-heat-strip');
-      const flag = screen.getByTestId('wf-heat-flag');
-      expect(flag.tagName).toBe('SPAN');
-      fireEvent.click(flag);
+      const legend = screen.getByTestId('wf-heat-legend');
+      expect(legend.tagName).toBe('SPAN');
+      expect(legend).toHaveTextContent('Best bet');
+      fireEvent.click(legend);
       expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
     });
   });

@@ -7,12 +7,13 @@ import { dayLabelFor, eventWord } from './windowFirstCards.js';
  *
  * <h2>It is a fold over two lists, not a third derivation of the forecast</h2>
  *
- * <p>Everything a thumbnail says about a window — its verdict word, its time, whether it carries
- * the forecast's Best pick — is already on {@code buildWindowCards}' descriptor for that window,
+ * <p>Everything a card says about a window — its verdict word, its time, which of the forecast's
+ * two picks it carries, its spot pool — is already on {@code buildWindowCards}' descriptor for it,
  * and re-deriving any of it here would give the strip and the card it opens two chances to
  * disagree about the same night. So the fold is over {@code upcomingEvents} (which is the list the
  * strip must show, travel days included) with the cards looked up by key, and the only thing this
- * module computes that no card carries is the calendar abbreviation the thumbnail's top row draws.
+ * module computes that no card carries is the calendar abbreviation — which since M1 is drawn once
+ * per COLUMN, in the matrix's day header, rather than once per card.
  *
  * <p><b>Away days keep their slot.</b> {@code buildWindowCards} drops them — a travel day's slots
  * are collected but never evaluated, so a card would read "Poor" about a day nothing was forecast
@@ -26,7 +27,7 @@ import { dayLabelFor, eventWord } from './windowFirstCards.js';
  * ran, so they come from the event summary directly when there is no card to read them off.
  */
 
-/** Three-letter weekday for the thumbnail's top row ("Sat"). Upper-cased by the stylesheet. */
+/** Three-letter weekday for the matrix's day header ("Sat"). Upper-cased by the stylesheet. */
 function calDow(dateStr) {
   return new Date(`${dateStr}T12:00:00Z`)
     .toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
@@ -54,7 +55,8 @@ export const AWAY_STATE_LABEL = 'Not forecast';
  * @param {string} tomorrowStr    tomorrow's ISO date in Europe/London
  * @returns {Array<{key: string, date: string, targetType: string, dow: string, sunrise: boolean,
  *   label: string, time: string, verdict: ?string, verdictLabel: string, bestRating: ?number,
- *   bestBet: boolean, away: boolean, confidence: ?string, movement: ?object}>} descriptors
+ *   pickKind: ?string, away: boolean, confidence: ?string, movement: ?object, pool: Array,
+ *   bestReach: ?object, badges: Array}>} descriptors
  */
 export function buildHeatStripCards(
   upcomingEvents, windowCards, travelDayDates, briefingDays, todayStr, tomorrowStr,
@@ -99,10 +101,15 @@ export function buildHeatStripCards(
       // records why at length. So the mark cannot move when the reader touches the reach tier or
       // the rating floor, which would be a quality control silently relabelling the forecast.
       bestRating: card?.bestRating ?? null,
-      // The forecast's own Best pick, served on the window projection — never a client-side
-      // "which of these six looks best" (plan §2.12). Exactly two picks exist across the whole
-      // forecast and only the Best one is flagged here.
-      bestBet: card?.pick?.kind === 'best',
+      // The forecast's own pick, served on the window projection — never a client-side "which of
+      // these six looks best" (plan §2.12). Exactly two picks exist across the whole forecast, and
+      // the matrix rides BOTH on the card's border as legends, so the kind is carried rather than
+      // a boolean for the Best one alone.
+      //
+      // ⚠️ It is withheld when an away origin has scoped the pick's region out — `buildWindowCards`
+      // does that, and this fold must not reconstruct one. An away plan showing no legend at all is
+      // the accepted deviation (plan-matrix D-5).
+      pickKind: card?.pick?.kind ?? null,
       away,
       // Feeds the kernel's haze through `confidenceScalar`, so the picture and the card's badge
       // decay by the same number (plan D3).
@@ -118,6 +125,19 @@ export function buildHeatStripCards(
       // and the fold would resolve to null anyway — stating it keeps the reason where a future
       // away-day card would land.
       movement: away ? null : (card?.movement ?? null),
+      // The card's reach-gated, pre-floor pool and its head, folded like everything else here.
+      // The matrix's spread histogram and its best-reachable line are both measured over this ONE
+      // list, which is the design's own requirement that the picture, the line and the list below
+      // share a pool — and `buildWindowCards` is the single place it is built.
+      //
+      // Empty on an away day: there is no card, so there is no pool, and the away cell draws
+      // neither element rather than an empty histogram claiming nothing is in reach.
+      pool: card?.pool ?? [],
+      bestReach: card?.bestReach ?? null,
+      // BEFORE the row promotion, so the matrix names every topic on the night — the design's
+      // "nothing is collapsed behind a +2". `card.badges` is the promoted-out remainder and is the
+      // window row's set, not this one's.
+      badges: card?.allBadges ?? [],
     };
   });
 }

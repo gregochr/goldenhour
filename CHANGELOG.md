@@ -5,6 +5,56 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Plan tab M1: the strip becomes a day × event matrix
+
+The v2 Plan pane's one row of six heat thumbnails is now a **matrix** — a column per rendered
+day, sunrise over sunset, cells placed explicitly so the phone transposes the identical markup
+into two columns under a spanning day heading. Empty cells say why they are empty (*this
+morning has gone*, *past the end of the forecast*) and make no other claim: a hole the payload
+contract does not produce renders dashed and silent. The card face grew to carry the verdict
+word as a tint over the whole card, a five-bar **spread histogram**, the **best place you could
+actually drive to**, every topic on the night named in full, and the forecast's pick as a
+fieldset legend riding the border. Card click still opens the window row below — the popup is
+M2, and the list stays alive until it.
+
+Two client derivations are new and both are reach-scoped, so neither can ride the shared
+briefing payload: the histogram counts the card's **pool** (origin-scoped, canopy-filtered,
+reach-gated, deliberately *not* rating-floored — an average of things that already passed a 4★
+filter always reads 4-something), and the best-reach line is that same pool's head under the
+existing comparator. The tooltip's leading `N` is the pool's size, never the sum of the bars,
+and it names the unrated remainder rather than leaving the arithmetic open. Topics are joined to
+the served `hotTopics` by replicating `PlanWindowProjector.keysFor` — including the NIGHT case,
+which lands a badge on the *next* morning's card — and scope-filtered by type, with the
+whole-sky kinds exempt because aurora's and NLC's `regions` are coverage and clear-sky rosters
+rather than eligibility.
+
+Deleted: the per-card movement chip (the change line names the movers, their regions and the
+run age; a magnitude on a tile with no room for a region left the reader a number attributable
+to nothing), the BEST BET flag chip it sat beside, and `--color-heat-flag-ink` with it.
+
+Six review lenses and a refutation pass found the defects worth naming here, because each is a
+class this arm has met before. Three were measured contrast failures the mock invites: the
+best-reach rating painted in the raw score ramp is 2.9:1 at 1★ (now the arm's existing
+`spotBadgeStyle` fill-plus-`readableInkOn` pair), and the histogram's bottom two bands are
+2.7:1 and 3.3:1 against the card — no ramp retint and no light track can fix that (a bone track
+bright enough to clear 3:1 pushes the bars themselves to 1.1–2.5:1), so the bars now sit in a
+`--color-heat-sea` well and clear 3.14:1 upward against it. Two were CSS specificity: a
+`.wf-hc-pls > span` rule silently defeated the value grid's reserved 32px name row, and
+`button.wf-hc:hover` out-specified `.wf-hc.best`, so the pointer landing on the recommended card
+flipped its green border to ordinary hover bone. One was a browser-only geometry finding — a
+phone grid without `minmax(0, 1fr)` floored its columns at min-content and put the page into a
+20px horizontal scroller, and a stale canvas escaped the now-`overflow: visible` card until the
+clip moved onto the canvas well. And one was a filter that had lost a name: `SNOW_TOPS` was
+missing from the region-scoped topic set, which fails *open*, so it was exempt from the scope
+intersection while its `SNOW_FRESH` sibling was not — the two sets now mirror the backend's
+whole sixteen-type roster against a literal third list in the test.
+
+Measured, because the plan asks for a number rather than an assertion: a full matrix repaint
+costs 60–210 ms (median ~97 ms at 1180px, ~99 ms at 390px) across six canvases at DPR 2, with
+the identical storm and the matrix hidden producing zero long tasks. That is a cost per layout
+change, not per render; the identified mitigation is a debounce in the shared `useHeatCanvas`
+observer and belongs to M5's performance pass.
+
 ### Added — kickoff prompts for the plan-matrix implementing sessions
 
 `docs/engineering/plan-matrix-prompts.md` — one paste-ready prompt per phase (M1–M5), the

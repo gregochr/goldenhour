@@ -79,7 +79,7 @@ describe('WindowFirstShell — the origin', () => {
     time: '21:11',
     verdict: 'WORTH_IT',
     verdictLabel: 'Worth it',
-    bestBet: false,
+    pickKind: null,
     away: false,
     confidence: 'high',
   };

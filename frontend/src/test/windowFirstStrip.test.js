@@ -97,9 +97,10 @@ describe('buildHeatStripCards — one thumbnail per rendered window', () => {
     expect(build([{ date: TODAY, targetType: 'SUNSET' }], [card()])[0].dow).toBe('Tue');
   });
 
-  it('flags only the forecast\'s BEST pick, never the runner-up', () => {
-    // Exactly two picks exist across the whole forecast and the Also is a runner-up. Flagging both
-    // would put two "best" claims on one strip.
+  it('carries BOTH pick kinds, because the matrix rides each on its own card border', () => {
+    // Exactly two picks exist across the whole forecast. P2's strip flagged the Best one alone,
+    // because a 55px tile had room for one word; the v3 card carries the pick as a fieldset legend
+    // in its border, so the runner-up gets its own and the boolean became a kind.
     const events = [
       { date: TODAY, targetType: 'SUNSET' },
       { date: TOMORROW, targetType: 'SUNRISE' },
@@ -112,11 +113,55 @@ describe('buildHeatStripCards — one thumbnail per rendered window', () => {
       }),
     ];
 
-    expect(build(events, cards).map((c) => c.bestBet)).toEqual([true, false]);
+    expect(build(events, cards).map((c) => c.pickKind)).toEqual(['best', 'also']);
   });
 
-  it('carries no best-bet flag when the window has no pick at all', () => {
-    expect(build([{ date: TODAY, targetType: 'SUNSET' }], [card()])[0].bestBet).toBe(false);
+  it('carries no pick kind when the window has no pick at all', () => {
+    expect(build([{ date: TODAY, targetType: 'SUNSET' }], [card()])[0].pickKind).toBeNull();
+  });
+
+  it('carries no pick kind when the origin scoped the pick away', () => {
+    // `buildWindowCards` withholds a pick naming a region an away origin has scoped out (plan
+    // §2.12), and this fold must not reconstruct one — an away plan legitimately shows no legend
+    // at all (plan-matrix D-5). The card arrives with `pick: null`, so the assertion is that
+    // nothing here invents one from some other field.
+    const [only] = build([{ date: TODAY, targetType: 'SUNSET' }], [card({ pick: null })]);
+    expect(only.pickKind).toBeNull();
+  });
+
+  it('carries the card\'s pool and its head, so the spread and the best line read one list', () => {
+    // The design's requirement that the picture, the count and the name share a pool. Folded
+    // rather than re-derived: `buildWindowCards` is the only place a pool is built.
+    const pool = [{ locationName: 'Bamburgh Beach', rating: 5, driveMinutes: 40 }];
+    const [only] = build(
+      [{ date: TODAY, targetType: 'SUNSET' }], [card({ pool, bestReach: pool[0] })],
+    );
+    expect(only.pool).toBe(pool);
+    expect(only.bestReach).toBe(pool[0]);
+  });
+
+  it('carries an EMPTY pool and no head on an away day', () => {
+    // There is no card behind an away window, so there is no pool — and the away cell draws
+    // neither derived row rather than an empty histogram claiming nothing is in reach.
+    const [only] = build(
+      [{ date: TODAY, targetType: 'SUNSET' }], [], new Set([TODAY]),
+      [{ date: TODAY, eventSummaries: [{ targetType: 'SUNSET' }] }],
+    );
+    expect(only.away).toBe(true);
+    expect(only.pool).toEqual([]);
+    expect(only.bestReach).toBeNull();
+  });
+
+  it('carries the window\'s badges BEFORE row promotion, so the matrix names every topic', () => {
+    // `card.badges` is the promoted-out remainder the window ROW renders; `card.allBadges` is the
+    // whole set. A card naming only the remainder would silently lose a snow topic that became a
+    // row — the design's "nothing is collapsed behind a +2", from the other direction.
+    const all = [{ type: 'SNOW_FRESH', label: 'Fresh snow' }, { type: 'AURORA', label: 'Aurora' }];
+    const [only] = build(
+      [{ date: TODAY, targetType: 'SUNSET' }],
+      [card({ allBadges: all, badges: [all[1]] })],
+    );
+    expect(only.badges).toBe(all);
   });
 
   it('carries the window\'s confidence tier, which feeds the field\'s haze', () => {

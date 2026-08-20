@@ -26,10 +26,12 @@ const MAX_MEASURE_TRIES = 30;
  * otherwise have to re-derive from its own clamps, and get wrong once. Checking the height the hook
  * just computed is the general form of the same rule.
  *
- * <p>Provably inert for {@code WindowFirstHeatStrip}, whose own floor is already sized for it: at
- * its minimum width of 26 and its aspect floor of 0.85 the height is 22.1, so this gate cannot fire
- * where the width gate passed. That is what makes adding it here a generalisation rather than a
- * behaviour change — see the strip's {@code MIN_THUMB_PX} comment for the derivation.
+ * <p>Provably inert for {@code WindowFirstHeatStrip}, whose own floor is sized for it: its gate is
+ * strict ({@code !(width > minPx)}) at a floor of 26, so the narrowest width that reaches a paint is
+ * 27, and at its aspect floor of 0.78 the height is 21 — this gate cannot fire where the width gate
+ * passed. That is what makes adding it here a generalisation rather than a behaviour change; see
+ * that component's {@code MIN_THUMB_PX} comment for the derivation, and re-check the pair together
+ * if either the floor or the aspect clamp moves.
  */
 const MIN_CANVAS_PX = 20;
 
@@ -167,8 +169,8 @@ export function useHeatCanvas({
    * The OBSERVED FRAME's last box, as {@code {width, height}} — the change gate, and nothing else.
    *
    * <p>⚠️ It records the FRAME's box, never the measurement {@code measureAndPaint} took. The two
-   * are deliberately different quantities — the frame is a row of six thumbnails, the measurement
-   * one thumbnail's well — and writing the paint's own reading here would compare a derived canvas
+   * are deliberately different quantities — the frame is the whole matrix, the measurement one
+   * card's well — and writing the paint's own reading here would compare a derived canvas
    * height against a frame's real one on the next observation, which fires a repaint on every
    * resize that changed nothing. That is a failure this file's own suite catches.
    */
@@ -179,10 +181,10 @@ export function useHeatCanvas({
    * <p>⚠️ Only for a host that measures itself, and the asymmetry is load-bearing rather than
    * cautious. A static host's canvas height is {@code round(width × aspect)}, and its frame's
    * height is a CONSEQUENCE of that — {@code .wf-mapbox} IS the canvas's own parent, and
-   * {@code .wf-hstrip} is an auto-row grid whose height is the tallest thumbnail. So the first
+   * {@code .wf-hstrip} is an auto-row grid whose rows are as tall as their tallest cell. So the first
    * paint, which writes the canvas from its 300×150 intrinsic ratio to `width × aspect`, changes
    * the frame's height while the width stands still: watching it would fire an observation on every
-   * mount and repaint all six thumbnails a second time, which is exactly what the `alreadyLoaded`
+   * mount and repaint every canvas a second time, which is exactly what the `alreadyLoaded`
    * guard above exists to prevent. It converges, so it is a doubled paint rather than a loop — and
    * jsdom, which stubs `clientWidth` alone and reports every `clientHeight` as 0, cannot see it at
    * all. Caught by review, not by a suite.
@@ -389,8 +391,10 @@ export function useHeatCanvas({
       // quantity or the two can disagree about whether anything moved. Caught in the browser —
       // in a host where `getBoundingClientRect()` answered 0 while `clientWidth` answered 82, this
       // callback took the zero-box early return on every observation and the strip never repainted
-      // on a resize: at 360px the canvases were still drawn at the 390px width and clipped by
-      // `.wf-hc`'s own `overflow: hidden`, silently. One measurement API for both ends.
+      // on a resize: at 360px the canvases were still drawn at the 390px width. (The symptom then
+      // was silent clipping by `.wf-hc`'s `overflow: hidden`; the v3 card is `overflow: visible` for
+      // its pick legend, and what keeps a stale bitmap inside its box now is `.wf-hc-cv canvas`'s
+      // own `width: 100%`.) One measurement API for both ends.
       const width = node.clientWidth;
       const height = node.clientHeight;
       if (zeroBox(width, height)) return;
@@ -412,8 +416,7 @@ export function useHeatCanvas({
    * an observer catches strictly more (a pane revealed from {@code display: none} fires no window
    * resize). That is true and the observer stays for exactly that case — but in the browser it was
    * checked in, the observer did not fire on a viewport change at all: at 360px the canvases were
-   * still drawn at their 390px width and clipped by {@code .wf-hc}'s {@code overflow: hidden}. Two
-   * triggers for one repaint is cheap; the repaint is idempotent (`lastSizeRef` makes a no-change
+   * still drawn at their 390px width. Two triggers for one repaint is cheap; the repaint is idempotent (`lastSizeRef` makes a no-change
    * resize a no-op) and the paint itself is a coarse-grid field.
    */
   useEffect(() => {

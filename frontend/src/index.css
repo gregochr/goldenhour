@@ -183,13 +183,6 @@
      carries the pointer back. Making the kernel read a CSS variable was rejected: the kernel is
      deliberately framework-free and is shared with the Leaflet host, which has no sea at all. */
   --color-heat-sea: #13100e;
-  /* Near-black ink for the BEST BET flag, which is a solid fill of the go green rather than a
-     tint — so it needs the inverse ink the badge tints never do. Computed 6.08:1 against
-     rgba(138,174,114,.94) composited over --color-plex-panel, which clears AA for the flag's 8px
-     bold. (Pure black on that fill reaches only 7.57:1, so there is no version of this that reads
-     like body ink — the fill is the bright half of the pair by design.) Not a --color-badge-* :
-     those are lifted TEXT on a tint, the opposite relationship. */
-  --color-heat-flag-ink: #15200f;
 
   /* ── Two v1-arm synonyms that were never declared anywhere ──
      `CloseToHome.jsx:48-49` and `CardHoverPreview.jsx:85` name these; nothing declared them, so
@@ -1160,16 +1153,113 @@
   height: 1px;
   background: var(--color-plex-border);
 }
-/* Six across at desktop, 3×2 on a phone — never a horizontal scroller. The rail this replaces WAS
-   one, and that is the half of it worth not repeating: on a 390px screen its fourth tile sat off
-   the right edge with nothing saying so, whereas six thumbnails at a third of the width are all
-   on screen at once. Two rows of three is what makes that fit; the strip is a picture, and a
-   picture you have to swipe to finish is not a glance. */
+/* ── The matrix (plan-matrix §6 M1) ────────────────────────────────────────────────────────────
+   A column per day, sunrise on row 2 and sunset on row 3, so the shape of the week is in the
+   layout itself. Cells are PLACED (`--c`/`--r` from the component) rather than flowed, which is
+   what lets the phone drop the identical markup into two columns under a spanning day heading
+   without a second render path. `--dc` is the day count, written by the component from the data —
+   a seven-day forecast gives seven columns with no rule here changing.
+
+   Never a horizontal scroller. The rail this replaced WAS one, and that is the half of it worth
+   not repeating: on a 390px screen its fourth tile sat off the right edge with nothing saying so. */
 .wf-hstrip {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 7px;
+  /* ⚠️ `minmax(0, 1fr)`, never a bare `1fr`. A grid track's default minimum is `auto`, i.e.
+     min-content — and this grid holds `white-space: nowrap` topic labels and a nowrap time/verdict
+     row, so a bare `1fr` lets a long topic name set a floor the column cannot shrink below and push
+     the page into a horizontal scroller. The block's own promise three lines up is that it is never
+     one, and P2's card could rely on `overflow: hidden` to hide the overrun; the v3 card is
+     `overflow: visible` for the pick legend, so the guard has to be here instead. */
+  grid-template-columns: repeat(var(--dc, 4), minmax(0, 1fr));
+  gap: 7px 8px;
+  align-items: stretch;
 }
+.wf-hstrip > * {
+  grid-column: var(--c);
+  grid-row: var(--r);
+}
+/* The day, said once per column instead of once per card: a calendar tile, then a hairline rule
+   running to the right edge of the column. The rule is the column's header in the same legend
+   idiom the pick uses on the card border below it. */
+.wf-hday {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 2px 3px;
+  font-family: var(--font-mono);
+  line-height: 1;
+}
+.wf-hday-cal {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  padding: 3px 6px 4px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 5px;
+  background: rgba(0, 0, 0, 0.24);
+}
+/* ⚠️ SECONDARY, not the design's `--ink-3`. This is the eighth time this file has made the
+   correction and the reason has not changed: bone at 0.42 measures 3.5:1 on these grounds and
+   fails AA at every size this block uses, where secondary measures 6.9:1 on the panel and 7.1:1
+   on the frame. The tile still sits back from the cards through size and position. */
+.wf-hday-dow {
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+}
+.wf-hday-dn {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-plex-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+.wf-hday-rule {
+  flex: 1;
+  min-width: 10px;
+  height: 1px;
+  background: var(--color-plex-border);
+}
+/* Today's column. The tile takes the origin gold — AND the weekday slot says the word, which is a
+   deviation from the bundle recorded at the render site: its reason for omitting "TODAY" was that
+   the cards carry "Tonight"/"Today" themselves, and the v3 card face does not. Colour alone would
+   be the only marker (SC 1.4.1), and the tile border at 45% alpha is not a strong one. */
+.wf-hday.today .wf-hday-cal {
+  border-color: color-mix(in srgb, var(--color-close-to-home) 45%, transparent);
+}
+.wf-hday.today .wf-hday-dn {
+  color: var(--color-close-to-home);
+}
+/* An empty cell says why it is empty — the gap is information, not a hole. Two of them are empty
+   by definition on an ordinary week (this morning has gone; the last evening is past the end of
+   the forecast) and `windowFirstMatrix.js` will make no other claim, so a cell with no copy
+   renders as a dashed box and says nothing. */
+.wf-hgap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--color-plex-border);
+  border-radius: 9px;
+  padding: 10px;
+  min-height: 110px;
+}
+.wf-hgap span {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  color: var(--color-plex-text-secondary);
+  text-align: center;
+  text-wrap: pretty;
+}
+/* ── The window card (plan-matrix §6 M1, bundle README "Window card") ──────────────────────────
+   A button carrying: the sun word, the field, four value rows on shared baselines, the verdict as
+   a tint over the whole card, and the pick riding the border as a fieldset legend.
+
+   ⚠️ `overflow: visible`, where P2's thumbnail was `hidden`. The pick legend sits at `top: -8px`
+   and overhangs the top edge by design; clipping it would leave half a word. Nothing inside needs
+   clipping any more — the canvas is drawn to its own measured box and the name column wraps
+   rather than ellipsing. */
 .wf-hc {
   border: 1px solid var(--color-plex-border);
   border-radius: 9px;
@@ -1180,8 +1270,8 @@
   flex-direction: column;
   gap: 5px;
   position: relative;
-  overflow: hidden;
-  transition: border-color 0.14s ease, background 0.14s ease;
+  overflow: visible;
+  transition: border-color 0.14s ease, background 0.14s ease, transform 0.12s ease;
 }
 /* Tailwind v4's Preflight no longer restores `cursor: pointer` on `button` — the gap this file has
    now closed in five places. Only the BUTTON gets it: an away cell is a `<div>` and is not a
@@ -1192,9 +1282,18 @@ button.wf-hc {
 button.wf-hc:hover {
   border-color: var(--color-plex-border-light);
   background: var(--color-plex-surface);
+  transform: translateY(-2px);
+}
+/* The lift is the one thing on this card that moves, and a matrix is six of them under one pointer
+   sweep. The same guard this file already gives `.cth-card` — "a keyboard user is exactly as
+   entitled to the reduced-motion preference as a pointer user" — with the border and background
+   changes left alone, because they are the signal and the motion is the decoration. */
+@media (prefers-reduced-motion: reduce) {
+  .wf-hc { transition: border-color 0.14s ease, background 0.14s ease; }
+  button.wf-hc:hover { transform: none; }
 }
 /* Bone at 2px, for the reason this file records in four other places: `--color-plex-border-light`
-   measures ~1.7:1 and fails SC 1.4.11's 3:1 for a non-text indicator, and on the OPEN thumbnail the
+   measures ~1.7:1 and fails SC 1.4.11's 3:1 for a non-text indicator, and on the OPEN card the
    resting gold border is brighter than it, so focus would read as noise beside an unfocused edge.
    9px to match the card's own corner, so the ring traces the shape it is around. */
 button.wf-hc:focus-visible {
@@ -1202,11 +1301,63 @@ button.wf-hc:focus-visible {
   outline-offset: 2px;
   border-radius: 9px;
 }
-/* The open row's thumbnail. `.on` rather than `[data-open]` alone so the selector reads as the
-   design's does; the attribute is carried too, and is what the tests assert against. */
-.wf-hc.on {
-  border-color: rgba(201, 162, 75, 0.62);
-  background: rgba(201, 162, 75, 0.09);
+/* ── The verdict tint ──────────────────────────────────────────────────────────────────────────
+   The grade tints the whole card rather than a chip in the corner: the verdict is the surface you
+   are looking at. Kept low enough that it never competes with the field inside it, and the pick
+   still reads as the border.
+
+   The class comes from a LOOKUP on the served verdict (`verdictTint`), never from a client
+   threshold — plan §3 rule 1. AWAITING and an away cell take no class and keep the plain panel.
+
+   ⚠️ A `linear-gradient` of one constant colour rather than a background-color layer, and that is
+   load-bearing: `.wf-hc-lg` below cuts the border line with `background: inherit`, which inherits
+   the PROPERTY VALUE and repaints it at the legend's own box. A two-value `background` with a
+   colour layer underneath repaints identically; a `background-color` alone would not carry the
+   tint, and the legend would sit in a differently-coloured notch.
+
+   The rgba triples are `--color-verdict-go/-marginal/-standdown` (which are also ramp stops 5, 3
+   and 2 — see `scoreRamp.js`), spelled as literals because CSS cannot take an alpha of a var
+   without `color-mix`, and `color-mix` inside a gradient stop is not what the rest of this block
+   spells. Measured on every one of these six grounds, at the sizes used: the lifted badge trio
+   ranges 5.08–9.96:1 and `--color-plex-text-secondary` 5.51–6.57:1, so every ink on a tinted card
+   clears AA. `--color-plex-text-muted` measures 3.16–3.49:1 on them and is used nowhere here. */
+.wf-hc.vg {
+  background: linear-gradient(rgba(138, 174, 114, 0.12), rgba(138, 174, 114, 0.12)),
+    var(--color-plex-panel);
+}
+.wf-hc.vm {
+  background: linear-gradient(rgba(224, 165, 66, 0.1), rgba(224, 165, 66, 0.1)),
+    var(--color-plex-panel);
+}
+.wf-hc.vp {
+  background: linear-gradient(rgba(200, 69, 47, 0.09), rgba(200, 69, 47, 0.09)),
+    var(--color-plex-panel);
+}
+button.wf-hc.vg:hover {
+  background: linear-gradient(rgba(138, 174, 114, 0.17), rgba(138, 174, 114, 0.17)),
+    var(--color-plex-surface);
+}
+button.wf-hc.vm:hover {
+  background: linear-gradient(rgba(224, 165, 66, 0.15), rgba(224, 165, 66, 0.15)),
+    var(--color-plex-surface);
+}
+button.wf-hc.vp:hover {
+  background: linear-gradient(rgba(200, 69, 47, 0.14), rgba(200, 69, 47, 0.14)),
+    var(--color-plex-surface);
+}
+/* The open row's card. `.on` rather than `[data-open]` alone so the selector reads as the design's
+   does; the attribute is carried too, and is what the tests assert against. Last of the tint rules
+   and it wins over all of them — an open card is a state the reader chose, and it must not be
+   readable as a fourth grade. Same gradient form, for the `background: inherit` reason above.
+
+   ⚠️ BACKGROUND ONLY. The open state's BORDER lives at the foot of this block, after the pick rules,
+   because `.wf-hc.best` is later in the file at equal specificity and would otherwise take the
+   border back on exactly the card most likely to be both picked and open. Nothing after this point
+   sets a card background, so this half needs no such move. */
+.wf-hc.on,
+button.wf-hc.on:hover {
+  background: linear-gradient(rgba(201, 162, 75, 0.11), rgba(201, 162, 75, 0.11)),
+    var(--color-plex-panel);
 }
 /* An away window is a read-out, not a control: no hover, no pointer, and the whole cell sits back
    so the eye runs past it to the days that were forecast.
@@ -1214,41 +1365,49 @@ button.wf-hc:focus-visible {
    ⚠️ 0.78, not the design's 0.62, and the difference is AA. `opacity` composites the WHOLE cell, so
    it multiplies ink that is already an alpha: secondary × 0.62 measures 3.43:1 against the 4.5:1
    floor (and the muted this rule originally sat over gave 2.14:1). × 0.78 measures 4.68:1. The two
-   strings inside are the only thing an away thumbnail has to say — its state and its sun time,
-   which `windowFirstStrip.js` keeps precisely because they are almanac — so they are the last
-   text in the strip that may be dimmed below legibility. The mock has no away thumbnail; its
-   `.ev.weak{opacity:.62}` is a different element. */
+   strings inside are the only thing an away cell has to say — its state and its sun time, which
+   `windowFirstStrip.js` keeps precisely because they are almanac — so they are the last text here
+   that may be dimmed below legibility. The mock has no away card; its `.ev.weak{opacity:.62}` is a
+   different element. */
 .wf-hc-away {
   opacity: 0.78;
 }
 .wf-hc-top {
   display: flex;
-  align-items: baseline;
-  gap: 4px;
+  align-items: center;
+  gap: 5px;
+  min-height: 19px;
 }
-/* 6.88:1 on the panel. At 9px muted measures 3.55:1 — see `.wf-hstrip-k` above. */
-.wf-hc-dow {
+/* The event as a WORD. 6.88:1 on the panel and 5.51:1 at worst on a hovered tint; at this size
+   muted measures 3.2–3.6:1 — see `.wf-hstrip-k` above for the standing correction. */
+.wf-hc-sun {
   font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 600;
   letter-spacing: 0.09em;
   text-transform: uppercase;
+  line-height: 1;
   color: var(--color-plex-text-secondary);
 }
-.wf-hc.on .wf-hc-dow {
+.wf-hc.on .wf-hc-sun {
   color: var(--color-close-to-home);
 }
-.wf-hc-ar {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  color: var(--color-plex-text-secondary);
-  margin-left: auto;
-}
-/* The canvas well. Unpadded and full width, which is not cosmetic: the strip measures THIS box to
-   size all six canvases, so anything but a bare content box would put a constant in
-   `WindowFirstHeatStrip.jsx` that silently rots the next time this padding changes. */
+/* The canvas well. Unpadded and full width, which is not cosmetic: the component measures THIS box
+   per card to size that card's canvas, so anything but a bare content box would put a constant in
+   `WindowFirstHeatStrip.jsx` that silently rots the next time this padding changes.
+
+   ⚠️ THE CLIP LIVES HERE NOW, and it is load-bearing rather than tidy. `heatField.fit()` writes the
+   canvas's width as an INLINE style, which beats the `width: 100%` below — so between a layout
+   change and the repaint that follows it the bitmap keeps its old, wider box. P2's card was
+   `overflow: hidden` and simply cropped that frame; the v3 card must be `overflow: visible` for the
+   pick legend, and without this the stale canvas escaped the card and put the whole page into a
+   horizontal scroller at 390px. Measured in a browser: 403px of scroll width against a 390px
+   viewport. Clipping rather than `max-width: 100%` on purpose — the picture keeps the scale it was
+   drawn at for the frame it survives, instead of being squashed out of its aspect. */
 .wf-hc-cv {
   display: block;
+  overflow: hidden;
+  border-radius: 5px;
 }
 .wf-hc-cv canvas {
   display: block;
@@ -1259,20 +1418,47 @@ button.wf-hc:focus-visible {
      that has — a lighter placeholder would flash on every first paint. */
   background: var(--color-heat-sea);
 }
-.wf-hc-bot {
+/* ── The value grid ───────────────────────────────────────────────────────────────────────────
+   Label left, value right, four rows at a shared minimum height so every card's rows land on the
+   same baselines however much any one of them has to say. */
+.wf-hc-pls {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 6px;
+  align-items: center;
+  margin-top: 1px;
+}
+.wf-hc-pls > span {
+  min-height: 20px;
   display: flex;
   align-items: center;
-  gap: 4px;
+  min-width: 0;
+}
+.wf-hc-pv {
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow: hidden;
 }
 .wf-hc-t {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 12px;
   font-weight: 600;
+  letter-spacing: -0.01em;
   color: var(--color-plex-text-secondary);
   font-variant-numeric: tabular-nums;
 }
 .wf-hc.on .wf-hc-t {
   color: var(--color-plex-text);
+}
+/* The row labels — SPREAD, and BEST when there is no rating to put in that slot. */
+.wf-hc-k {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
 }
 /* The verdict word takes the verdict channel, keyed on the attribute so the vocabulary and the
    colour come from one place — the payload. AWAITING and the away state take chrome ink rather
@@ -1280,52 +1466,221 @@ button.wf-hc:focus-visible {
 
    ⚠️ The LIFTED --color-badge-* variants, never the --color-verdict-* fills, and the token block
    above says why in general ("A badge is ~10px type … the full-strength channel colour does not
-   carry — these are the lifted versions that do"). Here it is not a preference: at 9px on the panel
-   the fills measure go 7.06:1, marginal 8.12:1 and standdown **3.66:1** — so "Poor", the one word a
+   carry — these are the lifted versions that do"). Here it is not a preference: on the panel the
+   fills measure go 7.06:1, marginal 8.12:1 and standdown **3.66:1** — so "Poor", the one word a
    reader most needs to read at a glance, would be the only verdict below AA. The lifted trio
-   measures 9.50 / 10.74 / 7.05 on the panel and 8.21 / 9.29 / 6.09 on the open thumbnail's gold
-   wash. The FILLS still name the channel everywhere a fill is drawn; this is 9px type. */
+   measures 9.50 / 10.74 / 7.05 on the panel, 7.83 / 8.86 / 5.81 on the green tint, and 6.84 / 7.74
+   / 5.08 on the hovered green tint, which is the worst ground on the card. The FILLS still name the
+   channel everywhere a fill is drawn; this is 11px type. */
 .wf-hc-vd {
   font-family: var(--font-mono);
-  font-size: 9px;
+  font-size: 11px;
   font-weight: 600;
-  margin-left: auto;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   color: var(--color-plex-text-secondary);
 }
 .wf-hc-vd[data-verdict="WORTH_IT"] { color: var(--color-badge-go); }
 .wf-hc-vd[data-verdict="MAYBE"] { color: var(--color-badge-maybe); }
 .wf-hc-vd[data-verdict="STAND_DOWN"] { color: var(--color-badge-poor); }
-/* Below the top row, deliberately: the movement chip P6 adds lands in that row, and a flag
-   overlapping it would cover the one element on the thumbnail that changes between runs.
+/* The spread histogram: five bars, one per star band, heights proportional to the tallest band.
+   A lone spike on the right reads "one good spot, drive to it"; a right-weighted block reads "the
+   whole area is on" — which two averaged digits could never say. Bar colours are the ramp's, set
+   inline from `scoreRamp.js` so the bars and the field above them are painted from one table.
 
-   ⚠️ The clearance is a CONSTANT, not a layout — the flag is `position: absolute`, so `top` is
-   measured rather than derived. 22px = the card's 6px top padding + the top row's line box (9px
-   mono × ~1.5) ≈ 19.5px, rounded up.
+   ⚠️ IT SITS IN A WELL, and that is a contrast fix rather than a decoration. The design draws the
+   bars straight onto the card, where the ramp's bottom two stops measure 2.66:1 (1★) and 3.27:1
+   (2★) against the panel and 1.97:1 / 2.43:1 against a hovered green tint — under SC 1.4.11's 3:1
+   for a graphical object, on precisely the poor night when the whole reachable roster is 1–2★ and
+   the left-weighted shape is the reading a planner most needs. No ramp re-tint could fix it (D2:
+   one ramp, and it is the same table the canvas is painted from) and no bone-coloured track clears
+   3:1 against the card either — measured across all six grounds, the best any alpha reaches is
+   2.61:1 — and a light track is worse than useless, because against a bone track at the 0.40 it
+   needs the bars themselves fall to 1.07–2.46:1. Against `--color-heat-sea`, the kernel's own sea
+   colour and the ground of the canvas directly above, every stop clears at full opacity: 3.14 /
+   3.92 / 8.69 / 9.44 / 7.56, and the empty-band hairline lifted from 0.13 to 0.40 clears at 3.34.
+   So the bars keep the ramp and change what they are adjacent TO.
 
-   ⚠️ P6 SHIPPED AND THIS PAIR IS RESOLVED — do not re-open it. The prediction above was that P6's
-   chip would be padded type in this row and would make it taller; P6 took a third route and
-   constrained the chip instead (`.wf-hc-mv` below: the row's own 9px, `line-height: 1`, no vertical
-   padding). `.wf-hc-top` is `align-items: baseline`, so the flex line's cross size is
-   `max(above baseline) + max(below baseline)` over its children — 10.125 + 3.375 = 13.5px from the
-   two 9px/1.5 siblings, and the chip is strictly smaller on BOTH sides of the baseline, so it
-   cannot be the max on either. The row is unchanged and 22px still clears it. Any FOURTH child of
-   this row must satisfy the same test. */
-.wf-hc-flag {
-  position: absolute;
-  top: 22px;
-  right: 6px;
+   The well's own edge is 1.07–1.49:1 against the card and that is fine: a background is not a
+   graphical object conveying information, and what 1.4.11 measures here is the bar against what
+   surrounds it. Alphas are set inline in the component beside the ramp call that needs them.
+
+   `cursor: help` because the exact per-band counts are in the `title`; the pool total, the remainder
+   and the best-reach figures are all in the card's own accessible sentence, so nothing a reader acts
+   on is pointer-only. */
+.wf-hc-hist {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 16px;
+  padding: 0 3px 1px;
+  border-radius: 3px;
+  background: var(--color-heat-sea);
+  flex: none;
+  cursor: help;
+}
+.wf-hc-hist i {
+  width: 5px;
+  border-radius: 1px;
+  min-height: 1px;
+  display: block;
+}
+/* The best-in-reach rating takes the LABEL column, captionless, which hands the whole value column
+   to the name — the one thing on this card that actually needs the width.
+
+   ⚠️ A FILLED CHIP, not the design's bare digit in the ramp colour, and the reason is the same
+   measurement the verdict word two rules up records. As text on the card the ramp's bottom stops
+   give 1★ 2.94:1 and 2★ 3.66:1 on the panel, and 2.12:1 / 2.64:1 on a hovered green tint — under
+   AA's 4.5:1 for 11px type, on the nights when the best you can reach IS a 1 or a 2. The remedy is
+   the arm's existing one rather than a new lift: `spotBadgeStyle` pairs the ramp fill with
+   `readableInkOn`, which is derived per stop precisely because no single ink clears AA across the
+   ramp, and it is what the spot cards and the region rail already draw. So the ramp still says what
+   it says; it says it as a fill, where it is measured. */
+.wf-hc-rt {
   font-family: var(--font-mono);
-  font-size: 8px;
+  font-size: 11px;
   font-weight: 600;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  padding: 2px 5px;
+  align-self: start;
+  margin-top: 2px;
+  padding: 1px 5px;
   border-radius: 4px;
-  background: rgba(138, 174, 114, 0.94);
-  /* Near-black on the go green — see the token's own note. */
-  color: var(--color-heat-flag-ink);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  line-height: 1.35;
+  font-variant-numeric: tabular-nums;
+}
+/* The value cell for the name — taller than its siblings because the name may wrap to two lines
+   rather than ellipsing. A place you might drive an hour to deserves its whole name. */
+/* ⚠️ SELECTED THROUGH THE PARENT, not on the class alone, and that is a specificity fix rather than
+   a style. `.wf-hc-pls > span` above is (0,1,1) — a class plus a TYPE — so a bare `.wf-hc-pv2`
+   (0,1,0) loses every property they share regardless of source order, and this rule's `display`,
+   `min-height` and `align-items` were all silently defeated: the name row reserved 20px as a
+   centred flex box instead of 32px as a block, so the value grid's whole point (four rows on shared
+   baselines, however much any one card has to say) did not happen and the topic rows across a row of
+   cards sat at different heights. Verified in a browser, not reasoned about — jsdom's `css: false`
+   cannot see it. Any FUTURE override of a `.wf-hc-pls` child must be written this way too. */
+.wf-hc-pls > .wf-hc-pv2 {
+  grid-column: 2;
+  display: block;
+  text-align: right;
+  overflow: hidden;
+  min-height: 32px;
+}
+.wf-hc-best {
+  display: block;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.3;
+  text-align: right;
+  text-wrap: pretty;
+  color: var(--color-plex-text);
+}
+/* "nothing in reach" / "not scored yet" — a state rather than a place, so it drops the weight.
+   ⚠️ It keeps SECONDARY ink rather than the design's `--ink-3`: at 11px on these six grounds muted
+   measures 3.2–3.5:1 and fails AA, and this sentence is the whole answer for that row. */
+.wf-hc-best.none {
+  font-weight: 400;
+  color: var(--color-plex-text-secondary);
+}
+/* Every topic on the night, named in full and wrapping into whatever room the card has spare —
+   nothing collapsed behind a `+2`, because a night carrying three of them is the most interesting
+   night of the week. Reserved height even when empty, so a topic-free card's rows land on the same
+   baselines as its neighbours'. */
+.wf-hc-pls > .wf-hc-tps {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 9px;
+  justify-content: flex-end;
+  align-items: flex-end;
+  min-height: 21px;
+  padding-top: 2px;
+}
+/* The channel's own lifted ink, from the same five-channel map the window row's badges use, so a
+   topic keeps one colour across the arm. `plain` is the unrecognised-kind fallback and takes chrome
+   ink rather than being forced into the nearest channel — a colour names a claim. */
+/* ⚠️ IT MUST CLIP ITSELF, because the card no longer clips it. `.wf-hc` is `overflow: visible` so
+   the pick legend can ride the border, and these labels are `nowrap` — so a long one ("Snow mist &
+   hoar frost" is ~139px at this size) would spill out of a ~137px card at 640px, or a ~161px paired
+   card on a 390px phone, straight across its neighbour. The row wraps BETWEEN chips already; this is
+   the single-chip case, and an ellipsis is the honest truncation because the popup's topic rows
+   (M2) carry the full name and the detail. */
+.wf-hc-tw {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  color: var(--color-plex-text-secondary);
+}
+.wf-hc-tw[data-channel="eclipse"] { color: var(--color-badge-eclipse); }
+.wf-hc-tw[data-channel="tide"] { color: var(--color-badge-tide); }
+.wf-hc-tw[data-channel="nlc"] { color: var(--color-badge-nlc); }
+.wf-hc-tw[data-channel="aurora"] { color: var(--color-badge-go); }
+.wf-hc-tw[data-channel="snow"] { color: var(--color-badge-snow); }
+/* ── The pick, riding the border ──────────────────────────────────────────────────────────────
+   One card is bordered green (best bet) and one lightly (also good), and the word sits IN the
+   border line as a fieldset legend does. That is what stops it competing with the verdict word for
+   the same column: every card keeps its verdict in the same place, whichever card won the pick.
+
+   ⚠️ `background: inherit` is what cuts the line, and it only works because every card background
+   above is a `linear-gradient(...)` over a colour — see the tint block's note. It inherits the
+   property VALUE and repaints it at this span's own box, so a tinted card's notch matches its own
+   tint rather than the plain panel.
+
+   ⚠️ The card must stay `overflow: visible` for this to be on screen at all.
+
+   The inks are the arm's own tokens rather than the design's two greens: `--color-badge-go`
+   (9.50:1 on the panel, 6.84:1 at worst on a hovered tint) for BEST BET and `--color-verdict-go`
+   (7.06:1 / 5.09:1) for ALSO GOOD — one channel at two strengths, matching the green border each
+   sits in. Deviation from the bundle recorded here rather than in a new token. */
+.wf-hc-lg {
+  position: absolute;
+  top: -8px;
+  right: 13px;
+  padding: 0 7px;
+  background: inherit;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  line-height: 16px;
+  white-space: nowrap;
+}
+.wf-hc-lg[data-pick="best"] { color: var(--color-badge-go); }
+.wf-hc-lg[data-pick="also"] { color: var(--color-verdict-go); font-weight: 600; }
+/* ⚠️ EACH PICK NEEDS ITS OWN `:hover` ARM, and the reason is arithmetic. `button.wf-hc:hover` above
+   is (0,2,1) — two classes and a pseudo-class — where `.wf-hc.best` is (0,2,0), so without these the
+   pointer landing on the one card the forecast recommends flipped its green border to the ordinary
+   hover bone while the word riding that border stayed green and the inset ring stayed green: the
+   pick signal half-disappearing on the exact interaction it invites. Caught by review, not by a
+   test — jsdom computes a selector LIST's specificity as the maximum over the list, so a sliced
+   cascade test here answers the opposite and passes. */
+.wf-hc.best,
+button.wf-hc.best:hover {
+  border-color: var(--color-verdict-go);
+  box-shadow: inset 0 0 0 1px rgba(138, 174, 114, 0.45);
+}
+.wf-hc.also,
+button.wf-hc.also:hover {
+  border-color: rgba(138, 174, 114, 0.5);
+}
+/* ⚠️ AFTER the pick rules, and it has to be. The open state is a state the READER chose and must win
+   over the forecast's recommendation — but `.wf-hc.on` sits with the tint rules two hundred lines
+   up, where at equal specificity the later `.wf-hc.best` took the border back. The background half
+   of `.on` is fine up there (nothing later sets a card background); only the border needed moving,
+   so the border lives here beside the rules it has to beat and the note above it says why. */
+.wf-hc.on,
+button.wf-hc.on:hover,
+button.wf-hc.best.on:hover,
+button.wf-hc.also.on:hover {
+  border-color: rgba(201, 162, 75, 0.62);
+  box-shadow: none;
 }
 .wf-hstrip-foot {
   display: flex;
@@ -1346,33 +1701,16 @@ button.wf-hc:focus-visible {
 .wf-hstrip-sp {
   margin-left: auto;
 }
-/* ── Movement (heat-field plan §4.7) ─────────────────────────────────────────────────────────
-   The chip on a thumbnail's top row, and the change line under the footer. One channel, two
-   renderings; `movement.js` owns the vocabulary and the three states.
+/* ── Movement (heat-field plan §4.7, narrowed by plan-matrix M1) ──────────────────────────────
+   ONE rendering now, not two. P6 put a per-card delta chip on each thumbnail's top row beside this
+   line; the v3 card face deletes it (deletion ledger, M1) because it earned nothing — a magnitude
+   on a tile with no room to name the region it belonged to left the reader with a number
+   attributable to nothing, while this line names the two biggest movers, their regions and the age
+   of the run. `movement.js` still owns the vocabulary and the three states.
 
-   ⚠️ THE CHIP MUST NOT GROW THE TOP ROW'S LINE BOX. `.wf-hc-flag` sits at an absolutely-positioned,
-   MEASURED `top: 22px` chosen to clear that row, and its own note above predicted this chip. So:
-   the row's own 9px mono, no vertical padding, and `line-height: 1` — measured in the browser at
-   1280 and 390, the row's height is unchanged with a chip present and the flag still clears it.
-   Give this rule vertical padding and the flag slides over the canvas with nothing failing.
-
-   The LIFTED badge variants, never the `--color-verdict-*` fills, for the reason the verdict word
-   two rules up records: this is 9px type and the fills do not carry at that size. Measured on the
-   panel: `--color-badge-go` 9.50:1 and `--color-badge-poor` 7.05:1; on the open thumbnail's gold
-   wash 8.21:1 and 6.09:1. The flat mark takes secondary (6.88:1) — it is the absence of a
-   direction, so it must not borrow either direction's hue. */
-.wf-hc-mv {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 600;
-  line-height: 1;
-  padding: 0;
-  margin-left: 4px;
-  font-variant-numeric: tabular-nums;
-  color: var(--color-plex-text-secondary);
-}
-.wf-hc-mv[data-tone="up"] { color: var(--color-badge-go); }
-.wf-hc-mv[data-tone="down"] { color: var(--color-badge-poor); }
+   ⚠️ `.wf-hc-mv` and `.wf-hc-flag` are gone with it. Their notes recorded a pair — an absolutely
+   positioned flag at a MEASURED `top: 22px` and a chip constrained so it could not grow the row
+   under it — and neither element survives: the pick is a border legend and the movement is here. */
 /* The change line. Prose, so it takes secondary ink at 10px for the reason the beyond line below
    it does — and it sits between the footer and that line because it is a statement about the whole
    strip while the beyond line is the tail about what is not drawn.
@@ -1854,8 +2192,24 @@ button.wf-hc:focus-visible {
   line-height: 1.5;
 }
 @media (max-width: 639px) {
-  .wf-hstrip { grid-template-columns: repeat(3, 1fr); gap: 6px; }
-  .wf-hc-flag { font-size: 7px; padding: 1px 3px; top: 20px; right: 4px; }
+  /* ── The phone transpose (plan-matrix §6 M1 task 5) ──────────────────────────────────────────
+     The SAME markup, flowed instead of placed: two columns, the day heading spanning the row above
+     its own windows, and the cells in DOM order — which is why the component emits header, sunrise,
+     sunset per day rather than row by row.
+
+     A day holding one window takes the full row, and the hole beside it is removed outright: a
+     390px screen has no width to spend on a dashed box saying "past the end of the forecast", and
+     the day heading above already makes the shape legible. The explanatory copy is a desktop
+     affordance, and dropping it here loses no claim the reader needs to act on. */
+  /* ⚠️ `minmax(0, 1fr)` here TOO, and forgetting it here was a real 390px horizontal scroller: a
+     track's default minimum is min-content, the paired cards floored their columns at 186px each,
+     and the grid ran 380px wide inside a 330px body. Measured in a browser, because jsdom has no
+     layout and the desktop rule carrying the guard is not the rule the phone uses. */
+  .wf-hstrip { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 8px; }
+  .wf-hstrip > * { grid-column: auto; grid-row: auto; }
+  .wf-hstrip > .wf-hday { grid-column: 1 / -1; margin-top: 4px; }
+  .wf-hstrip > .wf-hgap { display: none; }
+  .wf-hstrip > .wf-hc.solo { grid-column: 1 / -1; }
   /* The third footer clause goes: two of them decode the picture and the third qualifies it, and a
      phone bar has room for the two that are load-bearing. */
   .wf-hstrip-sp { display: none; }

@@ -43,7 +43,26 @@ vi.mock('../utils/heatField.js', async (importOriginal) => {
 
 const TODAY = '2026-08-04';
 
-/** A thumbnail descriptor as `buildHeatStripCards` shapes it. */
+/** A pool entry, as `buildWindowSpots` shapes the fields the card face reads. */
+function poolSpot(overrides = {}) {
+  return {
+    key: '1',
+    locationId: 1,
+    locationName: 'Bamburgh Beach',
+    regionName: 'Northumberland & Tyneside',
+    rating: 4,
+    driveMinutes: 40,
+    solarEventTime: `${TODAY}T20:11:00`,
+    ...overrides,
+  };
+}
+
+/**
+ * A thumbnail descriptor as `buildHeatStripCards` shapes it.
+ *
+ * <p>The default pool is EMPTY, which is the state a card with no reach data lands in and is what
+ * every block not about the pool should describe. Blocks that are about it hand their own.
+ */
 function stripCard(overrides = {}) {
   return {
     key: `${TODAY}:SUNSET`,
@@ -58,11 +77,20 @@ function stripCard(overrides = {}) {
     // Rated, because that is what all but one block below is describing. `null` is the payload's
     // "nothing in this window is rated" and is what draws the mark.
     bestRating: 4,
-    bestBet: false,
+    pickKind: null,
     away: false,
     confidence: 'high',
+    pool: [],
+    bestReach: null,
+    badges: [],
     ...overrides,
   };
+}
+
+/** A card whose pool holds one 4★ spot 40 minutes away — the ordinary "something in reach" case. */
+function ratedCard(overrides = {}) {
+  const pool = overrides.pool ?? [poolSpot()];
+  return stripCard({ ...overrides, pool, bestReach: overrides.bestReach ?? pool[0] ?? null });
 }
 
 /** One joined location, which is all the strip needs to decide it has something to draw. */
@@ -170,6 +198,40 @@ async function withMeasuredThumbs(px, run) {
   }
 }
 
+/**
+ * Gives each canvas well its OWN measurable width, in render order, while every other element
+ * answers the first of them.
+ *
+ * <p>The discriminating half of {@link withMeasuredThumbs}. That stub defines one getter on
+ * `Element.prototype`, so the grid, the button and every well answer the same number and a paint
+ * that measured once and spent it on all six would pass — which is exactly the mutation the matrix's
+ * per-card measurement exists to prevent. This keys on the well's own test id and hands out the
+ * supplied widths in the order the wells are read.
+ *
+ * @param {number[]} widths one width per well, in DOM order
+ * @param {Function} run    the render to make under the stub
+ */
+async function withWellWidths(widths, run) {
+  const original = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth');
+  const seen = new Map();
+  Object.defineProperty(Element.prototype, 'clientWidth', {
+    configurable: true,
+    get() {
+      if (this.dataset?.testid !== 'wf-heat-well') return widths[0];
+      if (!seen.has(this)) seen.set(this, seen.size);
+      return widths[seen.get(this)] ?? widths[widths.length - 1];
+    },
+  });
+  try {
+    // AWAITED inside the try — see `withMeasuredThumbs` for why returning the promise restores the
+    // real descriptor before anything has measured.
+    await run();
+  } finally {
+    if (original) Object.defineProperty(Element.prototype, 'clientWidth', original);
+    else delete Element.prototype.clientWidth;
+  }
+}
+
 describe('WindowFirstHeatStrip — which windows it draws', () => {
   it('draws one thumbnail per card, in the order it was handed them', async () => {
     // The strip's whole claim is that it is a time axis, so the order is the payload's and nothing
@@ -204,39 +266,105 @@ describe('WindowFirstHeatStrip — which windows it draws', () => {
   });
 });
 
-describe('WindowFirstHeatStrip — what a thumbnail says', () => {
+describe('WindowFirstHeatStrip — what a card says', () => {
   it('names its window, its time and its verdict in the accessible name', async () => {
     // Composed from REAL TEXT rather than an aria-label, which would REPLACE name-from-contents and
     // drop the verdict — the defect that cost a review round when the heatmap cells were named. The
-    // weekday abbreviation and the arrow glyph are aria-hidden because the hidden phrase says the
-    // same thing in words.
+    // day heading and the sun word are aria-hidden because the hidden phrase says the same thing in
+    // words. With an empty pool the best-reach clause is the design's own "nothing in reach".
     await renderStrip();
-    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it' }))
+    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, best, nothing in reach' }))
       .toBeInTheDocument();
+  });
+
+  it('counts the pool and names the best-reach spot in the accessible name', async () => {
+    // Plan §3 rule 15: the sentence counts what is actually RENDERED. The histogram draws the pool
+    // and the row beneath it names its head, so both are in the name — the pool count verbatim, and
+    // the spot's stars spelled out because ★ is an icon rather than a word.
+    await renderStrip({
+      cards: [ratedCard({ pool: [poolSpot(), poolSpot({ locationId: 2, locationName: 'Blyth', rating: 2 })] })],
+    });
+    expect(screen.getByRole('button', {
+      name: 'Tonight Sunset, 21:11, Worth it, 2 locations within reach, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11',
+    })).toBeInTheDocument();
+  });
+
+  it('drops the words "within reach" from the name when a drive in the pool is unknown', async () => {
+    await renderStrip({
+      cards: [ratedCard({ pool: [poolSpot({ driveMinutes: null })] })],
+    });
+    expect(screen.getByRole('button', {
+      name: 'Tonight Sunset, 21:11, Worth it, 1 location, best Bamburgh Beach, 4 stars, Northumberland & Tyneside',
+    })).toBeInTheDocument();
+  });
+
+  it('names every topic on the night in the accessible name', async () => {
+    await renderStrip({
+      cards: [ratedCard({
+        badges: [
+          { type: 'AURORA', label: 'Aurora', rarityRank: 1 },
+          { type: 'KING_TIDE', label: 'King tide', rarityRank: 3 },
+        ],
+      })],
+    });
+    expect(screen.getByRole('button', {
+      name: 'Tonight Sunset, 21:11, Worth it, 1 location within reach, best Bamburgh Beach, 4 stars, Northumberland & Tyneside, 40 min, leave 20:11, Aurora, King tide',
+    })).toBeInTheDocument();
   });
 
   it('adds "best bet" to the name of the window the forecast picked', async () => {
-    await renderStrip({ cards: [stripCard({ bestBet: true })] });
-    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, best bet' }))
-      .toBeInTheDocument();
+    await renderStrip({ cards: [stripCard({ pickKind: 'best' })] });
+    expect(screen.getByRole('button', {
+      name: 'Tonight Sunset, 21:11, Worth it, best, nothing in reach, best bet',
+    })).toBeInTheDocument();
   });
 
-  it('renders the BEST BET flag as a passive span, never a nested control', async () => {
-    // Interactive content inside a <button> is invalid HTML, and the day rail's own equivalent WAS
-    // a button (it opened the pick dialog). §1.1's relocation table moves that job to the window
-    // card's pick badge for exactly this reason.
-    await renderStrip({ cards: [stripCard({ bestBet: true })] });
+  it('adds "also good" for the runner-up, which P2\'s strip had no room to say', async () => {
+    await renderStrip({ cards: [stripCard({ pickKind: 'also' })] });
+    expect(screen.getByRole('button', {
+      name: 'Tonight Sunset, 21:11, Worth it, best, nothing in reach, also good',
+    })).toBeInTheDocument();
+  });
 
-    // The thumbnail IS the button, so the query is for a button INSIDE it — `queryAllByRole`
-    // because the assertion is an absence and `getAllByRole` throws before it can be made.
+  it('renders each pick as a passive span in the border, never a nested control', async () => {
+    // Interactive content inside a <button> is invalid HTML, and the day rail's own equivalent WAS
+    // a button (it opened the pick dialog). The legend states the pick; the dialog stays reachable
+    // from the window row's own pick badge, which is where the prose it opens belongs.
+    await renderStrip({ cards: [stripCard({ pickKind: 'best' })] });
+
+    // The card IS the button, so the query is for a button INSIDE it — `queryAllByRole` because the
+    // assertion is an absence and `getAllByRole` throws before it can be made.
     const card = screen.getByTestId('wf-heat-card');
     expect(within(card).queryAllByRole('button')).toHaveLength(0);
     expect(card.tagName).toBe('BUTTON');
-    expect(screen.getByTestId('wf-heat-flag').tagName).toBe('SPAN');
+
+    const legend = screen.getByTestId('wf-heat-legend');
+    expect(legend.tagName).toBe('SPAN');
+    expect(legend).toHaveTextContent('Best bet');
+    expect(legend).toHaveAttribute('data-pick', 'best');
+    expect(card).toHaveClass('best');
+  });
+
+  it('renders the runner-up legend with its own word and its own border class', async () => {
+    await renderStrip({ cards: [stripCard({ pickKind: 'also' })] });
+    const legend = screen.getByTestId('wf-heat-legend');
+    expect(legend).toHaveTextContent('Also good');
+    expect(legend).toHaveAttribute('data-pick', 'also');
+    expect(screen.getByTestId('wf-heat-card')).toHaveClass('also');
+  });
+
+  it('renders NO legend when the payload carries no pick for this window', async () => {
+    // The state an away origin produces: `buildWindowCards` withholds a pick naming a scoped-out
+    // region, and nothing here may reconstruct one (plan-matrix A4/D-5).
+    await renderStrip({ cards: [stripCard({ pickKind: null })] });
+    expect(screen.queryByTestId('wf-heat-legend')).toBeNull();
+    const card = screen.getByTestId('wf-heat-card');
+    expect(card).not.toHaveClass('best');
+    expect(card).not.toHaveClass('also');
   });
 
   it('takes the verdict word from the payload and publishes the verdict it came from', async () => {
-    // D3: the vocabulary is `VERDICT_LABEL`'s and the design's own ≥3.7/≥2.8 thresholds are not
+    // D3/A1: the vocabulary is `VERDICT_LABEL`'s and the design's own ≥3.7/≥2.8 thresholds are not
     // ported. The attribute is what the stylesheet colours off, so the word and the hue come from
     // one field rather than two.
     await renderStrip({ cards: [stripCard({ verdict: 'STAND_DOWN', verdictLabel: 'Poor' })] });
@@ -246,19 +374,370 @@ describe('WindowFirstHeatStrip — what a thumbnail says', () => {
     expect(verdict).toHaveAttribute('data-verdict', 'STAND_DOWN');
   });
 
-  it('renders an Awaiting window as Awaiting, not as a poor one', async () => {
+  it('⚠️ prints the served LABEL even when it contradicts every rating on the card', async () => {
+    // The mutation this file exists to survive. A client threshold (the design's `vWord(avg)`)
+    // would read the ratings and print "Worth it" here; the served verdict says STAND_DOWN and the
+    // card must say Poor. The pool is deliberately all 5★ so the two answers cannot coincide.
+    await renderStrip({
+      cards: [ratedCard({
+        verdict: 'STAND_DOWN',
+        verdictLabel: 'Poor',
+        pool: [poolSpot({ rating: 5 }), poolSpot({ locationId: 2, locationName: 'Blyth', rating: 5 })],
+      })],
+    });
+    expect(screen.getByTestId('wf-heat-verdict')).toHaveTextContent('Poor');
+    expect(screen.getByTestId('wf-heat-card')).toHaveClass('vp');
+  });
+
+  it('tints the whole card by the served verdict, one class per band', async () => {
+    const tint = async (verdict, verdictLabel) => {
+      cleanup();
+      await renderStrip({ cards: [stripCard({ verdict, verdictLabel })] });
+      return screen.getByTestId('wf-heat-card').className;
+    };
+    expect(await tint('WORTH_IT', 'Worth it')).toContain('vg');
+    expect(await tint('MAYBE', 'Maybe')).toContain('vm');
+    expect(await tint('STAND_DOWN', 'Poor')).toContain('vp');
+  });
+
+  it('renders an Awaiting window as Awaiting, and takes no tint at all', async () => {
+    // Neither AWAITING nor an away cell is a judgement about the sky, so a coloured card would read
+    // as a fourth grade.
     await renderStrip({ cards: [stripCard({ verdict: 'AWAITING', verdictLabel: 'Awaiting' })] });
     expect(screen.getByTestId('wf-heat-verdict')).toHaveTextContent('Awaiting');
+    const card = screen.getByTestId('wf-heat-card');
+    expect(card.className).not.toMatch(/\bv[gmp]\b/);
   });
 
-  it('marks the open row\'s thumbnail, so the strip says which row you are in', async () => {
+  it('says SUNSET or SUNRISE as a word, never an arrow', async () => {
+    // The design's own call and it is right: a down arrow for sunset reads as a falling forecast.
+    await renderStrip({
+      cards: [
+        stripCard(),
+        stripCard({ key: '2026-08-05:SUNRISE', date: '2026-08-05', targetType: 'SUNRISE', dow: 'Wed', sunrise: true, label: 'Tomorrow sunrise', time: '05:20' }),
+      ],
+    });
+    expect(screen.getAllByTestId('wf-heat-sun').map((s) => s.textContent))
+      .toEqual(['SUNSET', 'SUNRISE']);
+  });
+
+  it('marks the open row\'s card, so the matrix says which row you are in', async () => {
     await renderStrip({ openKeys: new Set([`${TODAY}:SUNSET`]) });
-    expect(screen.getByTestId('wf-heat-card')).toHaveAttribute('data-open', 'true');
+    const card = screen.getByTestId('wf-heat-card');
+    expect(card).toHaveAttribute('data-open', 'true');
+    expect(card).toHaveAttribute('aria-expanded', 'true');
+    expect(card).toHaveClass('on');
   });
 
-  it('leaves every other thumbnail unmarked', async () => {
+  it('leaves every other card unmarked', async () => {
     await renderStrip({ openKeys: new Set(['2026-08-05:SUNRISE']) });
-    expect(screen.getByTestId('wf-heat-card')).not.toHaveAttribute('data-open');
+    const card = screen.getByTestId('wf-heat-card');
+    expect(card).not.toHaveAttribute('data-open');
+    expect(card).toHaveAttribute('aria-expanded', 'false');
+  });
+});
+
+describe('WindowFirstHeatStrip — the spread histogram', () => {
+  const pool = (...ratings) => ratings.map((rating, index) => poolSpot({
+    key: String(index + 1), locationId: index + 1, locationName: `Spot ${index + 1}`, rating,
+  }));
+
+  it('draws one bar per star band, lowest first, and fills only the bands that hold something', async () => {
+    // Five bars always, so the row reads as a distribution rather than as a variable-length list —
+    // an empty band is a hairline, not an absence.
+    await renderStrip({ cards: [ratedCard({ pool: pool(3, 3, 5) })] });
+    const bars = screen.getAllByTestId('wf-heat-spread-bar');
+    expect(bars.map((b) => b.getAttribute('data-star'))).toEqual(['1', '2', '3', '4', '5']);
+    // The 3★ band holds two and is the tallest, so it takes the full 13px; the 5★ band holds one
+    // of that two and takes half of it. An empty band is a 1px hairline rather than nothing.
+    // (The one-in-twenty case, where the proportion would round away and the floor catches it, is
+    // pinned in `windowFirstSpread.test.js`.)
+    expect(bars[2]).toHaveStyle({ height: '13px' });
+    expect(bars[4]).toHaveStyle({ height: '7px' });
+    expect(bars[0]).toHaveStyle({ height: '1px' });
+  });
+
+  it('counts the POOL in its tooltip, not the sum of the bars, and names the remainder', async () => {
+    // A10, and the property the copy exists to disclose. Two rated and two not: the bars sum to
+    // two, the count says four, and the difference is stated rather than left to be noticed.
+    await renderStrip({ cards: [ratedCard({ pool: pool(5, 3, null, null) })] });
+    expect(screen.getByTestId('wf-heat-spread')).toHaveAttribute(
+      'title',
+      '4 locations within reach — 1 at 5★, 0 at 4★, 1 at 3★, 0 at 2★, 0 at 1★ · 2 not yet rated',
+    );
+  });
+
+  it('never says "scored" of the pool count', async () => {
+    // Plan §3 rule 5: the count is places to go, which is the statement the lens readout already
+    // makes — never "N of M scored", a count of our own data dressed as a fact about the sky.
+    await renderStrip({ cards: [ratedCard({ pool: pool(5, null) })] });
+    const title = screen.getByTestId('wf-heat-spread').getAttribute('title');
+    expect(title).toContain('2 locations within reach');
+    expect(title).not.toMatch(/scored\b(?! yet)/);
+  });
+
+  it('says nothing is within reach for an empty pool', async () => {
+    await renderStrip({ cards: [stripCard()] });
+    expect(screen.getByTestId('wf-heat-spread'))
+      .toHaveAttribute('title', 'Nothing within reach for this window.');
+  });
+
+  it('draws no histogram at all on an away cell', async () => {
+    // There is no card behind an away window, so there is no pool — and an empty histogram beside
+    // "nothing in reach" would be a claim about a night nobody forecast.
+    await renderStrip({ cards: [stripCard({ away: true, verdict: null, verdictLabel: 'Not forecast' })] });
+    expect(screen.queryByTestId('wf-heat-spread')).toBeNull();
+  });
+});
+
+describe('WindowFirstHeatStrip — the best you could actually reach', () => {
+  it('names the pool head and prints its rating in the ramp colour', async () => {
+    await renderStrip({ cards: [ratedCard()] });
+    expect(screen.getByTestId('wf-heat-best')).toHaveTextContent('Bamburgh Beach');
+    expect(screen.getByTestId('wf-heat-best-rating')).toHaveTextContent('4★');
+  });
+
+  it('carries region, drive and leave-by in the title, and only the parts it has', async () => {
+    await renderStrip({ cards: [ratedCard()] });
+    // 20:11 UTC event, 40 min drive, 20 min setup → 21:11 BST minus an hour = leave 20:11 BST.
+    expect(screen.getByTestId('wf-heat-best'))
+      .toHaveAttribute('title', 'Northumberland & Tyneside · 40 min · leave 20:11');
+  });
+
+  it('drops the drive and the leave time from the title when the drive is unknown', async () => {
+    // The first-run user with no home postcode: a title reading "Region · · leave " is worse than
+    // one naming the region alone.
+    await renderStrip({
+      cards: [ratedCard({ pool: [poolSpot({ driveMinutes: null })] })],
+    });
+    expect(screen.getByTestId('wf-heat-best'))
+      .toHaveAttribute('title', 'Northumberland & Tyneside');
+  });
+
+  it('says nothing is in reach when the pool is empty, with no rating chip', async () => {
+    await renderStrip({ cards: [stripCard()] });
+    expect(screen.getByTestId('wf-heat-best')).toHaveTextContent('nothing in reach');
+    expect(screen.queryByTestId('wf-heat-best-rating')).toBeNull();
+  });
+
+  it('says NOT SCORED YET when the pool holds places but none of them is rated', async () => {
+    // The ordinary far-horizon state, and the one the card must not read as "nothing in reach":
+    // there ARE places, they are simply unrated, and naming the alphabetical head "best" would
+    // claim a ranking that never ran.
+    await renderStrip({
+      cards: [stripCard({ pool: [poolSpot({ rating: null })], bestReach: null })],
+    });
+    expect(screen.getByTestId('wf-heat-best')).toHaveTextContent('not scored yet');
+    expect(screen.getByTestId('wf-heat-best')).not.toHaveTextContent('nothing in reach');
+    expect(screen.queryByTestId('wf-heat-best-rating')).toBeNull();
+  });
+
+  it('draws no best line at all on an away cell', async () => {
+    await renderStrip({ cards: [stripCard({ away: true, verdict: null, verdictLabel: 'Not forecast' })] });
+    expect(screen.queryByTestId('wf-heat-best')).toBeNull();
+  });
+});
+
+describe('WindowFirstHeatStrip — topics on the card', () => {
+  const AURORA_TOPIC = {
+    type: 'AURORA',
+    label: 'Aurora',
+    detail: 'Kp 6 forecast',
+    date: TODAY,
+    eventType: 'NIGHT',
+    // ⚠️ POPULATED, and it is Bortle-enrichment coverage rather than an eligibility roster — the
+    // exact shape an unexempted scope intersection would delete from every away plan.
+    regions: ['Galloway'],
+    rarityRank: 1,
+  };
+  const TIDE_TOPIC = {
+    type: 'KING_TIDE',
+    label: 'King tide',
+    detail: 'HW 06:18',
+    date: TODAY,
+    eventType: 'SUNSET',
+    regions: ['Northumberland & Tyneside'],
+    rarityRank: 3,
+  };
+
+  it('names every topic on the night in full, rarest first', async () => {
+    // Nothing collapsed behind a `+2`: a night carrying three topics is the most interesting night
+    // of the week, so hiding two behind a count had it exactly backwards.
+    await renderStrip({
+      cards: [ratedCard({
+        badges: [
+          { type: 'KING_TIDE', label: 'King tide', rarityRank: 3 },
+          { type: 'AURORA', label: 'Aurora', rarityRank: 1 },
+        ],
+      })],
+      hotTopics: [AURORA_TOPIC, TIDE_TOPIC],
+    });
+    expect(screen.getAllByTestId('wf-heat-topic').map((t) => t.textContent))
+      .toEqual(['Aurora', 'King tide']);
+  });
+
+  it('colours each topic by its own channel', async () => {
+    await renderStrip({
+      cards: [ratedCard({ badges: [{ type: 'KING_TIDE', label: 'King tide', rarityRank: 3 }] })],
+      hotTopics: [TIDE_TOPIC],
+    });
+    expect(screen.getByTestId('wf-heat-topic')).toHaveAttribute('data-channel', 'tide');
+  });
+
+  it('drops a region-scoped topic when the origin scopes its regions away', async () => {
+    // Planning from a region the king tide does not name drops it by itself — A8's whole point.
+    await renderStrip({
+      cards: [ratedCard({ badges: [{ type: 'KING_TIDE', label: 'King tide', rarityRank: 3 }] })],
+      hotTopics: [TIDE_TOPIC],
+      origin: { name: 'The Lake District', baseName: 'Keswick' },
+      spots: [spot({ regionName: 'The Lake District', rid: 'The Lake District' })],
+    });
+    expect(screen.queryByTestId('wf-heat-topic')).toBeNull();
+  });
+
+  it('⚠️ KEEPS a whole-sky topic under the same away origin, populated regions and all', async () => {
+    // The live hazard A8 names. Aurora's served `regions` is Bortle coverage, so the intersection
+    // test that is right for a tide deletes aurora from every away plan — while every naive test
+    // passes, because a home-origin fixture never empties the intersection.
+    await renderStrip({
+      cards: [ratedCard({ badges: [{ type: 'AURORA', label: 'Aurora', rarityRank: 1 }] })],
+      hotTopics: [AURORA_TOPIC],
+      origin: { name: 'The Lake District', baseName: 'Keswick' },
+      spots: [spot({ regionName: 'The Lake District', rid: 'The Lake District' })],
+    });
+    expect(screen.getByTestId('wf-heat-topic')).toHaveTextContent('Aurora');
+  });
+
+  it('joins a NIGHT topic to the badge on the NEXT morning\'s card', async () => {
+    // The branch a `topic.date === card.date` equality loses: the aurora is dated today, and the
+    // card that must name it is tomorrow's sunrise.
+    await renderStrip({
+      cards: [stripCard({
+        key: '2026-08-05:SUNRISE',
+        date: '2026-08-05',
+        targetType: 'SUNRISE',
+        sunrise: true,
+        dow: 'Wed',
+        label: 'Tomorrow sunrise',
+        time: '05:20',
+        badges: [{ type: 'AURORA', label: 'Aurora', rarityRank: 1 }],
+      })],
+      hotTopics: [AURORA_TOPIC],
+    });
+    expect(screen.getByTestId('wf-heat-topic')).toHaveTextContent('Aurora');
+  });
+
+  it('keeps a badge whose topic is missing from the payload entirely', async () => {
+    // The degrade: with no topic there is no scope information, so dropping it would be a filter
+    // applied on the strength of a missing join.
+    await renderStrip({
+      cards: [ratedCard({ badges: [{ type: 'KING_TIDE', label: 'King tide', rarityRank: 3 }] })],
+      hotTopics: [],
+    });
+    expect(screen.getByTestId('wf-heat-topic')).toHaveTextContent('King tide');
+  });
+
+  it('reserves the topics row even on a card with no topics', async () => {
+    // So a topic-free card's value rows land on the same baselines as its neighbours'.
+    await renderStrip({ cards: [ratedCard()] });
+    expect(screen.getByTestId('wf-heat-topics')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-heat-topic')).toBeNull();
+  });
+
+  it('draws no topics row at all on an away cell', async () => {
+    await renderStrip({
+      cards: [stripCard({
+        away: true,
+        verdict: null,
+        verdictLabel: 'Not forecast',
+        badges: [{ type: 'AURORA', label: 'Aurora', rarityRank: 1 }],
+      })],
+      hotTopics: [AURORA_TOPIC],
+    });
+    expect(screen.queryByTestId('wf-heat-topics')).toBeNull();
+  });
+});
+
+describe('WindowFirstHeatStrip — the grid it lays out', () => {
+  /** The ordinary week: today's sunrise gone, four days, the last sunset past the cap. */
+  const WEEK = [
+    stripCard(),
+    stripCard({ key: '2026-08-05:SUNRISE', date: '2026-08-05', targetType: 'SUNRISE', sunrise: true, dow: 'Wed', label: 'Tomorrow sunrise', time: '05:20' }),
+    stripCard({ key: '2026-08-05:SUNSET', date: '2026-08-05', targetType: 'SUNSET', dow: 'Wed', label: 'Tomorrow sunset', time: '21:09' }),
+    stripCard({ key: '2026-08-06:SUNRISE', date: '2026-08-06', targetType: 'SUNRISE', sunrise: true, dow: 'Thu', label: 'Thursday sunrise', time: '05:22' }),
+  ];
+
+  it('publishes the day count so the stylesheet can make a column per day', async () => {
+    await renderStrip({ cards: WEEK });
+    expect(screen.getByTestId('wf-heat-grid')).toHaveStyle({ '--dc': '3' });
+  });
+
+  it('places each cell in its own column and row rather than flowing them', async () => {
+    // Explicit placement is what lets the phone transpose the identical markup into two columns
+    // under a spanning day heading with no second render path.
+    await renderStrip({ cards: WEEK });
+    const cards = screen.getAllByTestId('wf-heat-card');
+    expect(cards[0]).toHaveStyle({ '--c': '1', '--r': '3' });
+    expect(cards[1]).toHaveStyle({ '--c': '2', '--r': '2' });
+    expect(cards[2]).toHaveStyle({ '--c': '2', '--r': '3' });
+    expect(cards[3]).toHaveStyle({ '--c': '3', '--r': '2' });
+  });
+
+  it('heads each column with its weekday and date, once per day', async () => {
+    await renderStrip({ cards: WEEK });
+    expect(screen.getAllByTestId('wf-heat-day').map((d) => d.textContent))
+      .toEqual(['Today4', 'Wed5', 'Thu6']);
+  });
+
+  it('⚠️ names today in WORDS, not by colour alone', async () => {
+    // SC 1.4.1. The design marks today with a gold tile border and a gold digit and nothing else, on
+    // the stated grounds that the cards carry "Today"/"Tonight" in their own labels — which was true
+    // of P2's thumbnail and is false of the v3 card face, where `card.label` reaches the DOM only
+    // inside the visually-hidden sentence. The word goes in the weekday's own slot.
+    await renderStrip({ cards: WEEK });
+    const days = screen.getAllByTestId('wf-heat-day');
+    expect(days[0]).toHaveTextContent('Today');
+    expect(days[0]).not.toHaveTextContent('Tue');
+    expect(days[1]).toHaveTextContent('Wed');
+    expect(days[1]).not.toHaveTextContent('Today');
+  });
+
+  it('marks the today column and no other', async () => {
+    await renderStrip({ cards: WEEK });
+    const days = screen.getAllByTestId('wf-heat-day');
+    expect(days[0]).toHaveAttribute('data-today', 'true');
+    expect(days[1]).not.toHaveAttribute('data-today');
+  });
+
+  it('says why this morning is missing, and why the last evening is', async () => {
+    await renderStrip({ cards: WEEK });
+    expect(screen.getAllByTestId('wf-heat-empty').map((e) => e.textContent))
+      .toEqual(['this morning has gone', 'past the end of the forecast']);
+  });
+
+  it('renders a mid-span hole as a dashed cell with NO words', async () => {
+    // Degrade is silence: a cell that cannot explain itself must not borrow a sentence from one of
+    // the two holes that can.
+    await renderStrip({
+      cards: [
+        stripCard(),
+        stripCard({ key: '2026-08-05:SUNSET', date: '2026-08-05', targetType: 'SUNSET', dow: 'Wed', label: 'Tomorrow sunset', time: '21:09' }),
+        stripCard({ key: '2026-08-06:SUNRISE', date: '2026-08-06', targetType: 'SUNRISE', sunrise: true, dow: 'Thu', label: 'Thursday sunrise', time: '05:22' }),
+        stripCard({ key: '2026-08-06:SUNSET', date: '2026-08-06', targetType: 'SUNSET', dow: 'Thu', label: 'Thursday sunset', time: '21:06' }),
+      ],
+    });
+    const holes = screen.getAllByTestId('wf-heat-empty');
+    expect(holes.map((e) => e.textContent)).toEqual(['this morning has gone', '']);
+  });
+
+  it('marks a day holding one window as solo, which is what widens it on a phone', async () => {
+    // jsdom has no layout, so the media query itself is a browser claim — what is asserted here is
+    // the class the rule selects on.
+    await renderStrip({ cards: WEEK });
+    const cards = screen.getAllByTestId('wf-heat-card');
+    expect(cards[0]).toHaveClass('solo');
+    expect(cards[1]).not.toHaveClass('solo');
+    expect(cards[3]).toHaveClass('solo');
   });
 });
 
@@ -320,30 +799,28 @@ describe('WindowFirstHeatStrip — the movement channel', () => {
     movement: { regionName, delta },
   });
 
-  it('marks a rise on the thumbnail with the up glyph and the go tone', async () => {
+  it('⚠️ draws NO per-card movement chip — the change line is the whole channel now', async () => {
+    // The deletion M1 makes (deletion ledger). P6 put a delta chip on every thumbnail beside this
+    // line; the design's note is that it earned nothing, because a magnitude on a tile with no room
+    // to name the region it belonged to left the reader with a number attributable to nothing.
+    // The card face reclaims the row; the line below still names the movers and their regions.
     await renderStrip({ cards: [moved(0.6)] });
 
-    const chip = screen.getByTestId('wf-heat-move');
-    expect(chip).toHaveTextContent('▲0.6');
-    expect(chip).toHaveAttribute('data-tone', 'up');
+    expect(screen.queryByTestId('wf-heat-move')).toBeNull();
+    expect(screen.getByTestId('wf-heat-change')).toHaveTextContent('Northumberland & Tyneside');
   });
 
-  it('marks a fall with the down glyph and the poor tone', async () => {
-    await renderStrip({ cards: [moved(-0.3)] });
+  it('⚠️ leaves the movement OUT of the accessible name, because nothing renders it there', async () => {
+    // Plan §3 rule 15 in the direction a deletion tests it: the sentence counts what is actually
+    // rendered, so when the chip went the clause went with it. A name still carrying "up 0.6"
+    // would describe an element the card no longer draws.
+    await renderStrip({ cards: [moved(0.6)] });
 
-    const chip = screen.getByTestId('wf-heat-move');
-    expect(chip).toHaveTextContent('▼0.3');
-    expect(chip).toHaveAttribute('data-tone', 'down');
-  });
-
-  it('marks a MEASURED zero with the flat mark', async () => {
-    // The distinguishing test's other half. Delete the flat branch and this fails while the null
-    // test below still passes, which is the pair that keeps the two states apart.
-    await renderStrip({ cards: [moved(0)] });
-
-    const chip = screen.getByTestId('wf-heat-move');
-    expect(chip).toHaveTextContent('—');
-    expect(chip).toHaveAttribute('data-tone', 'flat');
+    const name = screen.getByTestId('wf-heat-card').textContent;
+    expect(name).not.toContain('up 0.6');
+    expect(screen.getByRole('button', {
+      name: 'Tonight Sunset, 21:11, Worth it, best, nothing in reach',
+    })).toBeInTheDocument();
   });
 
   it('renders NOTHING at all when the payload carries no delta', async () => {
@@ -351,25 +828,7 @@ describe('WindowFirstHeatStrip — the movement channel', () => {
     // did not hold. A `—` here would claim a measurement nobody made.
     await renderStrip({ cards: [stripCard()] });
 
-    expect(screen.queryByTestId('wf-heat-move')).toBeNull();
     expect(screen.queryByTestId('wf-heat-change')).toBeNull();
-  });
-
-  it('puts the movement into the accessible name, spelled out', async () => {
-    // The chip lives inside the `aria-hidden` top row and its mark is a glyph, so without this the
-    // channel would exist for sighted readers only. The name still opens with the visible time and
-    // verdict word (WCAG 2.5.3).
-    //
-    // The REGION is named here and nowhere else on the cell: the chip is the only region-grain
-    // figure on an otherwise window-grain thumbnail, and the change line names only the top two
-    // movers — so for the other four a non-visual reader would otherwise get a number attached to
-    // nothing.
-    await renderStrip({ cards: [moved(0.6)] });
-
-    expect(screen.getByRole('button', {
-      name: 'Tonight Sunset, 21:11, Worth it, '
-        + 'Northumberland & Tyneside up 0.6 stars at the last forecast run',
-    })).toBeInTheDocument();
   });
 
   it('names the top two movers, their regions and the run age under the strip', async () => {
@@ -433,11 +892,12 @@ describe('WindowFirstHeatStrip — the movement channel', () => {
   });
 
   it('withholds the change line entirely when nothing moved', async () => {
-    // Every thumbnail already carries its own `—`. A line reading only "Moved at the last forecast
-    // run, 52m ago" would restate the age the shell footer already prints, attached to nothing.
+    // A line reading only "Moved at the last forecast run, 52m ago" would restate the age the shell
+    // footer already prints, attached to nothing. `topMovers` drops a measured zero, so two windows
+    // that did not move leave nothing to name — and with the per-card chip gone, that is the whole
+    // movement channel withdrawing rather than degrading to six flat marks.
     await renderStrip({ runAge: '52m ago', cards: [moved(0), moved(0)] });
 
-    expect(screen.getAllByTestId('wf-heat-move')).toHaveLength(2);
     expect(screen.queryByTestId('wf-heat-change')).toBeNull();
   });
 
@@ -509,9 +969,30 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
     // reader, which would hear the same sentence for both tiles above.
     await renderStrip({ cards: BOTH });
 
-    expect(screen.getByRole('button', { name: 'Saturday sunrise, 05:49, Poor, not scored' }))
+    // ⚠️ The unscored card carries NO best-reach clause WHEN ITS POOL HOLDS SOMETHING. The window
+    // has no rating anywhere, so its pool has no rated spot either, and "not scored" followed by
+    // "best, not scored yet" would be one fact said twice in a sentence that has to stay scannable
+    // across six cards. With an EMPTY pool the clause returns: "nothing is scored" and "nothing is
+    // reachable" are different claims, and only the second is on the face.
+    await cleanup();
+    await renderStrip({
+      cards: [BOTH[0], { ...BOTH[1], pool: [poolSpot({ rating: null })] }],
+    });
+    // The remainder rides the sentence too, not the pointer-only tooltip alone — A10 requires the
+    // `N > Σbars` gap to be disclosed wherever the N is, and this is the extreme case of it.
+    expect(screen.getByRole('button', { name: 'Saturday sunrise, 05:49, Poor, not scored, 1 location within reach, 1 not yet rated' }))
       .toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Poor' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Poor, best, nothing in reach' }))
+      .toBeInTheDocument();
+  });
+
+  it('keeps the "nothing in reach" clause on an unscored window whose pool is empty too', async () => {
+    // Both suppressions could fire at once, and then the card face said "Best — nothing in reach"
+    // while its name said only "not scored". Two different claims; the reader who cannot see the
+    // face was told the wrong one.
+    await renderStrip({ cards: [BOTH[1]] });
+    expect(screen.getByRole('button', { name: 'Saturday sunrise, 05:49, Poor, not scored, best, nothing in reach' }))
+      .toBeInTheDocument();
   });
 
   it('names the convention in the footer only while a hatched plate is on screen', async () => {
@@ -857,13 +1338,16 @@ describe('WindowFirstHeatStrip — the canvases', () => {
     expect(screen.getAllByTestId('wf-heat-canvas')).toHaveLength(2);
   });
 
-  it('carries the class its 3×2 phone rule selects', async () => {
-    // jsdom evaluates no `@media` rule, so the CLASS is the hook this file can pin
-    // (`frontend-test-standards.md`: assert the class, leave the pixels to the browser check). The
-    // rule itself is `grid-template-columns: repeat(3, 1fr)` at ≤639px — 3×2, never a horizontal
+  it('carries the class and the column count its phone transpose rule selects', async () => {
+    // jsdom evaluates no `@media` rule, so the CLASS and the custom property are the hooks this file
+    // can pin (`frontend-test-standards.md`: assert the class, leave the pixels to the browser
+    // check). The desktop rule is `repeat(var(--dc), 1fr)` with explicit placement; the ≤639px rule
+    // drops to two columns, flows the same markup and spans the day headings — never a horizontal
     // scroller, which is the half of the retired rail worth not repeating.
     await renderStrip();
-    expect(screen.getByTestId('wf-heat-grid')).toHaveClass('wf-hstrip');
+    const grid = screen.getByTestId('wf-heat-grid');
+    expect(grid).toHaveClass('wf-hstrip');
+    expect(grid).toHaveStyle({ '--dc': '1' });
   });
 });
 
@@ -905,23 +1389,48 @@ describe('WindowFirstHeatStrip — what it hands the kernel', () => {
     expect(drawGeo.mock.calls.map((c) => c[4])).toEqual([POINT_SCORE_INDEX, POINT_SCORE_INDEX]);
   });
 
-  it('paints all six at ONE size, which is the whole claim the strip makes', async () => {
-    // Six thumbnails are a comparison surface: if two are drawn at different scales the eye reads
-    // the difference as forecast. The component measures the FIRST well and applies that width to
-    // every canvas for exactly this reason, and with one card nothing could ever catch a change to
-    // per-card measurement.
-    await withMeasuredThumbs(160, async () => {
+  it('measures EACH card\'s own well, and scales that card\'s radius to it', async () => {
+    // ⚠️ The change M1 makes to the paint, and the assertion has to make the two wells DISAGREE.
+    // P2's strip was one row of equal columns, so measuring the first well and spending it on all
+    // six was exactly right; in the matrix a day holding one window spans the full row on a phone,
+    // which is twice the width of a paired card in the same grid — painting it at a sibling's width
+    // draws it at half scale inside its own box.
+    //
+    // A `withMeasuredThumbs`-style stub on `Element.prototype` gives every well the same number, so
+    // reverting to `const cardWidth = width` would survive it. This stubs PER WELL: the first
+    // (which the hook's gate measures) answers 160 and the second answers 80.
+    await withWellWidths([160, 80], async () => {
       await renderStrip({ cards: TWO });
     });
 
-    const [, w0, h0] = drawGeo.mock.calls[0];
-    const [, w1, h1] = drawGeo.mock.calls[1];
-    expect(w1).toBe(w0);
-    expect(h1).toBe(h0);
+    const [, w0, h0, , , opts0] = drawGeo.mock.calls[0];
+    const [, w1, h1, , , opts1] = drawGeo.mock.calls[1];
     expect(w0).toBe(160);
-    // One aspect, applied once: the frame is the padded box around the framed spots.
-    expect(h0).toBe(Math.round(160 * thumbAspect(bbox([spot()]))));
-    expect(drawGeo.mock.calls[0][5].fit).toEqual(bbox([spot()]));
+    expect(w1).toBe(80);
+    // ONE aspect for the whole matrix — the frame is the padded box around the framed spots and the
+    // cards must stay comparable — applied to each card's own width.
+    const aspectNow = thumbAspect(bbox([spot()]));
+    expect(h0).toBe(Math.round(160 * aspectNow));
+    expect(h1).toBe(Math.round(80 * aspectNow));
+    // The blur radius follows the card too, or a narrow card is drawn with a wide card's smear.
+    expect(opts0.radius).toBe(Math.max(10, 160 * 0.155));
+    expect(opts1.radius).toBe(Math.max(10, 80 * 0.155));
+    expect(opts0.fit).toEqual(bbox([spot()]));
+  });
+
+  it('falls back to the gate\'s own measurement for a well that measures zero', async () => {
+    // The degrade the per-card measurement needs: a card whose well answers 0 must still be painted
+    // at SOME size, because a zero-width paint is a silent no-op — a blank canvas with nothing in
+    // the console — where a slightly wrong size is a visible picture. The gate has already proved
+    // the document is laid out, so its width is the honest fallback.
+    //
+    await withWellWidths([160, 0], async () => {
+      await renderStrip({ cards: TWO });
+    });
+
+    expect(drawGeo).toHaveBeenCalledTimes(2);
+    expect(drawGeo.mock.calls[1][1]).toBe(160);
+    expect(drawGeo.mock.calls[1][2]).toBeGreaterThan(0);
   });
 
   it('hands a window with nothing scored an empty set rather than another window\'s', async () => {
@@ -953,15 +1462,19 @@ describe('WindowFirstHeatStrip — what it hands the kernel', () => {
 
     expect(drawGeo).not.toHaveBeenCalled();
     expect(screen.queryAllByTestId('wf-heat-canvas')).toHaveLength(0);
-    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it' }))
+    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, best, nothing in reach' }))
       .toBeInTheDocument();
   });
 
   it('declines a cell one pixel under the floor and paints one pixel over it', async () => {
-    // `MIN_THUMB_PX` is 25 and guards WIDTH, while `drawGeo` gates on both dimensions at 20 — the
-    // extra four pixels are the height (`width × frameAspect`, aspect floored at 0.85). Both sides
-    // of the boundary, so an off-by-one is not free.
-    await withMeasuredThumbs(25, async () => { await renderStrip(); });
+    // `MIN_THUMB_PX` is 26 and guards WIDTH, while `drawGeo` gates on both dimensions at 20 — the
+    // extra pixels are the height (`width × frameAspect`, aspect floored at 0.78). Both sides of the
+    // boundary, so an off-by-one is not free.
+    //
+    // ⚠️ The pair MOVED with the v3 aspect clamp: at 0.85 the floor was 25, and 25 × 0.78 = 19.5
+    // fails `drawGeo`'s height gate, so the constant had to become 26. If this test is ever seen to
+    // fail after an aspect change, the constant is what is wrong, not the test.
+    await withMeasuredThumbs(26, async () => { await renderStrip(); });
     expect(drawGeo).not.toHaveBeenCalled();
 
     // ⚠️ UNMOUNTED before the second render, and this is the whole reason the assertion below can
@@ -973,7 +1486,7 @@ describe('WindowFirstHeatStrip — what it hands the kernel', () => {
     // the exact shape this repo has recorded before ("a green isolated run does not exonerate it").
     cleanup();
     drawGeo.mockClear();
-    await withMeasuredThumbs(26, async () => { await renderStrip(); });
+    await withMeasuredThumbs(27, async () => { await renderStrip(); });
     expect(drawGeo).toHaveBeenCalledTimes(1);
   });
 
@@ -1048,24 +1561,35 @@ describe('WindowFirstHeatStrip — when the geometry cannot be fetched', () => {
     await renderStrip();
 
     expect(screen.queryAllByTestId('wf-heat-canvas')).toHaveLength(0);
-    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it' }))
+    expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, best, nothing in reach' }))
       .toBeInTheDocument();
     expect(screen.getByTestId('wf-heat-foot')).toHaveTextContent('poor → worth it');
   });
 });
 
-describe('thumbAspect — the frame clamps, which are the strip\'s and not the kernel\'s', () => {
-  // `aspect()` has no clamps of its own (§7.1), so these boundaries belong here. The prototype's
-  // reason for capping tighter than the true frame: the six must stay comparable AND compact, and a
-  // slight letterbox costs less than a 200px-tall summary strip.
+describe('thumbAspect — the frame clamps, which are this component\'s and not the kernel\'s', () => {
+  // `aspect()` has no clamps of its own (§7.1), so these boundaries belong here. The v3 band is
+  // 0.78–1.0, tightened from P2's 0.85–1.22: the matrix stacks two rows of cards, so every pixel of
+  // thumbnail height is paid for twice down a column, and a card's picture is never taller than it
+  // is wide.
   it('passes a frame already inside the band through UNCHANGED', () => {
     // Equality with the kernel's own answer, not membership of the band: `expect(x).toBeGreaterThan
-    // (0.85)` passes for `return 1`, for `aspect(f) * 1.05`, and for anything else that happens to
+    // (0.78)` passes for `return 1`, for `aspect(f) * 1.05`, and for anything else that happens to
     // land between the clamps — which is the whole interval this function is supposed to be the
-    // identity on. The default BBOX is the app's current coverage and sits inside it.
-    expect(thumbAspect(BBOX)).toBe(aspect(BBOX));
-    expect(aspect(BBOX)).toBeGreaterThan(THUMB_ASPECT_MIN);
-    expect(aspect(BBOX)).toBeLessThan(THUMB_ASPECT_MAX);
+    // identity on.
+    const inside = bbox([{ lat: 54.0, lng: -2.0 }, { lat: 55.0, lng: -0.2 }]);
+    expect(thumbAspect(inside)).toBe(aspect(inside));
+    expect(aspect(inside)).toBeGreaterThan(THUMB_ASPECT_MIN);
+    expect(aspect(inside)).toBeLessThan(THUMB_ASPECT_MAX);
+  });
+
+  it('⚠️ clamps the app\'s CURRENT coverage, which P2\'s wider band passed through', () => {
+    // Worth knowing rather than discovering in a browser: the default `BBOX` measures 1.0118, so at
+    // production coverage every card's picture is square — the ceiling is not a theoretical edge, it
+    // is the shipped state. If a coverage change ever brings this back inside the band the cards get
+    // slightly taller, which is the intended behaviour and not a regression.
+    expect(aspect(BBOX)).toBeGreaterThan(THUMB_ASPECT_MAX);
+    expect(thumbAspect(BBOX)).toBe(THUMB_ASPECT_MAX);
   });
 
   it('clamps a very wide frame up to the floor', () => {
