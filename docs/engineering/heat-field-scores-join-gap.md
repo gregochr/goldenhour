@@ -1,7 +1,9 @@
 # The heat field's empty windows — investigating the scores/briefing join gap
 
-**Status:** **found.** Q1–Q3 run against production 2026-08-20; every original hypothesis
-refuted and the real cause identified in `EvaluationViewService`. Fix not yet written.
+**Status:** **RESOLVED.** The cause was a mount-only fetch in the frontend provider, not anything
+in the backend. Fixed on this branch. Every hypothesis in this document — including the one it
+originally headlined as "THE ANSWER" — was refuted by data; they are kept because the refutations
+are the useful part.
 **Raised by:** a v2.18.13 screenshot, 2026-08-19 evening (today = Thu 20 Aug).
 
 ---
@@ -43,10 +45,47 @@ Both nominally resolve through `EvaluationViewService`, which is the whole point
 
 ---
 
-## THE ANSWER (production data, 2026-08-20)
+## THE ANSWER: the session was holding yesterday's copy
 
-**`mergeToView` and `resolveForEnrichment` share the freshness gate but not its fallback.** That
-is the whole bug, and it is four lines apart in one file.
+`WindowFirstBriefingProvider` polled the briefing every ten minutes and again on window focus, and
+fetched the batch ratings **once, in a mount-only `useEffect(..., [])`**. So on any tab left open,
+verdicts / `bestRating` / the planner grid / hot topics all kept moving while the rows the heat
+FIELD is drawn from stayed at whatever was true when the tab was opened. Open the Plan tab in the
+evening, and the 01:16 batch writes the T+2/T+3 ratings that session never sees — `best spot 5★`
+on the card with a blank thumbnail above it, indefinitely.
+
+**The tell was a hard reload fixing it instantly**, which is worth remembering: it is the cheapest
+discriminator between "the data is wrong" and "this session's copy of it is", and it should have
+been step one rather than step five.
+
+Fixed by giving both fetches one `refresh`, so the two payloads a single screen joins can never be
+more than one cycle apart. Both are ETag-revalidated, so an unchanged cycle costs a 304.
+
+### How it was pinned, after four wrong turns
+
+Every layer was exonerated in order, and only then did the remaining suspect become the session
+itself:
+
+| check | result |
+|---|---|
+| Q1 — `cached_evaluation` coverage | Sat sunrise **163 of 163 rated**. Nothing missing. |
+| Q2 — join keys | 12 hits, all `WOODLAND,BLUEBELL`, correctly withheld from a sky field. |
+| Q4 — the freshness gate | `row_wins_freshness = 0` on **every** window. The gate never fires. |
+| Endpoint, in the browser | `2026-08-22:SUNRISE` → 214 rows, **163 rated**, all `CACHED_EVALUATION`, window keys matching `/api/briefing`. |
+| Frontend join, replayed live | **151 points** for Sat sunrise, **153** for Sat sunset. |
+| DOM, same moment | Both Saturday tiles `data-unscored="true"`. |
+| Hard reload | Five of six tiles paint. Only Sunday sunrise hatches — correctly, it has 0 rated rows. |
+
+The last two rows are the whole diagnosis: correct data, correct join, wrong session.
+
+---
+
+## The theory this document originally headlined, which was ALSO wrong
+
+Kept in full because it is a real asymmetry and someone will rediscover it.
+
+**`mergeToView` and `resolveForEnrichment` share the freshness gate but not its fallback** — four
+lines apart in one file.
 
 ```java
 // resolveForEnrichment — the BRIEFING path
@@ -61,7 +100,12 @@ if (forecastRow != null && forecastRow.getTriage()...) return FORECAST_EVALUATIO
 return emptyView(...);                                 // ← Source.NONE, and the caller DROPS it
 ```
 
-So when the latest `forecast_evaluation` row is **newer than the cached row but carries neither a
+⚠️ **Refuted by Q4: `row_wins_freshness = 0` across every window, so this branch is never
+reached in current production data.** The asymmetry is still real and still worth closing on its
+own merits — the two methods genuinely disagree about what a won gate with an empty winner means —
+but it caused none of what was observed here.
+
+When the latest `forecast_evaluation` row is **newer than the cached row but carries neither a
 rating nor a triage reason** — a bare base-forecast row, and `CLAUDE.md` records that roughly three
 quarters of that table's rows have a null rating — the two paths part company:
 
@@ -92,7 +136,7 @@ base-forecast row.
   frontend, which reads the API's ISO strings, but it will surprise the next person to query this
   column.
 
-### The fix
+### The fix this would want, if it ever does fire
 
 `mergeToView` should fall back to the cached result when the forecast row wins the gate but says
 nothing — exactly as `resolveForEnrichment` already does. A won gate means "this row is newer",
@@ -352,9 +396,8 @@ the payload is carrying a build-time rating the live cache no longer supplies, a
 
 ## 5. Meanwhile, on the UI
 
-PR #573 makes all three unscored marks read the window's served `bestRating`, so the tile, the
-rail and the card can no longer contradict each other on screen. With the cause now known that
-choice is not merely self-consistent, it is **correct**: the card was right and the field was the
-surface missing data. Fixing `mergeToView` will refill the field for exactly those windows, and
-the mark will keep answering the same question it answers now — no further UI change follows from
-it.
+PR #573 makes all three unscored marks read the window's served `bestRating`. With the cause now
+known that choice is not merely self-consistent, it is **correct** — and it is also what would
+have made the underlying defect harmless: `bestRating` rides the briefing, which was refreshing
+all along, so the mark would have tracked the live forecast even while the field was frozen. The
+two fixes ship together on the same branch.
