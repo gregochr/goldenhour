@@ -186,11 +186,43 @@ evergreen and the key and column incapable of disagreeing:
 (evaluated_at / updated_at are explicit because the local H2 schema is Hibernate-generated —
 `ddl-auto: update`, Flyway disabled in application-local.yml — so V91's DB defaults do not
 exist here and both columns are bare NOT NULL. Scripting the insert instead of using the
-console? The running backend holds the H2 file lock — stop, org.h2.tools.RunScript, start.)
+console? The running backend holds the H2 file lock — stop, org.h2.tools.RunScript, start:
+
+  pkill -f 'spring-boot:run'
+  java -cp ~/.m2/repository/com/h2database/h2/*/h2-*.jar org.h2.tools.RunScript \
+    -url "jdbc:h2:file:$PWD/backend/data/goldenhour" -user sa -password "" -script ratings.sql
+  (cd backend && ./mvnw -Plocal-dev spring-boot:run -Dspring-boot.run.profiles=local)
+
+Forty-odd rows for a full week across four regions is not a good use of an afternoon — emit the
+statement above in a loop over the REGIONS and ROWS tables at the top of this script.)
 
 ⚠️ RESTART THE BACKEND after inserting, then POST /api/briefing/run. The briefing enrichment reads
 an in-memory ConcurrentHashMap populated from the DB only by `rehydrateCacheOnStartup`
 (@EventListener(ApplicationReadyEvent)), so rows inserted while it is running are invisible to it.
 Confusingly, GET /api/briefing/evaluate/scores DOES see them via its own DB fallback — so a
 half-lit screen means you skipped the restart, not that the join is broken.
+
+Startup logs `[EVAL HYDRATE] Loaded N entries from cached_evaluation (… dates >= YYYY-MM-DD)`.
+That line is the fastest way to tell the two failure modes apart: N of 0 means your dates are in
+the past (or the insert never committed), where a healthy N above a still-grey screen means the
+restart happened but the briefing has not been rebuilt yet.
+
+⚠️ Drive times, and therefore every leave-by line, need OpenRouteService — which is NOT configured
+locally. `POST /api/user/settings/drive-times/refresh` returns 200 with distances and no minutes,
+and the spot cards, the peek and the P8 location sheet then correctly render no departure at all
+(plan §2.5: absence means "unknown", never "out of reach"). That is a real state worth seeing, but
+if you need to exercise the departure lines — the day marker on a wrapped drive especially — insert
+the minutes by hand during the same stopped window as the ratings:
+
+  -- the home arm; user_id 1 is `admin`
+  INSERT INTO user_drive_time (user_id, location_id, drive_duration_seconds) VALUES (1, 15, 350*60);
+  -- an away origin's base → the whole roster, keyed on region_id (V145)
+  INSERT INTO region_drive_time (region_id, location_id, drive_duration_seconds) VALUES (3, 1, 190*60);
+
+Unlike the ratings, neither is read through a startup-populated map — no `@Cacheable`, no in-memory
+copy on either path — so through the web console they take effect on the next request. Via
+RunScript the point is moot: you have had to stop the backend for the lock anyway.
+
+An away origin additionally needs its region to have a base town, or it cannot be an origin at all:
+PUT /api/regions/{id}/base with baseName, baseLat and baseLon (all three, or a 400).
 NOTE
