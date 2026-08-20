@@ -170,6 +170,14 @@ export function buildRegionRows(es, spots, allSpots, lens) {
       // would claim a measured stillness where there is simply no basis (see `movement.js`).
       meanRatingDelta: finite(region.meanRatingDelta),
       summary: region.summary || null,
+      // Claude's own headline and explanation for this region on this night, served on
+      // {@code BriefingRegion} (GO/MARGINAL only, so both are routinely null) and carried through
+      // untouched. The popup's prose slot prefers them to {@code summary} — plan-matrix §5 — and
+      // {@code HeatmapGrid} already prefers the same pair in its hover tip, so the two arms read one
+      // payload the same way round. Null passes straight through: the slot has an explicit null
+      // path and degrade is silence.
+      glossHeadline: region.glossHeadline || null,
+      glossDetail: region.glossDetail || null,
       drawnCount: drawn.length,
       // The word the cell may use for its count, decided here so the component renders a string
       // rather than re-answering an honesty question three files from the rule.
@@ -199,7 +207,7 @@ export function buildRegionRows(es, spots, allSpots, lens) {
   // Ranked on the served mean, best first. Name is the tiebreak so the order is TOTAL — without it
   // two regions on the same mean can swap places between renders, which reads as the rail flickering
   // for no reason. A region with no mean ranks last rather than as a zero: "not scored" and "scored
-  // badly" are different statements, and the same rule `windowFirstOrder.js` applies to windows.
+  // badly" are different statements, and the same rule `windowFirstCards.js` applies to windows.
   return rows.sort((a, b) => {
     const ma = a.meanRating ?? -Infinity;
     const mb = b.meanRating ?? -Infinity;

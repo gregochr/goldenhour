@@ -183,11 +183,15 @@ describe('buildPromotedStrip — what earns a strip', () => {
   // The row promotion runs first and removes a factful snow badge from `card.badges`. A winter dawn
   // carrying two snow topics is a real coincidence and the commonest same-channel one, so counting
   // the filtered list would delete it. `allBadges` is what makes this pass.
-  it('counts a badge the attribute rows already promoted out of the card header', () => {
+  it('⚠️ counts the WHOLE badge list, which is the only list there is now', () => {
+    // This used to be "counts a badge the attribute rows already promoted out of the card header":
+    // the strip read `allBadges` because `badges` had been reduced by the row promotion, and a
+    // winter dawn carrying SNOW_TOPS + SNOW_FRESH would otherwise have read as a single-badge
+    // window. M2 deleted the promotion and `badges` with it, so the two lists are one — and this
+    // still has to count that pair, which is what the assertion pins.
     const fresh = badge({ type: 'SNOW_FRESH', label: 'Fresh snow', rarityRank: 10 });
     const pane = paneFor([[TODAY, 'SUNRISE', { badges: [badge(), fresh], topRarityRank: 8 }]]);
-    // Precondition: the card's own header list really has been reduced below the threshold.
-    expect(pane[0].card.badges.length).toBeLessThan(MIN_COINCIDENCE_BADGES);
+    expect(pane[0].card.allBadges).toHaveLength(MIN_COINCIDENCE_BADGES);
     expect(buildPromotedStrip(pane).topics.map((t) => t.label))
       .toEqual(['Snow on the fells', 'Fresh snow']);
   });

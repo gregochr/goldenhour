@@ -3,7 +3,6 @@ import PropTypes from 'prop-types';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { REACH_TIERS, formatLensCount, formatLensReadout } from '../utils/reachLens.js';
 import { LENS_RATING_FLOORS } from '../utils/ratingLens.js';
-import { PLAN_ORDERS } from '../utils/windowFirstOrder.js';
 
 /**
  * One segmented control — a caption and its chips, wrapped together so a wrap can never orphan one
@@ -129,7 +128,6 @@ LensSegment.propTypes = {
  * @param {object}   props
  * @param {object}   props.lens         the value from {@code useReachLens}
  * @param {object}   props.ratingLens   the value from {@code useRatingLens}
- * @param {object}   props.orderLens    the value from {@code usePlanOrder}
  * @param {number}   props.spotCount    spots drawn across every window, after both gates
  * @param {number}   props.reachedCount spots the rating floor chose from — the "of N" denominator
  * @param {number}   props.windowCount  windows drawn
@@ -140,7 +138,7 @@ LensSegment.propTypes = {
  *        is unchanged.
  */
 export default function WindowFirstLensBar({
-  lens, ratingLens, orderLens, spotCount, reachedCount = spotCount, windowCount,
+  lens, ratingLens, spotCount, reachedCount = spotCount, windowCount,
   originBase = null,
 }) {
   const {
@@ -210,26 +208,6 @@ export default function WindowFirstLensBar({
         className="wf-lens-rating"
       />
 
-      {/* The third axis, and the only one that is not a FILTER — which is why it sits last and
-          takes its own accent. Reach and Rated remove spots; Order removes nothing and re-ranks the
-          window cards. Putting it first would read as another gate, and the readout beside it
-          counts what the two gates left, not what this one moved.
-
-          ⚠️ It re-orders the CARDS and never the strip above. That is enforced by construction
-          rather than by care here — the strip is built from `upcomingEvents` and this value never
-          reaches it — but it is the design's own headline note about the control, so it is worth
-          knowing at the site that offers it. */}
-      <LensSegment
-        id="window-first-lens-orders"
-        groupTestId="window-first-lens-order"
-        segClassName="wf-seg-order"
-        label="Order"
-        options={PLAN_ORDERS}
-        value={orderLens.orderId}
-        onSelect={orderLens.selectOrder}
-        className="wf-lens-order"
-      />
-
       <span
         data-testid="window-first-lens-readout"
         data-variant={isMobile ? 'count' : 'summary'}
@@ -279,11 +257,6 @@ WindowFirstLensBar.propTypes = {
     floor: PropTypes.shape({ id: PropTypes.string, label: PropTypes.string }),
     floorId: PropTypes.string.isRequired,
     selectFloor: PropTypes.func.isRequired,
-  }).isRequired,
-  /** The value from {@code usePlanOrder} — the pane's ordering axis, not a filter. */
-  orderLens: PropTypes.shape({
-    orderId: PropTypes.string.isRequired,
-    selectOrder: PropTypes.func.isRequired,
   }).isRequired,
   /** The away origin's base town, or null at home. */
   originBase: PropTypes.string,

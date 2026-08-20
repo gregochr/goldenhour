@@ -94,19 +94,22 @@ import PropTypes from 'prop-types';
  *
  * @param {object}   props
  * @param {object}   props.strip a descriptor from {@code buildPromotedStrip}
- * @param {function} [props.onOpenWindow] opens and reveals the promoted window's card. Optional —
- *        without it the strip is a statement rather than a route, which is what an adjacent card
- *        already makes it.
+ * @param {function} [props.onOpenWindow] opens the promoted window's popup. Optional — without it
+ *        the strip is a statement rather than a route.
  */
 export default function WindowFirstPromotedStrip({ strip, onOpenWindow }) {
   const figures = strip.topics.filter((topic) => topic.figureValue);
-  const showGo = !strip.adjacent && Boolean(onOpenWindow);
-  // The foot is no longer the button's own container. A warning must be unconditional — that is
-  // what "non-dismissible" means — and the original gate hid the whole foot whenever the promoted
-  // window was already the next card on the pane, which on an eclipse evening is exactly the case.
-  // The reason behind that gate ("a control that scrolls to the element directly beneath it has no
-  // visible effect") is about the CONTROL, so the control keeps its own gate and the container
-  // gets a wider one.
+  // ⚠️ NO adjacency gate any more, and its removal belongs to M2 (plan-matrix §6 M2.8). The gate
+  // read `!strip.adjacent`, and its whole rationale was scroll-specific: the control scrolled to
+  // the row directly beneath the strip, which has no visible effect (§6's ban on such controls).
+  // The control now OPENS A DIALOG, which is visible wherever the window sits — so left in place
+  // the gate hid the route for exactly the promoted topic most likely to be on the first window,
+  // for as long as the strip survives (it goes at M5, D-1). `strip.adjacent` is still DERIVED by
+  // `buildPromotedStrip`; nothing reads it, and it goes with the strip.
+  const showGo = Boolean(onOpenWindow);
+  // The foot is not the button's own container. A warning must be unconditional — that is what
+  // "non-dismissible" means — and the original gate hid the whole foot whenever the promoted window
+  // was already the next card on the pane, which on an eclipse evening is exactly the case.
   const showFoot = showGo || Boolean(strip.safetyNote);
 
   return (

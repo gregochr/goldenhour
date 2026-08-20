@@ -167,6 +167,6 @@ export function gateSpotsByRating(spots, minRating) {
  * Both were written for the empty card's way out and both were wrong for it: the NEXT step down is
  * not necessarily a step that puts anything on screen, and a button that loosens the lens and
  * leaves the card empty is the demo control §6 bans, arriving by a slightly longer route.
- * `windowLensEmpty.js` walks each ladder until a step actually passes, which is why it needs
+ * `planConflicts.js` walks each ladder until a step actually passes, which is why it needs
  * `LENS_RATING_FLOORS` and `REACH_TIERS` rather than a next-step helper.
  */

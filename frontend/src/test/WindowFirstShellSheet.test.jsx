@@ -73,11 +73,37 @@ const ctx = (overrides = {}) => {
   return {
     briefing: { generatedAt: `${TODAY}T12:00:00`, hotTopics: [] },
     loading: false,
-    // The heat strip's thumbnails replaced the day rail's tiles at P2 (plan D1). Empty here, with an
-    // empty catalogue beside it: the strip withdraws entirely without spots to draw, which keeps
-    // these files about the shell's wiring rather than about a canvas.
-    heatStripCards: [],
-    heatSpots: [],
+    // ⚠️ The matrix needs a descriptor and a catalogue since M2, because the drill-down's trigger
+    // lives inside the popup a matrix cell opens — an empty catalogue withdraws the matrix and with
+    // it every route this file tests. One card and one spot: enough to open, nothing that paints
+    // (jsdom has no canvas), so the file stays about the shell's wiring.
+    heatStripCards: cards.map((c) => ({
+      key: c.key,
+      date: c.date,
+      targetType: c.targetType,
+      dow: 'Sat',
+      sunrise: false,
+      label: 'Tonight Sunset',
+      time: c.time,
+      verdict: c.verdict,
+      verdictLabel: c.verdictLabel,
+      pickKind: c.pick?.kind ?? null,
+      away: false,
+      confidence: c.confidence,
+      pool: c.spots,
+      badges: [],
+    })),
+    heatSpots: [{
+      id: 1,
+      name: 'Bamburgh Beach',
+      lat: 55.61,
+      lng: -1.71,
+      regionName: 'Northumberland & Tyneside',
+      rid: 'Northumberland & Tyneside',
+      skySubject: true,
+      bortleClass: 3,
+      scores: [4],
+    }],
     heatPointSets: new Map(),
     windowCards: cards,
     paneItems: cards.map((c) => ({ kind: 'card', key: c.key, card: c })),
@@ -110,13 +136,6 @@ const ctx = (overrides = {}) => {
       minRating: null,
       selectFloor: vi.fn(),
     },
-    // The third axis. It gates nothing — it re-ranks the pane — so the shell's wiring tests sit on
-    // the chronological default, and `windowFirstOrder.test.js` owns the ranking itself.
-    orderLens: {
-      order: { id: 'when', label: 'When' },
-      orderId: 'when',
-      selectOrder: vi.fn(),
-    },
     ...overrides,
   };
 };
@@ -134,7 +153,22 @@ const renderShell = (overrides = {}) => {
   return { ...props, ...view };
 };
 
-const openSheet = () => fireEvent.click(screen.getByTestId('window-spot-all'));
+/**
+ * Opens the first window's popup, where the drill-down's trigger now lives.
+ *
+ * <p>Awaits the matrix's own `lazy()` boundary before clicking, so the first test in the file
+ * behaves like the rest rather than like a race the module cache happens to win.
+ */
+const openPopup = async () => {
+  await screen.findByTestId('wf-heat-strip');
+  await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[0]); });
+  return screen.findByTestId('window-sheet');
+};
+
+const openSheet = async () => {
+  await openPopup();
+  fireEvent.click(screen.getByTestId('window-spot-all'));
+};
 
 beforeEach(() => {
   localStorage.clear();
@@ -152,29 +186,29 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('WindowFirstShell — the drill-down', () => {
-  it('opens on the window whose trigger was pressed', () => {
+  it('opens on the window whose trigger was pressed', async () => {
     renderShell();
-    openSheet();
+    await openSheet();
     expect(screen.getByRole('dialog', { name: 'All spots — Tonight Sunset' })).toBeInTheDocument();
   });
 
-  it('hands the sheet the UNGATED list, so its reach control has something to reveal', () => {
+  it('hands the sheet the UNGATED list, so its reach control has something to reveal', async () => {
     renderShell();
-    openSheet();
+    await openSheet();
     // The strip drew one; the sheet opens on the same tier and draws the same one, and widening
     // finds the second. A sheet handed `card.spots` could never do that.
     fireEvent.click(within(screen.getByTestId('window-spot-sheet-reach')).getByRole('button', { name: 'Any' }));
     expect(screen.getByTestId('window-spot-sheet-count')).toHaveTextContent('2 spots');
   });
 
-  it('joins the roster by name, so the type control has words to offer', () => {
+  it('joins the roster by name, so the type control has words to offer', async () => {
     renderShell();
-    openSheet();
+    await openSheet();
     const chips = within(screen.getByTestId('window-spot-sheet-type')).getAllByRole('button');
     expect(chips.map((c) => c.textContent)).toEqual(['Any type', 'Landscape', 'Seascape']);
   });
 
-  it('offers no type control when the roster never arrived', () => {
+  it('offers no type control when the roster never arrived', async () => {
     vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
     render(
       <WindowFirstShell
@@ -184,23 +218,23 @@ describe('WindowFirstShell — the drill-down', () => {
         onShowOnMap={vi.fn()}
       />,
     );
-    openSheet();
+    await openSheet();
     expect(screen.queryByTestId('window-spot-sheet-type')).toBeNull();
   });
 
-  it('passes the lens lock down, so a LITE user cannot narrow reach here either', () => {
+  it('passes the lens lock down, so a LITE user cannot narrow reach here either', async () => {
     renderShell({
       reachLens: { ...ctx().reachLens, locked: true, tierId: 'any', tier: { id: 'any', label: 'Any', limitMinutes: null } },
     });
-    openSheet();
+    await openSheet();
     within(screen.getByTestId('window-spot-sheet-reach')).getAllByRole('button')
       .forEach((b) => expect(b).toBeDisabled());
   });
 
   describe('it holds the window by key, not the card object', () => {
-    it('follows the live card when the poll rebuilds it', () => {
+    it('follows the live card when the poll rebuilds it', async () => {
       const { rerender } = renderShell();
-      openSheet();
+      await openSheet();
       expect(screen.getByTestId('window-spot-sheet-count')).toHaveTextContent('1 of 2');
       // The same window, rebuilt with a third spot — what a poll, a resolved reach fetch or a lens
       // change all produce. A held object would still be describing two.
@@ -211,9 +245,9 @@ describe('WindowFirstShell — the drill-down', () => {
       expect(screen.getByTestId('window-spot-sheet-count')).toHaveTextContent('2 of 3');
     });
 
-    it('closes itself when the window it describes has passed', () => {
+    it('closes itself when the window it describes has passed', async () => {
       const { rerender } = renderShell();
-      openSheet();
+      await openSheet();
       expect(screen.getByTestId('window-spot-sheet')).toBeInTheDocument();
       vi.spyOn(briefingContext, 'useWindowFirstBriefing')
         .mockReturnValue(ctx({ windowCards: [] }));
@@ -223,68 +257,92 @@ describe('WindowFirstShell — the drill-down', () => {
   });
 
   describe('the trigger appears only where the sheet can differ', () => {
-    it('is absent on three unrated spots of one type that the lens never touched', () => {
+    it('is absent on three unrated spots of one type that the lens never touched', async () => {
       const flat = [1, 2, 3].map((n) => spot({
         key: String(n), locationId: n, locationName: 'Wastwater', rating: null, driveMinutes: null,
       }));
       renderShell({ windowCards: [card({ allSpots: flat, spots: flat, reachTotal: 3 })] });
+      await openPopup();
       expect(screen.queryByTestId('window-spot-all')).toBeNull();
     });
 
-    it('is present as soon as one of them is rated', () => {
+    it('is present as soon as one of them is rated', async () => {
       const flat = [1, 2, 3].map((n) => spot({
         key: String(n), locationId: n, locationName: 'Wastwater', rating: n === 1 ? 3 : null, driveMinutes: null,
       }));
       renderShell({ windowCards: [card({ allSpots: flat, spots: flat, reachTotal: 3 })] });
+      await openPopup();
       expect(screen.getByTestId('window-spot-all')).toBeInTheDocument();
     });
   });
 
-  it('closes the sheet before the map overlay opens, so two dialogs are never stacked', () => {
+  describe('⚠️ Escape closes one layer per press, and the drill-down is the layer this phase adds', () => {
+    // `Modal` installs a document-level Escape listener PER INSTANCE, so two open dialogs both close
+    // on a single press unless the lower one declines the key. `stackedOverPopup`'s `sheetCard`
+    // operand is that guard, and this is the only test that drives it: dropping the operand leaves
+    // the whole suite green with one press closing both.
+    it('takes the drill-down first and leaves the popup standing', async () => {
+      renderShell();
+      await openSheet();
+      expect(screen.getAllByRole('dialog')).toHaveLength(2);
+
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(screen.queryByTestId('window-spot-sheet')).toBeNull();
+      expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
+    });
+
+    it('takes the popup on the second press', async () => {
+      renderShell();
+      await openSheet();
+      fireEvent.keyDown(document, { key: 'Escape' });
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(screen.queryAllByRole('dialog')).toHaveLength(0);
+    });
+  });
+
+  it('closes the sheet before the map overlay opens, so two dialogs are never stacked', async () => {
     // `MapOverlay` is itself `aria-modal`. Leaving the sheet mounted underneath puts two dialogs on
     // the page, gives Escape two listeners, and holds the reader's place in a list they have just
     // navigated away from.
     renderShell();
-    openSheet();
+    await openSheet();
     fireEvent.click(within(screen.getByTestId('window-spot-sheet-list')).getAllByTestId('window-spot')[0]);
     expect(screen.queryByTestId('window-spot-sheet')).toBeNull();
   });
 
   describe('a window the lens emptied', () => {
-    // `lensEmpty` is what the card now keys its emptied state on — the descriptor
-    // `buildWindowCards` derives once, where both thresholds are known. A fixture without it draws
-    // no empty state at all, which is exactly the "window the lens never touched" case.
+    // Reach emptied it: both spots were beyond the tier, which `reachedTotal: 0` is the record of.
+    // The popup then draws its quiet sentence in place of the ranked strip — and the trigger beside
+    // it, for the reason the deleted card's empty state carried one.
     const gated = () => card({
       allSpots: [NEAR, FAR],
       spots: [],
       reachTotal: 2,
       reachedTotal: 0,
-      lensEmpty: {
-        headline: 'Nothing within 45 min in this window.',
-        body: '2 spots are further out.',
-        actions: [],
-      },
     });
 
-    it('offers the trigger on its own line, where the number is otherwise unactionable', () => {
+    it('offers the trigger beside the quiet sentence, where the number is otherwise unactionable', async () => {
       renderShell({ windowCards: [gated()] });
-      expect(screen.getByTestId('window-card-lens-all')).toBeInTheDocument();
+      await openPopup();
+      expect(screen.getByTestId('window-sheet-empty')).toBeInTheDocument();
+      expect(screen.getByTestId('window-sheet-see-all')).toBeInTheDocument();
     });
 
-    it('opens WIDENED, rather than onto the tier that emptied it', () => {
+    it('opens WIDENED, rather than onto the tier that emptied it', async () => {
       // Inheriting here would open a dialog whose entire content is "nothing matches" — a door
       // onto a wall. The header says so, and the widening still dies with the sheet.
       renderShell({ windowCards: [gated()] });
-      fireEvent.click(screen.getByTestId('window-card-lens-all'));
+      await openPopup();
+      fireEvent.click(screen.getByTestId('window-sheet-see-all'));
       expect(within(screen.getByTestId('window-spot-sheet-reach')).getByRole('button', { name: 'Any' }))
         .toHaveAttribute('aria-pressed', 'true');
       expect(screen.getByTestId('window-spot-sheet-widened')).toBeInTheDocument();
       expect(screen.getAllByTestId('window-spot')).toHaveLength(2);
     });
 
-    it('opens a populated window on the bar\'s tier, unchanged', () => {
+    it('opens a populated window on the bar\'s tier, unchanged', async () => {
       renderShell();
-      openSheet();
+      await openSheet();
       expect(within(screen.getByTestId('window-spot-sheet-reach')).getByRole('button', { name: '45 min' }))
         .toHaveAttribute('aria-pressed', 'true');
       expect(screen.queryByTestId('window-spot-sheet-widened')).toBeNull();
@@ -303,16 +361,12 @@ describe('WindowFirstShell — the drill-down', () => {
       spots: [],
       reachTotal: 2,
       reachedTotal: 2,
-      lensEmpty: {
-        headline: 'Nothing rated 4★+ in this window.',
-        body: '2 spots are rated lower.',
-        actions: [],
-      },
     });
 
-    it('opens a RATING-emptied window on the bar\'s own tier, and claims no widening', () => {
+    it('opens a RATING-emptied window on the bar\'s own tier, and claims no widening', async () => {
       renderShell({ windowCards: [ratingGated()] });
-      fireEvent.click(screen.getByTestId('window-card-lens-all'));
+      await openPopup();
+      fireEvent.click(screen.getByTestId('window-sheet-see-all'));
 
       expect(within(screen.getByTestId('window-spot-sheet-reach')).getByRole('button', { name: '45 min' }))
         .toHaveAttribute('aria-pressed', 'true');
@@ -320,10 +374,11 @@ describe('WindowFirstShell — the drill-down', () => {
     });
   });
 
-  it('names the day in the trigger, because a lead card\'s title is the bare event', () => {
+  it('names the day in the trigger, because a lead card\'s title is the bare event', async () => {
     // "See all spots in Sunset" names no day on the one card most likely to be read — the same
     // defect the sheet's own header had.
     renderShell();
+    await openPopup();
     // The strip's scroll arrows take the same label and are not asserted here: they render only
     // while the strip overflows, which jsdom has no layout to produce.
     expect(screen.getByRole('button', { name: 'See all spots in Tonight Sunset' })).toBeInTheDocument();
@@ -356,37 +411,46 @@ describe('WindowFirstShell — the drill-down', () => {
       act(() => vi.advanceTimersByTime(OPEN_DELAY * 2));
     };
 
-    beforeEach(() => vi.useFakeTimers());
+    // `shouldAdvanceTime`, because the matrix and the popup are both behind `lazy()` boundaries and
+    // RTL's `findBy*` polls on a timer: frozen fake timers never resolve either. The peek's own
+    // delay is still driven explicitly by `advanceTimersByTime`. The sibling file records the same
+    // pairing for the same reason.
+    beforeEach(() => vi.useFakeTimers({ shouldAdvanceTime: true }));
     afterEach(() => vi.useRealTimers());
 
-    it('opens one with no dialog up — the control case the next two rest on', () => {
+    it('opens one with the popup topmost — the control case the next two rest on', async () => {
+      // ⚠️ The popup itself does NOT suppress the peek: the cards are inside it, so a panel opened
+      // from one is about the surface the reader is on. What suppresses it is another dialog OVER
+      // the popup, which is what the next two drive.
       withScores();
+      await openPopup();
       hoverFirstStripCard();
       expect(screen.getByTestId('wf-peek')).toBeInTheDocument();
     });
 
-    it('opens none while the drill-down is up', () => {
+    it('opens none while the drill-down is up', async () => {
       withScores();
-      openSheet();
+      await openSheet();
       settle();
       hoverFirstStripCard();
       expect(screen.queryByTestId('wf-peek')).toBeNull();
     });
 
-    it('opens none while the PICK dialog is up', () => {
+    it('opens none while the PICK dialog is up', async () => {
       withScores({
         windowCards: [card({ pick: { kind: 'best', regionName: 'N&T', headline: 'Breaking clear' } })],
       });
-      fireEvent.click(screen.getByTestId('window-card-pick'));
+      await openPopup();
+      fireEvent.click(screen.getByTestId('window-sheet-pick'));
       settle();
       hoverFirstStripCard();
       expect(screen.queryByTestId('wf-peek')).toBeNull();
     });
   });
 
-  it('opens the map on the spot clicked inside the sheet, not on its region', () => {
+  it('opens the map on the spot clicked inside the sheet, not on its region', async () => {
     const { onShowOnMap } = renderShell();
-    openSheet();
+    await openSheet();
     fireEvent.click(within(screen.getByTestId('window-spot-sheet-list')).getAllByTestId('window-spot')[0]);
     // The POSITIONAL form, which centres one location — the object form opens a whole region.
     expect(onShowOnMap).toHaveBeenCalledWith(TODAY, 'SUNSET', 'Bamburgh Beach');

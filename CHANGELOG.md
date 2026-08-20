@@ -5,6 +5,67 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Plan tab M2: the window popup, and the list it replaces
+
+The v2 Plan pane's six-row card list is **deleted**. Everything that lived inside an open row —
+the field map, the region rail, the region prose, the tide row, the ranked locations — now opens
+as one dialog over the matrix, on the picture you clicked, and **the plan does not move**. That is
+the phase's whole point: opening a window used to push five other cards down the page, and the
+reader's place in the list was gone by the time they had read it.
+
+The popup's own additions are the design's: a header stating the best rating **within reach**, the
+served confidence as its quiet treatment and the served movement (no cross-location average and no
+confidence percentage — both were settled against, twice); **location chips on the field**, greedily
+placed against measured boxes and dropped rather than overlapped, so the map resolves into places
+rather than areas; **topic rows** carrying each topic's detail, its measured facts and the strategy's
+own science note behind an `i`; and a **prose slot that is always rendered at the same height**, so
+picking a region swaps words and repaints the field without moving the tide row and the locations
+below it. Unpicked, that slot reads the *top region's* gloss and says so by name — there is no served
+window-level prose, and inventing one is the thing the plan forbids.
+
+Two page-level replacements land with the deletion, because neither alone covers what the per-card
+ladder covered: `planConflicts.js` states the one conflict the whole plan has (nothing within the
+chosen drive, or a rating floor that shuts the week out) with actions tested against the data before
+they are offered, and the popup's quiet sentence names what emptied *one* window — the region clause
+present exactly when a region focus is what emptied it. The hazard notice moved up beside them: the
+card list was the one surface guaranteed to be on screen whenever a topic was, and a solar-filter
+warning may not live behind a click.
+
+Also deleted: the **Order control** end-to-end (`usePlanOrder`, `windowFirstOrder.js`, the lens
+segment, the pane ordering and the note under it — a matrix has one order, and it is time), the
+promoted strip's scroll-specific `adjacent` suppression (its "Go to" opens a dialog now, which is
+visible wherever the window sits, so the gate was hiding the control for exactly the topic most
+likely to be on the first window), the per-card `lensEmpty` ladder, and the **snow row promotion**
+with the second badge list it existed to reduce — the popup states each topic once, facts included,
+so a snow attribute row would have printed one topic twice eight pixels apart.
+
+Six review lenses and a per-charge refutation pass found the defects worth naming, and the first is
+the reason this cadence exists. **The verdict-badge treatment table was transcribed from the deleted
+card rather than copied**, and drifted in four values — one of them to `--color-badge-marginal`, a
+token `@theme static` does not define, so every "Maybe" verdict in the popup header rendered in
+inherited bone. Twenty-seven passing tests said nothing, because none of them looked at the badge;
+the salvaged assertions now do, and a second test walks every `var(--…)` the component emits against
+the tokens the stylesheet actually defines, because jsdom does not resolve `var()` and no cascade
+test can see an undefined name. Also fixed: the popup printed a confidence *word* for the verdicts
+whose confidence the pipeline deliberately withholds (a Poor window read "High confidence" beside a
+badge the same line refuses to decay); a region pick **filtered** the field's chips where the design
+asks for an ordering, so picking one region erased every other region's names from the picture; the
+quiet sentence blamed a focused region for an emptying the lens had done everywhere; the conflict
+action focused `[data-testid="wf-heat-card"]`, which matches an away day's non-focusable `<div>`;
+`shownSpots` was rebuilt in the render body, re-arming the five-link repaint chain the shell's own
+comment records; the dialog was gated on the heat catalogue, so every matrix cell was a control with
+no visible effect while `/api/locations` was in flight; a `key` remounted the dialog on every arrow
+step, costing a keyboard reader the button they had just pressed; the close control carried an
+`aria-label` that replaced its own visible text (WCAG 2.5.3); the conflict message was not a status
+region; the popup's single-column breakpoint (767px) did not match the map's phone aspect band
+(639px), so 640–767px drew a ~600px-tall map in one column; and the field chips painted the raw score
+ramp as 9px ink, which measures 3.24:1 at 1★.
+
+One deviation from the bundle, adopted from it after measuring: the **focused region's own label is
+no longer drawn** on the field. The rail cell reads pressed and the prose slot names it, so the label
+was a third statement of one fact standing in the space the chips need — and it is measurable: on a
+390px phone the same window placed **zero** location chips before and **three** after.
+
 ### Changed — Plan tab M1: the strip becomes a day × event matrix
 
 The v2 Plan pane's one row of six heat thumbnails is now a **matrix** — a column per rendered

@@ -163,7 +163,7 @@ const heatPointIdentities = [];
 function Consumer() {
   const {
     briefing, loading, heatStripCards, windowCards, evaluationScores, reachLens: lens, ratingLens,
-    orderLens, homePlace, promotedStrip, heatSpots, heatPointSets,
+    homePlace, promotedStrip, heatSpots, heatPointSets,
     origin, setOrigin, regions, effectiveReachById,
   } = useWindowFirstBriefing();
   // Identity, not content: plan §5.4 requires the join to be memoised on its real inputs, and a
@@ -234,11 +234,10 @@ function Consumer() {
           .map(([key, set]) => `${key}=${set.map((p) => p.name).join(',') || '-'}`)
           .join(' ') || 'none'}
       </span>
-      {lens && ratingLens && orderLens && (
+      {lens && ratingLens && (
         <WindowFirstLensBar
           lens={lens}
           ratingLens={ratingLens}
-          orderLens={orderLens}
           spotCount={0}
           windowCount={0}
         />
@@ -749,7 +748,7 @@ describe('WindowFirstBriefingProvider', () => {
       expect(screen.getByTestId('card-keys').textContent).not.toContain(TODAY);
       // And the strip keeps the day's slot, so the absence is explained on screen rather than the
       // shape of the week silently renumbering. "Not forecast" is the arm's own word for it,
-      // borrowed from `WindowAwayRow` rather than invented.
+      // borrowed from the arm's own away vocabulary rather than invented.
       expect(screen.getByTestId('strip-dates')).toHaveTextContent(TODAY);
       expect(screen.getByTestId('strip-verdicts')).toHaveTextContent('Not forecast');
     });

@@ -287,10 +287,15 @@ describe('WindowFirstPromotedStrip — the route into the list', () => {
 
   // A control that scrolls to the element immediately beneath it has no visible effect, which is
   // the demo control §6 bans.
-  it('offers no route when the promoted window is already the next thing on the pane', () => {
+  it('⚠️ offers the route even for the pane\'s FIRST window, since M2', () => {
+    // The suppression was scroll-specific — the control scrolled to the row directly beneath the
+    // strip, which has no visible effect (§6's ban). It opens a DIALOG now, visible wherever the
+    // window sits, so the gate went in the same commit that retargeted "Go to" (plan-matrix M2.8).
+    // Left in place it hid the route for exactly the promoted topic most likely to be on the first
+    // window.
     render(<WindowFirstPromotedStrip strip={ADJACENT()} onOpenWindow={vi.fn()} />);
-    expect(screen.queryByTestId('window-first-promo-go')).toBeNull();
-    expect(screen.queryByTestId('window-first-promo-foot')).toBeNull();
+    expect(screen.getByTestId('window-first-promo-go')).toBeInTheDocument();
+    expect(screen.getByTestId('window-first-promo-foot')).toBeInTheDocument();
   });
 
   it('offers no route when no handler was supplied', () => {
@@ -379,11 +384,12 @@ describe('WindowFirstPromotedStrip — the safety warning', () => {
     expect(warn.textContent).toContain('not only over your eye');
   });
 
-  it('keeps the warning when the window is adjacent and the route is withdrawn', () => {
-    // The regression this rule exists for, and the state an eclipse evening really produces. The
-    // foot used to be gated entirely on the route being offered, so promoting the pane's FIRST
-    // card — exactly what happens on eclipse day — took the warning off the screen with the button.
-    render(<WindowFirstPromotedStrip strip={SOLO_ADJACENT()} onOpenWindow={vi.fn()} />);
+  it('keeps the warning when no route is offered at all', () => {
+    // The regression this rule exists for. The foot used to be gated entirely on the route being
+    // offered, so any state that withdrew the button — an adjacent window through M1, and a missing
+    // handler still — took the warning off the screen with it. An eclipse evening is exactly when
+    // that fires.
+    render(<WindowFirstPromotedStrip strip={SOLO_ADJACENT()} />);
 
     expect(screen.getByTestId('window-first-promo-foot')).toBeInTheDocument();
     expect(screen.getByTestId('window-first-promo-warn')).toHaveTextContent(WARNING);
@@ -406,7 +412,9 @@ describe('WindowFirstPromotedStrip — the safety warning', () => {
   });
 
   it('draws no foot at all when there is neither a warning nor a route', () => {
-    render(<WindowFirstPromotedStrip strip={ADJACENT()} onOpenWindow={vi.fn()} />);
+    // No handler and no warning. Since M2 the adjacency flag no longer withdraws the route, so a
+    // missing handler is the only thing that can.
+    render(<WindowFirstPromotedStrip strip={ADJACENT()} />);
 
     expect(screen.queryByTestId('window-first-promo-foot')).toBeNull();
   });

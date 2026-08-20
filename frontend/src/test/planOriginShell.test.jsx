@@ -34,7 +34,6 @@ describe('WindowFirstShell — the origin', () => {
     minRating: null,
     selectFloor: vi.fn(),
   };
-  const ORDER_LENS = { order: { id: 'when', label: 'When' }, orderId: 'when', selectOrder: vi.fn() };
 
   const LAKES = { id: 7, name: 'Lake District', baseName: 'Keswick', baseLat: 54.6, baseLon: -3.1 };
   const NORTHUMBERLAND = {
@@ -147,7 +146,6 @@ describe('WindowFirstShell — the origin', () => {
     tomorrowStr: '2026-08-05',
     reachLens: LENS,
     ratingLens: RATING_LENS,
-    orderLens: ORDER_LENS,
     homePlace: 'Durham',
     origin: null,
     setOrigin: vi.fn(),
@@ -323,55 +321,60 @@ describe('WindowFirstShell — the origin', () => {
     });
   });
 
-  describe('the open row under an away origin', () => {
-    it('⚠️ ignores a region selection made at home, which nothing on screen could then clear', async () => {
-      // The selection is NOT cleared on an origin move — deliberately, since it is restored on the
-      // way home — and away the rail that would clear it is withheld. Left live it filtered an
-      // already-scoped strip to a region the reader had scoped out, printed "Nothing in
-      // Northumberland for this window" under a chip naming Keswick, and left the band's
-      // `Show all regions ×` as the only remaining control — whose handler focuses the rail cell
-      // this scope had just unmounted, dropping focus to `<body>`.
+  describe('the open POPUP under an away origin', () => {
+    it('⚠️ ignores a region focus made at home, which nothing on screen could then clear', async () => {
+      // The focus is NOT cleared on an origin move — deliberately, since a reader who goes home
+      // finds the page as they left it — and away the rail that would clear it is withheld. Left
+      // live it filtered an already-scoped strip to a region the reader had scoped out and printed
+      // "Nothing in Northumberland for this window" under a chip naming Keswick.
+      //
+      // The surface moved at M2 (an accordion row became a dialog) and the rule did not.
       const value = renderShell();
-      await import('../components/WindowRowRegionLayer.jsx');
+      fireEvent.click(await screen.findByTestId('wf-heat-card'));
 
       const rail = await screen.findByTestId('wf-region-rail');
-      const cell = within(rail).getByRole('button', { name: /Northumberland/ });
-      fireEvent.click(cell);
-      // The card's spot is in the Lake District, so selecting Northumberland empties the strip and
-      // the region-empty block appears — which is the state that must NOT survive the move.
-      expect(screen.getByTestId('window-card-region-empty')).toBeInTheDocument();
+      fireEvent.click(within(rail).getByRole('button', { name: /Northumberland/ }));
+      // The card's spot is in the Lake District, so focusing Northumberland empties the strip and
+      // the popup's quiet sentence appears — the state that must NOT survive the move.
+      // Every filter in force is named, region clause included — the sentence is true of all of
+      // them ("nothing within 45 min in Northumberland"), and naming only the region would credit
+      // one control with three controls' work, which is the rule the strip footer already follows.
+      expect(screen.getByTestId('window-sheet-empty'))
+        .toHaveTextContent('Nothing within 45 min in Northumberland for this window.');
 
       value.moveOrigin({ origin: ORIGIN });
 
-      // The rail is gone, and so is every trace of the selection it made.
+      // The rail is gone, and so is every trace of the focus it set.
       expect(screen.queryByTestId('wf-region-rail')).toBeNull();
-      expect(screen.queryByTestId('window-card-region-empty')).toBeNull();
+      expect(screen.queryByTestId('window-sheet-empty')).toBeNull();
       expect(screen.getByTestId('window-spot-strip')).toBeInTheDocument();
     });
   });
 
-  describe('an empty away card offers the way home', () => {
+  describe('an away plan the lens has shut offers the way home', () => {
     it('sends the origin action to setOrigin(null), never to a lens control', () => {
+      // The page-level conflict, which is where the per-card ladder's plan-wide job went at M2.
       const emptied = {
         ...CARD,
         spots: [],
-        allSpots: [{ key: '1', rating: 2, driveMinutes: 120, regionName: 'Lake District' }],
+        pool: [],
+        allSpots: [{
+          key: '1', locationId: 1, locationName: 'Buttermere', rating: 2, driveMinutes: 120, regionName: 'Lake District',
+        }],
         reachTotal: 1,
         reachedTotal: 0,
-        lensEmpty: {
-          headline: 'Nothing in Lake District for this window.',
-          body: 'You are planning from Keswick.',
-          actions: [{ kind: 'origin', id: 'home', label: 'Plan from home' }],
-        },
       };
       const value = renderShell({
         origin: ORIGIN,
         windowCards: [emptied],
         paneItems: [{ kind: 'card', key: emptied.key, card: emptied }],
+        reachLens: { ...LENS, tier: { id: '45', limitMinutes: 45, label: '45 min' }, tierId: '45' },
       });
       const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(); return 0; });
       try {
-        fireEvent.click(screen.getByTestId('window-card-lens-loosen'));
+        const actions = screen.getAllByTestId('window-first-conflict-act');
+        const home = actions.find((b) => b.dataset.loosen === 'origin');
+        fireEvent.click(home);
         expect(value.setOrigin).toHaveBeenCalledWith(null);
         expect(LENS.selectTier).not.toHaveBeenCalled();
         expect(RATING_LENS.selectFloor).not.toHaveBeenCalled();

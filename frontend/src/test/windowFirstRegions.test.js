@@ -39,6 +39,44 @@ function spot(overrides = {}) {
   };
 }
 
+describe('buildRegionRows — Claude\'s own gloss rides through untouched', () => {
+  // ⚠️ The pass-through the popup's prose slot reads FIRST. It has no other test: the slot's own
+  // file hand-writes a row carrying both fields, so deleting these two lines from `buildRegionRows`
+  // leaves that suite green while the popup silently renders `summary` for ever. `HeatmapGrid`
+  // prefers the same pair in its hover tip, so both flag arms read one payload the same way round.
+  const summary = 'A clean eastern horizon.';
+  const es = (region = {}) => ({
+    targetType: 'SUNSET',
+    regions: [{
+      regionName: 'Coast',
+      displayVerdict: 'WORTH_IT',
+      meanRating: 4.4,
+      bestRating: 5,
+      summary,
+      slots: [{ canopy: false }],
+      ...region,
+    }],
+    unregioned: [],
+  });
+
+  it('carries both gloss fields beside the summary, rather than choosing between them', () => {
+    const [row] = buildRegionRows(
+      es({ glossHeadline: 'Cirrus canvas', glossDetail: 'Thin high cloud at 40%.' }), [], [], {},
+    );
+    expect(row.glossHeadline).toBe('Cirrus canvas');
+    expect(row.glossDetail).toBe('Thin high cloud at 40%.');
+    expect(row.summary).toBe(summary);
+  });
+
+  it('passes an absent gloss through as null, never as an empty string', () => {
+    // GO/MARGINAL only, so null is the ordinary case — and the slot has an explicit null path that
+    // an empty string would walk straight past.
+    const [row] = buildRegionRows(es({ glossHeadline: '', glossDetail: undefined }), [], [], {});
+    expect(row.glossHeadline).toBeNull();
+    expect(row.glossDetail).toBeNull();
+  });
+});
+
 describe('buildRegionRows — which regions reach the rail', () => {
   it('drops a region whose every slot is canopy, exactly as the projector does', () => {
     // The defect P2's review caught one surface along: a wood rated 4.8 on a misty dawn outranking
@@ -104,7 +142,7 @@ describe('buildRegionRows — the ranking', () => {
   });
 
   it('ranks a region with NO mean last rather than treating the absence as a zero', () => {
-    // "Not scored" and "scored badly" are different statements — the same rule `windowFirstOrder.js`
+    // "Not scored" and "scored badly" are different statements — the same rule `windowFirstCards.js`
     // applies to whole windows.
     const es = {
       regions: [

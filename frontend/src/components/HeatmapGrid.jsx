@@ -1299,7 +1299,7 @@ export default function HeatmapGrid({
                   now the only one on screen. A travel day's slots exist; only the evaluation was
                   skipped, so "no forecast generated" claimed a mechanical failure where there was a
                   deliberate omission. The window-first arm settled this at P9 and pins it
-                  (`WindowAwayRow.jsx:35`, and a test named 'says "not forecast", never "not
+                  (the window-first arm's away treatment, and a test named 'says "not forecast", never "not
                   generated"'), but that arm renders THIS grid too, behind the regional door — so
                   until now one screen could carry both wordings for the same fact, two elements
                   apart. Plan §5d handed it to P15 to decide once across both arms; this is that

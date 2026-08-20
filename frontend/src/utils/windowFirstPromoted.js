@@ -43,7 +43,8 @@ import { badgeChannel } from './windowFirstCards.js';
  * and §6 clause 3 adds the sharper half: "'at most one' passes vacuously on a page that never built
  * the strip at all". So this function returns exactly one descriptor or null, and it is the only
  * place a strip can come from — the window card is explicitly forbidden from promoting anything
- * ({@code WindowFirstWindowCard.test.jsx} pins that boundary and must keep passing unedited).
+ * ({@code windowFirstPromoted.test.js} pins that boundary; the window card that used to pin it was
+ * deleted at M2 with the rest of the list).
  *
  * <p>Per page rather than per window, because the strip is full-width: a per-window reading would
  * put one between every pair of cards, which is the shape §2.6's "at most one" exists to forbid.

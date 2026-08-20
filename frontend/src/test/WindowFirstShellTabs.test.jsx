@@ -99,13 +99,6 @@ const ctx = (overrides = {}) => {
       minRating: null,
       selectFloor: vi.fn(),
     },
-    // The third axis. It gates nothing — it re-ranks the pane — so the shell's wiring tests sit on
-    // the chronological default, and `windowFirstOrder.test.js` owns the ranking itself.
-    orderLens: {
-      order: { id: 'when', label: 'When' },
-      orderId: 'when',
-      selectOrder: vi.fn(),
-    },
     ...overrides,
   };
 };
@@ -436,14 +429,43 @@ describe('WindowFirstShell — moving between tabs', () => {
       far: false,
     }));
     const withSpots = { ...card(), spots, allSpots: spots, reachTotal: spots.length };
-    renderShell({ windowCards: [withSpots] });
+    // The matrix needs a descriptor and a catalogue, since the ranked list is inside the popup a
+    // matrix cell opens. The file's default is deliberately empty (see the containment test below).
+    renderShell({
+      windowCards: [withSpots],
+      heatStripCards: [{
+        key: withSpots.key,
+        date: withSpots.date,
+        targetType: 'SUNSET',
+        dow: 'Sat',
+        sunrise: false,
+        label: 'Tonight Sunset',
+        time: '20:41',
+        verdict: 'WORTH_IT',
+        verdictLabel: 'Worth it',
+        pickKind: null,
+        away: false,
+        confidence: 'high',
+        pool: spots,
+        badges: [],
+      }],
+      heatSpots: [{
+        id: 1, name: 'Spot 1', lat: 55.61, lng: -1.71, regionName: 'Northumberland & Tyneside', rid: 'Northumberland & Tyneside', skySubject: true, bortleClass: 3, scores: [4],
+      }],
+    });
 
+    // Since M2 the ranked list lives inside the window popup, so the drill-down is a SECOND dialog
+    // stacked over a first — which makes this assertion stronger than it was: leaving the tab must
+    // take both down, not the top one.
+    await screen.findByTestId('wf-heat-strip');
+    await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[0]); });
+    await screen.findByTestId('window-sheet');
     fireEvent.click(screen.getByTestId('window-spot-all'));
-    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getAllByRole('dialog').length).toBe(2);
 
     await openComingUp();
 
-    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(screen.queryAllByRole('dialog')).toHaveLength(0);
   });
 
   it('leaves keys it does not own alone, so the page can still be scrolled', () => {
