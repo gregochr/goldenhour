@@ -138,6 +138,11 @@ say "seeded $count locations"
 # P4's pan test needs a ~200-spot fixture: 20 will not exercise the kernel's 3×3 spatial bucketing,
 # which is the optimisation that stopped 204 locations stalling a pan (§5.1). The scatter is around
 # the anchors above rather than uniform, because clustered density is what the bucket walk is for.
+#
+# ⚠️ This seeds 189 more LOCATIONS and no ratings, and an unrated location paints NOTHING —
+# `heatSpots.heatPointsFor` withdraws it from the window's point set. Rate the "Scatter N" names too
+# or the kernel still only ever sees the 21 anchors, which is the measurement `--dense` exists to
+# make. See the NOTE at the foot of this file for the names and their regions.
 if [[ $DENSE -eq 1 ]]; then
   say "dense mode: scattering ~180 more around the anchors"
   i=0
@@ -206,6 +211,23 @@ Startup logs `[EVAL HYDRATE] Loaded N entries from cached_evaluation (… dates 
 That line is the fastest way to tell the two failure modes apart: N of 0 means your dates are in
 the past (or the insert never committed), where a healthy N above a still-grey screen means the
 restart happened but the briefing has not been rebuilt yet.
+
+⚠️ --dense NEEDS ITS OWN RATINGS, and the failure is silent. It adds 189 locations (21 anchors x 9,
+210 in total) named `Scatter 1` … `Scatter 189` and no ratings; `heatSpots.heatPointsFor` skips any
+spot whose score is not a finite number, so every one of them is withdrawn from the field. The map
+still paints, plausibly, off the 21 anchors — and the pan measurement the flag exists for is
+vacuous, because the bucket walk never sees more than 21 points. Add the names to the SAME region's
+results_json (a scatter name in the wrong region's row joins to nothing, exactly like any other).
+They are deterministic, so generate them alongside the anchors rather than typing 189 entries:
+
+  Northumberland & Tyneside   Scatter 1-63
+  The North Yorkshire Coast   Scatter 64-117
+  The Lake District           Scatter 118-162
+  The Scottish Borders        Scatter 163-189
+
+(The ranges follow the ROWS order above, nine per anchor. Two quirks of the offsets, so they are not
+mistaken for bugs: `(n % 3 - 1)` by `(int(n / 3) - 1)` over n=1..9 is not a centred 3x3 — it drifts
+east — and n=4 puts both offsets at zero, so one scatter sits exactly on its anchor.)
 
 ⚠️ Drive times, and therefore every leave-by line, need OpenRouteService — which is NOT configured
 locally. `POST /api/user/settings/drive-times/refresh` returns 200 with distances and no minutes,
