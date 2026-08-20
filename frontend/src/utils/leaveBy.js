@@ -58,9 +58,24 @@ import { formatShiftedEventTimeUk } from './conversions.js';
  * a second date vocabulary on every card to disambiguate that tail is the worse trade. Measured
  * rather than assumed: the roster spans 53.76–55.77°N, where the earliest sunrise is 04:23, so a
  * wrap needs over <b>4h03</b> of driving against a longest realistic catalogue drive of about 2h20
- * — and every wrapping card is a {@code far} card long before it wraps. ⚠️ <b>P7 moves the origin,
- * and that is exactly the change that turns a four-hour drive from impossible into ordinary</b>;
- * revisit there. The fix costs no new words if it is wanted — {@code HotTopicStrip}'s
+ * — and every wrapping card is a {@code far} card long before it wraps.
+ *
+ * <p><b>P7 re-checked this, as P5 required, and it holds — with a different guard.</b> P5 upheld
+ * the charge only as a stale comment on the grounds that no HOME drive can reach four hours; the
+ * origin move measures drives from a region base instead, which is exactly the change that could
+ * have broken that basis. It does not, and the reason is structural rather than arithmetic:
+ * {@code gateSpotsByOrigin} scopes an away window to the origin's <em>own</em> region, so every
+ * drive this function is ever handed under an away origin is base-to-somewhere-in-that-region.
+ * Those are county-scale and shorter than the home drives the ceiling was measured against — and
+ * the away default tier is <b>90</b> rather than the weekend's 150, so the {@code far} mark fires
+ * sooner too. Both clauses moved in the safe direction.
+ *
+ * <p>⚠️ <b>The condition that WOULD make a wrap reachable is now nameable.</b> The shared matrix
+ * covers the whole roster, not just the origin's region, so any future surface that renders a
+ * base-measured drive to a spot <em>outside</em> the origin's region — a "somewhere is good, just
+ * not near you" list (§9.8), or a P8 sheet that reaches past the card descriptor — reopens it
+ * immediately, because Keswick to the far north-east is hours rather than minutes. If that is
+ * built, the day marker ships with it. The fix costs no new words — {@code HotTopicStrip}'s
  * {@code leadDayWord} already prints {@code Today}/{@code Tomorrow}/{@code Sat} beside a clock
  * time — but it does cost this function's return shape, so it is not free.
  *
@@ -92,7 +107,9 @@ export const SETUP_MINUTES = 20;
  *        from {@code spot.driveMinutes}, which has exactly one producer (the reach join in
  *        {@code buildWindowSpots}) and is the same field the card's reach line prints — so P7's
  *        origin move reaches this line for free <em>if</em> it overwrites that value, and silently
- *        misses it if it adds {@code localDriveMinutes} beside it. Overwrite.
+ *        misses it if it adds {@code localDriveMinutes} beside it. It overwrites: P7 swaps the
+ *        whole reach map at the provider ({@code planOrigin.originReachMap}), so the reach line
+ *        and the leave line read one journey by construction.
  * @param {number} [setupMinutes] minutes to allow on arrival; defaults to {@link SETUP_MINUTES}.
  * @returns {?string} `HH:mm` on {@code Europe/London}, or null
  */

@@ -39,6 +39,7 @@ import com.gregochr.goldenhour.service.OptimisationStrategyService;
 import com.gregochr.goldenhour.service.OutcomeService;
 import com.gregochr.goldenhour.service.PromptTestService;
 import com.gregochr.goldenhour.service.RegistrationService;
+import com.gregochr.goldenhour.service.RegionDriveDurationService;
 import com.gregochr.goldenhour.service.RegionService;
 import com.gregochr.goldenhour.service.RunProgressTracker;
 import com.gregochr.goldenhour.service.ScheduledForecastService;
@@ -190,6 +191,9 @@ abstract class AbstractControllerTest {
 
     @MockitoBean
     protected RegionService regionService;
+
+    @MockitoBean
+    protected RegionDriveDurationService regionDriveDurationService;
 
     @MockitoBean
     protected RunProgressTracker progressTracker;

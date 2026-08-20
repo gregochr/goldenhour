@@ -6,7 +6,7 @@ import {
 import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
-import { areaSpots } from '../utils/planningArea.js';
+import { scopeSpots } from '../utils/planOrigin.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 
 /**
@@ -107,6 +107,7 @@ const PICK_RADIUS_FRACTION = 0.26;
  * @param {string}   props.date       the window's date, for the confidence horizon
  * @param {?string}  props.confidence the window's served confidence tier
  * @param {Array}    props.spots      the whole heat catalogue
+ * @param {?object}  [props.origin]   the away origin, or null for home — framing only
  * @param {Array}    props.points     this window's kernel points, from {@code buildHeatPointSets}
  * @param {?number}  [props.bestRating] the window's served best rating — null when the payload
  *   says nothing in this window is rated, which is the one thing that draws the unscored mark.
@@ -120,10 +121,14 @@ const PICK_RADIUS_FRACTION = 0.26;
  */
 export default function WindowRowFieldMap({
   windowKey, date, confidence, spots, points, bestRating = null, regionNames, selectedRegion,
+  origin = null,
   reachById, todayStr, onSelectRegion,
 }) {
   const isMobile = useIsMobile();
-  const framed = useMemo(() => areaSpots(spots, reachById), [spots, reachById]);
+  // Scope, not area — the planning area at home and the origin's own region when away, so the
+  // open row's map is framed exactly as the six thumbnails above it are. One module, so a row and
+  // the strip that opened it cannot disagree about what is in shot.
+  const framed = useMemo(() => scopeSpots(spots, reachById, origin), [spots, reachById, origin]);
   const fitTo = useMemo(() => bbox(framed), [framed]);
   const frameAspect = useMemo(() => clamp(
     aspect(fitTo),
@@ -317,6 +322,8 @@ WindowRowFieldMap.propTypes = {
   date: PropTypes.string.isRequired,
   confidence: PropTypes.string,
   spots: PropTypes.array.isRequired,
+  /** The away origin ({@code {name}}), or null for home. Framing only. */
+  origin: PropTypes.shape({ name: PropTypes.string.isRequired }),
   points: PropTypes.array.isRequired,
   bestRating: PropTypes.number,
   regionNames: PropTypes.arrayOf(PropTypes.string).isRequired,

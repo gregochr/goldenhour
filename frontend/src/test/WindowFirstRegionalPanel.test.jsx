@@ -47,7 +47,12 @@ const ctx = (overrides = {}) => ({
   upcomingEvents: [{ date: '2026-08-04', targetType: 'SUNSET' }],
   travelDayDates: new Set(['2026-08-06']),
   evaluationScores: new Map([['k', { rating: 4 }]]),
-  reachById: REACH,
+  // ⚠️ `effectiveReachById`, which is the map every drive-rendering consumer must read: P7's origin
+  // move OVERWRITES it with the region-base matrix, and reading the raw per-user `reachById` here
+  // put two origins' figures on one screen. `reachById` is carried too, so a regression back to it
+  // fails on the empty map rather than passing on a duplicate.
+  effectiveReachById: REACH,
+  reachById: new Map(),
   isPro: true,
   todayStr: '2026-08-04',
   tomorrowStr: '2026-08-05',
@@ -96,7 +101,7 @@ describe('WindowFirstRegionalPanel', () => {
     });
 
     it('hands over an empty map when no reach has arrived, which is the first-run state', () => {
-      renderPanel({ reachById: new Map() });
+      renderPanel({ effectiveReachById: new Map() });
       expect(HeatmapGrid.lastProps.driveMap.size).toBe(0);
     });
   });

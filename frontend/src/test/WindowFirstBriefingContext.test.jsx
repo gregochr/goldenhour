@@ -11,13 +11,19 @@ import { getDailyBriefing } from '../api/briefingApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import { getReach, getSettings } from '../api/settingsApi.js';
+import { fetchRegions, fetchRegionDriveTimes } from '../api/regionApi.js';
 import { storageKey, writeSwrCache } from '../utils/swrCache.js';
 import { PLAN_RATING_KEY } from '../utils/ratingLens.js';
+import { PLAN_REACH_KEY } from '../utils/reachLens.js';
 
 vi.mock('../api/briefingApi.js', () => ({ getDailyBriefing: vi.fn() }));
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn() }));
 vi.mock('../api/briefingEvaluationApi.js', () => ({ getAllEvaluationScores: vi.fn() }));
 vi.mock('../api/settingsApi.js', () => ({ getReach: vi.fn(), getSettings: vi.fn() }));
+vi.mock('../api/regionApi.js', () => ({
+  fetchRegions: vi.fn(),
+  fetchRegionDriveTimes: vi.fn(),
+}));
 
 let mockRole = 'PRO_USER';
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: mockRole }) }));
@@ -47,6 +53,31 @@ const NOON_ISH = new Date('2026-08-04T09:00:00Z');
  * date derived from the instant the suite is pinned to cannot drift from it.
  */
 const TODAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(NOON_ISH);
+
+/**
+ * The two region records the origin tests plan from — one based, one not.
+ *
+ * <p>Module scope so the probe's buttons can name them and the assertions can compare against the
+ * same objects: {@code setOrigin} takes a region RECORD, which is what stops a caller building an
+ * origin out of a region with no base.
+ */
+const LAKES_REGION = {
+  id: 3, name: 'The Lake District', enabled: true,
+  baseName: 'Keswick', baseLat: 54.6013, baseLon: -3.1347,
+};
+const BASELESS_REGION = {
+  id: 2, name: 'The North Yorkshire Coast', enabled: true,
+  baseName: null, baseLat: null, baseLon: null,
+};
+/**
+ * The region the fixture payload is actually about — so one test can plan from a base and keep its
+ * spot, where {@link LAKES_REGION} plans somewhere the payload says nothing about and empties it.
+ * Both cases matter and they are different assertions.
+ */
+const PAYLOAD_REGION = {
+  id: 1, name: 'Northumberland & Tyneside', enabled: true,
+  baseName: 'Alnwick', baseLat: 55.4137, baseLon: -1.706,
+};
 
 /** A payload whose one rated day the rail can roll up, dated {@link TODAY}. */
 function payloadFor(dateStr, { generatedAt = null } = {}) {
@@ -133,6 +164,7 @@ function Consumer() {
   const {
     briefing, loading, heatStripCards, windowCards, evaluationScores, reachLens: lens, ratingLens,
     orderLens, homePlace, promotedStrip, heatSpots, heatPointSets,
+    origin, setOrigin, regions, effectiveReachById,
   } = useWindowFirstBriefing();
   // Identity, not content: plan §5.4 requires the join to be memoised on its real inputs, and a
   // recomputation is invisible in the rendered text. Collected here rather than in a bespoke
@@ -174,6 +206,21 @@ function Consumer() {
       <span data-testid="home-place">{homePlace === undefined ? 'unknown' : String(homePlace)}</span>
       {/* The real pairing, not a bespoke control: the shell renders exactly this from exactly this
           value, and it is the only way to move the tier the way a user does. */}
+      {/* P7's origin. `origin-drive` is the load-bearing one: it reads the map the CARDS were
+          built from, so it catches a provider that computed the away map and then handed
+          `buildWindowCards` the home one. */}
+      <span data-testid="origin">{origin ? `${origin.id}:${origin.name}:${origin.baseName}` : 'home'}</span>
+      <span data-testid="origin-regions">{regions.map((r) => r.name).join('|') || 'none'}</span>
+      <span data-testid="origin-drive">
+        {[...effectiveReachById.entries()]
+          .map(([id, v]) => `${id}=${v.driveMinutes}/${v.distanceMiles}`)
+          .join('|') || 'none'}
+      </span>
+      <span data-testid="lens-default">{lens?.defaultTierId ?? 'none'}</span>
+      <button type="button" data-testid="go-lakes" onClick={() => setOrigin(LAKES_REGION)}>lakes</button>
+      <button type="button" data-testid="go-payload-region" onClick={() => setOrigin(PAYLOAD_REGION)}>payload region</button>
+      <button type="button" data-testid="go-baseless" onClick={() => setOrigin(BASELESS_REGION)}>baseless</button>
+      <button type="button" data-testid="go-home" onClick={() => setOrigin(null)}>home</button>
       <span data-testid="lens-floor">{ratingLens?.floorId ?? 'none'}</span>
       <span data-testid="lens-min">{String(ratingLens?.minRating)}</span>
       <span data-testid="reached-total">{windowCards[0]?.reachedTotal ?? 'none'}</span>
@@ -284,6 +331,10 @@ describe('WindowFirstBriefingProvider', () => {
     getReach.mockResolvedValue([]);
     getSettings.mockReset();
     getSettings.mockResolvedValue({ homePostcode: null, homePlaceName: null });
+    fetchRegions.mockReset();
+    fetchRegions.mockResolvedValue([LAKES_REGION, BASELESS_REGION]);
+    fetchRegionDriveTimes.mockReset();
+    fetchRegionDriveTimes.mockResolvedValue({});
     heatIdentities.length = 0;
     heatPointIdentities.length = 0;
     freezeClock();
@@ -1233,6 +1284,157 @@ describe('WindowFirstBriefingProvider', () => {
       // BOTH memos, because they are two `useMemo`s and the second was unpinned: removing it
       // returns a fresh Map per render, which is exactly the repaint this asserts against.
       expect(heatPointIdentities[heatPointIdentities.length - 1]).toBe(settledPoints);
+    });
+  });
+
+
+  /**
+   * The origin (plan §4.8, P7) — the provider's own wiring, not the pure module's.
+   *
+   * <p><b>What breaks if these fail.</b> {@code planOrigin.test.js} proves {@code originReachMap}
+   * builds the away map from the shared matrix alone; nothing there proves the provider then HANDS
+   * that map to {@code buildWindowCards}. That second half is what a reader sees, and every failure
+   * mode of it is a one-line change: pass {@code reachById} instead, and every away card silently
+   * prints the journey from the reader's house — under a chip naming a town two hundred miles from
+   * it, on the line that becomes a departure time.
+   */
+  describe('WindowFirstBriefingProvider — the origin', () => {
+    const withScores = async () => {
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
+      getReach.mockResolvedValue([{ locationId: 7, driveMinutes: 41, distanceMiles: 19 }]);
+      fetchRegionDriveTimes.mockResolvedValue({ 3: { 7: 12 } });
+      renderProvider();
+      await screen.findByText(`${TODAY}T12:00:00`);
+    };
+
+    it('fetches the regions and the shared matrix once, on mount', async () => {
+      await withScores();
+      expect(fetchRegions).toHaveBeenCalledTimes(1);
+      expect(fetchRegionDriveTimes).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(screen.getByTestId('origin-regions'))
+        .toHaveTextContent('The Lake District|The North Yorkshire Coast'));
+    });
+
+    it('starts at home, with the reader\'s own reach map', async () => {
+      await withScores();
+      await waitFor(() => expect(screen.getByTestId('origin-drive')).toHaveTextContent('7=41/19'));
+      expect(screen.getByTestId('origin')).toHaveTextContent('home');
+    });
+
+    it('⚠️ OVERWRITES the reach map with the shared matrix when the origin moves', async () => {
+      await withScores();
+      await waitFor(() => expect(screen.getByTestId('origin-drive')).toHaveTextContent('7=41/19'));
+
+      fireEvent.click(screen.getByTestId('go-lakes'));
+
+      // The matrix's 12 minutes, and NO distance: the 19 miles were measured from the reader's home
+      // and printing them beside a base-measured drive would put two journeys in one line.
+      expect(screen.getByTestId('origin-drive')).toHaveTextContent('7=12/null');
+      expect(screen.getByTestId('origin')).toHaveTextContent('3:The Lake District:Keswick');
+    });
+
+    it('⚠️ hands that map to the CARDS, which is the half a pure-function test cannot reach', async () => {
+      await withScores();
+      await waitFor(() => expect(screen.getByTestId('spot-reach')).toHaveTextContent('41/19'));
+
+      fireEvent.click(screen.getByTestId('go-lakes'));
+
+      // The window's one region is Northumberland, so the Lakes scope empties the card — which is
+      // itself the scope working. The drive figure is asserted from the away region's own card below.
+      expect(screen.getByTestId('spots')).toHaveTextContent('none');
+    });
+
+    it('carries the base-measured drive onto the spot cards of the origin\'s own region', async () => {
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
+      getReach.mockResolvedValue([{ locationId: 7, driveMinutes: 41, distanceMiles: 19 }]);
+      // The origin IS the payload's region here, so the scope keeps the spot and the assertion is
+      // about the number on it rather than about the filter.
+      fetchRegions.mockResolvedValue([PAYLOAD_REGION]);
+      fetchRegionDriveTimes.mockResolvedValue({ 1: { 7: 25 } });
+      renderProvider();
+      await screen.findByText(`${TODAY}T12:00:00`);
+      await waitFor(() => expect(screen.getByTestId('spot-reach')).toHaveTextContent('41/19'));
+
+      fireEvent.click(screen.getByTestId('go-payload-region'));
+
+      expect(screen.getByTestId('spots')).toHaveTextContent('Bamburgh');
+      expect(screen.getByTestId('spot-reach')).toHaveTextContent('25/null');
+    });
+
+    it('refuses a region with no base — the call becomes a return home', async () => {
+      await withScores();
+      fireEvent.click(screen.getByTestId('go-lakes'));
+      expect(screen.getByTestId('origin')).toHaveTextContent('The Lake District');
+
+      fireEvent.click(screen.getByTestId('go-baseless'));
+
+      expect(screen.getByTestId('origin')).toHaveTextContent('home');
+    });
+
+    it('leaves the drive UNKNOWN for a location the matrix has no row for', async () => {
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
+      getReach.mockResolvedValue([{ locationId: 7, driveMinutes: 41, distanceMiles: 19 }]);
+      fetchRegionDriveTimes.mockResolvedValue({ 3: {} });
+      renderProvider();
+      await screen.findByText(`${TODAY}T12:00:00`);
+      await waitFor(() => expect(screen.getByTestId('origin-drive')).toHaveTextContent('7=41/19'));
+
+      fireEvent.click(screen.getByTestId('go-lakes'));
+
+      // NOT the home figure. An away location the sweep has not measured is unknown, which renders no
+      // drive line and passes every reach tier — never a number from the wrong origin.
+      expect(screen.getByTestId('origin-drive')).toHaveTextContent('none');
+    });
+
+    describe('the reach default moves with it, and nothing is persisted', () => {
+      it('drops the DEFAULT to the away tier, not the selection', async () => {
+        await withScores();
+        expect(screen.getByTestId('lens-default')).toHaveTextContent('45');
+        expect(screen.getByTestId('lens-tier')).toHaveTextContent('45');
+
+        fireEvent.click(screen.getByTestId('go-lakes'));
+
+        expect(screen.getByTestId('lens-default')).toHaveTextContent('90');
+        expect(screen.getByTestId('lens-tier')).toHaveTextContent('90');
+      });
+
+      it('restores the DAY\'s default on the way home', async () => {
+        await withScores();
+        fireEvent.click(screen.getByTestId('go-lakes'));
+        expect(screen.getByTestId('lens-tier')).toHaveTextContent('90');
+
+        fireEvent.click(screen.getByTestId('go-home'));
+
+        expect(screen.getByTestId('lens-default')).toHaveTextContent('45');
+        expect(screen.getByTestId('lens-tier')).toHaveTextContent('45');
+      });
+
+      it('⚠️ writes NOTHING to storage, so a reload cannot land at home behind an away lens', async () => {
+        // The origin is in memory and a reload returns it home. A persisted 90 would outlive it: the
+        // reader would land at home behind a 1h 30 gate they never chose, with a "today only" pill
+        // marking a choice they never made.
+        await withScores();
+        fireEvent.click(screen.getByTestId('go-lakes'));
+        expect(localStorage.getItem(PLAN_REACH_KEY)).toBeNull();
+
+        fireEvent.click(screen.getByTestId('go-home'));
+        expect(localStorage.getItem(PLAN_REACH_KEY)).toBeNull();
+      });
+
+      it('⚠️ keeps a tier the reader chose themselves across the move', async () => {
+        // An explicit choice outranks a default. The move changes the FRAME; it does not reach over
+        // and move a control the reader has already set.
+        await withScores();
+        const tier150 = screen.getAllByTestId('window-first-lens-tiers-option')
+          .find((b) => b.dataset.option === '150');
+        fireEvent.click(tier150);
+        expect(screen.getByTestId('lens-tier')).toHaveTextContent('150');
+
+        fireEvent.click(screen.getByTestId('go-lakes'));
+
+        expect(screen.getByTestId('lens-tier')).toHaveTextContent('150');
+        expect(screen.getByTestId('lens-default')).toHaveTextContent('90');
+      });
     });
   });
 });

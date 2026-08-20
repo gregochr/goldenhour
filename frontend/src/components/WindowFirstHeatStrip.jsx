@@ -6,7 +6,8 @@ import {
 import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { windowCardDomId } from '../utils/windowFirstCards.js';
-import { areaSpots, beyondRegions, GLANCE_MINUTES } from '../utils/planningArea.js';
+import { beyondRegions, GLANCE_MINUTES } from '../utils/planningArea.js';
+import { scopeSpots } from '../utils/planOrigin.js';
 import { RAMP_STOPS } from '../utils/scoreRamp.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { movementChip, topMovers } from '../utils/movement.js';
@@ -193,16 +194,27 @@ export function thumbAspect(fitTo) {
  *                                    recomputed so the strip's line and the footer's stamp can
  *                                    never disagree by a rounding boundary
  * @param {Function} [props.onOpenWindow] opens and reveals a window's card
+ * @param {?object}  [props.origin]   the away origin, or null for home — framing only
+ * @param {Function} [props.onSearchRegion] opens search pre-filled with a region name
  */
 export default function WindowFirstHeatStrip({
   cards, pointSets, spots, reachById, openKeys, todayStr, runAge, onOpenWindow,
+  origin = null, onSearchRegion,
 }) {
-  // Framing is the ONE thing the planning area is allowed to decide about the field (planningArea's
-  // own module comment): which regions are in shot. It must never become the point set — handing
-  // `areaSpots` to the kernel would turn the framing into the reach filter plan §3 forbids, and the
-  // footer's own caption promises it does not.
-  const framed = useMemo(() => areaSpots(spots, reachById), [spots, reachById]);
-  const beyond = useMemo(() => beyondRegions(spots, reachById), [spots, reachById]);
+  // Framing is the ONE thing scope is allowed to decide about the field: which regions are in shot.
+  // It must never become the point set — handing the scoped list to the kernel would turn the
+  // framing into the reach filter plan §3 forbids, and the footer's own caption promises it does
+  // not. `scopeSpots` is the planning area at home and the origin's own region when away, which is
+  // what makes all six thumbnails re-frame together on an origin move (plan §4.8's headline state).
+  const framed = useMemo(() => scopeSpots(spots, reachById, origin), [spots, reachById, origin]);
+  const beyond = useMemo(
+    // Away the line is withheld entirely rather than recomputed from the base: "beyond 3h from
+    // home" is a statement about the home planning area, and the shared matrix carries no such
+    // threshold. A wrong frame of reference on a line whose whole job is to name distances is
+    // worse than the line's absence, and the origin chip already says where you are.
+    () => (origin ? [] : beyondRegions(spots, reachById)),
+    [spots, reachById, origin],
+  );
   const fitTo = useMemo(() => bbox(framed), [framed]);
   const frameAspect = useMemo(() => thumbAspect(fitTo), [fitTo]);
   // Only the windows that actually moved — see `topMovers`. Empty is the ordinary state on the
@@ -521,11 +533,34 @@ export default function WindowFirstHeatStrip({
 
       {/* Named, never counted, and only where a drive was actually measured: `beyondRegions`
           withholds an unmeasured region precisely so this line cannot claim a distance nobody
-          computed. The search link that would let a reader plan from one arrives with P7; until
-          then the names are the whole of it. */}
+          computed.
+
+          The link is P7's, deferred from P2 for the reason this arm defers every such control: a
+          line naming places you cannot reach, with no route to them, is the "number with no route
+          to the thing it counts" defect CLAUDE.md already records against Close-to-home. It opens
+          search pre-filled with the FIRST beyond region — `beyondRegions` is sorted nearest-first,
+          so that is the one a reader is most likely to want, and the box is left editable rather
+          than the link being one-per-region: six links would make the tail longer than the strip.
+          It is a link into search rather than a direct origin move because a beyond region may
+          have no base town, and a control that silently does nothing is worse than one that shows
+          you why. */}
       {beyond.length > 0 && (
         <p data-testid="wf-heat-beyond" className="wf-hstrip-beyond">
           {`Beyond ${GLANCE_HOURS}h from home: ${beyond.join(' · ')}`}
+          {onSearchRegion && (
+            <>
+              {' '}
+              <button
+                type="button"
+                data-testid="wf-heat-beyond-search"
+                className="wf-hstrip-beyond-act"
+                onClick={() => onSearchRegion(beyond[0])}
+              >
+                {`search to plan from ${beyond[0]}`}
+                <span aria-hidden="true"> →</span>
+              </button>
+            </>
+          )}
         </p>
       )}
     </section>
@@ -558,4 +593,14 @@ WindowFirstHeatStrip.propTypes = {
   todayStr: PropTypes.string,
   runAge: PropTypes.string,
   onOpenWindow: PropTypes.func,
+  /**
+   * The away origin ({@code {name, baseName}}), or null for home. Framing only — it never reaches
+   * the kernel's point set.
+   */
+  origin: PropTypes.shape({
+    name: PropTypes.string.isRequired,
+    baseName: PropTypes.string.isRequired,
+  }),
+  /** Opens search pre-filled with a region name. Omit and the beyond line renders without its link. */
+  onSearchRegion: PropTypes.func,
 };

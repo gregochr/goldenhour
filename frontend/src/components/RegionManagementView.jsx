@@ -1,5 +1,7 @@
 import React, { useEffect, useOptimistic, useState, useTransition, useMemo } from 'react';
-import { fetchRegions, addRegion, updateRegion, setRegionEnabled } from '../api/regionApi.js';
+import {
+  fetchRegions, addRegion, updateRegion, setRegionEnabled, setRegionBase,
+} from '../api/regionApi.js';
 import { fetchLocations } from '../api/forecastApi.js';
 import Pagination from './Pagination.jsx';
 import usePagination from '../hooks/usePagination.js';
@@ -19,6 +21,20 @@ export default function RegionManagementView() {
 
   // Form state
   const [formName, setFormName] = useState('');
+  /**
+   * The base town — the origin the Plan tab can plan from (heat-field plan §4.8).
+   *
+   * <p>Held as STRINGS, including the two coordinates, because an empty field and a zero are
+   * different answers and a numeric state cannot hold both: `Number('')` is 0, which would drop a
+   * base on the Gulf of Guinea the moment someone cleared a field. They are parsed once, on save.
+   *
+   * <p>Edit mode only. A region is created with a name and given a base afterwards, which keeps the
+   * add form the one-field form it has always been — and a base is not something an admin has to
+   * hand before a region can hold locations.
+   */
+  const [formBaseName, setFormBaseName] = useState('');
+  const [formBaseLat, setFormBaseLat] = useState('');
+  const [formBaseLon, setFormBaseLon] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -89,6 +105,9 @@ export default function RegionManagementView() {
   function handleStartAdd() {
     setMode('add');
     setFormName('');
+    setFormBaseName('');
+    setFormBaseLat('');
+    setFormBaseLon('');
     setError('');
   }
 
@@ -96,6 +115,10 @@ export default function RegionManagementView() {
     setMode('edit');
     setEditingRegion(region);
     setFormName(region.name);
+    setFormBaseName(region.baseName ?? '');
+    // `?? ''` rather than `|| ''`: a longitude of exactly 0 is Greenwich, and `||` would blank it.
+    setFormBaseLat(region.baseLat == null ? '' : String(region.baseLat));
+    setFormBaseLon(region.baseLon == null ? '' : String(region.baseLon));
     setError('');
   }
 
@@ -105,10 +128,41 @@ export default function RegionManagementView() {
     setError('');
   }
 
+  /**
+   * The base form as the endpoint takes it, plus whether it differs from what is stored.
+   *
+   * <p>All three empty means "clear the base", which is a legitimate save. A partial base is
+   * rejected here as well as on the backend, so the admin gets the message beside the fields rather
+   * than as a 400 after a round trip.
+   */
+  function readBaseForm() {
+    const name = formBaseName.trim();
+    const latText = formBaseLat.trim();
+    const lonText = formBaseLon.trim();
+    if (!name && !latText && !lonText) {
+      const changed = Boolean(editingRegion?.baseName)
+        || editingRegion?.baseLat != null || editingRegion?.baseLon != null;
+      return { changed, body: { baseName: null, baseLat: null, baseLon: null } };
+    }
+    const lat = Number(latText);
+    const lon = Number(lonText);
+    if (!name || latText === '' || lonText === ''
+        || !Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return { invalid: true };
+    }
+    const changed = name !== (editingRegion?.baseName ?? '')
+      || lat !== editingRegion?.baseLat || lon !== editingRegion?.baseLon;
+    return { changed, body: { baseName: name, baseLat: lat, baseLon: lon } };
+  }
+
   async function handleSave() {
     const trimmed = formName.trim();
     if (!trimmed) {
       setError('Region name is required.');
+      return;
+    }
+    if (mode === 'edit' && readBaseForm().invalid) {
+      setError('A base town needs a name, a latitude and a longitude — or leave all three blank.');
       return;
     }
     setSaving(true);
@@ -118,11 +172,23 @@ export default function RegionManagementView() {
         await addRegion({ name: trimmed });
       } else {
         await updateRegion(editingRegion.id, { name: trimmed });
+        // A SECOND call, deliberately: the rename endpoint carries no base fields, so a rename can
+        // never clear a base by omission. Sent after the rename and only when something changed,
+        // because moving the base discards that region's whole shared drive-time matrix — a cost
+        // worth paying when the town moves and not worth paying to re-save a name.
+        const base = readBaseForm();
+        if (base.changed) await setRegionBase(editingRegion.id, base.body);
       }
       await refreshRegions();
       handleCancel();
     } catch (err) {
       setError(err?.response?.data?.error ?? err.message ?? 'Failed to save region.');
+      // ⚠️ Refresh even on a failure, and that is not tidiness. The save is TWO calls — the rename,
+      // then the base — so the first can commit while the second 400s on a coordinate the backend
+      // bounds-checks and this form does not. Without this the table still showed the OLD name for
+      // a rename that had already landed, under an error message about the base, with no hint that
+      // half the save had persisted. The form stays open on the failed field.
+      await refreshRegions().catch(() => {});
     } finally {
       setSaving(false);
     }
@@ -141,7 +207,7 @@ export default function RegionManagementView() {
   }
 
   const inputClass = 'w-full bg-plex-surface-light border border-plex-border rounded px-3 py-1.5 text-sm text-plex-text placeholder-plex-text-muted focus:outline-none focus:ring-1 focus:ring-plex-gold';
-  const COL_COUNT = 5;
+  const COL_COUNT = 6;
 
   return (
     <div className="flex flex-col gap-4">
@@ -174,6 +240,9 @@ export default function RegionManagementView() {
                     <SortableHeader label="Status" sortKey="status" currentSortKey={sortKey} currentSortDir={sortDir} onSort={handleSort} spacer={false} />
                     <SortableHeader label="Location Count" sortKey="locationCount" currentSortKey={sortKey} currentSortDir={sortDir} onSort={handleSort} spacer={false} />
                     <th className="pb-1 font-medium text-xs text-plex-text-muted align-bottom">
+                      <span className="whitespace-nowrap">Base</span>
+                    </th>
+                    <th className="pb-1 font-medium text-xs text-plex-text-muted align-bottom">
                       <span className="whitespace-nowrap">Actions</span>
                     </th>
                   </tr>
@@ -203,6 +272,11 @@ export default function RegionManagementView() {
                       </td>
                       <td className="py-2 text-plex-text-secondary text-xs" data-testid={`region-location-count-${region.id}`}>
                         {locationCountByRegion[region.id] || 0}
+                      </td>
+                      {/* An em dash, not "none": a region without a base is the ordinary state and
+                          reads as a blank rather than as a fault. */}
+                      <td className="py-2 text-plex-text-secondary text-xs" data-testid={`region-base-${region.id}`}>
+                        {region.baseName || '—'}
                       </td>
                       <td className="py-2">
                         <button
@@ -266,6 +340,54 @@ export default function RegionManagementView() {
               data-testid="region-name-input"
             />
           </div>
+
+          {mode === 'edit' && (
+            <fieldset className="flex flex-col gap-2" data-testid="region-base-fields">
+              <legend className="block text-xs text-plex-text-secondary mb-1">
+                Base town — the origin the Plan tab can plan from
+              </legend>
+              <p className="text-xs text-plex-text-muted">
+                The town a visitor would stay in, not the region&apos;s centre — a centroid is
+                often offshore, and every drive time would then measure a journey nobody can make.
+                Leave all three blank and the region cannot be an origin. Changing the coordinates
+                discards this region&apos;s stored drive times; the nightly job recalculates them.
+              </p>
+              <input
+                id="region-base-name"
+                type="text"
+                className={inputClass}
+                placeholder="Base town, e.g. Keswick"
+                aria-label="Base town name"
+                value={formBaseName}
+                onChange={(e) => setFormBaseName(e.target.value)}
+                data-testid="region-base-name-input"
+              />
+              <div className="flex gap-2">
+                <input
+                  id="region-base-lat"
+                  type="text"
+                  inputMode="decimal"
+                  className={inputClass}
+                  placeholder="Latitude, e.g. 54.6013"
+                  aria-label="Base latitude"
+                  value={formBaseLat}
+                  onChange={(e) => setFormBaseLat(e.target.value)}
+                  data-testid="region-base-lat-input"
+                />
+                <input
+                  id="region-base-lon"
+                  type="text"
+                  inputMode="decimal"
+                  className={inputClass}
+                  placeholder="Longitude, e.g. -3.1347"
+                  aria-label="Base longitude"
+                  value={formBaseLon}
+                  onChange={(e) => setFormBaseLon(e.target.value)}
+                  data-testid="region-base-lon-input"
+                />
+              </div>
+            </fieldset>
+          )}
 
           {error && <p className="text-xs text-red-400">{error}</p>}
 

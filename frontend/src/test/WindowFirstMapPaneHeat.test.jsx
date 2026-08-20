@@ -196,3 +196,75 @@ describe('WindowFirstMapPane — the heat prop', () => {
     expect(MapStub.lastProps.heat).toBe(first);
   });
 });
+
+/**
+ * The origin on the Map tab (plan §4.8, P7).
+ *
+ * <p><b>What breaks if these fail.</b> "All six thumbnails re-frame" is pinned on the Plan strip;
+ * this is the same claim's other surface, and a half-applied origin — a Map tab opening on the home
+ * planning area while the strip has re-framed to the region — is worse than none. The drive figures
+ * matter as much: `MapView` fetches the per-user times itself, so without an overwrite the pin
+ * popups and the drive-time filter measure from the reader's house on a tab framed around Keswick.
+ */
+describe('WindowFirstMapPane — the origin', () => {
+  const LAKES = { id: 3, name: 'The Lakes', baseName: 'Keswick' };
+  const BASE_REACH = new Map([[2, { driveMinutes: 8, distanceMiles: null }]]);
+
+  it('frames on the planning area at home', () => {
+    renderPane();
+    expect(MapStub.lastProps.heat.areaSpots.map((s) => s.name)).toEqual(['Bamburgh', 'Wastwater']);
+  });
+
+  it('⚠️ frames on the ORIGIN\'s own region when away — including one the home area excludes', () => {
+    renderPane(context({ origin: { id: 4, name: 'The Borders', baseName: 'Kelso' } }));
+    // The Borders is 400 minutes from home, i.e. beyond GLANCE and outside the planning area. The
+    // origin move is precisely how a reader reaches it, so the frame must not still be the area's.
+    expect(MapStub.lastProps.heat.areaSpots.map((s) => s.name)).toEqual(['Kelso']);
+  });
+
+  it('draws the area segment away even with no home postcode saved', () => {
+    // Without the widening an away reader who has never set a postcode loses the control entirely,
+    // on a tab whose frame the origin has just narrowed — two states, one of them unreachable.
+    renderPane(context({ homePlace: null, origin: LAKES }));
+    expect(MapStub.lastProps.heat.hasHome).toBe(true);
+  });
+
+  it('names the framed area after the base, because "My area" is false away from home', () => {
+    renderPane(context({ origin: LAKES }));
+    expect(MapStub.lastProps.heat.areaLabel).toBe('Around Keswick');
+  });
+
+  it('keeps the label undefined at home, so the map uses its own "My area"', () => {
+    renderPane();
+    expect(MapStub.lastProps.heat.areaLabel).toBeUndefined();
+  });
+
+  it('⚠️ OVERWRITES the map\'s drive figures with the base-measured matrix when away', () => {
+    renderPane(context({ origin: LAKES, effectiveReachById: BASE_REACH }));
+    expect(MapStub.lastProps.heat.driveOverrideById).toBe(BASE_REACH);
+  });
+
+  it('hands the map NO override at home, so v1 and the home path keep their own fetch', () => {
+    renderPane(context({ effectiveReachById: REACH }));
+    expect(MapStub.lastProps.heat.driveOverrideById).toBeUndefined();
+  });
+
+  it('re-frames on an origin CHANGE, not merely on a first render with one set', () => {
+    // The mutation this catches is dropping `origin` from the heat memo's dependency list: the
+    // first render is correct either way, and the map keeps the previous frame forever after.
+    const { rerender } = renderPane();
+    expect(MapStub.lastProps.heat.areaSpots.map((s) => s.name)).toEqual(['Bamburgh', 'Wastwater']);
+
+    briefingValue = context({ origin: LAKES });
+    rerender(
+      <WindowFirstMapPane
+        locations={[]}
+        dates={[TODAY]}
+        selectedDate={TODAY}
+        onSelectDate={vi.fn()}
+      />,
+    );
+
+    expect(MapStub.lastProps.heat.areaSpots.map((s) => s.name)).toEqual(['Wastwater']);
+  });
+});

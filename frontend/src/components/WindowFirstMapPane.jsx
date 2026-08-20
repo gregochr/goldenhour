@@ -8,7 +8,7 @@ import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.js
 // so importing a bounding-box helper from there fetched a 24 KB projection chunk the moment the Map
 // tab opened, in medallion view, for arithmetic that is four `Math.min` calls.
 import { latLngBounds } from '../utils/heatGeometry.js';
-import { areaSpots } from '../utils/planningArea.js';
+import { scopeSpots } from '../utils/planOrigin.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 
 /**
@@ -103,6 +103,7 @@ export default function WindowFirstMapPane({
   const [resizeNonce, setResizeNonce] = useState(0);
   const {
     heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr,
+    origin, effectiveReachById,
   } = useWindowFirstBriefing();
 
   /**
@@ -124,11 +125,18 @@ export default function WindowFirstMapPane({
    * defeat it, and this component re-renders on every provider tick.
    */
   const heat = useMemo(() => {
-    const framed = areaSpots(heatSpots, reachById);
+    // Scope, not area: the planning area at home and the origin's own region when away, so the
+    // Map tab opens on the same frame the Plan tab's thumbnails have just re-drawn to. Both read
+    // the one module for exactly that reason.
+    const framed = scopeSpots(heatSpots, reachById, origin);
     // `homePlace` is what `planningArea` needs to have measured anything at all: with no postcode
     // saved, `reachById` is empty, every region is unmeasured-and-therefore-in, and `framed` is the
     // whole catalogue. The segment is then two identical states, which D6 says must not be drawn.
-    const hasHome = Boolean(homePlace) && framed.length > 0 && framed.length < heatSpots.length;
+    // An away origin always narrows, so the segment is drawn whether or not a postcode is saved —
+    // and its "My area" half then means "where you are planning from", which is what the origin
+    // chip beside it says.
+    const hasHome = (Boolean(homePlace) || Boolean(origin))
+      && framed.length > 0 && framed.length < heatSpots.length;
     return {
       enabled: heatSpots.length > 0,
       hasHome,
@@ -157,8 +165,16 @@ export default function WindowFirstMapPane({
       })),
       areaBounds: framed.length > 0 ? latLngBounds(framed, FRAME_PAD_DEG) : null,
       catalogueBounds: heatSpots.length > 0 ? latLngBounds(heatSpots, FRAME_PAD_DEG) : null,
+      // ⚠️ Only while away. `MapView` fetches the per-user drive times itself and v1 depends on
+      // that; handing it a map at home would be a second source of the same numbers. Away it is an
+      // overwrite, so this tab's pin popups and its drive-time filter measure from the same base
+      // the Plan tab's cards do — §4.8's "drive figures switch" is not scoped to one tab.
+      driveOverrideById: origin ? effectiveReachById : undefined,
+      // "My area" is false under an away origin: the frame is the region being planned from.
+      areaLabel: origin ? `Around ${origin.baseName}` : undefined,
     };
-  }, [heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr]);
+  }, [heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr,
+    origin, effectiveReachById]);
 
   useEffect(() => {
     const el = wrapRef.current;

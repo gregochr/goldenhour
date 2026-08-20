@@ -394,3 +394,36 @@ describe('WindowFirstWindowCard — the footer names the filters in force', () =
     expect(screen.queryByTestId('window-spot-filters')).toBeNull();
   });
 });
+
+/**
+ * The origin's effect on the open row (plan §4.8, P7).
+ *
+ * <p><b>What breaks if these fail.</b> A rail drawn under a single-region scope offers a choice
+ * that has already been made — its "All N regions" peer cell and its per-region counts would
+ * describe a one-region set as though it were a choice — and its selection would then filter a
+ * scope that is already exactly that region. The map above it keeps its labels, so the region is
+ * still named on screen.
+ */
+describe('the open row under an away origin', () => {
+  const ORIGIN = { name: 'Coast', baseName: 'Seahouses' };
+
+  it('draws the rail at home', async () => {
+    await renderCard({ field: field() });
+    expect(screen.getByTestId('wf-region-rail')).toBeInTheDocument();
+  });
+
+  it('⚠️ withholds the rail when the origin has already narrowed the page to one region', async () => {
+    await renderCard({ field: field({ singleRegionScope: true, origin: ORIGIN }) });
+    expect(screen.queryByTestId('wf-region-rail')).toBeNull();
+  });
+
+  it('keeps the field map, so the region is still drawn and still named', async () => {
+    await renderCard({ field: field({ singleRegionScope: true, origin: ORIGIN }) });
+    expect(screen.getByTestId('wf-row-map')).toBeInTheDocument();
+  });
+
+  it('keeps the spot strip, which is what the row is FOR', async () => {
+    await renderCard({ field: field({ singleRegionScope: true, origin: ORIGIN }) });
+    expect(screen.getByTestId('window-spot-strip')).toBeInTheDocument();
+  });
+});

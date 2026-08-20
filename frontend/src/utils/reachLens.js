@@ -285,10 +285,15 @@ export function formatLensCount({ spotCount, reachedCount, windowCount }) {
  * @returns {string} the readout
  */
 export function formatLensReadout({
-  tierLabel, isDefault, weekend, ratingLabel, spotCount, reachedCount, windowCount,
+  tierLabel, isDefault, weekend, originDefault, ratingLabel, spotCount, reachedCount, windowCount,
 }) {
   const parts = [tierLabel];
-  if (isDefault) parts.push(`${weekend ? 'weekend' : 'weekday'} default`);
+  // ⚠️ The day word is only true while the default IS the day's. With an away origin the default
+  // comes from the origin (`useReachLens`'s `defaultOverrideId`), so "weekday default" would name a
+  // rule that is not in force — on a Tuesday, beside a caption reading "Drive from Keswick", it
+  // would be the one line on the bar contradicting the one above it. "here" is the caption's own
+  // subject, so the two read as one sentence rather than as two claims.
+  if (isDefault) parts.push(originDefault ? 'default here' : `${weekend ? 'weekend' : 'weekday'} default`);
   if (ratingLabel) parts.push(ratingLabel.toLowerCase());
   const count = formatLensCount({ spotCount, reachedCount, windowCount });
   if (count) parts.push(`${count.lead} ${count.rest}`);

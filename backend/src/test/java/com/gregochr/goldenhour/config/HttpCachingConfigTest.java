@@ -63,6 +63,10 @@ class HttpCachingConfigTest {
         "/api/aurora/status",
         "/api/nlc/sighting",
         "/api/almanac",
+        // The shared region-base drive-time matrix. User-independent geography, which is the whole
+        // reason it may be here at all — its per-user twin, /api/user/settings/reach, is pinned to
+        // the exclusion list below.
+        "/api/regions/drive-times",
     })
     @DisplayName("Whitelisted read paths are ETag-filtered")
     void whitelistedReadPathsAreFiltered(String path) {
@@ -101,6 +105,19 @@ class HttpCachingConfigTest {
         assertThat(filter.shouldNotFilter(get(path)))
                 .as("%s carries user-authored or home-derived data and must stay no-store", path)
                 .isTrue();
+    }
+
+    @Test
+    @DisplayName("Only the region drive-time matrix is revalidatable under /api/regions")
+    void regionWhitelistIsTheMatrixAlone() {
+        // Exact match, so the matrix's entry cannot pull the region list or a write path in with
+        // it. The list is a small read nothing polls; the writes must keep Spring Security's
+        // no-store default.
+        assertThat(filter.shouldNotFilter(get("/api/regions/drive-times"))).isFalse();
+        assertThat(filter.shouldNotFilter(get("/api/regions"))).isTrue();
+        assertThat(filter.shouldNotFilter(get("/api/regions/7"))).isTrue();
+        assertThat(filter.shouldNotFilter(get("/api/regions/7/base"))).isTrue();
+        assertThat(filter.shouldNotFilter(get("/api/regions/drive-times/7"))).isTrue();
     }
 
     @Test

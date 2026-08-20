@@ -4,7 +4,7 @@ import { act, cleanup, render, screen, fireEvent } from '@testing-library/react'
 import WindowRowFieldMap, {
   MAP_ASPECT_MAX, MAP_ASPECT_MAX_PHONE, MAP_ASPECT_MIN, MAP_ASPECT_MIN_PHONE,
 } from '../components/WindowRowFieldMap.jsx';
-import { drawGeo, land, load } from '../utils/heatField.js';
+import { bbox, drawGeo, land, load } from '../utils/heatField.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 
@@ -494,5 +494,77 @@ describe('WindowRowFieldMap — the aspect clamps, which are this component’s 
       await renderMap({ spots: tall });
     });
     expect(drawGeo.mock.calls.at(-1)[2]).toBe(Math.round(600 * MAP_ASPECT_MAX));
+  });
+});
+
+/**
+ * The open row's map under an away origin (plan §4.8, P7).
+ *
+ * <p><b>What breaks if these fail.</b> The strip's six thumbnails re-frame to the origin's region;
+ * this map sits inside the row one of them opens. Left on the home planning area it draws a
+ * different frame from the thumbnail directly above it, for the same window — the "half-applied
+ * origin" the phase's own tests call worse than none. `origin` reaching this component at all is
+ * the other half: it arrives through `WindowRowRegionLayer`'s field object, and a dropped prop is
+ * silent.
+ */
+describe('WindowRowFieldMap — the origin re-frames it', () => {
+  const ORIGIN = { name: 'Dales', baseName: 'Bakewell' };
+
+  it('fits the planning area at home', async () => {
+    await withMeasuredMap(240, async () => { await renderMap(); });
+    expect(drawGeo.mock.calls[0][5].fit).toEqual(bbox(SPOTS));
+  });
+
+  it('⚠️ fits the ORIGIN\'s own region when away, and it is a different frame', async () => {
+    await withMeasuredMap(240, async () => { await renderMap({ origin: ORIGIN }); });
+    const { fit } = drawGeo.mock.calls[0][5];
+    expect(fit).toEqual(bbox([SPOTS[1]]));
+    expect(fit).not.toEqual(bbox(SPOTS));
+  });
+
+  it('⚠️ leaves the POINT SET whole — framing must never become a filter', async () => {
+    await withMeasuredMap(240, async () => { await renderMap({ origin: ORIGIN }); });
+    // The one scored point is in Coast, which the Dales scope frames away from. It must still be
+    // in the blend: an origin narrows what is in shot, not what the field is made of.
+    expect(drawGeo.mock.calls[0][3]).toBe(POINTS);
+  });
+
+  it('re-frames on an origin CHANGE, not only on a first render with one set', async () => {
+    // Catches `origin` being dropped from the framing memo's dependency list, which no
+    // render-once test can see.
+    await withMeasuredMap(240, async () => {
+      const { rerender } = await act(async () => render(
+        <WindowRowFieldMap
+          windowKey={KEY}
+          date={TODAY}
+          confidence="high"
+          spots={SPOTS}
+          points={POINTS}
+          regionNames={REGIONS}
+          selectedRegion={null}
+          todayStr={TODAY}
+          onSelectRegion={vi.fn()}
+        />,
+      ));
+      expect(drawGeo.mock.calls[0][5].fit).toEqual(bbox(SPOTS));
+
+      await act(async () => rerender(
+        <WindowRowFieldMap
+          windowKey={KEY}
+          date={TODAY}
+          confidence="high"
+          spots={SPOTS}
+          points={POINTS}
+          regionNames={REGIONS}
+          selectedRegion={null}
+          todayStr={TODAY}
+          onSelectRegion={vi.fn()}
+          origin={ORIGIN}
+        />,
+      ));
+
+      const last = drawGeo.mock.calls[drawGeo.mock.calls.length - 1];
+      expect(last[5].fit).toEqual(bbox([SPOTS[1]]));
+    });
   });
 });

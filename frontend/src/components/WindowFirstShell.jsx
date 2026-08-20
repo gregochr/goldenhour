@@ -2,6 +2,7 @@ import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useStat
 import PropTypes from 'prop-types';
 import BrandLockup from './shared/BrandLockup.jsx';
 import MastheadLight from './shared/MastheadLight.jsx';
+import PlanOriginChip from './PlanOriginChip.jsx';
 import WindowFirstLensBar from './WindowFirstLensBar.jsx';
 import WindowFirstWindowCard from './WindowFirstWindowCard.jsx';
 import WindowFirstPromotedStrip from './WindowFirstPromotedStrip.jsx';
@@ -36,6 +37,12 @@ import useLensReserve from '../hooks/useLensReserve.js';
  * loading state for the same wait. The window rows below are unaffected either way.
  */
 const WindowFirstHeatStrip = lazy(() => import('./WindowFirstHeatStrip.jsx'));
+
+/**
+ * Search, lazily — it is a dialog, so it is not on any first-paint path, and it drags in nothing
+ * the shell already has (the matching lives in {@code planSearch.js}).
+ */
+const PlanSearch = lazy(() => import('./PlanSearch.jsx'));
 
 /**
  * The point set a window with nothing scored gets — one frozen array rather than a fresh literal,
@@ -246,7 +253,17 @@ export default function WindowFirstShell({
     heatStripCards, heatPointSets, heatSpots, reachById, regionSeries,
     windowCards, paneItems, promotedStrip, loading, briefing, evaluationScores,
     scoreIndex, todayStr, reachLens, ratingLens, orderLens, homePlace,
+    origin, setOrigin, regions,
   } = useWindowFirstBriefing();
+  /**
+   * The search dialog's open state, and the region it should be pre-filled with.
+   *
+   * <p>Two values in one, because "open with a query" and "open empty" are the same gesture from
+   * two places: the chip and the {@code /} key open it empty, and the strip's beyond line opens it
+   * on the first region beyond the planning area (the link P2 deferred to here). {@code null} is
+   * closed; a string — possibly empty — is open.
+   */
+  const [searchSeed, setSearchSeed] = useState(null);
   const [activeTab, setActiveTab] = useState(TABS[0].id);
   /**
    * The tabs this shell actually has, which is a function of the panes it was handed.
@@ -649,12 +666,25 @@ export default function WindowFirstShell({
         // The strip's own route into a row, reused verbatim: opening and scrolling is one behaviour
         // and a second copy of it would drift.
         onJumpWindow: revealWindow,
-        selectedRegion: regionByCard.get(card.key) ?? null,
+        // ⚠️ FORCED NULL under an away origin, and that is a defect fix rather than tidiness. The
+        // per-card selection is not cleared when the origin moves (deliberately — it is restored
+        // on the way home), and away the rail that would clear it is withheld. Left live it filters
+        // an already-scoped strip to a region the reader has scoped out, prints "Nothing in X for
+        // this window" under a chip naming somewhere else, and leaves the band's `Show all regions
+        // ×` as the only control that could undo it — a control whose handler focuses the rail cell
+        // this scope has just unmounted, dropping focus to `<body>`.
+        selectedRegion: origin ? null : (regionByCard.get(card.key) ?? null),
+        // The origin has already answered "which region" for the whole page, so the row's own rail
+        // has nothing left to choose (plan §4.8). Carried on the field object rather than as a
+        // second prop for the reason every other field on it is: the layer takes one object, and a
+        // parallel prop would be a second thing to keep in step.
+        singleRegionScope: Boolean(origin),
+        origin: origin ?? null,
       });
     }
     return byKey;
   }, [windowCards, heatSpots, heatPointSets, heatStripCards, regionSeries, reachById,
-    eventSummariesByKey, fieldLens, regionByCard, selectRegion, revealWindow]);
+    eventSummariesByKey, fieldLens, regionByCard, selectRegion, revealWindow, origin]);
 
   // Lifted to App for the map overlay, exactly as DailyBriefing does it in the v1 arm. Without this
   // a tile handed to the map opens an overlay with no narrative over a map that has filtered out
@@ -684,7 +714,7 @@ export default function WindowFirstShell({
    * Tab back onto a spot card behind the backdrop and paint a hover panel over the dialog. Fixing
    * one and not the other would leave the same defect on the surface that has had it longer.
    */
-  const modalOpen = sheetCard != null || openPick != null;
+  const modalOpen = sheetCard != null || openPick != null || searchSeed != null;
   const dimmed = contentDisabled ? ' opacity-50 pointer-events-none' : '';
   // The shared tiers, not a local copy: `generatedAt` is a zone-less UTC instant, and the one
   // formatter that already knows that is the one that appends the Z. Hand-rolling it here read an
@@ -698,6 +728,42 @@ export default function WindowFirstShell({
   const handleSpot = (card, spot) => (
     onShowOnMap?.(card.date, card.targetType, spot.locationName)
   );
+  /**
+   * {@code /} opens search — the design's own shortcut, and the one keyboard affordance the chip
+   * cannot advertise.
+   *
+   * <p>Guarded three ways, because a bare global {@code /} listener is a well-known way to make a
+   * page hostile: it is ignored while any dialog is open, while the reader is in a field (input,
+   * textarea, select, or anything {@code contenteditable} — the almanac has none but the settings
+   * modal is a sibling in {@code App}), and when a modifier is held, so browser and OS shortcuts
+   * are untouched. It is also Plan-only: on Coming up or the Map tab there is no window list to
+   * search into, and a shortcut that opens a dialog about another tab is worse than none.
+   */
+  useEffect(() => {
+    if (effectiveTab !== 'plan') return undefined;
+    const onKeyDown = (event) => {
+      if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) return;
+      if (searchSeed != null || modalOpen) return;
+      // ⚠️ Not `modalOpen` alone. That flag knows only this shell's three dialogs, and
+      // `UserSettingsModal` is a SIBLING of the shell in `App` — so `/` over an open settings
+      // dialog stacked a second `aria-modal` overlay on it, with two document-level Escape
+      // handlers and two interleaved focus restores. Asking the document is the only test that
+      // covers a dialog this component cannot see. It also covers the unclosable drive-times
+      // spinner, which is the worst one to land a dialog on top of.
+      if (document.querySelector('[role="dialog"]')) return;
+      // The shell is inert under a dead backend (`pointer-events: none`), so a keyboard shortcut
+      // into it would be the one live control on a surface that says it is not.
+      if (contentDisabled) return;
+      const el = event.target;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
+      event.preventDefault();
+      setSearchSeed('');
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [effectiveTab, searchSeed, modalOpen, contentDisabled]);
+
   /**
    * A window's own way out of an empty strip — the bar's controls, reached from the card.
    *
@@ -714,6 +780,10 @@ export default function WindowFirstShell({
   const handleLoosen = (action, cardKey) => {
     if (action?.kind === 'reach') reachLens?.selectTier(action.id);
     else if (action?.kind === 'rating') ratingLens?.selectFloor(action.id);
+    // The third way out of an empty card, and the only one that is not a lens: an away scope the
+    // reader chose. It refills the card the same way the other two do — the home pool is a
+    // superset of any one region's — so the focus move below applies unchanged.
+    else if (action?.kind === 'origin') setOrigin?.(null);
     else return;
     // The button that was just pressed no longer exists — every offered action is one that refills
     // the card, so the empty state it sat in is replaced by a spot strip on this commit. Without
@@ -793,12 +863,23 @@ export default function WindowFirstShell({
         data-testid="window-first-railfoot"
         className="wf-railfoot flex items-center font-mono text-plex-text-secondary"
       >
+        {/* The origin chip REPLACES the `Home · <place>` line this slot used to hold (plan §4.8):
+            it states the same fact and can be acted on, where the line could only be read. The
+            home-not-set prompt stays beside it rather than inside it — the chip is about the frame
+            of reference and the prompt is about a missing setting, and folding the second into the
+            first would make the control that moves the origin also the one that nags. */}
+        <PlanOriginChip
+          origin={origin ?? null}
+          homePlace={homePlace || undefined}
+          onOpenSearch={() => setSearchSeed('')}
+          onGoHome={() => setOrigin?.(null)}
+        />
         {/* Undefined is "we do not know yet", and it renders nothing. Only a settings response
-            that came back without a home says so out loud. */}
-        {homePlace !== undefined && (
-          <span data-testid="window-first-home">
-            {homePlace ? `Home · ${homePlace}` : 'Home not set'}
-          </span>
+            that came back without a home says so out loud — and only at home, because an away
+            reader is not planning from a postcode and the prompt would be about nothing they can
+            see. */}
+        {!origin && homePlace === null && (
+          <span data-testid="window-first-home">Home not set</span>
         )}
         <button
           type="button"
@@ -875,6 +956,7 @@ export default function WindowFirstShell({
           // be the lengths of the arrays that were drawn, and only this component can see all six.
           reachedCount={windowCards.reduce((total, card) => total + (card.reachedTotal ?? 0), 0)}
           windowCount={windowCards.length}
+          originBase={origin?.baseName ?? null}
         />
       )}
 
@@ -943,6 +1025,8 @@ export default function WindowFirstShell({
             todayStr={todayStr}
             runAge={age}
             onOpenWindow={revealWindow}
+            origin={origin ?? null}
+            onSearchRegion={(regionName) => setSearchSeed(regionName)}
           />
         </Suspense>
 
@@ -1105,6 +1189,32 @@ export default function WindowFirstShell({
           // map is a destination — arriving at the destination ends the browsing.
           onOpenSpot={(spot) => { setSheetKey(null); handleSpot(sheetCard, spot); }}
         />
+      )}
+
+      {/* Lazy, and mounted only while open — it is a dialog, so it is on no first-paint path.
+          Keyed on the seed so opening it from the beyond line always mounts a fresh box with that
+          region typed in, rather than reusing one that has already been edited. */}
+      {searchSeed != null && (
+        <Suspense fallback={null}>
+          <PlanSearch
+            key={searchSeed}
+            initialQuery={searchSeed}
+            windows={heatStripCards}
+            regions={regions}
+            locations={heatSpots}
+            originId={origin?.id ?? null}
+            onClose={() => setSearchSeed(null)}
+            onPickWindow={revealWindow}
+            onPickRegion={(region) => setOrigin?.(region)}
+            // The same handoff a spot card makes, minus the card: `onShowOnMap` takes a location
+            // NAME within a date and event, so search opens the next window's map on that spot.
+            // P8's four-day sheet is the richer destination and takes this over when it lands.
+            onPickLocation={(spot) => {
+              const first = heatStripCards.find((card) => !card.away);
+              if (first) onShowOnMap?.(first.date, first.targetType, spot.name);
+            }}
+          />
+        </Suspense>
       )}
 
       {openPick?.pick && (

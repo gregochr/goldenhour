@@ -1,0 +1,383 @@
+import { describe, it, expect, afterEach, vi } from 'vitest';
+import { render, screen, fireEvent, within } from '@testing-library/react';
+import React from 'react';
+import WindowFirstShell from '../components/WindowFirstShell.jsx';
+import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
+
+/**
+ * The origin's wiring through the shell (plan §4.8, P7) — the design's headline state.
+ *
+ * <p><b>What breaks if these fail.</b> Moving the origin is one gesture with six consequences (the
+ * pool, the frame, the drive figures, the reach tier, the lens label and the region rail), and the
+ * whole claim of the feature is that they move <em>together</em>. A half-applied origin is worse
+ * than none: a page framed on the Lakes with drive times from Durham is a plan nobody can act on.
+ *
+ * <p>The context is stubbed rather than driven, exactly as {@code usePlanLayout.test.jsx} does it:
+ * these are tests about the shell's wiring, and the provider's own derivations have their own
+ * files ({@code planOrigin.test.js}, {@code windowFirstCards.test.js}).
+ */
+describe('WindowFirstShell — the origin', () => {
+  const LENS = {
+    tier: { id: '45', limitMinutes: 45, label: '45 min' },
+    tierId: '45',
+    defaultTier: { id: '45', limitMinutes: 45, label: '45 min' },
+    defaultTierId: '45',
+    weekend: false,
+    overridden: false,
+    locked: false,
+    selectTier: vi.fn(),
+    resetToDefault: vi.fn(),
+  };
+  const RATING_LENS = {
+    floor: { id: 'any', min: null, label: 'Any rating' },
+    floorId: 'any',
+    minRating: null,
+    selectFloor: vi.fn(),
+  };
+  const ORDER_LENS = { order: { id: 'when', label: 'When' }, orderId: 'when', selectOrder: vi.fn() };
+
+  const LAKES = { id: 7, name: 'Lake District', baseName: 'Keswick', baseLat: 54.6, baseLon: -3.1 };
+  const NORTHUMBERLAND = {
+    id: 8, name: 'Northumberland', baseName: null, baseLat: null, baseLon: null,
+  };
+  const ORIGIN = { id: 7, name: 'Lake District', baseName: 'Keswick' };
+
+  const CARD = {
+    key: '2026-08-04:SUNSET',
+    date: '2026-08-04',
+    targetType: 'SUNSET',
+    lead: true,
+    kicker: 'Tonight',
+    when: 'Sunset',
+    time: '21:11',
+    verdict: 'WORTH_IT',
+    verdictLabel: 'Worth it',
+    bestRating: 4,
+    confidence: 'high',
+    badges: [],
+    rows: [],
+    spots: [{
+      key: '1',
+      locationId: 1,
+      locationName: 'Derwentwater',
+      regionName: 'Lake District',
+      rating: 4,
+      driveMinutes: 12,
+    }],
+    allSpots: [],
+    reachTotal: 1,
+    reachedTotal: 1,
+  };
+
+  const STRIP_CARD = {
+    key: '2026-08-04:SUNSET',
+    date: '2026-08-04',
+    targetType: 'SUNSET',
+    dow: 'Tue',
+    sunrise: false,
+    label: 'Tonight Sunset',
+    time: '21:11',
+    verdict: 'WORTH_IT',
+    verdictLabel: 'Worth it',
+    bestBet: false,
+    away: false,
+    confidence: 'high',
+  };
+
+  const SPOTS = [
+    {
+      id: 1, name: 'Derwentwater', lat: 54.58, lng: -3.14, regionName: 'Lake District',
+      rid: 'Lake District', skySubject: true, bortleClass: 3, scores: [4],
+    },
+    {
+      id: 2, name: 'Bamburgh Beach', lat: 55.61, lng: -1.71, regionName: 'Northumberland',
+      rid: 'Northumberland', skySubject: true, bortleClass: 3, scores: [3],
+    },
+  ];
+
+  /**
+   * The served region records the open row's rail renders, on the day the one card names.
+   *
+   * <p>The shell looks these up by window key from {@code briefing.days} — {@code buildWindowCards}
+   * deliberately does not copy them onto its descriptor — so a fixture without them renders a card
+   * with no region layer at all, and every assertion about the rail passes vacuously.
+   */
+  const EVENT_SUMMARY = {
+    targetType: 'SUNSET',
+    regions: [
+      {
+        regionName: 'Lake District',
+        displayVerdict: 'WORTH_IT',
+        meanRating: 4.2,
+        bestRating: 4,
+        slots: [{ canopy: false }],
+      },
+      {
+        regionName: 'Northumberland',
+        displayVerdict: 'MAYBE',
+        meanRating: 3.0,
+        bestRating: 3,
+        slots: [{ canopy: false }],
+      },
+    ],
+    unregioned: [],
+  };
+
+  const ctx = (extra = {}) => ({
+    briefing: {
+      generatedAt: '2026-08-04T12:00:00',
+      days: [{ date: '2026-08-04', eventSummaries: [EVENT_SUMMARY] }],
+    },
+    loading: false,
+    windowCards: [CARD],
+    paneItems: [{ kind: 'card', key: CARD.key, card: CARD }],
+    promotedStrip: null,
+    upcomingEvents: [],
+    travelDayDates: new Set(),
+    reachById: new Map([[1, { driveMinutes: 220 }], [2, { driveMinutes: 40 }]]),
+    isPro: true,
+    isLiteUser: false,
+    evaluationScores: new Map(),
+    scoreIndex: new Map(),
+    heatStripCards: [STRIP_CARD],
+    heatSpots: SPOTS,
+    heatPointSets: new Map([[CARD.key, [{ id: 1, lat: 54.58, lng: -3.14, r: [4] }]]]),
+    regionSeries: new Map(),
+    todayStr: '2026-08-04',
+    tomorrowStr: '2026-08-05',
+    reachLens: LENS,
+    ratingLens: RATING_LENS,
+    orderLens: ORDER_LENS,
+    homePlace: 'Durham',
+    origin: null,
+    setOrigin: vi.fn(),
+    regions: [LAKES, NORTHUMBERLAND],
+    effectiveReachById: new Map(),
+    ...extra,
+  });
+
+  const shellProps = () => ({
+    onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
+  });
+
+  const renderShell = (extra = {}) => {
+    const value = ctx(extra);
+    const spy = vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(value);
+    const view = render(<WindowFirstShell {...shellProps()} />);
+    // `moveOrigin` re-renders the same tree with a different context value, which is the only way
+    // to exercise a TRANSITION here — the context is stubbed, so a second `renderShell` would be a
+    // fresh mount and would lose exactly the state a transition has to survive.
+    value.moveOrigin = (next) => {
+      spy.mockReturnValue(ctx({ ...extra, ...next }));
+      view.rerender(<WindowFirstShell {...shellProps()} />);
+    };
+    return value;
+  };
+
+  afterEach(() => vi.restoreAllMocks());
+
+  describe('the chip', () => {
+    it('sits in the rail footer, where the Home line used to be', () => {
+      renderShell();
+      const foot = screen.getByTestId('window-first-railfoot');
+      expect(within(foot).getByTestId('window-first-origin-chip')).toHaveTextContent('Home · Durham');
+    });
+
+    it('names the base town once the origin has moved', () => {
+      renderShell({ origin: ORIGIN });
+      expect(screen.getByTestId('window-first-origin-chip')).toHaveTextContent('Keswick');
+    });
+
+    it('opens search', async () => {
+      renderShell();
+      fireEvent.click(screen.getByTestId('window-first-origin-chip'));
+      expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
+    });
+
+    it('⌂ hands the origin back to home', () => {
+      const value = renderShell({ origin: ORIGIN });
+      fireEvent.click(screen.getByTestId('window-first-origin-home'));
+      expect(value.setOrigin).toHaveBeenCalledWith(null);
+    });
+
+    it('withholds the "Home not set" prompt while away — it is about a home nobody is planning from', () => {
+      renderShell({ origin: ORIGIN, homePlace: null });
+      expect(screen.queryByTestId('window-first-home')).toBeNull();
+    });
+
+    it('still shows it at home', () => {
+      renderShell({ homePlace: null });
+      expect(screen.getByTestId('window-first-home')).toHaveTextContent('Home not set');
+    });
+  });
+
+  describe('the / shortcut', () => {
+    it('opens search on the Plan tab', async () => {
+      renderShell();
+      fireEvent.keyDown(document, { key: '/' });
+      expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
+    });
+
+    it('⚠️ is ignored while the reader is typing in a field', () => {
+      renderShell();
+      const field = document.createElement('input');
+      document.body.appendChild(field);
+      field.focus();
+      fireEvent.keyDown(field, { key: '/' });
+      expect(screen.queryByTestId('plan-search')).toBeNull();
+      field.remove();
+    });
+
+    it('⚠️ is ignored when a modifier is held, so browser shortcuts are untouched', () => {
+      renderShell();
+      fireEvent.keyDown(document, { key: '/', metaKey: true });
+      expect(screen.queryByTestId('plan-search')).toBeNull();
+    });
+
+    it('⚠️ is ignored while a dialog this shell does not own is open', () => {
+      // `UserSettingsModal` is a SIBLING of the shell in `App`, so the shell's own `modalOpen` flag
+      // cannot see it — and `/` over it stacked a second `aria-modal` overlay, with two
+      // document-level Escape handlers and two interleaved focus restores.
+      renderShell();
+      const foreign = document.createElement('div');
+      foreign.setAttribute('role', 'dialog');
+      document.body.appendChild(foreign);
+      try {
+        fireEvent.keyDown(document, { key: '/' });
+        expect(screen.queryByTestId('plan-search')).toBeNull();
+      } finally {
+        foreign.remove();
+      }
+    });
+
+    it('is ignored while the arm is greyed for a dead backend', () => {
+      // The shell is `pointer-events: none` under `contentDisabled`; a keyboard shortcut into it
+      // would be the one live control on a surface that says it is not.
+      const value = ctx();
+      vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(value);
+      render(<WindowFirstShell
+        onExit={vi.fn()}
+        onOpenSettings={vi.fn()}
+        onSignOut={vi.fn()}
+        onShowOnMap={vi.fn()}
+        contentDisabled
+      />);
+      fireEvent.keyDown(document, { key: '/' });
+      expect(screen.queryByTestId('plan-search')).toBeNull();
+    });
+
+    it('is ignored on another tab, where there is no window list to search into', () => {
+      renderShell();
+      fireEvent.click(screen.getByTestId('window-first-tab-coming-up'));
+      fireEvent.keyDown(document, { key: '/' });
+      expect(screen.queryByTestId('plan-search')).toBeNull();
+    });
+  });
+
+  describe('search moves the origin', () => {
+    it('hands the region RECORD to setOrigin, so a baseless one cannot become an origin', async () => {
+      const value = renderShell();
+      fireEvent.keyDown(document, { key: '/' });
+      const input = await screen.findByTestId('plan-search-input');
+      fireEvent.change(input, { target: { value: 'lake' } });
+      fireEvent.click(screen.getByRole('option', { name: /Lake District/ }));
+      expect(value.setOrigin).toHaveBeenCalledWith(LAKES);
+    });
+  });
+
+  describe('the lens bar relabels', () => {
+    /**
+     * The caption is the element {@code aria-labelledby} points at, so asserting the GROUP's
+     * accessible name pins the visible words and WCAG 2.5.3 in one expectation: they can only
+     * differ if someone adds an {@code aria-label}, which is exactly the regression this guards.
+     */
+    it('names the base every figure it gates is measured from', () => {
+      renderShell({ origin: ORIGIN });
+      expect(screen.getByRole('group', { name: 'Drive from Keswick' })).toBeInTheDocument();
+      expect(screen.queryByRole('group', { name: 'How far tonight' })).toBeNull();
+    });
+
+    it('keeps its home caption at home', () => {
+      renderShell();
+      expect(screen.getByRole('group', { name: 'How far tonight' })).toBeInTheDocument();
+    });
+  });
+
+  describe('the strip', () => {
+    it('withholds the beyond line when away — it is a statement about the home area', async () => {
+      renderShell({ origin: ORIGIN });
+      // The strip is lazy; wait for it before asserting an absence, or the absence is only the
+      // Suspense fallback.
+      await screen.findByTestId('wf-heat-strip');
+      expect(screen.queryByTestId('wf-heat-beyond')).toBeNull();
+    });
+
+    it('offers a search link on the beyond line at home, pre-filled with the nearest one', async () => {
+      renderShell({
+        reachById: new Map([[1, { driveMinutes: 400 }], [2, { driveMinutes: 40 }]]),
+      });
+      const link = await screen.findByTestId('wf-heat-beyond-search');
+      expect(link).toHaveTextContent('search to plan from Lake District');
+      fireEvent.click(link);
+      expect(await screen.findByTestId('plan-search-input')).toHaveValue('Lake District');
+    });
+  });
+
+  describe('the open row under an away origin', () => {
+    it('⚠️ ignores a region selection made at home, which nothing on screen could then clear', async () => {
+      // The selection is NOT cleared on an origin move — deliberately, since it is restored on the
+      // way home — and away the rail that would clear it is withheld. Left live it filtered an
+      // already-scoped strip to a region the reader had scoped out, printed "Nothing in
+      // Northumberland for this window" under a chip naming Keswick, and left the band's
+      // `Show all regions ×` as the only remaining control — whose handler focuses the rail cell
+      // this scope had just unmounted, dropping focus to `<body>`.
+      const value = renderShell();
+      await import('../components/WindowRowRegionLayer.jsx');
+
+      const rail = await screen.findByTestId('wf-region-rail');
+      const cell = within(rail).getByRole('button', { name: /Northumberland/ });
+      fireEvent.click(cell);
+      // The card's spot is in the Lake District, so selecting Northumberland empties the strip and
+      // the region-empty block appears — which is the state that must NOT survive the move.
+      expect(screen.getByTestId('window-card-region-empty')).toBeInTheDocument();
+
+      value.moveOrigin({ origin: ORIGIN });
+
+      // The rail is gone, and so is every trace of the selection it made.
+      expect(screen.queryByTestId('wf-region-rail')).toBeNull();
+      expect(screen.queryByTestId('window-card-region-empty')).toBeNull();
+      expect(screen.getByTestId('window-spot-strip')).toBeInTheDocument();
+    });
+  });
+
+  describe('an empty away card offers the way home', () => {
+    it('sends the origin action to setOrigin(null), never to a lens control', () => {
+      const emptied = {
+        ...CARD,
+        spots: [],
+        allSpots: [{ key: '1', rating: 2, driveMinutes: 120, regionName: 'Lake District' }],
+        reachTotal: 1,
+        reachedTotal: 0,
+        lensEmpty: {
+          headline: 'Nothing in Lake District for this window.',
+          body: 'You are planning from Keswick.',
+          actions: [{ kind: 'origin', id: 'home', label: 'Plan from home' }],
+        },
+      };
+      const value = renderShell({
+        origin: ORIGIN,
+        windowCards: [emptied],
+        paneItems: [{ kind: 'card', key: emptied.key, card: emptied }],
+      });
+      const raf = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(); return 0; });
+      try {
+        fireEvent.click(screen.getByTestId('window-card-lens-loosen'));
+        expect(value.setOrigin).toHaveBeenCalledWith(null);
+        expect(LENS.selectTier).not.toHaveBeenCalled();
+        expect(RATING_LENS.selectFloor).not.toHaveBeenCalled();
+      } finally {
+        raf.mockRestore();
+      }
+    });
+  });
+});

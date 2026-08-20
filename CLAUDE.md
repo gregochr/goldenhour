@@ -208,6 +208,7 @@ Key config: `anthropic`, `worldtides`, `spring.datasource`, `spring.flyway`, `sp
 | V99 | Batch observability: `custom_id`, `error_type`, `batch_id` on `api_call_log`; widen `error_message` to TEXT; partial indexes |
 | V100+ | (not individually listed here — `ls backend/src/main/resources/db/migration/ \| sort -V` for the full set) |
 | V127 | `forecast_evaluation.confidence` — durable horizon-derived per-evaluation confidence (nullable `VARCHAR(20)`, enum name); rides analytics, gates nothing |
+| V145 | `regions.base_name/base_lat/base_lon` (nullable — a baseless region cannot be a Plan-tab origin) + `region_drive_time`, the **shared** base→roster matrix, keyed on `region_id` rather than on the region name; seeds the `region_drive_time_refresh` job at 03:10 |
 | **latest** | **Deliberately not written down — every number recorded here has rotted.** Read it from the tree before adding a migration: `ls backend/src/main/resources/db/migration/ \| sort -V \| tail -1` |
 
 ---
@@ -275,7 +276,28 @@ Two consequences worth stating plainly:
 `POST /api/forecast/run` | `POST /api/forecast/run/very-short-term|short-term|long-term`
 
 ### Locations & Regions (Bearer / ADMIN for writes)
-`GET|POST /api/locations` | `PUT /api/locations/{name}/reset-failures` (ADMIN) | `GET|POST /api/regions` | `PUT /api/regions/{id}` | `PUT /api/regions/{id}/enabled`
+`GET|POST /api/locations` | `PUT /api/locations/{name}/reset-failures` (ADMIN) | `GET|POST /api/regions` | `PUT /api/regions/{id}` | `PUT /api/regions/{id}/enabled` | `PUT /api/regions/{id}/base` (ADMIN) | `GET /api/regions/drive-times`
+
+> **`GET /api/regions/drive-times`** is the shared region-base drive-time matrix — `{regionId:
+> {locationId: minutes}}`, from each region's admin-entered base town to the whole roster. Bearer
+> with **no role gate**, by inheritance from `SecurityConfig`'s `/api/**` → `.authenticated()`; the
+> Plan tab's origin move is ungated for the pilot, so a role gate here would break it for every
+> non-admin.
+>
+> ⚠️ **It is ETag-revalidated, and that is only safe because it is user-independent.** "How far is
+> this from Keswick" is the same answer for every reader; "how far is this from your house" is not,
+> and stays on the never-cached `/api/user/settings/reach` for the reason that section records. The
+> two must not be merged on the client either — `planOrigin.originReachMap` builds the away map
+> from this matrix **alone** and never borrows `distanceMiles`, because those miles are measured
+> from home and would put two journeys in one line on a card whose leave-by time a reader acts on.
+>
+> **`PUT /api/regions/{id}/base`** sets or clears a region's base town, and is deliberately its own
+> endpoint rather than three more fields on the rename: a rename body carrying only `name` would
+> deserialise the base fields to null, so every rename would silently clear the base and discard
+> that region's whole drive-time matrix. All three null clears it; a partial base is a 400. Moving
+> the base **discards** that region's stored drive times rather than leaving figures that measure a
+> journey from the old town — unknown is safe, wrong is not — and the nightly
+> `region_drive_time_refresh` job refills them.
 
 ### Users (ADMIN)
 `GET|POST /api/users` | `PUT /api/users/{id}/enabled|role|reset-password` | `DELETE /api/users/{id}`

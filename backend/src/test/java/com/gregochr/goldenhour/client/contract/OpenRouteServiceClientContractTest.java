@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.client.contract;
 
 import com.gregochr.goldenhour.client.OpenRouteServiceClient;
+import com.gregochr.goldenhour.client.OrsRateLimiter;
 import com.gregochr.goldenhour.config.OrsProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -76,7 +77,7 @@ class OpenRouteServiceClientContractTest {
         this.properties = new OrsProperties();
         this.properties.setEnabled(true);
         this.properties.setApiKey(PLACEHOLDER_KEY);
-        this.client = new OpenRouteServiceClient(builder.build(), properties);
+        this.client = new OpenRouteServiceClient(builder.build(), properties, new OrsRateLimiter());
     }
 
     @Test
