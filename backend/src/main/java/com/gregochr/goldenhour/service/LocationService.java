@@ -44,6 +44,7 @@ public class LocationService {
     private final LocationRepository locationRepository;
     private final RegionRepository regionRepository;
     private final TideService tideService;
+    private final LocationEnrichmentService locationEnrichmentService;
 
     /**
      * Constructs a {@code LocationService}.
@@ -51,13 +52,17 @@ public class LocationService {
      * @param locationRepository repository for {@link LocationEntity}
      * @param regionRepository   repository for {@link RegionEntity}
      * @param tideService        used to fetch tide extremes for coastal locations
+     * @param locationEnrichmentService supplies the Open-Meteo snapped grid cell when a location
+     *                                  is saved without one, or is moved
      */
     public LocationService(LocationRepository locationRepository,
                            RegionRepository regionRepository,
-                           TideService tideService) {
+                           TideService tideService,
+                           LocationEnrichmentService locationEnrichmentService) {
         this.locationRepository = locationRepository;
         this.regionRepository = regionRepository;
         this.tideService = tideService;
+        this.locationEnrichmentService = locationEnrichmentService;
     }
 
     /**
@@ -187,6 +192,10 @@ public class LocationService {
     @Transactional
     public LocationEntity update(Long id, UpdateLocationRequest request) {
         LocationEntity location = findById(id);
+        // Read BEFORE the setters below run, or the comparison is against the new value and every
+        // coordinate edit looks like a no-op.
+        double previousLat = location.getLat();
+        double previousLon = location.getLon();
 
         // Handle name change — no cascade needed, forecast_evaluation and actual_outcome
         // reference location by ID, so renaming is a single-row update.
@@ -256,6 +265,10 @@ public class LocationService {
             location.setRegion(resolveRegion(request.regionId()));
         }
 
+        boolean coordinatesMoved = Double.compare(previousLat, location.getLat()) != 0
+                || Double.compare(previousLon, location.getLon()) != 0;
+        refreshGridCell(location, coordinatesMoved);
+
         LocationEntity saved = locationRepository.save(location);
 
         if (isCoastal(saved) && !tideService.hasStoredExtremes(saved.getId())) {
@@ -266,6 +279,59 @@ public class LocationService {
                 saved.getName(), saved.getLocationType(), saved.getSolarEventType(),
                 saved.getTideType());
         return saved;
+    }
+
+    /**
+     * Brings the stored Open-Meteo grid cell into line with the location's coordinates.
+     *
+     * <p>Runs on two conditions, which are different problems with the same fix:
+     * <ul>
+     *   <li><b>The cell is absent.</b> Every location inserted by raw SQL arrives this way —
+     *       V84's sixteen bluebell sites, V138's ten Heritage Coast entries, V143's Penshaw
+     *       Monument. {@code gridLat}/{@code gridLng} are written only by {@link #addLocation},
+     *       from the enrichment the admin Add-location form runs client-side, so a migration
+     *       cannot populate them and nothing else ever did. Such a location is skipped by
+     *       {@code GridCellStabilityService} and falls back to its own key in
+     *       {@code BriefingService} instead of being deduplicated against neighbours in the same
+     *       ~2 km cell.</li>
+     *   <li><b>The coordinates moved.</b> Editing lat/lon used to leave the old cell in place,
+     *       which is worse than the absent case: the location is then grouped, classified and
+     *       deduplicated against a cell it is no longer in.</li>
+     * </ul>
+     *
+     * <p>On a lookup failure the two cases part company, and the asymmetry is the point. If the
+     * coordinates moved, the stored pair is now known-wrong and is CLEARED: absent means "excluded
+     * from dedup and stability", which is degraded but honest, where stale means "confidently
+     * grouped with a different place's weather". If the cell was merely absent to begin with,
+     * nothing is lost by leaving it absent and the next save will try again.
+     *
+     * <p>Never fails the save. The grid cell is an optimisation — a coordinate correction must
+     * still land when Open-Meteo is unreachable.
+     *
+     * @param location         the location being updated, mutated in place
+     * @param coordinatesMoved whether this update changed lat or lon
+     */
+    private void refreshGridCell(LocationEntity location, boolean coordinatesMoved) {
+        if (!coordinatesMoved && location.hasGridCell()) {
+            return;
+        }
+        double[] cell = locationEnrichmentService.fetchGridCell(location.getLat(),
+                location.getLon());
+        if (cell != null) {
+            location.setGridLat(cell[0]);
+            location.setGridLng(cell[1]);
+            LOG.info("Grid cell for '{}' set to {},{}", location.getName(), cell[0], cell[1]);
+            return;
+        }
+        if (coordinatesMoved && location.hasGridCell()) {
+            location.setGridLat(null);
+            location.setGridLng(null);
+            LOG.warn("Grid cell lookup failed for '{}' after a coordinate change — cleared the "
+                    + "previous cell rather than leaving it pointing at the old position. It will "
+                    + "be refetched on the next save.", location.getName());
+            return;
+        }
+        LOG.warn("Grid cell lookup failed for '{}'; it remains without one.", location.getName());
     }
 
     /**
