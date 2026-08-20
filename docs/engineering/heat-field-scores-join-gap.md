@@ -80,9 +80,11 @@ The last two rows are the whole diagnosis: correct data, correct join, wrong ses
 
 ---
 
-## The theory this document originally headlined, which was ALSO wrong
+## The theory this document originally headlined, which was ALSO wrong — and is now fixed anyway
 
-Kept in full because it is a real asymmetry and someone will rediscover it.
+Kept in full because it is a real asymmetry, it was not the cause of anything observed here, and
+it has since been closed on its own merits. **Fixed:** precedence is now a single method,
+`EvaluationViewService.cachedWins`, and neither path derives any part of it.
 
 **`mergeToView` and `resolveForEnrichment` share the freshness gate but not its fallback** — four
 lines apart in one file.
@@ -136,17 +138,31 @@ base-forecast row.
   frontend, which reads the API's ISO strings, but it will surprise the next person to query this
   column.
 
-### The fix this would want, if it ever does fire
+### The fix, now applied
 
-`mergeToView` should fall back to the cached result when the forecast row wins the gate but says
-nothing — exactly as `resolveForEnrichment` already does. A won gate means "this row is newer",
-not "this row is an answer"; branch 4 currently treats an empty winner as a denial.
+`mergeToView` falls back to the cached result when the forecast row wins the gate but says
+nothing — exactly as `resolveForEnrichment` already did. A won gate means "this row is newer",
+not "this row is an answer"; branch 4 was treating an empty winner as a denial.
 
-Scope to watch: this makes `/scores` return rows it currently omits, so the heat field, the map's
-pin visibility (`resolveStandDown` treats an unrated location with a triage row as stood down) and
-the Close to home panel all gain data. That is the intent — those surfaces are already showing the
-cached rating everywhere the briefing feeds them — but it is a visible change and wants Q4's
-before-count recorded first.
+It is expressed as a shared `cachedWins`, not as a fourth branch, and that shape is the point. The
+first divergence was fixed by giving both paths the same *gate* and asserting in the class comment
+that they were unified — which is exactly why the *fallback* divergence survived review. The
+invariant that holds is not "both paths share the gate" but "neither path contains a precedence
+decision of its own".
+
+⚠️ **The objection to check first: this does not weaken the freshness gate.** The gate exists
+because a stale 4★ was outliving a row triaged `HIGH_CLOUD` on 87–99% low cloud, one rating 47.9
+hours out of date. In every case of that shape the newer row *is* triaged, so the fallback clause
+is false and the cache still loses. It fires only where the newer row is empty, which carries no
+contradicting information at all. `theGateStillBitesWhenTheRowSpeaks` pins that under the same
+fixture as the fallback test, so the two cannot stop differing.
+
+Scope: `/scores` now returns rows it previously omitted, so the heat field, the map's pin
+visibility (`resolveStandDown` treats an unrated location with a triage row as stood down) and the
+Close to home panel all gain data. That is the intent — those surfaces already show the cached
+rating everywhere the briefing feeds them. Q4 below sizes it, and on the day it was measured
+`dropped_to_none` was **0 on every window**, so the immediate production effect is nil; the change
+is a trap removed rather than a visible fix.
 
 ### Q4 — how many slots the gap is currently eating
 

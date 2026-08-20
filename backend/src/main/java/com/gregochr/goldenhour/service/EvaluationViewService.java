@@ -39,12 +39,22 @@ import java.util.Set;
  * a {@link LocationEvaluationView} ({@link #mergeToView}) and once into the
  * {@code BriefingEvaluationResult} map the briefing enrichment consumes
  * ({@link #getScoresForEnrichment}, {@link #getScoresForEnrichmentBulk}) — because those two
- * consumers need different shapes. They must not have different <em>rules</em>, and for three days
- * in production they did: the freshness gate below landed on the view path alone, so one stale
- * cached rating lost the merge on the map and the region drill-down while still winning it on the
- * briefing payload. The same location read 4★ on the Close to home panel and 2★ everywhere else on
- * the same screen. Both paths now decide through {@link #cachedIsAtLeastAsFresh}; a third reader
- * must call it rather than re-derive precedence.
+ * consumers need different shapes. They must not have different <em>rules</em>, and they have
+ * diverged twice.
+ *
+ * <p>First on the gate: it landed on the view path alone, so for three days one stale cached
+ * rating lost the merge on the map and the region drill-down while still winning it on the
+ * briefing payload — the same location reading 4★ on the Close to home panel and 2★ everywhere
+ * else on the same screen.
+ *
+ * <p>Then on the <em>fallback</em>, which is subtler and which the fix for the first one asserted
+ * was already closed. Both paths called {@link #cachedIsAtLeastAsFresh} and then disagreed about
+ * what a won gate with an <em>empty</em> winner meant: the enrichment path kept the cached entry,
+ * the view path returned {@code Source.NONE} and its caller dropped the location outright.
+ *
+ * <p>⚠️ So precedence is now ONE method — {@link #cachedWins} — and a third reader must call it
+ * rather than re-derive any part of it. "Both paths share the gate" was true and was not enough;
+ * the useful invariant is that neither path contains a precedence decision of its own.
  */
 @Service
 public class EvaluationViewService {
@@ -440,11 +450,75 @@ public class EvaluationViewService {
     private static BriefingEvaluationResult resolveForEnrichment(String locationName,
             BriefingEvaluationResult cachedResult, Instant cachedEvaluatedAt,
             ForecastEvaluationEntity forecastRow) {
-        if (cachedResult != null && cachedIsAtLeastAsFresh(cachedEvaluatedAt, forecastRow)) {
+        if (cachedWins(cachedResult, cachedEvaluatedAt, forecastRow)) {
             return cachedResult;
         }
-        BriefingEvaluationResult fromRow = toEnrichmentResult(locationName, forecastRow);
-        return fromRow != null ? fromRow : cachedResult;
+        // No `: cachedResult` tail any more, and that is a simplification rather than a change:
+        // `cachedWins` is false only when the cache is absent or the row says something, and
+        // `toEnrichmentResult` is non-null exactly when the row says something. The old expression
+        // could only ever fall through to a null `cachedResult`.
+        return toEnrichmentResult(locationName, forecastRow);
+    }
+
+    /**
+     * The single precedence rule both merge paths obey: may the cached entry speak for this slot?
+     *
+     * <p>Two clauses, and the second is the one this method exists for.
+     *
+     * <ol>
+     *   <li>The cache is at least as fresh as the forecast row — {@link #cachedIsAtLeastAsFresh},
+     *       the gate whose own javadoc records what it is for.</li>
+     *   <li><b>Or that row has nothing to say.</b> Losing a freshness comparison is not the same
+     *       as being contradicted. A newer row carrying neither a rating nor a triage reason — a
+     *       bare base-forecast row, and roughly three quarters of {@code forecast_evaluation} has
+     *       a null rating — reports no opinion about this slot, so there is nothing for the cache
+     *       to be wrong about.</li>
+     * </ol>
+     *
+     * <p>⚠️ <b>This does not weaken the freshness gate, and that is the objection to check first.</b>
+     * The gate exists because a stale 4★ was outliving a current row triaged {@code HIGH_CLOUD} on
+     * 87–99% low cloud — measured over four days in production, one rating 47.9 hours out of date.
+     * In every case of that shape the newer row <em>is</em> triaged, so clause 2 is false and the
+     * cache still loses. Clause 2 fires only where the newer row is empty, which carries no
+     * contradicting information at all.
+     *
+     * <p>⚠️ <b>Both paths must call this rather than re-derive precedence.</b> They already shared
+     * the gate and the class comment above claimed they were unified on the whole rule — they were
+     * not: {@code resolveForEnrichment} fell back to the cached entry when the winning row was
+     * empty and {@code mergeToView} returned {@code Source.NONE}, whose caller drops the row. Same
+     * tables, same gate, opposite answer: the briefing kept the rating and {@code /scores} lost the
+     * location entirely. Found while investigating the heat field's empty windows
+     * ({@code docs/engineering/heat-field-scores-join-gap.md}); it was not the cause of that
+     * (production had zero slots where the gate even fired) but it is a live trap the moment one
+     * does.
+     *
+     * @param cachedResult      the cached entry, or null when the cache does not cover this slot
+     * @param cachedEvaluatedAt when the cache entry was written, or null when unknown
+     * @param forecastRow       the latest forecast row for the slot, or null
+     * @return true when the cached entry should speak for this slot
+     */
+    private static boolean cachedWins(BriefingEvaluationResult cachedResult,
+            Instant cachedEvaluatedAt, ForecastEvaluationEntity forecastRow) {
+        if (cachedResult == null) {
+            return false;
+        }
+        return cachedIsAtLeastAsFresh(cachedEvaluatedAt, forecastRow)
+                || !hasSomethingToSay(forecastRow);
+    }
+
+    /**
+     * Whether a forecast row carries an opinion about its slot — a rating, or a triage reason.
+     *
+     * <p>The condition under which {@link #toEnrichmentResult} returns non-null and under which
+     * {@link #mergeToView}'s branches 2 and 3 fire, named once so the three cannot drift.
+     *
+     * @param row the row, or null
+     * @return true when the row says something a reader could act on
+     */
+    private static boolean hasSomethingToSay(ForecastEvaluationEntity row) {
+        return row != null
+                && (row.getRating() != null
+                    || (row.getTriage() != null && row.getTriage().getReason() != null));
     }
 
     /**
@@ -464,7 +538,7 @@ public class EvaluationViewService {
      */
     private static BriefingEvaluationResult toEnrichmentResult(String locationName,
             ForecastEvaluationEntity row) {
-        if (row == null) {
+        if (!hasSomethingToSay(row)) {
             return null;
         }
         if (row.getRating() != null) {
@@ -472,11 +546,8 @@ public class EvaluationViewService {
                     row.getFierySkyPotential(), row.getGoldenHourPotential(), row.getSummary(),
                     null, null, row.getHeadline());
         }
-        if (row.getTriage() != null && row.getTriage().getReason() != null) {
-            return new BriefingEvaluationResult(locationName, null, null, null, null,
-                    row.getTriage().getReason(), row.getTriage().getMessage());
-        }
-        return null;
+        return new BriefingEvaluationResult(locationName, null, null, null, null,
+                row.getTriage().getReason(), row.getTriage().getMessage());
     }
 
     /**
@@ -525,8 +596,8 @@ public class EvaluationViewService {
             BriefingEvaluationResult cachedResult, Instant cachedEvaluatedAt,
             ForecastEvaluationEntity forecastRow) {
 
-        // 1. Cached evaluation wins only while it is at least as fresh as the forecast row.
-        if (cachedResult != null && cachedIsAtLeastAsFresh(cachedEvaluatedAt, forecastRow)) {
+        // 1. Cached evaluation, under the SHARED precedence rule — see `cachedWins`.
+        if (cachedWins(cachedResult, cachedEvaluatedAt, forecastRow)) {
             DisplayVerdict displayVerdict = DisplayVerdict.resolve(
                     cachedResult.rating(),
                     cachedResult.triageReason() != null ? Verdict.STANDDOWN : null);
