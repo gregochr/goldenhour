@@ -5,6 +5,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the Plan-matrix implementation plan and its v3 design bundle
+
+`docs/engineering/plan-matrix-plan.md` plus the design handoff it ports,
+`docs/design/plan-matrix/` (the v3 revision of the heat-map design — its `heat-field.js` and
+Map-tab files are byte-identical to `docs/design/heat-map/`'s; only the Plan tab changed). The
+series replaces the v2 arm's strip-plus-list with a day×event matrix of verdict-carrying heat
+thumbnails, moves the drill-down into a popup, and moves the origin control into the
+masthead's tick line — five frontend-only phases behind the still-default-v1 flag, with the
+flag flip now sequenced after it. The plan was itself adversarially reviewed before landing
+(six lenses, sixteen charges, per-charge refutation; fourteen survived and are folded in).
+The three worth naming because an implementer would otherwise trip them: the bundle's
+`Window.lead` prose collides with the codebase's *boolean* `card.lead` and no served
+window-level prose exists (the popup's unpicked prose slot reads the top region's gloss
+instead — plan A21); a NIGHT topic's badge lands on the *next* morning's card, so the
+badge→topic client join must replicate `PlanWindowProjector.keysFor`, not match on date
+equality; and aurora/NLC serve populated `regions` lists that are coverage/conditions rosters,
+not eligibility — the topic scope filter must exempt whole-sky types or aurora vanishes from
+every away plan.
+
+The plan's six owner decisions were all resolved on 2026-08-20, adopting the recommendations:
+the promoted strip is deleted in M5 (its above-the-fold job disappears when all six windows
+are above the fold); the doors stay below the matrix for this series (they are the only v2
+home of the tide-run/surge charts, and storm surge/clearance can never become window badges);
+the location sheet opens from popup chips and spot cards as well as search (knowingly
+reversing the earlier search-only call, whose motivating context the popup removes); the
+`Plan from <region>` sheet footer is built with close-then-move semantics; the away-origin
+deviation (a plan from an away region may show no BEST BET legend) is accepted; and the popup
+header's cross-location average stays dropped. No phase is decision-gated.
+
 ### Added — nightly Open-Meteo grid cell backfill (V146)
 
 `GridCellBackfillJob` fills in `grid_lat`/`grid_lng` for any location that has none, nightly at
