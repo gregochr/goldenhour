@@ -1,4 +1,5 @@
-import { formatShiftedEventTimeUk } from './conversions.js';
+import { formatInstantUk, parseUtcInstant } from './conversions.js';
+import { ukDateStr } from './mapDates.js';
 
 /**
  * When to leave, so the drive and the setup are done before the light is.
@@ -70,14 +71,17 @@ import { formatShiftedEventTimeUk } from './conversions.js';
  * the away default tier is <b>90</b> rather than the weekend's 150, so the {@code far} mark fires
  * sooner too. Both clauses moved in the safe direction.
  *
- * <p>⚠️ <b>The condition that WOULD make a wrap reachable is now nameable.</b> The shared matrix
- * covers the whole roster, not just the origin's region, so any future surface that renders a
- * base-measured drive to a spot <em>outside</em> the origin's region — a "somewhere is good, just
- * not near you" list (§9.8), or a P8 sheet that reaches past the card descriptor — reopens it
- * immediately, because Keswick to the far north-east is hours rather than minutes. If that is
- * built, the day marker ships with it. The fix costs no new words — {@code HotTopicStrip}'s
- * {@code leadDayWord} already prints {@code Today}/{@code Tomorrow}/{@code Sat} beside a clock
- * time — but it does cost this function's return shape, so it is not free.
+ * <p>⚠️ <b>P8 built that surface, and the day marker shipped with it — on a SECOND function.</b>
+ * The condition P7 named is exactly {@code LocationFourDaySheet}: reached from search, which
+ * matches the whole roster rather than the scope, over a shared matrix that covers the whole roster
+ * too, so Keswick to the far north-east is hours rather than minutes and a wrap is ordinary there.
+ * The home arm has the same hole from the other end — {@code GET /api/user/settings/reach} also
+ * covers the whole roster. {@link leaveByParts} is where that surface reads its departure, and it
+ * returns the day as data. This function's shape is <b>unchanged</b>, deliberately: it is called
+ * once per rendered spot card and per peek, {@code formatInstantUk} builds an {@code Intl}
+ * formatter per call (the cost {@code buildWindowSpots} records for the same reason), and the two
+ * bare-{@code HH:mm} surfaces still sit inside the ceiling this section measures. The arithmetic
+ * itself is shared rather than copied, so the two cannot answer differently.
  *
  * <p><b>No mention of the twenty minutes.</b> A reader checking the arithmetic against the card's
  * own figures (event time minus drive) lands twenty minutes after this answer, and nothing on the
@@ -114,9 +118,81 @@ export const SETUP_MINUTES = 20;
  * @returns {?string} `HH:mm` on {@code Europe/London}, or null
  */
 export function leaveBy(eventTimeUtc, driveMinutes, setupMinutes = SETUP_MINUTES) {
+  const moment = departure(eventTimeUtc, driveMinutes, setupMinutes);
+  return moment ? formatInstantUk(moment.leave, HH_MM) : null;
+}
+
+/** The one field set both renderings ask `Intl` for. */
+const HH_MM = { hour: '2-digit', minute: '2-digit' };
+
+/**
+ * The event instant and the departure instant, or null when either term is unknown.
+ *
+ * <p>Both exported functions read this, so the arithmetic exists once. That matters more than the
+ * three lines it saves: {@link leaveBy} and {@link leaveByParts} print the same departure on two
+ * surfaces of the same screen, and a second subtraction would be a second chance to answer
+ * differently. {@code leaveByParts}' own test pins the two against each other across a table that
+ * includes a wrap, so the sharing is proven rather than asserted.
+ *
+ * @param {string|Date|null} eventTimeUtc the slot's own event instant
+ * @param {?number} driveMinutes          this user's drive to the spot
+ * @param {number} setupMinutes           minutes to allow on arrival
+ * @returns {?{event: Date, leave: Date}} the pair, or null
+ */
+function departure(eventTimeUtc, driveMinutes, setupMinutes) {
   // Finite AND non-negative. A negative drive cannot come from `GET /api/user/settings/reach`, but
   // the descriptor this reads is joined from a payload rather than computed here, and "leave AFTER
   // the sun is up" is the one wrong answer that would look like a real one.
   if (!Number.isFinite(driveMinutes) || driveMinutes < 0) return null;
-  return formatShiftedEventTimeUk(eventTimeUtc, -(driveMinutes + setupMinutes));
+  const event = parseUtcInstant(eventTimeUtc);
+  if (!event) return null;
+  return { event, leave: new Date(event.getTime() - (driveMinutes + setupMinutes) * 60000) };
+}
+
+/**
+ * The departure, with the UK day it falls on — for the one surface that can outrun the ceiling
+ * {@link leaveBy}'s bare {@code HH:mm} rests on.
+ *
+ * <h2>Why this exists, and the exact condition that called it into being</h2>
+ *
+ * <p>{@link leaveBy} prints no day marker, and its Javadoc argues the case twice: P5 measured a
+ * wrap as needing over <b>4h03</b> of driving against a longest realistic catalogue drive of about
+ * 2h20, and P7 re-checked it under the origin move and found the away arm <em>safer</em> — because
+ * {@code gateSpotsByOrigin} scopes an away window to the origin's own region, so every drive a spot
+ * card is handed under an away origin is base-to-somewhere-in-that-region.
+ *
+ * <p>The same Javadoc then names the condition that reopens it: <em>"any future surface that renders
+ * a base-measured drive to a spot outside the origin's region … a P8 sheet that reaches past the
+ * card descriptor … If that is built, the day marker ships with it."</em> That surface is
+ * {@code LocationFourDaySheet}. It is reached from search, search matches the whole roster rather
+ * than the scope, and the shared matrix covers the whole roster too — so Keswick to the far
+ * north-east is hours, and a 04:2x sunrise minus that drive minus setup lands on the previous
+ * evening. The home arm has the same hole from the other end: {@code GET /api/user/settings/reach}
+ * also covers the whole roster, and no postcode in it is guaranteed to be within 4h of every spot.
+ *
+ * <p>So the day is <b>derived, never assumed</b>: this returns the departure's own UK date beside
+ * the clock time and lets the caller compare it with the event's. Nothing is conditioned on a
+ * measured ceiling, because a ceiling that has already moved twice is not a thing to condition on.
+ *
+ * <h2>Two dates rather than one flag</h2>
+ *
+ * <p>{@code sameDay} is what a renderer branches on; {@code date} is what it needs to <em>name</em>
+ * the day, and the caller has the vocabulary for that ({@code Today}/{@code Tomorrow}/{@code Sat})
+ * while this module has none. Both are read on {@code Europe/London}, the calendar the clock time
+ * beside them is already formatted on — comparing a London clock against a browser-local date is
+ * how a card ends up naming the wrong side of midnight, which is the whole failure this prevents.
+ *
+ * @param {string|Date|null} eventTimeUtc the slot's own {@code solarEventTime}
+ * @param {?number} driveMinutes          this user's drive to the spot; see {@link leaveBy}
+ * @param {number} [setupMinutes]         minutes to allow on arrival; defaults to
+ *        {@link SETUP_MINUTES}
+ * @returns {?{time: string, date: string, sameDay: boolean}} the departure's UK clock time, the UK
+ *          date it falls on, and whether that is the event's own date — or null on the same terms
+ *          {@link leaveBy} answers null
+ */
+export function leaveByParts(eventTimeUtc, driveMinutes, setupMinutes = SETUP_MINUTES) {
+  const moment = departure(eventTimeUtc, driveMinutes, setupMinutes);
+  if (!moment) return null;
+  const date = ukDateStr(moment.leave);
+  return { time: formatInstantUk(moment.leave, HH_MM), date, sameDay: date === ukDateStr(moment.event) };
 }

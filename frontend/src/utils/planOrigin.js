@@ -1,4 +1,4 @@
-import { areaSpots } from './planningArea.js';
+import { areaRegions } from './planningArea.js';
 
 /**
  * The origin — the frame of reference the whole Plan tab is written from (plan §4.8, D5).
@@ -140,8 +140,35 @@ export function originReachMap(origin, matrix) {
  * @returns {Array} the scoped subset, in input order
  */
 export function scopeSpots(spots, reachById, origin) {
-  if (!origin) return areaSpots(spots, reachById);
-  return (Array.isArray(spots) ? spots : []).filter((s) => s && s.regionName === origin.name);
+  const names = new Set(scopeRegions(spots, reachById, origin));
+  return (Array.isArray(spots) ? spots : []).filter((s) => s && names.has(s.regionName));
+}
+
+/**
+ * The same scope, named rather than enumerated — the region names the page is about.
+ *
+ * <p>{@link scopeSpots} is now defined in terms of this, so the two cannot drift: the away arm is a
+ * set of one and the home arm is {@code areaRegions}, which is precisely what {@code areaSpots}
+ * filters on. Extracting it changed no answer, and {@code planOrigin.test.js} passing unedited is
+ * the proof.
+ *
+ * <p>It exists because {@code LocationFourDaySheet} asks a one-spot question — "is the place I just
+ * searched for inside the plan?" — that the spot list cannot answer. Handing {@code scopeSpots} a
+ * single-element array would compute the planning area <em>from that one spot</em>, so its own
+ * drive would become its region's minimum and a region reachable through a nearer neighbour could
+ * read as beyond. Filtering the whole catalogue and testing membership by object identity is the
+ * other wrong answer: the provider rebuilds the catalogue on every poll, so a sheet left open
+ * across one would hold a stale object, match nothing, and quietly relabel a place the reader can
+ * reach as "outside your plan". A region NAME survives both.
+ *
+ * @param {Array}   spots     the whole heat catalogue
+ * @param {?Map}    reachById per-user reach, for the home arm's planning area
+ * @param {?object} origin    the origin descriptor, or null for home
+ * @returns {string[]} the region names in scope
+ */
+export function scopeRegions(spots, reachById, origin) {
+  if (origin) return [origin.name];
+  return areaRegions(spots, reachById);
 }
 
 /**
