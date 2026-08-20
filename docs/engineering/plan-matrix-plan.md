@@ -8,7 +8,8 @@ sixteen charges, per-charge refutation): fourteen survived and their corrections
 — notably A21 (no served window-level prose exists; the bundle's `Window.lead` collides with
 the codebase's boolean `card.lead`), A8's two join rules (NIGHT topics bucket onto the *next*
 morning's card; aurora/NLC serve populated `regions` lists that are NOT eligibility rosters
-and must be exempted from the scope filter by type), and M3's sticky-chrome tasks.
+and must be exempted from the scope filter by type), and M3's sticky-chrome tasks. The six §8 owner decisions were all resolved by the owner on
+2026-08-20 (recommendations adopted) — no phase is decision-gated.
 
 **Scope: v2 / window-first Plan arm only, behind `usePlanLayout` (default stays `v1`).** v1 is
 the pilot's frozen comparison control and nothing here touches it except where a shared
@@ -83,7 +84,7 @@ WindowFirstShell
   THE MATRIX: day columns × sunrise/sunset rows, cards carry verdict tint,       ← M1
       verdict word, spread histogram, best-reachable line, topics, pick legends
   legend footer · change line · beyond line (carried over)
-  WindowFirstDoors (kept below the matrix — owner decision D-2 in §8)
+  WindowFirstDoors (kept below the matrix — D-2, resolved)
   WINDOW POPUP (dialog): header · big field with location chips · region cards   ← M2
       · always-rendered prose slot · topic rows · tide row · ranked spot strip
   location sheet (v3 anatomy, new entry points)                                  ← M4
@@ -106,8 +107,8 @@ WindowFirstShell
 | Six-row list, accordion, Order control, away rows, per-card lens-empty states | All live | **M2** — deleted; conflicts move page-level |
 | Origin control + times as the masthead tick line; origin chip/rail footer deleted | PlanOriginChip in the rail footer; MastheadLight renders times | **M3** |
 | Search anchored under the masthead; result rows gain best-figure + action chips; better folding | PlanSearch is a centred Modal with plainer rows | **M3** |
-| Location sheet v3 anatomy; opened from popup chips + spot cards; `Plan from <region>` / `Show on map` footer | P8 sheet, search-only entry, no footer actions | **M4** — needs owner decisions D-3/D-4 |
-| Promoted strip: none in v3 (topics ride the cards) | P7b ships one per page | **M5** — owner decision D-1 |
+| Location sheet v3 anatomy; opened from popup chips + spot cards; `Plan from <region>` / `Show on map` footer | P8 sheet, search-only entry, no footer actions | **M4** (D-3/D-4 resolved: yes to both) |
+| Promoted strip: none in v3 (topics ride the cards) | P7b ships one per page | **M5** (D-1 resolved: delete) |
 | Change line under the matrix; per-card movement chip deleted | Both exist on the strip (P6) | **M1** carries the line over; the chip dies with the old card face |
 
 Not ported at all (prototype stand-ins — see §4): client verdict thresholds, numeric
@@ -343,10 +344,9 @@ Tasks:
 3. Location chips on the field (new layer in `WindowRowFieldMap` or a sibling): greedy
    placement per §5, measured DOM spans, flip-left when right side clips, drop when nothing
    fits, `title` = region · drive · leave-by. Click opens the location sheet — wired in M4;
-   until then chips render as non-interactive spans (Rule 14's div-not-button remedy). The
-   "land M2 and M4 together" option exists **only if D-3/D-4 are already answered** — an M2
-   review preference cannot pull M4 past its owner gate; unanswered, the chips stay
-   non-interactive and D-3 is escalated.
+   until then chips render as non-interactive spans (Rule 14's div-not-button remedy).
+   D-3/D-4 are resolved (yes to both), so the "land M2 and M4 together" option is open at
+   the implementer's discretion if an inert interim state proves unacceptable in review.
 4. Topic rows: new `WindowTopicRows.jsx` implementing A8's two rules exactly (eventType/date
    bucketing including NIGHT → date+1 SUNRISE; type-keyed scope exemption); science
    `InfoTip` from `topic.description`; scope note for region-scoped topics only;
@@ -430,7 +430,7 @@ visible for a first-window topic.
    to 90, suppresses beyond line (all pinned already — keep those suites green unedited
    where they describe unchanged behaviour).
 
-### M4 — The location sheet, v3 (gated on §8 D-3/D-4)
+### M4 — The location sheet, v3 (D-3/D-4 resolved: both yes — ungated)
 
 1. Restyle `LocationFourDaySheet` to the v3 anatomy: header meta (`region · N min from
    <base>`, `outside your plan` badge), lead block (existing lead line — **no** "1 OF 6
@@ -449,8 +449,10 @@ visible for a first-window topic.
 
 ### M5 — Disposition, sweep, and the settling commit
 
-1. Apply owner decisions D-1/D-2 (promoted strip, doors) — build or delete accordingly, each
-   with its deletion ledger entry.
+1. Apply the resolved D-1/D-2: delete the promoted strip (`WindowFirstPromotedStrip`,
+   `windowFirstPromoted.js`, their tests, and the shell's `renderedStrip`/`revealWindow`
+   strip wiring — ledger entry below); confirm the doors untouched and still rendering below
+   the matrix (no build work — a pinning check, not a change).
 2. §6-style copy sweep over every new string (counts, denominators, two-ages, "since").
 3. Accessibility pass: axe on the four surfaces, screen-reader walk of matrix → popup →
    sheet (the accname/browse-mode check the flip has been waiting for), keyboard-only
@@ -475,42 +477,46 @@ visible for a first-window topic.
 | M1 | One-row strip layout; per-card movement chip | Matrix; change line + popup header |
 | M2 | Card list **rendering only** (`WindowFirstWindowCard` list role, `WindowAwayRow` — the `buildPaneItems` derivation survives as matrix + promoted-strip input), accordion + `WindowRowRegionLayer` inline mount, Order control (`usePlanOrder`, `windowFirstOrder.js`, lens segment, order note), per-card `lensEmpty`, the promoted strip's scroll-specific `adjacent` suppression, (review call) `WindowSpotPeek` | Popup dialog; page-level conflicts + per-window quiet sentence |
 | M3 | Rail footer: `PlanOriginChip`, home-not-set line, Edit-reach link, forecast-age line | Tick line; age beside change line |
-| M5 | (D-1 if agreed) `WindowFirstPromotedStrip` + `windowFirstPromoted.js` | Topics on cards + popup rows |
+| M5 | (D-1, resolved) `WindowFirstPromotedStrip` + `windowFirstPromoted.js` + strip wiring in the shell | Topics on cards + popup rows |
 
 `WindowSpotSheet` survives (the popup's "See all"). `WindowFirstDoors`/`HotTopicStrip`/
 `WindowFirstRegionalPanel` survive pending D-2. v1 components are untouched throughout.
 
 ---
 
-## 8. Owner decisions needed (recommendations attached)
+## 8. Owner decisions — ALL SIX RESOLVED 2026-08-20
 
-**Protocol: an unanswered D-decision blocks the work it gates — stop and ask. A
-recommendation is not a default**, and no review finding or convenience argument promotes one
-(D-3's "needs an explicit yes" is the general rule, stated once here). Ungated phases proceed
-regardless.
+**All six were resolved by the owner on 2026-08-20, adopting the attached recommendations.
+Nothing in M1–M5 is decision-gated any more.** The protocol below stays in force for any
+*new* decision a phase surfaces: an unanswered decision blocks the work it gates — stop and
+ask; a recommendation is not a default, and no review finding or convenience argument
+promotes one.
 
-- **D-1 Promoted strip.** v3 has no strip — every topic is named on its card and all six
-  cards are above the fold. *Recommend: delete in M5.* The rarity machinery (rarityRank
-  ordering) survives on cards and popup rows.
-- **D-2 The doors.** v3 shows nothing below the legend/change/beyond lines, but
-  `HotTopicStrip` (tide-run/surge charts, expanded aurora, certainty chips) and the regional
-  panel have no other v2 home, and storm surge/clearance topics never become window badges
-  (no event anchor) — deleting the doors would silence them on v2 entirely. *Recommend: keep
-  the doors below the matrix for this series; revisit after the flip.*
-- **D-3 Location-sheet entry points.** §9.9 resolved search-only (2026-08-20); v3 opens the
-  sheet from popup chips and spot cards. *Recommend: adopt v3's entries — the context that
-  motivated search-only (spot cards opened the map) changes when cards live inside a
-  dialog.* Reverses a recent owner call, so it needs an explicit yes.
-- **D-4 `Plan from <region>` sheet footer.** P8 deliberately didn't build it ("never move
-  the origin from inside an open sheet"). *Recommend: build it with close-then-move
-  semantics (M4.3), which honours the invariant's intent.*
-- **D-5 Away-origin picks.** Bundle recomputes BEST/ALSO per scope; we keep the served pick
-  and accept that an away plan may show no pick legend (A4). *Recommend: accept for this
-  series; if away picks matter, the follow-on is a served per-region pick (backend,
-  additive).* 
-- **D-6 Popup header average.** A3 drops `average N★ across M locations`. Say if you want it
-  back — it would need to be a served figure to comply with Rule 1, and it cannot be
-  reach-scoped on the shared payload (Rule 4).
+- **D-1 Promoted strip — RESOLVED: delete in M5.** v3 has no strip — every topic is named on
+  its card and all six cards are above the fold, so the strip's job (surfacing a coincidence
+  above the fold) no longer exists. The rarity machinery (rarityRank ordering) survives on
+  cards and popup rows. `WindowFirstPromotedStrip` + `windowFirstPromoted.js` + their tests
+  go in M5; until then the strip runs unchanged (with M2.8's adjacency fix so its Go-to
+  control works against the popup).
+- **D-2 The doors — RESOLVED: keep below the matrix for this series; revisit after the
+  flip.** v3 shows nothing below the legend/change/beyond lines, but `HotTopicStrip`
+  (tide-run/surge charts, expanded aurora, certainty chips) and the regional panel have no
+  other v2 home, and storm surge/clearance topics never become window badges (no event
+  anchor) — deleting the doors would silence them on v2 entirely. No M-phase touches them.
+- **D-3 Location-sheet entry points — RESOLVED: yes, adopt v3's entries** (popup field chips
+  + spot-strip cards + search). This knowingly reverses the §9.9 search-only call of
+  2026-08-20: the context that motivated it (spot cards opened the map) changes when the
+  cards live inside a dialog. M4 is ungated.
+- **D-4 `Plan from <region>` sheet footer — RESOLVED: yes, build it with close-then-move
+  semantics** (M4.3: close the sheet *and* the popup, then `setOrigin`). P8's "never move
+  the origin from inside an open sheet" invariant is honoured in intent — the origin never
+  moves *under* an open surface.
+- **D-5 Away-origin picks — RESOLVED: accept the deviation.** The served pick stays the only
+  pick; an away plan may legitimately show no `BEST BET`/`ALSO GOOD` legend (A4). If away
+  picks come to matter in use, O-1 (served per-region pick) is the follow-on — not scheduled.
+- **D-6 Popup header average — RESOLVED: stays dropped.** A3 stands; the header keeps
+  best-in-reach star, confidence tier and movement. Reopening this later means a served
+  figure (Rule 1) that cannot be reach-scoped on the shared payload (Rule 4).
 
 Optional backend enhancements (none blocks the series): **O-1** per-region pick for away
 origins (D-5); **O-2** full per-day extreme list on `BriefingWindowTide` (the popup currently

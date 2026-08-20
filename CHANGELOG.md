@@ -24,6 +24,16 @@ equality; and aurora/NLC serve populated `regions` lists that are coverage/condi
 not eligibility — the topic scope filter must exempt whole-sky types or aurora vanishes from
 every away plan.
 
+The plan's six owner decisions were all resolved on 2026-08-20, adopting the recommendations:
+the promoted strip is deleted in M5 (its above-the-fold job disappears when all six windows
+are above the fold); the doors stay below the matrix for this series (they are the only v2
+home of the tide-run/surge charts, and storm surge/clearance can never become window badges);
+the location sheet opens from popup chips and spot cards as well as search (knowingly
+reversing the earlier search-only call, whose motivating context the popup removes); the
+`Plan from <region>` sheet footer is built with close-then-move semantics; the away-origin
+deviation (a plan from an away region may show no BEST BET legend) is accepted; and the popup
+header's cross-location average stays dropped. No phase is decision-gated.
+
 ## [v2.18.14] - 2026-08-20
 
 ### Fixed — the seed script's printed ratings SQL matches the real `cached_evaluation` schema
