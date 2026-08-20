@@ -28,6 +28,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -45,12 +46,15 @@ class LocationServiceTest {
     @Mock
     private TideService tideService;
 
+    @Mock
+    private LocationEnrichmentService locationEnrichmentService;
+
     private LocationService locationService;
 
     @BeforeEach
     void setUp() {
         locationService = new LocationService(locationRepository, regionRepository,
-                tideService);
+                tideService, locationEnrichmentService);
     }
 
     // --- findByName ---
@@ -992,6 +996,100 @@ class LocationServiceTest {
         assertThat(saved.getElevationMetres()).isNull();
         assertThat(saved.getGridLat()).isNull();
         assertThat(saved.getGridLng()).isNull();
+    }
+
+    // --- update: Open-Meteo grid cell ---
+
+    @Test
+    @DisplayName("update() fills in a missing grid cell, which is how every raw-SQL location arrives")
+    void update_missingGridCell_isPopulated() {
+        LocationEntity existing = buildEntity("Penshaw Monument", 54.8830, -1.4809);
+        assertThat(existing.hasGridCell()).isFalse();
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(locationEnrichmentService.fetchGridCell(54.8830, -1.4809))
+                .thenReturn(new double[]{54.9, -1.5});
+
+        // A rename — nothing to do with coordinates. The cell is filled because it was ABSENT.
+        LocationEntity result = locationService.update(1L,
+                new UpdateLocationRequest("Penshaw Hill", null, null, null, null, null, null));
+
+        assertThat(result.getGridLat()).isEqualTo(54.9);
+        assertThat(result.getGridLng()).isEqualTo(-1.5);
+    }
+
+    @Test
+    @DisplayName("update() refetches the grid cell when the coordinates move")
+    void update_coordinatesMoved_refetchesGridCell() {
+        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
+        existing.setGridLat(54.8);
+        existing.setGridLng(-1.6);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(locationEnrichmentService.fetchGridCell(55.0, -1.0))
+                .thenReturn(new double[]{55.1, -1.1});
+
+        LocationEntity result = locationService.update(1L,
+                new UpdateLocationRequest(null, 55.0, -1.0, null, null, null, null));
+
+        // Fetched at the NEW position, not the old one — the stub is keyed on the new pair.
+        assertThat(result.getGridLat()).isEqualTo(55.1);
+        assertThat(result.getGridLng()).isEqualTo(-1.1);
+    }
+
+    @Test
+    @DisplayName("update() leaves a good grid cell alone when the coordinates did not move")
+    void update_unmovedWithGridCell_makesNoLookup() {
+        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
+        existing.setGridLat(54.8);
+        existing.setGridLng(-1.6);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        // Same coordinates, restated. Without the equality check this would still count as a move.
+        LocationEntity result = locationService.update(1L,
+                new UpdateLocationRequest(null, 54.7753, -1.5849, null, null, null, null));
+
+        assertThat(result.getGridLat()).isEqualTo(54.8);
+        assertThat(result.getGridLng()).isEqualTo(-1.6);
+        // Every unrelated edit must not become an Open-Meteo call.
+        verifyNoInteractions(locationEnrichmentService);
+    }
+
+    @Test
+    @DisplayName("update() clears a now-stale grid cell when the refetch fails after a move")
+    void update_moveWithFailedLookup_clearsStaleCell() {
+        LocationEntity existing = buildEntity("Durham UK", 54.7753, -1.5849);
+        existing.setGridLat(54.8);
+        existing.setGridLng(-1.6);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(locationEnrichmentService.fetchGridCell(55.0, -1.0)).thenReturn(null);
+
+        LocationEntity result = locationService.update(1L,
+                new UpdateLocationRequest(null, 55.0, -1.0, null, null, null, null));
+
+        // Absent beats stale: no cell means "excluded from dedup and stability", where the old
+        // pair would mean "confidently grouped with the cell around the PREVIOUS position".
+        assertThat(result.getGridLat()).isNull();
+        assertThat(result.getGridLng()).isNull();
+    }
+
+    @Test
+    @DisplayName("update() still saves when the grid lookup fails and there was no cell to lose")
+    void update_failedLookupWithoutPriorCell_savesAnyway() {
+        LocationEntity existing = buildEntity("Penshaw Monument", 54.8830, -1.4809);
+        when(locationRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(locationRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(locationEnrichmentService.fetchGridCell(54.8830, -1.4809)).thenReturn(null);
+
+        LocationEntity result = locationService.update(1L,
+                new UpdateLocationRequest("Penshaw Hill", null, null, null, null, null, null));
+
+        // The grid cell is an optimisation; an unreachable Open-Meteo must not block the edit.
+        assertThat(result.getName()).isEqualTo("Penshaw Hill");
+        assertThat(result.hasGridCell()).isFalse();
+        verify(locationRepository).save(existing);
     }
 
     private LocationEntity buildEntity(String name, double lat, double lon) {

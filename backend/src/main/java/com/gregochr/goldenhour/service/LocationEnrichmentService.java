@@ -148,9 +148,17 @@ public class LocationEnrichmentService {
      * <p>The API returns snapped {@code latitude} and {@code longitude} fields in every response,
      * representing the centre of the nearest ~2 km grid cell.
      *
+     * <p>Public, and deliberately separate from {@link #enrich(double, double)}, because
+     * {@code LocationService.update} needs the grid cell and nothing else. Routing that through
+     * {@code enrich} would additionally call lightpollutionmap.info — a keyed, quota-bearing
+     * third-party API — and the elevation endpoint, on every coordinate edit, to discard both
+     * results. It would also overwrite a hand-curated bortle class with an automated reading.
+     *
+     * @param latitude  latitude in decimal degrees
+     * @param longitude longitude in decimal degrees
      * @return [gridLat, gridLng] array, or null on failure
      */
-    private double[] fetchGridCell(double latitude, double longitude) {
+    public double[] fetchGridCell(double latitude, double longitude) {
         try {
             OpenMeteoForecastResponse response = openMeteoForecastApi.getForecast(
                     latitude, longitude, "temperature_2m", "ms", "UTC");

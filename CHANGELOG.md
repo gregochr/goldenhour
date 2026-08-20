@@ -31,6 +31,38 @@ Found while investigating the heat field's empty windows and explicitly ruled ou
 production had **zero** slots where the gate even fired. This closes a live trap rather than a
 visible defect.
 
+### Fixed — a location saved through the admin UI now gets its Open-Meteo grid cell
+
+`grid_lat`/`grid_lng` were written in exactly one place: `LocationService.addLocation`, from the
+enrichment the Add-location form runs client-side. `UpdateLocationRequest` carries no such fields
+and `update()` never touched them, so **no location inserted by raw SQL could ever acquire a grid
+cell** — V84's sixteen bluebell sites, V138's ten Heritage Coast entries and V143's Penshaw
+Monument are all still without one, and re-saving them changed nothing. Such a location is skipped
+by `GridCellStabilityService` and falls back to its own key in `BriefingService` rather than being
+deduplicated against neighbours in the same ~2 km cell.
+
+`LocationService.update` now refreshes the cell on two conditions, which are different problems with
+the same fix: the cell is **absent** (the raw-SQL case above), or the **coordinates moved**. The
+second was a latent bug of its own — editing lat/lon left the old cell in place, which is worse than
+absent, because the location is then grouped, classified and deduplicated against a cell it is no
+longer in.
+
+**On a lookup failure the two cases deliberately part company.** After a move the stored pair is
+known-wrong and is *cleared*: absent means "excluded from dedup and stability", which is degraded
+but honest, where stale means "confidently grouped with a different place's weather". If the cell
+was merely absent to begin with, nothing is lost by leaving it absent and the next save retries. A
+failure never fails the save — the grid cell is an optimisation, and a coordinate correction must
+still land when Open-Meteo is unreachable.
+
+Done on the **backend**, so it holds for any caller rather than only for edits made through this
+form, and there is no frontend change. `LocationEnrichmentService.fetchGridCell` is made public and
+called directly rather than routing through `enrich()`, which would additionally call the keyed,
+quota-bearing lightpollutionmap.info API and the elevation endpoint on every coordinate edit — and
+would overwrite a hand-curated bortle class with an automated reading.
+
+An unchanged save makes no Open-Meteo call at all (pinned by `verifyNoInteractions`), so a rename or
+a type toggle does not become a network round-trip.
+
 ### Fixed — the heat field froze for the life of the tab
 
 **This is the defect behind the blank Saturday, and it was never about the unscored mark.**
@@ -82,6 +114,7 @@ set.
 ⚠️ **A scored window whose field has no points is deliberately left unmarked** — that state is a
 fact about the join behind the picture, not about the forecast. It is what made the Saturday tile
 blank in the first place, and its cause is the frozen-tab defect fixed above, in this same change.
+
 
 ### Added — heat field P7: the origin moves
 
