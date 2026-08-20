@@ -892,3 +892,171 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
     expect(card.topMeanRating).toBe(2.5);
   });
 });
+
+/**
+ * The origin's scope (plan §4.8, P7) — the frame of reference applied BEFORE either lens gate.
+ *
+ * <p><b>What breaks if these fail.</b> The scope decides what the page is about, so every count the
+ * card prints — {@code reachTotal}, {@code reachedTotal}, the empty state's "N spots are further
+ * out" — is a count OF the scope. A scope applied after the gates, or not at all, would leave a
+ * card in the Lake District counting Northumberland's spots in its own explanation.
+ */
+describe('buildWindowCards — the origin\'s scope', () => {
+  const SPOTS = [
+    { locationId: 1, locationName: 'Derwentwater', claudeRating: 4, canopy: false },
+    { locationId: 2, locationName: 'Bamburgh Beach', claudeRating: 5, canopy: false },
+  ];
+  const REACH = new Map([
+    [1, { driveMinutes: 12, distanceMiles: 5 }],
+    [2, { driveMinutes: 30, distanceMiles: 19 }],
+  ]);
+  const ORIGIN = { id: 7, name: 'Lake District', baseName: 'Keswick' };
+
+  // Served per-region records, deliberately DIFFERENT from the window's roll-up on every field —
+  // equal fixtures would let a re-point be swapped for a pass-through undetected.
+  const twoRegions = () => [day(TODAY, [{
+    targetType: 'SUNSET',
+    regions: [
+      {
+        regionName: 'Lake District',
+        slots: [SPOTS[0]],
+        displayVerdict: 'MAYBE',
+        bestRating: 4,
+        meanRating: 3.2,
+        confidence: 'low',
+        meanRatingDelta: -0.4,
+      },
+      {
+        regionName: 'Northumberland',
+        slots: [SPOTS[1]],
+        displayVerdict: 'WORTH_IT',
+        bestRating: 5,
+        meanRating: 4.6,
+        confidence: 'high',
+        meanRatingDelta: 0.6,
+      },
+    ],
+    unregioned: [],
+    window: {
+      verdict: 'WORTH_IT',
+      badges: [],
+      bestRating: 5,
+      confidence: 'high',
+      pick: {
+        kind: 'BEST',
+        regionName: 'Northumberland',
+        headline: 'Breaking clear',
+        locationName: 'Bamburgh Beach',
+      },
+    },
+  }])];
+
+  const buildScoped = (lens) => buildWindowCards(
+    events([TODAY, 'SUNSET']), twoRegions(), TODAY, TOMORROW, new Set(), REACH, lens,
+  );
+
+  it('keeps both regions at home', () => {
+    const [card] = buildScoped({ limitMinutes: null, defaultLimitMinutes: 150 });
+    expect(card.spots.map((s) => s.locationName).sort())
+      .toEqual(['Bamburgh Beach', 'Derwentwater']);
+  });
+
+  it('narrows every window to the origin\'s own region', () => {
+    const [card] = buildScoped({ limitMinutes: null, defaultLimitMinutes: 90, origin: ORIGIN });
+    expect(card.spots.map((s) => s.locationName)).toEqual(['Derwentwater']);
+  });
+
+  it('⚠️ makes the card\'s own counts counts of the SCOPE, not of the roster', () => {
+    const [card] = buildScoped({ limitMinutes: null, defaultLimitMinutes: 90, origin: ORIGIN });
+    expect(card.reachTotal).toBe(1);
+    expect(card.reachedTotal).toBe(1);
+    expect(card.allSpots.map((s) => s.locationName)).toEqual(['Derwentwater']);
+  });
+
+  it('⚠️ runs BEFORE the reach gate, so the lens chooses within the region', () => {
+    // Bamburgh is 30 minutes away and Derwentwater 12. Under a 20-minute reach with no scope,
+    // Derwentwater alone survives; the point of this test is the other order — with the scope on
+    // the LAKES and a reach that admits both, the roster's other region is gone because of the
+    // scope, and the empty-state machinery must not blame the lens for it.
+    const [card] = buildScoped({ limitMinutes: 45, defaultLimitMinutes: 45, origin: ORIGIN });
+    expect(card.spots.map((s) => s.locationName)).toEqual(['Derwentwater']);
+    expect(card.lensEmpty).toBeNull();
+  });
+
+  it('hands an away empty scope its own explanation and the way home', () => {
+    const [card] = buildScoped({
+      limitMinutes: null,
+      defaultLimitMinutes: 90,
+      origin: { id: 9, name: 'Peak District', baseName: 'Bakewell' },
+    });
+    expect(card.spots).toEqual([]);
+    expect(card.lensEmpty.headline).toBe('Nothing in Peak District for this window.');
+    expect(card.lensEmpty.actions).toEqual([
+      { kind: 'origin', id: 'home', label: 'Plan from home' },
+    ]);
+  });
+
+  it('⚠️ re-points the header figures to the ORIGIN REGION\'s own served record', () => {
+    // At home the card carries the window's roster-wide roll-up. Away that roll-up describes a
+    // region the reader has scoped out — `best spot 5★` over a strip whose best card is 4★, and a
+    // `Worth it` badge for somewhere else — so every one of these switches to the served
+    // `BriefingRegion` record for the origin's own region.
+    const [home] = buildScoped({ limitMinutes: null, defaultLimitMinutes: 150 });
+    const [away] = buildScoped({ limitMinutes: null, defaultLimitMinutes: 90, origin: ORIGIN });
+
+    expect(home.verdict).toBe('WORTH_IT');
+    expect(home.bestRating).toBe(5);
+    expect(home.topMeanRating).toBe(4.6);
+    expect(home.confidence).toBe('high');
+    expect(home.movement).toEqual({ regionName: 'Northumberland', delta: 0.6 });
+
+    expect(away.verdict).toBe('MAYBE');
+    expect(away.verdictLabel).toBe('Maybe');
+    expect(away.bestRating).toBe(4);
+    expect(away.topMeanRating).toBe(3.2);
+    expect(away.confidence).toBe('low');
+    expect(away.movement).toEqual({ regionName: 'Lake District', delta: -0.4 });
+  });
+
+  it('⚠️ takes every re-pointed figure from the SERVED record, never from the scoped spots', () => {
+    // Derwentwater is rated 4 in the fixture and the Lakes' served `bestRating` is also 4 — so this
+    // asserts against a record whose served mean (3.2) NO client-side aggregation over one 4★ spot
+    // could produce. A max or a mean over `card.spots` would answer 4, which is the aggregation
+    // class Phase 3 of the verdict consolidation moved server-side.
+    const [away] = buildScoped({ limitMinutes: null, defaultLimitMinutes: 90, origin: ORIGIN });
+    expect(away.spots.map((s) => s.rating)).toEqual([4]);
+    expect(away.topMeanRating).toBe(3.2);
+  });
+
+  it('withholds a pick that names a region the origin has scoped away', () => {
+    // The badge opens a dialog naming that region, and the strip folds `pick.kind === 'best'`
+    // straight into its BEST BET flag — so an out-of-scope pick recommends somewhere the reader
+    // has just said they are not.
+    const [home] = buildScoped({ limitMinutes: null, defaultLimitMinutes: 150 });
+    const [away] = buildScoped({ limitMinutes: null, defaultLimitMinutes: 90, origin: ORIGIN });
+    expect(home.pick).toMatchObject({ kind: 'best', regionName: 'Northumberland' });
+    expect(away.pick).toBeNull();
+  });
+
+  it('keeps a pick that names the origin\'s own region', () => {
+    const [away] = buildScoped({
+      limitMinutes: null,
+      defaultLimitMinutes: 90,
+      origin: { id: 8, name: 'Northumberland', baseName: 'Alnwick' },
+    });
+    expect(away.pick).toMatchObject({ kind: 'best', regionName: 'Northumberland' });
+  });
+
+  it('reads AWAITING, never the roster\'s word, for a scoped region the window says nothing about', () => {
+    const [away] = buildScoped({
+      limitMinutes: null,
+      defaultLimitMinutes: 90,
+      origin: { id: 9, name: 'Peak District', baseName: 'Bakewell' },
+    });
+    // No served record for that region at all → the card falls back to the window's own figures,
+    // which is what `originRegion` returning null means. The verdict is the window's; the spot
+    // strip is empty and the away empty state explains it.
+    expect(away.spots).toEqual([]);
+    expect(away.lensEmpty.headline).toBe('Nothing in Peak District for this window.');
+  });
+});

@@ -5,6 +5,53 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — heat field P7: the origin moves
+
+The window-first Plan tab can now be planned from somewhere other than home. A chip in the rail
+footer names where the page is planning from — `Home · Durham`, or a blue `Keswick` — and `/` or a
+click on it opens a search box over three groups: the six windows, the regions you can plan from,
+and the locations. Choosing a region re-points the whole tab at it: the spot pool becomes that
+region, all six thumbnails and every open row's map re-frame to it, the drive figures switch to the
+shared region-base matrix, the reach lens relabels itself `Drive from Keswick` and drops to 1h 30,
+and the leave-by line recomputes from the same figures. The home glyph puts it back
+(`docs/engineering/heat-field-plan.md` §4.8, decision D5).
+
+**The shared matrix and your own reach map never mix.** "How far is this from Keswick" is the same
+answer for every reader, so it rides a cacheable endpoint (`GET /api/regions/drive-times`,
+ETag-revalidated); "how far is this from your house" cannot, and stays on the never-cached
+`/api/user/settings/reach`. The away map is built from the shared matrix **alone** — it does not
+even borrow the distance in miles to fill a gap, because those miles are measured from your home and
+printing them beside an away drive time would put two different journeys in one line. An absent row
+reads as *unknown*: no drive line, and it passes every reach tier.
+
+**A region without a base town cannot be an origin.** Regions gain an admin-entered base — the town
+a visitor would actually stay in, not the region's centroid, which for a coastal region is often
+offshore and would make every drive time a journey nobody can make. A region with no base is still
+found by search and shown, with the reason on the row, rather than hidden.
+
+**Two clash states, and a third the design did not name.** Nothing within reach of the base, and a
+rating floor set at home that empties an away region, both extend the existing lens-empty card: the
+sentence names the thresholds that are gating and the actions gain one more — the way home. The
+third is an away region with nothing in a window at all, which at home renders silently and away
+would be a dead end, so it names the region, says where you are planning from and offers the way
+back.
+
+**Also:** the beyond line under the strip gains the search link deferred from P2, pre-filled with
+the nearest region beyond the planning area; the open row's region rail drops away under a
+single-region scope, because the choice has already been made; and the beyond line itself is
+withheld while away, since "beyond 3h from home" is a statement about the home planning area.
+
+**Backend.** `regions` gains nullable `base_name` / `base_lat` / `base_lon`, and a new
+`region_drive_time` table holds the matrix from each base to the whole roster — keyed on `region_id`
+rather than on the region name, which is what the three existing name-keyed briefing stores are and
+what forced a `DELETE FROM` when V137 renamed two live regions (V145). A nightly
+`region_drive_time_refresh` job fills it at 03:10, twenty minutes after the per-user sweep, and
+moving a base discards that region's rows rather than leaving figures that describe a journey from
+the old town. The ORS concurrency limit — a `private static final Semaphore(2)` inside
+`DriveDurationService` — is hoisted into an `OrsRateLimiter` bean applied inside the client, so the
+two nightly sweeps queue on one pair of permits rather than on one pair each, and a future third
+caller cannot bypass it by forgetting to acquire.
+
 ## [v2.18.13] - 2026-08-19
 
 ### Added — heat field P6: which way the forecast moved

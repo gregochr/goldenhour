@@ -657,13 +657,138 @@ describe('WindowFirstHeatStrip — the header, footer and beyond line', () => {
     expect(screen.queryByTestId('wf-heat-beyond')).toBeNull();
   });
 
-  it('offers no search link, which arrives with P7', async () => {
+  it('offers no search link when the caller wires none', async () => {
+    // The link is a P7 addition and is opt-in: a strip rendered without a handler keeps the P2
+    // behaviour exactly, which is what makes it safe to hand to a caller that has no search.
     await renderStrip({
       spots: [spot(), spot({ id: 2, regionName: 'The Highlands', rid: 'The Highlands' })],
       reachById: new Map([[1, { driveMinutes: 66 }], [2, { driveMinutes: GLANCE_MINUTES + 1 }]]),
     });
 
     expect(within(screen.getByTestId('wf-heat-beyond')).queryByRole('button')).toBeNull();
+  });
+
+  it('offers a search link naming the NEAREST beyond region, and hands that name back', async () => {
+    // Nearest first, because `beyondRegions` is sorted that way and it is the one a reader is most
+    // likely to want. One link rather than one per region: six would make the tail longer than the
+    // strip it is a footnote to, and the search box is editable.
+    const onSearchRegion = vi.fn();
+    await renderStrip({
+      spots: [
+        spot(),
+        spot({ id: 2, regionName: 'The Highlands', rid: 'The Highlands' }),
+        spot({ id: 3, regionName: 'Snowdonia', rid: 'Snowdonia' }),
+      ],
+      reachById: new Map([
+        [1, { driveMinutes: 66 }],
+        [2, { driveMinutes: GLANCE_MINUTES + 90 }],
+        [3, { driveMinutes: GLANCE_MINUTES + 1 }],
+      ]),
+      onSearchRegion,
+    });
+
+    const link = screen.getByTestId('wf-heat-beyond-search');
+    expect(link).toHaveTextContent('search to plan from Snowdonia');
+    fireEvent.click(link);
+    expect(onSearchRegion).toHaveBeenCalledWith('Snowdonia');
+  });
+});
+
+/**
+ * The origin's effect on the strip (plan §4.8) — the design's headline state.
+ *
+ * <p><b>What breaks if these fail.</b> "All six thumbnails re-frame" is the whole visible claim of
+ * the origin move. The frame reaches the kernel as {@code opts.fit}, so that argument is the only
+ * place the claim can be checked without a canvas — and it is checked on EVERY card, because a
+ * re-frame that applied to one thumbnail would be worse than none: six pictures at two scales read
+ * as a forecast difference.
+ */
+describe('WindowFirstHeatStrip — the origin re-frames it', () => {
+  const LAKES = spot({ id: 9, name: 'Derwentwater', regionName: 'Lake District', rid: 'Lake District', lat: 54.58, lng: -3.14 });
+  const ORIGIN = { name: 'Lake District', baseName: 'Keswick' };
+  const TWO_CARDS = [
+    stripCard(),
+    stripCard({ key: '2026-08-05:SUNRISE', date: '2026-08-05', dow: 'Wed', sunrise: true, label: 'Tomorrow sunrise', time: '05:20' }),
+  ];
+
+  it('⚠️ fits EVERY thumbnail to the origin\'s own region, not to the planning area', async () => {
+    // Measured thumbs, because jsdom reports 0 for every box and the strip does not paint at zero
+    // width — so without this the calls the assertions read never happen.
+    await withMeasuredThumbs(160, async () => {
+      await renderStrip({ cards: TWO_CARDS, spots: [spot(), LAKES], origin: ORIGIN });
+    });
+
+    expect(drawGeo).toHaveBeenCalledTimes(2);
+    const fits = drawGeo.mock.calls.map((call) => call[5].fit);
+    expect(fits[0]).toEqual(bbox([LAKES]));
+    expect(fits[1]).toEqual(fits[0]);
+    // And it is a DIFFERENT frame from the home one, or the assertion above would pass on a
+    // component that ignored the origin entirely.
+    expect(fits[0]).not.toEqual(bbox([spot(), LAKES]));
+  });
+
+  it('⚠️ leaves the POINT SET whole — framing must never become the filter §3 forbids', async () => {
+    // The footer promises "the field shows the forecast, not your reach". An origin narrows what is
+    // in shot; it must not remove a point from the blend, or a spot just outside the frame would
+    // stop lighting the edge of it.
+    const points = [
+      { id: 1, lat: 55.61, lng: -1.71, r: [4] },
+      { id: 9, lat: 54.58, lng: -3.14, r: [2] },
+    ];
+    await withMeasuredThumbs(160, async () => {
+      await renderStrip({
+        spots: [spot(), LAKES],
+        origin: ORIGIN,
+        pointSets: new Map([[stripCard().key, points]]),
+      });
+    });
+
+    expect(drawGeo.mock.calls[0][3]).toBe(points);
+  });
+
+  it('withholds the beyond line when away — "beyond 3h from home" is about the home area', async () => {
+    await renderStrip({
+      spots: [spot(), spot({ id: 2, regionName: 'The Highlands', rid: 'The Highlands' })],
+      reachById: new Map([[1, { driveMinutes: 66 }], [2, { driveMinutes: GLANCE_MINUTES + 1 }]]),
+      origin: ORIGIN,
+      onSearchRegion: vi.fn(),
+    });
+
+    expect(screen.queryByTestId('wf-heat-beyond')).toBeNull();
+  });
+
+  it('frames on the planning area with no origin', async () => {
+    await withMeasuredThumbs(160, async () => {
+      await renderStrip({ spots: [spot(), LAKES] });
+    });
+    expect(drawGeo.mock.calls[0][5].fit).toEqual(bbox([spot(), LAKES]));
+  });
+
+  it('⚠️ re-frames on an origin CHANGE, not only on a first render with one set', async () => {
+    // The mutation this catches is `origin` dropped from the framing memo's dependency list: the
+    // first render is correct either way, and the strip then keeps the previous frame for the rest
+    // of the session — a stale-frame defect no render-once test can see.
+    await withMeasuredThumbs(160, async () => {
+      const props = {
+        cards: [stripCard()],
+        spots: [spot(), LAKES],
+        pointSets: scoredWindows([stripCard()]),
+        scoresKnown: true,
+        todayStr: TODAY,
+      };
+      let rerender;
+      await act(async () => {
+        ({ rerender } = render(<WindowFirstHeatStrip {...props} />));
+      });
+      expect(drawGeo.mock.calls[0][5].fit).toEqual(bbox([spot(), LAKES]));
+
+      await act(async () => {
+        rerender(<WindowFirstHeatStrip {...props} origin={ORIGIN} />);
+      });
+
+      const last = drawGeo.mock.calls[drawGeo.mock.calls.length - 1];
+      expect(last[5].fit).toEqual(bbox([LAKES]));
+    });
   });
 });
 

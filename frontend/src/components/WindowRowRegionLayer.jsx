@@ -58,6 +58,20 @@ export default function WindowRowRegionLayer({
    * same handler, because the All cell is already mounted and does not move.
    */
   const allCellRef = useRef(null);
+
+  /**
+   * The regions the map may offer, which is one of them under an away origin.
+   *
+   * <p>Memoised because {@code WindowRowFieldMap}'s paint effect depends on it — a fresh array per
+   * render would repaint a coastline, a kernel field, a blur and a stroke on every shell render
+   * (§5 invariant 4).
+   */
+  const scopedRegionNames = useMemo(
+    () => (field.singleRegionScope && field.origin
+      ? regionNames.filter((name) => name === field.origin.name)
+      : regionNames),
+    [regionNames, field.singleRegionScope, field.origin],
+  );
   const clearRegion = useCallback(() => {
     field.onSelectRegion?.(null);
     allCellRef.current?.focus?.();
@@ -74,13 +88,26 @@ export default function WindowRowRegionLayer({
         scoresKnown={field.scoresKnown}
         // Rank order, so the labels and the rail name one set — a region on the map that is not on
         // the rail could be selected and then not be clearable from the rail.
-        regionNames={regionNames}
+        // ⚠️ Scoped to the origin's own region when the page is. The canvas is `aria-hidden` and
+        // its `selectable` flag is `regionNames.length > 1`, so leaving the full roster here would
+        // keep click-to-select live on a surface whose ONLY accessible equivalent — the rail — this
+        // scope has just withdrawn. One name makes it unselectable, which restores the condition
+        // this component's own comment sets for an `aria-hidden` surface: never the sole path to
+        // anything. The labels still draw, so the region is still named.
+        regionNames={scopedRegionNames}
         selectedRegion={field.selectedRegion || null}
         reachById={field.reachById}
+        origin={field.origin || null}
         todayStr={todayStr}
         onSelectRegion={field.onSelectRegion}
       />
 
+      {/* ⚠️ The rail drops away when the origin is a single region (plan §4.8): there is nothing
+          left to choose. It is not merely redundant — the rail's own "All N regions" peer cell and
+          its per-region counts would describe a one-region set as though it were a choice, and its
+          selection would then filter a scope that is already exactly that region. The map above
+          keeps its labels, so the region is still named on screen. */}
+      {!field.singleRegionScope && (
       <WindowRegionRail
         allCellRef={allCellRef}
         rows={regionRows}
@@ -93,6 +120,7 @@ export default function WindowRowRegionLayer({
         selected={field.selectedRegion || null}
         onSelect={field.onSelectRegion}
       />
+      )}
 
       {selectedRow && (
         <WindowRegionBand
@@ -131,6 +159,10 @@ WindowRowRegionLayer.propTypes = {
     windows: PropTypes.array.isRequired,
     series: PropTypes.instanceOf(Map),
     reachById: PropTypes.instanceOf(Map),
+    /** True when the origin has already narrowed the page to one region — the rail is withheld. */
+    singleRegionScope: PropTypes.bool,
+    /** The away origin, or null for home. Framing only — it never reaches the kernel's points. */
+    origin: PropTypes.shape({ name: PropTypes.string.isRequired }),
     selectedRegion: PropTypes.string,
     lens: PropTypes.object,
     onSelectRegion: PropTypes.func,

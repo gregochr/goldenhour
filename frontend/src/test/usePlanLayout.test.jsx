@@ -1101,9 +1101,13 @@ describe('WindowFirstShell — the strip it hosts', () => {
   });
 
   describe('the rail footer\'s home prompt', () => {
+    // ⚠️ P7 moved the `Home · <place>` LINE onto the origin chip, which states the same fact and
+    // can be acted on (plan §4.8). The three-state rule the line carried is unchanged and is now
+    // pinned on the chip: a place is named only when one is known, and the separate "Home not set"
+    // prompt still fires only on an answered-with-no-home response.
     it('names the home the reach figures are measured from', () => {
       renderWithBriefing({ ...briefingWith('2026-08-04T12:00:00'), homePlace: 'Morpeth' });
-      expect(screen.getByTestId('window-first-home')).toHaveTextContent('Home · Morpeth');
+      expect(screen.getByTestId('window-first-origin-chip')).toHaveTextContent('Home · Morpeth');
     });
 
     it('says so when the settings response came back with no home', () => {
@@ -1113,13 +1117,19 @@ describe('WindowFirstShell — the strip it hosts', () => {
       expect(screen.getByTestId('window-first-home')).toHaveTextContent('Home not set');
     });
 
-    it('says nothing at all while it does not know', () => {
+    it('names no PLACE while it does not know, and makes no claim about the setting', () => {
       // Telling a user who HAS a home that they have not set one, on the strength of a request
       // that never came back, is a false claim where silence costs nothing. Plan §2.5 forbids a
       // second source of truth for this, which is what makes the third state necessary.
+      //
+      // The chip still reads "Home", and that is not the claim this test guards: home is the
+      // ORIGIN — where the page is planning from — and it is home whether or not a postcode is
+      // saved. What must not appear is a place name, or the "not set" prompt.
       renderWithBriefing({ ...briefingWith('2026-08-04T12:00:00'), homePlace: undefined });
       expect(screen.queryByTestId('window-first-home')).toBeNull();
-      expect(screen.getByTestId('window-first-railfoot').textContent).not.toMatch(/home/i);
+      expect(screen.getByTestId('window-first-origin-chip').textContent).toBe('⌂Home');
+      expect(screen.getByTestId('window-first-railfoot').textContent)
+        .not.toMatch(/not set|·/i);
     });
 
     it('offers a route to the settings that set it', () => {

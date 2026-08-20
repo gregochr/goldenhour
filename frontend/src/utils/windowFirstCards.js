@@ -4,6 +4,7 @@ import { ANY_RATING_ID, gateSpotsByRating } from './ratingLens.js';
 import { buildLensEmptyState } from './windowLensEmpty.js';
 import { buildWindowSpots } from './windowFirstSpots.js';
 import { badgeKey, buildWindowRows } from './windowFirstRows.js';
+import { gateSpotsByOrigin } from './planOrigin.js';
 
 /**
  * The window-card descriptors — one per rendered solar window.
@@ -233,10 +234,57 @@ function topMeanRating(es) {
  * @returns {?{regionName: string, delta: number}} the leading region's movement, or null
  */
 function topRegionMovement(es) {
-  const region = topRegion(es);
+  return regionMovement(topRegion(es));
+}
+
+/**
+ * One region's movement in the shape the chip renders, or null.
+ *
+ * <p>Extracted so the roster-wide arm and the origin-scoped arm cannot answer the shape question
+ * differently — the null-versus-measured-zero rule above is the whole contract, and two copies of
+ * it is how one of them loses the distinction.
+ *
+ * @param {?object} region a served {@code BriefingRegion}
+ * @returns {?{regionName: string, delta: number}} its movement, or null
+ */
+function regionMovement(region) {
   const delta = region?.meanRatingDelta;
   if (typeof delta !== 'number' || !Number.isFinite(delta)) return null;
   return { regionName: region.regionName, delta };
+}
+
+/**
+ * The origin's own served region record for one window, or null.
+ *
+ * <p><b>Why the card re-points rather than keeps the window's roll-up.</b> {@code BriefingWindow}'s
+ * {@code bestRating}, {@code verdict}, {@code confidence} and the leading region's mean are all
+ * roll-ups over the WHOLE roster — the backend knows nothing about the origin, which is client-only
+ * by design. Left in place under an away scope they put two populations one gap apart in the same
+ * meta row: a header reading {@code Worth it · best spot 5★ · 3 within reach} over a strip whose
+ * best card is 2★, because the 5 belongs to a region the reader has just scoped away from. The same
+ * mismatch drives the Order control, whose {@code Best} ranking would order six windows by a region
+ * outside the scope and print an ordinal for it.
+ *
+ * <p><b>Nothing is recomputed.</b> Every field taken here is one the backend already serves per
+ * region ({@code BriefingRegion.bestRating}, {@code displayVerdict}, {@code meanRating},
+ * {@code confidence}, {@code meanRatingDelta}) — the same records the open row's rail and band
+ * render. That is the whole reason this is a re-point rather than a client-side max: a max over
+ * {@code card.spots} would re-create exactly the aggregation class Phase 3 of the verdict
+ * consolidation moved server-side, minus its canopy rule.
+ *
+ * <p>Matched on region NAME, byte-identically, because that is the key the two payloads share
+ * ({@code heatSpots.js}). Null when the window carries no record for the origin's region — an
+ * ordinary state, since not every region appears in every window — and the caller then falls back
+ * to the window's own figures, which is honest: with nothing served for this region there is
+ * nothing scoped to say.
+ *
+ * @param {?object} es     the event summary
+ * @param {?object} origin the origin descriptor, or null for home
+ * @returns {?object} the origin region's served record, or null
+ */
+function originRegion(es, origin) {
+  if (!origin) return null;
+  return eligibleRegions(es).find((region) => region?.regionName === origin.name) ?? null;
 }
 
 /**
@@ -276,7 +324,13 @@ function topRegionMovement(es) {
  *                                state has to name the control it would move, and a threshold
  *                                cannot name a chip. The default gates nothing and marks nothing,
  *                                which is what a caller with no lens should get — never a silent
- *                                gate at some assumed distance.
+ *                                gate at some assumed distance. {@code origin} is the frame of
+ *                                reference (plan §4.8) — null is home and scopes nothing; a region
+ *                                origin narrows every window to that region BEFORE either gate,
+ *                                because the page is then about that region rather than about the
+ *                                roster. It rides on the lens object rather than as a seventh
+ *                                positional argument for the reason the two thresholds already
+ *                                do — this signature is at its limit.
  * @returns {Array} card descriptors for {@code WindowFirstWindowCard}
  */
 export function buildWindowCards(
@@ -287,6 +341,7 @@ export function buildWindowCards(
   const minRating = lens?.minRating ?? null;
   const tierId = lens?.tierId ?? ANY_TIER_ID;
   const floorId = lens?.floorId ?? ANY_RATING_ID;
+  const origin = lens?.origin ?? null;
   const live = (upcomingEvents || []).filter((e) => !travelDayDates?.has(e.date));
 
   const cards = live.map(({ date, targetType }, index) => {
@@ -307,7 +362,14 @@ export function buildWindowCards(
     // §6 bans inventing any. So the warmest word on the screen stays where it is honest, and the
     // day moves into the title everywhere else.
     const kicker = lead && targetType === 'SUNSET' ? 'Tonight' : null;
-    const verdict = win?.verdict || 'AWAITING';
+
+    // The origin's own served record, when the page is scoped to one region. Everything below that
+    // would otherwise describe the whole roster reads from it instead — see `originRegion`.
+    const scopedRegion = originRegion(es, origin);
+    // A scoped region with no served verdict is AWAITING, not the window's: falling back to the
+    // roster's word would put "Worth it" on a card about a region nothing was said about.
+    const verdictSource = scopedRegion ? (scopedRegion.displayVerdict || 'AWAITING') : null;
+    const verdict = verdictSource || win?.verdict || 'AWAITING';
 
     // The attribute rows, and the badges they took with them. A topic that became a row is not
     // also a chip — see `windowFirstRows.js` for why that follows from what each surface can hold
@@ -318,7 +380,14 @@ export function buildWindowCards(
     // the header's `best N★` read one population — see `buildWindowSpots` for the two filters
     // that keep them in step. The gate runs after, so `reachTotal` is the set the lens chose from
     // and the card can say how many it left without either number describing a different thing.
-    const allSpots = buildWindowSpots(es, reachById, lens?.defaultLimitMinutes ?? null);
+    // The origin's scope runs FIRST, before either lens gate. Away, the page is about one
+    // region — "a region is Plan with the origin moved" — so the lens chooses within that region
+    // rather than across the roster, and the counts the card prints ("12 spots are further out")
+    // are counts of the scope the reader asked for. Applied here rather than inside
+    // `buildWindowSpots` so that everything downstream, `allSpots` included, sees one population.
+    const allSpots = gateSpotsByOrigin(
+      buildWindowSpots(es, reachById, lens?.defaultLimitMinutes ?? null), origin,
+    );
     // Reach first, then rating — the order the two counts describe. `reached` is what the floor
     // chose from, so the bar can say "42 of 138" without either number naming a different thing.
     const reached = gateSpotsByReach(allSpots, limitMinutes);
@@ -340,24 +409,32 @@ export function buildWindowCards(
       verdictLabel: VERDICT_LABEL[verdict] || VERDICT_LABEL.AWAITING,
       // Null is "nothing in this window is rated", which is a different statement from a low one:
       // the header omits the star rather than printing a placeholder.
-      bestRating: win?.bestRating ?? null,
+      bestRating: scopedRegion ? (scopedRegion.bestRating ?? null) : (win?.bestRating ?? null),
       // The best of the window's REGION means, for the Order control's `Best` ranking (plan §2.12
       // and §4.3). Deliberately a different quantity from `bestRating` above, which is one
       // location's score: ranking six windows by a single best spot would put a window with one
       // exceptional location above one where a whole region is good, which is the opposite of what
       // "which window is the best bet" means. Null when nothing in the window carries a mean, and
       // `windowFirstOrder.js` ranks those last rather than treating the absence as a zero.
-      topMeanRating: topMeanRating(es),
+      topMeanRating: scopedRegion
+        ? (typeof scopedRegion.meanRating === 'number' && Number.isFinite(scopedRegion.meanRating)
+          ? scopedRegion.meanRating : null)
+        : topMeanRating(es),
       // The same region `topMeanRating` names, carrying how far it has moved since the previous
       // forecast run. Null — never a zero — when there is nothing to compare against; see
       // `topRegionMovement` for why the two must stay distinguishable.
-      movement: topRegionMovement(es),
+      movement: scopedRegion ? regionMovement(scopedRegion) : topRegionMovement(es),
       // The TOP REGION's confidence. Through P14 this was "the single render site", because the
       // retired day rail derived a day-level tier and deliberately rendered nothing from it. That is
       // no longer true and the change is deliberate: the heat strip reads this same field per window
       // and feeds it to the kernel's haze through `confidenceScalar`, so the picture and the badge
       // decay by ONE number (plan D3). Two renderings of one value, never two derivations.
-      confidence: CONFIDENCE_VERDICTS.has(verdict) ? (win?.confidence ?? null) : null,
+      // Scoped too, and this one is not merely a label: the strip and the row map feed it to the
+      // kernel's haze through `confidenceScalar`, so a roster-wide tier would paint a field drawn
+      // for one region at another region's certainty — D3's "one number" broken by two.
+      confidence: CONFIDENCE_VERDICTS.has(verdict)
+        ? ((scopedRegion ? scopedRegion.confidence : win?.confidence) ?? null)
+        : null,
       spots,
       // The set BEFORE the reach gate, carried for P11's drill-down — which owns its own reach
       // control and must be able to widen past the bar's tier, so handing it the gated list would
@@ -377,7 +454,7 @@ export function buildWindowCards(
       // window had no spots at all, which is a card the lens never touched and must not carry a
       // line about it.
       lensEmpty: buildLensEmptyState({
-        allSpots, spots, tierId, limitMinutes, floorId, minRating,
+        allSpots, spots, tierId, limitMinutes, floorId, minRating, origin,
       }),
       rows,
       badges: (win?.badges || []).filter((b) => !promoted.has(badgeKey(b))),
@@ -394,7 +471,13 @@ export function buildWindowCards(
       // `buildPromotedStrip` prefers it and recomputes only in the second case; the card itself must
       // not read it, which `WindowFirstWindowCard.test.jsx` pins.
       topRarityRank: win?.topRarityRank,
-      pick: win?.pick
+      // ⚠️ Withheld when the pick names a region the origin has scoped away. The pick is the
+      // forecast's own recommendation over the whole roster, and its badge opens a dialog naming
+      // that region — on a page framed to the Lakes, a `BEST BET` flag for Northumberland (which
+      // the strip folds straight off this field) recommends somewhere the reader has just said
+      // they are not. Withheld rather than re-derived: choosing a "best in this region" would be a
+      // client-side pick, and picks are server-owned (plan §2.12).
+      pick: win?.pick && (!origin || win.pick.regionName === origin.name)
         ? {
           kind: win.pick.kind === 'BEST' ? 'best' : 'also',
           regionName: win.pick.regionName,

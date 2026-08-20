@@ -1025,9 +1025,16 @@
   padding: 16px var(--wf-gutter) 0;
   background: linear-gradient(180deg, #241B16 0%, #1B1411 100%);
 }
+/* ⚠️ `flex-wrap`, because P7's chip pushed this row past its own width. Measured at 390px the
+   column is 330px and the row's content is ~353px with a long home place name (the pill's padding,
+   border, glyph and gap add ~31px to the plain line it replaced), and ~434px into 292px at 320px.
+   Without a wrap the row resolved by shrinking the chip to nothing and wrapping the two controls
+   after it into ragged second lines. With it, the age drops to its own line and everything stays
+   legible. `row-gap` is smaller than the column gap so a wrapped row does not read as two blocks. */
 .wf-railfoot {
   font-size: 10px;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 3px 8px;
   padding: 6px var(--wf-gutter) 0;
 }
 /* A scroller from four tabs on, and the trigger was written into `WindowFirstShell` when the bar
@@ -4004,7 +4011,7 @@ button.wf-hc:focus-visible {
   display: flex;
   align-items: flex-start;
   gap: 14px;
-  padding: 11px 14px;
+  padding: 11px var(--wf-search-inset);
   border-bottom: 1px solid var(--color-plex-border);
 }
 .wf-cu-row:last-of-type { border-bottom: none; }
@@ -4164,4 +4171,271 @@ button.wf-hc:focus-visible {
     flex-wrap: wrap;
     gap: 6px;
   }
+}
+
+/* ── Origin chip, beyond-line link and search (heat-field plan §4.8, P7) ───────────────────── */
+
+/* The chip sits in the rail footer, where the `Home · <place>` line used to be — same slot, same
+   type scale, so the footer's rhythm is unchanged and only its affordance is new. */
+.wf-origin {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+/* Contrast: `--color-plex-text-secondary` on the frame is 7.06:1 and on the panel 6.88:1, so the
+   resting chip clears AA at 10px with room. The away variant is measured beside it below. */
+.wf-origin-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  /* 24px is the WCAG 2.5.8 (AA) minimum, and the `⌂` control beside it already reserves that
+     height — so the chip cost nothing to bring up to it and was 22px only by omission. */
+  min-height: 24px;
+  min-width: 0;
+  max-width: 34ch;
+  padding: 2px 8px;
+  /* `--color-plex-border` measures 1.38:1 on the page ground, which is not a visible boundary for a
+     control (1.4.11 asks 3:1). Light border is 2.9:1 and is what the tab bar's own resting edge
+     uses; with the glyph inside it the chip reads as a control rather than as the plain line it
+     replaced. */
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--color-plex-text-secondary);
+  background: transparent;
+  white-space: nowrap;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+/* ⚠️ The truncation lives on the TEXT SPAN, not on the chip. `text-overflow` applies to block
+   containers; the chip is `inline-flex`, so the pair `overflow: hidden` + `text-overflow: ellipsis`
+   clipped the place name mid-character with no ellipsis — `Home · Newcastle upon T`, which reads as
+   a corrupt name rather than as a truncation. The span blockifies as a flex item, which is why the
+   identical idiom works on `.wf-search-label` two rules down. */
+.wf-origin-place {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-origin-chip:hover {
+  color: var(--color-plex-text);
+  border-color: var(--color-plex-border-light);
+}
+/* ⚠️ The away treatment is a BORDER and a text colour, never a fill. The design's blue chip is a
+   solid; on this surface a solid chip at 10px in the same row as the forecast age reads as a
+   verdict badge, which is the one vocabulary this arm reserves for the forecast itself. The blue
+   here is deliberately not any verdict token for the same reason — it names a place, not a
+   quality. Measured on the surface it actually sits on, the page ground `--color-plex-bg`
+   (#181210) — the footer is a sibling of the masthead, not inside its gradient: #8FB6D9 is
+   8.70:1, and the border at 0.7 alpha composites to 3.6:1, over 1.4.11's 3:1 for a control's
+   visual boundary. */
+.wf-origin-chip.away {
+  color: #8FB6D9;
+  border-color: rgba(143, 182, 217, 0.7);
+}
+.wf-origin-chip.away:hover {
+  color: #B5D2EC;
+  border-color: rgba(143, 182, 217, 0.75);
+}
+.wf-origin-glyph {
+  font-size: 9px;
+  opacity: 0.9;
+}
+/* Its own control, so the chip's job ("open search") never changes with the state. 24px is under
+   the 44px touch target the WCAG 2.5.8 AAA criterion asks for and above the 24px AA minimum, which
+   is the same trade every other 10px control in this footer makes. */
+.wf-origin-home {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 24px;
+  min-height: 24px;
+  border: 1px solid rgba(143, 182, 217, 0.7);
+  border-radius: 999px;
+  font-size: 10px;
+  color: #8FB6D9;
+  background: transparent;
+}
+.wf-origin-home:hover {
+  color: #B5D2EC;
+  border-color: rgba(143, 182, 217, 0.75);
+}
+/* Inline in the beyond line's own sentence, so it wraps with it rather than sitting under it as a
+   second block. A button does not inherit font by default, hence `font: inherit`.
+   ⚠️ `display: inline` on a `<button>` is NOT honoured — engines blockify form controls back to
+   `inline-block`, whose label is an atomic inline box that cannot break across lines. With a long
+   admin-authored region name that is ~282px of unbreakable run inside a 315px column at 375px, and
+   nothing in the strip's ancestry declares `overflow`, so it becomes a horizontal PAGE scroller —
+   the exact defect `.wf-hstrip-chg`'s own comment records the strip existing not to be.
+   `display: inline` is dropped (it never applied) and the label is allowed to wrap. */
+.wf-hstrip-beyond-act {
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--color-plex-text-secondary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.wf-hstrip-beyond-act:hover { color: var(--color-plex-text); }
+
+/* The search dialog. Pinned toward the top rather than centred, because on a phone the software
+   keyboard takes the bottom half and a vertically centred box ends up behind it. */
+/* ⚠️ `align-self: flex-start` at EVERY width, never a negative margin. `Modal`'s overlay is
+   `flex items-center justify-center p-4`, and a flex item is centred INCLUDING its margins — so
+   `margin-top: -12vh` lifted the panel by only 6vh and, once the list was tall enough to fill the
+   height cap, pushed its top edge above the viewport. The overlay is `position: fixed` and this
+   panel is `overflow: hidden`, so the search input was simply unreachable: measured ~32px of clip
+   on an 800px-tall window with a full three-group list. Aligning to the start pins the top edge
+   below the overlay's own 16px padding at any content height, which is what the phone rule was
+   already doing for the phone alone. */
+.wf-search-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-self: flex-start;
+  width: 100%;
+  max-width: 520px;
+  margin-top: 6vh;
+  max-height: calc(100dvh - 32px);
+  overflow: hidden;
+  background: var(--color-plex-surface);
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 13px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.7);
+  /* Declared once. Five rules below take their horizontal inset from it, so a change cannot move
+     half the panel's rows and leave the rest — the failure `--wf-gutter` was introduced for. The
+     dialog carries its own rather than inheriting the shell's, because it floats over the page
+     rather than sitting in its column. */
+  --wf-search-inset: 14px;
+}
+.wf-search-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px var(--wf-search-inset);
+  border-bottom: 1px solid var(--color-plex-border);
+}
+/* Secondary, not muted — the eighth time this file has had to make the correction, and the reason
+   is recorded at `.wf-hstrip-k`: muted composites to 3.53:1 on this panel's own surface and fails
+   AA, where secondary is 6.75:1. It applies to the glyph, the placeholder, the group headings and
+   the keyboard footer alike; the footer especially, since it carries the whole keyboard model. */
+.wf-search-glyph {
+  font-size: 13px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-search-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--color-plex-text);
+  /* The ring moves to the FIELD, which is the bordered box a reader sees — an outline on a
+     borderless input inside it would draw a second rectangle 1px inside the first. Removing it
+     without a replacement was the real defect: this input is the element the dialog focuses on
+     open, so the whole dialog would have had no visible focus anywhere. */
+  outline: none;
+}
+.wf-search-field:focus-within {
+  border-bottom-color: var(--color-plex-gold);
+  box-shadow: inset 0 -1px 0 var(--color-plex-gold);
+}
+.wf-search-input::placeholder { color: var(--color-plex-text-secondary); }
+.wf-search-list {
+  overflow-y: auto;
+  padding: 4px 0 6px;
+}
+.wf-search-head {
+  padding: 8px var(--wf-search-inset) 3px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+}
+.wf-search-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 6px var(--wf-search-inset);
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+/* The active row is marked by BACKGROUND and by a left rule, never by colour alone — the cursor
+   moves without focus moving, so a reader who cannot distinguish the fill has nothing else to go
+   on. `aria-selected` carries it for assistive tech. */
+/* ⚠️ The background was `--color-plex-surface-light` on `--color-plex-surface`: 1.075:1, which is
+   invisible — so the "two channels" the comment above claims were one, and the gold rule was doing
+   all of it. A gold wash at 0.10 measures 2.6:1 against the panel and reads as a highlight at a
+   glance; with the 2px rule beside it the state has a real second channel. */
+.wf-search-row.on {
+  background: rgba(230, 180, 90, 0.10);
+  box-shadow: inset 2px 0 0 var(--color-plex-gold);
+}
+/* `inset`, because `.wf-search-list` scrolls and an outline drawn outside the border box is
+   clipped at both vertical edges with no scrollable overflow to reveal it. */
+.wf-search-row:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--color-plex-gold);
+}
+/* `aria-disabled`, so it still reads and still announces its reason; only the pointer says no.
+   ⚠️ NOT `opacity`, which multiplied into `.wf-search-sub`'s already-alpha'd colour and left the
+   REASON — the one part of the row worth reading — at 2.68:1. The label steps down to secondary and
+   the reason keeps its own colour, so a row a reader cannot choose is still a row they can read. */
+.wf-search-row.off {
+  cursor: not-allowed;
+}
+.wf-search-row.off .wf-search-label {
+  color: var(--color-plex-text-secondary);
+}
+.wf-search-label {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  color: var(--color-plex-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-search-sub {
+  flex: 0 0 auto;
+  max-width: 50%;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-search-empty,
+.wf-search-foot {
+  padding: 10px var(--wf-search-inset);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-search-foot {
+  border-top: 1px solid var(--color-plex-border);
+}
+@media (max-width: 639px) {
+  /* On a phone the box goes to the top of the viewport: the keyboard owns the bottom, and a
+     negative margin measured in vh would push a short list off-screen at small heights. */
+  .wf-search-panel {
+    /* Flush to the overlay's own padding: the software keyboard owns the bottom half, and a vh
+       offset would push a short list off a short viewport. */
+    margin-top: 0;
+  }
+  .wf-search-sub { max-width: 42%; }
 }

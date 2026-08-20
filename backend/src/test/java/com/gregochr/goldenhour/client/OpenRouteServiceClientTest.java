@@ -13,6 +13,7 @@ import org.springframework.web.client.RestClient;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -37,7 +38,34 @@ class OpenRouteServiceClientTest {
 
     @BeforeEach
     void setUp() {
-        client = new OpenRouteServiceClient(restClient, properties);
+        client = new OpenRouteServiceClient(restClient, properties, new OrsRateLimiter());
+    }
+
+    @Test
+    @DisplayName("⚠️ the matrix call goes THROUGH the rate limiter — the refactor's only behavioural claim")
+    void fetchDurations_acquiresAPermit() {
+        // `OrsRateLimiterTest` proves the limiter limits; nothing there proves this client uses it.
+        // Deleting `rateLimiter.withPermit(...)` from `fetchDurations` left the whole backend suite
+        // green while both nightly sweeps ran at unbounded concurrency against a rate-limited free
+        // tier — so the wiring needs its own pin, aimed at the class that owns the path.
+        //
+        // The interrupt-on-entry trick is the cheapest deterministic probe: `Semaphore.acquire()`
+        // throws when the calling thread's flag is already set, whether or not a permit is free. If
+        // the call no longer acquires, the RestClient mock returns null and this returns an empty
+        // list instead of throwing.
+        when(properties.isConfigured()).thenReturn(true);
+        Thread.currentThread().interrupt();
+        try {
+            assertThatThrownBy(() -> client.fetchDurations(
+                    54.77, -1.60, List.of(new double[]{54.78, -1.58})))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessageContaining("Interrupted");
+            verify(restClient, never()).post();
+        } finally {
+            // Clears the flag whatever the assertions did, so a failure cannot leak an interrupted
+            // thread into whatever the runner schedules next.
+            Thread.interrupted();
+        }
     }
 
     @Test

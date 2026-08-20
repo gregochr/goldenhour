@@ -5,6 +5,7 @@ import PropTypes from 'prop-types';
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import { getReach, getSettings } from '../api/settingsApi.js';
+import { fetchRegionDriveTimes, fetchRegions } from '../api/regionApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import usePlanOrder from '../hooks/usePlanOrder.js';
@@ -20,6 +21,7 @@ import { buildPromotedStrip } from '../utils/windowFirstPromoted.js';
 import { buildBriefingScoreIndex } from '../utils/briefingScoreIndex.js';
 import { buildHeatPointSets, buildHeatSpots } from '../utils/heatSpots.js';
 import { buildRegionSeries } from '../utils/windowFirstRegions.js';
+import { AWAY_TIER_ID, originReachMap, toOrigin } from '../utils/planOrigin.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 
 /** Matched to v1's. The payload regenerates every ~8–10h; polling faster only adds revalidations. */
@@ -59,6 +61,15 @@ const EMPTY_POINT_SETS = new Map();
  */
 const EMPTY_REGION_SERIES = new Map();
 
+/**
+ * The region list and the shared drive-time matrix before their own fetches land.
+ *
+ * <p>Their own constants rather than a share of {@code EMPTY_ARRAY}: the matrix is a plain object
+ * keyed by region id, and a shared empty is exactly how two shapes end up documented as one.
+ */
+const EMPTY_REGIONS = [];
+const EMPTY_MATRIX = {};
+
 const WindowFirstBriefingContext = createContext({
   briefing: null,
   loading: false,
@@ -74,6 +85,10 @@ const WindowFirstBriefingContext = createContext({
   heatPointSets: EMPTY_POINT_SETS,
   regionSeries: EMPTY_REGION_SERIES,
   reachById: EMPTY_REACH,
+  effectiveReachById: EMPTY_REACH,
+  origin: null,
+  setOrigin: () => {},
+  regions: EMPTY_REGIONS,
   todayStr: '',
   tomorrowStr: '',
   isPro: false,
@@ -211,6 +226,18 @@ export function WindowFirstBriefingProvider({
    */
   const [scoresLoaded, setScoresLoaded] = useState(false);
   const [reachById, setReachById] = useState(EMPTY_REACH);
+  const [regions, setRegions] = useState(EMPTY_REGIONS);
+  const [regionMatrix, setRegionMatrix] = useState(EMPTY_MATRIX);
+  /**
+   * The frame of reference the whole Plan tab is written from — null is home (plan §4.8).
+   *
+   * <p><b>In memory only, deliberately.</b> An origin is a question a reader is asking right now
+   * ("what is it doing near Keswick this week"), not a preference like the rating floor — and the
+   * reach tier it drops is stamped with today's date, so a persisted origin would restore a frame
+   * without restoring the lens that framed it. A reload returns home, which is the state every
+   * other surface in the app already assumes.
+   */
+  const [origin, setOriginState] = useState(null);
   // Three states, not two: `undefined` is "not answered yet or the request failed", and it renders
   // NOTHING. Collapsing it onto null would tell a user who has a home postcode that they have not
   // set one, on nothing more than a dropped request — plan §2.5 forbids a second source of truth
@@ -288,6 +315,25 @@ export function WindowFirstBriefingProvider({
       })
       .catch(() => {});
   }, [homeSettingsVersion]);
+
+  /**
+   * The regions and the shared region-base drive-time matrix — the origin's two inputs.
+   *
+   * <p><b>Both are shared, user-independent data</b>, which is the whole reason the origin can
+   * exist at all: "how far is this from Keswick" is the same answer for every reader, so it may
+   * ride a cacheable endpoint, where the reach map above may not. They are kept apart on this side
+   * of the wire too — see {@code planOrigin.js}.
+   *
+   * <p>Fetched once per mount rather than on the poll: a region's base is admin-managed and the
+   * matrix is rewritten by a nightly job, so neither can move inside a session in a way the reader
+   * would notice. A rejection leaves both empty, which reads as "no region has a base": search
+   * still finds nothing to plan from, the chip stays on home, and nothing claims a drive it does
+   * not have.
+   */
+  useEffect(() => {
+    fetchRegions().then((rows) => setRegions(rows || EMPTY_REGIONS)).catch(() => {});
+    fetchRegionDriveTimes().then((rows) => setRegionMatrix(rows || EMPTY_MATRIX)).catch(() => {});
+  }, []);
 
   /**
    * The user's home, for the rail footer's prompt.
@@ -370,7 +416,12 @@ export function WindowFirstBriefingProvider({
   // already counted. `role` is already in this component for the SWR cache key, so gating costs no
   // new dependency — and P7's rule that no `role` reaches the card subtree is untouched, because
   // what the cards receive is a threshold, not a role.
-  const reachLens = useReachLens(todayStr, role === 'LITE_USER');
+  // The origin supplies the DEFAULT tier rather than selecting one — see `useReachLens` for the two
+  // review findings that rules out (a localStorage write that outlives the in-memory origin, and a
+  // far mark measuring against a number the bar's own reset button contradicts).
+  const reachLens = useReachLens(
+    todayStr, role === 'LITE_USER', origin ? AWAY_TIER_ID : null,
+  );
   const defaultLimitMinutes = reachLens.defaultTier.limitMinutes;
   // The bar's second axis, and it lives beside the first for the same reason: the cards are built
   // here, so both gates have to run inside the memo that derives them or the shell would filter a
@@ -384,6 +435,41 @@ export function WindowFirstBriefingProvider({
   // ordering is applied by the shell at render (see `orderPaneItems`), so `buildPromotedStrip`
   // keeps reading the date order its "is the promoted card the very next item" test depends on.
   const orderLens = usePlanOrder();
+
+  /**
+   * The reach map the page actually plans from — <b>overwritten</b> when the origin moves, never
+   * extended.
+   *
+   * <p>P5 recorded this as a requirement: {@code spot.driveMinutes} has exactly one producer, so
+   * an away figure has to replace the home one rather than sit beside it as a second field. Both
+   * the reach line and the leave-by line read that one field, so a second producer would let one
+   * card describe two different journeys with no test able to fail.
+   *
+   * <p>Null origin gives back the per-user map untouched, so the home path is byte-identical.
+   */
+  const effectiveReachById = useMemo(
+    () => originReachMap(origin, regionMatrix) ?? reachById,
+    [origin, regionMatrix, reachById],
+  );
+
+  /**
+   * Moves the origin.
+   *
+   * <p><b>It touches the reach lens through nothing but the default it supplies</b> (see the
+   * {@code useReachLens} call above). Two consequences, both deliberate: nothing is persisted, so a
+   * reload — which returns the origin home — returns the lens with it; and the far mark, the reset
+   * button and the readout all name one number, because the origin moved the default rather than
+   * reaching over to move the selection.
+   *
+   * <p>A LITE reader is pinned to "Any" and the default gates nothing for them either way, so the
+   * move changes their scope and nothing else — which is correct.
+   *
+   * <p>Takes a region RECORD, not a descriptor, so the caller cannot construct an origin out of a
+   * baseless region: {@code toOrigin} returns null for one and the call becomes a return home.
+   */
+  const setOrigin = useCallback((region) => {
+    setOriginState(region ? toOrigin(region) : null);
+  }, []);
 
   // Keyed on the briefing OBJECT, not on generatedAt. Keying on the timestamp looks like the
   // cheaper choice — a poll returning a byte-identical payload still hands back a fresh object —
@@ -410,19 +496,24 @@ export function WindowFirstBriefingProvider({
   const windowCards = useMemo(
     () => (briefing
       ? buildWindowCards(
-        upcomingEvents, briefing.days, todayStr, tomorrowStr, travelDayDates, reachById,
+        upcomingEvents, briefing.days, todayStr, tomorrowStr, travelDayDates, effectiveReachById,
         {
           limitMinutes: reachLens.tier.limitMinutes,
+          // The lens's own default, which the origin has already moved — so the gate's starting
+          // point and the far mark's meaning stay one judgement (`reachLens.js`'s module rule).
           defaultLimitMinutes,
           tierId: reachLens.tierId,
           minRating: ratingLens.minRating,
           floorId: ratingLens.floorId,
+          // The origin's scope, applied before either gate: away, a window is about ONE region,
+          // and the lens then chooses within it. Null is home and changes nothing.
+          origin,
         },
       )
       : []),
-    [briefing, upcomingEvents, travelDayDates, todayStr, tomorrowStr, reachById,
+    [briefing, upcomingEvents, travelDayDates, todayStr, tomorrowStr, effectiveReachById,
       reachLens.tier.limitMinutes, reachLens.tierId, defaultLimitMinutes,
-      ratingLens.minRating, ratingLens.floorId],
+      ratingLens.minRating, ratingLens.floorId, origin],
   );
 
   /**
@@ -525,12 +616,18 @@ export function WindowFirstBriefingProvider({
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
       ratingLens, orderLens, homePlace, isPro, isLiteUser,
+      // The origin and its two inputs. `effectiveReachById` is published beside `reachById` rather
+      // than in place of it, because the two answer different questions and one consumer still
+      // wants the home one: the planning area and the beyond line are statements about HOME, and
+      // framing them from an away base would make "beyond 3h from home" a claim about Keswick.
+      origin, setOrigin, regions, effectiveReachById,
     }),
     [briefing, loading, heatStripCards, windowCards, paneItems, promotedStrip, upcomingEvents,
       travelDayDates, evaluationScores, scoresLoaded, scoreIndex, heatSpotList, heatPointSets,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
-      ratingLens, orderLens, homePlace, isPro, isLiteUser],
+      ratingLens, orderLens, homePlace, isPro, isLiteUser,
+      origin, setOrigin, regions, effectiveReachById],
   );
 
   return (
