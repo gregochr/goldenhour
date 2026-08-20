@@ -54,7 +54,7 @@ in the running app at 1280 and 375 against two real briefing builds. Its row rec
 decided, including **one defect that would have disabled the whole feature in production and
 nowhere else** (a nanosecond/microsecond mismatch making every build compare against itself on
 Linux), the change line's wording deviation from §4.7's own sample copy, and the two indexes and
-one column the review corrected. **P7 is BUILT 2026-08-20** (`feature/heat-p7-origin`, unpushed;
+one column the review corrected. **P7 is MERGED** (#574, `0954ea94`, 2026-08-20;
 released base beneath it is **v2.18.13**, the deliberate pre-P7 rollback point) — region bases, the
 shared ORS matrix and its endpoint, the origin chip, search, `setOrigin`, the away lens relabel, the
 clash states and P2's deferred beyond-line link; adversarially reviewed (six lenses) with the
@@ -684,7 +684,9 @@ Carried from the bundle, plus new ones this plan surfaced. None block P0/P1.
 4. **Should the field respect drive time?** (bundle Q3) Currently no, deliberately, stated in the
    strip footer. Revisit only with evidence.
 5. **`GLANCE` as a user setting** (bundle Q5), defaulting to the widest configured drive-time
-   habit; hard-coded 180 for the first cut. Same for `SETUP = 20`.
+   habit; hard-coded 180 for the first cut. Same for `SETUP = 20` — and same cluster for the
+   **`/` shortcut's WCAG 2.1.4 gap** (P7): a single-character shortcut with no turn-off or remap
+   is a Level A criterion honestly unmet; the fix is a setting here, not a hack in the handler.
 6. ~~**LITE gating**~~ **RESOLVED — ungated for the pilot (owner, 2026-08-19)**: the strip and
    heat render from the same scores payload LITE already receives; parity with the rest of v2.
    Revisit with the LITE pricing decision, which remains open project-wide.

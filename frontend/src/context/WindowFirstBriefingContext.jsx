@@ -80,7 +80,6 @@ const WindowFirstBriefingContext = createContext({
   upcomingEvents: [],
   travelDayDates: new Set(),
   evaluationScores: EMPTY_SCORES,
-  scoresLoaded: false,
   heatSpots: EMPTY_ARRAY,
   heatPointSets: EMPTY_POINT_SETS,
   regionSeries: EMPTY_REGION_SERIES,
@@ -228,8 +227,10 @@ export function WindowFirstBriefingProvider({
    * locations prop lands ahead of this fetch — six hatched plates on every mount, flipping to the
    * real field a moment later. Set on success only: a failed or in-flight fetch is not evidence
    * that nothing was rated, and the mark is a claim about the forecast rather than about us.
+   * (Re-set on every briefing-beat refresh; true→true is a no-op.)
    */
   const [scoresLoaded, setScoresLoaded] = useState(false);
+
   const [reachById, setReachById] = useState(EMPTY_REACH);
   const [regions, setRegions] = useState(EMPTY_REGIONS);
   const [regionMatrix, setRegionMatrix] = useState(EMPTY_MATRIX);
@@ -250,6 +251,57 @@ export function WindowFirstBriefingProvider({
   const [homePlace, setHomePlace] = useState(undefined);
   const intervalRef = useRef(null);
 
+  /**
+   * The batch ratings, refreshed on the SAME beat as the briefing.
+   *
+   * <p>⚠️ <b>This used to be a mount-only {@code useEffect(..., [])}, and that froze the heat
+   * field for the life of the tab.</b> The briefing polls every ten minutes and again on focus, so
+   * verdicts, {@code bestRating}, the planner grid and the hot topics all kept moving while the
+   * rows the FIELD is drawn from stayed at whatever was true when the tab was opened. Leave the
+   * Plan tab open overnight and the overnight batch writes T+2/T+3 ratings that this session never
+   * sees: the cards say {@code best spot 5★} and the thumbnails stay blank, for hours, with a hard
+   * reload as the only cure.
+   *
+   * <p>Observed in production on 2026-08-20 and confirmed by elimination — the endpoint returned
+   * 163 rated rows for the Saturday sunrise the strip was drawing empty, the window keys matched,
+   * and replaying the join against the live payloads produced 151 points. Nothing was wrong with
+   * the data or the join; the session was simply holding yesterday's copy of it. A hard reload
+   * fixed it instantly, which is the tell.
+   *
+   * <p>Refreshed through the same {@code refresh} as the briefing rather than through a poll of
+   * its own, so the two payloads a single screen joins can never be more than one cycle apart.
+   * Both are ETag-revalidated, so an unchanged cycle costs a 304 and no body.
+   *
+   * <p>An empty or failed response leaves the previous rows in place — same rule as
+   * {@code fetchBriefing}'s catch: a dropped request is not evidence that the ratings went away,
+   * and blanking the field on one would be a worse lie than a slightly stale one.
+   */
+  const fetchScores = useCallback(() => {
+    getAllEvaluationScores()
+      .then((views) => {
+        // Before the early return: a response carrying no rows is still an ANSWER, and it is the
+        // one case where every window genuinely is unscored.
+        setScoresLoaded(true);
+        if (!views || views.length === 0) return;
+        setScoreRows(views);
+        const next = new Map();
+        for (const v of views) {
+          if (!v.regionName || !v.locationName) continue;
+          next.set(`${v.regionName}|${v.date}|${v.targetType}|${v.locationName}`, {
+            locationName: v.locationName,
+            rating: v.rating,
+            fierySkyPotential: v.fierySkyPotential,
+            goldenHourPotential: v.goldenHourPotential,
+            summary: v.summary,
+            triageReason: v.triageReason,
+            triageMessage: v.triageMessage,
+          });
+        }
+        setEvaluationScores(next);
+      })
+      .catch(() => {});
+  }, []);
+
   const fetchBriefing = useCallback(async () => {
     const gen = cacheGeneration(); // BEFORE the await — see the logout race in the class comment
     try {
@@ -266,15 +318,15 @@ export function WindowFirstBriefingProvider({
   }, [briefingCacheKey]);
 
   useEffect(() => {
-    (async () => { await fetchBriefing(); })();
-    intervalRef.current = setInterval(fetchBriefing, POLL_INTERVAL_MS);
-    function handleFocus() { fetchBriefing(); }
-    window.addEventListener('focus', handleFocus);
+    (async () => { await fetchBriefing(); await fetchScores(); })();
+    function refresh() { fetchBriefing(); fetchScores(); }
+    intervalRef.current = setInterval(refresh, POLL_INTERVAL_MS);
+    window.addEventListener('focus', refresh);
     return () => {
       clearInterval(intervalRef.current);
-      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('focus', refresh);
     };
-  }, [fetchBriefing]);
+  }, [fetchBriefing, fetchScores]);
 
   useEffect(() => {
     fetchTravelDayRanges().then(setTravelRanges).catch(() => {});
@@ -383,31 +435,7 @@ export function WindowFirstBriefingProvider({
    * response rather than adding a second id-keyed index means one contract, one fetch, and no
    * chance of the two indexes disagreeing about which rows the response contained.
    */
-  useEffect(() => {
-    getAllEvaluationScores()
-      .then((views) => {
-        // Before the early return: a response carrying no rows is still an ANSWER, and it is the
-        // one case where every window genuinely is unscored.
-        setScoresLoaded(true);
-        if (!views || views.length === 0) return;
-        setScoreRows(views);
-        const next = new Map();
-        for (const v of views) {
-          if (!v.regionName || !v.locationName) continue;
-          next.set(`${v.regionName}|${v.date}|${v.targetType}|${v.locationName}`, {
-            locationName: v.locationName,
-            rating: v.rating,
-            fierySkyPotential: v.fierySkyPotential,
-            goldenHourPotential: v.goldenHourPotential,
-            summary: v.summary,
-            triageReason: v.triageReason,
-            triageMessage: v.triageMessage,
-          });
-        }
-        setEvaluationScores(next);
-      })
-      .catch(() => {});
-  }, []);
+
 
   // UK calendar, not the browser's — every date on the wire is keyed to the backend's
   // `ForecastHorizon.today`. `ukDateStrOffset` steps the UK date STRING; the local copy this
@@ -667,8 +695,7 @@ WindowFirstBriefingProvider.propTypes = {
  *
  * @returns {{briefing: ?object, loading: boolean, heatStripCards: Array, windowCards: Array,
  *           paneItems: Array, promotedStrip: ?object, upcomingEvents: Array,
- *           travelDayDates: Set, scoresLoaded: boolean, heatSpots: Array, heatPointSets: Map,
- *           regionSeries: Map,
+ *           travelDayDates: Set, heatSpots: Array, heatPointSets: Map, regionSeries: Map,
  *           reachById: Map,
  *           reachLens: object, ratingLens: object, orderLens: object, homePlace: ?string,
  *           todayStr: string,

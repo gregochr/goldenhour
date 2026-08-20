@@ -234,14 +234,26 @@ Before starting the next session, expect a `CHANGELOG.md` conflict if anything e
 
 ---
 
-## P8 · Four-day location sheet (optional — confirm with the owner first)
+## P8 · Four-day location sheet (§9.9 RESOLVED: search-only entry)
 
-> You are implementing **Phase P8** of `docs/engineering/heat-field-plan.md` — confirm with the
-> owner that it is wanted and which entry points (§9.9) before writing code. Run §10 first,
-> create `feature/heat-p8-sheet`.
+> You are implementing **Phase P8** of `docs/engineering/heat-field-plan.md` — the last phase.
+> §9.9 is resolved (owner, 2026-08-20): **the sheet hangs off the search ONLY.** A spot-card
+> click and the peek keep today's map-open behaviour, byte-for-byte — their tests passing
+> unedited is the proof. Run §10 first, create `feature/heat-p8-sheet`.
 >
-> Scope is D10 plus the P8 row of §6: the per-location six-window timeline — ratings and "why"
-> prose from the scores rows (the field is **`summary`**; `claudeSummary` is the briefing
-> payload's name for the same prose), leave-by per row (P5's util). Preserve the peek and
-> map-open behaviours wherever the owner kept them. Gate → adversarial review → fix →
-> re-verify → browser verification → commit (CHANGELOG + plan row); do not push.
+> Scope is D10 plus the P8 row of §6: a search location result opens the per-location
+> six-window timeline — ratings and "why" prose from the scores rows (the field is **`summary`**;
+> `claudeSummary` is the briefing payload's name for the same prose), leave-by per row (P5's
+> util), confidence via the existing tier treatment, and a "Show on map →" footer action so the
+> map is one tap further, never lost.
+>
+> **Read the warning P7 left in `leaveBy.js` before rendering any drive figure** — search finds
+> locations OUTSIDE the current origin's region, and the sheet is the first surface that can
+> render a base-measured drive to one. Decide the drive basis explicitly (the prototype's rule:
+> home minutes with an "outside your plan" marker when out of scope) and re-check the wrapped
+> `HH:mm` ambiguity — P5/P7's refutations were both scoped to drives the sheet can now exceed.
+> If a wrap is reachable, the departure line must say which day it means.
+>
+> Gate → adversarial review → fix → re-verify → browser verification → commit (CHANGELOG + plan
+> Status/P8 row — and mark the plan's Status line as the series' last, since nothing follows);
+> do not push.

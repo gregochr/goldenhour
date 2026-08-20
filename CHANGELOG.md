@@ -33,6 +33,116 @@ away, `outside your 3h area` at home. An unmeasured planning area marks nothing.
 yet says that instead; and while the ratings request is still in flight the sheet claims nothing at
 all about the pipeline. The confidence channel rides the existing three-tier marker, taken from the
 location's **own** region, and never dims the star beside it.
+### Fixed — one precedence rule for both merge paths, not just one shared gate
+
+`EvaluationViewService`'s two consumers gate on the same `cachedIsAtLeastAsFresh` and then
+disagreed about what a won gate with an **empty** winner meant. When the latest
+`forecast_evaluation` row was newer than the cached entry but carried neither a rating nor a triage
+reason — a bare base-forecast row, and roughly three quarters of that table has a null rating —
+`resolveForEnrichment` fell back to the cached result while `mergeToView` returned `Source.NONE`
+and its caller dropped the location outright. Same tables, same gate, opposite answer: the briefing
+kept the rating and `/api/briefing/evaluate/scores` lost the slot.
+
+Precedence is now a single `cachedWins`, and `toEnrichmentResult` and `mergeToView`'s branches 2/3
+share one `hasSomethingToSay` so the three cannot drift. The shape matters: the *first* divergence
+in this class was fixed by unifying the gate and asserting in the class comment that the paths were
+unified — which is why the fallback divergence survived review. The invariant is now "neither path
+contains a precedence decision of its own".
+
+⚠️ **The gate is not weakened.** It exists because a stale 4★ was outliving a row triaged
+`HIGH_CLOUD` on 87–99% low cloud, one rating 47.9 hours out of date. In every case of that shape
+the newer row *is* triaged, so the fallback is false and the cache still loses; it fires only where
+the newer row is empty and therefore says nothing to contradict. A test pins both halves under one
+fixture.
+
+Found while investigating the heat field's empty windows and explicitly ruled out as their cause —
+production had **zero** slots where the gate even fired. This closes a live trap rather than a
+visible defect.
+
+### Fixed — a location saved through the admin UI now gets its Open-Meteo grid cell
+
+`grid_lat`/`grid_lng` were written in exactly one place: `LocationService.addLocation`, from the
+enrichment the Add-location form runs client-side. `UpdateLocationRequest` carries no such fields
+and `update()` never touched them, so **no location inserted by raw SQL could ever acquire a grid
+cell** — V84's sixteen bluebell sites, V138's ten Heritage Coast entries and V143's Penshaw
+Monument are all still without one, and re-saving them changed nothing. Such a location is skipped
+by `GridCellStabilityService` and falls back to its own key in `BriefingService` rather than being
+deduplicated against neighbours in the same ~2 km cell.
+
+`LocationService.update` now refreshes the cell on two conditions, which are different problems with
+the same fix: the cell is **absent** (the raw-SQL case above), or the **coordinates moved**. The
+second was a latent bug of its own — editing lat/lon left the old cell in place, which is worse than
+absent, because the location is then grouped, classified and deduplicated against a cell it is no
+longer in.
+
+**On a lookup failure the two cases deliberately part company.** After a move the stored pair is
+known-wrong and is *cleared*: absent means "excluded from dedup and stability", which is degraded
+but honest, where stale means "confidently grouped with a different place's weather". If the cell
+was merely absent to begin with, nothing is lost by leaving it absent and the next save retries. A
+failure never fails the save — the grid cell is an optimisation, and a coordinate correction must
+still land when Open-Meteo is unreachable.
+
+Done on the **backend**, so it holds for any caller rather than only for edits made through this
+form, and there is no frontend change. `LocationEnrichmentService.fetchGridCell` is made public and
+called directly rather than routing through `enrich()`, which would additionally call the keyed,
+quota-bearing lightpollutionmap.info API and the elevation endpoint on every coordinate edit — and
+would overwrite a hand-curated bortle class with an automated reading.
+
+An unchanged save makes no Open-Meteo call at all (pinned by `verifyNoInteractions`), so a rename or
+a type toggle does not become a network round-trip.
+
+### Fixed — the heat field froze for the life of the tab
+
+**This is the defect behind the blank Saturday, and it was never about the unscored mark.**
+
+`fetchBriefing` polls every ten minutes and again on window focus. The batch ratings the heat
+field is drawn from were a mount-only `useEffect(..., [])` — fetched once and never again. So on a
+tab left open, every verdict, star, grid cell and hot topic kept moving while the rows behind the
+*picture* stayed at whatever was true when the tab was opened. Leave the Plan tab open overnight
+and the 01:16 batch writes the T+2/T+3 ratings that session never sees: `best spot 5★` on the card,
+a blank thumbnail above it, for hours, with a hard reload the only cure.
+
+Both fetches now ride one `refresh`, so the two payloads a single screen joins can never be more
+than one cycle apart — and both are ETag-revalidated, so an unchanged cycle costs a 304 and no
+body. An empty or failed refresh leaves the previous rows in place, the same rule `fetchBriefing`'s
+catch already followed: a dropped request is not evidence that the ratings went away.
+
+Found by elimination against production, and every earlier theory was wrong. `cached_evaluation`
+held **163 of 163 entries rated** for the Saturday sunrise the strip was drawing empty; the only
+join-key failures were 12 `WOODLAND,BLUEBELL` locations, correctly withheld from a sky field; the
+freshness gate fired on **zero** slots; the endpoint returned those 163 rows to the client as
+`CACHED_EVALUATION` with window keys matching `/api/briefing` exactly; and replaying the frontend
+join against the live payloads produced **151 points**. Nothing was wrong with the data, the merge
+or the join — the session was holding yesterday's copy. The tell was that a hard reload fixed it
+instantly. Full trail in `docs/engineering/heat-field-scores-join-gap.md`.
+
+### Fixed — the unscored mark was reading the wrong evidence, and contradicted the card beneath it
+
+Shipped in v2.18.13 and wrong in production the same evening. The mark asked "does this window's
+heat point set have anything in it", which is a fact about the **join behind the picture**, not
+about the forecast. The payload's own answer is `bestRating` — null means "nothing in this window
+is rated", and it is what the card header (`best spot N★`), the region rail's All cell and the
+drill-down have always read.
+
+On 2026-08-19 the two disagreed for three of six windows. A Saturday sunrise drew a hatched plate
+reading *not scored* directly above its own card reading **best spot 5★**, with the regional
+planner showing 3.7★ for the Lake District on the same morning — and the tile still carried the
+**BEST BET** flag. Only Sunday sunrise, the one window with no `best spot` figure anywhere, was
+marked correctly. Marking a window that every surface around it is rating is worse than the blank
+this channel was built to fix.
+
+All three surfaces now key on `bestRating`: the strip thumbnail, the open row's field map (whose
+rail reads the same field one element below, so the two can no longer disagree) and the Map tab's
+toolbar note. Because `bestRating` rides the briefing payload the cards are built from, the
+`scoresLoaded` flag added a day earlier is **gone** — there is no separate fetch left to be caught
+in flight, so the flash it prevented cannot happen. The mark cannot move with the reach tier or the
+rating floor either: `bestRating` is the window's served best and is never re-derived from a gated
+set.
+
+⚠️ **A scored window whose field has no points is deliberately left unmarked** — that state is a
+fact about the join behind the picture, not about the forecast. It is what made the Saturday tile
+blank in the first place, and its cause is the frozen-tab defect fixed above, in this same change.
+
 
 ### Added — heat field P7: the origin moves
 

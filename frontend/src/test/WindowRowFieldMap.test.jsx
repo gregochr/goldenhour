@@ -97,6 +97,7 @@ async function renderMap(props = {}) {
         confidence="high"
         spots={SPOTS}
         points={POINTS}
+        bestRating={4}
         regionNames={REGIONS}
         selectedRegion={null}
         todayStr={TODAY}
@@ -348,26 +349,28 @@ describe('WindowRowFieldMap — a window nobody rated', () => {
    * Quieter here than on the strip because the region labels still sit on the plate, which makes
    * it read as "these places, nothing doing" rather than as "nobody looked".
    */
-  it('hatches the plate for a window with no points once the ratings have arrived', async () => {
+  it('hatches the plate when the payload says nothing here is rated', async () => {
     await withMeasuredMap(600, async () => {
-      await renderMap({ points: [], scoresKnown: true });
+      await renderMap({ bestRating: null });
     });
     expect(drawGeo.mock.calls.at(-1)[5].hatch).toBe(true);
     expect(screen.getByTestId('wf-row-map-unscored')).toHaveTextContent('Not scored');
   });
 
-  it('leaves a window that has points alone', async () => {
+  it('leaves a rated window alone', async () => {
     // The pair is the assertion: hatching unconditionally is the same defect with the opposite
     // sign, and a single-case test cannot tell the two apart.
     await withMeasuredMap(600, async () => {
-      await renderMap({ scoresKnown: true });
+      await renderMap();
     });
     expect(drawGeo.mock.calls.at(-1)[5].hatch).toBe(false);
     expect(screen.queryByTestId('wf-row-map-unscored')).toBeNull();
   });
 
-  it('claims nothing until the provider says the ratings arrived', async () => {
-    // An unfetched response is an empty array too, and it is the state this map mounts in.
+  it('leaves a RATED window alone even when its field has no points to paint', async () => {
+    // ⚠️ The production defect. An empty point set is a fact about the join behind the picture,
+    // not about the forecast: the rail directly below this map would still be printing the
+    // window's `best N★` while the plate said nobody had looked.
     await withMeasuredMap(600, async () => {
       await renderMap({ points: [] });
     });
@@ -380,7 +383,7 @@ describe('WindowRowFieldMap — a window nobody rated', () => {
     // is the rail below, which withholds `best N★` when nothing there is rated rather than
     // printing a figure — less, not something false.
     await withMeasuredMap(600, async () => {
-      await renderMap({ points: [], scoresKnown: true });
+      await renderMap({ bestRating: null });
     });
     expect(screen.getByTestId('wf-row-map-unscored')).toHaveAttribute('aria-hidden', 'true');
   });
@@ -389,7 +392,7 @@ describe('WindowRowFieldMap — a window nobody rated', () => {
     // Two different statements — one about what the picture shows, one about what it does — and
     // an unrated window is still selectable.
     await withMeasuredMap(600, async () => {
-      await renderMap({ points: [], scoresKnown: true });
+      await renderMap({ bestRating: null });
     });
     expect(screen.getByTestId('wf-row-map-hint')).toHaveTextContent('Select a region');
     expect(screen.getByTestId('wf-row-map-unscored')).toBeInTheDocument();
