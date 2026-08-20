@@ -18,6 +18,8 @@ import { windowCardDomId } from '../utils/windowFirstCards.js';
 import { ANY_TIER_ID } from '../utils/reachLens.js';
 import { orderPaneItems, PLAN_ORDER_BEST } from '../utils/windowFirstOrder.js';
 import { sheetOffersMore } from '../utils/windowSpotBrowse.js';
+import { scopeRegions } from '../utils/planOrigin.js';
+import { buildScoreIndex, buildSlotIndex } from '../utils/locationSheet.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
 import useLensReserve from '../hooks/useLensReserve.js';
 
@@ -43,6 +45,15 @@ const WindowFirstHeatStrip = lazy(() => import('./WindowFirstHeatStrip.jsx'));
  * the shell already has (the matching lives in {@code planSearch.js}).
  */
 const PlanSearch = lazy(() => import('./PlanSearch.jsx'));
+
+/**
+ * The four-day location sheet, on the same terms — a dialog, mounted only while open (P8).
+ *
+ * <p>Lazy for the reason search is, and for one more: it pulls in {@code locationSheet.js} and the
+ * slot-time index, neither of which any other surface reads. A reader who never searches for a
+ * place never downloads them.
+ */
+const LocationFourDaySheet = lazy(() => import('./LocationFourDaySheet.jsx'));
 
 /**
  * The point set a window with nothing scored gets — one frozen array rather than a fresh literal,
@@ -252,8 +263,8 @@ export default function WindowFirstShell({
   const {
     heatStripCards, heatPointSets, heatSpots, reachById, regionSeries,
     windowCards, paneItems, promotedStrip, loading, briefing, evaluationScores, scoresLoaded,
-    scoreIndex, todayStr, reachLens, ratingLens, orderLens, homePlace,
-    origin, setOrigin, regions,
+    scoreIndex, scoreRows, todayStr, reachLens, ratingLens, orderLens, homePlace,
+    origin, setOrigin, regions, effectiveReachById,
   } = useWindowFirstBriefing();
   /**
    * The search dialog's open state, and the region it should be pre-filled with.
@@ -264,6 +275,15 @@ export default function WindowFirstShell({
    * closed; a string — possibly empty — is open.
    */
   const [searchSeed, setSearchSeed] = useState(null);
+  /**
+   * The location whose four-day sheet is open, or null (P8).
+   *
+   * <p>Only the spot's identity is held. Every figure the sheet prints — the rating, the prose, the
+   * drive, the departure — is looked up live from the payloads on each render, so a sheet left open
+   * across a poll shows the new forecast rather than a snapshot of the old one. Holding the derived
+   * sheet here instead would be the same freeze, one level up.
+   */
+  const [sheetSpot, setSheetSpot] = useState(null);
   const [activeTab, setActiveTab] = useState(TABS[0].id);
   /**
    * The tabs this shell actually has, which is a function of the panes it was handed.
@@ -711,7 +731,7 @@ export default function WindowFirstShell({
   }, [briefing?.seasonalFeatures, onSeasonalFeaturesChange]);
 
   /**
-   * True while a dialog is over the pane — the sheet or the pick.
+   * True while a dialog is over the pane — the spot sheet, the pick, search or the location sheet.
    *
    * <p>It suppresses the spot peek, and the pick dialog is included deliberately rather than only
    * the sheet this phase adds. Both are {@code Modal}s, so both render inside Tailwind's
@@ -720,13 +740,58 @@ export default function WindowFirstShell({
    * Tab back onto a spot card behind the backdrop and paint a hover panel over the dialog. Fixing
    * one and not the other would leave the same defect on the surface that has had it longer.
    */
-  const modalOpen = sheetCard != null || openPick != null || searchSeed != null;
+  const modalOpen = sheetCard != null || openPick != null || searchSeed != null
+    || sheetSpot != null;
   const dimmed = contentDisabled ? ' opacity-50 pointer-events-none' : '';
   // The shared tiers, not a local copy: `generatedAt` is a zone-less UTC instant, and the one
   // formatter that already knows that is the one that appends the Z. Hand-rolling it here read an
   // hour young in BST — parsing bare takes the string as local, so a 34-minute-old forecast said
   // "1h ago". Caught by looking at the running app, not by a test.
   const age = formatRelativeAge(briefing?.generatedAt);
+  /**
+   * The four-day sheet's two derived inputs, both gated on the sheet being open (P8).
+   *
+   * <p>Neither is cheap enough to build unconditionally. {@code buildSlotTimeIndex} walks every
+   * slot of every event summary of every day — the roster times six windows — and
+   * {@code scopeRegions} walks the whole heat catalogue against the reach map. Both rebuild on
+   * every poll, and no other surface reads either, so the null-until-open guard is what keeps a
+   * reader who never searches for a place from paying for a dialog they never opened.
+   *
+   * <p>They live here rather than inside the sheet because the sheet is lazy: putting them behind
+   * the {@code Suspense} boundary would mean the dialog's first paint waits on a chunk fetch AND
+   * then does the walk, which is the one frame a reader is watching.
+   */
+  const slotIndex = useMemo(
+    () => (sheetSpot ? buildSlotIndex(briefing?.days) : null),
+    [sheetSpot, briefing?.days],
+  );
+  /**
+   * The sheet's ratings, built from the RAW rows rather than taken from {@code scoreIndex}.
+   *
+   * <p>The provider's index is keyed on {@code date|targetType|locationName} alone; this one joins
+   * id-first, like every other join in the arm and like {@code buildSlotIndex} beside it. The
+   * provider's own note asked for exactly this and named P8 while doing so — the first cut ignored
+   * it and an adversarial review caught the consequence: a renamed location timed correctly and
+   * rated as unscored, under a heat field that still painted its star.
+   */
+  const sheetScoreIndex = useMemo(
+    () => (sheetSpot ? buildScoreIndex(scoreRows) : null),
+    [sheetSpot, scoreRows],
+  );
+  /**
+   * The region names the page is planning over — the planning area at home, the origin's own region
+   * away. It is the SCOPE, never the reach lens: the sheet's "outside your plan" badge reports that
+   * a place is not in the plan the reader framed, and a spot three hours out is still somewhere
+   * they could go.
+   *
+   * <p>⚠️ Built from {@code reachById}, the HOME map, not {@code effectiveReachById}. The planning
+   * area is a statement about home — the provider publishes both side by side for exactly this
+   * reason — and the away arm ignores the map entirely.
+   */
+  const scopedRegionNames = useMemo(
+    () => (sheetSpot ? scopeRegions(heatSpots, reachById, origin) : null),
+    [sheetSpot, heatSpots, reachById, origin],
+  );
   // The POSITIONAL form, which centres the map on one location — the same call the pick dialog's
   // "show location" already makes. The OBJECT form (`{region, date, eventType}`) opened a whole
   // region and was the retired rail's region chip; nothing on this pane names a region until P3's
@@ -1213,12 +1278,46 @@ export default function WindowFirstShell({
             onClose={() => setSearchSeed(null)}
             onPickWindow={revealWindow}
             onPickRegion={(region) => setOrigin?.(region)}
-            // The same handoff a spot card makes, minus the card: `onShowOnMap` takes a location
-            // NAME within a date and event, so search opens the next window's map on that spot.
-            // P8's four-day sheet is the richer destination and takes this over when it lands.
-            onPickLocation={(spot) => {
-              const first = heatStripCards.find((card) => !card.away);
-              if (first) onShowOnMap?.(first.date, first.targetType, spot.name);
+            // P8: a location result opens that place's own six-window timeline rather than jumping
+            // straight to the map. The map is not lost — the sheet's footer carries it and names
+            // the window it opens — and this is the ONLY entry point (§9.9, resolved by the owner
+            // 2026-08-20): a spot card's click and the peek's keep today's behaviour byte-for-byte.
+            onPickLocation={(spot) => setSheetSpot(spot)}
+          />
+        </Suspense>
+      )}
+
+      {/* Lazy and mounted only while open, exactly as search is. Keyed on the spot's identity so
+          picking a second place from search mounts a fresh sheet — the expanded-row seed is chosen
+          once per mount, and reusing the instance would carry one location's open rows onto
+          another's. */}
+      {sheetSpot && (
+        <Suspense fallback={null}>
+          <LocationFourDaySheet
+            key={sheetSpot.id ?? sheetSpot.name}
+            spot={sheetSpot}
+            windows={heatStripCards}
+            scoreIndex={sheetScoreIndex}
+            slotIndex={slotIndex}
+            // A failed or in-flight ratings fetch is not evidence that nothing was rated, so the
+            // sheet's "Not scored yet" is gated on the same flag the strip's unscored mark is.
+            scoresKnown={scoresLoaded}
+            // The map the PAGE plans from, so the sheet and the cards behind it describe one
+            // journey. At home it is the per-user map unchanged; away it is the shared matrix.
+            reachById={effectiveReachById}
+            scopeRegionNames={scopedRegionNames}
+            origin={origin}
+            // "home" rather than nothing when the settings fetch has not named the place: the drive
+            // figure needs an origin on it to be placeable, and "from home" is true either way.
+            originLabel={origin ? origin.baseName : (homePlace || 'home')}
+            todayStr={todayStr}
+            onClose={() => setSheetSpot(null)}
+            // Closes FIRST, the rule the spot sheet already states: the map overlay is itself an
+            // `aria-modal` dialog, and leaving this one mounted underneath puts two on the page
+            // with two Escape listeners between them.
+            onShowOnMap={(date, targetType, name) => {
+              setSheetSpot(null);
+              onShowOnMap?.(date, targetType, name);
             }}
           />
         </Suspense>

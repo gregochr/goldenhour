@@ -207,11 +207,16 @@ export function WindowFirstBriefingProvider({
   const [travelRanges, setTravelRanges] = useState([]);
   const [evaluationScores, setEvaluationScores] = useState(EMPTY_SCORES);
   // The same response, kept unreduced. See the fetch effect below for why both shapes exist.
-  // Deliberately NOT on the context value: nothing outside this file needs a row yet. P5's
-  // leave-by and P8's four-day sheet do — their "why" prose is `LocationEvaluationView.summary`
-  // — and they should export THIS rather than read `scoreIndex`, which is name-keyed and drops
-  // every row missing a region or location name, i.e. a different population from the one the
-  // heat join saw.
+  //
+  // ⚠️ PUBLISHED on the context value since P8, and the note this replaces is why. It used to read
+  // "deliberately NOT on the context value: nothing outside this file needs a row yet. P5's
+  // leave-by and P8's four-day sheet do — their 'why' prose is `LocationEvaluationView.summary` —
+  // and they should export THIS rather than read `scoreIndex`, which is name-keyed and drops every
+  // row missing a region or location name, i.e. a different population from the one the heat join
+  // saw." P8's first cut read `scoreIndex` anyway and an adversarial review caught it: the sheet
+  // timed its rows id-first (`buildSlotIndex`) and rated them name-only, so a location renamed
+  // since the last evaluation run got a correct departure time under "Not scored yet", while the
+  // heat field behind the dialog — id-first — still painted its rating.
   const [scoreRows, setScoreRows] = useState(EMPTY_ARRAY);
 
   /**
@@ -611,7 +616,8 @@ export function WindowFirstBriefingProvider({
   const value = useMemo(
     () => ({
       briefing, loading, heatStripCards, windowCards, paneItems, promotedStrip, upcomingEvents,
-      travelDayDates, evaluationScores, scoresLoaded, scoreIndex, heatSpots: heatSpotList,
+      travelDayDates, evaluationScores, scoresLoaded, scoreIndex, scoreRows,
+      heatSpots: heatSpotList,
       heatPointSets,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
@@ -623,7 +629,8 @@ export function WindowFirstBriefingProvider({
       origin, setOrigin, regions, effectiveReachById,
     }),
     [briefing, loading, heatStripCards, windowCards, paneItems, promotedStrip, upcomingEvents,
-      travelDayDates, evaluationScores, scoresLoaded, scoreIndex, heatSpotList, heatPointSets,
+      travelDayDates, evaluationScores, scoresLoaded, scoreIndex, scoreRows,
+      heatSpotList, heatPointSets,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
       ratingLens, orderLens, homePlace, isPro, isLiteUser,

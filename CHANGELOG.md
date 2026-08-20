@@ -5,6 +5,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — heat field P8: the four-day location sheet
+
+Searching for a place on the window-first Plan tab now opens that place's own timeline: one row per
+rendered solar window, each with its rating, its "why" in Claude's own words, and the time to leave
+to be set up before the light. The best-rated window opens on arrival; the rest are one tap away.
+A footer action carries the map, and names the window it will open. This is the last phase of the
+heat-field series (`docs/engineering/heat-field-plan.md`, decision D10).
+
+**It hangs off the search and nothing else.** A spot card's click and the hover peek keep exactly
+today's behaviour — they open the map, as they always have (§9.9, resolved by the owner
+2026-08-20). Their test suites passing unedited is the proof.
+
+**Every departure names its day when it needs to.** Search matches the whole roster, so this is the
+first surface that can measure a drive to somewhere hours away — and a long drive to an early
+sunrise leaves the evening before. `↰ leave Thu 23:50` on a Friday sunrise, rather than a bare
+`23:50` a reader would have to reason about. The day is read from the departure's own UK date, not
+inferred from how long the drive is.
+
+**One journey, from wherever the page is planning from.** The drive and the departure are measured
+from the origin the rest of the tab already names — home by default, a region's base town when the
+origin has moved — and the header says which ("3h 10min from Keswick"). Where the place is outside
+the plan you have scoped, a marker says so *and names the scope*: `outside The Lake District`
+away, `outside your 3h area` at home. An unmeasured planning area marks nothing.
+
+**Absences are told apart.** A travel day says nothing was forecast; a window nothing has looked at
+yet says that instead; and while the ratings request is still in flight the sheet claims nothing at
+all about the pipeline. The confidence channel rides the existing three-tier marker, taken from the
+location's **own** region, and never dims the star beside it.
+
 ### Added — heat field P7: the origin moves
 
 The window-first Plan tab can now be planned from somewhere other than home. A chip in the rail

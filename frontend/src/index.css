@@ -4439,3 +4439,233 @@ button.wf-hc:focus-visible {
   }
   .wf-search-sub { max-width: 42%; }
 }
+
+/* ── P8 · the four-day location sheet ─────────────────────────────────────────────────────────
+   It reuses `.wf-sheet-card`, `.wf-sheet-head`, `.wf-sheet-t`, `.wf-sheet-w`, `.wf-sheet-x` and
+   `.wf-sheet-foot` outright, so the two dialogs on this tab read as one dialog shape. Only what is
+   genuinely new is declared here: the "outside your plan" badge, the lead line, and the timeline
+   rows. The prototype's own card frame is narrower than the spot sheet's 880px grid, but a second
+   `max-width` would be a second number to keep in step for a card whose rows are full-width
+   anyway — the rows cap their own measure instead. */
+.wf-loc-out {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 7px;
+  border-radius: 999px;
+  /* The arm's "away/elsewhere" ink, which is what this badge means: the place is outside the plan
+     the reader has scoped, not beyond the reach lens. Amber (`--color-verdict-marginal`) would read
+     as a judgement on the forecast, which is the one thing this badge says nothing about.
+     Measured on the real composited backdrop — the badge sits in `.wf-sheet-head`, which sets no
+     background, so `.wf-sheet-card`'s `--color-plex-panel` shows through the 15% tint: #6FA8B0 on
+     rgb(42,45,42) gives 5.26:1. (An earlier draft said 6.31, which is roughly a 4% tint; 6.66 is
+     the bare panel. The conclusion held, the number did not — and it matters, because line 155 of
+     this file records a near-identical 9.5px badge on a 16% tint measuring 4.47 and being rejected
+     for it. The real headroom here is 0.76, not 1.81.) */
+  color: var(--color-tide);
+  background: rgba(111, 168, 176, 0.15);
+}
+/* ⚠️ A CHILD of `.wf-loc-rows`, not a band of its own, and that is a reflow fix rather than a
+   layout preference. `.wf-sheet-card` is `overflow: hidden` with `max-height: calc(100dvh - 32px)`
+   and `Modal`'s overlay does not scroll, so only a shrinkable child can absorb a short viewport —
+   and `.wf-loc-rows` is the only one. With the lead as a fourth pinned band, a 320x256 viewport
+   (400% zoom) put the head, the lead and the footer over the whole budget and clipped the map
+   action with nothing able to scroll. `WindowPickDialog` records the same defect; three bands is
+   the shape both sibling dialogs already use. */
+.wf-loc-lead {
+  padding: 2px 0 8px;
+  margin: 0;
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: var(--color-plex-text-secondary);
+}
+.wf-loc-rows {
+  overflow-y: auto;
+  /* The spot sheet's own inset and its own reasoning: `overflow-y: auto` clips on both axes, and a
+     2px focus outline at 2px offset needs 4 of the horizontal 16. */
+  padding: 8px 16px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wf-loc-row {
+  border: 1px solid var(--color-plex-border);
+  border-radius: 9px;
+  background: var(--color-plex-surface);
+  overflow: hidden;
+}
+/* The one row the sheet leads with, marked on the container rather than on the badge — the badge is
+   the quality signal and takes its colour from the ramp alone (D2). */
+.wf-loc-row[data-best='true'] {
+  border-color: var(--color-close-to-home);
+}
+.wf-loc-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 11px;
+  background: none;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+  /* The row is its own scroll container's child, so tabbing to one below the fold would otherwise
+     scroll it flush against the card's edge and clip the ring. 6px = the 2px outline plus 4 of
+     slack. ⚠️ NOT `.wf-sheet-list > .wf-spot`'s derivation, which this comment used to cite: that
+     rule's terms are an outline, an OUTWARD 2px offset and a 2px `:hover` lift, and neither applies
+     here — the offset below is inset and the hover state is a background change with no lift. */
+  scroll-margin: 6px;
+}
+.wf-loc-head:hover { background: rgba(255, 255, 255, 0.03); }
+/* Inside, not offset: `.wf-loc-row` clips at `overflow: hidden` with a 9px radius, so an outward
+   ring would lose its outer stroke to the rounded corner — the reasoning `.wf-seg-btn:focus-visible`
+   already states verbatim for the same shape. */
+.wf-loc-head:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
+.wf-loc-day {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 34px;
+  padding: 3px 0;
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.25);
+  line-height: 1.1;
+}
+.wf-loc-dow {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+}
+.wf-loc-dn {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-plex-text);
+}
+.wf-loc-mid {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+/* Wraps, and it is load-bearing rather than defensive: at 320px `.wf-loc-mid` is about 167px wide
+   (230 of button content, less the 34px date box, its 10px gap and the caret) against roughly 231px
+   of contents on a best-and-rated row. The precedent is `WindowSpotPeek`'s chip row — `flex
+   flex-wrap` in the JSX, not in this file, which is where an earlier draft of this comment sent the
+   reader. */
+.wf-loc-ttl {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 3px 7px;
+}
+.wf-loc-w {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-plex-text);
+}
+.wf-loc-t {
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-loc-tag {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 999px;
+  /* The arm's own lead accent — this marks the row the sheet opens on, which is the same job the
+     kicker does for a lead card. ⚠️ It is `--color-close-to-home-LIGHT` as ink over a 14% tint of
+     `--color-close-to-home`, NOT the token `.wf-sheet-k` uses, which is `--color-close-to-home`
+     itself as ink; same family, two tokens, and an earlier draft of this comment conflated them.
+     Measured on the real backdrop (the tag is inside `.wf-loc-head`, which sets no background, over
+     `.wf-loc-row`'s `--color-plex-surface`): #E4C878 on rgb(57,45,29) gives 8.18:1, and 7.51:1
+     while `.wf-loc-head:hover` lays its `rgba(255,255,255,0.03)` underneath. (The 9.84 an earlier
+     draft recorded is the bare surface, with the tint left out of the arithmetic.) */
+  color: var(--color-close-to-home-light);
+  background: rgba(201, 162, 75, 0.14);
+}
+.wf-loc-st {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 5px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+.wf-loc-none {
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
+  white-space: nowrap;
+}
+.wf-loc-lv {
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
+}
+/* The design's two-tone, in this app's tokens rather than its #EBD9A8 — the spot card's own
+   derivation (`--color-segment-active` means "this control is on" and would be a third gold). */
+.wf-loc-lv b {
+  font-weight: 600;
+  color: var(--color-plex-text);
+}
+.wf-loc-car {
+  flex: none;
+  align-self: center;
+  font-size: 9px;
+  color: var(--color-plex-text-secondary);
+}
+/* 55px = the day box's 34 plus `.wf-loc-head`'s 11px inset and its 10px gap, so the prose starts
+   under the event word rather than under the date. The button and this div are siblings sharing
+   `.wf-loc-row`'s content box, and the button has no border, so the two left edges coincide.
+   ⚠️ At the arm's 639px breakpoint the indent goes and the prose simply runs under the date box,
+   which stays in flow — an earlier draft of this comment claimed the box moved out of the way at a
+   480px breakpoint that exists nowhere in this file. */
+.wf-loc-body {
+  padding: 0 11px 10px 55px;
+}
+.wf-loc-why {
+  margin: 0;
+  max-width: 68ch;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--color-plex-text-secondary);
+}
+.wf-loc-why.muted {
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: 10.5px;
+}
+/* `padding: 5px 0` rather than none: at the footer's 10.5px the bare text box is 15.75px tall, which
+   clears WCAG 2.5.8's 24px only through the Spacing exception — true today on 26px of clearance, and
+   false the moment a second control joins the footer or its padding tightens. Measured in the
+   browser rather than derived: 4px gave 23.75, a quarter of a pixel short, which is exactly the kind
+   of miss an arithmetic-only check passes over. */
+.wf-loc-map {
+  background: none;
+  border: 0;
+  padding: 5px 0;
+  font: inherit;
+  color: var(--color-tide);
+  font-weight: 600;
+  cursor: pointer;
+}
+.wf-loc-map:hover { text-decoration: underline; }
+.wf-loc-map:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+}
+/* 639px, this arm's single breakpoint (`useIsMobile`'s own boundary) rather than a second number
+   19px away — the rule `.wf-sheet-list` already states. */
+@media (max-width: 639px) {
+  .wf-loc-body { padding-left: 11px; }
+}

@@ -15,7 +15,7 @@
 process.env.TZ = 'America/New_York';
 
 import { describe, it, expect } from 'vitest';
-import { leaveBy } from '../utils/leaveBy.js';
+import { leaveBy, leaveByParts } from '../utils/leaveBy.js';
 
 /** 04:40 BST on 14 August 2026 — the plan's §4.6 sunrise, as its UTC instant. */
 const AUGUST_SUNRISE = '2026-08-14T03:40:00';
@@ -73,5 +73,30 @@ describe('leaveBy on a device abroad', () => {
     // drive times at all — a home postcode is UK-shaped and may never have been saved.
     expect(leaveBy(AUGUST_SUNSET, null)).toBeNull();
     expect(leaveBy(null, 66)).toBeNull();
+  });
+});
+
+describe('leaveByParts on a device abroad', () => {
+  it('dates the departure on the UK calendar, not the device\'s', () => {
+    // The row this whole file exists for, applied to the P8 sheet's day marker. The departure is
+    // 23:35 UTC on the 13th: Britain calls it the 14th (00:35 BST), this device calls it the 13th
+    // (19:35 EDT). The event is a sunrise on the 14th — so on the UK calendar the departure shares
+    // its day and the sheet prints a bare clock time, while a device-calendar reading would mark
+    // it "the day before" and send a reader out twenty-four hours early.
+    const parts = leaveByParts(AUGUST_SUNRISE, 225);
+    expect(parts.time).toBe('00:35');
+    expect(parts.date).toBe('2026-08-14');
+    expect(parts.sameDay).toBe(true);
+    // The device's own answer, for the same instant — a different date, which is the whole hazard.
+    expect(onTheDeviceClock('2026-08-13T23:35:00Z')).toBe('13 Aug, 19:35');
+  });
+
+  it('marks a genuine wrap as a wrap, from wherever it is read', () => {
+    // 4h21 back from an 04:40 BST sunrise crosses UK midnight. The marker must fire on the UK
+    // calendar in every zone — under the device's it would fire a day too early here.
+    const parts = leaveByParts(AUGUST_SUNRISE, 261);
+    expect(parts.time).toBe('23:59');
+    expect(parts.date).toBe('2026-08-13');
+    expect(parts.sameDay).toBe(false);
   });
 });
