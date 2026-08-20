@@ -1,6 +1,7 @@
 # The heat field's empty windows — investigating the scores/briefing join gap
 
-**Status:** open. Diagnosis queries written, not yet run against production.
+**Status:** **found.** Q1–Q3 run against production 2026-08-20; every original hypothesis
+refuted and the real cause identified in `EvaluationViewService`. Fix not yet written.
 **Raised by:** a v2.18.13 screenshot, 2026-08-19 evening (today = Thu 20 Aug).
 
 ---
@@ -40,7 +41,132 @@ Both nominally resolve through `EvaluationViewService`, which is the whole point
   the **persisted** `daily_briefing_cache` payload, resolving live scores through
   `EvaluationViewService.getScoresForEnrichmentBulk`.
 
-### The prime suspect
+---
+
+## THE ANSWER (production data, 2026-08-20)
+
+**`mergeToView` and `resolveForEnrichment` share the freshness gate but not its fallback.** That
+is the whole bug, and it is four lines apart in one file.
+
+```java
+// resolveForEnrichment — the BRIEFING path
+if (cachedResult != null && cachedIsAtLeastAsFresh(...)) return cachedResult;
+BriefingEvaluationResult fromRow = toEnrichmentResult(locationName, forecastRow);
+return fromRow != null ? fromRow : cachedResult;      // ← falls back to the cached rating
+
+// mergeToView — the /scores path
+if (cachedResult != null && cachedIsAtLeastAsFresh(...)) return CACHED_EVALUATION;
+if (forecastRow != null && forecastRow.getRating() != null) return FORECAST_EVALUATION_SCORED;
+if (forecastRow != null && forecastRow.getTriage()...) return FORECAST_EVALUATION_TRIAGE;
+return emptyView(...);                                 // ← Source.NONE, and the caller DROPS it
+```
+
+So when the latest `forecast_evaluation` row is **newer than the cached row but carries neither a
+rating nor a triage reason** — a bare base-forecast row, and `CLAUDE.md` records that roughly three
+quarters of that table's rows have a null rating — the two paths part company:
+
+| path | result |
+|---|---|
+| briefing card / rail / planner | cached rating survives → **5★** |
+| `/scores` → heat field | `Source.NONE` → row dropped → **no point → empty field** |
+
+Same tables, same gate, opposite outcome. The class comment asserts the two paths were unified
+("Both paths now decide through `cachedIsAtLeastAsFresh`; a third reader must call it rather than
+re-derive precedence") — they were unified on the **gate** and not on the **fallback**, and that
+comment is why the gap survived review.
+
+It is date-dependent for the obvious reason: T+0/T+1 get re-scored overnight so their cached rows
+stay fresh, while the further-out days keep an older cached rating and then collect a newer
+base-forecast row.
+
+### What the production data said
+
+- **Q1 — refutes H1 outright.** Saturday 22 Aug SUNRISE: **163 location entries, all 163 rated**.
+  The live cache was full. The card's 5★ was *not* stale and the empty field was *not* truthful.
+- **Q2 — refutes H2, H3 and H4.** The only rows failing a join test were the 12 bluebell/woodland
+  locations, every one `WOODLAND,BLUEBELL` — correctly withheld from a sky field. No name drift,
+  no region drift, nothing disabled.
+- **Q3 — consistent with Q1**, e.g. Lake District 22 Aug SUNRISE 57/57 rated slots. It also turned
+  up an unrelated curiosity worth knowing: the persisted payload serialises `LocalDate` as a JSON
+  **array** (`[2026, 8, 20]`), so the cache's ObjectMapper is not the HTTP one. Harmless to the
+  frontend, which reads the API's ISO strings, but it will surprise the next person to query this
+  column.
+
+### The fix
+
+`mergeToView` should fall back to the cached result when the forecast row wins the gate but says
+nothing — exactly as `resolveForEnrichment` already does. A won gate means "this row is newer",
+not "this row is an answer"; branch 4 currently treats an empty winner as a denial.
+
+Scope to watch: this makes `/scores` return rows it currently omits, so the heat field, the map's
+pin visibility (`resolveStandDown` treats an unrated location with a triage row as stood down) and
+the Close to home panel all gain data. That is the intent — those surfaces are already showing the
+cached rating everywhere the briefing feeds them — but it is a visible change and wants Q4's
+before-count recorded first.
+
+### Q4 — how many slots the gap is currently eating
+
+Run this to size the fix before and after. `dropped_to_none` is the bug's own count.
+
+```bash
+docker exec -i goldenhour-db psql -X -U goldenhour -d goldenhour <<'SQL'
+WITH cached AS (
+  SELECT c.evaluation_date, c.target_type, c.updated_at,
+         e.value->>'locationName' AS location_name,
+         (e.value->>'rating')::int AS cached_rating
+  FROM   cached_evaluation c
+  CROSS JOIN LATERAL jsonb_array_elements(c.results_json::jsonb) AS e(value)
+  WHERE  c.evaluation_date BETWEEN CURRENT_DATE AND CURRENT_DATE + 5
+    AND  e.value->>'rating' IS NOT NULL
+), latest AS (
+  SELECT DISTINCT ON (fe.location_id, fe.target_date, fe.target_type)
+         fe.location_id, fe.target_date, fe.target_type,
+         fe.forecast_run_at, fe.rating AS row_rating, fe.triage_reason
+  FROM   forecast_evaluation fe
+  WHERE  fe.target_date BETWEEN CURRENT_DATE AND CURRENT_DATE + 5
+  ORDER  BY fe.location_id, fe.target_date, fe.target_type, fe.forecast_run_at DESC
+)
+SELECT c.evaluation_date, c.target_type,
+       COUNT(*) AS cached_rated,
+       COUNT(*) FILTER (
+         WHERE f.forecast_run_at IS NOT NULL
+           AND c.updated_at < (f.forecast_run_at AT TIME ZONE 'Europe/London')
+       ) AS row_wins_freshness,
+       COUNT(*) FILTER (
+         WHERE f.forecast_run_at IS NOT NULL
+           AND c.updated_at < (f.forecast_run_at AT TIME ZONE 'Europe/London')
+           AND f.row_rating IS NULL AND f.triage_reason IS NULL
+       ) AS dropped_to_none,
+       COUNT(*) FILTER (
+         WHERE f.forecast_run_at IS NOT NULL
+           AND c.updated_at < (f.forecast_run_at AT TIME ZONE 'Europe/London')
+           AND f.row_rating IS NULL AND f.triage_reason IS NOT NULL
+       ) AS shown_as_triage
+FROM   cached c
+JOIN   locations l ON l.name = c.location_name
+LEFT   JOIN latest f ON f.location_id = l.id
+                    AND f.target_date = c.evaluation_date
+                    AND f.target_type = c.target_type
+GROUP  BY 1, 2 ORDER BY 1, 2;
+SQL
+```
+
+`forecast_run_at` is a naive `LocalDateTime` recorded in **Europe/London** while `updated_at` is a
+timestamptz, hence the `AT TIME ZONE` — comparing them raw is silently an hour out through BST,
+which `forecastRunInstant`'s own javadoc warns about.
+
+⚠️ `updated_at`, **not** `evaluated_at`. The hydration path takes `getUpdatedAt()` and says why:
+`evaluated_at` is only ever set for a *new* row, so a slot re-evaluated for three days running
+still carries its day-one stamp. Q1 above reports `evaluated_at` because it is only asking "when
+did anything last land here"; the freshness gate is a different question.
+
+---
+
+## What was originally suspected, and why it was wrong
+
+Kept because the reasoning was sound and the refutation is the useful part.
+
+### The prime suspect (REFUTED by Q1)
 
 `BriefingService.enrichSlot`:
 
@@ -58,9 +184,12 @@ The serve path re-enriches an **already-enriched** payload. A rating baked into
 re-enrichment whenever the live lookup returns no entry for that location. Only a live *triage*
 row clears it; a plain absence does not.
 
-That is a code-visible mechanism for exactly the divergence observed, and it points the blame the
-opposite way from first appearances: **the card's 5★ may be the stale value and the empty field
-the truthful one.**
+That is a code-visible mechanism for exactly the divergence observed, and it pointed the blame the
+opposite way from first appearances: the card's 5★ *might* have been the stale value.
+
+**Q1 refuted it.** The live cache held 163 rated entries for that window, so nothing was stale and
+the card was right. The mechanism is real and still worth knowing — an absent lookup genuinely does
+preserve a build-time rating — but it was not what happened here.
 
 ### Ruled out
 
@@ -73,20 +202,17 @@ the truthful one.**
 
 ### Still possible, and worth the same query pass
 
-- **H1 — nothing rated at T+2/T+3.** `cached_evaluation` genuinely has no rated entries for those
-  windows; `/scores` is right, and the card is stale per the mechanism above.
+- ~~**H1 — nothing rated at T+2/T+3.**~~ **Refuted:** 163 of 163 entries rated for Sat sunrise.
 - **H2 — rated, but not sky.** The frontend withholds scores from non-sky-prompt locations, while
   `PlanWindowProjector.bestRating` excludes only **canopy** slots. The gap between the two
   populations is narrower than it first looks: `SKY_SUBJECT_TYPES` is
   `LANDSCAPE / SEASCAPE / WATERFALL` and an **untyped** location counts as sky, so the only
   locations that feed `bestRating` and not the field are **WILDLIFE-only** ones (woodland is
-  canopy and is excluded from both). It would take a window whose entire rated set was
-  wildlife-only, which is a stretch — but the query costs nothing extra.
-- **H3 — name drift.** `results_json` is keyed by location *name*; a renamed location leaves the
-  cached entry unreachable from the current roster.
-- **H4 — region drift.** `buildViews` looks the cache row up as `location's current region | date
-  | type`, while `enrichWithCachedScores` uses the *briefing payload's* region name. A location
-  moved between regions makes those two keys differ.
+  canopy and is excluded from both). **Refuted:** Q2's only hits were 12 `WOODLAND,BLUEBELL`
+  locations, correctly withheld; no wildlife-only rated entries at all.
+- ~~**H3 — name drift.**~~ **Refuted:** every rated entry matched a location by name.
+- ~~**H4 — region drift.**~~ **Refuted:** `cached_region` matched `locations_current_region`
+  everywhere.
 
 ## 3. The queries
 
@@ -227,7 +353,8 @@ the payload is carrying a build-time rating the live cache no longer supplies, a
 ## 5. Meanwhile, on the UI
 
 PR #573 makes all three unscored marks read the window's served `bestRating`, so the tile, the
-rail and the card can no longer contradict each other on screen. That is right regardless of
-which side turns out to be stale — but it is **self-consistency, not accuracy**. If H1 is
-confirmed, the Plan tab is consistently optimistic until `enrichSlot` is fixed, and this document
-is the reason why.
+rail and the card can no longer contradict each other on screen. With the cause now known that
+choice is not merely self-consistent, it is **correct**: the card was right and the field was the
+surface missing data. Fixing `mergeToView` will refill the field for exactly those windows, and
+the mark will keep answering the same question it answers now — no further UI change follows from
+it.
