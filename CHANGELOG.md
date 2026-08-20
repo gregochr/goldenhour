@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the Plan-matrix implementation plan and its v3 design bundle
+
+`docs/engineering/plan-matrix-plan.md` plus the design handoff it ports,
+`docs/design/plan-matrix/` (the v3 revision of the heat-map design — its `heat-field.js` and
+Map-tab files are byte-identical to `docs/design/heat-map/`'s; only the Plan tab changed). The
+series replaces the v2 arm's strip-plus-list with a day×event matrix of verdict-carrying heat
+thumbnails, moves the drill-down into a popup, and moves the origin control into the
+masthead's tick line — five frontend-only phases behind the still-default-v1 flag, with the
+flag flip now sequenced after it. The plan was itself adversarially reviewed before landing
+(six lenses, sixteen charges, per-charge refutation; fourteen survived and are folded in).
+The three worth naming because an implementer would otherwise trip them: the bundle's
+`Window.lead` prose collides with the codebase's *boolean* `card.lead` and no served
+window-level prose exists (the popup's unpicked prose slot reads the top region's gloss
+instead — plan A21); a NIGHT topic's badge lands on the *next* morning's card, so the
+badge→topic client join must replicate `PlanWindowProjector.keysFor`, not match on date
+equality; and aurora/NLC serve populated `regions` lists that are coverage/conditions rosters,
+not eligibility — the topic scope filter must exempt whole-sky types or aurora vanishes from
+every away plan.
+
 ## [v2.18.14] - 2026-08-20
 
 ### Fixed — the seed script's printed ratings SQL matches the real `cached_evaluation` schema
