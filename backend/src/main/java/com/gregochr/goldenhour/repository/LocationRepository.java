@@ -43,6 +43,17 @@ public interface LocationRepository extends JpaRepository<LocationEntity, Long> 
     List<LocationEntity> findAllByEnabledTrueOrderByNameAsc();
 
     /**
+     * Returns every location missing an Open-Meteo grid cell, in name order.
+     *
+     * <p>Either column being null is enough. They are only ever written as a pair, so a row with
+     * one of the two is not a state the code can produce — but a half-populated row would be
+     * unusable to {@code LocationEntity.gridCellKey()} either way, and an OR costs nothing.
+     *
+     * @return locations with no grid cell, sorted by name ascending
+     */
+    List<LocationEntity> findByGridLatIsNullOrGridLngIsNullOrderByNameAsc();
+
+    /**
      * Returns all locations where {@code bortle_class} has not yet been populated.
      *
      * <p>Used by the Bortle enrichment job to find locations pending enrichment.
