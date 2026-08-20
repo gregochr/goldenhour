@@ -90,15 +90,22 @@ the truthful one.**
 
 ## 3. The queries
 
-Read-only. Run against production Postgres:
+Read-only, and verified against a real Postgres with a schema-accurate fixture before being
+handed over — including one that reproduces the hypothesised production state end to end, so the
+queries are known to discriminate it rather than merely to parse.
 
-```bash
-docker exec -it goldenhour-db psql -U goldenhour -d goldenhour
-```
+⚠️ **`results_json` is a JSON ARRAY, not an object.** `EvaluationViewService` reads it as
+`List<BriefingEvaluationResult>` and keys the map by `locationName` in Java; the location name is
+a *field inside each element*, not the JSON key. The first cut of these queries used
+`jsonb_each` and died with `cannot call jsonb_each on a non-object`. Use `jsonb_array_elements`
+and `e.value->>'locationName'`.
+
+Run each block as-is:
 
 ### Q1 — the discriminator: rated coverage per window
 
-```sql
+```bash
+docker exec -i goldenhour-db psql -X -U goldenhour -d goldenhour <<'SQL'
 SELECT c.evaluation_date,
        c.target_type,
        COUNT(DISTINCT c.region_name)                            AS regions,
@@ -106,10 +113,11 @@ SELECT c.evaluation_date,
        COUNT(*) FILTER (WHERE e.value->>'rating' IS NOT NULL)   AS rated_entries,
        MAX(c.evaluated_at)                                      AS newest_write
 FROM   cached_evaluation c
-CROSS JOIN LATERAL jsonb_each(c.results_json::jsonb) AS e(key, value)
+CROSS JOIN LATERAL jsonb_array_elements(c.results_json::jsonb) AS e(value)
 WHERE  c.evaluation_date BETWEEN CURRENT_DATE - 2 AND CURRENT_DATE + 5
 GROUP  BY 1, 2
 ORDER  BY 1, 2;
+SQL
 ```
 
 **Read it like this.** `rated_entries = 0` (or no rows at all) for the T+2/T+3 windows while
@@ -121,19 +129,20 @@ window whose field was empty ⟹ the rows exist and something downstream drops t
 Self-targeting rather than parameterised by date: it walks every rated entry in the plan window
 and returns **only the ones that fail a join test**, so an empty result is itself the answer.
 
-```sql
+```bash
+docker exec -i goldenhour-db psql -X -U goldenhour -d goldenhour <<'SQL'
 SELECT c.evaluation_date,
        c.target_type,
        c.region_name                       AS cached_region,
-       e.key                               AS cached_location_name,
+       e.value->>'locationName'            AS cached_location_name,
        (e.value->>'rating')::int           AS rating,
        l.id                                AS matched_location_id,
        l.enabled,
        r.name                              AS locations_current_region,
        string_agg(lt.location_type, ',')   AS location_types
 FROM   cached_evaluation c
-CROSS JOIN LATERAL jsonb_each(c.results_json::jsonb) AS e(key, value)
-LEFT   JOIN locations l               ON l.name = e.key
+CROSS JOIN LATERAL jsonb_array_elements(c.results_json::jsonb) AS e(value)
+LEFT   JOIN locations l               ON l.name = e.value->>'locationName'
 LEFT   JOIN regions r                 ON r.id = l.region_id
 LEFT   JOIN location_location_type lt ON lt.location_id = l.id
 WHERE  c.evaluation_date BETWEEN CURRENT_DATE AND CURRENT_DATE + 5
@@ -145,6 +154,7 @@ HAVING l.id IS NULL
     OR COALESCE(bool_or(lt.location_type
          IN ('LANDSCAPE', 'SEASCAPE', 'WATERFALL')), true) = false
 ORDER  BY 1, 2, 4;
+SQL
 ```
 
 The sky test mirrors `isSkyPromptCandidate` exactly, **including its rule that an untyped location
@@ -163,7 +173,8 @@ counts** — hence the `COALESCE(..., true)`, which is what stops a location wit
 Only worth running if Q1 says **H1**. It asks whether the payload being served still carries
 ratings the live tables no longer back.
 
-```sql
+```bash
+docker exec -i goldenhour-db psql -X -U goldenhour -d goldenhour <<'SQL'
 SELECT b.generated_at,
        d.value->>'date'                    AS day,
        es.value->>'targetType'             AS target,
@@ -178,16 +189,21 @@ CROSS JOIN LATERAL jsonb_array_elements(reg.value -> 'slots')              AS s(
 WHERE  (d.value->>'date')::date BETWEEN CURRENT_DATE AND CURRENT_DATE + 5
 GROUP  BY 1, 2, 3, 4
 ORDER  BY 2, 3, 4;
+SQL
 ```
+
+(`daily_briefing_cache` is a single-row table — V59: "id = 1 always; upserted on every briefing
+refresh" — so there is no newest-row selection to make.)
 
 `rated_slots > 0` for a window Q1 reported as having **zero** rated entries is the confirmation:
 the payload is carrying a build-time rating the live cache no longer supplies, and
 `enrichSlot`'s `eval == null → return slot` branch is why.
 
-> ⚠️ Both `results_json` and the briefing payload serialise their ratings `@JsonInclude(NON_NULL)`,
-> so an unrated entry has **no `rating` / `claudeRating` key at all** rather than a JSON `null`.
-> `->>` yields SQL `NULL` for a missing key either way, so the filters above are correct as
-> written — do not "fix" them into `jsonb_exists` checks expecting explicit nulls.
+> ⚠️ The two blobs differ here and it does not matter. `BriefingEvaluationResult.rating` is
+> serialised as an explicit JSON `null`, while `BriefingSlot.claudeRating` is
+> `@JsonInclude(NON_NULL)` and is **omitted entirely**. `->>` yields SQL `NULL` for both a JSON
+> null and a missing key, so the filters above are correct for either shape — do not "fix" them
+> into `jsonb_exists` checks.
 
 > ⚠️ `generated_at` matters as much as the counts. If the payload predates the last batch cycle,
 > every number in it is a build-time value and the question is why the rebuild has not happened,
