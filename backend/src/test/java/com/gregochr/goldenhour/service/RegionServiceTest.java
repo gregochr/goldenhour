@@ -2,7 +2,9 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.model.AddRegionRequest;
+import com.gregochr.goldenhour.model.SetRegionBaseRequest;
 import com.gregochr.goldenhour.model.UpdateRegionRequest;
+import com.gregochr.goldenhour.repository.BriefingRegionSnapshotRepository;
 import com.gregochr.goldenhour.repository.RegionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -21,6 +23,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -32,11 +35,18 @@ class RegionServiceTest {
     @Mock
     private RegionRepository regionRepository;
 
+    @Mock
+    private RegionDriveTimeWriter regionDriveTimeWriter;
+
+    @Mock
+    private BriefingRegionSnapshotRepository snapshotRepository;
+
     private RegionService regionService;
 
     @BeforeEach
     void setUp() {
-        regionService = new RegionService(regionRepository);
+        regionService = new RegionService(
+                regionRepository, regionDriveTimeWriter, snapshotRepository);
     }
 
     // --- findAll ---
@@ -239,6 +249,211 @@ class RegionServiceTest {
 
         assertThatThrownBy(() -> regionService.setEnabled(99L, true))
                 .isInstanceOf(NoSuchElementException.class);
+    }
+
+    // ------------------------------------------------------------------------------------------
+    // setBase — the origin the Plan tab plans from (heat-field plan P7)
+    // ------------------------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("setBase() stores a complete base and discards the region's stale drive times")
+    void setBase_complete_storesBaseAndClearsMatrix() {
+        RegionEntity entity = buildRegion(1L, "Lake District");
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
+        when(regionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        RegionEntity result = regionService.setBase(1L,
+                new SetRegionBaseRequest("Keswick", 54.601, -3.135));
+
+        assertThat(result.getBaseName()).isEqualTo("Keswick");
+        assertThat(result.getBaseLat()).isEqualTo(54.601);
+        assertThat(result.getBaseLon()).isEqualTo(-3.135);
+        // Every stored row measured a journey from the previous base. Unknown is safe, wrong is not.
+        verify(regionDriveTimeWriter).clearForRegion(1L);
+    }
+
+    @Test
+    @DisplayName("setBase() trims the town name")
+    void setBase_trimsName() {
+        RegionEntity entity = buildRegion(1L, "Lake District");
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
+        when(regionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        RegionEntity result = regionService.setBase(1L,
+                new SetRegionBaseRequest("  Keswick  ", 54.601, -3.135));
+
+        assertThat(result.getBaseName()).isEqualTo("Keswick");
+    }
+
+    @Test
+    @DisplayName("setBase() with all three null clears the base, and the matrix with it")
+    void setBase_allNull_clearsBaseAndMatrix() {
+        RegionEntity entity = buildRegion(1L, "Lake District");
+        entity.setBaseName("Keswick");
+        entity.setBaseLat(54.601);
+        entity.setBaseLon(-3.135);
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
+        when(regionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        RegionEntity result = regionService.setBase(1L,
+                new SetRegionBaseRequest(null, null, null));
+
+        assertThat(result.getBaseName()).isNull();
+        assertThat(result.getBaseLat()).isNull();
+        assertThat(result.getBaseLon()).isNull();
+        verify(regionDriveTimeWriter).clearForRegion(1L);
+    }
+
+    @Test
+    @DisplayName("setBase() re-sent unchanged keeps the matrix — the Save button is safe to press twice")
+    void setBase_unchanged_keepsMatrix() {
+        RegionEntity entity = buildRegion(1L, "Lake District");
+        entity.setBaseName("Keswick");
+        entity.setBaseLat(54.601);
+        entity.setBaseLon(-3.135);
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
+        when(regionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        regionService.setBase(1L, new SetRegionBaseRequest("Keswick", 54.601, -3.135));
+
+        verifyNoInteractions(regionDriveTimeWriter);
+    }
+
+    @Test
+    @DisplayName("setBase() renaming the town only — same coordinates — keeps the matrix")
+    void setBase_renameOnly_keepsMatrix() {
+        RegionEntity entity = buildRegion(1L, "Lake District");
+        entity.setBaseName("Keswick");
+        entity.setBaseLat(54.601);
+        entity.setBaseLon(-3.135);
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
+        when(regionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        RegionEntity result = regionService.setBase(1L,
+                new SetRegionBaseRequest("Keswick, Cumbria", 54.601, -3.135));
+
+        // The label moved; the point did not. Re-routing on a spelling correction would throw away
+        // a whole ORS sweep for a change no journey can see.
+        assertThat(result.getBaseName()).isEqualTo("Keswick, Cumbria");
+        verifyNoInteractions(regionDriveTimeWriter);
+    }
+
+    @Test
+    @DisplayName("setBase() rejects a name with no coordinates — there is nothing to route from")
+    void setBase_nameWithoutCoordinates_throws() {
+        RegionEntity entity = buildRegion(1L, "Lake District");
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
+
+        assertThatThrownBy(() -> regionService.setBase(1L,
+                new SetRegionBaseRequest("Keswick", null, null)))
+                .isInstanceOf(IllegalArgumentException.class);
+        verifyNoInteractions(regionDriveTimeWriter);
+    }
+
+    @Test
+    @DisplayName("setBase() rejects coordinates with no name — the chip would be unlabelled")
+    void setBase_coordinatesWithoutName_throws() {
+        RegionEntity entity = buildRegion(1L, "Lake District");
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
+
+        assertThatThrownBy(() -> regionService.setBase(1L,
+                new SetRegionBaseRequest("  ", 54.601, -3.135)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("setBase() rejects a missing longitude alone")
+    void setBase_missingLongitude_throws() {
+        RegionEntity entity = buildRegion(1L, "Lake District");
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
+
+        assertThatThrownBy(() -> regionService.setBase(1L,
+                new SetRegionBaseRequest("Keswick", 54.601, null)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("setBase() accepts the coordinate bounds and rejects one step outside each")
+    void setBase_coordinateBounds() {
+        RegionEntity entity = buildRegion(1L, "Lake District");
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
+        when(regionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        assertThat(regionService.setBase(1L, new SetRegionBaseRequest("Pole", 90.0, 180.0))
+                .getBaseLat()).isEqualTo(90.0);
+        assertThat(regionService.setBase(1L, new SetRegionBaseRequest("Pole", -90.0, -180.0))
+                .getBaseLat()).isEqualTo(-90.0);
+
+        assertThatThrownBy(() -> regionService.setBase(1L,
+                new SetRegionBaseRequest("Nowhere", 90.1, 0.0)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> regionService.setBase(1L,
+                new SetRegionBaseRequest("Nowhere", -90.1, 0.0)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> regionService.setBase(1L,
+                new SetRegionBaseRequest("Nowhere", 0.0, 180.1)))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> regionService.setBase(1L,
+                new SetRegionBaseRequest("Nowhere", 0.0, -180.1)))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    @DisplayName("setBase() throws NoSuchElementException when the region does not exist")
+    void setBase_notFound_throws() {
+        when(regionRepository.findById(99L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> regionService.setBase(99L,
+                new SetRegionBaseRequest("Keswick", 54.601, -3.135)))
+                .isInstanceOf(NoSuchElementException.class);
+    }
+
+    @Test
+    @DisplayName("⚠️ update() renaming a region DISCARDS its movement snapshots, which are name-keyed")
+    void update_rename_clearsNameKeyedSnapshots() {
+        // `briefing_region_snapshot` (V144) is keyed on the region NAME, so a rename orphans every
+        // row: the new name matches nothing and the movement chip compares against a store that no
+        // longer knows the region. V137 §7 had to do this by hand in a migration for two other
+        // name-keyed briefing stores — and this is an ordinary admin action, not a migration.
+        RegionEntity entity = buildRegion(1L, "Lake District");
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
+        when(regionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        regionService.update(1L, new UpdateRegionRequest("The Lakes"));
+
+        // The PREVIOUS name, not the new one: the orphaned rows carry the old one.
+        verify(snapshotRepository).deleteByRegionName("Lake District");
+    }
+
+    @Test
+    @DisplayName("update() re-saving the SAME name keeps the snapshots — history is not free to discard")
+    void update_sameName_keepsSnapshots() {
+        RegionEntity entity = buildRegion(1L, "Lake District");
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
+        when(regionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        regionService.update(1L, new UpdateRegionRequest("  Lake District  "));
+
+        verifyNoInteractions(snapshotRepository);
+    }
+
+    @Test
+    @DisplayName("update() renames without touching the base or the matrix")
+    void update_rename_leavesBaseIntact() {
+        RegionEntity entity = buildRegion(1L, "Lake District");
+        entity.setBaseName("Keswick");
+        entity.setBaseLat(54.601);
+        entity.setBaseLon(-3.135);
+        when(regionRepository.findById(1L)).thenReturn(Optional.of(entity));
+        when(regionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        RegionEntity result = regionService.update(1L, new UpdateRegionRequest("The Lakes"));
+
+        // The rename endpoint carries no base fields, so it can never clear one by omission — the
+        // reason the base lives on its own endpoint at all.
+        assertThat(result.getName()).isEqualTo("The Lakes");
+        assertThat(result.getBaseName()).isEqualTo("Keswick");
+        verifyNoInteractions(regionDriveTimeWriter);
     }
 
     private RegionEntity buildRegion(Long id, String name) {

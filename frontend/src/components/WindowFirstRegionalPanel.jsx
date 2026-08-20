@@ -44,9 +44,18 @@ const SHOW_ALL_TIER = 5;
  * {@code userDriveTimes} object it fetches separately. This arm already holds per-user reach from
  * {@code GET /api/user/settings/reach}, keyed by location id — the contract plan §2.2 created
  * precisely so drive times never ride the ETagged briefing payload. So the id→name half comes from
- * {@code locations} and the minutes from {@code reachById}, and this arm keeps <b>one</b> source of
- * truth about how far away a place is. A location the reach response did not mention simply has no
- * entry, which is the same state the grid already handles for a user with no home postcode.
+ * {@code locations} and the minutes from {@code effectiveReachById}, and this arm keeps <b>one</b>
+ * source of truth about how far away a place is. A location the reach response did not mention
+ * simply has no entry, which is the same state the grid already handles for a user with no home
+ * postcode.
+ *
+ * <p>⚠️ <b>{@code effectiveReachById}, never {@code reachById}.</b> P7's origin move overwrites the
+ * whole reach map when the reader plans from a region base, and this panel is on the same tab as
+ * the window cards. Reading the raw per-user map instead put one location at {@code 2h 10m} on a
+ * spot card (from Keswick) and {@code 45 min} in this grid (from the reader's house), on one
+ * screen, under a lens bar reading "Drive from Keswick", with nothing distinguishing them. Any new
+ * consumer that renders a drive wants this one: {@code reachById} stays published only because the
+ * planning area and the beyond line are statements about HOME.
  *
  * <h2>Astro is fetched here, which makes it lazy by construction</h2>
  *
@@ -62,7 +71,7 @@ const SHOW_ALL_TIER = 5;
  */
 export default function WindowFirstRegionalPanel({ locations, onShowOnMap }) {
   const {
-    briefing, upcomingEvents, travelDayDates, evaluationScores, reachById, isPro,
+    briefing, upcomingEvents, travelDayDates, evaluationScores, effectiveReachById, isPro,
     todayStr, tomorrowStr,
   } = useWindowFirstBriefing();
 
@@ -85,11 +94,11 @@ export default function WindowFirstRegionalPanel({ locations, onShowOnMap }) {
   const driveMap = useMemo(() => {
     const map = new Map();
     for (const loc of locations || []) {
-      const reach = reachById?.get(loc.id);
+      const reach = effectiveReachById?.get(loc.id);
       if (reach?.driveMinutes != null) map.set(loc.name, reach.driveMinutes);
     }
     return map;
-  }, [locations, reachById]);
+  }, [locations, effectiveReachById]);
 
   /** Location name → location type, for the grid's type icons. Shared with the drill-down. */
   const typeMap = useMemo(() => buildLocationTypeMap(locations), [locations]);

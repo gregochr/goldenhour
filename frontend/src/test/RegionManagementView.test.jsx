@@ -7,13 +7,16 @@ vi.mock('../api/regionApi', () => ({
   addRegion: vi.fn(),
   updateRegion: vi.fn(),
   setRegionEnabled: vi.fn(),
+  setRegionBase: vi.fn(),
 }));
 
 vi.mock('../api/forecastApi', () => ({
   fetchLocations: vi.fn(),
 }));
 
-import { fetchRegions, addRegion, updateRegion, setRegionEnabled } from '../api/regionApi';
+import {
+  fetchRegions, addRegion, updateRegion, setRegionEnabled, setRegionBase,
+} from '../api/regionApi';
 import { fetchLocations } from '../api/forecastApi';
 
 const MOCK_REGIONS = [
@@ -296,5 +299,165 @@ describe('RegionManagementView', () => {
     expect(rowsDesc[0]).toHaveTextContent('Scotland');
     expect(rowsDesc[1]).toHaveTextContent('North East');
     expect(rowsDesc[2]).toHaveTextContent('Lake District');
+  });
+});
+
+/**
+ * Region bases — the origin the Plan tab can plan from (heat-field plan §4.8, P7).
+ *
+ * <p><b>What breaks if these fail.</b> Two things, and the second is destructive. A base that is
+ * half-saved cannot be routed from, so the region silently stops being an origin with nothing
+ * saying why. And a base save that fires on an unchanged form throws away that region's whole
+ * shared drive-time matrix — an ORS sweep — every time an admin re-saves a name.
+ */
+describe('RegionManagementView — the base town', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    fetchRegions.mockResolvedValue([
+      {
+        id: 1, name: 'Lake District', enabled: true, createdAt: '2026-01-15T10:00:00',
+        baseName: 'Keswick', baseLat: 54.6013, baseLon: -3.1347,
+      },
+      {
+        id: 2, name: 'North East', enabled: true, createdAt: '2026-02-01T10:00:00',
+        baseName: null, baseLat: null, baseLon: null,
+      },
+    ]);
+    fetchLocations.mockResolvedValue([]);
+    updateRegion.mockResolvedValue({});
+    setRegionBase.mockResolvedValue({});
+  });
+
+  const openEdit = async (id) => {
+    fireEvent.click(await screen.findByTestId(`edit-region-${id}`));
+  };
+
+  it('lists each region\'s base, and an em dash where there is none', async () => {
+    render(<RegionManagementView />);
+    expect(await screen.findByTestId('region-base-1')).toHaveTextContent('Keswick');
+    expect(screen.getByTestId('region-base-2')).toHaveTextContent('—');
+  });
+
+  it('loads the stored base into the edit form', async () => {
+    render(<RegionManagementView />);
+    await openEdit(1);
+    expect(screen.getByTestId('region-base-name-input')).toHaveValue('Keswick');
+    expect(screen.getByTestId('region-base-lat-input')).toHaveValue('54.6013');
+    expect(screen.getByTestId('region-base-lon-input')).toHaveValue('-3.1347');
+  });
+
+  it('opens empty for a region with no base', async () => {
+    render(<RegionManagementView />);
+    await openEdit(2);
+    expect(screen.getByTestId('region-base-name-input')).toHaveValue('');
+    expect(screen.getByTestId('region-base-lat-input')).toHaveValue('');
+  });
+
+  it('offers no base fields when ADDING — a region is named first and based afterwards', async () => {
+    render(<RegionManagementView />);
+    fireEvent.click(await screen.findByTestId('add-region-btn'));
+    expect(screen.queryByTestId('region-base-fields')).toBeNull();
+  });
+
+  it('saves a new base through its own endpoint, with the coordinates as numbers', async () => {
+    render(<RegionManagementView />);
+    await openEdit(2);
+    fireEvent.change(screen.getByTestId('region-base-name-input'), { target: { value: 'Alnwick' } });
+    fireEvent.change(screen.getByTestId('region-base-lat-input'), { target: { value: '55.4137' } });
+    fireEvent.change(screen.getByTestId('region-base-lon-input'), { target: { value: '-1.7060' } });
+    fireEvent.click(screen.getByTestId('save-region-btn'));
+
+    await waitFor(() => expect(setRegionBase).toHaveBeenCalledWith(2, {
+      baseName: 'Alnwick', baseLat: 55.4137, baseLon: -1.706,
+    }));
+  });
+
+  it('⚠️ does NOT touch the base when only the name was edited', async () => {
+    // Every base save discards that region's whole drive-time matrix. Re-saving a region name must
+    // not cost an ORS sweep.
+    render(<RegionManagementView />);
+    await openEdit(1);
+    fireEvent.change(screen.getByTestId('region-name-input'), { target: { value: 'The Lakes' } });
+    fireEvent.click(screen.getByTestId('save-region-btn'));
+
+    await waitFor(() => expect(updateRegion).toHaveBeenCalledWith(1, { name: 'The Lakes' }));
+    expect(setRegionBase).not.toHaveBeenCalled();
+  });
+
+  it('clears the base when all three fields are emptied', async () => {
+    render(<RegionManagementView />);
+    await openEdit(1);
+    fireEvent.change(screen.getByTestId('region-base-name-input'), { target: { value: '' } });
+    fireEvent.change(screen.getByTestId('region-base-lat-input'), { target: { value: '' } });
+    fireEvent.change(screen.getByTestId('region-base-lon-input'), { target: { value: '' } });
+    fireEvent.click(screen.getByTestId('save-region-btn'));
+
+    await waitFor(() => expect(setRegionBase).toHaveBeenCalledWith(1, {
+      baseName: null, baseLat: null, baseLon: null,
+    }));
+  });
+
+  it('does not send a clear for a region that had no base to start with', async () => {
+    render(<RegionManagementView />);
+    await openEdit(2);
+    fireEvent.change(screen.getByTestId('region-name-input'), { target: { value: 'The North East' } });
+    fireEvent.click(screen.getByTestId('save-region-btn'));
+
+    await waitFor(() => expect(updateRegion).toHaveBeenCalled());
+    expect(setRegionBase).not.toHaveBeenCalled();
+  });
+
+  it('⚠️ refuses a partial base beside the fields, rather than as a 400 after a round trip', async () => {
+    render(<RegionManagementView />);
+    await openEdit(2);
+    fireEvent.change(screen.getByTestId('region-base-name-input'), { target: { value: 'Alnwick' } });
+    fireEvent.click(screen.getByTestId('save-region-btn'));
+
+    expect(await screen.findByText(/needs a name, a latitude and a longitude/i)).toBeInTheDocument();
+    expect(setRegionBase).not.toHaveBeenCalled();
+    expect(updateRegion).not.toHaveBeenCalled();
+  });
+
+  it('refuses a coordinate that is not a number', async () => {
+    render(<RegionManagementView />);
+    await openEdit(2);
+    fireEvent.change(screen.getByTestId('region-base-name-input'), { target: { value: 'Alnwick' } });
+    fireEvent.change(screen.getByTestId('region-base-lat-input'), { target: { value: 'north' } });
+    fireEvent.change(screen.getByTestId('region-base-lon-input'), { target: { value: '-1.7' } });
+    fireEvent.click(screen.getByTestId('save-region-btn'));
+
+    expect(await screen.findByText(/needs a name, a latitude and a longitude/i)).toBeInTheDocument();
+    expect(setRegionBase).not.toHaveBeenCalled();
+  });
+
+  it('⚠️ re-reads the list when the base call fails after the rename committed', async () => {
+    // The save is two calls. The backend bounds-checks coordinates and this form does not, so the
+    // rename can land and the base can 400 — leaving the table showing the old name for a rename
+    // that has already persisted, under an error about something else.
+    setRegionBase.mockRejectedValue({ response: { data: { error: 'Base coordinates are out of range' } } });
+    render(<RegionManagementView />);
+    await openEdit(2);
+    fireEvent.change(screen.getByTestId('region-name-input'), { target: { value: 'The North East' } });
+    fireEvent.change(screen.getByTestId('region-base-name-input'), { target: { value: 'Alnwick' } });
+    fireEvent.change(screen.getByTestId('region-base-lat-input'), { target: { value: '545.4' } });
+    fireEvent.change(screen.getByTestId('region-base-lon-input'), { target: { value: '-1.7' } });
+    fireEvent.click(screen.getByTestId('save-region-btn'));
+
+    expect(await screen.findByText(/out of range/i)).toBeInTheDocument();
+    // Twice: the mount, and the re-read after the failure.
+    await waitFor(() => expect(fetchRegions).toHaveBeenCalledTimes(2));
+    // And the form stays open on the field that failed, rather than dropping the reader back to a
+    // list whose state they cannot explain.
+    expect(screen.getByTestId('region-base-lat-input')).toHaveValue('545.4');
+  });
+
+  it('keeps a base at zero longitude — Greenwich is a place, and `||` would blank it', async () => {
+    fetchRegions.mockResolvedValue([{
+      id: 1, name: 'Home Counties', enabled: true, createdAt: '2026-01-15T10:00:00',
+      baseName: 'Greenwich', baseLat: 51.4826, baseLon: 0,
+    }]);
+    render(<RegionManagementView />);
+    await openEdit(1);
+    expect(screen.getByTestId('region-base-lon-input')).toHaveValue('0');
   });
 });

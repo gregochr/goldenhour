@@ -133,13 +133,19 @@ LensSegment.propTypes = {
  * @param {number}   props.spotCount    spots drawn across every window, after both gates
  * @param {number}   props.reachedCount spots the rating floor chose from — the "of N" denominator
  * @param {number}   props.windowCount  windows drawn
+ * @param {?string}  [props.originBase] the away origin's base town. Present, the drive caption
+ *        names it — the design's {@code DRIVE FROM KESWICK} — because every figure the control
+ *        gates is measured from there and a caption reading "tonight" over drives from a town two
+ *        hundred miles away is the one thing this bar must not say. Null is home and the caption
+ *        is unchanged.
  */
 export default function WindowFirstLensBar({
   lens, ratingLens, orderLens, spotCount, reachedCount = spotCount, windowCount,
+  originBase = null,
 }) {
   const {
     tier, tierId, defaultTier, defaultTierId, weekend, overridden, locked, selectTier,
-    resetToDefault,
+    resetToDefault, defaultFromOrigin,
   } = lens;
   const isMobile = useIsMobile();
   const count = formatLensCount({ spotCount, reachedCount, windowCount });
@@ -155,7 +161,14 @@ export default function WindowFirstLensBar({
       <LensSegment
         id="window-first-lens-tiers"
         groupTestId="window-first-lens-controls"
-        label={isMobile ? 'Drive' : 'How far tonight'}
+        // Phone and desktop both name the base, because the base is the load-bearing half — a
+        // phone caption reading "Drive" over figures measured from somewhere the reader has just
+        // chosen would be the one width where the change is invisible. The switch stays in JS for
+        // the reason the class comment gives: `aria-labelledby` resolves through `display: none`,
+        // so rendering both and hiding one would put both strings in the accessible name.
+        label={originBase
+          ? (isMobile ? `From ${originBase}` : `Drive from ${originBase}`)
+          : (isMobile ? 'Drive' : 'How far tonight')}
         options={REACH_TIERS}
         value={tierId}
         // A real `disabled` as well as the wrapper's `pointer-events: none`, because pointer-events
@@ -234,6 +247,8 @@ export default function WindowFirstLensBar({
               // is pinned to Any and has overridden false while sitting nowhere near the default.
               isDefault: tierId === defaultTierId,
               weekend,
+              // Away the default is the ORIGIN's, so the readout must not call it the day's.
+              originDefault: Boolean(defaultFromOrigin),
               ratingLabel: ratingLens.floor?.label,
               spotCount,
               reachedCount,
@@ -253,6 +268,8 @@ WindowFirstLensBar.propTypes = {
     defaultTier: PropTypes.shape({ label: PropTypes.string }).isRequired,
     defaultTierId: PropTypes.string.isRequired,
     weekend: PropTypes.bool.isRequired,
+    /** True while the default on show is the origin's rather than the day's. */
+    defaultFromOrigin: PropTypes.bool,
     overridden: PropTypes.bool.isRequired,
     locked: PropTypes.bool.isRequired,
     selectTier: PropTypes.func.isRequired,
@@ -268,6 +285,8 @@ WindowFirstLensBar.propTypes = {
     orderId: PropTypes.string.isRequired,
     selectOrder: PropTypes.func.isRequired,
   }).isRequired,
+  /** The away origin's base town, or null at home. */
+  originBase: PropTypes.string,
   spotCount: PropTypes.number.isRequired,
   /** Defaults to {@code spotCount} — with no floor set the two are equal and no "of N" is drawn. */
   reachedCount: PropTypes.number,

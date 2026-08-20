@@ -23,9 +23,13 @@ function spot(overrides = {}) {
  * about a state the real pipeline never produces. Running the actual gates means every case below
  * is one the card can reach.
  */
-function emptyState({ allSpots, tierId = 'any', limitMinutes = null, floorId = 'any', minRating = null }) {
+function emptyState({
+  allSpots, tierId = 'any', limitMinutes = null, floorId = 'any', minRating = null, origin = null,
+}) {
   const spots = gateSpotsByRating(gateSpotsByReach(allSpots, limitMinutes), minRating);
-  return buildLensEmptyState({ allSpots, spots, tierId, limitMinutes, floorId, minRating });
+  return buildLensEmptyState({
+    allSpots, spots, tierId, limitMinutes, floorId, minRating, origin,
+  });
 }
 
 describe('windowLensEmpty — when there is anything to say at all', () => {
@@ -213,5 +217,108 @@ describe('windowLensEmpty — every action offered actually works', () => {
     });
     // The floor step is still offered, and correctly: an unrated spot passes "Any rating".
     expect(state.actions).toEqual([{ kind: 'rating', id: 'any', label: 'Drop to any rating' }]);
+  });
+});
+
+/**
+ * The two clash states plan §4.8 names, plus the third one it does not: an away scope that is
+ * simply empty.
+ *
+ * <p><b>What breaks if these fail.</b> Every one of these is a card the reader arrived at by
+ * <em>choosing</em> an origin, so a card that renders nothing is a dead end with no route back —
+ * which is the failure the plan calls "explain and offer" and which this arm has already had to fix
+ * once for the masthead and once for the exit button.
+ */
+describe('windowLensEmpty — away, the origin explains and the way home is offered', () => {
+  const ORIGIN = { name: 'Lake District', baseName: 'Keswick' };
+
+  it('⚠️ speaks when the away SCOPE is empty, where at home it would say nothing', () => {
+    // At home this is a card the lens never touched. Away it is a region the reader has just
+    // pointed the page at, and silence would leave the card blank with no way out of it.
+    const state = emptyState({ allSpots: [], origin: ORIGIN });
+    expect(state.headline).toBe('Nothing in Lake District for this window.');
+    expect(state.body).toBe('You are planning from Keswick.');
+    expect(state.actions).toEqual([{ kind: 'origin', id: 'home', label: 'Plan from home' }]);
+  });
+
+  it('still says nothing about an empty window at home', () => {
+    expect(emptyState({ allSpots: [] })).toBeNull();
+  });
+
+  it('clash 1 — nothing within reach of the base keeps the lens sentence and adds the way home', () => {
+    const state = emptyState({
+      allSpots: [spot({ driveMinutes: 120 })], tierId: '45', limitMinutes: 45, origin: ORIGIN,
+    });
+    expect(state.headline).toBe('Nothing within 45 min in this window.');
+    expect(state.body).toBe('1 spot is further out.');
+    // The lens step comes FIRST: widening keeps the reader where they asked to be, and going home
+    // abandons it.
+    expect(state.actions.map((a) => a.kind)).toEqual(['reach', 'origin']);
+    expect(state.actions[1].label).toBe('Or plan from home');
+  });
+
+  it('clash 2 — a rating floor set at home that empties an away region', () => {
+    const state = emptyState({
+      allSpots: [spot({ rating: 2 })], floorId: '4', minRating: 4, origin: ORIGIN,
+    });
+    expect(state.headline).toBe('Nothing at 4★+ in this window.');
+    expect(state.actions.map((a) => a.kind)).toEqual(['rating', 'origin']);
+  });
+
+  it('offers the way home even when BOTH lens steps would also fill the card', () => {
+    // They answer different questions — "show me more here" against "this region is not the one" —
+    // so the origin action is not conditional on the lens having nothing to offer.
+    //
+    // Two spots, because each ladder is walked with the OTHER control held where it is: a 4★ spot
+    // 120 minutes out makes widening reach work, and a 2★ spot 30 minutes out makes dropping the
+    // floor work. One spot that fails both would offer neither, which is the ladder's whole point.
+    const state = emptyState({
+      allSpots: [
+        spot({ key: 'far', rating: 4, driveMinutes: 120 }),
+        spot({ key: 'poor', rating: 2, driveMinutes: 30 }),
+      ],
+      tierId: '45',
+      limitMinutes: 45,
+      floorId: '4',
+      minRating: 4,
+      origin: ORIGIN,
+    });
+    expect(state.actions.map((a) => a.kind)).toEqual(['reach', 'rating', 'origin']);
+    expect(state.actions[2].label).toBe('Or plan from home');
+  });
+
+  it('reads "Plan from home" without an "Or" when it is the only action offered', () => {
+    // The bar is already at its widest on both axes and the spot is unrated, so neither ladder has
+    // a step — the way home is the only thing left to offer, and it must not read as an
+    // afterthought to nothing.
+    const state = emptyState({
+      allSpots: [spot({ rating: 2, driveMinutes: 30 })],
+      tierId: 'any',
+      limitMinutes: null,
+      floorId: '3',
+      minRating: 3,
+      origin: ORIGIN,
+    });
+    expect(state.actions.map((a) => a.kind)).toEqual(['rating', 'origin']);
+
+    // And where NEITHER ladder has a step — one 2★ spot 120 minutes out, gated at 45 min and 4★+,
+    // so widening reach still fails the floor and dropping the floor still fails the reach — the
+    // way home is the whole of the offer, and reads without the "Or".
+    const alone = emptyState({
+      allSpots: [spot({ rating: 2, driveMinutes: 120 })],
+      tierId: '45',
+      limitMinutes: 45,
+      floorId: '4',
+      minRating: 4,
+      origin: ORIGIN,
+    });
+    expect(alone.actions).toEqual([{ kind: 'origin', id: 'home', label: 'Plan from home' }]);
+  });
+
+  it('adds nothing at all at home', () => {
+    const state = emptyState({
+      allSpots: [spot({ driveMinutes: 120 })], tierId: '45', limitMinutes: 45,
+    });
+    expect(state.actions.every((a) => a.kind !== 'origin')).toBe(true);
   });
 });

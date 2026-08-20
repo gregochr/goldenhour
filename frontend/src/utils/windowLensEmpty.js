@@ -30,6 +30,24 @@ import { LENS_RATING_FLOORS, gateSpotsByRating, ratingFloorById } from './rating
  * worth splitting out: at T+3 and beyond the batch has usually rated nothing, and "none rated 4★+"
  * over a window that was never looked at says the forecast was poor when in fact there is no
  * forecast. That distinction is the same one {@code AWAITING} exists to draw on the verdict badge.
+ *
+ * <h2>Away, the origin is part of the explanation and the way back is part of the offer</h2>
+ *
+ * <p>Plan §4.8's two clash states — nothing within reach of the base, and a rating floor set at
+ * home that empties an away region — are lens-empty states, so they extend this module rather than
+ * introducing a second empty card. Two things change when {@code origin} is set, and only two.
+ *
+ * <p>First, an <b>empty scope now speaks</b>. At home a window with no spots at all returns null,
+ * because a card the lens never touched must not carry a line about the lens. Away that same state
+ * is reachable by <em>choosing</em> — the reader has just pointed the page at a region that has
+ * nothing in this window — and silence there is a dead end: the card would render nothing at all
+ * with no route back. So the away arm names the region and offers the way home.
+ *
+ * <p>Second, every away empty state carries <b>one extra action</b>: return to the home origin. It
+ * is appended after the lens actions rather than put first, because widening the lens keeps the
+ * reader where they asked to be and going home abandons it — the offer that preserves the reader's
+ * intent goes first. It is offered even when a lens step would also fill the card, because the two
+ * answer different questions ("show me more here" against "this region is not the one").
  */
 
 /** `1 spot` / `4 spots`, so a sentence never reads "1 spots". */
@@ -50,6 +68,23 @@ function spotCount(n) {
 function nearestDrive(spots) {
   const known = spots.map((spot) => spot.driveMinutes).filter((m) => m != null);
   return known.length === 0 ? null : Math.min(...known);
+}
+
+/**
+ * The way back to the home origin.
+ *
+ * <p>Its own kind rather than a third lens ladder, because it is not a threshold: the shell reads
+ * {@code kind} and moves the origin, where the other two move the bar. One builder so the label
+ * and the kind cannot drift apart across the two sites that emit it.
+ */
+function homeAction(hasOthers) {
+  // "Or" only when it is not the first, so a lone action does not read as an afterthought — the
+  // same rule the rating action already follows one function down.
+  return {
+    kind: 'origin',
+    id: 'home',
+    label: hasOthers ? 'Or plan from home' : 'Plan from home',
+  };
 }
 
 /** Both gates, in the order the card applies them. */
@@ -88,13 +123,25 @@ function firstHelpfulStep(ladder, from, step, passes) {
  * @param {?number} args.limitMinutes that tier's threshold, null for "Any"
  * @param {string}  args.floorId      the active rating floor's id
  * @param {?number} args.minRating    that floor's threshold, null for "Any rating"
+ * @param {?object} [args.origin]     the origin descriptor ({@code {name, baseName}}), or null for
+ *                                    home. Away it adds the return-home action and lets an empty
+ *                                    scope speak — see the module comment.
  * @returns {?{headline: string, body: string, actions: Array}} the descriptor
  */
 export function buildLensEmptyState({
-  allSpots, spots, tierId, limitMinutes, floorId, minRating,
+  allSpots, spots, tierId, limitMinutes, floorId, minRating, origin = null,
 }) {
   const all = allSpots || [];
-  if ((spots || []).length > 0 || all.length === 0) return null;
+  if ((spots || []).length > 0) return null;
+  if (all.length === 0) {
+    if (!origin) return null;
+    // The reader chose this scope, so the card owes them a sentence and a way back.
+    return {
+      headline: `Nothing in ${origin.name} for this window.`,
+      body: `You are planning from ${origin.baseName}.`,
+      actions: [homeAction(false)],
+    };
+  }
 
   const reachLabel = tierById(tierId)?.label ?? null;
   const ratingLabel = minRating == null ? null : ratingFloorById(floorId)?.label ?? null;
@@ -154,6 +201,8 @@ export function buildLensEmptyState({
     const verb = actions.length > 0 ? 'Or drop to' : 'Drop to';
     actions.push({ kind: 'rating', id: looser.id, label: `${verb} ${looser.label.toLowerCase()}` });
   }
+
+  if (origin) actions.push(homeAction(actions.length > 0));
 
   return { headline, body, actions };
 }

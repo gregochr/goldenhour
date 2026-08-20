@@ -11,14 +11,15 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.Semaphore;
 
 /**
  * Computes per-user drive durations from the user's home location to all forecast
  * locations via the OpenRouteService matrix API.
  *
  * <p>Results are stored in the {@code user_drive_time} table, keyed by user + location.
- * A semaphore limits concurrent ORS calls to avoid rate-limiting.
+ * The account-wide concurrency limit on ORS lives in {@link
+ * com.gregochr.goldenhour.client.OrsRateLimiter} and is applied inside the client, so this class
+ * and the shared region matrix (plan P7) queue on the same two permits rather than on one each.
  *
  * <p>Deliberately not transactional: the semaphore wait and the ORS HTTP call run outside any
  * transaction so no database connection is pinned across them. Persistence is delegated to
@@ -28,9 +29,6 @@ import java.util.concurrent.Semaphore;
 public class DriveDurationService {
 
     private static final Logger LOG = LoggerFactory.getLogger(DriveDurationService.class);
-
-    /** Limits concurrent ORS matrix calls across all users. */
-    private static final Semaphore ORS_SEMAPHORE = new Semaphore(2);
 
     private final OpenRouteServiceClient orsClient;
     private final OrsProperties orsProperties;
@@ -58,8 +56,8 @@ public class DriveDurationService {
      * Calculates drive times from the given origin to all locations, storing
      * results in the {@code user_drive_time} table.
      *
-     * <p>Existing drive times for this user are deleted and replaced. A semaphore
-     * limits concurrent ORS calls to 2.
+     * <p>Existing drive times for this user are deleted and replaced. The ORS call queues on the
+     * shared two-permit limiter inside the client.
      *
      * @param userId    the user's primary key
      * @param originLat the origin latitude (user's home)
@@ -72,18 +70,7 @@ public class DriveDurationService {
             return 0;
         }
 
-        try {
-            ORS_SEMAPHORE.acquire();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Drive time calculation interrupted", e);
-        }
-
-        try {
-            return doRefreshForUser(userId, originLat, originLon);
-        } finally {
-            ORS_SEMAPHORE.release();
-        }
+        return doRefreshForUser(userId, originLat, originLon);
     }
 
     private int doRefreshForUser(Long userId, double originLat, double originLon) {

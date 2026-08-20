@@ -771,6 +771,21 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
   const [driveTimeFilter, setDriveTimeFilter] = useState(0); // 0 = All; positive = max minutes
   const [userDriveTimes, setUserDriveTimes] = useState({});
   useEffect(() => { getDriveTimes().then(setUserDriveTimes).catch(() => {}); }, []);
+  /**
+   * How far a location is, from wherever the caller is planning from.
+   *
+   * <p><b>An OVERWRITE, never a fallback.</b> When the v2 arm has moved its origin to a region base
+   * it hands this component a base-measured map, and a location missing from that map must read as
+   * <em>unknown</em> — falling through to the reader's home figure would put two origins' journeys
+   * on one screen, which is the one thing the shared/per-user seam exists to prevent. Absent
+   * override (v1, and v2 at home) this is byte-identical to the previous expression.
+   */
+  const driveOverride = heat?.driveOverrideById ?? null;
+  const driveMinutesFor = useCallback((locId) => (
+    driveOverride
+      ? (driveOverride.get(Number(locId)) ?? null)
+      : (userDriveTimes[String(locId)] ?? null)
+  ), [driveOverride, userDriveTimes]);
   // Travel-day ranges — drive the "forecast not executed (away)" popup badge.
   const [travelRanges, setTravelRanges] = useState([]);
   useEffect(() => { fetchTravelDayRanges().then(setTravelRanges).catch(() => {}); }, []);
@@ -1266,7 +1281,7 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
     const driveFiltered = driveTimeFilter === 0
       ? ratingFiltered
       : ratingFiltered.filter((loc) => {
-          const mins = userDriveTimes[String(loc.id)];
+          const mins = driveMinutesFor(loc.id);
           return mins != null && mins <= driveTimeFilter;
         });
 
@@ -1288,7 +1303,7 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
         : darkSkyFiltered;
   }, [
     typeFiltered, locations, isStandDownLocation, getRatingForLocation,
-    showStandDown, showUnrated, minStars, driveTimeFilter, userDriveTimes,
+    showStandDown, showUnrated, minStars, driveTimeFilter, driveMinutesFor,
     darkSkyFilter, focus, isAstroMode,
   ]);
 
@@ -1959,7 +1974,7 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
                           role={role}
                           date={date}
                           travelDay={isTravelDayForDate}
-                          driveMinutes={userDriveTimes[String(loc.id)] ?? null}
+                          driveMinutes={driveMinutesFor(loc.id)}
                           onTideFetchedAt={(ts) => setTideFetchedAt((prev) => ({ ...prev, [loc.name]: ts }))}
                           tideFetchedAt={tideFetchedAt[loc.name] ?? null}
                           onTideClassification={(cls) => setTideClassifications((prev) => ({ ...prev, [loc.name]: cls }))}
@@ -2033,7 +2048,12 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
                     className={`wf-seg-btn${heatArea ? ' on' : ''}`}
                   >
                     <span aria-hidden="true">◎ </span>
-                    My area
+                    {/* Named by the caller when the frame is not the reader's home area. Under an
+                        away origin "My area" would be false — the frame is the region being planned
+                        from, and a label that means something other than what it says, resolved
+                        only by a chip in different chrome, is the defect §6's "no label that does
+                        not describe its own state" rule exists to catch. */}
+                    {heat?.areaLabel || 'My area'}
                   </button>
                   <button
                     type="button"
@@ -2179,7 +2199,7 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
                 role={role}
                 date={date}
                 travelDay={isTravelDayForDate}
-                driveMinutes={userDriveTimes[String(loc.id)] ?? null}
+                driveMinutes={driveMinutesFor(loc.id)}
                 onTideFetchedAt={(ts) => setTideFetchedAt((prev) => ({ ...prev, [loc.name]: ts }))}
                 tideFetchedAt={tideFetchedAt[loc.name] ?? null}
                 onTideClassification={(cls) => setTideClassifications((prev) => ({ ...prev, [loc.name]: cls }))}
@@ -2264,6 +2284,14 @@ MapView.propTypes = {
     })),
     areaBounds: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
     catalogueBounds: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
+    /**
+     * Drive minutes keyed by location id, measured from wherever the caller is planning from.
+     * Present, it REPLACES the per-user home times outright — see `driveMinutesFor`. Absent, this
+     * component behaves exactly as it did before the field existed.
+     */
+    driveOverrideById: PropTypes.instanceOf(Map),
+    /** What to call the framed area. Defaults to "My area"; an away origin names its base town. */
+    areaLabel: PropTypes.string,
   }),
   /** `{ lat, lon }` of the user's saved home postcode, or null when none is saved. */
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),

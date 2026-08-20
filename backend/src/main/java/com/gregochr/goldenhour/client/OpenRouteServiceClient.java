@@ -19,6 +19,10 @@ import java.util.Map;
  *
  * <p>Uses the {@code driving-car} profile. If ORS is not configured the call
  * is not made and an empty list is returned.
+ *
+ * <p>Every request goes through {@link OrsRateLimiter}, which is the account-wide concurrency
+ * limit. It is applied here rather than in the callers so that a new caller cannot bypass it: the
+ * per-user refresh and the shared region matrix (plan P7) both queue on the same two permits.
  */
 @Component
 public class OpenRouteServiceClient {
@@ -28,16 +32,20 @@ public class OpenRouteServiceClient {
 
     private final RestClient restClient;
     private final OrsProperties properties;
+    private final OrsRateLimiter rateLimiter;
 
     /**
      * Constructs an {@code OpenRouteServiceClient}.
      *
-     * @param restClient the shared RestClient bean
-     * @param properties ORS configuration (API key, enabled flag)
+     * @param restClient  the shared RestClient bean
+     * @param properties  ORS configuration (API key, enabled flag)
+     * @param rateLimiter the account-wide concurrency limit on ORS calls
      */
-    public OpenRouteServiceClient(RestClient restClient, OrsProperties properties) {
+    public OpenRouteServiceClient(RestClient restClient, OrsProperties properties,
+            OrsRateLimiter rateLimiter) {
         this.restClient = restClient;
         this.properties = properties;
+        this.rateLimiter = rateLimiter;
     }
 
     /**
@@ -74,13 +82,16 @@ public class OpenRouteServiceClient {
                 "sources", List.of(0),
                 "metrics", List.of("duration"));
 
-        OrsMatrixResponse response = restClient.post()
+        // The permit covers the request alone. The guard clauses above deliberately sit outside it:
+        // an unconfigured key or an empty destination list makes no call, so queueing for a permit
+        // to discover that would make the limiter slower than the API it protects.
+        OrsMatrixResponse response = rateLimiter.withPermit(() -> restClient.post()
                 .uri(MATRIX_URL)
                 .header("Authorization", "Bearer " + properties.getApiKey())
                 .contentType(MediaType.APPLICATION_JSON)
                 .body(body)
                 .retrieve()
-                .body(OrsMatrixResponse.class);
+                .body(OrsMatrixResponse.class));
 
         if (response == null || response.durations() == null || response.durations().isEmpty()) {
             LOG.warn("ORS returned empty or null durations");

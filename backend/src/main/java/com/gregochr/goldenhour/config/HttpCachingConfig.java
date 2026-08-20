@@ -78,7 +78,15 @@ public class HttpCachingConfig {
             // The almanac feed is ephemeris: identical for every user and stable for a whole day,
             // so it is the strongest revalidation candidate here. Safe to share because it carries
             // no per-user data — the rule that keeps "Close to home" off this list.
-            "/api/almanac");
+            "/api/almanac",
+            // The region-base drive-time matrix: how far every location is from each region's base
+            // town. Admin-managed geography, identical for every reader, and it changes only when
+            // the nightly sweep runs — so it is the same kind of entry as `/api/locations`. It is
+            // emphatically NOT the per-user reach map, which is the same numbers measured from the
+            // reader's own house and stays on the never-revalidated `/api/user/settings/reach` for
+            // the reason this list's own comment gives. The exact-match rule is what keeps those
+            // two apart: no wildcard here could ever reach a `/api/user/settings*` path.
+            "/api/regions/drive-times");
 
     /**
      * The lazy popup-detail endpoint, {@code GET /api/forecast/{id}}. Matched by a strict

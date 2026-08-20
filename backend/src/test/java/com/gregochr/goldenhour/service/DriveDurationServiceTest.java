@@ -266,23 +266,13 @@ class DriveDurationServiceTest {
         verifyNoInteractions(driveTimeWriter);
     }
 
-    @Test
-    @DisplayName("InterruptedException on semaphore throws IllegalStateException and restores interrupt flag")
-    void refreshForUser_interrupted_throwsIllegalState() {
-        when(orsProperties.isConfigured()).thenReturn(true);
-
-        // Set the interrupt flag before calling — Semaphore.acquire() throws InterruptedException
-        // if the thread is interrupted on entry, even when permits are available
-        Thread.currentThread().interrupt();
-
-        org.assertj.core.api.Assertions.assertThatThrownBy(
-                () -> service.refreshForUser(USER_ID, SOURCE_LAT, SOURCE_LON))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("interrupted");
-
-        // Interrupt flag should still be set (restored by the catch block)
-        assertThat(Thread.interrupted()).isTrue(); // also clears the flag for test cleanup
-    }
+    // The interrupt case moved with the semaphore. It used to live here, because the permit was
+    // acquired in this class; the heat-field plan's P7 hoisted the limit into
+    // com.gregochr.goldenhour.client.OrsRateLimiter so the per-user sweep and the shared region
+    // matrix queue on ONE pair of permits rather than on one pair each. Both the interrupted-on-
+    // entry case and the interrupted-while-waiting case are pinned in OrsRateLimiterTest, against
+    // the class that now owns the behaviour — asserting it here would only prove that a mocked ORS
+    // client does not acquire a semaphore.
 
     @Test
     @DisplayName("ORS client exception propagates — drive times not persisted")

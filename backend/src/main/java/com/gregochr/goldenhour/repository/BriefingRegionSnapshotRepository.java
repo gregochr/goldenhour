@@ -55,4 +55,26 @@ public interface BriefingRegionSnapshotRepository
     @Modifying
     @Query("DELETE FROM BriefingRegionSnapshotEntity s WHERE s.generatedAt < :cutoff")
     int deleteByGeneratedAtBefore(@Param("cutoff") Instant cutoff);
+
+    /**
+     * Discards every snapshot belonging to one region name.
+     *
+     * <p><b>Called when a region is renamed.</b> This table is keyed on the region NAME, so a
+     * rename orphans its whole history: the new name matches nothing and the old name's rows sit
+     * there forever, counting toward the 90-day retention and matching no live region. V137 §7 had
+     * to do this by hand, in a migration, for the two other name-keyed briefing stores —
+     * {@code RegionService.update} is an ordinary admin action and cannot rely on someone writing
+     * a migration.
+     *
+     * <p>Deleting rather than renaming is deliberate: an UPDATE would have to reason about
+     * colliding with rows a region already holding the new name had written, and the degrade here
+     * is one build cycle without a movement chip, which the chip's own "no basis renders nothing"
+     * rule already handles honestly.
+     *
+     * @param regionName the region's previous name
+     * @return how many rows were removed
+     */
+    @Modifying
+    @Query("DELETE FROM BriefingRegionSnapshotEntity s WHERE s.regionName = :regionName")
+    int deleteByRegionName(@Param("regionName") String regionName);
 }
