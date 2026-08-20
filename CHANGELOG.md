@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the seed script's printed ratings SQL matches the real `cached_evaluation` schema
+
+`scripts/dev-seed-locations.sh` ends by printing the SQL for seeding ratings without a Claude
+spend, and that SQL had drifted from reality on five counts: a `created_at` column that has never
+existed, four omitted NOT NULL columns (`region_name`, `evaluation_date`, `target_type`,
+`source`), a two-part cache key where `CacheKeyFactory` builds `regionName|date|targetType`, the
+implication of one row per date|event when the table holds one row per **region** (the
+`results_json` list carries every location of that region), and — found only by running it —
+missing `evaluated_at`/`updated_at` values. That last one is the subtle one: V91 gives both
+columns a `DEFAULT CURRENT_TIMESTAMP`, but the local profile runs Hibernate `ddl-auto: update`
+with Flyway disabled, so the local H2 table has bare NOT NULL columns and no defaults. The
+printed SQL now supplies both explicitly, builds the key with `CURRENT_DATE` in both the key and
+the `evaluation_date` column so the two cannot disagree (rehydration filters on the column,
+lookups go by the key), and the note spells out the one-row-per-region structure, the exact-name
+join on `locationName`, and the stop → `RunScript` → start dance the H2 file lock forces on
+scripted inserts. Verified end-to-end on a fresh H2 per the heat-field plan §7.3: seed → insert
+the script's literal printed SQL → restart → `[EVAL HYDRATE] Loaded 1 entries` → briefing shows
+the seeded `claudeRating: 5` on Bamburgh Beach.
+
 ### Added — heat field P8: the four-day location sheet
 
 Searching for a place on the window-first Plan tab now opens that place's own timeline: one row per
@@ -33,6 +52,7 @@ away, `outside your 3h area` at home. An unmeasured planning area marks nothing.
 yet says that instead; and while the ratings request is still in flight the sheet claims nothing at
 all about the pipeline. The confidence channel rides the existing three-tier marker, taken from the
 location's **own** region, and never dims the star beside it.
+
 ### Fixed — one precedence rule for both merge paths, not just one shared gate
 
 `EvaluationViewService`'s two consumers gate on the same `cachedIsAtLeastAsFresh` and then
