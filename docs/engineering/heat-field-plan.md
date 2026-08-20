@@ -64,7 +64,11 @@ a clean lint and a successful build had all passed over** — a card whose heade
 the reader had just scoped away, a region selection that survived the origin move with every control
 that could clear it unmounted in the same commit, a reach tier persisted to `localStorage` by a
 gesture made on a different control, and an all-null ORS response that would have wiped a working
-matrix while the job logged that it had been preserved. **P8 IS BUILT 2026-08-20** (`feature/heat-p8-sheet`, unpushed; released base beneath it is
+matrix while the job logged that it had been preserved. **P8 IS MERGED** (#579, `60ab7706`,
+2026-08-20 — **the series is COMPLETE**: all eight phases built, adversarially reviewed before
+commit, browser-verified and merged, 2026-08-18 → 2026-08-20; its merge reconciled fourteen
+mid-phase main commits, including restoring `scoresLoaded` inside the reworked briefing-beat
+fetch; released base beneath it is
 **v2.18.13**) — the per-location six-window timeline, its departure day marker, the origin-measured
 drive and its named-scope badge, and the map footer; adversarially reviewed (six lenses) with the
 surviving findings applied, and verified in the running app at 1280, 375 and 320 (400% zoom)
