@@ -102,7 +102,7 @@ export default function WindowFirstMapPane({
   const wrapRef = useRef(null);
   const [resizeNonce, setResizeNonce] = useState(0);
   const {
-    heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr, scoresLoaded,
+    heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr,
     origin, effectiveReachById,
   } = useWindowFirstBriefing();
 
@@ -143,10 +143,6 @@ export default function WindowFirstMapPane({
       spots: heatSpots,
       areaSpots: framed,
       pointsByKey: heatPointSets,
-      // The same flag the Plan tab's strip and row maps read, from the same provider rather than
-      // re-derived here: an empty point set is what an unfetched ratings response looks like as
-      // well as what an unrated window looks like, and only the provider can tell them apart.
-      scoresKnown: scoresLoaded,
       // Every rendered window, away days included, so the selector's six are the strip's six — one
       // shape of the week. An away window simply has no points and paints nothing, which is the
       // same answer the Plan tab's thumbnail gives it.
@@ -156,6 +152,10 @@ export default function WindowFirstMapPane({
         targetType: card.targetType,
         label: card.label,
         time: card.time,
+        // The payload's own "is anything here rated", carried so the toolbar's unscored note asks
+        // the same question the Plan tab's thumbnail does — off the same field, from the same
+        // descriptor. Never the point set: `WindowFirstHeatStrip` records what that cost.
+        bestRating: card.bestRating,
         // The haze and the card's own badge decay by one number (plan D3). Resolved through the
         // fail-soft path rather than read raw, so a legacy cached payload with no tier degrades to
         // the horizon's inferred one instead of painting at full confidence.
@@ -173,7 +173,7 @@ export default function WindowFirstMapPane({
       // "My area" is false under an away origin: the frame is the region being planned from.
       areaLabel: origin ? `Around ${origin.baseName}` : undefined,
     };
-  }, [heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr, scoresLoaded,
+  }, [heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr,
     origin, effectiveReachById]);
 
   useEffect(() => {

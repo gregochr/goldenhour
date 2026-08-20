@@ -5,6 +5,58 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the heat field froze for the life of the tab
+
+**This is the defect behind the blank Saturday, and it was never about the unscored mark.**
+
+`fetchBriefing` polls every ten minutes and again on window focus. The batch ratings the heat
+field is drawn from were a mount-only `useEffect(..., [])` — fetched once and never again. So on a
+tab left open, every verdict, star, grid cell and hot topic kept moving while the rows behind the
+*picture* stayed at whatever was true when the tab was opened. Leave the Plan tab open overnight
+and the 01:16 batch writes the T+2/T+3 ratings that session never sees: `best spot 5★` on the card,
+a blank thumbnail above it, for hours, with a hard reload the only cure.
+
+Both fetches now ride one `refresh`, so the two payloads a single screen joins can never be more
+than one cycle apart — and both are ETag-revalidated, so an unchanged cycle costs a 304 and no
+body. An empty or failed refresh leaves the previous rows in place, the same rule `fetchBriefing`'s
+catch already followed: a dropped request is not evidence that the ratings went away.
+
+Found by elimination against production, and every earlier theory was wrong. `cached_evaluation`
+held **163 of 163 entries rated** for the Saturday sunrise the strip was drawing empty; the only
+join-key failures were 12 `WOODLAND,BLUEBELL` locations, correctly withheld from a sky field; the
+freshness gate fired on **zero** slots; the endpoint returned those 163 rows to the client as
+`CACHED_EVALUATION` with window keys matching `/api/briefing` exactly; and replaying the frontend
+join against the live payloads produced **151 points**. Nothing was wrong with the data, the merge
+or the join — the session was holding yesterday's copy. The tell was that a hard reload fixed it
+instantly. Full trail in `docs/engineering/heat-field-scores-join-gap.md`.
+
+### Fixed — the unscored mark was reading the wrong evidence, and contradicted the card beneath it
+
+Shipped in v2.18.13 and wrong in production the same evening. The mark asked "does this window's
+heat point set have anything in it", which is a fact about the **join behind the picture**, not
+about the forecast. The payload's own answer is `bestRating` — null means "nothing in this window
+is rated", and it is what the card header (`best spot N★`), the region rail's All cell and the
+drill-down have always read.
+
+On 2026-08-19 the two disagreed for three of six windows. A Saturday sunrise drew a hatched plate
+reading *not scored* directly above its own card reading **best spot 5★**, with the regional
+planner showing 3.7★ for the Lake District on the same morning — and the tile still carried the
+**BEST BET** flag. Only Sunday sunrise, the one window with no `best spot` figure anywhere, was
+marked correctly. Marking a window that every surface around it is rating is worse than the blank
+this channel was built to fix.
+
+All three surfaces now key on `bestRating`: the strip thumbnail, the open row's field map (whose
+rail reads the same field one element below, so the two can no longer disagree) and the Map tab's
+toolbar note. Because `bestRating` rides the briefing payload the cards are built from, the
+`scoresLoaded` flag added a day earlier is **gone** — there is no separate fetch left to be caught
+in flight, so the flash it prevented cannot happen. The mark cannot move with the reach tier or the
+rating floor either: `bestRating` is the window's served best and is never re-derived from a gated
+set.
+
+⚠️ **A scored window whose field has no points is deliberately left unmarked** — that state is a
+fact about the join behind the picture, not about the forecast. It is what made the Saturday tile
+blank in the first place, and its cause is the frozen-tab defect fixed above, in this same change.
+
 ### Added — heat field P7: the origin moves
 
 The window-first Plan tab can now be planned from somewhere other than home. A chip in the rail

@@ -163,7 +163,7 @@ const heatPointIdentities = [];
 function Consumer() {
   const {
     briefing, loading, heatStripCards, windowCards, evaluationScores, reachLens: lens, ratingLens,
-    orderLens, homePlace, promotedStrip, heatSpots, heatPointSets, scoresLoaded,
+    orderLens, homePlace, promotedStrip, heatSpots, heatPointSets,
     origin, setOrigin, regions, effectiveReachById,
   } = useWindowFirstBriefing();
   // Identity, not content: plan §5.4 requires the join to be memoised on its real inputs, and a
@@ -186,9 +186,6 @@ function Consumer() {
       </span>
       <span data-testid="strip-verdicts">{heatStripCards.map((c) => c.verdictLabel).join('|')}</span>
       <span data-testid="scores">{[...evaluationScores.keys()].join('|') || 'none'}</span>
-      {/* Distinct from `scores` being empty, which is the whole reason it exists — see the heat
-          strip's unscored mark, which may not fire on an unfetched response. */}
-      <span data-testid="scores-loaded">{String(scoresLoaded)}</span>
       <span data-testid="cards">{windowCards.length}</span>
       {/* One descriptor or nothing — the shape is the cap. */}
       <span data-testid="promo">{promotedStrip ? promotedStrip.windowKey : 'none'}</span>
@@ -459,6 +456,54 @@ describe('WindowFirstBriefingProvider', () => {
     expect(getDailyBriefing).toHaveBeenCalledTimes(2);
   });
 
+  it('re-fetches the batch RATINGS on the same beat, not just the briefing', async () => {
+    // ⚠️ The production defect this pins. The scores fetch was a mount-only `useEffect(..., [])`
+    // while the briefing polled and re-fetched on focus, so a tab left open overnight kept
+    // updating every verdict, star and grid cell from the briefing while the rows the heat FIELD
+    // is drawn from stayed frozen at whatever was true when the tab was opened. The cards read
+    // `best spot 5★` over blank thumbnails for hours, and only a hard reload fixed it.
+    //
+    // Asserted through the SAME two triggers as the briefing, because "refreshed at all" is not
+    // the property that failed — "refreshed together" is. A scores poll on its own schedule would
+    // pass a weaker version of this test and still let the two payloads a single screen joins
+    // drift apart.
+    freezeClock({ shouldAdvanceTime: false });
+    getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
+    renderProvider();
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(getAllEvaluationScores).toHaveBeenCalledTimes(1);
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(10 * 60 * 1000); });
+    expect(getAllEvaluationScores).toHaveBeenCalledTimes(2);
+    expect(getDailyBriefing).toHaveBeenCalledTimes(2);
+
+    await act(async () => { window.dispatchEvent(new Event('focus')); });
+    expect(getAllEvaluationScores).toHaveBeenCalledTimes(3);
+    expect(getDailyBriefing).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps the rows it has when a refresh comes back empty or fails', async () => {
+    // A dropped request is not evidence that the ratings went away. Blanking the field on one
+    // would be a worse lie than a slightly stale one — the same rule `fetchBriefing`'s catch
+    // follows, and the reason the empty-response early return survives the move to a poll.
+    freezeClock({ shouldAdvanceTime: false });
+    getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
+    getAllEvaluationScores.mockResolvedValue([
+      { regionName: 'N&T', date: '2026-08-04', targetType: 'SUNSET', locationName: 'Bamburgh', rating: 4 },
+    ]);
+    renderProvider();
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByTestId('scores')).toHaveTextContent('N&T|2026-08-04|SUNSET|Bamburgh');
+
+    getAllEvaluationScores.mockResolvedValue([]);
+    await act(async () => { await vi.advanceTimersByTimeAsync(10 * 60 * 1000); });
+    expect(screen.getByTestId('scores')).toHaveTextContent('N&T|2026-08-04|SUNSET|Bamburgh');
+
+    getAllEvaluationScores.mockRejectedValue(new Error('502'));
+    await act(async () => { await vi.advanceTimersByTimeAsync(10 * 60 * 1000); });
+    expect(screen.getByTestId('scores')).toHaveTextContent('N&T|2026-08-04|SUNSET|Bamburgh');
+  });
+
   it('tears down its poll and its focus listener on unmount', async () => {
     // The arm unmounts whenever the flag is switched back. A surviving interval would keep polling
     // /api/briefing alongside DailyBriefing's own, for a subtree nobody is looking at.
@@ -468,12 +513,15 @@ describe('WindowFirstBriefingProvider', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(0); });
     unmount();
     getDailyBriefing.mockClear();
+    getAllEvaluationScores.mockClear();
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(30 * 60 * 1000);
       window.dispatchEvent(new Event('focus'));
     });
     expect(getDailyBriefing).not.toHaveBeenCalled();
+    // The scores fetch rides the same interval and listener now, so it has to come down with them.
+    expect(getAllEvaluationScores).not.toHaveBeenCalled();
   });
 
   it('picks up re-derived content even when generatedAt has not moved', async () => {
@@ -737,27 +785,6 @@ describe('WindowFirstBriefingProvider', () => {
 
       await act(async () => {});
       expect(screen.getByTestId('scores')).toHaveTextContent('none');
-    });
-
-    it('reports the response as received even when it carried no rows', async () => {
-      // The heat strip's unscored mark reads this to tell "not fetched yet" from "nothing was
-      // rated" — the same empty array either way. Set BEFORE the provider's own empty-response
-      // early return, which is where it would be easiest to lose.
-      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
-      getAllEvaluationScores.mockResolvedValue([]);
-      renderProvider();
-
-      await act(async () => {});
-      expect(screen.getByTestId('scores-loaded')).toHaveTextContent('true');
-    });
-
-    it('reports nothing received when the fetch fails, so no absence is claimed', async () => {
-      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
-      getAllEvaluationScores.mockRejectedValue(new Error('nope'));
-      renderProvider();
-
-      await act(async () => {});
-      expect(screen.getByTestId('scores-loaded')).toHaveTextContent('false');
     });
 
     it('still renders the strip when the scores fetch fails', async () => {

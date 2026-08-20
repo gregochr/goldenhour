@@ -138,7 +138,6 @@ describe('WindowFirstShell — the origin', () => {
     isPro: true,
     isLiteUser: false,
     evaluationScores: new Map(),
-    scoresLoaded: true,
     scoreIndex: new Map(),
     heatStripCards: [STRIP_CARD],
     heatSpots: SPOTS,

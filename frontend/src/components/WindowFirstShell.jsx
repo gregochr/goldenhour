@@ -251,7 +251,7 @@ export default function WindowFirstShell({
 }) {
   const {
     heatStripCards, heatPointSets, heatSpots, reachById, regionSeries,
-    windowCards, paneItems, promotedStrip, loading, briefing, evaluationScores, scoresLoaded,
+    windowCards, paneItems, promotedStrip, loading, briefing, evaluationScores,
     scoreIndex, todayStr, reachLens, ratingLens, orderLens, homePlace,
     origin, setOrigin, regions,
   } = useWindowFirstBriefing();
@@ -656,11 +656,6 @@ export default function WindowFirstShell({
         eventSummary: eventSummariesByKey.get(card.key) ?? null,
         spots: heatSpots,
         points: heatPointSets.get(card.key) || EMPTY_POINTS,
-        // A boolean, so it costs the stability invariant above nothing. It flips exactly once per
-        // session — the ratings fetch resolving — and the rebuild that causes is the one the row
-        // map needs, since that is the moment an empty `points` stops meaning "not fetched yet"
-        // and starts meaning "nothing here was rated".
-        scoresKnown: scoresLoaded,
         // The strip's own descriptors, so the band's six dots and the six thumbnails above name one
         // set of windows in one order — chronological, under both Order settings.
         windows: heatStripCards,
@@ -689,8 +684,7 @@ export default function WindowFirstShell({
     }
     return byKey;
   }, [windowCards, heatSpots, heatPointSets, heatStripCards, regionSeries, reachById,
-    eventSummariesByKey, fieldLens, regionByCard, selectRegion, revealWindow, scoresLoaded,
-    origin]);
+    eventSummariesByKey, fieldLens, regionByCard, selectRegion, revealWindow, origin]);
 
   // Lifted to App for the map overlay, exactly as DailyBriefing does it in the v1 arm. Without this
   // a tile handed to the map opens an overlay with no narrative over a map that has filtered out
@@ -1026,7 +1020,6 @@ export default function WindowFirstShell({
             cards={heatStripCards}
             pointSets={heatPointSets}
             spots={heatSpots}
-            scoresKnown={scoresLoaded}
             reachById={reachById}
             openKeys={openWindowKeys}
             todayStr={todayStr}

@@ -48,8 +48,8 @@ const SPOTS = [
 const REACH = new Map([[1, { driveMinutes: 40 }], [2, { driveMinutes: 120 }], [3, { driveMinutes: 400 }]]);
 
 const STRIP_CARDS = [
-  { key: `${TODAY}:SUNSET`, date: TODAY, targetType: 'SUNSET', label: 'Tonight sunset', time: '20:41', confidence: 'high', away: false },
-  { key: '2026-08-14:SUNRISE', date: '2026-08-14', targetType: 'SUNRISE', label: 'Fri sunrise', time: '05:31', confidence: null, away: true },
+  { key: `${TODAY}:SUNSET`, date: TODAY, targetType: 'SUNSET', label: 'Tonight sunset', time: '20:41', bestRating: 4, confidence: 'high', away: false },
+  { key: '2026-08-14:SUNRISE', date: '2026-08-14', targetType: 'SUNRISE', label: 'Fri sunrise', time: '05:31', bestRating: null, confidence: null, away: true },
 ];
 
 function context(overrides = {}) {
@@ -96,17 +96,12 @@ describe('WindowFirstMapPane — the heat prop', () => {
     expect(MapStub.lastProps.heat.pointsByKey).toBe(briefingValue.heatPointSets);
   });
 
-  it('passes the provider\'s ratings-received flag straight through', () => {
-    // `MapView` reads it to tell an unrated window from an unfetched response — the same empty
-    // point set either way — and only the provider knows which. Re-deriving it on the map side is
-    // exactly what this pass-through prevents.
-    renderPane(context({ scoresLoaded: true }));
-    expect(MapStub.lastProps.heat.scoresKnown).toBe(true);
-  });
-
-  it('reports nothing received while the ratings fetch is still in flight', () => {
+  it('carries each window\'s served rating onto the selector\'s window list', () => {
+    // `MapView`'s unscored note reads it, and it must be the STRIP CARD's own field rather than
+    // anything re-derived here: the whole point is that the Map tab and the Plan tab answer "is
+    // this window rated" from one value.
     renderPane();
-    expect(MapStub.lastProps.heat.scoresKnown).toBeFalsy();
+    expect(MapStub.lastProps.heat.windows.map((w) => w.bestRating)).toEqual([4, null]);
   });
 
   it('reports no field at all when the join produced no spots', () => {
