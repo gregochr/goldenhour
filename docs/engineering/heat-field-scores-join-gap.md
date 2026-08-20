@@ -75,11 +75,13 @@ the truthful one.**
 
 - **H1 — nothing rated at T+2/T+3.** `cached_evaluation` genuinely has no rated entries for those
   windows; `/scores` is right, and the card is stale per the mechanism above.
-- **H2 — rated, but not sky.** The frontend withholds scores from non-sky-prompt locations
-  (`isSkyPromptCandidate`), while `PlanWindowProjector.bestRating` excludes only **canopy** slots.
-  A waterfall or wildlife location rated 5 counts for `bestRating` and not for the field. Needs
-  the rated set for those windows to be entirely non-sky, which is a stretch for three windows
-  but is cheap to check.
+- **H2 — rated, but not sky.** The frontend withholds scores from non-sky-prompt locations, while
+  `PlanWindowProjector.bestRating` excludes only **canopy** slots. The gap between the two
+  populations is narrower than it first looks: `SKY_SUBJECT_TYPES` is
+  `LANDSCAPE / SEASCAPE / WATERFALL` and an **untyped** location counts as sky, so the only
+  locations that feed `bestRating` and not the field are **WILDLIFE-only** ones (woodland is
+  canopy and is excluded from both). It would take a window whose entire rated set was
+  wildlife-only, which is a stretch — but the query costs nothing extra.
 - **H3 — name drift.** `results_json` is keyed by location *name*; a renamed location leaves the
   cached entry unreachable from the current roster.
 - **H4 — region drift.** `buildViews` looks the cache row up as `location's current region | date
@@ -116,10 +118,13 @@ window whose field was empty ⟹ the rows exist and something downstream drops t
 
 ### Q2 — if rows exist: does the roster reach them?
 
-Substitute the window that was empty on screen.
+Self-targeting rather than parameterised by date: it walks every rated entry in the plan window
+and returns **only the ones that fail a join test**, so an empty result is itself the answer.
 
 ```sql
-SELECT c.region_name                       AS cached_region,
+SELECT c.evaluation_date,
+       c.target_type,
+       c.region_name                       AS cached_region,
        e.key                               AS cached_location_name,
        (e.value->>'rating')::int           AS rating,
        l.id                                AS matched_location_id,
@@ -128,19 +133,29 @@ SELECT c.region_name                       AS cached_region,
        string_agg(lt.location_type, ',')   AS location_types
 FROM   cached_evaluation c
 CROSS JOIN LATERAL jsonb_each(c.results_json::jsonb) AS e(key, value)
-LEFT   JOIN locations l              ON l.name = e.key
-LEFT   JOIN regions r                ON r.id = l.region_id
+LEFT   JOIN locations l               ON l.name = e.key
+LEFT   JOIN regions r                 ON r.id = l.region_id
 LEFT   JOIN location_location_type lt ON lt.location_id = l.id
-WHERE  c.evaluation_date = DATE '2026-08-22'
-  AND  c.target_type = 'SUNRISE'
-GROUP  BY 1, 2, 3, 4, 5, 6
-ORDER  BY 2;
+WHERE  c.evaluation_date BETWEEN CURRENT_DATE AND CURRENT_DATE + 5
+  AND  e.value->>'rating' IS NOT NULL
+GROUP  BY 1, 2, 3, 4, 5, 6, 7, 8
+HAVING l.id IS NULL
+    OR l.enabled = false
+    OR r.name IS DISTINCT FROM c.region_name
+    OR COALESCE(bool_or(lt.location_type
+         IN ('LANDSCAPE', 'SEASCAPE', 'WATERFALL')), true) = false
+ORDER  BY 1, 2, 4;
 ```
+
+The sky test mirrors `isSkyPromptCandidate` exactly, **including its rule that an untyped location
+counts** — hence the `COALESCE(..., true)`, which is what stops a location with no rows in
+`location_location_type` being reported as a false positive.
 
 - `matched_location_id IS NULL` ⟹ **H3** (name drift).
 - `cached_region <> locations_current_region` ⟹ **H4** (region drift); the `/scores` path misses
   the row while the briefing path finds it, which is precisely the observed asymmetry.
-- every rated row `WILDLIFE` / `WATERFALL` ⟹ **H2**.
+- every rated row **WILDLIFE-only** ⟹ **H2**. Waterfall and untyped both count as sky, so they
+  are not evidence for it.
 - `enabled = false` ⟹ the roster excludes it and so does the field, correctly.
 
 ### Q3 — confirming the stale-card mechanism
