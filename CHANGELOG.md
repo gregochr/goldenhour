@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — one precedence rule for both merge paths, not just one shared gate
+
+`EvaluationViewService`'s two consumers gate on the same `cachedIsAtLeastAsFresh` and then
+disagreed about what a won gate with an **empty** winner meant. When the latest
+`forecast_evaluation` row was newer than the cached entry but carried neither a rating nor a triage
+reason — a bare base-forecast row, and roughly three quarters of that table has a null rating —
+`resolveForEnrichment` fell back to the cached result while `mergeToView` returned `Source.NONE`
+and its caller dropped the location outright. Same tables, same gate, opposite answer: the briefing
+kept the rating and `/api/briefing/evaluate/scores` lost the slot.
+
+Precedence is now a single `cachedWins`, and `toEnrichmentResult` and `mergeToView`'s branches 2/3
+share one `hasSomethingToSay` so the three cannot drift. The shape matters: the *first* divergence
+in this class was fixed by unifying the gate and asserting in the class comment that the paths were
+unified — which is why the fallback divergence survived review. The invariant is now "neither path
+contains a precedence decision of its own".
+
+⚠️ **The gate is not weakened.** It exists because a stale 4★ was outliving a row triaged
+`HIGH_CLOUD` on 87–99% low cloud, one rating 47.9 hours out of date. In every case of that shape
+the newer row *is* triaged, so the fallback is false and the cache still loses; it fires only where
+the newer row is empty and therefore says nothing to contradict. A test pins both halves under one
+fixture.
+
+Found while investigating the heat field's empty windows and explicitly ruled out as their cause —
+production had **zero** slots where the gate even fired. This closes a live trap rather than a
+visible defect.
+
 ### Fixed — the heat field froze for the life of the tab
 
 **This is the defect behind the blank Saturday, and it was never about the unscored mark.**

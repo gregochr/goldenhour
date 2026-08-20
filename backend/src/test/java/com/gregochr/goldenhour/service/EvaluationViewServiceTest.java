@@ -1210,6 +1210,73 @@ class EvaluationViewServiceTest {
             assertThat(v.triageReason()).isEqualTo(TriageReason.HIGH_CLOUD);
         }
 
+        /** A Bamburgh row run at the given LONDON-naive time carrying NO rating and NO triage. */
+        private void emptyRowRunAt(LocalDateTime runAt) {
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            1L, DATE, SUNRISE))
+                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
+                            .forecastRunAt(runAt)
+                            .build()));
+        }
+
+        @Test
+        @DisplayName("A NEWER but EMPTY row does not blank a cached rating — it has no opinion")
+        void newerEmptyRowDoesNotBlankTheCache() {
+            // The asymmetry this closes. The gate is a comparison of write times, not of claims:
+            // losing it is not the same as being contradicted. A row with neither a rating nor a
+            // triage reason — a bare base-forecast row, and roughly three quarters of
+            // `forecast_evaluation` carries a null rating — says nothing about this slot, so there
+            // is nothing for the cache to be wrong about.
+            //
+            // Before this, `mergeToView` fell through every branch to `Source.NONE`, which
+            // `buildViews` drops: /api/briefing/evaluate/scores lost the location entirely while
+            // the briefing payload kept its 4 stars, because `resolveForEnrichment` fell back to
+            // the cache and `mergeToView` did not. Same tables, same gate, opposite answer.
+            cachedRatingAt(4, Instant.parse("2026-04-21T00:09:00Z"));
+            emptyRowRunAt(LocalDateTime.of(2026, 4, 23, 1, 5));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.CACHED_EVALUATION);
+            assertThat(v.rating()).isEqualTo(4);
+            assertThat(v.summary()).isEqualTo("Worth it");
+        }
+
+        @Test
+        @DisplayName("...and the gate still bites when that newer row DOES say something")
+        void theGateStillBitesWhenTheRowSpeaks() {
+            // The pair, and the objection to check first: the fallback must not become a way for a
+            // stale rating to outlive a current contradiction. Identical fixture to the test above
+            // except that the newer row carries a triage reason — and the cache loses, exactly as
+            // it did before. `staleCacheLosesToNewerTriage` covers the same ground from the other
+            // direction; this one exists so the two sit side by side under one fixture, because
+            // the whole risk of the change is that they stop differing.
+            cachedRatingAt(4, Instant.parse("2026-04-21T00:09:00Z"));
+            triagedRunAt(LocalDateTime.of(2026, 4, 23, 1, 5));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.FORECAST_EVALUATION_TRIAGE);
+            assertThat(v.rating()).isNull();
+        }
+
+        @Test
+        @DisplayName("With no cache, a newer empty row is still NONE — nothing to fall back to")
+        void emptyRowWithNoCacheIsStillNone() {
+            // The fallback is a fallback, not a licence to invent a view. `buildViews` drops NONE,
+            // and a location neither store can describe must stay dropped.
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of());
+            emptyRowRunAt(LocalDateTime.of(2026, 4, 23, 1, 5));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.NONE);
+            assertThat(v.rating()).isNull();
+        }
+
         @Test
         @DisplayName("Fresher cache still wins over an older triage")
         void fresherCacheBeatsOlderTriage() {
