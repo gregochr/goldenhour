@@ -5,6 +5,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — kickoff prompts for the plan-matrix implementing sessions
+
+`docs/engineering/plan-matrix-prompts.md` — one paste-ready prompt per phase (M1–M5), the
+`heat-field-prompts.md` pattern: each session reads its state from the plan's Status block and
+Phase log (created by M1's commit), so no session needs another's chat history. Each prompt
+restates the traps its phase's adversarial review caught, names the reading list, the exit-code
+gate, the review cadence, the §9 browser verification, and the same-commit plan-doc update.
+
 ### Added — the Plan-matrix implementation plan and its v3 design bundle
 
 `docs/engineering/plan-matrix-plan.md` plus the design handoff it ports,
