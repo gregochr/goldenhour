@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.18.14] - 2026-08-20
+
 ### Fixed — the seed script's printed ratings SQL matches the real `cached_evaluation` schema
 
 `scripts/dev-seed-locations.sh` ends by printing the SQL for seeding ratings without a Claude
