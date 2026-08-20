@@ -34,6 +34,34 @@ reversing the earlier search-only call, whose motivating context the popup remov
 deviation (a plan from an away region may show no BEST BET legend) is accepted; and the popup
 header's cross-location average stays dropped. No phase is decision-gated.
 
+### Added — nightly Open-Meteo grid cell backfill (V146)
+
+`GridCellBackfillJob` fills in `grid_lat`/`grid_lng` for any location that has none, nightly at
+03:10. It closes the backlog the previous fix could not reach: `LocationService.update` now fills
+the cell whenever a location is saved or moved, but only for rows somebody actually edits — so
+V84's sixteen bluebell sites, V138's ten Heritage Coast entries and V143's Penshaw Monument would
+each have needed a manual visit. It also keeps the backlog closed, so the next migration that
+inserts locations is repaired on the following night rather than needing a matching manual pass.
+
+**It is also the other half of the update path's clearing rule.** When a location's coordinates
+change and the refetch fails, `update` deliberately clears the now-stale cell rather than leave it
+pointing at the old position. That leaves a null, and this is what heals it.
+
+Scope is **every** location, enabled or not — the work is one cheap call, happens once per location
+ever, and filtering on `enabled` would leave a re-enabled location silently cell-less until the next
+tick.
+
+Two guards, both of which log rather than fail quietly. A run stops after **five consecutive**
+lookup failures, which reads as an Open-Meteo outage rather than bad coordinates — without it an
+outage means one wasted call per backlogged location, every night. And a run is capped at **200**
+locations, so a migration inserting thousands cannot turn one tick into thousands of sequential
+calls; a capped run says what it left behind rather than reporting a tidy total for work it did not
+finish. Successes are saved as they happen, so an abandoned run keeps what it already did.
+
+No manual endpoint ships with it: the dynamic scheduler already exposes
+`POST /api/admin/scheduler/jobs/grid_cell_backfill/trigger`, which is the immediate run for right
+after a deploy without a second code path that could drift.
+
 ## [v2.18.14] - 2026-08-20
 
 ### Fixed — the seed script's printed ratings SQL matches the real `cached_evaluation` schema
@@ -83,6 +111,7 @@ away, `outside your 3h area` at home. An unmeasured planning area marks nothing.
 yet says that instead; and while the ratings request is still in flight the sheet claims nothing at
 all about the pipeline. The confidence channel rides the existing three-tier marker, taken from the
 location's **own** region, and never dims the star beside it.
+
 
 ### Fixed — one precedence rule for both merge paths, not just one shared gate
 
