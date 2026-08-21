@@ -4,9 +4,7 @@ import React from 'react';
 import usePlanLayout, { PLAN_LAYOUT_KEY, PLAN_V1, PLAN_V2 } from '../hooks/usePlanLayout.js';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
-import { buildWindowCards } from '../utils/windowFirstCards.js';
 import { buildPaneItems } from '../utils/windowFirstAway.js';
-import { buildPromotedStrip } from '../utils/windowFirstPromoted.js';
 
 /**
  * A harness rather than a real consumer, deliberately: the only component that reads this hook is
@@ -362,22 +360,29 @@ describe('WindowFirstShell — the strip it hosts', () => {
     expect(tabs.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('draws the strip above the promoted strip, which is a different thing that also stays', async () => {
-    // Plan §4.3 names both and says so explicitly, because "the strip" is ambiguous between them.
-    // The heat strip is the index into the window list; the promoted strip names one coincidence.
-    renderWithBriefing({
-      ...briefingWithSpots('2026-08-04T12:00:00'),
-      promotedStrip: {
-        channel: 'tide',
-        adjacent: true,
-        reason: 'rarity',
-        topics: [{ key: 'KING_TIDE', label: 'King tide', figureValue: null, detail: null }],
-      },
-    });
+  it('⚠️ draws NOTHING between the matrix and the doors', async () => {
+    // The promoted strip stood here until M5 (plan D-1), and the test it replaces was named "draws
+    // the strip above the promoted strip, which is a different thing that also stays". Both are now
+    // false, so the assertion is about the gap rather than about the thing that filled it: every
+    // topic is named on its own card and the doors follow the matrix directly. Written as a DOM
+    // adjacency rather than a `queryByTestId(...).toBeNull()`, because a testid check passes just as
+    // well against a strip that was renamed as against one that was deleted.
+    renderWithBriefing(briefingWithSpots('2026-08-04T12:00:00'));
 
     const heat = await screen.findByTestId('wf-heat-strip');
-    const promo = screen.getByTestId('window-first-promo');
-    expect(heat.compareDocumentPosition(promo) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const doors = screen.getByTestId('window-first-doors');
+    const pane = screen.getByTestId('window-first-pane');
+    const children = [...pane.children];
+    // Both must be the pane's OWN children for the adjacency to mean anything — an index of -1
+    // would make the assertion vacuously satisfiable from either end.
+    expect(children).toContain(heat);
+    expect(children).toContain(doors);
+    expect(children[children.indexOf(heat) + 1]).toBe(doors);
+    // ⚠️ Scoped to a pane WITH CARDS, which is the state the strip occupied. The empty-pane line
+    // ("No windows to show.") renders in exactly this slot and is conditional on there being no
+    // pane items at all, so it is not something the strip's deletion could have left behind — and
+    // this fixture, which has cards, is the one where the gap has to be empty.
+    expect(screen.queryByTestId('window-first-pane-empty')).toBeNull();
   });
 
   it('states the forecast\'s age, and never the model that produced it', () => {
@@ -642,10 +647,15 @@ describe('WindowFirstShell — the strip it hosts', () => {
   });
 
   describe('away days', () => {
-    const AWAY_ITEM = {
-      kind: 'away', key: 'away:2026-08-05', dates: ['2026-08-05'], label: 'Wed 5',
-      note: 'Business trip', windowCount: 2,
-    };
+    // Built through the real deriver rather than hand-written, because M5 deleted the away block's
+    // rendered payload (`label`, `note`, `windowCount`) along with the promoted strip that read it —
+    // and a hand-written fixture carrying those three fields would go on passing while claiming a
+    // shape the provider no longer produces.
+    const [AWAY_ITEM] = buildPaneItems(
+      [{ date: '2026-08-05', targetType: 'SUNRISE' }, { date: '2026-08-05', targetType: 'SUNSET' }],
+      [],
+      new Set(['2026-08-05']),
+    );
 
     // ⚠️ The away ROW went with the card list at M2 — a travel day is a cell of the matrix now, and
     // `WindowFirstHeatStrip.test.jsx` owns its treatment (a div, never a button). What is still the
@@ -686,6 +696,55 @@ describe('WindowFirstShell — the strip it hosts', () => {
       // travel filter has already run over.
       renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), []));
       expect(screen.queryByTestId('window-first-doors')).toBeNull();
+    });
+  });
+
+  /**
+   * ⚠️ The hazard notice, which had NO test at all until M5's review found the hole.
+   *
+   * <p>It is a "do not look at the sun without a filter" class of warning, and it is page-level for
+   * a documented reason: the card list that used to guarantee a topic's warning was on screen died
+   * at M2, and the promoted strip that carried a second copy died at M5 — whose deleted suite
+   * included "keeps the warning when no route is offered at all" and "offers no dismiss control".
+   * Both M2 and M5 cite this element as what made those deletions safe, and neither left anything
+   * pinning it. Salvaged by behaviour here, on the surface that now owns it.
+   */
+  describe('the hazard notice', () => {
+    const HAZARD = 'Never look at the sun without a certified filter.';
+    const eclipse = (extra = {}) => ({
+      type: 'ECLIPSE', label: 'Partial eclipse', detail: null, facts: [], eventTime: null,
+      rarityRank: 1, safetyNote: HAZARD, ...extra,
+    });
+
+    it('states a topic’s safety note once, above the matrix, naming its window', async () => {
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(),
+        [{ ...CARD, allBadges: [eclipse()] }]));
+      await screen.findByTestId('wf-heat-strip');
+
+      const note = screen.getByTestId('window-first-safety');
+      expect(note).toHaveTextContent(HAZARD);
+      expect(note).toHaveTextContent('Tonight Sunset');
+      // ONE line, whatever the badge list holds — a warning is about the hazard, not about the chip.
+      expect(screen.getAllByTestId('window-first-safety')).toHaveLength(1);
+    });
+
+    it('is not suppressible, and sits ABOVE the matrix rather than behind a click', async () => {
+      // The whole argument for deleting the two surfaces that used to carry it. A dismiss control,
+      // or a position below the six cards, would put a hazard notice somewhere a reader can miss.
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(),
+        [{ ...CARD, allBadges: [eclipse()] }]));
+      const heat = await screen.findByTestId('wf-heat-strip');
+      const note = screen.getByTestId('window-first-safety');
+
+      expect(note.compareDocumentPosition(heat) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(within(note).queryByRole('button')).toBeNull();
+    });
+
+    it('says nothing when no topic carries one', async () => {
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(),
+        [{ ...CARD, allBadges: [eclipse({ safetyNote: null })] }]));
+      await screen.findByTestId('wf-heat-strip');
+      expect(screen.queryByTestId('window-first-safety')).toBeNull();
     });
   });
 
@@ -747,8 +806,17 @@ describe('WindowFirstShell — the strip it hosts', () => {
       region: 'Northumberland & Tyneside', date: '2026-08-04', eventType: 'SUNSET',
     });
     // Opening a destination closes the dialog — leaving it over the map it just opened would hide
-    // the thing the user asked to see. The popup underneath is the tab change's job, not this one's.
+    // the thing the user asked to see.
     expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
+    // ⚠️ AND THE POPUP, which this comment used to call "the tab change's job". It is not: this
+    // route never goes through `selectTab`, so nothing else clears `openWindowKey`. `MapOverlay` is
+    // itself an `aria-modal` dialog with an unconditional document Escape listener and it is NOT a
+    // `Modal`, so it takes no `stacked` opt-in — and the instant the pick dialog goes,
+    // `stackedOverPopup` goes false and the popup re-arms its own listener and re-takes
+    // `aria-modal`. Two modals, the lower one fully tab-reachable under the overlay, one press
+    // closing both. M4 fixed this on the two sheet routes and missed the third; an adversarial
+    // review of M5 found it.
+    expect(screen.queryByTestId('window-sheet')).toBeNull();
   });
 
   it('routes the pick\'s location as a location, not as a region', async () => {
@@ -761,6 +829,10 @@ describe('WindowFirstShell — the strip it hosts', () => {
     fireEvent.click(screen.getByTestId('window-pick-dialog-location-action'));
 
     expect(onShowOnMap).toHaveBeenCalledWith('2026-08-04', 'SUNSET', 'Bamburgh Beach');
+    // The same close-everything rule as the region route above — see its note for why the popup
+    // may not survive a handoff to the map.
+    expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
+    expect(screen.queryByTestId('window-sheet')).toBeNull();
   });
 
   it('⚠️ routes a spot card to that place\'s own sheet, OVER the popup — not to the map', async () => {
@@ -1018,15 +1090,38 @@ describe('WindowFirstShell — the strip it hosts', () => {
       expect(screen.getByTestId('window-first-lens-readout')).toHaveTextContent('4★+');
     });
 
+    it('⚠️ drops "within reach" from the page’s ONE count when nothing measured a drive', () => {
+      // §4 A7 names this readout as the one count statement on the page, which makes it the most
+      // load-bearing place the reach claim could have been wrong. Same two numbers, no claim about
+      // which set they count. Found by an adversarial review of M5 after the popup was fixed.
+      const first = {
+        ...CARD, reachTotal: 12, reachedTotal: 5, reachMeasured: false,
+      };
+      const second = {
+        ...CARD, key: '2026-08-05:SUNRISE', spots: [CARD.spots[0], CARD.spots[0]],
+        reachTotal: 18, reachedTotal: 4, reachMeasured: false,
+      };
+      renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [first, second]));
+
+      const readout = screen.getByTestId('window-first-lens-readout');
+      expect(readout).toHaveTextContent('3 of 9 spots across 2 windows');
+      expect(readout).not.toHaveTextContent('within reach');
+    });
+
     it('states what the floor cost, and only once it has cost something', () => {
       // The handoff's rule — "whenever a filter is on, the strip must state what it cost" — with
       // this project's own qualifier from `browseCountLine`: with nothing trimmed, `3 of 3` is a
       // count dressed as a comparison. `reachedTotal` is the denominator, so the two cards below
       // drew 3 of the 9 that reach left.
-      const first = { ...CARD, reachTotal: 12, reachedTotal: 5 };
+      // `reachMeasured` is what licenses the words "within reach" on the readout — the reader has a
+      // postcode and drive times, so the tier really did gate. Without it the count is the same and
+      // the clause is not, which is the §6 clause 7 fix M5 made across six surfaces.
+      const first = {
+        ...CARD, reachTotal: 12, reachedTotal: 5, reachMeasured: true,
+      };
       const second = {
         ...CARD, key: '2026-08-05:SUNRISE', spots: [CARD.spots[0], CARD.spots[0]],
-        reachTotal: 18, reachedTotal: 4,
+        reachTotal: 18, reachedTotal: 4, reachMeasured: true,
       };
       renderWithBriefing(briefingWith('2026-08-04T12:00:00', new Map(), [first, second]));
 
@@ -1231,122 +1326,6 @@ describe('WindowFirstShell — the strip it hosts', () => {
       expect(dimmedAncestorOf(age)).not.toBeNull();
       // The half that makes the trade worth it: exactly one age on the page.
       expect(screen.queryAllByText(/forecast run/i)).toHaveLength(1);
-    });
-  });
-  describe('the promoted strip', () => {
-    const TOMORROW = '2026-08-05';
-
-    /** A badge as `BriefingWindow.Badge` serialises one. */
-    const topic = (type, label, rarityRank) => ({
-      type,
-      label,
-      detail: null,
-      facts: [{ key: 'k', value: 'v', dir: null, emphasis: true, optional: false }],
-      eventTime: null,
-      rarityRank,
-    });
-
-    /**
-     * A context built through the REAL derivation chain from a payload, so what the shell is handed
-     * is what the provider would hand it. Only the fetch is stubbed.
-     *
-     * <p>Both days carry a coincidence by default. That is the point: §6 clause 3 is "renders when a
-     * coincidence exists, AND never more than one", and its own wording warns that the second half
-     * "passes vacuously on a page that never built the strip at all". A page with one coincidence
-     * could not tell those apart.
-     */
-    const paneWith = (windowsByDate) => {
-      const days = Object.entries(windowsByDate).map(([date, window]) => ({
-        date,
-        eventSummaries: [{
-          targetType: 'SUNSET', regions: [], unregioned: [], window: { verdict: 'WORTH_IT', ...window },
-        }],
-      }));
-      const upcoming = days.map((d) => ({ date: d.date, targetType: 'SUNSET' }));
-      const cards = buildWindowCards(upcoming, days, '2026-08-04', TOMORROW, new Set(), new Map());
-      const paneItems = buildPaneItems(upcoming, cards, new Set(), []);
-      return {
-        ...briefingWith('2026-08-04T12:00:00', new Map(), cards, paneItems),
-        promotedStrip: buildPromotedStrip(paneItems),
-      };
-    };
-
-    const TWO_COINCIDENCES = {
-      // Rank 8 — the loser, and deliberately the EARLIER day, so a selection that simply took the
-      // first coincidence it found would pick this one.
-      '2026-08-04': {
-        badges: [topic('SNOW_TOPS', 'Snow on the fells', 8), topic('SNOW_FRESH', 'Fresh snow', 10)],
-        topRarityRank: 8,
-      },
-      // Rank 3 — the winner.
-      [TOMORROW]: {
-        badges: [topic('KING_TIDE', 'King tide', 3), topic('AURORA', 'Aurora', 4)],
-        topRarityRank: 3,
-      },
-    };
-
-    it('renders exactly one strip when two windows carry a coincidence, and it is the rarest', () => {
-      renderWithBriefing(paneWith(TWO_COINCIDENCES));
-
-      expect(screen.getAllByTestId('window-first-promo')).toHaveLength(1);
-      expect(screen.getByTestId('window-first-promo-when')).toHaveTextContent('Tomorrow sunset');
-    });
-
-    it('renders no strip when no window carries a coincidence', () => {
-      renderWithBriefing(paneWith({
-        '2026-08-04': { badges: [topic('AURORA', 'Aurora', 4)], topRarityRank: 4 },
-        [TOMORROW]: { badges: [] },
-      }));
-      expect(screen.queryByTestId('window-first-promo')).toBeNull();
-    });
-
-    it('sits inside the pane, below the matrix it indexes', async () => {
-      // ⚠️ It was the FIRST child of the pane while the pane was a list it indexed into. Since M1
-      // the matrix is the plan and the strip is an index into the pictures, so it follows them —
-      // which is also what stops it displacing the six cards a reader arrives to see.
-      renderWithBriefing(paneWith(TWO_COINCIDENCES));
-      const heat = await screen.findByTestId('wf-heat-strip');
-
-      const pane = screen.getByTestId('window-first-pane');
-      const strip = screen.getByTestId('window-first-promo');
-      expect(pane).toContainElement(strip);
-      expect(heat.compareDocumentPosition(strip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    });
-
-    // Forecast content, so it takes the treatment that marks a dead backend — unlike the masthead,
-    // the rail footer and the exit hatch, which are routes and must keep working.
-    it('takes the pane\'s DOWN treatment', () => {
-      renderWithBriefing(paneWith(TWO_COINCIDENCES), { contentDisabled: true });
-      expect(dimmedAncestorOf(screen.getByTestId('window-first-promo'))).not.toBeNull();
-    });
-
-    it('opens the promoted window\'s popup', async () => {
-      renderWithBriefing(paneWith(TWO_COINCIDENCES));
-      await screen.findByTestId('wf-heat-strip');
-      expect(screen.queryByTestId('window-sheet')).toBeNull();
-
-      await act(async () => { fireEvent.click(screen.getByTestId('window-first-promo-go')); });
-
-      expect(screen.getByTestId('window-sheet-title')).toHaveTextContent('Tomorrow sunset');
-    });
-
-    it('⚠️ offers the route even when the promoted window is the FIRST one', async () => {
-      // The suppression was scroll-specific: the control scrolled to the row directly beneath it,
-      // which has no visible effect (§6's ban). It opens a DIALOG now — visible wherever the window
-      // sits — so leaving the flag in place hid the control for exactly the promoted topic most
-      // likely to be on the first window. Removed in the same commit that retargeted "Go to".
-      renderWithBriefing(paneWith({
-        '2026-08-04': {
-          badges: [topic('KING_TIDE', 'King tide', 3), topic('AURORA', 'Aurora', 4)],
-          topRarityRank: 3,
-        },
-      }));
-      await screen.findByTestId('wf-heat-strip');
-      expect(screen.getByTestId('window-first-promo')).toBeInTheDocument();
-      expect(screen.getByTestId('window-first-promo-go')).toBeInTheDocument();
-
-      await act(async () => { fireEvent.click(screen.getByTestId('window-first-promo-go')); });
-      expect(screen.getByTestId('window-sheet-title')).toHaveTextContent('Sunset');
     });
   });
 });

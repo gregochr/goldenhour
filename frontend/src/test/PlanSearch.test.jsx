@@ -283,7 +283,9 @@ describe('PlanSearch', () => {
     };
 
     it('gives a window row the card\'s own best-in-reach star, and none where there is no pool', () => {
-      setup({ windows: RATED });
+      // `reachById` carries a measured drive, which is what licenses the caption — see the sibling
+      // below for what happens without one.
+      setup({ windows: RATED, reachById: new Map([[1, { driveMinutes: 40 }]]) });
       const [tonight, thursday] = screen.getAllByTestId('plan-search-row');
 
       expect(within(tonight).getByText('4★')).toBeInTheDocument();
@@ -291,6 +293,17 @@ describe('PlanSearch', () => {
       // ⚠️ Silence, never a placeholder: a window whose pool has nothing rated has no best to name,
       // and `bestReach` is null exactly there.
       expect(within(thursday).queryByText(/★/)).toBeNull();
+    });
+
+    it('⚠️ keeps the star and drops "in reach" where no drive time exists to have gated it', () => {
+      // §6 clause 7, and the fourth surface in this arm to have carried the same claim. The caption
+      // is the only word explaining the figure, so a false one is worse here than elsewhere: with no
+      // home postcode the pool was never gated and the star is simply the best rated place in scope.
+      setup({ windows: RATED, reachById: new Map([[1, { driveMinutes: null }]]) });
+      const [tonight] = screen.getAllByTestId('plan-search-row');
+
+      expect(within(tonight).getByText('4★')).toBeInTheDocument();
+      expect(within(tonight).queryByText('in reach')).toBeNull();
     });
 
     it('gives a location row its OWN best window, captioned with which window that is', () => {

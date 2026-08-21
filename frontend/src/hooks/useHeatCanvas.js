@@ -48,6 +48,51 @@ const TOO_SMALL = 'too-small';
 const DECLINED = 'declined';
 
 /**
+ * The floor on how often a RESIZE may cost a repaint, in milliseconds.
+ *
+ * <h2>Why there is a floor at all — the number, and where it came from</h2>
+ *
+ * <p>M1 measured a full matrix repaint at <b>60–210 ms</b> of main thread (median ~97 ms at 1180px,
+ * ~99 ms at 390px; ~1.0–1.3 M device pixels over six canvases at DPR 2), against <b>zero</b> long
+ * tasks on the identical width storm with the matrix {@code display: none}. A {@code ResizeObserver}
+ * delivers at most one callback per frame, so an ungated observer asks for a ~97 ms paint every
+ * ~16 ms: the paints cannot keep up, and a desktop window-drag spends the whole gesture behind.
+ * That is the cost this constant bounds, and 170 ms is the design bundle's own figure ("debounced
+ * resize (170ms)") rather than a number chosen here.
+ *
+ * <h2>⚠️ It is a LEADING-edge throttle, not the trailing debounce the word suggests</h2>
+ *
+ * <p>The first observation after a quiet period paints <b>immediately</b>, and only the ones that
+ * arrive inside the window behind it are coalesced. A plain trailing debounce was written first and
+ * rejected on two cases neither of which is a resize:
+ *
+ * <ul>
+ *   <li><b>A pane revealed from {@code display: none}.</b> Its canvases mounted at zero width, so
+ *       the retry budget above was spent and gave up; the reveal's own observation is then the ONLY
+ *       thing that ever paints them. A trailing debounce makes that a blank frame for 170 ms — and
+ *       {@code WindowFirstMapPane} is exactly this shape.</li>
+ *   <li><b>A single observation with nothing behind it</b> — a web font resolving, a light row
+ *       arriving, a drawer opening under the Leaflet map. Each is one box change, and delaying every
+ *       one of them by 170 ms buys nothing, because there was never a second paint to coalesce.</li>
+ * </ul>
+ *
+ * <p>So the rate is bounded where the cost is (a continuous gesture) and untouched where it is not
+ * (a one-shot layout change). What it does NOT do is coalesce a long drag to a single paint: a 2 s
+ * drag paints ~12 times rather than ~120. Bounding the rate is the fix; painting once at the end
+ * would leave the reader dragging against a stale bitmap for the whole gesture.
+ *
+ * <h2>Three paths it deliberately does not touch</h2>
+ *
+ * <p><b>The Leaflet host's own gestures.</b> {@code MapHeatLayer} binds {@code move zoom viewreset
+ * resize} to {@link repaint}, which is rAF-throttled and independent of this; the observer is that
+ * host's second trigger for a container box change, not its first. <b>A props change</b> — an origin
+ * move, a window selection, a confidence tier — re-runs the paint effect through
+ * {@code measureAndPaint}'s identity and is unaffected. <b>The mount retry loop</b> runs on animation
+ * frames and never through the nonce.
+ */
+const RESIZE_THROTTLE_MS = 170;
+
+/**
  * The heat field's canvas HOST — the mounting, measuring and repainting a static kernel surface
  * needs, with none of the dials.
  *
@@ -338,6 +383,53 @@ export function useHeatCanvas({
   }, []);
 
   /**
+   * The open throttle window, and whether an observation landed inside it.
+   *
+   * <p>Both are refs rather than state: they gate a paint, and making them state would re-render the
+   * host on every observation, which is the cost this is here to remove. The timer is cleared on
+   * unmount by the effect below — a pending trailing bump would otherwise outlive the component and
+   * keep a closure over it alive until it fired. ⚠️ It does NOT show up as a React warning: React 18
+   * removed the "setState on an unmounted component" log, so the covering test asserts the pending
+   * TIMER rather than a console line (the console form passes against no cleanup at all — measured).
+   */
+  const throttleRef = useRef(0);
+  const pendingRef = useRef(false);
+
+  /**
+   * Bumps the resize nonce, at most once per {@link RESIZE_THROTTLE_MS}, leading edge first.
+   *
+   * <p>Recursive on the trailing edge rather than one-shot: re-entering through {@code bumpResize}
+   * re-opens the window, so a gesture that is still going on keeps painting at the bounded rate
+   * instead of painting once and then waiting for the reader to stop. A burst of exactly one
+   * observation costs exactly one paint — {@code pendingRef} is what distinguishes the two, and
+   * without it every single-observation change would pay for a second, identical paint.
+   */
+  const bumpResize = useCallback(() => {
+    // A hoisted declaration rather than a `const` arrow, so the trailing edge can re-enter it: a
+    // self-referencing `const` is a temporal-dead-zone read, which the arm's lint rules refuse
+    // outright (`react-hooks/immutability`) and which would be a genuine hazard in any code path
+    // that ran during the initialiser.
+    function open() {
+      setResizeNonce((n) => n + 1);
+      throttleRef.current = setTimeout(() => {
+        throttleRef.current = 0;
+        if (!pendingRef.current) return;
+        pendingRef.current = false;
+        open();
+      }, RESIZE_THROTTLE_MS);
+    }
+    if (throttleRef.current) {
+      pendingRef.current = true;
+      return;
+    }
+    open();
+  }, []);
+
+  useEffect(() => () => {
+    if (throttleRef.current) clearTimeout(throttleRef.current);
+  }, []);
+
+  /**
    * Whether an observation is of a box nothing can be painted into.
    *
    * <p>The width test is unconditional and is the one that has always been here — hiding a pane
@@ -399,12 +491,19 @@ export function useHeatCanvas({
       const height = node.clientHeight;
       if (zeroBox(width, height)) return;
       if (!changed(width, height)) return;
+      // ⚠️ The observation gate stays EAGER while the PAINT is throttled, and the two are different
+      // questions. `lastSizeRef` records what was last OBSERVED, so every observation inside a
+      // throttle window is compared against its predecessor rather than against the last painted
+      // width — which is what keeps a genuinely unchanged box from re-arming the trailing bump.
+      // (An earlier draft of this comment claimed a box that moves and moves back inside one window
+      // "still reads as unchanged"; it does not, and it does not need to — the coalescing is what
+      // makes that case cheap, not the gate.)
       lastSizeRef.current = { width, height };
-      setResizeNonce((n) => n + 1);
+      bumpResize();
     });
     ro.observe(node);
     observerRef.current = ro;
-  }, [changed, zeroBox]);
+  }, [bumpResize, changed, zeroBox]);
 
   useEffect(() => () => observerRef.current?.disconnect(), []);
 
@@ -427,11 +526,11 @@ export function useHeatCanvas({
       if (zeroBox(width, height)) return;
       if (!changed(width, height)) return;
       lastSizeRef.current = { width, height };
-      setResizeNonce((n) => n + 1);
+      bumpResize();
     };
     window.addEventListener('resize', onResize);
     return () => window.removeEventListener('resize', onResize);
-  }, [changed, zeroBox]);
+  }, [bumpResize, changed, zeroBox]);
 
   useEffect(() => {
     let raf = 0;

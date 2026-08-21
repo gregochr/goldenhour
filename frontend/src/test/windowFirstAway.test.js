@@ -1,28 +1,22 @@
 import { describe, it, expect } from 'vitest';
-import { awayDateLabel, buildPaneItems } from '../utils/windowFirstAway.js';
+import { buildPaneItems } from '../utils/windowFirstAway.js';
 
 /** Cards as `buildWindowCards` emits them — only the two fields this module reads. */
 const cardFor = (date, targetType) => ({ key: `${date}:${targetType}`, date, targetType });
 
-const RANGE = { startDate: '2026-08-05', endDate: '2026-08-06', note: 'Business trip' };
-
-describe('awayDateLabel', () => {
-  it('names one day on its own rather than a range of length one', () => {
-    // "Wed 5 – Wed 5" is the kind of thing a range formatter emits and nobody proof-reads.
-    expect(awayDateLabel(['2026-08-05'])).toBe('Wed 5');
-  });
-
-  it('names both ends of a longer run', () => {
-    expect(awayDateLabel(['2026-08-05', '2026-08-06', '2026-08-07'])).toBe('Wed 5 – Fri 7');
-  });
-
-  it('reads the date as UTC, so a BST evening does not shift the day back one', () => {
-    // The dates are Europe/London calendar dates from the briefing, not instants. Parsing at
-    // midnight would put a 1 August date on 31 July for anyone west of UTC.
-    expect(awayDateLabel(['2026-08-01'])).toBe('Sat 1');
-  });
-});
-
+/**
+ * ⚠️ The block's rendered payload — `label`, `note`, `windowCount`, and the `awayDateLabel` and
+ * `noteFor` helpers behind them — went at M5 with the promoted strip, which was their last reader
+ * (plan §7's M5 row, and M2's own note that this module "drops to a `length === 0` check once the
+ * promoted strip goes"). The suites that pinned the label's UTC parsing, the range-note's per-day
+ * coverage rule and the window count went with the code, rather than being kept green against a
+ * derivation nothing renders.
+ *
+ * <p>What is pinned here is the shape that still has a reader: one item per rendered thing, in date
+ * order, with a run of consecutive away days folded into one — the empty-state line's denominator.
+ * Every assertion below is on `kind`, `key`, `dates` or `card`, so a fixture cannot pass by carrying
+ * a field the deriver no longer emits.
+ */
 describe('buildPaneItems', () => {
   const events = [
     { date: '2026-08-04', targetType: 'SUNSET' },
@@ -34,181 +28,114 @@ describe('buildPaneItems', () => {
 
   it('passes the cards straight through when no day is a travel day', () => {
     const cards = [cardFor('2026-08-04', 'SUNSET'), cardFor('2026-08-05', 'SUNRISE')];
-    const items = buildPaneItems(events.slice(0, 2), cards, new Set(), []);
+    const items = buildPaneItems(events.slice(0, 2), cards, new Set());
 
     expect(items.map((i) => i.kind)).toEqual(['card', 'card']);
     expect(items.map((i) => i.card)).toEqual(cards);
   });
 
-  it('puts the away row where the missing days fall, not after the whole list', () => {
+  it('puts the away block where the missing days fall, not after the whole list', () => {
     // The pane's only ordering spine is time — the same rule Hot Topics settled for a multi-day
     // tide run. A gap between Tuesday and Friday belongs between Tuesday and Friday; the mock's
     // appended block reads as a footnote and hides which days it describes.
     const cards = [cardFor('2026-08-04', 'SUNSET'), cardFor('2026-08-07', 'SUNSET')];
     const away = new Set(['2026-08-05', '2026-08-06']);
 
-    const items = buildPaneItems(events, cards, away, [RANGE]);
+    const items = buildPaneItems(events, cards, away);
 
     expect(items.map((i) => i.kind)).toEqual(['card', 'away', 'card']);
     expect(items[0].card.date).toBe('2026-08-04');
     expect(items[2].card.date).toBe('2026-08-07');
   });
 
-  it('folds a run of consecutive away days into one row', () => {
+  it('folds a run of consecutive away days into one block', () => {
     const cards = [cardFor('2026-08-04', 'SUNSET'), cardFor('2026-08-07', 'SUNSET')];
-    const items = buildPaneItems(events, cards, new Set(['2026-08-05', '2026-08-06']), [RANGE]);
+    const items = buildPaneItems(events, cards, new Set(['2026-08-05', '2026-08-06']));
 
     expect(items.filter((i) => i.kind === 'away')).toHaveLength(1);
-    expect(items[1].label).toBe('Wed 5 – Thu 6');
     expect(items[1].dates).toEqual(['2026-08-05', '2026-08-06']);
   });
 
-  it('counts the windows lost, not the days — a day can take two of them', () => {
-    // 5 Aug contributes a sunrise AND a sunset; 6 Aug only a sunrise. Counting days would say 2
-    // where three windows are missing, and the number's whole job is to account for the slots the
-    // six-event cap already spent.
+  it('lists a day once however many of its windows the run swallows', () => {
+    // 5 Aug contributes two events and 6 Aug one. The dates are a SET of days, not a tally of
+    // windows: the count that used to ride beside them had one consumer and went with it.
     const cards = [cardFor('2026-08-04', 'SUNSET'), cardFor('2026-08-07', 'SUNSET')];
-    const items = buildPaneItems(events, cards, new Set(['2026-08-05', '2026-08-06']), [RANGE]);
+    const items = buildPaneItems(events, cards, new Set(['2026-08-05', '2026-08-06']));
 
-    expect(items[1].windowCount).toBe(3);
+    expect(items[1].dates).toEqual(['2026-08-05', '2026-08-06']);
   });
 
-  it('keeps two runs either side of a forecast day as two rows', () => {
+  it('keeps two runs either side of a forecast day as two blocks', () => {
     // They describe different gaps. Merging them would claim the middle day was away too.
     const cards = [cardFor('2026-08-05', 'SUNSET')];
-    const items = buildPaneItems(events, cards, new Set(['2026-08-04', '2026-08-06', '2026-08-07']), []);
+    const items = buildPaneItems(events, cards, new Set(['2026-08-04', '2026-08-06', '2026-08-07']));
 
-    const rows = items.filter((i) => i.kind === 'away');
-    expect(rows).toHaveLength(2);
-    expect(rows[0].label).toBe('Tue 4');
-    expect(rows[1].label).toBe('Thu 6 – Fri 7');
-  });
-
-  it('carries the travel range\'s own note, so nothing is invented', () => {
-    const items = buildPaneItems(events, [cardFor('2026-08-04', 'SUNSET'),
-      cardFor('2026-08-07', 'SUNSET')], new Set(['2026-08-05', '2026-08-06']), [RANGE]);
-
-    expect(items[1].note).toBe('Business trip');
-  });
-
-  it('carries no note when the run is spanned by two ranges that disagree', () => {
-    // There is no honest way to attribute one sentence to both days, so the row says "away" and
-    // stops. Silence beats naming a reason that describes half of it.
-    const ranges = [
-      { startDate: '2026-08-05', endDate: '2026-08-05', note: 'Business trip' },
-      { startDate: '2026-08-06', endDate: '2026-08-06', note: 'Wedding' },
-    ];
-    const items = buildPaneItems(events, [cardFor('2026-08-04', 'SUNSET'),
-      cardFor('2026-08-07', 'SUNSET')], new Set(['2026-08-05', '2026-08-06']), ranges);
-
-    expect(items[1].note).toBeNull();
-  });
-
-  it('carries no note when one day of the run is covered only by an un-noted range', () => {
-    // Found by review. Discarding un-noted ranges BEFORE testing coverage left exactly one note in
-    // the set, so the row printed "Skye" against a label covering Thursday as well — a claim no
-    // range in the payload makes. Un-noted ranges are the ordinary case, and the backend does not
-    // merge adjacent ones, so this shape is not contrived.
-    const ranges = [
-      { startDate: '2026-08-05', endDate: '2026-08-05', note: 'Skye' },
-      { startDate: '2026-08-06', endDate: '2026-08-06', note: null },
-    ];
-    const items = buildPaneItems(events, [cardFor('2026-08-04', 'SUNSET'),
-      cardFor('2026-08-07', 'SUNSET')], new Set(['2026-08-05', '2026-08-06']), ranges);
-
-    expect(items[1].note).toBeNull();
-  });
-
-  it('still carries the note when two adjacent ranges agree on it', () => {
-    // The fix for the case above must not be `some` → `every`: that would silence this, which works
-    // today and is what an operator gets from two separately-entered legs of one trip.
-    const ranges = [
-      { startDate: '2026-08-05', endDate: '2026-08-05', note: 'Skye' },
-      { startDate: '2026-08-06', endDate: '2026-08-06', note: 'Skye' },
-    ];
-    const items = buildPaneItems(events, [cardFor('2026-08-04', 'SUNSET'),
-      cardFor('2026-08-07', 'SUNSET')], new Set(['2026-08-05', '2026-08-06']), ranges);
-
-    expect(items[1].note).toBe('Skye');
-  });
-
-  it('carries the note when one range spans the whole run', () => {
-    const items = buildPaneItems(events, [cardFor('2026-08-04', 'SUNSET'),
-      cardFor('2026-08-07', 'SUNSET')], new Set(['2026-08-05', '2026-08-06']), [RANGE]);
-
-    expect(items[1].note).toBe('Business trip');
-  });
-
-  it('carries no note when the run is spanned but one day has two notes of its own', () => {
-    const ranges = [
-      { startDate: '2026-08-05', endDate: '2026-08-06', note: 'Skye' },
-      { startDate: '2026-08-05', endDate: '2026-08-05', note: 'Wedding' },
-    ];
-    const items = buildPaneItems(events, [cardFor('2026-08-04', 'SUNSET'),
-      cardFor('2026-08-07', 'SUNSET')], new Set(['2026-08-05', '2026-08-06']), ranges);
-
-    expect(items[1].note).toBeNull();
+    const blocks = items.filter((i) => i.kind === 'away');
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0].dates).toEqual(['2026-08-04']);
+    expect(blocks[1].dates).toEqual(['2026-08-06', '2026-08-07']);
   });
 
   it('splits a run across a calendar gap the event list cannot see', () => {
     // The walk is over EVENTS, so a date contributing none of them is invisible to it. Two away
-    // days either side of such a date would have folded into one row labelled "Wed 5 – Fri 7",
+    // days either side of such a date would have folded into one block spanning Wed 5 – Fri 7,
     // asserting Thursday was a travel day when nothing in the payload says so.
     const gapped = [
       { date: '2026-08-05', targetType: 'SUNSET' },
       { date: '2026-08-07', targetType: 'SUNSET' },
     ];
-    const items = buildPaneItems(gapped, [], new Set(['2026-08-05', '2026-08-07']), []);
+    const items = buildPaneItems(gapped, [], new Set(['2026-08-05', '2026-08-07']));
 
-    expect(items.map((i) => i.label)).toEqual(['Wed 5', 'Fri 7']);
+    expect(items.map((i) => i.dates)).toEqual([['2026-08-05'], ['2026-08-07']]);
   });
 
-  it('carries no note when the ranges have none, which is the normal case', () => {
-    const items = buildPaneItems(events, [cardFor('2026-08-04', 'SUNSET'),
-      cardFor('2026-08-07', 'SUNSET')], new Set(['2026-08-05', '2026-08-06']),
-    [{ startDate: '2026-08-05', endDate: '2026-08-06', note: null }]);
+  it('keys each block on the day it starts, so two blocks never share a React key', () => {
+    const items = buildPaneItems(events, [cardFor('2026-08-05', 'SUNSET')],
+      new Set(['2026-08-04', '2026-08-06', '2026-08-07']));
 
-    expect(items[1].note).toBeNull();
-  });
-
-  it('ignores a range that covers no day in the run', () => {
-    const ranges = [{ startDate: '2026-09-01', endDate: '2026-09-03', note: 'Next month' }];
-    const items = buildPaneItems(events, [cardFor('2026-08-04', 'SUNSET'),
-      cardFor('2026-08-07', 'SUNSET')], new Set(['2026-08-05', '2026-08-06']), ranges);
-
-    expect(items[1].note).toBeNull();
+    expect(items.filter((i) => i.kind === 'away').map((i) => i.key))
+      .toEqual(['away:2026-08-04', 'away:2026-08-06']);
   });
 
   it('yields nothing at all when there are no events', () => {
-    expect(buildPaneItems([], [], new Set(), [])).toEqual([]);
+    expect(buildPaneItems([], [], new Set())).toEqual([]);
   });
 
-  it('tolerates a null event list, a null travel set and null ranges', () => {
+  it('tolerates a null event list and a null travel set', () => {
     // The provider hands these over before the travel-day fetch resolves, on every cold mount.
-    expect(buildPaneItems(null, [], null, null)).toEqual([]);
+    expect(buildPaneItems(null, [], null)).toEqual([]);
     const items = buildPaneItems([{ date: '2026-08-04', targetType: 'SUNSET' }],
-      [cardFor('2026-08-04', 'SUNSET')], null, null);
+      [cardFor('2026-08-04', 'SUNSET')], null);
     expect(items.map((i) => i.kind)).toEqual(['card']);
   });
 
-  it('emits an away row for a day that is away with no forecast day at all beside it', () => {
+  it('emits an away block for a day that is away with no forecast day at all beside it', () => {
     // Every rendered day away: the pane would otherwise be entirely empty and say "No windows to
-    // show", which reads as a failed forecast rather than a fortnight off.
-    const items = buildPaneItems(events.slice(0, 2), [],
-      new Set(['2026-08-04', '2026-08-05']), [RANGE]);
+    // show", which reads as a failed forecast rather than a fortnight off. This is the one reader
+    // the derivation still has, so it is the one that must not regress.
+    const items = buildPaneItems(events.slice(0, 2), [], new Set(['2026-08-04', '2026-08-05']));
 
     expect(items.map((i) => i.kind)).toEqual(['away']);
-    expect(items[0].windowCount).toBe(2);
-    expect(items[0].label).toBe('Tue 4 – Wed 5');
+    expect(items[0].dates).toEqual(['2026-08-04', '2026-08-05']);
+    expect(items).not.toHaveLength(0);
   });
 
   it('drops a card position it has no card for rather than emitting a hole', () => {
     // Defensive: a caller that filtered the cards differently would otherwise put `undefined` in
     // the list and crash the pane on `item.card.key`.
-    const items = buildPaneItems(events.slice(0, 2), [cardFor('2026-08-04', 'SUNSET')],
-      new Set(), []);
+    const items = buildPaneItems(events.slice(0, 2), [cardFor('2026-08-04', 'SUNSET')], new Set());
 
     expect(items).toHaveLength(1);
     expect(items[0].card.date).toBe('2026-08-04');
+  });
+
+  it('emits no field the pane does not read', () => {
+    // The deletion's own pin. `label`/`note`/`windowCount` were dead weight the moment the promoted
+    // strip went, and dead weight comes back by being re-added "for completeness" — so the away
+    // block's key set is asserted exactly rather than by absence of any one name.
+    const cards = [cardFor('2026-08-04', 'SUNSET'), cardFor('2026-08-07', 'SUNSET')];
+    const [, block] = buildPaneItems(events, cards, new Set(['2026-08-05', '2026-08-06']));
+
+    expect(Object.keys(block).sort()).toEqual(['dates', 'key', 'kind']);
   });
 });

@@ -86,8 +86,10 @@ Door.propTypes = {
  *       and the grid drops away columns itself ({@code gridEvents}, and it gates its whole grid on
  *       the filtered list being non-empty). An operator away across the entire capped horizon
  *       therefore got a door promising "every region, every window" over a panel holding one dashed
- *       band — whose own wording, "no forecast generated", is the phrase the away row directly above
- *       it deliberately rejects. {@code windowCards} is the travel-filtered set by construction, so
+ *       band — whose own wording, "no forecast generated", is the phrase this arm's own away
+ *       treatment deliberately rejects. (⚠️ That treatment is a MATRIX CELL now; the away row this
+ *       comment used to name as sitting "directly above" went with the card list at M2, and nothing
+ *       is between the matrix and these doors.) {@code windowCards} is the travel-filtered set by construction, so
  *       it is the honest denominator.</li>
  * </ul>
  *

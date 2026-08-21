@@ -53,6 +53,32 @@ const seg = (id) => screen.queryByTestId(id);
 const chip = (id, name) => within(screen.getByTestId(id)).getByRole('button', { name });
 
 describe('WindowSpotSheet', () => {
+  /**
+   * ⚠️ M5's containment, derived here from {@code escapeEnabled} rather than taken as its own prop.
+   *
+   * <p>ONE predicate, two consequences: the layer that answers Escape is the layer that is not
+   * {@code inert} and is the only one claiming {@code aria-modal}. They must never come apart, and
+   * an adversarial review found this derivation unpinned — {@code stacked={false}} survived every
+   * suite that owns this component. What jsdom can see is the attributes ({@code 'inert' in
+   * HTMLElement.prototype} is {@code false} here, so the behaviour is a no-op); the behaviour was
+   * measured in Chromium and is recorded in the plan's M5 row.
+   */
+  describe('when something is stacked over it', () => {
+    it('goes inert and stops claiming to be the modal', () => {
+      renderSheet({ escapeEnabled: false });
+      const dialog = screen.getByTestId('window-spot-sheet');
+      expect(dialog).toHaveAttribute('inert');
+      expect(dialog).not.toHaveAttribute('aria-modal');
+    });
+
+    it('is the modal, and not inert, while it is the top layer', () => {
+      renderSheet({});
+      const dialog = screen.getByTestId('window-spot-sheet');
+      expect(dialog).not.toHaveAttribute('inert');
+      expect(dialog).toHaveAttribute('aria-modal', 'true');
+    });
+  });
+
   beforeEach(() => localStorage.clear());
   // The net the standards ask for: an assertion that throws before an inline `mockRestore` would
   // otherwise leave `Storage.prototype.setItem` stubbed for every test after it in this file.

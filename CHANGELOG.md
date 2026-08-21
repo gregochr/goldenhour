@@ -5,6 +5,83 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Plan tab M5: the sweep, and the strip that no longer has a job
+
+The **promoted strip** is gone. It existed to lift one coincidence above the fold; the matrix put
+every topic on its own card and all six cards above the fold, so there was nothing left for it to
+do. Its module, its component, its tests and its share of the pane's plumbing go with it — along
+with the away block's date label, travel note and window count, which it was the last reader of, and
+the window-level `topRarityRank` the cards had stopped reading. The two doors follow the matrix
+directly now, and a test asserts the *gap* rather than the absence of a testid, so a strip that was
+renamed could not pass for one that was deleted.
+
+**One dialog claims to be the modal, and only one.** The Plan screen can stack three of them — the
+window popup, a location sheet over it, search over that — and until now all three carried
+`aria-modal="true"` at once while none was inert. Measured in a real browser: a Tab out of the
+topmost sheet reached the masthead's search button on the seventeenth press and was inside the popup
+underneath by the thirty-fourth. A covered layer is now `inert` and drops its `aria-modal`, so it
+holds no tab stops and leaves the accessibility tree entirely. This is **not** a focus trap and is
+not a step towards one — from the topmost dialog a keyboard reader can still Tab into the page
+behind, exactly as in v1 — what is fixed is only the part that stacking created.
+
+That fix arrived with a cost, found by measuring rather than reasoning: making a layer inert blurs
+whatever inside it had focus, and it happens before the arriving dialog can read where focus came
+from — so opening the location sheet from a field chip and pressing Escape put the reader at the top
+of the document instead of back on the chip. Intermittently, because it races React's effect flush.
+A dialog now remembers the last control focused inside itself, from real focus events, and puts
+focus back there when it is uncovered.
+
+**The map's place chips are 16px tall, and their case for being allowed to be** moved from "every
+chipped place is also a full-size card in this dialog" to plain geometry, because the first was
+measured breaking: focus a region and the ranked strip filters to it while the chips only re-order,
+so two of six named places with no card in the dialog at all. The placer now keeps 24px between chip
+centres — WCAG 2.2's spacing exception, which depends on nothing another component is showing. It
+cost no chips.
+
+**Two copy findings that needed two surfaces on screen at once.** With a region picked, the popup
+stated the same integer three times inside 250px against three different wholes — `9 of its
+locations below`, `across 69 locations`, `9 of 209` — and only the first left its denominator to be
+guessed; it is gone, and the strip's footer, which names the filters that produced its count, is the
+one statement left. Separately, a reader with no home postcode was told the list was `within 45 min`
+when nothing had been filtered by distance at all: with no drive times, every place passes every
+tier. The tier is named only when there is something for it to gate.
+
+**Resizing is cheaper.** A twelve-step window drag cost seven long tasks and 465 ms of blocked main
+thread; it now costs one or two and 77–146 ms, against zero with the matrix hidden. The repaint is
+rate-limited rather than deferred — the first observation still paints immediately, because a
+deferred one is a blank pane on reveal and a wasted wait on a font that has just loaded.
+
+**Nothing was in reach that hadn't been measured.** An unknown drive time passes every distance
+filter, so a reader with no home postcode has nothing filtered by distance at all — and six places
+on the Plan screen told them otherwise: the popup's header and its two "nothing here" sentences, the
+sentence a filtered-out window shows, the matrix card's own line and tooltip, the search box's figure
+caption, and the counter under the lens controls, which is the one count statement the whole page is
+allowed. Every figure is unchanged; what has gone is the claim about how it was chosen. One answer is
+computed per window now and read by all six, so they cannot come apart again.
+
+**Two things the screen reader was never told.** Stepping to the next window replaces everything in
+the popup — title, verdict, map, regions, prose, tide, places — while focus stays on the arrow that
+was pressed, so a screen reader heard nothing at all; picking a region did the same on the popup's
+main interaction, and the "3 of 6" counter is deliberately not read aloud because it is a glyph pair.
+The popup now carries a quiet live line naming the window, where it sits in the six, its verdict and,
+on a pick, the region and how many places are listed. And the header's best rating spells its unit,
+because the ★ character is silent in NVDA's default settings — the rest of the app already did this
+and the popup was the one place that had not.
+
+**Two ways to open a dialog on top of a dialog, both closed.** From an open sheet a keyboard reader
+could reach the masthead's search button and open a third layer that painted *underneath* the sheet
+it opened over; and the settings cog, which lives outside the Plan screen's own layering, could put a
+second modal over the window popup where one Escape then closed the wrong one. Search now refuses a
+third layer, exactly as the `/` shortcut always has, and settings closes the Plan's dialogs before it
+opens. The "Best bet" dialog's two map handoffs close the window popup as well, which the other two
+routes to the map have done since M4.
+
+Also: the window popup's title is a level-2 heading rather than a level-3 one, under the masthead's
+own; the Plan tab's `d3-geo` chunk still loads only behind the lazy boundary, and the matrix and the
+popup now share one copy of it rather than one each; and the focus reservation under the two doors
+was three times too small, left behind when the masthead started sticking.
+
+
 ## [v2.18.16] - 2026-08-21
 
 ### Changed — Plan tab M4: the location sheet, and the two ways into it the popup was missing

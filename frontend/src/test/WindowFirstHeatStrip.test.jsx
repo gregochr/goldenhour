@@ -81,6 +81,12 @@ function stripCard(overrides = {}) {
     away: false,
     confidence: 'high',
     pool: [],
+    // ⚠️ TRUE by default, which is the ordinary reader: a saved home postcode and drive times, so
+    // the reach tier really does gate. It decides whether this card's empty-pool words may say "in
+    // reach" at all — `buildWindowCards` computes it and `buildHeatStripCards` folds it on, and a
+    // fixture that omitted it would put every card on the no-postcode wording and quietly change
+    // what half this file is asserting. The false case has its own block.
+    reachMeasured: true,
     bestReach: null,
     badges: [],
     ...overrides,
@@ -233,6 +239,16 @@ async function withWellWidths(widths, run) {
 }
 
 describe('WindowFirstHeatStrip — which windows it draws', () => {
+  it('⚠️ heads the matrix with a real level-2 HEADING, not a styled span', async () => {
+    // It looks like a section heading — 9.5px mono, 600, letter-spaced, uppercase, beside a
+    // full-width hairline — and it was a `<span>`, which left the whole v2 Plan tab with exactly one
+    // heading (the masthead wordmark's `h1`): a browse-mode reader pressing `H` went from the
+    // wordmark to the end of the page. SC 1.3.1. Asserted through the ROLE with its level, which is
+    // the only query that can see the difference; axe could not, because nothing was out of order.
+    await renderStrip({ cards: [stripCard()] });
+    expect(screen.getByRole('heading', { level: 2, name: 'The days ahead' })).toBeInTheDocument();
+  });
+
   it('draws one thumbnail per card, in the order it was handed them', async () => {
     // The strip's whole claim is that it is a time axis, so the order is the payload's and nothing
     // here may sort. (Through M1 an Order control could rank the card list below; that control and
@@ -344,6 +360,37 @@ describe('WindowFirstHeatStrip — what a card says', () => {
     expect(legend).toHaveTextContent('Best bet');
     expect(legend).toHaveAttribute('data-pick', 'best');
     expect(card).toHaveClass('best');
+  });
+
+  /**
+   * ⚠️ §6 clause 7 on the card's two empty-pool words.
+   *
+   * <p>An unknown drive passes every tier (plan §2.5), so a reader with no home postcode has every
+   * gate open — an empty pool then means this window has no sky-gated slots at all, and "in reach"
+   * blames a control that did nothing. Found by an adversarial review of M5, which had fixed the
+   * same claim in the window popup and stopped there. Both the visible line and the histogram's
+   * tooltip read the SAME field, so they cannot come apart.
+   */
+  describe('when no drive time exists for the tier to gate on', () => {
+    it('says "nothing to show" rather than "nothing in reach"', async () => {
+      await renderStrip({ cards: [stripCard({ pool: [], reachMeasured: false })] });
+      expect(screen.getByTestId('wf-heat-best')).toHaveTextContent('nothing to show');
+      expect(screen.getByTestId('wf-heat-best')).not.toHaveTextContent('reach');
+    });
+
+    it('says it the same way in the histogram tooltip', async () => {
+      await renderStrip({ cards: [stripCard({ pool: [], reachMeasured: false })] });
+      expect(screen.getByTestId('wf-heat-spread'))
+        .toHaveAttribute('title', 'Nothing to show for this window.');
+    });
+
+    it('still says "in reach" where a drive time exists, which is the ordinary case', async () => {
+      // The control, so neither branch can be deleted by making the other unconditional.
+      await renderStrip({ cards: [stripCard({ pool: [], reachMeasured: true })] });
+      expect(screen.getByTestId('wf-heat-best')).toHaveTextContent('nothing in reach');
+      expect(screen.getByTestId('wf-heat-spread'))
+        .toHaveAttribute('title', 'Nothing within reach for this window.');
+    });
   });
 
   it('renders the runner-up legend with its own word and its own border class', async () => {

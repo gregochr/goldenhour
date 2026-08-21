@@ -180,15 +180,21 @@ export function bestReachLine(card) {
     };
   }
   const empty = (card?.pool?.length ?? 0) === 0;
+  // ⚠️ "In reach" only where the reach axis could have acted — `card.reachMeasured`, computed once
+  // in `buildWindowCards` and folded onto this descriptor. An unknown drive passes every tier (plan
+  // §2.5), so for a reader with no home postcode the pool was never gated and an empty one means
+  // this window has no sky-gated slots at all; blaming a control that did nothing is §6 clause 7's
+  // own sentence.
+  const emptyWord = card?.reachMeasured ? 'nothing in reach' : 'nothing to show';
   return {
     rating: null,
     label: 'Best',
-    value: empty ? 'nothing in reach' : 'not scored yet',
+    value: empty ? emptyWord : 'not scored yet',
     muted: true,
     title: null,
     // Both forms keep the visible label's own word, so WCAG 2.5.3's label-in-name holds for a
     // speech-input user reading "Best" off the row.
-    spoken: empty ? 'best, nothing in reach' : 'best, not scored yet',
+    spoken: empty ? `best, ${emptyWord}` : 'best, not scored yet',
   };
 }
 
@@ -359,7 +365,11 @@ export default function WindowFirstHeatStrip({
     for (const card of cards) {
       const pool = card.pool || [];
       const spread = buildSpread(pool);
-      const withinReach = poolWithinReach(pool);
+      // ⚠️ `poolWithinReach([])` is TRUE by `Array.every`, so an empty pool would license the reach
+      // word on a card where nothing was gated by distance. `card.reachMeasured` is what actually
+      // answers "could the tier have acted", and it is the same field `bestReachLine` reads for its
+      // own empty word, so the tooltip and the visible line agree by construction.
+      const withinReach = pool.length === 0 ? Boolean(card.reachMeasured) : poolWithinReach(pool);
       byKey.set(card.key, {
         spread,
         bars: spreadBars(spread),
@@ -766,7 +776,13 @@ export default function WindowFirstHeatStrip({
   return (
     <section data-testid="wf-heat-strip" className="wf-hstrip-block">
       <div data-testid="wf-heat-head" className="wf-hstrip-h">
-        <span className="wf-hstrip-k">The days ahead</span>
+        {/* ⚠️ A HEADING, not a span. It is a section heading by every visual convention — 9.5px mono,
+            600, letter-spaced, uppercase, beside a full-width hairline — and it was marked up as a
+            `<span>`, which left the whole v2 Plan tab with exactly one heading (the masthead
+            wordmark's `h1`). A browse-mode reader pressing `H` went from the wordmark to the end of
+            the page. Level 2 under that `h1`; `.wf-hstrip-k` carries every visible property and
+            Tailwind's preflight resets heading size and weight to inherited, so nothing moves. */}
+        <h2 className="wf-hstrip-k">The days ahead</h2>
         <span className="wf-hstrip-rule" aria-hidden="true" />
       </div>
 

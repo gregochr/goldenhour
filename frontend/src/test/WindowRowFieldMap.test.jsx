@@ -722,11 +722,15 @@ describe('WindowRowFieldMap — the location chips', () => {
       expect(chip).toHaveAttribute('title', 'Coast · 42 min · leave 19:04');
       expect(screen.getByTestId('wf-row-map-chips')).not.toHaveAttribute('aria-hidden');
       // Asked of the ACCESSIBILITY TREE — an `aria-hidden` subtree exposes no buttons at all, so a
-      // role query is the assertion that the layer left it. Anchored at both ends and tolerant only
-      // of the separator, which is the one part jsdom computes differently from a browser
-      // (`inline-flex` blockifies the children there and joins their text with a space; `css: false`
-      // leaves them inline and joins with none).
-      expect(screen.getByRole('button', { name: /^Bamburgh\s*4 stars$/ })).toBe(chip);
+      // role query is the assertion that the layer left it.
+      //
+      // ⚠️ EXACT, where this used to be `/^Bamburgh\s*4 stars$/`. The `\s*` accepted zero
+      // separators, which is what the name actually computed as until M5: name-from-contents TRIMS
+      // each element's own contribution, so the space had to be a bare text node between the `<b>`
+      // and the `<em>` rather than inside either. Measured three ways against
+      // `dom-accessibility-api`, which is what this query uses. `Bamburgh4 stars` is what the
+      // tolerant form was quietly passing.
+      expect(screen.getByRole('button', { name: 'Bamburgh 4 stars' })).toBe(chip);
       expect(onOpenLocation).not.toHaveBeenCalled();
     });
 
@@ -809,18 +813,25 @@ describe('WindowRowFieldMap — the location chips', () => {
    * A catalogue for the cap cases: twelve chips in a row, and two ballast spots that drag each
    * region's centroid hundreds of pixels below them.
    *
-   * <p>Both halves are load-bearing. The row is spaced 20px against 6px boxes so no two chips can
-   * overlap each other; the ballast keeps the region LABEL out of the row, because a label the
+   * <p>Both halves are load-bearing. The row is spaced 30px against 6px boxes so no two chips can
+   * crowd each other; the ballast keeps the region LABEL out of the row, because a label the
    * placer must avoid would drop chips for a reason this test is not about.
+   *
+   * <p>⚠️ <b>30px, not the 20px this fixture used through M4.</b> The placer gained a second
+   * separation test at M5 — {@code MIN_TARGET_SEPARATION_PX}, WCAG 2.5.8's Spacing exception, which
+   * is a distance between CENTRES rather than a clearance between rectangles — and at 20px apart
+   * these chips cleared the old rule and failed the new one, so the cap test started measuring
+   * crowding instead of the cap. The spacing is the fixture's way of saying "assume the placer can
+   * fit all twelve"; the number that satisfies that has moved, and the assertion has not.
    */
   const capSpots = () => {
     const row = Array.from({ length: 12 }, (_, i) => spot({
-      id: 100 + i, name: `Spot ${i}`, lng: 4 + i * 2, lat: 6,
+      id: 100 + i, name: `Spot ${i}`, lng: 4 + i * 3, lat: 6,
     }));
     return [
       ...row,
       spot({ id: 900, name: 'Ballast A', lng: 4, lat: 200 }),
-      spot({ id: 901, name: 'Ballast B', lng: 24, lat: 200, regionName: 'Dales', rid: 'Dales' }),
+      spot({ id: 901, name: 'Ballast B', lng: 37, lat: 200, regionName: 'Dales', rid: 'Dales' }),
     ];
   };
   const capChips = () => Array.from({ length: 12 }, (_, i) => CHIP({
@@ -838,6 +849,122 @@ describe('WindowRowFieldMap — the location chips', () => {
     });
     const drawn = screen.getAllByTestId('wf-row-map-chip').map((n) => n.dataset.location);
     expect(drawn).toEqual(['Spot 0', 'Spot 1', 'Spot 2', 'Spot 3', 'Spot 4', 'Spot 5', 'Spot 6', 'Spot 7']);
+  });
+
+  it('⚠️ drops a chip whose CENTRE would sit under 24px from another, even with no overlap', async () => {
+    // WCAG 2.2 SC 2.5.8's Spacing exception, and the case a rectangle-clearance rule cannot see: two
+    // 6px boxes 10px apart do not touch — the old `BOX_GAP` of 3 passes them — while their centres
+    // are 10px apart and a 24px circle on each overlaps the other's. The chips are 16px tall in the
+    // browser and M4 rested their 2.5.8 case on the Equivalent exception instead, which M5 measured
+    // breaking under a region focus (two of six chips named places with no card in the dialog).
+    //
+    // Twelve candidates at 10px spacing, so the cap is nowhere near binding: what is measured is the
+    // separation rule alone. Every survivor must clear 24px from every other survivor.
+    const tight = Array.from({ length: 12 }, (_, i) => spot({
+      id: 200 + i, name: `Tight ${i}`, lng: 4 + i, lat: 6,
+    }));
+    const tightChips = Array.from({ length: 12 }, (_, i) => CHIP({
+      key: String(200 + i), locationId: 200 + i, locationName: `Tight ${i}`,
+    }));
+    await withMeasuredMap(600, async () => {
+      await withChipBoxes(6, 6, async () => {
+        await renderMap({
+          spots: [...tight, spot({ id: 902, name: 'Ballast', lng: 4, lat: 200 })],
+          chips: tightChips,
+        });
+      });
+    });
+
+    const drawn = screen.getAllByTestId('wf-row-map-chip');
+    expect(drawn.length).toBeGreaterThan(0);
+    expect(drawn.length).toBeLessThan(12);
+    const centres = drawn.map((n) => ({
+      x: parseFloat(n.style.left) + 3,
+      y: parseFloat(n.style.top) + 3,
+    }));
+    for (let i = 0; i < centres.length; i += 1) {
+      for (let j = i + 1; j < centres.length; j += 1) {
+        const d = Math.hypot(centres[i].x - centres[j].x, centres[i].y - centres[j].y);
+        expect(d).toBeGreaterThanOrEqual(24);
+      }
+    }
+  });
+
+  /**
+   * ⚠️ The separation rule is between TARGETS, and `placed` holds three populations.
+   *
+   * <p>Found by an adversarial review of M5's first cut, which ran the 24px test against every
+   * entry: the hint corner and the region labels are `aria-hidden`, `pointer-events: none`
+   * decorations, so SC 2.5.8 says nothing about them and measuring a control's clearance against
+   * them spends map room for a rule that does not apply.
+   *
+   * <p>Driven through a REGION LABEL rather than the hint corner, because `withChipBoxes` stubs
+   * `offsetWidth`/`offsetHeight` on the prototype and so sizes the label too — which makes the
+   * geometry exact and independent of the frame's height. Two spots in one region put the centroid
+   * midway between them; the chip sits on one of them.
+   */
+  it('⚠️ measures the 24px separation against CHIPS only, never a region label', async () => {
+    // Stub projection is `[lng*10, lat*10]`. Spots at lng 4 and 6 → x 40 and 60, so the Coast
+    // centroid is x 50 and the label box (6 wide, centred) spans 47–53. The chip on the lng-4 spot
+    // is offset by `CHIP_OFFSET` and 6 wide → 34.5–40.5, centre 37.5. Centre-to-centre is 12.5px —
+    // well inside 24 — while the boxes are 6.5px apart, clear of `BOX_GAP`. So the legibility test
+    // passes and only the separation test can drop this chip.
+    const near = [
+      spot({ id: 300, name: 'Near', lng: 4, lat: 6 }),
+      spot({ id: 301, name: 'Pair', lng: 6, lat: 6 }),
+      spot({ id: 302, name: 'Ballast', lng: 24, lat: 26, regionName: 'Dales', rid: 'Dales' }),
+    ];
+    await withMeasuredMap(400, async () => {
+      await withChipBoxes(6, 6, async () => {
+        await renderMap({
+          spots: near,
+          chips: [CHIP({ key: '300', locationId: 300, locationName: 'Near' })],
+        });
+      });
+    });
+    expect(screen.getAllByTestId('wf-row-map-chip').map((n) => n.dataset.location)).toEqual(['Near']);
+  });
+
+  /**
+   * The band edge, which "a 10px-granular fixture drops them and a 30px one keeps them" cannot see.
+   *
+   * <p>Both cases are the SAME fixture shape with one number changed, so nothing but the distance
+   * can explain the difference — and they sit either side of 24 by a single pixel, which is what
+   * makes the constant itself the thing under test rather than the rule's existence.
+   */
+  it.each([
+    [2.3, 1, 'drops the second chip at 23px between centres'],
+    [2.5, 2, 'keeps both at 25px'],
+  ])('%s — %s', async (latGap, expected) => {
+    // ⚠️ Separated VERTICALLY, and the first attempt at this test separated them horizontally and
+    // proved nothing. The placer tries a flipped variant when the first does not fit
+    // (`chip.x + CHIP_OFFSET - width`), which moves a chip 11px sideways — so on a horizontal pair
+    // at 23px the flip lands 28px away and the chip is correctly kept. Stacked vertically the flip
+    // buys only 5px of x, and `hypot(5, 23)` is 23.5, still inside the rule; at 25px the first
+    // variant already clears it. One number changes between the two cases and nothing else.
+    //
+    // A chip's box is `y = chip.y - height/2`, so its centre y IS the anchor's: the gap between two
+    // chip centres is exactly `10 × latGap` under the stub projection. The ballast keeps each
+    // region's LABEL out of the column (see `capSpots`), and the two chipped spots are in different
+    // regions for the same reason.
+    const pair = [
+      spot({ id: 400, name: 'Upper', lng: 4, lat: 6 }),
+      spot({ id: 401, name: 'Lower', lng: 4, lat: 6 + latGap, regionName: 'Dales', rid: 'Dales' }),
+      spot({ id: 402, name: 'Ballast A', lng: 30, lat: 6 }),
+      spot({ id: 403, name: 'Ballast B', lng: 30, lat: 26, regionName: 'Dales', rid: 'Dales' }),
+    ];
+    await withMeasuredMap(400, async () => {
+      await withChipBoxes(6, 6, async () => {
+        await renderMap({
+          spots: pair,
+          chips: [
+            CHIP({ key: '400', locationId: 400, locationName: 'Upper' }),
+            CHIP({ key: '401', locationId: 401, locationName: 'Lower' }),
+          ],
+        });
+      });
+    });
+    expect(screen.getAllByTestId('wf-row-map-chip')).toHaveLength(expected);
   });
 
   it('⚠️ caps at six on a phone, where the frame is narrower', async () => {

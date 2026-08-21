@@ -175,12 +175,28 @@ export default function WindowSheetDialog({
       : card.spots),
     [card.spots, field.selectedRegion],
   );
+  /**
+   * Whether the reach axis COULD act on this window — is there a drive time anywhere to gate on.
+   *
+   * <p>⚠️ Measured over {@code allSpots}, not over the drawn set. A reader with no home postcode has
+   * no drive time at all, and an unmeasured spot passes every tier (plan §2.5: absence means
+   * unknown, never out of reach), so the tier gates nothing and naming it describes an act that did
+   * not happen — §6 clause 7's own sentence. Asking the DRAWN set instead would make the claim
+   * flicker: a window whose survivors all happen to be measured would print it while its neighbour
+   * did not, which is a different and worse claim than one that is simply true of the account.
+   *
+   * <p>Three surfaces in this dialog read it — the header's "within reach", its two absence
+   * sentences, and the strip footer's filter clause — because they are one claim said three ways
+   * and an adversarial review found the first two still making it after the third was fixed.
+   */
+  const reachMeasured = Boolean(card.reachMeasured);
   const filters = activeFilterClauses({
     regionName: field.selectedRegion || null,
     minRating: field.lens?.minRating ?? null,
     ratingLabel: field.lens?.ratingLabel ?? null,
     limitMinutes: field.lens?.limitMinutes ?? null,
     tierLabel: field.lens?.tierLabel ?? null,
+    reachMeasured,
   });
 
   const topicRows = useMemo(
@@ -237,10 +253,34 @@ export default function WindowSheetDialog({
   }, [card.spots, field.selectedRegion]);
 
   /** The quiet sentence the strip's slot shows when this window's gated pool is empty. */
+  /**
+   * What the dialog's live region says — the window it is on, and the region focus if there is one.
+   *
+   * <p>⚠️ It is the ONLY thing a screen reader is told when the reader steps a window or picks a
+   * region: focus does not move, the dialog is not keyed so its accessible name is never re-read,
+   * and the visible {@code n/6} counter is {@code aria-hidden}. See the element itself for the
+   * measurement behind that.
+   *
+   * <p>Composed from what a reader would need to re-orient rather than from everything that
+   * changed: which window, where it sits in the six, its verdict, and — on a pick — the region and
+   * how many of its places are now listed. The star is spelled out for the reason the header's is.
+   */
+  const liveMessage = useMemo(() => {
+    const where = `${windowLabel}, window ${index + 1} of ${total}`;
+    const verdict = card.verdictLabel ? `, ${card.verdictLabel}` : '';
+    if (!field.selectedRegion) return `${where}${verdict}`;
+    const shown = shownSpots.length;
+    return `${where}${verdict}, showing ${field.selectedRegion}, ${shown} location${shown === 1 ? '' : 's'}`;
+  }, [windowLabel, index, total, card.verdictLabel, field.selectedRegion, shownSpots.length]);
+
   const emptyLine = useMemo(() => {
     if (shownSpots.length > 0) return null;
     const ratingLabel = field.lens?.minRating != null ? field.lens?.ratingLabel : null;
-    const tierLabel = field.lens?.limitMinutes != null ? field.lens?.tierLabel : null;
+    // ⚠️ `reachMeasured` here too — the same clause, eleven lines from the same fix. An adversarial
+    // review found this one still reading `Nothing at 4★+ within 45 min in Dales for this window.`
+    // for a reader whose account has no drive time for any of those places.
+    const tierLabel = (field.lens?.limitMinutes != null && reachMeasured)
+      ? field.lens?.tierLabel : null;
     // ⚠️ Named only when the REGION FOCUS is what emptied it — `card.spots` still holding
     // something is exactly that test. Keyed on the focus merely existing, the sentence read
     // "Nothing at 4★+ in Dales for this window" on a window the LENS had already emptied
@@ -258,7 +298,7 @@ export default function WindowSheetDialog({
     return clauses
       ? `Nothing ${clauses}${where} for this window.`
       : `Nothing${where} for this window.`;
-  }, [shownSpots.length, card.spots.length, field.lens, field.selectedRegion]);
+  }, [shownSpots.length, card.spots.length, field.lens, field.selectedRegion, reachMeasured]);
 
   const bestReach = card.bestReach ?? null;
   /** Whether there is a catalogue to draw a field from — see the grid's own note. */
@@ -279,6 +319,14 @@ export default function WindowSheetDialog({
       // press. The shell withholds this from whichever layer is not on top, so Escape takes exactly
       // one layer per press: search → a stacked sheet → this.
       closeOnEscape={escapeEnabled}
+      /* ⚠️ ONE predicate, two consequences, and they must never come apart: the layer that
+         answers Escape is the layer that is not `inert`. M5 measured the alternative in a browser —
+         three `aria-modal` dialogs at once and a Tab out of the top one landing inside the popup
+         underneath — so a stacked layer holds no tab stops and leaves the accessibility tree, while
+         the top one keeps both. Derived from `escapeEnabled` rather than taking a second prop
+         precisely so a future caller cannot set one and forget the other. See `Modal`'s own note
+         for what this is NOT: it is not a focus trap, and Tab still leaves the topmost dialog. */
+      stacked={!escapeEnabled}
       data-testid="window-sheet"
     >
       <div data-testid="window-sheet-card" className="wf-wsh" data-verdict={card.verdict}>
@@ -292,7 +340,12 @@ export default function WindowSheetDialog({
           </span>
           <div className="wf-wsh-t">
             <div className="wf-wsh-l1">
-              <h3 data-testid="window-sheet-title" className="wf-wsh-ttl">{windowLabel}</h3>
+              {/* ⚠️ `h2`, not `h3`. The page's only other heading is the masthead wordmark's `h1`
+                  (`BrandLockup`), so an `h3` here skipped a level — axe's `heading-order`, measured
+                  on the running app at M5. The level is the only thing that changed: every visible
+                  property comes from `.wf-wsh-ttl`, and Tailwind's preflight resets the heading tags
+                  to inherited size and weight, so the two render identically. */}
+              <h2 data-testid="window-sheet-title" className="wf-wsh-ttl">{windowLabel}</h2>
               {card.time && (
                 <span data-testid="window-sheet-time" className="wf-wsh-time">{card.time}</span>
               )}
@@ -337,11 +390,36 @@ export default function WindowSheetDialog({
             </div>
             <div data-testid="window-sheet-meta" className="wf-wsh-l2 font-mono">
               <span data-testid="window-sheet-best">
-                {bestReach
-                  ? `best ${bestReach.rating}★ within reach`
+                {/* ⚠️ THE SAME `reachMeasured` GUARD THE FOOTER TAKES, added at M5's review after
+                    three lenses charged this line independently. `gateSpotsByReach` returns its
+                    input untouched when a drive time is unknown (plan §2.5 — absence means unknown,
+                    never out of reach), so for a reader with no home postcode the pool is the whole
+                    origin scope and "within reach" names a filter that never ran. That is §6
+                    clause 7's own sentence, and it was still true 250px above the footer M5 had
+                    just repaired. The FIGURE is unchanged either way — what goes is the claim about
+                    how it was chosen. Same for the two absences beside it: with nothing measured,
+                    an empty pool means this window has no sky-gated slots at all, which "nothing in
+                    reach" would blame on a control that did nothing. */}
+                {bestReach ? (
+                  <>
+                    {/* ⚠️ The glyph is hidden and the word is spoken, which is this arm's standing
+                        pattern (`WindowRowFieldMap`, `LocationFourDaySheet`, `HeatmapGrid` all do
+                        it, each with the same note): NVDA at its default symbol level does not
+                        speak U+2605, so `best 4★ within reach` announces as "best 4 within reach" —
+                        the most decision-relevant number in this header, stripped of its unit. This
+                        was the one place in the arm the pattern had not been applied. */}
+                    {`best ${bestReach.rating}`}
+                    <span aria-hidden="true">★</span>
+                    <span className="sr-only">{bestReach.rating === 1 ? ' star' : ' stars'}</span>
+                    {reachMeasured ? ' within reach' : ''}
+                  </>
+                ) : (
                   // Two different absences and two different sentences — the card face draws the
                   // same distinction from the same field.
-                  : ((card.pool || []).length === 0 ? 'nothing in reach' : 'nothing rated yet')}
+                  (card.pool || []).length === 0
+                    ? (reachMeasured ? 'nothing in reach' : 'nothing to show')
+                    : 'nothing rated yet'
+                )}
               </span>
               {qualifies && (
                 <span data-testid="window-sheet-confidence" className="wf-wsh-conf">
@@ -364,6 +442,27 @@ export default function WindowSheetDialog({
             </button>
             <span data-testid="window-sheet-of" className="wf-wsh-of font-mono" aria-hidden="true">
               {`${index + 1}/${total}`}
+            </span>
+            {/* ⚠️ WITHOUT THIS, STEPPING A WINDOW ANNOUNCED NOTHING AT ALL — SC 4.1.3.
+                `‹`/`›` and `←`/`→` replace the ENTIRE dialog (title, time, verdict, pick, topics,
+                best-in-reach, confidence, field, rail, prose, tide, spot strip) while focus stays on
+                the pressed button, and the dialog is not keyed, so `useDialogFocus` never re-fires
+                and its accessible name is never re-read. The one "which of six" signal on screen is
+                the counter above, which is `aria-hidden` because it is a glyph pair a reader would
+                hear as "one slash six".
+
+                The same silence covered the popup's PRIMARY interaction: picking a region swaps the
+                prose, filters the strip and repaints the field, and the design's own selling point —
+                "the furniture never moves" — is exactly what makes that undiscoverable without an
+                announcement. `WindowRegionRail`'s `aria-pressed` says which cell is on; it says
+                nothing about what changed below it.
+
+                Always mounted, never conditionally rendered — the idiom `WindowSpotSheet` records
+                two files away ("pressing a chip otherwise rewrites the list in silence"): a
+                `role="status"` inserted at the same moment as its text is a region the AT has not
+                been watching. */}
+            <span data-testid="window-sheet-live" role="status" className="sr-only">
+              {liveMessage}
             </span>
             <button
               type="button"
@@ -439,7 +538,6 @@ export default function WindowSheetDialog({
                 <WindowProseSlot
                   row={selectedRow || regionRows[0]}
                   picked={Boolean(selectedRow)}
-                  below={selectedRow ? shownSpots.length : null}
                   bestWindow={regionBestWindow}
                   isCurrentWindow={regionBestWindow?.key === card.key}
                 />
@@ -548,6 +646,12 @@ WindowSheetDialog.propTypes = {
     pick: PropTypes.object,
     spots: PropTypes.array.isRequired,
     allSpots: PropTypes.array.isRequired,
+    /**
+     * Whether a drive time exists anywhere in this window's origin scope — computed once in
+     * {@code buildWindowCards}. Decides whether any surface here may say "within reach"; see that
+     * field's own note for why it is a claim about the reader rather than about the survivors.
+     */
+    reachMeasured: PropTypes.bool,
     pool: PropTypes.array,
     bestReach: PropTypes.object,
     reachTotal: PropTypes.number,

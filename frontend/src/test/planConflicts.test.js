@@ -172,6 +172,56 @@ describe('planConflicts — the rating floor shutting the week out', () => {
     expect(message.body).toBe('The best on offer within 1h 30min is 3★ — Copt Hill, tomorrow sunset 20:41.');
   });
 
+  /**
+   * ⚠️ §6 clause 7 on the page-level message, the third of four surfaces that made the same claim.
+   *
+   * <p>A reader with no home postcode has no drive time at all, and an unknown drive passes every
+   * tier (plan §2.5), so the tier gated nothing. Both arms of this message named it anyway. Found by
+   * an adversarial review of M5, after the popup and the lens readout had been fixed.
+   */
+  describe('when no drive time exists for the tier to gate on', () => {
+    const unmeasured = [
+      spot({ rating: 2, driveMinutes: null }),
+      spot({
+        key: '2', locationId: 2, locationName: 'Copt Hill', rating: 3, driveMinutes: null,
+      }),
+    ];
+
+    it('drops the tier clause from the ceiling sentence and keeps the ceiling', () => {
+      const message = conflict({
+        cards: [card(unmeasured, { limitMinutes: 90, minRating: 4 })],
+        tierId: '90',
+        limitMinutes: 90,
+        floorId: '4',
+        minRating: 4,
+      });
+      expect(message.body).toBe('The best on offer is 3★ — Copt Hill, tomorrow sunset 20:41.');
+    });
+
+    it('says "nothing here" rather than "nothing within reach" when nothing is rated', () => {
+      const message = conflict({
+        cards: [card([spot({ rating: null, driveMinutes: null })], { limitMinutes: 90, minRating: 4 })],
+        tierId: '90',
+        limitMinutes: 90,
+        floorId: '4',
+        minRating: 4,
+      });
+      expect(message.body).toBe('Nothing here has been rated yet.');
+    });
+
+    it('still names the tier where a drive time DOES exist', () => {
+      // The control, so the flag cannot be deleted by making both arms unconditional.
+      const message = conflict({
+        cards: [card(reachable, { limitMinutes: 90, minRating: 4 })],
+        tierId: '90',
+        limitMinutes: 90,
+        floorId: '4',
+        minRating: 4,
+      });
+      expect(message.body).toContain('within 1h 30min');
+    });
+  });
+
   it('offers the two the design asks for: show it as it is, or drop to the measured ceiling', () => {
     const message = conflict({
       cards: [card(reachable, { minRating: 4 })], floorId: '4', minRating: 4,

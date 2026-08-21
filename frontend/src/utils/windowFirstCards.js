@@ -442,6 +442,27 @@ export function buildWindowCards(
       // give it a control with nothing to reveal. It is the same array `reachTotal` counts, so the
       // sheet and the strip footer can never describe two different populations.
       allSpots,
+      /**
+       * Whether the reach axis COULD act on this window — is there a drive time anywhere in scope.
+       *
+       * <h3>⚠️ It is a claim about the READER, not about this window's survivors</h3>
+       *
+       * <p>An unknown drive passes every tier (plan §2.5: absence means unknown, never out of
+       * reach), so a reader with no home postcode has every gate open and {@code pool === allSpots}
+       * whatever the tier says. Every surface that then prints "within reach" is naming a filter
+       * that never ran — §6 clause 7's own sentence, "no count describes a set that was never
+       * filtered". M5 fixed that in the popup's footer and an adversarial review found the same
+       * claim still standing on five other surfaces, so the answer is computed ONCE here and folded
+       * outward like everything else on this descriptor.
+       *
+       * <p>Measured over {@code allSpots} — the origin scope BEFORE the reach gate — rather than
+       * over the drawn set, deliberately: asking the survivors would make the wording flicker by
+       * window, printing the reach clause on one card and withholding it on its neighbour, which is
+       * a stranger claim than one that is simply true of the account. It is also a WEAKER test than
+       * {@code poolWithinReach}, which needs EVERY spot measured: that one licenses a COUNT ("9 in
+       * reach"), this one only licenses naming a filter that did something.
+       */
+      reachMeasured: allSpots.some((spot) => spot?.driveMinutes != null),
       // The set the reach gate LEFT, before the rating floor — the matrix's spread histogram and
       // its best-reachable line are both measured over this (plan-matrix A10/A11).
       //
@@ -493,16 +514,19 @@ export function buildWindowCards(
       // header and the promotion both died at M2 (the popup's topic rows state every topic once,
       // facts included), so the remainder had no reader, and a second badge list nothing renders is
       // how two surfaces come to disagree about which topics a window has.
+      //
+      // ⚠️ `topRarityRank` — the payload's own `min(rarityRank)` for the window — was carried here
+      // beside it and went at M5 with the promoted strip, its only consumer. `BriefingWindow` still
+      // sends it, and it is still the right field for a future page-wide "one lede" rule; what it is
+      // not is something the card may read. Every surface that orders topics today
+      // (`windowFirstTopics.windowTopics`, `windowFirstRows.buildWindowRows`) ranks the BADGES on
+      // their own `rarityRank`, and a window-level minimum kept alive beside them is a second answer
+      // waiting to disagree with the first.
       allBadges: win?.badges || [],
-      // The payload's own rarity answer for this window, carried verbatim — `undefined` when the
-      // window has no badges, and also when a payload cached before the field existed is replayed.
-      // `buildPromotedStrip` prefers it and recomputes only in the second case; the card itself must
-      // not read it, which `windowFirstPromoted.test.js` pins.
-      topRarityRank: win?.topRarityRank,
       // ⚠️ Withheld when the pick names a region the origin has scoped away. The pick is the
       // forecast's own recommendation over the whole roster, and its badge opens a dialog naming
       // that region — on a page framed to the Lakes, a `BEST BET` flag for Northumberland (which
-      // the strip folds straight off this field) recommends somewhere the reader has just said
+      // the matrix card folds straight off this field) recommends somewhere the reader has just said
       // they are not. Withheld rather than re-derived: choosing a "best in this region" would be a
       // client-side pick, and picks are server-owned (plan §2.12).
       pick: win?.pick && (!origin || win.pick.regionName === origin.name)

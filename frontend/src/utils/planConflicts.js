@@ -160,7 +160,21 @@ export function buildPlanConflict({
   if (scope.length === 0) return null;
 
   const anyPool = list.some((card) => (card.pool || []).length > 0);
-  const tierLabel = REACH_TIERS.find((tier) => tier.id === tierId)?.label ?? null;
+  /**
+   * Whether the reach axis COULD have acted — is there a drive time anywhere in scope.
+   *
+   * <p>⚠️ §6 clause 7. A reader with no home postcode has none, and an unknown drive passes every
+   * tier (plan §2.5), so the tier gated nothing and naming it in either message below describes an
+   * act that did not happen. The reach BRANCH cannot be reached in that state — an ungated pool is
+   * never empty — but the floor-shut branch can, and it says "within 45 min" and "within reach" in
+   * its two arms. Found by an adversarial review of M5, which had fixed the same claim in the popup
+   * and in the lens readout and stopped there. Asked of the whole scope rather than of any one
+   * card's drawn set, for the reason `WindowSheetDialog` records.
+   */
+  const reachMeasured = scope.some((spot) => spot?.driveMinutes != null);
+  const tierLabel = (REACH_TIERS.find((tier) => tier.id === tierId)?.label ?? null);
+  /** The tier's word where it may be spoken at all — null collapses both clauses below. */
+  const gatingTierLabel = reachMeasured ? tierLabel : null;
 
   if (!anyPool) {
     // Reachable only while the tier has a threshold: under "Any" nothing is gated, so an empty pool
@@ -215,11 +229,13 @@ export function buildPlanConflict({
     id: 'rating',
     headline: `Nothing at ${floorLabel} anywhere in ${scopeName(origin)} this week.`,
     body: ceiling
-      ? `The best on offer${tierLabel && limitMinutes != null ? ` within ${tierLabel.toLowerCase()}` : ''} is ${ceiling.rating}★ — ${ceiling.spot.locationName}, ${windowPhrase(ceiling.card)}.`
-      // Not "none good enough" — nothing in reach has been scored at all, which is the ordinary
-      // state on a far-horizon plan and a different fact from a low ceiling. The distinction
-      // `windowLensEmpty.js` drew per card, kept here.
-      : 'Nothing within reach has been rated yet.',
+      ? `The best on offer${gatingTierLabel && limitMinutes != null ? ` within ${gatingTierLabel.toLowerCase()}` : ''} is ${ceiling.rating}★ — ${ceiling.spot.locationName}, ${windowPhrase(ceiling.card)}.`
+      // Not "none good enough" — nothing has been scored at all, which is the ordinary state on a
+      // far-horizon plan and a different fact from a low ceiling. The distinction
+      // `windowLensEmpty.js` drew per card, kept here. The reach word only where reach acted.
+      : (reachMeasured
+        ? 'Nothing within reach has been rated yet.'
+        : 'Nothing here has been rated yet.'),
     actions,
   };
 }

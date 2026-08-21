@@ -166,7 +166,6 @@ describe('WindowFirstShell — the four-day location sheet', () => {
     loading: false,
     windowCards: [CARD],
     paneItems: [{ kind: 'card', key: CARD.key, card: CARD }],
-    promotedStrip: null,
     upcomingEvents: [],
     travelDayDates: new Set(),
     // Home is two hours from the Lakes and forty minutes from the coast — the ordinary shape of a
@@ -480,27 +479,47 @@ describe('WindowFirstShell — the four-day location sheet', () => {
      * popup — and M4 is the first phase where all three can be on screen at once, because it is
      * what gives the sheet an entry that leaves the popup open.
      *
-     * <p>⚠️ <b>Search is reached by CLICKING the tick line, not by {@code /}.</b> The shortcut is
-     * refused over any dialog stacked on the popup and that guard is M3's, deliberately kept. The
-     * state is still reachable, and by an ordinary route: {@code useDialogFocus} is explicitly not
-     * a focus trap, so a keyboard reader can Tab out of the sheet, back onto the masthead's search
-     * button — which keeps its tab stop while no search panel is open — and press Enter. That is
-     * the same click this test dispatches.
+     * <p>⚠️ <b>THE THIRD LAYER IS GONE, and its removal is M5's adjudication of A22.</b> Through M4
+     * this block opened search by CLICKING the tick line, because the {@code /} shortcut had refused
+     * the state since M3 ("a third layer has nowhere to go") while the button had not — and the
+     * state was reachable, since {@code useDialogFocus} is not a focus trap and a keyboard reader
+     * could Tab out of the sheet onto that button. M4's own note called it "the one place M4 widened
+     * the surface it was told not to deepen" and handed the ruling to M5.
+     *
+     * <p>M5 measured what it actually rendered rather than arguing about it. {@code Modal} gives
+     * every dialog {@code fixed inset-0 z-50}, so with equal z-index paint order is DOM order — and
+     * {@code PlanSearch} renders BEFORE the location sheet in the shell, so the sheet painted its
+     * scrim and its whole card over the search panel. The reader was typing into a box behind a
+     * dead, dimmed sheet. The ruling is therefore the one M3 had already written down: the button
+     * obeys the shortcut's guard, and the supported stack is two layers deep — search over the
+     * popup, or a sheet over the popup, never both.
+     *
+     * <p>What survives from the three-press walk is the RULE it was there for — one layer per press,
+     * topmost first — which is now asserted at two layers, plus the refusal itself.
      */
     const esc = () => fireEvent.keyDown(document, { key: 'Escape' });
+
+    it('⚠️ refuses a THIRD layer rather than stacking one that would paint underneath', async () => {
+      renderShell();
+      await openStackedSheet();
+      expect(screen.getAllByRole('dialog').length).toBe(2);
+
+      fireEvent.click(screen.getByTestId('window-first-search'));
+      // Asserted on the SHEET's own state as well as on search's absence: `PlanSearch` is `lazy()`,
+      // so a bare `queryByTestId(...).toBeNull()` here is satisfied by the chunk not having resolved
+      // and survives the guard being deleted. `stacked` is a prop on an already-mounted dialog, so
+      // it flips in the same commit and there is nothing to wait for.
+      expect(screen.getByTestId('location-sheet')).not.toHaveAttribute('inert');
+      expect(screen.getByTestId('location-sheet')).toHaveAttribute('aria-modal', 'true');
+      expect(screen.getAllByRole('dialog').length).toBe(2);
+      // And the button is out of the tab order, so it is not a control with no visible effect.
+      expect(screen.getByTestId('window-first-search').tabIndex).toBe(-1);
+    });
 
     it('closes topmost-first, exactly one layer per press', async () => {
       renderShell();
       await openStackedSheet();
-      fireEvent.click(screen.getByTestId('window-first-search'));
-      await screen.findByTestId('plan-search');
-      // All three, on one page. This is the A22/A23 shape the plan accepts and M5 adjudicates.
-      expect(screen.getAllByRole('dialog').length).toBe(3);
-
-      esc();
-      expect(screen.queryByTestId('plan-search')).toBeNull();
-      expect(screen.getByTestId('location-sheet')).toBeInTheDocument();
-      expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
+      expect(screen.getAllByRole('dialog').length).toBe(2);
 
       esc();
       expect(screen.queryByTestId('location-sheet')).toBeNull();
@@ -508,6 +527,24 @@ describe('WindowFirstShell — the four-day location sheet', () => {
 
       esc();
       expect(screen.queryByTestId('window-sheet')).toBeNull();
+    });
+
+    it('⚠️ keeps search over the POPUP alone, which is the stack M3 anchored it for', async () => {
+      // The other half of the ruling, and the reason the guard is `stackedOverPopup` rather than
+      // "any dialog": search is anchored to the masthead, a surface the popup is drawn OVER rather
+      // than inside, so this pair is the one stack this arm supports. Two layers, one modal, and
+      // Escape still takes them one at a time.
+      renderShell();
+      await openPopup();
+      fireEvent.click(screen.getByTestId('window-first-search'));
+      await screen.findByTestId('plan-search');
+      expect(screen.getAllByRole('dialog').length).toBe(2);
+      expect(screen.getByTestId('window-sheet')).toHaveAttribute('inert');
+
+      esc();
+      expect(screen.queryByTestId('plan-search')).toBeNull();
+      expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
+      expect(screen.getByTestId('window-sheet')).not.toHaveAttribute('inert');
     });
 
     it('⚠️ takes the SHEET and not the popup while only those two are up', async () => {
@@ -570,13 +607,23 @@ describe('WindowFirstShell — the four-day location sheet', () => {
       expect(screen.queryByTestId('window-sheet')).toBeNull();
     });
 
-    it('⚠️ closes it for search\'s region pick as well, so no origin moves under an open sheet', async () => {
+    /**
+     * ⚠️ Both of these opened search OVER the stacked sheet through M4. M5 refuses that third layer
+     * (see the Escape block above for what it was measured rendering), so they now open search over
+     * the POPUP — which is the stack that exists — and the rule they pin is unchanged and still
+     * load-bearing: search's picks take every layer down before they act, so nothing moves under a
+     * surface the reader is reading. `openOverPopup(null)` stays in both handlers because the pick
+     * dialog and the drill-down sheet can still be the stacked layer when search opens... and
+     * cannot, since M5 refuses search over any of them. Kept anyway: the handler is the last line
+     * of defence for a route someone adds later, and it costs one call on a state that is already
+     * being torn down.
+     */
+    it('⚠️ closes every layer for search\'s region pick, so no origin moves under an open surface', async () => {
       // M4.3 goes to considerable trouble to guarantee "the origin never moves under an open
-      // surface", and M4 simultaneously makes search-over-sheet-over-popup an ordinary state. One
-      // rule, every route — otherwise the sheet's drive, its base, its outside badge and every
-      // departure change while the reader looks at them.
+      // surface". One rule, every route — otherwise the popup's drive figures, its base, its outside
+      // badges and every departure change while the reader looks at them.
       const view = renderShell();
-      await openStackedSheet();
+      await openPopup();
       fireEvent.click(screen.getByTestId('window-first-search'));
       const input = await screen.findByTestId('plan-search-input');
       fireEvent.change(input, { target: { value: 'Northumberland' } });
@@ -586,17 +633,19 @@ describe('WindowFirstShell — the four-day location sheet', () => {
       expect(screen.queryByTestId('window-sheet')).toBeNull();
     });
 
-    it('⚠️ closes it for search\'s WINDOW pick, which would otherwise land on nothing visible', async () => {
-      // Search closes, `openWindowKey` moves, and the sheet is still on top — so from the reader's
-      // side choosing a window did nothing until the next Escape.
+    it('⚠️ moves the popup for search\'s WINDOW pick, and leaves nothing stacked over it', async () => {
+      // Search closes and `openWindowKey` moves; anything stacked would sit on top of the window
+      // just chosen, so from the reader's side choosing it would have done nothing until the next
+      // Escape.
       renderShell();
-      await openStackedSheet();
+      await openPopup();
       fireEvent.click(screen.getByTestId('window-first-search'));
       const input = await screen.findByTestId('plan-search-input');
       fireEvent.change(input, { target: { value: 'Fri' } });
       fireEvent.click(screen.getAllByRole('option')[0]);
       expect(screen.queryByTestId('location-sheet')).toBeNull();
       expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
+      expect(screen.getByTestId('window-sheet')).not.toHaveAttribute('inert');
     });
   });
 

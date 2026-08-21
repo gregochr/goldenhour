@@ -166,11 +166,15 @@ describe('spreadTitle — what the tooltip may claim', () => {
     expect(spreadTitle(buildSpread([]), true)).toBe('Nothing within reach for this window.');
   });
 
-  it('says nothing is within reach for an empty pool however the reach word resolved', () => {
-    // One sentence, not two. `poolWithinReach([])` is true by `Array.every`, and the only caller
-    // derives both arguments from one pool — so a second branch could be reached only by a test
-    // that mismatched them, which is a dead branch dressed as coverage.
-    expect(spreadTitle(buildSpread([]), false)).toBe('Nothing within reach for this window.');
+  it('⚠️ drops the reach word for an empty pool when the caller says reach did not act', () => {
+    // TWO sentences, and this was one until M5. The old comment argued the second branch was dead —
+    // `poolWithinReach([])` is true by `Array.every`, so the only caller always arrived with the
+    // word available. That is exactly the problem: for a reader with no home postcode nothing was
+    // gated by distance at all (an unknown drive passes every tier, plan §2.5), so an empty pool
+    // means this window has no sky-gated slots and "within reach" blames a control that did nothing.
+    // §6 clause 7. The caller now answers from the card's own `reachMeasured`, which is the same
+    // field `bestReachLine` reads for its own empty word.
+    expect(spreadTitle(buildSpread([]), false)).toBe('Nothing to show for this window.');
   });
 
   it('singularises a pool of one', () => {

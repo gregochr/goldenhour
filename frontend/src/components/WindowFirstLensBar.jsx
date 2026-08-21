@@ -139,7 +139,7 @@ LensSegment.propTypes = {
  *        is unchanged.
  */
 export default function WindowFirstLensBar({
-  lens, ratingLens, spotCount, reachedCount = spotCount, windowCount,
+  lens, ratingLens, spotCount, reachedCount = spotCount, windowCount, reachMeasured = true,
   originBase = null, stuck = false,
 }) {
   const {
@@ -147,7 +147,7 @@ export default function WindowFirstLensBar({
     resetToDefault, defaultFromOrigin,
   } = lens;
   const isMobile = useIsMobile();
-  const count = formatLensCount({ spotCount, reachedCount, windowCount });
+  const count = formatLensCount({ spotCount, reachedCount, windowCount, reachMeasured });
 
   return (
     <div
@@ -236,6 +236,7 @@ export default function WindowFirstLensBar({
               originDefault: Boolean(defaultFromOrigin),
               ratingLabel: ratingLens.floor?.label,
               spotCount,
+              reachMeasured,
               reachedCount,
               windowCount,
             })}
@@ -268,6 +269,12 @@ WindowFirstLensBar.propTypes = {
   /** The away origin's base town, or null at home. */
   originBase: PropTypes.string,
   spotCount: PropTypes.number.isRequired,
+  /**
+   * Whether ANY drive time exists for the reach tier to gate on — false for a reader with no home
+   * postcode. Withholds the "within reach" wording from the readout, never the numbers. §6 clause 7:
+   * "no count describes a set that was never filtered". Defaults true, the pre-M5 wording.
+   */
+  reachMeasured: PropTypes.bool,
   /** Defaults to {@code spotCount} — with no floor set the two are equal and no "of N" is drawn. */
   reachedCount: PropTypes.number,
   windowCount: PropTypes.number.isRequired,

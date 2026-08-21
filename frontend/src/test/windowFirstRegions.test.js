@@ -385,6 +385,30 @@ describe('activeFilterClauses', () => {
       regionName: null, minRating: null, ratingLabel: null, limitMinutes: 90, tierLabel: '1h 30min',
     })).toEqual(['within 1h 30min']);
   });
+
+  it('⚠️ withholds the tier when NO drive time exists for it to gate on', () => {
+    // §6 clause 7, measured on the running app at M5 with a fresh account: with no home postcode
+    // there are no drive times, an unmeasured spot passes every tier (plan §2.5 — absence means
+    // unknown, never out of reach), and the popup's footer read `· within 45 min` over all 209 of
+    // them. The threshold is present, so every test above still passes; what was missing is whether
+    // the axis could act at all.
+    expect(activeFilterClauses({
+      regionName: 'Coast',
+      minRating: 4,
+      ratingLabel: '4★+',
+      limitMinutes: 45,
+      tierLabel: '45 min',
+      reachMeasured: false,
+    })).toEqual(['Coast', '4★+']);
+  });
+
+  it('keeps the tier when the flag is not supplied at all', () => {
+    // The default is `true`: a caller that cannot answer the question gets the pre-M5 wording rather
+    // than silently losing a clause that IS in force.
+    expect(activeFilterClauses({
+      regionName: null, minRating: null, ratingLabel: null, limitMinutes: 45, tierLabel: '45 min',
+    })).toEqual(['within 45 min']);
+  });
 });
 
 describe('buildRegionSeries', () => {

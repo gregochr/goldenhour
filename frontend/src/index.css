@@ -1842,8 +1842,15 @@ button.wf-hc.on:hover {
   padding-top: 2px;
 }
 /* The channel's own lifted ink, from the same five-channel map the window row's badges use, so a
-   topic keeps one colour across the arm. `plain` is the unrecognised-kind fallback and takes chrome
-   ink rather than being forced into the nearest channel — a colour names a claim. */
+   topic keeps one colour across the arm. `plain` takes chrome ink rather than being forced into the
+   nearest channel — a colour names a claim.
+
+   ⚠️ `plain` is NOT "shouldn't happen". `badgeChannel` matches by SUBSTRING, so six recognised,
+   badge-capable kinds land there — INVERSION, DUST, BLUEBELL, EQUINOX, METEOR, SUPERMOON — including
+   two of the rarest things this app can show. The deleted `.wf-promo[data-channel='plain']` block
+   carried that warning and M5 moved it here rather than letting it go with the strip, because the
+   misreading it corrects ("unrecognised, so give supermoon a hue of its own") is the one a future
+   editor would act on. */
 /* ⚠️ IT MUST CLIP ITSELF, because the card no longer clips it. `.wf-hc` is `overflow: visible` so
    the pick legend can ride the border, and these labels are `nowrap` — so a long one ("Snow mist &
    hoar frost" is ~139px at this size) would spill out of a ~137px card at 640px, or a ~161px paired
@@ -2158,6 +2165,16 @@ button.wf-hc.also.on:hover {
 .wf-rr.on {
   background: rgba(201, 162, 75, 0.1);
   border-color: rgba(201, 162, 75, 0.55);
+  /* ⚠️ A NON-COLOUR token for the selected state — SC 1.4.1 (Use of Color, Level A), which is a
+     different question from the 3:1 contrast reasoned about above (1.4.11 asks "is the indicator
+     visible", 1.4.1 asks "is colour the only channel"). The comment above says it itself: this
+     border was "the ENTIRE visual selection signal for a region cell", and only its HUE changes on
+     selection — invisible to deuteranopia and protanopia against bone-on-panel, and to anyone on a
+     poorly calibrated display. An inset bar rather than a wider border, because `border-left-width`
+     would shift the cell's content by 2px on every pick and the whole point of this surface is that
+     the furniture does not move. `.wf-rr.on` is (0,2,0) and the verdict stripes below are doubled to
+     beat it, so this rides `box-shadow` and leaves `border-left-color` to them. */
+  box-shadow: inset 3px 0 0 0 rgba(201, 162, 75, 0.55);
 }
 .wf-rr[data-verdict="WORTH_IT"] { border-left-color: var(--color-verdict-go); }
 .wf-rr[data-verdict="MAYBE"] { border-left-color: var(--color-verdict-marginal); }
@@ -2753,7 +2770,14 @@ button.wf-hc.also.on:hover {
    on the panel that mounts them and reaches them by descent. Same 60px, same derivation, and it
    tracks the bar's height exactly as the block below does. */
 .wf-door-panel :is(a[href], button, [tabindex]:not([tabindex='-1'])) {
-  scroll-margin-top: var(--wf-lens-reserve, 60px);
+  /* ⚠️ 188, not the 60 this was until M5. The two other fallback sites moved at M3 and this one was
+     missed: 60px was derived from the PRE-M3 bar height (53.5 + a focus ring), and M3 made the
+     masthead sticky, so the reservation became masthead + bar + ring — 128 + 53.5 + 6. The variable
+     is written by `useLensReserve` on mount, so this only bites at first paint or in a build where
+     that effect never runs — but that is exactly when a reader may already be tabbing, and 60px
+     against ~188px of sticky chrome parks a focusable HeatmapGrid cell entirely underneath the
+     masthead (WCAG 2.4.11). */
+  scroll-margin-top: var(--wf-lens-reserve, 188px);
 }
 /* `.heatmap-cell-hoverable:hover` is `z-index: 40` and `.wf-lens` is `z-index: 20` — values that
    never met until P9 put the grid underneath a sticky bar. A hovered cell painted OVER the bar and,
@@ -3260,7 +3284,6 @@ button.wf-hc.also.on:hover {
 .wf-film-all,
 .wf-clash-act,
 .wf-door,
-.wf-promo-go,
 /* P3's rail cells. They now sit inside the window popup, which is a fixed overlay the sticky bar
    does not overlap — so the reservation is inert there rather than wrong, and it is kept because
    `.wf-rr` is one class and the popup is not the only thing that could ever mount it. */
@@ -3350,11 +3373,16 @@ button.wf-hc.also.on:hover {
   border-left: 2px solid var(--color-tide);
   background: rgba(111, 168, 176, 0.055);
 }
-.wf-frow-snow {
-  border-color: rgba(183, 203, 216, 0.26);
-  border-left-color: var(--color-snow);
-  background: rgba(183, 203, 216, 0.05);
-}
+/* ⚠️ THERE IS NO `.wf-frow-<channel>` RULE, and the base above carries the tide look directly.
+   `.wf-frow-snow` lived here until M5 swept it: the snow row promotion died at M2 (§7's ledger lists
+   the class among what went with it) and `buildWindowRows` has hard-coded `channel: 'tide'` ever
+   since, so nothing had emitted the class for three phases.
+
+   `WindowAttributeRow` still interpolates `wf-frow-${row.channel}`, which therefore names a class no
+   rule defines. That is harmless today and is a trap for the next channel: when the surge or
+   clearance row `windowFirstRows.js` promises arrives, it will render in the TIDE colours — a colour
+   naming the wrong claim, which is the failure `.wf-hc-tw`'s own comment warns about. Whoever adds
+   it should lift the three values above into a `.wf-frow-tide` rule at the same time. */
 .wf-frow-k {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -3369,7 +3397,6 @@ button.wf-hc.also.on:hover {
      (below): 10.99:1, and 9.92:1 on the lead card. */
   color: var(--color-badge-tide);
 }
-.wf-frow-snow .wf-frow-k { color: var(--color-badge-snow); }
 
 /* The chart's box is fixed at exactly its viewBox, so nothing scales and the window mark stays a
    circle — `WindowTideSparkline` carries the whole argument. `overflow: visible` is what lets the
@@ -3417,259 +3444,6 @@ button.wf-hc.also.on:hover {
   /* The row's least-critical chip drops here, the same treatment `.hot-topic-facts .opt` gets and
      for the same reason — the line stays to what the window is actually about. */
   .wf-facts .opt { display: none; }
-}
-
-/* ── Window-first promoted strip (design README §3, mock `.promo` :82-99) ──
-   The louder sibling of `.wf-frow` above, and deliberately the same grammar: a channel-coloured
-   left edge, a 1px frame tinted from it, and a wash of it behind. The row is 2px/0.28/0.055; this
-   is 3px/0.40/0.07, which is ~1.4× the emphasis and is what makes it read as the pane's lede rather
-   than as a card that wandered up the list.
-
-   ⚠️ NOT `.wf-strip` — that name is already the spot film strip, and reusing it would silently hand
-   this element `position: relative`, `padding: 0 10px` and both of its edge-fade pseudo-elements.
-
-   Sits inside `.wf-body`, so the arm's `--wf-gutter` and the pane's 10px gap place it: it carries no
-   horizontal margin and must not hardcode 18px. "Full-width" means full width INSIDE that gutter —
-   a true bleed would need a negative margin and would be the one element in the arm breaking the
-   shared left edge. */
-.wf-promo {
-  /* One accent and one ink per channel, set here and consumed by every rule below, so adding a
-     channel is one declaration rather than five. Every token is referenced by its WHOLE name inside
-     a real `var()`: a name assembled from a prefix and a variable is invisible to Tailwind v4's
-     scanner and is emitted as the empty string however many times it is used — see the `@theme`
-     block's own note, which records `--color-plex-panel` failing exactly that way in a browser. */
-  --promo-accent: var(--color-tide);
-  --promo-ink: var(--color-badge-tide);
-  border: 1px solid color-mix(in oklch, var(--promo-accent) 40%, transparent);
-  border-left: 3px solid var(--promo-accent);
-  border-radius: 11px;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in oklch, var(--promo-accent) 7%, transparent),
-      transparent 70%
-    ),
-    var(--color-plex-panel);
-  overflow: hidden;
-}
-.wf-promo[data-channel='snow'] {
-  --promo-accent: var(--color-snow);
-  --promo-ink: var(--color-badge-snow);
-}
-.wf-promo[data-channel='nlc'] {
-  --promo-accent: var(--color-nlc);
-  --promo-ink: var(--color-badge-nlc);
-}
-.wf-promo[data-channel='eclipse'] {
-  --promo-accent: var(--color-eclipse);
-  --promo-ink: var(--color-badge-eclipse);
-}
-/* Aurora has no CHANNEL token of its own, and this change does not author one.
-   ⚠️ A token holding exactly this hue does exist — `--color-verdict-go: #8AAE72` (:42) — and it must
-   NOT be borrowed here. Verdict colours are semantic and consistent in every location (§6 clause 5),
-   and the §6 sweep's most recent fix was removing the one expression in the tree that mixed the
-   verdict and badge families; pointing a topic-channel accent at a verdict token would put it
-   straight back. Minting `--color-aurora` instead would give the arm a second definition of a hue
-   the window card's badge map and the pick badge already spell as `rgba(138,174,114,…)` literals.
-   So: the literal, matching its two existing spellings, with the reason written down. */
-.wf-promo[data-channel='aurora'] {
-  --promo-accent: #8aae72;
-  --promo-ink: var(--color-badge-go);
-}
-/* The neutral frame, and it is NOT only the unknown-kind fallback — saying so would misdescribe
-   the branch. `badgeChannel` maps to a channel by substring, so six RECOGNISED, badge-capable kinds
-   land here too: INVERSION, DUST, BLUEBELL, EQUINOX, METEOR and SUPERMOON — including the two
-   rarest, so a rank-1 supermoon coincidence takes this accent and not a bright one. That is the
-   intended behaviour for the reason `badgeChannel` gives (a channel colour names a claim, and a
-   wrong colour is a wrong claim), but the next person reading `plain` as "shouldn't happen" would
-   be wrong about half the vocabulary. Unrecognised kinds land here as well, additively and
-   quietly. */
-.wf-promo[data-channel='plain'] {
-  --promo-accent: var(--color-plex-border-light);
-  --promo-ink: var(--color-plex-text-secondary);
-}
-
-.wf-promo-h {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 11px 14px 8px;
-  flex-wrap: wrap;
-}
-/* Measured on the running app against the composite this actually renders on — the accent at 7%
-   over `--color-plex-panel`, i.e. the gradient's strongest point, which is where the kicker sits:
-   9.06:1 on the tide variant. Measured rather than inferred from `.wf-frow`'s 9.27:1, because that
-   figure is the same ink on a DIFFERENT fill and quoting it here would record a pairing that never
-   appears — the mistake this arm made once already. */
-.wf-promo-k {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  color: var(--promo-ink);
-}
-/* 15.5px, not the design's 14.5px. This file already refused a fourth heading size once, in
-   writing, when the Coming-up card's title came in at 15px — the arm has three (15.5 / 13.5 / 12.5)
-   and 14.5 appears nowhere in `src/`. 15.5 is the size `.wf-sheet-t` and the OPEN window card use,
-   which is the right weight for the pane's topmost element. */
-.wf-promo-t {
-  font-size: 15.5px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  color: var(--color-plex-text);
-}
-.wf-promo-time {
-  font-family: var(--font-mono);
-  font-size: 13.5px;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: var(--color-plex-text);
-}
-/* The design's flexible rule. On a coincidence strip nothing follows it — the mock's right-hand
-   meta counts our own data and is not built (see the component's Javadoc) — so it closes the
-   header. On a solo-rarity strip the recurrence line follows it, and it does the job the mock gives
-   it: separating the title group from the quiet meta at the far end. */
-.wf-promo-rule {
-  flex: 1;
-  min-width: 12px;
-  height: 1px;
-  background: var(--color-plex-border);
-}
-/* The recurrence line. Mono 10px at the muted tier — the design's own weighting, and the point of
-   it: a once-in-a-lifetime claim that shouted would read as marketing. `--color-plex-text-secondary`
-   rather than the design's `--ink-3`, for the tenth time on this redesign and the same reason —
-   muted lands in the 3.4-3.5:1 band at this size on every surface in this arm. */
-.wf-promo-rare {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--color-plex-text-secondary);
-  white-space: nowrap;
-}
-/* The promoted topic's own sentence. Serif italic, matching `.tr-foot .phrase` — this arm's
-   established treatment for an editorial line among measured ones, so it reads as a remark rather
-   than as another figure. Not right-aligned as the design has it: at this width the mock's 250px
-   right-aligned column leaves a ragged gap under the figures, and the sentence belongs with them. */
-.wf-promo-why {
-  font-family: var(--font-serif);
-  font-style: italic;
-  font-size: 12.5px;
-  line-height: 1.45;
-  color: var(--color-plex-text-secondary);
-  padding: 0 14px 11px;
-}
-
-.wf-promo-b {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 20px;
-  padding: 0 14px 11px;
-}
-.wf-promo-fig {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  /* `--color-plex-text-secondary`, not the design's `--ink-3`. NINTH time on this redesign; muted
-     lands in the 3.4–3.5:1 band at this size on every surface in this arm, and `--color-plex-panel`
-     — which this strip sits on — is recorded as no exception. Measured here at **6.88:1**, with the
-     0.66 alpha composited over the panel rather than treated as opaque; the value ink below is
-     14.45:1 and the footer's action 10.47:1 on its own darker fill. ⚠️ The first run of that
-     measurement read 14.45 for BOTH this and the value, because it compared a translucent
-     foreground as if it were solid — a mistake that inflates exactly the tone this project keeps
-     having to correct. Composite the foreground too. */
-  color: var(--color-plex-text-secondary);
-}
-.wf-promo-fig-k { display: block; }
-.wf-promo-fig-v {
-  display: block;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--color-plex-text);
-}
-
-.wf-promo-foot {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 14px;
-  border-top: 1px solid var(--color-plex-border);
-  /* 0.2, matching `.wf-sheet-foot`, rather than the design's 0.18. The arm already ships two footer
-     fills (0.20 and 0.16) and the design's value sits between them; a third would be one more thing
-     to keep in step for a difference nobody can see. */
-  background: rgba(0, 0, 0, 0.2);
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--color-plex-text-secondary);
-  flex-wrap: wrap;
-}
-/* `--color-badge-tide`, the arm's actionable accent — the same ink as `.wf-door-ar` and
-   `.wf-film-all` — and NOT the strip's own channel. An action's colour means "this is actionable";
-   tinting it by channel would make the one control on a snow strip look like a different kind of
-   control from the identical one on a tide strip. `cursor` is explicit because Tailwind v4's
-   Preflight no longer sets it on buttons, an omission this arm has shipped twice. */
-/* The safety warning. `--color-badge-eclipse` is the design's warning tone and is the ONE place a
-   channel colour is right on the foot: unlike `.wf-promo-go`, this is not a control whose colour
-   means "actionable" — it is a hazard belonging to the subject, and the subject is the eclipse.
-   Measured 8.1:1 on the foot's own rgba(0,0,0,0.2) over the panel. It wraps rather than truncating,
-   because a warning that ends in an ellipsis is not a warning. */
-.wf-promo-warn {
-  color: var(--color-badge-eclipse);
-  white-space: normal;
-}
-.wf-promo-go {
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--color-badge-tide);
-  background: none;
-  border: none;
-  padding: 2px 0;
-  white-space: nowrap;
-  cursor: pointer;
-}
-.wf-promo-go:hover { text-decoration: underline; }
-.wf-promo-go:focus-visible {
-  outline: 2px solid var(--color-plex-gold);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-
-@media (max-width: 639px) {
-  .wf-promo-h {
-    padding: 10px 12px 7px;
-    gap: 8px;
-  }
-  /* ⚠️ The kicker takes its own row, and without this the header wrapped by LABEL LENGTH. The mock
-     ports two of its three phone rules for this header; the third
-     (`.wrap.mob .ph .t{flex-basis:100%;order:2}`) was missed, and the comment here used to assert
-     the layout it would have produced. Measured at 390px before the fix: `King tide × Aurora` +
-     `Thursday sunset` shared row 1 and the clock stranded alone on row 2, while a shorter pair put
-     all three on one dense line and a longer one stacked — three layouts at one width, chosen by
-     how long the topic names happened to be. The basis goes on the KICKER rather than the mock's
-     title because the kicker is the variable-length part (two or three topic labels) and the
-     title+time pair is exactly what the window card's own phone header keeps together; the mock's
-     `order: 2` is not ported, as it would move the window's name BELOW its own clock. */
-  .wf-promo-k { flex-basis: 100%; }
-  /* The same thing the window card's header loses at this width, and for the same reason: with the
-     kicker on its own row there is no gap left for a rule to fill. */
-  .wf-promo-rule { display: none; }
-  /* The rule above is what pushed the recurrence line to its own end of the header, and it is gone
-     at this width — so the line takes a row of its own and is allowed to wrap.
-
-     ⚠️ Both declarations are load-bearing and were measured, not assumed. Without them the line
-     stayed `nowrap` on one row: at 375px it ran 37px past the strip's own right edge, clipped by
-     the frame's `overflow: hidden` so the sentence simply ended mid-word with no scrollbar and
-     nothing on the page to indicate anything was missing. The page itself did not overflow, which
-     is why nothing else showed it. */
-  .wf-promo-rare {
-    flex-basis: 100%;
-    white-space: normal;
-  }
-  .wf-promo-why { padding: 0 12px 10px; }
-  .wf-promo-b {
-    padding: 0 12px 10px;
-    gap: 14px;
-  }
-  .wf-promo-foot { padding: 7px 12px; }
 }
 
 /* ── Window-first spot film strip ──
@@ -5114,15 +4888,23 @@ button.wf-hc.also.on:hover {
    which `WindowRowFieldMap`'s chip block still promises it avoids. The wrapper stays inert either
    way, so a click BETWEEN chips always reaches the canvas and selects a region.
 
-   ⚠️ WCAG 2.5.8 (target size) is met through the EQUIVALENT exception, not the minimum-size arm: at
-   9px × 1.35 + 4 the chip is ~16px tall and `BOX_GAP = 3` puts neighbours ~19px apart, so neither
-   the 24px arm nor the Spacing exception is satisfied on its own. Every chipped location also
-   appears on a full-size `WindowSpotCard` in the ranked strip of the same dialog, which is the
-   equivalent control the exception asks for — and is this component's own standing doctrine that
-   the picture is "never the sole path to anything". The one gap in that equivalence is a live
-   region focus, which filters the strip but only ORDERS the chips; clearing it is a named button on
-   the rail. Sizing the plate to 24px instead was rejected: it is a map annotation, and a 50% taller
-   plate drops chips the placer can currently fit. M5's accessibility pass owns the final call. */
+   ⚠️ WCAG 2.5.8 (target size) is met through the SPACING exception since M5, and this paragraph used
+   to say Equivalent — read the new one, because the old rationale sends you to the wrong lever. At
+   9px × 1.35 + 4 the chip is ~16px tall, so it is an undersized target either way and only an
+   exception can carry it. M4 rested on **Equivalent** (every chipped place is also a full-size
+   `WindowSpotCard` in the same dialog) and named one gap; M5 measured that gap rather than arguing
+   about it, and it was real — with a region focused the ranked strip filters to that region while
+   the chips only re-order, so **two of six chips named places with no card in the dialog at all**
+   and the exception simply did not apply to them.
+
+   So the case is **Spacing** now, which depends on nothing but geometry and cannot be broken by what
+   another component happens to be showing: `MIN_TARGET_SEPARATION_PX` (24) in `WindowRowFieldMap`
+   keeps 24px between chip CENTRES, which is exactly what the criterion asks. ⚠️ It is a second,
+   differently shaped test BESIDE `BOX_GAP` rather than a bigger `BOX_GAP`, and it applies between
+   chips only — this rule's own `pointer-events: none` siblings are not targets. Sizing the plate to
+   24px instead stays rejected: it is a map annotation, and a 50% taller plate drops chips the placer
+   can fit. Measured cost of the separation rule on the seeded roster: nothing — one pair moved, five
+   chips still drawn. */
 button.wf-mchip {
   pointer-events: auto;
   cursor: pointer;
@@ -5475,19 +5257,20 @@ button.wf-mchip:hover {
   padding: 7px 11px;
 }
 /* ⚠️ The CHANNEL tokens on the stripe, never the `--color-badge-*` family: `@theme static`'s own
-   note says "never use a `--color-badge-*` as a fill or a border", and the promoted strip eight
-   pixels up the page already draws the same channels with `--color-tide`/`--color-snow`/
-   `--color-nlc`/`--color-eclipse`. Two hues for one channel in one scroll is what the rule exists
-   to stop. Aurora has no channel token of its own and takes the verdict green the strip gives it.
+   note says "never use a `--color-badge-*` as a fill or a border". ⚠️ The matrix card's own topic
+   chips (`.wf-hc-tw`) are NOT a witness for that, and an earlier draft of this comment cited them:
+   they set `--color-badge-*` as INK, which is the legal use. Since the promoted strip went at M5
+   this block is the only place in the arm that draws a channel as an ACCENT, so the rule is written
+   out here rather than cross-referenced to a deleted selector.
 
-   One custom property per channel and one declaration that uses it, which is the shape
-   `.wf-promo`'s own comment asks for — adding a channel is then one line here rather than one in
-   each of the three blocks this arm now has.
+   One custom property per channel and one declaration that uses it — adding a channel is then one
+   line here rather than one in each of the blocks this arm now has. (The promoted strip was a third
+   such block and stated the same rule at length; it went at M5 with the strip itself, so the
+   reasoning is written out here instead of cross-referenced to a deleted selector.)
 
-   Aurora takes the LITERAL, exactly as `.wf-promo[data-channel='aurora']` does and for the reason
-   written out there: a token holding this hue exists (`--color-verdict-go`) and must not be
-   borrowed, because verdict colours are semantic and mixing the verdict and badge families is the
-   thing the §6 sweep's last fix removed. */
+   Aurora has no channel token of its own and takes the LITERAL of the verdict green rather than
+   `--color-verdict-go` itself: verdict colours are semantic, and mixing the verdict and badge
+   families is the thing the §6 sweep's last fix removed. */
 .wf-trow[data-channel="eclipse"] { --trow-accent: var(--color-eclipse); }
 .wf-trow[data-channel="tide"] { --trow-accent: var(--color-tide); }
 .wf-trow[data-channel="nlc"] { --trow-accent: var(--color-nlc); }

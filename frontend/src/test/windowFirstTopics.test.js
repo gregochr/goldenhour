@@ -182,8 +182,8 @@ describe('windowTopics — the join', () => {
     // The fixture is deliberately REVERSE-alphabetical. An earlier cut added a label tiebreak here
     // and pinned it with an already-sorted pair, so the assertion passed on `Array.prototype.sort`'s
     // stability alone and could not tell the two orderings apart. The tiebreak is now gone —
-    // `windowFirstRows` and `windowFirstPromoted` rank the same badges on rank alone — so this
-    // fixture proves the card and the window row agree rather than proving a sort ran.
+    // `windowFirstRows` ranks the same badges on rank alone — so this fixture proves the card and
+    // the window row agree rather than proving a sort ran.
     const rows = windowTopics(
       '2026-08-05:SUNRISE',
       [
@@ -197,8 +197,9 @@ describe('windowTopics — the join', () => {
   });
 
   it('sorts a badge with NO rarity rank last', () => {
-    // `topRarityRank` is `undefined` for a payload cached before the field existed; an absent rank
-    // must not read as the rarest thing on the card.
+    // `rarityRank` is `undefined` for a badge type the rarity table has no entry for, and for a
+    // payload cached before the field existed; an absent rank must not read as the rarest thing on
+    // the card.
     const rows = windowTopics(
       '2026-08-05:SUNRISE',
       [
