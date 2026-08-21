@@ -41,8 +41,21 @@
 export const CHART_W = 104;
 export const CHART_H = 24;
 
-/** Channel glyphs. The design's own; only the tide channel builds a row today (see the header). */
-const KICKER_GLYPH = { tide: '≈', snow: '❄' };
+
+/**
+ * The tide row's kicker, as a constant.
+ *
+ * <p>⚠️ It was {@code kickerFor(channel, label)} — a channel glyph table plus a rule that prefixed
+ * the glyph only when the label did not already open with one ({@code ❄ ❄ Fresh snow} is what ships
+ * otherwise, when a label changes in a file nobody thought was related). Every branch of it became
+ * unreachable at M2, because the snow promotion was the only caller passing a PAYLOAD label and the
+ * one that survives passes two literals — CodeQL caught the residue as a trivial conditional.
+ *
+ * <p>The rule is not wrong, it simply has nothing to guard: it belongs to a label the payload
+ * supplies. <b>Bring it back with the next channel that has one</b> (surge and clearance both carry
+ * facts and no event anchor today), rather than rediscovering the double-glyph the hard way.
+ */
+const TIDE_KICKER = '≈ Tide';
 
 /** Water level → the words the row states it in. */
 const STATE_WORD = { HIGH: 'high water', MID: 'mid tide', LOW: 'low water' };
@@ -79,18 +92,6 @@ function isFinite_(value) {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
-/**
- * The kicker for a promoted topic: the channel glyph and the topic's own label.
- *
- * <p>The glyph is prefixed only when the label does not already open with one. Nothing in the snow
- * strategies carries a glyph today, but topic labels elsewhere do (`✦ NLC`), and `❄ ❄ Fresh snow`
- * is the kind of thing that ships because a label changed in a file nobody thought was related.
- */
-function kickerFor(channel, label) {
-  const glyph = KICKER_GLYPH[channel];
-  if (!glyph || !label) return label || '';
-  return /^[a-z0-9]/i.test(label.trim()) ? `${glyph} ${label}` : label;
-}
 
 /**
  * The tide row's facts, in the order the design reads them: where the water is, the extreme nearest
@@ -223,7 +224,7 @@ export function buildWindowRows(win) {
   return [{
     key: 'tide',
     channel: 'tide',
-    kicker: kickerFor('tide', 'Tide'),
+    kicker: TIDE_KICKER,
     facts: tideFacts(win.tide),
     chart: tideSparkline(win.tide),
   }];
