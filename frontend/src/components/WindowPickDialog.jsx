@@ -69,6 +69,14 @@ export default function WindowPickDialog({
       // declines the key while something sits over it, which makes a press take exactly one layer
       // (plan-matrix §6 M2.5). Defaults to true, so a caller that does not stack is unchanged.
       closeOnEscape={escapeEnabled}
+      /* ⚠️ ONE predicate, two consequences, and they must never come apart: the layer that
+         answers Escape is the layer that is not `inert`. M5 measured the alternative in a browser —
+         three `aria-modal` dialogs at once and a Tab out of the top one landing inside the popup
+         underneath — so a stacked layer holds no tab stops and leaves the accessibility tree, while
+         the top one keeps both. Derived from `escapeEnabled` rather than taking a second prop
+         precisely so a future caller cannot set one and forget the other. See `Modal`'s own note
+         for what this is NOT: it is not a focus trap, and Tab still leaves the topmost dialog. */
+      stacked={!escapeEnabled}
       data-testid="window-pick-dialog"
     >
       {/* `bare` rather than the default panel plus overrides: the panel ships `p-6 gap-4`, and this

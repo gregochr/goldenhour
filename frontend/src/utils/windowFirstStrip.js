@@ -62,7 +62,7 @@ export const AWAY_STATE_LABEL = 'Not forecast';
  * @returns {Array<{key: string, date: string, targetType: string, dow: string, sunrise: boolean,
  *   label: string, time: string, verdict: ?string, verdictLabel: string, bestRating: ?number,
  *   pickKind: ?string, away: boolean, confidence: ?string, movement: ?object, pool: Array,
- *   bestReach: ?object, badges: Array}>} descriptors
+ *   reachMeasured: boolean, bestReach: ?object, badges: Array}>} descriptors
  */
 export function buildHeatStripCards(
   upcomingEvents, windowCards, travelDayDates, briefingDays, todayStr, tomorrowStr,
@@ -139,10 +139,17 @@ export function buildHeatStripCards(
       // Empty on an away day: there is no card, so there is no pool, and the away cell draws
       // neither element rather than an empty histogram claiming nothing is in reach.
       pool: card?.pool ?? [],
+      // Whether a drive time exists for the reach tier to have gated on — one boolean, folded like
+      // everything else here rather than re-derived from a second copy of `allSpots`. It decides
+      // whether this card's own empty-pool words may say "in reach" at all; see
+      // `buildWindowCards` for the rule. False on an away day, which has no card and so no scope.
+      reachMeasured: Boolean(card?.reachMeasured),
       bestReach: card?.bestReach ?? null,
-      // BEFORE the row promotion, so the matrix names every topic on the night — the design's
-      // "nothing is collapsed behind a +2". `card.badges` is the promoted-out remainder and is the
-      // window row's set, not this one's.
+      // The payload's own list, unfiltered, so the matrix names every topic on the night — the
+      // design's "nothing is collapsed behind a +2". ⚠️ There WAS a post-promotion `card.badges`
+      // beside it, and this comment used to point at it; the snow-row promotion and that remainder
+      // list both died at M2, so nothing carries one now and a reader sent looking for it finds
+      // nothing.
       badges: card?.allBadges ?? [],
     };
   });

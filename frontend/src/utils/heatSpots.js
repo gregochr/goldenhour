@@ -210,9 +210,9 @@ export function heatPointsFor(spots, windowIndex) {
  *
  * <p><b>Keyed, not positional, and that is a correctness choice rather than a convenience.</b>
  * The shell already addresses a window by exactly this key ({@code card.key},
- * {@code revealWindow(key)}), and the two index spaces genuinely diverge:
+ * {@code openWindow(key)}), and the two index spaces genuinely diverge:
  * {@code buildWindowCards} drops travel days before building its list, {@code buildPaneItems}
- * folds away-day runs into single rows, and {@code selectUpcomingEvents} re-indexes the whole
+ * folds away-day runs into single items, and {@code selectUpcomingEvents} re-indexes the whole
  * array the moment a window passes mid-session. A positional array would also hand every caller
  * an integer that looks exactly like the {@code win} argument the kernel hosts take — see
  * {@link POINT_SCORE_INDEX} for what passing it paints.

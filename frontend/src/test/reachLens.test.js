@@ -6,6 +6,7 @@ import {
   WEEKDAY_TIER_ID,
   WEEKEND_TIER_ID,
   defaultTierIdFor,
+  formatLensCount,
   formatLensReadout,
   gateSpotsByReach,
   isFarSpot,
@@ -274,5 +275,38 @@ describe('reachLens — the readout', () => {
     // about the control rather than about the forecast.
     expect(formatLensReadout({ ...base, spotCount: 0, windowCount: 1 }))
       .toBe('45 min · weekday default · 0 spots across 1 window');
+  });
+
+  /**
+   * ⚠️ §6 clause 7 on the page's ONE count statement (§4 A7).
+   *
+   * <p>A reader with no home postcode has no drive time at all, and an unknown drive passes every
+   * tier (plan §2.5), so {@code reachedCount} is simply everything — and "within reach" then names a
+   * gate that gated nothing. M5 fixed the same claim in the window popup and an adversarial review
+   * found it still standing here, on the more prominent surface.
+   */
+  describe('when no drive time exists for the tier to gate on', () => {
+    const floored = {
+      ...base, spotCount: 42, reachedCount: 138, isDefault: false,
+    };
+
+    it('keeps BOTH numbers and drops only the claim about which set they count', () => {
+      expect(formatLensReadout(floored))
+        .toBe('45 min · 42 of 138 spots within reach across 6 windows');
+      expect(formatLensReadout({ ...floored, reachMeasured: false }))
+        .toBe('45 min · 42 of 138 spots across 6 windows');
+    });
+
+    it('says nothing different where the floor withheld nothing, because there is no claim to drop', () => {
+      // The unqualified arm never used the word, so this is a no-op there — asserted so a future
+      // edit cannot quietly make the flag mean something on a branch it has no business touching.
+      expect(formatLensReadout({ ...base, reachMeasured: false }))
+        .toBe(formatLensReadout(base));
+    });
+
+    it('defaults to the pre-M5 wording for a caller that cannot answer', () => {
+      expect(formatLensCount({ spotCount: 42, reachedCount: 138, windowCount: 6 }).rest)
+        .toContain('within reach');
+    });
   });
 });

@@ -4,7 +4,6 @@ import BrandLockup from './shared/BrandLockup.jsx';
 import MastheadLight from './shared/MastheadLight.jsx';
 import MastheadTickLine from './MastheadTickLine.jsx';
 import WindowFirstLensBar from './WindowFirstLensBar.jsx';
-import WindowFirstPromotedStrip from './WindowFirstPromotedStrip.jsx';
 import WindowFirstDoors from './WindowFirstDoors.jsx';
 import WindowFirstComingUp from './WindowFirstComingUp.jsx';
 import WindowPickDialog from './WindowPickDialog.jsx';
@@ -66,6 +65,40 @@ const WindowSheetDialog = lazy(() => import('./WindowSheetDialog.jsx'));
  * place never downloads them.
  */
 const LocationFourDaySheet = lazy(() => import('./LocationFourDaySheet.jsx'));
+
+/**
+ * Warms the three dialog chunks that can be STACKED, once the popup is open.
+ *
+ * <h2>⚠️ This is a correctness mitigation, not a speed one</h2>
+ *
+ * <p>Since M5 a covered layer is {@code inert} — and {@code stacked} is derived from the shell's
+ * intent, which is synchronous, while the layer doing the covering arrives when its chunk does.
+ * Measured in a browser with the sheet's chunk throttled to 2.5 s: for the whole fetch the page held
+ * <b>one dialog and zero live layers</b> — the popup inert (every control, the backdrop and its
+ * Escape all dead) and the sheet not yet mounted, with {@code fallback={null}} rendering nothing in
+ * between. Before M5 the popup merely declined Escape and stayed clickable, so this is a regression
+ * the {@code inert} work introduced rather than an inherited gap.
+ *
+ * <p><b>Why warming rather than a loading dialog or a mount signal.</b> A {@code Modal} fallback
+ * would flash a second loading state on every cold open for a wait that is usually zero; deferring
+ * {@code stacked} until the arriving layer reports its mount means a new prop on three components
+ * and an extra commit on the hottest interaction on the page, at the settling commit. Warming
+ * removes the window on every route that exists: a chip, a spot card, a pick badge and {@code /}
+ * are all reachable ONLY from an open popup, so the fetch has the reader's whole reading time to
+ * finish. It is idempotent (the module registry dedupes), it is fire-and-forget, and a failure is
+ * the same failure the real import would have had.
+ *
+ * <p><b>Residual, stated rather than defended against:</b> a reader who opens a window and clicks a
+ * chip inside the same few hundred milliseconds on a cold, slow connection can still reach the gap.
+ * §11 records it, and the real fix — gate {@code stacked} on the covering layer having mounted — is
+ * named there rather than smuggled in here.
+ */
+function warmStackedChunks() {
+  // Only the two that are LAZY. `WindowSpotSheet` and `WindowPickDialog` are static imports and are
+  // already in the entry graph, which is why they never show the gap.
+  import('./LocationFourDaySheet.jsx').catch(() => {});
+  import('./PlanSearch.jsx').catch(() => {});
+}
 
 /**
  * The point set a window with nothing scored gets — one frozen array rather than a fresh literal,
@@ -235,9 +268,10 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  * cells and one popup over them. So this component holds a single {@code openWindowKey} rather than
  * a per-card collapse map, and a single {@code focusedRegion} rather than one per row.
  *
- * <p>{@code buildPaneItems} survives the deletion and is still read: {@code buildPromotedStrip}
- * folds it, and it is the derivation that keeps away days accounted for. What went is the
- * <em>rendering</em> of it.
+ * <p>{@code buildPaneItems} survives the deletion and is still read — it is the empty-state line's
+ * denominator, and the derivation that keeps away days accounted for. What went is the
+ * <em>rendering</em> of it, and (at M5, with the promoted strip) its away payload: the block's
+ * label, note and window count had no reader left once nothing rendered a row for it.
  *
  * @param {function} props.onSignOut ends the session; the same handler the v1 header uses.
  * @param {Array} [props.locations] enabled locations. The regional-planner door needs its id→name
@@ -265,7 +299,7 @@ export default function WindowFirstShell({
 }) {
   const {
     heatStripCards, heatPointSets, heatSpots, reachById, regionSeries,
-    windowCards, paneItems, promotedStrip, loading, briefing, evaluationScores, scoresLoaded,
+    windowCards, paneItems, loading, briefing, evaluationScores, scoresLoaded,
     scoreIndex, scoreRows, todayStr, reachLens, ratingLens, homePlace,
     origin, setOrigin, regions, effectiveReachById,
   } = useWindowFirstBriefing();
@@ -314,6 +348,9 @@ export default function WindowFirstShell({
   const openWindow = useCallback((key) => {
     setOpenWindowKey(key);
     setFocusedRegion(null);
+    // ⚠️ Warms the two lazy chunks that can be STACKED over this popup — see `warmStackedChunks`
+    // for the measured reason. Fire-and-forget and idempotent; it is not on any render path.
+    if (key != null) warmStackedChunks();
   }, []);
   const [activeTab, setActiveTab] = useState(TABS[0].id);
   /**
@@ -555,18 +592,6 @@ export default function WindowFirstShell({
   /** Where the open window sits among the openable ones, for the popup's `‹ n/6 ›` nav. */
   const openIndex = openCard ? windowCards.indexOf(openCard) : -1;
   /**
-   * The promoted strip, unchanged.
-   *
-   * <p>⚠️ <b>Its {@code adjacent} suppression is gone, and the deletion belongs to this phase.</b>
-   * The flag existed because the strip's "Go to" control scrolled to a row, and scrolling to the
-   * element directly beneath it has no visible effect (plan §6's ban). The control now OPENS A
-   * DIALOG, which is visible wherever the window sits, so the suppression would hide the control for
-   * exactly the promoted topic most likely to be on the first window — for as long as the strip
-   * survives (it goes at M5, D-1). Recomputing it against a render order is gone with the Order
-   * control that made the render order differ.
-   */
-  const renderedStrip = promotedStrip;
-  /**
    * Each rendered window's event summary, keyed the way the pane addresses a window.
    *
    * <p>The open row's rail and band need the SERVED region records — {@code meanRating},
@@ -635,8 +660,8 @@ export default function WindowFirstShell({
    * <p>⚠️ <b>Built whenever a window is open, even with no catalogue.</b> It used to be withheld
    * wholesale when {@code heatSpots} was empty — a scores fetch that failed, a session with no
    * roster, or simply the window before {@code /api/locations} resolves — and the dialog was gated
-   * on it, so every matrix cell, the promoted strip's "Go to" and search's window rows all set
-   * state and painted nothing at all. A control with no visible effect is exactly what plan §3 rule
+   * on it, so every matrix cell and every one of search's window rows set state and painted nothing
+   * at all. A control with no visible effect is exactly what plan §3 rule
    * 14 bans, and the old card list rendered its non-field content without a catalogue. The
    * withholding belongs to the FIELD MAP alone, and the dialog does it: everything else in the
    * popup — the verdict, the prose, the topics, the tide, the ranked list — is briefing data and is
@@ -927,11 +952,11 @@ export default function WindowFirstShell({
    * <p>⚠️ <b>Page-level because the surface that used to guarantee it is gone.</b>
    * {@code BriefingWindow.Badge.safetyNote} carries the "do not look at the sun without a filter"
    * class of warning, and the window card's own comment named that card as "the ONE surface
-   * guaranteed to be on screen whenever a topic is" — the promoted strip shows only its own window
-   * and the Hot Topics door is shut on a fresh session. Deleting the card list would have put the
-   * warning behind a click, which is not somewhere a hazard notice may live. So it is stated once,
-   * above the matrix, naming its window; the popup's topic row states it again for a reader who has
-   * opened that window, exactly as the strip and the door already do.
+   * guaranteed to be on screen whenever a topic is" — the Hot Topics door is shut on a fresh
+   * session, and the promoted strip that once carried a second copy is gone (M5, D-1). Deleting the
+   * card list would have put the warning behind a click, which is not somewhere a hazard notice may
+   * live. So it is stated once, above the matrix, naming its window; the popup's topic row states it
+   * again for a reader who has opened that window, exactly as the door already does.
    *
    * <p>One line rather than one per badge: a warning is about the hazard, not about the chip, and
    * the card's own rule was already "whichever badge carries one".
@@ -1009,9 +1034,19 @@ export default function WindowFirstShell({
                 so it sits before the pair rather than between them. Absent for everyone but an
                 admin, and the gap collapses on its own. */}
             {healthPill}
+            {/* ⚠️ TAKES EVERY DIALOG DOWN FIRST, and M5 added that after measuring the alternative.
+                `UserSettingsModal` is a SIBLING of this shell in `App`, so it is outside every
+                mechanism this arm has for ordering layers: it is not a `Modal` this shell renders,
+                `stackedOverPopup` cannot see it, and it takes no `stacked` opt-in. With the window
+                popup open a keyboard reader reached this cog on the forty-second Tab (measured) and
+                got TWO `aria-modal="true"` elements with neither inert — and then one Escape press
+                closed the POPUP underneath while the settings dialog stayed up, because the popup's
+                own listener was still armed. Closing first is the rule every other route out of the
+                plan already follows (`onGoHome`, the map handoffs), and it keeps the "exactly one
+                modal" property a property of the page rather than of three of its dialogs. */}
             <button
               type="button"
-              onClick={onOpenSettings}
+              onClick={() => { openOverPopup(null); openWindow(null); onOpenSettings?.(); }}
               data-testid="window-first-settings"
               aria-label="Settings"
               className="font-mono border border-plex-border text-plex-text-muted hover:text-plex-text hover:border-plex-border-light transition-colors"
@@ -1039,16 +1074,26 @@ export default function WindowFirstShell({
           light={light}
           origin={origin ?? null}
           homePlace={homePlace}
-          onOpenSearch={() => setSearchSeed('')}
+          // ⚠️ The SAME guard the `/` shortcut carries, and M5 added it because the button did not.
+          // Measured in a browser: from an open location sheet a keyboard reader reached this
+          // control on the seventeenth Tab and opened search as a THIRD layer — and `Modal` gives
+          // every dialog `fixed inset-0 z-50`, so with equal z-index paint order is DOM order and
+          // the sheet, which renders after search, painted its scrim and its whole card OVER the
+          // search panel. The reader typed into a box behind a dead, dimmed sheet. The shortcut's
+          // own comment already settled the rule this restores — "those are already stacked on the
+          // popup, and a third layer has nowhere to go" — so the button was simply bypassing it.
+          onOpenSearch={() => { if (!stackedOverPopup) setSearchSeed(''); }}
           // ⚠️ Takes every dialog down first, since M4. The tick line keeps its tab stops while no
           // search panel is open, and `useDialogFocus` is not a trap — so a keyboard reader inside
           // an open location sheet can reach this button, and moving the origin under that sheet is
           // the case M4.3's close-then-move footer exists to rule out. One rule, every route.
           onGoHome={() => { openOverPopup(null); openWindow(null); setOrigin?.(null); }}
           onSetPostcode={onSetPostcode ?? onOpenSettings}
-          // The anchored search panel covers this row exactly, so its controls come out of the tab
-          // order while it is open — see the prop's own note on WCAG 2.4.11.
-          searchOpen={searchSeed != null}
+          // Out of the tab order for TWO reasons now, which is why the prop is no longer named for
+          // one of them. The anchored search panel covers this row exactly (WCAG 2.4.11) — and a
+          // layer stacked over the popup makes the search button refuse, so leaving it tabbable
+          // would be a control with no visible effect, which plan §3 rule 14 bans outright.
+          searchOpen={searchSeed != null || stackedOverPopup}
         />
       </div>
 
@@ -1147,6 +1192,14 @@ export default function WindowFirstShell({
           // rather than derived in the bar for the reason `spotCount` already is: the counts have to
           // be the lengths of the arrays that were drawn, and only this component can see all six.
           reachedCount={windowCards.reduce((total, card) => total + (card.reachedTotal ?? 0), 0)}
+          // ⚠️ Whether the reach axis COULD act — see `formatLensCount`. A reader with no home
+          // postcode has no drive time anywhere, so `reachedCount` is simply everything and the
+          // readout's "within reach" would name a gate that did nothing. This is the page's ONE
+          // count statement (§4 A7), so it is the most load-bearing place that claim could be
+          // wrong; an adversarial review of M5 found it still making it after the popup was fixed.
+          // Asked of `allSpots` — the origin scope BEFORE the reach gate — for the reason
+          // `WindowSheetDialog` records: the drawn set would make the wording flicker per window.
+          reachMeasured={windowCards.some((card) => card.reachMeasured)}
           windowCount={windowCards.length}
           originBase={origin?.baseName ?? null}
         />
@@ -1261,10 +1314,6 @@ export default function WindowFirstShell({
             onSearchRegion={(regionName) => setSearchSeed(regionName)}
           />
         </Suspense>
-
-        {renderedStrip && (
-          <WindowFirstPromotedStrip strip={renderedStrip} onOpenWindow={openWindow} />
-        )}
 
         {!loading && paneItems.length === 0 && (
           <p
@@ -1575,15 +1624,26 @@ export default function WindowFirstShell({
           time={openPick.time}
           escapeEnabled={searchSeed == null}
           onClose={() => openOverPopup(null)}
+          // ⚠️ `openWindow(null)` TOO, and this is the third of the three routes to the map — the
+          // two sheets got it at M4 and this one was missed. `MapOverlay` is itself an `aria-modal`
+          // dialog with an unconditional document Escape listener and it is NOT a `Modal`, so it
+          // takes no `stacked` opt-in; and the instant `openPick` clears, `stackedOverPopup` goes
+          // false and the popup re-arms its own listener and re-takes `aria-modal`. Leaving it
+          // mounted therefore puts two modals on the page with the lower one fully tab-reachable
+          // under the overlay, and makes one press close both — the whole of what M5's stacking
+          // work exists to prevent, defeated on a pointer route. The reader has arrived at a
+          // destination, which ends the browsing.
           onShowRegion={() => {
             onShowOnMap?.({
               region: openPick.pick.regionName, date: openPick.date, eventType: openPick.targetType,
             });
-            setOpenPick(null);
+            openOverPopup(null);
+            openWindow(null);
           }}
           onShowLocation={() => {
             onShowOnMap?.(openPick.date, openPick.targetType, openPick.pick.locationName);
-            setOpenPick(null);
+            openOverPopup(null);
+            openWindow(null);
           }}
         />
       )}

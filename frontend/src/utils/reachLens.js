@@ -227,13 +227,26 @@ export function gateSpotsByReach(spots, limitMinutes) {
  * in several of them — it means cards, and there are exactly that many on the page.
  *
  * @param {object} args
+ * <p>⚠️ <b>The "within reach" wording is withheld where the reach axis cannot have acted</b>, which
+ * is a reader with no home postcode: every drive time is unknown, an unknown drive passes every tier
+ * (plan §2.5 — absence means unknown, never out of reach), and so {@code reachedCount} is simply
+ * everything. Naming a gate that gated nothing is §6 clause 7's own sentence ("no count describes a
+ * set that was never filtered"), and this is the page's ONE count statement (§4 A7), so it is the
+ * most load-bearing place the claim could have been wrong. Found by an adversarial review of M5,
+ * which had fixed the same claim in the window popup and stopped there. The two NUMBERS are
+ * unchanged — what goes is the assertion about which set the denominator is.
+ *
  * @param {number} args.spotCount    spots drawn across every window, after both gates
  * @param {number} args.reachedCount spots the rating floor chose from — after reach, before rating
  * @param {number} args.windowCount  windows drawn
+ * @param {boolean} [args.reachMeasured] whether any drive time exists for the tier to gate on.
+ *        Defaults {@code true}, the pre-M5 wording, for a caller that cannot answer
  * @returns {?{lead: string, rest: string}} the number to emphasise and the rest, or null when there
  *          are no windows to count across
  */
-export function formatLensCount({ spotCount, reachedCount, windowCount }) {
+export function formatLensCount({
+  spotCount, reachedCount, windowCount, reachMeasured = true,
+}) {
   if (!(windowCount > 0)) return null;
   const windows = `${windowCount} window${windowCount === 1 ? '' : 's'}`;
   if (spotCount < reachedCount) {
@@ -252,7 +265,9 @@ export function formatLensCount({ spotCount, reachedCount, windowCount }) {
     const spots = `spot${reachedCount === 1 ? '' : 's'}`;
     return {
       lead: `${spotCount}`,
-      rest: `of ${reachedCount} ${spots} within reach across ${windows}`,
+      rest: reachMeasured
+        ? `of ${reachedCount} ${spots} within reach across ${windows}`
+        : `of ${reachedCount} ${spots} across ${windows}`,
     };
   }
   return {
@@ -286,6 +301,7 @@ export function formatLensCount({ spotCount, reachedCount, windowCount }) {
  */
 export function formatLensReadout({
   tierLabel, isDefault, weekend, originDefault, ratingLabel, spotCount, reachedCount, windowCount,
+  reachMeasured = true,
 }) {
   const parts = [tierLabel];
   // ⚠️ The day word is only true while the default IS the day's. With an away origin the default
@@ -295,7 +311,7 @@ export function formatLensReadout({
   // subject, so the two read as one sentence rather than as two claims.
   if (isDefault) parts.push(originDefault ? 'default here' : `${weekend ? 'weekend' : 'weekday'} default`);
   if (ratingLabel) parts.push(ratingLabel.toLowerCase());
-  const count = formatLensCount({ spotCount, reachedCount, windowCount });
+  const count = formatLensCount({ spotCount, reachedCount, windowCount, reachMeasured });
   if (count) parts.push(`${count.lead} ${count.rest}`);
   return parts.join(' · ');
 }

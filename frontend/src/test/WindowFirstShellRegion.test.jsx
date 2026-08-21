@@ -81,6 +81,10 @@ const card = (key, date) => ({
   pick: null,
   spots: SPOTS,
   allSpots: SPOTS,
+  // The ordinary reader: a saved postcode, so the reach tier really does gate and the surfaces may
+  // say "within reach". `buildWindowCards` derives it from `allSpots`; a fixture that omitted it
+  // would put every one of these assertions on the no-postcode wording.
+  reachMeasured: SPOTS.some((s) => s?.driveMinutes != null),
   reachTotal: SPOTS.length,
 });
 

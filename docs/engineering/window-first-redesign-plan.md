@@ -2152,8 +2152,15 @@ the foreground over its backdrop too, or every muted tone flatters itself.
 - Signal copy is **stateless** — deltas computed from data alone ("clearest in 11 nights", "biggest
   tides of the month"). No per-user exposure counter: every pilot user must see the same page on the
   same night so bug reports reproduce, and silence must never mean "you have been told before".
-- **The promoted strip renders when a coincidence exists, and never more than one.** Stated this way
-  deliberately: "at most one" passes vacuously on a page that never built the strip at all.
+- ~~**The promoted strip renders when a coincidence exists, and never more than one.** Stated this way
+  deliberately: "at most one" passes vacuously on a page that never built the strip at all.~~
+  **⚠️ RETIRED 2026-08-21 — the promoted strip no longer exists.** `plan-matrix-plan.md`'s D-1
+  deleted it at M5: v3 names every topic on its own card and all six cards are above the fold, so
+  the strip's job (surfacing a coincidence above the fold) went with the shape of the page. The
+  clause is struck rather than removed because its *wording* is the useful part and still binds
+  anything that replaces it — a rule about "at most one" of something is satisfied vacuously by a
+  page that builds none, which is exactly how this clause spent a phase recorded as UNTESTED. The
+  §6a row below is struck for the same reason.
 - No invented vocabulary. No counts of our own data ("11 aligned" is a fact about the database, not
   about tonight). No jargon needing a glossary.
 - Verdict colours consistent in every location — rail, badge, pill, drilldown. Confidence decay
@@ -2184,7 +2191,7 @@ independent refuter prompted to **refute** and defaulting to REFUTED without cit
 |---|---|
 | 1 — no demo buttons / annotation cards | pass |
 | 2 — stateless copy, no exposure counter | pass |
-| **3 — promoted strip: renders on a coincidence, never more than one** | ⚠️ ~~**UNTESTED — not pass**~~ → **PASS, re-run 2026-08-11 when P7b landed.** Both halves, in the browser against a payload carrying **two** coincidences: one strip rendered, and it named the rarer pair. A no-coincidence payload rendered none. See below |
+| **3 — promoted strip: renders on a coincidence, never more than one** | ⚠️ **RETIRED 2026-08-21 — the strip was deleted (plan-matrix D-1, M5), so there is nothing left to test.** The result below is the record of the last run against a component that existed. ~~**UNTESTED — not pass**~~ → **PASS, re-run 2026-08-11 when P7b landed.** Both halves, in the browser against a payload carrying **two** coincidences: one strip rendered, and it named the rarer pair. A no-coincidence payload rendered none. See below |
 | 4 — no invented vocabulary, no counts of our own data | **1 fixed** (rail's "4 regions") |
 | 5 — verdict colours consistent; confidence decay only on the card badge | **first half: 2 fixed** (rail GO token, away hue). **Second half: superseded, not tested** — see below |
 | 6 — every footer's claimed sort and count matches what is rendered | pass |

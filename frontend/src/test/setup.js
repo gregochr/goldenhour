@@ -1,3 +1,4 @@
+import { configure } from '@testing-library/react';
 // The suite's timezone, pinned so it is a property of the repository rather than of whoever ran it.
 //
 // Nothing pinned it before, so the machine's zone decided: dev machines here are Europe/London and
@@ -69,3 +70,21 @@ if (typeof globalThis.localStorage === 'undefined' || typeof globalThis.localSto
     key(index) { return Object.keys(store)[index] ?? null; },
   };
 }
+
+/**
+ * ⚠️ Testing Library's async timeout, raised from its 1000 ms default.
+ *
+ * <p>The v2 Plan shell mounts its matrix, its window popup, its search panel and its location sheet
+ * behind {@code React.lazy} boundaries, and roughly twenty-five tests across six files begin with
+ * {@code await screen.findByTestId('wf-heat-strip')} — a wait on a real dynamic {@code import()},
+ * not on a fetch a test could gate. Isolated they resolve in single-digit milliseconds; under a full
+ * parallel run on a loaded machine three of them were measured timing out at 1000 ms while the same
+ * files passed alone in ten seconds. That is the "a green isolated run does NOT exonerate it" flake
+ * this project has been bitten by before, and the honest fix here is the timeout rather than a gate,
+ * because there is nothing to gate on: the module either has loaded or has not.
+ *
+ * <p>It is a CEILING, not a delay — a resolved boundary still returns immediately, so nothing gets
+ * slower. What it costs is that a genuinely never-appearing element now fails after four seconds
+ * instead of one.
+ */
+configure({ asyncUtilTimeout: 4000 });

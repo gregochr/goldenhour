@@ -64,6 +64,11 @@ describe('WindowFirstShell — the origin', () => {
       driveMinutes: 12,
     }],
     allSpots: [],
+    // ⚠️ TRUE even though `allSpots` is empty here: this fixture models the reader's account, not
+    // the scope, and these tests are about the origin rather than about the no-postcode wording.
+    // `buildWindowCards` derives it from a populated `allSpots`; the empty array is this file's own
+    // shortcut and would otherwise flip every "within reach" clause the origin tests read past.
+    reachMeasured: true,
     reachTotal: 1,
     reachedTotal: 1,
   };
@@ -130,7 +135,6 @@ describe('WindowFirstShell — the origin', () => {
     loading: false,
     windowCards: [CARD],
     paneItems: [{ kind: 'card', key: CARD.key, card: CARD }],
-    promotedStrip: null,
     upcomingEvents: [],
     travelDayDates: new Set(),
     reachById: new Map([[1, { driveMinutes: 220 }], [2, { driveMinutes: 40 }]]),

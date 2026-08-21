@@ -269,6 +269,14 @@ export function buildSearchGroups(query, {
 } = {}) {
   const q = fold(query);
   const groups = [];
+  /**
+   * Whether any drive time exists at all — see the window rows' `figure` caption for why.
+   *
+   * <p>Asked of the reach map the PAGE plans from, which is the same map the sub-lines read, so the
+   * box cannot caption a figure "in reach" on a row whose own sub-line has no drive to show.
+   */
+  const reachMeasured = Boolean(reachById)
+    && Array.from(reachById.values()).some((entry) => entry?.driveMinutes != null);
 
   // Windows — the resting list, and matched when typed.
   const windowRows = (windows || [])
@@ -286,8 +294,17 @@ export function buildSearchGroups(query, {
       // `cards` prop and joined on the window key to get the identical object; one field in hand
       // beats a join that could miss. Null on an away row: there is no card for a travel day, so
       // there is no pool and no head.
+      // ⚠️ The caption drops where the reach axis cannot have acted — §6 clause 7, and the fourth
+      // surface in this arm to have made the same claim. `bestReach` is the head of a pool gated by
+      // a tier that an unknown drive time passes (plan §2.5), so for a reader with no home postcode
+      // it is simply the best rated place in scope and "in reach" names a filter that never ran.
+      // The FIGURE is unchanged; only the word about how it was chosen goes. Here it matters more
+      // than elsewhere, because the caption is the only word explaining the number.
       figure: card.bestReach
-        ? { value: starFigure(card.bestReach.rating), caption: 'in reach' }
+        ? {
+          value: starFigure(card.bestReach.rating),
+          caption: reachMeasured ? 'in reach' : null,
+        }
         : null,
       action: card.away ? null : 'Open window',
       subParts: clauses([card.time, card.away ? 'Not forecast' : card.verdictLabel]),

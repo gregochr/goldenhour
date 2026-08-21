@@ -164,11 +164,16 @@ export function unratedPhrase(spread, separator = ' · ') {
  */
 export function spreadTitle(spread, withinReach) {
   const total = spread?.total ?? 0;
-  // One sentence, not two: `poolWithinReach([])` is true by `Array.every`, so an empty pool always
-  // arrives with the reach word available and a second branch here could only be reached by a
-  // caller that mismatched its two arguments. A dead branch carrying a plausible string is worse
-  // than none — it reads as covered.
-  if (total === 0) return 'Nothing within reach for this window.';
+  // ⚠️ TWO sentences, and the second is not a dead branch. `poolWithinReach([])` is true by
+  // `Array.every`, so an empty pool always arrives with the reach word available — which is exactly
+  // the problem: for a reader with no home postcode nothing was gated by distance at all (an unknown
+  // drive passes every tier, plan §2.5), so an empty pool means this window has no sky-gated slots,
+  // and "within reach" blames a control that did nothing. §6 clause 7. The caller answers it from
+  // the card's own `allSpots`, which is the same question `bestReachLine` asks eight lines away, so
+  // the tooltip and the visible line agree by construction rather than by review.
+  if (total === 0) {
+    return withinReach ? 'Nothing within reach for this window.' : 'Nothing to show for this window.';
+  }
   const lead = poolPhrase(total, withinReach);
   // Nothing rated at all is the ORDINARY state on a far-horizon window — T+4 is never evaluated —
   // so it gets a sentence of its own rather than five zeroes and a remainder clause restating the

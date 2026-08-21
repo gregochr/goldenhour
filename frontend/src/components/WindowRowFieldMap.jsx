@@ -92,6 +92,47 @@ const BOX_GAP = 3;
 const EDGE_GAP = 2;
 
 /**
+ * The minimum distance between two chip CENTRES, in px — WCAG 2.2 SC 2.5.8's Spacing exception.
+ *
+ * <h2>Why a second, differently-shaped test beside {@link BOX_GAP}</h2>
+ *
+ * <p>A chip is a real control (M4 gave it a click) and it is 16px tall, so it is an undersized
+ * target: 2.5.8 (Target Size (Minimum), AA) is then met only through one of its exceptions. M4
+ * rested the case on <b>Equivalent</b> — every chipped place is also a full-size card in the same
+ * dialog — and named the gap it leaves. M5 measured that gap rather than arguing about it: with a
+ * region focused, the ranked strip filters to that region while the chips only re-order, so
+ * <b>two of six chips named places with no card in the dialog at all</b> and the exception simply
+ * did not apply to them.
+ *
+ * <p>So the case moves to <b>Spacing</b>, which depends on nothing but geometry and therefore cannot
+ * be broken by what some other component is showing. The criterion: for each undersized target, a
+ * 24px-diameter circle centred on it must not intersect any other target's circle — which is exactly
+ * "centres at least 24px apart".
+ *
+ * <p><b>⚠️ Not a bigger {@link BOX_GAP}, and the difference is measured.</b> The box test is a
+ * separation of RECTANGLES; two chips side by side are ~96px apart at the centre and clear the
+ * criterion with 3px of clearance, while two stacked vertically are only {@code 16 + BOX_GAP} apart
+ * and do not. Raising {@code BOX_GAP} to 8 would fix the vertical case by also spending 5px of
+ * horizontal room the criterion never asked for, and the placer drops a chip that will not fit — so
+ * the cost would be paid in names on the map. In the browser this cost <b>nothing</b>: exactly one
+ * pair on the seeded roster sat under the line, at 23.4px.
+ *
+ * <p><b>⚠️ It applies BETWEEN TARGETS ONLY, and the first cut got that wrong.</b> {@code placed}
+ * holds three populations — the hint corner, the region labels, and the chips — and only the chips
+ * are controls. The other two are {@code pointer-events: none} and {@code aria-hidden}, so the
+ * criterion says nothing whatever about them, and measuring against them spends map room for a rule
+ * that does not apply. Two cases were arithmetic certainties rather than possibilities: a chip
+ * resting {@code BOX_GAP} above the 24px-tall hint corner has centres 23.1px apart, so it would have
+ * been dropped <em>unconditionally</em> — and the bottom-left of the phone projection is inside the
+ * landmass, which is exactly where a chip wants to go; a chip above or below a ~19px region label
+ * sits 20.6px from its centre and would have gone the same way. Neither is reachable from any
+ * fixture: the cap test's own ballast exists to keep labels out of the row. Found by an adversarial
+ * review of the first cut, which is why {@code target} is a flag on the box rather than an
+ * assumption about the array's contents.
+ */
+const MIN_TARGET_SEPARATION_PX = 24;
+
+/**
  * The bottom-left corner the hint chip owns, as a box the placer must avoid, in px.
  *
  * <p>Measured rather than guessed would be better and is not worth the second layout pass: the chip
@@ -113,15 +154,35 @@ const EMPTY_CHIPS = Object.freeze([]);
  * that fits keeps it and a later one that would overlap is dropped rather than drawn on top. An
  * unreadable name is worse than a missing one, and the ranked strip below the field lists every one
  * of them anyway.
+ *
+ * <p>Two tests, of two different shapes, answering two different questions — see
+ * {@link MIN_TARGET_SEPARATION_PX} for why the second cannot be folded into the first, and why it
+ * runs against {@code other.target} alone.
+ *
+ * @param {object} box    the candidate, {@code {x, y, width, height}}
+ * @param {Array}  placed everything already on the field — the hint corner, the region labels and
+ *        the chips placed so far. Only a chip carries {@code target: true}
  */
 function fits(box, placed, frameWidth, frameHeight) {
   if (box.x < EDGE_GAP || box.y < EDGE_GAP) return false;
   if (box.x + box.width > frameWidth - EDGE_GAP) return false;
   if (box.y + box.height > frameHeight - EDGE_GAP) return false;
-  return !placed.some((other) => box.x + box.width > other.x - BOX_GAP
-    && box.x < other.x + other.width + BOX_GAP
-    && box.y + box.height > other.y - BOX_GAP
-    && box.y < other.y + other.height + BOX_GAP);
+  const cx = box.x + box.width / 2;
+  const cy = box.y + box.height / 2;
+  return !placed.some((other) => {
+    // Legibility: two names must not touch — whatever kind of name either of them is.
+    const overlaps = box.x + box.width > other.x - BOX_GAP
+      && box.x < other.x + other.width + BOX_GAP
+      && box.y + box.height > other.y - BOX_GAP
+      && box.y < other.y + other.height + BOX_GAP;
+    if (overlaps) return true;
+    // Operability: two undersized TARGETS must not crowd each other. A decorative label or the hint
+    // corner is not a target, so the criterion does not reach it and neither does this.
+    if (!other.target) return false;
+    const dx = cx - (other.x + other.width / 2);
+    const dy = cy - (other.y + other.height / 2);
+    return Math.hypot(dx, dy) < MIN_TARGET_SEPARATION_PX;
+  });
 }
 
 /**
@@ -144,9 +205,15 @@ function fits(box, placed, frameWidth, frameHeight) {
  * production caller (the popup always offers the sheet), so it is a <em>default</em> rather than a
  * live mode: what it buys is that a future caller who forgets the prop gets a picture instead of a
  * field of dead buttons. The rail still names every region; the ranked strip below the dialog still
- * names every location, with its region, its drive and its departure — which is also what satisfies
- * WCAG 2.5.8 for a 16px chip, through the Equivalent exception rather than the minimum-size arm
- * ({@code index.css} carries that argument and its one gap).
+ * names every location, with its region, its drive and its departure.
+ *
+ * <p>⚠️ That redundancy is no longer what carries WCAG 2.5.8 for a 16px chip, and this paragraph
+ * used to say it was. M4 rested on the <b>Equivalent</b> exception and named one gap; M5 measured
+ * it and it was real — with a region focused the strip filters to that region while the chips only
+ * re-order, so two of six chips named places with no card in the dialog at all. The case is
+ * {@link MIN_TARGET_SEPARATION_PX}'s <b>Spacing</b> exception now, which depends on geometry alone
+ * and cannot be broken by what another component is showing. The strip is still the fuller route;
+ * it is just no longer the criterion's answer.
  *
  * <h2>The labels are DOM, not canvas</h2>
  *
@@ -486,7 +553,11 @@ export default function WindowRowFieldMap({
         flip = true;
       }
       if (!fits(box, boxes, frame.width, frame.height)) continue;
-      boxes.push(box);
+      // ⚠️ `target: true` here and NOWHERE else in this array. It is what tells `fits` that the
+      // 24px separation applies — the hint corner and the region labels above are decorations, and
+      // measuring a control's clearance against them would spend map room on a criterion that does
+      // not cover them.
+      boxes.push({ ...box, target: true });
       map.set(chip.key, { x: box.x, y: box.y, flip });
     }
     // ⚠️ A setState in an effect, and it is the case the rule's own escape hatch is for: this is a
@@ -618,6 +689,17 @@ export default function WindowRowFieldMap({
                   >
                     <i className="wf-mchip-m" aria-hidden="true" />
                     <b className="wf-mchip-n">{chip.locationName}</b>
+                    {/* ⚠️ A BARE TEXT NODE, and the placement is the whole of it — name-from-contents
+                        TRIMS each element's own contribution, so a space inside the `<b>` above or at
+                        the head of the `<em>` below is thrown away and the name computes as
+                        `Bamburgh4 stars`. Measured three ways against `dom-accessibility-api`, which
+                        is what the suite's role queries use. JSX strips whitespace-only lines between
+                        children, so this cannot be left implicit either: without it the name depended
+                        on whether the engine inserts a space for flex-blockified children, an
+                        assumption about two engines this project has already been bitten by (M4: an
+                        `aria-hidden` span between two text nodes produced `Show on mapTonight
+                        Sunset`). Same rule, same fix, as `LocationFourDaySheet`'s date box. */}
+                    {' '}
                     {chip.rating != null && (
                       // ⚠️ `spotBadgeStyle`, not the raw ramp as ink. Measured on this chip's own
                       // `rgba(14,11,9,.84)` plate, the ramp's bottom two stops come out at 3.24:1

@@ -272,14 +272,27 @@ export function buildRegionSeries(upcomingEvents, briefingDays) {
 /**
  * The filters actually in force, worded once for every surface that names them.
  *
- * <p>Two render sites read this — the band's header and the spot strip's footer — and they must say
- * the same thing in the same words, because they are eleven pixels apart on an open row. One helper
- * rather than two literals is what makes that structural instead of a convention.
+ * <p>⚠️ ONE render site reads this now — the popup's spot-strip footer. It was written for two (the
+ * band's header and the footer, eleven pixels apart on an open row), and `WindowRegionBand` went with
+ * the open row at M2. It stays a helper rather than a literal because the wording RULE it encodes is
+ * the point, not the sharing: "only what is in force", including whether the axis could act at all.
+ * The one consequence worth knowing is that {@code reachMeasured}'s default is now reachable only
+ * from a test — the single caller always passes it.
  *
  * <p><b>Only what is in force.</b> A clause for an axis gating nothing ("any rating") describes a
  * control the reader has left alone, and §6's sweep removed exactly that kind of copy from four
  * other surfaces on this arm. An empty array is therefore a real answer — no filter is in force —
  * and both callers withhold the line entirely rather than printing a bare label above nothing.
+ *
+ * <p>⚠️ <b>"In force" includes being ABLE to act, which the tier's own threshold does not answer.</b>
+ * A drive time this app does not have passes every tier (plan §2.5: absence means unknown, never out
+ * of reach), so for a reader with no home postcode the reach axis gates nothing at all — and until
+ * M5's sweep the popup's footer still read {@code · within 45 min} over all 209 spots, which is
+ * §6 clause 7's own sentence ("no count describes a set that was never filtered"). Measured on the
+ * running app with a fresh account. {@code reachMeasured} is the caller's answer to "is there a
+ * drive time anywhere in the drawn set"; it is deliberately a weaker test than the rail's
+ * {@code reachWordHolds}, which needs EVERY spot measured, because that one licenses a COUNT ("9 in
+ * reach") while this one only licenses naming a filter that did something.
  *
  * @param {object}  args
  * @param {?string} args.regionName  the selected region, or null
@@ -287,10 +300,12 @@ export function buildRegionSeries(upcomingEvents, briefingDays) {
  * @param {?string} args.ratingLabel the active floor's own word
  * @param {?number} args.limitMinutes the active tier's threshold, or null when it gates nothing
  * @param {?string} args.tierLabel   the active tier's own word
+ * @param {boolean} [args.reachMeasured] whether any drive time exists to gate on. Defaults to
+ *        {@code true}, which is the pre-M5 behaviour and what a caller that cannot answer should get
  * @returns {string[]} the clauses, region first
  */
 export function activeFilterClauses({
-  regionName, minRating, ratingLabel, limitMinutes, tierLabel,
+  regionName, minRating, ratingLabel, limitMinutes, tierLabel, reachMeasured = true,
 }) {
   const clauses = [];
   if (regionName) clauses.push(regionName);
@@ -298,7 +313,7 @@ export function activeFilterClauses({
   // "within 2h 30min" rather than the bare label, because a drive time on its own reads as a fact
   // about a place — the tier is a ceiling, and the preposition is what says so. The band's own
   // figure uses the same form for the same reason.
-  if (limitMinutes != null && tierLabel) clauses.push(`within ${tierLabel.toLowerCase()}`);
+  if (limitMinutes != null && tierLabel && reachMeasured) clauses.push(`within ${tierLabel.toLowerCase()}`);
   return clauses;
 }
 

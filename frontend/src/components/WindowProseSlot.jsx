@@ -48,15 +48,27 @@ import { movementChip } from '../utils/movement.js';
  * while keeping a region in mind) is the popup's own {@code ‹ n/6 ›} nav, which steps windows for
  * every region at once. Both are recorded in the plan's phase log as deletions rather than losses.
  *
+ * <p>⚠️ <b>The picked state's {@code N of its locations below} chip went the same way at M5's copy
+ * sweep, and it is a recorded deviation from the plan's own §5 rather than a trim.</b> Measured on
+ * the running app with a region picked, the popup said the same integer three times over about
+ * 250px, against three different wholes — {@code 9 of its locations below} in this slot,
+ * {@code Mixed conditions across 69 locations} in the served prose directly under it, and
+ * {@code · Northumberland & Tyneside · within 45 min · 9 of 209} in the strip's own footer. The
+ * middle one is the backend's sentence and the last is the footer stating what it renders, which
+ * §6 clause 6 requires. This one was the third telling, and the only one whose denominator a reader
+ * has to guess: "of its locations" invites the region's roster while the number beside it is the
+ * reach-and-rating survivor count, so the two readings differ by 60. Its job — saying the ranked
+ * list below is now this region's — is done by the footer's own active-filter clause, which names
+ * the region, and by the rail cell's selected state.
+ *
  * @param {object}   props
  * @param {object}   props.row      the region's rail row — the picked one, or the top one
  * @param {boolean}  props.picked   whether the reader chose this region, or it is simply the top
- * @param {?number}  [props.below]  how many of its locations the ranked strip is showing
  * @param {?object}  [props.bestWindow] that region's own best window, for the null line
  * @param {boolean}  [props.isCurrentWindow] whether that best window is the one already open
  */
 export default function WindowProseSlot({
-  row, picked, below = null, bestWindow = null, isCurrentWindow = false,
+  row, picked, bestWindow = null, isCurrentWindow = false,
 }) {
   const chip = picked ? movementChip(row.meanRatingDelta) : null;
   const headline = row.glossHeadline || null;
@@ -74,11 +86,6 @@ export default function WindowProseSlot({
           <>
             {chip && (
               <MovementMark chip={chip} testId="wf-prose-moved" className="wf-prose-k" />
-            )}
-            {below != null && (
-              <span data-testid="wf-prose-below" className="wf-prose-k">
-                {`${below} of its location${below === 1 ? '' : 's'} below`}
-              </span>
             )}
           </>
         ) : (
@@ -121,7 +128,6 @@ WindowProseSlot.propTypes = {
     meanRatingDelta: PropTypes.number,
   }).isRequired,
   picked: PropTypes.bool.isRequired,
-  below: PropTypes.number,
   bestWindow: PropTypes.shape({ label: PropTypes.string, time: PropTypes.string }),
   isCurrentWindow: PropTypes.bool,
 };

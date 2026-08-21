@@ -291,7 +291,129 @@ describe('WindowFirstShell — the drill-down', () => {
       expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
     });
 
-    it('takes the popup on the second press', async () => {
+    /**
+     * ⚠️ M5's containment, and it is the SAME predicate as the Escape order above.
+     *
+     * <p>The layer that answers Escape is the layer that is not {@code inert}. Both consequences are
+     * derived from one {@code escapeEnabled} prop inside each dialog for exactly that reason, so a
+     * future caller cannot set one and forget the other — and this pair of tests is what would catch
+     * them coming apart.
+     *
+     * <p>What jsdom can see is the ATTRIBUTE ({@code 'inert' in HTMLElement.prototype} is
+     * {@code false} here, so the behaviour is a no-op). The behaviour was measured in Chromium: with
+     * two layers open, twenty-four Tab presses from the top one never entered the layer beneath, and
+     * before the fix the seventeenth press reached the masthead's search button while three
+     * {@code aria-modal} dialogs stood open at once.
+     */
+    it('⚠️ makes the popup inert while the drill-down is over it, and the only modal once it goes', async () => {
+      renderShell();
+      await openSheet();
+
+      const popup = screen.getByTestId('window-sheet');
+      const sheet = screen.getByTestId('window-spot-sheet');
+      expect(popup).toHaveAttribute('inert');
+      expect(popup).not.toHaveAttribute('aria-modal');
+      expect(sheet).not.toHaveAttribute('inert');
+      expect(sheet).toHaveAttribute('aria-modal', 'true');
+
+      fireEvent.keyDown(document, { key: 'Escape' });
+      expect(screen.getByTestId('window-sheet')).not.toHaveAttribute('inert');
+      expect(screen.getByTestId('window-sheet')).toHaveAttribute('aria-modal', 'true');
+    });
+
+    it('leaves exactly ONE element claiming to be the modal, whatever is stacked', async () => {
+      // The property, stated as a count rather than per element: three dialogs can be open at once
+      // on this surface (popup, sheet, search) and the defect this replaces was that all three said
+      // `aria-modal="true"`. A screen reader resolves the stack from that attribute, so two of them
+      // is not a smaller version of the same thing — it is an unanswerable question.
+      renderShell();
+      await openSheet();
+      expect(screen.getAllByRole('dialog')).toHaveLength(2);
+      // Filtered off the ROLE query rather than `document.querySelectorAll('[aria-modal]')`: the
+      // standards' rule, and it also fails usefully — a raw selector says "0 found", this says
+      // which dialogs are on screen and which of them claims the attribute.
+      expect(screen.getAllByRole('dialog').filter((d) => d.getAttribute('aria-modal') === 'true'))
+        .toHaveLength(1);
+    });
+
+      /**
+     * ⚠️ The two masthead controls that could open a FOURTH modal, both found by an adversarial
+     * review of M5's first cut and both measured in a browser before being fixed here.
+     *
+     * <p>Neither is reachable by pointer while a dialog is up — a backdrop covers them — and both
+     * are reachable by Tab, because {@code useDialogFocus} is deliberately not a trap. The search
+     * button was reached on the seventeenth press and the settings cog on the forty-second.
+     */
+    it('⚠️ makes the DRILL-DOWN sheet inert in its turn, when search sits over it', async () => {
+      // The same predicate on a different component. `stacked={!escapeEnabled}` is derived inside
+      // each of the four dialogs, so each derivation is its own line and each can be broken on its
+      // own — an adversarial review found three of the four unpinned. This is `WindowSpotSheet`'s.
+      renderShell();
+      await openSheet();
+      await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }); });
+      await openPopup();
+      await act(async () => { fireEvent.click(screen.getByTestId('window-first-search')); });
+      await screen.findByTestId('plan-search');
+
+      expect(screen.getByTestId('window-sheet')).toHaveAttribute('inert');
+      expect(screen.getAllByRole('dialog').filter((d) => d.getAttribute('aria-modal') === 'true'))
+        .toHaveLength(1);
+    });
+
+    it('⚠️ refuses to open search while a layer is stacked, and leaves the tab order', async () => {
+      // The `/` shortcut has refused this since M3, with a comment saying why ("a third layer has
+      // nowhere to go"); the BUTTON beside it did not. What that bought, measured: `Modal` gives
+      // every dialog `fixed inset-0 z-50`, so with equal z-index paint order is DOM order, and the
+      // sheet — which renders after search — painted its scrim and its whole card over the search
+      // panel. The reader typed into a box behind a dead, dimmed sheet.
+      renderShell();
+      await openSheet();
+
+      const search = screen.getByTestId('window-first-search');
+      expect(search.tabIndex).toBe(-1);
+      await act(async () => { fireEvent.click(search); });
+
+      // ⚠️ Asserted on the SHEET's own state, not on search's absence. `PlanSearch` is `lazy()`, so
+      // a `queryByTestId(...).toBeNull()` immediately after the click is satisfied by the chunk not
+      // having resolved yet and survives the guard being deleted — measured. `stacked` is a plain
+      // prop on a dialog that is already mounted, so it flips in the same commit as `searchSeed`
+      // and there is nothing to wait for: if the guard goes, the sheet goes inert right here.
+      expect(screen.getByTestId('window-spot-sheet')).not.toHaveAttribute('inert');
+      expect(screen.getByTestId('window-spot-sheet')).toHaveAttribute('aria-modal', 'true');
+      expect(screen.queryByTestId('plan-search')).toBeNull();
+    });
+
+    it('still opens search over the popup ALONE, which is the stack M3 designed for', async () => {
+      // The other half, and the reason the guard is `stackedOverPopup` rather than "any dialog":
+      // search is anchored to the masthead, which the popup is drawn OVER rather than inside, so
+      // this pair is the one stack this arm supports. A guard that broke it would be a regression
+      // dressed as a fix.
+      renderShell();
+      await openPopup();
+
+      const search = screen.getByTestId('window-first-search');
+      expect(search.tabIndex).not.toBe(-1);
+      await act(async () => { fireEvent.click(search); });
+      expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
+      expect(screen.getAllByRole('dialog').filter((d) => d.getAttribute('aria-modal') === 'true'))
+        .toHaveLength(1);
+    });
+
+    it('⚠️ takes every plan dialog down before opening SETTINGS', async () => {
+      // `UserSettingsModal` is a sibling of this shell in `App`: not a `Modal` this shell renders,
+      // invisible to `stackedOverPopup`, and taking no `stacked` opt-in. So it cannot be ordered —
+      // it can only be arrived at with nothing else open. Measured before the fix: two
+      // `aria-modal="true"` elements with neither inert, and one Escape press closing the POPUP
+      // underneath while the settings dialog stayed up.
+      const { onOpenSettings } = renderShell();
+      await openSheet();
+
+      await act(async () => { fireEvent.click(screen.getByTestId('window-first-settings')); });
+      expect(onOpenSettings).toHaveBeenCalled();
+      expect(screen.queryAllByRole('dialog')).toHaveLength(0);
+    });
+
+  it('takes the popup on the second press', async () => {
       renderShell();
       await openSheet();
       fireEvent.keyDown(document, { key: 'Escape' });

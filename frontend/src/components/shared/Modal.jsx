@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import useDialogFocus from '../../hooks/useDialogFocus.js';
 
@@ -18,6 +18,55 @@ const MAX_WIDTH = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg' };
  * had to Tab through the entire page behind the backdrop to reach a dialog that had just opened
  * over it.
  *
+ * <h2>{@code stacked} — the one thing a caller may say about a dialog OVER a dialog</h2>
+ *
+ * <p>Opt-in and {@code false} by default, so a caller that does not pass it renders exactly what it
+ * rendered before: {@code aria-modal="true"}, no {@code inert}. Every v1 render site is such a
+ * caller, and a pinning test holds it. (Plan §3 rule 10.)
+ *
+ * <p><b>What it is for.</b> The v2 Plan arm stacks up to three of these — the window popup, a sheet
+ * over it, and search over that — and M5 measured the result in a real browser: three elements
+ * carrying {@code aria-modal="true"} at once, and a Tab walk that left the topmost sheet, crossed
+ * the page behind it and landed <em>inside the popup underneath</em> on the seventeenth press.
+ * "There is exactly one modal" was simply false, and the two attributes here are what make it true
+ * again: a stacked layer is {@code inert} (so it holds no tab stops and leaves the accessibility
+ * tree entirely) and drops {@code aria-modal} (so no two elements claim to be the modal at once).
+ *
+ * <p><b>⚠️ It is NOT a focus trap, and it is deliberately not a step towards one.</b>
+ * {@link useDialogFocus} records at length why containment was refused for this app, and nothing
+ * here reverses that: from the TOPMOST dialog a keyboard reader can still Tab out into the page
+ * behind, exactly as they always could and exactly as they can in v1. What is fixed is the part
+ * that only exists because of stacking — Tab reaching a LOWER dialog, and a screen reader being
+ * offered two modals. {@code inert} costs no focusable query, no containment rule and no portal
+ * special-case, which is what the whole of that hook's argument was against.
+ *
+ * <h2>⚠️ Stacking blurs, and the layer underneath has to remember for itself</h2>
+ *
+ * <p>{@code inert} takes focus off whatever inside it had it, and because {@code stacked} is a PROP
+ * that lands in React's mutation phase, the blur happens before any effect in the commit — including
+ * {@link useDialogFocus}'s, which is where the arriving dialog reads {@code document.activeElement}
+ * to learn where to send focus back. So the naive version broke the thing the hook exists for: open
+ * the location sheet from a field chip on the popup's map, press Escape, and focus landed on
+ * {@code <body>} rather than on the chip. Measured in a real browser, both before and after — and
+ * intermittently, since it is a race with how fast React flushes passive effects, which is exactly
+ * the kind of defect that reaches a pilot.
+ *
+ * <p>The fix is here rather than in the hook, because the hook's reading is correct for every other
+ * caller: a dialog records the last element focused <em>inside itself</em> from real focus events —
+ * so it is remembered <b>before</b> anything can blur it — and puts focus back there when it stops
+ * being stacked. It runs in a passive effect, and React destroys the departing layer's passive
+ * effects before running this one, so the restore lands after the hook's and wins deterministically
+ * rather than by luck. It refuses to act unless focus has actually been orphaned (body, or outside
+ * this dialog), so a reader who moved on themselves is never yanked back.
+ *
+ * <p><b>⚠️ {@code inert} is a silent no-op in this project's jsdom</b> ({@code 'inert' in
+ * HTMLElement.prototype} is {@code false}), so no jsdom test can observe its BEHAVIOUR — a test
+ * asserting that Tab cannot leave would pass against an element with no guard at all. What jsdom
+ * can see, and what the suites therefore assert, is the ATTRIBUTE; the behaviour is a browser
+ * measurement, recorded in the plan's M5 row. Note also that React 19 drops {@code inert=""} (the
+ * string form) entirely and renders the attribute only for the boolean — which is its own silent
+ * no-op, and is why this passes {@code stacked || undefined} rather than an empty string.
+ *
  * <h2>Escape is opt-in, and that is not timidity</h2>
  *
  * <p>The handler this replaces sat on the backdrop — an empty `div` with no `tabIndex` and no
@@ -33,6 +82,10 @@ const MAX_WIDTH = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg' };
  * @param {Function} [props.onClose]        omit to make the dialog unclosable (the refresh spinner
  *                                          does exactly this)
  * @param {boolean}  [props.closeOnEscape]  opt in where dismissal loses nothing
+ * @param {boolean}  [props.stacked]        whether ANOTHER dialog is currently over this one. The
+ *                                          caller owns the stack, because only it knows the order;
+ *                                          a stacked layer must also have {@code closeOnEscape}
+ *                                          withheld, or one press answers two layers.
  */
 export default function Modal({
   label,
@@ -40,11 +93,42 @@ export default function Modal({
   maxWidth = 'md',
   bare = false,
   closeOnEscape = false,
+  stacked = false,
   className = '',
   'data-testid': testId,
   children,
 }) {
   const dialogRef = useDialogFocus(true);
+  /**
+   * The last element focused INSIDE this dialog, recorded from real focus events.
+   *
+   * <p>A ref rather than state: it must not re-render, and it must be written before the commit that
+   * makes this layer {@code inert} — which a focus event does and a render cannot.
+   */
+  const lastInside = useRef(null);
+
+  /**
+   * Puts focus back where it was when something stacked over this dialog.
+   *
+   * <p>Only on the stacked → not-stacked transition, and only when focus has actually been ORPHANED
+   * — which here means {@code document.body} or nothing, and nothing else. A reader who Tabbed out
+   * into the page while the top layer was up has chosen where they are, and yanking them back is
+   * worse than leaving them. On mount {@code lastInside} is null, so a dialog that is never stacked
+   * — every v1 render site — runs this to a no-op and behaves exactly as it did before.
+   *
+   * <p>⚠️ The guard was written as two branches ("inside this dialog" and "outside it") and an
+   * adversarial review pointed out that their union is simply "focus is somewhere real": the
+   * containment test decided nothing, and a maintainer editing one branch would have believed they
+   * had changed behaviour the other already covered. One condition now, saying what it means.
+   */
+  useEffect(() => {
+    if (stacked) return;
+    const node = lastInside.current;
+    if (!node || !document.contains(node)) return;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    node.focus();
+  }, [stacked]);
 
   useEffect(() => {
     if (!closeOnEscape || !onClose) return undefined;
@@ -61,9 +145,31 @@ export default function Modal({
       tabIndex={-1}
       className="fixed inset-0 z-50 flex items-center justify-center p-4 focus:outline-none"
       role="dialog"
-      aria-modal="true"
+      /* Exactly one element on the page may claim this, and it is the layer the reader is on. */
+      aria-modal={stacked ? undefined : 'true'}
+      /* `|| undefined` rather than the bare boolean: React 19 renders `inert` for `true` and omits
+         it for `false`, so either form works here — but the explicit undefined is what documents
+         that an unstacked dialog emits NO attribute, which is the half the v1 pin depends on. */
+      inert={stacked || undefined}
       aria-label={label}
       data-testid={testId}
+      /* Recorded on the way IN, so it survives the blur `inert` causes on the way down. React's
+         synthetic focus event bubbles (the DOM's does not), which is why this can sit on the root
+         rather than on every control.
+
+         ⚠️ AND ON POINTERDOWN, which is not belt-and-braces: **macOS and iOS Safari do not focus a
+         `<button>` on click** unless Full Keyboard Access is on, and that is the default. So on the
+         gesture this whole mechanism was measured against — click a chip on the popup's map, then
+         press Escape — the focus event never fires there, `lastInside` stays null, and the fix
+         degrades silently to the `<body>` behaviour it replaces. Both browser measurements behind it
+         were headless Chromium; an adversarial review caught the engine assumption. `pointerdown`
+         rather than `click` because the blur has to be beaten, and the target is filtered to a real
+         element inside this dialog so a press on the backdrop records nothing. */
+      onFocus={(e) => { if (e.target !== e.currentTarget) lastInside.current = e.target; }}
+      onPointerDown={(e) => {
+        const el = e.target instanceof HTMLElement ? e.target.closest('a,button,input,select,textarea,[tabindex]') : null;
+        if (el && el !== e.currentTarget && e.currentTarget.contains(el)) lastInside.current = el;
+      }}
     >
       <div
         className="absolute inset-0 bg-black/60"
@@ -90,6 +196,7 @@ Modal.propTypes = {
   maxWidth: PropTypes.oneOf(['sm', 'md', 'lg']),
   bare: PropTypes.bool,
   closeOnEscape: PropTypes.bool,
+  stacked: PropTypes.bool,
   className: PropTypes.string,
   'data-testid': PropTypes.string,
   children: PropTypes.node.isRequired,

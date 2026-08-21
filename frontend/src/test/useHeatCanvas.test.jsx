@@ -216,6 +216,147 @@ describe('useHeatCanvas — the two resize triggers', () => {
     expect(paint).toHaveBeenCalledTimes(1);
   });
 
+  /**
+   * The M5 throttle. Three properties, and each is a separate defect if it goes:
+   * the leading edge (a lone observation must not wait), the ceiling (a gesture must not paint per
+   * frame), and the trailing settle (the last width a gesture ends on must be the one on screen).
+   */
+  describe('the resize throttle (M5)', () => {
+    /** A resize storm at N widths, as a desktop window-drag delivers one. */
+    const storm = async (setWidth, widths) => {
+      for (const w of widths) {
+        setWidth(w);
+        await act(async () => { fireEvent(window, new Event('resize')); });
+      }
+    };
+
+    const withVaryingWidth = async (run) => {
+      let width = 400;
+      const original = Object.getOwnPropertyDescriptor(Element.prototype, 'clientWidth');
+      Object.defineProperty(Element.prototype, 'clientWidth', {
+        configurable: true, get: () => width,
+      });
+      try {
+        return await run((next) => { width = next; });
+      } finally {
+        if (original) Object.defineProperty(Element.prototype, 'clientWidth', original);
+        else delete Element.prototype.clientWidth;
+      }
+    };
+
+    afterEach(() => { vi.useRealTimers(); });
+
+    it('⚠️ paints a LONE observation immediately, with no wait', async () => {
+      // The half a plain trailing debounce gets wrong. A pane revealed from `display: none` has
+      // spent its whole retry budget at zero width, so this observation is the only thing that will
+      // ever paint it — and a font resolving, or a light row arriving, is one box change with no
+      // second paint to coalesce. Timers are faked and never advanced: if the leading edge is lost,
+      // nothing here can produce the second paint.
+      vi.useFakeTimers({ shouldAdvanceTime: false });
+      const paint = vi.fn();
+      await withVaryingWidth(async (setWidth) => {
+        await act(async () => { render(<Harness paint={paint} />); });
+        expect(paint).toHaveBeenCalledTimes(1);
+        setWidth(300);
+        await act(async () => { fireEvent(window, new Event('resize')); });
+        expect(paint).toHaveBeenCalledTimes(2);
+        expect(paint.mock.calls[1][0].width).toBe(300);
+      });
+    });
+
+    it('⚠️ coalesces a storm of observations to ONE paint inside the window', async () => {
+      // The cost this exists for: M1 measured a full matrix repaint at 60–210 ms (median ~97 ms)
+      // and a ResizeObserver delivers up to once per frame. Eleven distinct widths inside one
+      // 170 ms window must cost one paint, not eleven.
+      vi.useFakeTimers({ shouldAdvanceTime: false });
+      const paint = vi.fn();
+      await withVaryingWidth(async (setWidth) => {
+        await act(async () => { render(<Harness paint={paint} />); });
+        paint.mockClear();
+        await storm(setWidth, [390, 380, 370, 360, 350, 340, 330, 320, 310, 300, 290]);
+        expect(paint).toHaveBeenCalledTimes(1);
+        expect(paint.mock.calls[0][0].width).toBe(390);
+      });
+    });
+
+    it('⚠️ settles on the width the storm ENDED at, not the one it opened with', async () => {
+      // The trailing edge. Without it the reader is left looking at a canvas drawn for the width
+      // the drag started from — which is the stale bitmap `.wf-hc-cv canvas { width: 100% }`
+      // stretches, and it is wrong by exactly the size of the gesture.
+      vi.useFakeTimers({ shouldAdvanceTime: false });
+      const paint = vi.fn();
+      await withVaryingWidth(async (setWidth) => {
+        await act(async () => { render(<Harness paint={paint} />); });
+        paint.mockClear();
+        await storm(setWidth, [390, 350, 290]);
+        expect(paint).toHaveBeenCalledTimes(1);
+
+        await act(async () => { await vi.advanceTimersByTimeAsync(200); });
+        expect(paint).toHaveBeenCalledTimes(2);
+        expect(paint.mock.calls[1][0].width).toBe(290);
+      });
+    });
+
+    it.each([
+      [169, 1, 'still coalescing at 169ms'],
+      [171, 2, 'settled by 171ms'],
+    ])('⚠️ %sms — %s', async (advance, calls) => {
+      // The band edge, and the only pair that pins the CONSTANT rather than the rule's existence.
+      // An adversarial review measured the alternative: with the storm tests advancing 200ms, the
+      // constant could be mutated from 170 to 17 — a per-frame repaint, i.e. exactly the seven
+      // long tasks and 465 ms M5 measured and removed — and every test stayed green.
+      vi.useFakeTimers({ shouldAdvanceTime: false });
+      const paint = vi.fn();
+      await withVaryingWidth(async (setWidth) => {
+        await act(async () => { render(<Harness paint={paint} />); });
+        paint.mockClear();
+        await storm(setWidth, [390, 350]);
+        expect(paint).toHaveBeenCalledTimes(1);
+
+        await act(async () => { await vi.advanceTimersByTimeAsync(advance); });
+        expect(paint).toHaveBeenCalledTimes(calls);
+      });
+    });
+
+    it('⚠️ clears its pending timer on unmount, rather than setting state on a gone component', async () => {
+      // The cleanup's own comment claims this and nothing tested it — the whole effect could be
+      // deleted and every other test here stayed green. React logs a warning rather than throwing,
+      // so the symptom is a console line a reader would reasonably file as noise.
+      vi.useFakeTimers({ shouldAdvanceTime: false });
+      const paint = vi.fn();
+      await withVaryingWidth(async (setWidth) => {
+        let view;
+        await act(async () => { view = render(<Harness paint={paint} />); });
+        // Leave a trailing bump owed, then take the component away underneath it.
+        await storm(setWidth, [390, 350]);
+        expect(vi.getTimerCount()).toBeGreaterThan(0);
+
+        view.unmount();
+        // ⚠️ Asserted on the TIMER, not on a React warning. React 18 removed the "setState on an
+        // unmounted component" log, so the obvious form of this test passes against no cleanup at
+        // all — measured. What is left to observe is the pending callback itself, and that is the
+        // thing the cleanup exists to cancel.
+        expect(vi.getTimerCount()).toBe(0);
+      });
+    });
+
+    it('does not pay for a trailing paint when nothing arrived behind the leading one', async () => {
+      // `pendingRef`'s whole job. Without it every one-shot layout change costs two identical
+      // paints 170 ms apart — a regression on the commonest case, bought to fix the rarest.
+      vi.useFakeTimers({ shouldAdvanceTime: false });
+      const paint = vi.fn();
+      await withVaryingWidth(async (setWidth) => {
+        await act(async () => { render(<Harness paint={paint} />); });
+        setWidth(300);
+        await act(async () => { fireEvent(window, new Event('resize')); });
+        expect(paint).toHaveBeenCalledTimes(2);
+
+        await act(async () => { await vi.advanceTimersByTimeAsync(600); });
+        expect(paint).toHaveBeenCalledTimes(2);
+      });
+    });
+  });
+
   it('ignores a zero-width observation, which is what hiding a pane produces', async () => {
     const paint = vi.fn();
     let width = 400;

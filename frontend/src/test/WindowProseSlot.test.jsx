@@ -165,20 +165,28 @@ describe('WindowProseSlot — what the picked header adds', () => {
     expect(screen.queryByTestId('wf-prose-moved')).toBeNull();
   });
 
-  it.each([
-    [10, '10 of its locations below'],
-    [1, '1 of its location below'],
-    [0, '0 of its locations below'],
-  ])('counts %i of the region’s locations below', (below, expected) => {
-    // Both sides of the plural boundary, and the zero — which is a real state (a region focus that
-    // empties the strip) and must not read as "1 location".
-    renderSlot({ picked: true, below });
-    expect(screen.getByTestId('wf-prose-below')).toHaveTextContent(expected);
-  });
-
-  it('omits the count when the caller has none to give', () => {
-    renderSlot({ picked: true, below: null });
-    expect(screen.queryByTestId('wf-prose-below')).toBeNull();
+  it('⚠️ states no count of the region’s own locations, in EITHER state', () => {
+    // Deleted at M5's copy sweep — a recorded deviation from the plan's §5, not a trim, and the
+    // component header carries the measurement. In short: with a region picked the popup printed the
+    // same integer three times inside ~250px against three different wholes (`9 of its locations
+    // below` here, `across 69 locations` in the served prose under it, `9 of 209` in the strip's
+    // footer), and this was the only one of the three whose denominator a reader had to guess.
+    //
+    // Asserted as an absence of the WORDS rather than of the testid: a testid check passes just as
+    // well against a chip that was renamed as against one that was removed.
+    // ⚠️ Asserted as "no count of this region's places AT ALL", not as the absence of one phrase.
+    // Keyed on `/of its location/` alone, a re-add worded "9 locations below" or "9 of 69" would
+    // pass — and the rule being defended is that this slot states no such count in any wording,
+    // because the strip's footer states one 250px lower against a different whole.
+    const noCount = (node) => {
+      expect(node.textContent).not.toMatch(/of its location/i);
+      expect(node.textContent).not.toMatch(/\d+\s*(of|locations?|places?|below)/i);
+    };
+    const picked = renderSlot({ picked: true });
+    noCount(screen.getByTestId('wf-prose'));
+    picked.unmount();
+    renderSlot({ picked: false });
+    noCount(screen.getByTestId('wf-prose'));
   });
 });
 
@@ -191,7 +199,7 @@ describe('WindowProseSlot — the box never moves', () => {
   it('renders one node, one class, in every state', () => {
     const states = [
       { picked: false },
-      { picked: true, below: 4, row: row({ meanRatingDelta: -0.3 }) },
+      { picked: true, row: row({ meanRatingDelta: -0.3 }) },
       { picked: true, row: row({ summary: null }) },
     ];
     for (const props of states) {

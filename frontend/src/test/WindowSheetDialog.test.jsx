@@ -119,6 +119,11 @@ function card(overrides = {}) {
     rows: [],
     allBadges: [],
     allSpots: spots,
+    // ⚠️ Derived the way `buildWindowCards` derives it — from the ORIGIN SCOPE, not from the drawn
+    // set — so a fixture that empties `spots` to model a lens gate does not accidentally also model
+    // an account with no drive times. Overridable, and the no-postcode cases override it by handing
+    // over an `allSpots` whose every entry is unmeasured.
+    reachMeasured: (overrides.allSpots ?? spots).some((sp) => sp?.driveMinutes != null),
     pool: spots,
     bestReach: spots[0] ?? null,
     reachTotal: spots.length,
@@ -206,6 +211,56 @@ afterEach(() => {
 });
 
 describe('WindowSheetDialog — dialog semantics', () => {
+  /**
+   * ⚠️ SC 4.1.3 (Status Messages). Stepping a window and picking a region both announced NOTHING.
+   *
+   * <p>`‹`/`›` and `←`/`→` replace the entire dialog while focus stays on the pressed button; the
+   * dialog is not keyed, so `useDialogFocus` never re-fires and its accessible name is never
+   * re-read; and the one "which of six" signal on screen is `aria-hidden`, because it is a glyph
+   * pair a reader would hear as "one slash six". A region pick is the same silence on the popup's
+   * PRIMARY interaction — the design's "the furniture never moves" is exactly what makes it
+   * undiscoverable. The arm already had the idiom two files away (`WindowSpotSheet`'s always-mounted
+   * `role="status"`, added because "pressing a chip otherwise rewrites the list in silence").
+   */
+  describe('the live region', () => {
+    it('names the window and its place in the six, so a step is heard', () => {
+      renderDialog({ index: 2, total: 6 });
+      const live = screen.getByTestId('window-sheet-live');
+      expect(live).toHaveAttribute('role', 'status');
+      expect(live).toHaveTextContent('Tonight Sunset, window 3 of 6, Worth it');
+    });
+
+    it('names the region and how many places are listed, so a pick is heard', () => {
+      renderDialog({ field: field({ selectedRegion: 'Dales' }) });
+      expect(screen.getByTestId('window-sheet-live'))
+        .toHaveTextContent('showing Dales, 1 location');
+    });
+
+    it('⚠️ is ALWAYS mounted, so the AT is already watching it when the text changes', () => {
+      // A `role="status"` inserted at the same moment as its text is a region nothing was observing.
+      // The unpicked state is the one that would tempt a conditional render, so it is the one pinned.
+      renderDialog();
+      expect(screen.getByTestId('window-sheet-live')).toBeInTheDocument();
+      expect(screen.getByTestId('window-sheet-live')).not.toHaveTextContent('showing');
+    });
+
+    it('is not visible, because the counter beside it already says this to a sighted reader', () => {
+      renderDialog();
+      expect(screen.getByTestId('window-sheet-live')).toHaveClass('sr-only');
+      expect(screen.getByTestId('window-sheet-of')).toHaveAttribute('aria-hidden', 'true');
+    });
+  });
+
+  it('⚠️ titles itself at heading level TWO, under the masthead wordmark', () => {
+    // The page's only other heading is `BrandLockup`'s `h1`, so an `h3` here skipped a level — axe's
+    // `heading-order`, measured on the running app at M5 and invisible to every test that queried
+    // this element by testid. Asserted through the ROLE with its level, which is the only query that
+    // can see the difference.
+    renderDialog();
+    expect(screen.getByRole('heading', { level: 2, name: 'Tonight Sunset' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { level: 3 })).toBeNull();
+  });
+
   it('is a real dialog, named for the window and its place in the six', () => {
     // ⚠️ COUNTED, never asserted: the nav's denominator is the openable window count, and a payload
     // that renders four windows must not have its dialog announce six. The same trap
@@ -397,9 +452,29 @@ describe('WindowSheetDialog — the verdict badge', () => {
 });
 
 describe('WindowSheetDialog — what the header may claim', () => {
-  it('states the best rating WITHIN REACH, which is the pool head’s', () => {
+  it('⚠️ hides the star GLYPH and spells the unit, because NVDA does not speak U+2605', () => {
+    // This arm's standing pattern (`WindowRowFieldMap`, `LocationFourDaySheet`, `HeatmapGrid` all
+    // carry it with the same note) and the popup header was the one place it had not been applied —
+    // so the most decision-relevant number in the dialog announced as "best 5 within reach".
+    //
+    // ⚠️ Asserted on the two ELEMENTS, not on `textContent`: `toHaveTextContent` concatenates
+    // `sr-only` text, so a visible-string assertion here reads "best 5★ stars within reach" and
+    // cannot tell the visible half from the spoken one. That is what broke the sibling below when
+    // this landed, and its comment now says so.
     renderDialog();
-    expect(screen.getByTestId('window-sheet-best')).toHaveTextContent('best 5★ within reach');
+    const best = screen.getByTestId('window-sheet-best');
+    expect(within(best).getByText('★')).toHaveAttribute('aria-hidden', 'true');
+    expect(within(best).getByText('stars')).toHaveClass('sr-only');
+  });
+
+  it('states the best rating WITHIN REACH, which is the pool head’s', () => {
+    // ⚠️ `toHaveTextContent` includes `sr-only` text, so the spoken "stars" sits between the glyph
+    // and the reach clause. The two halves are pinned as elements one test up; what this one is
+    // about is the FIGURE and the claim, so it matches the parts rather than the whole line.
+    renderDialog();
+    const best = screen.getByTestId('window-sheet-best');
+    expect(best).toHaveTextContent(/best 5★/);
+    expect(best).toHaveTextContent(/within reach$/);
   });
 
   it('⚠️ states no cross-location average and no confidence percentage', () => {
@@ -432,12 +507,43 @@ describe('WindowSheetDialog — what the header may claim', () => {
   });
 
   it('distinguishes an empty pool from an unrated one', () => {
-    const { unmount } = renderDialog({ card: card({ spots: [], pool: [], bestReach: null }) });
+    // The empty-pool arm needs a MEASURED spot in `allSpots` — otherwise "in reach" is withheld for
+    // the same reason it is withheld from the figure, and the sentence is "nothing to show". The
+    // fixture keeps `allSpots` at its default (both spots measured) and empties only the gated set,
+    // which is what an actual reach filter does.
+    const { unmount } = renderDialog({
+      card: card({
+        spots: [], pool: [], bestReach: null, allSpots: [NEAR, DALES],
+      }),
+    });
     expect(screen.getByTestId('window-sheet-best')).toHaveTextContent('nothing in reach');
     unmount();
 
     renderDialog({ card: card({ bestReach: null }) });
     expect(screen.getByTestId('window-sheet-best')).toHaveTextContent('nothing rated yet');
+  });
+
+  it('⚠️ blames nothing when there is no drive time for the reach axis to have used', () => {
+    // §6 clause 7 on the header's two absence sentences, not just on its figure. With no home
+    // postcode nothing was gated, so an empty pool means the window has no sky-gated slots at all —
+    // "nothing in reach" would credit a filter that did not run.
+    const unmeasured = [{ ...NEAR, driveMinutes: null }, { ...DALES, driveMinutes: null }];
+    renderDialog({
+      card: card({
+        spots: [], pool: [], bestReach: null, allSpots: unmeasured,
+      }),
+    });
+    expect(screen.getByTestId('window-sheet-best')).toHaveTextContent('nothing to show');
+    expect(screen.getByTestId('window-sheet-best')).not.toHaveTextContent('reach');
+  });
+
+  it('⚠️ states the best star WITHOUT the reach clause when nothing measured it', () => {
+    // The figure survives; the claim about how it was chosen does not. Three review lenses charged
+    // this line independently — it sat 250px above the footer M5 had already fixed.
+    const unmeasured = [{ ...NEAR, driveMinutes: null }, { ...DALES, driveMinutes: null }];
+    renderDialog({ card: card({ allSpots: unmeasured, spots: unmeasured, pool: unmeasured }) });
+    expect(screen.getByTestId('window-sheet-best')).toHaveTextContent('best 5★');
+    expect(screen.getByTestId('window-sheet-best')).not.toHaveTextContent('within reach');
   });
 
   it('renders the served pick as a real BUTTON, and no pick at all when none is served', () => {
@@ -517,6 +623,43 @@ describe('WindowSheetDialog — picking a region swaps words, and moves nothing'
     expect(screen.getAllByTestId('window-spot').map((n) => n.textContent.includes('Malham')))
       .toEqual([true]);
     expect(screen.getByTestId('window-spot-filters')).toHaveTextContent('Dales');
+  });
+
+  it('⚠️ names the reach tier in the footer only when a drive time exists to gate on', () => {
+    // §6 clause 7, measured in a browser at M5 with a fresh account: no home postcode means no drive
+    // times, an unmeasured spot passes every tier (plan §2.5), and the footer still read
+    // `· within 45 min` over the whole roster. The lens fixture is UNCHANGED between the two halves
+    // — the tier is 45 min in both — so what is under test is the spots, not the control.
+    const unmeasured = [{ ...NEAR, driveMinutes: null }, { ...DALES, driveMinutes: null }];
+    renderDialog({ card: card({ allSpots: unmeasured, spots: unmeasured, pool: unmeasured }) });
+    expect(screen.queryByTestId('window-spot-filters')).toBeNull();
+  });
+
+  it('names the tier when a drive time exists, which is the ordinary case', () => {
+    renderDialog();
+    expect(screen.getByTestId('window-spot-filters')).toHaveTextContent('within 45 min');
+  });
+
+  it('⚠️ asks the WHOLE origin scope, not the region focus’s survivors', () => {
+    // The distinction the source comment defends, and which an adversarial review showed no test
+    // could see: the fixture above passes one array as `allSpots`, `spots` AND `pool`, so swapping
+    // the basis to the drawn set survived the full suite.
+    //
+    // Here they differ. `NEAR` (Coast) is measured and `DALES` is not; the reader has focused Dales,
+    // so the drawn set is unmeasured while the scope holds a measured spot. Asking the drawn set
+    // would withhold the clause for THIS window and print it for its neighbour — a filter that
+    // flickers by window is a worse claim than one that is simply true of the reader's account.
+    const unmeasuredDales = { ...DALES, driveMinutes: null };
+    renderDialog({
+      // `spots` is what the region focus gates, `allSpots` is the whole origin scope. Both are set
+      // explicitly here, because `card()` derives one from the other and a fixture that let it would
+      // be back to passing one array under three names.
+      card: card({ spots: [NEAR, unmeasuredDales], allSpots: [NEAR, unmeasuredDales] }),
+      field: field({ selectedRegion: 'Dales' }),
+    });
+    // The drawn set is [unmeasuredDales] — no drive time in it at all — while the scope has NEAR's.
+    expect(screen.getAllByTestId('window-spot')).toHaveLength(1);
+    expect(screen.getByTestId('window-spot-filters')).toHaveTextContent('within 45 min');
   });
 
   it('⚠️ hands the FOCUS to the kernel, which is what repaints the field', () => {
@@ -696,12 +839,28 @@ describe('WindowSheetDialog — the field can never name a spot the list has exc
 
 describe('WindowSheetDialog — the per-window quiet sentence', () => {
   it('⚠️ names the lens when the lens emptied it', () => {
+    // `allSpots` explicit: it is the origin scope BEFORE the reach gate, so it is what says whether
+    // a drive time existed for the tier to act on. `card()` derives it from `spots` by default,
+    // which would make an emptied window look like an account with no drive times at all.
     renderDialog({
-      card: card({ spots: [] }),
+      card: card({ spots: [], allSpots: [NEAR, DALES] }),
       field: field({ lens: { limitMinutes: 45, tierLabel: '45 min', minRating: 4, ratingLabel: '4★+' } }),
     });
     expect(screen.getByTestId('window-sheet-empty'))
       .toHaveTextContent('Nothing at 4★+ within 45 min for this window.');
+  });
+
+  it('⚠️ drops the tier clause when no drive time exists for it to have used', () => {
+    // §6 clause 7, eleven lines from the footer's own fix and still making the claim after it. A
+    // reader with no home postcode was told the window held nothing "within 45 min" when nothing
+    // had been filtered by distance at all. The RATING clause stays — that axis really did act.
+    const unmeasured = [{ ...NEAR, driveMinutes: null }, { ...DALES, driveMinutes: null }];
+    renderDialog({
+      card: card({ spots: [], allSpots: unmeasured }),
+      field: field({ lens: { limitMinutes: 45, tierLabel: '45 min', minRating: 4, ratingLabel: '4★+' } }),
+    });
+    expect(screen.getByTestId('window-sheet-empty'))
+      .toHaveTextContent('Nothing at 4★+ for this window.');
   });
 
   it('⚠️ names the REGION as well when a region focus did the emptying', () => {

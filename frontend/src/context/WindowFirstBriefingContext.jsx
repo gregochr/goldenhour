@@ -16,7 +16,6 @@ import { isEventPast } from '../utils/briefingDisplay.js';
 import { buildWindowCards } from '../utils/windowFirstCards.js';
 import { buildHeatStripCards } from '../utils/windowFirstStrip.js';
 import { buildPaneItems } from '../utils/windowFirstAway.js';
-import { buildPromotedStrip } from '../utils/windowFirstPromoted.js';
 import { buildBriefingScoreIndex } from '../utils/briefingScoreIndex.js';
 import { buildHeatPointSets, buildHeatSpots } from '../utils/heatSpots.js';
 import { buildRegionSeries } from '../utils/windowFirstRegions.js';
@@ -75,7 +74,6 @@ const WindowFirstBriefingContext = createContext({
   heatStripCards: [],
   windowCards: [],
   paneItems: [],
-  promotedStrip: null,
   upcomingEvents: [],
   travelDayDates: new Set(),
   evaluationScores: EMPTY_SCORES,
@@ -560,21 +558,15 @@ export function WindowFirstBriefingProvider({
   );
 
   // The pane's ordered contents — the cards with the away days folded back in where they fall. It
-  // is derived HERE rather than in the shell for the same reason the cards are: the away rows and
+  // is derived HERE rather than in the shell for the same reason the cards are: the away days and
   // the cards are two views of one event array, and a second evaluation of the travel filter is a
-  // second chance for them to disagree about which days exist.
+  // second chance for them to disagree about which days exist. Since M5 its one reader is the
+  // empty-state line, which is a question about the pane and not about the cards — see the
+  // module header for why that is still worth a derivation.
   const paneItems = useMemo(
-    () => buildPaneItems(upcomingEvents, windowCards, travelDayDates, travelRanges),
-    [upcomingEvents, windowCards, travelDayDates, travelRanges],
+    () => buildPaneItems(upcomingEvents, windowCards, travelDayDates),
+    [upcomingEvents, windowCards, travelDayDates],
   );
-
-  // The page's ONE promoted strip, derived here rather than in the shell because "at most one"
-  // (§2.6) is a statement about the whole pane, and because the window card is explicitly forbidden
-  // from promoting anything into a strip. Deriving it from `paneItems` rather than from
-  // `windowCards` gives it the pane's own date order for the rarity tie-break, and lets it see
-  // whether the promoted card is the very next item — the one case where its route into the list
-  // would be a control with no visible effect.
-  const promotedStrip = useMemo(() => buildPromotedStrip(paneItems), [paneItems]);
 
   // Booleans, never the role. Plan §5c: `role` enters this arm at the provider and stops there, and
   // what anything below receives is a decision already made — a threshold for the lens, a boolean
@@ -633,7 +625,7 @@ export function WindowFirstBriefingProvider({
 
   const value = useMemo(
     () => ({
-      briefing, loading, heatStripCards, windowCards, paneItems, promotedStrip, upcomingEvents,
+      briefing, loading, heatStripCards, windowCards, paneItems, upcomingEvents,
       travelDayDates, evaluationScores, scoresLoaded, scoreIndex, scoreRows,
       heatSpots: heatSpotList,
       heatPointSets,
@@ -646,7 +638,7 @@ export function WindowFirstBriefingProvider({
       // framing them from an away base would make "beyond 3h from home" a claim about Keswick.
       origin, setOrigin, regions, effectiveReachById,
     }),
-    [briefing, loading, heatStripCards, windowCards, paneItems, promotedStrip, upcomingEvents,
+    [briefing, loading, heatStripCards, windowCards, paneItems, upcomingEvents,
       travelDayDates, evaluationScores, scoresLoaded, scoreIndex, scoreRows,
       heatSpotList, heatPointSets,
       regionSeries,
@@ -684,7 +676,7 @@ WindowFirstBriefingProvider.propTypes = {
  * contents and the three lens axes.
  *
  * @returns {{briefing: ?object, loading: boolean, heatStripCards: Array, windowCards: Array,
- *           paneItems: Array, promotedStrip: ?object, upcomingEvents: Array,
+ *           paneItems: Array, upcomingEvents: Array,
  *           travelDayDates: Set, heatSpots: Array, heatPointSets: Map, regionSeries: Map,
  *           reachById: Map,
  *           reachLens: object, ratingLens: object, homePlace: ?string,

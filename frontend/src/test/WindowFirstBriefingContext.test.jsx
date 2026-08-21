@@ -163,7 +163,7 @@ const heatPointIdentities = [];
 function Consumer() {
   const {
     briefing, loading, heatStripCards, windowCards, evaluationScores, reachLens: lens, ratingLens,
-    homePlace, promotedStrip, heatSpots, heatPointSets,
+    homePlace, heatSpots, heatPointSets,
     origin, setOrigin, regions, effectiveReachById,
   } = useWindowFirstBriefing();
   // Identity, not content: plan §5.4 requires the join to be memoised on its real inputs, and a
@@ -188,10 +188,6 @@ function Consumer() {
       <span data-testid="scores">{[...evaluationScores.keys()].join('|') || 'none'}</span>
       <span data-testid="cards">{windowCards.length}</span>
       {/* One descriptor or nothing — the shape is the cap. */}
-      <span data-testid="promo">{promotedStrip ? promotedStrip.windowKey : 'none'}</span>
-      <span data-testid="promo-topics">
-        {promotedStrip ? promotedStrip.topics.map((t) => t.label).join('|') : 'none'}
-      </span>
       <span data-testid="card-keys">{windowCards.map((c) => c.key).join('|')}</span>
       <span data-testid="spots">{windowCards[0]?.spots?.map((s) => s.locationName).join('|') || 'none'}</span>
       <span data-testid="spot-reach">
@@ -1091,55 +1087,6 @@ describe('WindowFirstBriefingProvider', () => {
     expect(screen.getByTestId('strip-days')).toHaveTextContent('0');
     expect(screen.getByTestId('generated')).toHaveTextContent('none');
   });
-  describe('the promoted strip', () => {
-    /** A badge as `BriefingWindow.Badge` serialises one. */
-    const topic = (type, label, rarityRank) => ({
-      type, label, detail: null, eventTime: null, rarityRank,
-      facts: [{ key: 'k', value: 'v', dir: null, emphasis: true, optional: false }],
-    });
-
-    /** `payloadFor`'s single day, with badges put on its one window. */
-    const withBadges = (badges, topRarityRank) => {
-      const payload = payloadFor(TODAY);
-      payload.days[0].eventSummaries[0].window = {
-        ...payload.days[0].eventSummaries[0].window, badges, topRarityRank,
-      };
-      return payload;
-    };
-
-    it('derives no strip from a payload whose windows carry no coincidence', async () => {
-      getDailyBriefing.mockResolvedValue(withBadges([topic('AURORA', 'Aurora', 4)], 4));
-      renderProvider();
-
-      // Wait on the rail label, which only exists once the response has been folded in — NOT on
-      // `cards`, which the consumer renders from the first paint. Waiting for an element that is
-      // already on screen is satisfied before the fetch resolves, and this file's other blocks
-      // failed the same way once already (see `frontend-test-standards.md` on SkyRatingEvalView).
-      // Here it made a §6 clause 3 test pass vacuously in the exact shape that clause names: with
-      // no cards drawn, "no strip" is true of an empty pane and says nothing about the rule. Under
-      // full-suite load it lost the race outright and failed on `cards` reading 0.
-      expect(await screen.findByText('Worth it')).toBeInTheDocument();
-      expect(screen.getByTestId('cards')).toHaveTextContent('1');
-      expect(screen.getByTestId('promo')).toHaveTextContent('none');
-    });
-
-    // The provider is the only place the page-wide cap can live, so this is what proves the field is
-    // actually wired: the shell's own tests inject a descriptor and would pass without it.
-    it('derives one strip from a payload whose window carries two topics', async () => {
-      getDailyBriefing.mockResolvedValue(
-        withBadges([topic('AURORA', 'Aurora', 4), topic('KING_TIDE', 'King tide', 3)], 3),
-      );
-      renderProvider();
-
-      // Same reason as the sibling above: `promo` is on screen from the first paint reading
-      // "none", so waiting for the element proves nothing about the fetch. This one has not been
-      // seen to fail, and it is the same defect — it wins the race rather than avoiding it.
-      expect(await screen.findByText('Worth it')).toBeInTheDocument();
-      expect(screen.getByTestId('promo')).toHaveTextContent(`${TODAY}:SUNSET`);
-      expect(screen.getByTestId('promo-topics')).toHaveTextContent('King tide|Aurora');
-    });
-  });
-
   /**
    * The heat field's data plumbing (plan P1). What is under test here is the WIRING — the pure
    * join has its own file (`heatSpots.test.js`). Three things can only be seen from the provider:
