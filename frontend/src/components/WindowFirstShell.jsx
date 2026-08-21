@@ -633,7 +633,7 @@ export default function WindowFirstShell({
       origin: origin ?? null,
     };
   }, [openCard, heatSpots, heatPointSets, heatStripCards, regionSeries, reachById,
-    eventSummariesByKey, fieldLens, focusedRegion, origin])
+    eventSummariesByKey, fieldLens, focusedRegion, origin]);
 
   // Lifted to App for the map overlay, exactly as DailyBriefing does it in the v1 arm. Without this
   // a tile handed to the map opens an overlay with no narrative over a map that has filtered out
