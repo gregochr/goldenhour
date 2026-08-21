@@ -663,22 +663,25 @@ describe('WindowRowFieldMap — the location chips', () => {
     expect(chip).toHaveTextContent('4★');
   });
 
-  it('⚠️ is inert, so it cannot swallow the region click underneath it', async () => {
-    // `.wf-mchip` is `pointer-events: none` (a CSS claim), and until M4 there is no handler and no
+  it('⚠️ is inert WITHOUT a handler, so it cannot swallow the region click underneath it', async () => {
+    // The no-handler default, which is what every caller that draws an annotation rather than a
+    // control gets. `.wf-mchip` is `pointer-events: none` there (a CSS claim) and carries no
     // `title` — a tooltip on a pointer-events-none span reaches nobody. What a test can pin is that
-    // the chip is not a control: a button here would be one with no visible effect, which §6 bans.
+    // the chip is not a control: a button with no visible effect is what plan §3 rule 14 bans.
     await withMeasuredMap(400, async () => {
       await withChipBoxes(50, 14, async () => {
-        await renderMap({ spots: CHIP_SPOTS, chips: [CHIP()] });
+        await renderMap({ spots: CHIP_SPOTS, chips: [CHIP({ title: 'Coast · 42 min' })] });
       });
     });
     const chip = screen.getByTestId('wf-row-map-chip');
     expect(chip.tagName).toBe('SPAN');
+    // ⚠️ The chip HAS a title to withhold — pinned to the rule, not to the fixture. With a chip
+    // carrying none, this assertion holds whether or not the source gates it.
     expect(chip).not.toHaveAttribute('title');
     expect(within(screen.getByTestId('wf-row-map-chips')).queryAllByRole('button')).toHaveLength(0);
   });
 
-  it('is hidden from the accessibility tree, as the picture’s other annotations are', async () => {
+  it('is hidden from the accessibility tree WITHOUT a handler, as the picture’s other annotations are', async () => {
     // The ranked strip below the field names every one of these on a real control, with its region,
     // its drive and its departure — which is the condition this component sets for an aria-hidden
     // surface: never the sole path to anything.
@@ -688,6 +691,82 @@ describe('WindowRowFieldMap — the location chips', () => {
       });
     });
     expect(screen.getByTestId('wf-row-map-chips')).toHaveAttribute('aria-hidden', 'true');
+    // And carries no group role either: an `aria-hidden` layer has nothing in the tree to group,
+    // and a role on it would be a promise the subtree cannot keep.
+    expect(screen.getByTestId('wf-row-map-chips')).not.toHaveAttribute('role');
+  });
+
+  /**
+   * The M4 arm: a chip with somewhere to go (plan-matrix §6 M4.2, D-3).
+   *
+   * <p>⚠️ <b>The three properties land together or not at all</b>, which is why they are asserted
+   * together: the click, the {@code title}, and the exit from {@code aria-hidden}. M2 deferred all
+   * three as a set — a tooltip on an inert span reaches nobody, and a control inside an
+   * {@code aria-hidden} subtree cannot be found by the readers most likely to want the name.
+   */
+  describe('with a handler', () => {
+    const renderChip = async (chips) => {
+      const onOpenLocation = vi.fn();
+      await withMeasuredMap(400, async () => {
+        await withChipBoxes(50, 14, async () => {
+          await renderMap({ spots: CHIP_SPOTS, chips, onOpenLocation });
+        });
+      });
+      return onOpenLocation;
+    };
+
+    it('becomes a button that carries its title and leaves the hidden subtree', async () => {
+      const onOpenLocation = await renderChip([CHIP({ title: 'Coast · 42 min · leave 19:04' })]);
+      const chip = screen.getByTestId('wf-row-map-chip');
+      expect(chip.tagName).toBe('BUTTON');
+      expect(chip).toHaveAttribute('title', 'Coast · 42 min · leave 19:04');
+      expect(screen.getByTestId('wf-row-map-chips')).not.toHaveAttribute('aria-hidden');
+      // Asked of the ACCESSIBILITY TREE — an `aria-hidden` subtree exposes no buttons at all, so a
+      // role query is the assertion that the layer left it. Anchored at both ends and tolerant only
+      // of the separator, which is the one part jsdom computes differently from a browser
+      // (`inline-flex` blockifies the children there and joins their text with a space; `css: false`
+      // leaves them inline and joins with none).
+      expect(screen.getByRole('button', { name: /^Bamburgh\s*4 stars$/ })).toBe(chip);
+      expect(onOpenLocation).not.toHaveBeenCalled();
+    });
+
+    it('⚠️ names the layer, so eight bare place-buttons say where they are', async () => {
+      // The canvas and the region labels stay `aria-hidden` — they ARE the picture — so the spatial
+      // meaning that justifies these chips existing never reaches a screen reader. Without a group
+      // name what arrives is six or eight "<place> N stars" buttons in rating order, directly above
+      // a strip naming the same places again with region, drive and departure, and nothing saying
+      // which list is which. The group is absent on the inert arm, where there is nothing to group.
+      await renderChip([CHIP()]);
+      const layer = screen.getByTestId('wf-row-map-chips');
+      expect(layer).toHaveAttribute('role', 'group');
+      expect(screen.getByRole('group', { name: 'Places on the field map' })).toBe(layer);
+    });
+
+    it('hands the WHOLE chip back, so the caller can open a sheet without a second join', async () => {
+      const chip = CHIP({ regionName: 'Coast', title: 'Coast · 42 min' });
+      const onOpenLocation = await renderChip([chip]);
+      fireEvent.click(screen.getByTestId('wf-row-map-chip'));
+      // The anchored chip — the caller's own object plus the projected point it was placed at. The
+      // three fields that matter are the three `sheetSpotOf` reads, and the ID is the one that
+      // matters most: it is the key both of the sheet's indexes join on, and dropping it is the
+      // defect an adversarial review caught in P8 (a renamed location, correctly timed and rated as
+      // unscored).
+      expect(onOpenLocation).toHaveBeenCalledWith(expect.objectContaining({
+        locationId: chip.locationId,
+        locationName: chip.locationName,
+        regionName: 'Coast',
+      }));
+    });
+
+    it('speaks the rating rather than the glyph, and says nothing where there is none', async () => {
+      // NVDA at its default symbol level does not speak U+2605, so a named control would announce a
+      // bare integer after the place name. An unrated chip gets no rating text at all — absence is
+      // not zero, and the ranked strip omits its badge for the same reason.
+      await renderChip([CHIP({ rating: null })]);
+      const chip = screen.getByTestId('wf-row-map-chip');
+      expect(chip).toHaveAccessibleName('Bamburgh');
+      expect(chip).not.toHaveTextContent('★');
+    });
   });
 
   it('omits the rating for a spot the payload has not rated, rather than inventing one', async () => {

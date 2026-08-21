@@ -48,14 +48,17 @@ import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
  * @param {object}   props.spot      a descriptor from {@code buildWindowSpots}
  * @param {string[]} [props.typeLabels] display labels for the spot's location types, already
  *        ordered and filtered by the caller. Empty or absent renders no type text at all.
- * @param {Function} props.onOpen    opens the map centred on this spot
+ * @param {Function} props.onOpen    what the click does — the map, or (M4) this place's own sheet
+ * @param {string}   [props.openLabel] the words naming that destination. Defaults to the map, so a
+ *        caller written before M4 renders exactly what it always did
  * @param {Function} [props.onMouseEnter] peek handlers; the strip wires them, the sheet does not
  * @param {Function} [props.onMouseLeave]
  * @param {Function} [props.onFocus]
  * @param {Function} [props.onBlur]
  */
 export default function WindowSpotCard({
-  spot, typeLabels, onOpen, onMouseEnter, onMouseLeave, onFocus, onBlur,
+  spot, typeLabels, onOpen, openLabel = '◍ Open on map →',
+  onMouseEnter, onMouseLeave, onFocus, onBlur,
 }) {
   const badge = spotBadgeStyle(spot.rating);
   const reach = reachLine(spot.driveMinutes, spot.distanceMiles);
@@ -166,11 +169,17 @@ export default function WindowSpotCard({
         </span>
       )}
 
+      {/* ⚠️ It names WHERE THE CLICK GOES, so it is the caller's word and not this card's. M4 (D-3)
+          retargeted the popup's copy of the ranked strip from the map to the location sheet, while
+          the drill-down sheet's copy still opens the map — one component, two destinations, and a
+          card that promised a map and delivered a sheet would be lying in its own accessible name
+          (the span is inside the button). Defaulted to the map so every caller written before M4 is
+          byte-identical, which is plan §3 rule 10's caller-opt-in shape. */}
       <span
         className="wf-spot-open font-mono text-plex-text-secondary"
         style={{ fontSize: '10px', marginTop: 'auto' }}
       >
-        ◍ Open on map →
+        {openLabel}
       </span>
     </button>
   );
@@ -202,6 +211,7 @@ WindowSpotCard.propTypes = {
   spot: PropTypes.shape(SPOT_SHAPE).isRequired,
   typeLabels: PropTypes.arrayOf(PropTypes.string),
   onOpen: PropTypes.func.isRequired,
+  openLabel: PropTypes.string,
   onMouseEnter: PropTypes.func,
   onMouseLeave: PropTypes.func,
   onFocus: PropTypes.func,

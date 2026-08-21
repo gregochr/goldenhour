@@ -4710,7 +4710,37 @@ button.wf-hc.also.on:hover {
    (400% zoom) put the head, the lead and the footer over the whole budget and clipped the map
    action with nothing able to scroll. `WindowPickDialog` records the same defect; three bands is
    the shape both sibling dialogs already use. */
+/* The v3 lead block (plan-matrix §6 M4.1): the design's gold wash and its mono kicker treatment.
+   ⚠️ It carries ONE line, not the design's two — the second is the best window's prose, and the
+   best row arrives expanded eight pixels below, so `LocationFourDaySheet` refuses the repeat.
+
+   A bounded block with its own padding rather than a full-bleed band: `.wf-loc-rows` is the card's
+   one scroll container and the only shrinkable child, so a bled wash would need negative margins
+   that fight the 4px of horizontal inset its focus rings need.
+
+   9.5px rather than the design's 9, matching `.wf-loc-out`'s badge — that is the precedent, and a
+   second number half a pixel away would be one more to keep in step. (It is NOT the arm's smallest
+   mono size: `.wf-loc-dow`, `.wf-loc-tag`, `.wf-loc-car` and `.wf-mhint` are all 9px.)
+   `text-transform` rather than uppercase text, so the DOM string and the accessible reading stay
+   sentence case. Measured: `--color-plex-text-secondary` over the 6% gold wash on
+   `--color-plex-panel` gives 6.49:1 (6.33 is that same ink over `--color-plex-surface`, which is
+   what the best row below sits on — two backdrops, two numbers). */
 .wf-loc-lead {
+  padding: 7px 10px 8px;
+  margin: 0 0 2px;
+  border-radius: 9px;
+  background: linear-gradient(180deg, rgba(201, 162, 75, 0.06), transparent);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+}
+/* The sheet's quiet admissions — "No forecast windows are loaded yet." — which shared `.wf-loc-lead`
+   until M4 turned that class into a gold-washed uppercase kicker. A headline treatment on the one
+   line that says nothing has arrived reads as emphasis on an absence; this is the plain form the
+   lead used to be. */
+.wf-loc-note {
   padding: 2px 0 8px;
   margin: 0;
   font-size: 10.5px;
@@ -4733,9 +4763,53 @@ button.wf-hc.also.on:hover {
   overflow: hidden;
 }
 /* The one row the sheet leads with, marked on the container rather than on the badge — the badge is
-   the quality signal and takes its colour from the ramp alone (D2). */
+   the quality signal and takes its colour from the ramp alone (D2). The wash is the design's, layered
+   over `--color-plex-surface` rather than replacing it so the row still reads as the same object as
+   its siblings; measured, the row's 10px secondary line comes out at 6.33:1 on the strongest stop
+   and its `.wf-loc-tag` at 7.36:1. */
 .wf-loc-row[data-best='true'] {
   border-color: var(--color-close-to-home);
+  background:
+    linear-gradient(180deg, rgba(201, 162, 75, 0.06), rgba(201, 162, 75, 0.015)),
+    var(--color-plex-surface);
+}
+/* ── The ≤2★ de-emphasis (design: `opacity .62` on the row) ──────────────────────────────────────
+   ⚠️ FOUR deliberate departures, all measured, and all of which would look like sloppiness without
+   this note. `opacity` on a parent cannot be undone by a child, so every exclusion is an omission
+   from the selector list rather than an override.
+
+   1. The RATING BADGE is excluded. Dimming the whole row composites the badge onto the row too, and
+      the 2★ stop's ink falls from 4.83:1 to 3.43:1 at .62 and 4.15:1 even at .8 — under AA at the
+      badge's 10px. It is also the quality signal, which CLAUDE.md is explicit is never dimmed by
+      any other channel.
+
+   2. The DATE BOX (`.wf-loc-day`) is excluded, for the same reason one level down: it carries its
+      own `rgba(0,0,0,.25)` plate, so dimming the group lightens the plate while it darkens the ink
+      and the two converge — `.wf-loc-dow` measures 7.02:1 undimmed and **3.20:1** at .8. It is also
+      `aria-hidden`, so the visual channel is the only one carrying which day the row is.
+
+   3. `.8`, NOT the design's `.62`. At .62 the row's own 10px leave-by line measures 3.40:1 against
+      its dimmed backdrop — a straight 1.4.3 failure on the line a reader acts on. .8 measures
+      4.80:1 on the resting surface and 4.63:1 while `.wf-loc-head:hover` lays its 3% white
+      underneath. The 12.5px event word is 9.32:1 at rest and 8.75:1 on hover.
+
+   4. The BEST row is excluded in the JSX (`LocationFourDaySheet`'s `data-dim`), not here — a place
+      whose every window is poor still has a best one, and it arrives expanded under a gold border
+      and an undimmed `◎ best here` tag. Left dimmed it also met this rule's tightest measured
+      point: `.wf-loc-lv` over the best row's gold wash under `:hover` is **4.38:1**, below AA.
+
+   Left undimmed on a dim row: the ramp chip, and — where that row's region reads `low` — the
+   provisional mark. Both are separate CHANNELS (quality, certainty) and neither is the thing being
+   de-emphasised; CLAUDE.md's rule is that they do not dim each other, and this is the same rule
+   pointing the third way. `.wf-loc-tag` simply cannot co-occur: it renders only on the best row,
+   which departure 4 excludes. ⚠️ Anything ADDED to a row later is silently undimmed — extend this
+   list with it, or say here why not. */
+.wf-loc-row[data-dim='true'] .wf-loc-w,
+.wf-loc-row[data-dim='true'] .wf-loc-t,
+.wf-loc-row[data-dim='true'] .wf-loc-lv,
+.wf-loc-row[data-dim='true'] .wf-loc-car,
+.wf-loc-row[data-dim='true'] .wf-loc-why {
+  opacity: 0.8;
 }
 .wf-loc-head {
   display: flex;
@@ -4762,13 +4836,18 @@ button.wf-hc.also.on:hover {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: -2px;
 }
+/* 52px is the design's own `grid 52px 1fr`, and M4 took it — but only above the phone breakpoint.
+   The 34px it replaces was measured for 320px, where `.wf-loc-mid` has about 167px to hold roughly
+   231px of contents on a best-and-rated row; taking 18 more from it is the one width where that
+   trade does not pay, so the phone rule below keeps a narrower box. `.wf-loc-body`'s indent is
+   derived from this width and moves with it. */
 .wf-loc-day {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 34px;
+  width: 52px;
   padding: 3px 0;
   border-radius: 7px;
   background: rgba(0, 0, 0, 0.25);
@@ -4859,14 +4938,16 @@ button.wf-hc.also.on:hover {
   font-size: 9px;
   color: var(--color-plex-text-secondary);
 }
-/* 55px = the day box's 34 plus `.wf-loc-head`'s 11px inset and its 10px gap, so the prose starts
+/* 73px = the day box's 52 plus `.wf-loc-head`'s 11px inset and its 10px gap, so the prose starts
    under the event word rather than under the date. The button and this div are siblings sharing
    `.wf-loc-row`'s content box, and the button has no border, so the two left edges coincide.
+   ⚠️ DERIVED from `.wf-loc-day`'s width — it was 55 against a 34px box until M4 widened it to the
+   design's 52. Move one and move the other.
    ⚠️ At the arm's 639px breakpoint the indent goes and the prose simply runs under the date box,
    which stays in flow — an earlier draft of this comment claimed the box moved out of the way at a
    480px breakpoint that exists nowhere in this file. */
 .wf-loc-body {
-  padding: 0 11px 10px 55px;
+  padding: 0 11px 10px 73px;
 }
 .wf-loc-why {
   margin: 0;
@@ -4882,11 +4963,17 @@ button.wf-hc.also.on:hover {
   font-style: normal;
   font-size: 10.5px;
 }
-/* `padding: 5px 0` rather than none: at the footer's 10.5px the bare text box is 15.75px tall, which
-   clears WCAG 2.5.8's 24px only through the Spacing exception — true today on 26px of clearance, and
-   false the moment a second control joins the footer or its padding tightens. Measured in the
-   browser rather than derived: 4px gave 23.75, a quarter of a pixel short, which is exactly the kind
-   of miss an arithmetic-only check passes over. */
+/* `padding: 5px 0` rather than none: at the footer's 10.5px the bare text box is 15.75px tall, and
+   5px on each side takes the TARGET to 25.75px, which clears WCAG 2.5.8's 24px outright rather than
+   through the Spacing exception. Measured in the browser rather than derived: 4px gave 23.75, a
+   quarter of a pixel short, which is exactly the kind of miss an arithmetic-only check passes over.
+
+   ⚠️ M4 joined a second control to this footer (`Plan from <region>`), which the earlier note here
+   warned would break the Spacing exception. It does not break anything, because the exception is no
+   longer the operative clause: each target is 25.75px tall and both are far wider than 24px, so the
+   minimum-size arm is satisfied on its own and the 12px `gap` never has to carry the criterion. Keep
+   the padding at 5 — drop it to 4 and BOTH controls fall back onto an exception that two adjacent
+   targets can no longer satisfy. */
 .wf-loc-map {
   background: none;
   border: 0;
@@ -4905,6 +4992,10 @@ button.wf-hc.also.on:hover {
    19px away — the rule `.wf-sheet-list` already states. */
 @media (max-width: 639px) {
   .wf-loc-body { padding-left: 11px; }
+  /* Back to the measured 34: see `.wf-loc-day`. At 320px `.wf-loc-mid` cannot spare the extra 18px,
+     and the date box is the one element on the row whose job the row's own words repeat (the
+     visually-hidden weekday and day-of-month inside `.wf-loc-ttl`). */
+  .wf-loc-day { width: 34px; }
 }
 
 /* ── Page-level conflict message (plan-matrix §6 M2.6) ────────────────────────────────────────
@@ -4987,20 +5078,69 @@ button.wf-hc.also.on:hover {
   inset: 0;
   pointer-events: none;
 }
+/* ⚠️ Since M4 a chip is a `<button>` where the caller passes `onOpenLocation` and a `<span>` where
+   it does not, and this one rule has to dress both — hence the resets below, inert on the span and
+   load-bearing on the button. One rule rather than two, because the greedy placer measures the
+   chip off-screen and then commits the box it measured: a width that differed between the two
+   passes is the one thing that placement cannot survive.
+
+   ⚠️ `font: inherit` comes BEFORE `line-height`, and the order is the whole point. `font` is a
+   shorthand and the CSS-wide keyword sets EVERY longhand, `line-height` among them — written after,
+   it resolves the chip's line-height to `.wf-mapbox`'s inherited `0` and the plate paints 9px tall
+   behind 9px of text, which is precisely the failure the `line-height` below exists to prevent (and
+   which `.wf-mlab span` documents from the same cause). Two review lenses caught this independently
+   in one commit; jsdom cannot see it, because `css: false`. */
 .wf-mchip {
   position: absolute;
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  font: inherit;
+  text-align: left;
   /* ⚠️ Against `.wf-mapbox`'s inherited `line-height: 0` — the same pairing `.wf-mlab span`
-     documents. Without it the chip's plate paints a few pixels tall behind 9px of text. */
+     documents. Without it the chip's plate paints a few pixels tall behind 9px of text. Keep it
+     AFTER `font`; see the note above. */
   line-height: 1.35;
   white-space: nowrap;
   padding: 2px 5px;
+  border: 0;
   border-radius: 5px;
   background: rgba(14, 11, 9, 0.84);
   box-shadow: inset 0 0 0 1px var(--color-plex-border-light);
-  pointer-events: none;
+}
+/* ⚠️ `pointer-events` is on the BUTTON alone, against `.wf-mchips`' `none`. Put it on `.wf-mchip`
+   and the inert span takes the pointer too — swallowing the region click on the canvas beneath it
+   and doing nothing with it, which is the exact `.wf-mhint` trap the layer was written to avoid and
+   which `WindowRowFieldMap`'s chip block still promises it avoids. The wrapper stays inert either
+   way, so a click BETWEEN chips always reaches the canvas and selects a region.
+
+   ⚠️ WCAG 2.5.8 (target size) is met through the EQUIVALENT exception, not the minimum-size arm: at
+   9px × 1.35 + 4 the chip is ~16px tall and `BOX_GAP = 3` puts neighbours ~19px apart, so neither
+   the 24px arm nor the Spacing exception is satisfied on its own. Every chipped location also
+   appears on a full-size `WindowSpotCard` in the ranked strip of the same dialog, which is the
+   equivalent control the exception asks for — and is this component's own standing doctrine that
+   the picture is "never the sole path to anything". The one gap in that equivalence is a live
+   region focus, which filters the strip but only ORDERS the chips; clearing it is a named button on
+   the rail. Sizing the plate to 24px instead was rejected: it is a map annotation, and a 50% taller
+   plate drops chips the placer can currently fit. M5's accessibility pass owns the final call. */
+button.wf-mchip {
+  pointer-events: auto;
+  cursor: pointer;
+}
+/* Inset, not offset. `.wf-mapbox` IS clipped — `overflow: hidden` with a 9px radius — and the placer
+   permits a chip `EDGE_GAP` (2px) from the frame edge, so an outward 2px ring at a 2px offset would
+   lose its outer stroke on any edge-placed chip. `.wf-loc-head:focus-visible` states the identical
+   reasoning for the identical shape. (An earlier cut of this comment claimed `.wf-mapbox` has no
+   `overflow: hidden`; it does, at index.css's `.wf-mapbox` rule.) */
+button.wf-mchip:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
+/* The plate lifts rather than the chip moving: a chip is absolutely placed by a measured greedy
+   pass, so any transform on hover would slide it off the point it names. */
+button.wf-mchip:hover {
+  background: rgba(14, 11, 9, 0.94);
+  box-shadow: inset 0 0 0 1px var(--color-close-to-home);
 }
 /* The 5px square that sits ON the projected point — the anchor the placement offset is measured
    from, so its size and `CHIP_OFFSET` in `WindowRowFieldMap.jsx` are a pair. */

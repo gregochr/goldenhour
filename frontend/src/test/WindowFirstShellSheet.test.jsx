@@ -455,4 +455,27 @@ describe('WindowFirstShell — the drill-down', () => {
     // The POSITIONAL form, which centres one location — the object form opens a whole region.
     expect(onShowOnMap).toHaveBeenCalledWith(TODAY, 'SUNSET', 'Bamburgh Beach');
   });
+
+  it('⚠️ takes the WINDOW POPUP down with it, not just this sheet', async () => {
+    // `MapOverlay` is itself an `aria-modal` dialog with its own unconditional document Escape
+    // listener, and the popup re-arms its own the moment nothing is stacked on it — so a
+    // sheet-only close leaves two dialogs on the page and makes one press take both. The sheet's
+    // own comment has always stated that rule; until M4 it closed only the sheet. Its sibling in
+    // `locationSheetShell.test.jsx` pins the same line for the four-day sheet's footer.
+    renderShell();
+    await openSheet();
+    fireEvent.click(within(screen.getByTestId('window-spot-sheet-list')).getAllByTestId('window-spot')[0]);
+    expect(screen.queryByTestId('window-spot-sheet')).toBeNull();
+    expect(screen.queryByTestId('window-sheet')).toBeNull();
+  });
+
+  it('keeps naming the MAP on its own cards, which is what the caller opt-in is for', async () => {
+    // M4 retargeted the popup's copy of the ranked strip to the location sheet and gave the card's
+    // destination wording to the caller (plan §3 rule 10). This sheet did not retarget, so its
+    // cards must read exactly what they always did — the default, unchanged.
+    renderShell();
+    await openSheet();
+    expect(within(screen.getByTestId('window-spot-sheet-list')).getAllByTestId('window-spot')[0])
+      .toHaveTextContent('Open on map');
+  });
 });

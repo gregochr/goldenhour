@@ -5,6 +5,47 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Plan tab M4: the location sheet, and the two ways into it the popup was missing
+
+The four-day sheet a reader could only reach from search is now the drill-down's own detail view.
+Clicking a **location chip on the popup's field map**, or a **card in its ranked strip**, opens that
+place's own next windows *over* the popup rather than instead of it — the reader keeps the window
+they were reading, and Escape takes exactly one layer per press: search, then the sheet, then the
+popup. The map is not lost; it moved one tap further, into the sheet's own footer, which names the
+window it will open.
+
+The chips became **real controls** in the same change, all three properties together: the click, a
+`region · drive · leave-by` tooltip, and an exit from the `aria-hidden` layer they were annotations
+in. Any one alone is useless — a tooltip on a `pointer-events: none` span reaches nobody, and a
+control inside a hidden subtree cannot be found by the readers most likely to want its name — so
+they land as a set, under a named group so eight place-buttons say where they are.
+
+**`◎ Plan from <region> →`** joins the footer. It closes the sheet *and* the popup and only then
+moves the origin, which is the whole of the old refusal to build it: the drive, the base named
+beside it, the outside badge and every departure on every row would otherwise change while the
+reader is looking at them. The origin never moves under an open surface — and the same rule now
+covers the routes that had quietly grown one, including search's region rows and the masthead's home
+button. Where a region cannot be an origin the footer states the reason instead of offering a dead
+control, in **its own words**: the search box's "you are already planning from here" is unambiguous
+on a region row and claims the origin is Bamburgh when it sits under a heading naming a place.
+
+The sheet takes the v3 anatomy: a gold-washed lead block, the design's wider date box (narrower again
+on a phone, where the row cannot spare it), and rows at 2★ or below de-emphasised. Three things are
+deliberately **not** the design's: the lead block carries one line rather than two, because the best
+window's prose is already expanded eight pixels below it; the dim is `.8` rather than `.62`, which is
+where the departure line stops meeting AA; and neither the rating chip nor the date box is dimmed at
+all, because both carry their own background and dimming the group converges the ink onto the plate
+(the 2★ chip to 4.15:1, the weekday to 3.20:1). The row the sheet *leads* with is never dimmed
+either — it arrives expanded under a gold border and a `◎ best here` tag, and three treatments
+arguing on one row is not a signal.
+
+Two defects the retarget exposed are fixed with it. A card that opens a sheet no longer says
+`◍ Open on map →` — the destination's wording is the caller's now, so the drill-down sheet's copy of
+the same card is unchanged. And a spot handed to the map from inside a sheet takes the window popup
+down with it: the map overlay is itself a dialog, and a popup left mounted underneath re-arms its own
+Escape listener, so one press closed two layers.
+
+
 ### Changed — Plan tab M3: the tick line, and the rail footer it replaces
 
 Where the plan is computed from is now stated **once**, in the masthead, on a line that is also the

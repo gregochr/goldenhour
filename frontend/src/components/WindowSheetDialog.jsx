@@ -18,6 +18,8 @@ import {
   confidenceTreatment, daysOut, resolveConfidence, scaleRgbaAlpha,
 } from '../utils/confidenceUtils.js';
 import { movementChip } from '../utils/movement.js';
+import { formatDriveDuration } from '../utils/briefingDisplay.js';
+import { leaveBy } from '../utils/leaveBy.js';
 import { calDow } from '../utils/windowFirstStrip.js';
 import { dayNumber } from '../utils/windowFirstMatrix.js';
 
@@ -46,6 +48,31 @@ const VERDICT_TREATMENT = {
   // the neutral topic badge already use for exactly this state.
   AWAITING: { fill: 'rgba(255,255,255,0.04)', border: 'rgba(255,255,255,0.10)', text: 'var(--color-plex-text-secondary)', weight: 400 },
 };
+
+/**
+ * A field chip's tooltip — region, drive, leave-by (plan-matrix §5, deferred from M2 to M4).
+ *
+ * <p><b>The three clauses are independently absent</b>, which is the rule {@code WindowSpotCard}
+ * states for the same three facts on the same descriptor: no region means the slot arrived
+ * unregioned; no drive means the reader has saved no postcode, which is <em>unknown</em> and never
+ * "out of reach"; and no departure follows without both the drive and this slot's own event time.
+ * A chip with none of them carries no {@code title} at all rather than an empty one.
+ *
+ * <p>It reads {@link leaveBy} and {@link formatDriveDuration} — the two producers the arm already
+ * has — rather than composing a second departure from the same two numbers (plan §3 rule 13).
+ *
+ * @param {object} spot a {@code buildWindowSpots} descriptor
+ * @returns {string} the tooltip, possibly empty
+ */
+function chipTitle(spot) {
+  const drive = formatDriveDuration(spot.driveMinutes);
+  const leave = leaveBy(spot.solarEventTime, spot.driveMinutes);
+  return [
+    spot.regionName,
+    drive,
+    leave ? `leave ${leave}` : null,
+  ].filter(Boolean).join(' · ');
+}
 
 
 /**
@@ -96,11 +123,14 @@ const VERDICT_TREATMENT = {
  * @param {string}   props.todayStr   today's ISO date in Europe/London
  * @param {boolean}  [props.escapeEnabled] whether Escape closes THIS layer — false while something
  *                   is stacked over it, which is what makes Escape close one layer per press
+ * @param {Function} [props.onOpenSpot]     a ranked spot card was chosen
+ * @param {Function} [props.onOpenLocation] a field chip was chosen. Absent leaves the chips as
+ *                   inert, `aria-hidden` annotations — see {@code WindowRowFieldMap}
  */
 export default function WindowSheetDialog({
   card, index, total, field, topicIndex, scopeNames, todayStr,
   escapeEnabled = true, peeksSuppressed = false,
-  onClose, onStep, onOpenSpot, onSeeAllSpots, onOpenPick, scoreIndex,
+  onClose, onStep, onOpenSpot, onOpenLocation, onSeeAllSpots, onOpenPick, scoreIndex,
 }) {
   const windowLabel = [card.kicker, card.when].filter(Boolean).join(' ');
   const treatment = VERDICT_TREATMENT[card.verdict] || VERDICT_TREATMENT.AWAITING;
@@ -192,7 +222,17 @@ export default function WindowSheetDialog({
       key: spot.key,
       locationId: spot.locationId,
       locationName: spot.locationName,
+      // Carried for M4's sheet, which takes an identity of three fields and joins on the id —
+      // `sheetSpotOf` is the one translation, so a chip and the card below it open the same page.
+      regionName: spot.regionName,
       rating: spot.rating,
+      // ⚠️ Built HERE, from the spot descriptor the strip below draws, and never re-derived inside
+      // the map. `leaveBy` is the single client producer of a departure time (plan §3 rule 13) and
+      // `spot.driveMinutes` has one producer too, so a second copy in the field layer could print a
+      // departure the strip disagrees with, eight pixels apart, on the same window. The clauses are
+      // independently absent for the reasons `WindowSpotCard` records: no drive means unknown, not
+      // out of reach, and no leave-by follows without both the drive and this slot's own time.
+      title: chipTitle(spot),
     }));
   }, [card.spots, field.selectedRegion]);
 
@@ -373,6 +413,11 @@ export default function WindowSheetDialog({
               origin={field.origin || null}
               todayStr={todayStr}
               onSelectRegion={field.onSelectRegion}
+              // ⚠️ M4's entry point, and passing it is what takes the chips OUT of `aria-hidden` —
+              // the map treats the handler's presence as the test for whether a chip is an
+              // annotation or a control. Undefined when the shell offers no sheet, which keeps the
+              // layer inert rather than shipping eight names that do nothing.
+              onOpenLocation={onOpenLocation}
             />
             )}
             <div className="wf-wsh-side">
@@ -418,6 +463,13 @@ export default function WindowSheetDialog({
               filters={filters}
               lead={card.lead}
               onOpenSpot={(spot) => onOpenSpot?.(card, spot)}
+              // ⚠️ Names where THIS strip's click goes, which since M4 is the location sheet rather
+              // than the map. The same component draws the drill-down sheet's cards, and those
+              // still open the map — so the wording is the caller's, and a card that promised a map
+              // and delivered a sheet would be lying inside its own accessible name.
+              openLabel="◇ The next few days here →"
+              openPrompt="Click for the next few days here →"
+
               onSeeAll={onSeeAllSpots ? () => onSeeAllSpots(card) : undefined}
               // ⚠️ Suppressed only while something is stacked OVER this dialog. `.wf-peek` is
               // portalled to the body at `z-index: 60` against `Modal`'s `z-50`, so a hover panel
@@ -515,6 +567,7 @@ WindowSheetDialog.propTypes = {
   onClose: PropTypes.func.isRequired,
   onStep: PropTypes.func,
   onOpenSpot: PropTypes.func,
+  onOpenLocation: PropTypes.func,
   onSeeAllSpots: PropTypes.func,
   onOpenPick: PropTypes.func,
   scoreIndex: PropTypes.instanceOf(Map),

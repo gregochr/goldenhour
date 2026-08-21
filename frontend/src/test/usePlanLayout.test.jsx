@@ -763,15 +763,22 @@ describe('WindowFirstShell — the strip it hosts', () => {
     expect(onShowOnMap).toHaveBeenCalledWith('2026-08-04', 'SUNSET', 'Bamburgh Beach');
   });
 
-  it('routes a spot card to the map as a location in its own window', async () => {
-    // Same positional form as the pick's location, and deliberately not the object form the rail's
-    // region chip uses — a spot card names one place and must land on it, not on its region.
+  it('⚠️ routes a spot card to that place\'s own sheet, OVER the popup — not to the map', async () => {
+    // M4 (D-3) retargeted this click. Until then it opened the map and closed the popup, and the
+    // rule at the seam was "arriving at a destination ends the browsing". A sheet is not a
+    // destination — it is one place's four days, opened from the window still being read — so the
+    // popup stays underneath and the map moves one tap further, into the sheet's own footer.
     const { onShowOnMap } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
     await openPopup();
 
     fireEvent.click(screen.getByTestId('window-spot'));
 
-    expect(onShowOnMap).toHaveBeenCalledWith('2026-08-04', 'SUNSET', 'Bamburgh Beach');
+    const sheet = await screen.findByTestId('location-sheet');
+    expect(within(sheet).getByTestId('location-sheet-title')).toHaveTextContent('Bamburgh Beach');
+    // The window popup is STILL THERE. This is the whole point of the retarget and the reason the
+    // Escape order has three rungs.
+    expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
+    expect(onShowOnMap).not.toHaveBeenCalled();
   });
 
   it('says so plainly when there are no windows', () => {

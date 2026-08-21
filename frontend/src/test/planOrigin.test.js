@@ -4,6 +4,7 @@ import {
   AWAY_TIER_ID,
   canBeOrigin,
   gateSpotsByOrigin,
+  originAction,
   originReachMap,
   scopeSpots,
   toOrigin,
@@ -201,6 +202,68 @@ describe('planOrigin', () => {
 
     it('survives a null spot in the list', () => {
       expect(gateSpotsByOrigin([null, spots[0]], toOrigin(region())).length).toBe(1);
+    });
+  });
+
+  describe('originAction — one eligibility verdict, two surfaces', () => {
+    /**
+     * <p><b>What breaks if these fail.</b> The search dropdown and the location sheet's
+     * {@code Plan from &lt;region&gt;} footer ask the same question about the same region one dialog
+     * apart. Before M4 they were two inline ladders; a drift between them shows up as a box calling
+     * a region unplannable above a footer offering it, or the reverse.
+     *
+     * <p>⚠️ It returns the VERDICT and no words — an adversarial review is why. A ready-made
+     * sentence written for a dropdown row ("You are already planning from here") changes referent
+     * on a dialog whose subject is a PLACE: under a heading reading Bamburgh it claims the origin is
+     * Bamburgh. So each surface writes its own sentence, and only the test is shared.
+     */
+    it('exposes no wording of its own, so neither surface can inherit the other\'s referent', () => {
+      // The regression this shape prevents, asserted as a shape: a `reason` string here is a
+      // sentence one caller wrote and the other must not print.
+      expect(Object.keys(originAction(region(), null)).sort())
+        .toEqual(['based', 'can', 'current', 'off']);
+    });
+
+    it('permits a based, enabled region that is not already the origin', () => {
+      expect(originAction(region(), null))
+        .toEqual({ can: true, current: false, off: false, based: true });
+    });
+
+    it('refuses a switched-off region, and says so alongside every other failing test', () => {
+      // ⚠️ NOT subsumption — a region can be off, baseless AND current at once, and this returns
+      // all three so a caller can pick by precedence rather than being handed one verdict's word.
+      const off = region({ enabled: false, baseName: null, baseLat: null, baseLon: null });
+      expect(originAction(off, 7))
+        .toEqual({ can: false, current: true, off: true, based: false });
+    });
+
+    it('refuses a baseless region', () => {
+      expect(originAction(region({ baseName: '  ' }), null))
+        .toMatchObject({ can: false, based: false, off: false });
+    });
+
+    it('⚠️ refuses the region that is ALREADY the origin', () => {
+      // Plan §3 rule 14: a control with no visible effect is banned. Re-selecting the current
+      // origin clears the region filter and resets reach — visible churn for a frame, for nothing.
+      expect(originAction(region(), 7)).toMatchObject({ can: false, current: true });
+    });
+
+    it('does not mistake a DIFFERENT region for the current one', () => {
+      expect(originAction(region({ id: 8 }), 7)).toMatchObject({ can: true, current: false });
+    });
+
+    it('treats a home origin as no origin, rather than as an id that matches nothing', () => {
+      // Null is what the shell passes at home. `region.id === null` is false for every real id, but
+      // an implementation comparing against `undefined` with `==` would match a region whose id had
+      // not loaded.
+      expect(originAction(region({ id: null }), null)).toMatchObject({ can: true, current: false });
+    });
+
+    it('refuses a null region', () => {
+      // The caller decides what to say, and `WindowFirstShell.sheetPlanFrom` says nothing at all:
+      // every sentence either surface writes is a statement ABOUT a record, so a caller holding
+      // none must print none.
+      expect(originAction(null, null).can).toBe(false);
     });
   });
 

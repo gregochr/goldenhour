@@ -1,4 +1,6 @@
 import React from 'react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within, fireEvent } from '@testing-library/react';
 import LocationFourDaySheet from '../components/LocationFourDaySheet.jsx';
@@ -377,6 +379,170 @@ describe('LocationFourDaySheet', () => {
     expect(screen.getByTestId('location-sheet-meta')).toHaveTextContent('Northumberland');
     // The window header's time is the fallback when the briefing carries no slot for the row.
     expect(within(row('2026-08-14:SUNSET')).getByRole('button')).toHaveAccessibleName(/20:37/);
+  });
+});
+
+describe('LocationFourDaySheet — the v3 anatomy (plan-matrix §6 M4.1)', () => {
+  it('⚠️ never dims the row the sheet LEADS with, whatever it is rated', () => {
+    // `bestKey` is a max over one location's own windows, so a place whose every window is poor
+    // still has a best one — and it arrives expanded, under a gold border and an undimmed
+    // `◎ best here` tag. Dimming it puts three treatments in contradiction on one row, and the
+    // measured cost is the departure line at 4.38:1 where the best row's gold wash meets a hover.
+    const twoStarBest = buildScoreIndex([
+      { locationId: 7, locationName: 'Bamburgh', date: '2026-08-14', targetType: 'SUNSET', rating: 2, summary: 'Low cloud.' },
+      { locationId: 7, locationName: 'Bamburgh', date: '2026-08-15', targetType: 'SUNRISE', rating: 1, summary: 'Blanket.' },
+    ]);
+    setup({ scoreIndex: twoStarBest });
+    // The best row IS a 2★ row here — the band edge and the exclusion in one fixture.
+    expect(row('2026-08-14:SUNSET')).toHaveAttribute('data-best', 'true');
+    expect(row('2026-08-14:SUNSET')).not.toHaveAttribute('data-dim');
+    expect(row('2026-08-15:SUNRISE')).toHaveAttribute('data-dim', 'true');
+  });
+
+  it('⚠️ dims a 2★ row and leaves an UNRATED one alone', () => {
+    // The design dims rows "at 2★ or below". Keyed on a rating that EXISTS, never on the absence of
+    // one: an unrated row is one nothing has looked at, which is a different statement from a poor
+    // one — the same distinction the badge draws by being omitted rather than greyed. Dimming it
+    // would say "poor" in the visual channel above words that say "Not scored yet".
+    setup();
+    expect(row('2026-08-15:SUNSET')).toHaveAttribute('data-dim', 'true');   // 2★
+    expect(row('2026-08-14:SUNSET')).not.toHaveAttribute('data-dim');       // 3★
+    expect(row('2026-08-15:SUNRISE')).not.toHaveAttribute('data-dim');      // 5★
+    // The away day carries no rating at all — and is the row a naive `rating <= 2` on a null gets
+    // wrong, because `null <= 2` is true in JavaScript.
+    expect(row('2026-08-16:SUNRISE')).not.toHaveAttribute('data-dim');
+  });
+
+  it('⚠️ dims no element that carries its own background — the badge and the date box', () => {
+    // The load-bearing half of the treatment, and the half no rendered assertion can see: `opacity`
+    // on a parent cannot be undone by a child, so the exclusions are OMISSIONS from a selector list
+    // and a mutation that adds either class back is invisible to jsdom (`css: false`). Both are
+    // excluded for the same measured reason — each paints its own plate, so dimming the group
+    // lightens the plate while it darkens the ink and the two converge: the 2★ badge falls to
+    // 4.15:1 and `.wf-loc-dow` to 3.20:1, both under AA. The badge is additionally the QUALITY
+    // signal, which CLAUDE.md is explicit is never dimmed by another channel.
+    // ⚠️ Comments stripped FIRST. A selector capture that runs back through the block comment
+    // above the rule picks up every class the comment MENTIONS — including the two this test
+    // exists to prove are absent, which made the first cut fail against a correct stylesheet.
+    const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    const dimmed = [...css.matchAll(/([^{}]*)\{[^{}]*opacity[^{}]*\}/g)]
+      .map(([, selector]) => selector)
+      .filter((selector) => selector.includes("[data-dim='true']"));
+    expect(dimmed.length).toBe(1);
+    expect(dimmed[0]).toContain('.wf-loc-lv');
+    expect(dimmed[0]).not.toContain('.wf-loc-st');
+    expect(dimmed[0]).not.toContain('.wf-loc-day');
+  });
+
+  it('⚠️ keeps the lead line free of a denominator, and free of uppercase TEXT', () => {
+    // P8's lesson and plan Rule 5, restated for this phase: `2 windows at 4★+`, never `1 OF 6`. A
+    // count of scored evaluation rows is a fact about our database, not about the sky.
+    setup();
+    const lead = screen.getByTestId('location-sheet-lead');
+    expect(lead).toHaveTextContent('The next 3 days here · 1 window at 4★+');
+    expect(lead.textContent).not.toMatch(/\bof\b/i);
+    // The v3 block's uppercase is a `text-transform`, so the DOM string — and therefore what a
+    // screen reader says and what speech input has to match — stays sentence case. A test that
+    // accepted either casing would let the copy be shouted into the accessibility tree.
+    expect(lead.textContent).toContain('The next');
+  });
+
+  it('does not dress the "nothing loaded" line as the lead kicker', () => {
+    // They shared `.wf-loc-lead` until M4's restyle turned it into a gold-washed uppercase kicker.
+    // A headline treatment on the one line that says nothing has arrived reads as emphasis on an
+    // absence — jsdom cannot see the gold, but it can see which class carries it.
+    renderSheet({ windows: [] });
+    expect(screen.getByTestId('location-sheet-empty')).toHaveClass('wf-loc-note');
+    expect(screen.getByTestId('location-sheet-empty')).not.toHaveClass('wf-loc-lead');
+  });
+});
+
+describe('LocationFourDaySheet — the Plan-from footer (plan-matrix §6 M4.3, D-4)', () => {
+  it('⚠️ calls onClose BEFORE onPlanFrom — the ordering, not the outcome', () => {
+    // D-4's whole content. P8 refused this action because moving the origin swaps the reach map and
+    // the scope under an open sheet: the drive, the base named beside it, the outside badge and
+    // every departure on every row would change while the reader is looking at them. Close-then-move
+    // removes the condition instead of the objection — so the ORDER is the requirement, and an edit
+    // that merely reached the same end state would silently lose it.
+    const onClose = vi.fn();
+    const onPlanFrom = vi.fn();
+    renderSheet({ planFrom: { name: 'Northumberland' }, onPlanFrom, onClose });
+    fireEvent.click(screen.getByRole('button', { name: 'Plan from Northumberland' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(onPlanFrom).toHaveBeenCalledTimes(1);
+    expect(onClose.mock.invocationCallOrder[0])
+      .toBeLessThan(onPlanFrom.mock.invocationCallOrder[0]);
+  });
+
+  it('⚠️ keeps a real space between the map button\'s two text nodes', () => {
+    // An `aria-hidden` span is removed from the tree entirely, so splitting `◍ Show on map → X`
+    // around hidden glyph spans left no element boundary between the surviving TEXT NODES and no
+    // engine inserts a space: the name computed as "Show on mapTonight Sunset", one mangled token,
+    // which is the only thing a speech-input user has to say (2.5.3). So the label is ONE text
+    // node with only the bullseye hidden — that is the glyph VoiceOver reads as a word mid-name; an
+    // arrow between two phrases is not. Asked of the tree, exactly, because the `/Show on map/`
+    // regex the other tests use passed straight through the defect.
+    setup();
+    expect(screen.getByTestId('location-sheet-map'))
+      .toHaveAccessibleName('Show on map → Tomorrow Sunrise');
+  });
+
+  it('keeps the glyphs out of the accessible name, and the words in it in order', () => {
+    // `◎` is decorative; VoiceOver says "bullseye" in the middle of the control's name otherwise —
+    // the call `◎ best here` already makes one band up. What survives is every visible WORD, in
+    // order, which is what WCAG 2.5.3 asks of a name.
+    renderSheet({ planFrom: { name: 'Northumberland' }, onPlanFrom: vi.fn() });
+    const button = screen.getByTestId('location-sheet-plan');
+    expect(button).toHaveAccessibleName('Plan from Northumberland');
+    expect(button.textContent).toBe('◎ Plan from Northumberland →');
+  });
+
+  it('states the reason rather than rendering a control that does nothing', () => {
+    // Plan §3 rule 14. The reason is `originAction`'s, verbatim, so this dialog and the search box
+    // that can open it cannot describe one region two ways.
+    renderSheet({ planFrom: { name: 'Northumberland', reason: 'This region is switched off' } });
+    expect(screen.queryByTestId('location-sheet-plan')).toBeNull();
+    expect(screen.getByTestId('location-sheet-plan-note'))
+      .toHaveTextContent('This region is switched off');
+  });
+
+  it('renders no origin action at all when the caller offers no region', () => {
+    // The default, and the state every P8 caller was in — so the footer that shipped is unchanged
+    // for anyone who does not opt in.
+    setup();
+    expect(screen.queryByTestId('location-sheet-plan')).toBeNull();
+    expect(screen.queryByTestId('location-sheet-plan-note')).toBeNull();
+    expect(screen.getByTestId('location-sheet-map')).toBeInTheDocument();
+  });
+});
+
+describe('the sheet\'s own stylesheet block names only tokens that exist', () => {
+  /**
+   * ⚠️ <b>jsdom does not resolve {@code var()}</b>, so no cascade test in this project can ever see
+   * an undefined token — an unresolved one renders as inherited bone under a green suite, which is
+   * exactly what {@code --color-badge-marginal} did to every "Maybe" badge in M2. The set of
+   * DEFINED names is a fact about a file and is readable, so this is the shape that catches it.
+   *
+   * <p>Sliced to this surface's own rules rather than run over the whole stylesheet: a file-wide
+   * check would fail on somebody else's rule and stop being this phase's guard.
+   */
+  it('⚠️ resolves every var(--…) in the .wf-loc-* and .wf-mchip* rules', () => {
+    const css = readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
+    const defined = new Set([...css.matchAll(/^\s*(--[a-z0-9-]+)\s*:/gm)].map((m) => m[1]));
+    // Selector lists included, so a rule written `.wf-loc-row[data-dim='true'] .wf-loc-lv, …` is
+    // caught by its first selector rather than skipped.
+    const blocks = [...css.matchAll(/(^|\n)([^{}\n][^{}]*)\{([^{}]*)\}/g)]
+      .filter(([, , selector]) => /\.wf-(loc|mchip)/.test(selector))
+      .map(([, , , body]) => body);
+    const used = new Set(blocks.flatMap(
+      (body) => [...body.matchAll(/var\((--[a-z0-9-]+)\)/g)].map((m) => m[1]),
+    ));
+    // A cut that matched no rules would pass vacuously — the failure mode this whole shape exists
+    // to refuse.
+    expect(blocks.length).toBeGreaterThan(20);
+    expect(used.size).toBeGreaterThan(5);
+    expect([...used].filter((name) => !defined.has(name))).toEqual([]);
   });
 });
 

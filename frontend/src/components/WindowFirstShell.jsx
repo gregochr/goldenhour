@@ -14,10 +14,10 @@ import { formatRelativeAge } from '../utils/relativeTime.js';
 import { buildLocationTypeMap } from '../utils/locationTypes.js';
 import { ANY_TIER_ID } from '../utils/reachLens.js';
 import { sheetOffersMore } from '../utils/windowSpotBrowse.js';
-import { scopeRegions } from '../utils/planOrigin.js';
+import { originAction, scopeRegions } from '../utils/planOrigin.js';
 import { buildTopicIndex, windowTopics } from '../utils/windowFirstTopics.js';
 import { buildPlanConflict } from '../utils/planConflicts.js';
-import { buildScoreIndex, buildSlotIndex } from '../utils/locationSheet.js';
+import { buildScoreIndex, buildSlotIndex, sheetSpotOf } from '../utils/locationSheet.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
 import useLensReserve from '../hooks/useLensReserve.js';
 import useStuckSentinel from '../hooks/useStuckSentinel.js';
@@ -447,6 +447,32 @@ export default function WindowFirstShell({
    */
   const [sheetKey, setSheetKey] = useState(null);
   const sheetCard = sheetKey == null ? null : windowCards.find((c) => c.key === sheetKey) || null;
+
+  /**
+   * Opens exactly ONE layer over the window popup, taking down whatever else was there.
+   *
+   * <h2>Why the three are mutually exclusive rather than a stack</h2>
+   *
+   * <p>Three dialogs can sit over the popup — the drill-down sheet ("See all N →"), the four-day
+   * location sheet (M4's chips and spot cards) and the pick dialog — and all three carry the same
+   * {@code escapeEnabled={searchSeed == null}}, because each was written as <em>the</em> stacked
+   * layer. Any two of them open together therefore answer one Escape press twice, which is a direct
+   * breach of the one-layer-per-press rule the popup beneath them relies on (plan-matrix §6 M2.5).
+   *
+   * <p>⚠️ <b>Reachable, and made reachable by M4.</b> {@code useDialogFocus} is deliberately not a
+   * focus trap, so from an open location sheet a keyboard reader can Tab back onto the popup's own
+   * pick badge behind the backdrop and press Enter. Before M4 the location sheet could not coexist
+   * with the popup at all, so the collision had no route.
+   *
+   * <p>Making them exclusive rather than ordering them is the smaller change and the better one: an
+   * ordering would need a fourth {@code aria-modal} layer's worth of guards, which is exactly what
+   * this phase was told not to add. One layer over the popup, one press to take it off.
+   */
+  const openOverPopup = useCallback((next) => {
+    setSheetSpot(next?.spot ?? null);
+    setSheetKey(next?.sheetKey ?? null);
+    setOpenPick(next?.pick ?? null);
+  }, []);
   /**
    * A tab asked for from OUTSIDE the bar — currently the map overlay's "open the full map" hatch.
    *
@@ -751,6 +777,41 @@ export default function WindowFirstShell({
     () => scopeRegions(heatSpots, reachById, origin),
     [heatSpots, reachById, origin],
   );
+  /**
+   * The sheet footer's origin action — this place's own region, and whether it may be planned from.
+   *
+   * <p>Matched on region NAME, byte-identically and never normalised, because that is the only key
+   * the locations payload and the regions payload share ({@code heatSpots.js} records why, and
+   * {@code scopeSpots} matches the same way one module over).
+   *
+   * <p><b>Null when no record is found</b>, which is not the same as "cannot be an origin".
+   * {@code originAction}'s three reasons are all statements about a region record — switched off,
+   * no base town, already the origin — and offering one for a region the shell has never seen would
+   * be a guess printed as a fact. The footer then simply carries no origin action, which is the
+   * degrade-is-silence rule the whole arm runs on.
+   *
+   * <p>Carries the RECORD, not an origin descriptor: {@code setOrigin} takes a region record and
+   * folds it through {@code toOrigin} itself, so converting here would be a second conversion able
+   * to disagree with the one the provider does.
+   */
+  const sheetPlanFrom = useMemo(() => {
+    const name = sheetSpot?.regionName || null;
+    if (!name) return null;
+    const record = (regions || []).find((r) => r?.name === name) || null;
+    if (!record) return null;
+    const { can, off, based, current } = originAction(record, origin?.id ?? null);
+    // ⚠️ THE SHEET'S OWN WORDS, naming the region — never the search dropdown's. That box's subject
+    // is a region, so "you are already planning from here" is unambiguous there; this dialog's
+    // subject is a PLACE, and the same sentence under a heading reading "Bamburgh" claims the
+    // origin is Bamburgh. It is also the commonest of the three here, since every local place a
+    // reader opens after moving the origin hits it. Precedence, not subsumption: a region can be
+    // off, baseless and current at once, and this order is the one `originAction` documents.
+    let reason = null;
+    if (off) reason = `${name} is switched off`;
+    else if (!based) reason = `${name} has no base town, so it cannot be an origin`;
+    else if (current) reason = `Already planning from ${name}`;
+    return { name, reason, region: can ? record : null };
+  }, [sheetSpot, regions, origin]);
   // The POSITIONAL form, which centres the map on one location — the same call the pick dialog's
   // "show location" already makes. The OBJECT form (`{region, date, eventType}`) opened a whole
   // region and was the retired rail's region chip; nothing on this pane names a region until P3's
@@ -979,7 +1040,11 @@ export default function WindowFirstShell({
           origin={origin ?? null}
           homePlace={homePlace}
           onOpenSearch={() => setSearchSeed('')}
-          onGoHome={() => setOrigin?.(null)}
+          // ⚠️ Takes every dialog down first, since M4. The tick line keeps its tab stops while no
+          // search panel is open, and `useDialogFocus` is not a trap — so a keyboard reader inside
+          // an open location sheet can reach this button, and moving the origin under that sheet is
+          // the case M4.3's close-then-move footer exists to rule out. One rule, every route.
+          onGoHome={() => { openOverPopup(null); openWindow(null); setOrigin?.(null); }}
           onSetPostcode={onSetPostcode ?? onOpenSettings}
           // The anchored search panel covers this row exactly, so its controls come out of the tab
           // order while it is open — see the prop's own note on WCAG 2.4.11.
@@ -1300,14 +1365,25 @@ export default function WindowFirstShell({
               const next = (openIndex + delta + windowCards.length) % windowCards.length;
               openWindow(windowCards[next].key);
             }}
-            onOpenPick={setOpenPick}
-            // Closes FIRST, the rule every other handoff in this file already states: `MapOverlay`
-            // is itself `aria-modal`, so leaving the popup mounted underneath puts two dialogs on
-            // the page with two Escape listeners between them — and the reader has arrived at the
-            // destination, which ends the browsing.
-            onOpenSpot={(card, spot) => { openWindow(null); handleSpot(card, spot); }}
+            onOpenPick={(pick) => openOverPopup({ pick })}
+            // ⚠️ M4 (D-3) RETARGETS both of these from the map to the location sheet, and the
+            // popup deliberately stays open underneath. Until this phase a spot card opened the
+            // map, and the rule at this seam was "closes FIRST" because `MapOverlay` is itself
+            // `aria-modal` and the reader had arrived at a destination. A sheet is not a
+            // destination: it is one place's own four days, opened from the window the reader is
+            // still reading, and closing the popup would throw that window away to answer a
+            // question about one of its rows. So this is the stack the Escape order was written
+            // for — `stackedOverPopup` already counts `sheetSpot`, so the popup declines Escape
+            // while the sheet is up and a press takes exactly one layer. The map is not lost: the
+            // sheet's footer carries it, and closes both from there.
+            //
+            // `sheetSpotOf` is the ONE translation from the briefing's `locationId`/`locationName`
+            // vocabulary to the sheet's identity, shared by both entries so a chip and the card
+            // beneath it can never open two different pages for one place.
+            onOpenSpot={(card, spot) => openOverPopup({ spot: sheetSpotOf(spot) })}
+            onOpenLocation={(chip) => openOverPopup({ spot: sheetSpotOf(chip) })}
             onSeeAllSpots={sheetOffersMore(openCard, typesByName)
-              ? (card) => setSheetKey(card.key)
+              ? (card) => openOverPopup({ sheetKey: card.key })
               : undefined}
             scoreIndex={scoreIndex}
           />
@@ -1348,13 +1424,19 @@ export default function WindowFirstShell({
           // Declines Escape while search is over it — the same one-layer-per-press rule the popup
           // beneath it follows. Nothing else can stack on this one.
           escapeEnabled={searchSeed == null}
-          onClose={() => setSheetKey(null)}
+          onClose={() => openOverPopup(null)}
           // Closes FIRST, exactly as the strip dismisses its peek before the same handoff. The map
           // overlay is itself an `aria-modal` dialog: leaving the sheet mounted underneath puts two
           // on the page at once, gives Escape two listeners to satisfy, and leaves the reader's
           // place in a list they have navigated away from. The sheet is a browsing surface and the
           // map is a destination — arriving at the destination ends the browsing.
-          onOpenSpot={(spot) => { setSheetKey(null); handleSpot(sheetCard, spot); }}
+          // ⚠️ `openWindow(null)` as well as the sheet, and M4 is where that became load-bearing.
+          // `MapOverlay` is itself an `aria-modal` dialog with its own unconditional document
+          // Escape listener, and the window popup underneath re-arms its own the moment nothing is
+          // stacked on it — so leaving it mounted puts two dialogs on the page and makes one press
+          // close both, the very thing this arm's Escape order exists to prevent. The reader has
+          // arrived at a destination, which ends the browsing.
+          onOpenSpot={(spot) => { openOverPopup(null); openWindow(null); handleSpot(sheetCard, spot); }}
         />
       )}
 
@@ -1380,7 +1462,6 @@ export default function WindowFirstShell({
             scopeRegionNames={planScopeNames}
             origin={origin ?? null}
             onClose={() => setSearchSeed(null)}
-            onPickWindow={openWindow}
             // ⚠️ CLOSES THE POPUP IN THE SAME COMMIT, and that is the P8 invariant rather than
             // tidiness. (Not an ordering: React batches both setters out of one handler, so the
             // unmount and the origin change land together and there is no frame in which the popup
@@ -1392,17 +1473,28 @@ export default function WindowFirstShell({
             // build exactly that, and M4.3's `Plan from <region>` footer is specified as
             // close-then-move for the same reason — two contradictory semantics for one action on
             // one screen is what this avoids.
-            onPickRegion={(region) => { openWindow(null); setOrigin?.(region); }}
+            // ⚠️ `openOverPopup(null)` as well, since M4. Search can now sit over a location sheet
+            // that is itself over the popup, and moving the origin with that sheet still up is the
+            // exact thing M4.3's close-then-move footer goes to trouble to prevent — the drive, the
+            // base named beside it, the outside badge and every departure would all change under
+            // the reader. One rule, every route.
+            onPickRegion={(region) => {
+              openOverPopup(null); openWindow(null); setOrigin?.(region);
+            }}
+            // ⚠️ And here, because otherwise the pick lands on a popup nobody can see: search
+            // closes, `openWindowKey` moves, and the location sheet is still on top — so from the
+            // reader's side choosing a window did nothing until the next Escape.
+            onPickWindow={(key) => { openOverPopup(null); openWindow(key); }}
             // P8: a location result opens that place's own six-window timeline rather than jumping
             // straight to the map. The map is not lost — the sheet's footer carries it and names
-            // the window it opens — and this is the ONLY entry point until M4 (§9.9, resolved by
-            // the owner 2026-08-20): a spot card's click and the peek's keep today's behaviour.
+            // the window it opens.
             //
             // Closes the popup first, for the same reason `onPickRegion` above does. M4 DOES stack
-            // this sheet over the popup — but from the popup's own chips, where the reader is
-            // already looking at that window. Arriving from search is a different gesture, and it
-            // is the one the shell's own "closes FIRST" rule already governs everywhere else.
-            onPickLocation={(spot) => { openWindow(null); setSheetSpot(spot); }}
+            // this sheet over the popup — but from the popup's own chips and spot cards, where the
+            // reader is already looking at that window. Arriving from search is a different
+            // gesture, and it is the one the shell's own "closes FIRST" rule already governs
+            // everywhere else.
+            onPickLocation={(spot) => { openWindow(null); openOverPopup({ spot }); }}
           />
         </Suspense>
       )}
@@ -1432,12 +1524,44 @@ export default function WindowFirstShell({
             originLabel={origin ? origin.baseName : (homePlace || 'home')}
             todayStr={todayStr}
             escapeEnabled={searchSeed == null}
-            onClose={() => setSheetSpot(null)}
+            // The footer's origin action (M4.3, D-4). `planFrom` is null when the shell holds no
+            // record for the place's region, which is the honest answer rather than a guessed
+            // reason — `originAction`'s three are all statements ABOUT a record.
+            planFrom={sheetPlanFrom}
+            // ⚠️ Present only when the region may actually be an origin, and that presence is what
+            // the sheet reads to decide between a control and a stated reason. Undefined is
+            // deliberate rather than a no-op function: a button that does nothing is plan §3
+            // rule 14's ban.
+            onPlanFrom={sheetPlanFrom?.region
+              ? () => {
+                openWindow(null);
+                setOrigin?.(sheetPlanFrom.region);
+                // ⚠️ The focus move, and the reason is the one `applyConflictAction` already
+                // records: this commit unmounts BOTH dialogs, so `useDialogFocus`'s restore finds
+                // its captured trigger — a chip or a card that lived inside the popup — detached,
+                // declines to focus it, and the reader is dropped at `<body>` while the page
+                // re-frames underneath them. `button[…]` rather than `[…]`, because an away window
+                // keeps its matrix cell as a non-focusable `<div>` and `querySelector` returns DOM
+                // order. Deferred a frame because the matrix is re-rendering on this very commit,
+                // and optional-CALLED because jsdom implements no layout.
+                requestAnimationFrame(() => {
+                  document.querySelector('button[data-testid="wf-heat-card"]')?.focus?.();
+                });
+              }
+              : undefined}
+            onClose={() => openOverPopup(null)}
             // Closes FIRST, the rule the spot sheet already states: the map overlay is itself an
             // `aria-modal` dialog, and leaving this one mounted underneath puts two on the page
             // with two Escape listeners between them.
+            // ⚠️ THE POPUP GOES TOO, and M4 is what made that necessary. Until this phase the sheet
+            // could only be reached from search, which had already closed the popup; now it stacks
+            // on a live one. `MapOverlay` is itself `aria-modal` with an unconditional document
+            // Escape listener, and `stackedOverPopup` goes false the instant the sheet unmounts —
+            // so a sheet-only close leaves the popup's own listener re-armed under the overlay and
+            // one press closes two layers. Same rule, same line, as the drill-down sheet above.
             onShowOnMap={(date, targetType, name) => {
-              setSheetSpot(null);
+              openOverPopup(null);
+              openWindow(null);
               onShowOnMap?.(date, targetType, name);
             }}
           />
@@ -1450,7 +1574,7 @@ export default function WindowFirstShell({
           when={openPick.when}
           time={openPick.time}
           escapeEnabled={searchSeed == null}
-          onClose={() => setOpenPick(null)}
+          onClose={() => openOverPopup(null)}
           onShowRegion={() => {
             onShowOnMap?.({
               region: openPick.pick.regionName, date: openPick.date, eventType: openPick.targetType,

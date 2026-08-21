@@ -143,7 +143,10 @@ const GOLDEN_FILL = 'linear-gradient(90deg, #6B6453, #C88E2E 45%, #F5C518)';
  * @param {Object}    props.position     fixed-position coordinates, `{left, top}` or `{left, bottom}`
  * @param {string}    props.placement    'below' | 'above' — which side of the card it sits on
  * @param {number}    props.arrowLeft    arrow offset from the panel's left edge, in px
- * @param {Function}  props.onOpen       opens the map for this spot — the prompt's action
+ * @param {Function}  props.onOpen       what the prompt does — the map, or (M4) this place's own
+ *                                        four-day sheet. The caller decides, and names it below
+ * @param {string}    [props.openPrompt] the prompt's words. Defaults to the map wording, so a
+ *                                       caller written before M4 renders exactly what it did
  * @param {Function}  props.onPointerEnter keeps the panel open while the pointer rests on it
  * @param {Function}  props.onPointerLeave starts the dismissal grace
  */
@@ -158,6 +161,7 @@ export default function WindowSpotPeek({
   placement = 'below',
   arrowLeft = 24,
   onOpen,
+  openPrompt = 'Click for the full read + map →',
   onPointerEnter,
   onPointerLeave,
 }) {
@@ -307,7 +311,7 @@ export default function WindowSpotPeek({
           margin: '8px 0 0',
         }}
       >
-        Click for the full read + map →
+        {openPrompt}
       </p>
     </div>,
     document.body,
@@ -329,6 +333,7 @@ WindowSpotPeek.propTypes = {
   placement: PropTypes.oneOf(['above', 'below']),
   arrowLeft: PropTypes.number,
   onOpen: PropTypes.func.isRequired,
+  openPrompt: PropTypes.string,
   onPointerEnter: PropTypes.func.isRequired,
   onPointerLeave: PropTypes.func.isRequired,
 };
