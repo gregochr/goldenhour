@@ -5,7 +5,7 @@ import {
 } from '../utils/heatField.js';
 import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
-import { badgeChannel, windowCardDomId } from '../utils/windowFirstCards.js';
+import { badgeChannel } from '../utils/windowFirstCards.js';
 import { beyondRegions, GLANCE_MINUTES } from '../utils/planningArea.js';
 import { scopeRegions, scopeSpots } from '../utils/planOrigin.js';
 import { RAMP_STOPS, rampRgb, rgb } from '../utils/scoreRamp.js';
@@ -712,16 +712,20 @@ export default function WindowFirstHeatStrip({
         // glance — back under the floor that measurement set.
         data-unscored={notScored ? 'true' : undefined}
         data-open={open ? 'true' : undefined}
-        // Which row is open was a CSS-only signal — a gold border tint and two recoloured words —
-        // so a screen-reader user could not tell which window they were in, and neither could
-        // anyone who cannot resolve the tint. `aria-expanded` states it in the same channel the
-        // window row's own expander uses for the same disclosure, and `aria-controls` points at
-        // the row this cell reveals (the id is always rendered: `buildWindowCards` builds a card
-        // for every non-travel event, and an away window is not a button at all).
+        // Which window is open was a CSS-only signal — a gold border tint and two recoloured words
+        // — so a screen-reader user could not tell which one they were in, and neither could anyone
+        // who cannot resolve the tint.
         //
-        // ⚠️ Both stay true only while the list exists. M2 replaces this pair with a dialog.
+        // ⚠️ M1 stated it as `aria-expanded` + `aria-controls` pointing at the row this cell
+        // revealed. At M2 the row is gone and the cell opens a DIALOG, so both had to change rather
+        // than merely be re-pointed: `aria-controls` would have named an id no longer in the
+        // document (an IDREF that resolves to nothing is announced as nothing), and `aria-expanded`
+        // on a control that opens a modal reads as an in-place disclosure a reader can Tab into.
+        // `aria-haspopup="dialog"` is the pattern for a control that opens one, and the expanded
+        // state stays alongside it — ARIA permits the pair, and it is how a reader hears which of
+        // six cards the dialog on screen belongs to.
+        aria-haspopup="dialog"
         aria-expanded={open}
-        aria-controls={windowCardDomId(card.key)}
         // `aria-labelledby` at the visually-hidden sentence, rather than leaving
         // name-from-contents to find it. Both routes end at the same string, but this one is
         // explicit: every accessible-name implementation honours an IDREF, whereas

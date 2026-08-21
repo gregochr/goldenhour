@@ -53,7 +53,7 @@ import Modal from './shared/Modal.jsx';
  * @param {Function} [props.onShowLocation] opens the map on the pick's location
  */
 export default function WindowPickDialog({
-  pick, when, time, onClose, onShowRegion, onShowLocation,
+  pick, when, time, onClose, onShowRegion, onShowLocation, escapeEnabled = true,
 }) {
   const isBest = pick.kind === 'best';
   const accent = isBest ? 'var(--color-badge-go)' : 'var(--color-badge-also)';
@@ -64,7 +64,11 @@ export default function WindowPickDialog({
       onClose={onClose}
       bare
       // Nothing here is lost by dismissing: the panel is read-only prose plus two navigations.
-      closeOnEscape
+      // ⚠️ Conditional since M2, and that IS the Escape order. `Modal` installs a document-level
+      // Escape listener per instance, so two open dialogs both close on one press. Each layer
+      // declines the key while something sits over it, which makes a press take exactly one layer
+      // (plan-matrix §6 M2.5). Defaults to true, so a caller that does not stack is unchanged.
+      closeOnEscape={escapeEnabled}
       data-testid="window-pick-dialog"
     >
       {/* `bare` rather than the default panel plus overrides: the panel ships `p-6 gap-4`, and this
@@ -189,6 +193,11 @@ export default function WindowPickDialog({
 }
 
 WindowPickDialog.propTypes = {
+  /**
+   * Whether Escape closes THIS dialog. False while another layer sits over it — the shell owns that
+   * ordering, because only it knows what else is open (plan-matrix §6 M2.5).
+   */
+  escapeEnabled: PropTypes.bool,
   pick: PropTypes.shape({
     kind: PropTypes.oneOf(['best', 'also']).isRequired,
     regionName: PropTypes.string.isRequired,

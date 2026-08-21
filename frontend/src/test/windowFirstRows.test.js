@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  MAX_ROWS, badgeKey, buildWindowRows, tideSparkline,
+  buildWindowRows, tideSparkline, topicFacts,
 } from '../utils/windowFirstRows.js';
 
 /** A tide rollup as `BriefingWindowTide` serialises one. */
@@ -42,17 +42,17 @@ function badge(overrides = {}) {
 const chips = (row) => row.facts.map((f) => f.segments.map((s) => s.text).join(' '));
 
 describe('buildWindowRows — what a window may state as an attribute row', () => {
-  it('renders no rows for a window with no tide and no promotable topic', () => {
-    // The normal inland case, and the empty-payload case. The card must draw no container at all
+  it('renders no rows for a window with no tide', () => {
+    // The normal inland case, and the empty-payload case. The popup must draw no container at all
     // rather than an empty one — the same call P5 made about the footer.
-    expect(buildWindowRows({ verdict: 'MAYBE', badges: [] }).rows).toEqual([]);
-    expect(buildWindowRows(null).rows).toEqual([]);
-    expect(buildWindowRows(undefined).rows).toEqual([]);
+    expect(buildWindowRows({ verdict: 'MAYBE', badges: [] })).toEqual([]);
+    expect(buildWindowRows(null)).toEqual([]);
+    expect(buildWindowRows(undefined)).toEqual([]);
   });
 
   describe('the tide row', () => {
     it('states where the water is, which way it is going, and the extreme nearest the light', () => {
-      const [row] = buildWindowRows({ tide: tide(), badges: [] }).rows;
+      const [row] = buildWindowRows({ tide: tide(), badges: [] });
 
       expect(row.channel).toBe('tide');
       expect(row.kicker).toBe('≈ Tide');
@@ -61,7 +61,7 @@ describe('buildWindowRows — what a window may state as an attribute row', () =
     });
 
     it('emphasises the direction and the offset, which are the two facts a reader acts on', () => {
-      const [row] = buildWindowRows({ tide: tide(), badges: [] }).rows;
+      const [row] = buildWindowRows({ tide: tide(), badges: [] });
 
       expect(row.facts[0].segments).toEqual([
         { text: 'mid tide,', tone: 'base' },
@@ -77,13 +77,13 @@ describe('buildWindowRows — what a window may state as an attribute row', () =
       ['MID', 'mid tide, falling'],
       ['LOW', 'low water, falling'],
     ])('says %s as "%s"', (state, expected) => {
-      const [row] = buildWindowRows({ tide: tide({ state }), badges: [] }).rows;
+      const [row] = buildWindowRows({ tide: tide({ state }), badges: [] });
 
       expect(chips(row)[0]).toBe(expected);
     });
 
     it('says a rising tide is rising', () => {
-      const [row] = buildWindowRows({ tide: tide({ direction: 'RISING' }), badges: [] }).rows;
+      const [row] = buildWindowRows({ tide: tide({ direction: 'RISING' }), badges: [] });
 
       expect(chips(row)[0]).toBe('mid tide, rising');
     });
@@ -92,7 +92,7 @@ describe('buildWindowRows — what a window may state as an attribute row', () =
       // Plan §2.4. Alignment differs ~20–30 minutes across a coastline and the chip above states an
       // offset to the minute, so an unattributed high-water time is a claim this project cannot
       // make. It rides the measured chip so the row needs no extra column.
-      const [row] = buildWindowRows({ tide: tide(), badges: [] }).rows;
+      const [row] = buildWindowRows({ tide: tide(), badges: [] });
 
       expect(chips(row)).toContain('4.9 m · 1.2 m above an average tide · at Whitby');
     });
@@ -100,7 +100,7 @@ describe('buildWindowRows — what a window may state as an attribute row', () =
     it('drops the anomaly clause when there is no baseline, and never calls it average', () => {
       // Null means no historical baseline existed, which is a different statement from "about
       // average" — a phrase the backend says in words when it means it.
-      const [row] = buildWindowRows({ tide: tide({ rangeAnomaly: null }), badges: [] }).rows;
+      const [row] = buildWindowRows({ tide: tide({ rangeAnomaly: null }), badges: [] });
 
       expect(chips(row)).toContain('4.9 m · at Whitby');
       expect(chips(row).join(' ')).not.toContain('average');
@@ -109,7 +109,7 @@ describe('buildWindowRows — what a window may state as an attribute row', () =
     it('states "about average" when the backend says so', () => {
       const [row] = buildWindowRows({
         tide: tide({ rangeAnomaly: 'about average' }), badges: [],
-      }).rows;
+      });
 
       expect(chips(row)).toContain('4.9 m · about average · at Whitby');
     });
@@ -117,7 +117,7 @@ describe('buildWindowRows — what a window may state as an attribute row', () =
     it('still renders the row past T+4, where there is a tide and no sea state', () => {
       // marine_wave reaches T+4 and tide_extreme reaches months ahead, so most of the rail is
       // exactly this shape. A missing sea state must degrade on its own, never suppress the row.
-      const [row] = buildWindowRows({ tide: tide({ seas: null }), badges: [] }).rows;
+      const [row] = buildWindowRows({ tide: tide({ seas: null }), badges: [] });
 
       expect(row.channel).toBe('tide');
       expect(chips(row)).toHaveLength(3);
@@ -125,7 +125,7 @@ describe('buildWindowRows — what a window may state as an attribute row', () =
     });
 
     it('marks the sea state as the chip a phone may drop, and nothing else', () => {
-      const [row] = buildWindowRows({ tide: tide(), badges: [] }).rows;
+      const [row] = buildWindowRows({ tide: tide(), badges: [] });
 
       expect(row.facts.filter((f) => f.optional).map((f) => f.segments[0].text))
         .toEqual(['seas 0.3 m · smooth']);
@@ -136,128 +136,70 @@ describe('buildWindowRows — what a window may state as an attribute row', () =
       // fact that cannot be completed must be absent, never approximated.
       const [row] = buildWindowRows({
         tide: tide({ nearestOffset: null }), badges: [],
-      }).rows;
+      });
 
       expect(chips(row).join(' ')).not.toContain('19:28');
       expect(chips(row)[0]).toBe('mid tide, falling');
     });
 
     it('states the direction alone when the level is unknown', () => {
-      const [row] = buildWindowRows({ tide: tide({ state: null }), badges: [] }).rows;
+      const [row] = buildWindowRows({ tide: tide({ state: null }), badges: [] });
 
       expect(chips(row)[0]).toBe('falling');
     });
 
     it('drops the location clause when there is no name to state', () => {
-      const [row] = buildWindowRows({ tide: tide({ locationName: null }), badges: [] }).rows;
+      const [row] = buildWindowRows({ tide: tide({ locationName: null }), badges: [] });
 
       expect(chips(row)).toContain('4.9 m · 1.2 m above an average tide');
     });
   });
 
-  describe('promotion — a topic is a row or a badge, never both', () => {
-    it('promotes a snow topic that carries facts, and takes its badge with it', () => {
-      const { rows, promoted } = buildWindowRows({ badges: [badge()] });
-
-      expect(rows).toHaveLength(1);
-      expect(rows[0].channel).toBe('snow');
-      expect(rows[0].kicker).toBe('❄ Snow on the fells');
-      expect(chips(rows[0])).toEqual(['snow line ~650 m', '240 m below the tops']);
-      expect(promoted.has(badgeKey(badge()))).toBe(true);
+  describe('⚠️ topics are no longer promoted into rows, and the facts did not go with them', () => {
+    // M2 deleted the promotion. The reasoning it embodied — "a topic renders once: as a row when it
+    // has numbers, as a badge otherwise" — was about a card that had BOTH a header of chips and a
+    // row band under it. The popup has neither: it states each topic once, in a topic row that
+    // carries the label, the detail, the science note AND the measured facts. Promoting here would
+    // print one topic twice, eight pixels apart.
+    it('builds no row for a snow topic, however many facts it carries', () => {
+      expect(buildWindowRows({ badges: [badge()] })).toEqual([]);
     });
 
-    it('leaves a snow topic with no facts as a badge, because a row would only repeat its label', () => {
-      // The rule the duplication question turns on: a badge holds the label, a row holds the label
-      // plus numbers. With no numbers the row is the label printed twice on one card.
-      const { rows, promoted } = buildWindowRows({ badges: [badge({ facts: [] })] });
-
-      expect(rows).toEqual([]);
-      expect(promoted.size).toBe(0);
+    it('builds no row for two snow topics either, so nothing survives on a count', () => {
+      const fresh = badge({ type: 'SNOW_FRESH', label: 'Fresh snow', rarityRank: 10 });
+      const tops = badge({ type: 'SNOW_TOPS', label: 'Snow on the fells', rarityRank: 8 });
+      expect(buildWindowRows({ badges: [fresh, tops] })).toEqual([]);
     });
 
-    it('leaves a factful topic outside the snow channel as a badge', () => {
-      // Promotion is scoped to the channels the design draws a row for. NLC carries facts and is
-      // deliberately not promotable: four rows on a busy window is the height budget the cap exists
-      // to defend.
-      const nlc = badge({ type: 'NLC', label: '✦ NLC', rarityRank: 14 });
-
-      expect(buildWindowRows({ badges: [nlc] }).rows).toEqual([]);
+    it('builds the tide row and nothing else on a window carrying both', () => {
+      const rows = buildWindowRows({ tide: tide(), badges: [badge()] });
+      expect(rows.map((r) => r.channel)).toEqual(['tide']);
     });
 
-    it('carries the emphasis the fact declares, and no other', () => {
-      const { rows } = buildWindowRows({
-        badges: [badge({
-          facts: [
-            { key: 'depth', value: '4 cm', emphasis: true, optional: false },
-            { key: null, value: 'wind-scoured', emphasis: false, optional: false },
-          ],
-        })],
-      });
-
-      expect(rows[0].facts[0].segments).toEqual([
+    it('⚠️ still maps a topic\'s facts, because the popup\'s topic rows read the same function', () => {
+      // The mapping survived the promotion's deletion and is now exported. Deleting it would take
+      // "snow line ~650 m" off the plan arm entirely — the strategies serve that figure as a FACT
+      // and never as `detail`, and the surface that used to render it is gone.
+      const mapped = topicFacts(badge({
+        facts: [
+          { key: 'depth', value: '4 cm', emphasis: true, optional: false },
+          { key: null, value: 'wind-scoured', emphasis: false, optional: false },
+        ],
+      }));
+      expect(mapped[0].segments).toEqual([
         { text: 'depth', tone: 'base' },
         { text: '4 cm', tone: 'strong' },
       ]);
-      expect(rows[0].facts[1].segments).toEqual([{ text: 'wind-scoured', tone: 'base' }]);
+      expect(mapped[1].segments).toEqual([{ text: 'wind-scoured', tone: 'base' }]);
     });
 
-    it('carries the topic\'s own phone-droppable flag through to the row', () => {
-      // The only thing that puts `.opt` on a promoted chip, and every other `optional` assertion in
-      // this file is built from a TIDE row — so deleting the flag here would leave the suite green
-      // while `240 m below the tops` stopped dropping on a phone. Both snow strategies really do
+    it('carries the topic\'s own phone-droppable flag through the mapping', () => {
+      // The only thing that puts `.opt` on a fact chip, and every other `optional` assertion in this
+      // file is built from a TIDE row — so deleting the flag here would leave the suite green while
+      // `240 m below the tops` stopped dropping on a narrow popup. Both snow strategies really do
       // emit an optional chip (`SnowTopsHotTopicStrategy:119`, `SnowFreshHotTopicStrategy:159`).
-      const { rows } = buildWindowRows({ badges: [badge()] });
-
-      expect(rows[0].facts.filter((f) => f.optional).map((f) => f.segments.at(-1).text))
+      expect(topicFacts(badge()).filter((f) => f.optional).map((f) => f.segments.at(-1).text))
         .toEqual(['240 m below the tops']);
-    });
-
-    it('does not prefix a glyph onto a label that already opens with one', () => {
-      // No snow strategy emits a glyph today, but topic labels elsewhere do (`✦ NLC`), and
-      // `❄ ❄ Fresh snow` is what ships when a label changes in a file nobody thought was related.
-      const { rows } = buildWindowRows({ badges: [badge({ label: '❄ Fresh snow' })] });
-
-      expect(rows[0].kicker).toBe('❄ Fresh snow');
-    });
-  });
-
-  describe('the two-row cap', () => {
-    it('is two', () => {
-      expect(MAX_ROWS).toBe(2);
-    });
-
-    it('drops the third row and leaves that topic its badge, so no fact is lost', () => {
-      // A winter dawn genuinely offers this: SNOW_FRESH and SNOW_TOPS are separate strategies,
-      // both anchored to sunrise, so a tide row plus two snow rows is three.
-      const fresh = badge({ type: 'SNOW_FRESH', label: 'Fresh snow', rarityRank: 10 });
-      const tops = badge({ type: 'SNOW_TOPS', label: 'Snow on the fells', rarityRank: 8 });
-
-      const { rows, promoted } = buildWindowRows({ tide: tide(), badges: [fresh, tops] });
-
-      expect(rows).toHaveLength(2);
-      expect(rows.map((r) => r.channel)).toEqual(['tide', 'snow']);
-      // Rarest first — the same rank the payload publishes for the promoted strip, so the two
-      // surfaces cannot disagree about which topic matters most.
-      expect(rows[1].kicker).toBe('❄ Snow on the fells');
-      expect(promoted.has(badgeKey(tops))).toBe(true);
-      expect(promoted.has(badgeKey(fresh))).toBe(false);
-    });
-
-    it('allows two snow rows on a window with no tide, which is still within the cap', () => {
-      const fresh = badge({ type: 'SNOW_FRESH', label: 'Fresh snow', rarityRank: 10 });
-      const tops = badge({ type: 'SNOW_TOPS', label: 'Snow on the fells', rarityRank: 8 });
-
-      const { rows } = buildWindowRows({ badges: [fresh, tops] });
-
-      expect(rows.map((r) => r.kicker)).toEqual(['❄ Snow on the fells', '❄ Fresh snow']);
-    });
-
-    it('puts the tide row first regardless of payload order', () => {
-      // The tide row renders on every window of every day, so a card whose rows moved about
-      // between days would read as a different card.
-      const { rows } = buildWindowRows({ tide: tide(), badges: [badge()] });
-
-      expect(rows.map((r) => r.channel)).toEqual(['tide', 'snow']);
     });
   });
 });
@@ -311,7 +253,7 @@ describe('tideSparkline — pure geometry over the payload, and nothing else', (
   });
 
   it('is reached by the tide row, so a bad curve costs the picture and not the row', () => {
-    const { rows } = buildWindowRows({ tide: tide({ curve: [] }), badges: [] });
+    const rows = buildWindowRows({ tide: tide({ curve: [] }), badges: [] });
 
     expect(rows).toHaveLength(1);
     expect(rows[0].chart).toBeNull();

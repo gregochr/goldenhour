@@ -337,12 +337,12 @@ describe('buildWindowCards', () => {
     it('survives an event whose day the briefing has no entry for', () => {
       const [card] = build({ events: events([TODAY, 'SUNSET']), days: [] });
       expect(card.verdict).toBe('AWAITING');
-      expect(card.badges).toEqual([]);
+      expect(card.allBadges).toEqual([]);
     });
 
-    it('gives every card a badges array, so the renderer never guards', () => {
+    it('gives every card a badge array, so the renderer never guards', () => {
       const days = [day(TODAY, [{ targetType: 'SUNSET', regions: [], unregioned: [], window: { verdict: 'MAYBE' } }])];
-      expect(build({ events: events([TODAY, 'SUNSET']), days })[0].badges).toEqual([]);
+      expect(build({ events: events([TODAY, 'SUNSET']), days })[0].allBadges).toEqual([]);
     });
 
     it('gives every card a rows array, so the renderer never guards', () => {
@@ -351,7 +351,7 @@ describe('buildWindowCards', () => {
     });
   });
 
-  describe('attribute rows and the badges they consume', () => {
+  describe('the attribute row, and the badge list beside it', () => {
     /** A snow topic as the backend serialises one, with the facts its strategy emits. */
     const snowBadge = (overrides = {}) => ({
       type: 'SNOW_TOPS',
@@ -384,40 +384,25 @@ describe('buildWindowCards', () => {
       expect(card.rows.map((r) => r.channel)).toEqual(['tide']);
     });
 
-    it('drops a promoted topic from the header, so no card names it twice', () => {
-      // The rule the whole duplication question turns on. Asserting only that the row exists would
-      // pass with the badge still beside it, which is the failure.
+    it('⚠️ promotes NOTHING into a row any more, and keeps every badge on one list', () => {
+      // The duplication rule this used to encode — "a topic is a row or a badge, never both" — was
+      // about a card with a header of chips above a row band. The popup has one list: its topic
+      // rows carry the label, the detail, the science note AND the measured facts, so a snow
+      // attribute row would print one topic twice. `badges` (the post-promotion remainder) went
+      // with the promotion; `allBadges` is the whole population and the only list.
       const [card] = build(oneWindow({ badges: [snowBadge()] }));
 
-      expect(card.rows.map((r) => r.channel)).toEqual(['snow']);
-      expect(card.badges).toEqual([]);
-    });
-
-    it('keeps a factless topic as a badge, because a row would only repeat its label', () => {
-      const [card] = build(oneWindow({ badges: [snowBadge({ facts: [] })] }));
-
       expect(card.rows).toEqual([]);
-      expect(card.badges.map((b) => b.label)).toEqual(['Snow on the fells']);
+      expect(card.allBadges.map((b) => b.label)).toEqual(['Snow on the fells']);
+      expect(card).not.toHaveProperty('badges');
     });
 
-    it('keeps a topic the two-row cap dropped, so the budget costs a row and never a fact', () => {
+    it('keeps the tide row beside a snow topic, rather than one displacing the other', () => {
       const fresh = snowBadge({ type: 'SNOW_FRESH', label: 'Fresh snow', rarityRank: 10 });
-      const tops = snowBadge();
+      const [card] = build(oneWindow({ tide: TIDE, badges: [fresh, snowBadge()] }));
 
-      const [card] = build(oneWindow({ tide: TIDE, badges: [fresh, tops] }));
-
-      expect(card.rows).toHaveLength(2);
-      expect(card.badges.map((b) => b.label)).toEqual(['Fresh snow']);
-    });
-
-    it('leaves every non-promotable badge in the header untouched', () => {
-      const nlc = snowBadge({ type: 'NLC', label: '✦ NLC', rarityRank: 14 });
-      const tide = snowBadge({ type: 'KING_TIDE', label: 'King tide', rarityRank: 3 });
-
-      const [card] = build(oneWindow({ badges: [nlc, tide] }));
-
-      expect(card.rows).toEqual([]);
-      expect(card.badges.map((b) => b.label)).toEqual(['✦ NLC', 'King tide']);
+      expect(card.rows.map((r) => r.channel)).toEqual(['tide']);
+      expect(card.allBadges.map((b) => b.label)).toEqual(['Fresh snow', 'Snow on the fells']);
     });
   });
 
@@ -745,23 +730,20 @@ describe('buildWindowCards', () => {
         expect(card.bestRating).toBe(3);
       });
 
-      it('describes the emptied window rather than leaving the card silent', () => {
-        const [card] = buildWithLens(THREE_SPOTS, REACH, {
-          limitMinutes: null, defaultLimitMinutes: 45, tierId: 'any', floorId: '4', minRating: 4,
-        });
+      it('⚠️ carries no empty-state descriptor of its own any more', () => {
+        // M2 deleted `lensEmpty`. The card's per-window sentence is now composed by the POPUP from
+        // the same two thresholds (`WindowSheetDialog`'s quiet line) and the plan-wide one by
+        // `planConflicts.js` — both from the lenses directly, so the descriptor had two readers and
+        // then none. Pinned as an absence because a field nothing renders is the kind of thing that
+        // comes back by accident.
         const empty = buildWithLens(
           [{ locationId: 1, locationName: 'Simonside', claudeRating: 2, canopy: false }],
           REACH,
           { limitMinutes: null, defaultLimitMinutes: 45, tierId: 'any', floorId: '4', minRating: 4 },
         )[0];
 
-        // A window with something left carries no empty state at all...
-        expect(card.lensEmpty).toBeNull();
-        // ...and one the floor emptied names the floor and offers the step down.
-        expect(empty.lensEmpty.headline).toBe('Nothing at 4★+ in this window.');
-        expect(empty.lensEmpty.actions).toEqual([
-          { kind: 'rating', id: 'any', label: 'Drop to any rating' },
-        ]);
+        expect(empty.spots).toEqual([]);
+        expect(empty).not.toHaveProperty('lensEmpty');
       });
     });
   });
@@ -907,7 +889,7 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
 
   it('is null when no region carries a mean, so an unrated window can rank last', () => {
     // Deliberately not 0. A zero would sort an unlooked-at window among the poor ones, and
-    // AWAITING is the absence of a forecast rather than a bad one — `windowFirstOrder.js` reads
+    // AWAITING is the absence of a forecast rather than a bad one — every ranking in this arm reads
     // the null and ranks it last.
     expect(build(withRegions([{ regionName: 'A' }, { regionName: 'B', meanRating: null }]))[0]
       .topMeanRating).toBeNull();
@@ -1113,20 +1095,23 @@ describe('buildWindowCards — the origin\'s scope', () => {
     // scope, and the empty-state machinery must not blame the lens for it.
     const [card] = buildScoped({ limitMinutes: 45, defaultLimitMinutes: 45, origin: ORIGIN });
     expect(card.spots.map((s) => s.locationName)).toEqual(['Derwentwater']);
-    expect(card.lensEmpty).toBeNull();
+    // The scope removed the other region BEFORE either gate, so what is left is the lens's own
+    // choice within the Lakes rather than a window the lens emptied.
+    expect(card.allSpots.map((s) => s.locationName)).toEqual(['Derwentwater']);
   });
 
-  it('hands an away empty scope its own explanation and the way home', () => {
+  it('hands an away empty scope an empty card, and says nothing else about it', () => {
+    // ⚠️ The explanation and the way home moved to the page-level conflict message at M2
+    // (`planConflicts.test.js` owns both), so what the CARD owes is an honest empty set: an origin
+    // whose region holds nothing in this window scopes every gate to nothing.
     const [card] = buildScoped({
       limitMinutes: null,
       defaultLimitMinutes: 90,
       origin: { id: 9, name: 'Peak District', baseName: 'Bakewell' },
     });
     expect(card.spots).toEqual([]);
-    expect(card.lensEmpty.headline).toBe('Nothing in Peak District for this window.');
-    expect(card.lensEmpty.actions).toEqual([
-      { kind: 'origin', id: 'home', label: 'Plan from home' },
-    ]);
+    expect(card.allSpots).toEqual([]);
+    expect(card.pool).toEqual([]);
   });
 
   it('⚠️ re-points the header figures to the ORIGIN REGION\'s own served record', () => {
@@ -1180,16 +1165,18 @@ describe('buildWindowCards — the origin\'s scope', () => {
     expect(away.pick).toMatchObject({ kind: 'best', regionName: 'Northumberland' });
   });
 
-  it('reads AWAITING, never the roster\'s word, for a scoped region the window says nothing about', () => {
+  it('falls back to the window\'s own figures for a scoped region the payload never named', () => {
     const [away] = buildScoped({
       limitMinutes: null,
       defaultLimitMinutes: 90,
       origin: { id: 9, name: 'Peak District', baseName: 'Bakewell' },
     });
     // No served record for that region at all → the card falls back to the window's own figures,
-    // which is what `originRegion` returning null means. The verdict is the window's; the spot
-    // strip is empty and the away empty state explains it.
+    // which is what `originRegion` returning null means. The verdict is the window's, and the spot
+    // strip is empty — what explains that to the reader is the page-level conflict message.
     expect(away.spots).toEqual([]);
-    expect(away.lensEmpty.headline).toBe('Nothing in Peak District for this window.');
+    // The window's OWN verdict, not the Peak District's — there is no served record for that region
+    // to re-point to, which is exactly what `originRegion` returning null means.
+    expect(away.verdict).toBe('WORTH_IT');
   });
 });

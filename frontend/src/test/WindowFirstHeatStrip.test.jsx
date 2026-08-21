@@ -235,7 +235,8 @@ async function withWellWidths(widths, run) {
 describe('WindowFirstHeatStrip — which windows it draws', () => {
   it('draws one thumbnail per card, in the order it was handed them', async () => {
     // The strip's whole claim is that it is a time axis, so the order is the payload's and nothing
-    // here may sort. `windowFirstOrder.test.js` owns the ranking that applies to the CARDS below.
+    // here may sort. (Through M1 an Order control could rank the card list below; that control and
+    // that list both went at M2, so time is the only order this pane has.)
     await renderStrip({
       cards: [
         stripCard(),

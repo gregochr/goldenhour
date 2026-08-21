@@ -36,7 +36,6 @@ describe('WindowFirstShell — the four-day location sheet', () => {
   const RATING_LENS = {
     floor: { id: 'any', min: null, label: 'Any rating' }, floorId: 'any', minRating: null, selectFloor: vi.fn(),
   };
-  const ORDER_LENS = { order: { id: 'when', label: 'When' }, orderId: 'when', selectOrder: vi.fn() };
 
   const LAKES = { id: 7, name: 'Lake District', baseName: 'Keswick', baseLat: 54.6, baseLon: -3.1 };
   const NORTHUMBERLAND = { id: 8, name: 'Northumberland', baseName: 'Alnwick', baseLat: 55.4, baseLon: -1.7 };
@@ -55,7 +54,11 @@ describe('WindowFirstShell — the four-day location sheet', () => {
     bestRating: 4,
     confidence: 'high',
     badges: [],
+    allBadges: [],
     rows: [],
+    // The popup's header pick badge — a second `Modal` the reader can stack over the popup, which
+    // is what the peek-suppression case below drives.
+    pick: { kind: 'best', regionName: 'Lake District', locationName: 'Derwentwater' },
     spots: [{
       key: '1',
       locationId: 1,
@@ -156,7 +159,6 @@ describe('WindowFirstShell — the four-day location sheet', () => {
     tomorrowStr: '2026-08-15',
     reachLens: LENS,
     ratingLens: RATING_LENS,
-    orderLens: ORDER_LENS,
     homePlace: 'Durham',
     origin: null,
     setOrigin: vi.fn(),
@@ -188,6 +190,18 @@ describe('WindowFirstShell — the four-day location sheet', () => {
     return screen.findByTestId('location-sheet');
   };
 
+  /**
+   * Opens the first window's popup — where the ranked spot cards live since M2.
+   *
+   * <p>Awaits the matrix's own lazy boundary first, so the first test in the file behaves like the
+   * rest rather than like a race the module cache happens to win.
+   */
+  const openPopup = async () => {
+    await screen.findByTestId('wf-heat-strip');
+    await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[0]); });
+    return screen.findByTestId('window-sheet');
+  };
+
   afterEach(() => vi.restoreAllMocks());
 
   it('opens the sheet from a search result rather than jumping to the map', async () => {
@@ -203,11 +217,13 @@ describe('WindowFirstShell — the four-day location sheet', () => {
     expect(screen.queryByTestId('plan-search')).toBeNull();
   });
 
-  it('⚠️ leaves a spot card\'s click on the map, byte-for-byte', () => {
+  it('⚠️ leaves a spot card\'s click on the map, byte-for-byte', async () => {
     // §9.9's other half. The card is the surface a reader already knows; P8 changed the search and
     // nothing else. `WindowSpotStrip.test.jsx` passing unedited is the wider proof — this is the
-    // assertion at the seam where the change was actually made.
+    // assertion at the seam where the change was actually made. M2 moved the cards into the popup
+    // and left the click alone; M4 is where D-3 changes it.
     const view = renderShell();
+    await openPopup();
     fireEvent.click(screen.getByTestId('window-spot'));
     expect(view.props.onShowOnMap).toHaveBeenCalledWith('2026-08-14', 'SUNSET', 'Derwentwater');
     expect(screen.queryByTestId('location-sheet')).toBeNull();
@@ -345,15 +361,27 @@ describe('WindowFirstShell — the four-day location sheet', () => {
       act(() => { vi.advanceTimersByTime(OPEN_DELAY * 2); });
     };
 
-    it('opens one with no dialog up — the control the next case rests on', () => {
+    it('opens one with the popup and nothing else up — the control the next case rests on', async () => {
+      // ⚠️ The peek survives M2 and is suppressed by what is OVER the popup, never by the popup
+      // itself: a hover panel is portalled above every `Modal`, so it may only be opened from the
+      // topmost surface. This case is the popup being topmost.
       renderShell({ scoreIndex: PEEKABLE });
+      await openPopup();
       hoverCard();
       expect(screen.getByTestId('wf-peek')).toBeInTheDocument();
     });
 
-    it('opens none while the four-day sheet is up', async () => {
+    it('opens none while another dialog is stacked over the popup', async () => {
+      // ⚠️ The FOUR-DAY sheet cannot be the stacked dialog this phase, and that is a fact about M2
+      // rather than a gap in the test. Its only entry point is search, and `/` is guarded on "any
+      // dialog is open" — so with the popup up there is no route to it. M4 gives the popup's field
+      // chips and spot cards that route, and M4's own file asserts the stacked case.
+      //
+      // The pick dialog IS reachable from the popup's header, takes the same `Modal` at the same
+      // `z-50`, and exercises the same suppression, so it is what stands in.
       renderShell({ scoreIndex: PEEKABLE });
-      await openSheetFor('Derwentwater');
+      await openPopup();
+      fireEvent.click(screen.getByTestId('window-sheet-pick'));
       // Lets the dialog's focus move land before the hover: the peek's own `focusin` listener
       // dismisses a panel whose anchor is not the focused element, so hovering too early would
       // pin the focus rule rather than the suppression.

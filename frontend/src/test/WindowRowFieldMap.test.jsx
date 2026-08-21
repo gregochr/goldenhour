@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { act, cleanup, render, screen, fireEvent } from '@testing-library/react';
+import { act, cleanup, render, screen, fireEvent, within } from '@testing-library/react';
 import WindowRowFieldMap, {
   MAP_ASPECT_MAX, MAP_ASPECT_MAX_PHONE, MAP_ASPECT_MIN, MAP_ASPECT_MIN_PHONE,
 } from '../components/WindowRowFieldMap.jsx';
@@ -253,13 +253,25 @@ describe('WindowRowFieldMap — the region labels', () => {
     expect(labels[1]).toHaveStyle({ left: '240px', top: '60px' });
   });
 
-  it('plates only the selected one', async () => {
+  it('⚠️ omits the FOCUSED region\'s own label, and keeps every other', async () => {
+    // The design's own rule, adopted at M2. The rail cell reads pressed and the prose slot's
+    // heading names that region, so the label is a third statement of one fact — and it sits in
+    // exactly the part of the field the location chips are competing for. The plate treatment it
+    // used to carry (`data-hot`) has nothing left to mark.
     await withMeasuredMap(600, async () => {
       await renderMap({ selectedRegion: 'Dales' });
     });
     const labels = screen.getAllByTestId('wf-row-map-label');
+    expect(labels.map((l) => l.textContent)).toEqual(['Coast']);
     expect(labels[0]).not.toHaveAttribute('data-hot');
-    expect(labels[1]).toHaveAttribute('data-hot', 'true');
+  });
+
+  it('names every region again once the focus is cleared', async () => {
+    await withMeasuredMap(600, async () => {
+      await renderMap({ selectedRegion: null });
+    });
+    expect(screen.getAllByTestId('wf-row-map-label').map((l) => l.textContent))
+      .toEqual(['Coast', 'Dales']);
   });
 
   it('draws none before the map has been measured', async () => {
@@ -443,9 +455,13 @@ describe('WindowRowFieldMap — when the geometry cannot be fetched', () => {
 });
 
 describe('WindowRowFieldMap — the aspect clamps, which are this component’s not the kernel’s', () => {
-  it('bands a desktop map between 0.36 and 0.62', () => {
-    expect(MAP_ASPECT_MIN).toBe(0.36);
-    expect(MAP_ASPECT_MAX).toBe(0.62);
+  // ⚠️ The desktop band moved at M2 (0.36–0.62 → 0.88–1.34) and the phone band did not. The field
+  // left a full-width row for the LEFT column of the popup's two-column body, so a letterbox inside
+  // two-fifths of a dialog would be a postage stamp — see the component's own note. The phone body
+  // is one column and its constraint never moved.
+  it('bands a desktop map between 0.88 and 1.34, the popup column’s portrait shape', () => {
+    expect(MAP_ASPECT_MIN).toBe(0.88);
+    expect(MAP_ASPECT_MAX).toBe(1.34);
   });
 
   it('lets a phone map go nearly square, where the height is what is scarce', () => {
@@ -456,6 +472,8 @@ describe('WindowRowFieldMap — the aspect clamps, which are this component’s 
   it('lifts a very wide frame to the floor rather than drawing a letterbox slot', async () => {
     // This fixture's two regions are 20° of longitude apart and share a latitude, so the raw frame
     // aspect is ~0.016 — a canvas 600px wide and 9px tall. The floor is what makes it a map.
+    // (The floor moved to 0.88 at M2, so the product is 528 rather than 216; the assertion is
+    // computed from the constant either way.)
     await withMeasuredMap(600, async () => {
       await renderMap();
     });
@@ -504,7 +522,7 @@ describe('WindowRowFieldMap — the aspect clamps, which are this component’s 
  * this map sits inside the row one of them opens. Left on the home planning area it draws a
  * different frame from the thumbnail directly above it, for the same window — the "half-applied
  * origin" the phase's own tests call worse than none. `origin` reaching this component at all is
- * the other half: it arrives through `WindowRowRegionLayer`'s field object, and a dropped prop is
+ * the other half: it arrives through the popup's `field` object, and a dropped prop is
  * silent.
  */
 describe('WindowRowFieldMap — the origin re-frames it', () => {
@@ -566,5 +584,223 @@ describe('WindowRowFieldMap — the origin re-frames it', () => {
       const last = drawGeo.mock.calls[drawGeo.mock.calls.length - 1];
       expect(last[5].fit).toEqual(bbox([SPOTS[1]]));
     });
+  });
+});
+
+/**
+ * The location chips — the layer that turns the field from areas into places (plan-matrix §6 M2.3).
+ *
+ * <h2>What a jsdom test can and cannot prove here</h2>
+ *
+ * <p>The placement is real arithmetic over measured boxes, so it IS testable — but only with the
+ * measurements stubbed, because jsdom lays nothing out and reports 0 for every one of them. The
+ * component's own zero-guard means an unstubbed run drops every chip, so a test that asserted their
+ * absence without stubbing would pin the guard and never the placer. Every case below stubs
+ * `offsetWidth`/`offsetHeight` explicitly and says what it is asserting with them.
+ *
+ * <p>What stays a browser claim: the plate's contrast, the divider, and whether a chip is legible
+ * over a bright field.
+ */
+
+/**
+ * Stubs the two box measurements the greedy pass reads, at the size a case needs.
+ *
+ * <p>`return await`, not `return run()` — the same trap `withMeasuredMap` records above: the bare
+ * return hands the promise back and `finally` restores the real descriptors before the render
+ * inside has run, so the placer reads jsdom's zeros and drops every chip.
+ */
+async function withChipBoxes(width, height, run) {
+  const w = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');
+  const h = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+  Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get: () => width });
+  Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => height });
+  try {
+    return await run();
+  } finally {
+    if (w) Object.defineProperty(HTMLElement.prototype, 'offsetWidth', w);
+    else delete HTMLElement.prototype.offsetWidth;
+    if (h) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', h);
+    else delete HTMLElement.prototype.offsetHeight;
+  }
+}
+
+/**
+ * A catalogue whose region CENTROIDS sit well clear of the chips' own points.
+ *
+ * <p>`centroid` is the mean of a region's projected points, so with one spot per region the label
+ * and the chip land on the same pixel and the placer drops the chip — correctly, and uselessly for
+ * a test about placement.
+ */
+const CHIP_SPOTS = [
+  spot({ id: 1, name: 'Bamburgh', lng: 4, lat: 6 }),
+  spot({ id: 3, name: 'Craster', lng: 4, lat: 26 }),
+  spot({ id: 2, name: 'Ladybower', lng: 24, lat: 6, regionName: 'Dales', rid: 'Dales' }),
+  spot({ id: 4, name: 'Malham', lng: 24, lat: 26, regionName: 'Dales', rid: 'Dales' }),
+];
+
+const CHIP = (overrides = {}) => ({
+  key: '1', locationId: 1, locationName: 'Bamburgh', rating: 4, ...overrides,
+});
+
+describe('WindowRowFieldMap — the location chips', () => {
+  it('draws none at all when the caller hands over no chips', async () => {
+    // The default, and what keeps every other test in this file — and the v1 arm — unchanged.
+    await withMeasuredMap(400, async () => { await renderMap(); });
+    expect(screen.queryByTestId('wf-row-map-chips')).toBeNull();
+  });
+
+  it('places a chip at its own location’s projected point, with its rating', async () => {
+    await withMeasuredMap(400, async () => {
+      await withChipBoxes(50, 14, async () => {
+        await renderMap({ spots: CHIP_SPOTS, chips: [CHIP()] });
+      });
+    });
+    const chip = screen.getByTestId('wf-row-map-chip');
+    // Bamburgh is at lng 4 / lat 6, which the stub projection puts at (40, 60). The chip's marker
+    // sits ON that point, so its left edge is half a marker to the left of it.
+    expect(chip).toHaveStyle({ left: '34.5px' });
+    expect(chip).toHaveTextContent('Bamburgh');
+    expect(chip).toHaveTextContent('4★');
+  });
+
+  it('⚠️ is inert, so it cannot swallow the region click underneath it', async () => {
+    // `.wf-mchip` is `pointer-events: none` (a CSS claim), and until M4 there is no handler and no
+    // `title` — a tooltip on a pointer-events-none span reaches nobody. What a test can pin is that
+    // the chip is not a control: a button here would be one with no visible effect, which §6 bans.
+    await withMeasuredMap(400, async () => {
+      await withChipBoxes(50, 14, async () => {
+        await renderMap({ spots: CHIP_SPOTS, chips: [CHIP()] });
+      });
+    });
+    const chip = screen.getByTestId('wf-row-map-chip');
+    expect(chip.tagName).toBe('SPAN');
+    expect(chip).not.toHaveAttribute('title');
+    expect(within(screen.getByTestId('wf-row-map-chips')).queryAllByRole('button')).toHaveLength(0);
+  });
+
+  it('is hidden from the accessibility tree, as the picture’s other annotations are', async () => {
+    // The ranked strip below the field names every one of these on a real control, with its region,
+    // its drive and its departure — which is the condition this component sets for an aria-hidden
+    // surface: never the sole path to anything.
+    await withMeasuredMap(400, async () => {
+      await withChipBoxes(50, 14, async () => {
+        await renderMap({ spots: CHIP_SPOTS, chips: [CHIP()] });
+      });
+    });
+    expect(screen.getByTestId('wf-row-map-chips')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('omits the rating for a spot the payload has not rated, rather than inventing one', async () => {
+    await withMeasuredMap(400, async () => {
+      await withChipBoxes(50, 14, async () => {
+        await renderMap({ spots: CHIP_SPOTS, chips: [CHIP({ rating: null })] });
+      });
+    });
+    expect(screen.getByTestId('wf-row-map-chip')).not.toHaveTextContent('★');
+  });
+
+  it('⚠️ flips to the left of its point when the right side would clip', async () => {
+    // Ladybower projects to x = 240 on a 400px frame; a 200px chip drawn rightward would end at
+    // 434.5 and run off the plate.
+    await withMeasuredMap(400, async () => {
+      await withChipBoxes(200, 14, async () => {
+        await renderMap({
+          spots: CHIP_SPOTS,
+          chips: [CHIP({ key: '2', locationId: 2, locationName: 'Ladybower' })],
+        });
+      });
+    });
+    const chip = screen.getByTestId('wf-row-map-chip');
+    expect(chip).toHaveAttribute('data-flip', 'true');
+    expect(chip).toHaveStyle({ left: '45.5px' });
+  });
+
+  it('⚠️ drops a chip that fits on neither side rather than overlapping', async () => {
+    // Wider than the frame: neither placement is inside it. An unreadable name is worse than a
+    // missing one, and the ranked strip lists every one of them anyway.
+    await withMeasuredMap(400, async () => {
+      await withChipBoxes(600, 14, async () => {
+        await renderMap({ spots: CHIP_SPOTS, chips: [CHIP()] });
+      });
+    });
+    expect(screen.queryAllByTestId('wf-row-map-chip')).toHaveLength(0);
+  });
+
+  /**
+   * A catalogue for the cap cases: twelve chips in a row, and two ballast spots that drag each
+   * region's centroid hundreds of pixels below them.
+   *
+   * <p>Both halves are load-bearing. The row is spaced 20px against 6px boxes so no two chips can
+   * overlap each other; the ballast keeps the region LABEL out of the row, because a label the
+   * placer must avoid would drop chips for a reason this test is not about.
+   */
+  const capSpots = () => {
+    const row = Array.from({ length: 12 }, (_, i) => spot({
+      id: 100 + i, name: `Spot ${i}`, lng: 4 + i * 2, lat: 6,
+    }));
+    return [
+      ...row,
+      spot({ id: 900, name: 'Ballast A', lng: 4, lat: 200 }),
+      spot({ id: 901, name: 'Ballast B', lng: 24, lat: 200, regionName: 'Dales', rid: 'Dales' }),
+    ];
+  };
+  const capChips = () => Array.from({ length: 12 }, (_, i) => CHIP({
+    key: String(100 + i), locationId: 100 + i, locationName: `Spot ${i}`,
+  }));
+
+  it('⚠️ caps how many it draws, keeping the ones the caller ranked first', async () => {
+    // Eight on a desktop frame. The caller hands them over in the order they deserve the space, so
+    // the cap is a prefix rather than a selection — the map cannot promote a spot the list ranked
+    // ninth.
+    await withMeasuredMap(600, async () => {
+      await withChipBoxes(6, 6, async () => {
+        await renderMap({ spots: capSpots(), chips: capChips() });
+      });
+    });
+    const drawn = screen.getAllByTestId('wf-row-map-chip').map((n) => n.dataset.location);
+    expect(drawn).toEqual(['Spot 0', 'Spot 1', 'Spot 2', 'Spot 3', 'Spot 4', 'Spot 5', 'Spot 6', 'Spot 7']);
+  });
+
+  it('⚠️ caps at six on a phone, where the frame is narrower', async () => {
+    useIsMobile.mockReturnValue(true);
+    try {
+      await withMeasuredMap(600, async () => {
+        await withChipBoxes(6, 6, async () => {
+          await renderMap({ spots: capSpots(), chips: capChips() });
+        });
+      });
+      expect(screen.getAllByTestId('wf-row-map-chip')).toHaveLength(6);
+    } finally {
+      // ⚠️ Restored explicitly. `afterEach`'s `vi.clearAllMocks()` clears CALLS, not
+      // implementations (this file's own `beforeEach` note says so), and nothing sets
+      // `restoreMocks` — so without this every test after it silently runs the phone branch.
+      useIsMobile.mockReturnValue(false);
+    }
+  });
+
+  it('⚠️ joins the catalogue id-first, so a renamed location still lands on its point', async () => {
+    // The arm's join policy (plan §3 rule 11). A name-only join would silently drop a chip whose
+    // location has been renamed between the two payloads.
+    await withMeasuredMap(400, async () => {
+      await withChipBoxes(50, 14, async () => {
+        await renderMap({
+          spots: CHIP_SPOTS,
+          chips: [CHIP({ locationId: 1, locationName: 'Bamburgh Castle (renamed)' })],
+        });
+      });
+    });
+    expect(screen.getByTestId('wf-row-map-chip')).toHaveStyle({ left: '34.5px' });
+  });
+
+  it('draws no chip for a location the catalogue has never heard of', async () => {
+    await withMeasuredMap(400, async () => {
+      await withChipBoxes(50, 14, async () => {
+        await renderMap({
+          spots: CHIP_SPOTS,
+          chips: [CHIP({ locationId: 999, locationName: 'Nowhere' })],
+        });
+      });
+    });
+    expect(screen.queryAllByTestId('wf-row-map-chip')).toHaveLength(0);
   });
 });

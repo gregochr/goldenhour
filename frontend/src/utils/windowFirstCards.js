@@ -1,9 +1,8 @@
 import { formatTime, getEventTime } from './briefingDisplay.js';
-import { ANY_TIER_ID, gateSpotsByReach } from './reachLens.js';
-import { ANY_RATING_ID, gateSpotsByRating } from './ratingLens.js';
-import { buildLensEmptyState } from './windowLensEmpty.js';
+import { gateSpotsByReach } from './reachLens.js';
+import { gateSpotsByRating } from './ratingLens.js';
 import { buildWindowSpots } from './windowFirstSpots.js';
-import { badgeKey, buildWindowRows } from './windowFirstRows.js';
+import { buildWindowRows } from './windowFirstRows.js';
 import { gateSpotsByOrigin } from './planOrigin.js';
 
 /**
@@ -320,9 +319,12 @@ function originRegion(es, origin) {
  *                                reach tier's threshold and {@code minRating} the active floor's,
  *                                each null when that control gates nothing;
  *                                {@code defaultLimitMinutes} is today's derived default and is what
- *                                marks a spot {@code far}. The ids ride along because the empty
- *                                state has to name the control it would move, and a threshold
- *                                cannot name a chip. The default gates nothing and marks nothing,
+ *                                marks a spot {@code far}. (The tier and floor IDS used to ride
+ *                                along too, because the per-card empty state had to name the
+ *                                control it would move and a threshold cannot name a chip. That
+ *                                state is page-level since M2 — {@code planConflicts.js} reads the
+ *                                ids off the lenses directly — so the thresholds are all this
+ *                                needs.) The default gates nothing and marks nothing,
  *                                which is what a caller with no lens should get — never a silent
  *                                gate at some assumed distance. {@code origin} is the frame of
  *                                reference (plan §4.8) — null is home and scopes nothing; a region
@@ -331,7 +333,7 @@ function originRegion(es, origin) {
  *                                roster. It rides on the lens object rather than as a seventh
  *                                positional argument for the reason the two thresholds already
  *                                do — this signature is at its limit.
- * @returns {Array} card descriptors for {@code WindowFirstWindowCard}
+ * @returns {Array} card descriptors for the matrix and the window popup
  */
 export function buildWindowCards(
   upcomingEvents, briefingDays, todayStr, tomorrowStr, travelDayDates, reachById,
@@ -339,8 +341,6 @@ export function buildWindowCards(
 ) {
   const limitMinutes = lens?.limitMinutes ?? null;
   const minRating = lens?.minRating ?? null;
-  const tierId = lens?.tierId ?? ANY_TIER_ID;
-  const floorId = lens?.floorId ?? ANY_RATING_ID;
   const origin = lens?.origin ?? null;
   const live = (upcomingEvents || []).filter((e) => !travelDayDates?.has(e.date));
 
@@ -371,10 +371,10 @@ export function buildWindowCards(
     const verdictSource = scopedRegion ? (scopedRegion.displayVerdict || 'AWAITING') : null;
     const verdict = verdictSource || win?.verdict || 'AWAITING';
 
-    // The attribute rows, and the badges they took with them. A topic that became a row is not
-    // also a chip — see `windowFirstRows.js` for why that follows from what each surface can hold
-    // rather than from a preference.
-    const { rows, promoted } = buildWindowRows(win);
+    // The attribute rows — the tide row, and whatever channel joins it next. Since M2 no topic is
+    // promoted out of the badge list into a row: the popup states each topic once, with its facts,
+    // so `windowFirstRows.js` builds one channel and this list has no second half to reconcile.
+    const rows = buildWindowRows(win);
 
     // Derived from the SAME event summary the window projection was, so the strip's top card and
     // the header's `best N★` read one population — see `buildWindowSpots` for the two filters
@@ -415,7 +415,8 @@ export function buildWindowCards(
       // location's score: ranking six windows by a single best spot would put a window with one
       // exceptional location above one where a whole region is good, which is the opposite of what
       // "which window is the best bet" means. Null when nothing in the window carries a mean, and
-      // `windowFirstOrder.js` ranks those last rather than treating the absence as a zero.
+      // A window with no mean sorts last rather than as a zero — "not scored" and "scored
+      // badly" are different statements, the rule `windowFirstRegions.js` states for regions.
       topMeanRating: scopedRegion
         ? (typeof scopedRegion.meanRating === 'number' && Number.isFinite(scopedRegion.meanRating)
           ? scopedRegion.meanRating : null)
@@ -485,23 +486,18 @@ export function buildWindowCards(
       // What the card draws in place of its strip, or null when it draws a strip — or when the
       // window had no spots at all, which is a card the lens never touched and must not carry a
       // line about it.
-      lensEmpty: buildLensEmptyState({
-        allSpots, spots, tierId, limitMinutes, floorId, minRating, origin,
-      }),
       rows,
-      badges: (win?.badges || []).filter((b) => !promoted.has(badgeKey(b))),
-      // The window's badges BEFORE the row promotion above removed any of them — the same
-      // before/after pairing `allSpots` and `spots` already carry, and for the same reason: a later
-      // consumer needs the population, not what one surface left of it. `buildPromotedStrip` counts
-      // these to decide whether two attributes landed on this window, and counting the filtered list
-      // would make a winter dawn carrying SNOW_TOPS + SNOW_FRESH read as a single-badge window
-      // because one of the two had become a row. Nothing is dropped from the card by this: the
-      // strip promotes no badge out of the header (see `windowFirstPromoted.js`).
+      // ⚠️ ONE badge list now, and the before/after pair is gone with the surface that needed it.
+      // Through M1 there was also a `badges` holding the post-promotion remainder — what the card
+      // header drew after `buildWindowRows` had turned some of them into snow attribute rows. The
+      // header and the promotion both died at M2 (the popup's topic rows state every topic once,
+      // facts included), so the remainder had no reader, and a second badge list nothing renders is
+      // how two surfaces come to disagree about which topics a window has.
       allBadges: win?.badges || [],
       // The payload's own rarity answer for this window, carried verbatim — `undefined` when the
       // window has no badges, and also when a payload cached before the field existed is replayed.
       // `buildPromotedStrip` prefers it and recomputes only in the second case; the card itself must
-      // not read it, which `WindowFirstWindowCard.test.jsx` pins.
+      // not read it, which `windowFirstPromoted.test.js` pins.
       topRarityRank: win?.topRarityRank,
       // ⚠️ Withheld when the pick names a region the origin has scoped away. The pick is the
       // forecast's own recommendation over the whole roster, and its badge opens a dialog naming
@@ -538,22 +534,6 @@ export function buildWindowCards(
   return cards;
 }
 
-/**
- * The DOM id of a window card's root element.
- *
- * <p>Two callers need this string and they are in different files — the card writes it, and the
- * promoted strip's route into the list reads it back — so it is derived once here rather than
- * spelled the same way twice. The colons in {@code card.key} are replaced for the reason the card
- * already gives for its body id: a colon is a legal HTML5 id character and would work through
- * {@code getElementById}, but it silently breaks {@code querySelector('#…')} and any CSS id
- * selector, and laying that trap is cheaper to avoid than to find.
- *
- * @param {string} key the card's `${date}:${targetType}` key
- * @returns {string} the element id
- */
-export function windowCardDomId(key) {
-  return `window-card-${String(key).replace(/:/g, '-')}`;
-}
 
 /**
  * The badge channel a hot topic's type belongs to.

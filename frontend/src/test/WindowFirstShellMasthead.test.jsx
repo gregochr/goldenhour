@@ -64,13 +64,6 @@ const ctx = () => ({
     minRating: null,
     selectFloor: vi.fn(),
   },
-  // The third axis. It gates nothing — it re-ranks the pane — so the shell's wiring tests sit on
-  // the chronological default, and `windowFirstOrder.test.js` owns the ranking itself.
-  orderLens: {
-    order: { id: 'when', label: 'When' },
-    orderId: 'when',
-    selectOrder: vi.fn(),
-  },
 });
 
 const renderShell = (extraProps = {}) => {

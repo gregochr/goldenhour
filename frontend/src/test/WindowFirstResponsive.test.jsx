@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import WindowFirstComingUp from '../components/WindowFirstComingUp.jsx';
-import WindowFirstWindowCard from '../components/WindowFirstWindowCard.jsx';
+import WindowSheetDialog from '../components/WindowSheetDialog.jsx';
 
 /**
  * P14 — the responsive pass.
@@ -23,7 +23,7 @@ import WindowFirstWindowCard from '../components/WindowFirstWindowCard.jsx';
  * What IS honest, and what this file does, is `frontend-test-standards.md:189-191` verbatim:
  * "assert the class or attribute the component sets, and leave the pixel behaviour to the browser
  * check." Every phone rule P14 added hooks onto a class or a `data-`/`aria-` attribute, and this
- * file pins that hook for the components it renders — the shell, both panes and the window card —
+ * file pins that hook for the components it renders — the shell, both panes and the window popup —
  * so a rename cannot silently orphan a rule.
  *
  * It does NOT cover the whole arm, and the gap is worth naming rather than implying: the heat
@@ -59,16 +59,46 @@ function card(overrides = {}) {
     bestRating: 4,
     withinReachCount: 3,
     confidence: 'high',
-    badges: [],
+    allBadges: [],
     rows: [],
     pick: null,
     spots: [],
+    allSpots: [],
+    pool: [],
     ...overrides,
   };
 }
 
-const renderCard = (overrides = {}, props = {}) => render(
-  <WindowFirstWindowCard card={card(overrides)} todayStr={TODAY} open={false} {...props} />,
+/** The popup's field inputs, in the shape the shell builds — nothing here paints. */
+const FIELD = {
+  eventSummary: null,
+  // One catalogue spot, because the popup's grid takes its second column only when there is a field
+  // to put in it — an empty catalogue is a real state and it is the OTHER arm of the same test.
+  spots: [{
+    id: 1, name: 'Bamburgh Beach', lat: 6, lng: 4, regionName: 'Coast', rid: 'Coast', skySubject: true, scores: [4],
+  }],
+  points: [],
+  windows: [],
+  series: new Map(),
+  reachById: new Map(),
+  lens: {},
+  onSelectRegion: () => {},
+  selectedRegion: null,
+  singleRegionScope: false,
+  origin: null,
+};
+
+const renderPopup = (overrides = {}) => render(
+  <WindowSheetDialog
+    card={card(overrides)}
+    index={0}
+    total={6}
+    field={FIELD}
+    topicIndex={new Map()}
+    scopeNames={[]}
+    todayStr={TODAY}
+    onClose={vi.fn()}
+  />,
 );
 
 describe('P14 responsive hooks — shell chrome', () => {
@@ -162,67 +192,60 @@ describe('P14 responsive hooks — shell chrome', () => {
   });
 });
 
-describe('P14 responsive hooks — window card header', () => {
-  it('carries the header class its phone rule selects', () => {
-    renderCard();
-    expect(screen.getByTestId('window-card-head')).toHaveClass('wf-wh');
+describe('P14 responsive hooks — the window popup', () => {
+  // ⚠️ Every rule below lives in a `@media` block index.css owns, and jsdom evaluates none of them
+  // — so the CLASS is the hook and the pixels are a browser claim. What is asserted is the hook
+  // itself on a NAMED element, never `container.querySelector` (the standards forbid that form) and
+  // never the bare presence of the dialog, which every other file already pins.
+  it('carries the card class its full-screen phone rule selects', () => {
+    renderPopup();
+    expect(screen.getByTestId('window-sheet-card')).toHaveClass('wf-wsh');
   });
 
-  // The padding differs between the two states and now lives in `.wf-wh[data-open]`. Both halves,
-  // because a hard-coded attribute would satisfy either one alone.
-  it('publishes its open state to the stylesheet', () => {
-    const { unmount } = renderCard({}, { open: false });
-    expect(screen.getByTestId('window-card-head')).toHaveAttribute('data-open', 'false');
+  it('gives the nav its own class, so the phone rule can move it to its own row', () => {
+    renderPopup();
+    expect(screen.getByTestId('window-sheet-nav')).toHaveClass('wf-wsh-nav');
+  });
+
+  // ⚠️ The two-column grid is DATA-driven as well as media-driven, and the data half is testable:
+  // `.wf-wsh-grid` is one column by default and takes its second only when there is a field to put
+  // in it. Both arms, because a hard-coded attribute would satisfy either one alone.
+  it('asks for two columns only when there is a field to draw', () => {
+    const { unmount } = renderPopup();
+    expect(screen.getByTestId('window-sheet-grid')).toHaveAttribute('data-field', 'true');
     unmount();
 
-    renderCard({}, { open: true });
-    expect(screen.getByTestId('window-card-head')).toHaveAttribute('data-open', 'true');
+    render(
+      <WindowSheetDialog
+        card={card()}
+        index={0}
+        total={6}
+        field={{ ...FIELD, spots: [] }}
+        topicIndex={new Map()}
+        scopeNames={[]}
+        todayStr={TODAY}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('window-sheet-grid')).not.toHaveAttribute('data-field');
   });
 
-  it('gives the badge group the class its phone row selects', () => {
-    renderCard();
-    expect(screen.getByTestId('window-card-badges')).toHaveClass('wf-wh-badges');
-  });
-
-  // The spacer the phone header drops. It is aria-hidden and has no testid, so the class is the
-  // only handle a test has on it — and without the class the phone header grows a stray hairline
-  // between two rows that no longer share a line.
-  it('carries the spacer rule the phone header hides', () => {
-    renderCard();
-    const rule = screen.getByTestId('window-card-head').querySelector('.wf-wh-rule');
-    expect(rule).not.toBeNull();
-    expect(rule).toHaveAttribute('aria-hidden', 'true');
-  });
-
-  // The group exists so ONE `flex-basis: 100%` governs both meta clauses and they share one phone
-  // row, as the mock's single `.best` span does. If they were siblings again they would take a row
-  // each and the header would be four rows deep.
-  it('wraps both meta clauses in one group, so they share a row', () => {
-    renderCard({ bestRating: 4, withinReachCount: 3 });
-    const meta = screen.getByTestId('window-card-meta');
-    expect(meta).toHaveClass('wf-wh-meta');
-    expect(within(meta).getByTestId('window-card-best')).toHaveTextContent('best spot 4★');
-    expect(within(meta).getByTestId('window-card-within-reach')).toHaveTextContent('3 within reach');
-  });
-
-  // Count boundary: one clause, either one. The group must still form, or the surviving clause
-  // rejoins the title run and stops taking its own row.
-  it.each([
-    ['only a rating', { bestRating: 4, withinReachCount: null }, 'window-card-best'],
-    ['only a reach count', { bestRating: null, withinReachCount: 3 }, 'window-card-within-reach'],
-  ])('still forms the group with %s', (_label, overrides, presentTestId) => {
-    renderCard(overrides);
-    const meta = screen.getByTestId('window-card-meta');
-    expect(within(meta).getByTestId(presentTestId)).toBeInTheDocument();
-    expect(within(meta).getAllByText(/./)).toHaveLength(1);
-  });
-
-  // The negative, and the more valuable half: an empty group would still be a flex item and would
-  // still spend one of the header's gaps on nothing.
-  it('renders no group at all when neither clause has a value', () => {
-    renderCard({ bestRating: null, withinReachCount: null });
-    expect(screen.queryByTestId('window-card-meta')).toBeNull();
-    expect(screen.queryByTestId('window-card-best')).toBeNull();
-    expect(screen.queryByTestId('window-card-within-reach')).toBeNull();
+  // The popup opens with no catalogue at all — the state before `/api/locations` resolves. Gating
+  // the dialog on it made every matrix cell a control with no visible effect.
+  it('opens without a field, rather than not opening', () => {
+    render(
+      <WindowSheetDialog
+        card={card()}
+        index={0}
+        total={6}
+        field={{ ...FIELD, spots: [] }}
+        topicIndex={new Map()}
+        scopeNames={[]}
+        todayStr={TODAY}
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('window-sheet-title')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-row-map')).toBeNull();
   });
 });

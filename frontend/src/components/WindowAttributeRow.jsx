@@ -3,7 +3,7 @@ import PropTypes from 'prop-types';
 import WindowTideSparkline from './chart/WindowTideSparkline.jsx';
 
 /**
- * One attribute row on a window card — the tide the light falls on, or the snow underneath it.
+ * One attribute row in the window popup — the tide the light falls on.
  *
  * <h2>Three columns, and no fourth</h2>
  *
@@ -57,7 +57,11 @@ export default function WindowAttributeRow({ row }) {
 
 WindowAttributeRow.propTypes = {
   row: PropTypes.shape({
-    channel: PropTypes.oneOf(['tide', 'snow']).isRequired,
+    // Tide alone today: the snow promotion died with the window card at M2 (the popup's topic rows
+    // carry a topic's facts once), and `buildWindowRows` builds no other channel. Kept as a
+    // one-member `oneOf` rather than a bare string, because the row band is a list and the next
+    // channel — surge, clearance — arrives as a second member.
+    channel: PropTypes.oneOf(['tide']).isRequired,
     kicker: PropTypes.string.isRequired,
     facts: PropTypes.arrayOf(PropTypes.shape({
       segments: PropTypes.arrayOf(PropTypes.shape({

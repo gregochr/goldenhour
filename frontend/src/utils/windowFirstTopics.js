@@ -196,8 +196,8 @@ function topicForBadge(badge, candidates) {
  *                                  promotion, so the matrix names every topic on the night)
  * @param {Map<string, Array<object>>} topicIndex from {@link buildTopicIndex}
  * @param {Array<string>} scopeNames the region names the page is scoped to
- * @returns {Array<{badge: object, topic: ?object, wholeSky: boolean, regionsInScope: ?number}>}
- *          the topics to render, rarest first
+ * @returns {Array<{badge: object, topic: ?object, wholeSky: boolean, regionsInScope: ?number,
+ *          scopedRegions: string[]}>} the topics to render, rarest first
  */
 export function windowTopics(key, badges, topicIndex, scopeNames) {
   const candidates = topicIndex?.get?.(key) ?? [];
@@ -208,15 +208,22 @@ export function windowTopics(key, badges, topicIndex, scopeNames) {
     const topic = topicForBadge(badge, candidates);
     const wholeSky = isWholeSkyTopic(badge.type);
     let regionsInScope = null;
+    // ⚠️ The NAMES as well as the count, and they are the same array. The popup's scope note states
+    // the count and offers the list as its tooltip; publishing the un-intersected `topic.regions`
+    // there put a nine-region list under a label reading "1 region in scope" — the intersection
+    // stated in the text and the roster stated in the tooltip, from one element. One filter, one
+    // answer, and the caller cannot re-derive it differently because it is handed both.
+    let scopedRegions = [];
     if (!wholeSky && scope.size > 0) {
       const regions = Array.isArray(topic?.regions) ? topic.regions : [];
       // Byte-identical membership, never normalised — `heatSpots.js` records why.
       if (regions.length > 0) {
-        regionsInScope = regions.filter((name) => scope.has(name)).length;
+        scopedRegions = regions.filter((name) => scope.has(name));
+        regionsInScope = scopedRegions.length;
         if (regionsInScope === 0) continue;
       }
     }
-    rows.push({ badge, topic, wholeSky, regionsInScope });
+    rows.push({ badge, topic, wholeSky, regionsInScope, scopedRegions });
   }
   // Rarest first — the payload's own `rarityRank` (1 = rarest), an absent rank sorting last.
   //

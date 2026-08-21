@@ -1,74 +1,47 @@
-import { badgeChannel } from './windowFirstCards.js';
-
 /**
- * The window card's attribute rows — the tide the light falls on, and the snow underneath it.
+ * The window's attribute rows — the tide the light falls on.
  *
- * <h2>The cap is two, and it is arithmetic rather than convention</h2>
+ * <h2>⚠️ It builds ONE channel now, and the snow half is deliberately gone</h2>
  *
- * <p>Plan §5. Each row costs ~38px on a card measured at 201px, on a shell already running 2.17
- * viewports at six windows, so the budget is the constraint the rows are designed against — see
- * {@link MAX_ROWS}. Nothing a topic could carry lets it argue its way past the cap.
+ * <p>Through M1 this also promoted snow topics into rows and returned the badge keys it had
+ * consumed, so the card header could drop their chips. Both halves died with the window card at M2:
+ * the popup's topic rows state every topic once — label, {@code detail}, its measured facts through
+ * {@link topicFacts}, and its science note behind an {@code i} — so a snow attribute row would print
+ * one topic twice, eight pixels apart, and with no header left to de-duplicate, the promoted set had
+ * no reader at all. The facts themselves are not lost: {@link topicFacts} is exported and the topic
+ * rows call it, which is why the mapping still lives here rather than moving.
  *
- * <h2>A topic renders once: as a row when it has numbers, as a badge otherwise</h2>
+ * <p><b>What is left is a list, not a single row, and that is on purpose.</b> The design's row band
+ * holds more than one channel — storm surge and clearance carry facts today and have no event anchor
+ * to reach a window by — so the next channel arrives here rather than reshaping the caller.
  *
- * <p>This is the duplication question the design leaves open — it draws a snow badge in the header
- * <em>and</em> a snow row beneath it — and the answer follows from what each surface can hold. A
- * badge has room for {@code label}; a row has room for {@code label} plus the topic's measured
- * facts. So a topic carrying facts is strictly richer as a row, and a topic carrying none would
- * render a row whose entire content is its own label repeated forty pixels lower, which is the
- * noise §6 bans. Hence: <b>facts promote, absence does not</b>, and a promoted topic leaves the
- * header. Nothing is ever lost — a topic the cap drops keeps its badge.
+ * <h2>The row is not role-gated</h2>
  *
- * <p><b>Only the snow channel is promotable, and that is a budget decision rather than a
- * generalisation.</b> Several topic kinds carry facts (NLC's clear-count, aurora's Kp), and
- * promoting all of them would put four rows on a busy window and blow the height budget the cap
- * exists to defend. The design draws exactly two rows; P7 ships exactly two. Widening the set is a
- * design call, not a refactor.
- *
- * <h2>Neither row is role-gated</h2>
- *
- * <p>Plan §7 asks P7 to settle this rather than let two surfaces disagree. {@code HotTopicStrip}
+ * <p>Plan §7 asks this to be settled rather than let two surfaces disagree. {@code HotTopicStrip}
  * blurs every topic's fact chips for LITE — a blanket paywall tease over a promotional strip, not a
- * judgement about tides — and these rows are not that surface. They are the window's own context,
- * the equivalent of the v1 Plan tab's tide chips and tide-aligned markers, which are ungated for
- * every role today. `freemium_ui_strategy.md` blurs cloud-layer breakdown, aerosol metrics and the
+ * judgement about tides — and this row is not that surface. It is the window's own context, the
+ * equivalent of the v1 Plan tab's tide chips and tide-aligned markers, which are ungated for every
+ * role today. `freemium_ui_strategy.md` blurs cloud-layer breakdown, aerosol metrics and the
  * technical panel; tide is almanac (the product already classifies it so — `topicCertainty`), and
- * `GET /api/tides` is deliberately Bearer rather than ADMIN for the same reason. So: no gate, one
- * rule for the whole row block, and no `role` plumbed into this arm.
+ * `GET /api/tides` is deliberately Bearer rather than ADMIN for the same reason. So: no gate, and no
+ * `role` plumbed into this arm.
  *
- * <p><b>⚠️ That reconvergence is now DUE, and this paragraph used to deny it.</b> It read
- * "{@code HotTopicStrip} … is not in this arm yet — P9 builds the hot-topics door — so nothing
- * disagrees on screen today", and promised that "when P9 wires it in, the blanket blur is the single
- * place to reconverge". <b>P9 shipped</b>: {@code WindowFirstDoors:222} renders {@code HotTopicStrip}
- * in this arm, deliberately unchanged. So the two surfaces DO now disagree on one screen, and for the
- * snow channel they disagree about the identical objects — {@code PlanWindowProjector:441-443} builds
- * the badges from {@code topic.facts()} and {@code buildWindowRows} below maps those same facts onto
- * row segments, so a LITE user reads a fact sharp in a row and blurred in a pill a door away.
- *
- * <p>It is left that way on purpose, and the reason is the one this file already gives: the fix is a
- * <em>pricing</em> decision, not a rendering one. {@code freemium_ui_strategy.md:79} grants LITE the
- * scores and {@code :98} forbids blocking the core score, so the blur is the deviation and these
- * ungated rows are the policy — but resolving it edits {@code HotTopicStrip} and
- * {@code MarkerPopupContent}, both shared with the frozen v1 arm the flag comparison rests on (§4).
- * Plan §5d and §5e hand it to whoever owns the pricing story, to be decided once across both arms.
- * The §6 sweep confirmed it is unreachable for the pilot roster (self-registration yields
- * {@code PRO_USER}), which is why it did not gate the sweep — not because it stopped being true.
+ * <p><b>⚠️ The reconvergence with {@code HotTopicStrip} is DUE.</b> P9 shipped
+ * ({@code WindowFirstDoors} renders the strip in this arm, deliberately unchanged), so the two
+ * surfaces now disagree on one screen — sharply here, blurred a door away. It is left that way on
+ * purpose: the fix is a <em>pricing</em> decision, not a rendering one
+ * ({@code freemium_ui_strategy.md:79} grants LITE the scores and {@code :98} forbids blocking the
+ * core score), and resolving it edits {@code HotTopicStrip} and {@code MarkerPopupContent}, both
+ * shared with the frozen v1 arm the flag comparison rests on. The §6 sweep confirmed it is
+ * unreachable for the pilot roster (self-registration yields {@code PRO_USER}), which is why it did
+ * not gate the sweep — not because it stopped being true.
  */
-
-/**
- * Rows per window, enforced here rather than trusted to the callers.
- *
- * <p>It binds today: {@code SNOW_FRESH} (or {@code SNOW_MIST}) and {@code SNOW_TOPS} are separate
- * strategies, both anchored to SUNRISE, so a winter dawn genuinely offers a tide row and two snow
- * rows. The third is dropped and stays a header badge.
- */
-export const MAX_ROWS = 2;
 
 /** The sparkline's box, in user units — the design's 104×24. */
 export const CHART_W = 104;
 export const CHART_H = 24;
 
-/** Channel glyphs. The design's own, and the only two channels a row can carry. */
+/** Channel glyphs. The design's own; only the tide channel builds a row today (see the header). */
 const KICKER_GLYPH = { tide: '≈', snow: '❄' };
 
 /** Water level → the words the row states it in. */
@@ -205,10 +178,6 @@ export function tideSparkline(tide) {
   };
 }
 
-/** A badge's stable identity, so the card can drop exactly the ones this promoted. */
-export function badgeKey(badge) {
-  return `${badge?.type ?? ''}:${badge?.label ?? ''}`;
-}
 
 /**
  * A topic's facts, mapped onto the row's segment tones.
@@ -218,8 +187,14 @@ export function badgeKey(badge) {
  * `HotTopicStrip`'s muted, for the AA reason recorded on {@link base}. `dir` is dropped: it is the
  * strip's look-direction arrow, no snow strategy emits one, and inventing a treatment for a field
  * with no live producer would be a guess the row states as fact.
+ *
+ * <p>Exported since M2: the window popup's topic rows carry the same facts (plan §5's "name,
+ * `detail`, <b>facts</b>, `description` behind the `i`"), and a second mapping there would be a
+ * second answer to which half of a fact is emphasised. The snow ATTRIBUTE row it was written for is
+ * no longer drawn on the v2 arm — the popup's topic row states the same topic once, with its
+ * science note — so this is now the mapping's only live reader on that arm.
  */
-function topicFacts(badge) {
+export function topicFacts(badge) {
   return badge.facts.map((f) => {
     const value = f.emphasis ? strong(f.value) : base(f.value);
     return fact(f.key ? [base(f.key), value] : [value], Boolean(f.optional));
@@ -227,51 +202,29 @@ function topicFacts(badge) {
 }
 
 /**
- * Builds a window's attribute rows and says which badges they consumed.
+ * Builds a window's attribute rows.
  *
- * <p>Order is tide first — it is the row that renders on every window of every day, so a card whose
- * rows moved about would read as a different card — then promoted topics by rarity, rarest first,
- * which is the ordering advice the payload already publishes for the promoted strip. Using the same
- * rank in both places means the two surfaces cannot disagree about which topic matters most.
+ * <p>⚠️ <b>The tide row, and only the tide row, since M2.</b> This used to promote snow topics into
+ * attribute rows as well, and return the badge keys it had consumed so the card header could drop
+ * their chips. Both jobs died with the window card: the popup's topic rows now state every topic
+ * once, with its detail, its measured facts and its science note, so a snow attribute row would
+ * print one topic twice eight pixels apart — and with no header to de-duplicate, the {@code
+ * promoted} set had no reader. The rarity ordering the promotion used survives where it is still
+ * read, on the card faces and the popup's rows ({@code windowFirstTopics.windowTopics}).
+ *
+ * <p>It stays a LIST rather than becoming {@code buildTideRow}, because the design's row band is a
+ * list — the surge and clearance channels have no event anchor today and would arrive here.
  *
  * @param {?object} win the window projection from `/api/briefing`
- * @returns {{rows: Array, promoted: Set<string>}} the rows, capped, and the badge keys they took
+ * @returns {Array} the rows
  */
 export function buildWindowRows(win) {
-  const rows = [];
-
-  if (win?.tide) {
-    rows.push({
-      key: 'tide',
-      channel: 'tide',
-      kicker: kickerFor('tide', 'Tide'),
-      facts: tideFacts(win.tide),
-      chart: tideSparkline(win.tide),
-    });
-  }
-
-  const promotable = (win?.badges || [])
-    .filter((b) => badgeChannel(b.type) === 'snow' && (b.facts || []).length > 0)
-    .slice()
-    .sort((a, b) => (a.rarityRank ?? Number.MAX_SAFE_INTEGER)
-      - (b.rarityRank ?? Number.MAX_SAFE_INTEGER));
-
-  for (const badge of promotable) {
-    rows.push({
-      key: badgeKey(badge),
-      channel: 'snow',
-      kicker: kickerFor('snow', badge.label),
-      facts: topicFacts(badge),
-      chart: null,
-      badgeKey: badgeKey(badge),
-    });
-  }
-
-  const capped = rows.slice(0, MAX_ROWS);
-  // Only what SURVIVED the cap is promoted. A snow topic the cap dropped keeps its header badge,
-  // so the budget costs the reader a row and never a fact.
-  return {
-    rows: capped,
-    promoted: new Set(capped.map((r) => r.badgeKey).filter(Boolean)),
-  };
+  if (!win?.tide) return [];
+  return [{
+    key: 'tide',
+    channel: 'tide',
+    kicker: kickerFor('tide', 'Tide'),
+    facts: tideFacts(win.tide),
+    chart: tideSparkline(win.tide),
+  }];
 }

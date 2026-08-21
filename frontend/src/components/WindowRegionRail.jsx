@@ -8,14 +8,15 @@ import PropTypes from 'prop-types';
  *
  * <p>It sits first in the same grid, in the same shape, and carries the same two facts every region
  * cell does — because "everything" is one of the choices, not an escape from having made one. A
- * separate "clear" control beside a rail of regions would state the same thing twice (the band
- * already carries {@code Show all regions ×} for a reader who has scrolled past the rail) and would
- * read as chrome rather than as the top of a list.
+ * separate "clear" control beside a rail of regions would state the same thing twice and would read
+ * as chrome rather than as the top of a list. (Through M1 the region band below carried a
+ * {@code Show all regions ×} for a reader who had scrolled past the rail; the popup's prose slot
+ * replaced the band, and inside a dialog the rail is never scrolled away from.)
  *
  * <h2>Every star here is served</h2>
  *
  * <p>The All cell prints the WINDOW's {@code bestRating} — the same field, from the same payload,
- * that the card header two elements up prints as {@code best spot N★} — and each region cell prints
+ * that the popup's own header prints as its best-in-reach figure — and each region cell prints
  * its OWN {@code bestRating}. Those are two different populations (P1: the canopy fallback is per
  * window on one and per region on the other), which is exactly why they are in two labelled cells
  * and never in one number. Neither is computed here; see {@code windowFirstRegions.js}.
@@ -46,7 +47,7 @@ import PropTypes from 'prop-types';
  * @param {?string}  props.selected    the selected region, or null for All
  * @param {Function} [props.onSelect]  called with a region name, or null for All
  * @param {object}   [props.allCellRef] attached to the All cell, so a control that clears the
- *        selection and unmounts itself has somewhere to put focus — see {@code WindowRowRegionLayer}
+ *        selection and unmounts itself has somewhere to put focus — see {@code WindowSheetDialog}
  */
 export default function WindowRegionRail({
   rows, windowBest, drawnCount, countNoun, selected, onSelect, allCellRef,

@@ -27,8 +27,14 @@ import { dayLabelFor, eventWord } from './windowFirstCards.js';
  * ran, so they come from the event summary directly when there is no card to read them off.
  */
 
-/** Three-letter weekday for the matrix's day header ("Sat"). Upper-cased by the stylesheet. */
-function calDow(dateStr) {
+/**
+ * Three-letter weekday for the matrix's day header ("Sat"). Upper-cased by the stylesheet.
+ *
+ * <p>Exported since M2 so the window popup's date tile draws the same abbreviation from the same
+ * function — a dialog naming a different day from the card that opened it is exactly the class of
+ * defect a second spelling produces.
+ */
+export function calDow(dateStr) {
   return new Date(`${dateStr}T12:00:00Z`)
     .toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
 }
@@ -38,7 +44,7 @@ function calDow(dateStr) {
  *
  * <p>Not invented here — §6 bans new vocabulary — but not imported either, and the difference is
  * worth stating because an earlier version of this comment claimed it was. {@code windowFirstAway.js}
- * exports no such constant; it uses the phrase in prose, {@code WindowAwayRow} builds its own
+ * exports no such constant; it uses the phrase in prose, and the retired away ROW built its own
  * literal ("n windows not forecast") and {@code HeatmapGrid} a third. This is the fourth site and
  * the only one that names it, so a fifth should import THIS rather than write a fourth string.
  */

@@ -8,7 +8,6 @@ import { getReach, getSettings } from '../api/settingsApi.js';
 import { fetchRegionDriveTimes, fetchRegions } from '../api/regionApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
-import usePlanOrder from '../hooks/usePlanOrder.js';
 import useRatingLens from '../hooks/useRatingLens.js';
 import useReachLens from '../hooks/useReachLens.js';
 import { cacheGeneration, readSwrCache, writeSwrCache } from '../utils/swrCache.js';
@@ -462,13 +461,6 @@ export function WindowFirstBriefingProvider({
   // the hook), so nothing new crosses plan §5c's line.
   const ratingLens = useRatingLens();
 
-  // The pane's third axis. It lives here beside the other two because the lens bar renders all
-  // three and the shell orders the pane by this one — a value read in two places is derived in one.
-  // Unlike reach and rating it gates nothing: `paneItems` below stays chronological, and the
-  // ordering is applied by the shell at render (see `orderPaneItems`), so `buildPromotedStrip`
-  // keeps reading the date order its "is the promoted card the very next item" test depends on.
-  const orderLens = usePlanOrder();
-
   /**
    * The reach map the page actually plans from — <b>overwritten</b> when the origin moves, never
    * extended.
@@ -535,9 +527,7 @@ export function WindowFirstBriefingProvider({
           // The lens's own default, which the origin has already moved — so the gate's starting
           // point and the far mark's meaning stay one judgement (`reachLens.js`'s module rule).
           defaultLimitMinutes,
-          tierId: reachLens.tierId,
           minRating: ratingLens.minRating,
-          floorId: ratingLens.floorId,
           // The origin's scope, applied before either gate: away, a window is about ONE region,
           // and the lens then chooses within it. Null is home and changes nothing.
           origin,
@@ -545,8 +535,8 @@ export function WindowFirstBriefingProvider({
       )
       : []),
     [briefing, upcomingEvents, travelDayDates, todayStr, tomorrowStr, effectiveReachById,
-      reachLens.tier.limitMinutes, reachLens.tierId, defaultLimitMinutes,
-      ratingLens.minRating, ratingLens.floorId, origin],
+      reachLens.tier.limitMinutes, defaultLimitMinutes,
+      ratingLens.minRating, origin],
   );
 
   /**
@@ -649,7 +639,7 @@ export function WindowFirstBriefingProvider({
       heatPointSets,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
-      ratingLens, orderLens, homePlace, isPro, isLiteUser,
+      ratingLens, homePlace, isPro, isLiteUser,
       // The origin and its two inputs. `effectiveReachById` is published beside `reachById` rather
       // than in place of it, because the two answer different questions and one consumer still
       // wants the home one: the planning area and the beyond line are statements about HOME, and
@@ -661,7 +651,7 @@ export function WindowFirstBriefingProvider({
       heatSpotList, heatPointSets,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
-      ratingLens, orderLens, homePlace, isPro, isLiteUser,
+      ratingLens, homePlace, isPro, isLiteUser,
       origin, setOrigin, regions, effectiveReachById],
   );
 
@@ -697,7 +687,7 @@ WindowFirstBriefingProvider.propTypes = {
  *           paneItems: Array, promotedStrip: ?object, upcomingEvents: Array,
  *           travelDayDates: Set, heatSpots: Array, heatPointSets: Map, regionSeries: Map,
  *           reachById: Map,
- *           reachLens: object, ratingLens: object, orderLens: object, homePlace: ?string,
+ *           reachLens: object, ratingLens: object, homePlace: ?string,
  *           todayStr: string,
  *           tomorrowStr: string, isPro: boolean, isLiteUser: boolean}}
  */

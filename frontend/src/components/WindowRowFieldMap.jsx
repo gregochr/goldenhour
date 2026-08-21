@@ -1,4 +1,6 @@
-import React, { useCallback, useMemo, useState } from 'react';
+import React, {
+  useCallback, useLayoutEffect, useMemo, useRef, useState,
+} from 'react';
 import PropTypes from 'prop-types';
 import {
   aspect, bbox, centroid, clamp, drawGeo,
@@ -7,20 +9,27 @@ import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { scopeSpots } from '../utils/planOrigin.js';
+import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 
 /**
- * The row map's aspect clamps — wider than the thumbnails' and, on a phone, taller.
+ * The field's aspect clamps — portrait on desktop, nearly square on a phone.
  *
  * <p>Not kernel behaviour ({@code aspect()} has no clamps of its own), so they are this component's
- * constants and this component's boundary tests — the same split {@code thumbAspect} records. The
- * design's reason for the two bands: a desktop row can afford a letterbox because the rail and band
- * sit beside the reader's eye line, while a phone column has the width to spare and not the height,
- * so its map is allowed to go nearly square.
+ * constants and this component's boundary tests — the same split {@code thumbAspect} records.
+ *
+ * <p>⚠️ <b>The desktop band went from letterbox (0.36–0.62) to portrait (0.88–1.34) at M2, and the
+ * reason is the layout rather than taste.</b> The map used to sit full-width across an open row
+ * with the rail and band stacked beneath it, so a letterbox was the shape that left the words
+ * visible. In the window popup it sits in the LEFT column of a two-column body (plan-matrix §6
+ * M2.1) with the region cards and the prose beside it, so its box is roughly two-fifths of the
+ * dialog and a letterbox inside that would be a postage stamp. The phone band is unchanged, because
+ * the phone body is a single column and the constraint there — width to spare, height not — never
+ * moved.
  */
-export const MAP_ASPECT_MIN = 0.36;
+export const MAP_ASPECT_MIN = 0.88;
 /** @see MAP_ASPECT_MIN */
-export const MAP_ASPECT_MAX = 0.62;
+export const MAP_ASPECT_MAX = 1.34;
 /** @see MAP_ASPECT_MIN */
 export const MAP_ASPECT_MIN_PHONE = 0.5;
 /** @see MAP_ASPECT_MIN */
@@ -36,10 +45,13 @@ const MAP_LINE = 0.85;
 /**
  * The measurement floor, sized for this component's own aspect band.
  *
- * <p>{@code drawGeo} declines when EITHER dimension is 20px or smaller, and at the desktop floor of
- * 0.36 a 56px-wide map is only 20px tall. {@link useHeatCanvas} applies that height test itself, so
- * this is the width half of the same gate — and 56 is a value no supported viewport reaches, which
- * is what makes both of them latent rather than live.
+ * <p>{@code drawGeo} declines when EITHER dimension is 20px or smaller. It was derived from the old
+ * 0.36 desktop floor, where a 56px-wide map is exactly 20px tall — <b>and the M2 band change
+ * invalidated that arithmetic</b>: at 0.88, 56px wide is 49px tall and the height gate is nowhere
+ * near. 56 stays as the WIDTH half of the same gate, which {@link useHeatCanvas} does not apply for
+ * this component, and it remains a value no supported viewport reaches — so both halves are latent
+ * rather than live. Kept rather than lowered because a map narrower than 56px is not a map, whatever
+ * the kernel would consent to draw.
  */
 const MIN_MAP_PX = 56;
 
@@ -48,6 +60,69 @@ const MIN_MAP_PX = 56;
  * width. Straight from the bundle (`plan-tab.js`: {@code bd < r.width*0.26}).
  */
 const PICK_RADIUS_FRACTION = 0.26;
+
+/** How many location chips the field may carry — the design's cap, and its phone cap. */
+const CHIP_CAP = 8;
+/** @see CHIP_CAP */
+const CHIP_CAP_PHONE = 6;
+
+/** How many candidates deep the placer looks for each slot it can fill — see the anchor loop. */
+const CHIP_CANDIDATE_FACTOR = 3;
+
+/**
+ * The deepest candidate list this component will ever read, exported so the CALLER slices by the
+ * same number rather than spelling its own.
+ *
+ * <p>The desktop figure, deliberately: the phone cap is smaller, so a caller handing over the
+ * desktop depth on a phone simply gives the placer spares it does not need — where two independent
+ * literals would silently starve it the moment {@link CHIP_CAP} moved.
+ */
+export const CHIP_CANDIDATES = CHIP_CAP * CHIP_CANDIDATE_FACTOR;
+
+/**
+ * Where a chip sits relative to its point, in px — half the marker, so the 5px square lands on it.
+ *
+ * <p>The bundle's own number ({@code p[0]-5.5} unflipped, {@code p[0]+5.5-w} flipped).
+ */
+const CHIP_OFFSET = 5.5;
+
+/** Clearance between two placed boxes, and between a box and the frame's edge, in px. */
+const BOX_GAP = 3;
+/** @see BOX_GAP */
+const EDGE_GAP = 2;
+
+/**
+ * The bottom-left corner the hint chip owns, as a box the placer must avoid, in px.
+ *
+ * <p>Measured rather than guessed would be better and is not worth the second layout pass: the chip
+ * is one of two fixed strings in 9px mono at a fixed inset, so a generous constant is both simpler
+ * and safer than a measurement that could arrive a frame late. Over-reserving drops a chip that
+ * might have fitted; under-reserving paints a name over the one sentence saying the picture is
+ * interactive.
+ */
+const HINT_BOX = { width: 118, height: 24 };
+
+/** One frozen array, so a caller that draws no chips does not hand over a fresh prop each render. */
+const EMPTY_CHIPS = Object.freeze([]);
+
+/**
+ * Whether a candidate box sits inside the frame and clear of everything already placed.
+ *
+ * <p>The bundle's own {@code fits}, with its two paddings named. Greedy and order-dependent by
+ * design: the caller hands the chips over in the order they deserve the space, so an early chip
+ * that fits keeps it and a later one that would overlap is dropped rather than drawn on top. An
+ * unreadable name is worse than a missing one, and the ranked strip below the field lists every one
+ * of them anyway.
+ */
+function fits(box, placed, frameWidth, frameHeight) {
+  if (box.x < EDGE_GAP || box.y < EDGE_GAP) return false;
+  if (box.x + box.width > frameWidth - EDGE_GAP) return false;
+  if (box.y + box.height > frameHeight - EDGE_GAP) return false;
+  return !placed.some((other) => box.x + box.width > other.x - BOX_GAP
+    && box.x < other.x + other.width + BOX_GAP
+    && box.y + box.height > other.y - BOX_GAP
+    && box.y < other.y + other.height + BOX_GAP);
+}
 
 /**
  * The open row's full-width field map — the same kernel the strip paints, at row dials.
@@ -102,6 +177,14 @@ const PICK_RADIUS_FRACTION = 0.26;
  * scored subset would make the labels drift between windows as coverage changed, which reads as the
  * map being wrong rather than as the forecast being thin.
  *
+ * <p>⚠️ <b>A region label is never DROPPED for want of room, and the location chips yield to it.</b>
+ * The bundle places both layers in one greedy pass and drops whichever loses; here the labels are
+ * this component's existing, tested behaviour and the chips are the new layer, so the new one gives
+ * way. The measured cost is real and is recorded in the plan's phase log: on a narrow frame the
+ * field can name no locations at all, because four region labels and the hint chip have taken the
+ * space. The focused region's label is omitted (see the paint loop), which is the design's own rule
+ * and buys back the part of the frame a reader is actually looking at.
+ *
  * @param {object}   props
  * @param {string}   props.windowKey  the window this map paints, for its keyed point set
  * @param {string}   props.date       the window's date, for the confidence horizon
@@ -121,14 +204,34 @@ const PICK_RADIUS_FRACTION = 0.26;
  */
 export default function WindowRowFieldMap({
   windowKey, date, confidence, spots, points, bestRating = null, regionNames, selectedRegion,
-  origin = null,
+  origin = null, chips = EMPTY_CHIPS,
   reachById, todayStr, onSelectRegion,
 }) {
   const isMobile = useIsMobile();
+  const chipCap = isMobile ? CHIP_CAP_PHONE : CHIP_CAP;
   // Scope, not area — the planning area at home and the origin's own region when away, so the
   // open row's map is framed exactly as the six thumbnails above it are. One module, so a row and
   // the strip that opened it cannot disagree about what is in shot.
   const framed = useMemo(() => scopeSpots(spots, reachById, origin), [spots, reachById, origin]);
+  /**
+   * The catalogue indexed for the chip join — <b>id first, name second</b> (plan §3 rule 11).
+   *
+   * <p>A window's spot descriptor carries no coordinates: {@code buildWindowSpots} folds the
+   * briefing's slots and the reach map and nothing else, and the latitude and longitude live on the
+   * heat catalogue. So a chip is a join, and it is the same join every other surface in this arm
+   * makes — the id when the payload carried one, the name only as a fallback, and never a
+   * normalised name.
+   */
+  const geoByKey = useMemo(() => {
+    const byKey = new Map();
+    for (const spot of spots) {
+      if (spot?.id != null && !byKey.has(spot.id)) byKey.set(spot.id, spot);
+    }
+    for (const spot of spots) {
+      if (spot?.name && !byKey.has(spot.name)) byKey.set(spot.name, spot);
+    }
+    return byKey;
+  }, [spots]);
   const fitTo = useMemo(() => bbox(framed), [framed]);
   const frameAspect = useMemo(() => clamp(
     aspect(fitTo),
@@ -145,6 +248,23 @@ export default function WindowRowFieldMap({
    * the frame or two before the labels catch up.
    */
   const [frame, setFrame] = useState(null);
+
+  /**
+   * Where each chip actually ended up, or null while the placer has not run for this frame.
+   *
+   * <p>Two renders per paint, and both are necessary. A chip's width is its location's name in a
+   * font the browser may still be swapping, so it cannot be predicted — the bundle measures the
+   * real element and so does this. The first render puts every candidate off-screen at
+   * {@code left: -9999px} where it can be measured without being seen; the layout effect then
+   * measures, runs the greedy pass, and commits the survivors. A chip that did not survive is
+   * unmounted rather than hidden, so the DOM carries only what is drawn.
+   *
+   * <p>It cannot loop: the effect depends on {@code frame} and the cap, and writing placements
+   * changes neither.
+   */
+  const [placed, setPlaced] = useState(null);
+  const chipRefs = useRef(new Map());
+  const labelRefs = useRef(new Map());
 
   /**
    * Whether the payload says nothing in this window is rated — the strip's mark, one level down.
@@ -217,13 +337,34 @@ export default function WindowRowFieldMap({
     const toPoint = (spot) => project([spot.lng, spot.lat]);
     const labels = [];
     for (const name of regionNames) {
+      // ⚠️ The FOCUSED region's own name is omitted, which is the design's own rule and the one
+      // that pays for itself: the rail cell reads pressed and the prose slot's heading names that
+      // region, so the label is the third statement of one fact — and it is the label sitting in
+      // exactly the part of the field a reader is now looking at, where the location chips need the
+      // room. Nothing is lost: the plate under it is the focused heat.
+      if (name === selectedRegion) continue;
       const at = centroid(framed, name, toPoint);
       if (!at || !Number.isFinite(at[0]) || !Number.isFinite(at[1])) continue;
       labels.push({ name, x: at[0], y: at[1] });
     }
-    setFrame({ width, labels });
+    // The chips' ANCHORS only. Whether each one is drawn is a measurement question the placer
+    // answers after layout — see `placements` — because a chip's width is its name in a font that
+    // may not have loaded yet.
+    const anchors = [];
+    // Bounded well above the cap rather than at it: the placer drops a chip that will not fit, so
+    // it needs spares — but a pool can hold the whole roster, and rendering a hundred hidden spans
+    // to measure eight is a layout pass nobody reads. Three times the cap is the smallest bound
+    // that cannot plausibly starve a full frame, given the caller hands them over in rank order.
+    for (const chip of chips.slice(0, chipCap * CHIP_CANDIDATE_FACTOR)) {
+      const geo = geoByKey.get(chip.locationId) ?? geoByKey.get(chip.locationName) ?? null;
+      if (!geo) continue;
+      const at = toPoint(geo);
+      if (!at || !Number.isFinite(at[0]) || !Number.isFinite(at[1])) continue;
+      anchors.push({ ...chip, x: at[0], y: at[1] });
+    }
+    setFrame({ width, height, labels, chips: anchors });
   }, [windowKey, date, confidence, points, notScored, fitTo, framed, regionNames, focusRegion,
-    todayStr]);
+    selectedRegion, todayStr, chips, geoByKey, chipCap]);
 
   const { attachFrame, canvasRef, geoFailed } = useHeatCanvas({
     enabled: points.length > 0 || framed.length > 0,
@@ -265,6 +406,95 @@ export default function WindowRowFieldMap({
     else onSelectRegion(nearest === selectedRegion ? null : nearest);
   }, [selectable, frame, onSelectRegion, selectedRegion]);
 
+  /**
+   * The greedy placement pass — regions claim their space, then the strongest locations take what
+   * is left.
+   *
+   * <p>Runs in a LAYOUT effect rather than an ordinary one because it reads geometry and then
+   * writes positions: an ordinary effect would let the browser paint the off-screen measuring pass
+   * first, and the chips would visibly fly in from the left edge on every repaint.
+   *
+   * <p>Region labels are seeded as occupied boxes and are <b>never dropped</b>, which is a
+   * deliberate deviation from the bundle: there the region layer is placed by the same pass and can
+   * lose a name to a crowded frame. Here the labels are the field's existing, tested behaviour (and
+   * the rail below is their accessible equivalent), so the new layer yields to the old one rather
+   * than the other way round.
+   */
+  useLayoutEffect(() => {
+    // One write per frame, guarded on the frame's own identity rather than on the placements being
+    // null — so a repaint supersedes the last answer without ever needing to clear it first, and a
+    // stale placement (a name pinned to a coastline that has moved) cannot survive a paint.
+    if (!frame || placed?.frame === frame) return;
+    const boxes = [];
+    // The hint chip's corner, and the unscored chip's when it is drawn — both are absolutely
+    // positioned siblings the placer cannot see any other way.
+    if (selectable) {
+      boxes.push({
+        x: 0, y: frame.height - HINT_BOX.height, width: HINT_BOX.width, height: HINT_BOX.height,
+      });
+    }
+    if (notScored) {
+      boxes.push({
+        x: frame.width - HINT_BOX.width,
+        y: frame.height - HINT_BOX.height,
+        width: HINT_BOX.width,
+        height: HINT_BOX.height,
+      });
+    }
+    for (const label of frame.labels) {
+      const node = labelRefs.current.get(label.name);
+      if (!node) continue;
+      const width = node.offsetWidth;
+      const height = node.offsetHeight;
+      // Centred by `transform: translate(-50%, -50%)`, so the box the placer must avoid is the
+      // centroid minus half the measured size — not the top-left the style prop names.
+      boxes.push({ x: label.x - width / 2, y: label.y - height / 2, width, height });
+    }
+    const map = new Map();
+    for (const chip of frame.chips) {
+      if (map.size >= chipCap) break;
+      const node = chipRefs.current.get(chip.key);
+      if (!node) continue;
+      const width = node.offsetWidth;
+      const height = node.offsetHeight;
+      // A zero-width measurement means the browser has laid nothing out yet (and is the ordinary
+      // state in jsdom). Placing on it would pin every chip to one point.
+      if (!(width > 0) || !(height > 0)) continue;
+      const top = chip.y - height / 2;
+      let box = {
+        x: chip.x - CHIP_OFFSET, y: top, width, height,
+      };
+      let flip = false;
+      if (!fits(box, boxes, frame.width, frame.height)) {
+        box = {
+          x: chip.x + CHIP_OFFSET - width, y: top, width, height,
+        };
+        flip = true;
+      }
+      if (!fits(box, boxes, frame.width, frame.height)) continue;
+      boxes.push(box);
+      map.set(chip.key, { x: box.x, y: box.y, flip });
+    }
+    // ⚠️ A setState in an effect, and it is the case the rule's own escape hatch is for: this is a
+    // MEASUREMENT. A chip's width is its name in a font the browser may still be swapping, so it
+    // cannot be computed from props — the DOM has to be laid out and read. The write is idempotent
+    // and bounded by the guard above (one per paint, and a paint is a resize, a font load or an
+    // origin move), and it is a LAYOUT effect so the off-screen measuring pass is never painted.
+    // `useLensReserve` and `useHeatCanvas` both solve the same problem the same way.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setPlaced({ frame, map });
+    // `placed` is read only as the guard on its own write; listing it would re-run this on that
+    // write. `frame` is the identity that actually decides, and it is in the list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [frame, chipCap, selectable, notScored]);
+
+  /**
+   * The placements that belong to the frame currently on screen, or null while the placer has not
+   * run for it. Derived rather than stored, so a repaint can never render the previous frame's
+   * coordinates for one commit.
+   */
+  const placements = placed?.frame === frame ? placed.map : null;
+
   // The words survive a failed topology fetch; the empty frame does not. An unpainted map implies a
   // field with nothing in it, which is a different and false claim from "the picture is
   // unavailable" — the same call the strip makes.
@@ -285,14 +515,74 @@ export default function WindowRowFieldMap({
           {(frame?.labels || []).map((label) => (
             <span
               key={label.name}
+              ref={(node) => {
+                if (node) labelRefs.current.set(label.name, node);
+                else labelRefs.current.delete(label.name);
+              }}
               data-testid="wf-row-map-label"
-              data-hot={label.name === selectedRegion ? 'true' : undefined}
               style={{ left: `${label.x}px`, top: `${label.y}px` }}
             >
               {label.name}
             </span>
           ))}
         </span>
+
+        {/* The layer that turns the field from areas into PLACES. `aria-hidden` with the canvas and
+            the region labels it sits among, and for the same reason those are: this is the
+            picture's own annotation, and the ranked strip lower in the dialog names every one of
+            these locations on a real control, with its region, its drive and its departure. That is
+            the condition this component's class comment sets for an `aria-hidden` surface — never
+            the sole path to anything.
+
+            ⚠️ INERT this phase, and deliberately without a `title`. The design has a chip open the
+            location sheet, which arrives at M4 (D-3, resolved); until then a chip is a span with
+            `pointer-events: none`, so it cannot swallow the region click underneath it — the trap
+            `.wf-mhint`'s own note records. A `title` would go with that: a tooltip on a
+            pointer-events-none span reaches nobody, which is the same "reaches nobody" defect the
+            matrix card recorded about a `title` inside an `aria-hidden` subtree. It lands at M4
+            alongside the click that makes it reachable. */}
+        {frame && frame.chips.length > 0 && (
+          <span data-testid="wf-row-map-chips" className="wf-mchips" aria-hidden="true">
+            {frame.chips
+              .filter((chip) => placements == null || placements.has(chip.key))
+              .map((chip) => {
+                const at = placements?.get(chip.key) ?? null;
+                return (
+                  <span
+                    key={chip.key}
+                    ref={(node) => {
+                      if (node) chipRefs.current.set(chip.key, node);
+                      else chipRefs.current.delete(chip.key);
+                    }}
+                    data-testid="wf-row-map-chip"
+                    data-location={chip.locationName}
+                    data-flip={at?.flip ? 'true' : undefined}
+                    className="wf-mchip"
+                    // Off-screen while the placer measures — see `placements`. `visibility` rather
+                    // than `display: none`, because a display-none element measures as zero and the
+                    // whole point of this pass is to measure it.
+                    style={at
+                      ? { left: `${at.x}px`, top: `${at.y}px` }
+                      : { left: '-9999px', top: '0px', visibility: 'hidden' }}
+                  >
+                    <i className="wf-mchip-m" />
+                    <b className="wf-mchip-n">{chip.locationName}</b>
+                    {chip.rating != null && (
+                      // ⚠️ `spotBadgeStyle`, not the raw ramp as ink. Measured on this chip's own
+                      // `rgba(14,11,9,.84)` plate, the ramp's bottom two stops come out at 3.24:1
+                      // (1★) and 4.04:1 (2★) — under AA at 9px, and worse where the plate sits over
+                      // a lit field. The arm's existing fill-plus-`readableInkOn` pair is the
+                      // measured answer and is what the matrix card's own best-reach rating uses,
+                      // so the two surfaces state a rating the same way.
+                      <em className="wf-mchip-r" style={spotBadgeStyle(chip.rating) ?? undefined}>
+                        {`${chip.rating}★`}
+                      </em>
+                    )}
+                  </span>
+                );
+              })}
+          </span>
+        )}
         {selectable && (
           <span data-testid="wf-row-map-hint" className="wf-mhint" aria-hidden="true">
             {selectedRegion ? 'Select it again to clear' : 'Select a region'}
@@ -326,6 +616,18 @@ WindowRowFieldMap.propTypes = {
   origin: PropTypes.shape({ name: PropTypes.string.isRequired }),
   points: PropTypes.array.isRequired,
   bestRating: PropTypes.number,
+  /**
+   * The locations the field may name, in the order they deserve the space — focused region first,
+   * then rating, then drive. The caller owns that ordering (and the pool it comes from) so the map
+   * can never name a spot the list below has excluded; this component only decides which of them
+   * physically fit.
+   */
+  chips: PropTypes.arrayOf(PropTypes.shape({
+    key: PropTypes.string.isRequired,
+    locationId: PropTypes.number,
+    locationName: PropTypes.string.isRequired,
+    rating: PropTypes.number,
+  })),
   regionNames: PropTypes.arrayOf(PropTypes.string).isRequired,
   selectedRegion: PropTypes.string,
   reachById: PropTypes.instanceOf(Map),

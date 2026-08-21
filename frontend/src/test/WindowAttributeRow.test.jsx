@@ -23,24 +23,7 @@ function tideRow(tideOverrides = {}) {
       ...tideOverrides,
     },
     badges: [],
-  }).rows[0];
-}
-
-/** The snow row, from a topic carrying the facts its strategy actually emits. */
-function snowRow() {
-  return buildWindowRows({
-    badges: [{
-      type: 'SNOW_TOPS',
-      label: 'Snow on the fells',
-      detail: 'Tops white above the valleys',
-      facts: [
-        { key: 'snow line', value: '~650 m', emphasis: true, optional: false },
-        { key: null, value: '240 m below the tops', emphasis: false, optional: true },
-      ],
-      eventTime: '05:31',
-      rarityRank: 8,
-    }],
-  }).rows[0];
+  })[0];
 }
 
 describe('WindowAttributeRow', () => {
@@ -122,37 +105,6 @@ describe('WindowAttributeRow', () => {
 
       expect(screen.queryByTestId('window-tide-sparkline')).toBeNull();
       expect(screen.getAllByTestId('window-attribute-fact')[0]).toHaveTextContent('mid tide,');
-    });
-  });
-
-  describe('the snow variant', () => {
-    it('takes the snow channel and carries no chart', () => {
-      render(<WindowAttributeRow row={snowRow()} />);
-
-      const row = screen.getByTestId('window-attribute-row');
-
-      expect(row.dataset.channel).toBe('snow');
-      expect(row.className).toContain('wf-frow-snow');
-      expect(screen.queryByTestId('window-tide-sparkline')).toBeNull();
-    });
-
-    it('states the topic label as its kicker and the topic facts as its chips', () => {
-      render(<WindowAttributeRow row={snowRow()} />);
-
-      expect(screen.getByTestId('window-attribute-kicker')).toHaveTextContent('❄ Snow on the fells');
-      expect(screen.getAllByTestId('window-attribute-fact').map((f) => f.textContent))
-        .toEqual(['snow line~650 m', '240 m below the tops']);
-    });
-
-    it('gives the topic\'s own droppable chip the class the media query keys on', () => {
-      // The phone rule has to reach a PROMOTED topic, not only the tide row — both snow strategies
-      // mark their context chip optional, and the row is at its tightest on a phone precisely when
-      // it is the second one on the card.
-      render(<WindowAttributeRow row={snowRow()} />);
-
-      expect(screen.getAllByTestId('window-attribute-fact')
-        .filter((f) => f.className === 'opt')
-        .map((f) => f.textContent)).toEqual(['240 m below the tops']);
     });
   });
 

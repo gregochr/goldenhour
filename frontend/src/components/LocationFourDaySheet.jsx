@@ -66,7 +66,7 @@ import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
  */
 export default function LocationFourDaySheet({
   spot, windows, scoreIndex = null, slotIndex = null, scoresKnown = false, reachById = null,
-  scopeRegionNames = null, origin = null, originLabel = null, todayStr = '', onClose, onShowOnMap,
+  scopeRegionNames = null, origin = null, originLabel = null, todayStr = '', onClose, onShowOnMap, escapeEnabled = true,
 }) {
   const sheet = useMemo(
     () => buildLocationSheet(spot, windows, {
@@ -128,7 +128,11 @@ export default function LocationFourDaySheet({
       onClose={onClose}
       bare
       // Nothing here is lost by dismissing: rows of forecast the page behind still holds.
-      closeOnEscape
+      // ⚠️ Conditional since M2, and that IS the Escape order. `Modal` installs a document-level
+      // Escape listener per instance, so two open dialogs both close on one press. Each layer
+      // declines the key while something sits over it, which makes a press take exactly one layer
+      // (plan-matrix §6 M2.5). Defaults to true, so a caller that does not stack is unchanged.
+      closeOnEscape={escapeEnabled}
       data-testid="location-sheet"
     >
       <div className="wf-sheet-card">
@@ -285,7 +289,7 @@ export default function LocationFourDaySheet({
                   ) : (
                     <p data-testid="location-sheet-nowhy" className="wf-loc-why muted font-mono">
                       {/* ⚠️ No "you". A travel day is the OPERATOR'S, not the reader's — the arm is
-                          scrupulously impersonal about it everywhere else (`WindowAwayRow` says
+                          scrupulously impersonal about it everywhere else (the away cell says
                           "away — n windows not forecast", `windowFirstStrip` exports
                           `AWAY_STATE_LABEL`), and a pilot reader sitting at home on that Sunday
                           would conclude the app holds a travel calendar of theirs. */}
@@ -327,6 +331,11 @@ export default function LocationFourDaySheet({
 }
 
 LocationFourDaySheet.propTypes = {
+  /**
+   * Whether Escape closes THIS dialog. False while another layer sits over it — the shell owns that
+   * ordering, because only it knows what else is open (plan-matrix §6 M2.5).
+   */
+  escapeEnabled: PropTypes.bool,
   spot: PropTypes.shape({
     id: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
     name: PropTypes.string,

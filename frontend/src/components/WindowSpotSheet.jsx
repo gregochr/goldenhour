@@ -158,7 +158,7 @@ function persistenceNote({ rating, type, reach }) {
  * @param {Function} [props.onOpenSpot] opens the map centred on a spot
  */
 export default function WindowSpotSheet({
-  card, barTierId, barFloorId, openTierId, reachLocked = false, typesByName, onClose, onOpenSpot,
+  card, barTierId, barFloorId, openTierId, reachLocked = false, typesByName, onClose, onOpenSpot, escapeEnabled = true,
 }) {
   const spots = card.allSpots || [];
   // Inherited from the bar, exactly as the tier below is, and local from there on. Type is the one
@@ -210,7 +210,11 @@ export default function WindowSpotSheet({
       // which this dialog persists. (It said the floor was "written the moment it is chosen" — that
       // write moved to the bar with P15c and is no longer made anywhere in this file, which is what
       // the footer's "Reach, rating and type reset each visit" has told the reader all along.)
-      closeOnEscape
+      // ⚠️ Conditional since M2, and that IS the Escape order. `Modal` installs a document-level
+      // Escape listener per instance, so two open dialogs both close on one press. Each layer
+      // declines the key while something sits over it, which makes a press take exactly one layer
+      // (plan-matrix §6 M2.5). Defaults to true, so a caller that does not stack is unchanged.
+      closeOnEscape={escapeEnabled}
       data-testid="window-spot-sheet"
     >
       <div className="wf-sheet-card">
@@ -342,6 +346,11 @@ export default function WindowSpotSheet({
 }
 
 WindowSpotSheet.propTypes = {
+  /**
+   * Whether Escape closes THIS dialog. False while another layer sits over it — the shell owns that
+   * ordering, because only it knows what else is open (plan-matrix §6 M2.5).
+   */
+  escapeEnabled: PropTypes.bool,
   card: PropTypes.shape({
     when: PropTypes.string.isRequired,
     kicker: PropTypes.string,

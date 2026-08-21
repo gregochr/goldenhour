@@ -4,21 +4,19 @@ import BrandLockup from './shared/BrandLockup.jsx';
 import MastheadLight from './shared/MastheadLight.jsx';
 import PlanOriginChip from './PlanOriginChip.jsx';
 import WindowFirstLensBar from './WindowFirstLensBar.jsx';
-import WindowFirstWindowCard from './WindowFirstWindowCard.jsx';
 import WindowFirstPromotedStrip from './WindowFirstPromotedStrip.jsx';
 import WindowFirstDoors from './WindowFirstDoors.jsx';
 import WindowFirstComingUp from './WindowFirstComingUp.jsx';
-import WindowAwayRow from './WindowAwayRow.jsx';
 import WindowPickDialog from './WindowPickDialog.jsx';
 import WindowSpotSheet from './WindowSpotSheet.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { formatRelativeAge } from '../utils/relativeTime.js';
 import { buildLocationTypeMap } from '../utils/locationTypes.js';
-import { windowCardDomId } from '../utils/windowFirstCards.js';
 import { ANY_TIER_ID } from '../utils/reachLens.js';
-import { orderPaneItems, PLAN_ORDER_BEST } from '../utils/windowFirstOrder.js';
 import { sheetOffersMore } from '../utils/windowSpotBrowse.js';
 import { scopeRegions } from '../utils/planOrigin.js';
+import { buildTopicIndex, windowTopics } from '../utils/windowFirstTopics.js';
+import { buildPlanConflict } from '../utils/planConflicts.js';
 import { buildScoreIndex, buildSlotIndex } from '../utils/locationSheet.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
 import useLensReserve from '../hooks/useLensReserve.js';
@@ -45,6 +43,19 @@ const WindowFirstHeatStrip = lazy(() => import('./WindowFirstHeatStrip.jsx'));
  * the shell already has (the matching lives in {@code planSearch.js}).
  */
 const PlanSearch = lazy(() => import('./PlanSearch.jsx'));
+
+/**
+ * The window popup, on the same terms — and the boundary is load-bearing for the same reason the
+ * strip's is.
+ *
+ * <p>It reaches the field map, and through it {@code heatField.js}'s {@code d3-geo} and
+ * {@code topojson-client}. A static import here would put all of that in the entry chunk for every
+ * reader of an arm {@code usePlanLayout} still defaults away from — the exact measurement
+ * {@code WindowRowRegionLayer} recorded (+21.4 KB raw / +7.2 KB gzip) before this phase deleted it.
+ * The lazy strip above already carries the chunk for a reader who has seen the matrix, so opening a
+ * window is usually a cache hit rather than a fetch.
+ */
+const WindowSheetDialog = lazy(() => import('./WindowSheetDialog.jsx'));
 
 /**
  * The four-day location sheet, on the same terms — a dialog, mounted only while open (P8).
@@ -222,19 +233,16 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  *        "Plan", the layout, and not "Plan tab".
  * @param {function} props.onOpenSettings opens the shared settings modal, which owns the flag
  *        toggle — so this is the route back that survives once the temporary exit button goes.
- * <h2>The pane renders items, not cards</h2>
+ * <h2>The pane is the matrix and one dialog (M2)</h2>
  *
- * <p>An away day's windows are not drawn — the pipeline skips evaluation on them, so a card would
- * read "Poor" under a rail tile reading "Not forecast" — but they still spend one of the six event
- * slots, so simply omitting them left the pane's date order skipping a day with no account of it.
- * {@code buildPaneItems} folds the two back into one ordered list; this component only chooses which
- * component draws which item.
+ * <p>The six-row card list is gone. What the strip used to index — a row per window, opened in
+ * place, with the reader's position in the page shifting under them — is now the matrix's own six
+ * cells and one popup over them. So this component holds a single {@code openWindowKey} rather than
+ * a per-card collapse map, and a single {@code focusedRegion} rather than one per row.
  *
- * <h2>Collapse state lives here because the default is a fact about the list</h2>
- *
- * <p>"The first card is open" is not something a card can evaluate about itself. What is stored is
- * only what the reader has <b>changed</b>, so the rule keeps applying as the list moves under it —
- * see {@code isCardOpen}.
+ * <p>{@code buildPaneItems} survives the deletion and is still read: {@code buildPromotedStrip}
+ * folds it, and it is the derivation that keeps away days accounted for. What went is the
+ * <em>rendering</em> of it.
  *
  * @param {function} props.onSignOut ends the session; the same handler the v1 header uses.
  * @param {Array} [props.locations] enabled locations. The regional-planner door needs its id→name
@@ -263,7 +271,7 @@ export default function WindowFirstShell({
   const {
     heatStripCards, heatPointSets, heatSpots, reachById, regionSeries,
     windowCards, paneItems, promotedStrip, loading, briefing, evaluationScores, scoresLoaded,
-    scoreIndex, scoreRows, todayStr, reachLens, ratingLens, orderLens, homePlace,
+    scoreIndex, scoreRows, todayStr, reachLens, ratingLens, homePlace,
     origin, setOrigin, regions, effectiveReachById,
   } = useWindowFirstBriefing();
   /**
@@ -284,6 +292,34 @@ export default function WindowFirstShell({
    * sheet here instead would be the same freeze, one level up.
    */
   const [sheetSpot, setSheetSpot] = useState(null);
+
+  /**
+   * The window whose popup is open, held by KEY — or null.
+   *
+   * <p>The whole of what M2 replaces: there is no per-card open state any more, because there are no
+   * cards to open. Six accordion rows became one dialog, and a dialog is a single value.
+   *
+   * <p>By key rather than by the card object, for the reason the spot sheet's own key already gives:
+   * the provider rebuilds every descriptor on the ten-minute poll, on the reach fetch, and on every
+   * lens change, so holding the object would leave the dialog describing a window the page behind it
+   * had already replaced. Holding the key means it always reads the live card — and a window that
+   * passes simply closes it rather than becoming a dialog about a window that no longer exists.
+   */
+  const [openWindowKey, setOpenWindowKey] = useState(null);
+  /**
+   * The region focused INSIDE the open popup, or null.
+   *
+   * <p>One value rather than the map-per-card the rows needed: only one window is open at a time
+   * now, so a map would be a store with one live entry and five stale ones. It is reset whenever the
+   * open window changes, which is the design's own rule — a focus is a question about one window's
+   * field, and carrying it into the next window would silently filter a list the reader has not
+   * looked at yet.
+   */
+  const [focusedRegion, setFocusedRegion] = useState(null);
+  const openWindow = useCallback((key) => {
+    setOpenWindowKey(key);
+    setFocusedRegion(null);
+  }, []);
   const [activeTab, setActiveTab] = useState(TABS[0].id);
   /**
    * The tabs this shell actually has, which is a function of the panes it was handed.
@@ -323,10 +359,10 @@ export default function WindowFirstShell({
   /**
    * Selects a tab, and takes any dialog down with it.
    *
-   * <p>The drill-down sheet and the pick dialog are rendered outside the pane and their state is
-   * independent of the tab, so without this a reader who opened a window's spot list and then
-   * pressed Coming up would be left with a modal about a Plan window floating over the almanac
-   * feed — and {@code useDialogFocus} is explicitly not a focus trap, so closing it would hand
+   * <p>Every dialog this shell owns — the window popup, the drill-down sheet, the four-day sheet
+   * and the pick — is rendered outside the pane and its state is independent of the tab, so without
+   * this a reader who opened a window and then pressed Coming up would be left with a modal about a
+   * Plan window floating over the almanac feed — and {@code useDialogFocus} is explicitly not a focus trap, so closing it would hand
    * focus back to a trigger that is no longer on screen. Arriving somewhere else ends the
    * browsing, which is the same rule the strip already applies to its peek before a map handoff.
    */
@@ -337,6 +373,13 @@ export default function WindowFirstShell({
     setOpenedTabs((prev) => (prev.has(id) ? prev : new Set(prev).add(id)));
     setOpenPick(null);
     setSheetKey(null);
+    // The window popup and the four-day sheet go with them. Every dialog this shell owns is about
+    // the Plan tab, so arriving anywhere else ends the browsing — the same rule the strip already
+    // applies to its peek before a map handoff. Without this a reader who opened a window and then
+    // pressed Coming up was left with a dialog about a Plan window floating over the almanac feed.
+    setOpenWindowKey(null);
+    setFocusedRegion(null);
+    setSheetSpot(null);
   };
   /**
    * Left/Right/Home/End across the bar, wrapping at both ends.
@@ -473,106 +516,23 @@ export default function WindowFirstShell({
    * is how the five copies that module replaced started.
    */
   const typesByName = useMemo(() => buildLocationTypeMap(locations), [locations]);
-  // Only the cards the reader has TOGGLED. The default is not seeded into this map, so it stays a
-  // rule rather than a snapshot: a poll that adds tomorrow's sunrise, or an away day that removes a
-  // card, re-evaluates "the first card is open" without disturbing anything the reader chose. A
-  // seeded set would freeze yesterday's answer and would have to be reconciled on every poll.
-  const [cardOverrides, setCardOverrides] = useState(() => new Map());
-  // The toggle is written against the EFFECTIVE state, not against the map's own default. Flipping
-  // `map.get(key) ?? false` would make the first click on the open lead card set it to open —
-  // a control that does nothing the one time it is most likely to be pressed.
+  const openCard = openWindowKey == null
+    ? null
+    : windowCards.find((card) => card.key === openWindowKey) || null;
+  /** Where the open window sits among the openable ones, for the popup's `‹ n/6 ›` nav. */
+  const openIndex = openCard ? windowCards.indexOf(openCard) : -1;
   /**
-   * The region each open row is drilled into — the {@code cardOverrides} pattern, one map along.
+   * The promoted strip, unchanged.
    *
-   * <p>Per card rather than page-wide, and that is the design's own call: the lens axes are durable
-   * settings a reader carries between windows, while "show me Northumberland in tomorrow's sunrise"
-   * is a question about one window and answering it for all six would silently narrow five cards a
-   * reader never touched. Cleared on collapse, in {@code toggleCard} below.
-   *
-   * <p><b>Nothing prunes it when the window list changes, and nothing needs to.</b> A poll can add
-   * tomorrow's sunrise or retire a window that has passed, leaving an entry whose card is gone — but
-   * the key is {@code date:targetType} with an absolute date, so it can only ever be read again by
-   * the same window on the same day, which is the row that set it. The map is bounded by the windows
-   * one session renders, which is a handful. A reconciling effect here would be a {@code setState}
-   * inside {@code useEffect} buying nothing but a lint suppression.
+   * <p>⚠️ <b>Its {@code adjacent} suppression is gone, and the deletion belongs to this phase.</b>
+   * The flag existed because the strip's "Go to" control scrolled to a row, and scrolling to the
+   * element directly beneath it has no visible effect (plan §6's ban). The control now OPENS A
+   * DIALOG, which is visible wherever the window sits, so the suppression would hide the control for
+   * exactly the promoted topic most likely to be on the first window — for as long as the strip
+   * survives (it goes at M5, D-1). Recomputing it against a render order is gone with the Order
+   * control that made the render order differ.
    */
-  const [regionByCard, setRegionByCard] = useState(() => new Map());
-  const selectRegion = useCallback((key, regionName) => setRegionByCard((prev) => {
-    if ((prev.get(key) ?? null) === (regionName ?? null)) return prev;
-    const next = new Map(prev);
-    if (regionName) next.set(key, regionName);
-    else next.delete(key);
-    return next;
-  }), []);
-
-  const toggleCard = (key, currentlyOpen) => {
-    setCardOverrides((prev) => {
-      const next = new Map(prev);
-      next.set(key, !currentlyOpen);
-      return next;
-    });
-    // Collapsing takes the drill-down with it: the band and the rail are inside the row, so a
-    // selection surviving a collapse would silently gate the strip of a row the reader reopens
-    // later with no visible cause — the filter's own UI having gone with the collapse.
-    if (currentlyOpen) selectRegion(key, null);
-  };
-  /**
-   * Lead-open, rest-collapsed — plan §5a, settled there on measured heights rather than taste.
-   *
-   * <p>The predicate is <b>the first card</b>, not {@code card.lead}, and the difference is the
-   * whole of its value. {@code lead} is `index === 0 && date === todayStr`, so after today's last
-   * window has passed there is no lead card at all — and a rule keyed on it would leave six
-   * collapsed headers with nothing open, every evening, which is the state a reader checking
-   * tomorrow's dawn is most often in. Where a lead card exists the two rules agree by construction,
-   * because a lead card is index 0.
-   */
-  const defaultOpenKey = windowCards[0]?.key ?? null;
-  const isCardOpen = (card) => cardOverrides.get(card.key) ?? (card.key === defaultOpenKey);
-
-  /**
-   * The pane's items in the order the bar asks for.
-   *
-   * <p>Applied HERE rather than in the provider, and the reason is one derivation that must keep
-   * seeing date order: {@code buildPromotedStrip} reads {@code paneItems} to decide whether the
-   * window it promotes is the very next item on the pane — the one case where its "Go to" control
-   * would scroll to the element immediately beneath it and so is withheld. Ranking the list first
-   * would make that test answer a question about a ranking rather than about adjacency.
-   *
-   * <p>Ordering is presentation of a list already built, which is why it is allowed to be a client
-   * rule at all: nothing here derives a forecast quantity, it sorts on {@code topMeanRating}, a
-   * field the backend served.
-   */
-  const orderedPaneItems = useMemo(
-    () => orderPaneItems(paneItems, orderLens?.orderId),
-    [paneItems, orderLens?.orderId],
-  );
-  /**
-   * The promoted strip, with its adjacency answered against the order actually RENDERED.
-   *
-   * <p>{@code buildPromotedStrip} sets {@code adjacent} from the date-ordered list, and the strip
-   * withholds its "Go to" control when it is true — because the control would scroll to the element
-   * directly beneath it, which §6 bans. Under {@code Order · Best} the pane no longer renders that
-   * order, so the flag inverts in both directions: a promoted window that is chronologically first
-   * but ranks sixth loses its only route into the list, and one that is chronologically fourth but
-   * ranks first gets a button that scrolls one element down. Recomputed here rather than in the
-   * provider, because the provider is where the DATE order has to survive — that is what
-   * {@code buildPromotedStrip}'s own rarity tie-break reads.
-   */
-  const renderedStrip = useMemo(() => {
-    if (!promotedStrip) return null;
-    const adjacent = orderedPaneItems[0]?.card?.key === promotedStrip.windowKey;
-    return adjacent === promotedStrip.adjacent ? promotedStrip : { ...promotedStrip, adjacent };
-  }, [promotedStrip, orderedPaneItems]);
-  /** Whether the pane has an away row at all — the note's second clause is about those rows. */
-  const hasAwayRow = orderedPaneItems.some((item) => item.kind === 'away');
-  /**
-   * Which windows have their card open, for the strip's own selected treatment.
-   *
-   * <p>Derived from the SAME predicate the cards are drawn with rather than from
-   * {@code cardOverrides}, which holds only what the reader has changed — a strip keyed on the
-   * overrides alone would leave the lead card's thumbnail unmarked on first paint, which is the
-   * one card that is always open.
-   */
+  const renderedStrip = promotedStrip;
   /**
    * Each rendered window's event summary, keyed the way the pane addresses a window.
    *
@@ -594,40 +554,22 @@ export default function WindowFirstShell({
     return byKey;
   }, [briefing?.days]);
 
+  /** The one key the matrix marks as open — a Set of at most one, which is the shape it takes. */
   const openWindowKeys = useMemo(
-    () => new Set(windowCards.filter((card) => isCardOpen(card)).map((card) => card.key)),
-    // `isCardOpen` is rebuilt every render and closes over both of these; listing it instead would
-    // re-run this on every render with nothing gained.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [windowCards, cardOverrides, defaultOpenKey],
+    () => new Set(openWindowKey == null ? [] : [openWindowKey]),
+    [openWindowKey],
   );
 
   /**
-   * The promoted strip's route into the list: open the window it names, and put the reader on it.
+   * The served topics, indexed once for the whole page.
    *
-   * <p>It writes the override to `true` rather than toggling, because the strip's control says "Go
-   * to" and never "close" — a toggle would collapse the card for a reader who pressed it twice, or
-   * who pressed it on a card the lead-open default had already opened.
-   *
-   * <p>Synchronous rather than deferred a frame, and that is deliberate: `block: 'start'` scrolls to
-   * the card's TOP edge, which does not move when the card below it expands, so there is nothing to
-   * wait for. Focus lands on that card's own expander — the control the reader would reach for next,
-   * and the one whose accessible name repeats the window they just asked for.
-   *
-   * <p>Both DOM calls are optional-CALLED, not merely optional-chained: jsdom implements no layout
-   * and provides no `scrollIntoView`, and the unguarded form throws on every press while the suite
-   * still reports green — the exact trap the tab bar's own arrow handling documents a few lines up.
+   * <p>The matrix builds its own for its cards; this one is the popup's, and both call
+   * {@code buildTopicIndex} on the same field. That is the plan's A8 rule in force — one join, one
+   * scope filter, in {@code windowFirstTopics.js} — and it is why the dialog takes an index rather
+   * than a list of pre-joined rows: the rows are per window, and only the dialog knows which window
+   * it is about.
    */
-  const revealWindow = useCallback((key) => {
-    setCardOverrides((prev) => {
-      const next = new Map(prev);
-      next.set(key, true);
-      return next;
-    });
-    const node = document.getElementById(windowCardDomId(key));
-    node?.scrollIntoView?.({ block: 'start' });
-    node?.querySelector('[data-testid="window-card-expander"]')?.focus?.();
-  }, []);
+  const topicIndex = useMemo(() => buildTopicIndex(briefing?.hotTopics), [briefing?.hotTopics]);
 
   /**
    * The two lens axes in the shape the region layer words itself from — its own memo, so a region
@@ -646,65 +588,52 @@ export default function WindowFirstShell({
   }), [reachLens?.tier, ratingLens?.minRating, ratingLens?.floor]);
 
   /**
-   * The region layer's inputs, built once per card and STABLE while nothing they depend on moves.
+   * The popup's inputs — built for the OPEN window only, and null while none is.
    *
-   * <p>⚠️ <b>An inline object literal here repaints every open row's canvas on every shell
-   * render.</b> The chain is five links long and each one is load-bearing: a fresh {@code field}
-   * makes the card's {@code regionRows} memo a no-op, which makes {@code regionNames} a fresh array,
-   * which makes the map's {@code paint} callback a fresh function, which is a dependency of
-   * {@link useHeatCanvas}'s paint effect — so a coastline fill, a kernel field at grid 6, a blurred
-   * composite and a second path stroke all re-run. The shell re-renders on every card toggle, every
-   * region selection, every sheet or dialog open, every lens change and every poll, so <em>opening
-   * one row repainted every other open row's map</em>. §5 invariant 4 is the written rule
-   * ("nothing derived inside a render loop"), and {@link useHeatCanvas}'s own parameter contract
-   * says the callback must be memoised — which it cannot be while its inputs churn.
+   * <p>It was a map of six, one per accordion row, and the memo's own comment recorded the defect
+   * that shape produced: an inline object literal repainted every open row's canvas on every shell
+   * render, through a five-link chain ending in {@link useHeatCanvas}'s paint effect. With one
+   * dialog there is at most one field on screen, so the map is a single object — which is both
+   * cheaper and structurally immune to the same defect. The identity rule still holds and still
+   * matters: every value inside stays referentially stable, so a region pick rebuilds this object
+   * and the map's {@code paint} (which depends on {@code points}, {@code fitTo} and the focus, not
+   * on the container) repaints for the focus alone.
    *
-   * <p><b>The invariant is that every value INSIDE the object is referentially stable</b>, not that
-   * the object itself never changes. A region selection does rebuild this map — six small object
-   * literals — but {@code spots}, {@code points} (read straight out of {@code heatPointSets}),
-   * {@code windows}, {@code series}, {@code reachById} and {@link fieldLens} all keep their
-   * identity, and the consumers depend on those rather than on the container: the card's row memo
-   * lists the fields, {@code WindowRowRegionLayer} memoises {@code regionNames}, and the map's
-   * {@code paint} lists {@code points}/{@code fitTo}/{@code focusRegion}. So selecting a region in
-   * one row repaints that row's canvas and leaves the other five alone.
+   * <p>⚠️ <b>Built whenever a window is open, even with no catalogue.</b> It used to be withheld
+   * wholesale when {@code heatSpots} was empty — a scores fetch that failed, a session with no
+   * roster, or simply the window before {@code /api/locations} resolves — and the dialog was gated
+   * on it, so every matrix cell, the promoted strip's "Go to" and search's window rows all set
+   * state and painted nothing at all. A control with no visible effect is exactly what plan §3 rule
+   * 14 bans, and the old card list rendered its non-field content without a catalogue. The
+   * withholding belongs to the FIELD MAP alone, and the dialog does it: everything else in the
+   * popup — the verdict, the prose, the topics, the tide, the ranked list — is briefing data and is
+   * there either way.
    */
-  const fieldByKey = useMemo(() => {
-    const byKey = new Map();
-    if (heatSpots.length === 0) return byKey;
-    for (const card of windowCards) {
-      byKey.set(card.key, {
-        eventSummary: eventSummariesByKey.get(card.key) ?? null,
-        spots: heatSpots,
-        points: heatPointSets.get(card.key) || EMPTY_POINTS,
-        // The strip's own descriptors, so the band's six dots and the six thumbnails above name one
-        // set of windows in one order — chronological, under both Order settings.
-        windows: heatStripCards,
-        series: regionSeries,
-        reachById,
-        lens: fieldLens,
-        onSelectRegion: (name) => selectRegion(card.key, name),
-        // The strip's own route into a row, reused verbatim: opening and scrolling is one behaviour
-        // and a second copy of it would drift.
-        onJumpWindow: revealWindow,
-        // ⚠️ FORCED NULL under an away origin, and that is a defect fix rather than tidiness. The
-        // per-card selection is not cleared when the origin moves (deliberately — it is restored
-        // on the way home), and away the rail that would clear it is withheld. Left live it filters
-        // an already-scoped strip to a region the reader has scoped out, prints "Nothing in X for
-        // this window" under a chip naming somewhere else, and leaves the band's `Show all regions
-        // ×` as the only control that could undo it — a control whose handler focuses the rail cell
-        // this scope has just unmounted, dropping focus to `<body>`.
-        selectedRegion: origin ? null : (regionByCard.get(card.key) ?? null),
-        // The origin has already answered "which region" for the whole page, so the row's own rail
-        // has nothing left to choose (plan §4.8). Carried on the field object rather than as a
-        // second prop for the reason every other field on it is: the layer takes one object, and a
-        // parallel prop would be a second thing to keep in step.
-        singleRegionScope: Boolean(origin),
-        origin: origin ?? null,
-      });
-    }
-    return byKey;
-  }, [windowCards, heatSpots, heatPointSets, heatStripCards, regionSeries, reachById,
-    eventSummariesByKey, fieldLens, regionByCard, selectRegion, revealWindow, origin]);
+  const openField = useMemo(() => {
+    if (!openCard) return null;
+    return {
+      eventSummary: eventSummariesByKey.get(openCard.key) ?? null,
+      spots: heatSpots,
+      points: heatPointSets.get(openCard.key) || EMPTY_POINTS,
+      // The matrix's own descriptors, so the popup's null-prose line and the six cells behind it
+      // name one set of windows in one order.
+      windows: heatStripCards,
+      series: regionSeries,
+      reachById,
+      lens: fieldLens,
+      onSelectRegion: setFocusedRegion,
+      // ⚠️ FORCED NULL under an away origin, and that is a defect fix rather than tidiness. The
+      // focus is not cleared when the origin moves, and away the rail that would clear it is
+      // withheld. Left live it filters an already-scoped strip to a region the reader has scoped
+      // out and prints "Nothing in X for this window" under a chip naming somewhere else.
+      selectedRegion: origin ? null : focusedRegion,
+      // The origin has already answered "which region" for the whole page, so the popup's own rail
+      // has nothing left to choose (plan §4.8).
+      singleRegionScope: Boolean(origin),
+      origin: origin ?? null,
+    };
+  }, [openCard, heatSpots, heatPointSets, heatStripCards, regionSeries, reachById,
+    eventSummariesByKey, fieldLens, focusedRegion, origin])
 
   // Lifted to App for the map overlay, exactly as DailyBriefing does it in the v1 arm. Without this
   // a tile handed to the map opens an overlay with no narrative over a map that has filtered out
@@ -735,7 +664,28 @@ export default function WindowFirstShell({
    * one and not the other would leave the same defect on the surface that has had it longer.
    */
   const modalOpen = sheetCard != null || openPick != null || searchSeed != null
-    || sheetSpot != null;
+    || sheetSpot != null || openCard != null;
+  /**
+   * Whether anything is stacked OVER the window popup — the whole of the Escape order.
+   *
+   * <p>{@code Modal} installs one document-level Escape listener per instance, so two open dialogs
+   * both close on a single press. The remedy is not a shared stack but a guard per layer: whichever
+   * layer is not on top declines the key, so Escape takes exactly one layer per press — search, then
+   * a sheet stacked over the popup, then the popup itself (plan-matrix §6 M2.5, and the bundle
+   * README's own ordering).
+   *
+   * <p>⚠️ <b>SEARCH is not an operand, and the ordering's first rung is presently unreachable.</b>
+   * The plan names search as the topmost layer, and the three sheets below take an
+   * {@code escapeEnabled} that folds it in — but {@code /} is refused while any dialog is open (this
+   * file's own guard, plus a {@code [role="dialog"]} query for the ones it cannot see), and
+   * {@code PlanSearch} closes itself on every pick, so search cannot presently be open OVER
+   * anything. The prop is wired rather than dropped because M3 moves search into the masthead's tick
+   * line, where it becomes reachable from a page the popup is over — and a guard added later, after
+   * the ordering has stopped being obvious, is the one that gets it wrong.
+   */
+  const stackedOverPopup = sheetCard != null || sheetSpot != null || openPick != null;
+  /** The same question with search folded in — see the note above on why that arm is dormant. */
+  const modalOpenOverPopup = stackedOverPopup || searchSeed != null;
   const dimmed = contentDisabled ? ' opacity-50 pointer-events-none' : '';
   // The shared tiers, not a local copy: `generatedAt` is a zone-less UTC instant, and the one
   // formatter that already knows that is the one that appends the Z. Hand-rolling it here read an
@@ -781,10 +731,16 @@ export default function WindowFirstShell({
    * <p>⚠️ Built from {@code reachById}, the HOME map, not {@code effectiveReachById}. The planning
    * area is a statement about home — the provider publishes both side by side for exactly this
    * reason — and the away arm ignores the map entirely.
+   *
+   * <p>No longer gated on a sheet being open, because it has a second reader: the popup's topic
+   * scope filter (A8 rule 2) is the same question about the same scope, and the matrix already
+   * makes this exact call on every render for the cards' own filter. One memo over three stable
+   * inputs is cheaper than two calls and — the reason that matters — makes it impossible for the
+   * cards and the popup they open to be filtered against two different scopes.
    */
-  const scopedRegionNames = useMemo(
-    () => (sheetSpot ? scopeRegions(heatSpots, reachById, origin) : null),
-    [sheetSpot, heatSpots, reachById, origin],
+  const planScopeNames = useMemo(
+    () => scopeRegions(heatSpots, reachById, origin),
+    [heatSpots, reachById, origin],
   );
   // The POSITIONAL form, which centres the map on one location — the same call the pick dialog's
   // "show location" already makes. The OBJECT form (`{region, date, eventType}`) opened a whole
@@ -830,40 +786,118 @@ export default function WindowFirstShell({
   }, [effectiveTab, searchSeed, modalOpen, contentDisabled]);
 
   /**
-   * A window's own way out of an empty strip — the bar's controls, reached from the card.
+   * The plan's way out of a lens that has shut it — the bar's controls, reached from the message.
    *
-   * <p>The action is a descriptor the card renders and hands back rather than a pair of callbacks
-   * per axis, so a third axis would not widen this component's prop surface. It moves the
-   * <b>page-wide</b> lens, which is exactly what the reader asked for: the alternative is a
-   * per-window override, and a filter that means something different on each of six cards is a
-   * filter nobody can read off a sticky bar.
+   * <p>The action is a descriptor {@code planConflicts.js} builds and this renders, rather than a
+   * pair of callbacks per axis, so a third axis would not widen anything here. It moves the
+   * <b>page-wide</b> lens, which is exactly what the reader asked for.
    *
-   * <p>Nothing here is gated. A reach action only exists when a wider tier would fill the card, and
-   * a LITE reader is pinned to "Any" — so {@code buildLensEmptyState} never offers them one, with no
-   * role anywhere in the path.
+   * <p>Nothing here is gated. A reach action only exists when a wider tier would put something on
+   * screen, and a LITE reader is pinned to "Any" — so {@code buildPlanConflict} never offers them
+   * one, with no role anywhere in the path.
+   *
+   * <p><b>No focus move, and the difference from the card's ladder is real.</b> The per-card button
+   * destroyed itself: it sat in the empty state it was replacing, so a keyboard reader was dropped
+   * at {@code <body>} having just asked to be shown something. This message sits above the matrix
+   * and every action here also unmounts it — so the same problem, one level up, and the same
+   * remedy: focus goes to the matrix's first card, which is what the reader has just been shown.
    */
-  const handleLoosen = (action, cardKey) => {
+  const applyConflictAction = (action) => {
     if (action?.kind === 'reach') reachLens?.selectTier(action.id);
     else if (action?.kind === 'rating') ratingLens?.selectFloor(action.id);
-    // The third way out of an empty card, and the only one that is not a lens: an away scope the
-    // reader chose. It refills the card the same way the other two do — the home pool is a
-    // superset of any one region's — so the focus move below applies unchanged.
+    // The one action that is not a lens: an away scope the reader chose. It refills the plan the
+    // same way the other two do — the home pool is a superset of any one region's.
     else if (action?.kind === 'origin') setOrigin?.(null);
     else return;
-    // The button that was just pressed no longer exists — every offered action is one that refills
-    // the card, so the empty state it sat in is replaced by a spot strip on this commit. Without
-    // this a keyboard reader is dropped at `<body>` having just asked to be shown something, which
-    // is the defect `WindowFirstComingUp` already documents one component away. The expander is
-    // where the strip's own reveal puts focus too, and its accessible name repeats the window.
-    // Deferred a frame because the strip is rendering for the first time on this very commit, and
-    // optional-CALLED because jsdom implements no layout and provides no `scrollIntoView`.
-    if (cardKey == null) return;
-    const domId = windowCardDomId(cardKey);
+    // ⚠️ `button[…]`, not `[…]`. An AWAY window keeps its matrix cell and is a `<div>` with no
+    // tabindex (plan §3 rule 14 — a control with no visible effect is banned), and `querySelector`
+    // returns DOM order — so on a plan whose first rendered day is a travel day, focusing the bare
+    // selector is a no-op and the reader is dropped at `<body>`: the exact defect this move exists
+    // to prevent. Deferred a frame because the matrix is re-rendering on this very commit, and
+    // optional-CALLED because jsdom implements no layout.
     requestAnimationFrame(() => {
-      document.getElementById(domId)
-        ?.querySelector('[data-testid="window-card-expander"]')?.focus?.();
+      document.querySelector('button[data-testid="wf-heat-card"]')?.focus?.();
     });
   };
+
+  /**
+   * The one message the whole plan may carry, and null when it carries none.
+   *
+   * <p>Above the matrix, because it is about the plan rather than one window (plan-matrix §6 M2.6).
+   * Its per-window counterpart is the popup's quiet sentence, and the two land together: neither
+   * alone covers what the deleted per-card ladder covered.
+   */
+  const conflict = useMemo(() => buildPlanConflict({
+    cards: windowCards,
+    origin: origin ?? null,
+    homePlace: homePlace || null,
+    tierId: reachLens?.tierId,
+    limitMinutes: reachLens?.tier?.limitMinutes ?? null,
+    floorId: ratingLens?.floorId,
+    minRating: ratingLens?.minRating ?? null,
+  }), [windowCards, origin, homePlace, reachLens?.tierId, reachLens?.tier,
+    ratingLens?.floorId, ratingLens?.minRating]);
+
+  /**
+   * The safety warning a topic on this plan carries, and the window it is about.
+   *
+   * <p>⚠️ <b>Page-level because the surface that used to guarantee it is gone.</b>
+   * {@code BriefingWindow.Badge.safetyNote} carries the "do not look at the sun without a filter"
+   * class of warning, and the window card's own comment named that card as "the ONE surface
+   * guaranteed to be on screen whenever a topic is" — the promoted strip shows only its own window
+   * and the Hot Topics door is shut on a fresh session. Deleting the card list would have put the
+   * warning behind a click, which is not somewhere a hazard notice may live. So it is stated once,
+   * above the matrix, naming its window; the popup's topic row states it again for a reader who has
+   * opened that window, exactly as the strip and the door already do.
+   *
+   * <p>One line rather than one per badge: a warning is about the hazard, not about the chip, and
+   * the card's own rule was already "whichever badge carries one".
+   */
+  const safety = useMemo(() => {
+    // ⚠️ Through the SAME A8 filter the cards and the popup use, not over the raw badge list. A
+    // region-scoped hazard the scope drops shows on no card and in no popup, so a banner naming its
+    // window would point at a window that says nothing about it when opened.
+    const hit = windowCards
+      .flatMap((card) => windowTopics(card.key, card.allBadges, topicIndex, planScopeNames)
+        .map((row) => ({ card, badge: row.badge })))
+      .find((pair) => pair.badge?.safetyNote);
+    return hit == null ? null : {
+      note: hit.badge.safetyNote,
+      window: [hit.card.kicker, hit.card.when].filter(Boolean).join(' '),
+    };
+  }, [windowCards, topicIndex, planScopeNames]);
+
+  /**
+   * `←`/`→` step the open window, and nothing else may be on top.
+   *
+   * <p>Guarded the way {@code /} is, and for the same reasons plus one: a stacked sheet or search
+   * has its own arrow behaviour (the search list's selection moves on Up/Down and its input takes
+   * Left/Right to move the caret), so stepping the window underneath it would move a surface the
+   * reader cannot see. Modified arrows are somebody else's shortcut — Alt+Left is the browser's
+   * Back — and a text field's own caret keys are never taken.
+   *
+   * <p>It WRAPS, which the visible {@code ‹ n/6 ›} control also does: six windows on a ring is how
+   * the design's own prototype steps them, and a disabled arrow at each end would be two controls
+   * that do nothing on the two windows a reader is most often in.
+   */
+  useEffect(() => {
+    if (openWindowKey == null || searchSeed != null || stackedOverPopup) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+      if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+      const el = event.target;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
+      const index = windowCards.findIndex((card) => card.key === openWindowKey);
+      if (index < 0 || windowCards.length === 0) return;
+      event.preventDefault();
+      const step = event.key === 'ArrowRight' ? 1 : -1;
+      const next = (index + step + windowCards.length) % windowCards.length;
+      openWindow(windowCards[next].key);
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [openWindowKey, searchSeed, stackedOverPopup, windowCards, openWindow]);
   return (
     <div
       ref={shellRef}
@@ -1010,11 +1044,10 @@ export default function WindowFirstShell({
           "no control gates on data that does not exist", and its own footer would read "0 spots
           across 5 windows" over a pane containing neither. It is unmounted rather than hidden so
           the sticky bar cannot take a scroll position with it. */}
-      {effectiveTab === 'plan' && reachLens && ratingLens && orderLens && (
+      {effectiveTab === 'plan' && reachLens && ratingLens && (
         <WindowFirstLensBar
           lens={reachLens}
           ratingLens={ratingLens}
-          orderLens={orderLens}
           spotCount={windowCards.reduce((total, card) => total + card.spots.length, 0)}
           // The rating floor's own denominator — what reach left for it to choose from. Summed here
           // rather than derived in the bar for the reason `spotCount` already is: the counts have to
@@ -1069,17 +1102,52 @@ export default function WindowFirstShell({
         data-testid="window-first-pane"
         className={`wf-body ${effectiveTab === 'plan' ? 'flex' : 'hidden'} flex-col${dimmed}`}
       >
-        {/* Above every item, and the only element on this pane that is not in date order. That is
-            tolerable because it is an INDEX into the list rather than an item in it: it names its
-            window and carries the control that opens it. `buildPromotedStrip` returns one descriptor
-            or null, so the "at most one" cap is arithmetic here rather than a rule this file has to
-            keep. Inside the greyed region — it is forecast content, which is what that treatment
-            marks — and inside `.wf-body`, so it takes the arm's gutter and the pane's 10px gap
-            without a margin of its own. */}
-        {/* Directly under the lens bar and ABOVE the promoted strip — two different things that
-            both exist (plan §4.3). This one is the index into the window list; the promoted strip
-            names one coincidence and keeps its place at the head of the pane items. Inside the
-            greyed region because it is forecast content, which is what that treatment marks. */}
+        {/* Page-level, above the pictures, because both messages are about the WHOLE plan — the
+            design's own placement and its own reason. The per-window half of what the card ladder
+            used to do is the popup's quiet sentence; the two replacements land in one phase. */}
+        {/* ⚠️ The WRAPPER is always mounted and carries `role="status"`; the message inside is what
+            comes and goes. A `role` added to a conditionally-mounted node is not announced — the
+            drill-down's own count records that trap two files away — and this message appears in
+            response to a lens change several elements up the page, so a screen-reader reader would
+            otherwise watch their whole plan empty in silence. */}
+        <div role="status" aria-live="polite" data-testid="window-first-conflict-slot">
+          {conflict && (
+          <div data-testid="window-first-conflict" data-conflict={conflict.id} className="wf-clash">
+            <b data-testid="window-first-conflict-head">{conflict.headline}</b>
+            <span data-testid="window-first-conflict-body">{conflict.body}</span>
+            {conflict.actions.length > 0 && (
+              <span className="wf-clash-acts">
+                {conflict.actions.map((action) => (
+                  <button
+                    key={`${action.kind}:${action.id}`}
+                    type="button"
+                    data-testid="window-first-conflict-act"
+                    data-loosen={action.kind}
+                    className="wf-clash-act"
+                    onClick={() => applyConflictAction(action)}
+                  >
+                    {action.label}
+                    <span aria-hidden="true"> →</span>
+                  </button>
+                ))}
+              </span>
+            )}
+          </div>
+          )}
+        </div>
+
+        {/* The hazard notice, page-level for the reason the memo records: the card list that used
+            to guarantee it is on screen whenever a topic is has been deleted. */}
+        {safety && (
+          <p data-testid="window-first-safety" className="wf-plan-safety font-mono">
+            <span aria-hidden="true">⚠ </span>
+            {safety.window ? `${safety.window} — ${safety.note}` : safety.note}
+          </p>
+        )}
+
+        {/* THE PLAN. Six pictures in a day × event grid, each one the control that opens its own
+            window's popup — the strip stopped being an index into a list at M1 and the list itself
+            goes at M2. Inside the greyed region, because it is forecast content. */}
         <Suspense fallback={null}>
           <WindowFirstHeatStrip
             cards={heatStripCards}
@@ -1094,61 +1162,14 @@ export default function WindowFirstShell({
             openKeys={openWindowKeys}
             todayStr={todayStr}
             runAge={age}
-            onOpenWindow={revealWindow}
+            onOpenWindow={openWindow}
             origin={origin ?? null}
             onSearchRegion={(regionName) => setSearchSeed(regionName)}
           />
         </Suspense>
 
         {renderedStrip && (
-          <WindowFirstPromotedStrip strip={renderedStrip} onOpenWindow={revealWindow} />
-        )}
-
-        {/* The open row's region layer, assembled once and handed to every card — each takes its own
-            window's slice by key. Withheld wholesale when the catalogue is empty (a scores fetch
-            that failed, a session with no roster), for the same reason the strip withdraws: a field
-            map of nothing is a picture claiming there is nothing there. The rows, the tide row and
-            the spot strip are unaffected either way. */}
-        {orderedPaneItems.map((item) => (item.kind === 'away' ? (
-          <WindowAwayRow
-            key={item.key}
-            label={item.label}
-            note={item.note}
-            windowCount={item.windowCount}
-          />
-        ) : (
-          <WindowFirstWindowCard
-            key={item.key}
-            card={item.card}
-            rank={item.rank}
-            todayStr={todayStr}
-            onLoosenLens={handleLoosen}
-            open={isCardOpen(item.card)}
-            onToggle={() => toggleCard(item.card.key, isCardOpen(item.card))}
-            onOpenPick={setOpenPick}
-            onOpenSpot={handleSpot}
-            onSeeAllSpots={sheetOffersMore(item.card, typesByName)
-              ? (card) => setSheetKey(card.key)
-              : undefined}
-            peeksSuppressed={modalOpen}
-            scoreIndex={scoreIndex}
-            field={fieldByKey.get(item.card.key)}
-          />
-        )))}
-        {/* Under `Best` the list is no longer in date order, and the ordinals alone do not say what
-            it IS in — so the note is unconditional under that order rather than tied to the away
-            rows. Its second clause is: an away day has no rank (a day with no forecast has no place
-            in a ranking of forecasts), so those rows sink below the ranked cards, and a silent move
-            reads as a bug. At the foot, which is where §4.3 puts it. */}
-        {orderLens?.orderId === PLAN_ORDER_BEST && orderedPaneItems.length > 0 && (
-          <p
-            data-testid="window-first-order-note"
-            className="wf-order-note font-mono text-plex-text-secondary"
-          >
-            {hasAwayRow
-              ? 'Ranked by the best region in each window · days you are away follow, in date order.'
-              : 'Ranked by the best region in each window.'}
-          </p>
+          <WindowFirstPromotedStrip strip={renderedStrip} onOpenWindow={openWindow} />
         )}
 
         {!loading && paneItems.length === 0 && (
@@ -1220,6 +1241,50 @@ export default function WindowFirstShell({
         </button>
       </div>
 
+      {/* The window popup — the plan's drill-down, over the plan rather than inside it.
+          Mounted only while open, and lazily, for the reasons its own boundary records. */}
+      {openCard && openField && (
+        <Suspense fallback={null}>
+          <WindowSheetDialog
+            // ⚠️ NOT keyed on the window, and that is a fix rather than an omission. A `key` here
+            // remounted the dialog on every `‹ ›` step, and `useDialogFocus` restores focus to its
+            // captured trigger on unmount — so a keyboard reader pressing `›` lost the button they
+            // had just pressed, every time, and had to Tab back through the header to press it
+            // again. The dialog's own body scroll is reset on a window change instead, which is the
+            // only thing the remount was buying.
+            card={openCard}
+            index={openIndex}
+            total={windowCards.length}
+            field={openField}
+            topicIndex={topicIndex}
+            scopeNames={planScopeNames}
+            todayStr={todayStr}
+            // ⚠️ The Escape ORDER, and the whole of it: this layer declines the key while anything
+            // sits over it, so a press takes exactly one layer. See `stackedOverPopup`.
+            escapeEnabled={searchSeed == null && !stackedOverPopup}
+            // The peek is suppressed by whatever is over the popup, never by the popup itself:
+            // a hover panel is portalled above every `Modal`, so it may only ever be opened from
+            // the topmost surface.
+            peeksSuppressed={modalOpenOverPopup}
+            onClose={() => openWindow(null)}
+            onStep={(delta) => {
+              const next = (openIndex + delta + windowCards.length) % windowCards.length;
+              openWindow(windowCards[next].key);
+            }}
+            onOpenPick={setOpenPick}
+            // Closes FIRST, the rule every other handoff in this file already states: `MapOverlay`
+            // is itself `aria-modal`, so leaving the popup mounted underneath puts two dialogs on
+            // the page with two Escape listeners between them — and the reader has arrived at the
+            // destination, which ends the browsing.
+            onOpenSpot={(card, spot) => { openWindow(null); handleSpot(card, spot); }}
+            onSeeAllSpots={sheetOffersMore(openCard, typesByName)
+              ? (card) => setSheetKey(card.key)
+              : undefined}
+            scoreIndex={scoreIndex}
+          />
+        </Suspense>
+      )}
+
       {/* Keyed on the window, so opening a different card's sheet mounts a fresh one rather than
           carrying the previous window's reach widening across. Both axes are inherited from the bar
           and local from there on, so neither carries across — the sheet reads no storage at all. */}
@@ -1251,6 +1316,9 @@ export default function WindowFirstShell({
           // it takes the same lock; the rating floor and the type are not gated at all.
           reachLocked={reachLens.locked}
           typesByName={typesByName}
+          // Declines Escape while search is over it — the same one-layer-per-press rule the popup
+          // beneath it follows. Nothing else can stack on this one.
+          escapeEnabled={searchSeed == null}
           onClose={() => setSheetKey(null)}
           // Closes FIRST, exactly as the strip dismisses its peek before the same handoff. The map
           // overlay is itself an `aria-modal` dialog: leaving the sheet mounted underneath puts two
@@ -1274,7 +1342,7 @@ export default function WindowFirstShell({
             locations={heatSpots}
             originId={origin?.id ?? null}
             onClose={() => setSearchSeed(null)}
-            onPickWindow={revealWindow}
+            onPickWindow={openWindow}
             onPickRegion={(region) => setOrigin?.(region)}
             // P8: a location result opens that place's own six-window timeline rather than jumping
             // straight to the map. The map is not lost — the sheet's footer carries it and names
@@ -1303,12 +1371,13 @@ export default function WindowFirstShell({
             // The map the PAGE plans from, so the sheet and the cards behind it describe one
             // journey. At home it is the per-user map unchanged; away it is the shared matrix.
             reachById={effectiveReachById}
-            scopeRegionNames={scopedRegionNames}
+            scopeRegionNames={planScopeNames}
             origin={origin}
             // "home" rather than nothing when the settings fetch has not named the place: the drive
             // figure needs an origin on it to be placeable, and "from home" is true either way.
             originLabel={origin ? origin.baseName : (homePlace || 'home')}
             todayStr={todayStr}
+            escapeEnabled={searchSeed == null}
             onClose={() => setSheetSpot(null)}
             // Closes FIRST, the rule the spot sheet already states: the map overlay is itself an
             // `aria-modal` dialog, and leaving this one mounted underneath puts two on the page
@@ -1326,6 +1395,7 @@ export default function WindowFirstShell({
           pick={openPick.pick}
           when={openPick.when}
           time={openPick.time}
+          escapeEnabled={searchSeed == null}
           onClose={() => setOpenPick(null)}
           onShowRegion={() => {
             onShowOnMap?.({
