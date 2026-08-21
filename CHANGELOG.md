@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.18.16] - 2026-08-21
+
 ### Changed — Plan tab M4: the location sheet, and the two ways into it the popup was missing
 
 The four-day sheet a reader could only reach from search is now the drill-down's own detail view.
