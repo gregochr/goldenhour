@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.18.15] - 2026-08-21
+
 ### Changed — Plan tab M2: the window popup, and the list it replaces
 
 The v2 Plan pane's six-row card list is **deleted**. Everything that lived inside an open row —
