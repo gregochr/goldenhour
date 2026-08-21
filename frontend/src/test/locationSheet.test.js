@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildLocationSheet, buildScoreIndex, buildSlotIndex, lookupForWindow,
+  buildLocationSheet, buildScoreIndex, buildSlotIndex, lookupForWindow, sheetSpotOf,
 } from '../utils/locationSheet.js';
 
 /**
@@ -458,5 +458,45 @@ describe('buildLocationSheet lead, best, handoff and scope', () => {
     expect(empty.handoffKey).toBeNull();
     expect(empty.name).toBe('');
     expect(empty.driveMinutes).toBeNull();
+  });
+});
+
+/**
+ * The M4 entry points' one translation (plan-matrix §6 M4.2).
+ *
+ * <p><b>What breaks if these fail.</b> The popup's field chips and its ranked spot cards speak the
+ * briefing's vocabulary ({@code locationId}/{@code locationName}); this sheet's identity is
+ * {@code id}/{@code name}. Lose the id in the crossing and the sheet falls back to its name key —
+ * which is the exact defect an adversarial review caught in P8: a renamed location timed correctly
+ * and rated "Not scored yet" under a heat field that still painted its star.
+ */
+describe('sheetSpotOf', () => {
+  it('carries the id across, which is the key both indexes join on', () => {
+    expect(sheetSpotOf({
+      key: '7', locationId: 7, locationName: 'Bamburgh', regionName: 'Northumberland',
+      rating: 4, driveMinutes: 66,
+    })).toEqual({ id: 7, name: 'Bamburgh', regionName: 'Northumberland' });
+  });
+
+  it('keeps an unregioned slot rather than dropping it', () => {
+    // A slot can arrive without a region, and the sheet says so by omitting the meta clause. The
+    // translation must not be where that becomes an absent location.
+    expect(sheetSpotOf({ locationId: 7, locationName: 'Bamburgh' }))
+      .toEqual({ id: 7, name: 'Bamburgh', regionName: null });
+  });
+
+  it('⚠️ gives a null id rather than undefined, because the lookup tests against null', () => {
+    // `lookupForWindow` skips the id key on `locationId != null`, which `undefined` also satisfies —
+    // so this is belt and braces rather than a live difference. What it pins is the SHAPE: the two
+    // callers hand this object to `buildLocationSheet`, whose `spot?.id ?? null` would otherwise be
+    // the only thing standing between an undefined id and a `undefined|date|TYPE` cache key.
+    expect(sheetSpotOf({ locationName: 'Unrostered' })).toEqual({
+      id: null, name: 'Unrostered', regionName: null,
+    });
+  });
+
+  it('answers null for nothing at all', () => {
+    expect(sheetSpotOf(null)).toBeNull();
+    expect(sheetSpotOf(undefined)).toBeNull();
   });
 });

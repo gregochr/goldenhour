@@ -70,6 +70,45 @@ export function canBeOrigin(region) {
 }
 
 /**
+ * Whether a region may be planned from <em>right now</em>, and which test refused it.
+ *
+ * <h2>Why this is one function and not two inline ladders</h2>
+ *
+ * <p>Search has asked this question since M3; the location sheet's {@code Plan from &lt;region&gt;}
+ * footer (plan-matrix §6 M4.3) asks exactly the same one about the region a searched place sits in.
+ * Two ladders would be two answers — a region the search box calls unplannable and the sheet offers
+ * anyway, one dialog apart.
+ *
+ * <p>Three disqualifiers: <b>switched off</b> (the briefing carries no event summaries for it at
+ * all, so every window would land on the away empty state), <b>no base town</b>
+ * ({@link canBeOrigin} — every drive would measure a journey from a point that is frequently
+ * offshore), and <b>already the origin</b> (a control with no visible effect, which plan §3 rule 14
+ * bans outright). They do not subsume one another — a region can be off, baseless AND current — so
+ * a caller wording a single sentence picks by <em>precedence</em>, and both callers here take them
+ * in that order.
+ *
+ * <h2>⚠️ It returns the VERDICT and never the words, and that is a correction</h2>
+ *
+ * <p>The first cut returned a ready-made {@code reason} string and both surfaces printed it. The
+ * strings were written for a dropdown row whose subject is a region, and on the sheet the subject is
+ * a <em>place</em>: "You are already planning from here", under a heading reading <b>Bamburgh</b>,
+ * claims the origin is Bamburgh — false, and it is the commonest of the three, since every local
+ * place a reader opens after moving the origin hits it. The other two named no region at all on a
+ * surface where the affirmative sibling does ({@code Plan from Northumberland}). So the shared thing
+ * is the test; each surface writes its own sentence about its own subject.
+ *
+ * @param {?object} region          a region record from {@code GET /api/regions}
+ * @param {*}       [currentOriginId] the id of the origin in force, or null at home
+ * @returns {{can: boolean, current: boolean, off: boolean, based: boolean}}
+ */
+export function originAction(region, currentOriginId = null) {
+  const off = region?.enabled === false;
+  const based = canBeOrigin(region);
+  const current = Boolean(region) && currentOriginId != null && region.id === currentOriginId;
+  return { can: Boolean(region) && !off && based && !current, current, off, based };
+}
+
+/**
  * The origin descriptor for a region, or null when it cannot be one.
  *
  * <p>Three fields and no more: the id keys the drive-time matrix, the name keys the spot pool

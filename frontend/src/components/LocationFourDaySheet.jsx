@@ -8,16 +8,34 @@ import { buildLocationSheet } from '../utils/locationSheet.js';
 import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 
 /**
+ * The star rating at or below which a row is de-emphasised — the design's "2★ or below".
+ *
+ * <p>Named rather than inlined because it is a <em>presentation</em> threshold and must not be
+ * mistaken for one of the two the forecast owns: {@code STRONG_RATING} in {@code locationSheet.js},
+ * which decides what the lead line counts, and the lens's own rating floor, which decides what
+ * exists. This one hides nothing and counts nothing.
+ */
+const DIM_AT_OR_BELOW = 2;
+
+/**
  * One place, its next solar windows, and what each one costs to reach (plan D10, P8).
  *
- * <h2>It hangs off the search, and off nothing else</h2>
+ * <h2>Three ways in, and the two new ones open it OVER the window popup</h2>
  *
- * <p>§9.9 asked whether this replaces the card-click handoff to the map or hangs off the search
- * only; the owner resolved it (2026-08-20) in favour of the search. So a spot card's click and the
- * peek's click keep today's behaviour <b>byte-for-byte</b> — {@code WindowSpotStrip.test.jsx} and
- * {@code WindowSpotPeek.test.jsx} passing unedited is the proof — and nothing in this component is
- * reachable from either. The map is not lost from here either: the footer carries it, and names the
- * window it will open in the vocabulary the strip behind it uses.
+ * <p>P8 hung this off the search alone (§9.9, owner-resolved 2026-08-20). D-3 <b>reversed</b> that
+ * for M4, and the reversal has a reason rather than a change of mind: the call was made while a
+ * spot card's click opened the map, and those cards now live inside a dialog. So the popup's field
+ * chips and its ranked spot cards open this sheet <em>stacked on</em> the popup — the reader keeps
+ * the window they were reading — while a search result opens it with the popup closed, because
+ * arriving from search is a different gesture and the shell's "closes FIRST" rule governs it.
+ *
+ * <p>Escape then takes exactly one layer per press. This layer declines the key while search sits
+ * over it ({@code escapeEnabled}), and the popup underneath declines it while this one is up, which
+ * is the bundle README's stated order: search → the location sheet → the window popup. It is wired
+ * exactly as {@code WindowSpotSheet}'s is, because they are the same rung.
+ *
+ * <p>The map is not lost: the footer carries it, and names the window it will open in the
+ * vocabulary the strip behind it uses.
  *
  * <h2>The one page-wide rule this surface can break, and how it does not</h2>
  *
@@ -39,15 +57,23 @@ import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
  * that the quality signal is never dimmed by the confidence channel. The mark is absent on an
  * unrated row, because the channel qualifies a forecast and there is none to qualify.
  *
- * <h2>⚠️ There is no "Plan from here" footer action, and that is a decision</h2>
+ * <h2>⚠️ The "Plan from here" footer moves the origin only AFTER every surface has closed</h2>
  *
- * <p>The prototype's {@code renderSpot} offers one for a spot outside the current scope. Moving the
- * origin from inside an open sheet would swap {@code effectiveReachById} and the scope underneath
- * it: the drive figure, the base named beside it, the outside badge and <em>every departure time on
- * every row</em> would all change while the reader is looking at them, and the reader asked for none
- * of it. The sheet is a page about one place; the origin is a page-wide frame, and it is moved from
- * the chip and the search, which is where a reader can see what it does. Search is one keystroke
- * away from here.
+ * <p>P8 refused this action outright, and the refusal's reasoning is intact: moving the origin from
+ * inside an open sheet swaps {@code effectiveReachById} and the scope underneath it, so the drive
+ * figure, the base named beside it, the outside badge and <em>every departure time on every row</em>
+ * would change while the reader is looking at them. D-4 resolves it by removing the condition rather
+ * than the objection — {@code close-then-move}: this component calls {@code onClose} and only then
+ * {@code onPlanFrom}, and the shell's handler takes the window popup down before it calls
+ * {@code setOrigin}. The origin never moves under an open surface, which is what P8's invariant
+ * actually says. The ordering is asserted as an ordering, not as an outcome, because a later edit
+ * that merely reached the same end state would silently lose it.
+ *
+ * <p>Eligibility is <b>not</b> decided here. {@code planOrigin.originAction} owns the three
+ * disqualifiers (switched off, no base town, already the origin) and the search dropdown asks it the
+ * same question — one verdict, two surfaces, so a region the box calls unplannable can never be
+ * offered by a dialog the box opened. Where it says no, the footer states the reason as a sentence
+ * rather than rendering a dead control (plan §3 rule 14).
  *
  * @param {object}   props
  * @param {object}   props.spot        the heat spot the reader searched for
@@ -63,10 +89,16 @@ import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
  * @param {string}   [props.todayStr]   today's UK date
  * @param {Function} props.onClose     dismisses the sheet
  * @param {Function} [props.onShowOnMap] opens the map on (date, targetType, location name)
+ * @param {?object}  [props.planFrom]   {@code {name, reason}} for this place's own region — the
+ *        footer's origin action. Null where the place has no region, or none the shell holds a
+ *        record for, in which case the action is absent entirely
+ * @param {Function} [props.onPlanFrom] moves the origin to that region. Its ABSENCE is what turns
+ *        the action into a stated reason instead of a control
  */
 export default function LocationFourDaySheet({
   spot, windows, scoreIndex = null, slotIndex = null, scoresKnown = false, reachById = null,
-  scopeRegionNames = null, origin = null, originLabel = null, todayStr = '', onClose, onShowOnMap, escapeEnabled = true,
+  scopeRegionNames = null, origin = null, originLabel = null, todayStr = '', onClose, onShowOnMap,
+  planFrom = null, onPlanFrom = null, escapeEnabled = true,
 }) {
   const sheet = useMemo(
     () => buildLocationSheet(spot, windows, {
@@ -169,7 +201,16 @@ export default function LocationFourDaySheet({
             map action clipped with nothing able to scroll. `WindowPickDialog` records the same
             defect and the same three-band shape. */}
         <div data-testid="location-sheet-rows" className="wf-loc-rows">
-          {/* Omitted rather than zeroed when the ratings are unknown — `leadLine` carries why. */}
+          {/* The v3 lead block: the design's gold wash and its mono kicker treatment, carrying the
+              SAME sentence P8 built. Omitted rather than zeroed when the ratings are unknown —
+              `leadLine` carries why — and it states no denominator, which is the P8 lesson the plan
+              restates for this phase (`2 windows at 4★+` / `none at 4★+`, never `1 OF 6`).
+
+              ⚠️ The bundle's second line — the best window's prose, repeated above the timeline —
+              is deliberately NOT built, and P8's own note is the reason: the best row arrives
+              expanded, so that paragraph would be the same sentence twice, 200px apart, on a card
+              whose whole complaint about the old design was quality-said-four-times. Uppercasing is
+              a `text-transform`, so the DOM text and the accessible reading stay sentence case. */}
           {sheet.lead && (
             <p data-testid="location-sheet-lead" className="wf-loc-lead font-mono">{sheet.lead}</p>
           )}
@@ -178,7 +219,10 @@ export default function LocationFourDaySheet({
             // Reachable: the roster and the briefing arrive over two independent fetches, and search
             // reads the roster — so a sheet can be opened before there are any windows to show. It
             // says so rather than rendering a title over an empty card with no footer.
-            <p data-testid="location-sheet-empty" className="wf-loc-lead font-mono">
+            // ⚠️ `.wf-loc-note`, NOT `.wf-loc-lead`, and the split arrived with M4's restyle. The
+            // lead class is now a gold-washed uppercase kicker; sharing it dressed "nothing has
+            // loaded" as the design's headline — emphasis on the one line that is an admission.
+            <p data-testid="location-sheet-empty" className="wf-loc-note font-mono">
               No forecast windows are loaded yet.
             </p>
           )}
@@ -190,7 +234,26 @@ export default function LocationFourDaySheet({
             const body = `location-sheet-body-${row.key}`;
             return (
               <div key={row.key} className="wf-loc-row" data-testid="location-sheet-row"
-                data-window={row.key} data-best={row.key === sheet.bestKey ? 'true' : undefined}>
+                data-window={row.key} data-best={row.key === sheet.bestKey ? 'true' : undefined}
+                // The design's "rows at 2★ or below get opacity .62", with two exclusions.
+                //
+                // Keyed on a RATING THAT EXISTS, never on the absence of one: an unrated row is one
+                // nothing has looked at, which is a different statement from a poor one — the same
+                // distinction the badge itself draws by being omitted rather than greyed. Dimming
+                // it would turn "unknown" into "poor" in the visual channel while the row's own
+                // words still say "Not scored yet".
+                //
+                // ⚠️ And never the row this sheet LEADS with. `bestKey` is a max over this one
+                // location's own windows, so a place whose every window is poor still has a best
+                // one — and the sheet opens that row expanded, under a gold border and an undimmed
+                // `◎ best here` tag. Dimming it puts three treatments in contradiction on one row
+                // and, measured, drops the departure line to 4.38:1 where the best row's gold wash
+                // and a hover meet (`index.css` carries the arithmetic). "The best of a poor week"
+                // is what the ramp chip already says.
+                //
+                // `index.css` carries what the treatment is and why it is not the design's number.
+                data-dim={row.rating != null && row.rating <= DIM_AT_OR_BELOW
+                  && row.key !== sheet.bestKey ? 'true' : undefined}>
                 <button
                   type="button"
                   data-testid="location-sheet-row-toggle"
@@ -307,6 +370,34 @@ export default function LocationFourDaySheet({
         </div>
 
         <div className="wf-sheet-foot font-mono">
+          {/* ⚠️ CLOSE-THEN-MOVE, and the two calls are in this order deliberately (D-4, M4.3). The
+              sheet takes ITSELF down before it asks the page to re-frame, because the only surface
+              this component can guarantee is its own; the shell's handler takes the window popup
+              down before it reaches `setOrigin`. P8's invariant — the origin never moves under an
+              open surface — is what both halves are protecting, and the class comment records why
+              it was worth honouring rather than arguing away.
+
+              The action is absent, not disabled, where the region cannot be an origin: a dead
+              control is plan §3 rule 14's ban. `planOrigin.originAction` decides which, so this
+              dialog and the search box that opened it cannot disagree about one region. */}
+          {planFrom && (onPlanFrom ? (
+            <button
+              type="button"
+              data-testid="location-sheet-plan"
+              className="wf-loc-map"
+              onClick={() => { onClose(); onPlanFrom(); }}
+            >
+              {/* Glyphs out of the accessible name — the same call `◎ best here` makes one band up,
+                  and for its reason: VoiceOver says "bullseye" in the middle of the control's name
+                  otherwise. What is left ("Plan from Northumberland") still contains every visible
+                  WORD in order, which is what 2.5.3 asks. */}
+              <span aria-hidden="true">◎ </span>
+              {`Plan from ${planFrom.name}`}
+              <span aria-hidden="true"> →</span>
+            </button>
+          ) : (
+            <span data-testid="location-sheet-plan-note">{planFrom.reason}</span>
+          ))}
           {/* Never withheld while there is a window to open — "the map is one tap further, never
               lost". It names the window in the STRIP's own vocabulary (`card.label` is
               `[kicker, when]`, so "Tonight Sunset" rather than a bare weekday), because a sheet
@@ -319,7 +410,16 @@ export default function LocationFourDaySheet({
               className="wf-loc-map"
               onClick={() => onShowOnMap?.(handoff.date, handoff.targetType, sheet.name)}
             >
-              {`◍ Show on map → ${handoff.label}`}
+              {/* ⚠️ ONE text node, with only the `◍` hidden — the separator stays inside it. Hiding
+                  the arrow as well split the label into two ADJACENT text nodes with no element
+                  boundary between them, and the name-from-contents algorithm trims each part and
+                  joins with nothing: the name computed as "Show on mapTomorrow Sunrise", one
+                  mangled token, and it is the only thing a speech-input user has to say (2.5.3).
+                  The glyph worth hiding is the bullseye, which VoiceOver reads aloud as a word in
+                  the middle of the name — the call `◎ best here` already makes one band up. An
+                  arrow between two phrases is not in that class. */}
+              <span aria-hidden="true">◍ </span>
+              {`Show on map → ${handoff.label}`}
             </button>
           ) : (
             <span data-testid="location-sheet-nomap">The map opens once a forecast window loads.</span>
@@ -352,4 +452,13 @@ LocationFourDaySheet.propTypes = {
   todayStr: PropTypes.string,
   onClose: PropTypes.func.isRequired,
   onShowOnMap: PropTypes.func,
+  /**
+   * This place's own region, as the footer's origin action. {@code reason} is read only when
+   * {@code onPlanFrom} is absent — one of {@code originAction}'s three, verbatim.
+   */
+  planFrom: PropTypes.shape({
+    name: PropTypes.string.isRequired,
+    reason: PropTypes.string,
+  }),
+  onPlanFrom: PropTypes.func,
 };

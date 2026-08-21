@@ -137,6 +137,17 @@ function fits(box, placed, frameWidth, frameHeight) {
  * {@code frontend-test-standards.md} sets for an {@code aria-hidden} surface: never the sole path to
  * anything.
  *
+ * <p>⚠️ <b>The location CHIPS are the one exception, and it is a deliberate one (M4, D-3).</b> Given
+ * an {@code onOpenLocation} handler they become named buttons and leave the hidden layer, because
+ * they then <em>are</em> a capability — the route into one place's own four days — rather than an
+ * annotation of the picture. Without a handler they stay inert spans inside it. That arm has no
+ * production caller (the popup always offers the sheet), so it is a <em>default</em> rather than a
+ * live mode: what it buys is that a future caller who forgets the prop gets a picture instead of a
+ * field of dead buttons. The rail still names every region; the ranked strip below the dialog still
+ * names every location, with its region, its drive and its departure — which is also what satisfies
+ * WCAG 2.5.8 for a 16px chip, through the Equivalent exception rather than the minimum-size arm
+ * ({@code index.css} carries that argument and its one gap).
+ *
  * <h2>The labels are DOM, not canvas</h2>
  *
  * <p>Canvas text does not scale with the reader's font settings, cannot be selected, and would be
@@ -201,11 +212,14 @@ function fits(box, placed, frameWidth, frameHeight) {
  * @param {?Map}     [props.reachById] per-user reach, keyed by location id — framing only
  * @param {string}   props.todayStr   today's ISO date in Europe/London
  * @param {Function} [props.onSelectRegion] called with a region name, or null to clear
+ * @param {Function} [props.onOpenLocation] called with the clicked chip. Its ABSENCE is what keeps
+ *   the chips inert annotations inside the `aria-hidden` layer; its presence turns every one of
+ *   them into a named button. See the chip block's comment for why the two cannot be split.
  */
 export default function WindowRowFieldMap({
   windowKey, date, confidence, spots, points, bestRating = null, regionNames, selectedRegion,
   origin = null, chips = EMPTY_CHIPS,
-  reachById, todayStr, onSelectRegion,
+  reachById, todayStr, onSelectRegion, onOpenLocation = null,
 }) {
   const isMobile = useIsMobile();
   const chipCap = isMobile ? CHIP_CAP_PHONE : CHIP_CAP;
@@ -527,45 +541,82 @@ export default function WindowRowFieldMap({
           ))}
         </span>
 
-        {/* The layer that turns the field from areas into PLACES. `aria-hidden` with the canvas and
-            the region labels it sits among, and for the same reason those are: this is the
-            picture's own annotation, and the ranked strip lower in the dialog names every one of
-            these locations on a real control, with its region, its drive and its departure. That is
-            the condition this component's class comment sets for an `aria-hidden` surface — never
-            the sole path to anything.
+        {/* The layer that turns the field from areas into PLACES — and, since M4 (D-3, resolved),
+            the shortest route into a place's own four-day sheet.
 
-            ⚠️ INERT this phase, and deliberately without a `title`. The design has a chip open the
-            location sheet, which arrives at M4 (D-3, resolved); until then a chip is a span with
-            `pointer-events: none`, so it cannot swallow the region click underneath it — the trap
-            `.wf-mhint`'s own note records. A `title` would go with that: a tooltip on a
-            pointer-events-none span reaches nobody, which is the same "reaches nobody" defect the
-            matrix card recorded about a `title` inside an `aria-hidden` subtree. It lands at M4
-            alongside the click that makes it reachable. */}
+            ⚠️ THE THREE THINGS THAT LAND TOGETHER, because M2 deferred them as a set: the click,
+            the `title`, and the exit from `aria-hidden`. A chip was an inert `pointer-events: none`
+            span, and a `title` on one of those reaches nobody — the same "reaches nobody" defect
+            the matrix card recorded about a `title` inside an `aria-hidden` subtree. Turning one on
+            without the others would have shipped either a control no assistive technology can find
+            or a tooltip nothing can hover.
+
+            ⚠️ `aria-hidden` comes off ONLY when there is a handler, and that is the rule rather
+            than a convenience. Without one these are still the picture's own annotations, sitting
+            among a canvas and region labels that stay hidden for the reason the class comment
+            gives; exposing them would put eight names into the tab order that do nothing, which is
+            plan §3 rule 14's ban on a control with no visible effect. With one they are real
+            controls and must be found, so they are.
+
+            ⚠️ The chips now DO swallow the region click underneath them — `.wf-mhint`'s note
+            records that as the trap the `pointer-events: none` avoided. It is deliberate: a chip
+            names one place and the click that lands on it is about that place, while the region
+            underneath is still selectable from every pixel the chips do not cover and, in the
+            accessible channel, from the rail's named buttons. `.wf-mchips` keeps
+            `pointer-events: none` so only the chip boxes themselves take the pointer. */}
         {frame && frame.chips.length > 0 && (
-          <span data-testid="wf-row-map-chips" className="wf-mchips" aria-hidden="true">
+          <span
+            data-testid="wf-row-map-chips"
+            className="wf-mchips"
+            aria-hidden={onOpenLocation ? undefined : 'true'}
+            // ⚠️ A NAMED GROUP once the chips are controls. Without one a screen reader meets six
+            // (phone) or eight bare "<place> N stars" buttons in rating order, immediately above a
+            // strip naming the same places again with region, drive and departure — and nothing
+            // says which list they are in. The canvas and the region labels stay `aria-hidden`
+            // (they are the picture), so the spatial meaning that justifies these existing is
+            // invisible to that reader; the group's name is the only thing that can say where they
+            // are. Absent on the inert arm, where the layer is `aria-hidden` and there is nothing
+            // to group.
+            role={onOpenLocation ? 'group' : undefined}
+            aria-label={onOpenLocation ? 'Places on the field map' : undefined}
+          >
             {frame.chips
               .filter((chip) => placements == null || placements.has(chip.key))
               .map((chip) => {
                 const at = placements?.get(chip.key) ?? null;
+                // A button once there is somewhere to go, a span otherwise — see the block
+                // comment. `Tag` rather than two near-identical JSX trees, so the plate, the
+                // marker, the name and the rating cannot drift between the two states; the greedy
+                // placer measures whichever one is rendered, and both carry `.wf-mchip`.
+                const Tag = onOpenLocation ? 'button' : 'span';
                 return (
-                  <span
+                  <Tag
                     key={chip.key}
                     ref={(node) => {
                       if (node) chipRefs.current.set(chip.key, node);
                       else chipRefs.current.delete(chip.key);
                     }}
+                    type={onOpenLocation ? 'button' : undefined}
                     data-testid="wf-row-map-chip"
                     data-location={chip.locationName}
                     data-flip={at?.flip ? 'true' : undefined}
                     className="wf-mchip"
+                    // Region · drive · leave-by, built by the caller from the same spot descriptor
+                    // the strip below draws — never re-derived here (plan §3 rule 13: `leaveBy` has
+                    // one producer). Absent where the caller has nothing to say, so a chip never
+                    // carries an empty tooltip.
+                    title={onOpenLocation ? (chip.title || undefined) : undefined}
+                    onClick={onOpenLocation ? () => onOpenLocation(chip) : undefined}
                     // Off-screen while the placer measures — see `placements`. `visibility` rather
                     // than `display: none`, because a display-none element measures as zero and the
-                    // whole point of this pass is to measure it.
+                    // whole point of this pass is to measure it. It also keeps an unplaced
+                    // candidate out of the tab order, which `display: none` and `visibility` both
+                    // do and an opacity would not.
                     style={at
                       ? { left: `${at.x}px`, top: `${at.y}px` }
                       : { left: '-9999px', top: '0px', visibility: 'hidden' }}
                   >
-                    <i className="wf-mchip-m" />
+                    <i className="wf-mchip-m" aria-hidden="true" />
                     <b className="wf-mchip-n">{chip.locationName}</b>
                     {chip.rating != null && (
                       // ⚠️ `spotBadgeStyle`, not the raw ramp as ink. Measured on this chip's own
@@ -575,10 +626,17 @@ export default function WindowRowFieldMap({
                       // measured answer and is what the matrix card's own best-reach rating uses,
                       // so the two surfaces state a rating the same way.
                       <em className="wf-mchip-r" style={spotBadgeStyle(chip.rating) ?? undefined}>
-                        {`${chip.rating}★`}
+                        {/* NVDA at its default symbol level does not speak U+2605, so a chip that
+                            is now a named control would announce a bare integer after the place
+                            name. The sheet this opens spells it out the same way, at
+                            `LocationFourDaySheet`'s own rating badge. The glyph stays as the label,
+                            which is what keeps 2.5.3 satisfied: the accessible name contains every
+                            visible WORD in order, and `★` is a symbol rather than one. */}
+                        <span aria-hidden="true">{`${chip.rating}★`}</span>
+                        {onOpenLocation && <span className="sr-only">{`${chip.rating} stars`}</span>}
                       </em>
                     )}
-                  </span>
+                  </Tag>
                 );
               })}
           </span>
@@ -626,11 +684,15 @@ WindowRowFieldMap.propTypes = {
     key: PropTypes.string.isRequired,
     locationId: PropTypes.number,
     locationName: PropTypes.string.isRequired,
+    regionName: PropTypes.string,
     rating: PropTypes.number,
+    /** Region · drive · leave-by, already worded by the caller. */
+    title: PropTypes.string,
   })),
   regionNames: PropTypes.arrayOf(PropTypes.string).isRequired,
   selectedRegion: PropTypes.string,
   reachById: PropTypes.instanceOf(Map),
   todayStr: PropTypes.string.isRequired,
   onSelectRegion: PropTypes.func,
+  onOpenLocation: PropTypes.func,
 };

@@ -634,6 +634,48 @@ describe('WindowSheetDialog — the field can never name a spot the list has exc
     });
   });
 
+  it('⚠️ titles a chip with region · drive · leave-by, and drops each clause independently', () => {
+    // Deferred from M2 to land WITH the click (M4.2): a `title` on a `pointer-events: none` span
+    // inside an `aria-hidden` subtree reaches nobody. The three clauses are independently absent for
+    // the reasons `WindowSpotCard` states about the same three fields — no region means the slot
+    // arrived unregioned; no drive means the reader has saved no postcode, which is UNKNOWN and
+    // never "out of reach"; and no departure follows without both the drive and this slot's own
+    // event time. A chip with none of them carries no `title` at all rather than an empty one.
+    const spots = [
+      {
+        key: '1', locationId: 1, locationName: 'Full', regionName: 'Dales', rating: 4,
+        driveMinutes: 42, solarEventTime: '2026-08-20T19:41:00',
+      },
+      {
+        key: '2', locationId: 2, locationName: 'No drive', regionName: 'Dales', rating: 4,
+        driveMinutes: null, solarEventTime: '2026-08-20T19:41:00',
+      },
+      {
+        key: '3', locationId: 3, locationName: 'Bare', regionName: null, rating: 4,
+        driveMinutes: null, solarEventTime: null,
+      },
+    ];
+    withMeasured(() => {
+      renderDialog({ card: card({ spots }), onOpenLocation: vi.fn() });
+      const byName = new Map(screen.getAllByTestId('wf-row-map-chip')
+        .map((n) => [n.dataset.location, n]));
+      expect(byName.get('Full')).toHaveAttribute('title', 'Dales · 42 min · leave 19:39');
+      expect(byName.get('No drive')).toHaveAttribute('title', 'Dales');
+      expect(byName.get('Bare')).not.toHaveAttribute('title');
+    });
+  });
+
+  it('⚠️ names the SHEET on its ranked cards, not the map', () => {
+    // The card's own default is `◍ Open on map →`, which the drill-down sheet's copy of the same
+    // component still needs — one component, two destinations since M4 (D-3). The words are the
+    // caller's for exactly that reason, and this span sits inside the card's `<button>`, so a card
+    // promising a map and delivering a sheet would be lying in its own accessible name.
+    renderDialog();
+    const card = screen.getAllByTestId('window-spot')[0];
+    expect(card).toHaveTextContent('The next few days here');
+    expect(card).not.toHaveTextContent('Open on map');
+  });
+
   it('draws no chips at all when the window’s gated pool is empty', () => {
     withMeasured(() => {
       renderDialog({ card: card({ spots: [] }) });

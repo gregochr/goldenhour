@@ -141,7 +141,14 @@ function useStripEdges(ref, spotCount) {
  * @param {number}   [props.total]   how many the lens chose from. Defaults to what is drawn, which
  *        is the no-gate case and keeps the count at P6's plain "N spots".
  * @param {boolean}  [props.lead]    whether this is the lead card, which tints the edge fades
- * @param {Function} [props.onOpenSpot] opens the map centred on that spot
+ * @param {Function} [props.onOpenSpot] the caller's handoff for a chosen spot. It opened the map
+ *        through M3; since M4 (D-3) it opens that place's own four-day sheet, over the popup — see
+ *        {@code WindowFirstShell}. The strip itself is unchanged either way, including the
+ *        focus-handback guard below: both destinations are dialogs that restore focus to this card
+ *        on close.
+ * @param {string}   [props.openLabel] the words each card uses to name that destination. Passed
+ *        straight through; absent leaves {@code WindowSpotCard}'s own map wording, which is what
+ *        keeps a caller written before M4 byte-identical (plan §3 rule 10).
  * @param {Function} [props.onSeeAll]   opens the drill-down over this window's whole spot list.
  *        Omitted renders no trigger at all rather than an inert one — §6 bans a control whose only
  *        effect is nothing, which is why P6 and P8 both shipped this footer without it.
@@ -156,7 +163,8 @@ function useStripEdges(ref, spotCount) {
  *        Absent renders the footer exactly as it was before the open row could gate by region.
  */
 export default function WindowSpotStrip({
-  spots, windowLabel, total, lead, onOpenSpot, onSeeAll, peeksSuppressed, date, targetType,
+  spots, windowLabel, total, lead, onOpenSpot, openLabel, openPrompt, onSeeAll, peeksSuppressed,
+  date, targetType,
   scoreIndex, filters,
 }) {
   const scrollerRef = useRef(null);
@@ -276,6 +284,7 @@ export default function WindowSpotStrip({
               key={spot.key}
               spot={spot}
               onOpen={() => openSpot(spot)}
+              openLabel={openLabel}
               onMouseEnter={noHoverPeek ? undefined : (e) => hoverPeek(e, spot)}
               onMouseLeave={noHoverPeek ? undefined : closeFromTrigger}
               onFocus={noHoverPeek ? undefined : (e) => focusPeek(e, spot)}
@@ -361,6 +370,10 @@ export default function WindowSpotStrip({
           placement={peek.placement}
           arrowLeft={peek.arrowLeft}
           onOpen={() => openSpot(peek.spot)}
+          // Same destination as the card it hangs off, so the panel and the card cannot promise
+          // two different things about one click. The peek's default is the map wording; only a
+          // caller that has retargeted `onOpenSpot` overrides it.
+          openPrompt={openPrompt}
           onPointerEnter={hold}
           onPointerLeave={closeFromPanel}
         />
@@ -375,6 +388,9 @@ WindowSpotStrip.propTypes = {
   total: PropTypes.number,
   lead: PropTypes.bool,
   onOpenSpot: PropTypes.func,
+  openLabel: PropTypes.string,
+  /** The hover panel's own prompt for the same destination — see {@code openLabel}. */
+  openPrompt: PropTypes.string,
   onSeeAll: PropTypes.func,
   peeksSuppressed: PropTypes.bool,
   date: PropTypes.string,

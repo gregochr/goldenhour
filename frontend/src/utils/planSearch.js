@@ -1,4 +1,4 @@
-import { canBeOrigin } from './planOrigin.js';
+import { originAction } from './planOrigin.js';
 import { lookupForWindow, outsideLabel } from './locationSheet.js';
 import { formatDriveDuration } from './briefingDisplay.js';
 
@@ -307,12 +307,14 @@ export function buildSearchGroups(query, {
     .filter((region) => region && matches(fold(region.name), q))
     .slice(0, MAX_RESULTS_PER_GROUP)
     .map((region) => {
-      const based = canBeOrigin(region);
-      const current = originId != null && region.id === originId;
-      // A disabled region is switched off across the whole app, so the briefing carries no event
-      // summaries for it: made an origin, every window would land on the away empty state. Shown
-      // rather than hidden, for the same reason a baseless one is — the reason is the useful part.
-      const off = region.enabled === false;
+      // ⚠️ ONE eligibility TEST, shared with the location sheet's `Plan from <region>` footer
+      // (M4.3); the WORDS are this surface's own, because its subject is a region and the sheet's
+      // is a place — "you are already planning from here" means two different things on the two,
+      // and `originAction`'s own note records what that cost. A disabled region is switched off
+      // across the whole app, so the briefing carries no event summaries for it: made an origin,
+      // every window would land on the away empty state. Shown rather than hidden, for the same
+      // reason a baseless one is — the reason is the useful part.
+      const { based, current, off, can } = originAction(region, originId);
       let reason = null;
       if (off) reason = 'This region is switched off';
       else if (!based) reason = 'This region has no base town, so it cannot be an origin';
@@ -326,14 +328,16 @@ export function buildSearchGroups(query, {
         marks: matchRange(region.name, query),
         // No figure — see the class comment on why a region's "best" is a claim nobody owns.
         figure: null,
-        action: current ? 'Planning now' : (based && !off ? 'Plan from here' : null),
+        action: current ? 'Planning now' : (can ? 'Plan from here' : null),
         subParts: clauses([current
           ? 'Planning from here'
           : (based && !off ? `Plan from ${region.baseName.trim()}` : (off ? 'Switched off' : 'No base town set'))]),
         sub: current
           ? 'Planning from here'
           : (based && !off ? `Plan from ${region.baseName.trim()}` : (off ? 'Switched off' : 'No base town set')),
-        disabled: off || !based || current,
+        // The shared verdict itself, so a fourth disqualifier added to `originAction` reaches this
+        // row without an edit here — the drift its extraction exists to make impossible.
+        disabled: !can,
         reason,
       };
     });

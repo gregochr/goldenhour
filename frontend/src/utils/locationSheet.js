@@ -302,6 +302,39 @@ export function outsideLabel(origin) {
 }
 
 /**
+ * A window spot (or a field chip) as the identity this sheet takes — the M4 entry points' one
+ * translation.
+ *
+ * <h2>Why a translation rather than a catalogue lookup</h2>
+ *
+ * <p>The sheet's {@code spot} prop has three fields and search hands it a <em>heat catalogue</em>
+ * entry ({@code id}/{@code name}/{@code regionName}); M4's two new entries hand over a
+ * {@code buildWindowSpots} descriptor ({@code locationId}/{@code locationName}/{@code regionName}),
+ * which is the briefing's own vocabulary. Joining back through the heat catalogue to recover the
+ * first shape would be a second join with a second failure mode — a location the briefing rates but
+ * {@code GET /api/locations} has not published (a fresh roster entry, a poll landing between the two
+ * fetches) would resolve to nothing and the chip a reader just clicked would open no sheet at all.
+ * The three fields are already on the descriptor, so nothing is looked up.
+ *
+ * <p>The id is what matters and it is the SAME id: {@code buildLocationSheet} joins its ratings and
+ * its times id-first through {@link lookupForWindow}, and {@code slot.locationId} is the field both
+ * indexes are keyed on. A name-only translation would have re-introduced the exact defect the module
+ * comment records.
+ *
+ * @param {?object} spot a {@code buildWindowSpots} descriptor, or a field chip carrying the same
+ *        three fields
+ * @returns {?{id: *, name: string, regionName: ?string}} the sheet's identity, or null
+ */
+export function sheetSpotOf(spot) {
+  if (!spot) return null;
+  return {
+    id: spot.locationId ?? null,
+    name: spot.locationName ?? '',
+    regionName: spot.regionName ?? null,
+  };
+}
+
+/**
  * Everything the sheet renders for one location.
  *
  * <p>Only the location's <em>identity</em> is held by the caller; every figure here is looked up
