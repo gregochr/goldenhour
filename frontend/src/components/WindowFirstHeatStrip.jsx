@@ -863,10 +863,25 @@ export default function WindowFirstHeatStrip({
           whole of what a reader is told about change on the Plan screen until M2's popup header.
 
           The age stays `generatedAt` (not the served `previousGeneratedAt`) because it is the
-          stamp the shell footer already prints, and two different ages for one forecast on one
+          stamp the shell footer used to print, and two different ages for one forecast on one
           screen is its own defect. The residual caveat is on the field itself
           (`BriefingRegion.meanRatingDelta`): the current side is re-derived at serve time, so the
-          quantity includes post-build batch drift as well as run-to-run change. */}
+          quantity includes post-build batch drift as well as run-to-run change.
+
+          ⚠️ THE AGE NOW HAS NOWHERE ELSE TO GO. M3 deleted the rail footer, so this is the page's
+          only statement of how old the forecast is (Rule 7's "one age per screen", finally true
+          rather than approximately so — the footer and this line both printed it before). That is
+          why the branch below exists: with no movement basis the change line is withheld, and
+          withholding the AGE with it would lose a fact that is not about movement at all. The two
+          forms are mutually exclusive by construction and a test pins that they are, because two
+          age lines is the defect this consolidation removes. The no-movement wording drops the
+          verb entirely — "Moved at the last forecast run" over an empty list would assert a
+          movement the same element has just declined to name. */}
+      {movers.length === 0 && runAge && (
+        <p data-testid="wf-heat-runage" className="wf-hstrip-change">
+          {`Last forecast run ${runAge}`}
+        </p>
+      )}
       {movers.length > 0 && (
         <p data-testid="wf-heat-change" className="wf-hstrip-change">
           {runAge

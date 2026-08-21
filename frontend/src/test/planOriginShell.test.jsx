@@ -174,11 +174,14 @@ describe('WindowFirstShell — the origin', () => {
 
   afterEach(() => vi.restoreAllMocks());
 
-  describe('the chip', () => {
-    it('sits in the rail footer, where the Home line used to be', () => {
+  describe('the origin control', () => {
+    it('sits in the masthead tick line, which M3 made its only home', () => {
+      // It was in the rail footer until M3 deleted that row. The design's own words for why it
+      // moved: the tick line is "the ONLY statement of where the plan is computed from; there is no
+      // separate origin chip or breadcrumb anywhere in the tab".
       renderShell();
-      const foot = screen.getByTestId('window-first-railfoot');
-      expect(within(foot).getByTestId('window-first-origin-chip')).toHaveTextContent('Home · Durham');
+      const tick = screen.getByTestId('window-first-tickline');
+      expect(within(tick).getByTestId('window-first-origin-chip')).toHaveTextContent('Home · Durham');
     });
 
     it('names the base town once the origin has moved', () => {
@@ -198,14 +201,19 @@ describe('WindowFirstShell — the origin', () => {
       expect(value.setOrigin).toHaveBeenCalledWith(null);
     });
 
-    it('withholds the "Home not set" prompt while away — it is about a home nobody is planning from', () => {
+    it('withholds the home prompt while away — it is about a home nobody is planning from', () => {
+      // Unchanged behaviour, new carrier: the rail footer's "Home not set" line became the origin
+      // button's empty state (M3.5), and it is withheld in the same state for the same reason.
       renderShell({ origin: ORIGIN, homePlace: null });
-      expect(screen.queryByTestId('window-first-home')).toBeNull();
+      expect(screen.queryByTestId('masthead-set-postcode')).toBeNull();
+      expect(screen.getByTestId('window-first-origin-chip')).toHaveTextContent('Keswick');
     });
 
-    it('still shows it at home', () => {
+    it('still prompts at home, and the prompt is the origin button itself', () => {
       renderShell({ homePlace: null });
-      expect(screen.getByTestId('window-first-home')).toHaveTextContent('Home not set');
+      expect(screen.getByTestId('masthead-set-postcode')).toHaveTextContent('Set a postcode');
+      // A SWAP, not an addition — the band gains no control in this state.
+      expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
     });
   });
 
@@ -348,6 +356,59 @@ describe('WindowFirstShell — the origin', () => {
       expect(screen.queryByTestId('wf-region-rail')).toBeNull();
       expect(screen.queryByTestId('window-sheet-empty')).toBeNull();
       expect(screen.getByTestId('window-spot-strip')).toBeInTheDocument();
+    });
+
+    /**
+     * ⚠️ CLOSE-WITH-MOVE, and it is the P8 invariant rather than tidiness.
+     *
+     * <p>M3 lets search sit OVER an open popup, so without the close a reader could move the origin
+     * while the popup watched: the reach default drops to 90, `effectiveReachById` swaps, and the
+     * popup's spot strip, best-in-reach figure, spread histogram, region rail and every leave-by
+     * re-derive underneath them. P8 refused to build exactly that ("moving the origin from inside
+     * an open sheet would swap the drive, the base named beside it, the outside badge and every
+     * departure on every row while the reader watches"), and M4.3's `Plan from <region>` footer is
+     * specified with the same semantics.
+     *
+     * <p>⚠️ The guarantee is <b>one commit</b>, not a sequence — and the first cut of this test
+     * asserted the wrong thing. Both setters are called from one handler, so React batches them: at
+     * the moment `setOrigin` runs, the DOM has not been touched and the popup is still there. That
+     * is not a defect, it is a stronger property than ordering — there is no frame in which the
+     * popup is rendered against the new origin, because the unmount and the origin change land in
+     * the same commit. So what is asserted is the committed state, which is the thing a reader can
+     * actually see.
+     */
+    it('⚠️ never leaves the popup standing when a search result moves the origin', async () => {
+      const value = renderShell();
+      fireEvent.click(await screen.findByTestId('wf-heat-card'));
+      expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
+
+      fireEvent.keyDown(document, { key: '/' });
+      const input = await screen.findByTestId('plan-search-input');
+      fireEvent.change(input, { target: { value: 'lake' } });
+      fireEvent.click(screen.getByRole('option', { name: /Lake District/ }));
+
+      expect(value.setOrigin).toHaveBeenCalledWith(LAKES);
+      expect(screen.queryByTestId('window-sheet'),
+        'the popup must not survive the move that re-derives everything inside it').toBeNull();
+      expect(screen.queryByTestId('plan-search')).toBeNull();
+    });
+
+    it('closes it for a LOCATION result too, which M4 will stack differently from its own chips', async () => {
+      // M4 does open this sheet OVER the popup — but from the popup's own field chips, where the
+      // reader is already looking at that window. Arriving from search is a different gesture, and
+      // it is the one the shell's own "closes FIRST" rule already governs everywhere else.
+      renderShell();
+      fireEvent.click(await screen.findByTestId('wf-heat-card'));
+      fireEvent.keyDown(document, { key: '/' });
+      fireEvent.change(await screen.findByTestId('plan-search-input'), { target: { value: 'derwent' } });
+      const row = screen.queryAllByRole('option').find((o) => o.dataset.kind === 'location');
+      expect(row, 'the fixture must offer a location row, or this test proves nothing').toBeTruthy();
+      fireEvent.click(row);
+
+      // The sheet is lazy, so it arrives a tick later — what matters is that the popup has already
+      // gone by then rather than being left underneath it.
+      expect(await screen.findByTestId('location-sheet')).toBeInTheDocument();
+      expect(screen.queryByTestId('window-sheet')).toBeNull();
     });
   });
 

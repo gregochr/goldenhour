@@ -66,8 +66,9 @@ const ctx = () => ({
   },
 });
 
-const renderShell = (extraProps = {}) => {
-  vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+const renderShell = (extraProps = {}, ctxOverrides = {}) => {
+  vi.spyOn(briefingContext, 'useWindowFirstBriefing')
+    .mockReturnValue({ ...ctx(), ...ctxOverrides });
   const props = {
     onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), locations: [],
     ...extraProps,
@@ -179,8 +180,12 @@ describe('WindowFirstShell — the lit band', () => {
   });
 
   it('sends the nudge to the postcode field when one handler is given', () => {
+    // ⚠️ `homePlace: null` as well as `light: null`. `homePlace` is the AUTHORITY for this state
+    // and the light is consulted only while it is unknown, so a fixture with a saved home renders
+    // the origin button and this test would look for a control that is not there. That narrowing is
+    // deliberate — see `MastheadTickLine`'s note on the save-flicker it removes.
     const onSetPostcode = vi.fn();
-    renderShell({ light: null, onSetPostcode });
+    renderShell({ light: null, onSetPostcode }, { homePlace: null });
 
     fireEvent.click(screen.getByTestId('masthead-set-postcode'));
     expect(onSetPostcode).toHaveBeenCalledTimes(1);
@@ -190,36 +195,72 @@ describe('WindowFirstShell — the lit band', () => {
     // The nudge's whole job is getting a postcode saved. A caller that forgets the focused handler
     // should get the general settings screen, not a button that does nothing — a dead end here
     // leaves the rule permanently dim, which is the state the nudge exists to end.
-    const { onOpenSettings } = renderShell({ light: null });
+    const { onOpenSettings } = renderShell({ light: null }, { homePlace: null });
 
     fireEvent.click(screen.getByTestId('masthead-set-postcode'));
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });
 
-  it('adds no control to the masthead once the light resolves', () => {
-    // Two sibling files assert the masthead offers exactly ⚙ and Sign out, and both render with no
-    // light at all. This is the arm of that rule they cannot see: the nudge is a third button, and
-    // it must be present only in the state that needs it.
+  /**
+   * The band's control inventory, which M3 doubled.
+   *
+   * <p>Before the tick line it was exactly ⚙ and Sign out, plus a nudge in the one state that needs
+   * one — and two sibling files still assert that pair. What the tick line adds is fixed and
+   * enumerable: an origin button, a search affordance, and a home button ONLY while the origin has
+   * moved. Asserted as the whole set rather than as a count, because a count passes when one
+   * control is swapped for another — which is precisely the substitution a later phase could make
+   * without noticing.
+   */
+  it('⚠️ keeps the origin button when only the LIGHT says there is no home', () => {
+    // The narrowing M3's review forced. `homePlace` is the authority; a stale or 204 light beside a
+    // saved home must not delete the origin control, which is what an OR did on the round trip
+    // right after a reader saved their postcode.
+    renderShell({ light: null });
+
+    expect(screen.queryByTestId('masthead-set-postcode')).toBeNull();
+    expect(screen.getByTestId('window-first-origin-chip')).toHaveTextContent('Home · Newcastle');
+  });
+
+  it('carries exactly the tick line\'s controls beside the two it already had', () => {
     renderShell({ light: LIGHT });
     const masthead = screen.getByTestId('window-first-masthead');
 
-    expect(within(masthead).getAllByRole('button').map((b) => b.textContent.trim()))
-      .toEqual(['⚙', 'Sign out']);
+    expect(within(masthead).getAllByRole('button').map((b) => b.getAttribute('data-testid')))
+      .toEqual(['window-first-settings', 'window-first-signout',
+        'window-first-origin-chip', 'window-first-search']);
+    // No home button at home, and no nudge once the light has resolved.
+    expect(screen.queryByTestId('window-first-origin-home')).toBeNull();
     expect(screen.queryByTestId('masthead-set-postcode')).toBeNull();
   });
 
-  it('shows the nudge, and only then a third button, when no home is saved', () => {
-    renderShell({ light: null });
+  it('swaps the origin button for the nudge when no home is saved, rather than adding one', () => {
+    // ⚠️ A SWAP, not an addition. The nudge IS the origin button's empty state (M3.1), so the band
+    // gains no control — which is what keeps the phone row the same width in the state that also
+    // has the longest label.
+    renderShell({ light: null }, { homePlace: null });
     const masthead = screen.getByTestId('window-first-masthead');
 
-    expect(within(masthead).getByTestId('masthead-set-postcode')).toBeInTheDocument();
-    expect(within(masthead).getAllByRole('button')).toHaveLength(3);
+    expect(within(masthead).getAllByRole('button').map((b) => b.getAttribute('data-testid')))
+      .toEqual(['window-first-settings', 'window-first-signout',
+        'masthead-set-postcode', 'window-first-search']);
   });
 
   it('stays out of the greying a DOWN backend applies, like the rest of the band', () => {
     // The nudge is a route to a setting, and the pane being dead is no reason to close it.
-    renderShell({ light: null, contentDisabled: true });
+    renderShell({ light: null, contentDisabled: true }, { homePlace: null });
 
-    expect(screen.getByTestId('masthead-light-nudge').closest('.pointer-events-none')).toBeNull();
+    expect(screen.getByTestId('masthead-set-postcode').closest('.pointer-events-none')).toBeNull();
+  });
+
+  it('puts the tick line inside the band, under the rule', () => {
+    // The rail footer it replaces sat OUTSIDE the band; a reader who has just moved the origin
+    // should not have to look in two places to see where they moved it to.
+    renderShell({ light: LIGHT });
+    const masthead = screen.getByTestId('window-first-masthead');
+    const tick = screen.getByTestId('window-first-tickline');
+
+    expect(masthead).toContainElement(tick);
+    expect(screen.getByTestId('masthead-light-rule')
+      .compareDocumentPosition(tick) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

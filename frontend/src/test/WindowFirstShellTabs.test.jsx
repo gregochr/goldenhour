@@ -632,12 +632,15 @@ describe('WindowFirstShell — what stays put across a tab change', () => {
     }
   });
 
-  it('keeps the masthead, the rail footer and the way back out', async () => {
+  it('keeps the masthead, its tick line and the way back out', async () => {
+    // The rail footer used to be the third of these and M3 deleted it; the tick line is where its
+    // origin control went, and the claim is unchanged — the chrome that frames the page must not
+    // come and go with the tab.
     renderShell();
     await openComingUp();
 
     expect(screen.getByTestId('window-first-masthead')).toBeInTheDocument();
-    expect(screen.getByTestId('window-first-railfoot')).toBeInTheDocument();
+    expect(screen.getByTestId('window-first-tickline')).toBeInTheDocument();
     expect(screen.getByTestId('window-first-exit')).toBeInTheDocument();
   });
 });

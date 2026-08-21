@@ -893,12 +893,43 @@ describe('WindowFirstHeatStrip — the movement channel', () => {
   });
 
   it('withholds the change line entirely when nothing moved', async () => {
-    // A line reading only "Moved at the last forecast run, 52m ago" would restate the age the shell
-    // footer already prints, attached to nothing. `topMovers` drops a measured zero, so two windows
-    // that did not move leave nothing to name — and with the per-card chip gone, that is the whole
-    // movement channel withdrawing rather than degrading to six flat marks.
+    // `topMovers` drops a measured zero, so two windows that did not move leave nothing to name —
+    // and with the per-card chip gone, that is the whole movement channel withdrawing rather than
+    // degrading to six flat marks.
     await renderStrip({ runAge: '52m ago', cards: [moved(0), moved(0)] });
 
+    expect(screen.queryByTestId('wf-heat-change')).toBeNull();
+  });
+
+  /**
+   * The age's own line, which M3 gave this component when it deleted the rail footer.
+   *
+   * <p>⚠️ The two forms are MUTUALLY EXCLUSIVE by construction, and that is the whole point: the
+   * page states one age (Rule 7), where before M3 the footer and the change line each printed the
+   * same `generatedAt`. The no-movement form also drops the verb — "Moved at the last forecast run"
+   * over an empty list would assert a movement the same element has just declined to name.
+   */
+  it('states the run age on its own when nothing moved, rather than losing it with the line', async () => {
+    await renderStrip({ runAge: '52m ago', cards: [moved(0), moved(0)] });
+
+    const line = screen.getByTestId('wf-heat-runage');
+    expect(line).toHaveTextContent('Last forecast run 52m ago');
+    expect(line.textContent).not.toMatch(/moved/i);
+  });
+
+  it('⚠️ never draws both age forms at once', async () => {
+    await renderStrip({ runAge: '52m ago', cards: [moved(0.6), moved(0)] });
+
+    expect(screen.getByTestId('wf-heat-change')).toHaveTextContent('52m ago');
+    expect(screen.queryByTestId('wf-heat-runage')).toBeNull();
+  });
+
+  it('says nothing at all when there is no age and nothing moved', async () => {
+    // Degrade is silence. An empty "Last forecast run" is a claim with nothing behind it, and the
+    // rail footer that used to hold this fact applied the same rule.
+    await renderStrip({ cards: [moved(0)] });
+
+    expect(screen.queryByTestId('wf-heat-runage')).toBeNull();
     expect(screen.queryByTestId('wf-heat-change')).toBeNull();
   });
 

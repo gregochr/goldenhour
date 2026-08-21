@@ -5,6 +5,58 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Plan tab M3: the tick line, and the rail footer it replaces
+
+Where the plan is computed from is now stated **once**, in the masthead, on a line that is also the
+search trigger — the design's "there is no separate origin chip or breadcrumb anywhere in the tab".
+The rail footer under the band is gone, and three of its four elements moved rather than died: the
+origin control and the "Home not set" line are the tick line's origin button and its empty state,
+and "Edit reach" is the ⚙ two rows up that it already opened. Beside the origin sit the search
+affordance and its `/` chip, and the day's light times right-aligned — four on a desktop or iPad,
+the two golden on a phone.
+
+The masthead now **sticks**, and the lens bar rests against its measured bottom edge rather than at
+the top of the viewport. That is a deliberate change to a documented shell invariant (`index.css`
+carried "position: sticky here and nowhere above it" beside the lens bar, corrected in the same
+commit), and it is what makes the rest coherent: the origin and the search box cannot scroll away
+from a reader halfway down the matrix, and a search panel "anchored under the masthead" presumes a
+masthead still on screen. The bar gains the design's stuck treatment — a shadow and a raised edge,
+driven by an IntersectionObserver on a 1px sentinel rather than by a scroll listener. Both heights
+are measured at runtime and published as custom properties, because the masthead is not a fixed
+height: the tick line wraps at narrow widths and gains a home button whenever the origin moves.
+
+**Search opens where the tick line is.** The panel is positioned exactly over that row and covers
+it, which is the design's "the tick line is replaced by the input" achieved by a position rather
+than by a second piece of state. Its rows grew the design's anatomy: a glyph column, the matched
+span in a `<mark>`, a sub-line of clauses (region · drive · outside your area) that wraps rather
+than truncating, a best-figure column, and an action chip naming what Enter does. Matching now folds
+accents, `&`→`and`, `saint`→`st` and punctuation, with a whitespace-blind second pass — so `stmarys`
+finds St Mary's Lighthouse. Highlighting runs on a narrower fold that can map back to the original
+string; a row matched only by the wide fold is shown unmarked rather than marked in the wrong place.
+
+**And `/` now works over an open window popup**, which is the rung M2 wired and left dormant. Escape
+then walks one layer per press — search, then a sheet stacked over the popup, then the popup — and
+picking a region or a location from search closes the popup in the same commit, so the origin never
+moves under a surface that would re-derive every figure on it while the reader watched.
+
+Two costs are stated rather than left to be found. The forecast age is now beside the change line —
+one age on the page, where the footer and that line had both been printing the same stamp — which
+makes it Plan-only, dims it with the pane under a dead backend, and drops it entirely in the state
+where the matrix itself withdraws. And a search box open over the popup puts two `aria-modal`
+dialogs on the page at once; the lower one is not marked inert, because the shared `Modal` has no
+containment by settled decision.
+
+Fixed along the way, all found by the phase's own review or in a browser: the stuck observer never
+attached at all (the bar mounts after the first commit, and a plain ref cannot see that); the lens
+bar's `top: 0` fallback would have hidden it *under* the newly sticky masthead; the matrix cards and
+the tab bar had no scroll reservation and were the two things most likely to be scrolled under it;
+the postcode nudge's and the away origin's accessible names had stopped containing their visible
+words; the group's hover was a literal no-op and its border measured 1.68:1 where the comment
+claimed 2.9; the search sub-line truncated away the one clause that changes what a row means; a
+"set a postcode" prompt could replace a reader's saved home for the length of one round trip after
+they saved it; and a rating that does not mean sky colour could reach the new figure column.
+
+
 ## [v2.18.15] - 2026-08-21
 
 ### Changed — Plan tab M2: the window popup, and the list it replaces

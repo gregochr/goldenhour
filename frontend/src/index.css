@@ -973,8 +973,10 @@
   .cth-next-window:focus-visible { transform: none; }
 }
 
-/* ── Window-first shell chrome: masthead, rail footer, tab bar, pane ──
-   Geometry from the spec's desktop rules (`.mast` :25, `.rail` :33, `.railfoot` :45, `.tabs` :52,
+/* ── Window-first shell chrome: masthead, tick line, tab bar, pane ──
+   (The rail footer was the third of these until M3 deleted it; its `.railfoot` geometry went with
+   it and `.wf-tick` below is where its origin control now lives.)
+   Geometry from the spec's desktop rules (`.mast` :25, `.rail` :33, `.tabs` :52,
    `.tab` :53, `.body` :77) and its phone block (`:238`, `:241`, `:244`, `:246`, `:248`, `:255`).
    These values were previously inline in `WindowFirstShell`, which is a legitimate house pattern
    until a media query needs them — a media query is a selector, and no selector reaches an inline
@@ -988,11 +990,27 @@
    the specific failure a property-by-property migration invites. */
 .wf-shell {
   --wf-gutter: 18px;
-  /* What every focusable thing on the Plan pane reserves against the sticky lens bar, declared
-     once so the two literals it replaced cannot drift from the bar they describe. 60 = the bar's
-     browser-measured 53.5px plus the focus ring's 2px outline and 2px offset. The phone value is
-     in the same media query that stacks the bar, below. */
-  --wf-lens-reserve: 60px;
+  /* What every focusable thing on the Plan pane reserves against the sticky chrome, declared once
+     so the literals it replaced cannot drift from what they describe.
+
+     ⚠️ M3 MADE THIS A SUM. It was the bar alone (60 = its 53.5px plus the focus ring's 2px outline
+     and 2px offset); the masthead is `position: sticky` too since M3, so a focused card has two
+     things over it and reserving for one parks it behind the other — the exact defect this exists
+     to prevent, one element higher up. 188 = the masthead's browser-measured 128px plus the bar's
+     53.5px plus the ring's 6 — both RESTING heights, which is the same basis the 60px it replaces
+     used (the bar has a wrapped 92px state this has never covered either). First paint only:
+     `useLensReserve` measures both and overwrites within a frame. The phone value is in the same
+     media query that stacks the bar, below. */
+  --wf-lens-reserve: 188px;
+  /* Where `.wf-lens` sticks — the masthead's height, measured by the same hook.
+     ⚠️ The fallback is NOT `0`, and that is not a rounding preference. `.wf-mast` is `z-index: 45`
+     and `.wf-lens` is 20, so a bar resting at `top: 0` sits UNDERNEATH the masthead: the page's only
+     reach and rating controls, and the only way out of a lens that has emptied the plan, become
+     invisible and unclickable. `0` degraded gracefully before M3 (it was the correct resting
+     position) and degrades into a hidden control surface now. 128px is the desktop masthead's
+     browser-measured height; over-shooting leaves a hairline of pane visible above the bar for one
+     frame, which is the harmless direction. */
+  --wf-mast-h: 128px;
 }
 /* ⚠️ SAFE AREAS ARE NOT HANDLED, and a `calc(env(safe-area-inset-top, 0px) + 16px)` here would not
    handle them — it was written that way first and is wrong twice over. `env(safe-area-*)` resolves
@@ -1017,18 +1035,214 @@
 .wf-mast {
   padding: 16px var(--wf-gutter) 0;
   background: linear-gradient(180deg, #241B16 0%, #1B1411 100%);
+  /* ⚠️ STICKY SINCE M3, and it is a change to the shell's documented stick invariant rather than a
+     tweak. `.wf-lens`'s block below carried "position: sticky here and nowhere above it"; that
+     comment is corrected in the same commit as this rule, because a stale invariant is worse than
+     none. The design's chrome model pins the masthead so the tick line — which is now the ONLY
+     statement of where the plan is computed from, and the search trigger — cannot scroll away from
+     a reader halfway down the matrix; and A14's "search dropdown anchored under the masthead"
+     presumes a masthead still on screen mid-scroll.
+
+     `z-index: 45` is the design's own number, and the two it has to beat are both real: `.wf-lens`
+     at 20 must slide UNDER this, and `.wf-peek` is portalled to the body at 60 so a hover panel
+     still paints over both. Every `Modal` is Tailwind's `z-50`, above this, which is what lets the
+     search panel cover the tick line rather than peek out from under it.
+
+     The bottom padding is still ZERO. The tick line inside supplies it, and it always renders now —
+     the blank height-holding placeholder the time row used before M3 is gone with it, because a row
+     that is present in all three light states holds its own height. */
+  position: sticky;
+  top: 0;
+  z-index: 45;
 }
-/* ⚠️ `flex-wrap`, because P7's chip pushed this row past its own width. Measured at 390px the
-   column is 330px and the row's content is ~353px with a long home place name (the pill's padding,
-   border, glyph and gap add ~31px to the plain line it replaced), and ~434px into 292px at 320px.
-   Without a wrap the row resolved by shrinking the chip to nothing and wrapping the two controls
-   after it into ragged second lines. With it, the age drops to its own line and everything stays
-   legible. `row-gap` is smaller than the column gap so a wrapped row does not read as two blocks. */
-.wf-railfoot {
-  font-size: 10px;
+/* ── The tick line (M3) ──
+   The masthead's third row, and the design's "ONLY statement of where the plan is computed from;
+   there is no separate origin chip or breadcrumb anywhere in the tab". It replaces `.wf-railfoot`,
+   which held the same origin chip plus three things that moved elsewhere — see the deletion note in
+   `WindowFirstShell`.
+
+   ⚠️ `flex-wrap` survives the move, and P7's measurement is why: at 390px the column is 330px and
+   this row now holds MORE than the footer did (an origin button whose away label names two places,
+   a home button, a search affordance and two clock times). Without a wrap the row resolves by
+   shrinking the origin button to nothing. With it, the times drop to their own line. `row-gap` is
+   smaller than the column gap so a wrapped row does not read as two blocks.
+
+   Horizontal padding is ZERO, unlike the footer's: this row is INSIDE `.wf-mast`, which already
+   carries `--wf-gutter`. The vertical values are the design's own `5px 0 8px`. */
+.wf-tick {
+  display: flex;
+  align-items: center;
   flex-wrap: wrap;
-  gap: 3px 8px;
-  padding: 6px var(--wf-gutter) 0;
+  gap: 4px 8px;
+  padding: 5px 0 8px;
+}
+/* The origin button and the search affordance in one bordered group with a hairline between, as
+   the design draws them. They stay two BUTTONS — same action in most states, different in the
+   empty one, and two names is what lets a screen reader tell them apart. */
+/* The origin control and the ⌂ beside it, as ONE flex item — see `MastheadTickLine`'s note. `.wf-tick`
+   wraps, and a flex line breaks on hypothetical main sizes, so as siblings the ⌂ was pushed onto the
+   next line alone and landed beside the clock times, detached from the origin it undoes. */
+.wf-tick-origin-set {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  max-width: 100%;
+}
+.wf-tick-group {
+  display: inline-flex;
+  align-items: stretch;
+  min-width: 0;
+  max-width: 100%;
+  /* ⚠️ NOT `--color-plex-border-light`, and the correction is measured. That token is `#4A3A2E`,
+     which on the masthead gradient's lower stop (`#1B1411`) is **1.68:1** — the note this rule
+     inherited from the deleted origin chip claimed 2.9:1, which was taken against a different
+     ground and was wrong here by 1.7×. At 1.68 the frame, the separator inside it and the `/` chip's
+     edge are all effectively undrawn, and the frame is the only thing saying these two 9.5px mono
+     words are controls. `rgba(242,231,211,.4)` measures **3.33:1**, clearing 1.4.11's 3:1 for a
+     control's visual boundary with a little room. */
+  border: 1px solid rgba(242, 231, 211, 0.4);
+  border-radius: 9px;
+  background: transparent;
+  transition: border-color 120ms ease, background-color 120ms ease;
+}
+/* ⚠️ The hover must change something. This rule set `border-color` to the resting value — a literal
+   no-op, with a `transition` animating nothing — and the away rule below is equal specificity and
+   later in source, so away it lost BOTH declarations and hovering the group did nothing at all. The
+   ⌂ eight pixels to its right did brighten, which is what made the dead hover look deliberate. */
+.wf-tick-group:hover {
+  border-color: rgba(242, 231, 211, 0.62);
+  background: rgba(255, 255, 255, 0.05);
+}
+/* ⚠️ The away treatment is a BORDER and a text colour, never a fill, and the blue is deliberately
+   not a verdict token nor the tide one — it names a PLACE, not a quality, and `--color-tide` is
+   already this app's channel for an objective tide fact. (The bundle specifies its `--tide` here;
+   that reasoning is the one this arm has carried since P7 and it survives the move.) Re-measured on
+   the ground it now sits over — the masthead gradient's lower stop `#1B1411` rather than the page's
+   `#181210`: #8FB6D9 is **8.54:1**, and the border at 0.7 alpha composites to **4.77:1**, over
+   1.4.11's 3:1 for a control's visual boundary. (An earlier draft said 8.5 and ~3.5; the first was
+   right, the second was carried down from the deleted chip's own comment, which had it wrong too.
+   Every ratio in this block has been recomputed against the ground it actually sits on.) */
+.wf-tick-group[data-away='true'] {
+  border-color: rgba(143, 182, 217, 0.7);
+  background: rgba(143, 182, 217, 0.07);
+}
+/* Its own hover arm, because the rule above out-specifies the plain `:hover` — the same trap M1
+   recorded for `button.wf-hc:hover`, one component along. */
+.wf-tick-group[data-away='true']:hover {
+  border-color: rgba(143, 182, 217, 0.95);
+  background: rgba(143, 182, 217, 0.12);
+}
+.wf-tick-origin,
+.wf-tick-search {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  /* The design's 30px, and 34px on a phone — both at or above WCAG 2.5.8 AA's 24px, the phone one
+     at the 38px-ish size a thumb needs. */
+  min-height: 30px;
+  padding: 2px 9px;
+  border: 0;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  /* Secondary, not muted, and this is the ninth time this file has made the correction. Measured
+     on the masthead's lower stop: muted is 3.57:1 and fails AA at this size, secondary is 6.98:1. */
+  color: var(--color-plex-text-secondary);
+}
+.wf-tick-origin { max-width: 100%; }
+/* The place is the part a reader is actually looking for, so it takes the primary ink and the
+   weight; the button's own label ("HOME ·") stays secondary around it. */
+.wf-tick-place {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--color-plex-text);
+}
+.wf-tick-group[data-away='true'] .wf-tick-place { color: #8FB6D9; }
+/* The nudge keeps the coral the masthead's own prompt used, so the one thing on this row that is a
+   call to action rather than a statement still reads as one. Measured on the masthead's lower stop:
+   #E8593F is 5.14:1.
+   ⚠️ On the BUTTON, not on `.wf-tick-place`. The component's `GOLDEN_HOVER` Tailwind class sets
+   `color` on the button and `.wf-tick-place`'s own declaration would beat an inherited value — so
+   with the colour one level down, the hover moved the pin (which uses `currentColor`) and left the
+   words unchanged, which is the opposite of what its comment promises. */
+.wf-tick-nudge { color: var(--color-plex-coral); }
+.wf-tick-nudge .wf-tick-place { color: inherit; }
+.wf-tick-pin {
+  flex: 0 0 auto;
+  opacity: 0.9;
+}
+.wf-tick-group[data-away='true'] .wf-tick-pin { color: #8FB6D9; }
+.wf-tick-sep {
+  flex: 0 0 1px;
+  align-self: stretch;
+  background: var(--color-plex-border-light);
+}
+.wf-tick-group[data-away='true'] .wf-tick-sep { background: rgba(143, 182, 217, 0.45); }
+.wf-tick-glyph { font-size: 12px; }
+/* The keyboard hint, hidden on a phone — which has no keyboard to press it with, and no room. */
+.wf-tick-kbd {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  line-height: 1;
+  padding: 2px 4px;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 4px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-tick-home {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 30px;
+  min-height: 30px;
+  border: 1px solid rgba(143, 182, 217, 0.7);
+  border-radius: 9px;
+  color: #8FB6D9;
+  background: transparent;
+  transition: color 120ms ease, border-color 120ms ease;
+}
+.wf-tick-home:hover {
+  color: #B5D2EC;
+  border-color: rgba(143, 182, 217, 0.75);
+}
+/* The arm's own focus ring rather than the UA's, which is the convention roughly thirty-five rules
+   in this file already follow (`.wf-door`, `.wf-seg-btn`, `.wf-spot`, `.wf-search-row`,
+   `button.wf-hc`, `.wf-lens-reset`). `inset`, because the group clips its children at a 9px radius
+   and an outline drawn outside the border box would be cut at both ends. */
+.wf-tick-origin:focus-visible,
+.wf-tick-search:focus-visible,
+.wf-tick-home:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px var(--color-plex-gold);
+  border-radius: 8px;
+}
+
+/* Right-aligned by `margin-left: auto` rather than by a spacer, so a wrapped row drops the whole
+   group to the next line instead of leaving a stranded gap. */
+.wf-tick-times {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+}
+/* Drawn only when the origin is away — see `MastheadTickLine`'s note on whose light this is. */
+.wf-tick-lbl {
+  white-space: nowrap;
+  letter-spacing: 0.1em;
+  color: var(--color-plex-text-secondary);
 }
 /* A scroller from four tabs on, and the trigger was written into `WindowFirstShell` when the bar
    had two: a fourth tab needs `overflow-x: auto` PLUS bottom room, because the overflow computes
@@ -1098,14 +1312,44 @@
   /* One declaration moves every horizontal inset in the arm's chrome. */
   .wf-shell {
     --wf-gutter: 14px;
-    /* The stacked bar is ~2.5× the height of the single-row one, so the reservation moves with it.
-       Browser-measured, and deliberately taken from the bar's TALLEST state — the one carrying the
-       "today only" row — because over-reserving costs a focused card a few extra pixels of scroll
-       while under-reserving parks it behind a sticky element, which is the whole defect the
-       reservation exists to prevent. */
-    --wf-lens-reserve: 158px;
+    /* The stacked bar is ~2.5× the height of the single-row one, and M3 added the sticky masthead
+       above it. Browser-measured at 390px with the tick line wrapped to two lines (the away state):
+       masthead 134px, stacked bar 130px, plus the ring's 6. Over-reserving costs a focused card a
+       few extra pixels of scroll while under-reserving parks it behind a sticky element, which is
+       the whole defect the reservation exists to prevent — so where the two states of an element
+       differ, the taller one is taken. */
+    --wf-lens-reserve: 270px;
+    /* The masthead's phone height, browser-measured at 390px with the tick line WRAPPED — 134px,
+       the away state, where the label names two places and the times drop to their own line. The
+       unwrapped home state is 117px, and the taller value is deliberate: over-shooting leaves a
+       hairline of pane visible above the bar for one frame, where under-shooting parks the bar
+       under the band and hides the page's only lens controls. Same rule as the desktop value. */
+    --wf-mast-h: 134px;
   }
   .wf-mast { padding: 14px var(--wf-gutter) 0; }
+  /* The design's phone sizes: 34px controls, and the `/` chip goes — a phone has no keyboard to
+     press it with and the row needs every pixel the chip was taking.
+
+     ⚠️ The TYPE comes down too, which the first cut omitted and `flex-wrap` was silently absorbing.
+     The bundle's own phone block is `font-size: 9px; letter-spacing: .08em` on the origin control
+     and `8.5px/.08em` on the times; keeping the desktop 9.5px/.13em costs roughly 35–40px across a
+     row whose content box is 330px at 390px — about the width of the home button, at exactly the
+     width where the row is over budget. Wrapping is the fallback, not the plan. */
+  .wf-tick-origin,
+  .wf-tick-search {
+    min-height: 34px;
+    padding: 2px 8px;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+  }
+  .wf-tick-home { min-width: 34px; min-height: 34px; }
+  .wf-tick-kbd { display: none; }
+  .wf-tick-times {
+    gap: 9px;
+    font-size: 8.5px;
+    letter-spacing: 0.08em;
+  }
+  .wf-tick-origin-set { gap: 6px; }
   /* Restates the 4px. A `padding` shorthand ending in `0` is exactly how this file has twice
      zeroed a focus-ring reservation while its paired negative margin still applied. */
   .wf-tabs { padding: 10px var(--wf-gutter) 4px; }
@@ -2539,9 +2783,22 @@ button.wf-hc.also.on:hover {
    `.lgrp` :61, `.lens .k` :62, `.seg` :63-66, `.seg.home button.on` :67, `.lens .res` :70,
    `.stick.tmp` :71-72, `.lens .rst` :73-74; phone at :250-253).
 
-   `position: sticky` here and nowhere above it: the v2 shell suppresses the app header, the
-   masthead and the tab bar scroll away, and no ancestor sets `overflow`, a `transform`, a `filter`
-   or a `will-change` — any of which would silently re-base the stick onto itself. */
+   ⚠️ `position: sticky` here AND on `.wf-mast` above it, since M3. The claim this comment used to
+   make — "sticky here and nowhere above it" — was true of the shell as P15c left it and stopped
+   being true the moment the masthead grew the tick line: the design's chrome model has the
+   masthead pinned at `z-index: 45` with the bar resting against its bottom edge, and a search
+   dropdown "anchored under the masthead" is a promise about a masthead that is still on screen.
+   The two consequences that comment was really about both still hold, and both had to be checked
+   again rather than inherited: no ancestor of either element sets `overflow`, a `transform`, a
+   `filter` or a `will-change` (any of which would silently re-base the stick onto itself), and the
+   tab bar between them still scrolls away, which is what keeps the two sticky elements from
+   fighting over one edge.
+
+   `top` is the masthead's MEASURED height, not a literal — `WindowFirstShell` writes `--wf-mast-h`
+   through `useLensReserve`, the same measure/publish contract `--wf-lens-reserve` already used.
+   The masthead is not a fixed height: the tick line wraps at narrow widths and gains a home button
+   whenever the origin moves, so a written-down number here would park the bar over the times for
+   exactly the readers who had moved the origin. The `0px` fallback covers first paint. */
 .wf-lens {
   display: flex;
   align-items: center;
@@ -2578,10 +2835,34 @@ button.wf-hc.also.on:hover {
      row of its own at 664px (measured: 115.8px against 92px). */
   flex-wrap: wrap;
   position: sticky;
-  top: 0;
+  top: var(--wf-mast-h, 128px);
   /* Above the spot strip's focused card (3) and its edge fades (2), which is the only thing on the
-     Plan pane that raises itself at all. */
+     Plan pane that raises itself at all — and BELOW `.wf-mast`'s 45, which is the whole point of
+     the pair: the bar must slide under the masthead rather than over it. */
   z-index: 20;
+  /* Both halves of the stuck treatment animate, so the bar does not snap into a shadow on the
+     first pixel of scroll. The design's own `.18s`. */
+  transition: box-shadow 180ms ease, border-bottom-color 180ms ease;
+}
+/* The stuck state — a shadow and a raised bottom edge, so a bar overlapping the content it is
+   scrolling over reads as chrome rather than as part of that content. Driven by an
+   IntersectionObserver on `.wf-lens-sentinel`, never by a scroll listener: see `useStuckSentinel`.
+
+   ⚠️ It is a SHADOW plus a border tone, never a background change. The bar's background is already
+   `--color-plex-surface` and the pane behind it is `--color-plex-bg`; darkening it further to mark
+   the state would move a large flat area of the page for a transient condition, and the shadow is
+   what actually communicates depth. */
+.wf-lens-stuck {
+  box-shadow: 0 12px 26px rgba(0, 0, 0, 0.5);
+  border-bottom-color: var(--color-plex-border-light);
+}
+/* A zero-CONTENT box, 1px tall and pulled back by 1px so it costs no layout; it exists only to be
+   observed. `overflow: hidden` because a 1px box with no content still establishes a line box in
+   some engines, which would make it 1px of unexplained gap between the tab rule and the bar. */
+.wf-lens-sentinel {
+  height: 1px;
+  margin-bottom: -1px;
+  overflow: hidden;
 }
 /* A caption and its chips, always together. The handoff's rule and the reason for it: a wrap that
    puts "Rated" at the end of one row and its three chips at the start of the next leaves two
@@ -2953,7 +3234,27 @@ button.wf-hc.also.on:hover {
    `--wf-lens-reserve`; the values below are first-paint fallbacks only, each deliberately taken
    from the TALLEST state its media query can see — over-reserving costs a focused card a few pixels
    of scroll, where under-reserving parks it behind a sticky element. Every number here is
-   browser-measured; none is derivable in jsdom, which loads no CSS at all. */
+   browser-measured; none is derivable in jsdom, which loads no CSS at all.
+
+   ⚠️ **M3 MADE IT A SUM.** The masthead is `position: sticky` too, so this is masthead + bar + ring
+   rather than bar + ring, and the fallbacks moved with it (188px / 270px, both re-measured in a
+   browser). The paragraphs above describe the bar's four heights and are still true of the bar;
+   they are no longer the whole of what a focused card has above it.
+
+   ⚠️ And the "each deliberately taken from the TALLEST state its media query can see" claim above
+   was already an overstatement before M3 — 60px was the bar's RESTING 53.5px, not its wrapped 92px.
+   The desktop sum keeps that basis (masthead 128 + bar 53.5 + 6); the phone sum does take the
+   taller of each (masthead 134 wrapped + stacked bar 130 + 6). What actually covers every state is
+   the runtime measurement; these two are first-paint only. */
+/* ⚠️ M3: THE MATRIX CARDS AND THE TAB BAR JOIN THE LIST, and they should have been on it since M1.
+   `.wf-hc` is the Plan tab's PRIMARY control — six of them, any of which can sit above the fold on a
+   phone's transposed grid — and it was reserved against nothing, so a keyboard reader tabbing into
+   the matrix scrolled a card flush to the viewport top and lost it, its verdict word and its focus
+   ring behind the sticky chrome. That cost 53.5px before M3 and costs ~180px now, which is what
+   made it visible. `.wf-tab` is the same defect through a different door: the bar's roving arrow
+   handler calls `scrollIntoView({block: 'nearest'})` and the tab bar scrolls under the masthead. */
+.wf-hc,
+.wf-tab,
 .wf-spot,
 .wf-film-btn,
 .wf-film-all,
@@ -2964,7 +3265,7 @@ button.wf-hc.also.on:hover {
    does not overlap — so the reservation is inert there rather than wrong, and it is kept because
    `.wf-rr` is one class and the popup is not the only thing that could ever mount it. */
 .wf-rr {
-  scroll-margin-top: var(--wf-lens-reserve, 60px);
+  scroll-margin-top: var(--wf-lens-reserve, 188px);
 }
 /* The app's own phone boundary, as `.wf-spots` states it — 639px, not the handoff's 620px, because
    a second breakpoint 19px away would be one more thing to keep in step with `.wf-spots`, the
@@ -4080,96 +4381,9 @@ button.wf-hc.also.on:hover {
   }
 }
 
-/* ── Origin chip, beyond-line link and search (heat-field plan §4.8, P7) ───────────────────── */
+/* ── Beyond-line link and search (heat-field plan §4.8, P7; the origin chip moved into the
+   masthead's tick line at M3 and its rules went with it) ─────────────────────────────────── */
 
-/* The chip sits in the rail footer, where the `Home · <place>` line used to be — same slot, same
-   type scale, so the footer's rhythm is unchanged and only its affordance is new. */
-.wf-origin {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-}
-/* Contrast: `--color-plex-text-secondary` on the frame is 7.06:1 and on the panel 6.88:1, so the
-   resting chip clears AA at 10px with room. The away variant is measured beside it below. */
-.wf-origin-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  /* 24px is the WCAG 2.5.8 (AA) minimum, and the `⌂` control beside it already reserves that
-     height — so the chip cost nothing to bring up to it and was 22px only by omission. */
-  min-height: 24px;
-  min-width: 0;
-  max-width: 34ch;
-  padding: 2px 8px;
-  /* `--color-plex-border` measures 1.38:1 on the page ground, which is not a visible boundary for a
-     control (1.4.11 asks 3:1). Light border is 2.9:1 and is what the tab bar's own resting edge
-     uses; with the glyph inside it the chip reads as a control rather than as the plain line it
-     replaced. */
-  border: 1px solid var(--color-plex-border-light);
-  border-radius: 999px;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  line-height: 1.6;
-  color: var(--color-plex-text-secondary);
-  background: transparent;
-  white-space: nowrap;
-  transition: color 120ms ease, border-color 120ms ease;
-}
-/* ⚠️ The truncation lives on the TEXT SPAN, not on the chip. `text-overflow` applies to block
-   containers; the chip is `inline-flex`, so the pair `overflow: hidden` + `text-overflow: ellipsis`
-   clipped the place name mid-character with no ellipsis — `Home · Newcastle upon T`, which reads as
-   a corrupt name rather than as a truncation. The span blockifies as a flex item, which is why the
-   identical idiom works on `.wf-search-label` two rules down. */
-.wf-origin-place {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.wf-origin-chip:hover {
-  color: var(--color-plex-text);
-  border-color: var(--color-plex-border-light);
-}
-/* ⚠️ The away treatment is a BORDER and a text colour, never a fill. The design's blue chip is a
-   solid; on this surface a solid chip at 10px in the same row as the forecast age reads as a
-   verdict badge, which is the one vocabulary this arm reserves for the forecast itself. The blue
-   here is deliberately not any verdict token for the same reason — it names a place, not a
-   quality. Measured on the surface it actually sits on, the page ground `--color-plex-bg`
-   (#181210) — the footer is a sibling of the masthead, not inside its gradient: #8FB6D9 is
-   8.70:1, and the border at 0.7 alpha composites to 3.6:1, over 1.4.11's 3:1 for a control's
-   visual boundary. */
-.wf-origin-chip.away {
-  color: #8FB6D9;
-  border-color: rgba(143, 182, 217, 0.7);
-}
-.wf-origin-chip.away:hover {
-  color: #B5D2EC;
-  border-color: rgba(143, 182, 217, 0.75);
-}
-.wf-origin-glyph {
-  font-size: 9px;
-  opacity: 0.9;
-}
-/* Its own control, so the chip's job ("open search") never changes with the state. 24px is under
-   the 44px touch target the WCAG 2.5.8 AAA criterion asks for and above the 24px AA minimum, which
-   is the same trade every other 10px control in this footer makes. */
-.wf-origin-home {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 24px;
-  min-height: 24px;
-  border: 1px solid rgba(143, 182, 217, 0.7);
-  border-radius: 999px;
-  font-size: 10px;
-  color: #8FB6D9;
-  background: transparent;
-}
-.wf-origin-home:hover {
-  color: #B5D2EC;
-  border-color: rgba(143, 182, 217, 0.75);
-}
 /* Inline in the beyond line's own sentence, so it wraps with it rather than sitting under it as a
    second block. A button does not inherit font by default, hence `font: inherit`.
    ⚠️ `display: inline` on a `<button>` is NOT honoured — engines blockify form controls back to
@@ -4222,6 +4436,37 @@ button.wf-hc.also.on:hover {
      rather than sitting in its column. */
   --wf-search-inset: 14px;
 }
+/* Anchored under the masthead (A14). The panel is positioned exactly over the tick line it replaces
+   and covers it — `Modal` is Tailwind's `z-50` and `.wf-mast` is 45, so the covering is what the
+   stacking order already does and nothing has to be hidden underneath. The centred rule above stays
+   the FALLBACK: first paint, and any page where the tick line cannot be measured.
+
+   `position: absolute` inside `Modal`'s `fixed inset-0` overlay — the overlay is the containing
+   block, its box IS the viewport, and taking the panel out of flow is what makes the overlay's flex
+   centring simply not apply. `top`, `left`, `width` and the height cap arrive inline from a live
+   measurement: they are numbers about where the tick line happens to be, not design values.
+
+   ⚠️ `max-width: none` is load-bearing. The base rule caps the panel at 520px; the shell's column
+   is up to 1080px wide, so without this the dropdown would be a narrow box pinned to the left edge
+   of a wide tick line rather than the full-width sheet the design draws.
+
+   The top corners are square and the top border is gone so the panel reads as continuous with the
+   band above it rather than as a card floating over it. ⚠️ The bundle hangs its dropdown off the
+   masthead's own bottom edge (`top: calc(100% - 3px)` on `.mast`); this hangs off the TICK LINE's
+   top, because that is the row the panel replaces. So the panel's square top corners meet the light
+   rule's 2px-radius bottom corners rather than a straight border, leaving a 2px sliver of gradient
+   at each junction, and the panel covers the masthead's own bottom border and the tab bar. Both are
+   deliberate and both are visible; the alternative — anchoring to the masthead's bottom — would
+   leave the tick line drawn above an open search box, which is the thing A14 says must not happen. */
+.wf-search-anchored {
+  position: absolute;
+  align-self: auto;
+  margin-top: 0;
+  max-width: none;
+  border-top: 0;
+  border-radius: 0 0 13px 13px;
+  box-shadow: 0 26px 60px rgba(0, 0, 0, 0.66);
+}
 .wf-search-field {
   display: flex;
   align-items: center;
@@ -4269,15 +4514,75 @@ button.wf-hc.also.on:hover {
   text-transform: uppercase;
   color: var(--color-plex-text-secondary);
 }
+/* The bundle's four-column row: glyph, name-over-subline, best figure, action chip. `1fr` on the
+   text column and `auto` everywhere else is what lets a long place name truncate while the figure
+   and the chip keep their full width — the reverse (a shrinking figure) would put a half-drawn
+   rating on screen. `align-items: center` rather than the old `baseline`: the text column is now
+   two stacked lines, and a baseline shared with the first of them left the figure floating. */
 .wf-search-row {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 11px;
   width: 100%;
-  padding: 6px var(--wf-search-inset);
+  padding: 8px var(--wf-search-inset);
   border: 0;
   background: transparent;
   text-align: left;
+}
+.wf-search-glyph-col {
+  font-size: 12px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-search-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+/* The matched span. A wash rather than a solid, so the name still reads as one word. The colour and
+   the tint are the design's own pair; measured on the panel's `--color-plex-surface` with the tint
+   composited, #F6E9C8 is 11.4:1. */
+.wf-search-mark {
+  background: rgba(201, 162, 75, 0.28);
+  color: #F6E9C8;
+  border-radius: 2px;
+}
+/* Right-aligned and mono, so a column of ratings lines up on its own edge. */
+.wf-search-fig {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-family: var(--font-mono);
+  text-align: right;
+}
+.wf-search-fig-v {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-plex-text);
+}
+.wf-search-fig-c {
+  font-size: 9.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--color-plex-text-secondary);
+}
+/* The action chip. `--color-badge-tide` rather than `--color-tide`: this is ink on a dark panel and
+   the badge token is the lifted variant the design specifies for exactly that (`#9CCBD1`), which
+   measures 8.2:1 here where the base tide colour is 4.6:1. It also lives in `@theme static`, so it
+   cannot be pruned out from under this rule — the `--color-plex-panel` lesson. */
+.wf-search-act {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  padding: 3px 7px;
+  border: 1px solid rgba(156, 203, 209, 0.35);
+  border-radius: 999px;
+  color: var(--color-badge-tide);
 }
 /* The active row is marked by BACKGROUND and by a left rule, never by colour alone — the cursor
    moves without focus moving, so a reader who cannot distinguish the fill has nothing else to go
@@ -4306,25 +4611,47 @@ button.wf-hc.also.on:hover {
 .wf-search-row.off .wf-search-label {
   color: var(--color-plex-text-secondary);
 }
+/* Both are now children of `.wf-search-text` and STACK rather than sitting side by side, which is
+   what gives the sub-line room for three clauses (region · drive · outside your plan) where the old
+   inline form capped it at half the row. Each keeps its own truncation. */
 .wf-search-label {
-  flex: 1;
   min-width: 0;
   font-family: var(--font-sans);
-  font-size: 12.5px;
+  font-size: 13.5px;
+  font-weight: 600;
   color: var(--color-plex-text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* ⚠️ WRAPS, never truncates, and that is a meaning fix rather than a layout preference. This was
+   one joined string under `nowrap` + `text-overflow: ellipsis`, so the LAST clause was the first to
+   die — and the last clause is `outside your 3h area`, the one that changes what the row means. On
+   a 390px phone the text column is roughly 200px against a 55-character sub-line, so a reader was
+   shown a location with no indication it was outside the plan they were looking at. The design
+   wraps its clauses and colours that one for the same reason. */
 .wf-search-sub {
-  flex: 0 0 auto;
-  max-width: 50%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  min-width: 0;
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--color-plex-text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
+}
+.wf-search-cl {
   white-space: nowrap;
+}
+/* The clause that says this place is not in the plan. `--color-verdict-marginal` is the design's own
+   choice here and is NOT a judgement on the forecast in this context — the row carries its rating in
+   its own column, so the amber cannot be read as a grade. Measured on the panel's
+   `--color-plex-surface`: #E0A542 is 8.36:1. */
+.wf-search-cl.on-outside {
+  color: var(--color-verdict-marginal);
+}
+.wf-search-dot {
+  padding: 0 5px;
+  opacity: 0.55;
 }
 .wf-search-empty,
 .wf-search-foot {
@@ -4344,7 +4671,10 @@ button.wf-hc.also.on:hover {
        offset would push a short list off a short viewport. */
     margin-top: 0;
   }
-  .wf-search-sub { max-width: 42%; }
+  /* The chip is the design's own phone omission — it names what Enter does, and a phone has no
+     Enter. The figure stays: it is the reason to pick one row over another. */
+  .wf-search-act { display: none; }
+  .wf-search-row { gap: 9px; }
 }
 
 /* ── P8 · the four-day location sheet ─────────────────────────────────────────────────────────

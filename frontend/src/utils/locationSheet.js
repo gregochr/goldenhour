@@ -286,10 +286,16 @@ function leadLine(rows, dayCount, scoresKnown) {
 /**
  * What the "outside" badge says, which is never just "outside your plan".
  *
+ * <p>Exported since M3 because the search dropdown makes the same claim on the same rows, and the
+ * bundle's own copy for it there ("outside your plan") is the vague form this function exists to
+ * refuse — a reader who has moved the origin needs to know WHICH plan. One vocabulary, two
+ * surfaces, so a place can never be "outside your 3h area" on the sheet and "outside your plan" in
+ * the box that opened it.
+ *
  * @param {?object} origin the origin descriptor, or null for home
  * @returns {string} the badge's words
  */
-function outsideLabel(origin) {
+export function outsideLabel(origin) {
   return origin
     ? `outside ${origin.name}`
     : `outside your ${formatDriveDuration(GLANCE_MINUTES)} area`;

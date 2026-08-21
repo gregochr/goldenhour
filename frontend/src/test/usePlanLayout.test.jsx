@@ -120,15 +120,21 @@ describe('WindowFirstShell', () => {
     expect(tabs[1]).toHaveAccessibleName('Coming up');
   });
 
-  it('carries exactly two masthead controls, so no build/health pill creeps in', () => {
+  it('carries exactly the four masthead controls, so no build/health pill creeps in', () => {
     // The mock shows "● UP v2.17.7" unconditionally; §7 drops it, because build version and
     // service health are not a pilot user's business and HealthIndicator is admin-only. Asserting
-    // the ABSENCE of that string would pass whether or not anything was ever built — this counts
+    // the ABSENCE of that string would pass whether or not anything was ever built — this names
     // what the masthead actually offers instead, so an added control has to be argued for.
+    //
+    // ⚠️ Four since M3, not two: the tick line put the origin button and the search affordance in
+    // the same band. Named by testid rather than by visible text, because two of the four have
+    // labels that vary with state (the origin's place name, the nudge's swap) and a text list would
+    // then be a fixture detail rather than an inventory.
     renderShell();
     const masthead = screen.getByTestId('window-first-masthead');
-    const names = within(masthead).getAllByRole('button').map((b) => b.textContent.trim());
-    expect(names).toEqual(['⚙', 'Sign out']);
+    const ids = within(masthead).getAllByRole('button').map((b) => b.getAttribute('data-testid'));
+    expect(ids).toEqual(['window-first-settings', 'window-first-signout',
+      'window-first-origin-chip', 'window-first-search']);
   });
 
   it('renders at the design\'s 1080px frame, not the v1 arm\'s 896px column', () => {
@@ -158,18 +164,22 @@ describe('WindowFirstShell', () => {
     renderShell({ contentDisabled: true });
 
     expect(screen.getByTestId('window-first-tabs').className).not.toContain('pointer-events-none');
-    expect(screen.getByTestId('window-first-railfoot').className)
+    expect(screen.getByTestId('window-first-tickline').className)
       .not.toContain('pointer-events-none');
   });
 
-  it('shows no forecast age until there is a forecast to age', () => {
-    // The footer states a fact about the payload. With no payload the honest thing is silence —
-    // an empty "forecast" line is a claim with nothing behind it. The footer itself now survives,
-    // because P8 gave it a second half (the home prompt and "Edit reach") that is true regardless
-    // of whether a briefing has ever arrived.
+  it('shows no forecast age anywhere until there is a forecast to age', () => {
+    // The age states a fact about the payload. With no payload the honest thing is silence — an
+    // empty "forecast run" line is a claim with nothing behind it. M3 moved the age from the rail
+    // footer to the strip (one age per screen, Rule 7).
+    //
+    // ⚠️ Asserted over the whole rendered TEXT, not by two `queryByTestId` calls. The strip is
+    // `React.lazy` behind a `Suspense fallback={null}` and this describe renders synchronously, so
+    // a testid query for anything inside it is satisfied by a subtree that never mounted — it
+    // cannot fail for the reason its name gives.
     renderShell();
-    expect(screen.queryByTestId('window-first-age')).toBeNull();
-    expect(screen.getByTestId('window-first-railfoot')).not.toHaveTextContent('forecast');
+    expect(document.body.textContent).not.toMatch(/forecast run/i);
+    expect(document.body.textContent).not.toMatch(/ago/i);
   });
 });
 
@@ -376,9 +386,12 @@ describe('WindowFirstShell — the strip it hosts', () => {
     vi.setSystemTime(new Date('2026-08-04T12:34:00Z'));
     renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
 
-    const foot = screen.getByTestId('window-first-railfoot');
-    expect(foot).toHaveTextContent('forecast 34m ago');
-    expect(foot.textContent).not.toMatch(/sonnet|haiku|opus/i);
+    // M3: beside the change line rather than in the deleted rail footer. This fixture has no
+    // movement basis, so the plain run line is what renders — see the strip's own branch comment
+    // for why the two forms are mutually exclusive.
+    const line = screen.getByTestId('wf-heat-runage');
+    expect(line).toHaveTextContent('Last forecast run 34m ago');
+    expect(line.textContent).not.toMatch(/sonnet|haiku|opus/i);
     vi.useRealTimers();
   });
 
@@ -388,7 +401,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
     vi.setSystemTime(new Date('2026-08-04T12:05:00Z'));
     renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
 
-    expect(screen.getByTestId('window-first-railfoot')).toHaveTextContent('forecast 5m ago');
+    expect(screen.getByTestId('wf-heat-runage')).toHaveTextContent('Last forecast run 5m ago');
     vi.useRealTimers();
   });
 
@@ -547,6 +560,83 @@ describe('WindowFirstShell — the strip it hosts', () => {
 
         await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }); });
         expect(screen.queryByTestId('window-sheet')).toBeNull();
+      });
+
+      /**
+       * The whole walk, with SEARCH on top — the rung that was wired at M2 and dormant until M3.
+       *
+       * <p>M2 built `escapeEnabled` on all three lower layers and recorded that the ordering's
+       * first rung could not be reached: `/` was refused while any dialog was open, and
+       * `PlanSearch` closes itself on every pick, so search could never be open OVER anything. M3
+       * anchors search to the masthead — a surface the popup is drawn over rather than inside — so
+       * `/` is now permitted with the popup open, and this is the first test that can walk all
+       * three layers down.
+       */
+      it('⚠️ walks search → sheet → popup, one layer per press', async () => {
+        renderWithBriefing(twoWindows());
+        await openPopup(0);
+        fireEvent.click(screen.getByTestId('window-sheet-pick'));
+        await act(async () => { fireEvent.keyDown(document, { key: '/' }); });
+        // Search over a sheet over the popup would be three layers; the guard refuses it, so the
+        // stack under test is search over the popup. Close the sheet first, then open search.
+        expect(screen.queryByTestId('plan-search')).toBeNull();
+
+        await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }); });
+        expect(screen.queryByTestId('window-pick-dialog')).toBeNull();
+
+        await act(async () => { fireEvent.keyDown(document, { key: '/' }); });
+        expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
+        expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
+
+        // One press, one layer: search goes and the popup is still standing behind it.
+        await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }); });
+        expect(screen.queryByTestId('plan-search')).toBeNull();
+        expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
+
+        await act(async () => { fireEvent.keyDown(document, { key: 'Escape' }); });
+        expect(screen.queryByTestId('window-sheet')).toBeNull();
+      });
+
+      it('⚠️ refuses the arrow keys while search is over the popup', async () => {
+        // `← →` step windows, and a reader typing "wed" into the box must not also be walking the
+        // plan behind it. The guard existed before search could be open over the popup at all,
+        // which means nothing could exercise it until now.
+        renderWithBriefing(twoWindows());
+        await openPopup(0);
+        const before = screen.getByTestId('window-sheet-title').textContent;
+
+        await act(async () => { fireEvent.keyDown(document, { key: '/' }); });
+        await screen.findByTestId('plan-search');
+        await act(async () => { fireEvent.keyDown(document, { key: 'ArrowRight' }); });
+
+        expect(screen.getByTestId('window-sheet-title').textContent).toBe(before);
+      });
+    });
+
+    describe('the / shortcut against the popup', () => {
+      it('opens search over an open popup — the stack M3 exists to allow', async () => {
+        renderWithBriefing(twoWindows());
+        await openPopup(0);
+
+        await act(async () => { fireEvent.keyDown(document, { key: '/' }); });
+
+        expect(await screen.findByTestId('plan-search')).toBeInTheDocument();
+        // The popup stays MOUNTED underneath, which is what makes the Escape order meaningful —
+        // a search that closed the popup on the way in would need no ordering at all.
+        expect(screen.getByTestId('window-sheet')).toBeInTheDocument();
+      });
+
+      it('⚠️ still refuses it over a layer stacked ON the popup', async () => {
+        // Those are already stacked; a third layer has nowhere to go, and the reader's place in
+        // the sheet would be lost behind a box they cannot see the list of.
+        renderWithBriefing(twoWindows());
+        await openPopup(0);
+        fireEvent.click(screen.getByTestId('window-sheet-pick'));
+
+        await act(async () => { fireEvent.keyDown(document, { key: '/' }); });
+
+        expect(screen.queryByTestId('plan-search')).toBeNull();
+        expect(screen.getByTestId('window-pick-dialog')).toBeInTheDocument();
       });
     });
   });
@@ -1050,11 +1140,12 @@ describe('WindowFirstShell — the strip it hosts', () => {
     });
   });
 
-  describe('the rail footer\'s home prompt', () => {
+  describe('the tick line\'s home prompt', () => {
     // ⚠️ P7 moved the `Home · <place>` LINE onto the origin chip, which states the same fact and
-    // can be acted on (plan §4.8). The three-state rule the line carried is unchanged and is now
-    // pinned on the chip: a place is named only when one is known, and the separate "Home not set"
-    // prompt still fires only on an answered-with-no-home response.
+    // can be acted on (plan §4.8); M3 moved the chip into the masthead's tick line and folded the
+    // separate "Home not set" prompt into its empty state. The three-state rule is unchanged
+    // through both moves and is what is pinned here: a place is named only when one is known, and
+    // the prompt still fires only on an answered-with-no-home response.
     it('names the home the reach figures are measured from', () => {
       renderWithBriefing({ ...briefingWith('2026-08-04T12:00:00'), homePlace: 'Morpeth' });
       expect(screen.getByTestId('window-first-origin-chip')).toHaveTextContent('Home · Morpeth');
@@ -1064,7 +1155,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
       // The normal first-run state, and the reason the bar itself is never suppressed: the lens
       // stays a visible no-op and the prompt that fixes it lives here.
       renderWithBriefing({ ...briefingWith('2026-08-04T12:00:00'), homePlace: null });
-      expect(screen.getByTestId('window-first-home')).toHaveTextContent('Home not set');
+      expect(screen.getByTestId('masthead-set-postcode')).toHaveTextContent('Set a postcode');
     });
 
     it('names no PLACE while it does not know, and makes no claim about the setting', () => {
@@ -1076,16 +1167,26 @@ describe('WindowFirstShell — the strip it hosts', () => {
       // ORIGIN — where the page is planning from — and it is home whether or not a postcode is
       // saved. What must not appear is a place name, or the "not set" prompt.
       renderWithBriefing({ ...briefingWith('2026-08-04T12:00:00'), homePlace: undefined });
-      expect(screen.queryByTestId('window-first-home')).toBeNull();
-      expect(screen.getByTestId('window-first-origin-chip').textContent).toBe('⌂Home');
-      expect(screen.getByTestId('window-first-railfoot').textContent)
+      expect(screen.queryByTestId('masthead-set-postcode')).toBeNull();
+      // The pin is an SVG rather than a glyph since M3, so the button's text is the label alone.
+      expect(screen.getByTestId('window-first-origin-chip').textContent).toBe('Home');
+      expect(screen.getByTestId('window-first-tickline').textContent)
         .not.toMatch(/not set|·/i);
     });
 
-    it('offers a route to the settings that set it', () => {
-      const { onOpenSettings } = renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
-      fireEvent.click(screen.getByRole('button', { name: 'Edit reach' }));
-      expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    it('offers exactly ONE route to the settings that set it, and the nudge shares it', () => {
+      // ⚠️ M3 deleted "Edit reach". It was not a loss — the link opened the same modal the ⚙ two
+      // rows up already opens, so the route survives and only the DUPLICATE went. That is the claim
+      // worth pinning, and it needs both halves: the label is gone, and the two controls that
+      // remain (the cog, and the tick line's empty-state nudge) both reach the same handler.
+      const { onOpenSettings } = renderWithBriefing({
+        ...briefingWith('2026-08-04T12:00:00'), homePlace: null,
+      });
+      expect(screen.queryByText('Edit reach')).toBeNull();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+      fireEvent.click(screen.getByTestId('masthead-set-postcode'));
+      expect(onOpenSettings).toHaveBeenCalledTimes(2);
     });
 
     it('keeps that route working when the backend is DOWN', () => {
@@ -1095,19 +1196,34 @@ describe('WindowFirstShell — the strip it hosts', () => {
       // region when this test was written and the click assertion passed anyway; only the
       // containment check failed. The one control that fixes an empty lens must not go inert
       // exactly when a user is most likely to be poking at it. (The rail went at P2; the pane is
-      // now the greyed region, and the footer must still sit outside it.)
+      // now the greyed region, and the masthead must still sit outside it.)
       renderWithBriefing(briefingWith('2026-08-04T12:00:00'), { contentDisabled: true });
 
       expect(screen.getByTestId('window-first-pane').className)
         .toContain('pointer-events-none');
-      expect(dimmedAncestorOf(screen.getByTestId('window-first-edit-reach'))).toBeNull();
+      // Both survivors, so this cannot pass on a masthead the tick line has fallen out of.
+      expect(dimmedAncestorOf(screen.getByRole('button', { name: 'Settings' }))).toBeNull();
+      expect(dimmedAncestorOf(screen.getByTestId('window-first-tickline'))).toBeNull();
     });
 
-    it('keeps the forecast\'s age readable when the backend is DOWN', () => {
-      // The age becomes MORE useful with a dead backend, not less — it is the only thing on
-      // screen saying how stale what you are reading is.
+    it('⚠️ M3 TRADE: the forecast age is now inside the DOWN greying, and there is only one of it', () => {
+      // The deleted rail footer's own comment argued the opposite — "the forecast's AGE is the one
+      // fact that becomes more useful when the backend is down, not less" — and it was right about
+      // the fact. What it could not see is that the SAME age was already printed a second time, on
+      // the strip's change line, so the page carried two of them and §6's copy rule forbids that.
+      //
+      // M3 resolves it the way the plan directs (M3.5: "forecast age → beside the change line, one
+      // age, Rule 7"), and the cost is that the age now inherits the pane's `opacity-50`. It is
+      // still drawn and still readable — the treatment is not removal — and it is pinned here as a
+      // deliberate trade rather than left to be rediscovered as a defect. Reversing it means moving
+      // the age into the tick line AND stripping `runAge` from the change line, never adding a
+      // second copy back.
       renderWithBriefing(briefingWith('2026-08-04T12:00:00'), { contentDisabled: true });
-      expect(dimmedAncestorOf(screen.getByTestId('window-first-age'))).toBeNull();
+
+      const age = screen.getByTestId('wf-heat-runage');
+      expect(dimmedAncestorOf(age)).not.toBeNull();
+      // The half that makes the trade worth it: exactly one age on the page.
+      expect(screen.queryAllByText(/forecast run/i)).toHaveLength(1);
     });
   });
   describe('the promoted strip', () => {

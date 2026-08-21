@@ -5,6 +5,8 @@ import {
   firstSelectable,
   flattenRows,
   fold,
+  matchRange,
+  matches,
   nextSelectable,
 } from '../utils/planSearch.js';
 
@@ -52,17 +54,97 @@ describe('planSearch', () => {
     .map((g) => g.id);
 
   describe('fold', () => {
-    it('lower-cases and collapses whitespace, and nothing more', () => {
+    it('lower-cases and collapses whitespace', () => {
       expect(fold('  Lake   DISTRICT ')).toBe('lake district');
     });
 
-    it('keeps punctuation, so a hyphenated roster name still matches what a reader types', () => {
-      expect(fold("St Mary's")).toBe("st mary's");
+    /**
+     * ⚠️ THE REVERSAL. This module used to keep punctuation, on the argument that "stripping it
+     * would make 'stmarys' match, which nobody types". The bundle lists exactly that query as one
+     * that must work, and the premise was wrong anyway: a reader typing a place from memory is the
+     * one who leaves the apostrophe out. Each row below is a rewrite the fold now performs; they
+     * are separate cases rather than one because three of the four change the string's LENGTH and
+     * only the fourth is safe for highlighting.
+     */
+    it.each([
+      ['an apostrophe', "St Mary's", 'st mary s'],
+      ['a curly apostrophe', 'St Mary’s', 'st mary s'],
+      ['a hyphen', 'Barnard-Castle', 'barnard castle'],
+      ['an accent', 'Bâmburgh', 'bamburgh'],
+      ['an ampersand', 'Northumberland & Tyneside', 'northumberland and tyneside'],
+      ['the word saint', 'Saint Marys', 'st marys'],
+    ])('folds %s', (_label, input, expected) => {
+      expect(fold(input)).toBe(expected);
+    });
+
+    it('leaves a word that merely STARTS with saint alone', () => {
+      // `\b`-bounded, so a roster that grows a "Saintfield" does not become "stfield".
+      expect(fold('Saintfield')).toBe('saintfield');
     });
 
     it('survives null and undefined', () => {
       expect(fold(null)).toBe('');
       expect(fold(undefined)).toBe('');
+    });
+  });
+
+  describe('matches — the two passes', () => {
+    it.each([
+      ['the plain fold', 'st marys'],
+      ['⚠️ the whitespace-blind pass, which is the whole reason it exists', 'stmarys'],
+      ['a mid-word run', 'mary'],
+    ])('finds St Mary\'s by %s', (_label, query) => {
+      expect(matches(fold("St Mary's Lighthouse"), fold(query))).toBe(true);
+    });
+
+    it('finds an ampersanded region by the word a reader types', () => {
+      expect(matches(fold('Northumberland & Tyneside'), fold('and tyne'))).toBe(true);
+    });
+
+    it('still says no to something that is not there', () => {
+      expect(matches(fold("St Mary's Lighthouse"), fold('bamburgh'))).toBe(false);
+    });
+
+    it('an empty query matches everything, which is what the resting list rides on', () => {
+      expect(matches(fold('anything at all'), fold('   '))).toBe(true);
+    });
+  });
+
+  describe('matchRange — where the <mark> goes', () => {
+    it('names the span in the ORIGINAL string, not in the folded one', () => {
+      // The fold turns the apostrophe into a space, so the two strings have the same LENGTH here
+      // but not the same characters. The range must index the label as rendered.
+      const label = "St Mary's Lighthouse";
+      expect(matchRange(label, 'mary')).toEqual([3, 7]);
+      expect(label.slice(3, 7)).toBe('Mary');
+    });
+
+    it('⚠️ stops at the last matched character, never at the next one', () => {
+      // Taking the end from the FOLLOWING character's source index would swallow the apostrophe the
+      // fold dropped, and `St Mary's` would highlight `Mary'`.
+      const label = "St Mary's";
+      const [, end] = matchRange(label, 'mary');
+      expect(label.slice(0, end)).toBe('St Mary');
+    });
+
+    it('finds a span the accents hid', () => {
+      expect(matchRange('Bâmburgh Castle', 'bam')).toEqual([0, 3]);
+    });
+
+    it('⚠️ answers null for a row matched only by the WIDE fold, rather than guessing', () => {
+      // `&` → `and` and `saint` → `st` both change length, so a match position in the wide fold
+      // names no single span of the label. The row is still shown; it is shown unmarked, because a
+      // mark in the wrong place is worse than none.
+      expect(matchRange('Northumberland & Tyneside', 'and tyne')).toBeNull();
+      expect(matchRange("St Mary's Lighthouse", 'stmarys')).toBeNull();
+    });
+
+    it('answers null for an empty query, so a resting list draws no marks', () => {
+      expect(matchRange('Bamburgh', '   ')).toBeNull();
+    });
+
+    it('answers null when there is no match at all', () => {
+      expect(matchRange('Bamburgh', 'keswick')).toBeNull();
     });
   });
 
