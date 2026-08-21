@@ -34,6 +34,11 @@ const jsLiteral = (src, key) => {
 describe('masthead rule colours vs the tokens they copy', () => {
   const css = read('../index.css');
   const component = read('../components/shared/MastheadLight.jsx');
+  // M3 split the band in two. The rule's stop table stayed with the light; the amber's Tailwind
+  // hover class went with the nudge it styles, because Tailwind's scanner reads the source file
+  // that USES the class. So the pair below is now a CROSS-FILE equality, which is the one the
+  // drift could actually happen across.
+  const tickLine = read('../components/MastheadTickLine.jsx');
 
   it.each([
     ['SUNRISE', 'color-plex-coral'],
@@ -48,9 +53,13 @@ describe('masthead rule colours vs the tokens they copy', () => {
     // has to spell the hex out. The duplication is forced by the toolchain; this is what stops it
     // becoming a divergence — change GOLDEN alone and the link hovers to the old amber.
     const golden = /const GOLDEN = '(#[0-9A-Fa-f]{6})'/.exec(component)[1].toUpperCase();
-    const hover = /const GOLDEN_HOVER = 'hover:text-\[(#[0-9A-Fa-f]{6})\]'/.exec(component)[1].toUpperCase();
+    const hover = /const GOLDEN_HOVER = 'hover:text-\[(#[0-9A-Fa-f]{6})\]'/.exec(tickLine)[1].toUpperCase();
 
     expect(hover).toBe(golden);
+    // …and the tick line must IMPORT the constant rather than re-declare it, or the equality above
+    // would be comparing two independent literals that happen to agree today.
+    expect(tickLine).toContain("import { GOLDEN } from './shared/MastheadLight.jsx';");
+    expect(tickLine).not.toMatch(/^const GOLDEN = /m);
   });
 
   it('reads a token that really is declared, so the parse cannot silently pass', () => {

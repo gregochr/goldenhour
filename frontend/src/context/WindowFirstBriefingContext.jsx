@@ -392,7 +392,7 @@ export function WindowFirstBriefingProvider({
   }, []);
 
   /**
-   * The user's home, for the rail footer's prompt.
+   * The user's home, for the tick line's origin button and its empty-state prompt.
    *
    * <p>Plan §2.5 is explicit that this must not be a new flag or a 204 on the reach endpoint:
    * {@code GET /api/user/settings} already carries {@code homePostcode} and

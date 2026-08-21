@@ -2,7 +2,7 @@ import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useStat
 import PropTypes from 'prop-types';
 import BrandLockup from './shared/BrandLockup.jsx';
 import MastheadLight from './shared/MastheadLight.jsx';
-import PlanOriginChip from './PlanOriginChip.jsx';
+import MastheadTickLine from './MastheadTickLine.jsx';
 import WindowFirstLensBar from './WindowFirstLensBar.jsx';
 import WindowFirstPromotedStrip from './WindowFirstPromotedStrip.jsx';
 import WindowFirstDoors from './WindowFirstDoors.jsx';
@@ -20,6 +20,7 @@ import { buildPlanConflict } from '../utils/planConflicts.js';
 import { buildScoreIndex, buildSlotIndex } from '../utils/locationSheet.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
 import useLensReserve from '../hooks/useLensReserve.js';
+import useStuckSentinel from '../hooks/useStuckSentinel.js';
 
 /**
  * The heat strip, behind a lazy boundary — and the boundary is about the OTHER arm.
@@ -196,29 +197,23 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  * a DOWN backend is exactly what that treatment exists to mark — it is inside the pane, which
  * already carries it. The tab bar does not: it is navigation, and so is the masthead.
  *
- * <h2>The rail footer's two halves, both of them now — and it OUTLIVED the rail</h2>
+ * <h2>The rail footer is gone, and the tick line is where three of its four jobs went</h2>
  *
- * <p>The left one is the reach lens's prompt, and it lands here rather than on the bar itself for
- * the reason plan §2.5 gives: the bar is {@code position: sticky} and must not be suppressed for a
- * user with no home, so the thing that <em>varies</em> per user goes in the slot the design already
- * reserves for it. {@code Home · <place>} when one is set, "Home not set" when the settings response
- * says there is none, and <b>nothing at all</b> while that is still unknown — telling a user who has
- * a home that they have not set one, on the strength of a dropped request, is worse than silence.
- * "Edit reach" opens the same settings modal the cog does, which is where a postcode is entered.
+ * <p>It outlived the rail it was named for and did not outlive M3. The masthead's tick line
+ * ({@link MastheadTickLine}) is now, in the design's words, "the ONLY statement of where the plan
+ * is computed from; there is no separate origin chip or breadcrumb anywhere in the tab", so the
+ * origin control moved into it and the "Home not set" line became its empty state — the same
+ * three-way rule, unchanged: {@code Home · <place>} when one is known, the prompt when the settings
+ * response says there is none, and <b>nothing at all</b> while that is still unknown, because
+ * telling a user who has a home that they have not set one, on the strength of a dropped request,
+ * is worse than silence. "Edit reach" opened the same modal the ⚙ two rows up opens, so only the
+ * duplicate control went.
  *
- * <p>The right half is {@code generatedAt} formatted on the client (§2.8 — a server-rendered
- * relative string would mutate the ETagged body on every request) through the shared
- * {@code formatRelativeAge}, which already knows the instant is UTC. The design's {@code by Sonnet}
- * is dropped: the model name is admin-only today and is not a pilot user's business (§7). Its
- * "· reach set per day" is dropped too — the bar's own "today only" pill and its named reset state
- * that policy exactly when it applies, and §2.7's rule against marking one fact twice holds here as
- * well as it does for confidence.
- *
- * <p>The footer's ink moved from muted to secondary in the same change. Measured on the running
- * app: at 10px on {@code --color-plex-bg} muted is <b>3.55:1</b> and fails AA, secondary is
- * <b>7.09:1</b>. This is the fifth time the redesign has had to make that correction; leaving one
- * span of the row on the old tone to keep the diff smaller would have put two greys in one line
- * for no reason.
+ * <p>The age is the one that changed more than its address, and the deletion note beside the
+ * masthead below records the trade in full. In short: {@code generatedAt} is still formatted on the
+ * client (§2.8 — a server-rendered relative string would mutate the ETagged body on every request)
+ * through the shared {@code formatRelativeAge}, which already knows the instant is UTC; the design's
+ * {@code by Sonnet} and its "· reach set per day" stay dropped for the reasons §7 and §2.7 give.
  *
  * <h2>The lens bar sits between the tab rule and the pane, and is never dimmed</h2>
  *
@@ -416,17 +411,29 @@ export default function WindowFirstShell({
     tabRefs.current[next]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   };
   /**
-   * The arm's root, and the element that hosts `--wf-lens-reserve`.
+   * The arm's root, and the element that hosts `--wf-lens-reserve` and `--wf-mast-h`.
    *
-   * <p>The variable is written imperatively by {@code useLensReserve} rather than through the
-   * `style` prop below, and the two coexist because React updates a style object key by key: it
-   * never rewrites `cssText`, so a custom property it does not know about survives every re-render.
-   * The alternative — measuring into state and rendering it — puts a `setState` inside a
-   * `ResizeObserver` callback for a property that affects no layout, which is a loop waiting for
-   * someone to add a second use.
+   * <p>Both are written imperatively by {@code useLensReserve} rather than through the `style` prop
+   * below, and the two coexist because React updates a style object key by key: it never rewrites
+   * `cssText`, so a custom property it does not know about survives every re-render. The
+   * alternative — measuring into state and rendering it — puts a `setState` inside a
+   * `ResizeObserver` callback for properties that affect no layout of their own.
+   *
+   * <p>The masthead's height comes BACK as a number as well, and that one is not a duplicate: the
+   * stuck sentinel builds an {@code IntersectionObserver} {@code rootMargin} from it, which is a
+   * JavaScript string rather than a stylesheet value. One measurement, two consumers.
    */
   const shellRef = useRef(null);
-  useLensReserve(shellRef);
+  const mastHeight = useLensReserve(shellRef);
+  /**
+   * Whether the lens bar has left its resting place, and the sentinel that answers it.
+   *
+   * <p>M3's chrome model: the masthead is sticky at the top and the bar sticks below it, so the bar
+   * needs a treatment that says which of the two states it is in — without it, a bar overlapping
+   * content it is scrolling over reads as part of that content. The design's own answer is a shadow
+   * and a raised bottom border, and its own mechanism is a 1px sentinel above the bar.
+   */
+  const [lensSentinelRef, lensStuck] = useStuckSentinel(mastHeight);
   const [openPick, setOpenPick] = useState(null);
   /**
    * The drill-down's window, held by KEY rather than by the card object.
@@ -654,18 +661,6 @@ export default function WindowFirstShell({
   }, [briefing?.seasonalFeatures, onSeasonalFeaturesChange]);
 
   /**
-   * True while a dialog is over the pane — the spot sheet, the pick, search or the location sheet.
-   *
-   * <p>It suppresses the spot peek, and the pick dialog is included deliberately rather than only
-   * the sheet this phase adds. Both are {@code Modal}s, so both render inside Tailwind's
-   * {@code z-50} while {@code .wf-peek} is portalled to the body at {@code z-index: 60}; and
-   * {@code useDialogFocus} is explicitly not a focus trap, so from either one a keyboard user can
-   * Tab back onto a spot card behind the backdrop and paint a hover panel over the dialog. Fixing
-   * one and not the other would leave the same defect on the surface that has had it longer.
-   */
-  const modalOpen = sheetCard != null || openPick != null || searchSeed != null
-    || sheetSpot != null || openCard != null;
-  /**
    * Whether anything is stacked OVER the window popup — the whole of the Escape order.
    *
    * <p>{@code Modal} installs one document-level Escape listener per instance, so two open dialogs
@@ -674,17 +669,27 @@ export default function WindowFirstShell({
    * a sheet stacked over the popup, then the popup itself (plan-matrix §6 M2.5, and the bundle
    * README's own ordering).
    *
-   * <p>⚠️ <b>SEARCH is not an operand, and the ordering's first rung is presently unreachable.</b>
-   * The plan names search as the topmost layer, and the three sheets below take an
-   * {@code escapeEnabled} that folds it in — but {@code /} is refused while any dialog is open (this
-   * file's own guard, plus a {@code [role="dialog"]} query for the ones it cannot see), and
-   * {@code PlanSearch} closes itself on every pick, so search cannot presently be open OVER
-   * anything. The prop is wired rather than dropped because M3 moves search into the masthead's tick
-   * line, where it becomes reachable from a page the popup is over — and a guard added later, after
-   * the ordering has stopped being obvious, is the one that gets it wrong.
+   * <p><b>SEARCH's rung went live at M3, and it is the reason this whole ordering exists.</b> It
+   * was dormant through M2 — {@code /} was refused while <em>any</em> dialog was open, so search
+   * could never sit over anything and the three {@code escapeEnabled} props below guarded a case
+   * that could not arise. M3 anchors search to the masthead, which the popup is drawn over rather
+   * than in, so {@code /} is now permitted while the window popup is open and refused over
+   * everything else. Escape then takes exactly one layer per press: search, then a sheet stacked
+   * over the popup, then the popup itself.
    */
   const stackedOverPopup = sheetCard != null || sheetSpot != null || openPick != null;
-  /** The same question with search folded in — see the note above on why that arm is dormant. */
+  /**
+   * The same question with search folded in — live since M3; see the note above.
+   *
+   * <p>It is what suppresses the spot peek, and every dialog is an operand deliberately rather
+   * than only the sheets. They are all {@code Modal}s, so all render inside Tailwind's
+   * {@code z-50} while {@code .wf-peek} is portalled to the body at {@code z-index: 60}; and
+   * {@code useDialogFocus} is explicitly not a focus trap, so from any of them a keyboard user can
+   * Tab back onto a spot card behind the backdrop and paint a hover panel over the dialog. (This
+   * replaced a broader `modalOpen` flag that also counted the popup itself. The popup must NOT
+   * suppress the peek — it is the surface the peek is opened from — and once the `/` guard moved
+   * onto `stackedOverPopup` at M3 that flag had no other reader.)
+   */
   const modalOpenOverPopup = stackedOverPopup || searchSeed != null;
   const dimmed = contentDisabled ? ' opacity-50 pointer-events-none' : '';
   // The shared tiers, not a local copy: `generatedAt` is a zone-less UTC instant, and the one
@@ -710,7 +715,7 @@ export default function WindowFirstShell({
     [sheetSpot, briefing?.days],
   );
   /**
-   * The sheet's ratings, built from the RAW rows rather than taken from {@code scoreIndex}.
+   * The detail surfaces' ratings, built from the RAW rows rather than taken from {@code scoreIndex}.
    *
    * <p>The provider's index is keyed on {@code date|targetType|locationName} alone; this one joins
    * id-first, like every other join in the arm and like {@code buildSlotIndex} beside it. The
@@ -718,9 +723,13 @@ export default function WindowFirstShell({
    * it and an adversarial review caught the consequence: a renamed location timed correctly and
    * rated as unscored, under a heat field that still painted its star.
    */
-  const sheetScoreIndex = useMemo(
-    () => (sheetSpot ? buildScoreIndex(scoreRows) : null),
-    [sheetSpot, scoreRows],
+  const detailScoreIndex = useMemo(
+    // ⚠️ TWO readers since M3, and the gate widened with them: search's location rows print the
+    // place's own best window from the same id-first index, so the box and the sheet it opens can
+    // never disagree about what a place is rated. Still gated — a reader who opens neither pays
+    // nothing, which is the whole point of building it here rather than in the provider.
+    () => ((sheetSpot || searchSeed != null) ? buildScoreIndex(scoreRows) : null),
+    [sheetSpot, searchSeed, scoreRows],
   );
   /**
    * The region names the page is planning over — the planning area at home, the origin's own region
@@ -753,25 +762,38 @@ export default function WindowFirstShell({
    * {@code /} opens search — the design's own shortcut, and the one keyboard affordance the chip
    * cannot advertise.
    *
-   * <p>Guarded three ways, because a bare global {@code /} listener is a well-known way to make a
-   * page hostile: it is ignored while any dialog is open, while the reader is in a field (input,
-   * textarea, select, or anything {@code contenteditable} — the almanac has none but the settings
-   * modal is a sibling in {@code App}), and when a modifier is held, so browser and OS shortcuts
-   * are untouched. It is also Plan-only: on Coming up or the Map tab there is no window list to
-   * search into, and a shortcut that opens a dialog about another tab is worse than none.
+   * <p>Guarded four ways, because a bare global {@code /} listener is a well-known way to make a
+   * page hostile: it is ignored while the reader is in a field (input, textarea, select, or
+   * anything {@code contenteditable} — the almanac has none but the settings modal is a sibling in
+   * {@code App}); when a modifier is held, so browser and OS shortcuts are untouched; while a
+   * dialog this shell does not own is open; and while any of its own dialogs EXCEPT the window
+   * popup is. That last exclusion is M3's, and the guard below spells out why the popup is the one
+   * stack this arm supports. It is also Plan-only: on Coming up or the Map tab there is no window
+   * list to search into, and a shortcut that opens a dialog about another tab is worse than none.
    */
   useEffect(() => {
     if (effectiveTab !== 'plan') return undefined;
     const onKeyDown = (event) => {
       if (event.key !== '/' || event.metaKey || event.ctrlKey || event.altKey) return;
-      if (searchSeed != null || modalOpen) return;
-      // ⚠️ Not `modalOpen` alone. That flag knows only this shell's three dialogs, and
-      // `UserSettingsModal` is a SIBLING of the shell in `App` — so `/` over an open settings
-      // dialog stacked a second `aria-modal` overlay on it, with two document-level Escape
-      // handlers and two interleaved focus restores. Asking the document is the only test that
-      // covers a dialog this component cannot see. It also covers the unclosable drive-times
-      // spinner, which is the worst one to land a dialog on top of.
-      if (document.querySelector('[role="dialog"]')) return;
+      if (searchSeed != null) return;
+      // ⚠️ The WINDOW POPUP is deliberately absent from this list, and everything else is in it.
+      // Search is the topmost layer of the Escape order (M2.5) and M3 anchors it to the masthead —
+      // a surface the popup is drawn over rather than inside — so `/` over an open popup is the
+      // one stack this arm supports. Over a sheet, the pick dialog or the location sheet it stays
+      // refused: those are already stacked on the popup, and a third layer has nowhere to go.
+      if (stackedOverPopup) return;
+      // ⚠️ And a dialog this shell does not own still refuses, which is a DIFFERENT question from
+      // the flags above. `UserSettingsModal` is a SIBLING of the shell in `App` — `/` over an open
+      // settings dialog stacked a second `aria-modal` overlay on it, with two document-level
+      // Escape handlers and two interleaved focus restores. `Modal` renders in place rather than
+      // through a portal, so every dialog this shell owns is a DESCENDANT of its root and every
+      // one it does not is not: containment answers "is this mine" without naming any of them,
+      // which is what lets the popup be excluded above without also excusing the settings modal.
+      // It still covers the unclosable drive-times spinner, the worst one to land a dialog on.
+      const root = shellRef.current;
+      const foreign = Array.from(document.querySelectorAll('[role="dialog"]'))
+        .some((node) => !root || !root.contains(node));
+      if (foreign) return;
       // The shell is inert under a dead backend (`pointer-events: none`), so a keyboard shortcut
       // into it would be the one live control on a surface that says it is not.
       if (contentDisabled) return;
@@ -783,7 +805,7 @@ export default function WindowFirstShell({
     };
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [effectiveTab, searchSeed, modalOpen, contentDisabled]);
+  }, [effectiveTab, searchSeed, stackedOverPopup, contentDisabled]);
 
   /**
    * The plan's way out of a lens that has shut it — the bar's controls, reached from the message.
@@ -947,50 +969,44 @@ export default function WindowFirstShell({
             </button>
           </div>
         </div>
-        <MastheadLight light={light} onSetPostcode={onSetPostcode ?? onOpenSettings} />
-      </div>
-
-      {/* The rail footer, which OUTLIVES the rail (plan §1.1: "the rail *footer* is a separate
-          element and stays — only the tile row goes"). It sits outside any greyed region, and that
-          is a fix rather than a placement preference.
-          Everything in this row survives a dead backend: the home is a per-user setting, "Edit
-          reach" is the only route to fixing an empty lens — the same trap P4a fixed for the
-          masthead and this file fixed again for the exit button — and the forecast's AGE is the
-          one fact that becomes more useful when the backend is down, not less. Nothing here is
-          forecast content, so nothing here takes the treatment that marks it. */}
-      <div
-        data-testid="window-first-railfoot"
-        className="wf-railfoot flex items-center font-mono text-plex-text-secondary"
-      >
-        {/* The origin chip REPLACES the `Home · <place>` line this slot used to hold (plan §4.8):
-            it states the same fact and can be acted on, where the line could only be read. The
-            home-not-set prompt stays beside it rather than inside it — the chip is about the frame
-            of reference and the prompt is about a missing setting, and folding the second into the
-            first would make the control that moves the origin also the one that nags. */}
-        <PlanOriginChip
+        <MastheadLight light={light} />
+        {/* The tick line — the plan's origin, the way to change it, and today's times, in the one
+            row the design allows for all three. It is inside the band deliberately: the rail
+            footer it replaces sat outside, and a reader who has just moved the origin should not
+            have to look in two places to see where they moved it to. */}
+        <MastheadTickLine
+          light={light}
           origin={origin ?? null}
-          homePlace={homePlace || undefined}
+          homePlace={homePlace}
           onOpenSearch={() => setSearchSeed('')}
           onGoHome={() => setOrigin?.(null)}
+          onSetPostcode={onSetPostcode ?? onOpenSettings}
+          // The anchored search panel covers this row exactly, so its controls come out of the tab
+          // order while it is open — see the prop's own note on WCAG 2.4.11.
+          searchOpen={searchSeed != null}
         />
-        {/* Undefined is "we do not know yet", and it renders nothing. Only a settings response
-            that came back without a home says so out loud — and only at home, because an away
-            reader is not planning from a postcode and the prompt would be about nothing they can
-            see. */}
-        {!origin && homePlace === null && (
-          <span data-testid="window-first-home">Home not set</span>
-        )}
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          data-testid="window-first-edit-reach"
-          className="ml-auto hover:text-plex-text transition-colors"
-          style={{ textDecoration: 'underline', textUnderlineOffset: '2px' }}
-        >
-          Edit reach
-        </button>
-        {age && <span data-testid="window-first-age">forecast {age}</span>}
       </div>
+
+      {/* ⚠️ THE RAIL FOOTER IS GONE, and three of its four elements moved rather than died
+          (plan-matrix §6 M3.5, deletion ledger M3). `PlanOriginChip` and the "Home not set"
+          line are now the tick line's origin button and its empty state; "Edit reach" is the ⚙
+          it already opened, which is one route to the same modal rather than two side by side.
+
+          ⚠️ THE AGE IS THE ONE THAT COST SOMETHING, and the price is stated here rather than left
+          to be rediscovered. It moved beside the strip's change line — the plan's own placement —
+          so the page states ONE age (Rule 7) where the footer and that line had both been printing
+          the same `generatedAt`. Three things follow, and the third is a real loss:
+            · it is Plan-only now, where the footer sat above the tab bar and showed on every tab;
+            · it takes the pane's `contentDisabled` greying, where the footer sat outside it — still
+              drawn and readable at `opacity-50`, not removed;
+            · and it VANISHES when `WindowFirstHeatStrip` withdraws (`cards.length === 0 ||
+              spots.length === 0` — a failed `/api/locations`, a session with no roster), where the
+              footer printed it unconditionally.
+          The defence for the third is that the strip withdraws precisely when there is no forecast
+          on screen to be old, so the age would be qualifying nothing; the deleted row's own comment
+          ("the forecast's AGE is the one fact that becomes more useful when the backend is down")
+          argued the other way, and a reader who wants it back should move the age into the tick
+          line AND strip `runAge` from the change line — never add a second copy. */}
 
       <div
         data-testid="window-first-tabs"
@@ -1045,7 +1061,20 @@ export default function WindowFirstShell({
           across 5 windows" over a pane containing neither. It is unmounted rather than hidden so
           the sticky bar cannot take a scroll position with it. */}
       {effectiveTab === 'plan' && reachLens && ratingLens && (
+        <div
+          ref={lensSentinelRef}
+          data-testid="window-first-lens-sentinel"
+          aria-hidden="true"
+          // 1px and empty. It exists to scroll away where the bar above it does not — see
+          // `useStuckSentinel`. Rendered inside the same conditional as the bar so the observer's
+          // target and its subject come and go together; a sentinel that outlived the bar would
+          // report a stick for an element that is not on the page.
+          className="wf-lens-sentinel"
+        />
+      )}
+      {effectiveTab === 'plan' && reachLens && ratingLens && (
         <WindowFirstLensBar
+          stuck={lensStuck}
           lens={reachLens}
           ratingLens={ratingLens}
           spotCount={windowCards.reduce((total, card) => total + card.spots.length, 0)}
@@ -1341,14 +1370,39 @@ export default function WindowFirstShell({
             regions={regions}
             locations={heatSpots}
             originId={origin?.id ?? null}
+            // The figure and sub-line columns (M3.4). Every one is a value some other surface on
+            // this page already draws — the sheet's id-first ratings, the page's reach map and its
+            // planning area — handed over rather than re-derived, so the box cannot state a
+            // different answer from the thing it opens. (The window figure needs no prop at all:
+            // `heatStripCards` already carries each window's own `bestReach`.)
+            reachById={effectiveReachById}
+            scoreIndex={detailScoreIndex}
+            scopeRegionNames={planScopeNames}
+            origin={origin ?? null}
             onClose={() => setSearchSeed(null)}
             onPickWindow={openWindow}
-            onPickRegion={(region) => setOrigin?.(region)}
+            // ⚠️ CLOSES THE POPUP IN THE SAME COMMIT, and that is the P8 invariant rather than
+            // tidiness. (Not an ordering: React batches both setters out of one handler, so the
+            // unmount and the origin change land together and there is no frame in which the popup
+            // is rendered against the new origin — a stronger guarantee than "close, then move".)
+            // Search can now sit OVER an open window popup (M3's whole point), so without this a
+            // reader could move the origin while the popup watched: the reach default drops to 90,
+            // `effectiveReachById` swaps, and the popup's spot strip, best-in-reach figure, spread
+            // histogram, region rail and every leave-by re-derive underneath them. P8 refused to
+            // build exactly that, and M4.3's `Plan from <region>` footer is specified as
+            // close-then-move for the same reason — two contradictory semantics for one action on
+            // one screen is what this avoids.
+            onPickRegion={(region) => { openWindow(null); setOrigin?.(region); }}
             // P8: a location result opens that place's own six-window timeline rather than jumping
             // straight to the map. The map is not lost — the sheet's footer carries it and names
-            // the window it opens — and this is the ONLY entry point (§9.9, resolved by the owner
-            // 2026-08-20): a spot card's click and the peek's keep today's behaviour byte-for-byte.
-            onPickLocation={(spot) => setSheetSpot(spot)}
+            // the window it opens — and this is the ONLY entry point until M4 (§9.9, resolved by
+            // the owner 2026-08-20): a spot card's click and the peek's keep today's behaviour.
+            //
+            // Closes the popup first, for the same reason `onPickRegion` above does. M4 DOES stack
+            // this sheet over the popup — but from the popup's own chips, where the reader is
+            // already looking at that window. Arriving from search is a different gesture, and it
+            // is the one the shell's own "closes FIRST" rule already governs everywhere else.
+            onPickLocation={(spot) => { openWindow(null); setSheetSpot(spot); }}
           />
         </Suspense>
       )}
@@ -1363,7 +1417,7 @@ export default function WindowFirstShell({
             key={sheetSpot.id ?? sheetSpot.name}
             spot={sheetSpot}
             windows={heatStripCards}
-            scoreIndex={sheetScoreIndex}
+            scoreIndex={detailScoreIndex}
             slotIndex={slotIndex}
             // A failed or in-flight ratings fetch is not evidence that nothing was rated, so the
             // sheet's "Not scored yet" is gated on the same flag the strip's unscored mark is.

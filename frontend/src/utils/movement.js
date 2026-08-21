@@ -97,8 +97,11 @@ export const MAX_MOVERS = 2;
  *
  * <p><b>A window that did not move is not a mover.</b> Its thumbnail already carries the {@code —}
  * eight pixels above, and "Tonight sunset — in Cumbria" is a sentence about nothing. So the line
- * ranks non-zero deltas only, and when none survives the caller renders no line at all rather than
- * an age with nothing attached to it (the shell's footer already prints that age).
+ * ranks non-zero deltas only. ⚠️ When none survives, the caller no longer renders NOTHING: since M3
+ * deleted the rail footer, the strip is the only place on the Plan screen that states the run's age,
+ * so it draws a plain "Last forecast run <age>" in the same slot. That is not this function's
+ * concern and is not a movement claim — the wording deliberately drops the verb — but the old text
+ * here said the opposite and pointed at a footer that no longer exists.
  *
  * <p>Ties break chronologically, because {@code cards} arrives in the payload's own order and the
  * sort below is stable. That is the strip's only ordering and the line must not introduce a second

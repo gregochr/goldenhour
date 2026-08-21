@@ -108,7 +108,7 @@ describe('P14 responsive hooks — shell chrome', () => {
   it.each([
     ['window-first-shell', 'wf-shell'],
     ['window-first-masthead', 'wf-mast'],
-    ['window-first-railfoot', 'wf-railfoot'],
+    ['window-first-tickline', 'wf-tick'],
     ['window-first-tabs', 'wf-tabs'],
     ['window-first-pane', 'wf-body'],
   ])('%s carries %s, the class its phone rule selects', (testId, className) => {
@@ -122,7 +122,7 @@ describe('P14 responsive hooks — shell chrome', () => {
   it('declares the gutter on an ancestor of everything that consumes it', () => {
     renderShell();
     const shell = screen.getByTestId('window-first-shell');
-    ['window-first-masthead', 'window-first-railfoot', 'window-first-tabs', 'window-first-pane']
+    ['window-first-masthead', 'window-first-tickline', 'window-first-tabs', 'window-first-pane']
       .forEach((testId) => expect(shell).toContainElement(screen.getByTestId(testId)));
   });
 
@@ -176,19 +176,28 @@ describe('P14 responsive hooks — shell chrome', () => {
   // that, because they are its only route to settings and its only route out — see §5i. The rule is
   // unconditional on purpose: a CSS-only hide would leave this green while pinning nothing, so if
   // this ever needs to become "two at desktop" it must be a JS branch, and this test must fail.
-  it('keeps both masthead controls at every width', () => {
+  //
+  // ⚠️ M3 added the tick line's two controls to the same band, so the row is asserted as an EXACT
+  // list of testids rather than as a count or as `toContain`. A count passes when one control is
+  // swapped for another; a `toContain` passes when a phone-only extra is added — which is exactly
+  // the axis this file exists to guard.
+  it('keeps the masthead\'s whole control row at every width', () => {
     renderShell();
     const masthead = screen.getByTestId('window-first-masthead');
-    const names = within(masthead).getAllByRole('button').map((b) => b.textContent.trim());
-    expect(names).toEqual(['⚙', 'Sign out']);
+    expect(within(masthead).getAllByRole('button').map((b) => b.getAttribute('data-testid')))
+      .toEqual(['window-first-settings', 'window-first-signout',
+        'window-first-origin-chip', 'window-first-search']);
   });
 
-  // Same argument one row down: `.wrap.mob .railfoot .b{display:none}` would take both of these, and
-  // the shell's own comment calls "Edit reach" the only route to fixing an empty lens.
-  it('keeps the rail footer escape hatch at every width', () => {
+  // Same argument one row down. "Edit reach" was the rail footer's escape hatch and M3 deleted the
+  // row; the route it opened is the ⚙ above, which this file already pins at every width. What is
+  // left to guard here is the control that REPLACED it as the phone's most squeezable element: the
+  // search affordance is the only way to move the origin with a pointer, and the design hides only
+  // its keyboard chip on a phone, never the button.
+  it('keeps the search affordance at every width', () => {
     renderShell();
-    const foot = screen.getByTestId('window-first-railfoot');
-    expect(within(foot).getByTestId('window-first-edit-reach')).toBeInTheDocument();
+    const tick = screen.getByTestId('window-first-tickline');
+    expect(within(tick).getByTestId('window-first-search')).toBeInTheDocument();
   });
 });
 

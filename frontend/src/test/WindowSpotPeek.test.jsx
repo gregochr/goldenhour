@@ -211,7 +211,8 @@ describe('WindowSpotPeek', () => {
     });
 
     it('states neither a forecast age nor a region, both of which are already on the page', () => {
-      // The rail footer states the forecast's age once for the whole screen and the spot card
+      // The strip's change line states the forecast's age once for the whole screen (the rail
+      // footer did until M3) and the spot card
       // prints its own region — §2.7's rule against marking one fact twice.
       renderPeek({ fierySky: 68, goldenHour: 74, clause: 'Clear to the west.' });
       const panel = screen.getByTestId('wf-peek');

@@ -1,17 +1,18 @@
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { describe, it, expect } from 'vitest';
+import { render, screen } from '@testing-library/react';
 import MastheadLight, { buildRuleGradient } from '../components/shared/MastheadLight.jsx';
 
 /**
  * The masthead's light rule — the band that turns the top of the screen into the first piece of
  * forecast rather than ornament.
  *
- * <p>Three claims carry the feature and none of them is "it renders". The rule's positions must
- * come from the served day rather than from a fixed palette, or the gradient is decoration wearing
- * data's clothes. The row must never be unlabelled, for the same reason. And the three states —
- * unresolved, no-home, resolved — must stay distinguishable, because collapsing the first two
- * flashes "set a postcode" at every reader who already has one.
+ * <p>Two claims carry what is left of it after M3's split, and neither is "it renders". The rule's
+ * positions must come from the served day rather than from a fixed palette, or the gradient is
+ * decoration wearing data's clothes. And the component must stay ONE element: the labelled row, the
+ * clock times and the postcode nudge all moved to {@code MastheadTickLine} — which is where their
+ * tests went too — because the row grew an origin control and a search affordance, and none of
+ * those is about light. The three-state contract itself is unchanged and is asserted on both sides.
  */
 
 /** Alnwick in midsummer, near enough — the handoff's own worked example. */
@@ -37,9 +38,7 @@ const LIGHT = {
   ],
 };
 
-const renderLight = (props = {}) => render(
-  <MastheadLight onSetPostcode={vi.fn()} {...props} />,
-);
+const renderLight = (props = {}) => render(<MastheadLight {...props} />);
 
 const ruleBackground = () => screen.getByTestId('masthead-light-rule').style.background;
 
@@ -101,31 +100,25 @@ describe('buildRuleGradient', () => {
 });
 
 describe('MastheadLight — the three states', () => {
-  it('holds the row height and says nothing while the answer is outstanding', () => {
-    // `undefined` is "not asked yet". Showing the nudge here would flash "set a postcode" at every
-    // reader who has one, on every load — which is why this is a distinct state and not just
-    // "falsy light".
-    renderLight({ light: undefined });
+  /**
+   * ⚠️ The rule draws the SAME dim bar for `undefined` and for `null`, so this pair is the whole of
+   * what this component can say about the difference — and the difference still matters, because a
+   * failed fetch resolves to `undefined` and must never be read as "no postcode saved". What acts
+   * on it is `MastheadTickLine`, whose own file pins the nudge. Both halves are asserted here so
+   * this component cannot start collapsing them: the rule is dim in each state, and it carries no
+   * nudge of its own to collapse them WITH.
+   */
+  it.each([
+    ['unresolved', undefined],
+    ['no home saved', null],
+  ])('renders nothing beyond the rule itself when the day is %s', (_label, light) => {
+    const { container } = renderLight({ light });
 
-    expect(screen.getByTestId('masthead-light-pending')).toBeInTheDocument();
-    expect(screen.queryByTestId('masthead-light-nudge')).toBeNull();
-    expect(screen.queryByTestId('masthead-light-times')).toBeNull();
-  });
-
-  it('offers the nudge once the answer is in and there is no home saved', () => {
-    renderLight({ light: null });
-
-    expect(screen.getByTestId('masthead-light-nudge')).toBeInTheDocument();
-    expect(screen.queryByTestId('masthead-light-pending')).toBeNull();
-    expect(screen.getByText(/Set your home postcode for your light times/)).toBeInTheDocument();
-  });
-
-  it('renders the labelled time row once the day resolves', () => {
-    renderLight({ light: LIGHT });
-
-    expect(screen.getByTestId('masthead-light-times')).toBeInTheDocument();
-    expect(screen.queryByTestId('masthead-light-nudge')).toBeNull();
-    expect(screen.queryByTestId('masthead-light-pending')).toBeNull();
+    expect(screen.getByTestId('masthead-light-rule')).toBeInTheDocument();
+    // The M3 split: the times, the label and the nudge all moved to the tick line, so this
+    // component is one element and a regression that re-grows a row here fails immediately.
+    expect(container.firstChild).toBe(screen.getByTestId('masthead-light-rule'));
+    expect(container.children).toHaveLength(1);
   });
 
   it.each([
@@ -142,173 +135,11 @@ describe('MastheadLight — the three states', () => {
     renderLight({ light: LIGHT });
     expect(ruleBackground()).toContain('25.28%');
   });
-});
 
-describe('MastheadLight — the labelled row', () => {
-  it('always names whose light it is drawing', () => {
-    // The label is mandatory: the UK spread between Cornwall and Northumberland is 20–30 minutes,
-    // which is honest at this precision only for as long as the row says whose day it is. Both
-    // forms render — the widths choose between them in CSS — so both must be present.
-    renderLight({ light: LIGHT });
-    const row = screen.getByTestId('masthead-light-times');
-
-    expect(within(row).getByText('Home · NE66 1NG')).toBeInTheDocument();
-    expect(within(row).getByText('NE66 1NG')).toBeInTheDocument();
-  });
-
-  /**
-   * Every long/short pair in this component, and why presence alone does not cover them.
-   *
-   * These three pairs each render BOTH forms and let CSS pick one. `getByText` reads text nodes and
-   * no class attribute, so emptying, deleting or SWAPPING the two visibility classes changes
-   * nothing any presence assertion can see — an adversarial review found all three unpinned. The
-   * concrete result of the swap: at 375px the label renders "NE66 1NGHome · NE66 1NG" inside a
-   * `whitespace-nowrap` span beside two clock times, and the desktop gets the bare postcode.
-   *
-   * jsdom resolves no media query, so the class pair IS the observable. Asserted as an exact,
-   * complementary pair — one hidden below `sm`, one hidden from `sm` up — because asserting only
-   * that both carry "some visibility class" is what let this through.
-   */
-  it.each([
-    ['location label', () => screen.getByText('NE66 1NG'), () => screen.getByText('Home · NE66 1NG'), LIGHT],
-    ['nudge sentence',
-      () => screen.getByText('Set a postcode for light and drive times.'),
-      () => screen.getByText(/Set your home postcode for your light times/), null],
-    ['nudge link text', () => screen.getByText('Set'), () => screen.getByText('Set postcode'), null],
-  ])('shows exactly one of the %s pair at any width', (_label, phoneForm, wideForm, light) => {
-    renderLight({ light });
-
-    // The phone form must be hidden from `sm` up, and carry no class that hides it below `sm`.
-    expect(phoneForm().className).toContain('sm:hidden');
-    expect(phoneForm().className.split(/\s+/)).not.toContain('hidden');
-
-    // The wide form must be hidden below `sm`, and shown from `sm` up.
-    expect(wideForm().className.split(/\s+/)).toContain('hidden');
-    expect(wideForm().className).toContain('sm:inline');
-  });
-
-  it('shows the two golden times and the two blue ones', () => {
-    renderLight({ light: LIGHT });
-
-    expect(screen.getAllByTestId('masthead-light-golden').map((n) => n.textContent))
-      .toEqual(['06:04 sunrise golden', '19:58 sunset golden']);
-    expect(screen.getAllByTestId('masthead-light-blue').map((n) => n.textContent))
-      .toEqual(['05:32 dawn blue', '20:31 dusk blue']);
-  });
-
-  it('drops only the blue pair at narrow widths, keeping the goldens at every size', () => {
-    // The design shows four times in a browser and two on a tablet and a phone. jsdom resolves no
-    // media query, so the responsive classes are the only place that is observable — and asserting
-    // them is what stops the pair being dropped outright or the goldens being hidden by mistake.
-    renderLight({ light: LIGHT });
-
-    screen.getAllByTestId('masthead-light-blue')
-      .forEach((n) => expect(n.className).toContain('hidden lg:inline'));
-    screen.getAllByTestId('masthead-light-golden')
-      .forEach((n) => expect(n.className).not.toContain('hidden'));
-  });
-
-  it('announces the EVENT, not just the kind — the row is the whole accessible answer', () => {
-    // The rule above is aria-hidden, so this row is all a screen reader gets. The kind alone does
-    // not answer it: "golden" is the same word for sunrise and for sunset, so the announcement was
-    // "05:32 blue, 06:04 golden, 19:58 golden, 20:31 blue" and the only thing separating morning
-    // from evening was DOM order — exactly the positional cue the hidden gradient was carrying.
-    renderLight({ light: LIGHT });
-
-    const named = ['dawn', 'sunrise', 'sunset', 'dusk'].map((event) => {
-      const span = screen.getByText(event);
-      expect(span.className, `${event} must reach AT at every width`).toContain('sr-only');
-      expect(span.className, `${event} must not be width-gated`).not.toContain('sm:not-sr-only');
-      return event;
-    });
-    expect(named).toHaveLength(4);
-  });
-
-  it('keeps the visible kind word out of the accessible name, so it cannot double up', () => {
-    // The visible label stays the KIND — on screen the amber and the left-to-right order already
-    // say which is which. It is aria-hidden so a screen reader hears "06:04 sunrise", not
-    // "06:04 sunrise golden".
-    renderLight({ light: LIGHT });
-    const [morning] = screen.getAllByTestId('masthead-light-golden');
-    const kindWord = within(morning).getByText('golden');
-
-    expect(kindWord).toHaveAttribute('aria-hidden', 'true');
-    expect(kindWord.className).toContain('hidden lg:inline'.split(' ')[0]);
-    expect(kindWord.className).toContain('sm:inline');
-  });
-
-  it('paints the golden times amber and weights them, so they read before the blues', () => {
-    // The row's only visual hierarchy. Asserted on the resolved colour rather than on a class,
-    // because the amber is an inline style — deliberately, so the gradient and the row cannot
-    // drift onto two different literals for the same accent.
-    renderLight({ light: LIGHT });
-
-    screen.getAllByTestId('masthead-light-golden').forEach((n) => {
-      expect(n).toHaveStyle({ color: 'rgb(224, 165, 66)' });
-      expect(n.className).toContain('font-medium');
-    });
-    screen.getAllByTestId('masthead-light-blue').forEach((n) => {
-      expect(n.style.color).toBe('');
-      expect(n.className).not.toContain('font-medium');
-    });
-  });
-
-  it('reserves the row height from the same constant the row is built from', () => {
-    // The placeholder's only job is that the page does not shift when the answer lands, and the two
-    // rows measure equal at 28.5px in the browser. Asserted as SET CONTAINMENT rather than as a
-    // literal checklist: the earlier version looked for seven named classes in both, which cannot
-    // see a layout-affecting eighth added to one of them — the exact drift its own comment claimed
-    // to prevent. Every class the placeholder carries must also be on the time row, whatever they
-    // are, which is what the shared ROW_METRICS constant guarantees.
-    const { rerender } = render(<MastheadLight light={LIGHT} onSetPostcode={vi.fn()} />);
-    const rowClasses = new Set(screen.getByTestId('masthead-light-times').className.split(/\s+/));
-
-    rerender(<MastheadLight light={undefined} onSetPostcode={vi.fn()} />);
-    const pendingClasses = screen.getByTestId('masthead-light-pending').className.split(/\s+/);
-
-    expect(pendingClasses.length).toBeGreaterThan(4);
-    pendingClasses.forEach((cls) => {
-      expect(rowClasses, `the time row must also carry "${cls}"`).toContain(cls);
-    });
-  });
-
-  it('never labels solar noon', () => {
-    // The pale band in the middle of the gradient already says midday, and the row's one line is
-    // not spent on the least useful light of the day. The stop still exists — the label does not.
-    renderLight({ light: LIGHT });
-
-    expect(screen.getByTestId('masthead-light-times').textContent).not.toMatch(/noon/i);
-    expect(buildRuleGradient(LIGHT.stops)).toContain('#F2E7D3 50.2%');
-  });
-
-  it('hides the rule from assistive technology, since the row is the whole answer', () => {
+  it('hides the rule from assistive technology, since the time row is the whole answer', () => {
+    // A gradient has no reading. Everything a non-sighted reader gets about today's light is in
+    // the tick line's time row, which is why that row keeps its per-time event names.
     renderLight({ light: LIGHT });
     expect(screen.getByTestId('masthead-light-rule')).toHaveAttribute('aria-hidden', 'true');
-  });
-});
-
-describe('MastheadLight — the nudge', () => {
-  it('opens the postcode setting when the link is pressed', () => {
-    const onSetPostcode = vi.fn();
-    renderLight({ light: null, onSetPostcode });
-
-    fireEvent.click(screen.getByTestId('masthead-set-postcode'));
-    expect(onSetPostcode).toHaveBeenCalledTimes(1);
-  });
-
-  it('keeps one accessible name at both widths, though the visible text shortens', () => {
-    // The phone renders "Set", which is not a self-explanatory control. The label is the long
-    // form everywhere and contains the short one, so nothing visible is missing from what is
-    // announced — and the name stays stable for anyone locating it by voice.
-    renderLight({ light: null });
-    const button = screen.getByRole('button', { name: 'Set postcode' });
-
-    expect(within(button).getByText('Set postcode')).toBeInTheDocument();
-    expect(within(button).getByText('Set')).toBeInTheDocument();
-  });
-
-  it('shortens the sentence for a phone as well as the link', () => {
-    renderLight({ light: null });
-    expect(screen.getByText('Set a postcode for light and drive times.')).toBeInTheDocument();
   });
 });

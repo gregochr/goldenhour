@@ -1,9 +1,108 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore,
+} from 'react';
 import PropTypes from 'prop-types';
 import Modal from './shared/Modal.jsx';
 import {
   buildSearchGroups, firstSelectable, flattenRows, nextSelectable,
 } from '../utils/planSearch.js';
+
+/**
+ * The tick line's box in viewport coordinates, kept fresh — or null when it cannot be measured.
+ *
+ * <h2>Why the panel is placed rather than centred</h2>
+ *
+ * <p>The design replaces the masthead's tick line with the search field and hangs the dropdown off
+ * the masthead's bottom edge. A14 kept this inside the shared {@code Modal} (which already solves
+ * focus, Escape and scroll) and asked for the anchored LOOK — so the panel is positioned exactly
+ * over the tick line and covers it. Every {@code Modal} is Tailwind's {@code z-50} and the masthead
+ * is 45, so covering is what the stacking order already does; nothing has to be hidden underneath,
+ * which is what keeps this to a position rather than a second piece of state in the shell.
+ *
+ * <p>Measured through {@code useSyncExternalStore} rather than into state from an effect: the
+ * viewport is an external store, and reading it during render is what makes the panel's first paint
+ * the anchored one. Measured rather than computed from `--wf-mast-h`: that property is the
+ * masthead's HEIGHT, and
+ * what is wanted is the tick line's top in viewport coordinates, which differs by the page's own
+ * scroll offset and by the band's padding. Re-read on scroll and resize because a page scrolled
+ * behind an open dialog moves the sticky masthead's edge exactly once — from its resting position
+ * to the top of the viewport — and a panel that did not follow would float over the matrix.
+ *
+ * <p><b>Null is the honest answer and it has a real caller.</b> jsdom measures every box as zero,
+ * and so does a first paint before layout; a zero-width panel is not a dropdown. The component
+ * falls back to the centred box the dialog shipped as, which is also what a build with no tick line
+ * on screen should get.
+ *
+ * @returns {?{top: number, left: number, width: number}} the box, or null
+ */
+function useTickLineBox() {
+  // The last box handed out. `useSyncExternalStore` compares snapshots with `Object.is`, so a fresh
+  // object per read would loop forever; this returns the SAME object until a number actually moves.
+  const cache = useRef(null);
+
+  const subscribe = useCallback((notify) => {
+    window.addEventListener('resize', notify);
+    // `capture`, because the page's own scroller may not be `window` — a scroll event from a nested
+    // container bubbles to the document in the capture phase whatever its target.
+    window.addEventListener('scroll', notify, { passive: true, capture: true });
+    return () => {
+      window.removeEventListener('resize', notify);
+      window.removeEventListener('scroll', notify, { capture: true });
+    };
+  }, []);
+
+  const getSnapshot = useCallback(() => {
+    // ⚠️ The CLASS, not the testid. A `data-testid` is a test contract; making it the only coupling
+    // between this dialog and the row it anchors to means a rename in a later sweep leaves the box
+    // working, centred, with nothing failing — `null` is a legitimate return here, so the degrade
+    // path would swallow the breakage. `.wf-tick` is a layout hook the responsive suite already
+    // pins, which is the nearest thing this arm has to a structural selector.
+    const node = document.querySelector('.wf-tick');
+    const rect = node?.getBoundingClientRect?.();
+    if (!rect || rect.width <= 0) { cache.current = null; return null; }
+    const next = {
+      top: Math.round(rect.top), left: Math.round(rect.left), width: Math.round(rect.width),
+    };
+    const prev = cache.current;
+    if (prev && prev.top === next.top && prev.left === next.left && prev.width === next.width) {
+      return prev;
+    }
+    cache.current = next;
+    return next;
+  }, []);
+
+  // A store rather than an effect, and not only to satisfy a lint rule: the snapshot is read during
+  // render, so the panel's FIRST paint is already anchored. Measuring in an effect would show it
+  // centred for one frame and then jump, which is the flash this whole placement exists to avoid.
+  return useSyncExternalStore(subscribe, getSnapshot, () => null);
+}
+
+/**
+ * A label with the matched span in a {@code <mark>}, or the plain label when there is no range.
+ *
+ * <p>The range is an index pair into the ORIGINAL string, computed by {@code planSearch.matchRange}
+ * against a fold that changes no character counts — so the slice below can be taken directly and
+ * the mark can never land off by the width of an apostrophe. A row matched only by the wide fold
+ * (an ampersand, a "saint", a query with the spaces left out) carries no range and renders plain,
+ * which is the honest outcome: the row is still the answer, and a mark in the wrong place is worse
+ * than none.
+ */
+function Highlight({ text, range }) {
+  if (!range) return text;
+  const [start, end] = range;
+  return (
+    <>
+      {text.slice(0, start)}
+      <mark data-testid="plan-search-mark" className="wf-search-mark">{text.slice(start, end)}</mark>
+      {text.slice(end)}
+    </>
+  );
+}
+
+Highlight.propTypes = {
+  text: PropTypes.string.isRequired,
+  range: PropTypes.arrayOf(PropTypes.number),
+};
 
 /**
  * One box over three kinds of thing — windows, regions to plan from, and locations (plan §4.8).
@@ -47,10 +146,15 @@ import {
  * @param {Function} [props.onPickLocation] opens that location's four-day sheet (P8); it was a
  *        jump straight to the map until §9.9 was resolved. The component itself is agnostic — it
  *        hands back the spot and lets the shell decide what a location result means.
+ * @param {?Map}     [props.reachById] the reach map the page plans from, for a location's drive
+ * @param {?object}  [props.scoreIndex] id-first ratings, for a location's best window
+ * @param {?Array}   [props.scopeRegionNames] the plan's regions, for the "outside" clause
+ * @param {?object}  [props.origin]    the origin descriptor, for that clause's wording
  */
 export default function PlanSearch({
   windows, regions, locations, originId = null, initialQuery = '',
   onClose, onPickWindow, onPickRegion, onPickLocation,
+  reachById = null, scoreIndex = null, scopeRegionNames = null, origin = null,
 }) {
   // Seeded once. The caller keys this component on the seed, so a new seed mounts a fresh box
   // rather than overwriting what the reader has since typed into an open one.
@@ -59,9 +163,10 @@ export default function PlanSearch({
 
   const groups = useMemo(
     () => buildSearchGroups(query, {
-      windows, regions, locations, originId,
+      windows, regions, locations, originId, reachById, scoreIndex, scopeRegionNames, origin,
     }),
-    [query, windows, regions, locations, originId],
+    [query, windows, regions, locations, originId, reachById, scoreIndex,
+      scopeRegionNames, origin],
   );
   const rows = useMemo(() => flattenRows(groups), [groups]);
 
@@ -120,11 +225,36 @@ export default function PlanSearch({
   };
 
   const activeId = rows[selected] ? `plan-search-row-${rows[selected].key}` : undefined;
+  const anchor = useTickLineBox();
 
   return (
     <Modal label="Search windows, regions and locations" onClose={onClose} bare closeOnEscape
       data-testid="plan-search">
-      <div className="wf-search-panel" role="presentation">
+      <div
+        className={`wf-search-panel${anchor ? ' wf-search-anchored' : ''}`}
+        data-testid="plan-search-panel"
+        role="presentation"
+        data-anchored={anchor ? 'true' : 'false'}
+        // Inline because these are three measurements, not three design values — the stylesheet
+        // owns everything about the panel except WHERE the tick line it replaces happens to be.
+        // `absolute` inside `Modal`'s `fixed inset-0` overlay, so the numbers are viewport
+        // coordinates either way and the flex centring above is simply not consulted.
+        // The three controls the panel covers are taken out of the tab order by the shell while
+        // this is open — see `MastheadTickLine`'s `searchOpen`. Reported here because the covering
+        // is this component's doing.
+        style={anchor ? {
+          top: `${anchor.top}px`,
+          left: `${anchor.left}px`,
+          width: `${anchor.width}px`,
+          // From the panel's own top rather than a viewport fraction: the anchor moves as the
+          // sticky masthead settles, and a `calc` in the stylesheet could not see where it landed.
+          // ⚠️ ONE arithmetic term, summed here rather than left as `- ${top}px - 16px`: jsdom's
+          // CSS serializer re-orders a two-subtraction calc into `- 16px + 96px`, which is a
+          // different number — so a multi-term form is untestable in this suite and only looks
+          // fine. 16 is `Modal`'s own overlay padding (`p-4`), kept off the bottom edge.
+          maxHeight: `calc(100dvh - ${anchor.top + 16}px)`,
+        } : undefined}
+      >
         <div className="wf-search-field">
           <span aria-hidden="true" className="wf-search-glyph">⌕</span>
           <input
@@ -176,8 +306,48 @@ export default function PlanSearch({
                     onMouseEnter={() => { if (!row.disabled) setSelected(index); }}
                     onClick={() => choose(row)}
                   >
-                    <span className="wf-search-label">{row.label}</span>
-                    <span className="wf-search-sub">{row.reason || row.sub}</span>
+                    {/* Decorative: the group heading above already names the kind, and a screen
+                        reader hearing "white diamond" learns nothing. */}
+                    <span aria-hidden="true" className="wf-search-glyph-col">{row.glyph}</span>
+                    <span className="wf-search-text">
+                      <span className="wf-search-label">
+                        <Highlight text={row.label} range={row.marks} />
+                      </span>
+                      {/* Clauses rather than one joined string, and the reason is truncation: the
+                          sub-line's LAST clause is the one that changes what the row means
+                          ("outside your 3h area"), and a single `nowrap` + ellipsis line is exactly
+                          where it dies. Wrapped, each clause survives; toned, the one that matters
+                          is findable. A `reason` (a row that cannot be chosen) replaces the whole
+                          line — it is about the row rather than about the place. */}
+                      <span data-testid="plan-search-sub" className="wf-search-sub">
+                        {row.reason
+                          ? row.reason
+                          : (row.subParts || []).map((part, i) => (
+                            <span
+                              key={part.text}
+                              className={part.tone ? `wf-search-cl on-${part.tone}` : 'wf-search-cl'}
+                            >
+                              {i > 0 && <span aria-hidden="true" className="wf-search-dot">·</span>}
+                              {part.text}
+                            </span>
+                          ))}
+                      </span>
+                    </span>
+                    {/* Both columns are omitted rather than blanked when there is nothing to put in
+                        them (Rule 6). The figure's caption names the window a location's star came
+                        from, so the star is never a bare number with no occasion attached. */}
+                    {row.figure && (
+                      <span className="wf-search-fig">
+                        <b className="wf-search-fig-v">{row.figure.value}</b>
+                        <span className="wf-search-fig-c">{row.figure.caption}</span>
+                      </span>
+                    )}
+                    {/* `aria-hidden`: it names what Enter does, which the footer already says once
+                        for the whole list — repeated on every row it would be 24 announcements of
+                        one keyboard rule. It is also hidden on a phone, where it does not fit. */}
+                    {row.action && (
+                      <span aria-hidden="true" className="wf-search-act">{row.action}</span>
+                    )}
                   </button>
                 );
               })}
@@ -232,4 +402,8 @@ PlanSearch.propTypes = {
   onPickWindow: PropTypes.func,
   onPickRegion: PropTypes.func,
   onPickLocation: PropTypes.func,
+  reachById: PropTypes.instanceOf(Map),
+  scoreIndex: PropTypes.shape({ byId: PropTypes.instanceOf(Map), byName: PropTypes.instanceOf(Map) }),
+  scopeRegionNames: PropTypes.arrayOf(PropTypes.string),
+  origin: PropTypes.shape({ name: PropTypes.string }),
 };

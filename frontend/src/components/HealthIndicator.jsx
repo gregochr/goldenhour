@@ -183,7 +183,8 @@ export default function HealthIndicator({
   // variants rather than reading DOWN in words and green in colour.
   const tone = MASTHEAD_TONE[label];
   // Muted fails AA at this size and this project has corrected that five times already — see the
-  // rail footer's note in `WindowFirstShell`. Measured on the running app at 10px on
+  // masthead note in `WindowFirstShell` (it was the rail footer's until M3 deleted that row).
+  // Measured on the running app at 10px on
   // `--color-plex-bg`: muted 3.55:1, secondary 7.09:1. The masthead panel is 10.5px, so it takes
   // secondary throughout and gets its hierarchy from position and weight instead of from a grey
   // nobody can read.

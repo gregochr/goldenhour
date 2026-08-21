@@ -77,7 +77,8 @@ LensSegment.propTypes = {
  * <p>Plan §2.5: "Do not suppress the lens bar — that makes a {@code position: sticky} element appear
  * per-user." A user with no home postcode gets the bar, the tiers and the readout; the gate simply
  * finds no drive time to act on and passes everything, which is the visible no-op rule 1 asks for
- * rather than a silently emptied page. The prompt to fix that lives in the rail footer, where the
+ * rather than a silently emptied page. The prompt to fix that lives in the masthead's tick line,
+ * as the origin button's empty state since M3 — it was the rail footer's until that row went, and
  * design reserves the slot.
  *
  * <h2>Two rows on a phone, and the label is what buys the room</h2>
@@ -139,7 +140,7 @@ LensSegment.propTypes = {
  */
 export default function WindowFirstLensBar({
   lens, ratingLens, spotCount, reachedCount = spotCount, windowCount,
-  originBase = null,
+  originBase = null, stuck = false,
 }) {
   const {
     tier, tierId, defaultTier, defaultTierId, weekend, overridden, locked, selectTier,
@@ -149,7 +150,13 @@ export default function WindowFirstLensBar({
   const count = formatLensCount({ spotCount, reachedCount, windowCount });
 
   return (
-    <div data-testid="window-first-lens" className="wf-lens">
+    <div
+      data-testid="window-first-lens"
+      // The stuck treatment is a class rather than a `data-` attribute so it can be written as one
+      // more rule in the `.wf-lens` block beside the geometry it modifies, which is where every
+      // other state on this bar lives.
+      className={`wf-lens${stuck ? ' wf-lens-stuck' : ''}`}
+    >
       {/* The greying stops HERE, and the upsell below is deliberately outside it. WCAG 1.4.3
           exempts an inactive control from the contrast floor, which is what lets the tiers sit
           at 0.45 — but the "Pro" pill is not inactive, it is the call to action, and inside the
@@ -264,4 +271,6 @@ WindowFirstLensBar.propTypes = {
   /** Defaults to {@code spotCount} — with no floor set the two are equal and no "of N" is drawn. */
   reachedCount: PropTypes.number,
   windowCount: PropTypes.number.isRequired,
+  /** Whether the bar has left its resting place — the shell's sentinel answers it (M3). */
+  stuck: PropTypes.bool,
 };
