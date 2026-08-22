@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.18.17] - 2026-08-22
+
 ### Changed — Plan tab M5: the sweep, and the strip that no longer has a job
 
 The **promoted strip** is gone. It existed to lift one coincidence above the fold; the matrix put
