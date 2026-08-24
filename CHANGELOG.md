@@ -63,6 +63,60 @@ could not actually catch the two surfaces disagreeing — `resolveSpotPeek` had 
 the two fields at all, unlike the sheet's. Both now apply the identical 0–100-integer bound, and
 the test proves agreement on a malformed row too, not just an ordinary one.
 
+### Added — location sheet superset, Phase 2: the golden and blue hour
+
+The other half of the owner's observation. The **map marker's popup** has always shown golden and
+blue hour clock times; **no Plan surface showed them at all** — so the deepest Plan surface could
+tell a reader a window was worth it without telling them when its light actually is.
+`LocationEvaluationView` now carries four boundaries (`goldenHourStart`/`End`,
+`blueHourStart`/`End`, UTC, the same representation `ForecastEvaluationDto` already uses so the
+client reuses `formatEventTimeUk` and there is one UTC→UK rule rather than a third), computed at
+serve time from the location's own lat/lon by `SolarService.goldenBlueWindow` — the same calculator
+the map popup uses. Nothing is persisted; there is no migration. The sheet renders them between the
+score bars and the prose, **in the order they happen for that event side**: blue then golden at a
+sunrise, golden then blue at a sunset, which is the map popup's own rule.
+
+Four things the review changed before this landed, each a defect rather than a polish.
+
+**The map's primary endpoint was paying for it.** `buildViews` is shared by
+`/api/briefing/evaluate/scores` and `GET /api/forecast`, and the first cut attached the times there
+— so every map mount spent three extra solar calculations per cached-only row for four fields
+`toSparseListDto` does not read and a controller that drops most of those rows anyway. Exactly one
+path serialises the fields, so exactly one path now computes them.
+
+**The documented polar degrade did not exist.** `solar-utils` returns *midnight of the date* — not
+null, not an exception — for an event that never occurs (`hourAngle` takes `acos` of an
+out-of-domain cosine, gets NaN, and `Math.round(NaN)` is 0). The `try`/`catch` written for "the
+polar edge case" could therefore never fire, and a Shetland midwinter sunset would have served
+`golden 00:00–14:49`: a fabricated fourteen-hour golden hour that passes every bracket check,
+because 00:00 genuinely is before sunset. The sentinel is now rejected **per boundary** — the same
+test `TodaysLightService.boundary` already applies, and stated there with the measurement at 60.8°N
+— so a sentinel civil dawn drops the blue window and leaves the golden one, which is a true partial
+answer rather than a suppressed whole one.
+
+**The light line made an old gap visible, so the gap was closed.** When the briefing carries no slot
+for a window — which `BriefingHonestyFilter` produces deliberately, by emptying the slot list of a
+region nothing has scored — the row's header time fell through to the window's *roster-wide* header
+clock, i.e. another location's. Quietly wrong before; with a light line built from this location's
+own geometry underneath it, two sunsets minutes apart on one row. The score row already carries this
+location's own event as a shared boundary (sunrise **is** `blueHourEnd`), so that is now tried
+first and the roster-wide clock is the last resort.
+
+**And a claim the code did not hold.** An earlier draft of the javadoc said the shared calculator
+made it impossible for the map popup and the Plan sheet to print different golden hours. The
+calculator is shared; the *inputs* are not — the mapper reads the coordinates snapshotted onto the
+forecast row at run time, this reads the live location — so between an Admin lat/lon edit and the
+next run the two legitimately differ. Neither is wrong, and the javadoc now says which question each
+is answering instead of denying the difference.
+
+Smaller, from the same review: each window is `whitespace-nowrap`, because the en dash is a
+break-after character and at 320px the line otherwise wrapped *inside* a range — the same
+`golden 19:57–` half-window the data path refuses to produce, delivered by layout; the line takes
+`--color-plex-text-secondary` (6.75:1, 4.80:1 dimmed) after the muted token it first reached for
+measured 3.53:1 and 2.73:1, under even the large-text floor; and the gap above it is twice the gap
+below, because `golden 19:57–20:41` six pixels under a bar labelled `Golden Hour 71` is one word
+meaning two things at the closest distance the layout allows.
+
 ## [v2.18.17] - 2026-08-22
 
 ### Changed — Plan tab M5: the sweep, and the strip that no longer has a job

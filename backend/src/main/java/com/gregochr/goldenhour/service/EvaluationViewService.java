@@ -19,12 +19,14 @@ import org.springframework.stereotype.Service;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Canonical merge layer that combines scored results from {@code cached_evaluation}
@@ -72,6 +74,7 @@ public class EvaluationViewService {
     private final ForecastEvaluationRepository forecastEvaluationRepository;
     private final LocationService locationService;
     private final ObjectMapper objectMapper;
+    private final SolarService solarService;
 
     /**
      * Constructs an {@code EvaluationViewService}.
@@ -81,17 +84,20 @@ public class EvaluationViewService {
      * @param forecastEvaluationRepository repository for forecast evaluation rows
      * @param locationService service for retrieving location entities
      * @param objectMapper Jackson mapper for JSON deserialisation
+     * @param solarService the sole calculator for the golden/blue hour boundaries
      */
     public EvaluationViewService(BriefingEvaluationService briefingEvaluationService,
             CachedEvaluationRepository cachedEvaluationRepository,
             ForecastEvaluationRepository forecastEvaluationRepository,
             LocationService locationService,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            SolarService solarService) {
         this.briefingEvaluationService = briefingEvaluationService;
         this.cachedEvaluationRepository = cachedEvaluationRepository;
         this.forecastEvaluationRepository = forecastEvaluationRepository;
         this.locationService = locationService;
         this.objectMapper = objectMapper;
+        this.solarService = solarService;
     }
 
     /**
@@ -168,7 +174,18 @@ public class EvaluationViewService {
         Map<String, CachedEntry> cachedByKey = loadCachedEvaluations(start, end, locations);
         Map<String, ForecastEvaluationEntity> latestForecasts =
                 loadLatestForecasts(locations, start, end, types);
-        return buildViews(cachedByKey, latestForecasts, locations, start, end, types);
+        Map<Long, LocationEntity> byId = locations.stream()
+                .collect(Collectors.toMap(LocationEntity::getId, loc -> loc, (a, b) -> a));
+        // ⚠️ The light times are attached HERE and not inside `buildViews`, which is shared with
+        // `cachedOnlyViewsForDateRange` — i.e. with `GET /api/forecast`, the map's primary
+        // endpoint. That caller hands every surviving view to `ForecastDtoMapper.toSparseListDto`,
+        // which reads none of the four, and drops most of them first as already covered by a
+        // persisted forecast row. Attaching in the shared method therefore spent three Meeus calls
+        // per cached-only row, on every map mount, for a value nothing on that path can read. The
+        // fields are serialised by ONE endpoint, so exactly one path pays for them.
+        return buildViews(cachedByKey, latestForecasts, locations, start, end, types).stream()
+                .map(view -> withLight(view, byId.get(view.locationId())))
+                .toList();
     }
 
     /**
@@ -567,8 +584,72 @@ public class EvaluationViewService {
                 ? briefingEvaluationService.getCachedEvaluatedAt(regionName, date, targetType)
                         .orElse(null)
                 : null;
-        return mergeToView(loc.getId(), loc.getName(), regionId, regionName, date, targetType,
-                cachedResult, cachedEvaluatedAt, forecastRow);
+        return withLight(mergeToView(loc.getId(), loc.getName(), regionId, regionName, date,
+                targetType, cachedResult, cachedEvaluatedAt, forecastRow), loc);
+    }
+
+    /**
+     * Attaches this location's golden/blue hour boundaries for the view's own date and event.
+     *
+     * <p>Pure astronomy from the location's lat/lon — never persisted, no migration, and
+     * deliberately <em>not</em> put on {@code BriefingSlot}, which serialises into
+     * {@code daily_briefing_cache} where a rollback would then throw on every cached row.
+     *
+     * <p>{@link SolarService#goldenBlueWindow} is the single calculator, the same one
+     * {@code ForecastDtoMapper} uses for the map popup. ⚠️ <b>That makes the astronomy shared; it
+     * does NOT make the two surfaces incapable of disagreeing, and an earlier draft of this
+     * javadoc claimed it did.</b> The mapper reads the coordinates <em>snapshotted onto the
+     * forecast row</em> at run time ({@code ForecastEvaluationEntity.locationLat/Lon}); this reads
+     * the <em>live</em> {@link LocationEntity}. Lat/lon is editable in the Admin UI, so between an
+     * edit and the next run the map popup and the Plan sheet legitimately compute from two
+     * different points. Neither is wrong — the map is describing the forecast it made — and the
+     * fix is not to converge them here but to know which question each is answering.
+     *
+     * <p>{@code HOURLY} has no solar event to bound. Two failure modes degrade to no times rather
+     * than to invented ones: a thrown exception, and the <b>midnight sentinel</b> — {@code
+     * solar-utils} returns midnight-of-the-date, not null and not a throw, for an event that never
+     * occurs, which around the solstice is every civil-twilight boundary above roughly 60.5°N and
+     * therefore reachable from the northern end of this roster. A bracket check alone accepts it
+     * (the sentinel sorts perfectly happily inside a day), so it is rejected per boundary by value.
+     * The one-boundary case matters: a sentinel civil dawn drops the blue window and leaves the
+     * golden one, which is a true partial answer rather than a suppressed whole one.
+     *
+     * <p>⚠️ <b>This deliberately does NOT carry {@code ForecastDtoMapper}'s lat/lon null guard, and
+     * that is a difference in the inputs rather than in the rule.</b> That mapper reads a forecast
+     * row's nullable {@code BigDecimal} copies of the coordinates, which genuinely can be absent;
+     * {@link LocationEntity#getLat()} and {@code getLon()} are primitive {@code double} on
+     * {@code NOT NULL} columns (V5), so "missing coordinates" is not a state this method can be
+     * handed. There is therefore no such test to write, and adding a guard would either be dead or
+     * would have to reject some real coordinate by value — which 0/0 is.
+     *
+     * <p>The remaining guard is {@code HOURLY} alone. Everything else that could go wrong here —
+     * a null date, a null target type — reaches the calculator and comes back through the
+     * {@code catch} as no times, which is the same answer a guard would have given for one fewer
+     * unreachable branch.
+     *
+     * @param view the merged view
+     * @param loc  the location the view is about
+     * @return the view with light times attached, or unchanged when there are none to attach
+     */
+    private LocationEvaluationView withLight(LocationEvaluationView view, LocationEntity loc) {
+        if (loc == null || view.targetType() == TargetType.HOURLY) {
+            return view;
+        }
+        try {
+            SolarService.SolarWindow window = solarService.goldenBlueWindow(
+                    loc.getLat(), loc.getLon(), view.date(),
+                    view.targetType() == TargetType.SUNRISE);
+            LocalDateTime midnight = view.date().atStartOfDay();
+            return view.withLightTimes(
+                    realOrNull(window.goldenHourStart(), midnight),
+                    realOrNull(window.goldenHourEnd(), midnight),
+                    realOrNull(window.blueHourStart(), midnight),
+                    realOrNull(window.blueHourEnd(), midnight));
+        } catch (Exception e) {
+            LOG.debug("Golden/blue hour calculation failed for {} on {} {}: {}",
+                    loc.getName(), view.date(), view.targetType(), e.toString());
+            return view;
+        }
     }
 
     /**
@@ -581,6 +662,10 @@ public class EvaluationViewService {
      *   <li>Triaged forecast_evaluation row → FORECAST_EVALUATION_TRIAGE</li>
      *   <li>Nothing → NONE</li>
      * </ol>
+     *
+     * <p>Every branch returns a view with <b>no light times</b>: they are attached once, by
+     * {@link #withLight}, because they answer a question this merge does not ask — the merge
+     * decides what was said about a slot, the light times are true of it whatever was said.
      *
      * <p><b>The freshness gate is the whole point of this method.</b> Cached evaluations used to
      * win unconditionally, and because a triaged slot makes no Claude call and therefore writes no
@@ -608,7 +693,8 @@ public class EvaluationViewService {
                     cachedResult.fierySkyPotential(), cachedResult.goldenHourPotential(),
                     cachedResult.triageReason(), cachedResult.triageMessage(),
                     null, cachedEvaluatedAt,
-                    displayVerdict);
+                    displayVerdict,
+                    null, null, null, null);
         }
 
         // 2. Scored forecast_evaluation row
@@ -623,7 +709,8 @@ public class EvaluationViewService {
                     forecastRow.getEvaluationModel() != null
                             ? forecastRow.getEvaluationModel().name() : null,
                     forecastRunInstant(forecastRow),
-                    displayVerdict);
+                    displayVerdict,
+                    null, null, null, null);
         }
 
         // 3. Triaged forecast_evaluation row
@@ -637,11 +724,37 @@ public class EvaluationViewService {
                     forecastRow.getTriage().getReason(), forecastRow.getTriage().getMessage(),
                     null,
                     forecastRunInstant(forecastRow),
-                    displayVerdict);
+                    displayVerdict,
+                    null, null, null, null);
         }
 
         // 4. Nothing
         return emptyView(locationId, locationName, regionId, regionName, date, targetType);
+    }
+
+    /**
+     * A boundary time, or null when it is {@code solar-utils}' never-occurs sentinel.
+     *
+     * <p>The library returns midnight-of-the-date for an event that does not happen — never null
+     * and never a throw. {@code SolarCalculator.hourAngle} takes {@code acos} of an out-of-domain
+     * cosine and gets NaN, and {@code Math.round(NaN)} is 0, so the result is
+     * {@code date.atStartOfDay()}, which reads as a perfectly ordinary time to every downstream
+     * check.
+     *
+     * <p>This is the SAME test {@link TodaysLightService}'s {@code boundary} already applies, and
+     * it is stated there with the measurement: at 60.8°N (Unst, a real UK postcode) against
+     * solar-utils 2.1.0, the sentinel lands on the civil pair at midsummer and on the golden pair
+     * at midwinter. The two surfaces differ only in the POLICY that follows the detection, and
+     * rightly: that one must draw a complete rule, so it substitutes an approximation; this one is
+     * one line among several on a card, so it goes quiet. Same detection, different answers to
+     * "what now".
+     *
+     * @param time     a boundary from {@link SolarService.SolarWindow}
+     * @param midnight start of the day the boundary was asked for
+     * @return the time, or null if it is the sentinel
+     */
+    private static LocalDateTime realOrNull(LocalDateTime time, LocalDateTime midnight) {
+        return time == null || time.equals(midnight) ? null : time;
     }
 
     /**
@@ -693,7 +806,8 @@ public class EvaluationViewService {
         return new LocationEvaluationView(
                 locationId, locationName, regionId, regionName, date, targetType,
                 Source.NONE, null, null, null, null, null, null, null, null,
-                DisplayVerdict.AWAITING);
+                DisplayVerdict.AWAITING,
+                null, null, null, null);
     }
 
     /**

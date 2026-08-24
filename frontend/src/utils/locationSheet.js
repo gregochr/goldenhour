@@ -103,6 +103,79 @@ function boundedScore(value) {
   return Number.isInteger(value) && value >= MIN_SCORE && value <= MAX_SCORE ? value : null;
 }
 
+/**
+ * A light-time boundary as served, or null. No shape check beyond "a non-blank string": the
+ * formatter downstream is the one that knows what parses, and a second opinion here could only
+ * disagree with it.
+ */
+function isoOrNull(value) {
+  return typeof value === 'string' && value.trim() !== '' ? value : null;
+}
+
+/**
+ * One labelled light window as {@code {label, range}}, or null when either end is unprintable.
+ *
+ * <p>Both ends or neither. Half a window is a claim the reader cannot act on — "golden 20:47–"
+ * says the light starts and never says it ends — and the sheet's rule everywhere else is that an
+ * absent fact is silence rather than a partial one.
+ */
+function lightWindow(label, startIso, endIso) {
+  const start = formatTime(startIso);
+  const end = formatTime(endIso);
+  return start && end ? { label, range: `${start}–${end}` } : null;
+}
+
+/**
+ * The solar event's own instant, recovered from a score row's light boundaries.
+ *
+ * <p>Not a second source for the event time — a THIRD-choice fallback for it, and strictly closer
+ * to the truth than the one it displaces. `SolarService.goldenBlueWindow` returns the event itself
+ * as a shared boundary (sunrise IS `blueHourEnd` and `goldenHourStart`; sunset IS `goldenHourEnd`
+ * and `blueHourStart`), so this row already carries this location's own sunrise or sunset whenever
+ * it carries a light line at all.
+ *
+ * <p>⚠️ It exists because Phase 2 made an old gap visible. When the briefing carries no slot for a
+ * window — which `BriefingHonestyFilter` produces deliberately, by emptying the slot list of a
+ * region nothing has scored — the header time falls back to `card.time`, the window's roster-wide
+ * header clock, i.e. some other location's. That was quietly wrong before; with a light line under
+ * it built from THIS location's geometry, it becomes two sunrise times minutes apart on one row
+ * with nothing explaining the gap. This is the same defect the header comment below records the
+ * first cut having, arriving by a different route.
+ *
+ * <p>The twin is tried second so a midnight-sentinel null on one end (the backend drops those) does
+ * not cost the event time, which the other end still carries.
+ *
+ * @param {?object} score      the score-row entry, or null
+ * @param {string}  targetType SUNRISE or SUNSET
+ * @returns {?string} the event's UTC instant as served, or null
+ */
+function eventInstantOf(score, targetType) {
+  if (!score) return null;
+  return targetType === 'SUNRISE'
+    ? (score.blueHourEnd ?? score.goldenHourStart ?? null)
+    : (score.goldenHourEnd ?? score.blueHourStart ?? null);
+}
+
+/**
+ * This window's golden and blue hours, in the order they happen for its own event side.
+ *
+ * <p>Sunrise runs blue → golden (civil dawn, sunrise, then the sun climbing to +6°); sunset runs
+ * golden → blue (the sun falling to the horizon, then civil dusk). The map popup already prints
+ * them in exactly this order for exactly this reason, and a drill-down that reversed them would
+ * have the same two facts telling two different stories about the same evening.
+ *
+ * @param {?object} score      the score-row entry, or null
+ * @param {string}  targetType SUNRISE or SUNSET
+ * @returns {?Array<{label: string, range: string}>} ordered windows, or null when neither prints
+ */
+function lightWindows(score, targetType) {
+  if (!score) return null;
+  const golden = lightWindow('golden', score.goldenHourStart, score.goldenHourEnd);
+  const blue = lightWindow('blue', score.blueHourStart, score.blueHourEnd);
+  const ordered = (targetType === 'SUNRISE' ? [blue, golden] : [golden, blue]).filter(Boolean);
+  return ordered.length > 0 ? ordered : null;
+}
+
 /** Every slot in an event summary, regioned and unregioned alike — {@code solarEventTimes}' rule. */
 function slotsOf(eventSummary) {
   const regioned = (eventSummary?.regions ?? []).flatMap(
@@ -174,9 +247,17 @@ export function buildSlotIndex(days) {
  * {@link PlanScoreBar}, which clamps and would otherwise draw a bar for a number the pipeline never
  * produced.
  *
+ * <p>And the four golden/blue hour boundaries (Phase 2), kept RAW here — UTC ISO strings exactly as
+ * the backend serves them — because this index is the join and formatting is the render's job. They
+ * are turned into UK clock times once, in {@link buildLocationSheet}, beside the row's own event
+ * time, which is already formatted there for the same reason. Unlike the scores there is no range
+ * to bound: an unparseable string produces no clock time and therefore no line, which is the same
+ * discard by a different mechanism.
+ *
  * @param {Array} scoreRows raw {@code LocationEvaluationView} rows
  * @returns {{byId: Map<string, object>, byName: Map<string, object>}} valued
- *          {@code {rating, summary, fierySky, goldenHour}}
+ *          {@code {rating, summary, fierySky, goldenHour, goldenHourStart, goldenHourEnd,
+ *          blueHourStart, blueHourEnd}}
  */
 export function buildScoreIndex(scoreRows) {
   const byId = new Map();
@@ -193,7 +274,16 @@ export function buildScoreIndex(scoreRows) {
     const fierySky = boundedScore(row.fierySkyPotential);
     const goldenHour = boundedScore(row.goldenHourPotential);
     index(byId, byName, row.locationId, row.locationName,
-      tailOf(row.date, row.targetType), { rating, summary, fierySky, goldenHour });
+      tailOf(row.date, row.targetType), {
+        rating,
+        summary,
+        fierySky,
+        goldenHour,
+        goldenHourStart: isoOrNull(row.goldenHourStart),
+        goldenHourEnd: isoOrNull(row.goldenHourEnd),
+        blueHourStart: isoOrNull(row.blueHourStart),
+        blueHourEnd: isoOrNull(row.blueHourEnd),
+      });
   }
   return { byId, byName };
 }
@@ -410,9 +500,13 @@ export function buildLocationSheet(spot, windows, {
       // order-dependent first slot when it fell back to `getEventTime` — so on a sheet about one
       // place it is somebody else's clock, printed one line above a departure derived from the
       // right one. The first cut did exactly that and the two disagreed by four minutes in its own
-      // fixture, with nothing on screen to explain the gap. `card.time` survives only as the
-      // fallback for a window the briefing carries no slot for.
-      time: formatTime(slot?.eventTime) || card.time,
+      // fixture, with nothing on screen to explain the gap. Second choice is this location's own
+      // event instant recovered from its score row (see `eventInstantOf` — the light line is built
+      // from the same geometry, so without this the two could print different sunrises one line
+      // apart). `card.time` survives only as the LAST resort, for a window with neither.
+      time: formatTime(slot?.eventTime)
+        || formatTime(card.away ? null : eventInstantOf(score, card.targetType))
+        || card.time,
       away: Boolean(card.away),
       stateLabel: card.verdictLabel,
       rating,
@@ -421,6 +515,14 @@ export function buildLocationSheet(spot, windows, {
       // never a second lookup, which is P8's load-bearing rule restated for two more fields.
       fierySky: card.away ? null : (score?.fierySky ?? null),
       goldenHour: card.away ? null : (score?.goldenHour ?? null),
+      // Phase 2, and from that SAME row again. Formatted here rather than in the component,
+      // beside `time` above, so this sheet holds one UTC→UK rule and not two. The `card.away`
+      // test mirrors its three neighbours rather than doing the work — the lookup itself is
+      // already skipped for a travel day, so either gate alone suffices and neither is pinnable
+      // on its own. What the tests pin is the behaviour: astronomy is true of a travel day, but
+      // nothing was consulted for it, and a light window under "nothing was forecast" reads as a
+      // forecast withheld rather than as a day off.
+      light: card.away ? null : lightWindows(score, card.targetType),
       leave,
       // ⚠️ The LOCATION'S OWN region's confidence, never `card.confidence` (which is the top
       // region's — right for a roster-wide thumbnail, wrong for one place in another region). Null

@@ -110,7 +110,8 @@ class ForecastControllerTest extends AbstractControllerTest {
                 1L, "Durham UK", null, null, futureDate, TargetType.SUNSET,
                 LocationEvaluationView.Source.CACHED_EVALUATION,
                 4, "Patchy mid cloud — could pop colour.", 72, 80,
-                null, null, null, null, DisplayVerdict.WORTH_IT);
+                null, null, null, null, DisplayVerdict.WORTH_IT,
+                null, null, null, null);
         when(evaluationViewService.cachedOnlyViewsForDateRange(
                 any(LocalDate.class), any(LocalDate.class), any(), any()))
                 .thenReturn(List.of(cachedView));
@@ -176,7 +177,8 @@ class ForecastControllerTest extends AbstractControllerTest {
         LocationEvaluationView duplicateView = new LocationEvaluationView(
                 1L, "Durham UK", null, null, LocalDate.of(2026, 2, 20), TargetType.SUNSET,
                 LocationEvaluationView.Source.CACHED_EVALUATION,
-                3, "stale", 50, 60, null, null, null, null, DisplayVerdict.MAYBE);
+                3, "stale", 50, 60, null, null, null, null, DisplayVerdict.MAYBE,
+                null, null, null, null);
         when(evaluationViewService.cachedOnlyViewsForDateRange(
                 any(LocalDate.class), any(LocalDate.class), any(), any()))
                 .thenReturn(List.of(duplicateView));
