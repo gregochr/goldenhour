@@ -23,6 +23,12 @@ PR lands (a phase cannot name its own hash); until then it reads *(fill after me
 
 ## 0. Process — branching, cadence, traps
 
+**Per-phase kickoff prompts for the implementing sessions: `docs/engineering/v1-retirement-prompts.md`**
+— written for Sonnet sessions (the owner's call: the judgement is encoded here at file:line
+granularity, so implementation is faithful execution plus the cadence). Each prompt restates its
+phase's traps inline, the stop-and-flag rule, and the review discipline (a zero-finding lens is
+"not examined", never "clean"); the owner may run the D3/D4 review lenses on a stronger model.
+
 **Branching — sequential, exactly as the brief says.** Each phase is its own branch and PR **off
 up-to-date `main`**, created only after the owner has merged (and, when they choose, released) the
 previous one — the same model `plan-matrix-prompts.md` defines for the M-series ("Each phase lands as

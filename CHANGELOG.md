@@ -24,7 +24,10 @@ prosecutor lenses, 41 charges, one refuter per charge; every charge upheld at le
 folded in — the two blocking finds were a surviving keyboard-a11y pin inside a test DELETE range,
 and a BrandLockup deletion list lifted from a docblock the tree contradicts, which would have
 stripped the tagline from the login pages). Phases land sequentially, each its own PR off up-to-date
-`main`; the owner merges and releases between them.
+`main`; the owner merges and releases between them. `docs/engineering/v1-retirement-prompts.md`
+carries the per-phase kickoff prompts, written for Sonnet implementing sessions — each restates its
+phase's traps inline, the stop-and-flag rule for anything the plan did not anticipate, and the
+review discipline (a zero-finding lens reports as "not examined", never "clean").
 
 ## [v2.18.17] - 2026-08-22
 
