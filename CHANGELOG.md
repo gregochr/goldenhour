@@ -5,6 +5,30 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the v1 Plan UI retirement plan
+
+`docs/engineering/v1-retirement-plan.md` — the owner's 2026-08-22 flip decision, phased: D0 flips
+`usePlanLayout`'s default to the window-first Plan (all three `PLAN_V1` fallback sites, not just the
+storage default); D1 deletes the flag machinery, the settings toggle, the shell's exit hatch and the
+suppressed v1 header, and redesigns the error boundary's recovery (clear-cached-data-and-reload +
+sign out, since "back to v1" stops existing); D2 deletes the v1 component estate (DailyBriefing,
+BriefingSummaryStrip, CloseToHome, CardHoverPreview, ViewToggle, the already-orphaned QualitySlider)
+and its ~5,000 test lines, salvaging by behaviour; D3 collapses every kept-for-v1 caller opt-in into
+the default (`scrollable`, `serverCellRating`, `HealthIndicator`'s variant, `BrandLockup`'s default,
+`useTodaysLight`'s gate, the marker `ramp` — `scoreRamp` becomes the map's only colour language,
+closing the design bundle's open question 2) and records the modal ruling (route-by-route stays;
+v1's departure removes none of `useDialogFocus`'s constraints); D4 rewrites CLAUDE.md truthful, runs
+the dead-file sweep and the full-surface review, and measures the bundle. Built from a nine-lens
+survey of the tree plus a completeness critic, then adversarially reviewed before landing (six
+prosecutor lenses, 41 charges, one refuter per charge; every charge upheld at least in part and
+folded in — the two blocking finds were a surviving keyboard-a11y pin inside a test DELETE range,
+and a BrandLockup deletion list lifted from a docblock the tree contradicts, which would have
+stripped the tagline from the login pages). Phases land sequentially, each its own PR off up-to-date
+`main`; the owner merges and releases between them. `docs/engineering/v1-retirement-prompts.md`
+carries the per-phase kickoff prompts, written for Sonnet implementing sessions — each restates its
+phase's traps inline, the stop-and-flag rule for anything the plan did not anticipate, and the
+review discipline (a zero-finding lens reports as "not examined", never "clean").
+
 ## [v2.18.17] - 2026-08-22
 
 ### Changed — Plan tab M5: the sweep, and the strip that no longer has a job
