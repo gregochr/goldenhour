@@ -154,7 +154,6 @@ async function renderShell(overrides = {}) {
   await act(async () => {
     render(
       <WindowFirstShell
-        onExit={vi.fn()}
         onOpenSettings={vi.fn()}
         onSignOut={vi.fn()}
         onShowOnMap={vi.fn()}

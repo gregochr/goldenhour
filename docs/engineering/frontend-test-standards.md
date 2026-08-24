@@ -137,15 +137,15 @@ But **where an element has a role contract, the test must assert through it**, b
 accessible name and the state *are* the behaviour for anyone not using a mouse:
 
 ```jsx
-// Not enough — passes even if the switch has no accessible name and never flips aria-checked
-const t = screen.getByTestId('settings-plan-layout-toggle');
+// Not enough — passes even if the tab has no accessible name and never flips aria-selected
+const t = screen.getByTestId('window-first-tab-map');
 fireEvent.click(t);
 
 // Right — the contract a screen reader and a keyboard user actually depend on
-const t = screen.getByRole('switch', { name: 'Window-first Plan' });
-expect(t).toHaveAttribute('aria-checked', 'false');
+const t = screen.getByRole('tab', { name: 'Map' });
+expect(t).toHaveAttribute('aria-selected', 'false');
 fireEvent.click(t);
-expect(onChange).toHaveBeenCalledWith('v2');
+expect(t).toHaveAttribute('aria-selected', 'true');
 ```
 
 Role queries are **required** for: anything interactive (`button`, `switch`, `link`, `checkbox`,

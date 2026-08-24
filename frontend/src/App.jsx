@@ -1,7 +1,5 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { computeAutoSelection } from './utils/conversions.js';
-import ViewToggle from './components/ViewToggle.jsx';
-import DateStrip from './components/DateStrip.jsx';
 import { buildMapOverlay } from './utils/mapOverlay.js';
 import LoginPage from './components/LoginPage.jsx';
 import RegisterPage from './components/RegisterPage.jsx';
@@ -9,9 +7,7 @@ import ChangePasswordPage from './components/ChangePasswordPage.jsx';
 import SessionExpiryBanner from './components/SessionExpiryBanner.jsx';
 import AuroraBanner from './components/AuroraBanner.jsx';
 import NlcSightingBanner from './components/NlcSightingBanner.jsx';
-import DailyBriefing from './components/DailyBriefing.jsx';
 import HealthIndicator, { VARIANT_MASTHEAD } from './components/HealthIndicator.jsx';
-import BrandLockup from './components/shared/BrandLockup.jsx';
 import UserSettingsModal from './components/UserSettingsModal.jsx';
 import { getSettings } from './api/settingsApi.js';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
@@ -22,10 +18,9 @@ import { useForecasts } from './hooks/useForecasts.js';
 import { useHealthStatus } from './hooks/useHealthStatus.js';
 import { useRunNotifications } from './hooks/useRunNotifications.js';
 import useAfterFirstPaint from './hooks/useAfterFirstPaint.js';
-import usePlanLayout, { PLAN_V1, PLAN_V2 } from './hooks/usePlanLayout.js';
 import useTodaysLight from './hooks/useTodaysLight.js';
 import WindowFirstShell from './components/WindowFirstShell.jsx';
-import PlanLayoutErrorBoundary from './components/PlanLayoutErrorBoundary.jsx';
+import PlanErrorBoundary from './components/PlanErrorBoundary.jsx';
 import { WindowFirstBriefingProvider } from './context/WindowFirstBriefingContext.jsx';
 
 // Code-split the heavy, rarely-first-viewed subtrees so they stay out of the initial bundle:
@@ -104,13 +99,9 @@ function AuthGate() {
  * Inner app component — only rendered when the user is authenticated.
  */
 function AppInner() {
-  const { isAdmin, logout, username, sessionDaysRemaining, token } = useAuth();
+  const { isAdmin, logout, token } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
-  // Which Plan tab this browser renders. Held here rather than read independently wherever it is
-  // needed: `useLocalStorageState` is per-instance, so a second reader would keep its own copy and
-  // toggling in the settings modal would write storage without re-rendering the page behind it.
-  const [planLayout, setPlanLayout] = usePlanLayout();
-  const { locations, loading, error, refresh } = useForecasts();
+  const { locations, refresh } = useForecasts();
   // Defer the two long-lived SSE streams until after first paint so they don't compete with the
   // critical forecast/briefing fetches during boot.
   const streamsReady = useAfterFirstPaint();
@@ -121,26 +112,17 @@ function AppInner() {
   } = useHealthStatus(streamsReady);
   const { lastCompletedRun } = useRunNotifications(!!token && streamsReady);
   const [showRunBanner, setShowRunBanner] = useState(false);
-  const [viewMode, setViewModeState] = useState(() => {
-    const hash = window.location.hash.replace('#', '');
-    if (hash === 'plan') return 'plan';
-    if (hash === 'map') return 'map';
-    if (hash.startsWith('manage') && isAdmin) return 'manage';
-    return 'plan';
-  });
 
-  /** Pending handoff from Plan tab to Map tab (event type to pre-select). */
-  const [mapHandoff, setMapHandoff] = useState(null);
   /** Map overlay opened over the Plan tab (null = closed). Reuses the same handoff/date as the Map tab. */
   const [mapOverlay, setMapOverlay] = useState(null);
   /** Monotonic counter so repeat taps on the same location re-trigger the handoff. */
   const handoffNonce = useRef(0);
 
-  /** Briefing evaluation scores lifted from DailyBriefing, passed to MapView. */
+  /** Briefing evaluation scores lifted from the Plan shell, passed to MapView. */
   const [briefingScores, setBriefingScores] = useState(new Map());
   const handleEvaluationScoresChange = useCallback((scores) => setBriefingScores(scores), []);
 
-  /** Seasonal features lifted from DailyBriefing, passed to MapView. */
+  /** Seasonal features lifted from the Plan shell, passed to MapView. */
   const [seasonalFeatures, setSeasonalFeatures] = useState([]);
   const handleSeasonalFeaturesChange = useCallback((features) => setSeasonalFeatures(features), []);
 
@@ -165,12 +147,11 @@ function AppInner() {
   /**
    * Today's light at the reader's home, for the window-first masthead's light rule.
    *
-   * <p>Resolved here rather than inside the shell so the shell stays a render layer, and gated on
-   * the arm because only that arm has a band to draw it in — a hook cannot be called conditionally,
-   * so the flag goes in as an argument. `homeSettingsVersion` is the same counter Close to home
-   * already refetches on, so saving a postcode lights the rule without a reload.
+   * <p>Resolved here rather than inside the shell so the shell stays a render layer.
+   * `homeSettingsVersion` is the same counter Close to home already refetches on, so saving a
+   * postcode lights the rule without a reload.
    */
-  const todaysLight = useTodaysLight(planLayout === PLAN_V2, homeSettingsVersion);
+  const todaysLight = useTodaysLight(homeSettingsVersion);
 
   const loadHomeCoords = useCallback(() => {
     getSettings()
@@ -186,23 +167,6 @@ function AppInner() {
   }, []);
   useEffect(() => { loadHomeCoords(); }, [loadHomeCoords]);
 
-  /** Update viewMode and sync to URL hash. */
-  const setViewMode = (mode) => {
-    setViewModeState(mode);
-    window.location.hash = mode;
-  };
-
-  // React to hash changes (e.g. AuroraBanner setting window.location.hash = 'map')
-  useEffect(() => {
-    function handleHashChange() {
-      const hash = window.location.hash.replace('#', '');
-      if (hash === 'plan') setViewModeState('plan');
-      else if (hash === 'map') setViewModeState('map');
-      else if (hash.startsWith('manage') && isAdmin) setViewModeState('manage');
-    }
-    window.addEventListener('hashchange', handleHashChange);
-    return () => window.removeEventListener('hashchange', handleHashChange);
-  }, [isAdmin]);
   const [selectedDate, setSelectedDate] = useState(null);
 
 
@@ -291,45 +255,28 @@ function AppInner() {
       locations: visibleLocations, briefingScores, todayStr, tomorrowStr, nonce,
     });
     if (trigger.date) setSelectedDate(trigger.date);
-    // Keep the shared handoff in sync so the "Open the full Map tab →" escape hatch lands focused.
-    setMapHandoff({ ...overlay.handoff, nonce });
     setMapOverlay({ ...overlay, nonce, date: trigger.date });
   };
 
   /**
    * Aurora banner "View on map".
    *
-   * <p>The banner sits above the Plan-layout branch, so it is live in both arms — but its v1 action
-   * is "switch to the Map tab", and the window-first arm has no Map tab. There the press used to set
-   * a tab state nothing rendered and write a hash nothing answered: a control that could not act,
-   * which §6 bans. The window-first arm reaches the map through the same overlay every plan card
-   * uses, so the banner is routed through that instead of being hidden.
+   * <p>The window-first Plan has no Map tab, so the banner reaches the map through the same overlay
+   * every plan card uses.
    *
-   * <p>Both arms hand `MapView` the same `handoffEventType` AND the same date, which is what makes
-   * this a route rather than a second behaviour.
-   *
-   * <p>⚠️ The v1 path used to set only the handoff, leaving the date alone. That was survivable
-   * while the viewline was gated on the calendar date, because the map's default and the gate
-   * agreed. Once the gate moved to the night in progress they stopped agreeing, and the case that
-   * broke is the one the banner exists for: a live alert at 02:00 with no stored run for that
-   * night. The date default lands on today, the night is yesterday, and `MapView`'s jump cannot
-   * help — it is gated on stored aurora RESULTS, which a live NOAA alert does not imply. So the
-   * banner would take the reader to the map and the viewline would be missing, for up to seven
-   * hours a night in midwinter. Setting the date here is what keeps the gate and the destination
-   * on the same night. Found by review; the two conditions are genuinely independent.
+   * <p>⚠️ Setting the date here (rather than leaving it to `effectiveDate`'s default) is what keeps
+   * the viewline gate and the destination on the same night. The gate is keyed on the night in
+   * progress, not the calendar date — pressed at 02:00 with a live alert and no stored run for that
+   * night, `effectiveDate`'s default lands on today while the night is yesterday, and `MapView`'s
+   * jump cannot help — it is gated on stored aurora RESULTS, which a live NOAA alert does not imply.
+   * Left to the default, the banner would take the reader to the map with the viewline missing, for
+   * up to seven hours a night in midwinter. Found by review; the two conditions are genuinely
+   * independent.
    */
   const handleAuroraViewOnMap = () => {
-    if (planLayout === PLAN_V2) {
-      // The night in progress, not today. Pressed at 02:00 this used to open the map on a date the
-      // run that produced the banner's own alert never scored.
-      handleShowOnMap({ kind: 'aurora', date: auroraNightStr });
-      return;
-    }
-    // Fails soft: `effectiveDate` ignores a date not on the strip, so this can never strand the
-    // map on a day it cannot render.
-    setSelectedDate(auroraNightStr);
-    setMapHandoff({ eventType: 'AURORA', nonce: handoffNonce.current++ });
-    setViewMode('map');
+    // The night in progress, not today. Pressed at 02:00 this used to open the map on a date the
+    // run that produced the banner's own alert never scored.
+    handleShowOnMap({ kind: 'aurora', date: auroraNightStr });
   };
 
   /**
@@ -341,12 +288,12 @@ function AppInner() {
   const tabRequestNonce = useRef(0);
 
   /**
-   * The handoff the MAP TAB should act on, which is deliberately not `mapHandoff`.
+   * The handoff the MAP TAB should act on, which is deliberately not App's overlay handoff.
    *
    * <p>⚠️ Found by review and reproduced at 390px. The shell mounts a pane once and then hides it
    * rather than unmounting it, so once the Map tab has been visited its `MapView` is alive for the
-   * rest of the session — and it was being handed the same `mapHandoff` every plan-card tap sets.
-   * On a phone `MapView` answers a location handoff with a `BottomSheet`, which is
+   * rest of the session — and it was being handed App's overlay handoff, which every plan-card tap
+   * sets. On a phone `MapView` answers a location handoff with a `BottomSheet`, which is
    * `createPortal(…, document.body)` at `z-index: 10000`, so `display: none` on the panel cannot
    * suppress it: tapping "Open on map" on the PLAN tab raised **two** stacked sheets — one from the
    * overlay the reader asked for, one from a map that is not on screen — and locked body scroll.
@@ -358,25 +305,15 @@ function AppInner() {
 
   /**
    * Close the overlay and hand off to the full Map tab, landing where the overlay was focused.
-   *
-   * <p>Two arms, two mechanisms, and it is <b>not</b> a ternary on one call. v1 has a Map entry in
-   * {@code ViewToggle}, so {@code setViewMode('map')} is the whole move. The window-first arm owns
-   * its own tab state inside the shell and ignores {@code viewMode} entirely — a fact worth stating,
-   * because the obvious "just call setViewMode" is silently a no-op there, which is exactly why the
-   * hatch was withheld from v2 until this pane existed.
    */
   const openFullMapTab = () => {
     // Read before the overlay is cleared — this is what "landing where the overlay was focused"
     // actually means, and it is the only handoff the Map tab ever receives.
     const focus = mapOverlay?.handoff ?? null;
     setMapOverlay(null);
-    if (planLayout === PLAN_V2) {
-      tabRequestNonce.current += 1;
-      if (focus) setMapTabHandoff({ ...focus, nonce: handoffNonce.current++ });
-      setTabRequest({ id: 'map', nonce: tabRequestNonce.current });
-      return;
-    }
-    setViewMode('map');
+    tabRequestNonce.current += 1;
+    if (focus) setMapTabHandoff({ ...focus, nonce: handoffNonce.current++ });
+    setTabRequest({ id: 'map', nonce: tabRequestNonce.current });
   };
 
   // Show banner when a run completes, auto-dismiss after 15 seconds
@@ -394,52 +331,12 @@ function AppInner() {
 
   return (
     <div className="min-h-screen bg-plex-bg">
-      {/* Suppressed for the window-first arm, which renders its own masthead carrying the same
-          wordmark, cog and Sign out. Rendering both would stack two headers and two wordmarks. */}
-      {planLayout !== PLAN_V2 && (
-      <header className="border-b border-plex-border px-4 py-6">
-        <div className="max-w-4xl mx-auto flex items-center justify-between">
-          <BrandLockup variant="header" />
-          <div className="flex flex-col items-end gap-1">
-            {isAdmin && <HealthIndicator status={healthStatus} degraded={healthDegraded} checkedAt={healthCheckedAt} build={healthBuild} services={healthServices} database={healthDatabase} session={healthSession} appVersion={healthAppVersion} startedAt={healthStartedAt} />}
-            <div className="flex items-center gap-2">
-              <button
-                className="text-plex-text-muted hover:text-plex-text transition-colors"
-                onClick={() => setShowSettings(true)}
-                aria-label="Settings"
-                data-testid="settings-cog-btn"
-                title="Settings"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
-                  <path fillRule="evenodd" d="M7.84 1.804A1 1 0 0 1 8.82 1h2.36a1 1 0 0 1 .98.804l.331 1.652a6.993 6.993 0 0 1 1.929 1.115l1.598-.54a1 1 0 0 1 1.186.447l1.18 2.044a1 1 0 0 1-.205 1.251l-1.267 1.113a7.047 7.047 0 0 1 0 2.228l1.267 1.113a1 1 0 0 1 .206 1.25l-1.18 2.045a1 1 0 0 1-1.187.447l-1.598-.54a6.993 6.993 0 0 1-1.929 1.115l-.33 1.652a1 1 0 0 1-.98.804H8.82a1 1 0 0 1-.98-.804l-.331-1.652a6.993 6.993 0 0 1-1.929-1.115l-1.598.54a1 1 0 0 1-1.186-.447l-1.18-2.044a1 1 0 0 1 .205-1.251l1.267-1.114a7.05 7.05 0 0 1 0-2.227L1.821 7.773a1 1 0 0 1-.206-1.25l1.18-2.045a1 1 0 0 1 1.187-.447l1.598.54A6.993 6.993 0 0 1 7.51 3.456l.33-1.652ZM10 13a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z" clipRule="evenodd" />
-                </svg>
-              </button>
-              <button
-                className="btn-secondary text-xs"
-                onClick={logout}
-                aria-label="Sign out"
-              >
-                Sign out
-              </button>
-            </div>
-            {(username || (isAdmin && sessionDaysRemaining !== null)) && (
-              <p className="text-xs text-plex-text-muted">
-                {username}{username && isAdmin && sessionDaysRemaining !== null && ' · '}{isAdmin && sessionDaysRemaining !== null && `${sessionDaysRemaining}d`}
-              </p>
-            )}
-          </div>
-        </div>
-      </header>
-      )}
-
       <SessionExpiryBanner />
       <div className="max-w-4xl mx-auto px-4 mt-4">
         <AuroraBanner onViewOnMap={handleAuroraViewOnMap} />
         <div className="mt-2">
-          {/* Inert in the window-first arm, which has no Map tab for it to switch to. Unlike the
-              aurora banner beside it there is nothing to re-route: v1's action is a bare tab switch
-              with no event type, no filter and no location. */}
-          <NlcSightingBanner interactive={planLayout !== PLAN_V2} />
+          {/* Inert: the window-first Plan has no Map tab to switch to and no route to give it. */}
+          <NlcSightingBanner />
         </div>
       </div>
 
@@ -477,218 +374,93 @@ function AppInner() {
         </div>
       )}
 
-      {/* The Plan-layout flag branches ABOVE the tab bar, not inside the Plan pane. The
-          window-first design has its own tabs — a different control from ViewToggle — and its
-          subtree owns its own shell and tab state, so branching here is what keeps DailyBriefing
-          and ViewToggle untouched while both layouts are alive. */}
-      {planLayout === PLAN_V2 ? (
-        <main className="px-4 py-6">
-          {/* isDown is passed DOWN rather than applied here: the shell's masthead carries the cog,
-              Sign out and the exit hatch, and greying the whole subtree would strand a user with no
-              route out of a broken app. The v1 arm has never had this problem because its header
-              sits outside the gated element. */}
-          {/* The provider is mounted HERE rather than beside AuroraStatusProvider so it exists only
-              while the v2 arm is on screen. Hoisted, it would poll /api/briefing for every v1 user
-              too — a second request on the same 10-minute tick as DailyBriefing's, and a second
-              focus listener firing both. App.jsx's flag branch is a hard either/or, and this keeps
-              it one. */}
-          {/* INSIDE the flag branch, and that placement is load-bearing rather than tidy. The flag
-              is what turns an ordinary render crash into a trap: the header above is suppressed for
-              this arm, so the cog and Sign out live inside the subtree that would die, the settings
-              modal is a sibling of this ternary and dies with the tree, and the flag survives the
-              reload — blank page, reload, blank page. Sitting here, the boundary is discarded when
-              the branch flips, so recovery needs no reset logic; hoisted above the ternary it would
-              survive the flip and show its fallback over a healthy arm. The current Plan is
-              deliberately NOT wrapped: its honest recovery is not "go to the other arm". */}
-          <PlanLayoutErrorBoundary onRecover={() => setPlanLayout(PLAN_V1)}>
-            {/* `locations` joins `homeSettingsVersion` here because the heat field's catalogue is
-                a join across two contracts and only ONE of them carries geography: the briefing
-                and scores payloads have no lat/lng and are not to be given any (plan §3). The
-                shell already received the same memoised array; the provider needs it to build the
-                join once for the strip, the row maps and the Map tab rather than three times. */}
-            <WindowFirstBriefingProvider
-              homeSettingsVersion={homeSettingsVersion}
-              locations={visibleLocations}
-            >
-              <WindowFirstShell
-                onExit={() => setPlanLayout(PLAN_V1)}
-                onOpenSettings={() => setShowSettings(true)}
-                onSignOut={logout}
-                light={todaysLight}
-                // The band's nudge exists to get a postcode saved, so it lands ON that field
-                // rather than on the settings screen in general — the same handler the map's
-                // "you have no postcode" branch uses.
-                onSetPostcode={() => setSettingsFocus('postcode')}
-                contentDisabled={isDown}
-                onShowOnMap={handleShowOnMap}
-                // The same admin gate the Operations pane uses, and for the same reason: the role
-                // stays here, and the shell renders whatever node it is handed. Withheld for a
-                // pilot user, who has no use for a build id or a WorldTides latency. The pill is
-                // fed by `useHealthStatus` above, which both arms already run — no second stream.
-                healthPill={isAdmin ? (
-                  <HealthIndicator
-                    status={healthStatus}
-                    degraded={healthDegraded}
-                    checkedAt={healthCheckedAt}
-                    build={healthBuild}
-                    services={healthServices}
-                    database={healthDatabase}
-                    session={healthSession}
-                    appVersion={healthAppVersion}
-                    startedAt={healthStartedAt}
-                    variant={VARIANT_MASTHEAD}
-                  />
-                ) : null}
-                onEvaluationScoresChange={handleEvaluationScoresChange}
-                onSeasonalFeaturesChange={handleSeasonalFeaturesChange}
-                locations={visibleLocations}
-                tabRequest={tabRequest}
-                // Withheld when there is nothing to map, which is the same rule the Operations tab
-                // follows and §6's ban on controls that open nothing. `allDates` is empty whenever
-                // `GET /api/forecast` returned no rows, and the v1 arm answers that state with its
-                // own "No forecasts loaded yet" card rather than an empty map — so a Map tab here
-                // would be a tab onto a blank.
-                mapPane={allDates.length > 0 ? (
-                  <Suspense fallback={<ViewFallback />}>
-                    <WindowFirstMapPane
-                      locations={visibleLocations}
-                      dates={allDates}
-                      selectedDate={effectiveDate}
-                      onSelectDate={setSelectedDate}
-                      // Parity with the v1 Map tab, which passes the same thing. Without it the
-                      // pane's event type is whatever it derived at mount — and because this pane
-                      // is never unmounted, opening the map at dawn and returning after sunset
-                      // would still show the morning's event. v1 cannot do that: it remounts.
-                      autoEventType={autoSelection?.eventType ?? null}
-                      handoff={mapTabHandoff}
-                      briefingScores={briefingScores}
-                      onForecastRun={refresh}
-                      seasonalFeatures={seasonalFeatures}
-                      homeCoords={homeCoords}
-                      homeRadiusMiles={homeRadiusMiles}
-                      onOpenSettings={() => setSettingsFocus('postcode')}
-                    />
-                  </Suspense>
-                ) : null}
-                // The admin gate, in full. The shell takes no role, no `isAdmin` boolean and no
-                // prop shaped like one — it simply renders a tab for each pane it was handed, so
-                // withholding the pane withholds the tab. The role stays here, where it already
-                // lives, and nothing role-derived crosses into the arm (plan §5c).
-                operationsPane={isAdmin ? (
-                  <Suspense fallback={<ViewFallback />}>
-                    <ManageView onComplete={refresh} />
-                  </Suspense>
-                ) : null}
-              />
-            </WindowFirstBriefingProvider>
-          </PlanLayoutErrorBoundary>
-        </main>
-      ) : (
-        <main className={`max-w-4xl mx-auto px-4 py-6${isDown ? ' opacity-50 pointer-events-none' : ''}`}>
-          <>
-          {/* Tab shell — always visible; needs no server data, so it paints instantly on refresh. */}
-          <div className="mb-6">
-            <ViewToggle value={viewMode} onChange={setViewMode} isAdmin={isAdmin} />
-          </div>
-
-          {/* PLAN (default tab) renders immediately: DailyBriefing owns its own briefing fetch and
-              skeleton and tolerates an empty locations list, so Best Bet / Hot Topics / regions paint
-              without waiting on the forecast + locations + outcomes load. */}
-          {viewMode === 'plan' && (
-            <DailyBriefing locations={visibleLocations} onShowOnMap={handleShowOnMap} onEvaluationScoresChange={handleEvaluationScoresChange} onSeasonalFeaturesChange={handleSeasonalFeaturesChange} homeSettingsVersion={homeSettingsVersion} />
-          )}
-
-          {/* MAP needs the forecast/location data — keep the loading / error / empty gating here. */}
-          {viewMode === 'map' && (
-            <>
-              {loading && (
-                <div className="flex justify-center py-16">
-                  <p className="text-plex-text-secondary animate-pulse">Loading forecast…</p>
-                </div>
-              )}
-
-              {!loading && error && (
-                <div
-                  data-testid="error-message"
-                  className="card border-red-900/50 text-center py-8"
-                  role="alert"
-                >
-                  <p className="text-red-400 font-medium mb-2">Unable to load forecast</p>
-                  <p className="text-plex-text-secondary text-sm mb-4">{error}</p>
-                  <button
-                    className="btn-primary"
-                    onClick={refresh}
-                    disabled={healthStatus === 'DOWN'}
-                  >
-                    Try again
-                  </button>
-                </div>
-              )}
-
-              {!loading && !error && allDates.length > 0 && effectiveDate && (
-                <DateStrip
-                  dates={allDates}
-                  selectedDate={effectiveDate}
-                  onSelect={setSelectedDate}
+      <main className="px-4 py-6">
+        {/* isDown is passed DOWN rather than applied here: the shell's masthead carries the cog
+            and Sign out, and greying the whole subtree would strand a user with no route out of a
+            broken app. */}
+        {/* The provider is mounted INSIDE the boundary below, not beside it, so a provider crash
+            is caught the same way a shell crash is (§4.1) — the reader always lands on the same
+            fallback rather than a blank page. */}
+        <PlanErrorBoundary onSignOut={logout}>
+          {/* `locations` joins `homeSettingsVersion` here because the heat field's catalogue is
+              a join across two contracts and only ONE of them carries geography: the briefing
+              and scores payloads have no lat/lng and are not to be given any (plan §3). The
+              shell already received the same memoised array; the provider needs it to build the
+              join once for the strip, the row maps and the Map tab rather than three times. */}
+          <WindowFirstBriefingProvider
+            homeSettingsVersion={homeSettingsVersion}
+            locations={visibleLocations}
+          >
+            <WindowFirstShell
+              onOpenSettings={() => setShowSettings(true)}
+              onSignOut={logout}
+              light={todaysLight}
+              // The band's nudge exists to get a postcode saved, so it lands ON that field
+              // rather than on the settings screen in general — the same handler the map's
+              // "you have no postcode" branch uses.
+              onSetPostcode={() => setSettingsFocus('postcode')}
+              contentDisabled={isDown}
+              onShowOnMap={handleShowOnMap}
+              // The same admin gate the Operations pane uses, and for the same reason: the role
+              // stays here, and the shell renders whatever node it is handed. Withheld for a
+              // pilot user, who has no use for a build id or a WorldTides latency. The pill is
+              // fed by `useHealthStatus` above.
+              healthPill={isAdmin ? (
+                <HealthIndicator
+                  status={healthStatus}
+                  degraded={healthDegraded}
+                  checkedAt={healthCheckedAt}
+                  build={healthBuild}
+                  services={healthServices}
+                  database={healthDatabase}
+                  session={healthSession}
+                  appVersion={healthAppVersion}
+                  startedAt={healthStartedAt}
+                  variant={VARIANT_MASTHEAD}
                 />
-              )}
-
-              {!loading && !error && allDates.length > 0 && (
+              ) : null}
+              onEvaluationScoresChange={handleEvaluationScoresChange}
+              onSeasonalFeaturesChange={handleSeasonalFeaturesChange}
+              locations={visibleLocations}
+              tabRequest={tabRequest}
+              // Withheld when there is nothing to map, which is the same rule the Operations tab
+              // follows and §6's ban on controls that open nothing. `allDates` is empty whenever
+              // `GET /api/forecast` returned no rows, and a Map tab onto no dates would be a tab
+              // onto a blank.
+              mapPane={allDates.length > 0 ? (
                 <Suspense fallback={<ViewFallback />}>
-                  <MapView
+                  <WindowFirstMapPane
                     locations={visibleLocations}
-                    date={effectiveDate}
-                    // Lets the map land on the aurora night when aurora mode is entered. The same
-                    // setter the DateStrip above uses, so the strip follows the jump.
+                    dates={allDates}
+                    selectedDate={effectiveDate}
                     onSelectDate={setSelectedDate}
+                    // Without this the pane's event type is whatever it derived at mount — and
+                    // because this pane is never unmounted, opening the map at dawn and returning
+                    // after sunset would still show the morning's event.
                     autoEventType={autoSelection?.eventType ?? null}
-                    handoffEventType={mapHandoff?.eventType ?? null}
-                    handoffFilterAction={mapHandoff?.filterAction ?? null}
-                    handoffLocationName={mapHandoff?.locationName ?? null}
-                    handoffRegion={mapHandoff?.region ?? null}
-                    handoffNonce={mapHandoff?.nonce ?? null}
+                    handoff={mapTabHandoff}
                     briefingScores={briefingScores}
                     onForecastRun={refresh}
                     seasonalFeatures={seasonalFeatures}
-                    // "Centre on home" reads the coordinates already resolved for Close to home —
-                    // the postcode was geocoded once, server-side, when it was saved, and this
-                    // state is refreshed when the settings modal closes. No second geocoding path,
-                    // and no lookup on a click.
                     homeCoords={homeCoords}
                     homeRadiusMiles={homeRadiusMiles}
                     onOpenSettings={() => setSettingsFocus('postcode')}
                   />
                 </Suspense>
-              )}
-
-              {!loading && !error && allDates.length === 0 && (
-                <div className="card text-center py-16">
-                  <p className="text-plex-text-secondary text-lg mb-4">No forecasts loaded yet</p>
-                  <p className="text-plex-text-muted text-sm mb-6">Forecasts are generated automatically at 06:00 and 18:00 UTC. Check back in a moment.</p>
-                  <div className="flex justify-center gap-3">
-                    <button className="btn-primary" onClick={refresh}>
-                      Refresh
-                    </button>
-                    {isAdmin && (
-                      <button className="btn-secondary" onClick={() => setViewMode('manage')}>
-                        Manage Locations
-                      </button>
-                    )}
-                  </div>
-                </div>
-              )}
-            </>
-          )}
-
-          {/* MANAGE — admin only. */}
-          {viewMode === 'manage' && isAdmin && (
-            <Suspense fallback={<ViewFallback />}>
-              <ManageView onComplete={refresh} />
-            </Suspense>
-          )}
-          </>
-        </main>
-      )}
+              ) : null}
+              // The admin gate, in full. The shell takes no role, no `isAdmin` boolean and no
+              // prop shaped like one — it simply renders a tab for each pane it was handed, so
+              // withholding the pane withholds the tab. The role stays here, where it already
+              // lives, and nothing role-derived crosses this boundary (plan §5c).
+              operationsPane={isAdmin ? (
+                <Suspense fallback={<ViewFallback />}>
+                  <ManageView onComplete={refresh} />
+                </Suspense>
+              ) : null}
+            />
+          </WindowFirstBriefingProvider>
+        </PlanErrorBoundary>
+      </main>
 
       <footer className="border-t border-plex-border px-4 py-4 mt-8">
         <div className="max-w-4xl mx-auto text-center text-xs text-plex-text-muted">
@@ -718,8 +490,6 @@ function AppInner() {
       {(showSettings || settingsFocus) && (
         <UserSettingsModal
           focusField={settingsFocus}
-          planLayout={planLayout}
-          onPlanLayoutChange={setPlanLayout}
           onClose={() => {
             setShowSettings(false);
             setSettingsFocus(null);
@@ -743,11 +513,9 @@ function AppInner() {
             narrativeHead={mapOverlay.narrativeHead}
             narrativeTone={mapOverlay.narrativeTone}
             onClose={() => setMapOverlay(null)}
-            // Both arms now have somewhere to go, so the hatch is live in both — see
-            // `openFullMapTab`, which routes each one its own way. It is still withheld when the v2
-            // arm has no Map tab to reach (no forecast dates), because MapOverlay drops the button
-            // when no handler arrives and a button onto nothing is what §6 bans.
-            onOpenFullMap={planLayout === PLAN_V2 && allDates.length === 0 ? undefined : openFullMapTab}
+            // Withheld when there is no Map tab to reach (no forecast dates), because MapOverlay
+            // drops the button when no handler arrives and a button onto nothing is what §6 bans.
+            onOpenFullMap={allDates.length === 0 ? undefined : openFullMapTab}
           >
             <MapView
               locations={visibleLocations}
@@ -759,6 +527,10 @@ function AppInner() {
               // `selectedDate`, so a handler here would move the Plan tab under the reader and
               // could move the overlay itself. The aurora path in already opens on the right night
               // — `handleAuroraViewOnMap` targets it directly.
+              //
+              // Deliberately NO `heat`: this map opens focused on one spot from a card that already
+              // answered the question; `MapView` keys the field on the prop's presence
+              // (`heatOffered`), so the omission IS the mechanism — do not add one.
               autoEventType={autoSelection?.eventType ?? null}
               handoffEventType={mapOverlay.handoff.eventType ?? null}
               handoffFilterAction={mapOverlay.handoff.filterAction ?? null}

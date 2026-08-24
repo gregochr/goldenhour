@@ -107,7 +107,7 @@ const renderShell = (overrides = {}, extraProps = {}) => {
   const useBriefing = vi.spyOn(briefingContext, 'useWindowFirstBriefing');
   useBriefing.mockReturnValue(ctx(overrides));
   const props = {
-    onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), locations: [],
+    onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), locations: [],
     ...extraProps,
   };
   const view = render(<WindowFirstShell {...props} />);
@@ -250,7 +250,7 @@ describe('WindowFirstShell — the tab bar', () => {
       expect(screen.getByRole('tab', { name: 'Operations' })).toHaveAttribute('aria-selected', 'true');
 
       rerender(<WindowFirstShell
-        onExit={vi.fn()} onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
+        onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
         locations={[]} operationsPane={null}
       />);
 
@@ -482,7 +482,7 @@ describe('WindowFirstShell — moving between tabs', () => {
   });
 
   it('starts on Plan again on the next visit, because a tab is not a saved preference', async () => {
-    // The arm persists the layout flag and the rating floor, and both are settled taste. Which tab
+    // The arm persists the reach lens and the rating floor, and both are settled taste. Which tab
     // you last had open is not: restoring a ninety-day almanac answers a question the reader is
     // almost certainly not asking at 05:00, and it spends the first paint on a fetch.
     // The storage is watched as well as the remount. Without that this passes for a shell that
@@ -632,8 +632,8 @@ describe('WindowFirstShell — what stays put across a tab change', () => {
     }
   });
 
-  it('keeps the masthead, its tick line and the way back out', async () => {
-    // The rail footer used to be the third of these and M3 deleted it; the tick line is where its
+  it('keeps the masthead and its tick line', async () => {
+    // The rail footer used to be a third fixture here and M3 deleted it; the tick line is where its
     // origin control went, and the claim is unchanged — the chrome that frames the page must not
     // come and go with the tab.
     renderShell();
@@ -641,7 +641,6 @@ describe('WindowFirstShell — what stays put across a tab change', () => {
 
     expect(screen.getByTestId('window-first-masthead')).toBeInTheDocument();
     expect(screen.getByTestId('window-first-tickline')).toBeInTheDocument();
-    expect(screen.getByTestId('window-first-exit')).toBeInTheDocument();
   });
 });
 
@@ -747,7 +746,7 @@ describe('WindowFirstShell — when the feed is fetched', () => {
     const renderWithRequest = (extra = {}) => {
       vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
       const base = {
-        onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
+        onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
         locations: [], mapPane: MAP, ...extra,
       };
       const view = render(<WindowFirstShell {...base} />);
@@ -784,7 +783,7 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       // applying and the reader is silently moved to a tab they never chose.
       vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
       const base = {
-        onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
+        onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
         locations: [], mapPane: null,
       };
       const view = render(<WindowFirstShell {...base} />);
@@ -817,7 +816,7 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       // tab selection is not persisted.
       vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
       const props = {
-        onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
+        onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
         locations: [], mapPane: MAP, tabRequest: { id: 'map', nonce: 4 },
       };
       render(<WindowFirstShell {...props} />);

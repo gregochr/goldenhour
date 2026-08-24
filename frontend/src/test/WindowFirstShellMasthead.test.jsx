@@ -70,7 +70,7 @@ const renderShell = (extraProps = {}, ctxOverrides = {}) => {
   vi.spyOn(briefingContext, 'useWindowFirstBriefing')
     .mockReturnValue({ ...ctx(), ...ctxOverrides });
   const props = {
-    onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), locations: [],
+    onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), locations: [],
     ...extraProps,
   };
   return { ...props, ...render(<WindowFirstShell {...props} />) };

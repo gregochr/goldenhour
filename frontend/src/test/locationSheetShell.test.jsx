@@ -215,7 +215,7 @@ describe('WindowFirstShell — the four-day location sheet', () => {
   });
 
   const shellProps = (over = {}) => ({
-    onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), ...over,
+    onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), ...over,
   });
 
   const renderShell = (extra = {}, props = {}) => {

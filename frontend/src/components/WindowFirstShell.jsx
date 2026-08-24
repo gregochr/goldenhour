@@ -22,15 +22,13 @@ import useLensReserve from '../hooks/useLensReserve.js';
 import useStuckSentinel from '../hooks/useStuckSentinel.js';
 
 /**
- * The heat strip, behind a lazy boundary — and the boundary is about the OTHER arm.
+ * The heat strip, behind a lazy boundary for chunk hygiene.
  *
  * <p>{@code App} imports this shell STATICALLY (unlike `MapView`, `WindowFirstMapPane`,
- * `MapOverlay` and `ManageView`, which are all `lazy()`), and `usePlanLayout` still defaults to
- * `v1`. So a static import here puts the strip — and through it `heatField.js`'s `d3-geo` and
- * `topojson-client` — in the entry chunk for <b>every user</b>, including the 100% who are on the
- * v1 arm and will never see it. Measured: a 24.14 KB / 9.19 KB-gzip `geo` chunk, fetched
- * render-blocking on first paint, for an arm nobody currently opens. The plan's scope guard says
- * v2 must not change v1, and a first-paint fetch is a change to v1.
+ * `MapOverlay` and `ManageView`, which are all `lazy()`), so a static import here would put the
+ * strip — and through it `heatField.js`'s `d3-geo` and `topojson-client` — in the entry chunk for
+ * every reader. Measured: a 24.14 KB / 9.19 KB-gzip `geo` chunk, fetched render-blocking on first
+ * paint, for a strip that always renders below the fold. Lazy keeps that chunk out of the entry.
  *
  * <p>The fallback is {@code null} rather than a skeleton: the strip's own canvases paint
  * asynchronously anyway (they wait on the vendored topology), so a placeholder would be a second
@@ -45,15 +43,14 @@ const WindowFirstHeatStrip = lazy(() => import('./WindowFirstHeatStrip.jsx'));
 const PlanSearch = lazy(() => import('./PlanSearch.jsx'));
 
 /**
- * The window popup, on the same terms — and the boundary is load-bearing for the same reason the
- * strip's is.
+ * The window popup, on the same terms — a dialog, not a first-paint element, and the boundary is
+ * load-bearing for the same reason the strip's is.
  *
  * <p>It reaches the field map, and through it {@code heatField.js}'s {@code d3-geo} and
  * {@code topojson-client}. A static import here would put all of that in the entry chunk for every
- * reader of an arm {@code usePlanLayout} still defaults away from — the exact measurement
- * {@code WindowRowRegionLayer} recorded (+21.4 KB raw / +7.2 KB gzip) before this phase deleted it.
- * The lazy strip above already carries the chunk for a reader who has seen the matrix, so opening a
- * window is usually a cache hit rather than a fetch.
+ * reader — the exact measurement {@code WindowRowRegionLayer} recorded (+21.4 KB raw / +7.2 KB
+ * gzip) before this phase deleted it. The lazy strip above already carries the chunk for a reader
+ * who has seen the matrix, so opening a window is usually a cache hit rather than a fetch.
  */
 const WindowSheetDialog = lazy(() => import('./WindowSheetDialog.jsx'));
 
@@ -106,7 +103,7 @@ function warmStackedChunks() {
  */
 const EMPTY_POINTS = Object.freeze([]);
 
-/** The design's frame: 1080px, against the v1 arm's 896px `max-w-4xl`. */
+/** The design's frame: 1080px. */
 const WRAP_MAX_WIDTH = '1080px';
 
 /**
@@ -143,29 +140,26 @@ const panelDomId = (id) => `window-first-panel-${id}`;
 /**
  * The window-first Plan tab's own shell — masthead, tab bar, and the frame both sit in.
  *
- * <h2>It renders its own masthead because it replaces the app's</h2>
+ * <h2>It renders its own masthead because it is the app's only header</h2>
  *
- * <p>{@code App} suppresses its {@code <header>} for this arm, so everything that header carried
- * has to exist here or it is simply gone: the wordmark, the settings cog and Sign out. The two
- * buttons take the same handlers, lifted rather than duplicated — this component owns no auth or
- * modal state of its own.
+ * <p>{@code App} renders no {@code <header>} of its own — this shell is it — so the wordmark, the
+ * settings cog and Sign out all live here or they are simply gone. The two buttons take the same
+ * handlers, lifted rather than duplicated — this component owns no auth or modal state of its own.
  *
  * <p><b>Not the design's masthead brand, deliberately.</b> The mock draws a conic-gradient disc and
  * a 20px sans wordmark. This app's identity is {@link BrandLockup} — a film-perforation spine and a
  * serif wordmark — and that component's own Javadoc records why the previous {@code logo.png} went:
  * it "belonged to no part of the Kodachrome Field Guide system the rest of the app uses". Drawing
- * the disc would reintroduce exactly that, as the only mark of its kind in the product. Worse, the
- * flag runs both layouts at once so they can be judged against the same night's data (plan §4), and
- * a different wordmark in one arm makes every comparison a brand comparison too. The {@code compact}
- * variant exists for this masthead's height budget. Recorded in plan §7.
+ * the disc would reintroduce exactly that, as the only mark of its kind in the product. The
+ * {@code compact} variant exists for this masthead's height budget. Recorded in plan §7.
  *
  * <h2>The status pill, and why it is a slot rather than a component</h2>
  *
  * <p>The design shows {@code ● UP v2.17.7} unconditionally, and this arm shipped without it: build
  * version and service health are not a pilot user's business (plan §7). That reasoning was right
- * about the <em>pilot user</em> and wrong about the admin, who had the control in the v1 header and
- * simply lost it on switching arms — the first thing anyone running the app notices is that they can
- * no longer see whether the backend is up.
+ * about the <em>pilot user</em> and wrong about the admin, who had the control in the app's old
+ * header and would otherwise have lost it entirely — the first thing anyone running the app would
+ * notice is being unable to see whether the backend is up.
  *
  * <p>So it returns as {@code healthPill}, a NODE the caller supplies, on the same idiom as
  * {@code operationsPane}: {@code App} holds {@code isAdmin} and withholds the node, so a pilot user
@@ -203,7 +197,7 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  *
  * <h2>Tab selection is deliberately not persisted</h2>
  *
- * <p>The arm persists two things — the layout flag and the rating floor — and both are settled
+ * <p>The arm persists two things — the reach lens and the rating floor — and both are settled
  * preferences. Which tab you last had open is not: the reader's question on opening the app is
  * almost always "what about tonight", and restoring a ninety-day almanac because they browsed it
  * yesterday answers a question they are not asking. It also spends the first paint on a fetch.
@@ -256,11 +250,7 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  * look broken to say nothing true. The tab bar and the masthead are excluded for the same reason.
  *
  * @param {object}   props
- * @param {function} props.onExit restores the v1 layout. It does not change the selected tab, so a
- *        user who switched into v2 from the Map tab returns to the Map tab — hence the label says
- *        "Plan", the layout, and not "Plan tab".
- * @param {function} props.onOpenSettings opens the shared settings modal, which owns the flag
- *        toggle — so this is the route back that survives once the temporary exit button goes.
+ * @param {function} props.onOpenSettings opens the shared settings modal.
  * <h2>The pane is the matrix and one dialog (M2)</h2>
  *
  * <p>The six-row card list is gone. What the strip used to index — a row per window, opened in
@@ -273,18 +263,17 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  * <em>rendering</em> of it, and (at M5, with the promoted strip) its away payload: the block's
  * label, note and window count had no reader left once nothing rendered a row for it.
  *
- * @param {function} props.onSignOut ends the session; the same handler the v1 header uses.
+ * @param {function} props.onSignOut ends the session — the masthead's route to it while the Plan
+ *        is healthy; {@code PlanErrorBoundary} offers its own separate Sign-out if it is not.
  * @param {Array} [props.locations] enabled locations. The regional-planner door needs its id→name
  *        and name→type joins; the drill-down needs the same name→type join for its type control.
- *        Not fetched by this arm's provider: {@code App} already holds them for both arms, and a
- *        second request for a list the page has would be waste.
+ *        Not fetched by this arm's provider: {@code App} already holds them, and a second request
+ *        for a list the page has would be waste.
  * @param {boolean}  [props.contentDisabled] greys the pane when the backend is DOWN.
  *
- *        <p><b>The pane, never the chrome.</b> In the v1 arm the header sits OUTSIDE the element
- *        carrying that treatment, so a DOWN backend has never been able to disable Settings or
- *        Sign out. Here the masthead is inside the shell, so gating the whole thing would take the
- *        cog, Sign out and the exit hatch with it — leaving a user staring at a greyed page with
- *        no route anywhere, at exactly the moment they most need one.
+ *        <p><b>The pane, never the chrome.</b> The masthead is inside the shell, so gating the
+ *        whole subtree would take the cog and Sign out with it — leaving a user staring at a
+ *        greyed page with no route anywhere, at exactly the moment they most need one.
  * @param {object|null} [props.light] today's light at the reader's home, for the masthead's light
  *        rule. Resolved by {@code App}, not here, so the shell stays a render layer and every test
  *        can put the band in any of its three states. {@code undefined} is "not yet answered" and
@@ -293,7 +282,7 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  *        band's nudge. Defaults to {@code onOpenSettings}, so the nudge can never be a dead end.
  */
 export default function WindowFirstShell({
-  onExit, onOpenSettings, onSignOut, contentDisabled, onShowOnMap, onEvaluationScoresChange,
+  onOpenSettings, onSignOut, contentDisabled, onShowOnMap, onEvaluationScoresChange,
   onSeasonalFeaturesChange, locations, mapPane, operationsPane, tabRequest, healthPill,
   light, onSetPostcode,
 }) {
@@ -530,9 +519,8 @@ export default function WindowFirstShell({
   const requestedNonce = tabRequest?.nonce ?? null;
   const requestedId = tabRequest?.id ?? null;
   // Seeded with whatever nonce is already in flight at MOUNT, not with null. `App` holds
-  // `tabRequest` and never clears it, and it outlives this component — so with a null seed, leaving
-  // the arm and coming back replayed the last request and landed the reader on the Map tab when
-  // they had asked for the Plan layout. That flip is the pilot's core comparison gesture, and it
+  // `tabRequest` and never clears it, and it outlives this component — so a null seed on any
+  // remount would replay the last request rather than treating it as already handled, which
   // contradicts this file's own rule that tab selection is not persisted.
   const lastHandledRequest = useRef(tabRequest?.nonce ?? null);
   useEffect(() => {
@@ -580,8 +568,8 @@ export default function WindowFirstShell({
    * plus reach, and folding a third source in would rebuild every window's spot array whenever the
    * roster arrived. Only the sheet reads it, and only while a type control is on screen.
    *
-   * <p>{@code App} already holds {@code locations} for both arms — P9 drilled it here for the
-   * regional door — so this costs no request. The join itself lives in {@code locationTypes.js}
+   * <p>{@code App} already holds {@code locations} — P9 drilled it here for the regional door — so
+   * this costs no request. The join itself lives in {@code locationTypes.js}
    * because the regional planner builds the same one from the same prop, and two copies of a join
    * is how the five copies that module replaced started.
    */
@@ -693,20 +681,16 @@ export default function WindowFirstShell({
   }, [openCard, heatSpots, heatPointSets, heatStripCards, regionSeries, reachById,
     eventSummariesByKey, fieldLens, focusedRegion, origin]);
 
-  // Lifted to App for the map overlay, exactly as DailyBriefing does it in the v1 arm. Without this
-  // a tile handed to the map opens an overlay with no narrative over a map that has filtered out
-  // every unrated pin — see the provider's note on why this arm fetches them at all.
+  // Lifted to App for the map overlay. Without this a tile handed to the map opens an overlay with
+  // no narrative over a map that has filtered out every unrated pin — see the provider's note on
+  // why this arm fetches them at all.
   useEffect(() => {
     onEvaluationScoresChange?.(evaluationScores);
   }, [evaluationScores, onEvaluationScoresChange]);
 
-  // The same lift for the seasonal features, and for a reason the sibling above does not have: this
-  // one was written by the v1 arm ONLY, so the value in App depended on whether the session had ever
-  // rendered v1. The overlay map's Bluebell chip is gated on it, so the same night's data drew two
-  // different maps depending on flip history — which is the class of thing that produces a bug
-  // report nobody can reproduce. `briefing?.seasonalFeatures` rather than `briefing`: the provider
-  // replaces that object on every poll and every window focus, and depending on the parent would
-  // re-fire this on each one.
+  // The same lift for the seasonal features. `briefing?.seasonalFeatures` rather than `briefing`:
+  // the provider replaces that object on every poll and every window focus, and depending on the
+  // parent would re-fire this on each one.
   useEffect(() => {
     onSeasonalFeaturesChange?.(briefing?.seasonalFeatures ?? []);
   }, [briefing?.seasonalFeatures, onSeasonalFeaturesChange]);
@@ -1029,10 +1013,9 @@ export default function WindowFirstShell({
         <div className="flex items-center gap-3">
           <BrandLockup variant="masthead" />
           <div className="ml-auto flex items-center gap-2">
-            {/* Leftmost of the three, which is where the v1 header put it relative to the same two
-                buttons — and it is a reading, not a control the reader operates to get somewhere,
-                so it sits before the pair rather than between them. Absent for everyone but an
-                admin, and the gap collapses on its own. */}
+            {/* Leftmost of the three — it is a reading, not a control the reader operates to get
+                somewhere, so it sits before the pair rather than between them. Absent for everyone
+                but an admin, and the gap collapses on its own. */}
             {healthPill}
             {/* ⚠️ TAKES EVERY DIALOG DOWN FIRST, and M5 added that after measuring the alternative.
                 `UserSettingsModal` is a SIBLING of this shell in `App`, so it is outside every
@@ -1344,9 +1327,8 @@ export default function WindowFirstShell({
           the selected run, table filters, scroll position, and a re-fired waitlist fetch.
           ⚠️ The cost of never unmounting is real and measured: a Scheduler sub-view left open keeps
           its 30-second poll running for the rest of the session, invisibly, after the reader has
-          gone back to Plan. v1 does not do this, because v1 unmounts. Admin-only and one interval,
-          not several — but if that is not wanted, release the pane here rather than deleting the
-          comment. */}
+          gone back to Plan. Admin-only and one interval, not several — but if that is not wanted,
+          release the pane here rather than deleting the comment. */}
       {tabs.filter((t) => t.slot).map((tab) => (
         <div
           key={tab.id}
@@ -1366,23 +1348,6 @@ export default function WindowFirstShell({
           {openedTabs.has(tab.id) ? { mapPane, operationsPane }[tab.slot] : null}
         </div>
       ))}
-
-      {/* OUTSIDE the pane, and that is a fix rather than a placement preference. The DOWN treatment
-          is `pointer-events: none`, so while the exit button lived inside the pane a dead backend
-          made the visible way back inert — the same trap P4a fixed for the masthead, re-created one
-          level down. The cog still opens the settings modal that owns the durable toggle, but the
-          button that names the route must work too. */}
-      <div className="wf-exit-foot">
-        <button
-          type="button"
-          onClick={onExit}
-          data-testid="window-first-exit"
-          className="font-mono border border-plex-border text-plex-text-secondary hover:text-plex-text hover:border-plex-border-light transition-colors"
-          style={{ fontSize: '10.5px', borderRadius: '7px', padding: '6px 11px' }}
-        >
-          ← Back to the current Plan
-        </button>
-      </div>
 
       {/* The window popup — the plan's drill-down, over the plan rather than inside it.
           Mounted only while open, and lazily, for the reasons its own boundary records. */}
@@ -1652,7 +1617,6 @@ export default function WindowFirstShell({
 }
 
 WindowFirstShell.propTypes = {
-  onExit: PropTypes.func.isRequired,
   onOpenSettings: PropTypes.func.isRequired,
   onSignOut: PropTypes.func.isRequired,
   contentDisabled: PropTypes.bool,

@@ -19,14 +19,13 @@ import { ukDateStr } from '../utils/mapDates.js';
  * The hook that resolves today's light for the masthead.
  *
  * <p>What is pinned here is the set of rules that make the band honest and cheap: the three states
- * stay distinguishable, the v1 arm pays nothing for a band it does not render, saving a postcode
- * lights the rule without a reload, and a failed request degrades to the nudge rather than to a
- * masthead reporting a backend problem.
+ * stay distinguishable, saving a postcode lights the rule without a reload, and a failed request
+ * degrades to the nudge rather than to a masthead reporting a backend problem.
  */
 
 /** Renders the hook's value as text, so a state change is observable without an extra library. */
-function Probe({ enabled = true, settingsVersion = 0 }) {
-  const light = useTodaysLight(enabled, settingsVersion);
+function Probe({ settingsVersion = 0 }) {
+  const light = useTodaysLight(settingsVersion);
   return (
     <span data-testid="state">
       {light === undefined ? 'unresolved' : (light?.label ?? 'no-home')}
@@ -92,15 +91,6 @@ describe('useTodaysLight', () => {
     rerender(<Probe settingsVersion={1} />);
 
     await waitFor(() => expect(state()).toBe('unresolved'));
-  });
-
-  it('asks for nothing when the arm does not render a band', async () => {
-    // A hook cannot be called conditionally, so the flag comes in as an argument. Without this,
-    // every v1 reader would pay for a request whose answer nothing draws.
-    render(<Probe enabled={false} />);
-
-    await waitFor(() => expect(state()).toBe('unresolved'));
-    expect(getTodaysLight).not.toHaveBeenCalled();
   });
 
   it('refetches when the home settings change, so a new postcode lights the rule', async () => {
@@ -178,15 +168,6 @@ describe('useTodaysLight', () => {
       await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
       await waitFor(() => expect(getTodaysLight).toHaveBeenCalledTimes(2));
       visibility.mockRestore();
-    });
-
-    it('listens for nothing on the arm that renders no band', async () => {
-      render(<Probe enabled={false} />);
-
-      ukDateStr.mockReturnValue('2026-08-20');
-      await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
-
-      expect(getTodaysLight).not.toHaveBeenCalled();
     });
   });
 

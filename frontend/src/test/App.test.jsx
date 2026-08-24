@@ -3,16 +3,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import App from '../App.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
-import { PLAN_LAYOUT_KEY, PLAN_V1, PLAN_V2 } from '../hooks/usePlanLayout.js';
 import { ukDateStrOffset } from '../utils/mapDates.js';
 
 /**
- * The first App wiring test. App.jsx is the composition root — every prop the two Plan arms
- * receive is wired here and, until this file, none of it was pinned: deleting
+ * The first App wiring test. App.jsx is the composition root — every prop the Plan shell
+ * receives is wired here and, until this file, none of it was pinned: deleting
  * `locations={visibleLocations}` from the WindowFirstBriefingProvider mount emptied the v2 heat
  * field with 3,697 tests green (heat-field plan, P1 row, "Known gap"). Scope is deliberately the
- * highest-value pins, not exhaustive prop coverage: the flag branch, the provider's roster, and
- * the two panes App withholds (mapPane on data, operationsPane on role).
+ * highest-value pins, not exhaustive prop coverage: the Plan shell's mount (and its crash
+ * fallback), the provider's roster, and the two panes App withholds (mapPane on data,
+ * operationsPane on role).
  *
  * <p>Everything is mocked at the API-module boundary; auth is seeded through localStorage so the
  * real AuthProvider runs. The one seam that is not a fetch: the provider's `locations` prop has no
@@ -108,13 +108,12 @@ const FORECASTS = LOCATION_META.flatMap((m) => [forecastRow(m, 'SUNRISE'), forec
 // ── Harness ──────────────────────────────────────────────────────────────────
 
 /**
- * Seeds auth (the real AuthProvider reads these keys), optionally seeds the Plan-layout flag the
- * way usePlanLayout writes it (JSON), installs the passthrough provider spy, and renders App.
+ * Seeds auth (the real AuthProvider reads these keys), installs the passthrough provider spy, and
+ * renders App.
  */
-const renderApp = ({ role = 'PRO_USER', layout = null } = {}) => {
+const renderApp = ({ role = 'PRO_USER' } = {}) => {
   localStorage.setItem('goldenhour_token', 'test-token');
   localStorage.setItem('goldenhour_role', role);
-  if (layout) localStorage.setItem(PLAN_LAYOUT_KEY, JSON.stringify(layout));
   const providerSpy = vi.spyOn(briefingContext, 'WindowFirstBriefingProvider');
   render(<App />);
   return { providerSpy };
@@ -128,7 +127,7 @@ beforeEach(() => {
   fetchForecasts.mockReset().mockResolvedValue(FORECASTS);
   fetchLocations.mockReset().mockResolvedValue(LOCATION_META);
   fetchAllOutcomes.mockReset().mockResolvedValue([]);
-  getDailyBriefing.mockReset().mockResolvedValue(null); // 204 — both arms keep their empty states
+  getDailyBriefing.mockReset().mockResolvedValue(null); // 204 — the shell keeps its empty state
   getCloseToHome.mockReset().mockResolvedValue(null);
   getAllEvaluationScores.mockReset().mockResolvedValue([]);
   getSettings.mockReset().mockResolvedValue({}); // no home postcode saved
@@ -155,58 +154,36 @@ afterEach(() => {
   delete window.cancelIdleCallback;
 });
 
-// ── The Plan-layout flag branch ──────────────────────────────────────────────
+// ── The Plan shell ────────────────────────────────────────────────────────────
 
-describe('App — the Plan-layout flag branch', () => {
-  it('renders the v1 arm when the stored flag says v1, and never mounts the window-first provider', async () => {
-    const { providerSpy } = renderApp({ layout: PLAN_V1 });
-
-    expect(await screen.findByTestId('view-toggle')).toBeInTheDocument();
-    expect(screen.getByTestId('settings-cog-btn')).toBeInTheDocument();
-
-    // Settle the v1 briefing fetch before the negative claims, so they are made against the
-    // loaded page rather than a frame that has not branched yet.
-    await screen.findByTestId('daily-briefing-empty');
-    expect(screen.queryByTestId('window-first-shell')).toBeNull();
-    // Not merely unrendered — never mounted. App's own comment says the provider is inside the
-    // flag branch so v1 users never pay its /api/briefing poll; hoisting it would pass every
-    // DOM assertion here while doubling the fetch load for every v1 session.
-    expect(providerSpy).not.toHaveBeenCalled();
-  });
-
-  it('renders the window-first arm by default, suppressing the v1 header', async () => {
+describe('App — the Plan shell', () => {
+  it('renders the Plan shell', async () => {
     renderApp();
 
     expect(await screen.findByTestId('window-first-shell')).toBeInTheDocument();
     await screen.findByTestId('window-first-pane-empty'); // provider's briefing fetch settled
+  });
 
-    // The v1 chrome must be gone, not merely covered: App suppresses its <header> for this arm
-    // because the shell carries its own masthead — both at once stacks two wordmarks.
-    expect(screen.queryByTestId('view-toggle')).toBeNull();
-    expect(screen.queryByTestId('settings-cog-btn')).toBeNull();
+  it('renders the Plan fallback when the provider throws', async () => {
+    const { providerSpy } = renderApp();
+
+    // The spy is a passthrough on mount (see the harness above), so this is the one test that
+    // stops it being one. App's next re-render — `loadHomeCoords` resolving is enough — hits the
+    // throwing implementation, and the boundary wrapping the PROVIDER (not just the shell, §4.1)
+    // is what is expected to catch it.
+    providerSpy.mockImplementation(() => { throw new Error('boom'); });
+
+    expect(await screen.findByRole('alert')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'The Plan stopped working' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
   });
 });
 
-// ── The masthead light rule's arm gate ───────────────────────────────────────
+// ── The masthead light rule ──────────────────────────────────────────────────
 
-describe('App — today\'s light is fetched for one arm only', () => {
-  // `useTodaysLight`'s own test proves it obeys `enabled=false` when it is given. What it cannot
-  // see is the ARGUMENT App passes, which is the whole gate: change
-  // `useTodaysLight(planLayout === PLAN_V2, …)` to `useTodaysLight(true, …)` and every v1 reader —
-  // the pilot's frozen comparison control — issues a request per load for a band their arm does not
-  // render, with the entire suite still green. An adversarial review filed exactly that; it was
-  // declined at the time for want of a harness, which #556 has since supplied.
-
-  it('asks for no light on the v1 arm, which renders no band', async () => {
-    renderApp({ layout: PLAN_V1 });
-
-    await screen.findByTestId('daily-briefing-empty'); // v1 settled, so this is not an early frame
-    expect(getTodaysLight).not.toHaveBeenCalled();
-  });
-
-  it('asks for it on the window-first arm, which does', async () => {
-    // The other half, and the reason it is here: a gate stuck closed would pass the test above.
-    renderApp({ layout: PLAN_V2 });
+describe('App — fetches today\'s light for the masthead', () => {
+  it('asks for it once the Plan shell is up', async () => {
+    renderApp();
 
     await screen.findByTestId('window-first-pane-empty');
     await waitFor(() => expect(getTodaysLight).toHaveBeenCalled());
@@ -217,7 +194,7 @@ describe('App — today\'s light is fetched for one arm only', () => {
 
 describe('App — WindowFirstBriefingProvider wiring', () => {
   it('hands the provider the forecast roster once useForecasts resolves', async () => {
-    const { providerSpy } = renderApp({ layout: PLAN_V2 });
+    const { providerSpy } = renderApp();
 
     // The Map tab exists only once `allDates` is non-empty, which is derived from the same
     // `visibleLocations` render that re-hands the provider its roster — so once the tab is on
@@ -246,16 +223,16 @@ describe('App — WindowFirstBriefingProvider wiring', () => {
 
 describe('App — panes handed to WindowFirstShell', () => {
   it('hands over the Map pane once forecast dates exist', async () => {
-    renderApp({ layout: PLAN_V2 });
+    renderApp();
     expect(await screen.findByRole('tab', { name: 'Map' })).toBeInTheDocument();
   });
 
   it('withholds the Map pane while no forecast date exists', async () => {
     // The roster still loads — only the forecast rows are empty. This pins the guard to DATES
-    // specifically: a tab onto an empty map is what the v1 arm answers with its "No forecasts
-    // loaded yet" card, and §6 bans controls that open onto nothing.
+    // specifically: §6 bans controls that open onto nothing, and a Map tab with no dates to show
+    // would be exactly that.
     fetchForecasts.mockResolvedValue([]);
-    renderApp({ layout: PLAN_V2 });
+    renderApp();
 
     await screen.findByTestId('window-first-pane-empty');
     // The forecast chain resolving [] changes no DOM, so there is nothing to findBy for it; one
@@ -270,12 +247,12 @@ describe('App — panes handed to WindowFirstShell', () => {
   });
 
   it('hands the Operations pane to an admin', async () => {
-    renderApp({ role: 'ADMIN', layout: PLAN_V2 });
+    renderApp({ role: 'ADMIN' });
     expect(await screen.findByRole('tab', { name: 'Operations' })).toBeInTheDocument();
   });
 
   it('withholds the Operations pane from a pro user', async () => {
-    renderApp({ layout: PLAN_V2 });
+    renderApp();
     // Settle on the Map tab so the absence claim is made against the fully-loaded tab bar.
     await screen.findByRole('tab', { name: 'Map' });
     expect(screen.queryByRole('tab', { name: 'Operations' })).toBeNull();

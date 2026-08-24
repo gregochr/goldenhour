@@ -12,7 +12,7 @@ import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
  * whole claim of the feature is that they move <em>together</em>. A half-applied origin is worse
  * than none: a page framed on the Lakes with drive times from Durham is a plan nobody can act on.
  *
- * <p>The context is stubbed rather than driven, exactly as {@code usePlanLayout.test.jsx} does it:
+ * <p>The context is stubbed rather than driven, exactly as {@code WindowFirstShell.test.jsx} does it:
  * these are tests about the shell's wiring, and the provider's own derivations have their own
  * files ({@code planOrigin.test.js}, {@code windowFirstCards.test.js}).
  */
@@ -159,7 +159,7 @@ describe('WindowFirstShell — the origin', () => {
   });
 
   const shellProps = () => ({
-    onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
+    onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),
   });
 
   const renderShell = (extra = {}) => {
@@ -266,7 +266,6 @@ describe('WindowFirstShell — the origin', () => {
       const value = ctx();
       vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(value);
       render(<WindowFirstShell
-        onExit={vi.fn()}
         onOpenSettings={vi.fn()}
         onSignOut={vi.fn()}
         onShowOnMap={vi.fn()}

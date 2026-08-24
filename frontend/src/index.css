@@ -1302,12 +1302,6 @@
      has nothing to space. No `:not()` needed to say so. */
   gap: 10px;
 }
-/* The temporary "back to the current Plan" foot. It takes the gutter because it is chrome on the
-   same left edge; the spec has no counterpart, since the mock has no flag to go back through. */
-.wf-exit-foot {
-  padding: 0 var(--wf-gutter) 20px;
-}
-
 @media (max-width: 639px) {
   /* One declaration moves every horizontal inset in the arm's chrome. */
   .wf-shell {
