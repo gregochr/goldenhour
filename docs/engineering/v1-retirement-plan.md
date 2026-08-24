@@ -1,7 +1,7 @@
 # v1 Plan UI retirement — the flip, the flag, the estate, the compatibility layer, the settling commit
 
 **Status: PLAN WRITTEN 2026-08-23 and adversarially reviewed 2026-08-23/24 (six prosecutor lenses,
-41 charges, one refuter per charge — §10); the survivors are folded in below. No phase has landed.**
+41 charges, one refuter per charge — §10); the survivors are folded in below. D0 landed 2026-08-24.**
 Written against `main` at `1281e64a` (v2.18.17). The owner's decision (2026-08-22) is the flip decision
 this series executes: (1) the window-first v2 Plan becomes the default, (2) the layout toggle goes,
 (3) the v1 UI and its tests are removed completely — the frontend ends **minimal yet complete**. The
@@ -17,7 +17,8 @@ PR lands (a phase cannot name its own hash); until then it reads *(fill after me
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
-| plan | `claude/v1-plan-ui-retirement-3e2398` | *(fill after merge)* | 2026-08-23 | The survey behind §3 ran as nine read-only lenses plus a completeness critic (≈2.4 M tokens, 813 tool calls); the plan was then prosecuted by six lenses (41 charges) with one refuter per charge — §10 records the tally and the two blocking finds (a surviving a11y pin inside a DELETE range; a BrandLockup instruction that trusted a docblock the tree contradicts). |
+| plan | `claude/v1-plan-ui-retirement-3e2398` | `82b33048` | 2026-08-23 | The survey behind §3 ran as nine read-only lenses plus a completeness critic (≈2.4 M tokens, 813 tool calls); the plan was then prosecuted by six lenses (41 charges) with one refuter per charge — §10 records the tally and the two blocking finds (a surviving a11y pin inside a DELETE range; a BrandLockup instruction that trusted a docblock the tree contradicts). |
+| D0 | `claude/v1-retirement-d0-flip-d2ca06` | *(fill after merge)* | 2026-08-24 | The flip, alone: one `DEFAULT = PLAN_V2` constant used at all three `usePlanLayout` fallback sites (storage default, invalid-read fallback, invalid-write fallback), both Javadoc paragraphs rewritten. Rollback hatch (stored `"v1"` still renders v1) deliberately untouched — lasts until D1 deletes the toggle. Three read-only lenses (runtime, tests, scope-fidelity-to-§3.0) each returned zero charges — reported as unexamined coverage per §0's rule, not as clean. Branch carries a worktree-assigned `-d2ca06` suffix rather than the plan's literal `claude/v1-retirement-d0-flip`; flagged for the owner, not renamed mid-session. |
 
 ---
 

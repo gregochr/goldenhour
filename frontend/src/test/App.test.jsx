@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import App from '../App.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
-import { PLAN_LAYOUT_KEY, PLAN_V2 } from '../hooks/usePlanLayout.js';
+import { PLAN_LAYOUT_KEY, PLAN_V1, PLAN_V2 } from '../hooks/usePlanLayout.js';
 import { ukDateStrOffset } from '../utils/mapDates.js';
 
 /**
@@ -158,8 +158,8 @@ afterEach(() => {
 // ── The Plan-layout flag branch ──────────────────────────────────────────────
 
 describe('App — the Plan-layout flag branch', () => {
-  it('renders the v1 arm by default and never mounts the window-first provider', async () => {
-    const { providerSpy } = renderApp();
+  it('renders the v1 arm when the stored flag says v1, and never mounts the window-first provider', async () => {
+    const { providerSpy } = renderApp({ layout: PLAN_V1 });
 
     expect(await screen.findByTestId('view-toggle')).toBeInTheDocument();
     expect(screen.getByTestId('settings-cog-btn')).toBeInTheDocument();
@@ -174,8 +174,8 @@ describe('App — the Plan-layout flag branch', () => {
     expect(providerSpy).not.toHaveBeenCalled();
   });
 
-  it('renders the window-first arm when the stored flag says v2, suppressing the v1 header', async () => {
-    renderApp({ layout: PLAN_V2 });
+  it('renders the window-first arm by default, suppressing the v1 header', async () => {
+    renderApp();
 
     expect(await screen.findByTestId('window-first-shell')).toBeInTheDocument();
     await screen.findByTestId('window-first-pane-empty'); // provider's briefing fetch settled
@@ -198,7 +198,7 @@ describe('App — today\'s light is fetched for one arm only', () => {
   // declined at the time for want of a harness, which #556 has since supplied.
 
   it('asks for no light on the v1 arm, which renders no band', async () => {
-    renderApp();
+    renderApp({ layout: PLAN_V1 });
 
     await screen.findByTestId('daily-briefing-empty'); // v1 settled, so this is not an early frame
     expect(getTodaysLight).not.toHaveBeenCalled();
