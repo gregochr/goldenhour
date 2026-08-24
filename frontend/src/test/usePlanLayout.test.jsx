@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, render, screen, fireEvent, within } from '@testing-library/react';
 import React from 'react';
-import usePlanLayout, { PLAN_LAYOUT_KEY, PLAN_V1, PLAN_V2 } from '../hooks/usePlanLayout.js';
+import usePlanLayout, { PLAN_LAYOUT_KEY, PLAN_V2 } from '../hooks/usePlanLayout.js';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { buildPaneItems } from '../utils/windowFirstAway.js';
@@ -26,9 +26,9 @@ function Host() {
 describe('usePlanLayout', () => {
   beforeEach(() => localStorage.clear());
 
-  it('defaults to the current Plan tab, so the flag ships off', () => {
+  it('defaults to the window-first Plan', () => {
     render(<Host />);
-    expect(screen.getByTestId('layout')).toHaveTextContent(PLAN_V1);
+    expect(screen.getByTestId('layout')).toHaveTextContent(PLAN_V2);
   });
 
   it('persists a switch under the versioned key', () => {
@@ -46,20 +46,20 @@ describe('usePlanLayout', () => {
 
   // The failure this guards is narrow but total: an unrecognised value must not render neither
   // layout. It can arrive from a half-written key or from a build the user has since rolled back.
-  it('falls back to v1 when the stored value is not a layout', () => {
+  it('falls back to the default (v2) when the stored value is not a layout', () => {
     localStorage.setItem(PLAN_LAYOUT_KEY, JSON.stringify('v99'));
     render(<Host />);
-    expect(screen.getByTestId('layout')).toHaveTextContent(PLAN_V1);
+    expect(screen.getByTestId('layout')).toHaveTextContent(PLAN_V2);
   });
 
   it('refuses to store a value that is not a layout', () => {
     render(<Host />);
     fireEvent.click(screen.getByText('to nonsense'));
-    expect(screen.getByTestId('layout')).toHaveTextContent(PLAN_V1);
+    expect(screen.getByTestId('layout')).toHaveTextContent(PLAN_V2);
     // The rendered value alone is already guaranteed by the READ guard, so asserting only that
     // leaves this test unable to fail if the write guard is deleted — it was, and it passed.
     // Storage is the only observable that distinguishes the two.
-    expect(JSON.parse(localStorage.getItem(PLAN_LAYOUT_KEY))).toBe(PLAN_V1);
+    expect(JSON.parse(localStorage.getItem(PLAN_LAYOUT_KEY))).toBe(PLAN_V2);
   });
 });
 

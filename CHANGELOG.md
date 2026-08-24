@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — the window-first Plan is now the default (v1 retirement D0)
+
+`usePlanLayout`'s default flips from the region-first Plan (`v1`) to the window-first Plan (`v2`) —
+all three fallback sites (the initial `useLocalStorageState` value, the invalid-stored-value read
+fallback, and the invalid-value write fallback) now route through one `DEFAULT = PLAN_V2` constant,
+so a garbage or bare-string key cannot quietly stay on the old layout. The per-user rollback hatch
+survives until D1 deletes the toggle and the flag itself: a browser whose storage already holds the
+JSON string `"v1"` under `photocast.planLayout` keeps rendering the region-first Plan.
+
 ### Added — the v1 Plan UI retirement plan
 
 `docs/engineering/v1-retirement-plan.md` — the owner's 2026-08-22 flip decision, phased: D0 flips
