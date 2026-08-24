@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import Modal from './shared/Modal.jsx';
 import ProvisionalMark from './shared/ProvisionalMark.jsx';
+import PlanScoreBar, { FIERY_FILL, GOLDEN_FILL } from './PlanScoreBar.jsx';
 import { confidenceTreatment } from '../utils/confidenceUtils.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { buildLocationSheet } from '../utils/locationSheet.js';
@@ -353,6 +354,34 @@ export default function LocationFourDaySheet({
                     attribute exists to avoid. */}
                 <div id={body} data-testid="location-sheet-body" className="wf-loc-body"
                   hidden={!expanded}>
+                  {/* The score bars — the drill-down superset gap this plan closes. The peek one
+                      layer up already shows these two numbers; a reader who clicks through to this
+                      deeper surface must see AT LEAST what the peek showed, never less. Above the
+                      prose, matching the peek's own order (bars, then clause). Rendered only when
+                      at least one score is non-null — never an empty track, the same silence rule
+                      the rest of this sheet follows. */}
+                  {(row.fierySky != null || row.goldenHour != null) && (
+                    <div data-testid="location-sheet-scores" className="wf-loc-scores">
+                      {row.fierySky != null && (
+                        <PlanScoreBar
+                          label="Fiery Sky"
+                          score={row.fierySky}
+                          testId="location-sheet-fiery"
+                          fill={FIERY_FILL}
+                          labelClassName="wf-loc-score-label"
+                        />
+                      )}
+                      {row.goldenHour != null && (
+                        <PlanScoreBar
+                          label="Golden Hour"
+                          score={row.goldenHour}
+                          testId="location-sheet-golden"
+                          fill={GOLDEN_FILL}
+                          labelClassName="wf-loc-score-label"
+                        />
+                      )}
+                    </div>
+                  )}
                   {row.summary ? (
                     // Serif italic is this app's typographic mark for generated prose — the
                     // drill-down gloss, the map overlay's summary and the peek's clause all use it.

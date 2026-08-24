@@ -4577,11 +4577,21 @@ button.wf-hc.also.on:hover {
    de-emphasised; CLAUDE.md's rule is that they do not dim each other, and this is the same rule
    pointing the third way. `.wf-loc-tag` simply cannot co-occur: it renders only on the best row,
    which departure 4 excludes. ⚠️ Anything ADDED to a row later is silently undimmed — extend this
-   list with it, or say here why not. */
+   list with it, or say here why not.
+
+   5. Location-sheet superset plan Phase 1 added the score bars, and split them the same way the
+      badge and date box already are: `.wf-loc-score-label` (the bar's own label + number row, no
+      background of its own) joins this list, while the coloured track (`.wf-peek-bar`, filled with
+      `FIERY_FILL`/`GOLDEN_FILL`) does NOT — it carries its own plate exactly as the rating badge
+      does, for the same reason departure 1 states. No fresh ratio was measured for the label row
+      itself: it is `text-plex-text-secondary` / `text-plex-text` at 600 weight, the SAME tokens and
+      weight `.wf-loc-lv`'s own text already carries (departure 3's 4.80:1 at rest), so it is covered
+      by that measurement rather than an independent one. */
 .wf-loc-row[data-dim='true'] .wf-loc-w,
 .wf-loc-row[data-dim='true'] .wf-loc-t,
 .wf-loc-row[data-dim='true'] .wf-loc-lv,
 .wf-loc-row[data-dim='true'] .wf-loc-car,
+.wf-loc-row[data-dim='true'] .wf-loc-score-label,
 .wf-loc-row[data-dim='true'] .wf-loc-why {
   opacity: 0.8;
 }
@@ -4722,6 +4732,13 @@ button.wf-hc.also.on:hover {
    480px breakpoint that exists nowhere in this file. */
 .wf-loc-body {
   padding: 0 11px 10px 73px;
+}
+/* The score-bar block, above the prose — matching the peek's own order (bars, then clause). Bottom
+   margin only: the block sits flush under the row's header with no top gap of its own, and the
+   prose below already carries no margin (`.wf-loc-why`'s `margin: 0`), so this is the ONE gap
+   between the two. */
+.wf-loc-scores {
+  margin: 0 0 8px;
 }
 .wf-loc-why {
   margin: 0;

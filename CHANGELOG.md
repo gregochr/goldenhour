@@ -29,6 +29,31 @@ carries the per-phase kickoff prompts, written for Sonnet implementing sessions 
 phase's traps inline, the stop-and-flag rule for anything the plan did not anticipate, and the
 review discipline (a zero-finding lens reports as "not examined", never "clean").
 
+### Added — location sheet superset, Phase 1: the score bars
+
+The owner's own observation: the window popup's hover peek shows Fiery Sky / Golden Hour score
+bars for a spot, and clicking through to the location sheet — the deeper drill-down — showed
+*less*, only prose and a leave-by line. The principle this closes: each step deeper must show a
+superset of what the step above it showed for that location + event, never less.
+
+`PeekScoreBar`, previously module-private inside `WindowSpotPeek`, is now the shared
+`PlanScoreBar` component; `WindowSpotPeek`'s own tests pass unedited against the extraction,
+which is this project's own proof a move was pure. `locationSheet.js`'s `buildScoreIndex` now
+carries `fierySky`/`goldenHour` alongside `rating`/`summary` from the same score row (never a
+second lookup path), bounded 0–100 integer the same way `rating` is bounded 1–5; the sheet renders
+both bars in the expanded row body, above the prose, only when at least one is scored, and nulls
+both on an away day through the same gate that already refuses rating and summary there.
+
+An adversarial review of the diff (three lenses: runtime correctness, CSS/accessibility, test
+quality) found two real defects before this landed. The extraction had leaked a sheet-only CSS
+dimming class into `PlanScoreBar` unconditionally, so `WindowSpotPeek` rendered a class that meant
+nothing in its context — now an opt-in `labelClassName` prop, absent by default. And the new
+cross-surface consistency test (`planScoreConsistency.test.js`, which feeds one served row through
+both the peek's and the sheet's reduction and asserts they agree) only used in-range values, so it
+could not actually catch the two surfaces disagreeing — `resolveSpotPeek` had no bounds check on
+the two fields at all, unlike the sheet's. Both now apply the identical 0–100-integer bound, and
+the test proves agreement on a malformed row too, not just an ordinary one.
+
 ## [v2.18.17] - 2026-08-22
 
 ### Changed — Plan tab M5: the sweep, and the strip that no longer has a job

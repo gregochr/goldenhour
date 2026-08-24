@@ -142,6 +142,32 @@ describe('resolveSpotPeek', () => {
     expect(detail.clause).toBe('Mid-level cloud should catch the last light.');
   });
 
+  /**
+   * Location-sheet superset plan, Phase 1: `LocationFourDaySheet`'s `buildScoreIndex` discards a
+   * fierySky/goldenHour value outside 0–100 or non-integer, and this peek must apply the SAME rule
+   * to the same served row — an adversarial review of the plan's own consistency test caught the
+   * asymmetry: without this, a malformed row showed a clamped bar here while the sheet, one
+   * drill-down step deeper, showed nothing for it.
+   */
+  it('⚠️ discards a fierySky/goldenHour value outside 0–100, matching the sheet\'s bound', () => {
+    for (const bad of [-1, 101, 50.5]) {
+      const detail = resolveSpotPeek(SPOT, DATE, EVENT, scoreIndex([{
+        date: DATE, targetType: EVENT, locationName: 'Bamburgh Castle',
+        fierySkyPotential: bad, goldenHourPotential: bad, summary: 'x',
+      }]));
+      expect(detail.fierySky).toBeNull();
+      expect(detail.goldenHour).toBeNull();
+    }
+    for (const good of [0, 100]) {
+      const detail = resolveSpotPeek(SPOT, DATE, EVENT, scoreIndex([{
+        date: DATE, targetType: EVENT, locationName: 'Bamburgh Castle',
+        fierySkyPotential: good, goldenHourPotential: good,
+      }]));
+      expect(detail.fierySky).toBe(good);
+      expect(detail.goldenHour).toBe(good);
+    }
+  });
+
   it('shows a peek for scores with no sentence, which the v1 rule refused', () => {
     // `CloseToHome` returns early on a missing summary because with the bars removed a peek would
     // restate the card. P10′ puts the bars back, so the premise is gone and the rule is re-decided:

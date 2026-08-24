@@ -2,62 +2,13 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { createPortal } from 'react-dom';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
+import PlanScoreBar, { FIERY_FILL, GOLDEN_FILL } from './PlanScoreBar.jsx';
 
 /** Filled/hollow glyph row — `★★★★☆`. Ratings are integers, so no half star exists. */
 function starGlyphs(rating) {
   const filled = Math.max(0, Math.min(5, Math.round(rating)));
   return '★'.repeat(filled) + '☆'.repeat(5 - filled);
 }
-
-/**
- * One score bar — the label, the number, and the filled track.
- *
- * <p>The two gradients are quoted from {@code MarkerPopupContent.jsx:260-261} rather than invented,
- * because the map overlay this panel's prompt points at draws the same two measurements: a reader
- * who follows the click must recognise the bar they just looked at. Copied rather than imported —
- * they are module-private there, and importing that 1,300-line component into the Plan pane would
- * pull the map popup's whole module graph into the pane's chunk to fetch two strings.
- *
- * <p><b>The number is not tinted</b>, where the popup ramps it through a three-stop scale. One
- * deviation, deliberate: this panel is 280px of tooltip that opens on a pointer resting, so a third
- * colour channel competing with the rating badge and the bar is weight it has not earned. The bar's
- * length carries the value and the number states it, so nothing here is encoded by colour alone
- * (SC 1.4.1).
- *
- * @param {object}  props
- * @param {string}  props.label the measurement's own name, as the map popup prints it
- * @param {number}  props.score 0–100
- * @param {string}  props.testId per-bar test id
- * @param {string}  props.fill  the track gradient
- */
-function PeekScoreBar({ label, score, testId, fill }) {
-  const pct = Math.min(100, Math.max(0, score));
-  return (
-    <div data-testid={testId} data-score={score} style={{ marginTop: '6px' }}>
-      <div
-        className="flex items-center justify-between font-mono"
-        style={{ fontSize: '10px', marginBottom: '3px' }}
-      >
-        <span className="text-plex-text-secondary">{label}</span>
-        <span className="text-plex-text" style={{ fontWeight: 600 }}>{pct}</span>
-      </div>
-      <div className="wf-peek-bar" style={{ background: fill }}>
-        <span className="wf-peek-bar-rest" style={{ width: `${100 - pct}%` }} />
-      </div>
-    </div>
-  );
-}
-
-PeekScoreBar.propTypes = {
-  label: PropTypes.string.isRequired,
-  score: PropTypes.number.isRequired,
-  testId: PropTypes.string.isRequired,
-  fill: PropTypes.string.isRequired,
-};
-
-/** Quoted from `MarkerPopupContent`'s `FIERY_FILL` / `GOLDEN_FILL` — see {@link PeekScoreBar}. */
-const FIERY_FILL = 'linear-gradient(90deg, #B5A06A, #E0A542 45%, #C8452F)';
-const GOLDEN_FILL = 'linear-gradient(90deg, #6B6453, #C88E2E 45%, #F5C518)';
 
 /**
  * The window-first spot peek — what a pointer resting on a film-strip card is shown.
@@ -263,7 +214,7 @@ export default function WindowSpotPeek({
       {hasScores && (
         <div data-testid="wf-peek-scores" style={{ marginTop: '8px' }}>
           {fierySky != null && (
-            <PeekScoreBar
+            <PlanScoreBar
               label="Fiery Sky"
               score={fierySky}
               testId="wf-peek-fiery"
@@ -271,7 +222,7 @@ export default function WindowSpotPeek({
             />
           )}
           {goldenHour != null && (
-            <PeekScoreBar
+            <PlanScoreBar
               label="Golden Hour"
               score={goldenHour}
               testId="wf-peek-golden"

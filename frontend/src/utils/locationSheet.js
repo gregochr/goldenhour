@@ -94,6 +94,15 @@ const STRONG_RATING = 4;
 const MIN_RATING = 1;
 const MAX_RATING = 5;
 
+/** A score bar's own bounds — the model's 0–100 output range, integer, same discard rule as rating. */
+const MIN_SCORE = 0;
+const MAX_SCORE = 100;
+
+/** Discards a score-bar value outside 0–100 or non-integer, mirroring the rating bound above. */
+function boundedScore(value) {
+  return Number.isInteger(value) && value >= MIN_SCORE && value <= MAX_SCORE ? value : null;
+}
+
 /** Every slot in an event summary, regioned and unregioned alike — {@code solarEventTimes}' rule. */
 function slotsOf(eventSummary) {
   const regioned = (eventSummary?.regions ?? []).flatMap(
@@ -159,9 +168,15 @@ export function buildSlotIndex(days) {
  * value outside 1–5 would otherwise reach {@code spotBadgeStyle}, which clamps, and paint a badge
  * for a rating the pipeline never produced.
  *
+ * <p>Also carries {@code fierySky}/{@code goldenHour} (location-sheet superset plan, Phase 1) —
+ * the same two 0–100 model outputs the window popup's peek already shows, bounded here the same way
+ * {@code rating} is: an out-of-range or non-integer value is discarded rather than reaching
+ * {@link PlanScoreBar}, which clamps and would otherwise draw a bar for a number the pipeline never
+ * produced.
+ *
  * @param {Array} scoreRows raw {@code LocationEvaluationView} rows
  * @returns {{byId: Map<string, object>, byName: Map<string, object>}} valued
- *          {@code {rating, summary}}
+ *          {@code {rating, summary, fierySky, goldenHour}}
  */
 export function buildScoreIndex(scoreRows) {
   const byId = new Map();
@@ -175,8 +190,10 @@ export function buildScoreIndex(scoreRows) {
     const summary = typeof row.summary === 'string' && row.summary.trim() !== ''
       ? row.summary.trim()
       : null;
+    const fierySky = boundedScore(row.fierySkyPotential);
+    const goldenHour = boundedScore(row.goldenHourPotential);
     index(byId, byName, row.locationId, row.locationName,
-      tailOf(row.date, row.targetType), { rating, summary });
+      tailOf(row.date, row.targetType), { rating, summary, fierySky, goldenHour });
   }
   return { byId, byName };
 }
@@ -400,6 +417,10 @@ export function buildLocationSheet(spot, windows, {
       stateLabel: card.verdictLabel,
       rating,
       summary: card.away ? null : (score?.summary ?? null),
+      // Location-sheet superset plan, Phase 1: the SAME score row rating and summary come from —
+      // never a second lookup, which is P8's load-bearing rule restated for two more fields.
+      fierySky: card.away ? null : (score?.fierySky ?? null),
+      goldenHour: card.away ? null : (score?.goldenHour ?? null),
       leave,
       // ⚠️ The LOCATION'S OWN region's confidence, never `card.confidence` (which is the top
       // region's — right for a roster-wide thumbnail, wrong for one place in another region). Null
