@@ -32,8 +32,14 @@ const WINDOWS = [
 ];
 
 const SCORES = buildScoreIndex([
-  { locationId: 7, locationName: 'Bamburgh', date: '2026-08-14', targetType: 'SUNSET', rating: 3, summary: 'High cloud thins after eight.' },
-  { locationId: 7, locationName: 'Bamburgh', date: '2026-08-15', targetType: 'SUNRISE', rating: 5, summary: 'A clear eastern horizon under mid cloud.' },
+  {
+    locationId: 7, locationName: 'Bamburgh', date: '2026-08-14', targetType: 'SUNSET', rating: 3,
+    summary: 'High cloud thins after eight.', fierySkyPotential: 62, goldenHourPotential: 58,
+  },
+  {
+    locationId: 7, locationName: 'Bamburgh', date: '2026-08-15', targetType: 'SUNRISE', rating: 5,
+    summary: 'A clear eastern horizon under mid cloud.', fierySkyPotential: 88, goldenHourPotential: 91,
+  },
   { locationId: 7, locationName: 'Bamburgh', date: '2026-08-15', targetType: 'SUNSET', rating: 2, summary: 'Blanket low cloud to the west.' },
 ]);
 
@@ -413,7 +419,7 @@ describe('LocationFourDaySheet — the v3 anatomy (plan-matrix §6 M4.1)', () =>
     expect(row('2026-08-16:SUNRISE')).not.toHaveAttribute('data-dim');
   });
 
-  it('⚠️ dims no element that carries its own background — the badge and the date box', () => {
+  it('⚠️ dims no element that carries its own background — the badge, the date box, and the score track', () => {
     // The load-bearing half of the treatment, and the half no rendered assertion can see: `opacity`
     // on a parent cannot be undone by a child, so the exclusions are OMISSIONS from a selector list
     // and a mutation that adds either class back is invisible to jsdom (`css: false`). Both are
@@ -433,6 +439,12 @@ describe('LocationFourDaySheet — the v3 anatomy (plan-matrix §6 M4.1)', () =>
     expect(dimmed[0]).toContain('.wf-loc-lv');
     expect(dimmed[0]).not.toContain('.wf-loc-st');
     expect(dimmed[0]).not.toContain('.wf-loc-day');
+    // Location-sheet superset plan, Phase 1: the score bars' label row joins this SAME rule (still
+    // one block — the selector list widened, not a second rule), while the coloured track
+    // (`.wf-peek-bar`, painted with the fiery/golden gradient) is excluded for the identical reason
+    // the badge is — it carries its own plate, not text.
+    expect(dimmed[0]).toContain('.wf-loc-score-label');
+    expect(dimmed[0]).not.toContain('.wf-peek-bar');
   });
 
   it('⚠️ keeps the lead line free of a denominator, and free of uppercase TEXT', () => {
@@ -455,6 +467,84 @@ describe('LocationFourDaySheet — the v3 anatomy (plan-matrix §6 M4.1)', () =>
     renderSheet({ windows: [] });
     expect(screen.getByTestId('location-sheet-empty')).toHaveClass('wf-loc-note');
     expect(screen.getByTestId('location-sheet-empty')).not.toHaveClass('wf-loc-lead');
+  });
+});
+
+describe('LocationFourDaySheet — the score bars (location-sheet superset plan, Phase 1)', () => {
+  /**
+   * The peek one layer up already shows Fiery Sky / Golden Hour bars for a spot; this sheet is the
+   * deeper drill-down and must show a SUPERSET of what the peek showed, never less — the plan's
+   * whole ask. `LocationFourDaySheet.test.jsx`'s existing fixtures carried no scores before this
+   * phase; `SCORES` above now does, for the same two rated windows the rest of this file exercises.
+   */
+  it('renders both bars, above the prose, with the score row\'s own values', () => {
+    setup();
+    const best = within(row('2026-08-15:SUNRISE'));
+    const fiery = best.getByTestId('location-sheet-fiery');
+    const golden = best.getByTestId('location-sheet-golden');
+    expect(fiery).toHaveTextContent('Fiery Sky');
+    expect(fiery).toHaveTextContent('88');
+    expect(golden).toHaveTextContent('Golden Hour');
+    expect(golden).toHaveTextContent('91');
+    // Order: bars before the prose, matching the peek's own order (bars, then clause).
+    const body = best.getByTestId('location-sheet-body');
+    const scores = within(body).getByTestId('location-sheet-scores');
+    const why = within(body).getByTestId('location-sheet-why');
+    expect(scores.compareDocumentPosition(why) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('renders only the bar with a value when the other axis has none', () => {
+    // A window scored on one axis and not the other draws one bar, never a bar and a fabricated
+    // zero — the same rule the peek's `resolveSpotPeek` already follows.
+    setup({
+      scoreIndex: buildScoreIndex([
+        { locationId: 7, date: '2026-08-14', targetType: 'SUNSET', rating: 3, fierySkyPotential: 40 },
+      ]),
+    });
+    const first = within(row('2026-08-14:SUNSET'));
+    expect(first.getByTestId('location-sheet-fiery')).toHaveTextContent('40');
+    expect(first.queryByTestId('location-sheet-golden')).toBeNull();
+  });
+
+  it('renders no score block at all when neither axis has a value', () => {
+    // Silence, never synthesis (plan §3 rule 6): an empty track would assert a measurement nothing
+    // produced. This row (2★, Saturday sunset) carries a rating but no bars in `SCORES` above.
+    setup();
+    const dim = within(row('2026-08-15:SUNSET'));
+    fireEvent.click(dim.getByRole('button'));
+    expect(dim.queryByTestId('location-sheet-scores')).toBeNull();
+    expect(dim.queryByTestId('location-sheet-fiery')).toBeNull();
+  });
+
+  it('renders no score block on an away row, even when a stale row is scored', () => {
+    // The away-gate already refuses rating and summary; the bars ride the same lookup and must
+    // refuse with them — the sheet must not draw a forecast for a night nobody forecast.
+    setup({
+      scoreIndex: buildScoreIndex([
+        { locationId: 7, date: '2026-08-16', targetType: 'SUNRISE', rating: 5, fierySkyPotential: 80, goldenHourPotential: 80 },
+      ]),
+    });
+    const away = within(row('2026-08-16:SUNRISE'));
+    fireEvent.click(away.getByRole('button'));
+    expect(away.queryByTestId('location-sheet-scores')).toBeNull();
+  });
+
+  it('⚠️ keeps the bars mounted on a dimmed ≤2★ row — dimming never hides content', () => {
+    // The DOM-visible half of the claim: `data-dim` on the row must not remove or gate the score
+    // block, only style it (via CSS this test cannot see — the stylesheet test below owns the
+    // selector-membership half: that `.wf-loc-score-label` IS in the dimmed list and the coloured
+    // track is NOT). A single-window fixture with a rated window seeds itself open (the "only rated
+    // row" fallback), so this row needs no click.
+    setup({
+      windows: [{ ...WINDOWS[2], key: 'dim-scores:SUNSET' }],
+      scoreIndex: buildScoreIndex([
+        { locationId: 7, date: '2026-08-15', targetType: 'SUNSET', rating: 2, fierySkyPotential: 30, goldenHourPotential: 20 },
+      ]),
+    });
+    const dimRow = row('dim-scores:SUNSET');
+    expect(dimRow).toHaveAttribute('data-dim', 'true');
+    expect(within(dimRow).getByTestId('location-sheet-fiery')).toHaveTextContent('30');
+    expect(within(dimRow).getByTestId('location-sheet-golden')).toHaveTextContent('20');
   });
 });
 

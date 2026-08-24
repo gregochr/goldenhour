@@ -55,6 +55,19 @@ const VIEWPORT_MARGIN = 8;
 const PEEK_ESTIMATED_HEIGHT = 220;
 
 /**
+ * A score-bar value's own bounds — the model's 0–100 integer output range. Mirrors
+ * {@code locationSheet.js}'s {@code boundedScore} exactly, so an out-of-range or fractional value is
+ * discarded here the same way it is on the sheet's side of the same served row. Without this the two
+ * drill-down layers could disagree on a malformed row: the sheet would show silence (bounded to
+ * null) while the peek rendered a bar clamped to a number the pipeline never produced — the "same
+ * snapshot, two reductions, one shows a number the other refuses" defect class this project has hit
+ * before (Contracts §3).
+ */
+function boundedScore(value) {
+  return Number.isInteger(value) && value >= 0 && value <= 100 ? value : null;
+}
+
+/**
  * Places the peek under the hovered spot card, tethered to it by an arrow.
  *
  * <p>Under, not beside: the panel belongs to one card, and a tooltip hanging off a card's flank in a
@@ -144,6 +157,11 @@ export function spotPeekPlacement(anchorRect, stripRect) {
  * {@code CloseToHome}'s rule too: opening a peek must cost nothing, or a pointer sweeping a strip
  * becomes a burst of requests.
  *
+ * <p>{@code fierySky}/{@code goldenHour} are bounded 0–100 integer, discarding anything outside that
+ * range to null — the same rule {@code locationSheet.js}'s {@code buildScoreIndex} applies to the
+ * location sheet's own copy of these two fields, off the same served row. Without matching bounds a
+ * malformed row could show a bar here that the sheet, one drill-down step deeper, shows nothing for.
+ *
  * @param {object}  spot       the spot descriptor from {@code buildWindowSpots}
  * @param {string}  date       the window's date
  * @param {string}  targetType SUNRISE or SUNSET
@@ -154,8 +172,8 @@ export function spotPeekPlacement(anchorRect, stripRect) {
  */
 export function resolveSpotPeek(spot, date, targetType, scoreIndex) {
   const score = lookupBriefingScore(scoreIndex, spot.locationName, date, targetType);
-  const fierySky = score?.fierySkyPotential ?? null;
-  const goldenHour = score?.goldenHourPotential ?? null;
+  const fierySky = boundedScore(score?.fierySkyPotential ?? null);
+  const goldenHour = boundedScore(score?.goldenHourPotential ?? null);
   const clause = firstClause(score?.summary ?? null);
   if (fierySky == null && goldenHour == null && clause == null) return null;
   return {

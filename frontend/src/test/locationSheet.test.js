@@ -35,8 +35,14 @@ const SPOT = { id: 7, name: 'Bamburgh', regionName: 'Northumberland' };
 const rows = (list) => list.map((r) => ({ locationId: 7, locationName: 'Bamburgh', ...r }));
 
 const SCORES = buildScoreIndex(rows([
-  { date: '2026-08-14', targetType: 'SUNSET', rating: 3, summary: 'High cloud thins after eight.' },
-  { date: '2026-08-15', targetType: 'SUNRISE', rating: 5, summary: 'A clear eastern horizon under mid cloud.' },
+  {
+    date: '2026-08-14', targetType: 'SUNSET', rating: 3, summary: 'High cloud thins after eight.',
+    fierySkyPotential: 62, goldenHourPotential: 58,
+  },
+  {
+    date: '2026-08-15', targetType: 'SUNRISE', rating: 5, summary: 'A clear eastern horizon under mid cloud.',
+    fierySkyPotential: 88, goldenHourPotential: 91,
+  },
   { date: '2026-08-15', targetType: 'SUNSET', rating: 2, summary: 'Blanket low cloud to the west.' },
   { date: '2026-08-16', targetType: 'SUNRISE', rating: 4, summary: 'Broken cloud, decent odds.' },
 ]));
@@ -176,7 +182,7 @@ describe('buildScoreIndex', () => {
       { locationId: 7, locationName: 'Bamburgh', date: '2026-08-14', targetType: 'SUNSET', rating: 5, summary: 'Here.' },
     ]);
     expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET'))
-      .toEqual({ rating: 5, summary: 'Here.' });
+      .toEqual({ rating: 5, summary: 'Here.', fierySky: null, goldenHour: null });
   });
 
   it('discards a rating outside 1–5 rather than displaying it', () => {
@@ -197,6 +203,42 @@ describe('buildScoreIndex', () => {
     // row — the gate `resolveSpotPeek` applies for the same reason.
     const idx = buildScoreIndex(rows([{ date: '2026-08-14', targetType: 'SUNSET', rating: 3, summary: '   ' }]));
     expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET').summary).toBeNull();
+  });
+
+  /**
+   * Location-sheet superset plan, Phase 1: the two score bars ride the same index as `rating`, so
+   * they take the same discard rule — an out-of-range or non-integer value never reaches
+   * `PlanScoreBar`, which clamps and would otherwise draw a bar for a number nothing produced.
+   */
+  it('⚠️ discards a fierySky/goldenHour value outside 0–100 rather than displaying it', () => {
+    // Band edges held constant on the OTHER axis (rating stays valid throughout) — the project's own
+    // lesson that a member+non-member fixture alone does not pin a guard; each bad value is checked
+    // with the good axis untouched.
+    for (const bad of [-1, 101, 50.5, null, undefined, '50']) {
+      const idx = buildScoreIndex(rows([
+        { date: '2026-08-14', targetType: 'SUNSET', rating: 3, fierySkyPotential: bad, goldenHourPotential: bad },
+      ]));
+      const entry = lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET');
+      expect(entry.fierySky).toBeNull();
+      expect(entry.goldenHour).toBeNull();
+    }
+    for (const good of [0, 100]) {
+      const idx = buildScoreIndex(rows([
+        { date: '2026-08-14', targetType: 'SUNSET', rating: 3, fierySkyPotential: good, goldenHourPotential: good },
+      ]));
+      const entry = lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET');
+      expect(entry.fierySky).toBe(good);
+      expect(entry.goldenHour).toBe(good);
+    }
+  });
+
+  it('⚠️ keeps fierySky and goldenHour independent — one bad value does not discard the other', () => {
+    const idx = buildScoreIndex(rows([
+      { date: '2026-08-14', targetType: 'SUNSET', rating: 3, fierySkyPotential: 72, goldenHourPotential: 101 },
+    ]));
+    const entry = lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET');
+    expect(entry.fierySky).toBe(72);
+    expect(entry.goldenHour).toBeNull();
   });
 
   it('skips a row that names no window, and survives a null payload', () => {
@@ -223,6 +265,33 @@ describe('buildLocationSheet rows', () => {
     // borrowed prose or the reverse.
     expect(sheet.rows[4].rating).toBeNull();
     expect(sheet.rows[4].summary).toBeNull();
+  });
+
+  /**
+   * Location-sheet superset plan, Phase 1: the score bars must come from the SAME score row as the
+   * rating and summary — P8's rule ("one join, never a second lookup path") restated for two more
+   * fields. A second path is exactly the split-source defect P8 fixed.
+   */
+  it('⚠️ carries fierySky/goldenHour from the SAME score row as the rating and summary', () => {
+    const sheet = build();
+    expect(sheet.rows[0]).toMatchObject({ rating: 3, fierySky: 62, goldenHour: 58 });
+    expect(sheet.rows[1]).toMatchObject({ rating: 5, fierySky: 88, goldenHour: 91 });
+    // A window the score payload rates but does not carry bars for is unrated on THIS axis only —
+    // never a fabricated bar and never a rating withheld because a bar is missing.
+    expect(sheet.rows[2]).toMatchObject({ rating: 2, fierySky: null, goldenHour: null });
+    // A window with no score row at all has neither.
+    expect(sheet.rows[4]).toMatchObject({ rating: null, fierySky: null, goldenHour: null });
+  });
+
+  it('looks up no scores at all for an away window — including the bars', () => {
+    // The away-gate already refuses rating and summary; the bars ride the same score lookup and
+    // must refuse with them, or a stale row would draw a forecast for a night nobody forecast.
+    const sheet = build({
+      scoreIndex: buildScoreIndex(rows([
+        { date: '2026-08-17', targetType: 'SUNRISE', rating: 5, fierySkyPotential: 80, goldenHourPotential: 80 },
+      ])),
+    });
+    expect(sheet.rows[5]).toMatchObject({ away: true, fierySky: null, goldenHour: null });
   });
 
   it('⚠️ prints THIS location\'s own event time, not the window header\'s', () => {
