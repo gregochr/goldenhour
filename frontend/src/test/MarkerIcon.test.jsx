@@ -330,9 +330,13 @@ describe('createClusterIcon', () => {
     expect(icon.options.className).toBe('');
   });
 
-  it('uses dark text to match individual markers', () => {
+  it('derives the count ink from the bubble fill, like the markers', () => {
+    // No ratings -> the no-data grey, where the old hard-coded dark ink measured under 2:1.
     const svg = parseHtml(createClusterIcon(mockCluster(3)));
-    expect(svg.querySelector('text').getAttribute('fill')).toBe('#0f172a');
+    expect(svg.querySelector('text').getAttribute('fill')).toBe('#FFFFFF');
+    // A 5-star cluster sits on the ramp's lightest stop, where dark ink is the readable one.
+    const gold = parseHtml(createClusterIcon(mockCluster(3, [5, 5, 5])));
+    expect(gold.querySelector('text').getAttribute('fill')).toBe('#0F172A');
   });
 
   it('uses gold background for high average ratings', () => {
@@ -491,5 +495,57 @@ describe('buildStandDownSvg', () => {
   it('contains no <path> arcs (scoring progress arcs suppressed for stand-down)', () => {
     const svg = parseSvg(buildStandDownSvg());
     expect(svg.querySelectorAll('path')).toHaveLength(0);
+  });
+});
+
+describe('marker label ink clears WCAG AA on every ramp stop (v1-retirement §8.13)', () => {
+  // Computed, not tabulated, so a future ramp or ink change cannot silently drop a stop below AA —
+  // the exact failure D3's review caught when the hard-coded dark ink met the ramp's 2★ stop
+  // (3.70:1 against the 4.5:1 text threshold). Same luminance arithmetic as WCAG 2.2 / the
+  // readableInkOn rule the ink now comes from.
+  const parseHtml = (input) => {
+    // Same shape as the harnesses above (scoped to their own describes): accept a raw SVG string
+    // or a DivIcon and hand back the parsed <svg> element.
+    const html = typeof input === 'string' ? input : input.options.html;
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    return div.querySelector('svg');
+  };
+  const luminance = (hex) => {
+    const ch = [1, 3, 5].map((i) => {
+      const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+  };
+  const contrast = (a, b) => {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+
+  it.each([1, 2, 3, 4, 5])('the %d-star marker label measures at least 4.5:1 on its fill', (star) => {
+    const fill = rampHex(star);
+    const svg = parseHtml(buildMarkerSvg(`${star}\u2605`, fill, null, null, star, false));
+    const ink = svg.querySelector('text').getAttribute('fill');
+    expect(contrast(ink, fill)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('flips between the two inks where the ramp crosses them: white below 3 stars, dark from 3 up', () => {
+    // The pair pins WHICH ink wins per stop, so the AA sweep above cannot pass by accident with
+    // an ink the design never chose. The flip point is the ramp's own (windowFirstSpots): the old
+    // five-bucket table flipped in different places, and that difference is the D3 recolour.
+    const inkFor = (star) => parseHtml(buildMarkerSvg('x', rampHex(star), null, null, star, false))
+      .querySelector('text').getAttribute('fill');
+    expect(inkFor(1)).toBe('#FFFFFF');
+    expect(inkFor(2)).toBe('#FFFFFF');
+    expect(inkFor(3)).toBe('#0F172A');
+    expect(inkFor(4)).toBe('#0F172A');
+    expect(inkFor(5)).toBe('#0F172A');
+  });
+
+  it('keeps the no-data marker\'s em-dash readable on its grey', () => {
+    const svg = parseHtml(buildMarkerSvg('\u2014', scoreColour(null), null, null, null, false));
+    const ink = svg.querySelector('text').getAttribute('fill');
+    expect(contrast(ink, '#3A3D45')).toBeGreaterThanOrEqual(4.5);
   });
 });

@@ -4,6 +4,7 @@
  */
 import L from 'leaflet';
 import { rampHex } from '../utils/scoreRamp.js';
+import { readableInkOn } from '../utils/windowFirstSpots.js';
 
 /** Half-circumference of the arc circle (radius 19). */
 const HALF_CIRC = Math.PI * 19;
@@ -126,6 +127,12 @@ export function buildStandDownSvg() {
  * @returns {string} SVG markup string.
  */
 export function buildMarkerSvg(label, colour, fierySky, goldenHour, rating, isPureWildlife) {
+  // The label's ink is derived from the fill it sits on, per stop, by the same two-ink rule the
+  // v2 spot badges use ({@link readableInkOn}) — no single ink clears WCAG AA across the score
+  // ramp, whose luminance peaks at 4-5★ and falls away below 3★. The hard-coded dark ink this
+  // replaces measured 2.96:1 at 1★ and 3.70:1 at 2★ (v1-retirement plan §8.13, D3's review
+  // finding); the derived pair clears 4.5:1 on every stop, and on the no-data grey, too.
+  const ink = readableInkOn(colour);
   const hasBothScores = fierySky != null && goldenHour != null;
   const hasRatingOnly = rating != null && !hasBothScores;
   const showArcs = !isPureWildlife && (hasBothScores || hasRatingOnly);
@@ -133,7 +140,7 @@ export function buildMarkerSvg(label, colour, fierySky, goldenHour, rating, isPu
   if (!showArcs) {
     return `<svg width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg" style="filter:drop-shadow(0 2px 6px rgba(0,0,0,0.7))">
   <circle cx="22" cy="22" r="17" fill="${colour}" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
-  <text x="22" y="22" text-anchor="middle" dominant-baseline="central" font-size="${isPureWildlife ? 20 : 15}" font-weight="800" fill="#0f172a">${label}</text>
+  <text x="22" y="22" text-anchor="middle" dominant-baseline="central" font-size="${isPureWildlife ? 20 : 15}" font-weight="800" fill="${ink}">${label}</text>
 </svg>`;
   }
 
@@ -153,7 +160,7 @@ export function buildMarkerSvg(label, colour, fierySky, goldenHour, rating, isPu
   ${fieryArc}
   ${goldenArc}
   <circle cx="22" cy="22" r="17" fill="${colour}" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
-  <text x="22" y="22" text-anchor="middle" dominant-baseline="central" font-size="15" font-weight="800" fill="#0f172a">${label}</text>
+  <text x="22" y="22" text-anchor="middle" dominant-baseline="central" font-size="15" font-weight="800" fill="${ink}">${label}</text>
 </svg>`;
   }
 
@@ -163,7 +170,7 @@ export function buildMarkerSvg(label, colour, fierySky, goldenHour, rating, isPu
   <circle cx="22" cy="22" r="19" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="3"/>
   <circle cx="22" cy="22" r="19" fill="none" stroke="#E5A00D" stroke-width="3" stroke-linecap="round" stroke-dasharray="${fill.toFixed(2)} ${(FULL_CIRC - fill).toFixed(2)}" transform="rotate(90 22 22)"/>
   <circle cx="22" cy="22" r="17" fill="${colour}" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
-  <text x="22" y="22" text-anchor="middle" dominant-baseline="central" font-size="15" font-weight="800" fill="#0f172a">${label}</text>
+  <text x="22" y="22" text-anchor="middle" dominant-baseline="central" font-size="15" font-weight="800" fill="${ink}">${label}</text>
 </svg>`;
 }
 
@@ -195,6 +202,9 @@ export function createClusterIcon(cluster, role) {
     ? (ratings.reduce((sum, r) => sum + r, 0) / ratings.length) * 20
     : null;
   const bg = scoreColour(avgScore);
+  // Same per-fill ink rule as buildMarkerSvg: the count must stay readable on every ramp stop
+  // and on the no-data grey, and a hard-coded dark ink fails below 3★.
+  const ink = readableInkOn(bg);
 
   const fieryScores = scorableMarkers
     .map((m) => m.options.icon?.options?.fierySky)
@@ -227,7 +237,7 @@ export function createClusterIcon(cluster, role) {
   const html = `<svg width="${size}" height="${size}" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg" style="filter:drop-shadow(0 2px 6px rgba(0,0,0,0.7))">
   ${arcsHtml}
   <circle cx="22" cy="22" r="17" fill="${bg}" stroke="rgba(255,255,255,0.15)" stroke-width="1.5"/>
-  <text x="22" y="22" text-anchor="middle" dominant-baseline="central" font-size="15" font-weight="800" fill="#0f172a">${count}</text>
+  <text x="22" y="22" text-anchor="middle" dominant-baseline="central" font-size="15" font-weight="800" fill="${ink}">${count}</text>
 </svg>`;
 
   return L.divIcon({
