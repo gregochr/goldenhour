@@ -435,7 +435,7 @@ describe('MapView stand-down filter pill', () => {
 
 // Exact rgb each pill must render. JSDOM normalises hex to "rgb(r, g, b)"
 // in element.style.backgroundColor, so these assertions catch colour swaps.
-// These are the score ramp's five stops (scoreRamp.js RAMP_STOPS) — the star-filter swatch is
+// These are the score ramp's five stops (scoreRamp.js STOPS_VERDICT) — the star-filter swatch is
 // one of the map surfaces that paints from the ramp now, not v1's separate RATING_COLOURS table.
 const EXPECTED_DOT_RGB = {
   1: 'rgb(176, 58, 42)',   // #B03A2A

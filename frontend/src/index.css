@@ -29,7 +29,7 @@
   /* ⚠️ These three are also ramp stops. `utils/scoreRamp.js` holds the v2 heat ramp as five hex
      literals, and stops 5, 3 and 2 are exactly the three below — the canvas is painted from those
      numbers and the verdict pills from these tokens, so an edit here that does not move
-     `RAMP_STOPS` leaves the field disagreeing with the word printed beside it, with nothing
+     `STOPS_VERDICT` leaves the field disagreeing with the word printed beside it, with nothing
      failing. Move both, or neither. (`scoreRamp.js` asked for this pointer to be added when P2
      first put heat tokens in this file; it is the other half of the note in its own header.) */
   --color-verdict-go: #8AAE72;

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildWindowSpots, compareSpots, readableInkOn, spotBadgeStyle, spotOrderStatement,
 } from '../utils/windowFirstSpots.js';
-import { RAMP_STOPS, rampHex } from '../utils/scoreRamp.js';
+import { STOPS_VERDICT, rampHex } from '../utils/scoreRamp.js';
 
 /** A briefing slot as the payload carries one. */
 function slot(overrides = {}) {
@@ -277,8 +277,8 @@ describe('the rating badge', () => {
     // D2, the P5 half: a badge and the heat field beneath it mean the same thing by the same
     // colour. Literal stops, not a restatement of rampHex(rating) — v1's separate marker palette
     // is gone entirely, so there is no second table left to disagree with.
-    expect(spotBadgeStyle(5).background).toBe(RAMP_STOPS[4].hex); // '#8AAE72'
-    expect(spotBadgeStyle(1).background).toBe(RAMP_STOPS[0].hex); // '#B03A2A'
+    expect(spotBadgeStyle(5).background).toBe(STOPS_VERDICT[4].hex); // '#8AAE72'
+    expect(spotBadgeStyle(1).background).toBe(STOPS_VERDICT[0].hex); // '#B03A2A'
   });
 
   it('picks the light ink exactly where the dark one would fail', () => {
