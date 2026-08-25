@@ -745,9 +745,19 @@ view survives as "field off, pins on". The visible consequence, stated so it is 
 discovered: Medallions-view and overlay pins change colour (5★ `#3B6D11` bottle green → `#8AAE72`
 sage; 3★ `#FAC775` → `#E0A542`). `buildMarkerSvg`'s dark ink (`#0f172a`) measures 2.96:1 at 1★ and
 3.70:1 at 2★ on the ramp — already true of every v2 heat-view marker since P4, and noted at
-`windowFirstSpots.js:44-49` as P4's marker rather than the badge; with one ramp it is every marker.
-Not a change this series makes; a follow-on the owner may want (§8). The `HeatmapGrid` astro cell,
-the one non-map `RATING_COLOURS` reader, is a dead path (§3.3 fact 3), so no non-map surface changes.
+`windowFirstSpots.js:44-49` as P4's marker rather than the badge; with one ramp it is every marker,
+which is a change this series **does** make on the surfaces that were on `RATING_COLOURS` before it
+(D3, measured post-merge). ⚠️ **The 2★ step is a genuine WCAG 1.4.3 regression, not merely an
+extension of an existing one.** `RATING_COLOURS`'s 2★ (`#D85A30`) measured 4.61:1 against the same
+dark ink — a PASS against the 4.5:1 text threshold `buildMarkerSvg`'s 15px/800-weight label needs.
+The ramp's 2★ (`#C8452F`) measures 3.70:1 — a FAIL. 1★ and 5★ both move in the improving direction
+(1★ 2.53:1 → 2.96:1, still failing but less so; 5★ 2.87:1 → 7.12:1, fail → pass); 2★ is the one step
+that crosses the threshold the wrong way, on Medallions view, the Plan overlay, and aurora/astro
+modes — every surface this merge moves onto the ramp. Heat-view markers already carried the full
+ramp profile since P4 and are unchanged by D3; the regression is specifically the newly-ramped
+surfaces inheriting a contrast fault heat view already had. A follow-on the owner may want (§8),
+scoped to the 2★ ink. The `HeatmapGrid` astro cell, the one non-map `RATING_COLOURS` reader, is a
+dead path (§3.3 fact 3), so no non-map surface changes.
 
 ### 4.3 The modal ruling — route-by-route stays; rule 10 is discharged; the structural fix is a named follow-on
 
@@ -919,8 +929,14 @@ Backend / product, out of this series' scope by the owner's instruction:
     no-ops on v2 today; route through `tabRequest` if wanted.
 12. **`NlcSightingBanner` destination** — inert on v2; a route through the overlay like the aurora
     banner's is plumbing that does not exist (`buildMapOverlay` has no dark-sky trigger).
-13. **Marker ink contrast on the ramp** (2.96:1 at 1★) — pre-existing on every v2 heat-view marker;
-    with one ramp, every marker.
+13. **Marker ink contrast on the ramp** — 1★ (2.96:1) and 5★ (7.12:1) are pre-existing on every v2
+    heat-view marker and, with one ramp, now apply everywhere; **2★ is not pre-existing** — D3's
+    merge takes it from a PASS on `RATING_COLOURS` (4.61:1) to a FAIL on the ramp (3.70:1) against
+    the 4.5:1 text threshold, on every surface that moved onto the ramp (Medallions, the Plan
+    overlay, aurora/astro). Found by D3's adversarial review (independent luminance recomputation of
+    both palettes), recorded in its Phase-log row; §4.2 corrected to name the regression rather than
+    disclaim it. Scoped to the 2★ ramp stop's ink pairing — an owner call on whether to darken
+    `RAMP_STOPS[1]` (`#C8452F`) or lighten/re-derive the label ink for that one stop.
 14. **Lens readout squeeze, the chips' duplicate tab stops, `PlanSearch`'s undebounced `role="status"`,
     `MastheadLight`'s double scope announcement, the two 403s per LITE session** — §11c items the flip
     inherits unchanged.
