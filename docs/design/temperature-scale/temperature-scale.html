@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PhotoCast — temperature scale for the heat map</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/d3@7.9.0/dist/d3.min.js" integrity="sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/topojson-client@3.1.0/dist/topojson-client.min.js" integrity="sha384-Ukv1p/xTma6P4/2bY5KzWBw+ydSpXmhCMtyciIQVDJ1RmOxtCYNMF1uXT9T63H67" crossorigin="anonymous"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--surface-light:#2A2019;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,.66);--ink-3:rgba(242,231,211,.42);--go:#8AAE72;--marginal:#E0A542;--poor:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:26px 20px 70px}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+.doc{max-width:1080px;margin:0 auto}
+.m{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3)}
+h1{font-size:23px;font-weight:700;letter-spacing:-.022em;margin:8px 0 0;text-wrap:balance}
+.lede{font-size:13.5px;color:var(--ink-2);max-width:82ch;margin-top:9px;text-wrap:pretty}
+.lede b{font-weight:600;color:var(--ink)}
+code{font-family:var(--mono);font-size:11.5px;color:#EBD9A8}
+.quote{margin:19px 0 0;border-left:2px solid rgba(217,67,43,.6);padding:2px 0 2px 15px;font-family:var(--serif);font-size:16px;line-height:1.5;color:var(--ink);max-width:70ch;text-wrap:pretty}
+.quote .src{display:block;font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin-top:8px}
+section{margin-top:42px}
+.sh{display:flex;align-items:baseline;gap:11px;margin-bottom:14px}
+.sh .num{font-family:var(--mono);font-size:10px;font-weight:600;color:var(--home);flex:none}
+.sh h2{font-size:16.5px;font-weight:600;letter-spacing:-.015em;flex:none}
+.sh .rule{flex:1;height:1px;background:var(--border);min-width:12px}
+.note{font-size:12.5px;color:var(--ink-2);max-width:80ch;margin-top:11px;text-wrap:pretty}
+.note b{font-weight:600;color:var(--ink)}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:11px;padding:16px}
+.two{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:14px}
+.two>*{min-width:0}
+@media(max-width:820px){.two{grid-template-columns:minmax(0,1fr)}}
+.chd{display:flex;align-items:baseline;gap:9px;margin-bottom:12px}
+.chd .t{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.09em;text-transform:uppercase}
+.chd .badge{font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;padding:2px 6px;border-radius:4px}
+.badge.def{background:rgba(201,162,75,.16);color:#EBD9A8}
+.badge.leg{background:rgba(242,231,211,.07);color:var(--ink-3)}
+.gradbar{height:16px;border-radius:5px;border:1px solid rgba(0,0,0,.35)}
+.stops{display:grid;gap:5px;margin-top:11px}
+.stop .sw{height:34px;border-radius:5px;border:1px solid rgba(0,0,0,.3)}
+.stop .st{font-family:var(--mono);font-size:9.5px;font-weight:600;color:var(--ink-2);margin-top:6px}
+.stop .hex{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);margin-top:1px}
+.stop .tok{font-family:var(--mono);font-size:8.5px;color:rgba(242,231,211,.3);margin-top:2px;line-height:1.35}
+.stop .hex{font-size:8px;letter-spacing:-.03em}
+.ev{margin-top:16px;border:1px solid var(--border);border-radius:9px;overflow:hidden}
+.evh{display:grid;grid-template-columns:1fr 84px 76px;gap:12px;padding:8px 13px;background:rgba(0,0,0,.24);font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3)}
+.evr{display:grid;grid-template-columns:1fr 84px 76px;gap:12px;padding:9px 13px;align-items:center;border-top:1px solid var(--border);font-size:12px}
+.evr .w{color:var(--ink-2)}
+.evr.cold .w{color:var(--ink-3)}
+.evr .rg{font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.evr .sw2{display:flex;gap:3px}
+.evr .sw2 i{display:block;width:34px;height:13px;border-radius:3px;border:1px solid rgba(0,0,0,.3)}
+.ends{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9.5px;color:var(--ink-3);margin-top:7px}
+.picker{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:13px}
+.picker button{font-family:var(--mono);font-size:10.5px;border:1px solid var(--border);background:var(--panel);color:var(--ink-2);border-radius:7px;padding:6px 10px;cursor:pointer}
+.picker button:hover{border-color:var(--border-light);color:var(--ink)}
+.picker button.on{border-color:rgba(201,162,75,.55);background:rgba(201,162,75,.12);color:#EBD9A8}
+.fw{position:relative;min-width:0}
+.fw canvas{display:block;width:100%;height:auto;border-radius:6px;background:#13100e}
+.fcap{display:flex;align-items:center;gap:8px;margin-top:9px;font-family:var(--mono);font-size:10px;color:var(--ink-3);flex-wrap:wrap}
+.legbar{width:58px;height:6px;border-radius:999px;flex:none}
+.strip{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+@media(max-width:820px){.strip{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.hc{min-width:0}
+.hc{position:relative;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:7px;display:flex;flex-direction:column;gap:5px}
+.hc .top{display:flex;align-items:baseline;gap:4px}
+.hc .dow{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.09em;color:var(--ink-3)}
+.hc .bot{display:flex;align-items:center;gap:4px}
+.hc canvas{display:block;width:100%;height:auto;border-radius:5px;background:#13100e}
+.hc .t{font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--ink-2)}
+.hc .sc{font-family:var(--mono);font-size:9.5px;margin-left:auto;font-weight:600}
+.setrow{display:flex;align-items:center;gap:18px;padding:15px 0;border-bottom:1px solid var(--border)}
+.setrow:last-child{border-bottom:none}
+.setrow .lab{flex:1;min-width:0}
+.setrow .lab .n{font-size:13.5px;font-weight:600;letter-spacing:-.01em}
+.setrow .lab .d{font-size:12px;color:var(--ink-2);margin-top:3px;text-wrap:pretty;max-width:56ch}
+.seg{display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--panel);flex:none}
+.seg button{font-family:var(--mono);font-size:10.5px;padding:8px 13px;background:transparent;border:none;border-right:1px solid var(--border);color:var(--ink-2);cursor:pointer;white-space:nowrap;min-height:38px;display:flex;align-items:center;gap:7px}
+.seg button:last-child{border-right:none}
+.seg button:hover{color:var(--ink)}
+.seg button.on{background:rgba(201,162,75,.13);color:#EBD9A8;font-weight:600}
+.seg .chip{width:26px;height:7px;border-radius:999px;flex:none}
+.setnote{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:13px;padding-top:13px;border-top:1px solid var(--border)}
+.setnote b{color:var(--ink-2);font-weight:600}
+.modal{background:#252830;border:1px solid #3A3D45;border-radius:12px;padding:17px;color:#EBEBEB;box-shadow:0 20px 50px rgba(0,0,0,.55)}
+.mhd{display:flex;align-items:center;justify-content:space-between;font-size:15.5px;font-weight:600;margin-bottom:16px}
+.mx{color:#6B6B6B;font-size:17px}
+.msec{margin-bottom:16px}
+.msec:last-child{margin-bottom:0}
+.msec h3{font-size:10px;font-weight:500;color:#6B6B6B;text-transform:uppercase;letter-spacing:.07em;margin-bottom:8px;display:flex;align-items:center;gap:7px}
+.mnew{font-family:var(--mono);font-size:8px;font-weight:600;letter-spacing:.07em;color:#E5A00D;border:1px solid rgba(229,160,13,.42);border-radius:3px;padding:1px 4px;font-style:normal}
+.mb{font-size:13px;display:flex;align-items:center;gap:7px}
+.mpro{font-size:10px;border:1px solid rgba(245,158,11,.5);background:rgba(120,53,15,.42);color:#fcd34d;border-radius:999px;padding:1px 8px;font-style:normal}
+.mdot{width:7px;height:7px;border-radius:50%;background:#22c55e;display:block;flex:none}
+.mb2{font-size:11.5px;color:#A0A0A0;margin-top:7px;text-wrap:pretty;line-height:1.5}
+.mseg{display:flex;gap:8px}
+.mseg button{flex:1;display:flex;align-items:center;justify-content:center;gap:7px;font-family:var(--sans);font-size:12.5px;background:#181A1E;border:1px solid #3A3D45;color:#A0A0A0;border-radius:8px;padding:9px 8px;cursor:pointer;min-height:40px}
+.mseg button.on{border-color:#E5A00D;color:#EBEBEB;background:rgba(229,160,13,.1);font-weight:500}
+.mseg i{width:22px;height:7px;border-radius:999px;display:block;flex:none}
+.mchk{display:flex;align-items:center;gap:9px;font-size:12.5px;margin-top:13px;cursor:pointer}
+.mchk input{width:15px;height:15px;accent-color:#E5A00D;flex:none}
+.mbtn{width:100%;background:#E5A00D;color:#181A1E;border:none;border-radius:8px;padding:9px;font-family:var(--sans);font-size:12.5px;font-weight:600;cursor:pointer}
+.finds{display:flex;flex-direction:column;gap:14px}
+.find{font-size:12.5px;color:var(--ink-2);text-wrap:pretty}
+.find b{display:block;font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--home);margin-bottom:5px}
+.pins{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:4px}
+.pinc{text-align:center}
+.pinc .pin{width:34px;height:34px;border-radius:50%;margin:3px auto;border:1.5px solid rgba(255,255,255,.2);outline:2px solid rgba(255,255,255,.1);outline-offset:2px;box-shadow:0 2px 6px rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;font-size:12.5px;font-weight:800;letter-spacing:-.02em}
+.pinc .hex{font-family:var(--mono);font-size:9px;color:var(--ink-3);margin-top:9px}
+.pinc .cr{font-family:var(--mono);font-size:9px;font-weight:600;margin-top:3px}
+.pinc .cr.pass{color:#8AAE72}
+.pinc .cr.fail{color:#E58C7A}
+.pinrow{display:grid;grid-template-columns:130px 1fr;gap:16px;align-items:center;padding:14px 0;border-bottom:1px solid var(--border)}
+.pinrow:last-child{border-bottom:none}
+@media(max-width:820px){.pinrow{grid-template-columns:1fr;gap:11px}}
+.pinrow .who{font-family:var(--mono);font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--ink-3);line-height:1.6}
+.pinrow .who b{display:block;color:var(--ink-2);font-weight:600;letter-spacing:.05em}
+.bands{display:flex;flex-direction:column;gap:11px;margin-top:4px}
+.bandrow{display:grid;grid-template-columns:104px minmax(0,1fr) 92px;gap:12px;align-items:center}
+.bandrow .bn{font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3)}
+.bandrow .bb{position:relative;height:15px;border-radius:4px;border:1px solid rgba(0,0,0,.35)}
+.bandrow .bb i{position:absolute;top:0;bottom:0;background:repeating-linear-gradient(45deg,rgba(0,0,0,.62) 0 3px,rgba(242,231,211,.34) 3px 6px);box-shadow:0 0 0 1px rgba(242,231,211,.55) inset}
+.bandrow .bv{font-family:var(--mono);font-size:9.5px;font-weight:600;text-align:right}
+.bars{display:flex;flex-direction:column;gap:15px}
+.brow{display:grid;grid-template-columns:34px minmax(0,1fr) 70px;gap:12px;align-items:center}
+.brow .val{font-family:var(--mono);font-size:12.5px;font-weight:600;text-align:right}
+.brow .bhex{font-family:var(--mono);font-size:9px;color:var(--ink-3);letter-spacing:-.02em}
+.bgh .sub{font-weight:400;letter-spacing:0;text-transform:none;color:var(--ink-3);margin-left:7px}
+.brow .track{height:6px;border-radius:999px;background:var(--surface-light);overflow:hidden}
+.brow .fill{height:100%;border-radius:999px}
+.brow .val{font-family:var(--mono);font-size:13px;font-weight:600;text-align:right}
+.bgrp{border-top:1px solid var(--border);padding-top:15px;margin-top:4px}
+.bgrp:first-child{border-top:none;padding-top:0;margin-top:0}
+.bgh{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-2);margin-bottom:12px}
+ol.spec{list-style:none;counter-reset:s;display:flex;flex-direction:column;gap:13px}
+ol.spec li{counter-increment:s;position:relative;padding-left:29px;font-size:13px;color:var(--ink-2);text-wrap:pretty}
+ol.spec li::before{content:counter(s);position:absolute;left:0;top:0;font-family:var(--mono);font-size:9.5px;font-weight:600;color:var(--home);border:1px solid rgba(201,162,75,.35);border-radius:4px;width:19px;height:19px;display:flex;align-items:center;justify-content:center}
+ol.spec b{font-weight:600;color:var(--ink)}
+.warn{margin-top:15px;border:1px solid rgba(224,165,66,.3);background:rgba(224,165,66,.06);border-radius:9px;padding:13px 15px}
+.warn .wt{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:var(--marginal);margin-bottom:6px}
+.warn p{font-size:12.5px;color:var(--ink-2);text-wrap:pretty}
+.warn p+p{margin-top:7px}
+.warn b{font-weight:600;color:var(--ink)}
+</style>
+</head>
+<body>
+<div class="doc">
+
+<div class="m">PhotoCast · heat map · scoring scale</div>
+<h1>Heat that reads as heat</h1>
+<p class="lede">The field currently runs <b>red at 1★ and green at 5★</b> — the verdict palette, borrowed because it was already there. On a map, that inverts the one convention everybody arrives with: warmer means more. This changes the default field to a <b>temperature scale</b>, cold slate at 1★ through to red at 5★, and keeps the verdict ramp as a preference for anyone who learned the old map. Markers, the Plan thumbnails and both score bars move onto the same ramp, so the whole surface speaks one colour language.</p>
+
+<blockquote class="quote">They assumed the red map meant a red sky. Today it means the opposite.<span class="src">The first person outside the project to see it</span></blockquote>
+
+<section>
+<div class="sh"><span class="num">01</span><h2>The scale</h2><span class="rule"></span></div>
+<div class="two">
+  <div class="card">
+    <div class="chd"><span class="t" style="color:#DE6B2A">Temperature</span><span class="badge def">new default</span></div>
+    <div class="gradbar" id="gb-temp"></div>
+    <div class="ends"><span>1★ cold</span><span>5★ hot</span></div>
+    <div class="stops" id="st-temp"></div>
+  </div>
+  <div class="card">
+    <div class="chd"><span class="t" style="color:var(--ink-2)">Verdict</span><span class="badge leg">legacy · opt in</span></div>
+    <div class="gradbar" id="gb-verd"></div>
+    <div class="ends"><span>1★ stand down</span><span>5★ go</span></div>
+    <div class="stops" id="st-verd"></div>
+  </div>
+</div>
+<div class="warn">
+  <div class="wt">Provenance — read before quoting any hex in this document</div>
+  <p>The verdict ramp above is the one in <code>heatField.js</code>, and it is <b>not</b> the <code>--color-verdict-*</code> tokens. <code>frontend/src/index.css</code> ships <code>go #16a34a</code>, <code>marginal #d97706</code>, <code>standdown #b91c1c</code>, <code>awaiting #6b7280</code> — saturated web colours, not these muted ones. <code>HeatmapGrid.jsx</code> consumes those tokens live.</p>
+  <p>The same goes for this document's own chrome. It is drawn in the proposed Kodachrome skin, but <code>index.css</code> still ships the blue-grey plex palette — <code>--color-plex-surface</code> is <code>#252830</code>, not the brown the handoff notes claim. <b>Treat every warm hex here as a proposal, and every hex attributed to a file as shipped.</b> Reconciling the two palettes is a separate job, and this change does not depend on it.</p>
+</div>
+<p class="note">The low end is a <b>cool slate blue</b> rather than grey, so a poor night still reads as a deliberate colour instead of missing data — and it sits in the palette already as a desaturated cousin of <code>--color-tide</code>. The cool half runs all the way to <b>2.8</b>, the crossover sits at 3, and red arrives by 4.3. The five tokens are sampled from this ramp at whole stars; §05 lists them.</p>
+<p class="note"><b>The stops are deliberately uneven.</b> Regional means in a real week occupy about 1.9–4.6, and two thirds of location scores fall between 2.5 and 4.5 — so an evenly spaced ramp spends its blue and its red on values that never survive the blur, and paints every night the same orange. Spacing the stops onto the band the data actually occupies is what makes the scale discriminate. Interpolation and the 1–5 clamp are unchanged.</p>
+<div class="ev" id="ev"></div>
+<p class="note">Read down the right-hand column: <b>Thursday sunrise and Friday sunrise are the two nights to skip</b>, and they are the two that stay cold. That is the whole job. Note this is absolute, not normalised against the week — a 3.0 looks like a 3.0 in every week, or <b>poor → worth it</b> stops being a promise.</p>
+<p class="note"><b>Where the fractional stops actually appear.</b> A location's <code>rating</code> is an integer 1–5 — so no pin will ever be coloured by the 2.2 or 3.9 stop. Every fractional value in the field comes from <b>spatial blending between integer-scored neighbours</b>, and every value in the table above is a regional mean. That is precisely why the ramp needs stops between the stars: the inputs are coarse, the field is not.</p>
+</section>
+
+<section>
+<div class="sh"><span class="num">02</span><h2>The same night, both scales</h2><span class="rule"></span></div>
+<div class="picker" id="pick"></div>
+<div class="two">
+  <div class="card">
+    <div class="chd"><span class="t" style="color:#DE6B2A">Temperature</span><span class="badge def">new default</span></div>
+    <div class="fw"><canvas id="cv-temp"></canvas></div>
+    <div class="fcap"><span class="legbar" id="lb-temp"></span><span>poor → worth it</span></div>
+  </div>
+  <div class="card">
+    <div class="chd"><span class="t" style="color:var(--ink-2)">Verdict</span><span class="badge leg">as shipped today</span></div>
+    <div class="fw"><canvas id="cv-verd"></canvas></div>
+    <div class="fcap"><span class="legbar" id="lb-verd"></span><span>poor → worth it</span></div>
+  </div>
+</div>
+<p class="note">Same window, same locations, same kernel — only the ramp differs. The legend keeps the words <b>poor → worth it</b> on both scales: the bar shows the metaphor, the words carry the meaning, and a photographer scanning for somewhere to drive tonight is looking for the second one. Coverage clamp, confidence haze and the cull are all untouched.</p>
+</section>
+
+<section>
+<div class="sh"><span class="num">03</span><h2>Where the toggle lives</h2><span class="rule"></span></div>
+<div class="two">
+  <div class="modal">
+    <div class="mhd"><span>Settings</span><span class="mx">&times;</span></div>
+    <section class="msec"><h3>Profile</h3><div class="mb">gregory <em class="mpro">Pro</em></div></section>
+    <section class="msec"><h3>Home Location</h3><div class="mb"><i class="mdot"></i>Chester-le-Street</div></section>
+    <section class="msec"><h3>Map Colours <em class="mnew">new</em></h3>
+      <div class="mseg" id="mseg">
+        <button class="on" data-mode="temp"><i id="mc-t"></i>Temperature</button>
+        <button data-mode="verdict"><i id="mc-v"></i>Verdict</button>
+      </div>
+      <div class="mb2">Temperature reads hotter as the forecast improves. Verdict uses the red–amber–green scale from earlier versions.</div>
+      <label class="mchk"><input type="checkbox" checked>Match map pins to the scale</label>
+    </section>
+    <section class="msec"><h3>Drive Times</h3><button class="mbtn">Refresh drive times</button><div class="mb2">Last calculated: 2h ago</div></section>
+  </div>
+  <div class="card finds">
+    <div class="find"><b>Drawn in the shipped palette</b>This one mock is in <code>index.css</code>'s real plex colours rather than this document's proposed skin, because it is a mock of a component that exists. Section headings are <code>text-xs uppercase tracking-wide text-plex-text-muted</code>, matching Profile, Home Location and Drive Times.</div>
+    <div class="find"><b>There is no toggle pattern to follow</b><code>UserSettingsModal.jsx</code> contains only text inputs, <code>btn-primary</code> buttons and status lines — no switches, segmented controls or checkboxes anywhere. This is the modal's first preference, so the control is new work rather than a placement. The two shown here are the smallest additions that fit the existing type scale.</div>
+    <div class="find"><b>It persists server-side, not per device</b>The modal reads and writes through <code>settingsApi</code> — <code>getSettings()</code>, <code>saveHome()</code>. A colour preference should follow the same path so it travels with the account, not <code>localStorage</code>.</div>
+    <div class="find"><b>Do not Pro-gate it</b>Home Location and Drive Times are wrapped in <code>opacity-45 pointer-events-none</code> for non-Pro users. Reading the map is not a Pro feature; this section stays live for everyone.</div>
+    <div class="find"><b>There is no map toolbar to put it in</b><code>ViewToggle.jsx</code> is the Plan / Map / Manage tab bar, not a map control. <code>MapView.jsx</code>'s only overlays are a bottom-left upsell chip and a bottom-centre legend, both at <code>z-[1000]</code>, over a fixed 500px map. A toolbar would have to be built first — so Settings is not the better of two homes, it is the only one.</div>
+  </div>
+</div>
+<p class="note">Both surfaces read the setting from one place, so the Plan thumbnails and the Map tab can never disagree about what a colour means. That is the same rule the planning area already follows. Default <b>Temperature</b> for everyone, including existing installs.</p>
+<p class="note"><b>The setting is not the fix, though.</b> Someone who thinks red means a red sky will never open Settings to discover they are wrong — that is precisely the failure. Pair the change with a <b>one-time line on the map</b> after update: <code>Colours now run cold to hot — dismiss</code>. It does more work than the preference does, and it is the only part of this that reaches the person who was misreading it.</p>
+</section>
+
+<section>
+<div class="sh"><span class="num">04</span><h2>The week on the temperature scale</h2><span class="rule"></span></div>
+<div class="strip" id="strip"></div>
+<p class="note">The strip is the test that matters: at thumbnail size the field has to be legible as a shape before a word is read. Cold-to-hot gives it a single axis to be read along, and with the stops re-spaced the two bad mornings drop out of the week visibly — <b>Thursday and Friday sunrise go cool while the three good evenings hold their heat</b>. The old ramp asked the eye to tell red from green at 90px wide, which is also the most common form of colour blindness.</p>
+</section>
+
+<section>
+<div class="sh"><span class="num">05</span><h2>Markers, and the five tokens</h2><span class="rule"></span></div>
+<div class="card">
+  <div class="pinrow">
+    <div class="who"><b>Whole stars</b>what a marker shows</div>
+    <div class="pins" id="pins-new"></div>
+  </div>
+  <div class="pinrow">
+    <div class="who"><b>Interpolated</b>what a cluster shows</div>
+    <div class="pins" id="pins-int"></div>
+  </div>
+</div>
+<p class="note">Markers are discrete, so they sample the ramp <b>at whole stars</b> — and those five samples are the tokens <code>--color-heat-1</code> … <code>--color-heat-5</code> that everything non-map uses. A 3★ pin lands on the crossover, which is correct: the map should not flatter it. Shown at the shipped geometry: <code>buildMarkerSvg</code> fills a circle at <code>r=17</code> inside a 44×​44 box — 34px — with the arc track ringing it at <code>r=19</code>.</p>
+<p class="note"><b>3★ gets its own ramp stop, because ratings are integers.</b> With continuous scores the crossover could be left to interpolate; with five discrete values, <b>3★ is likely the most common rating in the catalogue</b>, so whatever colour it lands on is the colour most of the map wears. Interpolating straight from 2.8 to 3.2 put it on a dun khaki — the muddiest point on the ramp — so there is now an explicit stop at 3.0 holding it to a clean gold. This costs the field nothing: blur covers the slightly sharper transition, and "middling" reading as the start of warm rather than as mud is the honest result.</p>
+<div class="warn">
+  <div class="wt">Label-bearing fills snap to whole stars — the rule, and the reconciled numbers</div>
+  <p><code>readableInkOn</code> picks the better of two inks, which only helps where one of them clears 4.5:1. Every ramp through mid-luminance has runs where neither does, because the two inks fail from opposite directions. Scanned at 0.01★ against the pair the app actually ships — <code>#0F172A</code> and <code>#FFFFFF</code> — and reported as <b>the share of the 401 samples that fail</b>, not as summed run width; the two conventions differ by one step per run:</p>
+  <div class="bands" id="bands"></div>
+  <p><b>13.2% of samples, in three runs</b> — 2.48–2.60★, 4.10–4.24★, 4.37–4.61★. Two of the three sit in the hot half, and that is the finding worth carrying: <b>the failures cluster where 4★ and 5★ ratings live</b>, not at the cold end where the eye expects trouble. The <code>4.3</code> stop <code>#D63A26</code> is a dark saturated red — the worst case for both inks at once, with dark ink at 3.82:1 and white reaching only 4.67:1 — so the <code>3.9 → 4.3 → 5</code> leg crosses the dead zone twice. A 4.15★ cluster gets 4.26:1 at best, on a fill that looks bold and confident.</p>
+  <p>The third row is why two independent scans disagreed. This document originally scanned with its own bone <code>#F2E7D3</code> rather than the app's white, which reports <b>21.7% across two runs</b> — worse, because bone gives up contrast on the dark stops that white holds. Bone was never shipping; the app's white ink is the better of the two and needs no change.</p>
+  <p><b>The rule: any fill that carries a label samples the ramp at whole stars. Only label-free surfaces interpolate.</b> All five whole stars clear 4.5:1 under the shipped pair, so markers are already safe. Cluster badges are not — <code>starsFromAverage</code> returns <code>avg / 20</code>, continuous, so a cluster paints an interpolated fill and puts a count on it. Snapping the cluster fill is the whole fix, and it returns the fill to the resolution the data has: <code>rating</code> is an integer.</p>
+  <p>Note what snapping does and does not buy. <b>The interior of the ramp is not safe — it is merely no longer sampled by anything that carries text.</b> The heat field keeps interpolating, correctly, because nothing in it is labelled. If a labelled surface ever goes continuous, the <code>4.3</code> stop is the one to fix first. The second-order gain is the test: <code>it.each([1, 2, 3, 4, 5])</code> passes today by luck — it tests the only five values never at risk — and snapping makes it correct by construction. Add one test asserting the invariant directly.</p>
+</div>
+<p class="note"><code>markerUtils.js</code> <code>RATING_COLOURS</code> — grey at 1★, then dark olive gold climbing to full gold — was <b>already deleted in D3</b>. Its stepped 0–100 twin <code>scoreColour()</code> is the one still live, driving cluster badges and any marker with scores but no rating. That is the remaining duplicate to retire.</p>
+</section>
+
+<section>
+<div class="sh"><span class="num">06</span><h2>Score bars</h2><span class="rule"></span></div>
+<p class="note"><b>The bars exist twice.</b> <code>PopupScoreRow</code> inside <code>components/MarkerPopupContent.jsx</code> steps the score into <b>four buckets</b> on the gold ramp — so 26 and 49 are the same colour — while <code>PlanScoreBar</code> on the Plan side fills with gradients instead. The same score therefore renders differently depending on which surface you are looking at. <em style="color:var(--ink-3)">Only the popup ladder below is read from source; <code>PlanScoreBar</code>'s gradient stops were not, and <code>ScoreBar.jsx</code>, which this section previously cited, was deleted in D4.</em></p>
+<p class="note">That gold ramp is the marker ramp. Counting <code>scoreColour()</code>, <b>the app still implements one colour language three times</b> and gets a different answer from each. The work here is not building bars — it is deleting two of the three and pointing the survivor at the ramp.</p>
+<div class="card bars" id="bars"></div>
+<p class="note"><b>Continuous, not bucketed, and solid rather than gradient.</b> A bar has one value, so it gets one colour, sampled off the ramp at that value exactly as a marker is — which also makes 26 and 49 finally distinguishable. The earlier <code>Popup Tidy.html</code> spec called for a gradient fill; that worked when the ramp was gold→red but turns into a five-hue rainbow now that it starts cold.</p>
+<div class="warn">
+  <div class="wt">How a 0–100 metric joins a 1–5 scale — the part that needs measuring</div>
+  <p>The ramp is indexed 1–5 because ratings are. Fiery Sky and Golden Hour are <b>0–100</b>, so they need a mapping, and <b>the obvious one is wrong</b>. Assuming 0–100 spans the full ramp asserts that these metrics use their whole range — and they do not. Every fixture in the test suite sits between 50 and 78, which the naive mapping squeezes into 3.0–4.1: gold to orange, never cold, never hot. The bars would technically be on the temperature scale while showing almost none of it.</p>
+  <p>So the ramp is shared but the <b>calibration is per metric</b>: <code>HeatField.rampPct(value, lo, hi)</code>, where <code>lo</code> and <code>hi</code> are that metric's real working range. The fourth row below uses 25–85 as an illustration. <b>Those two numbers must come from the score distribution, not from a designer</b> — run a percentile over a season of stored forecasts and set them to roughly the 5th and 95th. Until that is measured, treat the calibrated row as the shape of the answer rather than the answer.</p>
+</div>
+<div class="warn">
+  <div class="wt">One thing to watch</div>
+  <p>With both bars on the same ramp, <b>Fiery Sky 60 and Golden Hour 60 are the same colour</b> — the bars stop being distinguishable at a glance and the labels do all the work. That is the price of one scale, and it is worth naming before it ships.</p>
+  <p>If it reads badly in the popup, the cheap fix is not a second ramp: it is <b>giving Golden Hour a thinner track</b> (4px against 6px) so the pair stays readable by weight rather than by hue.</p>
+</div>
+<p class="note">The tint is interpolated, never hard-coded: a Fiery Sky of 18 lands in the cold end and reads muted, an 87 lands in the red. Both implementations carry tests — <code>test/ScoreBar.test.jsx</code> and <code>test/MarkerPopupContent.test.jsx</code> — which need updating whichever way this goes.</p>
+</section>
+
+<section>
+<div class="sh"><span class="num">07</span><h2>What changes</h2><span class="rule"></span></div>
+<ol class="spec">
+  <li><b><code>heatField.js</code></b> — <code>STOPS</code> becomes <code>STOPS_TEMP</code> and <code>STOPS_VERDICT</code> with a module-level <code>MODE</code>, read by <code>ramp()</code>. Everything downstream of <code>ramp()</code> is unchanged. The patched kernel in this folder is the reference.</li>
+  <li><b>Keep the uneven stop spacing.</b> It is the difference between a scale that discriminates and one that renders every night orange. The 2.2 stop's darkness is also load-bearing — it is what lets the marker label clear contrast. If the score distribution shifts once real forecasts replace the mock, re-measure and re-space — do not fall back to even stops.</li>
+  <li><b>New tokens</b> — <code>--color-heat-1</code> … <code>--color-heat-5</code> in <code>index.css</code>, sampled from the ramp at whole stars. The <code>--color-verdict-*</code> tokens are untouched and unrelated: they are saturated web colours used for verdict words, not the muted ramp in <code>heatField.js</code>.</li>
+  <li><b>One-time notice</b> on the map after update, dismissible, stating that colours now run cold to hot. Not a setting — a sentence.</li>
+  <li><b>Settings</b> — a new <b>Map Colours</b> section in <code>components/UserSettingsModal.jsx</code>: <code>mapColourScale: 'temp' | 'verdict'</code> defaulting to <code>temp</code>, plus <code>markersFollowScale</code> defaulting on. Persist through <code>settingsApi</code> like the rest of the modal, and leave it outside the <code>isPro</code> gate.</li>
+  <li><b><code>markerUtils.js</code></b> — <code>scoreColour()</code>, the stepped 0–100 twin, retired in favour of <code>HeatField.ramp()</code> and gated on <code>markersFollowScale</code>. <code>RATING_COLOURS</code> is <b>already deleted</b> (D3) — leave it alone; the <code>MarkerIcon.test.jsx</code> assertion against it went with it.</li>
+  <li><b>Marker label ink — do not touch it.</b> #627 already superseded the hard 3★ threshold this document originally specified: <code>readableInkOn</code> derives the ink per fill, which is better. Reintroducing a threshold would be a regression.</li>
+  <li><b>Snap label-bearing fills to whole stars</b> — the invariant from §05. Markers already comply; <code>createClusterIcon</code> does not, because <code>starsFromAverage</code> returns <code>avg / 20</code>. Snap the cluster fill, and add a test asserting no labelled fill is ever handed a fractional star.</li>
+  <li><b>Marker arcs</b> — <code>buildMarkerSvg</code> hard-codes <code>#f97316</code> for the Fiery Sky arc and <code>#E5A00D</code> for Golden Hour. If both score bars are moving onto the heat ramp, these two arcs are the same two numbers in the same component and should move with them, or the popup and the pin will disagree.</li>
+  <li><b>Calibrate the two 0–100 metrics</b> before shipping the bars. <code>HeatField.rampPct(v, lo, hi)</code> exists for this; <code>lo</code> and <code>hi</code> come from a percentile over stored <code>fierySkyPotential</code> and <code>goldenHourPotential</code> values, one pair per metric. Shipping the naive 0–100 mapping puts every bar in the gold band and wastes the scale.</li>
+  <li><b>Score bars — collapse two into one.</b> The live duplication is <b><code>PlanScoreBar</code></b> (Plan side, gradient fills) against <b><code>PopupScoreRow</code></b> in <code>components/MarkerPopupContent.jsx</code> (map popup, four buckets). <code>ScoreBar.jsx</code> was <b>deleted in D4</b> — ignore earlier references to it. Collapse the two into one component with a continuous solid fill sampled from <code>HeatField.rampPct()</code>; <code>PlanScoreBar</code>'s gradients are the thing being removed. Update whichever tests cover them.</li>
+  <li><b>Legend</b> — the 60×6px ramp bar redraws from the active ramp. The words <code>poor → worth it</code> do not change.</li>
+</ol>
+</section>
+
+</div>
+
+<script src="heat-field.js"></script>
+<script src="plan-data.js"></script>
+<script>
+const HF=window.HeatField,P=window.PLAN;
+const hex=c=>'#'+c.map(v=>Math.round(v).toString(16).padStart(2,'0')).join('').toUpperCase();
+const cssRamp=st=>'linear-gradient(90deg,'+st.map(s=>`rgb(${s[1].join(',')}) ${((s[0]-1)/4*100).toFixed(1)}%`).join(',')+')';
+const TEMP=HF.STOPS_TEMP,VERD=HF.STOPS_VERDICT;
+const SAMP=[1,2,3,4,5].map(n=>HF.rampOn(TEMP,n));
+/* every entry is just a ramp stop — the five tokens are sampled at whole stars, and §05 owns
+   that list. Labelling only the integer stops here implied heat-2 and heat-4 did not exist. */
+const TOK_T=TEMP.map(()=>'ramp stop'),TOK_V=VERD.map(()=>'ramp stop');
+
+/* ── 01 · the scale ─────────────────────────────────────────────────────── */
+document.getElementById('gb-temp').style.background=cssRamp(TEMP);
+document.getElementById('gb-verd').style.background=cssRamp(VERD);
+function stopsInto(el,st,toks){
+ /* track count comes from the stop count, never auto-fit: the ramp has gained stops twice
+    and an auto-fit grid silently wraps the hot end under the cold end when it does */
+ el.style.gridTemplateColumns='repeat('+st.length+',minmax(0,1fr))';
+ el.innerHTML=st.map((s,i)=>`<div class="stop"><div class="sw" style="background:rgb(${s[1].join(',')})"></div><div class="st">${s[0]}★</div><div class="hex">${hex(s[1])}</div><div class="tok">${toks[i]}</div></div>`).join('');
+}
+stopsInto(document.getElementById('st-temp'),TEMP,TOK_T);
+stopsInto(document.getElementById('st-verd'),VERD,TOK_V);
+
+/* ── 01 · evidence: where the data actually sits ────────────────────────── */
+const areaSpots=()=>window.PLAN.spotsIn(window.PLAN.areaRids());
+function buildEv(){
+ const sp=areaSpots(),rids=P.areaRids();
+ const rows=P.WINS.map((w,i)=>{
+  const ms=rids.map(r=>d3.mean(sp.filter(s=>s.rid===r),s=>s.r[i]));
+  return{lbl:w.dow.charAt(0)+w.dow.slice(1).toLowerCase()+' '+(/sunrise/.test(w.when)?'sunrise':'sunset'),lo:Math.min(...ms),hi:Math.max(...ms)};
+ });
+ const el=document.getElementById('ev');
+ el.innerHTML='<div class="evh"><span>Window</span><span>Regional range</span><span>Reads as</span></div>'+
+  rows.map(r=>{const c1=HF.rampOn(TEMP,r.lo),c2=HF.rampOn(TEMP,r.hi);
+   return `<div class="evr${r.hi<2.6?' cold':''}"><span class="w">${r.lbl}</span><span class="rg">${r.lo.toFixed(2)} – ${r.hi.toFixed(2)}</span><span class="sw2"><i style="background:rgb(${c1.join(',')})"></i><i style="background:rgb(${c2.join(',')})"></i></span></div>`}).join('');
+}
+
+/* ── 03 · settings chips ────────────────────────────────────────────────── */
+document.getElementById('mc-t').style.background=cssRamp(TEMP);
+document.getElementById('mc-v').style.background=cssRamp(VERD);
+document.getElementById('lb-temp').style.background=cssRamp(TEMP);
+document.getElementById('lb-verd').style.background=cssRamp(VERD);
+document.querySelectorAll('#mseg button').forEach(b=>b.onclick=()=>{
+ document.querySelectorAll('#mseg button').forEach(x=>x.classList.toggle('on',x===b));
+});
+
+/* ── 05 · markers ───────────────────────────────────────────────────────── */
+const INK_D=[15,23,42],INK_W=[255,255,255],INK_BONE=[242,231,211];
+const lum=c=>{const f=v=>{v/=255;return v<=0.03928?v/12.92:Math.pow((v+0.055)/1.055,2.4)};return 0.2126*f(c[0])+0.7152*f(c[1])+0.0722*f(c[2])};
+const cr=(a,b)=>{const l1=lum(a),l2=lum(b);return(Math.max(l1,l2)+0.05)/(Math.min(l1,l2)+0.05)};
+/* mirrors readableInkOn: take the better of the two inks, then report whether it clears AA.
+   Default pair is the one the app ships — not this document's bone, which is what made an
+   earlier scan here read 21.7% against the true 13.2%. */
+const APP=[INK_D,INK_W];
+const bestInk=(c,pair)=>{const P=pair||APP,a=cr(P[0],c),b=cr(P[1],c);return a>=b?[P[0],a]:[P[1],b]};
+function pinsInto(el,rows){
+ el.innerHTML=rows.map(r=>{
+  const[ink,ratio]=bestInk(r.c),ok=ratio>=4.5;
+  return `<div class="pinc"><div class="pin" style="background:rgb(${r.c.join(',')})"><span style="color:rgb(${ink.join(',')})">${r.l}</span></div><div class="hex">${hex(r.c)}</div><div class="cr ${ok?'pass':'fail'}">${ratio.toFixed(2)}:1 ${ok?'✓':'✕'}</div></div>`;
+ }).join('');
+}
+pinsInto(document.getElementById('pins-new'),[1,2,3,4,5].map(n=>({c:HF.rampOn(TEMP,n),l:n+'★'})));
+pinsInto(document.getElementById('pins-int'),[2.55,3.5,4.15,4.5,4.8].map(n=>({c:HF.rampOn(TEMP,n),l:'12'})));
+
+/* scan at 0.01star for runs where neither ink clears 4.5:1. The percentage is the share of
+   FAILING SAMPLES, not the summed span of the runs — span-summing loses one step per run and
+   reports 12.5% where sample-counting reports 13.2%. Prose, badge and PROMPTS.md all use the
+   sample count; mixing the two is what made three artifacts disagree earlier. */
+function bandScan(st,pair){const runs=[];let run=null,n=0,tot=0;
+ for(let i=0;i<=400;i++){const s=1+i*0.01;tot++;
+  if(bestInk(HF.rampOn(st,s),pair)[1]<4.5){n++;run?run[1]=s:run=[s,s]}
+  else if(run){runs.push(run);run=null}}
+ if(run)runs.push(run);return{runs,pct:n/tot*100}}
+document.getElementById('bands').innerHTML=[
+ ['Verdict',VERD,null],['Temperature',TEMP,null],['Temp · bone ink',TEMP,[INK_D,INK_BONE]]
+].map(([n,st,pair])=>{
+ const{runs,pct}=bandScan(st,pair);
+ const marks=runs.map(r=>`<i style="left:${((r[0]-1)/4*100).toFixed(2)}%;width:${Math.max(0.5,(r[1]-r[0]+0.01)/4*100).toFixed(2)}%"></i>`).join('');
+ return `<div class="bandrow"><span class="bn">${n}</span><div class="bb" style="background:${cssRamp(st)}">${marks}</div><span class="bv" style="color:${runs.length?'#E58C7A':'#8AAE72'}">${runs.length?runs.length+' run'+(runs.length>1?'s':'')+' · '+pct.toFixed(1)+'%':'none'}</span></div>`;
+}).join('');
+
+/* ── 06 · score bars ────────────────────────────────────────────────────── */
+const VALS=[18,26,49,62,87];
+/* the two shipped ladders, read from source */
+const popupCol=p=>p>75?'#E5A00D':p>50?'#CC8A00':p>25?'#A06E00':'#6B6B6B';
+const BARSPEC=[
+ {h:'Today · PopupScoreRow',sub:'MarkerPopupContent.jsx · four buckets',fn:popupCol,ink:'#EBEBEB'},
+ {h:'Proposed',sub:'one ramp, naïve 0–100 → 1–5',fn:null,cal:null},
+ {h:'Proposed · calibrated',sub:'rampPct(v, 25, 85) — numbers to be measured',fn:null,cal:[25,85]}];
+document.getElementById('bars').innerHTML=BARSPEC.map(g=>
+ `<div class="bgrp"><div class="bgh">${g.h}<span class="sub">${g.sub}</span></div>`+VALS.map(v=>{
+  const rc=g.cal?HF.rampPct(v,g.cal[0],g.cal[1]):HF.rampOn(TEMP,1+v/100*4);
+  const col=g.fn?g.fn(v):`rgb(${rc.join(',')})`;
+  return `<div class="brow"><span class="val" style="color:${g.ink||col}">${v}</span><div class="track"><div class="fill" style="width:${v}%;background:${col}"></div></div><span class="bhex">${g.fn?col:hex(rc)}</span></div>`;
+ }).join('')+`</div>`).join('');
+
+/* ── live fields ────────────────────────────────────────────────────────── */
+let win=4;
+const spots=P.spotsIn(P.areaRids());
+const fit=HF.bbox(spots,0.16);
+const asp=Math.max(0.85,Math.min(1.22,HF.aspect(fit)));
+
+document.getElementById('pick').innerHTML=P.WINS.map((w,i)=>
+ `<button data-w="${i}" class="${i===win?'on':''}">${w.dow} · ${w.when.replace('Tomorrow ','').replace('Thursday ','').replace('Friday ','')}</button>`).join('');
+document.querySelectorAll('#pick button').forEach(b=>b.onclick=()=>{
+ win=+b.dataset.w;
+ document.querySelectorAll('#pick button').forEach(x=>x.classList.toggle('on',x===b));
+ renderPair();
+});
+
+document.getElementById('strip').innerHTML=P.WINS.map((w,i)=>{
+ const rs=P.areaRids().map(r=>d3.mean(spots.filter(s=>s.rid===r),s=>s.r[i]));
+ const best=Math.max(...rs),c=HF.rampOn(TEMP,best);
+ return `<div class="hc"><div class="top"><span class="dow">${w.dow} ${w.dn}</span></div><canvas data-s="${i}"></canvas><div class="bot"><span class="t">${w.time}</span><span class="sc" style="color:rgb(${c.join(',')})">${best.toFixed(1)}</span></div></div>`;
+}).join('');
+
+function draw(cv,w2,mode,extra){
+ const host=cv.parentElement,w=host.clientWidth;
+ if(!(w>20))return;
+ HF.setMode(mode);
+ HF.drawGeo(cv,w,Math.round(w*asp),spots,w2,Object.assign({fit,conf:P.CONF[w2]},extra||{}));
+}
+function renderPair(){
+ draw(document.getElementById('cv-temp'),win,'temp');
+ draw(document.getElementById('cv-verd'),win,'verdict');
+}
+function renderStrip(){
+ document.querySelectorAll('#strip canvas').forEach(cv=>draw(cv,+cv.dataset.s,'temp',{blur:2.4}));
+}
+function renderAll(){renderPair();renderStrip()}
+
+HF.load().then(()=>{renderAll()}).catch(e=>console.error('land load failed',e));
+buildEv();
+let t;addEventListener('resize',()=>{clearTimeout(t);t=setTimeout(()=>{if(HF.LAND)renderAll()},180)});
+</script>
+</body>
+</html>
