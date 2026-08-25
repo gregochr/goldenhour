@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.19.0] - 2026-08-25
+
 ### Added — AGENTS.md context files for external AI code review
 
 A root `AGENTS.md` and a `backend/AGENTS.md` giving an external reviewer (OpenAI Codex, or any
