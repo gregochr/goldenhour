@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
-import { computeCellTier, isCellVisible, resolveRegionDisplay } from '../utils/tierUtils.js';
+import { computeCellTier, resolveRegionDisplay } from '../utils/tierUtils.js';
 import { formatTideHighlight } from '../utils/conversions.js';
 import {
   locationTypeIcons, isPoorSlot, slotSortKey, sortedSlotsByTidePriority, weatherCodeToIcon,
@@ -10,7 +10,6 @@ import {
 import SlotLocationName from './shared/SlotLocationName.jsx';
 import VerdictPill from './shared/VerdictPill.jsx';
 import ProvisionalMark from './shared/ProvisionalMark.jsx';
-import { RATING_COLOURS } from './markerUtils.js';
 import { daysOut, resolveConfidence, confidenceTreatment, scaleRgbaAlpha } from '../utils/confidenceUtils.js';
 import { useIsCoarsePointer } from '../hooks/useIsCoarsePointer.js';
 
@@ -55,41 +54,10 @@ function getSubCellData(date, regionName, targetType, briefingDays) {
   return null;
 }
 
-/**
- * Returns the set of location names belonging to a region on a given date.
- * Extracted from briefing event summaries (any target type).
- */
-function getRegionLocationNames(date, regionName, briefingDays) {
-  const day = briefingDays.find((d) => d.date === date);
-  if (!day) return [];
-  const names = new Set();
-  for (const es of day.eventSummaries || []) {
-    const region = (es.regions || []).find((r) => r.regionName === regionName);
-    if (region) {
-      for (const slot of region.slots || []) {
-        names.add(slot.locationName);
-      }
-    }
-  }
-  return [...names];
-}
-
 /** Small local components */
 /* eslint-disable react/prop-types */
 
 // ── LocationSlotList ──────────────────────────────────────────────────────────
-
-/**
- * Star rating badge colour as an inline style, sourced from the unified RATING_COLOURS palette.
- * Returns a style object so every medallion in the app uses the same hex values.
- */
-function ratingStyle(rating) {
-  const clamped = Math.max(1, Math.min(5, Math.round(rating)));
-  const bg = RATING_COLOURS[clamped];
-  // 3★ is a pale yellow — dark text reads better on it; all other shades use white.
-  const text = clamped === 3 ? '#1f1300' : '#ffffff';
-  return { backgroundColor: bg, color: text };
-}
 
 /**
  * Rank-bucketed star-pill colours from the Kodachrome tidy-up: 4–5★ green,
@@ -503,7 +471,8 @@ function computeCellTipPlacement(rect) {
   return { style, alignRight };
 }
 
-function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, isActive, onToggle, evaluationScores = new Map(), showAllLocations = false, todayStr = null, noHoverTip = false, serverCellRating = false }) {  const cellData = getSubCellData(date, regionName, targetType, briefingDays);
+function HeatmapCell({ date, regionName, targetType, briefingDays, isActive, onToggle, showAllLocations = false, todayStr = null, noHoverTip = false }) {
+  const cellData = getSubCellData(date, regionName, targetType, briefingDays);
 
   // Hover tooltip placement, portalled to <body> so the plan card's overflow:hidden can't clip
   // the rightmost column's tip. Declared before any early return to satisfy the rules of hooks.
@@ -525,9 +494,6 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
   }
 
   const { region, past } = cellData;
-
-  const cellTier = computeCellTier(region);
-  const visible = isCellVisible(cellTier, qualityTier);
 
   const displaySignal = resolveRegionDisplay(region);
   const isStanddown = displaySignal === 'STAND_DOWN' || displaySignal === 'AWAITING';
@@ -571,7 +537,7 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
   const collapsedAriaLabel = `${cellPrefix} ${eventLabel} — Poor`;
 
   const standdownClickable = isStanddown && showAllLocations;
-  const cellDisabled = (isStanddown && !showAllLocations) || !visible || past;
+  const cellDisabled = (isStanddown && !showAllLocations) || past;
   const cellClickable = !cellDisabled;
 
   // ── Poor cell — collapses to a single quiet word, vertically centred ──
@@ -626,78 +592,8 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
   // Gloss sentence shown only on hover (one interaction away).
   const glossSentence = region.glossDetail || region.glossHeadline || region.summary || null;
 
-  // Mean Claude rating across the cell's scored locations.
-  //
-  // Two derivations, and which one runs is the CALLER's choice, not this component's. `HeatmapGrid`
-  // has two call sites in two flag arms and one of them — `DailyBriefing`, the v1 arm — is the
-  // control for the side-by-side comparison the redesign is judged by. So the backend field is
-  // opt-in: v2's `WindowFirstRegionalPanel` passes `serverCellRating`, v1 passes nothing and keeps
-  // the client-side join. It is no longer BYTE-IDENTICAL, and the paragraph below is why: the
-  // canopy rule had to be applied to it by hand. The opt-in still decides where the number comes
-  // from; it no longer decides what the number means.
-  //
-  // The opted-in path reads `region.meanRating`, which the backend derives from the SAME statistics
-  // as the cell's verdict word — so the star and the word can no longer come from two computations
-  // with two cache lifetimes. The legacy path below is what that replaced: a mean taken from
-  // `/api/briefing/evaluate/scores` through a region-NAME prefix join, silently falling back to the
-  // slot tree when the join found nothing. See plan-verdict-consolidation-plan.md §1 D2.
-  //
-  // ⚠️ BOTH paths exclude canopy slots, and the legacy one does it by hand. The canopy fix moved
-  // the region's verdict — a payload field both arms render, with no prop to gate it — onto the
-  // region's VOTING slots, because a woodland GO means heavy cloud and mist, the opposite of what
-  // GO means for a sky window. The star had to follow or this cell would print a word derived from
-  // the sky above a number derived from the sky plus the wood. Seen in the browser before the fix,
-  // on two 4★ sky slots and a 1★ wood: "Worth it sunrise" — green, banded on the sky's 4.0 — over
-  // an amber 3★ pill, and "3 stars" in the cell's accessible name. That was briefly the state of
-  // the v1 arm and it is deliberately not left there, even though closing it moves the frozen
-  // control: a control that contradicts itself inside one cell is not measuring anything.
-  //
-  // The filter mirrors `BriefingSlot.votingSlots` on the backend, INCLUDING its fallback: a region
-  // with nothing but woods votes with them, because it genuinely has a forecast and silence would
-  // be the worse answer. Drop the fallback and an all-canopy region loses its star while keeping
-  // its word.
-  //
-  // One consequence of filtering the FIRST lookup: the slot fallback's trigger has quietly gained a
-  // second meaning. It used to mean "the score map had no row for this cell"; it now also fires
-  // when every row it matched was a wood. Falling through is still the right answer there — the
-  // slots are enriched from the same store, so the sky's rating is not stale — but it means a
-  // region whose only freshly-scored location is a wood is answered by its slot tree rather than by
-  // that wood. Both branches are pinned in `HeatmapGrid.test.jsx`.
-  //
-  // Null is preserved rather than coerced: it means nothing here is rated, which the badge below
-  // renders as no badge at all rather than as a 0.
-  let meanRating;
-  if (serverCellRating) {
-    meanRating = region?.meanRating ?? null;
-  } else {
-    const slots = region?.slots || [];
-    const hasSkySlot = slots.some((slot) => !slot.canopy);
-    const votingSlots = hasSkySlot ? slots.filter((slot) => !slot.canopy) : slots;
-    // The score map is keyed by NAME, not by slot, so the exclusion has to be a name set. A scored
-    // location the region's slot list does not mention is left in: this can only skip what the
-    // payload says is a wood, and inventing a canopy guess for an unknown name would be worse than
-    // the mismatch it is trying to avoid.
-    const canopyNames = new Set(
-      hasSkySlot ? slots.filter((slot) => slot.canopy).map((slot) => slot.locationName) : [],
-    );
-
-    const ratings = [];
-    const prefix = `${regionName}|${date}|${targetType}|`;
-    for (const [key, result] of evaluationScores) {
-      if (key.startsWith(prefix) && result.rating != null
-        && !canopyNames.has(result.locationName)) {
-        ratings.push(result.rating);
-      }
-    }
-    if (ratings.length === 0) {
-      for (const s of votingSlots) {
-        if (s.claudeRating != null) ratings.push(s.claudeRating);
-      }
-    }
-    meanRating = ratings.length > 0
-      ? parseFloat((ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1))
-      : null;
-  }
+  // The backend's `meanRating`, derived from the same voting slots as the verdict word.
+  const meanRating = region?.meanRating ?? null;
 
   // Built HERE, not beside the collapsed one, because `aria-label` REPLACES name-from-contents —
   // so this string has to carry back everything the label would otherwise silence. A rated cell
@@ -815,7 +711,7 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, qualityTier, 
 
 /**
  * Desktop heatmap grid — event columns with dynamic day-header spanning.
- * Solar events (SUNRISE/SUNSET) and astro (🌙) columns.
+ * Solar events (SUNRISE/SUNSET) columns.
  */
 /* eslint-enable react/prop-types */
 
@@ -823,7 +719,6 @@ export default function HeatmapGrid({
   events,
   sortedRegions,
   briefingDays,
-  qualityTier,
   driveMap,
   typeMap,
   todayStr,
@@ -831,12 +726,9 @@ export default function HeatmapGrid({
   onShowOnMap,
   evaluationScores = new Map(),
   isPro = false,
-  astroScoresByDate = {},
   showAllLocations = false,
   onShowAllLocationsChange = null,
   travelDayDates = new Set(),
-  scrollable = false,
-  serverCellRating = false,
 }) {
   // A tap is not a hover. Asks what is POINTING at the grid rather than how wide the viewport is,
   // because the two disagree on exactly the devices this breaks — a touchscreen laptop is far wider
@@ -911,18 +803,10 @@ export default function HeatmapGrid({
   // desktop grid is arithmetically unchanged; below roughly 780px the tracks stop shrinking and
   // overflow instead, which is what `.heatmap-scroller` is there to catch.
   //
-  // ⚠️ The floor is `0` unless the CALLER opts in, and that is the whole blast-radius story. A `96px`
-  // floor changes any container narrower than ~800px, and the frozen v1 arm has exactly such a band:
-  // measured, its event columns were 68.3px at 640 and 91.7px at 780. Applying the floor
-  // unconditionally would therefore have moved the arm this redesign is being COMPARED against, on
-  // widths nobody would have thought to re-check. Off by default, the two arms differ only where v2
-  // asks them to.
-  //
   // The region column's 100px floor was already load-bearing and is left alone: the label is 13px
   // with `word-break: break-word`, and "Northumberland" alone measures ~92px, so a narrower column
   // breaks a region name mid-word.
-  const colFloor = scrollable ? '96px' : '0';
-  const gridCols = `minmax(100px, 140px) repeat(${numEventCols}, minmax(${colFloor}, 1fr))`;
+  const gridCols = `minmax(100px, 140px) repeat(${numEventCols}, minmax(96px, 1fr))`;
 
   // Group the in-view away dates into consecutive runs, one band per run (e.g. Mon–Tue).
   const awayDatesInView = [...new Set(events.map((ev) => ev.date).filter((d) => travelDayDates.has(d)))].sort();
@@ -956,32 +840,32 @@ export default function HeatmapGrid({
       const cdB = getSubCellData(date, b, targetType, briefingDays);
       if (cdA && !cdA.past) {
         const t = computeCellTier(cdA.region);
-        if (isCellVisible(t, qualityTier) && t < bestA) bestA = t;
+        if (t < bestA) bestA = t;
       }
       if (cdB && !cdB.past) {
         const t = computeCellTier(cdB.region);
-        if (isCellVisible(t, qualityTier) && t < bestB) bestB = t;
+        if (t < bestB) bestB = t;
       }
     }
     return bestA !== bestB ? bestA - bestB : a.localeCompare(b);
   });
 
-  // Check whether all cells in a region row are hidden (for label fading)
+  // Check whether all cells in a region row are hidden (for label fading) — true only for a region
+  // whose in-view columns are all missing or already past; every cell is visible now that the
+  // quality slider is gone.
   function isRegionFullyHidden(regionName) {
     for (const { date, targetType } of gridEvents) {
       const cd = getSubCellData(date, regionName, targetType, briefingDays);
       if (!cd || cd.past) continue;
-      const t = computeCellTier(cd.region);
-      if (isCellVisible(t, qualityTier)) return false;
+      return false;
     }
     return true;
   }
 
   // ── A3a: pool poor-only region rows behind a reveal ──────────────────────────
   // A region is "all poor" when none of its evaluated cells is a GO/MARGINAL (Worth it / Maybe)
-  // — every cell is STAND_DOWN or AWAITING. The quality slider was retired (qualityTier is pinned
-  // to SHOW_ALL_TIER), so isRegionFullyHidden — which keys on isCellVisible — never fires; we key
-  // on the display verdict directly instead. reorderedRegions is sorted best-first, so poor rows
+  // — every cell is STAND_DOWN or AWAITING. We key on the display verdict directly rather than on
+  // tier. reorderedRegions is sorted best-first, so poor rows
   // already trail. Split them off and tuck them behind a full-width toggle so a rated-heavy grid
   // isn't mostly dead cells the eye must scan past.
   function isRegionAllPoor(regionName) {
@@ -1020,8 +904,7 @@ export default function HeatmapGrid({
             `opacity` composites the WHOLE element including its background, so a faded pin would
             paint its opaque backdrop at 6% and the scrolling cells would read straight through the
             one column that exists to stay readable. `aria-hidden` stays on the outer box, where it
-            covers the text either way. (`faded` is reachable despite the note at
-            `isRegionFullyHidden`: the tier path is pinned open in both arms, but the predicate also
+            covers the text either way. (`faded` is reachable because `isRegionFullyHidden` still
             returns true for a region whose every in-view column is missing or already past.) */}
         <div
           data-testid="heatmap-region-label"
@@ -1046,37 +929,6 @@ export default function HeatmapGrid({
         {gridEvents.map(({ date, targetType }) => {
           const drillKey = `${date}-${regionName}-${targetType}`;
 
-          // Astro cells use a different rendering path
-          if (targetType === 'ASTRO') {
-            const dateScores = astroScoresByDate[date] || {};
-            const regionLocNames = getRegionLocationNames(date, regionName, briefingDays);
-            const astroStars = regionLocNames
-              .map((n) => dateScores[n]?.stars)
-              .filter((s) => s != null);
-            const bestStars = astroStars.length > 0 ? Math.max(...astroStars) : null;
-            return (
-              <button
-                key={drillKey}
-                data-testid="astro-heatmap-cell"
-                className={`rounded border text-center p-1.5 transition-all ${
-                  bestStars != null
-                    ? 'cursor-pointer hover:scale-[1.01]'
-                    : 'bg-plex-surface/30 border-plex-border/20 text-plex-text-muted cursor-default'
-                }`}
-                style={bestStars != null ? ratingStyle(bestStars) : undefined}
-                disabled={bestStars == null}
-                onClick={bestStars != null ? () => onShowOnMap?.(date, 'ASTRO') : undefined}
-                title={bestStars != null ? `Best astro: ${bestStars}★ — tap to view on map` : 'No dark-sky locations in this region'}
-              >
-                {bestStars != null ? (
-                  <div className="font-bold" style={{ fontSize: '12px' }}>{bestStars}★</div>
-                ) : (
-                  <div style={{ fontSize: '12px' }}>—</div>
-                )}
-              </button>
-            );
-          }
-
           const isActive =
             drillDown?.date === date &&
             drillDown?.regionName === regionName &&
@@ -1088,14 +940,11 @@ export default function HeatmapGrid({
               regionName={regionName}
               targetType={targetType}
               briefingDays={briefingDays}
-              qualityTier={qualityTier}
               isActive={isActive}
               onToggle={toggleDrillDown}
-              evaluationScores={evaluationScores}
               showAllLocations={showAllLocations}
               todayStr={todayStr}
               noHoverTip={noHoverTip}
-              serverCellRating={serverCellRating}
             />
           );
         })}
@@ -1132,24 +981,21 @@ export default function HeatmapGrid({
          grid itself cannot be both, because `container-type: inline-size` applies `contain:
          layout inline-size` and that is not a thing to put on the box whose tracks are overflowing.
 
-         The element is unconditional but the CLASS is not, so a caller that did not ask for the
-         phone layout gets a bare `<div>` carrying no rules at all — one DOM node, no CSS, nothing
-         to re-measure. Keeping the element in both branches means one JSX path rather than two.
-
-         `tabIndex`/`role`/`aria-label` likewise ride the flag: an unscrollable div in the tab order
-         is a stop that does nothing. They are needed at all because there IS a reachable state with
-         no focusable descendant — an all-poor briefing with "include poor locations" off makes every
+         `tabIndex`/`role`/`aria-label` are needed because there IS a reachable state with no
+         focusable descendant — an all-poor briefing with "include poor locations" off makes every
          cell `tabIndex={-1}`, which also switches off the poor-regions toggle (that needs one rated
          region), leaving a horizontally scrolling region whose columns 3–6 a keyboard user cannot
          reach. A poor winter week is not an exotic fixture. Both sibling scrollers in this app have
          the same gap; this is the one with the empty state, so it is the one that closes it. */
+      /* eslint-disable jsx-a11y/no-noninteractive-tabindex */
       <div
         data-testid="heatmap-scroller"
-        className={scrollable ? 'heatmap-scroller' : undefined}
-        tabIndex={scrollable ? 0 : undefined}
-        role={scrollable ? 'region' : undefined}
-        aria-label={scrollable ? 'Regional forecast grid, scrolls sideways' : undefined}
+        className="heatmap-scroller"
+        tabIndex={0}
+        role="region"
+        aria-label="Regional forecast grid, scrolls sideways"
       >
+      {/* eslint-enable jsx-a11y/no-noninteractive-tabindex */}
       <div
         data-testid="briefing-heatmap"
         className="heatmap-grid grid gap-1 mt-2"
@@ -1245,9 +1091,9 @@ export default function HeatmapGrid({
           key={`${date}-${targetType}`}
           className="text-center text-plex-text-muted pb-0.5"
           style={{ fontSize: '13px' }}
-          title={targetType === 'SUNRISE' ? 'Sunrise' : targetType === 'ASTRO' ? 'Astro conditions' : 'Sunset'}
+          title={targetType === 'SUNRISE' ? 'Sunrise' : 'Sunset'}
         >
-          {targetType === 'SUNRISE' ? '🌅' : targetType === 'ASTRO' ? '🌙' : '🌇'}
+          {targetType === 'SUNRISE' ? '🌅' : '🌇'}
         </div>
       ))}
 
@@ -1294,15 +1140,10 @@ export default function HeatmapGrid({
                 padding: '4px 10px',
               }}
             >
-              {/* "not forecast", never "not generated" — the wording is the accurate one and it is
-                  now the only one on screen. A travel day's slots exist; only the evaluation was
-                  skipped, so "no forecast generated" claimed a mechanical failure where there was a
-                  deliberate omission. The window-first arm settled this at P9 and pins it
-                  (the window-first arm's away treatment, and a test named 'says "not forecast", never "not
-                  generated"'), but that arm renders THIS grid too, behind the regional door — so
-                  until now one screen could carry both wordings for the same fact, two elements
-                  apart. Plan §5d handed it to P15 to decide once across both arms; this is that
-                  decision, and it moves v1 onto the wording v1 never had an argument for. */}
+              {/* "not forecast", never "not generated" — the wording is the accurate one. A travel
+                  day's slots exist; only the evaluation was skipped, so "no forecast generated"
+                  would claim a mechanical failure where there was a deliberate omission. Pinned by
+                  a test named 'says "not forecast", never "not generated"'. */}
               ✈ {awayRunLabel(run)} · away — not forecast
             </div>
           ))}
@@ -1319,7 +1160,6 @@ HeatmapGrid.propTypes = {
   })).isRequired,
   sortedRegions: PropTypes.arrayOf(PropTypes.string).isRequired,
   briefingDays: PropTypes.array.isRequired,
-  qualityTier: PropTypes.number.isRequired,
   driveMap: PropTypes.instanceOf(Map).isRequired,
   typeMap: PropTypes.instanceOf(Map).isRequired,
   todayStr: PropTypes.string.isRequired,
@@ -1327,35 +1167,7 @@ HeatmapGrid.propTypes = {
   onShowOnMap: PropTypes.func,
   evaluationScores: PropTypes.instanceOf(Map),
   isPro: PropTypes.bool,
-  astroScoresByDate: PropTypes.object,
   showAllLocations: PropTypes.bool,
   onShowAllLocationsChange: PropTypes.func,
   travelDayDates: PropTypes.instanceOf(Set),
-  /**
-   * Opt in to the phone layout: a horizontal scroll port with the region column and both
-   * full-width items pinned, and a 96px floor under the event columns.
-   *
-   * <p>A prop rather than an unconditional behaviour because this component has two call sites in
-   * two arms, and one of them — {@code DailyBriefing}, the v1 arm — is <b>frozen</b> for the
-   * side-by-side comparison the redesign is being judged by. The floor changes any container
-   * narrower than ~800px, and v1 has such a band: its event columns measured 68.3px at a 640px
-   * viewport and 91.7px at 780px. Defaulting to off keeps that arm byte-identical at every width
-   * while v2 gets the layout, and it says at the call site which arm asked for what.
-   */
-  scrollable: PropTypes.bool,
-  /**
-   * Opt in to the backend-derived per-cell mean rating ({@code BriefingRegion.meanRating}) instead
-   * of the client-side join over {@code /api/briefing/evaluate/scores}.
-   *
-   * <p>A prop for the same reason as {@code scrollable}: the v1 call site is the pilot's comparison
-   * control, and this changes where a cell's number comes from. Defaulting to off keeps that arm on
-   * its own client-side join while v2 takes the payload's own figure.
-   *
-   * <p><b>It does not keep that arm unchanged, and has not since the canopy fix.</b> The join was
-   * edited to exclude woodland slots, because the verdict WORD beside the star is a payload field
-   * with no prop to gate it and had already moved. What this flag selects is the source, not the
-   * rule. The {@code /evaluate/scores} fetch stays either way — the drill-down reads it for
-   * per-location detail, canopy rows included.
-   */
-  serverCellRating: PropTypes.bool,
 };

@@ -135,8 +135,8 @@ const RESIZE_THROTTLE_MS = 170;
  *       <b>Measured caveat:</b> this saves the topology and the wait, NOT the 24 KB {@code geo}
  *       chunk — {@code drawTiles} shares a module with {@code drawGeo}, which needs {@code d3-geo},
  *       so the Leaflet host still loads it. Splitting the kernel from the geo host would recover it
- *       and was deliberately left alone: on the v2 arm the Plan tab's strip has already fetched
- *       {@code geo} before the Map tab is ever opened.</li>
+ *       and was deliberately left alone: the Plan tab's strip has already fetched {@code geo}
+ *       before the Map tab is ever opened.</li>
  *   <li>{@code measure} — the two static hosts measure a canvas's parent well and derive the height
  *       from an aspect. A Leaflet canvas has no well: its parent is a Leaflet pane, which is
  *       absolutely positioned with no intrinsic box, so {@code clientWidth} there is 0. The host

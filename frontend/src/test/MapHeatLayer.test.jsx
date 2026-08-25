@@ -35,8 +35,9 @@ import MapHeatLayer, { fadeAt, markersAreInteractive } from '../components/MapHe
  * specified rather than discovered, so nothing else in the suite would catch their removal: the
  * pane's stacking order (350, between the tiles and the markers), the throttle-not-debounce split
  * across `move`/`moveend`, and the marker fade's inert band. The fourth — restoring the marker panes
- * on the way out — is what keeps the medallion view byte-identical to today, which is the claim the
- * whole side-by-side comparison rests on.
+ * on the way out — is what keeps the medallion (non-heat) view byte-identical to how it rendered
+ * before this layer existed, so mounting and unmounting it can never regress the default marker
+ * view.
  *
  * <p>`drawTiles` and `radiusFor` are spied rather than run: their pixels are the kernel's own
  * business and `heatField.test.js` owns them. Everything else is the real module, so `clamp` (which

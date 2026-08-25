@@ -20,24 +20,15 @@ const RIGHT_ARC = 'M 22 41 A 19 19 0 0 1 22 3';
 /** Stand-down fill for triaged rows (dark red). */
 export const STAND_DOWN_COLOUR = '#501313';
 
-/** Maps a 1-5 star rating to a marker colour (red → green ramp). */
-export const RATING_COLOURS = {
-  1: '#A32D2D',
-  2: '#D85A30',
-  3: '#FAC775',
-  4: '#97C459',
-  5: '#3B6D11',
-};
-
 /** Returns the stand-down marker fill colour. */
 export function standDownColour() {
   return STAND_DOWN_COLOUR;
 }
 
 /**
- * The no-data fill, shared by both ramps. It is not a score, so the ramp has nothing to say about
- * it and {@code rampRgb} would answer with its bottom stop — which reads as "1 star", the one
- * claim an unscored marker must not make.
+ * The no-data fill. It is not a score, so the ramp has nothing to say about it and {@code rampRgb}
+ * would answer with its bottom stop — which reads as "1 star", the one claim an unscored marker
+ * must not make.
  */
 const NO_DATA_COLOUR = '#3A3D45';
 
@@ -57,41 +48,24 @@ function starsFromAverage(avg) {
 }
 
 /**
- * Maps an average 0-100 score to a marker fill colour.
- *
- * <p>⚠️ {@code ramp} is the v2 opt-in (plan D2/D8) and it is not a style preference: v1 is the
- * pilot's frozen comparison control and must keep rendering {@link RATING_COLOURS} byte-identically
- * until the flag flips. Only the v2 Map tab's HEAT view passes it, so the medallion view stays the
- * honest "before" the comparison is made against.
- *
- * <p>The two ramps are not interchangeable at the ends: {@code RATING_COLOURS[5]} is a dark bottle
- * green and the score ramp's 5 is the verdict palette's sage. That is the point of the swap — the
- * markers and the field beneath them have to mean the same thing by the same colour.
+ * Maps an average 0-100 score to a marker fill colour on the score ramp — the map's only SCORE
+ * colour language (every rated marker, cluster bubble and star-filter swatch paints on it, in
+ * every view). Stand-down, no-data and wildlife markers are not scores and keep their own fills
+ * ({@link STAND_DOWN_COLOUR}, {@link NO_DATA_COLOUR}, {@code markerLabelAndColour}'s paw green).
  *
  * @param {number|null} avg - Average score, or null for no data.
- * @param {boolean} [ramp] - Take the v2 score ramp instead of v1's five buckets.
  * @returns {string} Hex colour string.
  */
-export function scoreColour(avg, ramp = false) {
-  if (avg == null) return NO_DATA_COLOUR;
-  if (ramp) return rampHex(starsFromAverage(avg));
-  if (avg > 80) return RATING_COLOURS[5];
-  if (avg > 60) return RATING_COLOURS[4];
-  if (avg > 40) return RATING_COLOURS[3];
-  if (avg > 20) return RATING_COLOURS[2];
-  return RATING_COLOURS[1];
+export function scoreColour(avg) {
+  return avg == null ? NO_DATA_COLOUR : rampHex(starsFromAverage(avg));
 }
 
 /**
- * One rating's fill on whichever ramp is in force.
- *
- * <p>The v1 lookup is a table with five keys and answers {@code undefined} for anything else, which
- * is why its callers carry a {@code ?? '#6B6B6B'}. The score ramp is defined on the continuum and
- * clamps, so a rating outside 1-5 resolves rather than falling through — the fallback is kept for
- * the v1 arm and is unreachable on the v2 one.
+ * One rating's fill on the score ramp. Defined on the continuum and clamps, so a rating outside
+ * 1-5 resolves to the ramp's end rather than falling through to a fallback colour.
  */
-function ratingColour(rating, ramp) {
-  return ramp ? rampHex(rating) : (RATING_COLOURS[rating] ?? '#6B6B6B');
+function ratingColour(rating) {
+  return rampHex(rating);
 }
 
 /**
@@ -103,10 +77,9 @@ function ratingColour(rating, ramp) {
  * @param {number|null} fierySky - Fiery Sky Potential 0-100.
  * @param {number|null} goldenHour - Golden Hour Potential 0-100.
  * @param {boolean} isPureWildlife - True for wildlife-only locations.
- * @param {boolean} [ramp] - Take the v2 score ramp (see {@link scoreColour}).
  * @returns {{ label: string|number, colour: string }}
  */
-export function markerLabelAndColour(rating, fierySky, goldenHour, isPureWildlife, ramp = false) {
+export function markerLabelAndColour(rating, fierySky, goldenHour, isPureWildlife) {
   if (isPureWildlife) {
     // The paw is a subject, not a score, and its green says so. Deliberately NOT rebased on the
     // ramp: a wildlife marker carries no sky rating at all, and giving it a ramp colour would put
@@ -115,15 +88,15 @@ export function markerLabelAndColour(rating, fierySky, goldenHour, isPureWildlif
   }
   if (fierySky != null && goldenHour != null) {
     if (rating != null) {
-      return { label: `${rating}\u2605`, colour: ratingColour(rating, ramp) };
+      return { label: `${rating}\u2605`, colour: ratingColour(rating) };
     }
     const avg = Math.round((fierySky + goldenHour) / 2);
-    return { label: avg, colour: scoreColour(avg, ramp) };
+    return { label: avg, colour: scoreColour(avg) };
   }
   if (rating != null) {
-    return { label: `${rating}\u2605`, colour: ratingColour(rating, ramp) };
+    return { label: `${rating}\u2605`, colour: ratingColour(rating) };
   }
-  return { label: '—', colour: scoreColour(null, ramp) };
+  return { label: '—', colour: scoreColour(null) };
 }
 
 /**
@@ -207,10 +180,9 @@ export function buildMarkerSvg(label, colour, fierySky, goldenHour, rating, isPu
  *
  * @param {object} cluster - Leaflet MarkerCluster instance.
  * @param {string} [role] - User role (ADMIN/PRO_USER/LITE_USER).
- * @param {boolean} [ramp] - Take the v2 score ramp (see {@link scoreColour}).
  * @returns {L.DivIcon}
  */
-export function createClusterIcon(cluster, role, ramp = false) {
+export function createClusterIcon(cluster, role) {
   const count = cluster.getChildCount();
   let size = 40;
   if (count >= 20) size = 56;
@@ -227,7 +199,7 @@ export function createClusterIcon(cluster, role, ramp = false) {
   const avgScore = ratings.length > 0
     ? (ratings.reduce((sum, r) => sum + r, 0) / ratings.length) * 20
     : null;
-  const bg = scoreColour(avgScore, ramp);
+  const bg = scoreColour(avgScore);
 
   const fieryScores = scorableMarkers
     .map((m) => m.options.icon?.options?.fierySky)

@@ -65,7 +65,6 @@ vi.mock('../components/markerUtils.js', () => ({
   buildStandDownSvg: () => '<svg></svg>',
   markerLabelAndColour: () => ({ label: '4★', colour: '#E5A00D' }),
   createClusterIcon: () => ({ options: { html: '', iconSize: { x: 40, y: 40 }, className: '' } }),
-  RATING_COLOURS: { 1: '#A32D2D', 2: '#D85A30', 3: '#FAC775', 4: '#97C459', 5: '#3B6D11' },
   STAND_DOWN_COLOUR: '#501313',
 }));
 
@@ -100,18 +99,7 @@ afterEach(() => { vi.useRealTimers(); localStorage.clear(); });
 const tick = (ms = 100) => vi.advanceTimersByTime(ms);
 
 describe('MapSizeSync', () => {
-  it('stays switched off for the v1 Map tab, which passes neither prop', () => {
-    // The blast-radius half. `resizeNonce` defaults to null and `overlayMode` to false, so the arm
-    // that has always been fine must not start polling `invalidateSize` on a timer.
-    renderMap();
-    tick(500);
-    expect(invalidateSize).not.toHaveBeenCalled();
-  });
-
   it('runs for a pane that supplies a resizeNonce', () => {
-    // Delete `|| resizeNonce != null` from `enabled` and this is the test that goes red. Before it
-    // existed, that deletion was silent and the window-first Map tab simply stopped correcting
-    // itself — the grey-map-on-return bug, back in full.
     renderMap({ resizeNonce: 0 });
     tick();
     expect(invalidateSize).toHaveBeenCalledWith({ animate: false });

@@ -21,10 +21,12 @@ const MAX_WIDTH = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg' };
  * <h2>{@code stacked} — the one thing a caller may say about a dialog OVER a dialog</h2>
  *
  * <p>Opt-in and {@code false} by default, so a caller that does not pass it renders exactly what it
- * rendered before: {@code aria-modal="true"}, no {@code inert}. Every v1 render site is such a
- * caller, and a pinning test holds it. (Plan §3 rule 10.)
+ * rendered before: {@code aria-modal="true"}, no {@code inert}. Most render sites are such a
+ * caller, and a pinning test holds it. (Plan-matrix §3 rule 10 — "any edit to {@code Modal} must
+ * leave v1 byte-identical" — is discharged along with the rest of the v1 UI it protected; see the
+ * v1-retirement plan §4.3 for the ruling this component now runs under.)
  *
- * <p><b>What it is for.</b> The v2 Plan arm stacks up to three of these — the window popup, a sheet
+ * <p><b>What it is for.</b> The Plan screen stacks up to three of these — the window popup, a sheet
  * over it, and search over that — and M5 measured the result in a real browser: three elements
  * carrying {@code aria-modal="true"} at once, and a Tab walk that left the topmost sheet, crossed
  * the page behind it and landed <em>inside the popup underneath</em> on the seventeenth press.
@@ -35,7 +37,7 @@ const MAX_WIDTH = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg' };
  * <p><b>⚠️ It is NOT a focus trap, and it is deliberately not a step towards one.</b>
  * {@link useDialogFocus} records at length why containment was refused for this app, and nothing
  * here reverses that: from the TOPMOST dialog a keyboard reader can still Tab out into the page
- * behind, exactly as they always could and exactly as they can in v1. What is fixed is the part
+ * behind, exactly as they always could. What is fixed is the part
  * that only exists because of stacking — Tab reaching a LOWER dialog, and a screen reader being
  * offered two modals. {@code inert} costs no focusable query, no containment rule and no portal
  * special-case, which is what the whole of that hook's argument was against.
@@ -72,10 +74,10 @@ const MAX_WIDTH = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg' };
  * <p>The handler this replaces sat on the backdrop — an empty `div` with no `tabIndex` and no
  * children, so it could never be the keydown target nor an ancestor of one. It existed to satisfy
  * a lint rule about click handlers, and it never fired. Escape now works, but only where a caller
- * asks for it, because eleven of the fifteen render sites hold state a reader would lose: four
- * carry unsaved forms, one holds a generated password that has to be copied before it is gone, and
- * one is a deliberately unclosable spinner. Turning dismissal on everywhere would have converted a
- * dead handler into a data-loss handler.
+ * asks for it, because most render sites hold state a reader would lose: some carry unsaved
+ * forms, one holds a generated password that has to be copied before it is gone, and one is a
+ * deliberately unclosable spinner. Turning dismissal on everywhere would have converted a dead
+ * handler into a data-loss handler.
  *
  * @param {object}   props
  * @param {string}   props.label            the dialog's accessible name
@@ -113,8 +115,8 @@ export default function Modal({
    * <p>Only on the stacked → not-stacked transition, and only when focus has actually been ORPHANED
    * — which here means {@code document.body} or nothing, and nothing else. A reader who Tabbed out
    * into the page while the top layer was up has chosen where they are, and yanking them back is
-   * worse than leaving them. On mount {@code lastInside} is null, so a dialog that is never stacked
-   * — every v1 render site — runs this to a no-op and behaves exactly as it did before.
+   * worse than leaving them. On mount {@code lastInside} is null, so a dialog that is never
+   * stacked runs this to a no-op and behaves exactly as it did before.
    *
    * <p>⚠️ The guard was written as two branches ("inside this dialog" and "outside it") and an
    * adversarial review pointed out that their union is simply "focus is somewhere real": the
@@ -149,7 +151,7 @@ export default function Modal({
       aria-modal={stacked ? undefined : 'true'}
       /* `|| undefined` rather than the bare boolean: React 19 renders `inert` for `true` and omits
          it for `false`, so either form works here — but the explicit undefined is what documents
-         that an unstacked dialog emits NO attribute, which is the half the v1 pin depends on. */
+         that an unstacked dialog emits NO attribute, which is the half the pinning test depends on. */
       inert={stacked || undefined}
       aria-label={label}
       data-testid={testId}

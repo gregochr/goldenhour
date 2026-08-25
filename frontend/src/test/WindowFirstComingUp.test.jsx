@@ -55,7 +55,8 @@ describe('WindowFirstComingUp — the panel contract', () => {
 
   it('is focusable, because everything inside it is text', () => {
     // Without tabIndex there is nowhere for focus to go after the tab is chosen — the panel has no
-    // focusable content of its own, so a keyboard user would be thrown past it to the exit button.
+    // focusable content of its own, so a keyboard user would be thrown straight past it to
+    // whatever comes next after the panel.
     renderPane();
     expect(screen.getByRole('tabpanel')).toHaveAttribute('tabindex', '0');
   });

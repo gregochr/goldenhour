@@ -32,14 +32,12 @@ const FRAME_PAD_DEG = 0.12;
  *
  * <p>The rail's domain is up to six briefing events; this strip's is every date
  * {@code GET /api/forecast} returned. Different endpoints, different horizons, and the map's is the
- * longer one. Dropping the strip and following the rail would have stranded the tab on whichever
- * date the Plan pane happened to be showing — a capability the v1 Map tab has and this arm would
- * have quietly lost, which is the kind of regression a side-by-side pilot exists to surface.
+ * longer one. Dropping the strip and following the rail would strand the tab on whichever date the
+ * Plan pane happened to be showing, losing the ability to browse the map independently of the rail.
  *
  * <p>The selection itself is <b>not</b> owned here. It is {@code App}'s existing
- * {@code selectedDate}, the same state the v1 Map tab drives, so the two arms cannot disagree about
- * which day the map is showing and there is no second source of truth to keep in step when the flag
- * flips.
+ * {@code selectedDate} — the single source of truth for which day the map is showing, shared with
+ * the standalone Map tab so the two can never disagree about it.
  *
  * <h2>Leaflet has to be told the panel came back</h2>
  *
@@ -85,7 +83,7 @@ const FRAME_PAD_DEG = 0.12;
  *                                         hatch — never App's overlay handoff, which every plan-card
  *                                         tap sets and which this pane must not act on while it is
  *                                         hidden
- * @param {string}   [props.autoEventType] the auto-selected event type, as the v1 Map tab gets
+ * @param {string}   [props.autoEventType] the auto-selected event type
  * @param {Map}      [props.briefingScores]
  * @param {Function} [props.onForecastRun]
  * @param {Array}    [props.seasonalFeatures]
@@ -110,10 +108,9 @@ export default function WindowFirstMapPane({
    * The heat field's opt-in, built here and nowhere else.
    *
    * <p><b>Why the pane and not `MapView`.</b> Everything below either reads the window-first
-   * provider or imports the kernel, and `MapView` is shared with the v1 arm — a static
-   * `heatField.js` import there would put `d3-geo` on the network for the pilot's frozen control
-   * (plan §8, blast radius). The pane is v2-only and already behind a `lazy()` boundary, so the
-   * weight lands where the feature does.
+   * provider or imports the kernel, and `MapView` is shared with the standalone Map tab — a static
+   * `heatField.js` import there would put `d3-geo` on the network for a tab that has no use for it.
+   * This pane already sits behind a `lazy()` boundary, so the weight lands where the feature does.
    *
    * <p><b>The third framing site, and deliberately the cheapest one.</b> P3 recorded that
    * `areaSpots → bbox → thumbAspect` is derived in two components and that P7 wants it lifted onto
@@ -165,10 +162,11 @@ export default function WindowFirstMapPane({
       })),
       areaBounds: framed.length > 0 ? latLngBounds(framed, FRAME_PAD_DEG) : null,
       catalogueBounds: heatSpots.length > 0 ? latLngBounds(heatSpots, FRAME_PAD_DEG) : null,
-      // ⚠️ Only while away. `MapView` fetches the per-user drive times itself and v1 depends on
-      // that; handing it a map at home would be a second source of the same numbers. Away it is an
-      // overwrite, so this tab's pin popups and its drive-time filter measure from the same base
-      // the Plan tab's cards do — §4.8's "drive figures switch" is not scoped to one tab.
+      // ⚠️ Only while away. `MapView` fetches the per-user drive times itself and the standalone
+      // Map tab depends on that; handing it a map at home would be a second source of the same
+      // numbers. Away it is an overwrite, so this tab's pin popups and its drive-time filter
+      // measure from the same base the Plan tab's cards do — §4.8's "drive figures switch" is not
+      // scoped to one tab.
       driveOverrideById: origin ? effectiveReachById : undefined,
       // "My area" is false under an away origin: the frame is the region being planned from.
       areaLabel: origin ? `Around ${origin.baseName}` : undefined,

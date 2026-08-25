@@ -311,9 +311,10 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
     // arrow handler calls `scrollIntoView`. Neither was on the list, and the cost went from 53.5px
     // to ~180px when the masthead started sticking.
     // The pane's own list, which is the LAST `scroll-margin-top` rule in the file — the earlier one
-    // is `.wf-door-panel`'s descendant rule for the re-parented v1 components. Sliced back from the
-    // declaration to the previous rule's closing brace, so what is searched is that rule's selector
-    // list (and the comments interleaved in it) and nothing else.
+    // is `.wf-door-panel`'s descendant rule for the re-parented components it hosts, none of which
+    // carry a `.wf-` class of their own. Sliced back from the declaration to the previous rule's
+    // closing brace, so what is searched is that rule's selector list (and the comments interleaved
+    // in it) and nothing else.
     const css = readCss();
     const at = css.lastIndexOf('scroll-margin-top: var(--wf-lens-reserve');
     const selectors = css.slice(css.lastIndexOf('\n}', at), at);

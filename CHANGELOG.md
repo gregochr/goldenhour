@@ -5,6 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Removed — the v1 compatibility layer collapses (v1 retirement D3)
+
+The last layer of caller opt-ins that kept the v1 Plan a byte-identical comparison control is gone
+— the opted-in behaviour is now the only behaviour. `markerUtils`' `RATING_COLOURS` five-bucket
+palette and every `ramp` parameter that switched to it are deleted: `scoreRamp` is now the map's
+only score colour language — every marker, cluster bubble and star-filter swatch, in every view
+(Medallions, the Plan overlay, aurora and astro modes), instructed by the owner to close the design
+bundle's open question on the map's two colour systems. One consequence, absorbed deliberately: the
+`MarkerClusterGroup`'s remount `key` (which existed only to re-run `iconCreateFunction` when the
+palette flipped) is gone with it, so an open popup, a spiderfied cluster and the selected marker now
+survive the Heat↔Medallions toggle rather than being torn down and rebuilt — pinned by a new test.
+`HeatmapGrid`'s `scrollable` and `serverCellRating` caller opt-ins collapse to their only remaining
+behaviour: the phone-layout scroll port renders unconditionally, and every cell's star comes from
+the backend's `meanRating` (the same statistics the verdict word is derived from) rather than a
+client-side join over `/api/briefing/evaluate/scores`. The heatmap's ASTRO column — a dead path with
+no producer since the backend has never emitted an ASTRO-typed grid event — is deleted in full:
+`ratingStyle`, the astro cell branch, the column-header's ASTRO arm, the `astroScoresByDate` fetch
+in `WindowFirstRegionalPanel`, and the CSS selector; the map's own separate ASTRO mode is untouched.
+`HealthIndicator`'s `variant` prop and `BrandLockup`'s `header` variant collapse to their sole
+surviving caller (the masthead and the auth pages respectively) — `BrandLockup`'s deletion list was
+derived from the JSX rather than the component's own docblock, which was wrong about what render
+was header-only. `Modal`'s `stacked` opt-in is untouched — it is a per-instance stacking flag, not a
+v1/v2 arm — only its prose changed. The "at most one modal" property continues to be held
+route-by-route rather than by a shell-wide `inert`; the ruling is now recorded in code
+(`useDialogFocus.js`, `Modal.jsx`, `WindowFirstShell.jsx`'s cog comment) rather than only in the
+plan document.
+
 ## [v2.18.18] - 2026-08-25
 
 ### Removed — the v1 component estate (v1 retirement D2)

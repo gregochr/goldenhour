@@ -51,7 +51,7 @@ function buildBriefingDays(dates, regionName, locationNames) {
 }
 
 function renderGrid({
-  events, briefingDays, showAllLocations, travelDayDates, scrollable, serverCellRating,
+  events, briefingDays, showAllLocations, travelDayDates,
   evaluationScores,
 } = {}) {
   const regionName = 'North East';
@@ -68,17 +68,13 @@ function renderGrid({
       events={defaultEvents}
       sortedRegions={[regionName]}
       briefingDays={days}
-      qualityTier={5}
       driveMap={new Map()}
       typeMap={new Map()}
       todayStr={futureDateStr(0)}
       tomorrowStr={DATE_1}
       onShowOnMap={vi.fn()}
-      astroScoresByDate={{}}
       showAllLocations={showAllLocations || false}
       travelDayDates={travelDayDates || new Set()}
-      scrollable={scrollable || false}
-      serverCellRating={serverCellRating || false}
       evaluationScores={evaluationScores || new Map()}
     />,
   );
@@ -119,6 +115,7 @@ function renderRatedCell({ confidence = null, rating = 4 } = {}) {
             confidence,
             regionTemperatureCelsius: 8,
             regionWindSpeedMs: 12,
+            meanRating: rating,
             slots: [{
               locationName: 'Bamburgh', verdict: 'GO', claudeRating: rating,
               solarEventTime: `${DATE_1}T19:30:00`,
@@ -126,13 +123,11 @@ function renderRatedCell({ confidence = null, rating = 4 } = {}) {
           }],
         }],
       }]}
-      qualityTier={5}
       driveMap={new Map()}
       typeMap={new Map()}
       todayStr={futureDateStr(0)}
       tomorrowStr={DATE_1}
       onShowOnMap={vi.fn()}
-      astroScoresByDate={{}}
       travelDayDates={new Set()}
     />,
   );
@@ -366,13 +361,11 @@ describe('HeatmapGrid — away days (A3b band)', () => {
         events={[{ date: DATE_1, targetType: 'SUNSET' }]}
         sortedRegions={['North East']}
         briefingDays={days}
-        qualityTier={5}
         driveMap={new Map()}
         typeMap={new Map()}
         todayStr={futureDateStr(0)}
         tomorrowStr={DATE_1}
         onShowOnMap={vi.fn()}
-        astroScoresByDate={{}}
         travelDayDates={travelDayDates}
       />
     );
@@ -622,23 +615,69 @@ describe('HeatmapGrid — region gloss in hover tip', () => {
 });
 
 describe('HeatmapGrid — no astro column in heatmap', () => {
+  // A SUNSET-only fixture can't fail this either way — a resurrected ASTRO column would just add a
+  // third sub-column beside the one real one and this test would still find zero astro headers. The
+  // real regression guard needs BOTH solar sub-columns present on the same day, so a reintroduced
+  // ASTRO path (a third `[title]` cell, a stray 🌙 glyph) has somewhere to show up.
+  function bothEventsDays(date, regionName, locationNames) {
+    return [{
+      date,
+      eventSummaries: [
+        {
+          targetType: 'SUNRISE',
+          regions: [{
+            regionName,
+            verdict: 'GO',
+            summary: 'Clear skies',
+            slots: locationNames.map((name) => ({
+              locationName: name, verdict: 'GO', solarEventTime: `${date}T05:30:00`,
+            })),
+          }],
+        },
+        {
+          targetType: 'SUNSET',
+          regions: [{
+            regionName,
+            verdict: 'GO',
+            summary: 'Clear skies',
+            slots: locationNames.map((name) => ({
+              locationName: name, verdict: 'GO', solarEventTime: `${date}T19:30:00`,
+            })),
+          }],
+        },
+      ],
+    }];
+  }
+
   it('does not render astro moon sub-columns', () => {
-    renderGrid();
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNRISE' }, { date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: bothEventsDays(DATE_1, 'North East', ['Bamburgh', 'Kielder']),
+    });
 
     const grid = screen.getByTestId('briefing-heatmap');
     const astroHeaders = grid.querySelectorAll('[title="Astro conditions"]');
     expect(astroHeaders).toHaveLength(0);
+    expect(screen.queryAllByTitle('Astro conditions')).toHaveLength(0);
 
     const astroCells = screen.queryAllByTestId('astro-heatmap-cell');
     expect(astroCells).toHaveLength(0);
+    expect(grid.textContent).not.toContain('🌙');
   });
 
-  it('renders sunset sub-columns for each day', () => {
-    renderGrid();
+  it('renders sunrise and sunset sub-columns, and only those, for each day', () => {
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNRISE' }, { date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: bothEventsDays(DATE_1, 'North East', ['Bamburgh', 'Kielder']),
+    });
 
     const grid = screen.getByTestId('briefing-heatmap');
-    const sunsetHeaders = grid.querySelectorAll('[title="Sunset"]');
-    expect(sunsetHeaders).toHaveLength(2);
+    expect(grid.querySelectorAll('[title="Sunrise"]')).toHaveLength(1);
+    expect(grid.querySelectorAll('[title="Sunset"]')).toHaveLength(1);
+    // Every sub-column header title is one of the two solar labels — never a third kind.
+    const allTitled = grid.querySelectorAll('[title]');
+    const titles = [...allTitled].map((el) => el.getAttribute('title'));
+    expect(titles.every((t) => t === 'Sunrise' || t === 'Sunset')).toBe(true);
   });
 });
 
@@ -1257,17 +1296,15 @@ describe('HeatmapGrid — day header solar times', () => {
 // ── Backend-cached Claude scores on slots ────────────────────────────────────
 
 /**
- * The per-cell star has two derivations and the CALLER chooses, because `HeatmapGrid` has two call
- * sites in two flag arms and one of them is the frozen pilot control. These pin both sides of that
- * prop, and that the same payload gives different numbers under each — which is what makes the
- * default load-bearing rather than cosmetic.
+ * The per-cell star has one source now: the backend's `region.meanRating`, read directly with no
+ * client-side fallback. It used to be caller-selectable — `HeatmapGrid` had two call sites in two
+ * flag arms, and the frozen v1 pilot control kept its own client-side join over `evaluationScores`
+ * as an escape hatch — but the v1 arm is gone, and with it the join. This pins that the cell reads
+ * only the server field: the slot's own `claudeRating` is left deliberately disagreeing with the
+ * region's `meanRating` below, so a badge that leaked slot data rather than the region field would
+ * be caught printing the wrong number rather than passing by coincidence.
  */
-describe('HeatmapGrid — where a cell\'s star comes from (serverCellRating)', () => {
-  /**
-   * One region carrying BOTH sources, deliberately disagreeing: the backend's own mean says 2, the
-   * slot tree averages 5. Neither path can be mistaken for the other, and a fallback that silently
-   * fired would print the wrong one rather than nothing.
-   */
+describe('HeatmapGrid — where a cell\'s star comes from', () => {
   function days(meanRating) {
     return [{
       date: DATE_1,
@@ -1288,200 +1325,26 @@ describe('HeatmapGrid — where a cell\'s star comes from (serverCellRating)', (
     }];
   }
 
-  const render1 = (props) => renderGrid({
-    events: [{ date: DATE_1, targetType: 'SUNSET' }],
-    briefingDays: days(2),
-    ...props,
-  });
-
-  it('reads the backend mean when the caller opts in', () => {
-    render1({ serverCellRating: true });
+  it('reads the backend mean rating into the cell badge', () => {
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNSET' }],
+      briefingDays: days(2),
+    });
     expect(screen.getByTestId('mean-score-badge').textContent).toContain('2');
   });
 
-  it('keeps the client-side derivation when the caller does not — the frozen v1 arm', () => {
-    // `DailyBriefing` passes nothing. Both numbers are on this payload, so if the default ever
-    // flipped, this cell would silently start printing 2 in the arm the pilot is comparing against.
-    render1({});
-    expect(screen.getByTestId('mean-score-badge').textContent).toContain('5');
-  });
-
   it('prints no star at all when the backend reports no mean', () => {
-    // Null is "nothing here is rated", which is a different statement from a low mean. The opted-in
-    // path must NOT fall through to the slot tree — that fallback is what let a cell's star and its
-    // verdict word come from two computations, and its silence is the point of the opt-in.
+    // Null is "nothing here is rated", which is a different statement from a low mean. There is no
+    // fallback to the slot tree — that fallback is what used to let a cell's star and its verdict
+    // word come from two computations, and its absence is the point of a single, server-owned field.
     renderGrid({
       events: [{ date: DATE_1, targetType: 'SUNSET' }],
       briefingDays: days(null),
-      serverCellRating: true,
     });
     expect(screen.queryByTestId('mean-score-badge')).toBeNull();
   });
 });
 
-/**
- * The v1 arm's own cell star, and the canopy rule it now applies by hand.
- *
- * <p>The region verdict is a payload field both arms render, so the backend's canopy fix moved the
- * WORD in v1 as well as v2. The star is derived here, so it had to be moved to match or the cell
- * would contradict itself — and the v1 star has two lookup paths, the score-map join and the slot
- * fallback, so both are exercised.
- */
-describe('HeatmapGrid — the v1 cell star excludes woods, like its verdict word', () => {
-  // SUNRISE throughout: `BriefingService` briefs a woodland-only location at dawn only, so a canopy
-  // slot at a sunset is a payload production cannot emit. The filter is event-agnostic and would
-  // pass either way — the event is chosen so a reader checking these fixtures against the product
-  // is not told something false about where woods appear.
-  const KEY = (loc) => `North East|${DATE_1}|SUNRISE|${loc}`;
-
-  /** A region whose slots carry ratings, with the named ones marked canopy. */
-  function daysWith(entries) {
-    return [{
-      date: DATE_1,
-      eventSummaries: [{
-        targetType: 'SUNRISE',
-        regions: [{
-          regionName: 'North East',
-          verdict: 'GO',
-          displayVerdict: 'WORTH_IT',
-          summary: 'Clear skies',
-          slots: entries.map(([locationName, claudeRating, canopy]) => ({
-            locationName, claudeRating, canopy, verdict: 'GO',
-            solarEventTime: `${DATE_1}T05:30:00`,
-          })),
-        }],
-      }],
-    }];
-  }
-
-  const renderCell = (briefingDays, evaluationScores) => renderGrid({
-    events: [{ date: DATE_1, targetType: 'SUNRISE' }],
-    briefingDays,
-    evaluationScores,
-  });
-
-  it('drops the wood from the score-map join — the path production takes', () => {
-    // Sky 4 and 4, wood 1. Counting the wood gives 3.0 and an amber pill; the sky alone gives 4.0
-    // and a green one, which is the band the backend put in the word beside it.
-    renderCell(
-      daysWith([['Bamburgh', 4, false], ['Alnmouth', 4, false], ['Bluebell Wood', 1, true]]),
-      new Map([
-        [KEY('Bamburgh'), { locationName: 'Bamburgh', rating: 4 }],
-        [KEY('Alnmouth'), { locationName: 'Alnmouth', rating: 4 }],
-        [KEY('Bluebell Wood'), { locationName: 'Bluebell Wood', rating: 1 }],
-      ]),
-    );
-
-    // Exact, not a substring: the badge's whole content is the number and a star, so a
-    // `toContain('4')` would also pass on "4.5★" or "14★" and a `not.toContain('3')` is a weaker
-    // statement than the one this test is making.
-    expect(screen.getByTestId('mean-score-badge')).toHaveTextContent(/^4★$/);
-  });
-
-  it('drops it from the slot fallback too, when the score map has nothing for this cell', () => {
-    // The fallback fires whenever the name-keyed join finds no row — a different cache lifetime,
-    // an empty /evaluate/scores, a region rename. It must apply the same rule or the star changes
-    // meaning depending on which lookup answered.
-    renderCell(
-      daysWith([['Bamburgh', 4, false], ['Alnmouth', 4, false], ['Bluebell Wood', 1, true]]),
-      new Map(),
-    );
-
-    expect(screen.getByTestId('mean-score-badge')).toHaveTextContent(/^4★$/);
-  });
-
-  // The all-canopy fallback is TWO expressions — the name set the join filters on, and the slot
-  // list the fallback iterates — and one test that feeds BOTH lookups pins neither: whichever
-  // expression keeps its guard rescues the answer, so mutating either alone stays green. Each of
-  // the next two starves one lookup so only the other can answer.
-
-  it('keeps its woods when nothing else votes — via the JOIN, the slot list being unrated', () => {
-    // Only the score map can answer: the slots carry no ratings, so the fallback has nothing to
-    // give. Build the canopy name set unconditionally and the join filters both woods out, leaving
-    // a woodland-only region with a verdict word and no star at all.
-    renderCell(
-      daysWith([['Bluebell Wood', null, true], ['Hollow Copse', null, true]]),
-      new Map([
-        [KEY('Bluebell Wood'), { locationName: 'Bluebell Wood', rating: 3 }],
-        [KEY('Hollow Copse'), { locationName: 'Hollow Copse', rating: 3 }],
-      ]),
-    );
-
-    expect(screen.getByTestId('mean-score-badge')).toHaveTextContent(/^3★$/);
-  });
-
-  it('keeps its woods when nothing else votes — via the SLOT FALLBACK, the map being empty', () => {
-    // The mirror: only the slot tree can answer. Filter the slot list unconditionally and the same
-    // region loses its star from the other direction.
-    renderCell(
-      daysWith([['Bluebell Wood', 3, true], ['Hollow Copse', 3, true]]),
-      new Map(),
-    );
-
-    expect(screen.getByTestId('mean-score-badge')).toHaveTextContent(/^3★$/);
-  });
-
-  it('falls back to the slots when the join found only a wood', () => {
-    // The two-lookup structure changed meaning here and it is worth pinning. The fallback fires on
-    // "the join yielded nothing", and since the filter the join can now yield nothing BECAUSE the
-    // only scored row it matched was a wood. Falling through to the slot tree is right — that is
-    // the documented degrade, and the slots are enriched from the same store — but it means a
-    // region whose only FRESH score is a wood is now answered by its sky slots rather than by the
-    // wood. Without the fallback firing, this cell would lose its star while keeping its word.
-    renderCell(
-      daysWith([['Bamburgh', 4, false], ['Bluebell Wood', 1, true]]),
-      new Map([[KEY('Bluebell Wood'), { locationName: 'Bluebell Wood', rating: 1 }]]),
-    );
-
-    expect(screen.getByTestId('mean-score-badge')).toHaveTextContent(/^4★$/);
-  });
-
-  it('shows no star when the only rated location in the region is a wood', () => {
-    // The boundary of the line above. Nothing that votes is rated anywhere — join filtered, slots
-    // unrated — so the honest answer is no badge at all, not the wood's own 1★ and not a 0.
-    renderCell(
-      daysWith([['Bamburgh', null, false], ['Bluebell Wood', 1, true]]),
-      new Map([[KEY('Bluebell Wood'), { locationName: 'Bluebell Wood', rating: 1 }]]),
-    );
-
-    expect(screen.queryByTestId('mean-score-badge')).toBeNull();
-  });
-
-  it('keeps a scored location the slot list does not mention', () => {
-    // The exclusion can only skip what the payload calls a wood. A name it has never heard of is
-    // included, exactly as before — guessing at canopy for an unknown name would be a worse error
-    // than the mismatch the filter exists to remove.
-    renderCell(
-      daysWith([['Bamburgh', 2, false]]),
-      new Map([
-        [KEY('Bamburgh'), { locationName: 'Bamburgh', rating: 2 }],
-        [KEY('Newcomer'), { locationName: 'Newcomer', rating: 4 }],
-      ]),
-    );
-
-    expect(screen.getByTestId('mean-score-badge')).toHaveTextContent(/^3★$/);
-  });
-
-  it('still shows the wood its own row in the drill-down', () => {
-    // The filter is an AGGREGATE rule. A wood keeps its slot, its verdict and its own rating one
-    // keypress away — that is the whole reason excluding it from the average is honest rather than
-    // a deletion.
-    renderCell(
-      daysWith([['Bamburgh', 4, false], ['Bluebell Wood', 1, true]]),
-      new Map([
-        [KEY('Bamburgh'), { locationName: 'Bamburgh', rating: 4 }],
-        [KEY('Bluebell Wood'), { locationName: 'Bluebell Wood', rating: 1 }],
-      ]),
-    );
-    fireEvent.click(screen.getByTestId('heatmap-cell'));
-
-    // The NAME alone would pass on a row that had lost its score, which is exactly the claim under
-    // test. The panel is what must still carry the wood's own 1★.
-    const panel = screen.getByTestId('drill-down-panel');
-    expect(within(panel).getByText('Bluebell Wood')).toBeInTheDocument();
-    expect(within(panel).getByText(/1★/)).toBeInTheDocument();
-  });
-});
 
 describe('HeatmapGrid — backend-cached Claude scores', () => {
   function buildDaysWithCachedScores(claudeRating, fierySky, goldenHour, summary) {
@@ -1493,6 +1356,9 @@ describe('HeatmapGrid — backend-cached Claude scores', () => {
           regionName: 'North East',
           verdict: 'GO',
           summary: 'Clear skies',
+          // Single-slot region: the backend's mean over its one voting slot is that slot's own
+          // rating, so `meanRating` tracks `claudeRating` here — the cell reads only this field now.
+          meanRating: claudeRating,
           slots: [{
             locationName: 'Bamburgh',
             verdict: 'GO',
@@ -1612,6 +1478,52 @@ describe('HeatmapGrid — backend-cached Claude scores', () => {
     fireEvent.click(rowHead);
     expect(screen.queryByTestId('expanded-detail')).toBeNull();
   });
+
+  it('still shows the wood its own row in the drill-down', () => {
+    // The mean-rating badge is an AGGREGATE that excludes canopy (wood) slots from the region's
+    // `meanRating` \u2014 a backend rule, not something this component derives. A wood keeps its own
+    // slot, its verdict and its own rating one keypress away regardless: excluding it from the
+    // average is honest rather than a deletion, and the drill-down is what proves that.
+    const KEY = (loc) => `North East|${DATE_1}|SUNRISE|${loc}`;
+    const days = [{
+      date: DATE_1,
+      eventSummaries: [{
+        targetType: 'SUNRISE',
+        regions: [{
+          regionName: 'North East',
+          verdict: 'GO',
+          displayVerdict: 'WORTH_IT',
+          summary: 'Clear skies',
+          meanRating: 4, // the backend's mean over the sky slot alone, the wood already excluded
+          slots: [
+            {
+              locationName: 'Bamburgh', claudeRating: 4, canopy: false, verdict: 'GO',
+              solarEventTime: `${DATE_1}T05:30:00`,
+            },
+            {
+              locationName: 'Bluebell Wood', claudeRating: 1, canopy: true, verdict: 'GO',
+              solarEventTime: `${DATE_1}T05:30:00`,
+            },
+          ],
+        }],
+      }],
+    }];
+    renderGrid({
+      events: [{ date: DATE_1, targetType: 'SUNRISE' }],
+      briefingDays: days,
+      evaluationScores: new Map([
+        [KEY('Bamburgh'), { locationName: 'Bamburgh', rating: 4 }],
+        [KEY('Bluebell Wood'), { locationName: 'Bluebell Wood', rating: 1 }],
+      ]),
+    });
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+
+    // The NAME alone would pass on a row that had lost its score, which is exactly the claim under
+    // test. The panel is what must still carry the wood's own 1\u2605.
+    const panel = screen.getByTestId('drill-down-panel');
+    expect(within(panel).getByText('Bluebell Wood')).toBeInTheDocument();
+    expect(within(panel).getByText(/1\u2605/)).toBeInTheDocument();
+  });
 });
 
 // \u2500\u2500 Gate 2 redesign: claudeHeadline + displayVerdict-based filtering \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
@@ -1630,6 +1542,7 @@ describe('HeatmapGrid \u2014 Gate 2 displayVerdict-based slot placement', () => 
           verdict: 'STANDDOWN',
           displayVerdict: 'WORTH_IT',
           summary: 'Mixed conditions',
+          meanRating: 4,
           slots: [{
             locationName: 'Bamburgh',
             verdict: 'STANDDOWN',
@@ -1666,6 +1579,7 @@ describe('HeatmapGrid \u2014 Gate 2 displayVerdict-based slot placement', () => 
           regionName: 'North East',
           verdict: 'STANDDOWN',
           summary: 'Heavy rain',
+          meanRating: 1,
           slots: [{
             locationName: 'Bamburgh',
             verdict: 'STANDDOWN',
@@ -1718,6 +1632,9 @@ function lightlyEvaluatedDays(date, { lightlyEvaluated = true, allScored = false
   const slots = allScored
     ? [scored('Almscliffe Crag', 4), scored('Bolton Abbey', 5), scored('Malham Cove', 4)]
     : [scored('Almscliffe Crag', 4), unscored('Bolton Abbey'), unscored('Malham Cove')];
+  // The backend's mean over the region's scored voting slots: 4 alone when only one is scored,
+  // (4+5+4)/3 = 4.3 when all three are.
+  const meanRating = allScored ? 4.3 : 4;
   return [{
     date,
     eventSummaries: [{
@@ -1729,6 +1646,7 @@ function lightlyEvaluatedDays(date, { lightlyEvaluated = true, allScored = false
         summary: 'Clear at 3 of 3 locations',
         lightlyEvaluated,
         scoredLocationCount: allScored ? 3 : 1,
+        meanRating,
         slots,
       }],
     }],
@@ -1741,13 +1659,11 @@ function renderDales(days, date) {
       events={[{ date, targetType: 'SUNSET' }]}
       sortedRegions={['The Yorkshire Dales']}
       briefingDays={days}
-      qualityTier={5}
       driveMap={new Map()}
       typeMap={new Map()}
       todayStr={futureDateStr(0)}
       tomorrowStr={DATE_1}
       onShowOnMap={vi.fn()}
-      astroScoresByDate={{}}
     />,
   );
 }
@@ -1798,13 +1714,11 @@ describe('HeatmapGrid — drill-down drive time', () => {
         events={[{ date: DATE_1, targetType: 'SUNSET' }]}
         sortedRegions={['North East']}
         briefingDays={days}
-        qualityTier={5}
         driveMap={new Map([['Bamburgh', 45]])}
         typeMap={new Map()}
         todayStr={futureDateStr(0)}
         tomorrowStr={DATE_1}
         onShowOnMap={vi.fn()}
-        astroScoresByDate={{}}
         travelDayDates={new Set()}
       />,
     );
@@ -1821,13 +1735,11 @@ describe('HeatmapGrid — drill-down drive time', () => {
         events={[{ date: DATE_1, targetType: 'SUNSET' }]}
         sortedRegions={['North East']}
         briefingDays={days}
-        qualityTier={5}
         driveMap={new Map()}
         typeMap={new Map()}
         todayStr={futureDateStr(0)}
         tomorrowStr={DATE_1}
         onShowOnMap={vi.fn()}
-        astroScoresByDate={{}}
         travelDayDates={new Set()}
       />,
     );
@@ -1842,13 +1754,11 @@ describe('HeatmapGrid — drill-down drive time', () => {
         events={[{ date: DATE_1, targetType: 'SUNSET' }]}
         sortedRegions={['North East']}
         briefingDays={days}
-        qualityTier={5}
         driveMap={new Map([['Bamburgh', 90]])}
         typeMap={new Map()}
         todayStr={futureDateStr(0)}
         tomorrowStr={DATE_1}
         onShowOnMap={vi.fn()}
-        astroScoresByDate={{}}
         travelDayDates={new Set()}
       />,
     );
@@ -1863,13 +1773,11 @@ describe('HeatmapGrid — drill-down drive time', () => {
         events={[{ date: DATE_1, targetType: 'SUNSET' }]}
         sortedRegions={['North East']}
         briefingDays={days}
-        qualityTier={5}
         driveMap={new Map([['Bamburgh', 120]])}
         typeMap={new Map()}
         todayStr={futureDateStr(0)}
         tomorrowStr={DATE_1}
         onShowOnMap={vi.fn()}
-        astroScoresByDate={{}}
         travelDayDates={new Set()}
       />,
     );
@@ -1886,13 +1794,11 @@ describe('HeatmapGrid — drill-down location type icon', () => {
         events={[{ date: DATE_1, targetType: 'SUNSET' }]}
         sortedRegions={['North East']}
         briefingDays={days}
-        qualityTier={5}
         driveMap={new Map()}
         typeMap={locationType == null ? new Map() : new Map([['Bamburgh', locationType]])}
         todayStr={futureDateStr(0)}
         tomorrowStr={DATE_1}
         onShowOnMap={vi.fn()}
-        astroScoresByDate={{}}
         travelDayDates={new Set()}
       />,
     );
@@ -1937,13 +1843,11 @@ describe('HeatmapGrid — clicking a second cell', () => {
         events={[{ date: DATE_1, targetType: 'SUNSET' }]}
         sortedRegions={['Alpha Region', 'Beta Region']}
         briefingDays={days}
-        qualityTier={5}
         driveMap={new Map()}
         typeMap={new Map()}
         todayStr={futureDateStr(0)}
         tomorrowStr={DATE_1}
         onShowOnMap={vi.fn()}
-        astroScoresByDate={{}}
         travelDayDates={new Set()}
       />,
     );
@@ -1971,13 +1875,11 @@ describe('HeatmapGrid — clickable location name', () => {
         events={[{ date: DATE_1, targetType: 'SUNSET' }]}
         sortedRegions={[regionName]}
         briefingDays={days}
-        qualityTier={5}
         driveMap={new Map()}
         typeMap={new Map()}
         todayStr={futureDateStr(0)}
         tomorrowStr={DATE_1}
         onShowOnMap={onShowOnMap}
-        astroScoresByDate={{}}
         showAllLocations={false}
         travelDayDates={new Set()}
       />,
@@ -2014,21 +1916,18 @@ function buildRegionsDays(dates, regions) {
   }));
 }
 
-function renderMixedGrid(regions, { scrollable = false } = {}) {
+function renderMixedGrid(regions) {
   return render(
     <HeatmapGrid
       events={[{ date: DATE_1, targetType: 'SUNSET' }, { date: DATE_2, targetType: 'SUNSET' }]}
       sortedRegions={regions.map((r) => r.name)}
       briefingDays={buildRegionsDays([DATE_1, DATE_2], regions)}
-      qualityTier={5}
       driveMap={new Map()}
       typeMap={new Map()}
       todayStr={futureDateStr(0)}
       tomorrowStr={DATE_1}
       onShowOnMap={vi.fn()}
-      astroScoresByDate={{}}
       travelDayDates={new Set()}
-      scrollable={scrollable}
     />,
   );
 }
@@ -2043,6 +1942,7 @@ describe('HeatmapGrid — confidence channel (Change B)', () => {
       displayVerdict: 'WORTH_IT',
       summary: 'Clear skies',
       confidence,
+      meanRating: 4,
       slots: [{ locationName: 'Bamburgh', verdict: 'GO', claudeRating: 4, solarEventTime: `${DATE_1}T19:30:00` }],
     };
     return render(
@@ -2050,13 +1950,11 @@ describe('HeatmapGrid — confidence channel (Change B)', () => {
         events={[{ date: DATE_1, targetType: 'SUNSET' }]}
         sortedRegions={['North East']}
         briefingDays={[{ date: DATE_1, eventSummaries: [{ targetType: 'SUNSET', regions: [region] }] }]}
-        qualityTier={5}
         driveMap={new Map()}
         typeMap={new Map()}
         todayStr={futureDateStr(0)}
         tomorrowStr={DATE_1}
         onShowOnMap={vi.fn()}
-        astroScoresByDate={{}}
         travelDayDates={new Set()}
       />,
     );
@@ -2121,6 +2019,7 @@ describe('HeatmapGrid — confidence channel (Change B)', () => {
       displayVerdict: 'WORTH_IT',
       summary: 'Clear skies',
       confidence: 'low',
+      meanRating: 4,
       slots: [{ locationName: 'Bamburgh', verdict: 'GO', displayVerdict: 'WORTH_IT', claudeRating: 4, solarEventTime: `${DATE_1}T19:30:00` }],
     };
     renderGrid({
@@ -2205,13 +2104,11 @@ describe('HeatmapGrid — poor-region pooling (A3a)', () => {
         events={[{ date: DATE_1, targetType: 'SUNSET' }, { date: DATE_2, targetType: 'SUNSET' }]}
         sortedRegions={[LATE, EARLY, POOR_A.name]}
         briefingDays={days}
-        qualityTier={5}
         driveMap={new Map()}
         typeMap={new Map()}
         todayStr={futureDateStr(0)}
         tomorrowStr={DATE_1}
         onShowOnMap={vi.fn()}
-        astroScoresByDate={{}}
         travelDayDates={new Set()}
       />,
     );
@@ -2230,13 +2127,11 @@ describe('HeatmapGrid — poor-region pooling (A3a)', () => {
         events={[{ date: DATE_1, targetType: 'SUNSET' }, { date: DATE_2, targetType: 'SUNSET' }]}
         sortedRegions={regions.map((r) => r.name)}
         briefingDays={buildRegionsDays([DATE_1, DATE_2], regions)}
-        qualityTier={5}
         driveMap={new Map()}
         typeMap={new Map()}
         todayStr={futureDateStr(0)}
         tomorrowStr={DATE_1}
         onShowOnMap={vi.fn()}
-        astroScoresByDate={{}}
         travelDayDates={new Set()}
       />
     );
@@ -2266,7 +2161,8 @@ describe('HeatmapGrid — the phone layout', () => {
   // was measured in a browser instead (302px port over 751px of content at 390px, the pinned column
   // holding at x=0 through a full 449px scroll, the drill-down pinned at the port's 302px, and
   // desktop unchanged at 140px + 6×142px). What these tests protect is the other half: that the
-  // hooks those rules hang off are still on the elements, and that the opt-in still gates them.
+  // hooks those rules hang off are still on the elements — the scroll port is unconditional now, so
+  // there is no opt-in left to gate them.
 
   /** Two regions, because a pinned column is about telling ROWS apart. */
   const TWO_REGIONS = [
@@ -2274,96 +2170,94 @@ describe('HeatmapGrid — the phone layout', () => {
     { name: 'Second Rated', verdict: 'GO', displayVerdict: 'WORTH_IT' },
   ];
 
-  describe('when the caller opts in', () => {
-    it('renders the grid inside a scroll port, and no longer hides it below the sm breakpoint', () => {
-      // The whole defect in one test. `hidden sm:grid` meant the full plan did not exist on a phone.
-      // The POSITIVE assertion is the load-bearing one: without it, deleting `grid` from the class
-      // list collapses the heatmap into a stacked block list and every other test here stays green,
-      // because `gridTemplateColumns` is still set inline and jsdom lays nothing out.
-      renderGrid({ scrollable: true });
-      const grid = screen.getByTestId('briefing-heatmap');
-      expect(grid).toHaveClass('grid');
-      expect(grid).toHaveClass('heatmap-grid');
-      expect(grid).not.toHaveClass('hidden');
-      expect(screen.getByTestId('heatmap-scroller')).toHaveClass('heatmap-scroller');
-    });
+  it('renders the grid inside a scroll port, and no longer hides it below the sm breakpoint', () => {
+    // The whole defect in one test. `hidden sm:grid` meant the full plan did not exist on a phone.
+    // The POSITIVE assertion is the load-bearing one: without it, deleting `grid` from the class
+    // list collapses the heatmap into a stacked block list and every other test here stays green,
+    // because `gridTemplateColumns` is still set inline and jsdom lays nothing out.
+    renderGrid();
+    const grid = screen.getByTestId('briefing-heatmap');
+    expect(grid).toHaveClass('grid');
+    expect(grid).toHaveClass('heatmap-grid');
+    expect(grid).not.toHaveClass('hidden');
+    expect(screen.getByTestId('heatmap-scroller')).toHaveClass('heatmap-scroller');
+  });
 
-    it('keeps the grid a child of the scroll port, which is what sticky resolves against', () => {
-      // `min-width: max-content` is applied through `.heatmap-scroller > .heatmap-grid`, and the
-      // pinned column silently stops pinning without it — measured at x=−196 against a port at 0.
-      // A wrapper inserted between the two would break that selector and nothing else would notice.
-      renderGrid({ scrollable: true });
-      expect(screen.getByTestId('heatmap-scroller')).toContainElement(screen.getByTestId('briefing-heatmap'));
-      expect(screen.getByTestId('briefing-heatmap').parentElement).toBe(screen.getByTestId('heatmap-scroller'));
-    });
+  it('keeps the grid a child of the scroll port, which is what sticky resolves against', () => {
+    // `min-width: max-content` is applied through `.heatmap-scroller > .heatmap-grid`, and the
+    // pinned column silently stops pinning without it — measured at x=−196 against a port at 0.
+    // A wrapper inserted between the two would break that selector and nothing else would notice.
+    renderGrid();
+    expect(screen.getByTestId('heatmap-scroller')).toContainElement(screen.getByTestId('briefing-heatmap'));
+    expect(screen.getByTestId('briefing-heatmap').parentElement).toBe(screen.getByTestId('heatmap-scroller'));
+  });
 
-    it('stops hiding the away band, and keeps it stacking', () => {
-      // The band was `hidden sm:flex sm:flex-col`. `flex-col` is asserted as well as `flex`: without
-      // it two bands lay out in a ROW inside a no-wrap port, and this file already fixtures the
-      // two-band case.
-      renderGrid({ scrollable: true, travelDayDates: new Set([DATE_1]) });
-      const bands = screen.getByTestId('heatmap-away-bands');
-      expect(bands).not.toHaveClass('hidden');
-      expect(bands).toHaveClass('flex');
-      expect(bands).toHaveClass('flex-col');
-    });
+  it('stops hiding the away band, and keeps it stacking', () => {
+    // The band was `hidden sm:flex sm:flex-col`. `flex-col` is asserted as well as `flex`: without
+    // it two bands lay out in a ROW inside a no-wrap port, and this file already fixtures the
+    // two-band case.
+    renderGrid({ travelDayDates: new Set([DATE_1]) });
+    const bands = screen.getByTestId('heatmap-away-bands');
+    expect(bands).not.toHaveClass('hidden');
+    expect(bands).toHaveClass('flex');
+    expect(bands).toHaveClass('flex-col');
+  });
 
-    it('marks every region label for pinning, and both header corners', () => {
-      // Two regions, so the rule this pins — "scrolling right leaves the reader looking at
-      // unlabelled rows of colour" — is actually on screen. Asserted per element rather than as a
-      // count: a bare length fails spuriously the moment the shared fixture grows a region, with a
-      // message naming nothing about pinning.
-      renderMixedGrid(TWO_REGIONS, { scrollable: true });
-      const labels = screen.getAllByTestId('heatmap-region-label');
-      expect(labels.map((l) => l.textContent)).toEqual(['Rated Region', 'Second Rated']);
-      labels.forEach((label) => expect(label).toHaveClass('heatmap-pin'));
-      // The header corners too: a pinned column starting below its own header lets the header
-      // scroll away from the rows it names.
-      expect(screen.getByText('Region')).toHaveClass('heatmap-pin');
-    });
+  it('marks every region label for pinning, and both header corners', () => {
+    // Two regions, so the rule this pins — "scrolling right leaves the reader looking at
+    // unlabelled rows of colour" — is actually on screen. Asserted per element rather than as a
+    // count: a bare length fails spuriously the moment the shared fixture grows a region, with a
+    // message naming nothing about pinning.
+    renderMixedGrid(TWO_REGIONS);
+    const labels = screen.getAllByTestId('heatmap-region-label');
+    expect(labels.map((l) => l.textContent)).toEqual(['Rated Region', 'Second Rated']);
+    labels.forEach((label) => expect(label).toHaveClass('heatmap-pin'));
+    // The header corners too: a pinned column starting below its own header lets the header
+    // scroll away from the rows it names.
+    expect(screen.getByText('Region')).toHaveClass('heatmap-pin');
+  });
 
-    it('marks the drill-down, so it stays with the reader rather than with the grid', () => {
-      // It spans `1 / -1`, so once the tracks overflow it is as wide as the whole grid. You open it
-      // by tapping a cell — already scrolled right — so unpinned it renders from the grid's x=0,
-      // off-screen to the left of where you are looking.
-      renderGrid({ scrollable: true });
-      fireEvent.click(screen.getAllByTestId('heatmap-cell')[0]);
-      expect(screen.getByTestId('drill-down-panel')).toHaveClass('heatmap-span');
-    });
+  it('marks the drill-down, so it stays with the reader rather than with the grid', () => {
+    // It spans `1 / -1`, so once the tracks overflow it is as wide as the whole grid. You open it
+    // by tapping a cell — already scrolled right — so unpinned it renders from the grid's x=0,
+    // off-screen to the left of where you are looking.
+    renderGrid();
+    fireEvent.click(screen.getAllByTestId('heatmap-cell')[0]);
+    expect(screen.getByTestId('drill-down-panel')).toHaveClass('heatmap-span');
+  });
 
-    it('marks the poor-regions toggle, the other full-width item', () => {
-      // Same span, same failure: a centred label in a 751px button is a label at 375px, off-screen.
-      renderMixedGrid([
-        { name: 'Rated Region', verdict: 'GO', displayVerdict: 'WORTH_IT' },
-        { name: 'Poor Alpha', verdict: 'STANDDOWN', displayVerdict: 'STAND_DOWN' },
-      ], { scrollable: true });
-      expect(screen.getByTestId('heatmap-poor-toggle')).toHaveClass('heatmap-span');
-    });
+  it('marks the poor-regions toggle, the other full-width item', () => {
+    // Same span, same failure: a centred label in a 751px button is a label at 375px, off-screen.
+    renderMixedGrid([
+      { name: 'Rated Region', verdict: 'GO', displayVerdict: 'WORTH_IT' },
+      { name: 'Poor Alpha', verdict: 'STANDDOWN', displayVerdict: 'STAND_DOWN' },
+    ]);
+    expect(screen.getByTestId('heatmap-poor-toggle')).toHaveClass('heatmap-span');
+  });
 
-    it('puts a 96px floor under the event columns, at any column count', () => {
-      // The floor IS the phone layout: `1fr` wherever there is room, overflow into the scroller
-      // where there is not — so no media query, which matters because this value is an inline style
-      // and a media query could not have reached it.
-      //
-      // Matched rather than compared whole: the column COUNT is the thing that must not be pinned,
-      // since the justification for a floor over a breakpoint is precisely that the width at which
-      // it bites moves with the count. Asserted at one column and at the production six.
-      const one = [{ date: DATE_1, targetType: 'SUNSET' }];
-      renderGrid({ scrollable: true, events: one });
-      expect(screen.getByTestId('briefing-heatmap').style.gridTemplateColumns)
-        .toMatch(/repeat\(1, minmax\(96px, 1fr\)\)$/);
-      cleanup();
+  it('puts a 96px floor under the event columns, at any column count', () => {
+    // The floor IS the phone layout: `1fr` wherever there is room, overflow into the scroller
+    // where there is not — so no media query, which matters because this value is an inline style
+    // and a media query could not have reached it.
+    //
+    // Matched rather than compared whole: the column COUNT is the thing that must not be pinned,
+    // since the justification for a floor over a breakpoint is precisely that the width at which
+    // it bites moves with the count. Asserted at one column and at the production six.
+    const one = [{ date: DATE_1, targetType: 'SUNSET' }];
+    renderGrid({ events: one });
+    expect(screen.getByTestId('briefing-heatmap').style.gridTemplateColumns)
+      .toMatch(/repeat\(1, minmax\(96px, 1fr\)\)$/);
+    cleanup();
 
-      // Three days × sunrise/sunset, in date order — the production shape. Grouped by date rather
-      // than appended, because `dayGroups` folds CONSECUTIVE same-date events into one spanning
-      // header and a non-consecutive repeat would give two headers the same React key.
-      const six = [DATE_1, DATE_2, futureDateStr(3)].flatMap((d) => [
-        { date: d, targetType: 'SUNRISE' }, { date: d, targetType: 'SUNSET' },
-      ]);
-      renderGrid({ scrollable: true, events: six });
-      expect(screen.getByTestId('briefing-heatmap').style.gridTemplateColumns)
-        .toMatch(/repeat\(6, minmax\(96px, 1fr\)\)$/);
-    });
+    // Three days × sunrise/sunset, in date order — the production shape. Grouped by date rather
+    // than appended, because `dayGroups` folds CONSECUTIVE same-date events into one spanning
+    // header and a non-consecutive repeat would give two headers the same React key.
+    const six = [DATE_1, DATE_2, futureDateStr(3)].flatMap((d) => [
+      { date: d, targetType: 'SUNRISE' }, { date: d, targetType: 'SUNSET' },
+    ]);
+    renderGrid({ events: six });
+    expect(screen.getByTestId('briefing-heatmap').style.gridTemplateColumns)
+      .toMatch(/repeat\(6, minmax\(96px, 1fr\)\)$/);
   });
 
   describe('a phone is a coarse pointer, and a tap is not a hover', () => {
@@ -2386,7 +2280,7 @@ describe('HeatmapGrid — the phone layout', () => {
     it('shows the cell tooltip on hover with a fine pointer', () => {
       // The control. Without it the next test passes against a tooltip that never worked at all.
       setPointer(false);
-      renderGrid({ scrollable: true });
+      renderGrid();
       fireEvent.mouseEnter(screen.getAllByTestId('heatmap-cell')[0]);
       expect(screen.getByTestId('cell-hover-tip')).toBeInTheDocument();
     });
@@ -2397,7 +2291,7 @@ describe('HeatmapGrid — the phone layout', () => {
       // coming to dismiss it and no scroll listener behind its once-computed placement. Both are
       // asserted because removing only one leaves the tap still raising it.
       setPointer(true);
-      renderGrid({ scrollable: true });
+      renderGrid();
       const cell = screen.getAllByTestId('heatmap-cell')[0];
       fireEvent.mouseEnter(cell);
       expect(screen.queryByTestId('cell-hover-tip')).toBeNull();
@@ -2408,67 +2302,21 @@ describe('HeatmapGrid — the phone layout', () => {
     it('still opens the drill-down on a coarse pointer', () => {
       // The half that must survive the fix: suppressing the tooltip must not suppress the tap.
       setPointer(true);
-      renderGrid({ scrollable: true });
+      renderGrid();
       fireEvent.click(screen.getAllByTestId('heatmap-cell')[0]);
       expect(screen.getByTestId('drill-down-panel')).toBeInTheDocument();
     });
   });
 
   describe('the scroll port is reachable by keyboard', () => {
-    it('is focusable and named when it is a port', () => {
+    it('is focusable and named', () => {
       // There is a reachable state with no focusable descendant — an all-poor briefing with poor
       // locations hidden makes every cell `tabIndex={-1}` and switches off the poor-regions toggle
       // — so without this a keyboard user cannot reach columns 3-6 at all.
-      renderGrid({ scrollable: true });
+      renderGrid();
       const port = screen.getByTestId('heatmap-scroller');
       expect(port).toHaveAttribute('tabindex', '0');
       expect(screen.getByRole('region', { name: /scrolls sideways/i })).toBe(port);
-    });
-
-    it('is not a tab stop when it is not a port', () => {
-      // An unscrollable div in the tab order is a stop that does nothing.
-      renderGrid();
-      const port = screen.getByTestId('heatmap-scroller');
-      expect(port).not.toHaveAttribute('tabindex');
-      expect(port).not.toHaveAttribute('role');
-    });
-  });
-
-  describe('when the caller does not opt in — the frozen v1 arm', () => {
-    // The blast radius, pinned. `DailyBriefing` renders this grid too and is frozen for the
-    // side-by-side comparison the redesign is judged by. A 96px floor changes any container
-    // narrower than ~800px, and that arm has such a band — measured 68.3px event columns at a 640px
-    // viewport, 91.7px at 780px. If any of these four flip, that arm has silently moved.
-
-    it('puts no floor under the event columns', () => {
-      renderGrid();
-      expect(screen.getByTestId('briefing-heatmap').style.gridTemplateColumns)
-        .toBe('minmax(100px, 140px) repeat(2, minmax(0, 1fr))');
-    });
-
-    it('adds no scroll port, so nothing overflows that did not overflow before', () => {
-      renderGrid();
-      expect(screen.getByTestId('heatmap-scroller')).not.toHaveClass('heatmap-scroller');
-    });
-
-    it('leaves the pin and span rules unmatched, since every one of them is scoped to the port', () => {
-      // The classes are still EMITTED — `HeatmapDrillDown` is a separate component and would
-      // otherwise need the flag threaded into it — and match nothing without the port. This test is
-      // what makes that shortcut safe to rely on.
-      renderGrid();
-      fireEvent.click(screen.getAllByTestId('heatmap-cell')[0]);
-      expect(screen.getByTestId('drill-down-panel')).toHaveClass('heatmap-span');
-      expect(screen.getByText('Region')).toHaveClass('heatmap-pin');
-      expect(screen.getByTestId('heatmap-scroller')).not.toHaveClass('heatmap-scroller');
-    });
-
-    it('still renders the grid and the away band at every width', () => {
-      // Opting out of the SCROLLER is not opting out of existing. The `hidden sm:*` removal is
-      // unconditional, and in v1 it is inert — that arm's own `hidden sm:block` wrapper is what
-      // gates it below 640px, which is why this change cannot reach it.
-      renderGrid({ travelDayDates: new Set([DATE_1]) });
-      expect(screen.getByTestId('briefing-heatmap')).not.toHaveClass('hidden');
-      expect(screen.getByTestId('heatmap-away-bands')).not.toHaveClass('hidden');
     });
   });
 });

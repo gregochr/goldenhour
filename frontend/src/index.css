@@ -112,10 +112,11 @@
      families rather than one, because fill and text have different jobs: the fill names the
      channel, the text has to be read. Never use a --color-badge-* as a fill or a border. */
   /* Run-bar ramp — a SECOND rating scale, single-hue, and deliberately not the medallion one.
-     RATING_COLOURS (markerUtils.js) is a status ramp: the number is printed on the mark, so hue
-     reinforces a label already there. Its luminance runs 0.099 · 0.221 · 0.625 · 0.468 · 0.119 —
-     it PEAKS at 3★, so the best and worst ratings are the two dimmest. That is fine for a badge
-     and useless for a bar, where the colour IS the value. Never use one scale for the other job.
+     `scoreRamp.js` (`markerUtils.js`'s marker/cluster/swatch source) is a status ramp: the number
+     is printed on the mark, so hue reinforces a label already there, and its luminance is not
+     monotonic across the five stops — it does not rise steadily from worst to best. That is fine
+     for a badge and useless for a bar, where the colour IS the value. Never use one scale for the
+     other job.
 
      Bone because every coloured family here already means something (verdicts, tide, nlc, snow,
      close-to-home), and chrome is bone, never colour — so bone is the only family that can carry
@@ -592,8 +593,11 @@
   right: 18px;
 }
 
+/* 10, not a higher value: a hovered cell must clear its own siblings (which set no z-index) without
+   painting over the sticky lens bar above it (`.wf-lens` is `z-index: 20`) — the panel this grid
+   renders in is the only caller now, so there is no second context asking for a different number. */
 .heatmap-cell-hoverable:hover {
-  z-index: 40;
+  z-index: 10;
 }
 
 /* ── The heatmap's phone layout ──────────────────────────────────────────────────────────────────
@@ -637,11 +641,10 @@
 /* A focused cell must out-rank the pinned column, not just be scrolled clear of it. The reservation
    above is a number that can go stale (a change to the region track's max would strand it); this is
    the belt to its braces, so a stale number degrades to "overlapped" rather than "invisible".
-   40 matches the existing `:hover` elevation rather than inventing a second value. */
-.heatmap-scroller [data-testid='heatmap-cell']:focus-visible,
-.heatmap-scroller [data-testid='astro-heatmap-cell']:focus-visible {
+   10 matches the existing `:hover` elevation rather than inventing a second value. */
+.heatmap-scroller [data-testid='heatmap-cell']:focus-visible {
   position: relative;
-  z-index: 40;
+  z-index: 10;
 }
 .heatmap-scroller::-webkit-scrollbar { display: none; }
 
@@ -670,19 +673,17 @@
 
    It needs an opaque background or the scrolling cells read straight through it, and the colour has
    to be the one actually behind the grid — anything else paints a visible block at desktop, where
-   the column is pinned but never travels. Measured in both arms: the nearest painted ancestor is
-   `rgb(34, 26, 21)` either way — `.wf-door-panel` in v2, `.card` in v1 — which is
-   `--color-plex-surface`. So one literal is right for both, and it is invisible until it is doing
-   work. (`--color-plex-panel` was tried first and is 4 shades darker; it drew exactly that block,
-   most visibly at the empty sub-header corner.)
+   the column is pinned but never travels. Measured: the nearest painted ancestor is `.wf-door-panel`,
+   `rgb(34, 26, 21)`, which is `--color-plex-surface`. (`--color-plex-panel` was tried first and is 4
+   shades darker; it drew exactly that block, most visibly at the empty sub-header corner.)
 
-   `z-index: 2` clears the cells (auto) and stays under a hovered cell (40 in v1, 10 in the v2 panel) — a hovered cell should still be able to lift over its own row label.
+   `z-index: 2` clears the cells (auto) and stays under a hovered cell (10) — a hovered cell should
+   still be able to lift over its own row label.
 
-   Scoped under `.heatmap-scroller`, like every rule in this block, because that class is the single
-   thing a caller opts into. The `heatmap-pin` / `heatmap-span` classes are emitted unconditionally
-   — including by `HeatmapDrillDown`, which is a separate component and would otherwise need the
-   flag threaded into it — and simply match nothing when the port is not there. One gate, one place
-   to read it, and no second prop crossing a component boundary to say the same thing. */
+   Scoped under `.heatmap-scroller`, like every rule in this block. The `heatmap-pin` / `heatmap-span`
+   classes are emitted unconditionally — including by `HeatmapDrillDown`, which is a separate
+   component — and simply match nothing outside the scroller. One gate, one place to read it, and no
+   second prop crossing a component boundary to say the same thing. */
 .heatmap-scroller .heatmap-pin {
   position: sticky;
   left: 0;
@@ -704,9 +705,9 @@
 
    ⚠️ Scoped under `.heatmap-scroller`, and the scoping is load-bearing rather than tidy. A
    container-relative length does NOT fail loudly when no query container matches — it silently
-   resolves against the small viewport. Unscoped, this rule reached the frozen v1 arm, which
-   declares no container, and its drill-down rendered at `100svw`: measured at **1280px wide inside
-   an 830px grid**, spilling out of the card. Found by review after the first commit had it
+   resolves against the small viewport. Left unscoped once, this rule reached a view that declared
+   no container, and its drill-down rendered at `100svw`: measured at **1280px wide inside an
+   830px grid**, spilling out of the card. Found by review after the first commit had it
    unscoped; `cqw` is also now `cqi`, the unit that names the axis an `inline-size` container
    actually provides. */
 .heatmap-scroller .heatmap-span {
@@ -724,8 +725,8 @@
 
    `flex-wrap` rather than a width or a font change: it is self-limiting, so it does nothing at all
    until the row genuinely cannot fit on one line, which is why the same rule is safe at 1016px.
-   Scoped to the port for the usual reason — the frozen arm's panel is as wide as its grid and never
-   needed it. */
+   Scoped to the port because that is the only place a drill-down panel this narrow occurs — every
+   other rendering of `HeatmapDrillDown` has room to spare. */
 .heatmap-scroller [data-testid='drill-down-event-row'] {
   flex-wrap: wrap;
 }
@@ -2257,10 +2258,11 @@ button.wf-hc.also.on:hover {
    any of them. `HeatmapGrid`'s cells are `role="button" tabIndex={0}` divs with `min-height: 52px`
    (HeatmapGrid.jsx:618-626) — SHORTER than the bar's 53.5px, so an unreserved one focused from
    above is not partly obscured but obscured ENTIRELY. Its poor-regions toggle, the drill-down's
-   three buttons and every hot-topic pill are in the same position. None of them can take a `.wf-`
-   class without editing the v1 arm that plan §4's comparison needs frozen, so the reservation goes
-   on the panel that mounts them and reaches them by descent. Same 60px, same derivation, and it
-   tracks the bar's height exactly as the block below does. */
+   three buttons and every hot-topic pill are in the same position. None of them carry a `.wf-`
+   class of their own — they are standalone components with their own prop contract, not styled by
+   their caller — so the reservation goes on the panel that mounts them and reaches them by
+   descent. Same 60px, same derivation, and it tracks the bar's height exactly as the block below
+   does. */
 .wf-door-panel :is(a[href], button, [tabindex]:not([tabindex='-1'])) {
   /* ⚠️ 188, not the 60 this was until M5. The two other fallback sites moved at M3 and this one was
      missed: 60px was derived from the PRE-M3 bar height (53.5 + a focus ring), and M3 made the
@@ -2271,25 +2273,18 @@ button.wf-hc.also.on:hover {
      masthead (WCAG 2.4.11). */
   scroll-margin-top: var(--wf-lens-reserve, 188px);
 }
-/* `.heatmap-cell-hoverable:hover` is `z-index: 40` and `.wf-lens` is `z-index: 20` — values that
-   never met until P9 put the grid underneath a sticky bar. A hovered cell painted OVER the bar and,
-   because hit-testing follows paint order, swallowed clicks aimed at the lens controls across the
-   overlap band. Lowered here rather than raising the bar: this is scoped to the v2 panel, so the v1
-   grid keeps 40 unchanged, and 10 still clears the cell's siblings (which set no z-index) so the
-   hover lift is unaffected. The cell's own tooltip is portalled to `<body>` and is not in this
-   stacking context at all.
+/* `.heatmap-cell-hoverable:hover` used to be `z-index: 40` against `.wf-lens`'s `z-index: 20` —
+   values that never met until P9 put the grid underneath a sticky bar. A hovered cell painted OVER
+   the bar and, because hit-testing follows paint order, swallowed clicks aimed at the lens controls
+   across the overlap band. This override once lowered it to 10 scoped to this panel, because the
+   grid also had a second caller that had to keep 40 unchanged; that caller is gone, so the base
+   `.heatmap-cell-hoverable:hover` rule now IS 10 and this override folded into it. The cell's own
+   tooltip is portalled to `<body>` and is not in this stacking context at all.
 
-   ⚠️ The original justification said `.wf-lens` was "the only `position: sticky` in the app" with
-   "no ancestor between them creating a stacking context". Both clauses stopped being true with the
-   phone heatmap: `.heatmap-pin` and `.heatmap-span` are sticky, and `.heatmap-scroller`'s
-   `container-type: inline-size` applies `contain: layout`, which DOES create a stacking context —
-   and it sits between the cells and the bar. So in the v2 panel this rule is now redundant rather
-   than load-bearing: the whole scroller subtree already composites below the bar whatever a cell's
-   z-index says. Kept, not deleted, because removing `container-type` would silently re-arm the
-   original defect, and this rule is what would still catch it. */
-.wf-door-panel .heatmap-cell-hoverable:hover {
-  z-index: 10;
-}
+   Also true, and the reason this whole class of bug is now belt-and-braces: `.heatmap-pin` and
+   `.heatmap-span` are sticky, and `.heatmap-scroller`'s `container-type: inline-size` applies
+   `contain: layout`, which creates a stacking context that sits between the cells and the bar — so
+   the scroller subtree already composites below the bar whatever a cell's z-index says. */
 @media (max-width: 639px) {
   .wf-doors { flex-direction: column; }
 }
@@ -2706,9 +2701,9 @@ button.wf-hc.also.on:hover {
    **34px underneath the bar**, taking the card's own name and the top of its focus ring with it —
    the same ring P6 spent two measurements protecting from the scroller's clip, lost again a
    different way. `scroll-margin-top` is the reservation, applied to every focusable thing the pane
-   OWNS. What the pane merely *mounts* — the two re-parented v1 components behind P9's doors — is
-   covered by the descendant rule on `.wf-door-panel` above, because those elements cannot take a
-   `.wf-` class without editing the v1 arm.
+   OWNS. What the pane merely *mounts* — the two re-parented components behind P9's doors — is
+   covered by the descendant rule on `.wf-door-panel` above, because those elements do not carry a
+   `.wf-` class of their own.
 
    60px = the bar's measured 53.5px plus the ring's 2px outline and 2px offset. ⚠️ It tracks the
    bar's HEIGHT, so P11 (which adds a rating floor and a type control to the same row) and P14 must
@@ -3085,7 +3080,7 @@ button.wf-hc.also.on:hover {
    otherwise re-base a fixed descendant onto the very button the panel hangs off.
 
    z-index 60 clears everything on the Plan screen: the sticky lens bar is 20, a hovered heatmap
-   cell 40, a focused spot card 3, the strip's edge fades 2. It sits BELOW `MapOverlay`'s 200 on
+   cell 10, a focused spot card 3, the strip's edge fades 2. It sits BELOW `MapOverlay`'s 200 on
    purpose.
 
    Width is mirrored by PEEK_WIDTH in `windowSpotPeek.js`; keep the two in step.

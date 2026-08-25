@@ -3,11 +3,10 @@
  *
  * <h2>Why the default-off half is the important half</h2>
  *
- * <p>`MapView` is mounted three times: the v1 Map tab, the v2 Map pane, and the Plan overlay. Only
- * the v2 pane passes `heat`, and v1 is the pilot's frozen comparison control — the surface the
- * whole redesign is judged against. Plan §8 names this component's blast radius for exactly that
- * reason, and the `serverCellRating` precedent is the shape: a prop defaulting to absent, with its
- * own test, because "nothing changed" is invisible in every other suite.
+ * <p>`MapView` is mounted twice: the Map pane, and the Plan overlay. Only the pane passes `heat` —
+ * the overlay opens focused on one spot from a card that has already answered the question, so it
+ * never fetches the field or renders the toolbar. Plan §8 names this component's blast radius for
+ * exactly that reason.
  *
  * <p>The toolbar half then pins the four rules §4.5 and D6/D7/D8 state and a screenshot cannot:
  * the area segment's absence without a home, the `{animate: false}` fit, which populations each
@@ -51,11 +50,15 @@ vi.mock('react-leaflet', () => ({
 }));
 
 const clusterIconCalls = [];
+/** Mount count for the cluster group — a `key` change on the real component would remount it. */
+const clusterGroupMounts = { count: 0 };
+function MockMarkerClusterGroup({ children, iconCreateFunction }) {
+  clusterIconCalls.push(iconCreateFunction);
+  React.useEffect(() => { clusterGroupMounts.count += 1; }, []);
+  return <div>{children}</div>;
+}
 vi.mock('react-leaflet-cluster', () => ({
-  default: ({ children, iconCreateFunction }) => {
-    clusterIconCalls.push(iconCreateFunction);
-    return <div>{children}</div>;
-  },
+  default: (props) => MockMarkerClusterGroup(props),
 }));
 
 /** The lazy heat layer, replaced by a probe that records exactly what it was handed. */
@@ -105,7 +108,7 @@ vi.mock('../components/markerUtils.js', async (importOriginal) => {
 
 import MapView from '../components/MapView.jsx';
 import { RAMP_STOPS } from '../utils/scoreRamp.js';
-import { RATING_COLOURS } from '../components/markerUtils.js';
+import { markerLabelAndColour } from '../components/markerUtils.js';
 
 const TODAY = '2026-01-15';
 const TOMORROW = '2026-01-16';
@@ -227,36 +230,21 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); localStorage.clear(); });
 
 describe('MapView heat — the opt-in is off by default', () => {
-  it('renders no toolbar and no field for the v1 Map tab, which passes no heat prop', async () => {
-    // The pinned default-off test. Deleting the `heatOffered` guard, or defaulting `heat` to a
-    // truthy object, is exactly the change this catches — and nothing else in the suite would.
-    await renderMap();
+  it('renders no toolbar and no field for the Plan overlay, which passes no heat prop', async () => {
+    // The overlay is the no-heat mount: it opens focused on one spot from a card that has already
+    // answered the question, so a toolbar leaking here would sit over a modal. The pinned
+    // default-off test — deleting the `heatOffered` guard, or defaulting `heat` to a truthy
+    // object, is exactly the change this catches, and nothing else in the suite would.
+    await renderMap({ overlayMode: true });
     expect(screen.queryByTestId('wf-map-toolbar')).toBeNull();
     expect(screen.queryByTestId('map-heat-layer')).toBeNull();
     expect(heatLayerProps.mounts).toBe(0);
   });
 
-  it('renders no toolbar and no field in the Plan overlay either', async () => {
-    // The third mount. It shares every line of this component with the Map tab and passes no heat,
-    // so a toolbar leaking here would sit over a modal that is already focused on one location.
-    await renderMap({ overlayMode: true });
-    expect(screen.queryByTestId('wf-map-toolbar')).toBeNull();
-    expect(screen.queryByTestId('map-heat-layer')).toBeNull();
-  });
-
-  it('keeps v1’s opening framing and its 60px padding untouched', async () => {
-    // The heat arm opens on the planning area at 28px; v1 opens on every location at 60px. Both are
-    // passed to the same two props, so the opt-in is the only thing keeping them apart.
-    const { locations } = await renderMap();
+  it('opens on the whole catalogue, at the overlay’s 60px padding, with no heat prop passed', async () => {
+    const { locations } = await renderMap({ overlayMode: true });
     expect(mapContainerProps.last.boundsOptions).toEqual({ padding: [60, 60] });
     expect(mapContainerProps.last.bounds).toEqual(locations.map((l) => [l.lat, l.lon]));
-  });
-
-  it('leaves v1’s markers on RATING_COLOURS', async () => {
-    // `markerLabelAndColour`'s ramp argument must arrive falsy, or the frozen control repaints.
-    await renderMap();
-    expect(markerCalls.length).toBeGreaterThan(0);
-    for (const args of markerCalls) expect(args[4]).toBe(false);
   });
 
   it('renders nothing when the prop is handed but reports no catalogue', async () => {
@@ -280,7 +268,7 @@ describe('MapView heat — degrade paths', () => {
     expect(heatLayerProps.last.points).toEqual([]);
   });
 
-  it('opens on v1’s framing when no box could be derived', async () => {
+  it('opens on the default framing when no box could be derived', async () => {
     const { locations } = await renderMap({ heat: heatProp({ areaBounds: null }) });
     expect(mapContainerProps.last.bounds).toEqual(locations.map((l) => [l.lat, l.lon]));
     expect(mapContainerProps.last.boundsOptions).toEqual({ padding: [60, 60] });
@@ -324,6 +312,27 @@ describe('MapView heat — the toolbar', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Heat' }));
     expect(await screen.findByTestId('map-heat-layer')).toBeInTheDocument();
+  });
+
+  it('does not remount the marker/cluster layer on the Heat↔Medallions toggle, so an open popup survives it', async () => {
+    // With one colour language, the toggle no longer changes which palette a cluster bubble paints
+    // on — so the `key` that used to force a remount on every view switch is gone. Its only
+    // remaining effect would have been tearing down (and losing) an open popup, a spiderfied
+    // cluster and the selected marker on every press. Pinned here via mount count, since the
+    // `Marker`/`Popup` mocks in this file are too shallow to assert an actual open popup surviving.
+    clusterGroupMounts.count = 0;
+    await renderMap({ heat: heatProp() });
+    expect(clusterGroupMounts.count).toBe(1);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Medallions' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Heat' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Medallions' }));
+
+    // Exactly 1, not merely "still &gt;= 1": a monotonic counter alone can't tell "never remounted"
+    // apart from "unmounted and never came back". The re-render check below rules out the latter —
+    // the mock is still live and still being asked to build a cluster icon after the toggles.
+    expect(clusterGroupMounts.count).toBe(1);
+    expect(clusterIconCalls.length).toBeGreaterThan(1);
   });
 
   it('hides the ramp key in medallion view, where nothing is painted with it', async () => {
@@ -621,38 +630,50 @@ describe('MapView heat — role gating (§9.6, ungated for the pilot)', () => {
   });
 
   it('still withholds the premium arcs from a LITE marker in heat view', async () => {
-    // The ramp moves the FILL and nothing else (D8). The fiery/golden potentials that drive the
-    // marker's two progress arcs stay role-gated, so the swap must not become a side door.
+    // The fiery/golden potentials that drive the marker's two progress arcs stay role-gated
+    // regardless of view — the ramp is a fill colour, not a side door around the role gate.
     role = 'LITE_USER';
     await renderMap({ heat: heatProp() });
     expect(markerCalls.length).toBeGreaterThan(0);
     for (const args of markerCalls) {
       expect(args[1], 'fierySky must not reach a LITE marker').toBeNull();
       expect(args[2], 'goldenHour must not reach a LITE marker').toBeNull();
-      expect(args[4], 'and the ramp still applies').toBe(true);
     }
   });
 });
 
 describe('MapView heat — the marker swap (D2/D8)', () => {
-  it('recolours the markers in heat view and hands them back in medallion view', async () => {
-    // D8 in both directions. Heat view puts the markers on the same ramp as the field beneath them,
-    // so a colour means one thing on the whole map; medallion view is specified as byte-identical to
-    // today, which is what makes it a usable "before".
+  it('paints markers with the same ramp colour in Heat and Medallions view, because the ramp is now the map\'s only colour language', async () => {
+    // D8's end state, not a mid-migration one: `makeMarkerIcon`'s cache key no longer carries a
+    // per-view flag, so switching views is a cache HIT on the same icon rather than a second call
+    // to `markerLabelAndColour` with a different answer — there is no code path left that could
+    // recolour a marker on the way into medallion view. The zero further calls below is therefore
+    // the proof, not a weaker substitute for one: the identical cached DivIcon is reused, so its
+    // colour is provably identical, not merely re-derived to match.
     await renderMap({ heat: heatProp() });
     expect(markerCalls.length).toBeGreaterThan(0);
-    expect(markerCalls.every((args) => args[4] === true)).toBe(true);
+    // Every call `MapView` actually made resolves to the same ramp stop — asserted on the CALLS
+    // THEMSELVES (not a same-input call made fresh from the test body), so a `MapView` that started
+    // handing the wrong rating/scores to `markerLabelAndColour` would be caught here.
+    //
+    // ⚠️ Iterates a SNAPSHOT, not `markerCalls` itself: `markerLabelAndColour` here is the spy that
+    // pushes onto `markerCalls` on every call (see the `vi.mock` above), so looping the live array
+    // while calling the spy inside the loop body grows the array out from under its own iterator —
+    // an infinite loop that OOMs the worker. It reproduced exactly that way once.
+    for (const args of [...markerCalls]) {
+      expect(markerLabelAndColour(...args).colour).toBe(RAMP_STOPS[3].hex);
+    }
 
     markerCalls.length = 0;
     fireEvent.click(screen.getByRole('button', { name: 'Medallions' }));
-    expect(markerCalls.length).toBeGreaterThan(0);
-    expect(markerCalls.every((args) => args[4] === false)).toBe(true);
+    expect(markerCalls).toEqual([]);
   });
 
-  it('recolours the cluster medallions with it, on the same view switch', async () => {
-    // The cluster icon is built by a callback rather than at render, so the flag has to reach it
-    // separately — and a cluster left on v1's palette above ramped markers is two languages on one
-    // map. Driven through the real `createClusterIcon`, so this asserts the colour and not a flag.
+  it('paints cluster medallions on the ramp stop, in both Heat and Medallions view', async () => {
+    // The cluster icon is built by a callback rather than at render, so this is driven through the
+    // real `createClusterIcon`, which no longer takes a view/ramp argument at all — so checking
+    // both views is a belt-and-braces re-run of the same assertion rather than a distinct claim:
+    // there is no code path left that could paint the two views differently.
     await renderMap({ heat: heatProp() });
     const cluster = {
       getChildCount: () => 3,
@@ -662,12 +683,10 @@ describe('MapView heat — the marker swap (D2/D8)', () => {
     };
     const inHeat = clusterIconCalls.at(-1)(cluster).options.html;
     expect(inHeat).toContain(RAMP_STOPS[4].hex);
-    expect(inHeat).not.toContain(RATING_COLOURS[5]);
 
     fireEvent.click(screen.getByRole('button', { name: 'Medallions' }));
     const inMedallions = clusterIconCalls.at(-1)(cluster).options.html;
-    expect(inMedallions).toContain(RATING_COLOURS[5]);
-    expect(inMedallions).not.toContain(RAMP_STOPS[4].hex);
+    expect(inMedallions).toContain(RAMP_STOPS[4].hex);
   });
 
   it('draws the ramp key from the ramp itself, so the picture and its legend cannot drift', async () => {

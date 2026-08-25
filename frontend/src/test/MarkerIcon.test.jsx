@@ -6,9 +6,9 @@ import {
   standDownColour,
   markerLabelAndColour,
   createClusterIcon,
-  RATING_COLOURS,
   STAND_DOWN_COLOUR,
 } from '../components/markerUtils.js';
+import { RAMP_STOPS, rampHex } from '../utils/scoreRamp.js';
 
 const HALF_CIRC = Math.PI * 19;
 const FULL_CIRC = 2 * Math.PI * 19;
@@ -25,30 +25,40 @@ describe('scoreColour', () => {
     expect(scoreColour(null)).toBe('#3A3D45');
   });
 
-  it('returns 1★ dark red for 0-20', () => {
-    expect(scoreColour(0)).toBe(RATING_COLOURS[1]);
-    expect(scoreColour(10)).toBe(RATING_COLOURS[1]);
-    expect(scoreColour(20)).toBe(RATING_COLOURS[1]);
+  it('clamps to the 1★ ramp stop at and below 20 (0-100 average / 20 = stars)', () => {
+    expect(scoreColour(0)).toBe(RAMP_STOPS[0].hex);
+    expect(scoreColour(10)).toBe(RAMP_STOPS[0].hex);
+    expect(scoreColour(20)).toBe(RAMP_STOPS[0].hex);
   });
 
-  it('returns 2★ orange for 21-40', () => {
-    expect(scoreColour(21)).toBe(RATING_COLOURS[2]);
-    expect(scoreColour(40)).toBe(RATING_COLOURS[2]);
+  it('lands exactly on the 2★ ramp stop at 40', () => {
+    expect(scoreColour(40)).toBe(RAMP_STOPS[1].hex);
   });
 
-  it('returns 3★ pale yellow for 41-60', () => {
-    expect(scoreColour(41)).toBe(RATING_COLOURS[3]);
-    expect(scoreColour(60)).toBe(RATING_COLOURS[3]);
+  it('lands exactly on the 3★ ramp stop at 60', () => {
+    expect(scoreColour(60)).toBe(RAMP_STOPS[2].hex);
   });
 
-  it('returns 4★ light green for 61-80', () => {
-    expect(scoreColour(61)).toBe(RATING_COLOURS[4]);
-    expect(scoreColour(80)).toBe(RATING_COLOURS[4]);
+  it('lands exactly on the 4★ ramp stop at 80', () => {
+    expect(scoreColour(80)).toBe(RAMP_STOPS[3].hex);
   });
 
-  it('returns 5★ dark green for 81-100', () => {
-    expect(scoreColour(81)).toBe(RATING_COLOURS[5]);
-    expect(scoreColour(100)).toBe(RATING_COLOURS[5]);
+  it('clamps to the 5★ ramp stop at 100', () => {
+    expect(scoreColour(100)).toBe(RAMP_STOPS[4].hex);
+  });
+
+  it('maps a 0–100 average onto stars by dividing by 20, which inverts the cluster’s own mean', () => {
+    // `createClusterIcon` builds its average as `mean(ratings) × 20`, so a cluster of straight 4★
+    // spots must land exactly on the 4★ stop rather than somewhere inside a bucket. Round-trip, not
+    // a magic number: change either half alone and this fails.
+    expect(scoreColour(4 * 20)).toBe(RAMP_STOPS[3].hex);
+    expect(scoreColour(3 * 20)).toBe(RAMP_STOPS[2].hex);
+  });
+
+  it('interpolates between stops rather than bucketing, which is the whole difference', () => {
+    // 70 → 3.5★, the midpoint between the 3★ and 4★ stops — what lets a cluster of mixed spots
+    // read as mixed instead of falling into a flat bucket colour.
+    expect(scoreColour(70)).toBe(rampHex(3.5));
   });
 });
 
@@ -207,9 +217,9 @@ describe('buildMarkerSvg', () => {
       expect(svg.querySelector('text').textContent).toBe('4\u2605');
     });
 
-    it('uses rating colour not score colour', () => {
-      // RATING_COLOURS[4] = '#CC8A00'; scoreColour(70) = '#CC8A00' (coincidence),
-      // but the caller decides — verify the fill circle uses the passed colour
+    it('renders whatever colour the caller passed, not one it derives itself', () => {
+      // The caller decides which colour to pass, not buildMarkerSvg — verify the fill circle
+      // uses the passed colour regardless of what scoreColour would have said for this rating.
       const svg = parseSvg(buildMarkerSvg('4\u2605', '#CC8A00', null, null, 4, false));
       const fillCircle = Array.from(svg.querySelectorAll('circle'))
         .find((c) => c.getAttribute('fill') === '#CC8A00');
@@ -404,13 +414,13 @@ describe('markerLabelAndColour', () => {
   it('returns rating label and rating colour when both scores and rating present', () => {
     const result = markerLabelAndColour(4, 80, 50, false);
     expect(result.label).toBe('4\u2605');
-    expect(result.colour).toBe(RATING_COLOURS[4]);
+    expect(result.colour).toBe(RAMP_STOPS[3].hex);
   });
 
-  it('returns rating colour for each star level', () => {
+  it('returns the matching ramp stop for each star level', () => {
     for (let r = 1; r <= 5; r++) {
       const result = markerLabelAndColour(r, 60, 40, false);
-      expect(result.colour).toBe(RATING_COLOURS[r]);
+      expect(result.colour).toBe(RAMP_STOPS[r - 1].hex);
     }
   });
 
@@ -423,7 +433,7 @@ describe('markerLabelAndColour', () => {
   it('returns rating label when only rating is present (no scores)', () => {
     const result = markerLabelAndColour(3, null, null, false);
     expect(result.label).toBe('3\u2605');
-    expect(result.colour).toBe(RATING_COLOURS[3]);
+    expect(result.colour).toBe(RAMP_STOPS[2].hex);
   });
 
   it('returns — and grey when no data at all', () => {
@@ -432,9 +442,12 @@ describe('markerLabelAndColour', () => {
     expect(result.colour).toBe('#3A3D45');
   });
 
-  it('returns grey for unknown rating value', () => {
-    const result = markerLabelAndColour(99, null, null, false);
-    expect(result.colour).toBe('#6B6B6B');
+  it('clamps an out-of-range rating to the ramp\'s ends rather than falling back to grey', () => {
+    // rampHex is defined on the continuum and clamps at both ends — there is no longer a five-key
+    // table that can answer "undefined" for a value outside 1-5.
+    expect(markerLabelAndColour(99, null, null, false).colour).toBe(RAMP_STOPS[4].hex);
+    expect(markerLabelAndColour(0, null, null, false).colour).toBe(RAMP_STOPS[0].hex);
+    expect(markerLabelAndColour(-5, null, null, false).colour).toBe(RAMP_STOPS[0].hex);
   });
 });
 
@@ -447,24 +460,10 @@ describe('stand-down palette', () => {
     expect(standDownColour()).toBe(STAND_DOWN_COLOUR);
   });
 
-  it('RATING_COLOURS is a 5-stop red→green ramp locked to exact hex values', () => {
-    expect(RATING_COLOURS).toEqual({
-      1: '#A32D2D',
-      2: '#D85A30',
-      3: '#FAC775',
-      4: '#97C459',
-      5: '#3B6D11',
-    });
-  });
-
-  it('5★ is a darker green than 4★, 1★ is a darker red than 2★ (ramp ordering)', () => {
-    // Red component shrinks toward the green end of the ramp; the ramp must not
-    // be accidentally flipped or flattened.
-    const red = (hex) => parseInt(hex.slice(1, 3), 16);
-    const green = (hex) => parseInt(hex.slice(3, 5), 16);
-    expect(red(RATING_COLOURS[1])).toBeGreaterThan(red(RATING_COLOURS[5]));
-    expect(green(RATING_COLOURS[5])).toBeGreaterThan(green(RATING_COLOURS[1]));
-  });
+  // The five-stop red→green ramp itself — exact hex values and ordering — is pinned in
+  // scoreRamp.test.js, the ramp's own module. That table is now the map's only colour language
+  // (v1's separate RATING_COLOURS table was deleted with the rest of the v1 UI estate), so there
+  // is nothing left here for markerUtils to own a duplicate assertion of.
 });
 
 describe('buildStandDownSvg', () => {

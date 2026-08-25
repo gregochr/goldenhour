@@ -12,28 +12,19 @@ describe('HealthIndicator', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('renders green dot and UP text when status is UP', () => {
+  it('renders UP text when status is UP', () => {
     render(<HealthIndicator status="UP" degraded={[]} checkedAt={new Date('2026-03-01T12:30:45')} />);
     expect(screen.getByText('UP')).toBeInTheDocument();
-    const indicator = screen.getByTestId('health-indicator');
-    expect(indicator).toHaveClass('bg-green-900/30');
-    expect(indicator).toHaveClass('text-green-400');
   });
 
-  it('renders red dot and DOWN text when status is DOWN', () => {
+  it('renders DOWN text when status is DOWN', () => {
     render(<HealthIndicator status="DOWN" degraded={[]} checkedAt={new Date('2026-03-01T12:30:45')} />);
     expect(screen.getByText('DOWN')).toBeInTheDocument();
-    const indicator = screen.getByTestId('health-indicator');
-    expect(indicator).toHaveClass('bg-red-900/30');
-    expect(indicator).toHaveClass('text-red-400');
   });
 
-  it('renders amber dot and DEGRADED text', () => {
+  it('renders DEGRADED text when status is DEGRADED', () => {
     render(<HealthIndicator status="DEGRADED" degraded={['mail']} checkedAt={new Date('2026-03-01T12:30:45')} />);
     expect(screen.getByText('DEGRADED')).toBeInTheDocument();
-    const indicator = screen.getByTestId('health-indicator');
-    expect(indicator).toHaveClass('bg-amber-900/30');
-    expect(indicator).toHaveClass('text-amber-400');
   });
 
   it('expands panel on click showing overall status', () => {
@@ -201,37 +192,32 @@ describe('HealthIndicator', () => {
 });
 
 /**
- * The window-first masthead's palette, which is the whole of what the variant changes.
- *
- * <p>Every test above renders the default and pins the v1 header's Tailwind tones, so the pair is
- * what makes this an opt-in rather than a shared-component edit: the v1 arm is the frozen control
- * for the layout comparison, and a green that moved in both arms would make every side-by-side
- * judgement partly a colour judgement.
+ * The window-first masthead's palette — Kodachrome tones rather than Tailwind's own green/amber/red.
+ * This used to be an opt-in `variant` prop; the v1 header it used to also serve is gone, so the
+ * component now wears this palette unconditionally and there is nothing left to opt into.
  *
  * <p>Colours are asserted as the literal token or rgba the component sets, not as a computed value:
  * jsdom resolves no custom properties, so {@code var(--color-badge-go)} is exactly what a style
- * read returns. That is enough to catch the failure this variant exists to prevent — a Tailwind
- * green landing on a Kodachrome masthead — and the contrast ratios behind the choice are recorded
- * where the values are, since jsdom cannot compute one.
+ * read returns. That is enough to catch the failure this palette exists to prevent — a Tailwind
+ * green creeping back onto a Kodachrome masthead — and the contrast ratios behind the choice are
+ * recorded where the values are, since jsdom cannot compute one.
  */
-describe('HealthIndicator — masthead variant', () => {
-  const MASTHEAD = { variant: 'masthead' };
-
-  it('wears the palette green for UP, and none of the header variant classes', () => {
-    render(<HealthIndicator status="UP" degraded={[]} appVersion="v2.18.4" {...MASTHEAD} />);
+describe('HealthIndicator — status palette', () => {
+  it('wears the palette green for UP, and none of the old header classes', () => {
+    render(<HealthIndicator status="UP" degraded={[]} appVersion="v2.18.4" />);
     const pill = screen.getByTestId('health-indicator');
 
     expect(pill.style.color).toBe('var(--color-badge-go)');
     expect(pill.style.backgroundColor).toBe('rgba(138, 174, 114, 0.14)');
     expect(pill.style.borderColor).toBe('rgba(138, 174, 114, 0.5)');
-    // The v1 tones must be gone rather than merely overridden — an inline style hides a class
-    // without removing it, and the next refactor that drops the inline style would restore it.
+    // The old Tailwind tones must be gone rather than merely overridden — an inline style hides a
+    // class without removing it, and the next refactor that drops the inline style would restore it.
     expect(pill).not.toHaveClass('bg-green-900/30');
     expect(pill).not.toHaveClass('text-green-400');
   });
 
   it('wears the palette amber for DEGRADED', () => {
-    render(<HealthIndicator status="DEGRADED" degraded={['mail']} {...MASTHEAD} />);
+    render(<HealthIndicator status="DEGRADED" degraded={['mail']} />);
     const pill = screen.getByTestId('health-indicator');
     expect(pill.style.color).toBe('var(--color-badge-maybe)');
     expect(pill.style.backgroundColor).toBe('rgba(224, 165, 66, 0.14)');
@@ -239,17 +225,17 @@ describe('HealthIndicator — masthead variant', () => {
   });
 
   it('wears the palette red for DOWN', () => {
-    render(<HealthIndicator status="DOWN" degraded={[]} {...MASTHEAD} />);
+    render(<HealthIndicator status="DOWN" degraded={[]} />);
     const pill = screen.getByTestId('health-indicator');
     expect(pill.style.color).toBe('var(--color-badge-poor)');
     expect(pill.style.backgroundColor).toBe('rgba(200, 69, 47, 0.12)');
     expect(pill).not.toHaveClass('bg-red-900/30');
   });
 
-  // An unrecognised status already falls to the DOWN label in both variants. The tone has to follow
-  // the label rather than the raw status, or the pill reads DOWN in words and green in colour.
+  // The tone has to follow the resolved label rather than the raw status, or the pill reads DOWN
+  // in words and green in colour.
   it('gives an unrecognised status the DOWN tone, matching the word it prints', () => {
-    render(<HealthIndicator status="SOMETHING_NEW" degraded={[]} {...MASTHEAD} />);
+    render(<HealthIndicator status="SOMETHING_NEW" degraded={[]} />);
     const pill = screen.getByTestId('health-indicator');
     expect(pill).toHaveTextContent('DOWN');
     expect(pill.style.color).toBe('var(--color-badge-poor)');
@@ -258,7 +244,7 @@ describe('HealthIndicator — masthead variant', () => {
   // The masthead's cog and Sign out are 10.5px mono; a third control in that row setting its own
   // type is what makes a masthead look assembled rather than designed.
   it('takes the type and geometry of the two buttons it sits beside', () => {
-    render(<HealthIndicator status="UP" degraded={[]} {...MASTHEAD} />);
+    render(<HealthIndicator status="UP" degraded={[]} />);
     const pill = screen.getByTestId('health-indicator');
     expect(pill).toHaveClass('font-mono');
     expect(pill.style.fontSize).toBe('10.5px');
@@ -267,8 +253,8 @@ describe('HealthIndicator — masthead variant', () => {
     expect(pill).not.toHaveClass('text-sm');
   });
 
-  it('keeps the disclosure contract the header variant has', () => {
-    render(<HealthIndicator status="UP" degraded={[]} {...MASTHEAD} />);
+  it('keeps the disclosure contract', () => {
+    render(<HealthIndicator status="UP" degraded={[]} />);
     const pill = screen.getByRole('button', { name: 'System status: UP' });
     expect(pill).toHaveAttribute('aria-expanded', 'false');
 
@@ -278,7 +264,7 @@ describe('HealthIndicator — masthead variant', () => {
   });
 
   it('opens a panel on the window-first surface, not the frame background', () => {
-    render(<HealthIndicator status="UP" degraded={[]} checkedAt={new Date('2026-03-01T12:30:45')} {...MASTHEAD} />);
+    render(<HealthIndicator status="UP" degraded={[]} checkedAt={new Date('2026-03-01T12:30:45')} />);
     fireEvent.click(screen.getByTestId('health-indicator'));
     const panel = screen.getByTestId('health-panel');
     expect(panel).toHaveClass('bg-plex-surface-light');
@@ -287,12 +273,12 @@ describe('HealthIndicator — masthead variant', () => {
   });
 
   // Muted measures 3.55:1 at this size and fails AA — a correction this project has now made six
-  // times. The panel shrinks to 10.5px in this variant, so it must not also go quieter.
+  // times. The panel is 10.5px, so it must not also go quieter.
   it('inks the panel with secondary rather than the muted grey that fails AA', () => {
     render(
       <HealthIndicator
         status="UP" degraded={[]} checkedAt={new Date('2026-03-01T12:30:45')}
-        startedAt="2026-03-01T06:00:00" {...MASTHEAD}
+        startedAt="2026-03-01T06:00:00"
       />,
     );
     fireEvent.click(screen.getByTestId('health-indicator'));
@@ -308,7 +294,6 @@ describe('HealthIndicator — masthead variant', () => {
           openMeteo: { status: 'DOWN', detail: null, latencyMs: 5001 },
           claudeApi: { status: 'UP', detail: null, latencyMs: 89 },
         }}
-        {...MASTHEAD}
       />,
     );
     fireEvent.click(screen.getByTestId('health-indicator'));
@@ -326,13 +311,12 @@ describe('HealthIndicator — masthead variant', () => {
    * The panel's left edge, which is the one thing about this pill that the masthead broke.
    *
    * <p>The panel is right-anchored to the PILL, so how far off the left it hangs depends on what
-   * sits to the pill's right — and that is exactly what changed. In the v1 header the pill is the
-   * rightmost element, so anchor and viewport agree; in the masthead the cog and Sign out follow it,
-   * and at 390px the panel opened at left −45 with every label clipped. Measured on the running app
-   * before the clamp: the left column read "nd started", "ase", "Tides".
+   * sits to the pill's right. In the masthead the cog and Sign out follow the pill, so at 390px
+   * the panel opened at left −45 with every label clipped. Measured on the running app before the
+   * clamp: the left column read "nd started", "ase", "Tides".
    *
-   * <p>Both arms take the clamp, because it cannot fire where the anchor was already correct — the
-   * v1 case is asserted below rather than assumed.
+   * <p>The clamp is asserted at a wide-desktop width too, because it cannot fire where the anchor
+   * was already correct — that case is asserted below rather than assumed.
    */
   describe('panel placement on a narrow viewport', () => {
     const PANEL_WIDTH = 288;
@@ -353,7 +337,7 @@ describe('HealthIndicator — masthead variant', () => {
       vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({
         bottom: 84, right: pillRight, top: 56, left: pillRight - 48, width: 48, height: 28,
       });
-      render(<HealthIndicator status="UP" degraded={[]} {...MASTHEAD} />);
+      render(<HealthIndicator status="UP" degraded={[]} />);
       fireEvent.click(screen.getByTestId('health-indicator'));
       const right = parseFloat(screen.getByTestId('health-panel').style.right);
       return { right, left: innerWidth - right - PANEL_WIDTH };
@@ -366,8 +350,8 @@ describe('HealthIndicator — masthead variant', () => {
       expect(left).toBeGreaterThanOrEqual(MARGIN);
     });
 
-    // The v1 case, where the pill IS the rightmost element: the clamp must be inert, or the panel
-    // would drift left of the control it belongs to on every desktop.
+    // The pill IS the rightmost element on a wide desktop viewport: the clamp must be inert, or
+    // the panel would drift left of the control it belongs to.
     it('leaves a pill at the right edge anchored exactly where it was', () => {
       const { right } = openAt({ innerWidth: 1280, pillRight: 1264 });
       expect(right).toBe(16);
@@ -394,7 +378,6 @@ describe('HealthIndicator — masthead variant', () => {
       <HealthIndicator
         status="UP" degraded={[]} checkedAt={new Date('2026-03-01T12:30:45')}
         services={{ openMeteo: { status: 'PENDING', detail: null, latencyMs: null } }}
-        {...MASTHEAD}
       />,
     );
     fireEvent.click(screen.getByTestId('health-indicator'));

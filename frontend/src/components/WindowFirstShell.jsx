@@ -1025,7 +1025,13 @@ export default function WindowFirstShell({
                 closed the POPUP underneath while the settings dialog stayed up, because the popup's
                 own listener was still armed. Closing first is the rule every other route out of the
                 plan already follows (`onGoHome`, the map handoffs), and it keeps the "exactly one
-                modal" property a property of the page rather than of three of its dialogs. */}
+                modal" property a property of the page rather than of three of its dialogs.
+
+                This is exactly the class of route the v1-retirement plan's §4.3 ruling means by
+                "held route by route": `UserSettingsModal` sits outside `useDialogFocus`'s mechanism
+                the same way it always has, v1 or no v1, and closing here is what keeps the property
+                true without a shell-wide `inert` (the structural alternative, still a named
+                follow-on, not adopted). */}
             <button
               type="button"
               onClick={() => { openOverPopup(null); openWindow(null); onOpenSettings?.(); }}
@@ -1204,11 +1210,10 @@ export default function WindowFirstShell({
         onRetry={comingUp.retry}
       />
 
-      {/* Hidden rather than unmounted, and the reason is a request storm rather than tidiness:
-          `WindowFirstDoors` mounts `WindowFirstRegionalPanel`, which fires an astro request per
-          visible date on mount. Unmounting the pane on every tab change would re-fire all of them
-          on every change back — which is exactly what `ManageView` does to its sub-views, and the
-          behaviour not to copy. Keeping it mounted also keeps whatever the reader had open open.
+      {/* Hidden rather than unmounted: unmounting the pane on every tab change would discard the
+          drill-down and the doors' open/closed state on every change back to Plan — which is
+          exactly what `ManageView` does to its sub-views, and the behaviour not to copy. Keeping it
+          mounted keeps whatever the reader had open open.
 
           BOTH the `hidden` attribute and a display class, and the reason is defence in depth rather
           than necessity — which is worth stating plainly, because two earlier versions of this
