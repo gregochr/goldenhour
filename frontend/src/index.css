@@ -4586,12 +4586,20 @@ button.wf-hc.also.on:hover {
       does, for the same reason departure 1 states. No fresh ratio was measured for the label row
       itself: it is `text-plex-text-secondary` / `text-plex-text` at 600 weight, the SAME tokens and
       weight `.wf-loc-lv`'s own text already carries (departure 3's 4.80:1 at rest), so it is covered
-      by that measurement rather than an independent one. */
+      by that measurement rather than an independent one.
+
+   6. Phase 2 added the light line, and it joins the list for the same reason the prose does: it is
+      plain text on the body's own ground with no plate of its own. It carries
+      `--color-plex-text-secondary`, the SAME token `.wf-loc-why` and `.wf-loc-lv` carry, so
+      departure 3's measurement covers it exactly: 6.75:1 at rest, 4.80:1 dimmed. The first cut
+      reached for `--color-plex-text-muted` on the "almanac fact, quieter than a forecast" argument
+      and it measured 3.53:1 / 2.73:1 — see the `.wf-loc-light` rule for the arithmetic. */
 .wf-loc-row[data-dim='true'] .wf-loc-w,
 .wf-loc-row[data-dim='true'] .wf-loc-t,
 .wf-loc-row[data-dim='true'] .wf-loc-lv,
 .wf-loc-row[data-dim='true'] .wf-loc-car,
 .wf-loc-row[data-dim='true'] .wf-loc-score-label,
+.wf-loc-row[data-dim='true'] .wf-loc-light,
 .wf-loc-row[data-dim='true'] .wf-loc-why {
   opacity: 0.8;
 }
@@ -4735,10 +4743,37 @@ button.wf-hc.also.on:hover {
 }
 /* The score-bar block, above the prose — matching the peek's own order (bars, then clause). Bottom
    margin only: the block sits flush under the row's header with no top gap of its own, and the
-   prose below already carries no margin (`.wf-loc-why`'s `margin: 0`), so this is the ONE gap
-   between the two. */
+   prose below already carries no margin (`.wf-loc-why`'s `margin: 0`), so each block owns exactly
+   the one gap under itself.
+
+   ⚠️ 10px here against `.wf-loc-light`'s 5px is a deliberate 2:1, not a rounding. Phase 2 put a
+   line reading `golden 19:57–20:41` six pixels under a bar labelled `Golden Hour 71`, in the same
+   family and the same token — one word, two meanings, at the closest distance the layout allows,
+   and a reader (or a listener, who gets them back to back with no visual grouping at all) can take
+   the clock window for an elaboration of the 0–100 score. The measured bars and the words about
+   them are two groups; proximity is what says so. The surface this phase is catching up with, the
+   map marker's popup, avoids the same collision by putting its light pills ABOVE the bars — the
+   plan fixes this arm's order the other way round, so spacing carries it here instead. */
 .wf-loc-scores {
-  margin: 0 0 8px;
+  margin: 0 0 10px;
+}
+/* The light line, between the bars and the prose. Mono at 10.5px and untracked, which is
+   `.wf-loc-t`'s own setting — the row's event time, the nearest thing on this row to what this line
+   is. The block's scale is 9 / 10 / 10.5 / 12.5 and 11px would have been new to it, and would have
+   set a supplementary line LARGER than the event time it elaborates; the 0.02em tracking belongs to
+   this block's prose kickers (`.wf-loc-lead`, `.wf-loc-note`), and neither clock-time class carries
+   any. `margin-bottom` only, mirroring `.wf-loc-scores` — see that rule for why the two gaps are 2:1.
+
+   ⚠️ `--color-plex-text-secondary`, NOT `--color-plex-text-muted`, and this was measured rather than
+   chosen by feel. The muted token is `rgba(242, 231, 211, 0.42)`, which over `--color-plex-surface`
+   (#221A15) is 3.53:1 — already under AA for body text — and the poor-row dim at 0.8 takes it to
+   2.73:1, under even the 3:1 large-text floor. The secondary token is 6.75:1 and 4.80:1 dimmed,
+   which is departure 3's own measurement, so this line is covered by it rather than needing its
+   own. Muted would have read as the right weight and failed the check. */
+.wf-loc-light {
+  margin: 0 0 5px;
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
 }
 .wf-loc-why {
   margin: 0;

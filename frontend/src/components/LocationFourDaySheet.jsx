@@ -382,6 +382,33 @@ export default function LocationFourDaySheet({
                       )}
                     </div>
                   )}
+                  {/* The light line — Phase 2 of the same superset plan. Golden and blue hour for
+                      THIS location, THIS date, THIS event, in the order they happen: blue then
+                      golden at a sunrise, golden then blue at a sunset. The map marker's popup has
+                      shown these for a long time and no Plan surface did, so the deepest Plan
+                      surface was the one place a reader could see a rating for a window without
+                      being told when its light actually is. Between the bars and the prose because
+                      it is a fact about the window, where the prose is a read of it. */}
+                  {row.light && (
+                    // ⚠️ `whitespace-nowrap` PER WINDOW, and it is not cosmetic. The en dash is
+                    // UAX-14 class BA — break-AFTER — so once the line no longer fits, the greedy
+                    // break lands INSIDE a range: at 320px, a width this sheet's own media queries
+                    // design against, the run wraps to `… blue 20:41–` / `21:26`. That is exactly
+                    // the "golden 19:57–" half-window `lightWindow` refuses to produce, delivered
+                    // by layout instead of by data. The separator stays a bare string between the
+                    // spans, so `textContent` is byte-identical to a plain join — which is why the
+                    // tests read the same line either way, and why no `aria-hidden`/`sr-only`
+                    // shadow pair is needed here (this is browsed content, not an accessible name,
+                    // so the accname trimming rule this arm keeps hitting does not apply).
+                    <p data-testid="location-sheet-light" className="wf-loc-light font-mono">
+                      {row.light.map((w, i) => (
+                        <React.Fragment key={w.label}>
+                          {i > 0 && ' · '}
+                          <span className="whitespace-nowrap">{`${w.label} ${w.range}`}</span>
+                        </React.Fragment>
+                      ))}
+                    </p>
+                  )}
                   {row.summary ? (
                     // Serif italic is this app's typographic mark for generated prose — the
                     // drill-down gloss, the map overlay's summary and the peek's clause all use it.

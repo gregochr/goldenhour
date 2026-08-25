@@ -38,10 +38,17 @@ const SCORES = buildScoreIndex(rows([
   {
     date: '2026-08-14', targetType: 'SUNSET', rating: 3, summary: 'High cloud thins after eight.',
     fierySkyPotential: 62, goldenHourPotential: 58,
+    // Phase 2. UTC, the bare shape the backend serialises a LocalDateTime in — so 19:41 UTC is
+    // 20:41 on the UK clock the sheet prints, and a test that read these back unconverted would
+    // be indistinguishable from one that read them right if the fixture were a GMT date.
+    goldenHourStart: '2026-08-14T18:57:00', goldenHourEnd: '2026-08-14T19:41:00',
+    blueHourStart: '2026-08-14T19:41:00', blueHourEnd: '2026-08-14T20:26:00',
   },
   {
     date: '2026-08-15', targetType: 'SUNRISE', rating: 5, summary: 'A clear eastern horizon under mid cloud.',
     fierySkyPotential: 88, goldenHourPotential: 91,
+    blueHourStart: '2026-08-15T03:52:00', blueHourEnd: '2026-08-15T04:38:00',
+    goldenHourStart: '2026-08-15T04:38:00', goldenHourEnd: '2026-08-15T05:22:00',
   },
   { date: '2026-08-15', targetType: 'SUNSET', rating: 2, summary: 'Blanket low cloud to the west.' },
   { date: '2026-08-16', targetType: 'SUNRISE', rating: 4, summary: 'Broken cloud, decent odds.' },
@@ -182,7 +189,10 @@ describe('buildScoreIndex', () => {
       { locationId: 7, locationName: 'Bamburgh', date: '2026-08-14', targetType: 'SUNSET', rating: 5, summary: 'Here.' },
     ]);
     expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET'))
-      .toEqual({ rating: 5, summary: 'Here.', fierySky: null, goldenHour: null });
+      .toEqual({
+        rating: 5, summary: 'Here.', fierySky: null, goldenHour: null,
+        goldenHourStart: null, goldenHourEnd: null, blueHourStart: null, blueHourEnd: null,
+      });
   });
 
   it('discards a rating outside 1–5 rather than displaying it', () => {
@@ -241,6 +251,45 @@ describe('buildScoreIndex', () => {
     expect(entry.goldenHour).toBeNull();
   });
 
+  /**
+   * Location-sheet superset plan, Phase 2: the four light-hour boundaries ride the same index and
+   * are kept RAW, because formatting belongs at the render and the index is the join.
+   */
+  it('⚠️ carries the four light-hour boundaries RAW, exactly as served', () => {
+    const idx = buildScoreIndex(rows([{
+      date: '2026-08-14', targetType: 'SUNSET', rating: 3,
+      goldenHourStart: '2026-08-14T18:57:00', goldenHourEnd: '2026-08-14T19:41:00',
+      blueHourStart: '2026-08-14T19:41:00', blueHourEnd: '2026-08-14T20:26:00',
+    }]));
+    expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET')).toMatchObject({
+      goldenHourStart: '2026-08-14T18:57:00', goldenHourEnd: '2026-08-14T19:41:00',
+      blueHourStart: '2026-08-14T19:41:00', blueHourEnd: '2026-08-14T20:26:00',
+    });
+  });
+
+  it('⚠️ treats a blank or non-string light time as absent, per boundary', () => {
+    // Four independent boundaries, so the guard is checked on each in turn with the other three
+    // valid — a fixture that blanked all four at once would pass against a guard that only ever
+    // looked at the first. No range check: an unparseable string produces no clock time downstream,
+    // which is the same discard reached by the formatter rather than by a second opinion here.
+    const good = {
+      goldenHourStart: '2026-08-14T18:57:00', goldenHourEnd: '2026-08-14T19:41:00',
+      blueHourStart: '2026-08-14T19:41:00', blueHourEnd: '2026-08-14T20:26:00',
+    };
+    for (const field of Object.keys(good)) {
+      for (const bad of ['', '   ', null, undefined, 12345]) {
+        const idx = buildScoreIndex(rows([{
+          date: '2026-08-14', targetType: 'SUNSET', rating: 3, ...good, [field]: bad,
+        }]));
+        const entry = lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET');
+        expect(entry[field]).toBeNull();
+        for (const other of Object.keys(good).filter((k) => k !== field)) {
+          expect(entry[other]).toBe(good[other]);
+        }
+      }
+    }
+  });
+
   it('skips a row that names no window, and survives a null payload', () => {
     expect(buildScoreIndex(null).byId.size).toBe(0);
     expect(buildScoreIndex([{ locationId: 7, rating: 4 }]).byId.size).toBe(0);
@@ -281,6 +330,145 @@ describe('buildLocationSheet rows', () => {
     expect(sheet.rows[2]).toMatchObject({ rating: 2, fierySky: null, goldenHour: null });
     // A window with no score row at all has neither.
     expect(sheet.rows[4]).toMatchObject({ rating: null, fierySky: null, goldenHour: null });
+  });
+
+  /**
+   * Location-sheet superset plan, Phase 2. Three claims, and each is a defect if it fails: the
+   * times are UK-converted (a raw UTC print is an hour wrong all summer), they are ORDERED by the
+   * event side (blue-then-golden at a sunrise, the reverse at a sunset — the map popup's own rule,
+   * and reversing it would have two surfaces telling different stories about one evening), and
+   * they come from the SAME score row as everything else on the line.
+   */
+  it('⚠️ formats the light windows to UK time and orders them by event side', () => {
+    const sheet = build();
+    // Sunset: golden first (sun falling to the horizon), then blue (horizon to civil dusk).
+    // 18:57 UTC → 19:57 BST, 19:41 → 20:41, 20:26 → 21:26.
+    expect(sheet.rows[0].light).toEqual([
+      { label: 'golden', range: '19:57–20:41' },
+      { label: 'blue', range: '20:41–21:26' },
+    ]);
+    // Sunrise: blue first (civil dawn to sunrise), then golden.
+    expect(sheet.rows[1].light).toEqual([
+      { label: 'blue', range: '04:52–05:38' },
+      { label: 'golden', range: '05:38–06:22' },
+    ]);
+    // The third claim, asserted rather than narrated: ONE score row supplies all five fields on
+    // the line. Nothing here would fail if `light` came from a second lookup unless it is checked
+    // in the same object as the four that already ride that row.
+    expect(sheet.rows[0]).toMatchObject({
+      rating: 3,
+      summary: 'High cloud thins after eight.',
+      fierySky: 62,
+      goldenHour: 58,
+      light: [
+        { label: 'golden', range: '19:57–20:41' },
+        { label: 'blue', range: '20:41–21:26' },
+      ],
+    });
+  });
+
+  it('⚠️ prints no light line at all for a window served without one', () => {
+    // Silence, never synthesis. Row 2 is rated and explained but carries no boundaries, and row 4
+    // has no score row at all — neither may borrow an almanac from a neighbouring window.
+    const sheet = build();
+    expect(sheet.rows[2].light).toBeNull();
+    expect(sheet.rows[4].light).toBeNull();
+  });
+
+  it('⚠️ drops a window whose boundary is a non-blank string that will not parse', () => {
+    // `isoOrNull` deliberately declines to range-check — it says the formatter downstream is the
+    // one that knows what parses. That contract is only real if something unparseable actually
+    // reaches the formatter, and every other fixture here is either valid ISO or blank. A gate on
+    // the INPUTS rather than the formatted outputs would render `golden –` for this row.
+    const sheet = build({
+      scoreIndex: buildScoreIndex(rows([{
+        date: '2026-08-14', targetType: 'SUNSET', rating: 3,
+        goldenHourStart: 'not-a-date', goldenHourEnd: '2026-08-14T19:41:00',
+        blueHourStart: '2026-08-14T19:41:00', blueHourEnd: '2026-08-14T20:26:00',
+      }])),
+    });
+    expect(sheet.rows[0].light).toEqual([{ label: 'blue', range: '20:41–21:26' }]);
+  });
+
+  it('⚠️ converts on a GMT date too — not a constant +1 hour', () => {
+    // Every other fixture in this file is a BST date, which separates UK from UTC but CANNOT
+    // separate UK from a hard-coded +60 minutes — and `conversions.js` exports
+    // `formatShiftedEventTimeUk(iso, offsetMinutes)`, so that wrong implementation is inside this
+    // codebase's own vocabulary rather than a strawman. In January the two must be IDENTICAL.
+    const sheet = buildLocationSheet(SPOT, [{
+      key: '2026-01-15:SUNSET', date: '2026-01-15', targetType: 'SUNSET', dow: 'Thu',
+      sunrise: false, label: 'Thu Sunset', time: '16:04', verdictLabel: 'Maybe', away: false,
+    }], {
+      scoreIndex: buildScoreIndex(rows([{
+        date: '2026-01-15', targetType: 'SUNSET', rating: 3,
+        goldenHourStart: '2026-01-15T15:20:00', goldenHourEnd: '2026-01-15T16:04:00',
+        blueHourStart: '2026-01-15T16:04:00', blueHourEnd: '2026-01-15T16:47:00',
+      }])),
+      scoresKnown: true, todayStr: '2026-01-15',
+    });
+    expect(sheet.rows[0].light).toEqual([
+      { label: 'golden', range: '15:20–16:04' },
+      { label: 'blue', range: '16:04–16:47' },
+    ]);
+  });
+
+  it('⚠️ falls back to THIS location\'s own event instant before the window header\'s clock', () => {
+    // `BriefingHonestyFilter` empties the slot list of a region nothing has scored, while its
+    // locations still produce triage score rows — so the sheet finds no slot and the header time
+    // used to fall straight through to `card.time`, the ROSTER-WIDE header clock. With a light
+    // line built from this location's own geometry underneath it, that printed two sunsets minutes
+    // apart on one row. The score row already carries this location's own sunset as a shared
+    // boundary, so it is tried first.
+    const sheet = buildLocationSheet(SPOT, [WINDOWS[0]], {
+      slotIndex: buildSlotIndex([]),
+      scoreIndex: buildScoreIndex(rows([{
+        date: '2026-08-14', targetType: 'SUNSET', rating: 3,
+        goldenHourStart: '2026-08-14T18:57:00', goldenHourEnd: '2026-08-14T19:41:00',
+        blueHourStart: '2026-08-14T19:41:00', blueHourEnd: '2026-08-14T20:26:00',
+      }])),
+      scoresKnown: true, todayStr: TODAY,
+    });
+    // 19:41 UTC = 20:41 BST — this location's own sunset, and the instant the light line's two
+    // windows meet at. The window header says 20:37, which is somebody else's.
+    expect(sheet.rows[0].time).toBe('20:41');
+    expect(sheet.rows[0].light[0].range).toContain('20:41');
+  });
+
+  it('⚠️ still falls through to the window header when the row carries no geometry either', () => {
+    const sheet = buildLocationSheet(SPOT, [WINDOWS[0]], {
+      slotIndex: buildSlotIndex([]),
+      scoreIndex: buildScoreIndex(rows([{ date: '2026-08-14', targetType: 'SUNSET', rating: 3 }])),
+      scoresKnown: true, todayStr: TODAY,
+    });
+    expect(sheet.rows[0].time).toBe('20:37');
+  });
+
+  it('⚠️ prints one light window when only the other is served — never half of one', () => {
+    // Both ends or neither, per window, and the two windows stay independent. "golden 19:57–" is a
+    // claim a reader cannot act on; a golden hour served without a blue one is a complete fact.
+    const sheet = build({
+      scoreIndex: buildScoreIndex(rows([{
+        date: '2026-08-14', targetType: 'SUNSET', rating: 3,
+        goldenHourStart: '2026-08-14T18:57:00', goldenHourEnd: '2026-08-14T19:41:00',
+        blueHourStart: '2026-08-14T19:41:00', blueHourEnd: null,
+      }])),
+    });
+    expect(sheet.rows[0].light).toEqual([{ label: 'golden', range: '19:57–20:41' }]);
+  });
+
+  it('looks up no scores at all for an away window — including the light line', () => {
+    // The away-gate already refuses rating, summary and the bars; the light line rides the same
+    // score lookup and must refuse with them. Astronomy is true of a travel day, but nothing was
+    // consulted for it, and a row that prints a light window while saying nothing was forecast
+    // reads as a forecast withheld rather than as a day off.
+    const sheet = build({
+      scoreIndex: buildScoreIndex(rows([{
+        date: '2026-08-17', targetType: 'SUNRISE', rating: 5,
+        blueHourStart: '2026-08-17T03:58:00', blueHourEnd: '2026-08-17T04:44:00',
+        goldenHourStart: '2026-08-17T04:44:00', goldenHourEnd: '2026-08-17T05:28:00',
+      }])),
+    });
+    expect(sheet.rows[5]).toMatchObject({ away: true, light: null });
   });
 
   it('looks up no scores at all for an away window — including the bars', () => {

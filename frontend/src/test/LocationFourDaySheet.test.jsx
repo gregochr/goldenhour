@@ -35,11 +35,19 @@ const SCORES = buildScoreIndex([
   {
     locationId: 7, locationName: 'Bamburgh', date: '2026-08-14', targetType: 'SUNSET', rating: 3,
     summary: 'High cloud thins after eight.', fierySkyPotential: 62, goldenHourPotential: 58,
+    // Phase 2's four boundaries, UTC — the bare shape the backend serialises a LocalDateTime in.
+    // Every date in this file is a real BST one and the suite runs on UTC, so a row printed
+    // unconverted is an hour out and visibly so.
+    goldenHourStart: '2026-08-14T18:57:00', goldenHourEnd: '2026-08-14T19:41:00',
+    blueHourStart: '2026-08-14T19:41:00', blueHourEnd: '2026-08-14T20:26:00',
   },
   {
     locationId: 7, locationName: 'Bamburgh', date: '2026-08-15', targetType: 'SUNRISE', rating: 5,
     summary: 'A clear eastern horizon under mid cloud.', fierySkyPotential: 88, goldenHourPotential: 91,
+    blueHourStart: '2026-08-15T03:52:00', blueHourEnd: '2026-08-15T04:38:00',
+    goldenHourStart: '2026-08-15T04:38:00', goldenHourEnd: '2026-08-15T05:22:00',
   },
+  // Rated and explained, but served no boundaries — the silence case the render must respect.
   { locationId: 7, locationName: 'Bamburgh', date: '2026-08-15', targetType: 'SUNSET', rating: 2, summary: 'Blanket low cloud to the west.' },
 ]);
 
@@ -445,6 +453,16 @@ describe('LocationFourDaySheet — the v3 anatomy (plan-matrix §6 M4.1)', () =>
     // the badge is — it carries its own plate, not text.
     expect(dimmed[0]).toContain('.wf-loc-score-label');
     expect(dimmed[0]).not.toContain('.wf-peek-bar');
+    // Phase 2's light line joins the same rule for the same reason the prose does — plain text on
+    // the body's own ground, no plate of its own to lighten as the ink darkens.
+    expect(dimmed[0]).toContain('.wf-loc-light');
+    // ⚠️ And its COLOUR, because the rejected alternative is a measured AA failure rather than a
+    // matter of taste: `--color-plex-text-muted` is 3.53:1 on this surface and 2.73:1 once this
+    // very rule dims it — under the 3:1 large-text floor, let alone AA. Membership in the dim list
+    // is exactly what makes the token choice load-bearing, so the two are pinned together.
+    const lightRule = css.match(/\.wf-loc-light\s*\{[^}]*\}/)[0];
+    expect(lightRule).toContain('var(--color-plex-text-secondary)');
+    expect(lightRule).not.toContain('--color-plex-text-muted');
   });
 
   it('⚠️ keeps the lead line free of a denominator, and free of uppercase TEXT', () => {
@@ -545,6 +563,117 @@ describe('LocationFourDaySheet — the score bars (location-sheet superset plan,
     expect(dimRow).toHaveAttribute('data-dim', 'true');
     expect(within(dimRow).getByTestId('location-sheet-fiery')).toHaveTextContent('30');
     expect(within(dimRow).getByTestId('location-sheet-golden')).toHaveTextContent('20');
+  });
+});
+
+describe('LocationFourDaySheet — the light line (location-sheet superset plan, Phase 2)', () => {
+  /**
+   * The gap the owner named from the other side: the map marker's popup has always shown golden
+   * and blue hour clock times, and no Plan surface showed them at all — so the deepest Plan surface
+   * could tell a reader a window was worth it without telling them when its light actually is.
+   */
+  it('prints both windows in UK time, ordered by the event side, between the bars and the prose', () => {
+    setup();
+    const best = within(row('2026-08-15:SUNRISE'));
+    const light = best.getByTestId('location-sheet-light');
+    // 03:52 UTC → 04:52 BST. A raw print would read 03:52 and the assertion would say so.
+    expect(light).toHaveTextContent('blue 04:52–05:38 · golden 05:38–06:22');
+    // Sandwiched: bars above (a measurement), prose below (a read of it).
+    const body = best.getByTestId('location-sheet-body');
+    const scores = within(body).getByTestId('location-sheet-scores');
+    const why = within(body).getByTestId('location-sheet-why');
+    expect(scores.compareDocumentPosition(light) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(light.compareDocumentPosition(why) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // ⚠️ VISIBLE, not merely mounted. The body is always in the DOM and hidden by attribute, and
+    // `getByTestId`/`toHaveTextContent` both ignore `hidden` — so every assertion above would hold
+    // on a row that never opens. This row is the sheet's own seeded-open best row.
+    expect(light).toBeVisible();
+  });
+
+  it('⚠️ hides the line with the body on a collapsed row', () => {
+    // The other half of the same claim: `hidden` is what makes the always-mounted accordion body
+    // legitimate (it keeps `aria-controls` pointing at something), so the line must go with it.
+    setup();
+    const first = within(row('2026-08-14:SUNSET'));
+    expect(first.getByTestId('location-sheet-light')).not.toBeVisible();
+    fireEvent.click(first.getByRole('button'));
+    expect(first.getByTestId('location-sheet-light')).toBeVisible();
+  });
+
+  it('⚠️ reverses the two for a sunset — golden first, then blue', () => {
+    // Not cosmetic. At a sunrise the blue hour comes first (civil dawn to sunrise) and at a sunset
+    // it comes last (sunset to civil dusk); a fixed order would be wrong on half the rows, and the
+    // map popup — the surface this one is catching up with — already orders them this way.
+    setup();
+    const first = within(row('2026-08-14:SUNSET'));
+    fireEvent.click(first.getByRole('button'));
+    expect(first.getByTestId('location-sheet-light'))
+      .toHaveTextContent('golden 19:57–20:41 · blue 20:41–21:26');
+  });
+
+  it('renders no light line at all for a window served without one', () => {
+    // Silence, never synthesis. This row (2★, Saturday sunset) is rated and explained but carries
+    // no boundaries — the sheet must not fill the gap with a neighbouring window's almanac.
+    setup();
+    const dim = within(row('2026-08-15:SUNSET'));
+    fireEvent.click(dim.getByRole('button'));
+    expect(dim.queryByTestId('location-sheet-light')).toBeNull();
+    // And the row is otherwise intact — the missing line takes nothing else with it.
+    expect(dim.getByTestId('location-sheet-why')).toHaveTextContent('Blanket low cloud');
+  });
+
+  it('renders no light line on an away row, even when a stale row carries one', () => {
+    setup({
+      scoreIndex: buildScoreIndex([
+        {
+          locationId: 7, date: '2026-08-16', targetType: 'SUNRISE', rating: 5,
+          blueHourStart: '2026-08-16T03:55:00', blueHourEnd: '2026-08-16T04:40:00',
+          goldenHourStart: '2026-08-16T04:40:00', goldenHourEnd: '2026-08-16T05:24:00',
+        },
+      ]),
+    });
+    const away = within(row('2026-08-16:SUNRISE'));
+    fireEvent.click(away.getByRole('button'));
+    expect(away.queryByTestId('location-sheet-light')).toBeNull();
+  });
+
+  it('⚠️ keeps the line mounted on a dimmed ≤2★ row — dimming never hides content', () => {
+    // The DOM half of the claim; the stylesheet test above owns the other half (that
+    // `.wf-loc-light` IS in the single dimmed selector list). A one-window sheet with a rated
+    // window seeds itself open, so no click is needed.
+    setup({
+      windows: [{ ...WINDOWS[2], key: 'dim-light:SUNSET' }],
+      scoreIndex: buildScoreIndex([
+        {
+          locationId: 7, date: '2026-08-15', targetType: 'SUNSET', rating: 2,
+          goldenHourStart: '2026-08-15T18:55:00', goldenHourEnd: '2026-08-15T19:39:00',
+          blueHourStart: '2026-08-15T19:39:00', blueHourEnd: '2026-08-15T20:24:00',
+        },
+      ]),
+    });
+    const dimRow = row('dim-light:SUNSET');
+    expect(dimRow).toHaveAttribute('data-dim', 'true');
+    expect(within(dimRow).getByTestId('location-sheet-light'))
+      .toHaveTextContent('golden 19:55–20:39 · blue 20:39–21:24');
+  });
+
+  it('⚠️ prints one window rather than half of one when an end is missing', () => {
+    // "golden 19:57–" is a claim a reader cannot act on. The blue hour here has no end, so it is
+    // dropped whole; the golden one is complete and stands alone, with no separator left behind.
+    setup({
+      windows: [{ ...WINDOWS[0], key: 'half-light:SUNSET' }],
+      scoreIndex: buildScoreIndex([
+        {
+          locationId: 7, date: '2026-08-14', targetType: 'SUNSET', rating: 3,
+          goldenHourStart: '2026-08-14T18:57:00', goldenHourEnd: '2026-08-14T19:41:00',
+          blueHourStart: '2026-08-14T19:41:00',
+        },
+      ]),
+    });
+    const light = within(row('half-light:SUNSET')).getByTestId('location-sheet-light');
+    expect(light).toHaveTextContent('golden 19:57–20:41');
+    expect(light.textContent).not.toContain('·');
+    expect(light.textContent).not.toContain('blue');
   });
 });
 

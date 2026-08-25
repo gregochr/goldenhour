@@ -36,8 +36,11 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -68,6 +71,8 @@ class EvaluationViewServiceTest {
     private static final TargetType SUNSET = TargetType.SUNSET;
     private static final Long REGION_ID = 10L;
     private static final String REGION_NAME = "NE Yorkshire Coast";
+    private static final double BAMBURGH_LAT = 55.609;
+    private static final double BAMBURGH_LON = -1.709;
 
     private LocationEntity bamburgh;
     private LocationEntity sandsend;
@@ -75,24 +80,35 @@ class EvaluationViewServiceTest {
 
     @BeforeEach
     void setUp() {
+        // A REAL SolarService, not a mock: it is a pure Meeus calculator with no I/O, and the
+        // light-times tests below assert its OUTPUT against clock times computed by an independent
+        // NOAA solar-position solver outside this codebase (see `assertAlmanac`). A mock returning
+        // fixed times would make every one of those assertions a statement about the mock.
         service = new EvaluationViewService(
                 briefingEvaluationService, cachedEvaluationRepository,
                 forecastEvaluationRepository, locationService,
-                new ObjectMapper());
+                new ObjectMapper(), new SolarService());
 
         region = new RegionEntity();
         region.setId(REGION_ID);
         region.setName(REGION_NAME);
 
+        // Real coordinates, because the light-times tests below assert real solar geometry and
+        // `lat`/`lon` are primitive doubles: an unset fixture is a location at 0N 0E, which is a
+        // silent lie the moment anything on this record is derived from position.
         bamburgh = new LocationEntity();
         bamburgh.setId(1L);
         bamburgh.setName("Bamburgh");
         bamburgh.setRegion(region);
+        bamburgh.setLat(BAMBURGH_LAT);
+        bamburgh.setLon(BAMBURGH_LON);
 
         sandsend = new LocationEntity();
         sandsend.setId(2L);
         sandsend.setName("Sandsend");
         sandsend.setRegion(region);
+        sandsend.setLat(54.508);
+        sandsend.setLon(-0.663);
     }
 
     @Nested
@@ -1557,6 +1573,302 @@ class EvaluationViewServiceTest {
             verify(forecastEvaluationRepository, never())
                     .findLatestRunPerSlotByLocationIds(
                             anyCollection(), any(), any());
+        }
+    }
+
+    @Nested
+    @DisplayName("light times — the golden/blue hour boundaries (superset plan, Phase 2)")
+    class LightTimes {
+
+        @Test
+        @DisplayName("a served sunrise row carries all four boundaries, chronologically ordered")
+        void sunriseRowCarriesOrderedBoundaries() {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            1L, DATE, SUNRISE))
+                    .thenReturn(Optional.empty());
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            // ⚠️ The CLOCK VALUES, not just non-nullness, and this is the only assertion in the
+            // nest that interrogates the calculator's output rather than its internal consistency.
+            // Without it a transposed `goldenBlueWindow(loc.getLon(), loc.getLat(), ...)` — which
+            // puts Bamburgh in the Seychelles — passes every other test here, because ordering,
+            // shared-instant equality and per-location inequality all hold at any non-polar point.
+            // The reference figures come from an INDEPENDENT NOAA solar-position solver run
+            // outside this codebase, not from the code under test; the ±3 min window is that
+            // approximation's own error against Meeus, not slack for a wrong answer.
+            assertAlmanac(v.blueHourStart(), 4, 2);      // civil dawn, sun at −6°
+            assertAlmanac(v.blueHourEnd(), 4, 44);       // sunrise
+            assertAlmanac(v.goldenHourStart(), 4, 44);   // sunrise
+            assertAlmanac(v.goldenHourEnd(), 5, 35);     // sun at +6°
+            // SolarService's own documented sunrise semantics: civil dawn -> sunrise -> sunrise ->
+            // +6 degrees. The shared instant is what makes "blue then golden" the chronological
+            // order the client must print for a sunrise, so it is asserted rather than assumed.
+            assertThat(v.blueHourStart()).isBefore(v.blueHourEnd());
+            assertThat(v.blueHourEnd()).isEqualTo(v.goldenHourStart());
+            assertThat(v.goldenHourStart()).isBefore(v.goldenHourEnd());
+        }
+
+        @Test
+        @DisplayName("a served sunset row orders golden before blue — the mirror of sunrise")
+        void sunsetRowOrdersGoldenBeforeBlue() {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNSET))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            1L, DATE, SUNSET))
+                    .thenReturn(Optional.empty());
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNSET).getFirst();
+
+            assertAlmanac(v.goldenHourStart(), 18, 37);  // sun at +6°
+            assertAlmanac(v.goldenHourEnd(), 19, 28);    // sunset
+            assertAlmanac(v.blueHourStart(), 19, 28);    // sunset
+            assertAlmanac(v.blueHourEnd(), 20, 10);      // civil dusk, sun at −6°
+            assertThat(v.goldenHourStart()).isBefore(v.goldenHourEnd());
+            assertThat(v.goldenHourEnd()).isEqualTo(v.blueHourStart());
+            assertThat(v.blueHourStart()).isBefore(v.blueHourEnd());
+        }
+
+        /**
+         * Asserts a boundary lands within ±3 minutes of an externally computed UTC time for
+         * Bamburgh on {@link #DATE}. See the caller for where the reference figures come from.
+         */
+        private void assertAlmanac(LocalDateTime actual, int hour, int minute) {
+            LocalDateTime expected = LocalDateTime.of(DATE, java.time.LocalTime.of(hour, minute));
+            assertThat(actual)
+                    .isBetween(expected.minusMinutes(3), expected.plusMinutes(3));
+        }
+
+        @Test
+        @DisplayName("the times are this location's own — two locations on one date differ")
+        void timesArePerLocation() {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh, sandsend));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of(
+                            "Bamburgh", new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "a"),
+                            "Sandsend", new BriefingEvaluationResult("Sandsend", 3, 50, 40, "b")));
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            any(), any(), any()))
+                    .thenReturn(Optional.empty());
+
+            List<LocationEvaluationView> views = service.forRegion(REGION_ID, DATE, SUNRISE);
+
+            // The whole point of serving these per row rather than per window: 110 miles of
+            // latitude is minutes of sunrise, and the sheet is about ONE place. A single
+            // roster-wide time would be somebody else's clock, which is the defect the sheet's
+            // own event time already had to fix.
+            assertThat(views.getFirst().goldenHourEnd())
+                    .isNotEqualTo(views.get(1).goldenHourEnd());
+        }
+
+        @Test
+        @DisplayName("the times are this date's own — one location over two dates differs")
+        void timesArePerDate() {
+            LocalDate next = DATE.plusDays(1);
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "a")));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, next, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "a")));
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            any(), any(), any()))
+                    .thenReturn(Optional.empty());
+
+            // The third axis of the join. Location and event are pinned by the tests either side
+            // of this one; without this, a `withLight` that read a fixed date would pass them all.
+            LocationEvaluationView today = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+            LocationEvaluationView tomorrow = service.forRegion(REGION_ID, next, SUNRISE).getFirst();
+
+            assertThat(today.goldenHourEnd().toLocalDate()).isEqualTo(DATE);
+            assertThat(tomorrow.goldenHourEnd().toLocalDate()).isEqualTo(next);
+        }
+
+        @Test
+        @DisplayName("a triaged row still carries them — light is astronomy, not an evaluation")
+        void triagedRowStillCarriesThem() {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of());
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            1L, DATE, SUNRISE))
+                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
+                            .triage(new TriageDetails(TriageReason.HIGH_CLOUD, "Low cloud 85%"))
+                            .forecastRunAt(LocalDateTime.of(2026, 4, 22, 6, 0))
+                            .build()));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.FORECAST_EVALUATION_TRIAGE);
+            assertThat(v.rating()).isNull();
+            assertThat(v.goldenHourStart()).isNotNull();
+            assertThat(v.blueHourEnd()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("forDateRange carries them onto every emitted row")
+        void forDateRangeCarriesThem() throws Exception {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            CachedEvaluationEntity dbEntry = new CachedEvaluationEntity();
+            dbEntry.setCacheKey(REGION_NAME + "|" + DATE + "|SUNRISE");
+            dbEntry.setEvaluationDate(DATE);
+            dbEntry.setTargetType("SUNRISE");
+            dbEntry.setResultsJson(new ObjectMapper().writeValueAsString(List.of(
+                    new BriefingEvaluationResult("Bamburgh", 4, 70, 65, "nice"))));
+            when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(DATE))
+                    .thenReturn(List.of(dbEntry));
+            when(forecastEvaluationRepository.findLatestRunPerSlotByLocationIds(
+                    anyCollection(), eq(DATE), eq(DATE))).thenReturn(List.of());
+
+            List<LocationEvaluationView> views =
+                    service.forDateRange(DATE, DATE, Set.of(SUNRISE));
+
+            // ⚠️ The ordering, per-location and per-date claims above all ride `forRegion`, which
+            // has NO production caller — `/api/briefing/evaluate/scores` reaches `forDateRange`.
+            // So the served path asserts values of its own rather than mere attachment; otherwise
+            // it could be hoisted, memoised or moved with every claim still green.
+            assertThat(views).hasSize(1);
+            LocationEvaluationView v = views.getFirst();
+            assertAlmanac(v.blueHourStart(), 4, 2);
+            assertAlmanac(v.blueHourEnd(), 4, 44);
+            assertAlmanac(v.goldenHourStart(), 4, 44);
+            assertAlmanac(v.goldenHourEnd(), 5, 35);
+        }
+
+        @Test
+        @DisplayName("⚠️ the MAP's own path pays for none of it — a value nothing there reads")
+        void cachedOnlyPathAttachesNothing() throws Exception {
+            // `cachedOnlyViewsForDateRange` feeds `GET /api/forecast`, whose mapper
+            // (`toSparseListDto`) reads none of the four and whose controller drops most of these
+            // rows anyway as already covered by a persisted forecast row. Attaching in the shared
+            // `buildViews` spent three Meeus calls per cached-only row on every map mount for
+            // nothing. One endpoint serialises these fields; exactly one path may pay for them.
+            CachedEvaluationEntity dbEntry = new CachedEvaluationEntity();
+            dbEntry.setCacheKey(REGION_NAME + "|" + DATE + "|SUNRISE");
+            dbEntry.setEvaluationDate(DATE);
+            dbEntry.setTargetType("SUNRISE");
+            dbEntry.setResultsJson(new ObjectMapper().writeValueAsString(List.of(
+                    new BriefingEvaluationResult("Bamburgh", 4, 70, 65, "nice"))));
+            when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(DATE))
+                    .thenReturn(List.of(dbEntry));
+
+            List<LocationEvaluationView> views = service.cachedOnlyViewsForDateRange(
+                    DATE, DATE, Set.of(SUNRISE), List.of(bamburgh));
+
+            assertThat(views).hasSize(1);
+            assertThat(views.getFirst().rating()).isEqualTo(4);
+            assertThat(views.getFirst().goldenHourStart()).isNull();
+            assertThat(views.getFirst().blueHourStart()).isNull();
+        }
+
+        @Test
+        @DisplayName("⚠️ a midnight sentinel is dropped, not served as a real clock time")
+        void midnightSentinelIsDropped() {
+            // solar-utils returns midnight-of-the-date — NOT null, NOT a throw — for an event that
+            // never occurs: `hourAngle` takes acos of an out-of-domain cosine, gets NaN, and
+            // `Math.round(NaN)` is 0. So the try/catch this method also has could never have caught
+            // the polar case it was written for, and a Shetland midwinter sunset would have served
+            // `golden 00:00–14:49`: a fabricated fourteen-hour golden hour that passes every
+            // bracket check, because 00:00 genuinely is before sunset.
+            SolarService sentinel = mock(SolarService.class);
+            LocalDateTime midnight = DATE.atStartOfDay();
+            when(sentinel.goldenBlueWindow(anyDouble(), anyDouble(), any(), anyBoolean()))
+                    .thenReturn(new SolarService.SolarWindow(
+                            midnight, LocalDateTime.of(DATE, java.time.LocalTime.of(4, 44)),
+                            LocalDateTime.of(DATE, java.time.LocalTime.of(4, 44)),
+                            LocalDateTime.of(DATE, java.time.LocalTime.of(5, 35))));
+            EvaluationViewService polar = new EvaluationViewService(
+                    briefingEvaluationService, cachedEvaluationRepository,
+                    forecastEvaluationRepository, locationService,
+                    new ObjectMapper(), sentinel);
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            1L, DATE, SUNRISE))
+                    .thenReturn(Optional.empty());
+
+            LocationEvaluationView v = polar.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            // PER BOUNDARY, not all-or-nothing: the blue window loses its start and is dropped by
+            // the client, while the golden window is a true partial answer and survives.
+            assertThat(v.blueHourStart()).isNull();
+            assertAlmanac(v.blueHourEnd(), 4, 44);
+            assertAlmanac(v.goldenHourStart(), 4, 44);
+            assertAlmanac(v.goldenHourEnd(), 5, 35);
+        }
+
+        @Test
+        @DisplayName("a calculator failure degrades to no times — the row is still served")
+        void calculatorFailureDegradesToSilence() {
+            // The polar edge case, forced. Silence, never synthesis: a row that cannot be given a
+            // light line keeps everything else it had rather than being dropped or given guesses.
+            SolarService throwing = mock(SolarService.class);
+            when(throwing.goldenBlueWindow(anyDouble(), anyDouble(), any(), anyBoolean()))
+                    .thenThrow(new IllegalStateException("no sunrise at this latitude"));
+            EvaluationViewService degraded = new EvaluationViewService(
+                    briefingEvaluationService, cachedEvaluationRepository,
+                    forecastEvaluationRepository, locationService,
+                    new ObjectMapper(), throwing);
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            1L, DATE, SUNRISE))
+                    .thenReturn(Optional.empty());
+
+            LocationEvaluationView v = degraded.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
+
+            assertThat(v.rating()).isEqualTo(4);
+            assertThat(v.summary()).isEqualTo("Great sky");
+            assertThat(v.goldenHourStart()).isNull();
+            assertThat(v.goldenHourEnd()).isNull();
+            assertThat(v.blueHourStart()).isNull();
+            assertThat(v.blueHourEnd()).isNull();
+        }
+
+        @Test
+        @DisplayName("an HOURLY row gets none — there is no solar event to bound")
+        void hourlyRowGetsNone() {
+            // The one guard `withLight` keeps. HOURLY is the comfort-row target type (wildlife and
+            // waterfall sites); it names a whole day rather than a moment, so a "golden hour for
+            // this event" is a question it does not ask. The first cut also guarded a null
+            // location, a null date and a null target type — all three unreachable from either
+            // call site, so they were dead branches dragging JaCoCo down while this real one had
+            // no test at all.
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, TargetType.HOURLY))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            1L, DATE, TargetType.HOURLY))
+                    .thenReturn(Optional.empty());
+
+            LocationEvaluationView v =
+                    service.forRegion(REGION_ID, DATE, TargetType.HOURLY).getFirst();
+
+            assertThat(v.rating()).isEqualTo(4);
+            assertThat(v.goldenHourStart()).isNull();
+            assertThat(v.goldenHourEnd()).isNull();
+            assertThat(v.blueHourStart()).isNull();
+            assertThat(v.blueHourEnd()).isNull();
         }
     }
 }
