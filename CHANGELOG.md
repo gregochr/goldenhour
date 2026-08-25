@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — rating statistics on every cloud-verification bucket
+
+`CloudVerificationBucket` gains `ratedCount`, `meanRating` and `ratingCounts` (a 5-entry
+`List<Integer>`, index 0 = rating 1), computed in `of(...)` alongside the existing cloud
+statistics — so every bucket in the report (corridor, triage-cut, veto, cone, wind) gains them
+automatically. Most verified pairs carry `rating == null` (triaged before any prompt was built),
+so `ratedCount` — not `sampleCount` — is the denominator throughout, and `meanRating` is `null`
+rather than `0.0` when nothing in the bucket was rated. This is the veto-demotion prompt change's
+(#548/#549) pre-registered post-deploy instrument: a before/after pull across the deploy date, cut
+on the `vetoFired` and `stripMissed` buckets' rating distributions.
+
 ### Removed — the Plan-layout flag, the settings toggle, and the shell's exit hatch (v1 retirement D1)
 
 `usePlanLayout` and its three exports (`PLAN_LAYOUT_KEY`, `PLAN_V1`, `PLAN_V2`) are gone — the window-first Plan

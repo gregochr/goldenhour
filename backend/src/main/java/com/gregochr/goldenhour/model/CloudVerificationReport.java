@@ -43,6 +43,12 @@ import java.util.List;
  *       that could have been prompted.</li>
  * </ul>
  *
+ * <p>Every bucket also carries the demotion's pre-registered post-deploy instrument: the rating
+ * distribution over its {@link CloudVerificationBucket#ratedCount() rated} members. The wording
+ * that shipped in #548/#549 predicted the {@code vetoFired} and {@code stripMissed} populations'
+ * 1–2★ share would fall toward the demoted cap of 3, so a before/after pull across the deploy
+ * date is two windowed reads of this same report, diffed on those two buckets' rating stats.</p>
+ *
  * @param from            start of the verified window (inclusive)
  * @param to              end of the verified window (inclusive)
  * @param verifiedCount   evaluations verified in the window

@@ -33,6 +33,20 @@ import java.util.List;
  * @param meanFarDrop         mean analysed near-minus-far low cloud (pp) — reanalysis-internal,
  *                            so offset-immune
  * @param meanFarError        signed mean of (forecast − observed) far-solar low cloud
+ * @param ratedCount          members with a non-null, in-range (1..5) {@code rating} — a triaged
+ *                            slot is stood down before any prompt is built and so is never rated,
+ *                            and a heavy-cloud bucket is mostly triaged, so this is the
+ *                            denominator for every rating statistic below, never
+ *                            {@code sampleCount}. An out-of-range value is excluded exactly as
+ *                            {@link com.gregochr.goldenhour.service.evaluation.RatingValidator}
+ *                            treats one elsewhere — as though it were {@code null} — because the
+ *                            synchronous engine writes this column without passing through that
+ *                            validator, and 14 months of history predate it entirely
+ * @param meanRating          mean of {@code rating} over rated members only, or {@code null} when
+ *                            {@code ratedCount == 0} — never {@code 0.0}, which would read as a
+ *                            rating rather than as "nothing to average"
+ * @param ratingCounts        counts of ratings 1..5 over rated members, index 0 = rating 1,
+ *                            always exactly 5 entries summing to {@code ratedCount}
  */
 public record CloudVerificationBucket(
         String key,
@@ -44,10 +58,16 @@ public record CloudVerificationBucket(
         Double meanObservedGapLow,
         Double meanConeSpread,
         Double meanFarDrop,
-        Double meanFarError) {
+        Double meanFarError,
+        int ratedCount,
+        Double meanRating,
+        List<Integer> ratingCounts) {
 
     /** Decimal places retained on reported errors. */
     private static final double ROUNDING_SCALE = 100.0;
+
+    /** Number of star-rating bands, 1..5. */
+    private static final int RATING_BANDS = 5;
 
     /**
      * Aggregates a group of verified pairs into a bucket.
@@ -59,7 +79,7 @@ public record CloudVerificationBucket(
     public static CloudVerificationBucket of(String key, List<CloudVerificationPair> pairs) {
         if (pairs == null || pairs.isEmpty()) {
             return new CloudVerificationBucket(key, 0, null, null, null, null, null,
-                    null, null, null);
+                    null, null, null, 0, null, zeroRatingCounts());
         }
 
         int gapSum = 0;
@@ -77,6 +97,9 @@ public record CloudVerificationBucket(
         int farDropCount = 0;
         int farErrorSum = 0;
         int farErrorCount = 0;
+        int ratingSum = 0;
+        int ratedCount = 0;
+        int[] ratingCounts = new int[RATING_BANDS];
 
         for (CloudVerificationPair pair : pairs) {
             Integer gapError = pair.gapError();
@@ -113,6 +136,12 @@ public record CloudVerificationBucket(
                 farErrorSum += farError;
                 farErrorCount++;
             }
+            Integer rating = pair.rating();
+            if (rating != null && rating >= 1 && rating <= RATING_BANDS) {
+                ratingSum += rating;
+                ratedCount++;
+                ratingCounts[rating - 1]++;
+            }
         }
 
         return new CloudVerificationBucket(
@@ -125,7 +154,10 @@ public record CloudVerificationBucket(
                 observedCount == 0 ? null : round((double) observedSum / observedCount),
                 spreadCount == 0 ? null : round((double) spreadSum / spreadCount),
                 farDropCount == 0 ? null : round((double) farDropSum / farDropCount),
-                farErrorCount == 0 ? null : round((double) farErrorSum / farErrorCount));
+                farErrorCount == 0 ? null : round((double) farErrorSum / farErrorCount),
+                ratedCount,
+                ratedCount == 0 ? null : round((double) ratingSum / ratedCount),
+                toRatingCountsList(ratingCounts));
     }
 
     /**
@@ -136,5 +168,27 @@ public record CloudVerificationBucket(
      */
     private static double round(double value) {
         return Math.round(value * ROUNDING_SCALE) / ROUNDING_SCALE;
+    }
+
+    /**
+     * Returns five zero counts, for buckets with no members to rate.
+     *
+     * @return an immutable list of five zeros
+     */
+    private static List<Integer> zeroRatingCounts() {
+        return toRatingCountsList(new int[RATING_BANDS]);
+    }
+
+    /**
+     * Boxes a fixed-size rating-count array into the record's {@code List<Integer>} shape.
+     *
+     * <p>A {@code List}, not an {@code int[]}, because this repo has already been bitten by an
+     * array record component breaking identity-based {@code equals}.
+     *
+     * @param counts the five band counts, index 0 = rating 1
+     * @return an immutable list of the same five counts
+     */
+    private static List<Integer> toRatingCountsList(int[] counts) {
+        return List.of(counts[0], counts[1], counts[2], counts[3], counts[4]);
     }
 }
