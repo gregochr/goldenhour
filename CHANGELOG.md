@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — the colour-scale plan gains its measured constants and two tightened stage specs
+
+Stage 4 is **unblocked**: the `lo`/`hi` pairs for `HeatField.rampPct` are measured against
+production over `cached_evaluation`, the store the UI actually reads — fiery **8 / 72**, golden
+**15 / 76**, n = 19,488 each. The design doc's illustrative 25–85 would have been wrong in both
+directions: under it a typical fiery reading of 40 resolves to 2.0★, the cold end, where the
+measured pair puts it at 3.0★, gold. The brief's premise that these values cluster at 50–78 turns
+out to be an artifact of the test fixtures rather than the population — the real p05s are 8 and 15.
+The query that produced them is kept at `docs/engineering/heat-scale-stage4-calibration.sql`; one
+cheap check remains outstanding (whether the distribution is bimodal, which would move `lo` to the
+upper mode's foot rather than p05).
+
+Stages 3 and 5 gain the detail that decides whether a session can be handed them cold. Stage 3 now
+names **where** the whole-star snap goes — inside `markerUtils.scoreColour`, at its single
+`rampHex(starsFromAverage(avg))` call, rounding rather than flooring — because at the four call
+sites instead, one would eventually be added without it and the failure is invisible. Stage 5 gains
+the merged component's full interface, all eight call sites mapped, and an explicit scope boundary.
+
+A fifth stale claim in the design brief is recorded with the other four: its "both step into four
+buckets, so 26 and 49 are the same colour" no longer holds — `#A06E00` appears nowhere in the
+frontend, and the two components already share byte-identical gradients. Stage 5 is a
+deduplication plus a ramp migration, not a threshold bug fix, which changes what its tests pin.
+
 ### Added — the unified colour-scale plan and its Temperature Scale design bundle
 
 `docs/engineering/heat-scale-unification-plan.md` plus the Claude Design handoff it ports,
