@@ -5,6 +5,46 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the unified colour-scale plan and its Temperature Scale design bundle
+
+`docs/engineering/heat-scale-unification-plan.md` plus the Claude Design handoff it ports,
+`docs/design/temperature-scale/`. The series puts one colour language behind every scored
+surface — Plan matrix, window popup, location sheet, map markers, cluster bubbles and map
+popups — driven by a persisted per-user preference, with the current red→green ramp retained
+as the alternative rather than deleted. Seven stages, each sized for one implementing session;
+Stage 1 is provably zero-visual-change (the existing ramp is renamed `STOPS_VERDICT`, verified
+byte-identical to the reference kernel's, and the new default is not flipped until Stage 7).
+
+The plan is a *port* plan, not a transcription: three of the brief's nine changes are stale
+against the post-v1-retirement tree and are recorded as such — `RATING_COLOURS` was already
+deleted in D3, the marker-ink fix already landed in a better form via `readableInkOn`, and the
+`ScoreBar` the brief merges onto was deleted in D4 (the live duplication is `PlanScoreBar`
+against `PopupScoreRow`).
+
+One finding came out of checking the plan rather than the brief, and it settled a design rule.
+`readableInkOn` picks the better of two inks, which clears WCAG AA only where one of them reaches
+4.5:1; every ramp through mid-luminance has points where neither does. It is live rather than
+theoretical — `starsFromAverage` returns `avg / 20`, so cluster badges paint *interpolated* fills
+and label them — and the existing guard is `it.each([1, 2, 3, 4, 5])`, the only five values never
+at risk, so it passes by luck rather than by construction. The rule adopted, from Design:
+**any fill that carries a label samples at whole stars; only label-free surfaces interpolate.**
+Markers already comply, cluster badges do not, and snapping their fill is the whole change — it
+costs a cluster nothing and returns the fill to the integer resolution `rating` actually has.
+The ramp is not redesigned; all five whole stars clear AA.
+
+The plan also records a reconciliation, because two independent scans of the ramp's interior
+disagreed and both were wrong: the true figure is 13.2% of the range in three runs (2.48–2.60★,
+4.10–4.24★, 4.37–4.61★), measured on the rounded hex the browser actually receives. This document's first draft said 53% in one band — a span-versus-measure
+error that reported the distance from the first failing sample to the last. Design's scan said
+≈8% in one run, which reproduces exactly when measured against the doc's bone ink rather than the
+white the app ships, and misses the hot end entirely: the 3.9 → 4.3 → 5 leg crosses the dead zone
+twice more, right where 4★ and 5★ live. Recorded rather than dropped, because "we measured it and
+it was fine" is the wrong thing to carry forward — the interior is not fine, it is merely no
+longer sampled. Two measurement conventions are stated in the plan rather than left implicit,
+because three artifacts disagreed over them in one session: quote the failing-sample count rather
+than the summed run widths, and measure the rounded hex rather than the interpolated float —
+`rampRgb` ends in `Math.round`, so the float is a colour that never renders.
+
 ### Fixed — backend Javadocs that still described the retired v1 Plan tab as live
 
 Five comments left standing by the v1 retirement, named as a follow-on in
