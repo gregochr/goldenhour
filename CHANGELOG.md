@@ -5,6 +5,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — per-stage kickoff prompts for the heat-scale series
+
+`docs/engineering/heat-scale-stage-prompts.md`, following the `heat-field-prompts.md` pattern: each
+stage's prompt is self-contained, so an implementing session needs no other session's history. The
+Stage 1 block leads with its three traps — the design brief names the wrong module, the reference
+kernel's stop format is not this app's, and `RAMP_STOPS` is imported by three test files — and
+carries the stop list pre-converted to the app's shape along with the whole-star colours its tests
+must assert, both verified arithmetically rather than transcribed.
+
 ### Changed — the colour-scale plan gains its measured constants and two tightened stage specs
 
 Stage 4 is **unblocked**: the `lo`/`hi` pairs for `HeatField.rampPct` are measured against
