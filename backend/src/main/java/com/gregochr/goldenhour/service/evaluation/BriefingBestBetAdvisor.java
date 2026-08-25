@@ -211,7 +211,9 @@ public class BriefingBestBetAdvisor {
                             TextBlockParam.builder().text(BestBetPromptText.systemPrompt()).build()))
                     .addUserMessage(rollup.json());
             if (useExtendedThinking) {
-                paramsBuilder.thinking(ThinkingConfigAdaptive.builder().build());
+                paramsBuilder.thinking(ThinkingConfigAdaptive.builder()
+                        .display(ThinkingConfigAdaptive.Display.SUMMARIZED)
+                        .build());
             }
 
             Message response = anthropicApiClient.createMessage(paramsBuilder.build());
@@ -518,7 +520,9 @@ public class BriefingBestBetAdvisor {
                     .addUserMessage(rollup.json());
 
             if (extendedThinking) {
-                builder.thinking(ThinkingConfigAdaptive.builder().build());
+                builder.thinking(ThinkingConfigAdaptive.builder()
+                        .display(ThinkingConfigAdaptive.Display.SUMMARIZED)
+                        .build());
             }
 
             Message response = anthropicApiClient.createMessage(builder.build());
@@ -608,7 +612,9 @@ public class BriefingBestBetAdvisor {
                         TextBlockParam.builder().text(systemPrompt).build()))
                 .addUserMessage(rollupJson);
         if (extendedThinking) {
-            builder.thinking(ThinkingConfigAdaptive.builder().build());
+            builder.thinking(ThinkingConfigAdaptive.builder()
+                    .display(ThinkingConfigAdaptive.Display.SUMMARIZED)
+                    .build());
         }
 
         Message response = anthropicApiClient.createMessage(builder.build());
