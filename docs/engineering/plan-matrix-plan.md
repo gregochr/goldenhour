@@ -150,8 +150,10 @@ every phase checks the diff against this list.
    rendered through `confidenceUtils` (fill-decay + `ProvisionalMark`), and the kernel's
    `conf` scalar comes from the tier via the existing `fillScale`, exactly as the strip does
    today.
-2. **One colour ramp in v2** (D2): `utils/scoreRamp.js` is the single source. v1's
-   `markerUtils.RATING_COLOURS` stays frozen.
+2. **One colour ramp** (D2): `utils/scoreRamp.js` is the single source. ~~v1's
+   `markerUtils.RATING_COLOURS` stays frozen.~~ **Struck 2026-08-25 (v1 retirement D3/D4):**
+   the opposite is now true — `RATING_COLOURS` is deleted entire and `scoreRamp` is the map's
+   only colour language (`docs/engineering/v1-retirement-plan.md` §4.2).
 3. **The lens never filters the field** (heat-field §3/§4.5): reach and rating gate cards and
    lists, never the heat. Only the *framing* (origin scope / planning area) changes what the
    field draws.
@@ -178,10 +180,13 @@ every phase checks the diff against this list.
 9. **Tokens**: new CSS tokens go in the `@theme static` block in `frontend/src/index.css`
    (plain `@theme` gets pruned — the `--color-plex-panel` empty-string incident); JS hexes
    live in `scoreRamp.js`; token liveness is a browser-verification claim, not a jsdom one.
-10. **Shared components get caller opt-ins** (`heat`, `serverCellRating` precedents): any edit
+10. ~~**Shared components get caller opt-ins** (`heat`, `serverCellRating` precedents): any edit
     to `HotTopicStrip`, `HeatmapGrid`, `MapView`, `DateStrip`, `Modal`, `BrandLockup`,
     `HealthIndicator` or anything in `components/shared/` must leave v1 byte-identical
-    without the opt-in, with a pinning test per surface.
+    without the opt-in, with a pinning test per surface.~~ **Discharged 2026-08-25** (v1
+    retirement D3, `docs/engineering/v1-retirement-plan.md` §4.3): v1 is gone, so no edit to a
+    shared component needs a v1 pin any more. `scrollable`/`serverCellRating`/`ramp`/`heat`
+    opt-ins named here were themselves collapsed or removed by the same series (§3.2/§3.3).
 11. **Spot data joins are locationId-first, name-fallback** (`heatSpots.js`, P8's
     `buildScoreIndex`); the provider's name-keyed `scoreIndex` is **not** read by any new
     surface — raw `scoreRows` are. Region names join byte-identically, never normalised.
@@ -575,8 +580,9 @@ prose slot's unpicked state from the top-region gloss (A21) to true whole-window
   backend holds the H2 file lock — batch direct inserts as stop → RunScript → start.
 - Drive times locally: insert `user_drive_time` and `region_drive_time` rows directly (ORS is
   not configured locally).
-- Flag: `localStorage.setItem('photocast.planLayout', JSON.stringify('v2'))` — JSON-encoded,
-  the bare string silently falls back to v1.
+- ~~Flag: `localStorage.setItem('photocast.planLayout', JSON.stringify('v2'))` — JSON-encoded,
+  the bare string silently falls back to v1.~~ **Struck 2026-08-25**: the flag and `usePlanLayout`
+  are deleted (v1 retirement D0/D1) — the Plan tab is the only Plan tab, no key to set.
 - Browser-pane clicks land in the **screenshot's** coordinate frame (scaled) — use
   `read_page` refs or drive the DOM via `javascript_tool`. Logs go to the session scratchpad,
   never `/tmp` (shared between worktree sessions).
@@ -607,11 +613,17 @@ prose slot's unpicked state from the top-region gloss (A21) to true whole-window
 5. **Rollback shape**: each phase is additive-then-delete inside the v2 arm; the flag is the
    page-level kill switch (v1 untouched). A phase that half-lands must revert whole — the
    matrix without its card anatomy, or the popup beside a live list, are worse than either
-   end state.
+   end state. **Annotated 2026-08-25**: the flag and v1 are both gone
+   (`docs/engineering/v1-retirement-plan.md`) — this risk applied only while the flag existed
+   and has no live successor; there is no rollback switch on `main` any more.
 
 ---
 
 ## 11. What the flag flip still waits on (written at M5, the settling commit)
+
+**§11 discharged 2026-08-25.** The flip happened and v1 itself is now fully deleted
+(`docs/engineering/v1-retirement-plan.md`, D0–D4) — kept below as the historical record of what
+was known and outstanding at M5, not as a live waiting list.
 
 **Nothing in this series.** M1–M5 are landed, the deletion ledger is discharged, the suite is green,
 `npm audit` is clean and axe reports zero violations on all four surfaces at 1280px and 390px. What
@@ -722,7 +734,9 @@ likely to meet on an interesting night.
   cold, slow connection can still reach it. The real fix is to gate `stacked` on the covering layer
   having MOUNTED rather than on the shell's intent — one extra commit on the hottest interaction on
   the page, and a new prop on three components.
-- **The v1 deletion** is the next piece of work and is not part of this series. ⚠️ §7 names
+- ✅ **The v1 deletion** is the next piece of work and is not part of this series. **D0–D4 done
+  2026-08-25** — `docs/engineering/v1-retirement-plan.md`, D0–D3 merged to `main`, D4 built and
+  reviewed pending merge (a phase cannot name its own hash — see that plan's own Phase log). ⚠️ §7 names
   `WindowFirstDoors`/`HotTopicStrip`/`WindowFirstRegionalPanel` as surviving it, and does not name
   what they pull in: `HeatmapGrid`, `TideRunRow`, `SurgeRunRow`, `CertaintyChip` and `InfoTip` are
   all v1-era components the v2 arm mounts through the doors, and a `DailyBriefing.jsx`-shaped

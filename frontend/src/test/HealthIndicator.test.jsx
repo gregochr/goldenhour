@@ -151,6 +151,25 @@ describe('HealthIndicator', () => {
     expect(screen.queryByTestId('health-panel')).not.toBeInTheDocument();
   });
 
+  // Before this, the only way to close an open panel with a keyboard was re-pressing the toggle
+  // button itself — no Escape route, unlike every dialog in the app.
+  it('closes on Escape', () => {
+    render(<HealthIndicator status="UP" degraded={[]} checkedAt={new Date('2026-03-01T12:30:45')} />);
+    fireEvent.click(screen.getByTestId('health-indicator'));
+    expect(screen.getByTestId('health-panel')).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByTestId('health-panel')).not.toBeInTheDocument();
+  });
+
+  it('names the panel it expands via aria-controls', () => {
+    render(<HealthIndicator status="UP" degraded={[]} checkedAt={new Date('2026-03-01T12:30:45')} />);
+    const pill = screen.getByTestId('health-indicator');
+    expect(pill).toHaveAttribute('aria-controls', 'health-panel');
+    fireEvent.click(pill);
+    expect(screen.getByTestId('health-panel')).toHaveAttribute('id', 'health-panel');
+  });
+
   it('shows degraded component names in panel header', () => {
     render(
       <HealthIndicator status="DEGRADED" degraded={['openMeteo']} checkedAt={new Date('2026-03-01T12:30:45')} />,

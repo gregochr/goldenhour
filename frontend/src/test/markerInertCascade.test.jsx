@@ -38,10 +38,9 @@ const LEAFLET_CSS = resolve(process.cwd(), 'node_modules/leaflet/dist/leaflet.cs
 /**
  * Every rule in a stylesheet whose selector mentions {@code needle}, in source order.
  *
- * <p>Sliced rather than injected whole for the reason `regionChipVerdictColour.test.jsx` records:
- * `index.css` opens with `@import "tailwindcss"` and `@theme`, which jsdom's parser drops silently,
- * taking real rules with them. Brace-depth aware, so a rule inside an `@media` block cannot be
- * re-associated with the wrong selector.
+ * <p>Sliced rather than injected whole because `index.css` opens with `@import "tailwindcss"` and
+ * `@theme`, which jsdom's parser drops silently, taking real rules with them. Brace-depth aware,
+ * so a rule inside an `@media` block cannot be re-associated with the wrong selector.
  *
  * @param {string} path   stylesheet to read
  * @param {string} needle substring the selector must contain

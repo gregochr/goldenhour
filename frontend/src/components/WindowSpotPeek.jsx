@@ -24,16 +24,16 @@ function starGlyphs(rating) {
  * computes {@code overflow-y} to auto, so it clips on both axes), the window card sets
  * {@code overflow: hidden} as an <em>inline</em> style that no stylesheet rule can outrank, and
  * {@code .wf-spot:hover} applies {@code translateY(-2px)} to the very button this panel hangs off.
- * Portalling to {@code document.body} takes the ancestor chain out of the question entirely, which is
- * the argument {@code PopoverHost} makes for itself and the reason it is copied here.
+ * Portalling to {@code document.body} takes the ancestor chain out of the question entirely, which was
+ * the argument a shared popover host made for itself, and the reason its approach is copied here.
  *
- * <p><b>{@code PopoverHost} itself is not used</b>, and the reason is placement rather than
- * portalling. {@code computePopoverPlacement} anchors above the trigger and never flips, and the host
- * takes only {@code {popover, className}} — no slot for the pointer handlers the 120ms panel grace
- * needs, and no way to express an arrow offset. Serving this caller would mean widening two shared
- * files to change behaviour the day rail relies on, for the sake of the one part (the portal) that is
- * four lines. What is taken is the <em>reasoning</em>, cited: portal rather than merely fix, and
- * dismiss on capture-phase scroll.
+ * <p><b>That shared popover host (since deleted as dead code) was never used by this caller</b>,
+ * and the reason was placement rather than portalling: its placement function anchored above the
+ * trigger and never flipped, and the host took only {@code {popover, className}} — no slot for the
+ * pointer handlers the 120ms panel grace needs, and no way to express an arrow offset. Serving this
+ * caller would have meant widening two shared files to change behaviour the day rail relied on, for
+ * the sake of the one part (the portal) that is four lines. What is taken is the <em>reasoning</em>,
+ * cited: portal rather than merely fix, and dismiss on capture-phase scroll.
  *
  * <h2>What it shows, and what it deliberately leaves out</h2>
  *

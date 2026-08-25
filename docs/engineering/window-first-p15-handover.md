@@ -1,5 +1,9 @@
 # PhotoCast — window-first Plan tab. Continue after P15a, the phone heatmap, and P15b.
 
+**Status: historical.** The handover below is written against a point mid-build, with the flag,
+v1 and the phases after P15 all still ahead of it; all of that landed and v1 was then deleted
+entire (`docs/engineering/v1-retirement-plan.md`). Kept as a build-order record, not a live guide.
+
 *Handover rewritten 2026-08-11, replacing the version written the same morning. Every file:line and
 number below was checked that day — but **this project has had citations rot inside a single
 commit**, three times now, most recently when the phone heatmap shifted `HeatmapGrid` by 13 lines and

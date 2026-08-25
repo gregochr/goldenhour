@@ -524,15 +524,15 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, isActive, onT
   // ⚠️ An `aria-label` REPLACES name-from-contents, it does not extend it (accname 2C beats 2F,
   // and `role="button"` is Children Presentational). So each branch has to re-state everything its
   // own cell renders, or naming the cell would silently DELETE content from what is announced —
-  // in both arms. The collapsed branch is safe because its entire content is one word; the rated
-  // branch is not, and its label is built further down, after `meanRating` exists.
+  // in both branches. The collapsed branch is safe because its entire content is one word; the
+  // rated branch is not, and its label is built further down, after `meanRating` exists.
   //
   // The verdict word here is the one the cell RENDERS, which for a collapsed cell is the literal
   // "Poor" whether the signal is STAND_DOWN or AWAITING. Using `verdictWord` would put "Awaiting"
   // in the name of a cell displaying "Poor" — a label-in-name mismatch (WCAG 2.5.3), and it would
   // break speech input, where "click Poor" has to match what the user can see. That an AWAITING
-  // region shows as "Poor" at all is a separate, pre-existing question about the visible copy in
-  // both arms; it is not one an accessible name may quietly answer differently.
+  // region shows as "Poor" at all is a separate, pre-existing question about the visible copy;
+  // it is not one an accessible name may quietly answer differently.
   const cellPrefix = `${regionName}, ${getShortDate(date)}`;
   const collapsedAriaLabel = `${cellPrefix} ${eventLabel} — Poor`;
 

@@ -1298,7 +1298,7 @@ export default function WindowFirstShell({
             runAge={age}
             onOpenWindow={openWindow}
             origin={origin ?? null}
-            onSearchRegion={(regionName) => setSearchSeed(regionName)}
+            onSearchRegion={(regionName) => { if (stackedOverPopup) return; setSearchSeed(regionName); }}
           />
         </Suspense>
 

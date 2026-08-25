@@ -241,6 +241,34 @@ describe('MapView star filter — localStorage persistence', () => {
       expect(screen.getByTestId('star-filter-4').className).toMatch(/plex-gold/);
       expect(screen.getByTestId('star-filter-5').className).toMatch(/plex-gold/);
     });
+
+    // These three `useState` initialisers (min stars, stand-down, advanced-open) run during the
+    // very first render, before any error boundary around MapView has anything mounted to catch —
+    // a storage-denied browser (Safari "Block all cookies", an enterprise site-data policy) throws
+    // `SecurityError` on bare `localStorage` access, and unguarded that would crash the whole app,
+    // not just the map. Falls back to the same default as an empty store; the app must not care why
+    // the read failed.
+    it('mounts on the default threshold rather than crashing when localStorage.getItem throws', () => {
+      const getItemSpy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new DOMException('The operation is insecure.', 'SecurityError');
+      });
+      expect(() => renderMap()).not.toThrow();
+      expect(screen.getByTestId('star-filter-3').className).toMatch(/plex-gold/);
+      getItemSpy.mockRestore();
+    });
+
+    // The write side: clicking a star still updates the ON-SCREEN state even though persisting it
+    // fails, because the filter is still useful for the rest of this session.
+    it('still updates the filter when localStorage.setItem throws', () => {
+      const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('The operation is insecure.', 'SecurityError');
+      });
+      renderMap();
+      expect(() => fireEvent.click(screen.getByTestId('star-filter-4'))).not.toThrow();
+      expect(screen.getByTestId('star-filter-3').className).not.toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-4').className).toMatch(/plex-gold/);
+      setItemSpy.mockRestore();
+    });
   });
 
   describe('clicking star buttons', () => {

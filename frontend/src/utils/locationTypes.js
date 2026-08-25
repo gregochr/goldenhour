@@ -2,11 +2,13 @@
  * Single source of truth for `LocationType` presentation and classification.
  *
  * <p>This lived in five copies: `MapView.LOCATION_TYPE_LABELS`,
- * `LocationTypeBadges.LOCATION_TYPE_META`, `MarkerPopupContent.POPUP_LOC_TYPE_META`,
- * `briefingDisplay.LOCATION_TYPE_ICONS` and `LocationManagementView.LOCATION_TYPES`, plus three
- * open-coded type predicates. Adding WOODLAND cost five hand-edits that nothing forced you to
- * make, and the copies had already drifted — `briefingDisplay` used 💧 for WATERFALL where the
- * other four used 💦, and the five did not agree on ordering.
+ * `LocationTypeBadges.LOCATION_TYPE_META` (that component is since deleted as dead code, v1
+ * retirement D4), `MarkerPopupContent.POPUP_LOC_TYPE_META`, `briefingDisplay.LOCATION_TYPE_ICONS`
+ * (that re-export is likewise since deleted — `briefingDisplay` still re-exports `locationTypeIcons`,
+ * its live consumer) and `LocationManagementView.LOCATION_TYPES`, plus three open-coded type
+ * predicates. Adding WOODLAND cost five hand-edits that nothing forced you to make, and the copies
+ * had already drifted — `briefingDisplay` used 💧 for WATERFALL where the other four used 💦, and
+ * the five did not agree on ordering.
  *
  * <p>The drift is silent by construction: every consumer either filters unknown types out or
  * falls back to the raw enum name, so a missing constant renders as nothing rather than throwing.

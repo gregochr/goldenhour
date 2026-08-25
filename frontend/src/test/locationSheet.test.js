@@ -392,9 +392,8 @@ describe('buildLocationSheet rows', () => {
 
   it('⚠️ converts on a GMT date too — not a constant +1 hour', () => {
     // Every other fixture in this file is a BST date, which separates UK from UTC but CANNOT
-    // separate UK from a hard-coded +60 minutes — and `conversions.js` exports
-    // `formatShiftedEventTimeUk(iso, offsetMinutes)`, so that wrong implementation is inside this
-    // codebase's own vocabulary rather than a strawman. In January the two must be IDENTICAL.
+    // separate UK from a hard-coded +60 minutes — and this codebase has shipped that exact wrong
+    // implementation before, so it is not a strawman. In January the two must be IDENTICAL.
     const sheet = buildLocationSheet(SPOT, [{
       key: '2026-01-15:SUNSET', date: '2026-01-15', targetType: 'SUNSET', dow: 'Thu',
       sunrise: false, label: 'Thu Sunset', time: '16:04', verdictLabel: 'Maybe', away: false,

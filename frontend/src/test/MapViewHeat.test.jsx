@@ -643,7 +643,7 @@ describe('MapView heat — role gating (§9.6, ungated for the pilot)', () => {
 });
 
 describe('MapView heat — the marker swap (D2/D8)', () => {
-  it('paints markers with the same ramp colour in Heat and Medallions view, because the ramp is now the map\'s only colour language', async () => {
+  it('paints markers with the same ramp colour in Heat and Medallions view, because the ramp is now the map\'s only SCORE colour language', async () => {
     // D8's end state, not a mid-migration one: `makeMarkerIcon`'s cache key no longer carries a
     // per-view flag, so switching views is a cache HIT on the same icon rather than a second call
     // to `markerLabelAndColour` with a different answer — there is no code path left that could

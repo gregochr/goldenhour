@@ -309,7 +309,7 @@ describe('the rating badge', () => {
   });
 
   it('renders no badge outside 1–5, where the ramp itself would clamp', () => {
-    // The gate that had to be written out when the fill moved to the ramp. `RATING_COLOURS` is a
+    // The gate that had to be written out when the fill moved to the ramp. `RATING_COLOURS` was a
     // five-key table and answered `undefined` here; `rampHex` clamps, so without this a 6 would
     // paint the 5★ green and a 0 the 1★ red — both a claim nothing measured.
     expect(spotBadgeStyle(6)).toBeNull();

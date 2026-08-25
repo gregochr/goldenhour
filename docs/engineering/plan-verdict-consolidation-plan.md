@@ -12,7 +12,12 @@ explicit instruction to proceed — so they land **before** the v2 flag flip, no
 v1 untouched, and the canopy fix below is where it stops being true**: `displayVerdict` is a payload
 field, not a prop, so v1's grid cell word moved with v2's — and v1's own star derivation was then
 moved by hand to match it, which is the one deliberate change to the frozen control.
-`usePlanLayout.js` still defaults to `PLAN_V1`. Phase 4 not started.
+~~`usePlanLayout.js` still defaults to `PLAN_V1`.~~ **Struck 2026-08-25**: `usePlanLayout.js` and
+v1 are both deleted (`docs/engineering/v1-retirement-plan.md`, D0/D1) — there is no flag and no v1
+arm any more. **Phase 4's frontend half is discharged** (v1's `BestBetBanner` renderer for the
+`/api/briefing` `bestBets*` fields died with it, v1-retirement §8.1); **the backend half is still
+open** — `bestBets`/`bestBetStatus`/`bestBetsWithdrawn`/`bestBetModel`, `applyBestBetFallback` and
+`BriefingDay.peak` remain, named as follow-ons in v1-retirement §8.1/§8.2.
 
 **Phase 3's one deliberate behavioural cost.** The six-event cap is now the backend's alone, so when
 the client's stale-cache guard withdraws an event the payload still lists, the rail shows one day

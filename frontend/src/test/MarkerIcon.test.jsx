@@ -3,7 +3,6 @@ import {
   buildMarkerSvg,
   buildStandDownSvg,
   scoreColour,
-  standDownColour,
   markerLabelAndColour,
   createClusterIcon,
   STAND_DOWN_COLOUR,
@@ -456,13 +455,10 @@ describe('stand-down palette', () => {
     expect(STAND_DOWN_COLOUR).toBe('#501313');
   });
 
-  it('standDownColour() returns STAND_DOWN_COLOUR', () => {
-    expect(standDownColour()).toBe(STAND_DOWN_COLOUR);
-  });
-
   // The five-stop red→green ramp itself — exact hex values and ordering — is pinned in
-  // scoreRamp.test.js, the ramp's own module. That table is now the map's only colour language
-  // (v1's separate RATING_COLOURS table was deleted with the rest of the v1 UI estate), so there
+  // scoreRamp.test.js, the ramp's own module. That table is now the map's only SCORE colour
+  // language (v1's separate RATING_COLOURS table was deleted with the rest of the v1 UI estate;
+  // wildlife/stand-down/no-data fills, pinned above, are deliberately not on the ramp), so there
   // is nothing left here for markerUtils to own a duplicate assertion of.
 });
 

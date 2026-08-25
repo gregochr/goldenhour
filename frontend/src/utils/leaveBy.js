@@ -26,8 +26,9 @@ import { ukDateStr } from './mapDates.js';
  *       slot carries one — {@code solarEventTime} has been a {@code BriefingSlot} component since
  *       the first briefing commit, and {@code BriefingSlotBuilder} returns <em>null</em> rather
  *       than a slot it could not time — so this guards a payload shape nobody has seen, not one
- *       the schema used to emit. {@code formatShiftedEventTimeUk} answers null for an absent or
- *       unparseable instant, so the degrade needs no branch of its own here.</li>
+ *       the schema used to emit. {@code parseUtcInstant} answers null for an absent or
+ *       unparseable instant, and {@code departure} returns null the moment it does — the subtraction
+ *       and {@code formatInstantUk} are never reached with a bad value.</li>
  * </ul>
  *
  * <h2>The event time is the SPOT's, not the window's</h2>
@@ -41,7 +42,7 @@ import { ukDateStr } from './mapDates.js';
  *
  * <h2>London, and the wrap that follows from it</h2>
  *
- * <p>The result is formatted on {@code Europe/London} by {@code formatShiftedEventTimeUk}, which is
+ * <p>The result is formatted on {@code Europe/London} by {@code formatInstantUk}, which is
  * the calendar and clock every other time on this screen is stated in. That matters most exactly
  * where the arithmetic crosses midnight: a 04:40 BST sunrise is 03:40 UTC, and a 3h45 drive leaves
  * at 23:35 <em>UTC on the previous day</em> — which is <b>00:35</b> on the reader's clock. Doing

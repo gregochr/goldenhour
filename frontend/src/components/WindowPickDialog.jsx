@@ -7,9 +7,10 @@ import Modal from './shared/Modal.jsx';
  *
  * <h2>A dialog, not the popover host</h2>
  *
- * <p>{@code PopoverHost} was the obvious home and is the wrong one, by its own rule: it is a
- * {@code role="tooltip"}, and "content that a reader <em>must</em> reach — a destination, an action
- * — belongs on the trigger itself or in a dialog, not here". This panel carries two destinations.
+ * <p>A shared popover host (since deleted as dead code, but its rule still applies) was the
+ * obvious home and is the wrong one, by its own rule: it is a {@code role="tooltip"}, and "content
+ * that a reader <em>must</em> reach — a destination, an action — belongs on the trigger itself or
+ * in a dialog, not here". This panel carries two destinations.
  * §6 makes the same point from the other side: no control whose only visible effect is an
  * {@code aria-hidden} panel. So the pick opens a real dialog — announced as one, dismissible three
  * ways (Escape, the close control, the backdrop), and reachable by keyboard and touch alike, which

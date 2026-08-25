@@ -150,7 +150,7 @@ export default function NlcSightingBanner() {
           '--nlc-accent': accent,
           backgroundColor: 'var(--color-plex-surface)',
         }}
-        className="nlc-a px-4 py-3 rounded-xl select-none"
+        className="nlc-a px-4 py-3 rounded-xl"
       >
         <div className="nlc-rail" />
         <div className="nlc-glow" />

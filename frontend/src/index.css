@@ -9,7 +9,6 @@
      bone, identical to ink, so chrome never competes with the verdict semantics. */
   --color-plex-gold: #F2E7D3;
   --color-plex-gold-light: #FBF4E6;
-  --color-plex-gold-dark: #D9C9A8;
   --color-plex-bg: #181210;
   --color-plex-surface: #221A15;
   --color-plex-surface-light: #2A2019;
@@ -26,18 +25,6 @@
      so this is warmer and lighter, and is confined to the brand lockup. ~5.2:1 on --plex-bg. */
   --color-plex-coral: #E8593F;
 
-  --color-sunrise-50: #fff7ed;
-  --color-sunrise-100: #ffedd5;
-  --color-sunrise-500: #f97316;
-  --color-sunrise-600: #ea580c;
-  --color-sunrise-700: #c2410c;
-
-  --color-sunset-50: #fdf4ff;
-  --color-sunset-100: #fae8ff;
-  --color-sunset-500: #a855f7;
-  --color-sunset-600: #9333ea;
-  --color-sunset-700: #7e22ce;
-
   /* Verdicts — the only colour in the UI that carries meaning. */
   /* ⚠️ These three are also ramp stops. `utils/scoreRamp.js` holds the v2 heat ramp as five hex
      literals, and stops 5, 3 and 2 are exactly the three below — the canvas is painted from those
@@ -48,7 +35,6 @@
   --color-verdict-go: #8AAE72;
   --color-verdict-marginal: #E0A542;
   --color-verdict-standdown: #C8452F;
-  --color-verdict-awaiting: rgba(242, 231, 211, 0.42);
 
   /* Tide facts (objective, independent of the sky verdict). */
   --color-tide: #6FA8B0;
@@ -136,7 +122,9 @@
      top. Every step clears 3:1 on every backdrop.
 
      Unused until P15c (run history), which is deferred post-pilot and conditional. Kept because the
-     derivation above is the expensive part, and it is recorded here rather than re-run. */
+     derivation above is the expensive part, and it is recorded here rather than re-run. Unrelated
+     to v1 retirement's dead-token sweep — reviewed there and deliberately left as a parked token,
+     not an oversight (`docs/engineering/v1-retirement-plan.md` §3.4). */
   --color-runbar-1: #736B5F;
   --color-runbar-2: #A19789;
   --color-runbar-3: #C1B7A6;
@@ -546,18 +534,6 @@
   .tr-foot .key { display: none; }
 }
 
-/* Heatmap cell visibility transitions */
-.heatmap-cell-visible {
-  opacity: 1;
-  transition: opacity 0.35s ease;
-}
-
-.heatmap-cell-hidden {
-  opacity: 0.04;
-  pointer-events: none !important;
-  transition: opacity 0.35s ease;
-}
-
 /* Heatmap cell hover tooltip (desktop) — verdict + gloss + weather, one interaction away.
    Portalled to <body> and positioned via JS (position: fixed), so the plan card's overflow:hidden
    can't clip the rightmost column's tip (matches the summary-strip region tooltip). It anchors
@@ -786,12 +762,12 @@
 /* ⚠️ SAFE AREAS ARE NOT HANDLED, and a `calc(env(safe-area-inset-top, 0px) + 16px)` here would not
    handle them — it was written that way first and is wrong twice over. `env(safe-area-*)` resolves
    to 0 unless the document opts in with `viewport-fit=cover`, which `index.html` does not; and this
-   is not the element that touches the top of the document anyway. `App.jsx` wraps the v2 arm in
+   is not the element that touches the top of the document anyway. `App.jsx` wraps the Plan in
    `<main className="px-4 py-6">`, so the band already starts 24px down. On a notched phone with the
    opt-in added, an inset term here would push the wordmark to 24 + 59 + 14 = 97px and leave the
    notch strip painted in page colour rather than in the band. The inset belongs on the outermost
-   element, and the opt-in is an app-wide change every edge-anchored element in both arms would have
-   to answer for — so it is deliberately not made here, and not faked here either.
+   element, and the opt-in is an app-wide change every edge-anchored element would have to answer
+   for — so it is deliberately not made here, and not faked here either.
 
    The lit band. Two things here are not decoration.
 

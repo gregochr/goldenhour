@@ -20,11 +20,6 @@ const RIGHT_ARC = 'M 22 41 A 19 19 0 0 1 22 3';
 /** Stand-down fill for triaged rows (dark red). */
 export const STAND_DOWN_COLOUR = '#501313';
 
-/** Returns the stand-down marker fill colour. */
-export function standDownColour() {
-  return STAND_DOWN_COLOUR;
-}
-
 /**
  * The no-data fill. It is not a score, so the ramp has nothing to say about it and {@code rampRgb}
  * would answer with its bottom stop — which reads as "1 star", the one claim an unscored marker

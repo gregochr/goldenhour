@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   formatDuration,
-  formatShiftedEventTimeUk,
   formatGeneratedAtFull,
   groupForecastsByLocation,
 } from '../utils/conversions.js';
@@ -41,32 +40,6 @@ describe('formatDuration', () => {
 
   it('formats 7200000ms as 2h 0m 0s', () => {
     expect(formatDuration(7200000)).toBe('2h 0m 0s');
-  });
-});
-
-describe('formatShiftedEventTimeUk', () => {
-  it('returns null for null input', () => {
-    expect(formatShiftedEventTimeUk(null, 30)).toBeNull();
-  });
-
-  it('returns null for undefined input', () => {
-    expect(formatShiftedEventTimeUk(undefined, 30)).toBeNull();
-  });
-
-  it('returns null for invalid date string', () => {
-    expect(formatShiftedEventTimeUk('not-a-date', 30)).toBeNull();
-  });
-
-  it('shifts a winter date forward by +30 minutes', () => {
-    // 20 Feb is GMT (UTC+0), so 07:00 UTC + 30 min = 07:30 UK
-    const result = formatShiftedEventTimeUk('2026-02-20T07:00:00', 30);
-    expect(result).toBe('07:30');
-  });
-
-  it('shifts a date with a negative offset', () => {
-    // 20 Feb is GMT (UTC+0), so 07:30 UTC - 30 min = 07:00 UK
-    const result = formatShiftedEventTimeUk('2026-02-20T07:30:00', -30);
-    expect(result).toBe('07:00');
   });
 });
 

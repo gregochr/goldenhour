@@ -42,10 +42,10 @@ const VERDICT_TREATMENT = {
   WORTH_IT: { fill: 'rgba(138,174,114,0.14)', border: 'rgba(138,174,114,0.5)', text: 'var(--color-badge-go)', weight: 600 },
   MAYBE: { fill: 'rgba(224,165,66,0.14)', border: 'rgba(224,165,66,0.5)', text: 'var(--color-badge-maybe)', weight: 600 },
   STAND_DOWN: { fill: 'rgba(200,69,47,0.12)', border: 'rgba(200,69,47,0.4)', text: 'var(--color-badge-poor)', weight: 400 },
-  // Text-secondary, NOT --color-verdict-awaiting. That token is the verdict/fill family and is
-  // numerically the muted ink: on this badge's own fill it measures 3.47:1 at 10px, below AA, and
+  // Text-secondary, not the verdict/fill family's muted ink (numerically the same shade a deleted
+  // token once named): on this badge's own fill that ink measures 3.47:1 at 10px, below AA, and
   // it never decays so no tier softens it. Secondary measures 6.46:1 and is what `VerdictPill` and
-  // the neutral topic badge already use for exactly this state.
+  // the neutral topic badge already use for exactly this state — do not reintroduce a token for it.
   AWAITING: { fill: 'rgba(255,255,255,0.04)', border: 'rgba(255,255,255,0.10)', text: 'var(--color-plex-text-secondary)', weight: 400 },
 };
 

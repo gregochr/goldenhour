@@ -52,7 +52,8 @@ const renderDoors = (overrides = {}, props = {}) => {
   vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx(overrides));
   const handlers = { onShowOnMap: vi.fn(), ...props };
   // `unmount` is returned alongside the handlers so a test can round-trip the component, which is
-  // the only honest way to assert that state survives the arm being swapped out.
+  // the only honest way to assert that state survives an unmount and remount (a tab switch away
+  // and back, for instance).
   const { unmount } = render(<WindowFirstDoors locations={[]} {...handlers} />);
   return { ...handlers, unmount };
 };
