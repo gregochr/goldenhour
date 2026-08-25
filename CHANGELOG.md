@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.19.0] - 2026-08-25
+
 ### Fixed — marker and cluster labels stay readable on every ramp stop
 
 The map's marker and cluster-bubble labels printed a hard-coded dark ink on every fill. On the
