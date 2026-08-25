@@ -1,10 +1,19 @@
 # Implementation prompt
 
+> **Repo note, added when this bundle was committed — read `docs/engineering/heat-scale-unification-plan.md`
+> §2 before following anything below.** Paths in this file were rewritten to the committed
+> locations (the bundle arrived rooted at `design_temp_scale/`, and the spec was renamed to
+> `temperature-scale.html`). More importantly, four of the changes below are stale or mis-targeted
+> against the current tree — including **Change 1, which names the wrong module**: the app's
+> `frontend/src/utils/heatField.js` contains no `STOPS`, and the ramp it must edit is
+> `RAMP_STOPS` in `frontend/src/utils/scoreRamp.js`. §2 of the plan lists all four with the
+> evidence. The prose below is preserved as Design sent it.
+
 Paste into Claude Code from the repo root, with this folder available.
 
 ---
 
-> Open `design_temp_scale/Temperature Scale.html` in a browser at 1100px or wider and read it top to bottom — it is the spec, and §07 is the change list. `design_temp_scale/heat-field.js` is the reference kernel: the ramp work is already done in it, so diff it against the app's `heatField.js` rather than reimplementing. Where this prompt and the doc disagree on a measured number, the doc's live scan wins — it computes in the page.
+> Open `docs/design/temperature-scale/temperature-scale.html` in a browser at 1100px or wider and read it top to bottom — it is the spec, and §07 is the change list. `docs/design/temperature-scale/heat-field.js` is the reference kernel: the ramp work is already done in it, so diff it against the app's `heatField.js` rather than reimplementing. Where this prompt and the doc disagree on a measured number, the doc's live scan wins — it computes in the page.
 >
 > **Read this first.** The document is drawn in the *proposed* Kodachrome skin, but `frontend/src/index.css` still ships the blue-grey plex palette. Every warm hex in the doc is a proposal; only hexes the doc attributes to a file are shipped. Do not copy the document's chrome colours into `index.css`, and do not touch `--color-verdict-*` — those are saturated web colours used for verdict words (`#16a34a` / `#d97706` / `#b91c1c`) and have nothing to do with the muted ramp in `heatField.js`, despite the older handoff notes claiming otherwise.
 >

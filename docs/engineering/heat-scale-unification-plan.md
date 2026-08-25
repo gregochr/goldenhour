@@ -36,12 +36,13 @@ Three stops are load-bearing and must not be "tidied":
 
 ## 2. ⚠️ Where the brief has gone stale — read before following it
 
-The brief was written against a tree that has since moved. **Three of its nine changes are wrong
-as written.** A session following it literally will either fail to find its target or undo work
-that just landed.
+The brief was written against a tree that has since moved. **Four of its changes are wrong as
+written.** A session following it literally will either fail to find its target, edit the wrong
+module, or undo work that just landed. The rows are in the order a session meets them.
 
 | Brief says | Reality | Consequence |
 |---|---|---|
+| Change 1: "replace `STOPS`" in the kernel, `heatField.js` | **Wrong module.** `heatField.js` contains no `STOPS` — it imports `rampRgb` from `scoreRamp.js`, where `RAMP_STOPS` lives (`scoreRamp.js:29`). | Following it literally either stalls the session or creates a **second** ramp definition — the one thing this whole series exists to prevent. Stage 1 targets `scoreRamp.js`. |
 | Change 3: retire `RATING_COLOURS` | **Already deleted** in v1 retirement D3. Only a Javadoc mention survives in `scoreRamp.js:17`. | Half of Change 3 is done. `scoreColour()` **is** still live (4 call sites in `markerUtils.js`) — that half stands. |
 | Change 4: `buildMarkerSvg` hard-codes `fill="#0f172a"`, make it conditional bone-below-3★ | **Already fixed**, differently and better, by #627 (merged 2026-08-25). Ink is derived per fill through `readableInkOn`, with a computed AA sweep in `MarkerIcon.test.jsx` pinning every stop ≥ 4.5:1. `fill="#0f172a"` no longer appears anywhere. | **Do not implement Change 4.** A hard 3★ threshold would be a regression from a computed rule. The AA sweep already guards the new ramp for free. |
 | Change 5: "delete `PopupScoreRow`, use `ScoreBar` in both places" | `ScoreBar.jsx` was **deleted** in v1 retirement D4 (zero-importer sweep). The live Plan-side component is `PlanScoreBar.jsx`, used by `LocationFourDaySheet` and `WindowSpotPeek`. | The merge target is `PlanScoreBar`, not `ScoreBar`. The duplication is real and still worth collapsing — just between different files than the brief names. |
@@ -205,7 +206,10 @@ The brief says persist through `settingsApi`, not `localStorage`. That makes thi
 stage, which the brief does not say out loud:
 
 - Migration (next free V-number — **read it off `main`, never from a written-down number**) adding
-  `map_colour_scale` and `markers_follow_scale` to the user-settings table.
+  `map_colour_scale` and `markers_follow_scale` as columns on **`app_user`**. ⚠️ **There is no
+  `user_settings` table** — every user setting is a column on `app_user` (`V67` for the home
+  location, `V136` for `local_radius_miles`), and `user_drive_time` is the only side table. A
+  migration written against `user_settings` fails at deploy.
 - Entity, `UserSettingsResponse` (currently a 9-field record), `UserSettingsService`,
   `UserSettingsController`.
 - ⚠️ `HttpCachingConfigTest.personalDataPathsAreNeverFiltered` pins that everything under

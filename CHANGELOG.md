@@ -15,11 +15,14 @@ as the alternative rather than deleted. Seven stages, each sized for one impleme
 Stage 1 is provably zero-visual-change (the existing ramp is renamed `STOPS_VERDICT`, verified
 byte-identical to the reference kernel's, and the new default is not flipped until Stage 7).
 
-The plan is a *port* plan, not a transcription: three of the brief's nine changes are stale
-against the post-v1-retirement tree and are recorded as such — `RATING_COLOURS` was already
-deleted in D3, the marker-ink fix already landed in a better form via `readableInkOn`, and the
-`ScoreBar` the brief merges onto was deleted in D4 (the live duplication is `PlanScoreBar`
-against `PopupScoreRow`).
+The plan is a *port* plan, not a transcription: four of the brief's changes are stale or
+mis-targeted against the post-v1-retirement tree and are recorded as such — Change 1 names
+`heatField.js`, which holds no stop list (the ramp is `RAMP_STOPS` in `scoreRamp.js`, so following
+it literally would create a second ramp definition); `RATING_COLOURS` was already deleted in D3;
+the marker-ink fix already landed in a better form via `readableInkOn`; and the `ScoreBar` the
+brief merges onto was deleted in D4 (the live duplication is `PlanScoreBar` against
+`PopupScoreRow`). The committed bundle keeps Design's prose verbatim and carries a repo note
+pointing at that list.
 
 One finding came out of checking the plan rather than the brief, and it settled a design rule.
 `readableInkOn` picks the better of two inks, which clears WCAG AA only where one of them reaches
