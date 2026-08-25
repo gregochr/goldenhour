@@ -325,7 +325,7 @@ public class BriefingBestBetAdvisor {
      * Emits a single classifiable disposition log so a truncated advisor response can never
      * again hide as an honest empty-pick result — the camouflage that let this bug persist.
      *
-     * <p>Distinguishes the three cases the forensic dig had to separate by hand:
+     * <p>Distinguishes the cases the forensic dig had to separate by hand:
      * <ul>
      *   <li><b>(a) honest zero</b> — the model returned valid JSON with no picks; logged at INFO.</li>
      *   <li><b>(b) truncation</b> — the response stopped on the token limit and nothing survived;
@@ -333,6 +333,15 @@ public class BriefingBestBetAdvisor {
      *       remediation hint.</li>
      *   <li><b>(c) salvage</b> — the response was token-limited but valid leading pick(s) were
      *       recovered; logged at WARN noting how many survived.</li>
+     *   <li><b>(d) refusal</b> — Claude declined to respond at all (stop_reason=refusal); logged
+     *       at WARN. Without this branch it falls through to (a) — an empty {@code picks} array
+     *       never parses out of refusal prose, so {@code pickCount} reads 0 either way, and a
+     *       hard content-policy refusal was indistinguishable from the model honestly deciding
+     *       there was nothing worth recommending.</li>
+     *   <li><b>(e) context overflow</b> — the response was cut short by the model's context
+     *       window (stop_reason=model_context_window_exceeded); logged at WARN. Distinct from
+     *       (b): raising {@code photocast.best-bet.max-tokens} does nothing for this case, since
+     *       the ceiling that was hit is the model's input side, not the response's output side.</li>
      * </ul>
      *
      * @param stopReason    the SDK-reported stop reason (max_tokens drives truncation detection)
@@ -342,6 +351,22 @@ public class BriefingBestBetAdvisor {
      */
     private void logResponseDisposition(Optional<StopReason> stopReason, int pickCount,
             int responseChars, Long jobRunId) {
+        if (stopReason.filter(sr -> sr.equals(StopReason.REFUSAL)).isPresent()) {
+            LOG.warn("[BEST-BET REFUSAL] Advisor call was refused by Claude "
+                    + "(stop_reason=refusal, responseChars={}, jobRunId={}) — not an honest "
+                    + "decline; the Planner falls back to the mechanical headline.",
+                    responseChars, jobRunId);
+            return;
+        }
+        if (stopReason.filter(sr -> sr.equals(StopReason.MODEL_CONTEXT_WINDOW_EXCEEDED))
+                .isPresent()) {
+            LOG.warn("[BEST-BET CONTEXT OVERFLOW] Advisor response was cut short by the "
+                    + "model's context window (stop_reason=model_context_window_exceeded, "
+                    + "responseChars={}, jobRunId={}) — raising photocast.best-bet.max-tokens "
+                    + "will not fix this; the rollup input itself needs to shrink.",
+                    responseChars, jobRunId);
+            return;
+        }
         boolean tokenLimited = stopReason
                 .filter(sr -> sr.equals(StopReason.MAX_TOKENS)).isPresent();
         if (tokenLimited) {
