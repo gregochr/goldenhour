@@ -60,9 +60,13 @@ commit as the work.
 >    `'verdict'` — an unknown value must never silently select the not-yet-shipped ramp.
 > 4. Route `rampRgb` through the active list. `STOP_RGB` is precomputed at module level today;
 >    you now need one precomputed array per list, selected by mode — not a recompute per call.
-> 5. Add `rampPct(v, lo, hi)`: maps a 0–100 metric onto the ramp's 1–5 domain, i.e.
->    `ramp(1 + clamp((v - lo) / (hi - lo), 0, 1) * 4)`. `lo` at 1★, `hi` at 5★, clamped outside.
->    Nothing calls it yet; Stage 5 does.
+> 5. Add `scoreFromPercent(value, lo, hi)`: maps a 0–100 metric onto the ramp's 1–5 score
+>    domain — `1 + clamp((value - lo) / (hi - lo), 0, 1) * 4`. It returns a **number, not a
+>    colour**: `lo` gives `1`, `hi` gives `5`, clamped outside. Callers compose it as
+>    `rampHex(scoreFromPercent(v, lo, hi))`. ⚠️ The reference kernel calls this `rampPct` and
+>    returns a colour from it — this app keeps domain-mapping and colour-lookup separate, because
+>    `rampHex` / `rampRgb` already take a score. The different name is deliberate; do not
+>    "restore" the kernel's. Nothing calls it yet; Stage 5 does.
 >
 > **Preserve exactly, all of it load-bearing and all of it commented in the file:**
 >
@@ -88,7 +92,9 @@ commit as the work.
 >   spacing.
 > - An unknown mode string falls back to verdict.
 > - Both modes clamp outside 1–5 and both send a non-finite score to the bottom.
-> - `rampPct(lo, lo, hi)` is 1★ and `rampPct(hi, lo, hi)` is 5★, clamping beyond both.
+> - `scoreFromPercent(lo, lo, hi)` is the **number** `1` and `scoreFromPercent(hi, lo, hi)` is `5`,
+>   clamping beyond both. Assert `toBe(1)` / `toBe(5)` — if you find yourself asserting a hex
+>   string here, the function is returning the wrong type.
 > - Restore the default mode between tests — `MODE` is module state and will leak across cases.
 >
 > **Gates, all four, before you push** (the audit step is the one nothing else runs and it has

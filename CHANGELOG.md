@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — three defects in the colour-scale plan found by Codex review on #632
+
+Stage 3 contradicted itself: its first bullet deleted `scoreColour()` while its snap rule required
+rounding *inside* that same function and forbade doing it at the call sites. An implementer could
+satisfy neither, and routing the four callers straight at the ramp reintroduces exactly the
+continuous labelled fills §2.1 exists to prevent. `scoreColour` is now explicitly **kept and
+reimplemented** — its job changes, the function survives, and the brief's "retire it" is recorded
+as superseded.
+
+`rampPct` was specified with two different return types in two stages — a 1–5 score in Stage 1's
+tests, a CSS fill in Stage 5's contract — so a score bar built to the plan would have assigned the
+number `3` to a `background` and rendered no fill. It is renamed **`scoreFromPercent`**, returns a
+number, and callers compose `rampHex(scoreFromPercent(v, lo, hi))`. The rename is deliberate: the
+reference kernel's `rampPct` returns a colour, and this app keeps domain-mapping separate from
+colour-lookup because `rampHex` / `rampRgb` already take a score.
+
+The bimodality pre-check could not have detected bimodality: six percentiles and min/max are shared
+by unimodal and bimodal populations alike. Query 3 is now a **histogram**, plus a zero-inflation
+probe for the specific shape suspected here — a spike sitting entirely inside the 0–9 bucket would
+be invisible to the histogram above it.
+
 ### Added — per-stage kickoff prompts for the heat-scale series
 
 `docs/engineering/heat-scale-stage-prompts.md`, following the `heat-field-prompts.md` pattern: each

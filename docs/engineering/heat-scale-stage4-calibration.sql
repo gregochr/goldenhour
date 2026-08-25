@@ -39,9 +39,13 @@ SELECT count(fiery)  AS fiery_n,
 FROM vals;
 
 \echo ''
-\echo '=== 3. THE SHAPE — so p05/p95 is a decision, not a default ==='
--- If the spread is tight, a narrower pair discriminates better. If it is bimodal,
--- percentiles are the wrong tool and that must be known BEFORE shipping the mapping.
+\echo '=== 3. THE SHAPE — a histogram, because percentiles cannot see modality ==='
+-- Six percentiles and min/max CANNOT distinguish unimodal from bimodal: both populations can
+-- share every one of those summary values. The pre-ship question is specifically whether there
+-- is a mass of stood-down slots near zero SEPARATE from a hump of real forecasts — if so, p05 is
+-- measuring the floor of the wrong population and `lo` belongs at the upper mode's foot.
+-- Read the counts: one hump = unimodal, two humps with a trough between = raise `lo` to the
+-- trough. Also reports the zero-inflation probe, which is the specific shape suspected here.
 WITH vals AS (
     SELECT (e ->> 'fierySkyPotential')::int   AS fiery,
            (e ->> 'goldenHourPotential')::int AS golden
@@ -49,22 +53,31 @@ WITH vals AS (
     CROSS JOIN LATERAL jsonb_array_elements(ce.results_json::jsonb) AS e
     WHERE jsonb_typeof(ce.results_json::jsonb) = 'array'
 )
-SELECT 'fiery' AS metric,
-       min(fiery) AS min,
-       round(percentile_cont(0.10) WITHIN GROUP (ORDER BY fiery)::numeric, 1) AS p10,
-       round(percentile_cont(0.25) WITHIN GROUP (ORDER BY fiery)::numeric, 1) AS p25,
-       round(percentile_cont(0.50) WITHIN GROUP (ORDER BY fiery)::numeric, 1) AS median,
-       round(percentile_cont(0.75) WITHIN GROUP (ORDER BY fiery)::numeric, 1) AS p75,
-       round(percentile_cont(0.90) WITHIN GROUP (ORDER BY fiery)::numeric, 1) AS p90,
-       max(fiery) AS max
+SELECT g.b * 10 AS bucket_from,
+       g.b * 10 + 9 AS bucket_to,
+       count(*) FILTER (WHERE least(vals.fiery  / 10, 9) = g.b) AS fiery_n,
+       count(*) FILTER (WHERE least(vals.golden / 10, 9) = g.b) AS golden_n
 FROM vals
-UNION ALL
-SELECT 'golden',
-       min(golden),
-       round(percentile_cont(0.10) WITHIN GROUP (ORDER BY golden)::numeric, 1),
-       round(percentile_cont(0.25) WITHIN GROUP (ORDER BY golden)::numeric, 1),
-       round(percentile_cont(0.50) WITHIN GROUP (ORDER BY golden)::numeric, 1),
-       round(percentile_cont(0.75) WITHIN GROUP (ORDER BY golden)::numeric, 1),
-       round(percentile_cont(0.90) WITHIN GROUP (ORDER BY golden)::numeric, 1),
-       max(golden)
+CROSS JOIN generate_series(0, 9) AS g(b)
+GROUP BY g.b
+ORDER BY g.b;
+
+\echo ''
+\echo '=== 3b. ZERO-INFLATION PROBE — is there a spike AT the bottom? ==='
+-- A bucket histogram hides a spike sitting entirely inside bucket 0. If exact-zero or <=5
+-- counts dominate that bucket, the low mass is stand-downs rather than a tail, and p05 is
+-- calibrating against slots that were never scored as sky at all.
+WITH vals AS (
+    SELECT (e ->> 'fierySkyPotential')::int   AS fiery,
+           (e ->> 'goldenHourPotential')::int AS golden
+    FROM cached_evaluation ce
+    CROSS JOIN LATERAL jsonb_array_elements(ce.results_json::jsonb) AS e
+    WHERE jsonb_typeof(ce.results_json::jsonb) = 'array'
+)
+SELECT count(*) FILTER (WHERE fiery  = 0)  AS fiery_exactly_0,
+       count(*) FILTER (WHERE fiery  <= 5) AS fiery_le_5,
+       count(*) FILTER (WHERE fiery  < 10) AS fiery_lt_10,
+       count(*) FILTER (WHERE golden = 0)  AS golden_exactly_0,
+       count(*) FILTER (WHERE golden <= 5) AS golden_le_5,
+       count(*) FILTER (WHERE golden < 10) AS golden_lt_10
 FROM vals;

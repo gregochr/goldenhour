@@ -141,12 +141,17 @@ lands (CLAUDE.md, "UI Work — Review Cadence").
   reference kernel's `STOPS_VERDICT` exactly — verified, no colour drift).
 - Add `STOPS_TEMP` verbatim from the reference kernel, uneven spacing intact.
 - Add module-level `MODE`, `setMode()`, `getMode()`, and route `rampHex`/`rampRgb` through it.
-- Add `rampPct(v, lo, hi)` — maps a 0–100 metric onto the 1–5 ramp domain.
+- Add `scoreFromPercent(value, lo, hi)` — maps a 0–100 metric onto the ramp's **1–5 score
+  domain**, returning a *number*, not a colour. ⚠️ The reference kernel calls this `rampPct` and
+  returns a *colour* from it; this app splits domain-mapping from colour-lookup (`rampHex` /
+  `rampRgb` already take a score), so it is renamed to make the divergence impossible to miss.
+  Callers compose: `rampHex(scoreFromPercent(v, lo, hi))`.
 - **`MODE` defaults to `'verdict'`.** This stage is therefore *provably* zero-visual-change,
   which is what makes it a safe first landing and a clean revert point.
 
 Tests: both modes sample correctly at every whole star; the uneven stops interpolate
-monotonically; clamping holds outside 1–5; `rampPct` maps `lo`→1 and `hi`→5.
+monotonically; clamping holds outside 1–5; `scoreFromPercent` maps `lo`→1 and `hi`→5 **as a
+number** — assert `toBe(1)`, not a colour string.
 
 *Nothing downstream of `ramp()` changes in this stage — that is the brief's own rule.*
 
@@ -164,7 +169,12 @@ monotonically; clamping holds outside 1–5; `rampPct` maps `lo`→1 and `hi`→
 
 ### Stage 3 — Markers and clusters onto the ramp
 
-- Delete `scoreColour()` (the stepped 0–100 twin) and route its 4 call sites through the ramp.
+- **Keep `scoreColour()` — reimplement it, do not delete it.** The brief says to retire it in
+  favour of `HeatField.ramp()`, and that is superseded by §2.1: the snap needs a chokepoint, and
+  this is it. Its *job* changes — from a stepped 0–100 twin of the ramp to the single place a
+  0–100 average becomes a whole-star ramp colour — but the function survives and its four call
+  sites keep calling it. Deleting it and routing the callers straight at the ramp is exactly the
+  failure §2.1 exists to prevent: continuous fills under labels.
 - Move the Fiery Sky / Golden Hour arcs off hard-coded `#f97316` / `#E5A00D` onto the same
   source as the score bars, so the pin and the popup cannot disagree about the same two numbers.
 - **Ink needs no work at whole stars** — `readableInkOn` already derives it per fill, and all five
@@ -187,8 +197,8 @@ monotonically; clamping holds outside 1–5; `rampPct` maps `lo`→1 and `hi`→
 ### Stage 4 — Calibrate the two 0–100 metrics — MEASURED, unblocked
 
 The ramp is indexed 1–5 because ratings are. `fierySkyPotential` and `goldenHourPotential` are
-0–100, and assuming they span the full ramp is wrong. `HeatField.rampPct(v, lo, hi)` maps one to
-the other; these are the constants.
+0–100, and assuming they span the full ramp is wrong. `scoreFromPercent(v, lo, hi)` from Stage 1 maps one domain to
+the other; these are its constants.
 
 **Measured against production 2026-08-25**, over `cached_evaluation` — the store the UI actually
 reads — with `docs/engineering/heat-scale-stage4-calibration.sql`:
@@ -209,12 +219,15 @@ reads — with `docs/engineering/heat-scale-stage4-calibration.sql`:
 - **The two metrics genuinely differ** — 7 points apart at the bottom — which is why the brief
   insisted on one pair per metric. That instinct was right even though its numbers were not.
 
-⚠️ **One check outstanding, and it is cheap.** Query 3 of the calibration SQL reports the
-distribution's *shape*. If the population turns out **bimodal** — a mass of stood-down slots near
-zero plus a separate hump of real forecasts — then p05 is measuring the floor of the stand-down
-cluster rather than the bottom of the useful scale, and a percentile is the wrong instrument. The
-pair above is safe to build against either way; what would change is whether `lo` should be raised
-to the second mode's foot. Run it before Stage 5 ships, not before Stage 5 starts.
+⚠️ **One check outstanding, and it is cheap.** Queries 3 and 3b of the calibration SQL report the
+distribution's *shape* as a **histogram**, not as percentiles — percentiles cannot see modality at
+all, since a unimodal and a bimodal population can share every summary value. The question is
+whether there is a mass of stood-down slots near zero **separate** from a hump of real forecasts.
+If there is, p05 is measuring the floor of the stand-down cluster rather than the bottom of the
+useful scale, and `lo` belongs at the trough between the two modes instead. 3b is the
+zero-inflation probe, because a spike sitting entirely inside the 0–9 bucket is invisible to the
+histogram above it. The pair above is safe to build against either way; run this before Stage 5
+**ships**, not before it starts.
 
 ### Stage 5 — One score bar, continuous solid fill
 
@@ -258,8 +271,10 @@ ScoreBar({ label, score, metric, testId, tooltip, dense, labelClassName })
   labelClassName string, optional        unchanged, LocationFourDaySheet's dimming hook
 ```
 
-**`fill` disappears as a prop.** It becomes `rampPct(score, lo, hi)` for the metric — a
-**continuous solid** colour, not a gradient. `PlanScoreBar`'s exported `FIERY_FILL` / `GOLDEN_FILL`
+**`fill` disappears as a prop.** It becomes `rampHex(scoreFromPercent(score, lo, hi))` for the
+metric — a **continuous solid** colour, not a gradient. Note the composition: `scoreFromPercent`
+returns a 1–5 *number* and `rampHex` turns it into a colour. Assigning the number straight to a
+CSS `background` yields no fill at all. `PlanScoreBar`'s exported `FIERY_FILL` / `GOLDEN_FILL`
 and `MarkerPopupContent`'s private copies are all deleted, along with `rampTint`, `FIERY_TINT` and
 `GOLDEN_TINT`. Solid, not gradient: a bar has one value, and a gradient across a ramp that starts
 cold is a five-hue rainbow.
