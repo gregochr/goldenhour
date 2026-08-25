@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.18.18] - 2026-08-25
+
 ### Removed — the v1 component estate (v1 retirement D2)
 
 The six components that only the region-first Plan ever mounted are gone, along with their tests:
