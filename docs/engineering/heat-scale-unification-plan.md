@@ -36,7 +36,7 @@ Three stops are load-bearing and must not be "tidied":
 
 ## 2. ⚠️ Where the brief has gone stale — read before following it
 
-The brief was written against a tree that has since moved. **Four of its changes are wrong as
+The brief was written against a tree that has since moved. **Five of its claims are wrong as
 written.** A session following it literally will either fail to find its target, edit the wrong
 module, or undo work that just landed. The rows are in the order a session meets them.
 
@@ -46,6 +46,7 @@ module, or undo work that just landed. The rows are in the order a session meets
 | Change 3: retire `RATING_COLOURS` | **Already deleted** in v1 retirement D3. Only a Javadoc mention survives in `scoreRamp.js:17`. | Half of Change 3 is done. `scoreColour()` **is** still live (4 call sites in `markerUtils.js`) — that half stands. |
 | Change 4: `buildMarkerSvg` hard-codes `fill="#0f172a"`, make it conditional bone-below-3★ | **Already fixed**, differently and better, by #627 (merged 2026-08-25). Ink is derived per fill through `readableInkOn`, with a computed AA sweep in `MarkerIcon.test.jsx` pinning every stop ≥ 4.5:1. `fill="#0f172a"` no longer appears anywhere. | **Do not implement Change 4.** A hard 3★ threshold would be a regression from a computed rule. The AA sweep already guards the new ramp for free. |
 | Change 5: "delete `PopupScoreRow`, use `ScoreBar` in both places" | `ScoreBar.jsx` was **deleted** in v1 retirement D4 (zero-importer sweep). The live Plan-side component is `PlanScoreBar.jsx`, used by `LocationFourDaySheet` and `WindowSpotPeek`. | The merge target is `PlanScoreBar`, not `ScoreBar`. The duplication is real and still worth collapsing — just between different files than the brief names. |
+| Change 5, second premise: "both step into four buckets, so 26 and 49 are the same colour" (`#A06E00` vs `bg-amber-700`) | **The bucket ladder is gone.** `#A06E00` appears nowhere in the frontend; `bg-amber-700` survives only in `LocationAlerts` and `RunProgressRow`, unrelated. Both components already use byte-identical gradient strings, and the popup ramps its *number* through a 3-stop `rampTint`. | The defect the brief describes no longer exists. Stage 5 is a **deduplication plus a ramp migration**, not a threshold bug fix — which changes what its tests should pin. |
 
 Two further notes:
 
@@ -140,12 +141,17 @@ lands (CLAUDE.md, "UI Work — Review Cadence").
   reference kernel's `STOPS_VERDICT` exactly — verified, no colour drift).
 - Add `STOPS_TEMP` verbatim from the reference kernel, uneven spacing intact.
 - Add module-level `MODE`, `setMode()`, `getMode()`, and route `rampHex`/`rampRgb` through it.
-- Add `rampPct(v, lo, hi)` — maps a 0–100 metric onto the 1–5 ramp domain.
+- Add `scoreFromPercent(value, lo, hi)` — maps a 0–100 metric onto the ramp's **1–5 score
+  domain**, returning a *number*, not a colour. ⚠️ The reference kernel calls this `rampPct` and
+  returns a *colour* from it; this app splits domain-mapping from colour-lookup (`rampHex` /
+  `rampRgb` already take a score), so it is renamed to make the divergence impossible to miss.
+  Callers compose: `rampHex(scoreFromPercent(v, lo, hi))`.
 - **`MODE` defaults to `'verdict'`.** This stage is therefore *provably* zero-visual-change,
   which is what makes it a safe first landing and a clean revert point.
 
 Tests: both modes sample correctly at every whole star; the uneven stops interpolate
-monotonically; clamping holds outside 1–5; `rampPct` maps `lo`→1 and `hi`→5.
+monotonically; clamping holds outside 1–5; `scoreFromPercent` maps `lo`→1 and `hi`→5 **as a
+number** — assert `toBe(1)`, not a colour string.
 
 *Nothing downstream of `ramp()` changes in this stage — that is the brief's own rule.*
 
@@ -163,42 +169,146 @@ monotonically; clamping holds outside 1–5; `rampPct` maps `lo`→1 and `hi`→
 
 ### Stage 3 — Markers and clusters onto the ramp
 
-- Delete `scoreColour()` (the stepped 0–100 twin) and route its 4 call sites through the ramp.
+- **Keep `scoreColour()` — reimplement it, do not delete it.** The brief says to retire it in
+  favour of `HeatField.ramp()`, and that is superseded by §2.1: the snap needs a chokepoint, and
+  this is it. Its *job* changes — from a stepped 0–100 twin of the ramp to the single place a
+  0–100 average becomes a whole-star ramp colour — but the function survives and its four call
+  sites keep calling it. Deleting it and routing the callers straight at the ramp is exactly the
+  failure §2.1 exists to prevent: continuous fills under labels.
 - Move the Fiery Sky / Golden Hour arcs off hard-coded `#f97316` / `#E5A00D` onto the same
   source as the score bars, so the pin and the popup cannot disagree about the same two numbers.
 - **Ink needs no work at whole stars** — `readableInkOn` already derives it per fill, and all five
   temperature stops clear AA (1★ 7.13:1, 2★ 6.04, 3★ 6.51, 4★ 4.87, 5★ 5.52, computed).
-- **Snap the cluster fill to whole stars** (§2.1's decision): `scoreColour` currently hands
-  `rampHex` a continuous `avg / 20`, which paints a labelled badge from the ramp's interior.
-  Round at the boundary so only whole stars are ever sampled.
+- **Snap the cluster fill to whole stars** (§2.1's decision). Be precise about where:
+
+  `markerUtils.scoreColour(avg)` is the single chokepoint — it is `avg == null ? NO_DATA_COLOUR :
+  rampHex(starsFromAverage(avg))`, and `starsFromAverage` is `avg / 20`, continuous. **Round inside
+  `scoreColour`**, at that call: `rampHex(Math.round(starsFromAverage(avg)))`. Not at the four call
+  sites — one of them would eventually be added without it, and the failure is invisible.
+
+  **Round, do not floor.** The nearest whole star is the honest reading of an average; flooring
+  systematically under-reports and would make an 89-average cluster render as 4★ when it is nearer
+  5. `rampHex` already clamps to 1–5, so `avg = 0` needs no special case.
+
+  `markerUtils.js:64` (`rampHex(rating)`) is already integer and needs no change.
 - Add a test asserting the invariant directly — *label-bearing fills sample at whole stars* —
   rather than extending the existing value sweep, which passes on the only five safe values.
 
-### Stage 4 — Calibrate the two 0–100 metrics ⚠️ needs real data
+### Stage 4 — Calibrate the two 0–100 metrics — MEASURED, unblocked
 
 The ramp is indexed 1–5 because ratings are. `fierySkyPotential` and `goldenHourPotential` are
-0–100, and assuming they span the full ramp is wrong — the brief notes every test fixture sits
-between 50 and 78, which a naive mapping squeezes into 3.0–4.1: gold to orange, never cold,
-never hot.
+0–100, and assuming they span the full ramp is wrong. `scoreFromPercent(v, lo, hi)` from Stage 1 maps one domain to
+the other; these are its constants.
 
-Produce **one `lo`/`hi` pair per metric**, roughly the 5th and 95th percentile over stored values.
-The doc's 25–85 is an illustration and must not be shipped.
+**Measured against production 2026-08-25**, over `cached_evaluation` — the store the UI actually
+reads — with `docs/engineering/heat-scale-stage4-calibration.sql`:
 
-**This stage is blocked on data access** and is the one place the plan needs the owner:
-production is a separate Linux host, and the local H2 database has no representative distribution.
-Either the owner runs the percentile query against production, or we accept a documented interim
-pair and re-measure later. *Do not let a Sonnet session invent these numbers.*
+| metric | n | `lo` (p05) | `hi` (p95) |
+|---|---|---|---|
+| `fierySkyPotential` | 19,488 | **8** | **72** |
+| `goldenHourPotential` | 19,488 | **15** | **76** |
+
+**Ship these, and note what they overturn:**
+
+- **The doc's illustrative 25–85 would have been wrong in both directions**, and badly. Under it a
+  typical fiery reading of 40 resolves to 2.0★ — blue-grey, the *cold* end. Under the measured
+  pair the same 40 lands at 3.0★, gold. Nearly every bar would have read colder than the sky it
+  described.
+- **The brief's premise that the values cluster at 50–78 was a fixture artifact, not the
+  population.** Real p05s are 8 and 15. The test suite is not a sample of the sky.
+- **The two metrics genuinely differ** — 7 points apart at the bottom — which is why the brief
+  insisted on one pair per metric. That instinct was right even though its numbers were not.
+
+⚠️ **One check outstanding, and it is cheap.** Queries 3 and 3b of the calibration SQL report the
+distribution's *shape* as a **histogram**, not as percentiles — percentiles cannot see modality at
+all, since a unimodal and a bimodal population can share every summary value. The question is
+whether there is a mass of stood-down slots near zero **separate** from a hump of real forecasts.
+If there is, p05 is measuring the floor of the stand-down cluster rather than the bottom of the
+useful scale, and `lo` belongs at the trough between the two modes instead. 3b is the
+zero-inflation probe, because a spike sitting entirely inside the 0–9 bucket is invisible to the
+histogram above it. The pair above is safe to build against either way; run this before Stage 5
+**ships**, not before it starts.
 
 ### Stage 5 — One score bar, continuous solid fill
 
-- Collapse `PopupScoreRow` (`MarkerPopupContent.jsx`, 4 call sites) into `PlanScoreBar`.
-- Replace both bucket ladders with a **continuous solid fill** sampled via `rampPct` using
-  Stage 4's constants, number tinted to match. Solid, not gradient.
-- Update `PlanScoreBar`'s own tests plus `MarkerPopupContent.test.jsx`.
+⚠️ **Read §2's Change 5 row first.** Both premises in the brief are stale: `ScoreBar.jsx` was
+deleted in D4, and the "four buckets, so 26 and 49 are the same colour" defect **no longer exists**
+— `#A06E00` appears nowhere in the frontend, and the two live components already share
+byte-identical gradient strings. What remains is real but different: **two components, one
+duplicated pair of gradients, drifting apart.**
 
-Today the two implementations use different thresholds — `#A06E00` against Tailwind's
-`bg-amber-700` at the third bucket — so 26 and 49 render identically while the same score renders
-differently on different surfaces. That is the defect this stage closes.
+#### What is actually duplicated
+
+| | `PlanScoreBar.jsx` (Plan) | `PopupScoreRow` (in `MarkerPopupContent.jsx`) |
+|---|---|---|
+| call sites | `LocationFourDaySheet` ×2, `WindowSpotPeek` ×2 | ×4, all in `MarkerPopupContent` |
+| bar fill | `fill` **prop**, `FIERY_FILL` / `GOLDEN_FILL` | derived from `label` string, same two constants |
+| null score | not handled — callers guard with `!= null` | renders `—` |
+| number tint | **none**, deliberate (SC 1.4.1 note in its module doc) | `rampTint` over a 3-stop scale |
+| tooltip | none | `InfoTip` via `SCORE_TOOLTIPS`, dotted underline on the label |
+| type scale | 10px | 11px |
+| markup | Tailwind classes + `.wf-peek-bar` | all inline styles |
+| `testId` | required prop | none |
+
+The gradients are quoted, not imported — `PlanScoreBar`'s module doc explains why (importing a
+~1,300-line component into the Plan chunk to fetch two strings). Once the fill is **derived from
+the ramp**, that reason evaporates and the duplication goes with it.
+
+#### The merged component
+
+Rename `PlanScoreBar.jsx` → **`components/ScoreBar.jsx`**. It will serve Plan *and* Map, so
+"Plan" in the name becomes wrong; the `ScoreBar.jsx` deleted in D4 is gone and the name is free.
+
+```
+ScoreBar({ label, score, metric, testId, tooltip, dense, labelClassName })
+
+  label          string, required        'Fiery Sky' | 'Golden Hour' — printed as-is
+  score          number | null, required 0-100; null renders an em dash, not a zero-length bar
+  metric         'fiery' | 'golden'      REPLACES the `fill` prop — selects the lo/hi pair
+  testId         string, required        popup call sites gain one; they have none today
+  tooltip        node, optional          popup passes <InfoTip .../>; Plan passes nothing
+  dense          bool, default false     true = the Plan peek's 10px scale
+  labelClassName string, optional        unchanged, LocationFourDaySheet's dimming hook
+```
+
+**`fill` disappears as a prop.** It becomes `rampHex(scoreFromPercent(score, lo, hi))` for the
+metric — a **continuous solid** colour, not a gradient. Note the composition: `scoreFromPercent`
+returns a 1–5 *number* and `rampHex` turns it into a colour. Assigning the number straight to a
+CSS `background` yields no fill at all. `PlanScoreBar`'s exported `FIERY_FILL` / `GOLDEN_FILL`
+and `MarkerPopupContent`'s private copies are all deleted, along with `rampTint`, `FIERY_TINT` and
+`GOLDEN_TINT`. Solid, not gradient: a bar has one value, and a gradient across a ramp that starts
+cold is a five-hue rainbow.
+
+**The number is tinted to match, on both surfaces.** This closes `PlanScoreBar`'s documented
+deviation deliberately rather than by accident. It does not reintroduce an SC 1.4.1 problem: the
+numeral states the value in text, so nothing is encoded by colour alone — which was the actual
+requirement the note was protecting.
+
+#### Call-site mapping — all eight
+
+| file | change |
+|---|---|
+| `WindowSpotPeek` ×2 | drop `fill`, add `metric="fiery"` / `"golden"`, add `dense` |
+| `LocationFourDaySheet` ×2 | drop `fill`, add `metric`, keep `labelClassName` |
+| `MarkerPopupContent` ×4 | `PopupScoreRow` → `ScoreBar`, add `metric` and `testId`, pass `tooltip={SCORE_TOOLTIPS[label] && <InfoTip .../>}` |
+
+The Plan call sites keep their `score != null &&` guards — they render *nothing* for a missing
+score, where the popup renders an em dash. That difference is deliberate and survives the merge:
+a tooltip with a stray dash in it is noise; a popup row that vanishes is a layout jump.
+
+#### Scope boundary
+
+`PopupScoreRow`'s inline styles move across as-is. CLAUDE.md's "Tailwind only, no inline styles"
+rule is violated by **both** components today; converting them is pre-existing debt and **not**
+this stage's job. Say so in the PR rather than silently expanding.
+
+#### Tests
+
+`WindowSpotPeek`'s tests are the purity check — this project's own standard, set by the
+`solarDayGeometry` extraction and reused when `PeekScoreBar` became `PlanScoreBar`. They cannot
+pass entirely unedited here (the fill genuinely changes), so pin the parts that must not move:
+label text, the `data-score` attribute, the `100 - pct` rest-width, and the null branch. Add one
+test that the fill is the ramp's colour for that score rather than any gradient string.
 
 ### Stage 6 — The preference, full-stack (still defaulting to verdict)
 
@@ -256,8 +366,9 @@ setting; it is a sentence.
 
 ## 5. Open questions for the owner
 
-1. **Stage 4's percentiles.** Production query, or ship a documented interim pair and re-measure?
-   This blocks Stages 4–5 but nothing else; every other stage can proceed either way.
+1. **Is the potential distribution bimodal?** Query 3 of the calibration SQL answers it. If it is,
+   `lo` should be the foot of the upper mode rather than p05 — see Stage 4. Cheap, and it only
+   needs answering before Stage 5 ships.
 2. **The semantic inversion.** On the current ramp red means *bad* (1★); on the temperature ramp
    red-orange means *good* (4.3★+). Anyone who has learned the old map will read the new one
    exactly backwards until they see the notice. Stage 7 is designed for this, but it is worth a
