@@ -78,7 +78,6 @@ vi.mock('../components/markerUtils.js', () => ({
   buildStandDownSvg: () => '<svg></svg>',
   markerLabelAndColour: () => ({ label: '4★', colour: '#E5A00D' }),
   createClusterIcon: () => ({ options: { html: '', iconSize: { x: 40, y: 40 }, className: '' } }),
-  RATING_COLOURS: { 1: '#A32D2D', 2: '#D85A30', 3: '#FAC775', 4: '#97C459', 5: '#3B6D11' },
   STAND_DOWN_COLOUR: '#501313',
 }));
 
@@ -408,12 +407,14 @@ describe('MapView stand-down filter pill', () => {
 
 // Exact rgb each pill must render. JSDOM normalises hex to "rgb(r, g, b)"
 // in element.style.backgroundColor, so these assertions catch colour swaps.
+// These are the score ramp's five stops (scoreRamp.js RAMP_STOPS) — the star-filter swatch is
+// one of the map surfaces that paints from the ramp now, not v1's separate RATING_COLOURS table.
 const EXPECTED_DOT_RGB = {
-  1: 'rgb(163, 45, 45)',   // #A32D2D
-  2: 'rgb(216, 90, 48)',   // #D85A30
-  3: 'rgb(250, 199, 117)', // #FAC775
-  4: 'rgb(151, 196, 89)',  // #97C459
-  5: 'rgb(59, 109, 17)',   // #3B6D11
+  1: 'rgb(176, 58, 42)',   // #B03A2A
+  2: 'rgb(200, 69, 47)',   // #C8452F
+  3: 'rgb(224, 165, 66)',  // #E0A542
+  4: 'rgb(176, 190, 116)', // #B0BE74
+  5: 'rgb(138, 174, 114)', // #8AAE72
 };
 const STAND_DOWN_RGB = 'rgb(80, 19, 19)';  // #501313
 

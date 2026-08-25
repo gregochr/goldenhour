@@ -7,7 +7,7 @@ import ChangePasswordPage from './components/ChangePasswordPage.jsx';
 import SessionExpiryBanner from './components/SessionExpiryBanner.jsx';
 import AuroraBanner from './components/AuroraBanner.jsx';
 import NlcSightingBanner from './components/NlcSightingBanner.jsx';
-import HealthIndicator, { VARIANT_MASTHEAD } from './components/HealthIndicator.jsx';
+import HealthIndicator from './components/HealthIndicator.jsx';
 import UserSettingsModal from './components/UserSettingsModal.jsx';
 import { getSettings } from './api/settingsApi.js';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
@@ -416,7 +416,6 @@ function AppInner() {
                   session={healthSession}
                   appVersion={healthAppVersion}
                   startedAt={healthStartedAt}
-                  variant={VARIANT_MASTHEAD}
                 />
               ) : null}
               onEvaluationScoresChange={handleEvaluationScoresChange}

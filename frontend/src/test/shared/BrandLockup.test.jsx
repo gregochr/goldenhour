@@ -56,30 +56,33 @@ describe('BrandLockup', () => {
     expect(heightPx / pitch).toBeGreaterThanOrEqual(3); // enough repeats to read as a pattern
   });
 
-  it('gives compact a tighter gauge than header rather than the same one at a smaller size', () => {
+  it('gives compact a tighter gauge than the default (masthead) gauge, rather than the same one at a smaller size', () => {
     // Both variants sharing a pitch is precisely the shipped bug. Asserted as an inequality because
-    // the header's own gauge is not this test's business — only that compact no longer inherits it.
+    // the wider gauge's own value is not this test's business — only that compact no longer inherits it.
     const { rerender } = render(<BrandLockup variant="compact" />);
     const compactPitch = pitchOf(screen.getByTestId('brand-lockup-spine'));
-    rerender(<BrandLockup variant="header" />);
-    const headerPitch = pitchOf(screen.getByTestId('brand-lockup-spine'));
+    rerender(<BrandLockup />);
+    const defaultPitch = pitchOf(screen.getByTestId('brand-lockup-spine'));
 
-    expect(compactPitch).toBeLessThan(headerPitch);
+    expect(compactPitch).toBeLessThan(defaultPitch);
   });
 
-  it('keeps the header gauge on the auth variant, which has the prose to carry it', () => {
-    // `auth` drops nothing — it is the header lockup at 34px — so it must not pick up the compact
-    // gauge by being lumped in with "not header".
+  it('keeps the same non-compact gauge on the auth variant as everywhere else, which has the prose to carry it', () => {
+    // `auth` drops nothing — it is the wide-gauge lockup at 34px — so it must not pick up the
+    // compact gauge by being lumped in with "not masthead".
     const { rerender } = render(<BrandLockup variant="auth" />);
     const authPitch = pitchOf(screen.getByTestId('brand-lockup-spine'));
-    rerender(<BrandLockup variant="header" />);
+    rerender(<BrandLockup />);
 
     expect(authPitch).toBe(pitchOf(screen.getByTestId('brand-lockup-spine')));
   });
 
-  it('renders the kicker and the tagline', () => {
-    render(<BrandLockup />);
-    expect(screen.getByText('Field guide to light')).toBeInTheDocument();
+  it('auth keeps both the kicker and the tagline — drops nothing', () => {
+    // The component's own docblock used to claim the tagline was header-only; the JSX says
+    // otherwise — it is gated on `!isCompact && !isMasthead`, which `auth` satisfies. This pins the
+    // real gating against a future "cleanup" that trusts the docblock again.
+    render(<BrandLockup variant="auth" />);
+    expect(screen.getByText('For landscape photographers')).toBeInTheDocument();
     expect(screen.getByText('Golden hour, forecast and ranked by AI')).toBeInTheDocument();
   });
 
@@ -91,7 +94,7 @@ describe('BrandLockup', () => {
     expect(screen.getByText('For landscape photographers')).toBeInTheDocument();
     expect(screen.queryByText('Field guide to light')).not.toBeInTheDocument();
 
-    rerender(<BrandLockup variant="header" />);
+    rerender(<BrandLockup />);
     expect(screen.getByText('Field guide to light')).toBeInTheDocument();
     expect(screen.queryByText('For landscape photographers')).not.toBeInTheDocument();
   });
@@ -112,12 +115,12 @@ describe('BrandLockup', () => {
       expect(screen.getByText('Field guide to light').className).toContain('text-plex-coral');
     });
 
-    it('takes the header gauge, not the compact one', () => {
+    it('takes the same non-compact gauge as auth, not the compact one', () => {
       // The lockup is ~50px tall again — two lines, not one — so the tight gauge that exists for a
       // 20px lockup would show four perforations in a space built for six.
       const { rerender } = render(<BrandLockup variant="masthead" />);
       const mastheadPitch = pitchOf(screen.getByTestId('brand-lockup-spine'));
-      rerender(<BrandLockup variant="header" />);
+      rerender(<BrandLockup variant="auth" />);
 
       expect(mastheadPitch).toBe(pitchOf(screen.getByTestId('brand-lockup-spine')));
     });
@@ -176,19 +179,16 @@ describe('BrandLockup', () => {
     expect(screen.getByText('Field guide to light').className).toContain('text-plex-coral');
   });
 
-  it.each([
-    ['header', 'text-[40px]', 'text-[34px]'],
-    ['auth', 'text-[34px]', 'text-[40px]'],
-  ])('sizes the %s variant wordmark', (variant, expected, notExpected) => {
-    render(<BrandLockup variant={variant} />);
+  it('sizes the auth variant wordmark', () => {
+    render(<BrandLockup variant="auth" />);
     const wordmark = screen.getByRole('heading', { level: 1 });
-    expect(wordmark.className).toContain(expected);
-    expect(wordmark.className).not.toContain(notExpected);
+    expect(wordmark.className).toContain('text-[34px]');
+    expect(wordmark.className).not.toContain('text-[21px]');
   });
 
-  it('defaults to the header variant', () => {
+  it('defaults to the masthead variant', () => {
     render(<BrandLockup />);
-    expect(screen.getByTestId('brand-lockup')).toHaveAttribute('data-variant', 'header');
-    expect(screen.getByRole('heading', { level: 1 }).className).toContain('text-[40px]');
+    expect(screen.getByTestId('brand-lockup')).toHaveAttribute('data-variant', 'masthead');
+    expect(screen.getByRole('heading', { level: 1 }).className).toContain('text-[21px]');
   });
 });

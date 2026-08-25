@@ -1,13 +1,10 @@
 import React from 'react';
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import WindowFirstRegionalPanel from '../components/WindowFirstRegionalPanel.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
-import { getAstroConditions } from '../api/astroApi.js';
 
-vi.mock('../api/astroApi.js', () => ({ getAstroConditions: vi.fn() }));
-
-// The grid is a 900-line v1 component with its own suite. What this file protects is the WIRING —
+// The grid is a large component with its own suite. What this file protects is the WIRING —
 // the props the re-parenting has to get right, several of which have no other guard because this is
 // the grid's only second call site.
 vi.mock('../components/HeatmapGrid.jsx', () => ({
@@ -66,10 +63,6 @@ const renderPanel = (overrides = {}, props = {}) => {
 
 beforeEach(() => {
   HeatmapGrid.lastProps = null;
-  // `restoreAllMocks` does not touch a `vi.fn()` created in a module factory, so the call count
-  // carries across tests — which silently turned "asks once per date" into "has ever been asked".
-  getAstroConditions.mockReset();
-  getAstroConditions.mockResolvedValue([]);
   localStorage.clear();
 });
 afterEach(() => vi.restoreAllMocks());
@@ -123,14 +116,7 @@ describe('WindowFirstRegionalPanel', () => {
     ]);
   });
 
-  it('pins the quality tier where the v1 arm pins it', () => {
-    // The slider was retired and the tier is a seam. A different value here would make the same
-    // grid show a different number of rows in the two arms — which is the comparison §4 is running.
-    renderPanel();
-    expect(HeatmapGrid.lastProps.qualityTier).toBe(5);
-  });
-
-  it('passes the travel days through, so the grid drops their columns as it does in v1', () => {
+  it('passes the travel days through, so the grid drops their columns', () => {
     renderPanel();
     expect(HeatmapGrid.lastProps.travelDayDates.has('2026-08-06')).toBe(true);
   });
@@ -138,31 +124,6 @@ describe('WindowFirstRegionalPanel', () => {
   it('passes the batch scores through, which is what fills the cells', () => {
     renderPanel();
     expect(HeatmapGrid.lastProps.evaluationScores.get('k')).toEqual({ rating: 4 });
-  });
-
-  it('opts the grid into the phone layout, which the frozen v1 arm does not', () => {
-    // The single line that makes the full plan reachable on a phone in this arm, and the single
-    // line whose absence is invisible: `scrollable` defaults to false, so dropping it here disables
-    // the scroll port and the pinned column with every test in `HeatmapGrid.test.jsx` still green —
-    // that suite passes the prop itself and cannot see this call site.
-    //
-    // Asserted `toBe(true)` rather than truthy: the grid branches on it to choose a 96px column
-    // floor over `0`, and that branch must not silently flip back to the no-scroll default.
-    renderPanel();
-    expect(HeatmapGrid.lastProps.scrollable).toBe(true);
-  });
-
-  it('opts the grid into the backend-derived cell star, which the frozen v1 arm does not', () => {
-    // The same shape and the same invisibility as `scrollable` above: it defaults to false, so
-    // dropping this line silently returns every cell to the client-side join over
-    // `/api/briefing/evaluate/scores` — a star and a verdict word from two computations with two
-    // cache lifetimes — with `HeatmapGrid.test.jsx` still green, because that suite passes the prop
-    // itself and cannot see this call site.
-    //
-    // `toBe(true)`, not truthy: the grid branches on it, and the branch it must NOT silently fall
-    // back to is the client-side join.
-    renderPanel();
-    expect(HeatmapGrid.lastProps.serverCellRating).toBe(true);
   });
 
   it('still passes the evaluation scores, which the drill-down reads', () => {
@@ -180,50 +141,7 @@ describe('WindowFirstRegionalPanel', () => {
     expect(Object.keys(HeatmapGrid.lastProps)).not.toContain('isLiteUser');
   });
 
-  describe('astro conditions', () => {
-    it('fetches one date per rendered day and indexes the scores by location name', async () => {
-      getAstroConditions.mockResolvedValue([{ locationName: 'Buttermere', score: 8 }]);
-      renderPanel();
-
-      await waitFor(() => expect(HeatmapGrid.lastProps.astroScoresByDate['2026-08-04']).toBeDefined());
-      expect(getAstroConditions).toHaveBeenCalledWith('2026-08-04');
-      expect(HeatmapGrid.lastProps.astroScoresByDate['2026-08-04'].Buttermere).toEqual({
-        locationName: 'Buttermere', score: 8,
-      });
-    });
-
-    it('asks once per DATE, not once per window', async () => {
-      // Two events on one day is the normal case — a sunrise and a sunset — and astro is nightly.
-      renderPanel({
-        upcomingEvents: [
-          { date: '2026-08-04', targetType: 'SUNRISE' },
-          { date: '2026-08-04', targetType: 'SUNSET' },
-        ],
-      });
-
-      await waitFor(() => expect(getAstroConditions).toHaveBeenCalled());
-      expect(getAstroConditions).toHaveBeenCalledTimes(1);
-    });
-
-    it('leaves the grid drawing when a date\'s request rejects', async () => {
-      // The same degradation v1 has: an empty astro column, not a blank panel.
-      getAstroConditions.mockRejectedValue(new Error('502'));
-      renderPanel();
-
-      await waitFor(() => expect(HeatmapGrid.lastProps.astroScoresByDate['2026-08-04']).toEqual({}));
-      expect(screen.getByTestId('stub-heatmap')).toBeInTheDocument();
-    });
-
-    it('asks for nothing when there are no dates to ask about', () => {
-      renderPanel({ upcomingEvents: [] });
-      expect(getAstroConditions).not.toHaveBeenCalled();
-      expect(HeatmapGrid.lastProps.astroScoresByDate).toEqual({});
-    });
-  });
-
-  it('shares the stand-down display preference with the v1 arm, rather than resetting it', () => {
-    // Same localStorage key. A second key would silently reset the reader's choice the moment the
-    // flag default flips, which is the one transition the whole redesign is building towards.
+  it('reads the stand-down display preference from its shared localStorage key', () => {
     localStorage.setItem('showStanddownLocations', 'true');
     renderPanel();
     expect(HeatmapGrid.lastProps.showAllLocations).toBe(true);

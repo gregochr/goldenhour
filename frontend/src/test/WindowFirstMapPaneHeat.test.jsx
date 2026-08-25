@@ -5,7 +5,7 @@ import {
 import { render } from '@testing-library/react';
 
 /**
- * The `heat` prop the v2 Map pane builds, and the reasons each field is shaped the way it is.
+ * The `heat` prop the Map pane builds, and the reasons each field is shaped the way it is.
  *
  * <p>`MapView` is stubbed and every assertion is about what it is HANDED — the same level
  * `WindowFirstMapPane.test.jsx` works at, and the right one: what this component decides is
@@ -154,7 +154,7 @@ describe('WindowFirstMapPane — the heat prop', () => {
   });
 
   it('supplies no boxes at all when there is nothing to frame', () => {
-    // `bbox` over an empty list has no answer, and `MapView` falls back to v1's framing on null.
+    // `bbox` over an empty list has no answer, and `MapView` falls back to the default framing on null.
     renderPane(context({ heatSpots: [] }));
     expect(MapStub.lastProps.heat.areaBounds).toBeNull();
     expect(MapStub.lastProps.heat.catalogueBounds).toBeNull();
@@ -244,7 +244,7 @@ describe('WindowFirstMapPane — the origin', () => {
     expect(MapStub.lastProps.heat.driveOverrideById).toBe(BASE_REACH);
   });
 
-  it('hands the map NO override at home, so v1 and the home path keep their own fetch', () => {
+  it('hands the map NO override at home, so the standalone Map tab and the home path keep their own fetch', () => {
     renderPane(context({ effectiveReachById: REACH }));
     expect(MapStub.lastProps.heat.driveOverrideById).toBeUndefined();
   });

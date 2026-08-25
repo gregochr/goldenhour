@@ -49,16 +49,16 @@ const MAX_RATING = 5;
  * covered.
  *
  * <p>⚠️ <b>The light ink is pure white and not {@code --color-plex-text}, and that changed with the
- * ramp (D2).</b> Against v1's {@code RATING_COLOURS} the app's own cream cleared AA on every step
- * it was chosen for; against the score ramp it does not. Measured on the five ramp stops, cream
+ * ramp (D2).</b> Against the old five-bucket marker palette the app's own cream cleared AA on every
+ * step it was chosen for; against the score ramp it does not. Measured on the five ramp stops, cream
  * (#F2E7D3) gives 4.92 / <b>3.94</b> / 1.78 / 1.64 / 2.05 and the dark ink gives 2.96 / <b>3.70</b>
  * / 8.19 / 8.90 / 7.12 — so at 2★ (#C8452F) <em>neither</em> reaches the 4.5:1 this 10px badge
  * needs, and the swap would have shipped one step below AA. White gives 6.03 / <b>4.83</b> / 2.18 /
  * 2.01 / 2.51, so every step clears with the same two-ink derivation, and white flips to the dark
- * ink at exactly the step the cream would have (between 2★ and 3★ — <em>not</em> where v1's ramp
- * flipped, which was between 1★ and 2★ and again between 4★ and 5★, since that palette peaked in
- * the middle). The alternative — darkening the 2★ stop — would have broken D2's whole point, which
- * is that the badge and the field beneath it mean the same thing by the same colour.
+ * ink at exactly the step the cream would have (between 2★ and 3★ — <em>not</em> where the old
+ * palette flipped, which was between 1★ and 2★ and again between 4★ and 5★, since that palette
+ * peaked in the middle). The alternative — darkening the 2★ stop — would have broken D2's whole
+ * point, which is that the badge and the field beneath it mean the same thing by the same colour.
  */
 const BADGE_INK_LIGHT = '#FFFFFF';
 const BADGE_INK_DARK = '#0F172A';
@@ -105,18 +105,19 @@ export function readableInkOn(fillHex) {
  * unrated spot is one nothing has looked at, which is a different statement from a poor one.
  *
  * <p><b>The fill comes from {@code scoreRamp} (D2, P5), and the gate had to be written out to keep
- * that from changing what the badge shows.</b> {@code RATING_COLOURS} is a five-key table that
- * answers {@code undefined} for anything else, so the old {@code fill ?} test was the domain check
- * as well as the null check. {@code rampHex} is defined on the continuum and <em>clamps</em>, so it
- * answers a colour for 0, for 6 and for 2.5 — which would have put a badge on an unrated spot and
- * printed "2.5★" where the table drew nothing. The bounds are {@link MIN_RATING}/{@link MAX_RATING},
- * the <em>rating's</em> own, and deliberately not the ramp's {@code RAMP_MIN}/{@code RAMP_MAX}:
- * they coincide today, but {@code scoreRamp} is shared with the heat kernel and the markers, and a
- * ramp re-based to 0–100 would silently widen this badge to paint a "0★".
+ * that from changing what the badge shows.</b> The old five-key marker table answered
+ * {@code undefined} for anything outside its keys, so the old {@code fill ?} test was the domain
+ * check as well as the null check. {@code rampHex} is defined on the continuum and <em>clamps</em>,
+ * so it answers a colour for 0, for 6 and for 2.5 — which would have put a badge on an unrated spot
+ * and printed "2.5★" where the table drew nothing. The bounds are {@link MIN_RATING}/{@link
+ * MAX_RATING}, the <em>rating's</em> own, and deliberately not the ramp's {@code RAMP_MIN}/
+ * {@code RAMP_MAX}: they coincide today, but {@code scoreRamp} is shared with the heat kernel and
+ * the markers, and a ramp re-based to 0–100 would silently widen this badge to paint a "0★".
  *
- * <p>It restates the table for every input the payload can produce, with one exception worth
- * naming: object indexing coerces, so {@code RATING_COLOURS['4']} answered a colour and this does
- * not. Jackson serialises {@code claudeRating} as a JSON number, so no live payload reaches it.
+ * <p>It restates the old table's domain for every input the payload can produce, with one exception
+ * worth naming: object indexing coerces, so a string key like {@code '4'} answered a colour there
+ * and this does not. Jackson serialises {@code claudeRating} as a JSON number, so no live payload
+ * reaches it.
  *
  * @param {?number} rating 1–5, or null
  * @returns {?{background: string, color: string}} inline style, or null

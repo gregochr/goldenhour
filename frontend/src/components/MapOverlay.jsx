@@ -7,7 +7,7 @@ import useDialogFocus from '../hooks/useDialogFocus.js';
  * recommendation was tapped. Frames a `MapView` node with a header (what you're looking at), the
  * preserved Claude narrative as a footer band, and a quiet escape hatch to the full Map tab.
  *
- * <p>Closeable with ✕, Esc, or a backdrop click — the caller's `viewMode` is untouched, so the user
+ * <p>Closeable with ✕, Esc, or a backdrop click — closing simply dismisses the overlay, so the user
  * stays exactly where they were on the Plan tab.
  *
  * @param {Object}      props
@@ -175,13 +175,9 @@ export default function MapOverlay({
           <span className="font-mono text-plex-text-muted" style={{ fontSize: '11px' }}>
             Esc to close · you stay on the Plan tab
           </span>
-          {/* Rendered only when a caller supplied the handler, which BOTH arms now do — P15b gave
-              the window-first arm a Map tab, and `openFullMapTab` routes each arm its own way
-              (v1 sets the view mode; v2 nonce-requests a tab from its own shell, which ignores
-              `viewMode` entirely). The window-first arm still withholds the handler when it has no
-              forecast dates and therefore no Map tab, so the rule this comment was written for
-              survives in the one case it still applies to: never name a destination that does not
-              exist. */}
+          {/* Rendered only when a caller supplied the handler. `openFullMapTab` nonce-requests a
+              tab from the shell, and is withheld when there is no Map tab to reach (no forecast
+              dates) — never name a destination that does not exist. */}
           {onOpenFullMap && (
             <button
               type="button"

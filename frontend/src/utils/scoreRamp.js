@@ -13,9 +13,12 @@
  * a reader who has learned that amber means "marginal" on a pill reads the same amber correctly
  * in the field. Stops 1 and 4 fill in the ends the verdict vocabulary has no word for.
  *
- * <p>⚠️ This is NOT {@code markerUtils.RATING_COLOURS}. That is v1's ramp and v1 is the pilot's
- * frozen comparison control — it must keep rendering byte-identically until the flag flips, so
- * nothing here may be pushed into it.
+ * <p>This is the map's only SCORE colour language now. It once stood beside a separate five-bucket
+ * table ({@code markerUtils.RATING_COLOURS}) that belonged to v1, the pilot's frozen comparison
+ * control, kept deliberately un-ramped so v1 rendered byte-identically until the flag flipped.
+ * v1 was retired along with the rest of that UI estate, and its table went with it — every rated
+ * marker, cluster bubble and star-filter swatch, in every view, now paints from these stops.
+ * Stand-down and no-data markers are not scores and are not on this ramp at all.
  */
 
 /**

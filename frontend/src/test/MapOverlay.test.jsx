@@ -53,10 +53,10 @@ describe('MapOverlay', () => {
   });
 
   it('withholds the escape hatch when no caller can honour it', () => {
-    // The window-first arm renders no Map pane and owns its own tab state, so the handler it would
-    // otherwise be given sets a view mode that arm ignores: the overlay would close and the user
-    // would still be on Plan, having pressed a control that named a destination. Hiding it is the
-    // honest option — making it also flip the layout flag would undo the user's own choice.
+    // When there is no Map tab to reach (no forecast dates), the caller withholds the handler
+    // entirely rather than passing one that would route nowhere: the overlay would close and the
+    // user would still be on Plan, having pressed a control that named a destination that does not
+    // exist. Hiding it is the honest option.
     renderOverlay({ onOpenFullMap: undefined });
     expect(screen.queryByTestId('map-overlay-open-full')).toBeNull();
     // The other way out is untouched.

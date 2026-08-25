@@ -644,7 +644,7 @@ const CHIP = (overrides = {}) => ({
 
 describe('WindowRowFieldMap — the location chips', () => {
   it('draws none at all when the caller hands over no chips', async () => {
-    // The default, and what keeps every other test in this file — and the v1 arm — unchanged.
+    // The default, and what keeps every other test in this file unchanged.
     await withMeasuredMap(400, async () => { await renderMap(); });
     expect(screen.queryByTestId('wf-row-map-chips')).toBeNull();
   });

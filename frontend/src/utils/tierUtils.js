@@ -59,17 +59,3 @@ export function computeCellTier(region) {
 
   return 5;
 }
-
-/**
- * Returns true when a cell with the given tier should be visible at the
- * current slider position (qualityTier).
- *
- * The slider is inclusive: position N shows all tiers 0 through N.
- *
- * @param {number} cellTier - 0–5
- * @param {number} qualityTier - 0–5 (current slider position)
- * @returns {boolean}
- */
-export function isCellVisible(cellTier, qualityTier) {
-  return cellTier <= qualityTier;
-}

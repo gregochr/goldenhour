@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   buildWindowSpots, compareSpots, readableInkOn, spotBadgeStyle, spotOrderStatement,
 } from '../utils/windowFirstSpots.js';
-import { RATING_COLOURS } from '../components/markerUtils.js';
 import { RAMP_STOPS, rampHex } from '../utils/scoreRamp.js';
 
 /** A briefing slot as the payload carries one. */
@@ -274,13 +273,12 @@ describe('the rating badge', () => {
     expect(contrast(background, color)).toBeGreaterThanOrEqual(4.5);
   });
 
-  it('takes the v2 score ramp and not v1\'s marker palette', () => {
-    // D2, the P5 half: one colour language inside v2, so a badge and the heat field beneath it
-    // mean the same thing by the same colour. The inequality is the load-bearing half — the two
-    // ramps are both red→green, so an assertion against `rampHex` alone would pass on either.
-    expect(spotBadgeStyle(5).background).toBe(RAMP_STOPS[4].hex);
-    expect(spotBadgeStyle(5).background).not.toBe(RATING_COLOURS[5]);
-    expect(spotBadgeStyle(1).background).not.toBe(RATING_COLOURS[1]);
+  it('takes its fill from the score ramp, the app\'s single colour language', () => {
+    // D2, the P5 half: a badge and the heat field beneath it mean the same thing by the same
+    // colour. Literal stops, not a restatement of rampHex(rating) — v1's separate marker palette
+    // is gone entirely, so there is no second table left to disagree with.
+    expect(spotBadgeStyle(5).background).toBe(RAMP_STOPS[4].hex); // '#8AAE72'
+    expect(spotBadgeStyle(1).background).toBe(RAMP_STOPS[0].hex); // '#B03A2A'
   });
 
   it('picks the light ink exactly where the dark one would fail', () => {

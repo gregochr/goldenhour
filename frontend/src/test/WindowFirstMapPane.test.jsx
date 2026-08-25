@@ -149,9 +149,8 @@ describe('WindowFirstMapPane', () => {
     });
 
     it('hands a date change back to the caller rather than keeping its own', () => {
-      // The selection is `App`'s `selectedDate`, the same state the v1 Map tab drives, so the two
-      // arms cannot disagree about which day the map is showing and there is no second source of
-      // truth to reconcile when the flag flips.
+      // The selection is `App`'s `selectedDate` — the single source of truth for which day the
+      // map is showing, shared with the standalone Map tab so the two can never disagree about it.
       const onSelectDate = vi.fn();
       renderPane({ onSelectDate });
       // By the chip's own date, not by its label: the label is relative to the clock and moves.
@@ -186,9 +185,9 @@ describe('WindowFirstMapPane', () => {
       // rather than disagreeing with the map about which day is on screen. Identity, not just
       // presence: a different handler here would move some other state and leave the strip behind.
       //
-      // ⚠️ This assertion is the v2 arm's only coverage of that wiring. The window-first shell
-      // needs briefing data, which a local dev DB does not have, so the jump itself was
-      // browser-verified on the v1 Map tab only.
+      // ⚠️ This assertion is the only coverage of that wiring — the window-first shell needs
+      // briefing data, which a local dev DB does not have, so the jump itself was not directly
+      // browser-verified here.
       const onSelectDate = vi.fn();
       renderPane({ onSelectDate });
 
@@ -256,7 +255,7 @@ describe('WindowFirstMapPane', () => {
     });
 
     it('disconnects the observer when the pane goes away', () => {
-      // The pane DOES unmount — flipping the flag back to v1 removes the whole shell — so the
+      // The pane DOES unmount on logout (`App` swaps the whole tree for the login page) — so the
       // cleanup is load-bearing rather than tidy.
       installResizeObserver();
       const { unmount } = renderPane();

@@ -754,9 +754,9 @@ describe('WindowFirstShell — when the feed is fetched', () => {
     };
 
     it('selects the requested tab and mounts its pane', () => {
-      // The overlay's "open the full map" hatch. v1 reaches its Map tab with `setViewMode('map')`,
-      // which this arm ignores entirely — so without this the button was a control that could not
-      // act, and `App` withheld it rather than name a destination it could not reach.
+      // The overlay's "open the full map" hatch, driven by `tabRequest`'s nonce (`openFullMapTab`
+      // in `App`) — so without this the button was a control that could not act, and `App`
+      // withheld it rather than name a destination it could not reach.
       const { setRequest } = renderWithRequest();
       expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
       act(() => setRequest({ id: 'map', nonce: 1 }));
@@ -810,10 +810,9 @@ describe('WindowFirstShell — when the feed is fetched', () => {
 
     it('does not replay a request that was already in flight when it mounted', () => {
       // `App` holds `tabRequest` and never clears it, and it outlives this component. With the
-      // handled-nonce seeded to null, leaving the arm (exit hatch) and coming back replayed the
-      // last request and landed the reader on the Map tab when they had asked for the Plan layout
-      // — which is the pilot's core comparison gesture, and contradicts this file's own rule that
-      // tab selection is not persisted.
+      // handled-nonce seeded to null, remounting this shell would replay the last request and
+      // land the reader on the Map tab when they were headed for Plan — which contradicts this
+      // file's own rule that tab selection is not persisted.
       vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
       const props = {
         onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(),

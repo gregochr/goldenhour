@@ -88,8 +88,8 @@ export function locationTypeIcons(types) {
 /**
  * Location name → its {@code locationType}, from the enabled-locations roster.
  *
- * <p>Written twice in the window-first arm before this existed — once for the regional planner's
- * grid icons and once for the drill-down's type control — from the same prop, with the same body.
+ * <p>Written twice before this existed — once for the regional planner's grid icons and once for
+ * the drill-down's type control — from the same prop, with the same body.
  * Two copies of a join is how the five copies this module replaced started.
  *
  * <p>The value is passed through unchanged rather than normalised to an array, because the two

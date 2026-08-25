@@ -192,10 +192,10 @@ describe('Modal', () => {
    * 24-press Tab walk from the top one never entered the layer beneath.
    */
   describe('stacked', () => {
-    it('emits NEITHER attribute by default, which is what keeps v1 byte-identical', () => {
-      // The pinning half of plan §3 rule 10. `Modal` has thirteen render sites and only the four
-      // v2 Plan dialogs pass this prop; every other one — the outcome modal, the settings modal,
-      // the aurora modals, the four admin views — must render exactly what it rendered before.
+    it('emits NEITHER attribute by default, which is what keeps every other caller unchanged', () => {
+      // The pinning half of plan §3 rule 10. Only the Plan-screen dialogs (window popup, sheet,
+      // search) pass this prop; every other one — the outcome modal, the settings modal, the
+      // aurora modals, the admin views — must render exactly what it rendered before.
       render(<Modal label="Test"><p>Content</p></Modal>);
       const dialog = screen.getByRole('dialog');
       expect(dialog).toHaveAttribute('aria-modal', 'true');
@@ -355,11 +355,11 @@ describe('Modal', () => {
       expect(document.activeElement).toBe(outside);
     });
 
-    it('leaves the v1 path exactly as it was — the container takes focus, nothing else moves', async () => {
+    it('leaves the unstacked path exactly as it was — the container takes focus, nothing else moves', async () => {
       // ⚠️ Named for what it can actually see. An adversarial review disabled the whole restore
       // effect and this test still passed, because `lastInside` is null on a dialog that is never
       // stacked and the effect returns at its first guard — so what is asserted is
-      // `useDialogFocus`'s own behaviour, unchanged. That is worth an assertion (it is the v1
+      // `useDialogFocus`'s own behaviour, unchanged. That is worth an assertion (it is the
       // guarantee rule 10 asks for) and it is NOT a pin on the new effect; the three tests above
       // are.
       render(<TriggerAndDialog />);
@@ -382,9 +382,9 @@ describe('Modal', () => {
     });
 
     it('does nothing by default, because most dialogs here hold something to lose', () => {
-      // Eleven of the fifteen render sites would lose state: four carry unsaved forms, one holds a
-      // generated password that has to be copied before it is gone. Turning dismissal on everywhere
-      // would have converted a dead handler into a data-loss handler.
+      // Most render sites would lose state: some carry unsaved forms, one holds a generated
+      // password that has to be copied before it is gone. Turning dismissal on everywhere would
+      // have converted a dead handler into a data-loss handler.
       const onClose = vi.fn();
       render(<Modal label="Test" onClose={onClose}><p>Content</p></Modal>);
 

@@ -1,19 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { buildLocationTypeMap } from '../utils/locationTypes.js';
 import HeatmapGrid from './HeatmapGrid.jsx';
 import useLocalStorageState from '../hooks/useLocalStorageState.js';
-import { getAstroConditions } from '../api/astroApi.js';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { sortRegionsByBestVerdict } from '../utils/windowFirstRegions.js';
-
-/**
- * The heatmap's quality filter, pinned open.
- *
- * <p>The quality slider that once drove this tier is gone; it is now a pinned seam rather than a
- * live control, always passing the loosest tier so nothing is filtered out.
- */
-const SHOW_ALL_TIER = 5;
 
 /**
  * What sits behind the regional-planner door: the full heatmap, with its own drill-down.
@@ -49,14 +40,6 @@ const SHOW_ALL_TIER = 5;
  * consumer that renders a drive wants this one: {@code reachById} stays published only because the
  * planning area and the beyond line are statements about HOME.
  *
- * <h2>Astro is fetched here, which makes it lazy by construction</h2>
- *
- * <p>v1 fetches one request per visible date on mount. Here the panel does not exist until the door
- * is opened, so the requests are not made until something is going to draw them. The shell keeps the
- * panel mounted once opened (hidden rather than unmounted) so closing and reopening the door does
- * not fire the wave again. A date whose request fails contributes an empty map and the grid's astro
- * column is simply blank for it — the same degradation v1 has.
- *
  * @param {object} props
  * @param {Array}    props.locations     enabled locations, for the id→name and name→type joins
  * @param {Function} [props.onShowOnMap] the map handoff, passed straight through
@@ -68,7 +51,6 @@ export default function WindowFirstRegionalPanel({ locations, onShowOnMap }) {
   } = useWindowFirstBriefing();
 
   const [showAllLocations, setShowAllLocations] = useLocalStorageState('showStanddownLocations', false);
-  const [astroScoresByDate, setAstroScoresByDate] = useState({});
 
   // Memoised, not a bare `briefing?.days || []`: the fallback allocates a fresh array on every
   // render, which would make `sortedRegions` below re-fold on every render of a component that
@@ -93,40 +75,11 @@ export default function WindowFirstRegionalPanel({ locations, onShowOnMap }) {
   /** Location name → location type, for the grid's type icons. Shared with the drill-down. */
   const typeMap = useMemo(() => buildLocationTypeMap(locations), [locations]);
 
-  const astroDates = useMemo(
-    () => [...new Set((upcomingEvents || []).map((e) => e.date))],
-    [upcomingEvents],
-  );
-  // Joined so the effect re-runs on a genuine change of dates rather than on every new array
-  // identity — `upcomingEvents` is rebuilt whenever the briefing object is, i.e. every poll.
-  const astroDateKey = astroDates.join(',');
-
-  useEffect(() => {
-    if (astroDates.length === 0) return undefined;
-    let live = true;
-    Promise.all(astroDates.map((date) => getAstroConditions(date)
-      .then((scores) => ({ date, scores }))
-      .catch(() => ({ date, scores: [] }))))
-      .then((results) => {
-        if (!live) return;
-        const byDate = {};
-        for (const { date, scores } of results) {
-          const byName = {};
-          for (const s of scores) byName[s.locationName] = s;
-          byDate[date] = byName;
-        }
-        setAstroScoresByDate(byDate);
-      });
-    return () => { live = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [astroDateKey]);
-
   return (
     <HeatmapGrid
       events={upcomingEvents}
       sortedRegions={sortedRegions}
       briefingDays={briefingDays}
-      qualityTier={SHOW_ALL_TIER}
       driveMap={driveMap}
       typeMap={typeMap}
       todayStr={todayStr}
@@ -134,23 +87,9 @@ export default function WindowFirstRegionalPanel({ locations, onShowOnMap }) {
       onShowOnMap={onShowOnMap}
       evaluationScores={evaluationScores}
       isPro={isPro}
-      astroScoresByDate={astroScoresByDate}
       showAllLocations={showAllLocations}
       onShowAllLocationsChange={setShowAllLocations}
       travelDayDates={travelDayDates}
-      // This arm asks for the phone layout; the frozen v1 arm does not, and that asymmetry is the
-      // whole of the change's blast radius. See docs/engineering/phone-heatmap-blast-radius.md.
-      scrollable
-      // Same shape, same reason. Each cell's star comes from `BriefingRegion.meanRating` — the same
-      // statistics the backend derived that cell's verdict word from — instead of a client-side mean
-      // over `/api/briefing/evaluate/scores` joined on a region-name prefix. Two fetches with two
-      // cache lifetimes could put a word and a number in one cell that disagree; one payload cannot.
-      // The v1 arm passes nothing and keeps its own client-side join — which is no longer the
-      // derivation it shipped with: the canopy rule had to be applied to it by hand once the
-      // verdict word moved, because that word is a payload field with no prop to gate it. See
-      // `HeatmapCell`. `evaluationScores` still travels either way: the drill-down reads it for
-      // per-location detail, canopy rows included.
-      serverCellRating
     />
   );
 }

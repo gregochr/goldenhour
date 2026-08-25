@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
   computeCellTier,
-  isCellVisible,
   resolveRegionDisplay,
 } from '../utils/tierUtils.js';
 
@@ -157,18 +156,5 @@ describe('resolveRegionDisplay', () => {
 
   it('returns AWAITING when neither field is set', () => {
     expect(resolveRegionDisplay({})).toBe('AWAITING');
-  });
-});
-
-describe('isCellVisible', () => {
-  it('shows tier 0 at qualityTier 0', () => expect(isCellVisible(0, 0)).toBe(true));
-  it('hides tier 1 at qualityTier 0', () => expect(isCellVisible(1, 0)).toBe(false));
-  it('shows tier 3 at qualityTier 3', () => expect(isCellVisible(3, 3)).toBe(true));
-  it('shows tier 3 at qualityTier 4', () => expect(isCellVisible(3, 4)).toBe(true));
-  it('hides tier 4 at qualityTier 3', () => expect(isCellVisible(4, 3)).toBe(false));
-  it('shows all tiers at qualityTier 5', () => {
-    for (let t = 0; t <= 5; t++) {
-      expect(isCellVisible(t, 5)).toBe(true);
-    }
   });
 });

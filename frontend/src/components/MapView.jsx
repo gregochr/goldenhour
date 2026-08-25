@@ -30,10 +30,9 @@ import { rampHex, RAMP_STOPS } from '../utils/scoreRamp.js';
  * The heat field, behind a `lazy()` boundary — and the boundary is load-bearing, not tidiness.
  *
  * <p>`MapHeatLayer` statically imports the kernel, which statically imports `d3-geo`. `MapView` is
- * mounted three times (the v1 Map tab, the v2 pane, the Plan overlay) and only ONE of them passes
- * `heat`; a static import here would put the `geo` chunk on the network for the v1 arm, which is
- * the pilot's frozen comparison control. Nothing is fetched until something renders the layer, and
- * only the opted-in caller can.
+ * mounted twice (the Map pane, the Plan overlay) and only ONE of them passes `heat`; a static
+ * import here would put the `geo` chunk on the network for the overlay, which never renders the
+ * layer. Nothing is fetched until something renders the layer, and only the opted-in caller can.
  */
 const MapHeatLayer = lazy(() => import('./MapHeatLayer.jsx'));
 
@@ -214,7 +213,7 @@ PopupResizer.propTypes = {
 };
 
 import InfoTip from './InfoTip.jsx';
-import { buildMarkerSvg, buildStandDownSvg, markerLabelAndColour, createClusterIcon, RATING_COLOURS, STAND_DOWN_COLOUR } from './markerUtils.js';
+import { buildMarkerSvg, buildStandDownSvg, markerLabelAndColour, createClusterIcon, STAND_DOWN_COLOUR } from './markerUtils.js';
 
 const SUNRISE_LINE_COLOUR = '#f97316';
 const SUNSET_LINE_COLOUR  = '#a855f7';
@@ -292,27 +291,26 @@ BoundsTracker.propTypes = {
  * shrink. Polled across the transition rather than fired once at the end, because a single call at
  * `transitionend` leaves the map wrong for the whole 240ms the user is watching it move.
  *
- * <p><b>The window-first Map tab needs the same thing for a different reason.</b> Its panel is
- * hidden with `display: none` rather than unmounted, so a viewport change while the reader is on
- * another tab — a phone rotating, most obviously — leaves Leaflet holding a size for a container
- * that no longer has it, and the map paints grey on return. That pane bumps `resizeNonce` from a
- * `ResizeObserver`; `enabled` therefore keys on EITHER caller having asked, so a `MapView` given
- * neither (the v1 Map tab) behaves exactly as before.
+ * <p><b>The Map pane needs the same thing for a different reason.</b> Its panel is hidden with
+ * `display: none` rather than unmounted, so a viewport change while the reader is on another tab
+ * — a phone rotating, most obviously — leaves Leaflet holding a size for a container that no
+ * longer has it, and the map paints grey on return. That pane bumps `resizeNonce` from a
+ * `ResizeObserver`; both of `MapView`'s remaining mounts (the pane, the overlay) always ask for
+ * this, so the sync runs unconditionally.
  */
-function MapSizeSync({ trigger, enabled }) {
+function MapSizeSync({ trigger }) {
   const map = useMap();
   useEffect(() => {
-    if (!enabled || typeof map?.invalidateSize !== 'function') return undefined;
+    if (typeof map?.invalidateSize !== 'function') return undefined;
     const tick = setInterval(() => map.invalidateSize({ animate: false }), 60);
     const stop = setTimeout(() => clearInterval(tick), 340);
     return () => { clearInterval(tick); clearTimeout(stop); };
-  }, [map, trigger, enabled]);
+  }, [map, trigger]);
   return null;
 }
 
 MapSizeSync.propTypes = {
   trigger: PropTypes.any,
-  enabled: PropTypes.bool,
 };
 
 /**
@@ -440,20 +438,15 @@ const markerIconCache = new Map();
 /** Soft cap so a long-lived tab whose scores change daily can't grow the icon cache without bound. */
 const MARKER_ICON_CACHE_LIMIT = 2000;
 
-function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildlife = false, excludeFromCluster = false, isStandDown = false, emphasis = null, ramp = false) {
+function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildlife = false, excludeFromCluster = false, isStandDown = false, emphasis = null) {
   // `emphasis` is part of the key: a DivIcon is cached by everything that determines it, and
   // the className carries the focus/muted modifier. Omitting it would serve the Map tab's
   // plain icon to the overlay (or worse, leak the overlay's muted icon back to the Map tab).
-  //
-  // ⚠️ `ramp` is part of it for the same reason and a sharper one: this cache is MODULE-level and
-  // shared by all three mounts. Leave it out and toggling Heat → Medallions serves back the icons
-  // the ramp built, so the "before" view would silently render the after view's colours — the one
-  // comparison the medallion view exists to make.
-  const cacheKey = `${locationName}|${rating}|${fierySky}|${goldenHour}|${isPureWildlife ? 1 : 0}|${excludeFromCluster ? 1 : 0}|${isStandDown ? 1 : 0}|${emphasis ?? '-'}|${ramp ? 'r' : '-'}`;
+  const cacheKey = `${locationName}|${rating}|${fierySky}|${goldenHour}|${isPureWildlife ? 1 : 0}|${excludeFromCluster ? 1 : 0}|${isStandDown ? 1 : 0}|${emphasis ?? '-'}`;
   const cached = markerIconCache.get(cacheKey);
   if (cached) return cached;
 
-  const { label, colour } = markerLabelAndColour(rating, fierySky, goldenHour, isPureWildlife, ramp);
+  const { label, colour } = markerLabelAndColour(rating, fierySky, goldenHour, isPureWildlife);
 
   const svg = isStandDown
     ? buildStandDownSvg()
@@ -774,11 +767,12 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
   /**
    * How far a location is, from wherever the caller is planning from.
    *
-   * <p><b>An OVERWRITE, never a fallback.</b> When the v2 arm has moved its origin to a region base
+   * <p><b>An OVERWRITE, never a fallback.</b> When the reader's origin has moved to a region base
    * it hands this component a base-measured map, and a location missing from that map must read as
    * <em>unknown</em> — falling through to the reader's home figure would put two origins' journeys
-   * on one screen, which is the one thing the shared/per-user seam exists to prevent. Absent
-   * override (v1, and v2 at home) this is byte-identical to the previous expression.
+   * on one screen, which is the one thing the shared/per-user seam exists to prevent. Absent an
+   * override — the map at home, and the Plan overlay — this is byte-identical to the previous
+   * expression.
    */
   const driveOverride = heat?.driveOverrideById ?? null;
   const driveMinutesFor = useCallback((locId) => (
@@ -1069,9 +1063,10 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
   /**
    * The heat field's opt-in, and the one place it is decided.
    *
-   * <p>`heat` defaults to null and only `WindowFirstMapPane` passes it, so the v1 Map tab and the
-   * Plan overlay render byte-identically without it — the `serverCellRating` shape, and the reason
-   * plan §8 calls this component's blast radius out by name.
+   * <p>`heat` defaults to null and only `WindowFirstMapPane` passes it — the Plan overlay opens
+   * focused on one spot from a card that has already answered the question, so it never fetches
+   * the field or renders the toolbar. Deliberate, not an oversight: a field and toolbar over a
+   * modal would be a second plan.
    *
    * <p>Withheld in aurora and astro modes even when handed: the markers there carry a different
    * quantity entirely (Kp visibility, observing quality) and a sky-colour field painted under them
@@ -1580,11 +1575,10 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
                     <span
                       aria-hidden="true"
                       className="inline-block rounded-full"
-                      /* One ramp per surface (D2). In heat view the field, the markers and the
-                         clusters are all on `scoreRamp`, so a swatch left on v1's palette would put
-                         two colour languages for one rating on the same screen — the bundle README's
-                         "do not silently ship both ramps meaning the same thing". */
-                      style={{ width: 8, height: 8, backgroundColor: heatOn ? rampHex(star) : RATING_COLOURS[star] }}
+                      /* scoreRamp is the map's only colour language — the field, the markers and
+                         the clusters all paint on it in every view, so the swatch matches every
+                         marker on screen regardless of heat/medallions. */
+                      style={{ width: 8, height: 8, backgroundColor: rampHex(star) }}
                     />
                     {star}&#9733;{star < 5 ? '+' : ''}
                   </button>
@@ -1781,12 +1775,13 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
              Framing the whole catalogue would open on a box wide enough to make the field a smudge
              and every marker a cluster, which is the overload the feature removes.
 
-             Falls back to the v1 framing when no box could be derived at all — no spots, a failed
-             scores fetch, a briefing that has not landed. ⚠️ NOT when there is no home: with no
-             postcode `planningArea` treats every unmeasured region as in-area, so the box is the
-             catalogue's own, padded 0.12° and at 28px rather than v1's 60. That is a deliberate
-             difference from v1, not a fallback, and it is written down because the first cut's
-             comment claimed the opposite.
+             Falls back to the default framing (the whole catalogue, 60px padding) when no box
+             could be derived at all — no spots, a failed scores fetch, a briefing that has not
+             landed. ⚠️ NOT when there is no home: with no postcode `planningArea` treats every
+             unmeasured region as in-area, so the box is the catalogue's own, padded 0.12° and at
+             28px rather than the 60px default. That is a deliberate difference from the fallback,
+             not a fallback itself, and it is written down because the first cut's comment claimed
+             the opposite.
 
              Gated on `heat.enabled` rather than on `heatOffered`, which additionally excludes aurora
              and astro modes: `MapContainer` reads `bounds` once at construction, so a tab that
@@ -1826,10 +1821,7 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
             />
           )}
           {overlayMode && <BoundsTracker onBounds={handleBounds} />}
-          <MapSizeSync
-            trigger={overlayMode ? advancedOpen : resizeNonce}
-            enabled={overlayMode || resizeNonce != null}
-          />
+          <MapSizeSync trigger={overlayMode ? advancedOpen : resizeNonce} />
           <FlyToController target={flyTarget} />
           <FitBoundsController target={fitBoundsTarget} />
           <HandoffPopupController
@@ -1872,19 +1864,13 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
           )}
 
           <MarkerClusterGroup
-            /* ⚠️ Remounted on the view switch, and it is the only thing that makes D8's "medallion
-               view is byte-identical to today" true on screen. `L.MarkerClusterGroup` caches each
-               bubble's `_iconObj` and re-calls `iconCreateFunction` only when the cluster's
-               membership changes (`_iconNeedsUpdate`), and `react-leaflet-cluster` writes the new
-               function into `options` without calling `refreshClusters()`. So a toggle recoloured
-               the individual pins and left every cluster on the palette it was built with — not even
-               healing on zoom. The key is constant for every caller that passes no `heat`, so v1
-               remounts nothing. */
-            key={heatOn ? 'heat-ramp' : 'medallions'}
+            /* No remount key here: `scoreRamp` is the only colour language now, so the Heat ↔
+               Medallions toggle never changes which palette a cluster bubble paints on, and
+               `iconCreateFunction` never needs to re-run for that reason. Consequence, kept
+               deliberately: an open popup, a spiderfied cluster and the selected marker now
+               survive the toggle (pinned below) rather than being torn down and rebuilt. */
             chunkedLoading
-            /* The ramp rides the heat VIEW, not merely the opt-in: medallion view is specified as
-               byte-identical to today (D8), which is what makes it a usable "before". */
-            iconCreateFunction={(cluster) => createClusterIcon(cluster, role, heatOn)}
+            iconCreateFunction={(cluster) => createClusterIcon(cluster, role)}
             // Dense corridors (e.g. Hadrian's Wall — 7 spots in a few km) must
             // collapse to one count-only bubble until zoomed in far enough that the
             // discs no longer collide. A wider radius merges co-located spots; a
@@ -1933,7 +1919,6 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
                 excludeFromSkyCluster,
                 isStandDown,
                 emphasis,
-                heatOn,
               );
 
               return (
@@ -2253,14 +2238,13 @@ MapView.propTypes = {
   overlayMode: PropTypes.bool,
   /**
    * Bumped by a caller whose map lives in a container that can change size while the map is not
-   * looking — currently the window-first Map tab, whose panel is `display: none` between visits.
-   * Null (the default, and what the v1 Map tab passes) leaves `MapSizeSync` switched off exactly
-   * as it was, so this cannot reach the frozen arm.
+   * looking — currently the Map pane, whose panel is `display: none` between visits.
    */
   resizeNonce: PropTypes.number,
   /**
-   * The v2 heat field's opt-in. Default `null` — the v1 Map tab and the Plan overlay pass nothing
-   * and render byte-identically, which `MapViewHeat.test.jsx` pins per surface.
+   * The heat field's opt-in. Default `null` — the Plan overlay passes nothing, deliberately: it
+   * opens focused on one spot from a card that has already answered the question, and a field and
+   * toolbar over a modal would be a second plan. `MapViewHeat.test.jsx` pins the overlay mount.
    */
   heat: PropTypes.shape({
     enabled: PropTypes.bool,

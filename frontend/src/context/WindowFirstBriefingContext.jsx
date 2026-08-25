@@ -148,11 +148,10 @@ function selectUpcomingEvents(briefing) {
  * <ul>
  *   <li><b>SWR hydrate.</b> The briefing is the page; a cold mount that waits on the network shows
  *       an empty rail for as long as the round-trip takes. Seeded from the cache, capped at 12h.</li>
- *   <li><b>The cache key is role-scoped and deliberately the SAME key v1 uses.</b> A new namespace
- *       would be a third multi-megabyte entry against iOS Safari's ~5MB ceiling, which
- *       {@code swrCache.js} already says briefing and forecasts do not both fit under — and the
- *       two arms are a hard either/or at {@code App.jsx}, so they never write it at once. Sharing
- *       also means flipping the flag keeps the instant paint.</li>
+ *   <li><b>The cache key is role-scoped, using the {@code briefing} namespace {@code swrCache.js}
+ *       already reserves rather than a fresh one.</b> A new namespace would be a third
+ *       multi-megabyte entry against iOS Safari's ~5MB ceiling, which {@code swrCache.js} already
+ *       says briefing and forecasts do not both fit under.</li>
  *   <li><b>{@code cacheGeneration()} is captured BEFORE the await, never after.</b>
  *       {@code AuthContext.logout} awaits a network round-trip, clears the cache, and only then
  *       nulls the token; a revalidation resolving inside that window would otherwise re-plant the
@@ -164,10 +163,11 @@ function selectUpcomingEvents(briefing) {
  *
  * <h2>What it deliberately does not fetch</h2>
  *
- * <p>The briefing, the travel-day ranges, and the batch evaluation scores. v1's cold mount fires
- * five requests plus one per day for astro; close-to-home, drive times and astro stay behind
- * because they feed the heatmap, the hover preview and the local block — none of which this arm
- * has yet. The evaluation scores are the exception, and the reason is on their own effect below:
+ * <p>The briefing, the travel-day ranges, and the batch evaluation scores. Drive times stay behind
+ * per-user reach (the reach contract, {@code GET /api/user/settings/reach}) is a separate,
+ * never-cached fetch owned by whichever panel needs it — joining it into this payload would put
+ * per-user data on an ETag-revalidated response, which is exactly what {@code HttpCachingConfig}
+ * exists to prevent. The evaluation scores are the exception, and the reason is on their own effect below:
  * they are not read by anything the rail draws, but everything downstream of the map handoff this
  * arm now wires needs them. Per-user reach arrives at P8 through its own endpoint and must never
  * join this payload: {@code /api/briefing} is ETag-revalidated, which persists the body to a

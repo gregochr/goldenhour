@@ -99,8 +99,8 @@ describe('WindowFirstShell — the masthead status pill', () => {
     expect(masthead).toContainElement(screen.getByTestId('health-indicator'));
   });
 
-  // Reading first, then the two controls — the order the v1 header put the same three in. A pill
-  // dropped between the cog and Sign out splits a pair the reader treats as one group.
+  // Reading first, then the two controls. A pill dropped between the cog and Sign out would
+  // split a pair the reader treats as one group.
   it('places it ahead of the settings cog and Sign out', () => {
     renderShell({ healthPill: PILL });
     const pill = screen.getByTestId('health-indicator');

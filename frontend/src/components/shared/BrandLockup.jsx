@@ -75,25 +75,19 @@ const KICKER = {
  * its own tighter one and stays in use where the prose genuinely cannot fit
  * ({@code PlanErrorBoundary}).
  *
- * <p>⚠️ <b>`header` is arm-scoped and dies with v1 — but it is also this component's DEFAULT, which
- * is what will make it look load-bearing.</b> Its only production caller is `App.jsx`'s v1 header,
- * suppressed on the v2 arm; `masthead` was added alongside rather than replacing it because v1 is
- * the pilot's frozen comparison control. Once the flag flips and v1 goes, a grep for
- * `variant="header"` finds only test renders, plus nine bare `render(<BrandLockup />)` calls that
- * reach the branch through this default — so the branch reads as live when nothing ships it. What
- * goes with it: `isHeader`, `text-[40px]`, the italic tagline block, and `KICKER.default`'s use in
- * the shared kicker branch (after v1 that branch can only run for `auth`, which takes `KICKER.auth`,
- * making the ternary a permanently-constant test). Move the default to `masthead` in the same
- * commit that deletes v1, or the dead branch keeps its disguise.
+ * <p><b>The tagline renders for every variant except `compact` and `masthead` — including `auth`.</b>
+ * It is gated on `!isCompact && !isMasthead`, not on any header-only flag, so the sign-in, register
+ * and change-password screens keep it alongside the kicker. The kicker differs only between `auth`
+ * (its own audience-naming copy, `KICKER.auth`) and everywhere else that renders one (`KICKER.default`,
+ * read either through the shared kicker paragraph or `masthead`'s own).
  *
  * @param {object} props
- * @param {'header'|'auth'|'compact'|'masthead'} [props.variant] - `header` (40px wordmark) for the
- *   v1 signed-in app masthead, and dying with it; `auth` (34px) for the sign-in, register and
- *   change-password screens; `compact` (20px, no kicker or tagline) for a lockup with no room for
- *   prose; `masthead` (21/25/28px, kicker, no tagline) for the window-first band.
+ * @param {'auth'|'compact'|'masthead'} [props.variant] - `auth` (34px) for the sign-in, register
+ *   and change-password screens; `compact` (20px, no kicker or tagline) for a lockup with no room
+ *   for prose; `masthead` (21/25/28px, kicker, no tagline) for the window-first band, and the
+ *   default now that the v1 header this component used to also serve is gone.
  */
-export default function BrandLockup({ variant = 'header' }) {
-  const isHeader = variant === 'header';
+export default function BrandLockup({ variant = 'masthead' }) {
   const isCompact = variant === 'compact';
   const isMasthead = variant === 'masthead';
   return (
@@ -115,7 +109,7 @@ export default function BrandLockup({ variant = 'header' }) {
           stray label rather than as part of the lockup. */}
       {!isCompact && !isMasthead && (
         <p className="font-mono text-[10px] uppercase tracking-[0.2em] text-plex-coral">
-          {variant === 'auth' ? KICKER.auth : KICKER.default}
+          {KICKER.auth}
         </p>
       )}
       <h1
@@ -124,8 +118,8 @@ export default function BrandLockup({ variant = 'header' }) {
             ? 'tracking-[-0.022em] text-[21px] sm:text-[25px] lg:text-[28px]'
             : 'tracking-[-0.025em]'
         } ${isCompact ? 'text-[20px]' : ''} ${!isCompact && !isMasthead ? 'mt-[7px]' : ''} ${
-          isHeader ? 'text-[40px]' : ''
-        } ${variant === 'auth' ? 'text-[34px]' : ''}`}
+          variant === 'auth' ? 'text-[34px]' : ''
+        }`}
       >
         PhotoCast
       </h1>
@@ -144,5 +138,5 @@ export default function BrandLockup({ variant = 'header' }) {
 }
 
 BrandLockup.propTypes = {
-  variant: PropTypes.oneOf(['header', 'auth', 'compact', 'masthead']),
+  variant: PropTypes.oneOf(['auth', 'compact', 'masthead']),
 };

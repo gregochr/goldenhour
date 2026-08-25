@@ -21,6 +21,18 @@ import { useEffect, useRef } from 'react';
  * mode lives in the containment half. A keyboard user who can Tab out of a dialog is inconvenienced;
  * one who cannot reach a bottom sheet at all is stuck.
  *
+ * <p><b>Ruling (v1-retirement plan §4.3): this stays as-is.</b> "At most one modal" is held
+ * route-by-route — the masthead's search refuses a third layer, the cog closes every Plan dialog
+ * before opening settings, the map handoffs close the popup first — rather than by a single
+ * shell-wide containment. The three reasons above are none of them about v1: they are live
+ * facts about this app (Leaflet's own tab-stop mutation, the body-portalled bottom sheet, the
+ * spinner with nothing focusable) that survive v1's departure unchanged. What v1's departure DID
+ * remove is plan-matrix §3 rule 10 (any edit to {@code Modal} needed a v1-identical fallback) — a
+ * freedom, not a reason to revisit the ruling. The structural alternative (shell-root {@code inert}
+ * while any dialog is open) is a named follow-on, not adopted here: it would need App-level sibling
+ * dialogs brought inside the guarded tree and {@code stacked} gated on the covering layer having
+ * mounted first, both unstarted.
+ *
  * <p><b>Not the native {@code <dialog>} element or {@code inert} either</b>, and that is empirical
  * rather than taste: in this project's jsdom, {@code HTMLDialogElement.prototype.showModal} is
  * {@code undefined} and {@code 'inert' in HTMLElement.prototype} is {@code false}. A rewrite onto
@@ -32,7 +44,7 @@ import { useEffect, useRef } from 'react';
  * <h2>The container takes focus, not the first control</h2>
  *
  * <p>Focusing the dialog's own root (via {@code tabIndex={-1}}) rather than hunting for its first
- * button is what makes this safe across fifteen render sites. It works when there is nothing
+ * button is what makes this safe across every render site. It works when there is nothing
  * focusable inside; it works when the content is still loading and the real controls do not exist
  * yet; and it does not fight a consumer that autofocuses a particular field of its own, because
  * that effect runs after this one and simply wins. A screen reader reads the dialog's accessible
