@@ -145,40 +145,43 @@ class CloudVerificationControllerTest extends AbstractControllerTest {
     }
 
     private CloudVerificationReport report() {
+        // No rating stats are asserted in this controller test — every bucket below carries the
+        // "nothing rated" shape (ratedCount 0, meanRating null, all-zero band counts).
+        List<Integer> noRatings = List.of(0, 0, 0, 0, 0);
         // Shape of the D7 answer: the veto tracks reality when uncapped, not when clamped.
         CloudVerificationBucket overall =
                 new CloudVerificationBucket("ALL", 120, -4.2, 18.6, 3.1, 55.0, 59.2,
-                        24.0, 6.0, -3.5);
+                        24.0, 6.0, -3.5, 0, null, noRatings);
         CloudVerificationBucket fired =
                 new CloudVerificationBucket("VETO_FIRED", 40, -12.0, 26.0, 2.0, 62.0, 74.0,
-                        null, null, null);
+                        null, null, null, 0, null, noRatings);
         CloudVerificationBucket notFired =
                 new CloudVerificationBucket("VETO_NOT_FIRED", 80, -0.4, 14.9, 3.6, 50.0, 50.4,
-                        null, null, null);
+                        null, null, null, 0, null, noRatings);
         CloudVerificationBucket uncapped =
                 new CloudVerificationBucket("VETO_UNCAPPED", 9, -2.0, 11.0, 1.5, 78.0, 80.0,
-                        null, null, null);
+                        null, null, null, 0, null, noRatings);
         CloudVerificationBucket capped =
                 new CloudVerificationBucket("VETO_CAPPED", 31, -15.0, 30.0, 2.2, 57.0, 72.0,
-                        null, null, null);
+                        null, null, null, 0, null, noRatings);
         CloudVerificationBucket aligned =
                 new CloudVerificationBucket("aligned(<45)", 18, -19.0, 33.0, 2.4, 55.0, 74.0,
-                        null, null, null);
+                        null, null, null, 0, null, noRatings);
         CloudVerificationBucket gapped =
                 new CloudVerificationBucket("gapped(>=40)", 14, -22.0, 35.0, 2.8, 58.0, 61.0,
-                        55.0, null, null);
+                        55.0, null, null, 0, null, noRatings);
         CloudVerificationBucket clearerHigh =
                 new CloudVerificationBucket("farClearer&highCanvas", 7, -18.0, 28.0, 1.9,
-                        66.0, 71.0, null, 48.0, -6.0);
+                        66.0, 71.0, null, 48.0, -6.0, 0, null, noRatings);
         // The veto split re-read over the slots a prompt could have been built for. Carried as a
         // pair because the under-cut separation is derived from their two meanObservedGapLow
         // values — 68.0 - 51.0 — rather than served as a scalar of its own.
         CloudVerificationBucket firedUnderCut =
                 new CloudVerificationBucket("vetoFired&underTriageCut(<=80)", 11, -9.0, 21.0, 1.7,
-                        70.0, 68.0, null, null, null);
+                        70.0, 68.0, null, null, null, 0, null, noRatings);
         CloudVerificationBucket notFiredUnderCut =
                 new CloudVerificationBucket("vetoNotFired&underTriageCut(<=80)", 62, -1.0, 15.0,
-                        3.4, 48.0, 51.0, null, null, null);
+                        3.4, 48.0, 51.0, null, null, null, 0, null, noRatings);
         return new CloudVerificationReport(FROM, TO, 120L, overall, fired, notFired,
                 uncapped, capped, List.of(aligned), List.of(gapped), List.of(clearerHigh),
                 List.of(firedUnderCut, notFiredUnderCut), 23.6, 8.0);

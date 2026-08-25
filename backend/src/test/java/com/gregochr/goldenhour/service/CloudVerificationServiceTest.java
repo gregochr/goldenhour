@@ -217,6 +217,14 @@ class CloudVerificationServiceTest {
         assertThat(report.overall().sampleCount()).isEqualTo(2);
         assertThat(report.vetoFired().sampleCount()).isEqualTo(1);
         assertThat(report.vetoNotFired().sampleCount()).isEqualTo(1);
+        // Both fixtures carry pair()'s hard-coded rating of 2 — a representative check that the
+        // rating stats reach the report through of(), not a re-derivation of CloudVerificationBucketTest.
+        assertThat(report.overall().ratedCount()).isEqualTo(2);
+        assertThat(report.overall().meanRating()).isEqualTo(2.0);
+        assertThat(report.overall().ratingCounts()).containsExactly(0, 2, 0, 0, 0);
+        assertThat(report.vetoFired().ratedCount()).isEqualTo(1);
+        assertThat(report.vetoFired().meanRating()).isEqualTo(2.0);
+        assertThat(report.vetoFired().ratingCounts()).containsExactly(0, 1, 0, 0, 0);
     }
 
     @Test
