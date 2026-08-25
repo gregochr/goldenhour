@@ -143,7 +143,6 @@ const ctx = (overrides = {}) => {
 const renderShell = (overrides = {}) => {
   vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx(overrides));
   const props = {
-    onExit: vi.fn(),
     onOpenSettings: vi.fn(),
     onSignOut: vi.fn(),
     onShowOnMap: vi.fn(),
@@ -212,7 +211,6 @@ describe('WindowFirstShell — the drill-down', () => {
     vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
     render(
       <WindowFirstShell
-        onExit={vi.fn()}
         onOpenSettings={vi.fn()}
         onSignOut={vi.fn()}
         onShowOnMap={vi.fn()}
@@ -241,7 +239,7 @@ describe('WindowFirstShell — the drill-down', () => {
       const grown = card({ allSpots: [NEAR, FAR, spot({ key: '3', locationName: 'Simonside', rating: 3, driveMinutes: 41 })] });
       vi.spyOn(briefingContext, 'useWindowFirstBriefing')
         .mockReturnValue(ctx({ windowCards: [grown] }));
-      rerender(<WindowFirstShell onExit={vi.fn()} onOpenSettings={vi.fn()} onSignOut={vi.fn()} locations={LOCATIONS} />);
+      rerender(<WindowFirstShell onOpenSettings={vi.fn()} onSignOut={vi.fn()} locations={LOCATIONS} />);
       expect(screen.getByTestId('window-spot-sheet-count')).toHaveTextContent('2 of 3');
     });
 
@@ -251,7 +249,7 @@ describe('WindowFirstShell — the drill-down', () => {
       expect(screen.getByTestId('window-spot-sheet')).toBeInTheDocument();
       vi.spyOn(briefingContext, 'useWindowFirstBriefing')
         .mockReturnValue(ctx({ windowCards: [] }));
-      rerender(<WindowFirstShell onExit={vi.fn()} onOpenSettings={vi.fn()} onSignOut={vi.fn()} locations={LOCATIONS} />);
+      rerender(<WindowFirstShell onOpenSettings={vi.fn()} onSignOut={vi.fn()} locations={LOCATIONS} />);
       expect(screen.queryByTestId('window-spot-sheet')).toBeNull();
     });
   });

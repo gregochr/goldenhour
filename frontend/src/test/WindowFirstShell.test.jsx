@@ -1,99 +1,32 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { act, render, screen, fireEvent, within } from '@testing-library/react';
 import React from 'react';
-import usePlanLayout, { PLAN_LAYOUT_KEY, PLAN_V2 } from '../hooks/usePlanLayout.js';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { buildPaneItems } from '../utils/windowFirstAway.js';
 
-/**
- * A harness rather than a real consumer, deliberately: the only component that reads this hook is
- * `AppInner`, which cannot be rendered without auth, three SSE streams and the whole forecast load —
- * that would test all of that, not the flag. See docs/engineering/frontend-test-standards.md
- * § Structure; if a smaller real consumer appears, render that instead.
- */
-function Host() {
-  const [layout, setLayout] = usePlanLayout();
-  return (
-    <div>
-      <span data-testid="layout">{layout}</span>
-      <button onClick={() => setLayout(PLAN_V2)}>to v2</button>
-      <button onClick={() => setLayout('sideways')}>to nonsense</button>
-    </div>
-  );
-}
-
-describe('usePlanLayout', () => {
-  beforeEach(() => localStorage.clear());
-
-  it('defaults to the window-first Plan', () => {
-    render(<Host />);
-    expect(screen.getByTestId('layout')).toHaveTextContent(PLAN_V2);
-  });
-
-  it('persists a switch under the versioned key', () => {
-    render(<Host />);
-    fireEvent.click(screen.getByText('to v2'));
-    expect(screen.getByTestId('layout')).toHaveTextContent(PLAN_V2);
-    expect(JSON.parse(localStorage.getItem(PLAN_LAYOUT_KEY))).toBe(PLAN_V2);
-  });
-
-  it('restores a stored layout on mount', () => {
-    localStorage.setItem(PLAN_LAYOUT_KEY, JSON.stringify(PLAN_V2));
-    render(<Host />);
-    expect(screen.getByTestId('layout')).toHaveTextContent(PLAN_V2);
-  });
-
-  // The failure this guards is narrow but total: an unrecognised value must not render neither
-  // layout. It can arrive from a half-written key or from a build the user has since rolled back.
-  it('falls back to the default (v2) when the stored value is not a layout', () => {
-    localStorage.setItem(PLAN_LAYOUT_KEY, JSON.stringify('v99'));
-    render(<Host />);
-    expect(screen.getByTestId('layout')).toHaveTextContent(PLAN_V2);
-  });
-
-  it('refuses to store a value that is not a layout', () => {
-    render(<Host />);
-    fireEvent.click(screen.getByText('to nonsense'));
-    expect(screen.getByTestId('layout')).toHaveTextContent(PLAN_V2);
-    // The rendered value alone is already guaranteed by the READ guard, so asserting only that
-    // leaves this test unable to fail if the write guard is deleted — it was, and it passed.
-    // Storage is the only observable that distinguishes the two.
-    expect(JSON.parse(localStorage.getItem(PLAN_LAYOUT_KEY))).toBe(PLAN_V2);
-  });
-});
-
 describe('WindowFirstShell', () => {
   const renderShell = (props = {}) => {
-    const handlers = { onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), ...props };
+    const handlers = { onOpenSettings: vi.fn(), onSignOut: vi.fn(), ...props };
     render(<WindowFirstShell {...handlers} />);
     return handlers;
   };
 
-  // The shorter of the two routes back — the masthead's ⚙ opens the settings modal, which owns the
-  // toggle. This one exists because the arm below it is empty while the shell is a stub.
-  it('offers a way back to the current Plan', () => {
-    const { onExit } = renderShell();
-    fireEvent.click(screen.getByRole('button', { name: /back to the current plan/i }));
-    expect(onExit).toHaveBeenCalledTimes(1);
-  });
-
-  it('carries the wordmark as the page heading, because it replaces the app header', () => {
-    // App suppresses its own <header> for this arm, so if the masthead did not carry the wordmark
-    // the signed-in app would have no h1 at all — and src/test/e2e/forecast.spec.js:46 finds the
-    // app with getByRole('heading', { name: /PhotoCast/ }). That e2e would break the moment the
-    // flag default flips at P15, which is far too late to notice.
+  it('carries the wordmark as the page heading, because it is the app\'s only header', () => {
+    // App renders no <header> of its own — this shell is it — so if the masthead did not carry
+    // the wordmark the signed-in app would have no h1 at all. src/test/e2e/forecast.spec.js:46
+    // finds the app with getByRole('heading', { name: /PhotoCast/ }).
     renderShell();
     expect(screen.getByRole('heading', { level: 1, name: 'PhotoCast' })).toBeInTheDocument();
   });
 
-  it('carries the cog and Sign out the suppressed header used to own', () => {
-    // Both are lifted handlers, not new state. Losing either would strand a v2 user with no route
-    // to settings — which is the only route back once the temporary exit button goes.
+  it('carries the cog and Sign out — the masthead\'s route to either', () => {
+    // Both are lifted handlers, not new state. Losing either would strand a user with no route to
+    // settings or to signing out while the Plan is healthy — the crash fallback offers its own
+    // Sign-out separately (PlanErrorBoundary).
     const { onOpenSettings, onSignOut } = renderShell();
 
-    // By ROLE AND NAME, not test-id: a test-id keeps passing while the accessible name rots, and
-    // these two are the only route out of the arm once the temporary exit button goes.
+    // By ROLE AND NAME, not test-id: a test-id keeps passing while the accessible name rots.
     fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
 
@@ -135,18 +68,16 @@ describe('WindowFirstShell', () => {
       'window-first-origin-chip', 'window-first-search']);
   });
 
-  it('renders at the design\'s 1080px frame, not the v1 arm\'s 896px column', () => {
-    // One of P4a's two deliverables, and nothing else pinned it. The v1 arm is max-w-4xl (896px);
-    // a shell that inherited that would be ~200px under the frame every later phase is drawn to.
+  it('renders at the design\'s 1080px frame', () => {
+    // One of P4a's two deliverables, and nothing else pinned it.
     renderShell();
     expect(screen.getByTestId('window-first-shell')).toHaveStyle({ maxWidth: '1080px' });
   });
 
   it('greys the pane when the backend is DOWN, but never the way out', () => {
-    // The v1 header sits OUTSIDE the element carrying the DOWN treatment, so it has never been
-    // able to disable Settings or Sign out. Here the masthead is inside the shell: gating the
-    // whole subtree would strand a user on a dead page with no cog, no Sign out and no exit —
-    // exactly when they most need one.
+    // The masthead is inside the shell: gating the whole subtree would strand a user on a dead
+    // page with no cog and no Sign out — exactly when they most need one. Only the pane below the
+    // masthead takes the treatment.
     renderShell({ contentDisabled: true });
 
     expect(screen.getByTestId('window-first-pane').className).toContain('pointer-events-none');
@@ -331,7 +262,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
   const renderWithBriefing = (ctx, props = {}) => {
     vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx);
     const handlers = {
-      onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), ...props,
+      onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), ...props,
     };
     render(<WindowFirstShell {...handlers} />);
     return handlers;
@@ -352,7 +283,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
     renderWithBriefing(briefingWithSpots('2026-08-04T12:00:00'));
 
     // Awaited because the strip sits behind a `lazy()` boundary — see `WindowFirstShell`'s note on
-    // why (a static import would put `d3-geo` in the entry chunk for every v1 reader).
+    // why (a static import would put `d3-geo` in the entry chunk for every reader).
     const strip = await screen.findByTestId('wf-heat-strip');
     const pane = screen.getByTestId('window-first-pane');
     const tabs = screen.getByTestId('window-first-tabs');
@@ -678,8 +609,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
   describe('the two doors', () => {
     it('sits at the foot of the pane, below the matrix', async () => {
       // Where the design puts them, and inside the pane rather than beside it: they open forecast
-      // content, so they take the DOWN treatment the pane carries. The exit button below them is
-      // the one thing that must stay outside it.
+      // content, so they take the DOWN treatment the pane carries.
       renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
       await screen.findByTestId('wf-heat-strip');
 
@@ -754,18 +684,6 @@ describe('WindowFirstShell — the strip it hosts', () => {
     renderWithBriefing(briefingWith('2026-08-04T12:00:00'));
     expect(screen.getByTestId('window-first-pane').textContent)
       .not.toMatch(/arrive in later phases|Window-first Plan/);
-  });
-
-  it('keeps the way back working when the backend is DOWN', () => {
-    // The DOWN treatment is `pointer-events: none`, and the exit button used to live INSIDE the
-    // pane that carries it — so a dead backend made the visible route back inert. That is the same
-    // trap P4a fixed one level up, re-created inside the pane.
-    renderWithBriefing(briefingWith('2026-08-04T12:00:00'), { contentDisabled: true });
-
-    expect(screen.getByTestId('window-first-pane').className).toContain('pointer-events-none');
-    const exit = screen.getByTestId('window-first-exit');
-    expect(screen.getByTestId('window-first-pane')).not.toContainElement(exit);
-    fireEvent.click(exit);
   });
 
   it('lets a reader close the pick dialog without going anywhere', async () => {
@@ -1014,12 +932,10 @@ describe('WindowFirstShell — the strip it hosts', () => {
     });
   });
 
-  it('lifts the seasonal features too, so the map does not depend on which arm you came from', () => {
-    // The sibling lift nine lines up, and the reason this one exists is the flag seam rather than
-    // the map: `seasonalFeatures` was written by the v1 arm ONLY, so the overlay map's Bluebell chip
-    // appeared or not depending on whether the session had ever rendered v1 — the same night's data
-    // drawing two different maps. Pinned here because the prop is optional and optional-called, so
-    // deleting it from App would drop the chip with the whole suite still green.
+  it('lifts the seasonal features too, so the overlay map\'s Bluebell chip reflects the briefing', () => {
+    // The sibling lift nine lines up. Pinned here because the prop is optional and
+    // optional-called, so deleting it from App would drop the chip with the whole suite still
+    // green.
     const onSeasonalFeaturesChange = vi.fn();
     const briefing = briefingWith('2026-08-04T12:00:00');
     renderWithBriefing(
@@ -1031,8 +947,8 @@ describe('WindowFirstShell — the strip it hosts', () => {
   });
 
   it('lifts an empty list when the briefing names no season, rather than nothing at all', () => {
-    // The negative half, and it is not cosmetic: never calling would leave whatever the OTHER arm
-    // last wrote standing, which is the exact staleness this lift exists to remove.
+    // The negative half, and it is not cosmetic: never calling would leave a stale value from an
+    // earlier briefing standing, which is the exact staleness this lift exists to remove.
     const onSeasonalFeaturesChange = vi.fn();
     renderWithBriefing(briefingWith('2026-08-04T12:00:00'), { onSeasonalFeaturesChange });
 

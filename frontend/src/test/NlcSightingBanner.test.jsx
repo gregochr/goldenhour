@@ -149,13 +149,6 @@ describe('NlcSightingBanner', () => {
     expect(screen.queryByTestId('nlc-sighting-banner')).not.toBeInTheDocument();
   });
 
-  it('dismiss click does not propagate to the banner (no hash navigation)', () => {
-    const originalHash = window.location.hash;
-    renderBanner(activeSighting());
-    fireEvent.click(screen.getByTestId('nlc-sighting-dismiss'));
-    expect(window.location.hash).toBe(originalHash);
-  });
-
   it('stays hidden after dismiss when the same report is returned', () => {
     const s = activeSighting();
     const { rerender } = renderBanner(s);
@@ -181,16 +174,6 @@ describe('NlcSightingBanner', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // Navigation
-  // ---------------------------------------------------------------------------
-
-  it('navigates to the map when the banner is clicked', () => {
-    renderBanner(activeSighting());
-    fireEvent.click(screen.getByTestId('nlc-sighting-banner'));
-    expect(window.location.hash).toBe('#map');
-  });
-
-  // ---------------------------------------------------------------------------
   // Accessibility
   // ---------------------------------------------------------------------------
 
@@ -208,13 +191,12 @@ describe('NlcSightingBanner', () => {
   // formatReportedAt helper — unit tests
   // ---------------------------------------------------------------------------
 
-  // The window-first arm has no Map tab, so there is nothing for this banner to switch to. Unlike
-  // the aurora banner beside it, there is also nothing to re-route it to — v1's action is a bare tab
-  // switch carrying no event type, no filter and no location — so inert is the honest state. What
-  // matters is that when it cannot act it also stops LOOKING like a control.
-  describe('when it has no destination to offer', () => {
+  // The window-first Plan has no Map tab, so there is nothing for this banner to switch to, and
+  // nothing to re-route it to either — "dark sky" is a Bortle filter with no handoff of its own.
+  // Inert is the honest state, and it also stops LOOKING like a control.
+  describe('ships inert', () => {
     it('is not dressed as a control', () => {
-      renderBanner(activeSighting(), { interactive: false });
+      renderBanner(activeSighting());
       const banner = screen.getByTestId('nlc-sighting-banner');
       expect(banner).not.toHaveAttribute('tabindex');
       expect(banner.className).not.toMatch(/cursor-pointer/);
@@ -223,24 +205,11 @@ describe('NlcSightingBanner', () => {
 
     it('does nothing when pressed, and leaves the tab where it was', () => {
       window.location.hash = '';
-      renderBanner(activeSighting(), { interactive: false });
+      renderBanner(activeSighting());
       fireEvent.click(screen.getByTestId('nlc-sighting-banner'));
       // The state change, not "the banner is still on screen" — that would pass with the handler
       // deleted or intact, since nothing about the banner depends on it.
       expect(window.location.hash).toBe('');
-    });
-
-    // The positive half. Without it every assertion above passes for a banner that is inert always,
-    // which would silently break the arm this banner actually works in.
-    it('is still a control in the arm that has a Map tab', () => {
-      window.location.hash = '';
-      renderBanner(activeSighting());
-      const banner = screen.getByTestId('nlc-sighting-banner');
-      expect(banner).toHaveAttribute('tabindex', '0');
-      expect(banner.textContent).toMatch(/show on map/i);
-      fireEvent.click(banner);
-      expect(window.location.hash).toBe('#map');
-      window.location.hash = '';
     });
   });
 

@@ -64,13 +64,13 @@ const FRAME_PAD_DEG = 0.12;
  *
  * <p>⚠️ The sharpest thing here, found by review and reproduced at 390px. Because the shell keeps
  * this pane mounted, its {@code MapView} is alive for the rest of the session after one visit — and
- * handing it the arm's general {@code mapHandoff}, which <em>every</em> plan-card tap sets, meant a
- * map that is not on screen still answered. On a phone {@code MapView} answers a location handoff
- * with a {@code BottomSheet}, and that is {@code createPortal(…, document.body)} at
+ * handing it App's overlay handoff, which <em>every</em> plan-card tap sets, meant a map that is not
+ * on screen still answered. On a phone {@code MapView} answers a location handoff with a
+ * {@code BottomSheet}, and that is {@code createPortal(…, document.body)} at
  * {@code z-index: 10000}, so {@code display: none} on the panel cannot suppress it: tapping
  * "Open on map" on the <b>Plan</b> tab raised two stacked sheets and locked body scroll.
  *
- * <p>So {@code handoff} here is not {@code mapHandoff}. It is set only when the reader explicitly
+ * <p>So {@code handoff} here is not App's overlay handoff. It is set only when the reader explicitly
  * asks to be taken to this tab — the overlay's hatch — and every other handoff belongs to the
  * overlay. The general rule, worth carrying to the next slotted pane: <b>a pane that is never
  * unmounted must not be wired to state that changes while it is hidden</b>, unless acting on it
@@ -82,9 +82,9 @@ const FRAME_PAD_DEG = 0.12;
  * @param {string}   props.selectedDate    the date the map is showing
  * @param {Function} props.onSelectDate    hands a new date back to {@code App}
  * @param {object}   [props.handoff]       a handoff the reader ASKED to land on, from the overlay's
- *                                         hatch — never the arm's general `mapHandoff`, which every
- *                                         plan-card tap sets and which this pane must not act on
- *                                         while it is hidden
+ *                                         hatch — never App's overlay handoff, which every plan-card
+ *                                         tap sets and which this pane must not act on while it is
+ *                                         hidden
  * @param {string}   [props.autoEventType] the auto-selected event type, as the v1 Map tab gets
  * @param {Map}      [props.briefingScores]
  * @param {Function} [props.onForecastRun]

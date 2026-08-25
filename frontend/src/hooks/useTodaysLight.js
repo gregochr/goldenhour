@@ -23,17 +23,11 @@ import { ukDateStr } from '../utils/mapDates.js';
  *
  * <p>A failure resolving to `undefined` rather than `null` is deliberate: see the catch below.
  *
- * <p>`enabled` exists because only the window-first arm has this masthead, and a hook cannot be
- * called conditionally. Without it, every v1 reader would pay for a request whose answer nothing
- * renders — the same reason `WindowFirstBriefingProvider` is mounted inside App's flag branch
- * rather than beside its siblings.
- *
- * @param {boolean} enabled whether this arm renders the light rule at all
  * @param {number} [settingsVersion] bumped when the caller's home settings may have changed
  * @returns {object|null|undefined} the day's light, null when no home is saved, undefined while
  *   the answer is outstanding
  */
-export default function useTodaysLight(enabled, settingsVersion = 0) {
+export default function useTodaysLight(settingsVersion = 0) {
   const [light, setLight] = useState(undefined);
   // Bumped when the tab returns on a later UK day; drives the refetch through the same effect.
   const [dayTick, setDayTick] = useState(0);
@@ -42,7 +36,6 @@ export default function useTodaysLight(enabled, settingsVersion = 0) {
   const answeredFor = useRef(null);
 
   useEffect(() => {
-    if (!enabled) return undefined;
     let live = true;
     answeredFor.current = ukDateStr();
     getTodaysLight()
@@ -59,10 +52,9 @@ export default function useTodaysLight(enabled, settingsVersion = 0) {
         if (live) setLight(undefined);
       });
     return () => { live = false; };
-  }, [enabled, settingsVersion, dayTick]);
+  }, [settingsVersion, dayTick]);
 
   useEffect(() => {
-    if (!enabled) return undefined;
     const refetchIfTheDayTurned = () => {
       if (document.visibilityState !== 'visible') return;
       if (answeredFor.current && ukDateStr() !== answeredFor.current) {
@@ -78,7 +70,7 @@ export default function useTodaysLight(enabled, settingsVersion = 0) {
       document.removeEventListener('visibilitychange', refetchIfTheDayTurned);
       window.removeEventListener('focus', refetchIfTheDayTurned);
     };
-  }, [enabled]);
+  }, []);
 
   return light;
 }

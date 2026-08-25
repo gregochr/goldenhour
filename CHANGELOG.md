@@ -5,6 +5,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Removed — the Plan-layout flag, the settings toggle, and the shell's exit hatch (v1 retirement D1)
+
+`usePlanLayout` and its three exports (`PLAN_LAYOUT_KEY`, `PLAN_V1`, `PLAN_V2`) are gone — the window-first Plan
+is now `App`'s only Plan, mounted unconditionally rather than behind a flag branch. Gone with it: the
+suppressed region-first `<header>` (wordmark, health pill, cog, Sign out), `ViewToggle`'s and
+`DateStrip`'s only App-level mounts, the `viewMode` state and its `hashchange` listener, the settings
+modal's "Plan Layout" switch, `WindowFirstShell`'s temporary "← Back to the current Plan" exit
+button, and `useTodaysLight`'s `enabled` gate (it now always fetches, since only one Plan renders the
+band it feeds). `NlcSightingBanner` ships permanently inert — its `interactive` prop is gone, since
+the window-first Plan it always rendered in has no Map tab for it to route to.
+
+The Plan's error boundary is redesigned rather than deleted: renamed `PlanErrorBoundary` (it no
+longer recovers a *layout*), it still wraps the briefing provider and the shell inside `<main>`, but
+its old "flip back to the current Plan" recovery cannot exist once there is only one Plan to flip to.
+Its fallback now offers two controls instead: "Clear cached data and reload" (clears the hydrated SWR
+cache, the reach lens and the rating floor, and the doors' session state — the persisted
+*selections* that would otherwise re-select the same crashing render path on reload — while leaving
+the auth token untouched, so the reader stays signed in) and "Sign out".
+
 ### Changed — the window-first Plan is now the default (v1 retirement D0)
 
 `usePlanLayout`'s default flips from the region-first Plan (`v1`) to the window-first Plan (`v2`) —

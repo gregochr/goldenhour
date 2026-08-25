@@ -20,7 +20,7 @@ const ROLE_LABELS = {
 const DEFAULT_RADIUS_MILES = 22;
 
 export default function UserSettingsModal({
-  onClose, onDriveTimesRefreshed, focusField = null, planLayout = null, onPlanLayoutChange = null,
+  onClose, onDriveTimesRefreshed, focusField = null,
 }) {
   const [settings, setSettings] = useState(null);
   // Focused once settings have loaded, not on mount: the input is disabled for a LITE user and
@@ -327,8 +327,9 @@ export default function UserSettingsModal({
               )}
 
               {/* Local radius — directly beneath the postcode it is measured from, and still Pro:
-                  it frames "Close to home", which ranks by drive time. It carries its own greying
-                  now that the section around it is open, per the role-gating pattern. */}
+                  it frames the map's "centre on home" control (App.jsx), which shows the area this
+                  user calls local. It carries its own greying now that the section around it is
+                  open, per the role-gating pattern. */}
               <div
                 className={`mt-4${!isPro ? ' opacity-45 pointer-events-none' : ''}`}
                 data-testid="settings-local-radius"
@@ -426,35 +427,6 @@ export default function UserSettingsModal({
       ) : (
         <p className="text-sm text-red-400 py-4">Failed to load settings.</p>
       )}
-
-      {/* Plan layout — the pilot's own switch. Ungated by role deliberately: it selects between
-          two views of what the user can already see, so gating it would make the comparison a
-          privilege rather than the thing we are asking them to do. */}
-      {planLayout && onPlanLayoutChange && (
-        <section className="mt-6">
-          <h3 className="text-xs font-medium text-plex-text-muted uppercase tracking-wide mb-2">Plan Layout</h3>
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="text-sm text-plex-text">Window-first Plan</p>
-              <p className="text-xs text-plex-text-muted mt-0.5">
-                One card per sunrise and sunset. Still being built — switch back any time.
-              </p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={planLayout === 'v2'}
-              aria-label="Window-first Plan"
-              onClick={() => onPlanLayoutChange(planLayout === 'v2' ? 'v1' : 'v2')}
-              data-testid="settings-plan-layout-toggle"
-              className="quality-toggle-track"
-              data-checked={planLayout === 'v2' ? 'true' : 'false'}
-            >
-              <span className="quality-toggle-thumb" />
-            </button>
-          </div>
-        </section>
-      )}
     </Modal>
   );
 }
@@ -464,8 +436,4 @@ UserSettingsModal.propTypes = {
   onDriveTimesRefreshed: PropTypes.func,
   /** Field to focus once settings load — `'postcode'`, or null to open normally. */
   focusField: PropTypes.oneOf(['postcode']),
-  /** Current Plan layout, or null to hide the section. Owned by App — see usePlanLayout. */
-  planLayout: PropTypes.oneOf(['v1', 'v2']),
-  /** Called with the new layout when the switch is flipped. */
-  onPlanLayoutChange: PropTypes.func,
 };

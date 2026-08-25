@@ -73,7 +73,7 @@ const KICKER = {
  * tagline does not — it is the line that costs a whole row and says least to someone already signed
  * in. Because the lockup is ~50px again, the spine goes back to the header gauge; `compact` keeps
  * its own tighter one and stays in use where the prose genuinely cannot fit
- * ({@code PlanLayoutErrorBoundary}).
+ * ({@code PlanErrorBoundary}).
  *
  * <p>⚠️ <b>`header` is arm-scoped and dies with v1 — but it is also this component's DEFAULT, which
  * is what will make it look load-bearing.</b> Its only production caller is `App.jsx`'s v1 header,

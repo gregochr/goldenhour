@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import PropTypes from 'prop-types';
 import { useNlcSighting } from '../hooks/useNlcSighting.js';
 import { formatInstantUk, parseUtcInstant } from '../utils/conversions.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
@@ -82,7 +81,6 @@ const NLC_A_STYLE = `
   .nlc-meta .nlc-key { font-weight: 600; color: var(--color-plex-text); }
   .nlc-meta strong.italic { font-weight: 700; font-style: italic; }
   .nlc-div { width: 1px; height: 12px; background: var(--color-plex-border); display: inline-block; }
-  .nlc-cta { font-weight: 600; color: color-mix(in srgb, var(--nlc-accent) 42%, white); }
   .nlc-sub { font-size: 12px; color: var(--color-plex-text-secondary); margin-top: 5px; }
   .nlc-x { color: var(--color-plex-text-secondary); font-size: 17px; line-height: 1; flex-shrink: 0;
     width: 26px; height: 26px; display: flex; align-items: center; justify-content: center;
@@ -104,10 +102,10 @@ const NLC_A_STYLE = `
  * - Not rendered when local skies are not clear (`clearTonight !== true`) — the
  *   sighting-AND-clear gate agreed in design
  * - Dismissible per session, keyed by `reportedAt`; a NEWER report re-shows it
- * - Click navigates to the map (same as the aurora banner CTA)
+ * - Inert: no click or keyboard route to the map exists for it yet
  * - Calm: no pulse animation
  */
-export default function NlcSightingBanner({ interactive = true }) {
+export default function NlcSightingBanner() {
   const { sighting } = useNlcSighting();
   const [dismissedKey, setDismissedKey] = useState(null);
 
@@ -138,15 +136,13 @@ export default function NlcSightingBanner({ interactive = true }) {
     ? (source ? `${observer} via ${source}` : observer)
     : null;
 
-  function handleDismiss(e) {
-    e.stopPropagation();
+  function handleDismiss() {
     setDismissedKey(dismissKey);
   }
 
   return (
     <>
       <style>{NLC_A_STYLE}</style>
-      {/* eslint-disable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
       <div
         role="alert"
         data-testid="nlc-sighting-banner"
@@ -154,14 +150,8 @@ export default function NlcSightingBanner({ interactive = true }) {
           '--nlc-accent': accent,
           backgroundColor: 'var(--color-plex-surface)',
         }}
-        className={`nlc-a px-4 py-3 rounded-xl select-none${interactive ? ' cursor-pointer' : ''}`}
-        onClick={interactive ? () => { window.location.hash = 'map'; } : undefined}
-        onKeyDown={interactive ? (e) => {
-          if (e.key === 'Enter' || e.key === ' ') window.location.hash = 'map';
-        } : undefined}
-        tabIndex={interactive ? 0 : undefined}
+        className="nlc-a px-4 py-3 rounded-xl select-none"
       >
-      {/* eslint-enable jsx-a11y/no-noninteractive-element-interactions, jsx-a11y/no-noninteractive-tabindex */}
         <div className="nlc-rail" />
         <div className="nlc-glow" />
         <div className="nlc-inner">
@@ -185,8 +175,6 @@ export default function NlcSightingBanner({ interactive = true }) {
               <span>Clear skies <strong className="italic">tonight</strong></span>
               {lookDirection && <span className="nlc-div" aria-hidden="true" />}
               {lookDirection && <span>Look {lookDirection}, low</span>}
-              {interactive && <span className="nlc-div" aria-hidden="true" />}
-              {interactive && <span className="nlc-cta">Show on map →</span>}
             </p>
 
             {darkSkyCount > 0 && (
@@ -209,18 +197,3 @@ export default function NlcSightingBanner({ interactive = true }) {
     </>
   );
 }
-
-NlcSightingBanner.propTypes = {
-  /**
-   * Whether the banner acts as a control.
-   *
-   * <p>False in the window-first arm, which has no Map tab to switch to. Unlike the aurora banner
-   * there is nothing to re-route it to: v1's action is a bare tab switch carrying no event type, no
-   * filter and no location, and "dark sky" is a Bortle filter with no handoff of its own — so
-   * inventing a window-first destination would make the two arms differ on a banner they share.
-   * Inert is the honest state, and when it is inert it stops being dressed as a control: no pointer
-   * cursor, no tab stop, no key handler, and the "Show on map →" call to action is dropped rather
-   * than left as a promise nothing keeps.
-   */
-  interactive: PropTypes.bool,
-};

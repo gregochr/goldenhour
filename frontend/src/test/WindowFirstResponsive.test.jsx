@@ -40,7 +40,7 @@ import WindowSheetDialog from '../components/WindowSheetDialog.jsx';
 const TODAY = '2026-08-09';
 
 function renderShell(props = {}) {
-  const handlers = { onExit: vi.fn(), onOpenSettings: vi.fn(), onSignOut: vi.fn(), ...props };
+  const handlers = { onOpenSettings: vi.fn(), onSignOut: vi.fn(), ...props };
   render(<WindowFirstShell {...handlers} />);
   return handlers;
 }

@@ -70,7 +70,7 @@ export const WEEKEND_TIER_ID = REACH_TIERS[2].id;
  * persists" (plan §5). Two settings with two different expiry policies in one object made the
  * policy a naming convention — the stamp had to be called {@code reachDay} so it could not be read
  * as covering the whole object — where separate keys make it structural. One key per concern is
- * also what {@code PLAN_LAYOUT_KEY} already does.
+ * also what {@code PLAN_RATING_KEY} already does.
  *
  * <p>The mechanical reason: a read–modify–write on shared storage re-persists whatever it finds
  * under that key, unvalidated. Nothing writes anything else there today, so nothing was actually
@@ -80,7 +80,7 @@ export const WEEKEND_TIER_ID = REACH_TIERS[2].id;
  * {@code AuthContext}'s among them. The finding is a false positive about this key and a fair
  * comment about the pattern. Writing only the two fields this module owns removes both.
  *
- * <p>Convention follows {@code PLAN_LAYOUT_KEY}: no version suffix until the stored shape changes
+ * <p>Convention follows {@code PLAN_RATING_KEY}: no version suffix until the stored shape changes
  * meaning, at which point bump the name rather than reinterpreting the old value.
  */
 export const PLAN_REACH_KEY = 'photocast.planReach';

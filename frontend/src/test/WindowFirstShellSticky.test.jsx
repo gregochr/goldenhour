@@ -76,7 +76,7 @@ let resizeCallbacks;
 const renderShell = (extraProps = {}) => {
   vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
   return render(<WindowFirstShell
-    onExit={vi.fn()} onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
+    onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
     locations={[]}
     {...extraProps}
   />);
@@ -203,7 +203,7 @@ describe('WindowFirstShell — the stuck lens treatment', () => {
     const withoutLens = { ...ctx(), reachLens: null, ratingLens: null };
     vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(withoutLens);
     const { rerender } = render(<WindowFirstShell
-      onExit={vi.fn()} onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
+      onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
       locations={[]}
     />);
     expect(screen.queryByTestId('window-first-lens-sentinel')).toBeNull();
@@ -211,7 +211,7 @@ describe('WindowFirstShell — the stuck lens treatment', () => {
 
     briefingContext.useWindowFirstBriefing.mockReturnValue(ctx());
     rerender(<WindowFirstShell
-      onExit={vi.fn()} onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
+      onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
       locations={[]}
     />);
 
