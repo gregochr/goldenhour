@@ -107,6 +107,50 @@ class ClaudeEvaluationStrategyTest {
     }
 
     @Test
+    @DisplayName("evaluate() throws a clear error when Claude refuses (stop_reason=refusal)")
+    void evaluate_refusal_throwsIllegalStateException() {
+        AtmosphericData data = buildAtmosphericData();
+        Message response = buildMessageWithStopReason(
+                "I can't help with evaluating this.", StopReason.REFUSAL);
+
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
+
+        assertThatThrownBy(() -> strategy.evaluate(data))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("refused")
+                .hasMessageContaining("stop_reason=refusal");
+    }
+
+    @Test
+    @DisplayName("evaluate() throws a clear error on context-window overflow "
+            + "(stop_reason=model_context_window_exceeded)")
+    void evaluate_contextWindowExceeded_throwsIllegalStateException() {
+        AtmosphericData data = buildAtmosphericData();
+        Message response = buildMessageWithStopReason(
+                "{\"rating\": 4, \"fiery_sky\": 70,", StopReason.MODEL_CONTEXT_WINDOW_EXCEEDED);
+
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
+
+        assertThatThrownBy(() -> strategy.evaluate(data))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("context window")
+                .hasMessageContaining("stop_reason=model_context_window_exceeded");
+    }
+
+    @Test
+    @DisplayName("evaluate() does not throw on ordinary end_turn stop reason")
+    void evaluate_endTurn_doesNotThrow() {
+        AtmosphericData data = buildAtmosphericData();
+        Message response = buildMessage(
+                "{\"rating\": 4, \"fiery_sky\": 70, \"golden_hour\": 75,"
+                + " \"summary\": \"Promising conditions.\"}");
+
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
+
+        assertThat(strategy.evaluate(data).rating()).isEqualTo(4);
+    }
+
+    @Test
     @DisplayName("evaluate() propagates non-retryable Anthropic errors")
     void evaluate_nonRetryableError_propagates() {
         AtmosphericData data = buildAtmosphericData();
@@ -545,6 +589,23 @@ class ClaudeEvaluationStrategyTest {
                 .stopSequence(Optional.empty())
                 .stopDetails(Optional.empty())
                 .usage(buildUsage(inputTokens, outputTokens, cacheCreationTokens, cacheReadTokens))
+                .build();
+    }
+
+    private Message buildMessageWithStopReason(String text, StopReason stopReason) {
+        TextBlock textBlock = TextBlock.builder()
+                .text(text)
+                .citations(List.of())
+                .build();
+        ContentBlock contentBlock = ContentBlock.ofText(textBlock);
+        return Message.builder()
+                .id("msg_test")
+                .model(Model.of("claude-sonnet-4-5-20250929"))
+                .content(List.of(contentBlock))
+                .stopReason(stopReason)
+                .stopSequence(Optional.empty())
+                .stopDetails(Optional.empty())
+                .usage(buildUsage(10, 20, 0, 0))
                 .build();
     }
 

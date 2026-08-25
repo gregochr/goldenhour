@@ -423,6 +423,60 @@ class BriefingBestBetAdvisorTest {
         }
 
         @Test
+        @DisplayName("advise(): refusal logs a REFUSAL WARN, never the honest-decline INFO line")
+        void adviseRefusalLogsRefusalWarnNotHonestDecline() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            Message message = messageWithStopReason(
+                    "I can't help with evaluating this request.", StopReason.REFUSAL);
+            when(anthropicApiClient.createMessage(any())).thenReturn(message);
+
+            List<BriefingDay> days = List.of(new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET,
+                            List.of(region("Northumberland", Verdict.GO, 3, 0, 0)), List.of()))));
+
+            List<BestBet> picks = advisor.advise(days, 11L, Map.of()).picks();
+
+            assertThat(picks).isEmpty();
+            assertThat(appender.list).noneMatch(e ->
+                    e.getFormattedMessage().contains("Advisor returned no picks"));
+            ILoggingEvent warn = appender.list.stream()
+                    .filter(e -> e.getLevel() == Level.WARN
+                            && e.getFormattedMessage().contains("[BEST-BET REFUSAL]"))
+                    .findFirst().orElseThrow();
+            assertThat(warn.getFormattedMessage()).contains("jobRunId=11");
+        }
+
+        @Test
+        @DisplayName("advise(): context-window overflow logs a CONTEXT OVERFLOW WARN, "
+                + "never the honest-decline INFO line")
+        void adviseContextOverflowLogsContextOverflowWarnNotHonestDecline() {
+            stubModelSelection();
+            when(auroraStateCache.isActive()).thenReturn(false);
+            LocalDate tomorrow = FIXED_TODAY.plusDays(1);
+            Message message = messageWithStopReason(
+                    "{\"picks\":[{\"rank\":1,\"headline\":\"cut off mid-fie",
+                    StopReason.MODEL_CONTEXT_WINDOW_EXCEEDED);
+            when(anthropicApiClient.createMessage(any())).thenReturn(message);
+
+            List<BriefingDay> days = List.of(new BriefingDay(tomorrow, List.of(
+                    new BriefingEventSummary(TargetType.SUNSET,
+                            List.of(region("Northumberland", Verdict.GO, 3, 0, 0)), List.of()))));
+
+            List<BestBet> picks = advisor.advise(days, 12L, Map.of()).picks();
+
+            assertThat(picks).isEmpty();
+            assertThat(appender.list).noneMatch(e ->
+                    e.getFormattedMessage().contains("Advisor returned no picks"));
+            ILoggingEvent warn = appender.list.stream()
+                    .filter(e -> e.getLevel() == Level.WARN
+                            && e.getFormattedMessage().contains("[BEST-BET CONTEXT OVERFLOW]"))
+                    .findFirst().orElseThrow();
+            assertThat(warn.getFormattedMessage()).contains("jobRunId=12");
+        }
+
+        @Test
         @DisplayName("max-tokens is read from config (not hardcoded): a distinct value reaches the request")
         void maxTokensReadFromConfig() {
             int customMax = 2048;

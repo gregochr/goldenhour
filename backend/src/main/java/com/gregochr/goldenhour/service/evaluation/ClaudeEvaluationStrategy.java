@@ -4,6 +4,7 @@ import com.anthropic.models.messages.CacheControlEphemeral;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
 import com.anthropic.models.messages.MessageCreateParams;
+import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.TextBlockParam;
 import tools.jackson.databind.ObjectMapper;
@@ -94,6 +95,7 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
                 : builder.buildUserMessage(data);
 
         Message response = invokeClaude(userMessage, builder);
+        checkStopReason(response);
         TokenUsage tokenUsage = extractTokenUsage(response);
 
         String text = response.content().stream()
@@ -122,6 +124,28 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
                 u.outputTokens(),
                 u.cacheCreationInputTokens().orElse(0L),
                 u.cacheReadInputTokens().orElse(0L));
+    }
+
+    /**
+     * Fails fast with a clear diagnostic when Claude did not produce an evaluation to parse,
+     * rather than letting a refusal or context-window overflow surface downstream as an opaque
+     * {@code SunsetEvaluationParser} JSON-parse failure — both leave prose in {@code content}
+     * that satisfies none of the expected fields, so without this check the resulting exception
+     * message names a symptom ("failed to parse") rather than the cause.
+     *
+     * @param response the Claude API response
+     */
+    private static void checkStopReason(Message response) {
+        StopReason stopReason = response.stopReason().orElse(null);
+        if (StopReason.REFUSAL.equals(stopReason)) {
+            throw new IllegalStateException(
+                    "Claude refused to evaluate this forecast (stop_reason=refusal)");
+        }
+        if (StopReason.MODEL_CONTEXT_WINDOW_EXCEEDED.equals(stopReason)) {
+            throw new IllegalStateException(
+                    "Claude's response was cut short by the context window limit "
+                            + "(stop_reason=model_context_window_exceeded)");
+        }
     }
 
     /**
