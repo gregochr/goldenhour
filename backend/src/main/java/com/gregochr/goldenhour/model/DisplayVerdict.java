@@ -1,8 +1,8 @@
 package com.gregochr.goldenhour.model;
 
 /**
- * Unified display verdict that drives card colour and label across the Plan grid,
- * mobile region cards, map markers, and quality slider.
+ * Unified display verdict that drives card colour and label across the Plan tab's
+ * matrix cards, its day × event grid, and the grid's drill-down verdict pill.
  *
  * <p>Claude's 1-5 star rating is the primary signal. When no rating is available,
  * the triage {@link Verdict} is used as a fallback so early-pipeline cells still

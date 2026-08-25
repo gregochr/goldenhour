@@ -34,8 +34,10 @@ import java.util.List;
  *                band at both its sunrise and its sunset yields one entry, and the tile reads
  *                "· sunrise" rather than "· both". The client roll-up this replaced did exactly the
  *                same, and the day card is specified as an ownership move with no semantic change —
- *                so it is recorded here rather than corrected, which would move v2 away from v1
- *                while v1 is the pilot's comparison control
+ *                so it is recorded here rather than corrected. The reason not to correct it was
+ *                that doing so would move this arm away from the v1 Plan tab while v1 was the
+ *                pilot's frozen comparison control; v1 has since been retired, so correcting it
+ *                is now an ordinary product call rather than a change to a control
  * @param regions the regions that reached {@code verdict}, in the payload's own region order; empty
  *                when {@code verdict} is STAND_DOWN. A region appearing on both of the day's events
  *                appears once, on the event where it reached the better band — the tile names a

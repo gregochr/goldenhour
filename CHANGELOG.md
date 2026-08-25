@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — backend Javadocs that still described the retired v1 Plan tab as live
+
+Five comments left standing by the v1 retirement, named as a follow-on in
+`docs/engineering/v1-retirement-plan.md` §8 item 5. `PlanRenderLimits` carried a paragraph
+instructing the reader to keep its constant equal by hand with `DailyBriefing.jsx`'s copy "until
+the v1 arm is removed, at which point this note goes with it" — the arm is removed, so the note
+goes. `BriefingDayPeak`'s known under-report was justified by not wanting to move v2 away from a
+frozen control that no longer exists; the under-report is unchanged and still recorded, but the
+justification now says the reason has lapsed rather than citing a control. `BriefingService`
+pointed at `DailyBriefing.jsx` for the six-event cap and now links
+`PlanRenderLimits.MAX_VISIBLE_EVENTS`, the constant that actually decides it. `DisplayVerdict`
+and `HotTopic` listed surfaces that no longer exist (the quality slider, the mobile region cards,
+the Best Bet cards) and now name the ones that read them, verified against the importing modules
+rather than from memory — `DisplayVerdict` in particular no longer claims the map markers, which
+do not read it.
+
+Comment-only: no behaviour, no signatures, no tests changed.
+
 ## [v2.19.0] - 2026-08-25
 
 ### Added — AGENTS.md context files for external AI code review

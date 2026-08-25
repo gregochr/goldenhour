@@ -9,8 +9,8 @@ import java.util.List;
 
 /**
  * A photographic topic worth highlighting regardless of forecast score.
- * Hot Topics appear in a pill strip between the Best Bet cards and the
- * quality slider in the briefing planner.
+ * Hot Topics reach the Plan tab's matrix cards, the window popup's topic
+ * rows, and the Hot topics door.
  *
  * <p>Examples: bluebell conditions, spring tides, storm surge, aurora,
  * elevated dust, cloud inversion, supermoon, meteor showers.</p>

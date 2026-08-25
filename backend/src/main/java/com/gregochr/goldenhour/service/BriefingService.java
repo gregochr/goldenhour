@@ -115,9 +115,10 @@ public class BriefingService {
      * that had already happened. The intraday cycle showed no {@code -1} bucket at all, because
      * it reads a briefing built the same morning; that asymmetry is the mechanism, not a symptom.
      *
-     * <p>The fifth date is never rendered — {@code DailyBriefing.jsx} caps the grid at six solar
-     * events — and costs one extra region × event round of briefing gloss. It exists purely so
-     * the window still reaches T+3 after ageing overnight.
+     * <p>The fifth date is never rendered — the Plan tab caps the matrix at
+     * {@link PlanRenderLimits#MAX_VISIBLE_EVENTS} solar events — and costs one extra
+     * region × event round of briefing gloss. It exists purely so the window still
+     * reaches T+3 after ageing overnight.
      */
     private static final int BRIEFING_WINDOW_DAYS = 5;
     /** Horizon offset distance in metres — geometric horizon for low cloud at ~1 km altitude. */
