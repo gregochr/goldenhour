@@ -5,6 +5,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — marker and cluster labels stay readable on every ramp stop
+
+The map's marker and cluster-bubble labels printed a hard-coded dark ink on every fill. On the
+score ramp that ink fails WCAG AA below 3★ — a fault the one-ramp merge (v1 retirement D3) extended
+from heat view to every view, and at the 2★ stop a genuine regression (4.61:1 on the old palette →
+3.70:1 on the ramp). The ink is now derived per fill through `readableInkOn`, the same two-ink rule
+the Plan's spot badges have carried since P5: 1★/2★ labels print white, 3★ and up print the dark
+ink, and the no-data marker's em-dash — which the dark ink never cleared — is readable for the
+first time. A computed (not tabulated) contrast sweep in `MarkerIcon.test.jsx` pins every stop at
+≥ 4.5:1, so a future ramp or ink change cannot silently drop a stop below AA. Also fills the D4
+Phase-log commit cell — the series' last bookkeeping.
+
 ### Changed — the settling commit (v1 retirement D4, final phase)
 
 `CLAUDE.md` and `README.md` rewritten truthful against the tree left by D0–D3: no more mentions of

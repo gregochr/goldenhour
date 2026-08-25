@@ -42,11 +42,11 @@ const MAX_RATING = 5;
  *
  * <p>Literals rather than tokens because {@link readableInkOn} does contrast arithmetic on them,
  * and a {@code var()} would leave the maths describing a colour the badge no longer uses. The dark
- * one is the ink the v2 map marker prints its own rating in — which is where the sharing stops:
- * {@code markerUtils.buildMarkerSvg} hard-codes that ink at every site, so on the ramp it now
- * carries 2.96:1 at 1★ and 3.70:1 at 2★. That is P4's marker, not this badge, and it is recorded
- * in the P5 row rather than fixed from here; do not read this line as saying the marker is
- * covered.
+ * one is the ink the v2 map marker prints its own rating in — and since the v1-retirement §8.13
+ * fix, {@code markerUtils.buildMarkerSvg} and {@code createClusterIcon} derive their label ink per
+ * fill through {@link readableInkOn} exactly as this badge does, so the marker IS covered by the
+ * same rule (it hard-coded the dark ink until then, which measured 2.96:1 at 1★ and 3.70:1 at 2★
+ * on the ramp — D3's review finding).
  *
  * <p>⚠️ <b>The light ink is pure white and not {@code --color-plex-text}, and that changed with the
  * ramp (D2).</b> Against the old five-bucket marker palette the app's own cream cleared AA on every
