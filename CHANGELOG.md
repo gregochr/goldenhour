@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — AGENTS.md context files for external AI code review
+
+A root `AGENTS.md` and a `backend/AGENTS.md` giving an external reviewer (OpenAI Codex, or any
+agent that honours the convention) the context it needs to review the Java backend without
+re-flagging deliberate decisions as defects: the two-calendar rule, the two tide axes, the live
+second forecast engine, the auth gates that are pinned by tests, and the conventions CI already
+enforces. Written to support a Codex-reviews / Claude-contests PR workflow and a sliced full-codebase
+review. Note: the backend file names known architectural debt, so a *blind* architecture survey
+should be run without reading it.
+
 ### Fixed — marker and cluster labels stay readable on every ramp stop
 
 The map's marker and cluster-bubble labels printed a hard-coded dark ink on every fill. On the
