@@ -75,8 +75,8 @@ describe('WindowSpotStrip', () => {
       });
     }
     // `setup.js` installs a no-op ResizeObserver globally; this one records, so the resize trigger
-    // can be fired deliberately. Same shape CloseToHome.test.jsx uses for the strip it was copied
-    // from — a no-op stub can never fire the callback, so it proves nothing about the wiring.
+    // can be fired deliberately — a no-op stub can never fire the callback, so it proves nothing
+    // about the wiring.
     vi.stubGlobal('ResizeObserver', class {
       constructor(cb) { this.cb = cb; }
 
@@ -224,7 +224,7 @@ describe('WindowSpotStrip', () => {
       // The two-tone is the whole visual argument of this line (the design's `.lv` / `.lv b`), and
       // `toHaveTextContent` cannot see it: strip either class and every other assertion here still
       // passes. This project has shipped a token pruned to the empty string and carried an
-      // undefined `--color-marginal` for months, so the ink a rule names is worth pinning.
+      // undefined colour var for months, so the ink a rule names is worth pinning.
       renderStrip([spot()]);
       const line = screen.getByTestId('window-spot-leave');
       expect(line).toHaveClass('text-plex-text-secondary');
@@ -479,7 +479,7 @@ describe('WindowSpotStrip', () => {
    *
    * <p>These are the tests that matter most, and the reason is what P9's review found: re-parenting
    * or copying a component does not bring the guards its old call site wrapped it in. Every one of
-   * the four things `CloseToHome` does *around* `CardHoverPreview` — dismissing on the strip's
+   * the four things this strip does *around* `WindowSpotPeek` — dismissing on the strip's
    * scroll, dismissing before the map opens, wiring focus to parity with hover, and gating the whole
    * thing off touch — is wiring in this file rather than behaviour in the panel, so a green
    * `WindowSpotPeek.test.jsx` says nothing about any of them.
@@ -588,7 +588,7 @@ describe('WindowSpotStrip', () => {
       it('stays shut for a spot whose only new fact would be its leave-by time', () => {
         // Leave-by is NOT a fourth key to the gate: it is printed on the card the pointer is
         // already resting on, so a panel carrying it alone would restate what the reader can see
-        // and add a prompt — the rule `CloseToHome` set and this panel kept.
+        // and add a prompt.
         renderStrip(
           [spot({ locationName: 'Dunstanburgh', solarEventTime: AUGUST_SUNSET_UTC, driveMinutes: 66 })],
           peekable(),
@@ -683,8 +683,8 @@ describe('WindowSpotStrip', () => {
 
       it('closes on the SHORTER grace when the pointer leaves the panel', () => {
         // 120 against the card's 160, and the split is the point: leaving the card means travelling
-        // towards the panel, leaving the panel means being done with it. `CloseToHome` uses one
-        // number for both and would keep this open at 130.
+        // towards the panel, leaving the panel means being done with it — one shared number would
+        // keep this open too long in one direction or close it too soon in the other.
         renderStrip([spot()], peekable());
         openOn();
         fireEvent.mouseEnter(screen.getByTestId('wf-peek'));
@@ -723,8 +723,8 @@ describe('WindowSpotStrip', () => {
       });
 
       it('dismisses when the page underneath scrolls', () => {
-        // Capture-phase on `window`, so one listener covers the strip, the pane and the rail.
-        // `CloseToHome` wires `onScroll` to its strip alone and does not cover this.
+        // Capture-phase on `window`, so one listener covers the strip, the pane and the rail —
+        // a plain `onScroll` on the strip alone would not cover this.
         renderStrip([spot()], peekable());
         openOn();
         fireEvent.scroll(document);
@@ -759,9 +759,9 @@ describe('WindowSpotStrip', () => {
 
     describe('one panel at a time, and never over the map it opens', () => {
       it('takes the peek down before opening the map', () => {
-        // `CloseToHome`'s rule at its own call site: the overlay renders above the pane but the
-        // peek is portalled to the body. `.wf-peek`'s z-index sits below the overlay's as a second
-        // line of defence, and neither is sufficient alone.
+        // The overlay renders above the pane but the peek is portalled to the body, so it must be
+        // dismissed explicitly. `.wf-peek`'s z-index sits below the overlay's as a second line of
+        // defence, and neither is sufficient alone.
         const onOpenSpot = vi.fn();
         renderStrip([spot()], peekable({ onOpenSpot }));
         fireEvent.mouseEnter(screen.getByTestId('window-spot'));

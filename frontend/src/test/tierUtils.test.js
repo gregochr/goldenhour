@@ -3,8 +3,6 @@ import {
   computeCellTier,
   isCellVisible,
   resolveRegionDisplay,
-  TIER_LABELS,
-  TIER_KEYS,
 } from '../utils/tierUtils.js';
 
 describe('computeCellTier', () => {
@@ -173,30 +171,4 @@ describe('isCellVisible', () => {
       expect(isCellVisible(t, 5)).toBe(true);
     }
   });
-});
-
-describe('TIER_LABELS', () => {
-  it('has 6 entries', () => expect(TIER_LABELS).toHaveLength(6));
-  it('first label describes WORTH IT + king tide', () => expect(TIER_LABELS[0]).toMatch(/king/i));
-  it('last label describes everything', () => expect(TIER_LABELS[5]).toMatch(/stand down/i));
-
-  it('most-restrictive label carries the "only" suffix', () => {
-    expect(TIER_LABELS[0]).toBe('Worth it + king tide only');
-  });
-
-  it('worth-it tiers use "Worth it" label in sentence case', () => {
-    expect(TIER_LABELS[1]).toBe('Worth it + tide-aligned');
-    expect(TIER_LABELS[2]).toBe('All worth it');
-  });
-
-  it('maybe tiers use "Maybe" label in sentence case', () => {
-    expect(TIER_LABELS[3]).toBe('Maybe + tide-aligned');
-    expect(TIER_LABELS[4]).toBe('All maybe');
-  });
-});
-
-describe('TIER_KEYS', () => {
-  it('has 6 entries', () => expect(TIER_KEYS).toHaveLength(6));
-  it('first key is go-king', () => expect(TIER_KEYS[0]).toBe('go-king'));
-  it('last key is standdown', () => expect(TIER_KEYS[5]).toBe('standdown'));
 });

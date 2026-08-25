@@ -1786,6 +1786,178 @@ describe('HeatmapGrid — lightly-evaluated framing', () => {
   });
 });
 
+// ── Drill-down: drive time and location type icon (ported from the deleted DailyBriefing suite,
+// which was the only assertion of either — every renderGrid fixture elsewhere passes an empty
+// driveMap/typeMap) ──────────────────────────────────────────────────────────
+
+describe('HeatmapGrid — drill-down drive time', () => {
+  it('shows formatted drive time when the location is in driveMap', () => {
+    const days = buildBriefingDays([DATE_1], 'North East', ['Bamburgh']);
+    render(
+      <HeatmapGrid
+        events={[{ date: DATE_1, targetType: 'SUNSET' }]}
+        sortedRegions={['North East']}
+        briefingDays={days}
+        qualityTier={5}
+        driveMap={new Map([['Bamburgh', 45]])}
+        typeMap={new Map()}
+        todayStr={futureDateStr(0)}
+        tomorrowStr={DATE_1}
+        onShowOnMap={vi.fn()}
+        astroScoresByDate={{}}
+        travelDayDates={new Set()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+    const driveTimes = screen.getAllByTestId('slot-drive-time');
+    expect(driveTimes).toHaveLength(1);
+    expect(driveTimes[0]).toHaveTextContent('45 min');
+  });
+
+  it('does not show drive time when the location has no entry in driveMap', () => {
+    const days = buildBriefingDays([DATE_1], 'North East', ['Bamburgh']);
+    render(
+      <HeatmapGrid
+        events={[{ date: DATE_1, targetType: 'SUNSET' }]}
+        sortedRegions={['North East']}
+        briefingDays={days}
+        qualityTier={5}
+        driveMap={new Map()}
+        typeMap={new Map()}
+        todayStr={futureDateStr(0)}
+        tomorrowStr={DATE_1}
+        onShowOnMap={vi.fn()}
+        astroScoresByDate={{}}
+        travelDayDates={new Set()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+    expect(screen.queryByTestId('slot-drive-time')).toBeNull();
+  });
+
+  it('formats durations over 1 hour correctly', () => {
+    const days = buildBriefingDays([DATE_1], 'North East', ['Bamburgh']);
+    render(
+      <HeatmapGrid
+        events={[{ date: DATE_1, targetType: 'SUNSET' }]}
+        sortedRegions={['North East']}
+        briefingDays={days}
+        qualityTier={5}
+        driveMap={new Map([['Bamburgh', 90]])}
+        typeMap={new Map()}
+        todayStr={futureDateStr(0)}
+        tomorrowStr={DATE_1}
+        onShowOnMap={vi.fn()}
+        astroScoresByDate={{}}
+        travelDayDates={new Set()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+    expect(screen.getByTestId('slot-drive-time')).toHaveTextContent('1h 30min');
+  });
+
+  it('formats exact-hour durations without trailing minutes', () => {
+    const days = buildBriefingDays([DATE_1], 'North East', ['Bamburgh']);
+    render(
+      <HeatmapGrid
+        events={[{ date: DATE_1, targetType: 'SUNSET' }]}
+        sortedRegions={['North East']}
+        briefingDays={days}
+        qualityTier={5}
+        driveMap={new Map([['Bamburgh', 120]])}
+        typeMap={new Map()}
+        todayStr={futureDateStr(0)}
+        tomorrowStr={DATE_1}
+        onShowOnMap={vi.fn()}
+        astroScoresByDate={{}}
+        travelDayDates={new Set()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+    expect(screen.getByTestId('slot-drive-time')).toHaveTextContent('2h');
+  });
+});
+
+describe('HeatmapGrid — drill-down location type icon', () => {
+  function renderWithType(locationType) {
+    const days = buildBriefingDays([DATE_1], 'North East', ['Bamburgh']);
+    render(
+      <HeatmapGrid
+        events={[{ date: DATE_1, targetType: 'SUNSET' }]}
+        sortedRegions={['North East']}
+        briefingDays={days}
+        qualityTier={5}
+        driveMap={new Map()}
+        typeMap={locationType == null ? new Map() : new Map([['Bamburgh', locationType]])}
+        todayStr={futureDateStr(0)}
+        tomorrowStr={DATE_1}
+        onShowOnMap={vi.fn()}
+        astroScoresByDate={{}}
+        travelDayDates={new Set()}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('heatmap-cell'));
+  }
+
+  it('shows landscape icon for LANDSCAPE locations', () => {
+    renderWithType('LANDSCAPE');
+    const icons = screen.getAllByTestId('slot-type-icon');
+    expect(icons[0]).toHaveTextContent('🏔️');
+  });
+
+  it('shows seascape icon for SEASCAPE locations', () => {
+    renderWithType('SEASCAPE');
+    const icons = screen.getAllByTestId('slot-type-icon');
+    expect(icons[0]).toHaveTextContent('🌊');
+  });
+
+  it('shows no type icon when the location has no entry in typeMap', () => {
+    renderWithType(null);
+    expect(screen.queryByTestId('slot-type-icon')).toBeNull();
+  });
+});
+
+// ── Second-cell switch: no orphaned drill-down (ported from the deleted DailyBriefing suite,
+// which was the only place two cells were ever clicked in succession) ────────────────────────
+
+describe('HeatmapGrid — clicking a second cell', () => {
+  it('closes the first drill-down and opens the new one, leaving exactly one panel', () => {
+    const days = [DATE_1].map((date) => ({
+      date,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [
+          { regionName: 'Alpha Region', verdict: 'GO', summary: 'Clear', slots: [{ locationName: 'A1', verdict: 'GO', solarEventTime: `${date}T18:00:00` }] },
+          { regionName: 'Beta Region', verdict: 'GO', summary: 'Clear', slots: [{ locationName: 'B1', verdict: 'GO', solarEventTime: `${date}T18:00:00` }] },
+        ],
+      }],
+    }));
+    render(
+      <HeatmapGrid
+        events={[{ date: DATE_1, targetType: 'SUNSET' }]}
+        sortedRegions={['Alpha Region', 'Beta Region']}
+        briefingDays={days}
+        qualityTier={5}
+        driveMap={new Map()}
+        typeMap={new Map()}
+        todayStr={futureDateStr(0)}
+        tomorrowStr={DATE_1}
+        onShowOnMap={vi.fn()}
+        astroScoresByDate={{}}
+        travelDayDates={new Set()}
+      />,
+    );
+
+    const cells = screen.getAllByTestId('heatmap-cell');
+    expect(cells.length).toBeGreaterThanOrEqual(2);
+    fireEvent.click(cells[0]);
+    expect(screen.getByTestId('drill-down-panel')).toBeInTheDocument();
+
+    fireEvent.click(cells[1]);
+    expect(screen.getAllByTestId('drill-down-panel')).toHaveLength(1);
+  });
+});
+
 // ── Clickable location name → Show on Map handoff ───────────────────────────
 
 describe('HeatmapGrid — clickable location name', () => {

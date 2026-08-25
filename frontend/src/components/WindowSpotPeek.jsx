@@ -13,15 +13,8 @@ function starGlyphs(rating) {
 /**
  * The window-first spot peek — what a pointer resting on a film-strip card is shown.
  *
- * <h2>Why this is a new component and not {@code CardHoverPreview}</h2>
- *
- * <p>Plan §5a`:688-691`. That panel hard-codes {@code cth-} class names, a {@code --cth-arrow-left}
- * custom property and five {@code cth-hover-*} test ids, takes no {@code className} and has no
- * content slot — so it could not be restyled or extended from outside even if the v1 arm were not
- * deliberately frozen for the flag comparison. Its own {@code CloseToHome.test.jsx:497,509} asserts
- * {@code cth-hover-scores} and {@code cth-hover-upsell} are <b>absent</b>, which is why every test id
- * here is {@code wf-} prefixed: reusing the old names would fail a test on a component this phase
- * never touched.
+ * <p>Every test id here is {@code wf-} prefixed, distinct from this panel's now-retired v1
+ * predecessor's {@code cth-hover-*} ids.
  *
  * <h2>Portalled to the body, which removes three questions rather than one</h2>
  *
@@ -42,31 +35,25 @@ function starGlyphs(rating) {
  * four lines. What is taken is the <em>reasoning</em>, cited: portal rather than merely fix, and
  * dismiss on capture-phase scroll.
  *
- * <h2>What it shows, and what the mock's peek asks for that it does not</h2>
- *
- * <p>{@code CardHoverPreview}'s Javadoc lists <b>eight</b> things it deliberately dropped. Plan §7
- * reconciles only the first. The rest, decided here:
+ * <h2>What it shows, and what it deliberately leaves out</h2>
  *
  * <ul>
- *   <li><b>Score bars — restored.</b> §7: in this arm the peek is the only route to the scores, and
- *       it fires off a strip the reader is already scanning, so the weight is earned where it was
- *       not before. §7's own tripwire stands: if the pilot reports the panel feeling like a glitch,
- *       the bars are the first thing back out.</li>
- *   <li><b>The generated-at timestamp — still out.</b> Stronger here than in the v1 arm: the rail
- *       footer states the forecast's age once for the whole screen, and §2.7's rule against marking
- *       one fact twice binds.</li>
- *   <li><b>The region line — still out.</b> The spot card prints the region itself, one element
- *       away.</li>
- *   <li><b>Tide detail — still out.</b> P7's attribute row carries the window's tide directly above
- *       the strip, and the payload has no per-spot tide to state anyway.</li>
- *   <li><b>The header bar and the ✕ — still out.</b> Both are modal furniture, and §7's tripwire is
- *       precisely that this must not read as modal weight. There is nothing for a header bar to hold:
- *       the panel closes on pointer-leave and on Escape, so a close button would be a control no
- *       assistive technology can reach and no pointer user needs.</li>
- *   <li><b>The footer bar — out; the prompt it held stays as prose.</b> Same call the v1 peek made,
- *       and the line is worded as the gain rather than the destination. The card underneath already
- *       says {@code ◍ Open on map →}, which names <em>where</em> the click goes; this says what it
- *       adds over the panel being read — the whole generated paragraph, not one clause.</li>
+ *   <li><b>Score bars.</b> In this arm the peek is the only route to the scores, and it fires off a
+ *       strip the reader is already scanning, so the weight is earned. If the pilot reports the
+ *       panel feeling like a glitch, the bars are the first thing back out.</li>
+ *   <li><b>The generated-at timestamp — out.</b> The rail footer states the forecast's age once for
+ *       the whole screen, and §2.7's rule against marking one fact twice binds.</li>
+ *   <li><b>The region line — out.</b> The spot card prints the region itself, one element away.</li>
+ *   <li><b>Tide detail — out.</b> P7's attribute row carries the window's tide directly above the
+ *       strip, and the payload has no per-spot tide to state anyway.</li>
+ *   <li><b>The header bar and the ✕ — out.</b> Both are modal furniture, and this must not read as
+ *       modal weight. There is nothing for a header bar to hold: the panel closes on pointer-leave
+ *       and on Escape, so a close button would be a control no assistive technology can reach and no
+ *       pointer user needs.</li>
+ *   <li><b>The footer bar — out; the prompt it held stays as prose.</b> The line is worded as the
+ *       gain rather than the destination. The card underneath already says {@code ◍ Open on map →},
+ *       which names <em>where</em> the click goes; this says what it adds over the panel being read
+ *       — the whole generated paragraph, not one clause.</li>
  *   <li><b>The location name — out.</b> The arrow tethers the panel to the card that just named it,
  *       and at this strip's geometry the panel is within a few px of one card's width, so it sits
  *       squarely under the name it would repeat.</li>
@@ -79,8 +66,8 @@ function starGlyphs(rating) {
  * reach: the click duplicates the card's own activation, which is what licenses a handler on a
  * non-interactive element. The <em>content</em> is reachable too — the map overlay the click opens
  * renders the same scores and the whole summary — so a screen reader loses a shortcut, not a fact.
- * {@code frontend-test-standards.md:156} names this component's v1 sibling by name as the example of
- * the rule, and {@code WindowSpotStrip.test.jsx} pins it.
+ * {@code frontend-test-standards.md:225} names this component as the example of the rule, and
+ * {@code WindowSpotStrip.test.jsx} pins it.
  *
  * @param {object}    props
  * @param {?number}   props.rating       1–5 stars, or null when unrated
@@ -160,16 +147,8 @@ export default function WindowSpotPeek({
             so a slot can carry a score with no usable rating, which is exactly the divergence
             `resolveSpotPeek` is written to expect.
 
-            `--color-verdict-marginal`, NOT the `--color-marginal` the v1 peek names. That token
-            USED to be declared nowhere — grep found it used and never defined, so
-            `CardHoverPreview`'s stars were never amber but fell back to inherited body ink, which
-            looked plausible enough that nobody noticed. Caught by reading `getComputedStyle` on the
-            running app, which returned the empty string. It was left alone at the time because the
-            v1 arm is frozen for the flag comparison; **P14a declared it** — see `index.css`'s
-            `--color-marginal` in the `@theme static` block — once running both arms in parallel made
-            v1 the control rather than a legacy path. This component still names the verdict token
-            rather than the alias, and should: the alias exists to fix v1 in place and dies with it.
-            Measured on the running app: #E0A542 on this panel's #2A2019 is 7.30:1. */}
+            `--color-verdict-marginal` — the verdict token, named directly rather than through an
+            alias. Measured on the running app: #E0A542 on this panel's #2A2019 is 7.30:1. */}
         {rating != null && (
           <span
             data-testid="wf-peek-stars"

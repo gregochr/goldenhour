@@ -30,7 +30,6 @@ vi.mock('../api/forecastApi.js', () => ({
 }));
 vi.mock('../api/briefingApi.js', () => ({
   getDailyBriefing: vi.fn(),
-  getCloseToHome: vi.fn(),
 }));
 vi.mock('../api/briefingEvaluationApi.js', () => ({ getAllEvaluationScores: vi.fn() }));
 vi.mock('../api/settingsApi.js', () => ({
@@ -61,7 +60,7 @@ vi.mock('../api/authApi.js', () => ({
 }));
 
 import { fetchForecasts, fetchLocations, fetchAllOutcomes } from '../api/forecastApi.js';
-import { getDailyBriefing, getCloseToHome } from '../api/briefingApi.js';
+import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
 import { getSettings, getReach, getDriveTimes } from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
@@ -74,7 +73,7 @@ import { getTodaysLight } from '../api/lightApi.js';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
-// Derived by calling the helper App calls (the DailyBriefing.test.jsx rule): App reads the wall
+// Derived by calling the helper App calls, rather than a literal: App reads the wall
 // clock through `ukDateStr()`, so a literal date here would drift off "today" the day after it was
 // written. Rows sit on TOMORROW only, so `computeAutoSelection` — which looks up TODAY's sunset
 // against the real clock — resolves null and no assertion depends on the time of day the suite runs.
@@ -128,7 +127,6 @@ beforeEach(() => {
   fetchLocations.mockReset().mockResolvedValue(LOCATION_META);
   fetchAllOutcomes.mockReset().mockResolvedValue([]);
   getDailyBriefing.mockReset().mockResolvedValue(null); // 204 — the shell keeps its empty state
-  getCloseToHome.mockReset().mockResolvedValue(null);
   getAllEvaluationScores.mockReset().mockResolvedValue([]);
   getSettings.mockReset().mockResolvedValue({}); // no home postcode saved
   getReach.mockReset().mockResolvedValue([]);

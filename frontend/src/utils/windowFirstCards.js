@@ -81,8 +81,8 @@ function eventTitle(targetType) {
  * <p><b>{@code AWAITING} is not a poor forecast and must not read as one.</b> The payload is
  * explicit about it — "AWAITING is reachable and means the window has neither a rating nor a triage
  * signal" — and the design's badge builder knows only three states, so the fourth needs a word the
- * product already speaks. {@code HeatmapGrid} and {@code DailyBriefing} both render "Awaiting", so
- * that is the word, on the neutral badge rather than the red one.
+ * product already speaks. {@code HeatmapGrid} renders "Awaiting", so that is the word, on the
+ * neutral badge rather than the red one.
  */
 export const VERDICT_LABEL = {
   WORTH_IT: 'Worth it',

@@ -500,8 +500,7 @@ describe('WindowFirstBriefingProvider', () => {
   });
 
   it('tears down its poll and its focus listener on unmount', async () => {
-    // The arm unmounts whenever the flag is switched back. A surviving interval would keep polling
-    // /api/briefing alongside DailyBriefing's own, for a subtree nobody is looking at.
+    // A surviving interval would keep polling /api/briefing for a subtree nobody is looking at.
     freezeClock({ shouldAdvanceTime: false });
     getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
     const { unmount } = renderProvider();
@@ -860,9 +859,9 @@ describe('WindowFirstBriefingProvider', () => {
     });
 
     it('refetches when the user saves a home postcode, without a page reload', async () => {
-      // The defect this guards is one this app has already shipped once, on the v1 arm: a bare []
-      // dep list meant "a user who widened their radius saw the block keep its old contents until
-      // a full reload — the setting appeared to do nothing". It is worse here, because the modal
+      // A bare [] dep list on a proximity fetch has already cost this app once: a user who widened
+      // their radius saw the block keep its old contents until a full reload — the setting appeared
+      // to do nothing. It is worse here, because the modal
       // that saves the postcode is a SIBLING of this provider in App — so it re-renders it and
       // never remounts it, and a first-run user would wait forever.
       getDailyBriefing.mockResolvedValue(payloadFor(TODAY));

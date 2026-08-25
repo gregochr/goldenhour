@@ -17,9 +17,8 @@ import { createPortal } from 'react-dom';
  * <h2>It is a tooltip, and therefore never the only route to anything</h2>
  *
  * <p>{@code role="tooltip"} describes supplementary detail about the trigger. Content that a reader
- * must reach — a destination, an action — belongs on the trigger itself or in a dialog, not here.
- * {@code CardHoverPreview} carries the same licence, explicitly conditional: "the card stays a
- * button — the peek is a shortcut, never the only route".
+ * must reach — a destination, an action — belongs on the trigger itself or in a dialog, not here:
+ * the card stays a button, and the peek is a shortcut, never the only route.
  *
  * <p>Rendering nothing when closed is deliberate rather than hiding with CSS: an
  * {@code aria-hidden} panel that still exists in the tree is one a screen reader can stumble into,

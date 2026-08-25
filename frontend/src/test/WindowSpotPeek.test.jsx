@@ -32,7 +32,7 @@ describe('WindowSpotPeek', () => {
     });
 
     it('is aria-hidden, because the card behind it stays the real route', () => {
-      // `frontend-test-standards.md:156` names this component's v1 sibling by name. The peek is a
+      // `frontend-test-standards.md:225` names this component by name. The peek is a
       // shortcut; every destination it offers is on the card, and the content it shows is in the
       // map overlay the click opens.
       renderPeek({ clause: 'Clear to the west all evening.' });
@@ -44,9 +44,7 @@ describe('WindowSpotPeek', () => {
       expect(screen.getByTestId('wf-peek').tagName).toBe('DIV');
     });
 
-    it('uses wf- test ids, because the v1 suite asserts the cth- ones are absent', () => {
-      // `CloseToHome.test.jsx:497,509` asserts `cth-hover-scores` and `cth-hover-upsell` do not
-      // render. Reusing those names here would fail a test on a component this phase never touched.
+    it('uses wf- prefixed test ids exclusively', () => {
       renderPeek({ fierySky: 68, goldenHour: 74, clause: 'Clear to the west all evening.' });
       expect(document.querySelectorAll('[data-testid^="cth-"]')).toHaveLength(0);
     });

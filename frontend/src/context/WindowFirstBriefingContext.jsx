@@ -22,10 +22,10 @@ import { buildRegionSeries } from '../utils/windowFirstRegions.js';
 import { AWAY_TIER_ID, originReachMap, toOrigin } from '../utils/planOrigin.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 
-/** Matched to v1's. The payload regenerates every ~8–10h; polling faster only adds revalidations. */
+/** The payload regenerates every ~8–10h; polling faster only adds revalidations. */
 const POLL_INTERVAL_MS = 10 * 60 * 1000;
 
-/** How stale a cached briefing may be and still paint instantly on mount. Matched to v1's. */
+/** How stale a cached briefing may be and still paint instantly on mount. */
 const BRIEFING_CACHE_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 /** Shared empty map, so the context default and the pre-fetch state are identity-stable. */
@@ -130,9 +130,8 @@ function selectUpcomingEvents(briefing) {
     const es = summaryFor(date, targetType);
     // A named event with no summary is a payload that contradicts itself. Drop it rather than let
     // a card, a tile or a pick be built from `undefined` further down.
-    // `date` is passed for the same reason as v1's copy in DailyBriefing.jsx: a day whose slots the
-    // coverage filter withdrew carries no time inside its regions, and the date is then the only
-    // evidence the event has happened.
+    // `date` is passed because a day whose slots the coverage filter withdrew carries no time
+    // inside its regions, and the date is then the only evidence the event has happened.
     return es != null && !isEventPast(es, date);
   });
 }
@@ -140,12 +139,11 @@ function selectUpcomingEvents(briefing) {
 /**
  * The window-first subtree's single briefing fetch, and the derivations its rail needs.
  *
- * <h2>Why the v2 arm owns its own fetch</h2>
+ * <h2>Why this arm owns its own fetch</h2>
  *
- * <p>Plan §4: the flag branches at App level and the v2 subtree owns its shell, its tab state and
- * one {@code /api/briefing} fetch, so {@code ViewToggle} and {@code DailyBriefing} are never
- * touched while both layouts are alive. {@code AuroraStatusContext} is the shape this follows —
- * with four differences it does not cover, each of them load-bearing:
+ * <p>Plan §4: this subtree owns its shell, its tab state and one {@code /api/briefing} fetch.
+ * {@code AuroraStatusContext} is the shape this follows — with four differences it does not cover,
+ * each of them load-bearing:
  *
  * <ul>
  *   <li><b>SWR hydrate.</b> The briefing is the page; a cold mount that waits on the network shows
@@ -343,12 +341,12 @@ export function WindowFirstBriefingProvider({
    * home postcode, which is the normal first run — so the failure mode is a strip with no reach
    * lines rather than a strip with none, and the footer's own sentence stops naming drive time.
    *
-   * <p><b>{@code homeSettingsVersion}, not a bare {@code []}.</b> This app has already paid for that
-   * mistake once: {@code DailyBriefing}'s close-to-home fetch shipped with an empty dep list and
-   * "a user who widened their radius saw the block keep its old contents until a full reload — the
-   * setting appeared to do nothing". The shape here is worse, because the provider is mounted for
-   * the whole life of the v2 arm and {@code UserSettingsModal} is its SIBLING in {@code App} — so
-   * saving a postcode re-renders but never remounts, and the first-run user who sets one would
+   * <p><b>{@code homeSettingsVersion}, not a bare {@code []}.</b> An empty dep list on a
+   * proximity fetch has already cost this app once: a user who widened their radius saw the block
+   * keep its old contents until a full reload, so the setting appeared to do nothing. The shape
+   * here is worse, because the provider is mounted for the whole life of the Plan tab and
+   * {@code UserSettingsModal} is its SIBLING in {@code App} — so saving a postcode re-renders but
+   * never remounts, and the first-run user who sets one would
    * watch every reach line stay absent indefinitely. The counter {@code App} already keeps for
    * exactly this is the signal; it also gives a boot-time failure a way back, which the swallowed
    * rejection above otherwise makes permanent for the session.
@@ -570,7 +568,7 @@ export function WindowFirstBriefingProvider({
 
   // Booleans, never the role. Plan §5c: `role` enters this arm at the provider and stops there, and
   // what anything below receives is a decision already made — a threshold for the lens, a boolean
-  // for the two components behind the doors that were built for the v1 arm and take one.
+  // for the two components behind the doors.
   const isPro = role === 'PRO_USER' || role === 'ADMIN';
   const isLiteUser = role === 'LITE_USER';
 

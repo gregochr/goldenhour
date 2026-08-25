@@ -4,10 +4,8 @@ import PropTypes from 'prop-types';
 /**
  * The golden-hour amber, as a literal rather than a token, and deliberately.
  *
- * <p>`#E0A542` already has two names in `index.css` — `--color-verdict-marginal` and its alias
- * `--color-marginal` — and both are *verdict* semantics, whose own declaration comment calls the
- * duplication "a smell that dies with v1". Golden hour is not a verdict, so borrowing either name
- * would give the hex a third meaning and outlive the cleanup that is meant to remove the second.
+ * <p>`#E0A542` already has a name in `index.css` — `--color-verdict-marginal` — which is a *verdict*
+ * semantic. Golden hour is not a verdict, so borrowing it would give the hex a second meaning.
  * The handoff calls for no new tokens, so the accent stays local to the light — this file names two
  * rule stops with it and {@code MastheadTickLine} paints the two golden clock times, and the tick
  * line IMPORTS it rather than holding a second copy.

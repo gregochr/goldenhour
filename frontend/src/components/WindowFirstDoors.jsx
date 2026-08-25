@@ -75,13 +75,11 @@ Door.propTypes = {
  *   <li><b>The viewport — retired, and worth keeping the history.</b> {@code HeatmapGrid} used to
  *       render nothing below 640px ({@code hidden sm:grid} / {@code hidden sm:flex}), so the door
  *       drew a tile that opened an empty bordered box and fired one astro request per date for
- *       content that could not paint. That was a re-parenting loss — the v1 arm wraps the same
- *       disclosure in {@code hidden sm:block} ({@code DailyBriefing.jsx:1526}) and the copy did not
- *       bring the guard, which is the failure mode §5a's "copy, don't extract" rule exists to catch.
+ *       content that could not paint — a re-parenting loss, since the guard was not brought along
+ *       with the copy, which is the failure mode §5a's "copy, don't extract" rule exists to catch.
  *       <b>The grid now has a phone layout</b> (a scroller with the region column pinned), so there
  *       is nothing left to gate and the term is gone. See
- *       {@code docs/engineering/phone-heatmap-blast-radius.md} for why that change could not reach
- *       the frozen v1 arm.</li>
+ *       {@code docs/engineering/phone-heatmap-blast-radius.md} for the history.</li>
  *   <li><b>Travel days.</b> {@code upcomingEvents} is the list <em>before</em> the travel filter,
  *       and the grid drops away columns itself ({@code gridEvents}, and it gates its whole grid on
  *       the filtered list being non-empty). An operator away across the entire capped horizon
@@ -125,13 +123,11 @@ Door.propTypes = {
  * pattern prescribes (opacity 0.45, "Upgrade to Pro"). The rows were the argued exception, not the
  * strip.
  *
- * <p>What is left standing, recorded rather than hidden: for a LITE user in this arm, a tide's
- * metres and a snow depth are readable on the window card's attribute row and blurred on the same
- * topic's pill behind this door, so for those two channels the tease is already defeated. That is a
- * real defect and it belongs to whoever owns the pricing story, decided once across both arms — the
- * shape plan §2.8 already settled for the pick gloss ("Reconverging the arms after the flag default
- * flips means making this one decision once, across both — not splitting it across two surfaces").
- * Handed to P15's pre-pilot sweep with the evidence.
+ * <p>What is left standing, recorded rather than hidden: for a LITE user, a tide's metres and a
+ * snow depth are readable on the window card's attribute row and blurred on the same topic's pill
+ * behind this door, so for those two channels the tease is already defeated. That is a real defect
+ * and it belongs to whoever owns the pricing story — the shape plan §2.8 already settled for the
+ * pick gloss. Handed to P15's pre-pilot sweep with the evidence.
  *
  * @param {object}   props
  * @param {Array}    props.locations     enabled locations, for the grid's two joins
@@ -139,9 +135,8 @@ Door.propTypes = {
  */
 export default function WindowFirstDoors({ locations, onShowOnMap }) {
   const { briefing, windowCards, isLiteUser } = useWindowFirstBriefing();
-  // Restored from the session, so a flip to the other arm and back lands on the doors the reader
-  // left rather than re-collapsing them — which is what the v1 arm has always done for its own
-  // disclosure, and the asymmetry was visible on exactly the surface the two arms are compared on.
+  // Restored from the session, so a remount lands on the doors the reader left rather than
+  // re-collapsing them.
   const [openDoors, setOpenDoors] = useState(readStoredDoors);
   // Sticky: once a panel has been mounted it stays mounted and is hidden instead. Grown in the
   // handler rather than during render — a render-phase mutation is double-run under StrictMode and
@@ -225,8 +220,6 @@ export default function WindowFirstDoors({ locations, onShowOnMap }) {
               hotTopics={hotTopics}
               isLiteUser={isLiteUser}
               onTopicTap={(topic) => {
-                // v1's `handleHotTopicTap`, two lines and reproduced rather than imported for the
-                // same reason as everything else this arm borrows: `DailyBriefing` stays untouched.
                 if (topic.filterAction && onShowOnMap) {
                   onShowOnMap({ filterAction: topic.filterAction, date: topic.date });
                 }

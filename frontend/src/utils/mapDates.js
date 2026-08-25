@@ -106,17 +106,17 @@ function fromUtcNoon(ms) {
  * <p>Naming the zone outright is the only form with no such caveat, and it is what this codebase
  * already does everywhere it formats a UK <em>time</em> ({@code conversions.js}).
  *
- * <p>⚠️ <b>The hybrid form must not come back.</b> {@code DailyBriefing} and
- * {@code WindowFirstBriefingContext} resolve the backend's "today"/"tomorrow" tokens and feed the
- * result to {@code setSelectedDate}; both used to carry a private {@code londonDate(offset)} that
- * stepped the <em>browser's</em> calendar ({@code d.setDate(d.getDate() + offset)}) and only then
- * formatted in London. Formatting in the right zone is not enough — the day step has to happen on
- * the same calendar as the format, or the two disagree across a DST boundary. Measured with
+ * <p>⚠️ <b>The hybrid form must not come back.</b> {@code WindowFirstBriefingContext} resolves the
+ * backend's "today"/"tomorrow" tokens and feeds the result to {@code setSelectedDate}; it used to
+ * carry a private {@code londonDate(offset)} that stepped the <em>browser's</em> calendar
+ * ({@code d.setDate(d.getDate() + offset)}) and only then formatted in London. Formatting in the
+ * right zone is not enough — the day step has to happen on the same calendar as the format, or the
+ * two disagree across a DST boundary. Measured with
  * {@code TZ=UTC}: at {@code 2026-10-24T23:30:00Z} it returned {@code 2026-10-25} for <em>both</em>
  * today and tomorrow, so nothing was labelled "Tomorrow" and "Best Bet — tomorrow's sunset" opened
  * the map on today; at {@code 2026-03-28T23:30:00Z} it skipped the 28th to the 30th. Under
  * {@code TZ=Europe/London} both came out right, which is why no test caught it for as long as the
- * suite was UK-pinned. Both now call {@link ukDateStr} / {@link ukDateStrOffset}, which step the UK
+ * suite was UK-pinned. It now calls {@link ukDateStr} / {@link ukDateStrOffset}, which step the UK
  * date itself.
  *
  * @param {Date} [now] - the instant to read; injectable so tests can pin it

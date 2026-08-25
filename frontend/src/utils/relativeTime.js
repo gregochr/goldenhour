@@ -1,11 +1,11 @@
 /**
  * One relative-age formatter, shared by every "how old is this?" stamp.
  *
- * <p>There were two of these, and both stopped at an unbounded hours tier —
- * {@code formatAge} in {@code DailyBriefing.jsx} and {@code formatCalcTime} in
- * {@code UserSettingsModal.jsx}. That was survivable for the briefing, which regenerates every
- * 8–10 hours, and not for the drive-time stamp, which only moved when a user pressed a button:
- * left alone for a month it read <em>"744h ago"</em>, a number nobody can convert at a glance.
+ * <p>There were two of these, and both stopped at an unbounded hours tier — one for the briefing's
+ * age and {@code formatCalcTime} in {@code UserSettingsModal.jsx} for the drive-time stamp. That
+ * was survivable for the briefing, which regenerates every 8–10 hours, and not for the drive-time
+ * stamp, which only moved when a user pressed a button: left alone for a month it read
+ * <em>"744h ago"</em>, a number nobody can convert at a glance.
  *
  * <p>They also differed cosmetically — {@code "just now"} vs {@code "Just now"}, {@code "5m ago"}
  * vs {@code "5 min ago"} — which is exactly how two copies of one idea drift. Both styles are

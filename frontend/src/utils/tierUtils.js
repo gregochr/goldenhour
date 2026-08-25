@@ -1,7 +1,5 @@
 /**
- * Quality tier constants — each tier is a 0-based index matching the 6 slider positions.
- *
- * Tier hierarchy (lower number = higher quality):
+ * Quality tier hierarchy (lower number = higher quality):
  *   0  go-king    WORTH_IT + king tide signal
  *   1  go-tide    WORTH_IT + any tide-aligned location (no king)
  *   2  go-plain   WORTH_IT, no tide alignment
@@ -9,16 +7,6 @@
  *   4  ma-plain   MAYBE, no tide alignment
  *   5  standdown  STAND_DOWN / AWAITING
  */
-export const TIER_KEYS = ['go-king', 'go-tide', 'go-plain', 'ma-tide', 'ma-plain', 'standdown'];
-
-export const TIER_LABELS = [
-  'Worth it + king tide only',
-  'Worth it + tide-aligned',
-  'All worth it',
-  'Maybe + tide-aligned',
-  'All maybe',
-  'Everything including stand down',
-];
 
 /**
  * Resolves the display signal for a region. Prefers the backend-provided
@@ -69,26 +57,6 @@ export function computeCellTier(region) {
     return 4;
   }
 
-  return 5;
-}
-
-/**
- * Returns the quality tier for an aurora grid cell.
- *
- * @param {{ verdict?: string }} auroraRegion  aurora region summary (from briefing)
- * @param {boolean}              isTomorrow    true for informational tomorrow cells
- * @returns {number} 0–6 (6 = disabled / no dark-sky locations)
- */
-export function computeAuroraCellTier(auroraRegion, isTomorrow) {
-  if (!auroraRegion || !auroraRegion.verdict) {
-    // Tomorrow without per-region data — show at "All GO conditions" tier
-    if (isTomorrow) return 2;
-    return 6; // disabled (no dark sky)
-  }
-  if (auroraRegion.verdict === 'GO') return isTomorrow ? 2 : 0;
-  if (auroraRegion.verdict === 'STANDDOWN') return 5;
-  // Tomorrow informational fallback
-  if (isTomorrow) return 2;
   return 5;
 }
 

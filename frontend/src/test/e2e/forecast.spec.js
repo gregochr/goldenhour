@@ -1,13 +1,13 @@
 import { test, expect } from '@playwright/test';
 
 /**
- * End-to-end tests for the Golden Hour map-based forecast UI.
+ * End-to-end tests for the Golden Hour Plan/Map UI.
  *
  * These tests require both the React dev server (port 5173) and the Spring Boot
- * backend (port 8082) to be running.
+ * backend (port 8083) to be running.
  */
 
-const BACKEND = 'http://127.0.0.1:8082';
+const BACKEND = 'http://127.0.0.1:8083';
 
 /**
  * Obtains a JWT from the backend and injects it into localStorage so that the
@@ -55,9 +55,10 @@ test.describe('Map view — core', () => {
     await page.goto('/');
     await loginAsAdmin(page);
     await page.goto('/');
+    await page.getByRole('tab', { name: 'Map' }).click();
   });
 
-  test('renders map container and date strip after login', async ({ page }) => {
+  test('renders map container and date strip after opening the Map tab', async ({ page }) => {
     await expect(page.getByTestId('map-container')).toBeVisible({ timeout: 10000 });
     await expect(page.getByTestId('date-strip')).toBeVisible();
   });
@@ -72,17 +73,16 @@ test.describe('Map view — core', () => {
     expect(count).toBeGreaterThanOrEqual(1);
   });
 
-  test('date strip chips are clickable and change selection styling', async ({ page }) => {
-    await page.waitForSelector('[data-testid="date-strip"] button', { timeout: 10000 });
-    const dateButtons = page.locator('[data-testid="date-strip"] button');
+  test('date strip chips are clickable and change selection', async ({ page }) => {
+    await page.waitForSelector('[data-testid="date-chip"]', { timeout: 10000 });
+    const dateButtons = page.getByTestId('date-chip');
     const count = await dateButtons.count();
     expect(count).toBeGreaterThanOrEqual(2);
 
     // Click the second date chip
     const secondButton = dateButtons.nth(1);
     await secondButton.click();
-    // The selected chip should gain a distinguishing style (not the muted/inactive style)
-    await expect(secondButton).not.toHaveClass(/text-gray-500/);
+    await expect(secondButton).toHaveAttribute('data-selected', 'true');
   });
 });
 
@@ -94,6 +94,7 @@ test.describe('Map view — marker interaction', () => {
     await page.goto('/');
     await loginAsAdmin(page);
     await page.goto('/');
+    await page.getByRole('tab', { name: 'Map' }).click();
     await page.waitForSelector('.leaflet-marker-icon', { timeout: 10000 });
   });
 
@@ -115,19 +116,19 @@ test.describe('Map view — marker interaction', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Manage view — ADMIN
+// Operations view — ADMIN
 // ---------------------------------------------------------------------------
-test.describe('Manage view — ADMIN', () => {
+test.describe('Operations view — ADMIN', () => {
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
     await loginAsAdmin(page);
     await page.goto('/');
   });
 
-  test('Manage tab is visible for admin and shows sub-tabs', async ({ page }) => {
-    const manageButton = page.getByRole('button', { name: 'Manage' });
-    await expect(manageButton).toBeVisible();
-    await manageButton.click();
+  test('Operations tab is visible for admin and shows sub-tabs', async ({ page }) => {
+    const operationsTab = page.getByRole('tab', { name: 'Operations' });
+    await expect(operationsTab).toBeVisible();
+    await operationsTab.click();
 
     // Group tabs should be visible
     await expect(page.getByTestId('manage-group-data')).toBeVisible({ timeout: 5000 });
@@ -144,22 +145,9 @@ test.describe('Manage view — ADMIN', () => {
   });
 
   test('Locations sub-tab shows location cards with coordinates', async ({ page }) => {
-    await page.getByRole('button', { name: 'Manage' }).click();
+    await page.getByRole('tab', { name: 'Operations' }).click();
     await page.getByTestId('manage-tab-locations').click();
     // Location cards contain lat/lon coordinates text (e.g. "54.7753° N, 1.5849° W")
     await expect(page.locator('text=/\\d+\\.\\d+° [NS]/').first()).toBeVisible({ timeout: 10000 });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Error handling
-// ---------------------------------------------------------------------------
-test.describe('Error handling', () => {
-  test('shows error message when API calls are aborted', async ({ page }) => {
-    await page.goto('/');
-    await loginAsAdmin(page);
-    await page.route('/api/**', (route) => route.abort());
-    await page.goto('/');
-    await expect(page.getByTestId('error-message')).toBeVisible({ timeout: 10000 });
   });
 });

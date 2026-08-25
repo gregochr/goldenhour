@@ -74,13 +74,10 @@ export function buildMapOverlay(trigger, ctx) {
   const enabled = locations.filter((l) => l.enabled !== false && l.lat != null && l.lon != null);
   const dl = date ? dayLabel(date, todayStr, tomorrowStr) : '';
 
-  // ── Aurora — the alert banner's destination, for an arm with no Map tab ──
+  // ── Aurora — the alert banner's destination ──
   //
   // A leading early-return so no existing trigger's control flow moves; everything below is
-  // untouched. It exists because the aurora banner renders above the Plan-layout branch and is
-  // therefore live in BOTH arms, while its action — switch to the Map tab — only means something in
-  // the arm that has one. In the window-first arm the press wrote a tab state nothing rendered, so
-  // the banner was a control that could not act, which §6 bans outright.
+  // untouched.
   //
   // ⚠️ It claims LESS than every other trigger here, deliberately. `ratingFor` and `solarTimeFor`
   // both resolve a non-SUNRISE event to the SUNSET forecast, so asking them about an AURORA trigger

@@ -147,7 +147,7 @@ describe('WindowFirstRegionalPanel', () => {
     // that suite passes the prop itself and cannot see this call site.
     //
     // Asserted `toBe(true)` rather than truthy: the grid branches on it to choose a 96px column
-    // floor over `0`, and that floor is exactly what must NOT reach `DailyBriefing`.
+    // floor over `0`, and that branch must not silently flip back to the no-scroll default.
     renderPanel();
     expect(HeatmapGrid.lastProps.scrollable).toBe(true);
   });
@@ -159,8 +159,8 @@ describe('WindowFirstRegionalPanel', () => {
     // cache lifetimes — with `HeatmapGrid.test.jsx` still green, because that suite passes the prop
     // itself and cannot see this call site.
     //
-    // `toBe(true)`, not truthy: the grid branches on it, and the branch it must NOT take is the one
-    // `DailyBriefing` is frozen on.
+    // `toBe(true)`, not truthy: the grid branches on it, and the branch it must NOT silently fall
+    // back to is the client-side join.
     renderPanel();
     expect(HeatmapGrid.lastProps.serverCellRating).toBe(true);
   });

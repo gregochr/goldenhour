@@ -32,8 +32,8 @@ import { movementChip } from '../utils/movement.js';
  * <h2>Three prose sources, in one order, with an explicit null path</h2>
  *
  * <p>{@code glossHeadline}/{@code glossDetail} first — Claude's own headline and explanation for
- * that region on that night, and the pair {@code HeatmapGrid} already prefers in its hover tip, so
- * both flag arms read one payload the same way round. Then {@code summary}. Then the named null
+ * that region on that night, and the pair {@code HeatmapGrid} already prefers in its hover tip.
+ * Then {@code summary}. Then the named null
  * state, which is not blankness: an empty box reads as a rendering failure, and a reader cannot
  * tell it from prose that failed to load. Where a <em>different</em> window is that region's own
  * best, the null line says so — turning "nothing to say about tonight" into a route to the night

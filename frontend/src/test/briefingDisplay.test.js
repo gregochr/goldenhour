@@ -4,7 +4,6 @@ import {
   DISPLAY_ORDER,
   isPoorSlot,
   slotSortKey,
-  sortedSlotsByVerdict,
   sortedSlotsByTidePriority,
   weatherCodeToIcon,
   msToMph,
@@ -38,7 +37,7 @@ describe('briefingDisplay', () => {
     });
   });
 
-  describe('the two slot orderings (deliberately different)', () => {
+  describe('sortedSlotsByTidePriority', () => {
     const slots = [
       { locationName: 'Alnmouth', verdict: 'MARGINAL' },
       { locationName: 'Bamburgh', verdict: 'GO' },
@@ -47,17 +46,7 @@ describe('briefingDisplay', () => {
       { locationName: 'Embleton', verdict: 'MARGINAL', tideAligned: true },
     ];
 
-    it('sortedSlotsByVerdict orders by verdict rank then A–Z, ignoring tide signals', () => {
-      expect(sortedSlotsByVerdict(slots).map((s) => s.locationName)).toEqual([
-        'Bamburgh',
-        'Craster',
-        'Dunstanburgh', // GO, A–Z — tide/king ignored
-        'Alnmouth',
-        'Embleton', // MARGINAL, A–Z
-      ]);
-    });
-
-    it('sortedSlotsByTidePriority puts king tide first, then tide-aligned, within each verdict', () => {
+    it('puts king tide first, then tide-aligned, within each verdict', () => {
       expect(sortedSlotsByTidePriority(slots).map((s) => s.locationName)).toEqual([
         'Dunstanburgh', // GO + king
         'Craster', // GO + tide-aligned
@@ -67,9 +56,8 @@ describe('briefingDisplay', () => {
       ]);
     });
 
-    it('neither ordering mutates its input', () => {
+    it('does not mutate its input', () => {
       const copy = [...slots];
-      sortedSlotsByVerdict(slots);
       sortedSlotsByTidePriority(slots);
       expect(slots).toEqual(copy);
     });

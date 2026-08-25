@@ -3,25 +3,17 @@
  *
  * <h2>Why this is persisted at all</h2>
  *
- * <p>Both Plan arms are alive at once and the reader flips between them to compare the same night.
- * The current Plan remembers whether its briefing grid is open across such a round trip
- * ({@code DailyBriefing.jsx}'s {@code planGridExpanded}, and its comment says why); this arm forgot
- * on every unmount, so a flip landed on collapsed doors while the arm beside it stayed open. That
- * asymmetry sits precisely on the surface the comparison is about, and it is not a difference either
- * design asked for.
+ * <p>Without it, remounting the pane (a tab switch, a re-render of the shell) collapsed both doors
+ * even when the reader had just opened one — a working position lost to incidental React churn
+ * rather than to anything the reader did.
  *
- * <h2>sessionStorage, matching the arm it is compared against</h2>
+ * <h2>sessionStorage, not localStorage</h2>
  *
- * <p>Three reasons, and they agree. The v1 side stores exactly this class of state in
- * {@code sessionStorage} and states the property worth keeping — "a fresh session still starts
- * collapsed". The arm's own doctrine is that it persists two things, the layout flag and the rating
- * floor, "and both are settled preferences": an open door is a working position, not taste. And
- * restoring the regional door fires one astro request per visible date during first paint, so the
- * lifetime of the memory is also the scope of consent to that fetch.
- *
- * <p>It deliberately does <b>not</b> share v1's {@code planGridExpanded} key. That is one boolean
- * for one disclosure; this arm has two independent doors, so a boolean cannot express it — and
- * coupling them would add cross-arm interference to the exact surface being compared.
+ * <p>Two reasons. The arm's own doctrine is that it persists two things, the reach lens and the
+ * rating floor, "and both are settled preferences": an open door is a working position, not taste,
+ * so a fresh session should still start collapsed. And restoring the regional door fires one astro
+ * request per visible date during first paint, so the lifetime of the memory is also the scope of
+ * consent to that fetch.
  *
  * <h2>⚠️ Whole-value writes, never a read feeding a write</h2>
  *

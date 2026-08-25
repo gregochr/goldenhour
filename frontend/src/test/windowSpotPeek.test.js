@@ -89,10 +89,10 @@ describe('spotPeekPlacement', () => {
   });
 
   it('flips above when below cannot hold the restored score bars', () => {
-    // Deliberately inside the 170–220 band the re-derivation created, because that is the only
-    // place the change is observable: this card has 190px below it, which `CloseToHome`'s 170 would
-    // call room enough and this panel's 220 does not. A card with 130px below flips under either
-    // number and would pin nothing.
+    // Deliberately inside the 170–220 band a smaller estimate would have missed, because that is
+    // the only place the change is observable: this card has 190px below it, which a 170px estimate
+    // would call room enough and this panel's 220 does not. A card with 130px below flips under
+    // either number and would pin nothing.
     const lowCard = rect({ left: 400, top: 514, width: 275, height: 78 });
     expect(800 - 8 - (lowCard.bottom + 10)).toBe(190);
     const { placement, position } = spotPeekPlacement(lowCard, STRIP);
@@ -168,10 +168,10 @@ describe('resolveSpotPeek', () => {
     }
   });
 
-  it('shows a peek for scores with no sentence, which the v1 rule refused', () => {
-    // `CloseToHome` returns early on a missing summary because with the bars removed a peek would
-    // restate the card. P10′ puts the bars back, so the premise is gone and the rule is re-decided:
-    // the gate is "carries something the card does not", and two scores do.
+  it('shows a peek for scores with no sentence', () => {
+    // Without score bars a missing summary would mean a peek restates the card. P10′ puts the bars
+    // back, so that no longer applies: the gate is "carries something the card does not", and two
+    // scores do.
     const detail = resolveSpotPeek(SPOT, DATE, EVENT, scoreIndex([{
       date: DATE, targetType: EVENT, locationName: 'Bamburgh Castle', fierySkyPotential: 41,
     }]));

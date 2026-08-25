@@ -10,10 +10,8 @@ import { sortRegionsByBestVerdict } from '../utils/windowFirstRegions.js';
 /**
  * The heatmap's quality filter, pinned open.
  *
- * <p>Matches {@code DailyBriefing}'s own {@code SHOW_ALL_TIER}: the quality slider was retired in v1
- * and the tier is a pinned seam rather than a live control. Re-deriving a different value here would
- * make the same grid show a different number of rows in the two arms, which is precisely the
- * comparison plan §4 is trying to run.
+ * <p>The quality slider that once drove this tier is gone; it is now a pinned seam rather than a
+ * live control, always passing the loosest tier so nothing is filtered out.
  */
 const SHOW_ALL_TIER = 5;
 
@@ -22,26 +20,20 @@ const SHOW_ALL_TIER = 5;
  *
  * <h2>Why the grid is re-parented rather than rebuilt</h2>
  *
- * <p>Plan §0 settles this — the heatmap is "re-parented behind the two doors, not deleted". Unlike
- * the filmstrip and the peek, which §5a and §5 order <em>copied</em> so {@code CloseToHome} and
- * {@code CardHoverPreview} stay untouched, {@code HeatmapGrid} is already a standalone component
- * with a declared prop contract and no knowledge of its parent. Rendering it from a second call site
- * changes nothing about the first, so the v1 arm is as untouched by this as it would be by a copy —
- * and a copy of 900 lines would be two grids to keep in step for the length of the pilot.
+ * <p>Plan §0 settles this — the heatmap is "re-parented behind the two doors, not deleted".
+ * {@code HeatmapGrid} is a standalone component with a declared prop contract and no knowledge of
+ * its parent, so rendering it from this door changes nothing else that renders it.
  *
  * <h2>Its drill-down is why "regional planner" is not an overstatement</h2>
  *
  * <p>§0 names the door's contents as the heatmap <em>plus the full regional briefing</em>. The grid
  * carries its own {@code drillDown} state over (date, region, event), which is that briefing — the
- * per-region slot detail a reader would otherwise open a region card for. What is <b>not</b>
- * re-parented is {@code DailyBriefing}'s own region-card list, which is entangled with a dozen
- * pieces of that component's state; the door's description says "every region, every window" rather
- * than promising a surface it does not open.
+ * per-region slot detail a reader would otherwise open a region card for. The door's description
+ * says "every region, every window" rather than promising a surface it does not open.
  *
  * <h2>Reach comes from this arm's own join, not from a second drive-time fetch</h2>
  *
- * <p>The grid wants {@code driveMap} keyed by location <em>name</em>; v1 builds it from a
- * {@code userDriveTimes} object it fetches separately. This arm already holds per-user reach from
+ * <p>The grid wants {@code driveMap} keyed by location <em>name</em>. This arm already holds per-user reach from
  * {@code GET /api/user/settings/reach}, keyed by location id — the contract plan §2.2 created
  * precisely so drive times never ride the ETagged briefing payload. So the id→name half comes from
  * {@code locations} and the minutes from {@code effectiveReachById}, and this arm keeps <b>one</b>
@@ -75,8 +67,6 @@ export default function WindowFirstRegionalPanel({ locations, onShowOnMap }) {
     todayStr, tomorrowStr,
   } = useWindowFirstBriefing();
 
-  // The same key v1 writes, deliberately: it is a display preference about the same grid, and a
-  // second key would silently reset it the moment the flag default flips.
   const [showAllLocations, setShowAllLocations] = useLocalStorageState('showStanddownLocations', false);
   const [astroScoresByDate, setAstroScoresByDate] = useState({});
 

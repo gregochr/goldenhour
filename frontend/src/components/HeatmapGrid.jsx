@@ -14,7 +14,7 @@ import { RATING_COLOURS } from './markerUtils.js';
 import { daysOut, resolveConfidence, confidenceTreatment, scaleRgbaAlpha } from '../utils/confidenceUtils.js';
 import { useIsCoarsePointer } from '../hooks/useIsCoarsePointer.js';
 
-// ── Pure helpers (copied from DailyBriefing — shared logic) ─────────────────
+// ── Pure helpers ──────────────────────────────────────────────────────────
 
 function getShortDate(dateStr) {
   const d = new Date(dateStr + 'T12:00:00Z');
@@ -485,10 +485,9 @@ const CELL_TIP_GAP = 8;
 
 /**
  * Compute a viewport-anchored (`position: fixed`) style for a heatmap cell's hover tooltip so it
- * escapes the daily-briefing card's `overflow: hidden` (which clips the rightmost column's tip no
- * matter how it's anchored inside the grid). The tip sits above the cell, anchored to the cell's
- * left edge unless that would overrun the viewport's right edge, in which case it flips to a right
- * anchor. Mirrors the summary-strip region tooltip (see BriefingSummaryStrip).
+ * escapes the panel's `overflow: hidden` (which clips the rightmost column's tip no matter how
+ * it's anchored inside the grid). The tip sits above the cell, anchored to the cell's left edge
+ * unless that would overrun the viewport's right edge, in which case it flips to a right anchor.
  *
  * @param {DOMRect} rect the cell's bounding box
  * @returns {{style: Object, alignRight: boolean}} inline style + caret-side flag
