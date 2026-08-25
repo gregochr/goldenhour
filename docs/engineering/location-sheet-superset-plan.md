@@ -2,6 +2,15 @@
 
 **For an Opus/Sonnet build session. Written 2026-08-24 against `main` @ `1281e64a` (post-M5).**
 
+> **Status (2026-08-25):** Phase 1 merged as #613 (`57fde7cb`) — score bars in the sheet, shared
+> `PlanScoreBar`, cross-surface consistency test. Phase 2 built and browser-verified as PR #614 —
+> per-location golden/blue hour on `LocationEvaluationView`, light line rendered blue→golden at
+> sunrise / golden→blue at sunset; its adversarial review found the §4.1 "polar try/catch" could
+> never fire (`solar-utils` returns a midnight sentinel, never a throw — now rejected per boundary)
+> and moved the field attachment off `GET /api/forecast`'s shared path. Phase 3 (peek parity)
+> **skipped by choice**: the invariant sheet ⊇ peek holds without it; revisit only if a later
+> change touches the peek. §8's open owner decision (light times on unforecast rows) remains open.
+
 ---
 
 ## 0. The ask
