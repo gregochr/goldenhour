@@ -141,14 +141,19 @@ export default function HealthIndicator({
       }
     }
     function handleScroll() { computePosition(); }
+    function handleKeyDown(e) {
+      if (e.key === 'Escape') setOpen(false);
+    }
 
     document.addEventListener('mousedown', handleClickOutside);
     document.addEventListener('touchstart', handleClickOutside);
+    document.addEventListener('keydown', handleKeyDown);
     window.addEventListener('scroll', handleScroll, true);
     window.addEventListener('resize', computePosition);
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('touchstart', handleClickOutside);
+      document.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('scroll', handleScroll, true);
       window.removeEventListener('resize', computePosition);
     };
@@ -222,6 +227,7 @@ export default function HealthIndicator({
         data-testid="health-indicator"
         onClick={() => setOpen((prev) => !prev)}
         aria-expanded={open}
+        aria-controls="health-panel"
         aria-label={`System status: ${label}`}
       >
         <span
@@ -249,6 +255,7 @@ export default function HealthIndicator({
           // that kept the frame's background would read as part of the page it is covering.
           className="w-72 rounded-lg border border-plex-border-light bg-plex-surface-light shadow-xl font-mono"
           data-testid="health-panel"
+          id="health-panel"
         >
           {/* Overall status */}
           <div

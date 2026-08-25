@@ -584,6 +584,10 @@ tonight's *delta*. If that split erodes, Plan re-grows to 2,600px.
 
 ## 4. Flag mechanism
 
+**Discharged 2026-08-25** — the flag flipped and was then deleted entire, along with v1
+(`docs/engineering/v1-retirement-plan.md`, D0/D1). Kept below as the historical record of the
+mechanism, not as a live description.
+
 A localStorage key (`photocast.planLayout`, `'v1' | 'v2'`) via `useLocalStorageState`, toggled from
 `UserSettingsModal`. No backend change, no build-time env var — the five pilot users need to be able to
 switch back without a deploy, and you need to compare both views against the *same* night's data.

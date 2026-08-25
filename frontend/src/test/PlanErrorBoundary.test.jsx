@@ -131,4 +131,36 @@ describe('PlanErrorBoundary', () => {
     );
     expect(screen.getByRole('alert')).toBeInTheDocument();
   });
+
+  // Without this, a crash orphans focus at <body>: the entire subtree that held it just unmounted,
+  // and nothing moves focus to the two controls that are now the whole app's only function.
+  it('moves focus to the fallback heading on crash, so a keyboard/AT reader is not left at <body>', () => {
+    silenceReactErrorLog();
+    render(
+      <PlanErrorBoundary onSignOut={vi.fn()}>
+        <Boom />
+      </PlanErrorBoundary>,
+    );
+    expect(screen.getByRole('heading', { level: 2, name: 'The Plan stopped working' })).toHaveFocus();
+  });
+
+  // A storage-denied browser (Safari "Block all cookies", an enterprise site-data policy) throws
+  // SecurityError on bare localStorage/sessionStorage access. The clear-and-reload button is the
+  // reader's only remaining control at this point, so it must still reload even when clearing the
+  // lens keys is impossible — an unguarded throw here would leave the button doing nothing, forever.
+  it('still reloads when storage access throws', () => {
+    silenceReactErrorLog();
+    const removeItemSpy = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new DOMException('The operation is insecure.', 'SecurityError');
+    });
+    const reload = vi.fn();
+    render(
+      <PlanErrorBoundary onSignOut={vi.fn()} reload={reload}>
+        <Boom />
+      </PlanErrorBoundary>,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Clear cached data and reload' }));
+    expect(reload).toHaveBeenCalledTimes(1);
+    removeItemSpy.mockRestore();
+  });
 });

@@ -5,6 +5,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — the settling commit (v1 retirement D4, final phase)
+
+`CLAUDE.md` and `README.md` rewritten truthful against the tree left by D0–D3: no more mentions of
+a "v1 arm", a flag, or a frozen comparison control — the window-first Plan is simply the Plan tab.
+"Manage tab" corrected to "Operations tab" everywhere it survived; the daily-briefing bullet
+corrected (the quality slider's gating machinery, not just the slider itself, is gone; SSE is gone;
+`bestBets*` fields have no renderer but `BriefingBestBetAdvisor` keeps three live admin consumers);
+the confidence-channel and panel-data-contracts sections rewritten to the surfaces that actually
+still read them. Engineering docs under `docs/engineering/` struck or annotated wherever they stood
+as rules-in-force describing v1 or the flag, without touching their historical build-log content.
+
+Dead-code sweep, its own reviewable hunk: seven zero-importer components deleted (`StarRating`,
+`ScoreBar`, `WindIndicator`, `VisibilityIndicator`, `CloudCoverBars`, `LocationTypeBadges`,
+`PopoverHost` + its hook and util); five dead exports removed (`briefingDisplay`'s re-exported
+`LOCATION_TYPE_ICONS`, `conversions.metresToKm`/`.formatShiftedEventTimeUk`,
+`markerUtils.standDownColour`); five CSS tokens and a dead selector removed
+(`--color-sunrise-*`, `--color-sunset-*`, `--color-verdict-awaiting`,
+`.heatmap-cell-visible/-hidden`). `OutcomeModal` and five dead API bindings to live endpoints are
+deliberately excluded — named as follow-ons for the owner, not swept.
+
+A full-surface adversarial review (seven lenses over the whole frontend, not just this phase's own
+diff) found and fixed several small runtime/accessibility defects along the way — none introduced by
+this phase, all pre-existing in the tree it settled: `PlanErrorBoundary`'s recovery button could
+throw and do nothing under a storage-denied browser (now guarded); it never moved focus to its own
+fallback on a crash, leaving a keyboard/AT reader at `<body>` (now does); a third, previously
+unguarded route could stack a search dialog underneath an open location sheet (now guarded, matching
+the other two routes); `MapView`'s `localStorage` filter reads/writes were unguarded, several of them
+during render (now guarded); `HealthIndicator`'s panel had no Escape dismissal or `aria-controls`
+(now has both). A fourth stacking route (the masthead health pill, behind a CSS stacking-context
+trap) and the error boundary's own lack of coverage over its App-level siblings are confirmed but
+architectural, and are named as follow-ons rather than fixed here.
+
 ### Removed — the v1 compatibility layer collapses (v1 retirement D3)
 
 The last layer of caller opt-ins that kept the v1 Plan a byte-identical comparison control is gone

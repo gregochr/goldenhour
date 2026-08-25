@@ -266,9 +266,10 @@ Two traps specific to this codebase:
 - Do not depend on a mock implementation some other test installed. `vi.clearAllMocks()` clears
   calls, not implementations, so a `mockResolvedValue` is still in force in the next test and in the
   next `describe`. Re-assert every default a suite relies on in its own `beforeEach`, and give every
-  `describe` its own setup rather than borrowing a sibling's. `DailyBriefing.test.jsx` failed both
-  ways at once: a leaked Close-to-home panel put a second "Keswick" on screen and broke an unscoped
-  `getByText` elsewhere, and a block with no `beforeEach` got `undefined` back from `useAuth`.
+  `describe` its own setup rather than borrowing a sibling's. `DailyBriefing.test.jsx` (since deleted,
+  v1 retirement D2) failed both ways at once: a leaked Close-to-home panel put a second "Keswick" on
+  screen and broke an unscoped `getByText` elsewhere, and a block with no `beforeEach` got `undefined`
+  back from `useAuth`.
 - Do not assume file order protects you, and do not assume it can hurt you either. `isolate: true`
   gives every test *file* its own process — nothing leaks between files — so a suspected flake is
   either inside one file or is not a flake at all. `--sequence.shuffle.tests --sequence.seed=N`

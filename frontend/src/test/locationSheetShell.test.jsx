@@ -516,6 +516,31 @@ describe('WindowFirstShell — the four-day location sheet', () => {
       expect(screen.getByTestId('window-first-search').tabIndex).toBe(-1);
     });
 
+    it('⚠️ the beyond line\'s search link refuses a THIRD layer too, not just the masthead button', async () => {
+      // The masthead search button and the `/` shortcut both guard on `stackedOverPopup` — this is
+      // the strip's OWN route into the same `setSearchSeed` call, and it had no guard at all: a
+      // reader could Tab from an open location sheet to this button and open `PlanSearch`
+      // UNDERNEATH it (both dialogs are `fixed inset-0 z-50`, so paint order is DOM order and
+      // `PlanSearch` mounts before the sheet), leaving a sheet on screen with nothing in it reachable.
+      renderShell({
+        // Lake District now measures beyond GLANCE_MINUTES (180), so the strip's beyond line
+        // renders with its search link naming it — CARD/STRIP_CARD both reference this region.
+        reachById: new Map([[1, { driveMinutes: 200 }], [2, { driveMinutes: 40 }]]),
+        effectiveReachById: new Map([[1, { driveMinutes: 200 }], [2, { driveMinutes: 40 }]]),
+      });
+      await openStackedSheet();
+      expect(screen.getAllByRole('dialog').length).toBe(2);
+
+      const beyondSearch = await screen.findByTestId('wf-heat-beyond-search');
+      expect(beyondSearch).toHaveTextContent('search to plan from Lake District');
+      fireEvent.click(beyondSearch);
+
+      expect(screen.queryByTestId('plan-search')).toBeNull();
+      expect(screen.getByTestId('location-sheet')).not.toHaveAttribute('inert');
+      expect(screen.getByTestId('location-sheet')).toHaveAttribute('aria-modal', 'true');
+      expect(screen.getAllByRole('dialog').length).toBe(2);
+    });
+
     it('closes topmost-first, exactly one layer per press', async () => {
       renderShell();
       await openStackedSheet();

@@ -251,9 +251,11 @@ export default function AuroraBanner({ onViewOnMap = null }) {
     setDismissedLevel(status.level);
   }
 
-  // Simulated alerts jump to the Manage tab; a real alert hands off to the Map tab
-  // with the Aurora event pre-selected (via onViewOnMap), falling back to a plain
-  // hash navigation when no handler is supplied.
+  // A real alert hands off to the Map tab with the Aurora event pre-selected (via
+  // onViewOnMap). Simulated alerts, and a real alert with no handler supplied, fall back to a
+  // bare hash write — a no-op today (v1 retirement D1 removed the app-level hashchange
+  // listener this once drove); kept and named rather than fixed, docs/engineering/
+  // v1-retirement-plan.md §8.11.
   function handleActivate() {
     if (isSimulated) {
       window.location.hash = 'manage';

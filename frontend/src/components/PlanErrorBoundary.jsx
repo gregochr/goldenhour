@@ -52,6 +52,7 @@ class PlanErrorBoundary extends React.Component {
     super(props);
     this.state = { error: null };
     this.handleClearAndReload = this.handleClearAndReload.bind(this);
+    this.headingRef = React.createRef();
   }
 
   static getDerivedStateFromError(error) {
@@ -64,15 +65,46 @@ class PlanErrorBoundary extends React.Component {
     console.error('Plan crashed:', error, info?.componentStack);
   }
 
+  componentDidMount() {
+    // A throw during the GUARDED SUBTREE's very first render is caught before this boundary's own
+    // first commit, so React treats that commit as a MOUNT, not an update — componentDidUpdate
+    // below never fires for it. This is the common case in practice (the hydration-trap crash
+    // §4.1 exists for happens on first mount), so it needs its own hook.
+    this.focusFallbackHeading();
+  }
+
+  componentDidUpdate(prevProps, prevState) {
+    // The rarer case: a healthy subtree rendered once, then threw on a LATER update. Here the
+    // boundary's fallback commit really is an update, so componentDidMount does not fire again.
+    if (this.state.error && !prevState.error) {
+      this.focusFallbackHeading();
+    }
+  }
+
+  focusFallbackHeading() {
+    // The crash unmounts whatever the reader had focused, so without this focus reverts to
+    // <body> and a keyboard/AT user has no way to discover the fallback exists short of Tabbing
+    // through every banner ahead of it.
+    if (this.state.error) {
+      this.headingRef.current?.focus();
+    }
+  }
+
   handleClearAndReload() {
     // Not because a malformed key can throw — the readers here are all fail-soft — but because a
     // VALID stored selection re-selects the same render path on every reload, so clearing the
     // hydrated payload cache alone can land the reader straight back in the crash. The auth keys
     // are untouched: the reader stays signed in, and the button's copy says so.
     clearSwrCache();
-    localStorage.removeItem(PLAN_REACH_KEY);
-    localStorage.removeItem(PLAN_RATING_KEY);
-    sessionStorage.removeItem(PLAN_DOORS_KEY);
+    try {
+      localStorage.removeItem(PLAN_REACH_KEY);
+      localStorage.removeItem(PLAN_RATING_KEY);
+      sessionStorage.removeItem(PLAN_DOORS_KEY);
+    } catch {
+      // Storage unavailable — nothing to clear. Reload proceeds regardless: this is the one
+      // control the reader has left, and it must not go silently dead under a storage-denied
+      // browser the way an unguarded call here would leave it.
+    }
     const { reload = () => window.location.reload() } = this.props;
     reload();
   }
@@ -89,7 +121,9 @@ class PlanErrorBoundary extends React.Component {
         <div className="flex justify-center mb-4">
           <BrandLockup variant="compact" />
         </div>
-        <h2 className="text-red-400 font-medium mb-2">The Plan stopped working</h2>
+        <h2 ref={this.headingRef} tabIndex={-1} className="text-red-400 font-medium mb-2 outline-none">
+          The Plan stopped working
+        </h2>
         {/* The message, not the stack. Enough to quote into a bug report; the rest is in the console. */}
         <p data-testid="plan-error-detail" className="text-plex-text-secondary text-sm mb-4">
           {error.message || String(error)}

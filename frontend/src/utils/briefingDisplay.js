@@ -18,7 +18,7 @@ export const DISPLAY_ORDER = { WORTH_IT: 0, MAYBE: 1, STAND_DOWN: 2, AWAITING: 3
  * <p>Re-exported rather than redeclared. This copy had drifted: it used 💧 for WATERFALL where
  * the map, the popup, the badges and the admin list all used 💦.
  */
-export { LOCATION_TYPE_ICONS, locationTypeIcons } from './locationTypes.js';
+export { locationTypeIcons } from './locationTypes.js';
 
 /** Window past the solar event during which it still counts as current. */
 export const AFTERGLOW_MS = 30 * 60 * 1000;

@@ -25,7 +25,7 @@ const DATE_2 = futureDateStr(2);
 
 /**
  * Builds a minimal briefing days array with one region containing one location
- * per event summary, so that getRegionLocationNames can resolve region locations.
+ * per event summary, the shape `HeatmapGrid`'s column derivation reads.
  */
 function buildBriefingDays(dates, regionName, locationNames) {
   return dates.map((date) => ({

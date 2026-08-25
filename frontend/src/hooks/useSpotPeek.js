@@ -37,8 +37,8 @@ const PEEK_PANEL_GRACE_MS = 120;
  *
  * <p>Module-scoped rather than per-hook, and that is the whole point. State lives per strip so that
  * collapsing a window unmounts the panel with its anchor (see below), but the page must still carry
- * exactly <b>one</b> panel — the guarantee {@code usePopoverHost} gets free from owning a single
- * popover. A {@code focusin} listener alone cannot buy it back: it fires on a focus <em>change</em>,
+ * exactly <b>one</b> panel — the guarantee a shared popover host (since deleted as dead code) got
+ * free from owning a single popover. A {@code focusin} listener alone cannot buy it back: it fires on a focus <em>change</em>,
  * so it covers open-by-pointer-then-Tab-away and not the reverse, and a pointer moving between two
  * expanded windows' strips sends the first strip nothing at all. Two correctly-placed tooltips would
  * then sit on screen together.
@@ -55,8 +55,9 @@ let openPeek = null;
  *
  * <h2>One peek per strip, and that is what handles collapse</h2>
  *
- * <p>{@code usePopoverHost} owns exactly one popover for a whole subtree, and its Javadoc explains
- * why: a panel rendered inside the thing that opened it dies when that thing re-renders. This hook
+ * <p>A shared popover host (since deleted as dead code) owned exactly one popover for a whole
+ * subtree, for a reason worth keeping: a panel rendered inside the thing that opened it dies when
+ * that thing re-renders. This hook
  * is scoped narrower on purpose. P9 shipped collapse, and a window card's collapsible region
  * unmounts {@code WindowSpotStrip} entirely — so a peek whose state lives in the strip is torn down
  * with its own anchor, by construction, with no toggle-aware dismissal to write or to forget. Nothing
@@ -90,7 +91,8 @@ let openPeek = null;
  * disappearing — the card is a real button and the peek is {@code aria-hidden}, so nothing reachable
  * only through it is lost.
  *
- * <p>Escape and resize close it too, matching {@code usePopoverHost}. The listeners are registered
+ * <p>Escape and resize close it too, matching the shared popover host's pattern (since deleted as
+ * dead code). The listeners are registered
  * only while a peek is open or pending, so a page of six strips adds nothing at rest.
  *
  * @returns {{peek: ?object, open: function, hold: function, closeFromTrigger: function,
@@ -182,7 +184,7 @@ export default function useSpotPeek() {
     const onKeyDown = (e) => { if (e.key === 'Escape') dismiss(); };
     // Focus landing anywhere that is not this peek's own anchor takes it down. Without it a peek
     // opened by the pointer in one window card survives a Tab into another window's strip, and the
-    // page carries two panels — the guarantee `usePopoverHost` gets free from owning only one.
+    // page carries two panels — the guarantee a shared popover host got free from owning only one.
     const onFocusIn = (e) => { if (e.target !== anchorRef.current) dismiss(); };
     // Capture: scroll does not bubble, and the scroller is `.wf-spots`, not the document.
     window.addEventListener('scroll', dismiss, true);

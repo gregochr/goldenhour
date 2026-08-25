@@ -84,7 +84,7 @@ StatusPill.propTypes = {
 };
 
 /**
- * Pipeline Runs sub-view under Manage → Operations.
+ * Pipeline Runs sub-view under the Operations tab's Operations group.
  *
  * <p>Shows the nightly pipeline orchestrator's recent cycles. When the user clicks
  * a row, the view replaces the list with a detail panel — a phase timeline plus

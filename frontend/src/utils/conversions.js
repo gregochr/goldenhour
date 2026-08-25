@@ -41,16 +41,6 @@ export function mpsToMph(mps) {
 }
 
 /**
- * Converts metres to kilometres.
- *
- * @param {number} metres - Distance in metres.
- * @returns {number} Distance in kilometres, rounded to one decimal place.
- */
-export function metresToKm(metres) {
-  return Math.round(parseFloat(metres) / 100) / 10;
-}
-
-/**
  * Converts wind direction in degrees to a compass point abbreviation.
  *
  * @param {number} degrees - Wind direction in degrees (0–360).
@@ -156,22 +146,6 @@ export function formatInstantUk(value, options) {
   const d = parseUtcInstant(value);
   if (!d) return null;
   return d.toLocaleString('en-GB', { ...options, timeZone: UK_ZONE });
-}
-
-/**
- * Formats a UTC solar event timestamp shifted by an offset as UK local time (HH:MM).
- *
- * Useful for computing golden hour and blue hour window boundaries.
- *
- * @param {string|null} utcDateTimeStr - ISO-like datetime string without timezone suffix.
- * @param {number} offsetMinutes - Minutes to add (negative to subtract).
- * @returns {string|null} Formatted time like "07:30", or null.
- */
-export function formatShiftedEventTimeUk(utcDateTimeStr, offsetMinutes) {
-  const utcDate = parseUtcInstant(utcDateTimeStr);
-  if (!utcDate) return null;
-  const shifted = new Date(utcDate.getTime() + offsetMinutes * 60000);
-  return formatInstantUk(shifted, { hour: '2-digit', minute: '2-digit' });
 }
 
 /**

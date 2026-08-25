@@ -19,8 +19,8 @@ import {
 } from '../utils/locationTypes.js';
 
 // Mirrors backend/src/main/java/com/gregochr/goldenhour/entity/LocationType.java. A constant added
-// there and not here renders as nothing (badges filter unknowns out) or as a raw enum name — the
-// silent failure this module exists to prevent, so it is asserted rather than assumed.
+// there and not here renders as nothing (every consumer filters unknowns out) or as a raw enum
+// name — the silent failure this module exists to prevent, so it is asserted rather than assumed.
 const BACKEND_LOCATION_TYPES = [
   'LANDSCAPE', 'WILDLIFE', 'SEASCAPE', 'WATERFALL', 'BLUEBELL', 'WOODLAND',
 ];
@@ -39,8 +39,8 @@ describe('LOCATION_TYPE_META', () => {
 
   it('uses one emoji per type across every surface', () => {
     // The copies had already drifted: briefingDisplay used 💧 for WATERFALL where the map, the
-    // popup, the badges and the admin list all used 💦. Deriving the icon map from the metadata
-    // makes that divergence unrepresentable.
+    // popup and the admin list all used 💦. Deriving the icon map from the metadata makes that
+    // divergence unrepresentable.
     expect(LOCATION_TYPE_ICONS.WATERFALL).toBe(LOCATION_TYPE_META.WATERFALL.emoji);
     expect(Object.keys(LOCATION_TYPE_ICONS)).toEqual(LOCATION_TYPES);
   });

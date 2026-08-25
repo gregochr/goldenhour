@@ -73,8 +73,8 @@ function boundedScore(value) {
  * <p>Coordinates are viewport-relative, which is what {@code getBoundingClientRect} already returns
  * and what a {@code position: fixed} panel wants — they must be given no scroll compensation. The
  * corollary is that they go stale the instant anything scrolls, which is why {@code useSpotPeek}
- * dismisses on scroll rather than trying to follow the anchor. Same trade {@code usePopoverHost}
- * makes, and stated there too.
+ * dismisses on scroll rather than trying to follow the anchor. Same trade the shared popover host
+ * (since deleted as dead code) made, and stated there too.
  *
  * @param {DOMRect}  anchorRect the hovered spot card's bounding box
  * @param {?DOMRect} stripRect  the strip wrapper's bounding box, when it is mounted

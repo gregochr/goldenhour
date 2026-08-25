@@ -5,8 +5,8 @@ import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 
 /**
- * The masthead the window-first arm renders in place of the app header, and specifically the status
- * pill it lost on the way across.
+ * The Plan's masthead, and specifically the status pill it inherited from the app header it
+ * replaced.
  *
  * <p>Scoped its own file the way {@code WindowFirstShellTabs} and {@code WindowFirstShellSheet} are:
  * every rule here is about how the shell JOINS the pill to the masthead — that it is a slot rather

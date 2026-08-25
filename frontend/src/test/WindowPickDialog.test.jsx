@@ -53,8 +53,9 @@ describe('WindowPickDialog', () => {
   });
 
   it('is a dialog, not a tooltip, because it carries destinations', () => {
-    // PopoverHost was the obvious home and is the wrong one by its own rule: it is role="tooltip",
-    // and content a reader must REACH — a destination, an action — belongs in a dialog. §6 makes
+    // A shared popover host (since deleted as dead code) was the obvious home and is the wrong one
+    // by its own rule: it is role="tooltip", and content a reader must REACH — a destination, an
+    // action — belongs in a dialog. §6 makes
     // the same point from the other side: no control whose only visible effect is an aria-hidden
     // panel. A hover peek is also unreachable by keyboard and by touch.
     renderDialog();

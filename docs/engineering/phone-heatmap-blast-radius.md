@@ -1,5 +1,9 @@
 # The phone heatmap: how far the change reaches
 
+**Status: historical.** Written 2026-08-11 while v1 and v2 ran side by side; v1 (`DailyBriefing.jsx`
+and its `:1555`/`:1526` gates below) is deleted entire (`docs/engineering/v1-retirement-plan.md`),
+so only the v2 row of every comparison below still describes the running app.
+
 *Written 2026-08-11, before any CSS, because `HeatmapGrid` is shared with the frozen v1 arm and the
 owner is running a side-by-side comparison of the two. Every number below was measured on the running
 app (headless Chromium, local backend on 8083) rather than read off the source.*

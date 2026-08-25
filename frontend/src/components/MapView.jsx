@@ -27,6 +27,35 @@ import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
 import { rampHex, RAMP_STOPS } from '../utils/scoreRamp.js';
 
 /**
+ * The map's own localStorage filter keys, read/written fail-soft — a storage-denied browser
+ * (Safari "Block all cookies", an enterprise site-data policy) throws `SecurityError` on bare
+ * access, and several of these reads happen inside `useState` initializers, i.e. during render:
+ * an unguarded throw there would crash the whole app, not just the map. Matches
+ * `useLocalStorageState.js`'s existing convention.
+ */
+function readMapFilter(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+function writeMapFilter(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // Storage unavailable — the in-memory state still holds the value for this session.
+  }
+}
+function clearMapFilter(key) {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // Storage unavailable — nothing to clear.
+  }
+}
+
+/**
  * The heat field, behind a `lazy()` boundary — and the boundary is load-bearing, not tidiness.
  *
  * <p>`MapHeatLayer` statically imports the kernel, which statically imports `d3-geo`. `MapView` is
@@ -752,14 +781,14 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
   // defaults to 3★+ when unset (per the filter-bar tidy).
   const DEFAULT_MIN_STARS = 3;
   const [minStars, setMinStars] = useState(() => {
-    const saved = localStorage.getItem('mapFilterMinStars');
+    const saved = readMapFilter('mapFilterMinStars');
     const n = saved !== null ? parseInt(saved, 10) : NaN;
     return Number.isFinite(n) && n >= 1 && n <= 5 ? n : DEFAULT_MIN_STARS;
   });
   const [showUnrated, setShowUnrated] = useState(false);
   // Stand-down filter — hidden by default; power users can reveal triaged locations
   const [showStandDown, setShowStandDown] = useState(() => {
-    return localStorage.getItem('mapFilterShowStandDown') === '1';
+    return readMapFilter('mapFilterShowStandDown') === '1';
   });
   const [driveTimeFilter, setDriveTimeFilter] = useState(0); // 0 = All; positive = max minutes
   const [userDriveTimes, setUserDriveTimes] = useState({});
@@ -807,13 +836,13 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
   // a filter while the drawer is open still persists the FILTER VALUE exactly as it does on the
   // Map tab; it is only the disclosure's own state that is forgotten.
   const [advancedOpen, setAdvancedOpen] = useState(
-    () => !overlayMode && localStorage.getItem('mapFiltersOpen') === '1',
+    () => !overlayMode && readMapFilter('mapFiltersOpen') === '1',
   );
   const toggleAdvancedOpen = () => setAdvancedOpen((v) => {
     const next = !v;
     if (overlayMode) return next;
-    if (next) localStorage.setItem('mapFiltersOpen', '1');
-    else localStorage.removeItem('mapFiltersOpen');
+    if (next) writeMapFilter('mapFiltersOpen', '1');
+    else clearMapFilter('mapFiltersOpen');
     return next;
   });
   // Viewport of the overlay's map, as [south, west, north, east] — see BoundsTracker.
@@ -864,7 +893,7 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
         setMinStars(null);
         setShowUnrated(false);
       })();
-      localStorage.removeItem('mapFilterMinStars');
+      clearMapFilter('mapFilterMinStars');
     }
   }, [auroraAvailable, eventType]);
 
@@ -1037,7 +1066,7 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
   function handleMinStarsClick(star) {
     // Threshold control: selecting a level sets "this and above" and persists.
     setMinStars(star);
-    localStorage.setItem('mapFilterMinStars', String(star));
+    writeMapFilter('mapFilterMinStars', String(star));
   }
 
   function toggleShowUnrated() {
@@ -1047,8 +1076,8 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
   function toggleShowStandDown() {
     setShowStandDown((v) => {
       const next = !v;
-      if (next) localStorage.setItem('mapFilterShowStandDown', '1');
-      else localStorage.removeItem('mapFilterShowStandDown');
+      if (next) writeMapFilter('mapFilterShowStandDown', '1');
+      else clearMapFilter('mapFilterShowStandDown');
       return next;
     });
   }
@@ -1424,8 +1453,8 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
         setMinStars(DEFAULT_MIN_STARS);
         setShowUnrated(false);
         setShowStandDown(false);
-        localStorage.removeItem('mapFilterMinStars');
-        localStorage.removeItem('mapFilterShowStandDown');
+        clearMapFilter('mapFilterMinStars');
+        clearMapFilter('mapFilterShowStandDown');
       }}
       showAurora={role !== 'LITE_USER'}
       auroraAvailable={auroraAvailable}
@@ -1715,8 +1744,8 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
                     setShowStandDown(false);
                     setDriveTimeFilter(0);
                     setDarkSkyFilter(false);
-                    localStorage.removeItem('mapFilterMinStars');
-                    localStorage.removeItem('mapFilterShowStandDown');
+                    clearMapFilter('mapFilterMinStars');
+                    clearMapFilter('mapFilterShowStandDown');
                   }}
                   className="px-3 py-1 text-xs font-medium rounded-full border border-plex-border text-plex-text-muted hover:text-plex-text-secondary transition-colors"
                   data-testid="clear-all-filters"

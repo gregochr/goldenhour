@@ -92,11 +92,13 @@ implementing sessions: `docs/engineering/heat-field-prompts.md`. Every phase is 
 CLAUDE.md § *UI Work — Review Cadence* (build → tests → adversarial review of the diff → fix →
 re-verify → commit) and updates `CHANGELOG.md`.
 
-**Scope guard:** v2 / window-first Plan UI **only**, behind the existing `usePlanLayout` flag
-(default still `v1`). v1 is the pilot's frozen comparison control and will be deleted after the
+**Scope guard, historical.** ~~v2 / window-first Plan UI **only**, behind the existing `usePlanLayout`
+flag (default still `v1`). v1 is the pilot's frozen comparison control and will be deleted after the
 flag flip — nothing here ports into v1, and every shared component change uses the established
 caller opt-in shape (`scrollable`, `serverCellRating`, `resizeNonce` precedents) so v1's behaviour
-is byte-identical without the opt-in.
+is byte-identical without the opt-in.~~ **Discharged 2026-08-25**: the flag, v1 and every caller
+opt-in named here are deleted (`docs/engineering/v1-retirement-plan.md`) — the window-first Plan is
+the only Plan tab, and the shared-component discipline this guard describes no longer applies.
 
 **Spec:** `docs/design/heat-map/` (vendored verbatim from the bundle — P0). Read the bundle's
 `README.md` and both HTML files before writing code, **then read §2 of this plan**: several of the
@@ -118,7 +120,7 @@ space-first; same kernel, same catalogue, same colour ramp.
 | # | Question | Decision |
 |---|---|---|
 | D1 | Does the strip replace `WindowFirstDayRail`? | **CONFIRMED — replace (owner, 2026-08-18).** Full comparison, job-by-job relocation, what is genuinely lost, and the two rejected alternatives: **§1.1**. |
-| D2 | Colour ramp conflict | **One ramp inside v2.** New `frontend/src/utils/scoreRamp.js` owns the design's five stops (1 `#B03A2A`, 2 `#C8452F` = `--color-verdict-standdown`, 3 `#E0A542` = `--color-verdict-marginal`, 4 `#B0BE74`, 5 `#8AAE72` = `--color-verdict-go`; linear interpolation, clamp 1–5). The kernel, the strip, the row maps and the six-dot swatches read it from P0; the v2 map markers/clusters swap onto it **in P4, riding the same `heat` opt-in** (see D8 — geometry, clustering and popups unchanged, only the colour source moves); the v2 spot-card badges swap **in P5** (`windowFirstSpots.spotBadgeStyle` is v2-only, safe). Each swap is named in its phase's contents and exit criteria — a ramp consumer listed here but absent from a phase is a plan bug. v1 keeps `markerUtils.RATING_COLOURS` untouched everywhere. **Do not port the design's `vCls`/`vWord` thresholds** — see D3. |
+| D2 | Colour ramp conflict | **One ramp inside v2.** New `frontend/src/utils/scoreRamp.js` owns the design's five stops (1 `#B03A2A`, 2 `#C8452F` = `--color-verdict-standdown`, 3 `#E0A542` = `--color-verdict-marginal`, 4 `#B0BE74`, 5 `#8AAE72` = `--color-verdict-go`; linear interpolation, clamp 1–5). The kernel, the strip, the row maps and the six-dot swatches read it from P0; the v2 map markers/clusters swap onto it **in P4, riding the same `heat` opt-in** (see D8 — geometry, clustering and popups unchanged, only the colour source moves); the v2 spot-card badges swap **in P5** (`windowFirstSpots.spotBadgeStyle` is v2-only, safe). Each swap is named in its phase's contents and exit criteria — a ramp consumer listed here but absent from a phase is a plan bug. ~~v1 keeps `markerUtils.RATING_COLOURS` untouched everywhere.~~ **Struck 2026-08-25**: v1 and `RATING_COLOURS` are both deleted (v1 retirement D3/D4) — `scoreRamp` is now the map's only colour language, everywhere. **Do not port the design's `vCls`/`vWord` thresholds** — see D3. |
 | D3 | Verdict words and confidence display | **Server-owned, existing vocabulary — never recompute.** The strip/rail/band verdict words come from `displayVerdict`/`BriefingWindow.verdict` through `VERDICT_LABEL` (`windowFirstCards.js`: Worth it / Maybe / Poor / Awaiting). The design's client thresholds (≥3.7 / ≥2.8) and its `◐ 88%` percentage are **not ported**: this project's confidence channel is deliberately three-tier (`Confidence` high/medium/low + `CONFIDENCE_TREATMENT` + `ProvisionalMark`), and a percentage would invent precision the backend never claimed. The kernel's `conf` scalar is fed from the tier via `fillScale` (high 1.0, medium 0.72, low 0.5) so the haze and the badge decay speak one language. The strip footer keeps the design's honest caption ("later days render hazier — lower confidence"). |
 | D4 | Movement chips / change line data | **New append-only `briefing_region_snapshot` sink** (P6) — CLAUDE.md's own doctrine: no store retains per-run history the live pipeline writes; `cached_evaluation` and `forecast_score` are latest-wins, `evaluation_delta_log` records only the intersection population with absolute deltas, and `forecast_evaluation` belongs to the retiring sync engine. Until P6 lands the strip renders **no movement chips and no change line** — never a fabricated `—`. |
 | D5 | Origin move + search | **Built, but last (P7), and severable.** Regions today have no base town, no coordinates, no aliases, and no region-local drive times — `user_drive_time` is per-user-from-home only. P7 adds shared (user-independent) region-base data + an ORS region matrix. Everything in P0–P6 is written origin-agnostic (scope = "home planning area") so P7 is additive. Owner may defer P7 without stranding anything. |
@@ -200,9 +202,11 @@ variant — but that is a new design exercise, not this plan, and P2 blocks on t
 The bundle was written against an older snapshot. Chasing these costs real time; each was verified
 against the worktree on 2026-08-18.
 
-1. **`RATING_COLOURS` is not "a monochrome grey→gold ramp".** `markerUtils.js:23-29` is already a
-   five-stop red→green ramp (`#A32D2D`…`#3B6D11`). The real conflict is *two different* red→green
-   ramps. D2 resolves it: v2 unifies on the verdict-anchored stops; v1 keeps `RATING_COLOURS`.
+1. **`RATING_COLOURS` is not "a monochrome grey→gold ramp".** `markerUtils.js:23-29` was already a
+   five-stop red→green ramp (`#A32D2D`…`#3B6D11`). The real conflict was *two different* red→green
+   ramps. D2 resolved it: v2 unified on the verdict-anchored stops; ~~v1 keeps `RATING_COLOURS`~~.
+   **Struck 2026-08-25**: v1 and `RATING_COLOURS` are both deleted (v1 retirement D3/D4) —
+   `scoreRamp` is now the map's only colour language.
 2. **`--mastH` does not exist.** The sticky-lens mechanism is `--wf-lens-reserve`, measured live by
    `hooks/useLensReserve.js` and consumed as `scroll-margin-top`. The strip must integrate with
    that, not introduce a second reserve variable.
@@ -635,10 +639,11 @@ anything mutating gets its own worktree; commit or stash before any review that 
   (`index.css:61-93` records the incident). JS-side hexes live in `scoreRamp.js`, not CSS vars, so
   canvas and CSS cannot desynchronise silently — the ramp module is the single source and the
   tokens reference the same literals with a comment pointing both ways.
-- **Shared-component blast radius**: `MapView` is mounted three times (v1 tab, v2 pane, overlay).
-  Only the v2 pane passes `heat`. The opt-in default-off test is not optional. Same for any
-  touch on `WindowSpotCard` (shared strip/sheet) — v2-only, but peek/sheet snapshots of behaviour
-  should pass unedited where unaffected.
+- **Shared-component blast radius**: `MapView` was mounted three times (v1 tab, v2 pane, overlay);
+  **updated 2026-08-25** — the v1 Map tab died in v1 retirement D1, so `MapView` is mounted **twice**
+  now (the pane, the overlay). Only the pane passes `heat`; the overlay deliberately still does not
+  (`docs/engineering/v1-retirement-plan.md` §3.3 fact 1). Same for any touch on `WindowSpotCard`
+  (shared strip/sheet) — peek/sheet snapshots of behaviour should pass unedited where unaffected.
 - **Hidden-pane first paint**: shell panes mount `display: none`; canvases measure 0 there. The
   rAF-retry + ResizeObserver patterns already exist (`drawThumbs(tries)` in the prototype,
   `resizeNonce` in `WindowFirstMapPane`) — use them, don't invent a third.

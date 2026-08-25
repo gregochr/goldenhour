@@ -10,66 +10,81 @@ ships as a client-side derivation and so raised the question directly.
 
 ## TL;DR — the two facts most needed
 
+**Rewritten 2026-08-25** — the panel roster and Close to home's status below both changed under
+this document since it was written; see Section 1 for the current, verified state of each panel.
+
 1. **The correct seam is not "panel". It is shared-vs-per-user, and this codebase already
    enforces it, tests it, and has decided it once before.** The briefing payload is a single
    shared snapshot with no notion of a caller; per-user data is deliberately kept off it and off
-   the ETag whitelist for a *security* reason, not a caching one. Splitting the four snapshot
-   panels into four endpoints would buy nothing and cost cross-panel consistency.
+   the ETag whitelist for a *security* reason, not a caching one. Splitting the shared-snapshot
+   panels (3, 4, 5 — Section 1) into separate endpoints would buy nothing and cost cross-panel
+   consistency.
 
-2. **"Close to home" is the one panel that genuinely earns its own contract — and it earns it by
-   data ownership, not by being a panel.** It is per-user by construction (home postcode +
-   per-user drive times). Both endpoints it depends on are already named in the ETag exclusion
-   list *by path*, with "home-derived personal data" as the stated reason, pinned by a test.
-   It therefore must never ride `GET /api/briefing`; if its logic moves server-side it needs its
-   own authenticated, non-ETag'd endpoint.
+2. **"Close to home" was the one panel that genuinely earned its own contract — and it earned it
+   by data ownership, not by being a panel.** It was per-user by construction (home postcode +
+   per-user drive times). Both endpoints it depended on are already named in the ETag exclusion
+   list *by path*, with "home-derived personal data" as the stated reason, pinned by a test. Its
+   client (`CloseToHome.jsx`) died in v1 retirement D2, leaving `GET /api/briefing/close-to-home`
+   live with zero callers (Section 1); the principle survives it, now protecting
+   `/api/user/settings/reach` and `/api/user/settings/light`.
 
 **The precedent that settles it:** per-user drive times were already removed from the shared
 briefing build path, and the dead parameter still carries the note —
-`BriefingBestBetAdvisor.java:192` and `:487`: `@param driveMap unused — retained for API
+`BriefingBestBetAdvisor.java:193` and `:515`: `@param driveMap unused — retained for API
 compatibility (pass Map.of())`. This exact question has been answered once, the same way.
 
 ---
 
 ## The question
 
-The Plan tab renders five panels. Four of them are derived **client-side** by slicing one
-`GET /api/briefing` payload. Should each panel instead be a distinct entity with its own REST
-contract?
+The Plan tab renders three panels sharing one snapshot, plus a fourth for per-user data. The three
+are derived **entirely server-side** now (Section 1) from one `GET /api/briefing` payload. Should
+each panel instead be a distinct entity with its own REST contract? — the question this document
+answers, from a point where a fourth shared-snapshot panel (Best Bet) still rendered and one of the
+three (the regional planner grid) still carried a client-side derivation alongside the backend one.
 
-The question has force because `CLAUDE.md` states an explicit principle —
+The question had force because `CLAUDE.md` states an explicit principle —
 
 > **Backend-heavy** — all calculations on backend. Frontend is a pure render layer.
 
-— and several panels plainly carry business logic in JavaScript.
+— and at the time, several panels plainly carried business logic in JavaScript.
 
 ## Section 1 — what the panels are today
 
+**Rewritten 2026-08-25, post v1 retirement** (`docs/engineering/v1-retirement-plan.md`) — `DailyBriefing.jsx`,
+`BriefingSummaryStrip.jsx`, `CloseToHome.jsx` and `CardHoverPreview.jsx` are all deleted (D2); the
+Plan tab is the window-first matrix + popup/sheet + doors, served by `WindowFirstBriefingProvider`.
+
 | # | Panel | Source | Where it is shaped | Presentation or business logic? |
 |---|---|---|---|---|
-| 1 | Best Bet / Also Good | `GET /api/briefing` (`bestBets`) | Backend `BriefingBestBetAdvisor` + serve-time fallback | Almost entirely backend |
-| 2 | **Close to home** | `/api/briefing` + `/api/user/settings*` | **Frontend** `utils/closeToHome.js` | **Business logic — geospatial gate + ranking** |
-| 3 | Hot topics | `GET /api/briefing` (`hotTopics`) | Backend strategies | Backend |
-| 4 | Briefing summary strip / day rail | `GET /api/briefing` | Backend `PlanWindowProjector` (`BriefingDay.peak`) | Backend, in the v2 arm. Frontend `buildSummaryPills` remains in the frozen v1 arm |
-| 5 | Full briefing grid | `GET /api/briefing` | Backend `BriefingRegion.meanRating` + `displayVerdict` | Backend, behind the `serverCellRating` caller opt-in; v1 keeps its own derivation |
+| 1 | Best Bet / Also Good | `GET /api/briefing` (`bestBets`) | Backend `BriefingBestBetAdvisor` + serve-time fallback | **Dead panel.** Died with `BestBetBanner` in v1 retirement D2 — the fields still populate but have no frontend renderer (v1-retirement §8.1) |
+| 2 | **Close to home** | `/api/briefing` + `/api/user/settings*` | Was **frontend** `utils/closeToHome.js`, inside the now-deleted `CloseToHome.jsx` | **Dead panel, backend survives.** `GET /api/briefing/close-to-home` + `CloseToHomeService`/`CloseToHomeResponse` are live with zero callers since D2 (v1-retirement §8.3) — the migration this document recommends in Section 5 already happened on the backend, just with no client left to point at it |
+| 3 | Hot topics | `GET /api/briefing` (`hotTopics`) | Backend strategies | Backend. Rendered by `HotTopicStrip.jsx`, a survivor |
+| 4 | Regional planner grid | `GET /api/briefing` | Backend `BriefingRegion.meanRating` + `displayVerdict` | Backend. `HeatmapGrid.jsx` reads `meanRating` unconditionally — the `serverCellRating` caller opt-in and the client-side slot-tree join it gated collapsed away entire in v1 retirement D3 |
+| 5 | Plan matrix (day × event) | `GET /api/briefing` | Backend `PlanWindowProjector` | Backend. `BriefingDay.peak` has been write-only since the day rail was retired at P2 — the matrix's own per-window aggregates (spread histogram, best-reachable line) are the licensed reach-scoped client class CLAUDE.md's Backend-heavy bullet names, not a peak read |
 
-The Plan tab is **already multi-request** — it is not a monolith being defended. `DailyBriefing`
-alone calls five endpoints (`/api/briefing`, `/api/briefing/evaluate/scores`,
-`/api/astro/conditions`, `/api/user/settings/drive-times`, `/api/travel-days`), plus
-`getSettings()` from `App.jsx`. So "give each panel an endpoint" is an extension of a pattern
-already half-adopted, not a departure from a single fat call.
+The Plan tab is **already multi-request** — it is not a monolith being defended.
+`WindowFirstBriefingProvider` (`context/WindowFirstBriefingContext.jsx`) alone calls seven
+endpoints: `getDailyBriefing` (`/api/briefing`), `getAllEvaluationScores`
+(`/api/briefing/evaluate/scores`), `getReach` + `getSettings` (`/api/user/settings/reach` +
+`/api/user/settings`), `fetchRegions` + `fetchRegionDriveTimes` (`/api/regions` +
+`/api/regions/drive-times`), and `fetchTravelDayRanges` (`/api/travel-days`). So "give each panel
+an endpoint" is an extension of a pattern already half-adopted, not a departure from a single fat
+call.
 
 ## Section 2 — the seam, with evidence
 
 **The briefing payload is shared, not per-user.**
-- `BriefingService.java:104` — `private final AtomicReference<DailyBriefingResponse> cache`.
+- `BriefingService.java:132` — `private final AtomicReference<DailyBriefingResponse> cache`.
   One reference for the whole application.
 - `DailyBriefingCacheEntity.java:16,28-31` — persisted to a literal **singleton row**:
   *"The row with `id = 1` always holds the most recent generated briefing"*, `/** Singleton row
   identifier — always 1. */`.
 - `BriefingController.java:57` — `public ResponseEntity<DailyBriefingResponse> getBriefing()`.
   **No parameters. No `Authentication`.** The endpoint cannot see who is asking.
-- `BriefingService.java:387` — the horizon is `List.of(today, today.plusDays(1),
-  today.plusDays(2), today.plusDays(3))`: four dates, identical for everyone.
+- `BriefingService.java:569` — the horizon is built from `BRIEFING_WINDOW_DAYS` (now 5, not 4 —
+  the extra date exists so the window still reaches T+3 after ageing overnight, per that
+  constant's own Javadoc at `:101-121`): identical for everyone regardless of the count.
 
 **Per-user data is excluded from the ETag whitelist for a security reason.** This is the part
 that decides the question, and it is already documented at `HttpCachingConfig.java:48-66`:
@@ -98,11 +113,12 @@ so that option is off the table — not on taste, on a rule already written down
 
 **Do not give each panel its own REST API.** Split by *data ownership* instead:
 
-- **Panels 1, 3, 4, 5 — the shared forecast snapshot.** These are four *views of one answer*.
-  They should keep deriving from one payload. Splitting them multiplies requests against a
-  payload that is already ETag-revalidated to a **304**, and it reintroduces cross-panel
-  divergence that this codebase deliberately engineered out. Two panels fetching independently
-  can show 4★ and 3★ for the same location. Consistency beats modularity here.
+- **Panels 3, 4, 5 — the shared forecast snapshot** (panel 1, Best Bet, is now a dead panel with
+  no v2 renderer — see Section 1). These are *views of one answer*. They should keep deriving from
+  one payload. Splitting them multiplies requests against a payload that is already
+  ETag-revalidated to a **304**, and it reintroduces cross-panel divergence that this codebase
+  deliberately engineered out. Two panels fetching independently can show 4★ and 3★ for the same
+  location. Consistency beats modularity here.
 
   ⚠️ **`DailyBriefing.jsx`'s claim that one source makes "strip/grid disagreement structurally
   impossible" was too strong, and this document repeated it.** One source removed disagreement
@@ -114,8 +130,11 @@ so that option is off the table — not on taste, on a rule already written down
   the client renders them, so the claim now holds for the aggregators as well. The lesson worth
   keeping is that "one payload" is a necessary condition and was mistaken for a sufficient one.
 
-- **Panel 2 — Close to home.** Per-user by construction. This one earns its own endpoint, and
-  it earns it because of who owns the data, not because it is a panel.
+- **Panel 2 — Close to home.** Per-user by construction. This one earned its own endpoint, and
+  it earned it because of who owns the data, not because it was a panel. `GET
+  /api/briefing/close-to-home` shipped (Section 5) and then lost its only caller when
+  `CloseToHome.jsx` was deleted in v1 retirement D2 — the endpoint is unconsumed, not wrong; a v2
+  client is an owner decision (v1-retirement §8.3), not a re-litigation of this section.
 
 The general rule, stated so the next feature does not have to re-derive it:
 
@@ -123,37 +142,32 @@ The general rule, stated so the next feature does not have to re-derive it:
 > owned data**. A panel that is another view of the same snapshot does not — it should be derived
 > from that snapshot, on whichever side of the wire the snapshot already lives.
 
-## Section 4 — what this means for Close to home
+## Section 4 — what happened to Close to home
 
-The logic in `frontend/src/utils/closeToHome.js` is ~360 lines of genuine business logic —
-a haversine distance gate, a GO/MAYBE filter, a dedupe-by-location, and a ranking comparator.
-Consequences of it living in JavaScript:
+**Overtaken by events, 2026-08-25.** This section originally weighed whether to leave the ranking
+logic in `frontend/src/utils/closeToHome.js` (~360 lines of client-side business logic — a
+haversine distance gate, a GO/MAYBE filter, a dedupe-by-location, a ranking comparator) or move it
+server-side, and recommended shipping as-is with a follow-up endpoint. Neither branch of that
+argument matters any more: the client module and the panel that rendered it (`CloseToHome.jsx`,
+`CardHoverPreview.jsx`) are **both deleted** (v1 retirement D2), so there is nothing left in
+JavaScript to violate the backend-heavy principle, and no frontend suite left to cover it either.
 
-- It **violates the backend-heavy principle** in `CLAUDE.md`, plainly.
-- It **cannot be reused** by any non-web consumer. Two are on the roadmap: Web Push notifications
-  and the macOS menu bar widget. "What's good near me tonight" is exactly the kind of thing a
-  push notification wants, and it cannot call a JS module.
-- It **cannot be covered by the backend test suite**, so it is invisible to the calibration and
-  metrics tooling that exists for every other scoring decision.
-
-Against that: it works, it is covered by 50 frontend tests, and the design handoff explicitly
-mandated the client-side approach (*"No new backend, no new settings — one new client-side
-derivation"*). The handoff and the architecture principle disagreed; the handoff was followed.
-
-**Recommendation: ship as-is, follow up with the endpoint.** The branch is green and delivers the
-handoff. Moving the ranking server-side is a contract change deserving its own PR, and there is a
-natural forcing function: the first time push or the widget needs "what's good near me", the
-logic *has* to move — and that is the right moment to design the contract, with a second consumer
-actually in hand rather than imagined.
+The endpoint side of the recommendation *did* happen, independently — `GET
+/api/briefing/close-to-home` + `CloseToHomeService`/`CloseToHomeResponse` exist on `main` today —
+but arrived after the client was already gone, so it now has **zero callers**
+(`docs/engineering/v1-retirement-plan.md` §8.3). "What's good near me tonight" for Web Push or the
+macOS widget, and any v2 UI, both remain live reasons to keep and consume the endpoint; deleting it
+is not implied by this section's history, only left as an owner decision.
 
 ## Section 5 — migration path, when it comes
 
 In priority order.
 
-1. **`GET /api/briefing/close-to-home`** — authenticated, reads the caller's home from
-   `UserSettings`, returns the ranked cards + breadcrumb. **Must NOT be added to
-   `REVALIDATABLE_READ_PATHS`** (Section 2). Port `closeToHome.js` to a service; the 31 unit
-   tests transfer almost directly, as they are pure-function tests over fixtures.
+1. ✅ **Done.** `GET /api/briefing/close-to-home` — authenticated, reads the caller's home from
+   `UserSettings`, returns the ranked cards + breadcrumb. Not on `REVALIDATABLE_READ_PATHS`
+   (Section 2 held). `closeToHome.js` was ported to `CloseToHomeService`. The client that
+   consumed it was then deleted in v1 retirement D2, so the endpoint currently has no caller
+   (Section 4) — the migration itself is complete, independent of that.
 2. **Join on `location_id`, not on the location name.** The client currently matches briefing
    slots to the locations roster by **name string**, so renaming a location silently empties the
    block. The FK already exists (V47).
@@ -190,7 +204,9 @@ decision than this document is scoped to make.
 
 **Production ground truth** (`daily_briefing_cache`, 2026-07-28): **1,338,649 bytes raw**, from
 **242 enabled locations across 7 regions** — 242 × 4 dates × 2 event types = **1,936 slots**, at
-~691 bytes each. The 4 dates are `BriefingService.java:387`.
+~691 bytes each. The 4-date window was live at measurement time; `BriefingService`'s window is
+5 dates now (`BRIEFING_WINDOW_DAYS`, `:122`), a later change (V103) this measurement predates —
+the shared-payload argument is unaffected by the count either way.
 
 **Why the trim is not the win it looked like.** Gzip is on in production for `application/json`
 (`application-prod.yml:162-165`), and this payload is highly repetitive:

@@ -94,7 +94,7 @@ export default defineConfig(({ mode }) => {
           // heat strip. Without this rule it falls into `recharts`, and `recharts` is reached today
           // only behind `ManageView`'s lazy() boundary — ADMIN-only. Measured both ways: with the
           // rule the strip's chunk statically imports `geo` at 24.14 KB / 9.19 KB gzip; without it,
-          // it imports `recharts` at 396.61 KB / 115.40 KB gzip. So every v2 reader opening Plan
+          // it imports `recharts` at 396.61 KB / 115.40 KB gzip. So every reader opening Plan
           // would fetch the whole charting library for ~20 KB of projection code.
           //
           // `d3-array` rides along because `d3-geo` depends on it. Splitting them would put `geo`

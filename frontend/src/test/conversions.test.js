@@ -1,12 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
   mpsToMph,
-  metresToKm,
   degreesToCompass,
   formatDuration,
   formatDateLabel,
   formatEventTimeUk,
-  formatShiftedEventTimeUk,
   formatGeneratedAtFull,
   formatTimestampUk,
   formatRelativeTimeUk,
@@ -61,16 +59,6 @@ describe('formatDuration', () => {
 
   it('rounds milliseconds to nearest second', () => {
     expect(formatDuration(1500)).toBe('2s');
-  });
-});
-
-describe('metresToKm', () => {
-  it('converts 10000m to 10km', () => {
-    expect(metresToKm(10000)).toBe(10);
-  });
-
-  it('converts 15000m to 15km', () => {
-    expect(metresToKm(15000)).toBe(15);
   });
 });
 
@@ -149,34 +137,6 @@ describe('formatEventTimeUk', () => {
     // 21 Jun is BST (UTC+1), so 03:30 UTC = 04:30 UK
     const result = formatEventTimeUk('2026-06-21T03:30:00');
     expect(result).toBe('04:30');
-  });
-});
-
-describe('formatShiftedEventTimeUk', () => {
-  it('returns null for null input', () => {
-    expect(formatShiftedEventTimeUk(null, 30)).toBeNull();
-  });
-
-  it('returns null for invalid date string', () => {
-    expect(formatShiftedEventTimeUk('not-a-date', 30)).toBeNull();
-  });
-
-  it('shifts forward by positive offset', () => {
-    // 07:00 UTC + 30 min = 07:30 UK (winter)
-    const result = formatShiftedEventTimeUk('2026-02-20T07:00:00', 30);
-    expect(result).toBe('07:30');
-  });
-
-  it('shifts backward by negative offset', () => {
-    // 07:30 UTC - 30 min = 07:00 UK (winter)
-    const result = formatShiftedEventTimeUk('2026-02-20T07:30:00', -30);
-    expect(result).toBe('07:00');
-  });
-
-  it('applies BST during summer', () => {
-    // 03:30 UTC + 30 min = 04:00 UTC = 05:00 BST
-    const result = formatShiftedEventTimeUk('2026-06-21T03:30:00', 30);
-    expect(result).toBe('05:00');
   });
 });
 

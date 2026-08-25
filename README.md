@@ -16,7 +16,7 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 - Claude generates a plain-English explanation of the key factors driving the score
 - Aerosol optical depth + PM2.5 proxy distinguishes warm dust from grey smoke — a competitive differentiator
 - Location types: **Landscape** (colour scores), **Wildlife** (hourly comfort timeline, no AI cost), **Seascape** (scores + tide alignment), **Waterfall** (colour + comfort)
-- **PhotoCast Planner** — Plan tab with heatmap grid showing next 6 solar events, quality slider, sunrise/sunset sub-columns, aurora grid integration, and Claude-powered briefing evaluation via SSE
+- **PhotoCast Planner** — Plan tab with a day × event heatmap matrix (next 6 solar events), sunrise/sunset sub-columns, aurora grid integration, and Claude-powered briefing evaluation
 - **Aurora photography** — NOAA SWPC polling (Kp, OVATION, solar wind Bz), daytime forecast lookahead, aurora viewline overlay (OVATION nowcast), Bortle enrichment, weather triage, Claude interpretation
 - **Cloud inversion scoring** — 0–10 likelihood from atmospheric data for valley/lake locations
 - **Astro conditions** — nightly observing quality scores for dark-sky locations (cloud, visibility, moon)
@@ -27,7 +27,7 @@ AI-driven sunrise and sunset forecasting for landscape, wildlife, and coastal ph
 - Per-run-type model configuration — three independent configs (Very Short-Term, Short-Term, Long-Term), each selectable as Haiku/Sonnet/Opus via Admin UI
 - Model comparison + prompt test harnesses for A/B evaluation
 - Stores every evaluation so you can track how the forecast converges as the date approaches
-- Outcome recording — log whether you went out and your actual rating; builds an accuracy feedback loop
+- Outcome recording (API-only — no UI since 2026-02-27) — log whether you went out and your actual rating; builds an accuracy feedback loop
 - Self-registration with email verification and Cloudflare Turnstile CAPTCHA
 - JWT-authenticated with ADMIN / PRO_USER / LITE_USER roles
 - Notifications via email (Thymeleaf HTML templates) and Web Push (VAPID)
@@ -158,7 +158,7 @@ Users can self-register at the login page — email verification is required, an
 
 | Role | Access |
 |---|---|
-| `ADMIN` | All endpoints + Manage tab (users, regions, job metrics, model selection, model test) |
+| `ADMIN` | All endpoints + Operations tab (users, regions, job metrics, model selection, model test) |
 | `PRO_USER` | 3-day forecast, all scores, outcome recording |
 | `LITE_USER` | 3-day forecast, star rating only |
 
@@ -252,8 +252,8 @@ Users can self-register at the login page — email verification is required, an
 |---|---|---|---|
 | `GET` | `/api/briefing` | Bearer | Current briefing (heatmap data) |
 | `POST` | `/api/briefing/run` | ADMIN | Force briefing refresh |
-| `GET` | `/api/briefing/evaluate` | Bearer (SSE) | Stream Claude evaluation scores per region |
-| `GET` | `/api/briefing/evaluate/cache` | Bearer | Cached briefing evaluation scores |
+| `GET` | `/api/briefing/evaluate/scores` | Bearer | Cached briefing evaluation scores, per region |
+| `DELETE` | `/api/briefing/evaluate/cache` | ADMIN | Clear cached briefing evaluation scores |
 | `POST` | `/api/briefing/compare-models` | ADMIN | Trigger model comparison test |
 
 ### Astro conditions & user settings

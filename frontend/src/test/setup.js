@@ -74,7 +74,7 @@ if (typeof globalThis.localStorage === 'undefined' || typeof globalThis.localSto
 /**
  * ⚠️ Testing Library's async timeout, raised from its 1000 ms default.
  *
- * <p>The v2 Plan shell mounts its matrix, its window popup, its search panel and its location sheet
+ * <p>The Plan shell mounts its matrix, its window popup, its search panel and its location sheet
  * behind {@code React.lazy} boundaries, and roughly twenty-five tests across six files begin with
  * {@code await screen.findByTestId('wf-heat-strip')} — a wait on a real dynamic {@code import()},
  * not on a fetch a test could gate. Isolated they resolve in single-digit milliseconds; under a full

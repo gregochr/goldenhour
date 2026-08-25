@@ -27,7 +27,7 @@ function formatDate(iso) {
  * skips any forecast whose target date falls inside a declared range — saving
  * Claude spend on forecasts that will never be acted on.
  *
- * Lives under Manage → Operations → Travel Days.
+ * Lives under the Operations tab's Operations group, Travel Days sub-tab.
  */
 export default function TravelDaysView() {
   const [ranges, setRanges] = useState([]);
