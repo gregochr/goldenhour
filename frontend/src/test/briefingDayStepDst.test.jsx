@@ -22,33 +22,31 @@ import React from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 
 vi.mock('../api/briefingApi.js', () => ({
   getDailyBriefing: vi.fn(),
-  getCloseToHome: vi.fn(),
 }));
 vi.mock('../api/briefingEvaluationApi.js', () => ({ getAllEvaluationScores: vi.fn() }));
 vi.mock('../api/settingsApi.js', () => ({
-  getDriveTimes: vi.fn(),
   getReach: vi.fn(),
   getSettings: vi.fn(),
 }));
+vi.mock('../api/regionApi.js', () => ({
+  fetchRegions: vi.fn(),
+  fetchRegionDriveTimes: vi.fn(),
+}));
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn() }));
-vi.mock('../api/astroApi.js', () => ({ getAstroConditions: vi.fn() }));
-vi.mock('../api/hotTopicSimulationApi.js', () => ({ getSimulationState: vi.fn() }));
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: vi.fn() }));
 
-import DailyBriefing from '../components/DailyBriefing.jsx';
 import {
   WindowFirstBriefingProvider, useWindowFirstBriefing,
 } from '../context/WindowFirstBriefingContext.jsx';
-import { getDailyBriefing, getCloseToHome } from '../api/briefingApi.js';
+import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
-import { getDriveTimes, getReach, getSettings } from '../api/settingsApi.js';
+import { getReach, getSettings } from '../api/settingsApi.js';
+import { fetchRegions, fetchRegionDriveTimes } from '../api/regionApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
-import { getAstroConditions } from '../api/astroApi.js';
-import { getSimulationState } from '../api/hotTopicSimulationApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
 // ── The two instants ─────────────────────────────────────────────────────────
@@ -76,58 +74,18 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-// ── Fixtures ─────────────────────────────────────────────────────────────────
-
-/**
- * Two consecutive days, one upcoming sunset each.
- *
- * `solarEventTime` is naive UTC — `isEventPast` appends the `Z` — and 16:30 keeps both events ahead
- * of either frozen instant, so the past filter never withdraws a day and cannot be mistaken for the
- * label rule under test.
- */
-function twoDayBriefing(firstDate, secondDate) {
-  return {
-    generatedAt: `${firstDate}T06:00:00`,
-    headline: '',
-    days: [firstDate, secondDate].map((date) => ({
-      date,
-      eventSummaries: [{
-        targetType: 'SUNSET',
-        regions: [{
-          regionName: 'Northumberland',
-          verdict: 'GO',
-          displayVerdict: 'WORTH_IT',
-          summary: 'Northumberland gloss',
-          tideHighlights: [],
-          regionWeatherCode: 3,
-          regionTemperatureCelsius: 12,
-          regionWindSpeedMs: 4.47,
-          slots: [{
-            locationName: 'Bamburgh',
-            solarEventTime: `${date}T16:30:00`,
-            verdict: 'GO',
-          }],
-        }],
-        unregioned: [],
-      }],
-    })),
-  };
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
   sessionStorage.clear();
   useAuth.mockReturnValue({ role: 'ADMIN' });
   getDailyBriefing.mockResolvedValue(null);
-  getCloseToHome.mockResolvedValue(null);
   getAllEvaluationScores.mockResolvedValue([]);
-  getDriveTimes.mockResolvedValue({});
   getReach.mockResolvedValue([]);
   getSettings.mockResolvedValue({});
+  fetchRegions.mockResolvedValue([]);
+  fetchRegionDriveTimes.mockResolvedValue({});
   fetchTravelDayRanges.mockResolvedValue([]);
-  getAstroConditions.mockResolvedValue([]);
-  getSimulationState.mockResolvedValue({ enabled: false });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -159,108 +117,13 @@ describe('the fixture itself', () => {
   });
 });
 
-describe('DailyBriefing day labels across a DST boundary', () => {
-  it('labels the day after today "Tomorrow" on the night the clocks go back', async () => {
-    // The visible symptom: with today and tomorrow resolving to the same string, `getDayLabel`
-    // tests Today first and no card anywhere on the Plan screen read "Tomorrow" — the real
-    // tomorrow rendered as a bare weekday.
-    freeze(CLOCKS_GO_BACK);
-    getDailyBriefing.mockResolvedValue(twoDayBriefing(BACK_TODAY, BACK_TOMORROW));
-
-    render(<DailyBriefing />);
-    const pills = await screen.findAllByTestId('summary-pill');
-
-    expect(pills).toHaveLength(2);
-    expect(pills[0].textContent).toContain('Today');
-    expect(pills[1].textContent).toContain('Tomorrow');
-  });
-
-  it('does not fall back to a bare weekday for tomorrow', async () => {
-    // The negative half of the rule, stated separately because it is the half that regressed:
-    // 26 Oct 2026 is a Monday, and "Monday" is exactly what the broken step rendered here.
-    freeze(CLOCKS_GO_BACK);
-    getDailyBriefing.mockResolvedValue(twoDayBriefing(BACK_TODAY, BACK_TOMORROW));
-
-    render(<DailyBriefing />);
-    const pills = await screen.findAllByTestId('summary-pill');
-
-    expect(pills[1].textContent).not.toContain('Monday');
-  });
-
-  it('labels the real tomorrow, not T+2, on the night the clocks go forward', async () => {
-    // The opposite direction of the same defect. Today's sunset has already gone at 23:30 GMT, so
-    // the two days on screen are T+1 and T+2 — and the broken step labelled the WRONG one of them
-    // "Tomorrow", which is worse than labelling none: it reads as correct.
-    freeze(CLOCKS_GO_FORWARD);
-    getDailyBriefing.mockResolvedValue(twoDayBriefing(FORWARD_TOMORROW, FORWARD_SKIPPED));
-
-    render(<DailyBriefing />);
-    const pills = await screen.findAllByTestId('summary-pill');
-
-    expect(pills).toHaveLength(2);
-    expect(pills[0].textContent).toContain('Tomorrow');
-    expect(pills[1].textContent).not.toContain('Tomorrow');
-  });
-});
-
-describe('Best Bet navigation across a DST boundary', () => {
-  /** A rank-1 pick on tomorrow's sunset — the token `resolveEventKey` has to resolve to a date. */
-  const TOMORROW_SUNSET_PICK = {
-    rank: 1,
-    headline: 'Bamburgh at sunset',
-    detail: 'Low cloud clears.',
-    event: 'tomorrow_SUNSET',
-    region: 'Northumberland',
-    confidence: 'high',
-  };
-
-  it('opens the map on the real tomorrow, not on today', async () => {
-    // `resolveEventKey('tomorrow_SUNSET')` fed `handleBetViewOnMap` → `onShowOnMap({date})` →
-    // App.jsx's `setSelectedDate`. With the two strings collapsed, "Best Bet — tomorrow's sunset"
-    // opened the map on today: a pick the user could act on, pointing at the wrong evening.
-    freeze(CLOCKS_GO_BACK);
-    getDailyBriefing.mockResolvedValue({
-      ...twoDayBriefing(BACK_TODAY, BACK_TOMORROW),
-      bestBets: [TOMORROW_SUNSET_PICK],
-    });
-    const onShowOnMap = vi.fn();
-
-    render(<DailyBriefing onShowOnMap={onShowOnMap} />);
-    fireEvent.click(await screen.findByTestId('best-bet-view-on-map'));
-
-    expect(onShowOnMap).toHaveBeenCalledWith({
-      region: 'Northumberland',
-      date: BACK_TOMORROW,
-      eventType: 'SUNSET',
-    });
-  });
-
-  it('does not skip the real tomorrow when the clocks go forward', async () => {
-    freeze(CLOCKS_GO_FORWARD);
-    getDailyBriefing.mockResolvedValue({
-      ...twoDayBriefing(FORWARD_TOMORROW, FORWARD_SKIPPED),
-      bestBets: [TOMORROW_SUNSET_PICK],
-    });
-    const onShowOnMap = vi.fn();
-
-    render(<DailyBriefing onShowOnMap={onShowOnMap} />);
-    fireEvent.click(await screen.findByTestId('best-bet-view-on-map'));
-
-    expect(onShowOnMap).toHaveBeenCalledWith({
-      region: 'Northumberland',
-      date: FORWARD_TOMORROW,
-      eventType: 'SUNSET',
-    });
-  });
-});
-
 describe('WindowFirstBriefingProvider day step', () => {
   /**
    * A probe rather than a real consumer, deliberately. `todayStr` / `tomorrowStr` are context
-   * outputs read by three separate components (`CloseToHome`'s window labels, the regional panel,
-   * the day rail); the rule belongs to the context boundary, and rendering one of the three would
-   * assert that component's wording instead. The provider derives both unconditionally, so no
-   * payload is needed — `getDailyBriefing` resolves null, as it does for a cold 204.
+   * outputs read by many components across the Plan tab; the rule belongs to the context boundary,
+   * and rendering any one of them would assert that component's wording instead. The provider
+   * derives both unconditionally, so no payload is needed — `getDailyBriefing` resolves null, as it
+   * does for a cold 204.
    */
   function DateProbe() {
     const { todayStr, tomorrowStr } = useWindowFirstBriefing();

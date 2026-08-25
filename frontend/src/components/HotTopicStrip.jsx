@@ -835,8 +835,8 @@ TopicFacts.propTypes = {
 };
 
 /**
- * Two-column responsive grid of Hot Topic pills shown between the Best Bet
- * cards and the quality slider in the briefing planner.
+ * Two-column responsive grid of Hot Topic pills, shown behind the Plan tab's
+ * "Hot topics" door.
  *
  * Expandable pills: AURORA (via frontend aurora data join), BLUEBELL / KING_TIDE /
  * SPRING_TIDE (via backend expandedDetail). Only one pill expanded at a time.
@@ -1225,10 +1225,9 @@ export default function HotTopicStrip({
                 information being withheld rather than information the reader needs.
 
                 The design says the warning "lives on the promoted strip only. Do not repeat it on
-                the pill." That instruction assumed the window-first v2 arm had shipped and the
-                strip was guaranteed to be on screen. The flag still defaults to v1, which has no
-                promoted strip at all — so honouring it literally would ship an eclipse with the
-                warning nowhere. It is repeated here for as long as that is true. */}
+                the pill." Kept here anyway: this strip renders behind both the doors and every
+                other surface that reads `HotTopicStrip`, and the promoted card is not guaranteed
+                to be the one on screen — repeating the warning is the safe direction. */}
             {topic.safetyNote && (
               <div
                 data-testid={`topic-safety-${topic.type}`}

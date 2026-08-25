@@ -53,13 +53,9 @@
   /* Tide facts (objective, independent of the sky verdict). */
   --color-tide: #6FA8B0;
 
-  /* Pick identity — carries the Best bet / Also good card accents down into the compact strip
-     chips. Best reuses the GO verdict green; Also good gets its own periwinkle so the two picks
-     read as a matched pair rather than one green and one neutral. */
-  --color-pick-also: #7C8DD6;
-
-  /* "Close to home" — the local-decision block's warm gold. Deliberately NOT --color-plex-gold
-     (which is bone, identical to ink) so the block reads as its own channel rather than chrome. */
+  /* "Close to home" — the local/proximity channel's warm gold (the regional panel's "all" filter,
+     the location sheet's kicker). Deliberately NOT --color-plex-gold (which is bone, identical to
+     ink) so the channel reads as its own accent rather than chrome. */
   --color-close-to-home: #C9A24B;
   --color-close-to-home-light: #E4C878;
 }
@@ -150,13 +146,11 @@
   --color-badge-maybe: #EFC377;
   --color-badge-poor: #E58C7A;
   --color-badge-tide: #9CCBD1;
-  /* The pick channel's lifted text variant, added at P4c when the rail's ALSO flag became the
-     first place --color-pick-also was asked to be *type* rather than an accent on body-sized text.
-     At 9.5px on its own 16% tint it measures 4.47:1, and 4.13:1 over today's gold-washed tile —
-     both under the 4.5:1 AA floor for normal text, which is exactly the failure the paragraph
-     above predicts. #B3BEEA clears it at 7.7:1 / 7.1:1 and keeps the second line legible at 80%
-     opacity. The FILL stays --color-pick-also: the fill names the channel, the text has to be
-     read. */
+  /* The pick channel's lifted text variant — a badge is ~10px type on a 12–14% tint of its own
+     hue, and at that size the full-strength channel colour does not carry. At 9.5px on its own
+     16% tint the raw hue measures 4.47:1, and 4.13:1 over today's gold-washed tile — both under
+     the 4.5:1 AA floor for normal text. #B3BEEA clears it at 7.7:1 / 7.1:1 and keeps the second
+     line legible at 80% opacity. */
   --color-badge-also: #B3BEEA;
   --color-badge-nlc: #BFB6E8;
   --color-badge-snow: #C6D8E3;
@@ -183,32 +177,6 @@
      carries the pointer back. Making the kernel read a CSS variable was rejected: the kernel is
      deliberately framework-free and is shared with the Leaflet host, which has no sea at all. */
   --color-heat-sea: #13100e;
-
-  /* ── Two v1-arm synonyms that were never declared anywhere ──
-     `CloseToHome.jsx:48-49` and `CardHoverPreview.jsx:85` name these; nothing declared them, so
-     both have always resolved to nothing and the marks and stars silently inherited body ink.
-     Diagnosed at `WindowSpotPeek.jsx:195-202` and deferred there because the v1 arm is frozen for
-     the flag comparison; taken now because that freeze is on BEHAVIOUR, and with both arms running
-     side by side v1 is the control, not a legacy path — a colour channel the design calls semantic
-     cannot be missing from the arm the comparison is against.
-
-     The values are the tokens the call sites' own comment names: "Sunrise rises in marginal amber,
-     sunset falls in dust orange" — so --color-verdict-marginal (:43) and the DUST hot-topic accent
-     (`HotTopicStrip.jsx:24`). Declared as aliases rather than by editing the two call sites, which
-     would touch frozen v1 source; two names for #E0A542 is a smell that dies with v1.
-
-     ⚠️ HERE, not in the plain @theme block above, and the reason is this file's own history. The
-     documented rule says a bare token name in JS/JSX counts, and both names do appear in .jsx —
-     so the plain block "should" work. That is exactly the reasoning that failed for
-     --color-plex-panel, whose note above records the browser check returning the EMPTY STRING
-     under a comment claiming a utility class kept it alive. The whole defect being fixed here is a
-     token resolving to nothing; fixing it with a mechanism that can silently do the same would be
-     absurd. Verified in the browser after the change, not reasoned about.
-
-     Contrast, computed: #E0A542 on --color-plex-surface-light #2A2019 = 7.30:1, matching the
-     measurement WindowSpotPeek recorded. #f97316 on --color-plex-bg #181210 = 6.63:1. Both AA. */
-  --color-marginal: #E0A542;
-  --color-dust: #f97316;
 }
 
 @layer base {
@@ -293,59 +261,6 @@
 
 .leaflet-control-attribution a:hover {
   color: #F2E7D3 !important;
-}
-
-/* Quality slider — muted single-colour track */
-.quality-slider {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 4px;
-  border-radius: 2px;
-  background: rgba(255, 255, 255, 0.08);
-  cursor: pointer;
-}
-
-/* This carried `outline: none` with NO replacement — taking the UA ring away and giving nothing
-   back, which is strictly worse than the low-contrast rings fixed elsewhere and is what the rule at
-   the top of the Close-to-home block warns against. The offset is 4px rather than 2px because the
-   track is only 4px tall, so a closer ring merges with it.
-   ⚠️ Nothing renders this today: `QualitySlider.jsx` has no importer outside its own test. Fixed
-   anyway because the rule is what rots — whoever mounts it next inherits a working indicator
-   instead of rediscovering the defect — but do not read this as a live fix. */
-.quality-slider:focus-visible {
-  outline: 2px solid var(--color-plex-gold);
-  outline-offset: 4px;
-  border-radius: 2px;
-}
-
-.quality-slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: rgba(242, 231, 211, 0.85);
-  border: none;
-  cursor: pointer;
-  box-shadow: 0 0 6px rgba(242, 231, 211, 0.3);
-  transition: background 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
-}
-
-.quality-slider::-moz-range-thumb {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: rgba(242, 231, 211, 0.85);
-  border: none;
-  cursor: pointer;
-  box-shadow: 0 0 6px rgba(242, 231, 211, 0.3);
-}
-
-.quality-slider:hover::-webkit-slider-thumb {
-  background: rgba(242, 231, 211, 1);
-  box-shadow: 0 0 10px rgba(242, 231, 211, 0.5);
-  transform: scale(1.1);
 }
 
 /* Quality toggle switch */
@@ -815,162 +730,17 @@
   flex-wrap: wrap;
 }
 
-/* "Close to home" location cards — lift and warm on hover.
-   Border and background live HERE, not in the component's inline style. An inline
-   `border: 1px solid …` shorthand is a style-attribute declaration, so it outranks every
-   selector-based rule below without `!important` — the earlier version set the border inline
-   and the hover colour silently never applied. The rank-1 card is keyed off the `data-lead`
-   attribute the component already sets, so there is one source of truth for "is this the lead". */
-.cth-card {
-  border: 1px solid var(--color-plex-border);
-  border-radius: 8px;
-  background: rgba(0, 0, 0, 0.16);
-  transition: transform 0.12s ease, border-color 0.14s ease;
-}
-.cth-card[data-lead] {
-  border-color: rgba(201, 162, 75, 0.5);
-  background: rgba(201, 162, 75, 0.08);
-}
-.cth-card:hover {
-  transform: translateY(-2px);
-  border-color: var(--color-plex-border-light);
-}
-.cth-card[data-lead]:hover {
-  border-color: rgba(201, 162, 75, 0.75);
-}
-/* Focus ring uses the block's gold (~7.1:1 on this surface) rather than --plex-border-light,
-   which measures ~1.6:1 and fails WCAG 2.2 SC 1.4.11's 3:1 for a non-text indicator. Replacing
-   the UA ring with something invisible is worse than not styling it at all. */
-.cth-card:focus-visible {
-  outline: 2px solid var(--color-close-to-home);
-  outline-offset: 2px;
-}
-/* Hover peek under a "Close to home" card — tooltip weight, not modal weight.
-   `fixed` rather than `absolute`: the block is `overflow: hidden` (the gold accent rail relies on
-   it to stay inside the rounded corner), which would crop an absolutely-positioned child against
-   the card grid. Fixed escapes every ancestor's overflow, so the "never clipped" rule holds
-   without the block giving up its own clipping. Horizontal clamping to the block's edges is done
-   in JS, where the block's rect is already to hand — see previewPlacement in CloseToHome.jsx.
-   Width is mirrored by PREVIEW_WIDTH there; keep the two in step.
-   Deliberately NO max-height: the old panel capped at 260px with overflow hidden, which is what
-   cut the second score bar in half. The content is three short lines, so nothing needs a cap. */
-.cth-hover-preview {
-  position: fixed;
-  z-index: 1200;
-  width: 280px;
-  padding: 11px 13px 12px;
-  border: 1px solid var(--color-plex-border-light);
-  border-radius: 10px;
-  background: var(--color-plex-surface-light);
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
-  text-align: left;
-  cursor: pointer;
-  /* The pointer MUST be able to reach it: the panel sits 10px below the card, and travel across
-     that gap has to keep it open (the card's mouseleave starts a grace period the panel's
-     mouseenter cancels). It also carries the click through to the map overlay. */
-  pointer-events: auto;
-  animation:
-    cth-preview-fade 0.16s ease,
-    cth-preview-rise 0.18s cubic-bezier(0.2, 0.7, 0.2, 1);
-}
-/* Flipped above the card when there is no room below — the rise reverses with it. */
-.cth-hover-preview[data-placement='above'] {
-  animation-name: cth-preview-fade, cth-preview-drop;
-}
-/* Arrow tethering the panel to the card centre. Same fill and border as the shell, so it reads as
-   one shape; --cth-arrow-left is set inline from the card's centre, already clamped to the panel. */
-.cth-hover-preview::after {
-  content: '';
-  position: absolute;
-  left: var(--cth-arrow-left, 24px);
-  width: 11px;
-  height: 11px;
-  transform: rotate(45deg);
-  background: var(--color-plex-surface-light);
-}
-.cth-hover-preview[data-placement='below']::after {
-  top: -6px;
-  border-left: 1px solid var(--color-plex-border-light);
-  border-top: 1px solid var(--color-plex-border-light);
-}
-.cth-hover-preview[data-placement='above']::after {
-  bottom: -6px;
-  border-right: 1px solid var(--color-plex-border-light);
-  border-bottom: 1px solid var(--color-plex-border-light);
-}
-/* The drive chip on the peek's first line. `nowrap` because "1 hr 59 mins" otherwise breaks
-   across two lines inside a 280px panel and drags the clause down with it. */
-.cth-hover-chip {
-  font-size: 10px;
-  padding: 3px 8px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid var(--color-plex-border-light);
-  color: var(--color-plex-text-secondary);
-  white-space: nowrap;
-}
-@keyframes cth-preview-fade {
+@keyframes wf-peek-fade {
   from { opacity: 0; }
   to { opacity: 1; }
 }
-@keyframes cth-preview-rise {
+@keyframes wf-peek-rise {
   from { transform: translateY(-6px); }
   to { transform: translateY(0); }
 }
-@keyframes cth-preview-drop {
+@keyframes wf-peek-drop {
   from { transform: translateY(6px); }
   to { transform: translateY(0); }
-}
-@media (prefers-reduced-motion: reduce) {
-  .cth-hover-preview { animation: none; }
-}
-
-/* "Next local window" — a card in everything but shape, and the block's most-used entry point.
-   The left gold rule stays: it is what keeps this reading as part of the breadcrumb rather than a
-   floating card, so only the other three corners are rounded. Padding buys it a real tap target
-   and the negative margin gives that back to the layout, so promoting the label to a card did not
-   shove the breadcrumb's sentence around. Same reason as .cth-card for living here: the rail must
-   lose to :hover. */
-.cth-next-window {
-  border-left: 2px solid var(--color-close-to-home);
-  border-radius: 0 8px 8px 0;
-  padding: 8px 12px 9px;
-  margin: -4px -4px -4px 0;
-  background: none;
-  transition: background 0.14s ease, transform 0.12s ease, border-color 0.14s ease;
-}
-/* Focus-visible gets the hover treatment as well as the ring — a keyboard user should see the
-   same "this is a thing you press" state a pointer user does. */
-.cth-next-window:hover,
-.cth-next-window:focus-visible {
-  background: rgba(201, 162, 75, 0.1);
-  transform: translateY(-2px);
-  border-left-color: var(--color-close-to-home-light);
-}
-.cth-next-window:focus-visible {
-  outline: 2px solid var(--color-close-to-home);
-  outline-offset: 2px;
-}
-
-/* Tailwind v4's Preflight no longer sets `button { cursor: pointer }` — it follows the UA default
-   again — and nothing else here restores it, so every clickable surface in this block was showing
-   an arrow. Stated once for the block rather than per rule, so a new affordance cannot miss it. */
-.cth-card,
-.cth-next-window,
-.cth-row,
-.cth-count-toggle,
-.cth-filter {
-  cursor: pointer;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .cth-card { transition: none; }
-  .cth-card:hover { transform: none; }
-  .cth-next-window { transition: none; }
-  /* :focus-visible as well as :hover — the lift is on both now, and a keyboard user is exactly
-     as entitled to the reduced-motion preference as a pointer user. */
-  .cth-next-window:hover,
-  .cth-next-window:focus-visible { transform: none; }
 }
 
 /* ── Window-first shell chrome: masthead, tick line, tab bar, pane ──
@@ -1247,9 +1017,8 @@
 /* A scroller from four tabs on, and the trigger was written into `WindowFirstShell` when the bar
    had two: a fourth tab needs `overflow-x: auto` PLUS bottom room, because the overflow computes
    `overflow-y` to `auto` and clips a focus ring drawn outside the padding box. The technique is
-   buy the room, then give it straight back with a negative margin so nothing below moves —
-   `.cth-window-grid` above carries the same pair for the same reason. (It was documented on the
-   retired day rail's `.rail-scroller`, which went with the rail at P2.)
+   buy the room, then give it straight back with a negative margin so nothing below moves. (It was
+   documented on the retired day rail's `.rail-scroller`, which went with the rail at P2.)
 
    ⚠️ The threshold is much lower than the trigger assumed. Measured on the running app at the phone
    type scale, all four tabs present: content extent 296.3px, so the bar FITS from 360px up and
@@ -1523,9 +1292,9 @@ button.wf-hc:hover {
   transform: translateY(-2px);
 }
 /* The lift is the one thing on this card that moves, and a matrix is six of them under one pointer
-   sweep. The same guard this file already gives `.cth-card` — "a keyboard user is exactly as
-   entitled to the reduced-motion preference as a pointer user" — with the border and background
-   changes left alone, because they are the signal and the motion is the decoration. */
+   sweep — a keyboard user is exactly as entitled to the reduced-motion preference as a pointer
+   user. The border and background changes are left alone, because they are the signal and the
+   motion is the decoration. */
 @media (prefers-reduced-motion: reduce) {
   .wf-hc { transition: border-color 0.14s ease, background 0.14s ease; }
   button.wf-hc:hover { transform: none; }
@@ -2247,107 +2016,6 @@ button.wf-hc.also.on:hover {
   .wf-hstrip-sp { display: none; }
 }
 
-/* Briefing summary strip — actionable pills lift on hover */
-.summary-pill-clickable {
-  transition: transform 0.12s ease, border-color 0.14s ease;
-}
-.summary-pill-clickable:hover {
-  transform: translateY(-2px);
-}
-
-/* Summary-strip region chip — dotted underline, reveals that region's Claude gloss on hover */
-.summary-region-chip {
-  position: relative;
-  cursor: pointer;
-  border-bottom: 1px dotted var(--color-plex-text-muted);
-  transition: color 0.14s ease;
-}
-/* Plain chips take a hover tint keyed to the tile verdict; picked chips own their colour (below)
-   and only brighten on hover, so the tile-verdict tint must not fight them. */
-.summary-region-chip[data-peak="go"]:not([data-pick]):hover { color: var(--color-verdict-go); }
-.summary-region-chip[data-peak="maybe"]:not([data-pick]):hover { color: var(--color-verdict-marginal); }
-/* Bone at 2px — the fourth time this file has made this fix, and the last remaining instance of it.
-   1px border-light measured 1.47:1 on the v1 pill, 1.63:1 on the v2 rail tile and 1.52:1 on today's
-   gold-washed tile: every one of them roughly half of SC 1.4.11's 3:1, and on today's tile the
-   RESTING border is brighter than the focus ring, so focus read as noise beside an unfocused edge.
-   Bone clears 13.0:1 on the v1 pill and 14.5:1 on the v2 tile. `border-radius` shapes the OUTLINE —
-   the chip is a square-cornered inline span with a dotted underline, so this reads as a rounded box
-   around a text run rather than a hard rectangle. NOTE this class is shared by BOTH flag arms; see
-   the commit for why changing it globally is correct rather than scoping it to the v2 rail. */
-.summary-region-chip:focus-visible {
-  outline: 2px solid var(--color-plex-gold);
-  outline-offset: 2px;
-  border-radius: 3px;
-}
-
-/* Pick highlights — colour-match the compact region chips to the Best bet / Also good cards. The
-   accent drives both the text colour and the dotted underline (at 60% alpha); a leading ◎ marker
-   keeps the pick identifiable without relying on colour alone. */
-.summary-region-chip[data-pick="best"] {
-  color: var(--color-verdict-go);
-  font-weight: 600;
-  border-bottom-color: rgba(138, 174, 114, 0.6);
-}
-.summary-region-chip[data-pick="also"] {
-  color: var(--color-pick-also);
-  font-weight: 600;
-  border-bottom-color: rgba(124, 141, 214, 0.6);
-}
-.summary-region-chip[data-pick]:hover { filter: brightness(1.14); }
-.summary-region-chip .rn-mark { margin-right: 2px; opacity: 0.9; }
-
-
-/* Portalled to <body> and positioned via JS (position: fixed), so no clipping/transform ancestor
-   can eat its edge. Generous right padding keeps the widest gloss line off the border. */
-.summary-region-tip {
-  position: fixed;
-  z-index: 60;
-  width: 264px;
-  max-width: calc(100vw - 16px);
-  background: var(--color-plex-surface-light);
-  border: 1px solid var(--color-plex-border-light);
-  border-radius: 9px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.6);
-  padding: 11px 15px;
-  pointer-events: none;
-  white-space: normal;
-  text-align: left;
-}
-.summary-region-tip::after {
-  content: '';
-  position: absolute;
-  left: 20px;
-  bottom: -6px;
-  width: 11px;
-  height: 11px;
-  transform: rotate(45deg);
-  background: var(--color-plex-surface-light);
-  border-right: 1px solid var(--color-plex-border-light);
-  border-bottom: 1px solid var(--color-plex-border-light);
-}
-/* Right-anchored placement (near the viewport's right edge): flip the caret to match */
-.summary-region-tip--right::after {
-  left: auto;
-  right: 20px;
-}
-.summary-region-tip-head {
-  display: block;
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  margin-bottom: 6px;
-}
-.summary-region-tip-body {
-  display: block;
-  font-family: var(--font-serif);
-  font-style: italic;
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--color-plex-text-secondary);
-}
-
 /* Map overlay panel — rises in on open */
 @keyframes map-overlay-rise {
   from { transform: translateY(14px) scale(0.99); opacity: 0; }
@@ -2491,21 +2159,6 @@ button.wf-hc.also.on:hover {
   animation: fade-in 300ms ease-out;
 }
 
-/* Plan tab — gentle settle when a stale-while-revalidate swap brings in a newer briefing.
-   Subtle for a whole card (a soft opacity dip, not the popup's stronger 0.3 flash); fires only
-   when generatedAt actually changes, never on the common same-data revalidation. */
-@keyframes briefing-refresh {
-  from { opacity: 0.6; }
-  to   { opacity: 1; }
-}
-
-.animate-briefing-refresh {
-  animation: briefing-refresh 450ms ease-out;
-}
-@media (prefers-reduced-motion: reduce) {
-  .animate-briefing-refresh { animation: none; }
-}
-
 /* Native date inputs — make the calendar picker indicator visible on the dark theme
    and let the whole field act as a calendar trigger (paired with showPicker on click). */
 .date-field::-webkit-calendar-picker-indicator {
@@ -2516,161 +2169,6 @@ button.wf-hc.also.on:hover {
 
 .date-field::-webkit-calendar-picker-indicator:hover {
   opacity: 1;
-}
-
-/* Close to home — window card filmstrip.
-   Was a fixed four-column grid, which silently discarded the rest of a window: a header reading
-   "20 within reach" sat above four cards with no route to the other sixteen. Now every qualifier is
-   in the strip and it scrolls, sized so a half card peeks past the right edge — that sliver is the
-   whole affordance, so do not round the basis up to a whole number of cards.
-   Kept in CSS rather than inline because inline sizing applies at EVERY viewport; a phone gets one
-   card per screen instead of four ~72px slivers. */
-.cth-window-grid {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  scroll-snap-type: x mandatory;
-  scrollbar-width: none;
-  /* `overflow-x: auto` makes overflow-y compute to auto too, so the strip clips its own children's
-     focus rings — 2px of outline at 2px offset needs 4px of room on every side. The padding buys
-     it and the negative margin gives it back to the layout, so cards stay flush with the header. */
-  padding: 4px;
-  margin: -4px;
-  scroll-padding: 4px;
-}
-.cth-window-grid::-webkit-scrollbar { display: none; }
-.cth-window-grid > .cth-card {
-  flex: 0 0 100%;
-  scroll-snap-align: start;
-}
-/* Copy that is only TRUE at the width where four cards fit. Gated on the same query as the sizing
-   below, deliberately: the count in the sentence is a fact about the CSS, so the CSS is the only
-   place that may decide when it is shown. */
-.cth-wide-only { display: none; }
-
-@media (min-width: 900px) {
-  .cth-wide-only { display: inline; }
-
-  /* 4.5 across: four readable, the fifth half-visible as the "there is more" signal.
-     There is deliberately NO max-width cap on the strip for short windows. The old grid needed one
-     (its `1fr` columns stretched to fill), but `flex: 0 0` already forbids growing — and a cap
-     would compound with this percentage basis, since the `100%` resolves against the *capped*
-     container: a one-card window capped at 25% rendered a ~56px sliver, not a quarter-width card. */
-  .cth-window-grid > .cth-card { flex-basis: calc((100% - 3 * 8px) / 4.5); }
-}
-
-/* Scroll position rail beneath a filmstrip. Present only when the strip actually overflows —
-   a full-width thumb on a non-scrolling strip reads as a disabled control.
-   It is draggable: the strip hides the native scrollbar, so this is the only handle a mouse user
-   has, and it has to answer the grab it so obviously invites. `touch-action: none` keeps a drag
-   from being stolen by the page's own vertical scroll. */
-.cth-rail {
-  position: relative;
-  height: 2px;
-  margin-top: 7px;
-  border-radius: 2px;
-  background: var(--color-plex-border);
-  cursor: pointer;
-  touch-action: none;
-}
-/* Invisible 16px hit target. 2px is a fine thing to LOOK at and an impossible one to hit — the
-   pointer lands on the pseudo-element, which reports the rail as the event target, so the bar
-   stays hairline-quiet while the grab area is thumb-sized. Inset horizontally by nothing: the
-   ends of the rail are exactly where "jump to the start/end" lives. */
-.cth-rail::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: -7px;
-  bottom: -7px;
-}
-.cth-rail > i {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  border-radius: 2px;
-  background: var(--color-close-to-home);
-  transition: width 0.12s ease, left 0.12s ease, transform 0.12s ease;
-}
-/* Thicken on hover/drag rather than recolour — the thumb already carries the block's gold, and a
-   second gold would compete with the lead card's accent. */
-.cth-rail:hover > i,
-.cth-rail[data-dragging] > i {
-  transform: scaleY(2);
-}
-.cth-rail[data-dragging] { cursor: grabbing; }
-/* Dragging writes scrollLeft on every pointermove; a width/left transition on the thumb would
-   then animate toward a position already superseded, so the thumb visibly lags the pointer. */
-.cth-rail[data-dragging] > i { transition: transform 0.12s ease; }
-@media (prefers-reduced-motion: reduce) {
-  .cth-rail > i { transition: none; }
-}
-
-/* The window count, promoted to the control that expands the strip into a ranked list. */
-.cth-count-toggle {
-  color: var(--color-plex-text-secondary);
-  transition: color 0.12s ease;
-}
-.cth-count-toggle:hover { color: var(--color-plex-text); }
-.cth-count-toggle:focus-visible {
-  outline: 2px solid var(--color-close-to-home);
-  outline-offset: 2px;
-  border-radius: 4px;
-}
-
-/* Expanded ranked list — every spot in the window, one row each. */
-.cth-rows {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  border: 1px solid var(--color-plex-border);
-  border-radius: 8px;
-  overflow: hidden;
-}
-.cth-row {
-  display: grid;
-  grid-template-columns: 22px 1fr auto auto;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 11px;
-  background: rgba(0, 0, 0, 0.16);
-  text-align: left;
-}
-.cth-row:hover { background: var(--color-plex-surface-light); }
-.cth-row:focus-visible {
-  outline: 2px solid var(--color-close-to-home);
-  outline-offset: -2px;
-}
-/* The region column is the honesty label, not a decision input — first to go when space is tight. */
-@media (max-width: 639px) {
-  .cth-row { grid-template-columns: 20px 1fr auto; }
-  .cth-row .cth-row-region { display: none; }
-}
-
-/* Block-head filters. Cutting the set is the quiet alternative to scrolling it. */
-.cth-filter {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--color-plex-text-secondary);
-  border: 1px solid var(--color-plex-border);
-  background: rgba(0, 0, 0, 0.16);
-  border-radius: 6px;
-  padding: 4px 9px;
-  transition: border-color 0.12s ease, color 0.12s ease;
-}
-.cth-filter:hover {
-  border-color: var(--color-plex-border-light);
-  color: var(--color-plex-text);
-}
-.cth-filter[data-on='true'] {
-  color: var(--color-close-to-home-light);
-  border-color: rgba(201, 162, 75, 0.45);
-  background: rgba(201, 162, 75, 0.12);
-}
-.cth-filter:focus-visible {
-  outline: 2px solid var(--color-close-to-home);
-  outline-offset: 2px;
 }
 
 /* ── The pick dialog's controls ──
@@ -2925,10 +2423,10 @@ button.wf-hc.also.on:hover {
   pointer-events: none;
 }
 /* `--text-secondary`, not the spec's `--ink-3`. Measured on the running app: muted lands at
-   **3.52:1** on `--surface` and fails AA at 10px; secondary measures **6.72:1**. This is the FIFTH
-   time this project has made the same correction — CloseToHome's region line, its ordering
-   explainer, §5a's spot-card sub-lines, §5b's row tones. `--ink-3` is not usable for small type on
-   these surfaces, and the readout below takes the same tone for the same reason (6.72:1). */
+   **3.52:1** on `--surface` and fails AA at 10px; secondary measures **6.72:1**. This project has
+   made the same correction repeatedly — §5a's spot-card sub-lines, §5b's row tones. `--ink-3` is
+   not usable for small type on these surfaces, and the readout below takes the same tone for the
+   same reason (6.72:1). */
 .wf-lens-k {
   font-family: var(--font-mono);
   font-size: 10px;
@@ -3441,20 +2939,18 @@ button.wf-hc.also.on:hover {
 }
 
 /* ── Window-first spot film strip ──
-   Geometry is the spec's, NOT `.cth-window-grid`'s: that one snaps `mandatory` where this snaps
-   `proximity`, sizes 4.5 across where this sizes 3.5, and drops to a full-width card on phone
-   where this drops to 72%. What is borrowed is the technique, not a single number — and
-   `CloseToHome` is deliberately left alone, because the flag comparison rests on the v1 arm
-   staying byte-identical while both views are judged on the same night's data. */
+   Geometry is the spec's: snaps `proximity` (not `mandatory`), sizes 3.5 across, and drops to a
+   72% card on phone. */
 .wf-strip {
   position: relative;
   /* 10px against the spec's 14, and the missing 4 is on the scroller below. `overflow-x: auto`
      computes `overflow-y` to auto as well, so the scroller clips a focused card's 2px ring at 2px
-     offset on every side; it needs 4px of its own padding to keep it. `.cth-window-grid` buys that
-     with `padding: 4px; margin: -4px`, which cannot be copied here: the card basis is a PERCENTAGE
-     of the scroller's content box, and a negative margin would leave `calc((100% - 24px)/3.5)`
-     resolving against a box 8px narrower than the one the spec sized against. Moving the 4px out
-     of the wrapper's inset instead restores the spec's content box exactly — 10 + 4 = 14. */
+     offset on every side; it needs 4px of its own padding to keep it. The 4px cannot be bought with
+     `padding: 4px; margin: -4px` on this scroller the way a plain filmstrip would: the card basis
+     is a PERCENTAGE of the scroller's content box, and a negative margin would leave
+     `calc((100% - 24px)/3.5)` resolving against a box 8px narrower than the one the spec sized
+     against. Moving the 4px out of the wrapper's inset instead restores the spec's content box
+     exactly — 10 + 4 = 14. */
   padding: 0 10px;
 }
 /* Insets track the WRAPPER's padding, not the spec's 14: the scroller clips at its padding box,
@@ -3503,8 +2999,7 @@ button.wf-hc.also.on:hover {
      At 4px the ring sat exactly flush on the padding-box clip at rest and 2px OUTSIDE it while
      lifted — the whole top stroke and both top corners gone. Reachable by mouse alone, because
      closing the map overlay restores focus to the card the pointer is still resting on, so hover
-     and focus-visible are live at once. `.cth-window-grid` has the identical 4px-plus-lift pairing
-     and is deliberately left alone (§5a: the v1 arm stays frozen for the flag comparison).
+     and focus-visible are live at once.
      TOP ONLY — the card basis is a percentage of the WIDTH, so the horizontal 4px must stay 4px or
      `calc((100% - 24px)/3.5)` stops resolving against the spec's content box; and nothing ever
      moves the card down, so the spec's bottom value stands.
@@ -3589,18 +3084,14 @@ button.wf-hc.also.on:hover {
    the window card's INLINE `overflow: hidden`, and `.wf-spot:hover`'s transform, which would
    otherwise re-base a fixed descendant onto the very button the panel hangs off.
 
-   z-index 60 matches `.summary-region-tip`, this arm's other portalled panel, and clears everything
-   on the Plan screen: the sticky lens bar is 20, a hovered heatmap cell 40, a focused spot card 3,
-   the strip's edge fades 2. It sits BELOW `MapOverlay`'s 200 on purpose. `.cth-hover-preview` uses
-   1200, which is exactly why that component's dismiss-before-opening is load-bearing rather than a
-   precaution; here it is both, and neither alone.
+   z-index 60 clears everything on the Plan screen: the sticky lens bar is 20, a hovered heatmap
+   cell 40, a focused spot card 3, the strip's edge fades 2. It sits BELOW `MapOverlay`'s 200 on
+   purpose.
 
    Width is mirrored by PEEK_WIDTH in `windowSpotPeek.js`; keep the two in step.
 
-   Deliberately NO max-height, and this is the rule most at risk of being silently re-broken: the
-   panel that preceded `.cth-hover-preview` capped at 260px with overflow hidden, which is what cut
-   its second score bar in half. P10' restores the score bars, so the exact content that trap was
-   about is back on screen. */
+   Deliberately NO max-height, and this is the rule most at risk of being silently re-broken: a
+   panel capped at 260px with overflow hidden would cut its second score bar in half. */
 .wf-peek {
   position: fixed;
   z-index: 60;
@@ -3614,20 +3105,15 @@ button.wf-hc.also.on:hover {
   cursor: pointer;
   /* The pointer MUST be able to reach it: the panel sits 10px below the card, and travel across
      that gap has to keep it open (the card's mouseleave starts a grace the panel's mouseenter
-     cancels). It also carries the click through to the map. `.summary-region-tip` is
-     `pointer-events: none` for the opposite reason — nothing on it is reachable. */
+     cancels). It also carries the click through to the map. */
   pointer-events: auto;
-  /* The v1 peek's own keyframes, reused rather than renamed. Same gesture, same weight, so the two
-     arms' peeks are deliberately identical in motion; three duplicated @keyframes blocks under
-     `wf-` names would be two definitions free to drift. The `cth-` prefix on a `wf-` component is
-     the visible cost of that choice. */
   animation:
-    cth-preview-fade 0.16s ease,
-    cth-preview-rise 0.18s cubic-bezier(0.2, 0.7, 0.2, 1);
+    wf-peek-fade 0.16s ease,
+    wf-peek-rise 0.18s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 /* Flipped above the card when there is no room below — the rise reverses with it. */
 .wf-peek[data-placement='above'] {
-  animation-name: cth-preview-fade, cth-preview-drop;
+  animation-name: wf-peek-fade, wf-peek-drop;
 }
 /* Arrow tethering the panel to the card centre. Same fill and border as the shell, so it reads as
    one shape; --wf-peek-arrow-left is set inline from the card's centre, already clamped. */

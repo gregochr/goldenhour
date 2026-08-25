@@ -5,15 +5,10 @@ import { lookupBriefingScore } from './briefingScoreIndex.js';
 /**
  * The spot peek's geometry and its content gate.
  *
- * <h2>Copied from `CloseToHome`, not imported from it</h2>
- *
  * <p>Plan §5a`:692` says P10′ works by "reusing {@code previewPlacement}, the fixed-position escape
- * hatch and the open/hold/dismiss timers", and one line later says to leave {@code CloseToHome}
- * untouched so the v1 arm of the flag comparison stays as it is. Both cannot be true:
- * {@code previewPlacement} and its seven constants are module-private there, and exporting one is an
- * edit to the frozen arm. So "reusing" is read as <b>copying</b> — the same rule §5a`:677` already
- * applied to P6 — and the numbers below are re-derived rather than transplanted, because the panel
- * they place is a different height (see {@link PEEK_ESTIMATED_HEIGHT}).
+ * hatch and the open/hold/dismiss timers" — read as <b>copying</b> rather than importing, since the
+ * numbers below are re-derived rather than transplanted, the panel they place being a different
+ * height (see {@link PEEK_ESTIMATED_HEIGHT}).
  */
 
 /** Panel width in px. Mirrored by `.wf-peek` in `index.css`; keep the two in step. */
@@ -37,10 +32,10 @@ const VIEWPORT_MARGIN = 8;
 /**
  * Height used only to choose which SIDE of the card the panel goes on.
  *
- * <p><b>Re-derived, and that is the point.</b> {@code CloseToHome}'s 170 is licensed by a Javadoc
- * that says the content is "bounded by construction (a stars row, one clause, one prompt line)".
- * This panel restores the two score bars, so that premise is gone and 170 under-estimates — which
- * makes the flip choose 'below' when below cannot in fact hold it. Measured on the running app at
+ * <p><b>Measured for this panel, not assumed.</b> A smaller estimate licensed by "bounded by
+ * construction (a stars row, one clause, one prompt line)" would under-estimate here, since this
+ * panel restores the two score bars — and an under-estimate makes the flip choose 'below' when
+ * below cannot in fact hold it. Measured on the running app at
  * 1280×900, both scores present: 23px of padding (11 + 12), a 23px stars row, a 54px score block
  * over an 8px lead, a 19.375px clause line over an 8px lead, and a 17px prompt over an 8px lead —
  * <b>163px</b> with a one-line clause, and <b>202px</b> at the three lines a 252px content box
@@ -48,7 +43,7 @@ const VIEWPORT_MARGIN = 8;
  * flips to the side with more room, which is the safe direction, while under-estimating pins the
  * panel to a side that cannot hold it.
  *
- * <p>Still an estimate rather than a measurement, for {@code CloseToHome}'s own reason: measuring
+ * <p>Still an estimate rather than a measurement: measuring exactly
  * would mean rendering hidden, reading back and re-rendering — a second paint to choose between two
  * answers that are both legible.
  */
@@ -93,9 +88,8 @@ export function spotPeekPlacement(anchorRect, stripRect) {
   // A strip narrower than the panel has no range to clamp into, and the answer is the left bound.
   // That falls out of the arithmetic rather than needing a guard: when `maxLeft < leftBound` the
   // inner `Math.min` can only return something below `leftBound`, so the outer `Math.max` floors it
-  // there anyway. `CloseToHome`'s copy carries an explicit `maxLeft >= leftBound` ternary for this
-  // case; it is dead, and mutation testing said so — removing the branch changed no answer and
-  // failed no test. Copied code does not have to carry the original's dead code.
+  // there anyway — no explicit `maxLeft >= leftBound` guard is needed, confirmed by mutation
+  // testing: a surviving mutant on that condition would prove it dead, and none does.
   const left = Math.max(leftBound, Math.min(centre - PEEK_WIDTH / 2, maxLeft));
 
   // Flip above only when below genuinely cannot hold it AND above holds it better — a card near the
@@ -122,12 +116,10 @@ export function spotPeekPlacement(anchorRect, stripRect) {
  *
  * <h2>The gate is "carries something the card does not", not "has a summary"</h2>
  *
- * <p>{@code CloseToHome} refuses a peek without a generated sentence, and its Javadoc gives the
- * reason: with the score bars removed, the rating and the drive both come from the card the pointer
- * is already on, so a summary-less peek "would restate what the reader can see and add a prompt".
- * P10′ puts the bars back, so that premise no longer holds and the rule is re-decided rather than
- * copied. What survives is the <em>principle</em> — a peek must carry something the card does not —
- * and under it a spot with scores but no sentence has earned one.
+ * <p>Without score bars, a summary-less peek would restate what the reader can already see on the
+ * card and add nothing but a prompt. P10′ puts the bars back, so that reasoning no longer applies —
+ * the surviving <em>principle</em> is that a peek must carry something the card does not, and under
+ * it a spot with scores but no sentence has earned one.
  *
  * <p>Rating, drive time and leave-by are therefore not part of the gate: all three are printed on
  * the card. The clause and the two score bars are, and a slot with none of the three gets no peek
@@ -148,14 +140,13 @@ export function spotPeekPlacement(anchorRect, stripRect) {
  * look, which is a fact about the run rather than about the sky, and the strip has no vocabulary for
  * it. The card already says the same thing by omitting its rating badge.
  *
- * <p><b>The clause is computed here rather than in the component</b>, unlike {@code CardHoverPreview}
- * which takes the raw summary and truncates on render. That is what makes the gate provably the
- * thing rendered: a summary of pure whitespace, or one that {@code firstClause} reduces to nothing,
- * would otherwise pass a {@code summary != null} gate and then draw an empty paragraph.
+ * <p><b>The clause is computed here rather than in the component</b>, not left as a raw summary for
+ * the component to truncate on render. That is what makes the gate provably the thing rendered: a
+ * summary of pure whitespace, or one that {@code firstClause} reduces to nothing, would otherwise
+ * pass a {@code summary != null} gate and then draw an empty paragraph.
  *
- * <p>Everything read here is already in memory. That is the whole point and it is
- * {@code CloseToHome}'s rule too: opening a peek must cost nothing, or a pointer sweeping a strip
- * becomes a burst of requests.
+ * <p>Everything read here is already in memory. That is the whole point: opening a peek must cost
+ * nothing, or a pointer sweeping a strip becomes a burst of requests.
  *
  * <p>{@code fierySky}/{@code goldenHour} are bounded 0–100 integer, discarding anything outside that
  * range to null — the same rule {@code locationSheet.js}'s {@code buildScoreIndex} applies to the

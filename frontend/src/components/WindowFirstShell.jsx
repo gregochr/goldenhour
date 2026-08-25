@@ -191,8 +191,7 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  * because both panes are already-mounted state rather than a fetch — arrowing onto Coming up does
  * trigger its one lazy request, which is exactly what the reader asked for by arrowing onto it.
  *
- * <p>This is the first roving-tabindex implementation in the codebase; there was nothing to copy.
- * {@code ViewToggle} is a segmented control of plain buttons using {@code aria-current}, and
+ * <p>This is the first roving-tabindex implementation in the codebase; there was nothing to copy —
  * {@code ManageView}'s tabs carry no roles at all.
  *
  * <h2>Tab selection is deliberately not persisted</h2>

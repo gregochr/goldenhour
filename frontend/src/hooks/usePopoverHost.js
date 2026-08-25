@@ -9,8 +9,8 @@ import computePopoverPlacement from '../utils/popoverPlacement.js';
  * <p>The whole point is that there is exactly <b>one</b> popover in the subtree, owned here rather
  * than one per trigger. That is the lifetime guarantee: a panel rendered inside the chip that opened
  * it dies the moment that chip re-renders, and on this Plan screen a chip re-renders whenever the
- * briefing refreshes underneath it. {@code CloseToHome} already learned this — it keeps one peek
- * node at the panel root, driven from panel-level state — and this hook generalises the shape.
+ * briefing refreshes underneath it — so this hook holds one peek node at the panel root, driven
+ * from panel-level state, rather than one per trigger.
  *
  * <p>{@code position: fixed} is a <em>separate</em> concern and solves a different problem: escaping
  * a scroller's {@code overflow} clipping. It is not sufficient on its own, because a

@@ -45,8 +45,7 @@ describe('WindowFirstShell', () => {
     expect(tabs).toHaveLength(2);
     expect(tabs[0]).toHaveAttribute('aria-selected', 'true');
     expect(tabs[1]).toHaveAttribute('aria-selected', 'false');
-    // Exactly "Plan": the ◉ is decorative and must not leak into the accessible name, which is the
-    // rule ViewToggle:56 already follows for its own glyphs.
+    // Exactly "Plan": the ◉ is decorative and must not leak into the accessible name.
     expect(tabs[0]).toHaveAccessibleName('Plan');
     expect(tabs[1]).toHaveAccessibleName('Coming up');
   });

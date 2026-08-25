@@ -19,20 +19,18 @@
  *
  * <p>Plan §7 asks this to be settled rather than let two surfaces disagree. {@code HotTopicStrip}
  * blurs every topic's fact chips for LITE — a blanket paywall tease over a promotional strip, not a
- * judgement about tides — and this row is not that surface. It is the window's own context, the
- * equivalent of the v1 Plan tab's tide chips and tide-aligned markers, which are ungated for every
- * role today. `freemium_ui_strategy.md` blurs cloud-layer breakdown, aerosol metrics and the
- * technical panel; tide is almanac (the product already classifies it so — `topicCertainty`), and
- * `GET /api/tides` is deliberately Bearer rather than ADMIN for the same reason. So: no gate, and no
- * `role` plumbed into this arm.
+ * judgement about tides — and this row is not that surface. It is the window's own context: tide
+ * chips and tide-aligned markers are ungated for every role. `freemium_ui_strategy.md` blurs
+ * cloud-layer breakdown, aerosol metrics and the technical panel; tide is almanac (the product
+ * already classifies it so — `topicCertainty`), and `GET /api/tides` is deliberately Bearer rather
+ * than ADMIN for the same reason. So: no gate, and no `role` plumbed into this arm.
  *
- * <p><b>⚠️ The reconvergence with {@code HotTopicStrip} is DUE.</b> P9 shipped
- * ({@code WindowFirstDoors} renders the strip in this arm, deliberately unchanged), so the two
- * surfaces now disagree on one screen — sharply here, blurred a door away. It is left that way on
- * purpose: the fix is a <em>pricing</em> decision, not a rendering one
- * ({@code freemium_ui_strategy.md:79} grants LITE the scores and {@code :98} forbids blocking the
- * core score), and resolving it edits {@code HotTopicStrip} and {@code MarkerPopupContent}, both
- * shared with the frozen v1 arm the flag comparison rests on. The §6 sweep confirmed it is
+ * <p><b>⚠️ The reconvergence with {@code HotTopicStrip} is DUE.</b> {@code WindowFirstDoors}
+ * renders the strip unchanged, so the two surfaces disagree on one screen — sharply here, blurred a
+ * door away. It is left that way on purpose: the fix is a <em>pricing</em> decision, not a
+ * rendering one ({@code freemium_ui_strategy.md:79} grants LITE the scores and {@code :98} forbids
+ * blocking the core score), and resolving it edits {@code HotTopicStrip} and
+ * {@code MarkerPopupContent} — parked as a follow-on (plan §8). The §6 sweep confirmed it is
  * unreachable for the pilot roster (self-registration yields {@code PRO_USER}), which is why it did
  * not gate the sweep — not because it stopped being true.
  */
@@ -69,10 +67,10 @@ const DIRECTION_WORD = { RISING: 'rising', FALLING: 'falling' };
  * <p><b>There are two tones here, not the design's three.</b> Its `.dim` is `--ink-3`, and bone at
  * 0.42 over this row's surface measures <b>3.49:1</b> on a plain card and 3.38:1 on the lead card
  * — under AA's 4.5:1 for the 10.5px type the row is set in. So the caveat chips take the base tone
- * and lose only their de-emphasis, which is hierarchy rather than meaning. This is the fourth time
- * this project has made the same correction (`CloseToHome`'s region line, its ordering explainer,
- * the spot card's sub-lines at §5a): `--ink-3` is not usable for small type on these surfaces, and
- * the honest fix is to stop reaching for it rather than to keep re-deriving that it fails.
+ * and lose only their de-emphasis, which is hierarchy rather than meaning. This project has made
+ * the same correction before (the spot card's sub-lines at §5a): `--ink-3` is not usable for small
+ * type on these surfaces, and the honest fix is to stop reaching for it rather than to keep
+ * re-deriving that it fails.
  */
 const base = (text) => ({ text, tone: 'base' });
 

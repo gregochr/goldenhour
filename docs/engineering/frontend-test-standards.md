@@ -37,7 +37,7 @@ functions per test. Nothing mocks axios, and there is no MSW. A test that reache
 introducing a third way to do what the suite already does one way.
 
 ```jsx
-vi.mock('../api/briefingApi', () => ({ getDailyBriefing: vi.fn(), getCloseToHome: vi.fn() }));
+vi.mock('../api/briefingApi', () => ({ getDailyBriefing: vi.fn() }));
 import { getDailyBriefing } from '../api/briefingApi';
 // ...
 getDailyBriefing.mockResolvedValue(BRIEFING_WITH_TWO_WINDOWS);
@@ -222,7 +222,7 @@ Two traps specific to this codebase:
   `.quality-toggle-track` for something that is not the quality toggle inherits its animation and
   none of its focus treatment. `index.css` has explicit `:focus-visible` rules with comments about
   the 3:1 non-text contrast minimum — a new control needs its own, and a test that pins it.
-- **`aria-hidden` decorative panels must never be the only route to anything.** `CardHoverPreview` is
+- **`aria-hidden` decorative panels must never be the only route to anything.** `WindowSpotPeek` is
   `aria-hidden` precisely because the card behind it stays a real button. If a change makes such a
   panel the sole path to a destination, that is a defect, and a test should make it fail.
 

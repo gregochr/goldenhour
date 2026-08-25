@@ -239,7 +239,7 @@ describe('WindowFirstDoors', () => {
       expect(screen.getByTestId('hot-topic-pill-SPRING_TIDE')).toHaveTextContent('Spring tides');
     });
 
-    it('leaves the LITE treatment exactly as the v1 arm has it, which is P9\'s recorded decision', () => {
+    it('leaves the strip\'s LITE treatment unchanged, which is P9\'s recorded decision', () => {
       // Plan §5b assigned P9 a reconvergence on the blanket fact blur. It is NOT made: the blur is
       // one of five LITE treatments in that component, so editing it alone would leave a greyed,
       // inert pill carrying sharp numbers — strictly more incoherent than today — and editing all
@@ -257,9 +257,7 @@ describe('WindowFirstDoors', () => {
       expect(screen.queryByTestId('hot-topic-upsell')).toBeNull();
     });
 
-    it('routes a topic tap to the map as a filter, the way the v1 arm does', () => {
-      // Two lines reproduced rather than imported, so `DailyBriefing` stays untouched for §4's
-      // comparison — which also means nothing else would catch them being dropped.
+    it('routes a topic tap to the map as a filter', () => {
       const { onShowOnMap } = renderDoors();
       fireEvent.click(screen.getByTestId('window-first-door-topics'));
       fireEvent.click(screen.getByTestId('hot-topic-pill-SPRING_TIDE'));
@@ -283,9 +281,8 @@ describe('WindowFirstDoors', () => {
     });
   });
 
-  // Both Plan arms are alive at once and the reader flips between them to compare the same night.
-  // The v1 arm has always remembered its briefing grid across such a round trip; this one forgot on
-  // every unmount, so a flip landed on collapsed doors beside an arm that had stayed open.
+  // Without persistence, remounting the pane collapsed both doors even when the reader had just
+  // opened one — a working position lost to incidental React churn.
   describe('remembering which doors were left open', () => {
     const doorPanel = () => screen.queryByTestId('window-first-panel-topics-body');
 
@@ -307,7 +304,7 @@ describe('WindowFirstDoors', () => {
       expect(screen.getByTestId('window-first-door-topics')).toHaveAttribute('aria-expanded', 'true');
     });
 
-    it('starts closed on a fresh session, which is the property the current Plan keeps too', () => {
+    it('starts closed on a fresh session', () => {
       renderDoors();
       expect(doorPanel()).toBeNull();
       expect(screen.getByTestId('window-first-door-topics')).toHaveAttribute('aria-expanded', 'false');

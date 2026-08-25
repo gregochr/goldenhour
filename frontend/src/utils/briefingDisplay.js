@@ -41,20 +41,6 @@ export function isPoorSlot(slot) {
 }
 
 /**
- * Simple slot ordering: verdict rank (GO → MARGINAL → STANDDOWN), then A–Z.
- * Used by the Plan tab's event drill-down lists.
- *
- * @param {Array} slots
- * @returns {Array} a new sorted array
- */
-export function sortedSlotsByVerdict(slots) {
-  return [...slots].sort((a, b) => {
-    const vd = (VERDICT_ORDER[a.verdict] ?? 3) - (VERDICT_ORDER[b.verdict] ?? 3);
-    return vd !== 0 ? vd : a.locationName.localeCompare(b.locationName);
-  });
-}
-
-/**
  * Tide-priority rank for heatmap drill-down slots:
  *   1. King tide + GO
  *   2. Tide-aligned + GO
@@ -79,8 +65,7 @@ export function slotSortKey(slot) {
 
 /**
  * Heatmap drill-down slot ordering: tide-priority rank (see slotSortKey),
- * then A–Z within each group. Deliberately richer than
- * {@link sortedSlotsByVerdict} — the drill-down surfaces tide opportunity.
+ * then A–Z within each group.
  *
  * @param {Array} slots
  * @returns {Array} a new sorted array

@@ -45,9 +45,7 @@ const MAX_RATING = 5;
  * Every floor this product speaks, loosest first.
  *
  * <p>Whole stars, because {@code bestRating} and {@code claudeRating} are integers in 1–5 and a 3.5
- * floor could only ever behave as 4 — the reasoning {@code CloseToHome}'s {@code RATING_STEPS}
- * already records, and the same ladder, so a reader who has used the local block meets one
- * vocabulary rather than two.
+ * floor could only ever behave as 4.
  *
  * <p>The top step reads {@code 5★} and not {@code 5★+}: there is no sixth star, and a {@code +} on
  * the ceiling asserts a range that does not exist.

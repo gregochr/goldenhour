@@ -5,14 +5,11 @@ import { spotPeekPlacement } from '../utils/windowSpotPeek.js';
  * How long the pointer must rest on a spot card before the peek opens.
  *
  * <p><b>180ms, not the plan's 140.</b> Plan §5`:581` and §5a`:697` both write "140ms open", and this
- * is a deliberate, recorded deviation. {@code CloseToHome}'s Javadoc argues 180 is "the whole
- * difference between a panel that answers a question and one that fires at a mouse crossing the row
- * on its way somewhere else" — and the hazard it was derived against is <em>larger</em> here, not
- * smaller: that block is a grid of cards a pointer crosses one at a time, where this is a horizontal
- * strip of up to seven cards separated by 8px, so a single sweep towards the {@code ‹ ›} arrows
- * crosses all of them. Shortening the delay on the denser surface is the wrong direction. Two peeks
- * in one product opening at different speeds would also be a difference a reader can feel and
- * nothing on screen explains.
+ * is a deliberate, recorded deviation — 180 is the whole difference between a panel that answers a
+ * question and one that fires at a mouse crossing the row on its way somewhere else. This strip is
+ * a horizontal row of up to seven cards separated by 8px, so a single sweep towards the
+ * {@code ‹ ›} arrows crosses all of them; shortening the delay on a surface that dense is the wrong
+ * direction.
  *
  * <p>It is load-bearing for the keyboard path as well: tabbing to a partly-offscreen card triggers
  * the browser's own scroll-into-view, and the delay is what keeps that from producing a flash — see
@@ -28,7 +25,7 @@ const PEEK_TRIGGER_GRACE_MS = 160;
 
 /**
  * Grace after the pointer leaves the PANEL. The plan's number, adopted — and the reason the two are
- * split, where {@code CloseToHome} uses one 140 for both. They are not the same journey: leaving the
+ * split rather than sharing one value: they are not the same journey. Leaving the
  * card means the reader is travelling <em>towards</em> the panel across a gap and needs the longer
  * allowance, while leaving the panel means they are done with it and the shorter one is what keeps a
  * dismissed peek from trailing the pointer down the page.
@@ -41,8 +38,7 @@ const PEEK_PANEL_GRACE_MS = 120;
  * <p>Module-scoped rather than per-hook, and that is the whole point. State lives per strip so that
  * collapsing a window unmounts the panel with its anchor (see below), but the page must still carry
  * exactly <b>one</b> panel — the guarantee {@code usePopoverHost} gets free from owning a single
- * popover, and the one {@code CloseToHome} gets free from a single {@code preview} state at its
- * block root. A {@code focusin} listener alone cannot buy it back: it fires on a focus <em>change</em>,
+ * popover. A {@code focusin} listener alone cannot buy it back: it fires on a focus <em>change</em>,
  * so it covers open-by-pointer-then-Tab-away and not the reverse, and a pointer moving between two
  * expanded windows' strips sends the first strip nothing at all. Two correctly-placed tooltips would
  * then sit on screen together.
@@ -82,9 +78,8 @@ let openPeek = null;
  * registered in the <b>capture</b> phase because scroll does not bubble and the scroller here is an
  * inner element — {@code .wf-spots} — rather than the document. One capture listener therefore
  * catches all three routes at once: the {@code ‹ ›} nudge buttons, a trackpad swipe, and the
- * browser's own scroll-into-view when a card is tabbed to. {@code CloseToHome} wires an
- * {@code onScroll} to its strip instead and states the same reason; capture also covers the page
- * scroll underneath, which that one does not.
+ * browser's own scroll-into-view when a card is tabbed to — including the page scroll underneath,
+ * which a plain {@code onScroll} on the strip would not.
  *
  * <p>That third route is why the open <em>delay</em> must not be dropped for the focus path. Tabbing
  * to a partly-offscreen card fires focus, then a scroll-into-view. With the delay, the scroll lands
@@ -127,8 +122,8 @@ export default function useSpotPeek() {
   /**
    * Schedules a peek for {@code anchorEl}, measuring at fire time rather than now.
    *
-   * <p>{@code CloseToHome} reads both rects synchronously in the handler because React clears
-   * {@code currentTarget} once it returns. The element itself is a stable DOM node, though, so
+   * <p>React clears {@code currentTarget} once the handler returns, so the rect cannot simply be
+   * read there and stashed. The element itself is a stable DOM node, though, so
    * capturing <em>it</em> and measuring inside the timeout is both safe and better: the panel is
    * then placed against where the card is when it opens, not where it was 180ms earlier — and the
    * strip is a surface where those differ, because a card can be nudged, snapped or scrolled into

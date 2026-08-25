@@ -20,7 +20,7 @@ import WindowSheetDialog from '../components/WindowSheetDialog.jsx';
  *
  * <h2>What this file can and cannot prove</h2>
  *
- * <p>The technique and its limits are `regionChipVerdictColour.test.jsx`'s, unchanged: jsdom
+ * <p>The technique's limit: jsdom
  * resolves SPECIFICITY but does not resolve `var()`, so these assertions prove which declaration
  * won and prove nothing about what the token evaluates to. A token pruned to the empty string would
  * pass here. That half is a browser claim — and for these two it is a settled one, since

@@ -13,9 +13,9 @@ import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
  * duplicate a JSX frame and share only the pure derivation — {@code SurgeRunRow} against
  * {@code TideRunRow} — but that pairing is two <em>different</em> things that happen to look alike
  * (an almanac and a forecast), where these are one thing in two containers. The rules this card
- * carries are exactly the ones a copy loses first, and P10′'s review caught a copy losing one:
- * {@code CardHoverPreview} drew {@code ☆☆☆☆☆} for an unrated spot because the rule "absence is not
- * zero" did not travel with the markup. One component, one place to break it.
+ * carries are exactly the ones a copy loses first, and P10′'s review caught a copy losing one: a
+ * sibling peek panel drew {@code ☆☆☆☆☆} for an unrated spot because the rule "absence is not zero"
+ * did not travel with the markup. One component, one place to break it.
  *
  * <p>The proof the extraction was pure is that every assertion {@code WindowSpotStrip.test.jsx}
  * already carried passes <b>unchanged</b> — no test-id, attribute or string moved, and the file was

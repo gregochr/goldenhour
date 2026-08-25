@@ -74,19 +74,17 @@ function useStripEdges(ref, spotCount) {
  *
  * <h2>Three and a half cards, and the half one is the affordance</h2>
  *
- * <p>Geometry comes from the spec and <b>not</b> from `.cth-window-grid`, which disagrees at every
- * breakpoint that matters: `x mandatory` against `x proximity`, 4.5 across against 3.5, and 100% on
- * phone against 72%. What is copied from it is the *technique* — hidden native scrollbar, and
- * padding on the scroller so `overflow-x: auto` (which computes `overflow-y` to auto, clipping both
- * axes) cannot eat a focused card's ring. See `.wf-strip` in `index.css` for why that padding is
- * taken out of the wrapper's inset rather than given back with a negative margin.
+ * <p>Geometry comes from the spec: `x proximity` snapping, 3.5 cards across, 72% width on phone.
+ * The technique is a hidden native scrollbar, and padding on the scroller so `overflow-x: auto`
+ * (which computes `overflow-y` to auto, clipping both axes) cannot eat a focused card's ring. See
+ * `.wf-strip` in `index.css` for why that padding is taken out of the wrapper's inset rather than
+ * given back with a negative margin.
  *
- * <p><b>No `ScrollRail`.</b> Its own justification in `index.css` is that it is "the only handle a
- * mouse user has", and that premise is false here: this design ships arrows and a count. Adding it
- * would put a third scrolling affordance on a strip that already has two.
+ * <p><b>No scroll-position rail.</b> This design ships arrows and a count instead; a rail would put
+ * a third scrolling affordance on a strip that already has two.
  *
- * <p>The arrows render <b>only while the strip overflows</b>, which is `ScrollRail`'s rule and the
- * right one — a pair of permanently disabled buttons on a window with three spots reads as broken,
+ * <p>The arrows render <b>only while the strip overflows</b> — a pair of permanently disabled
+ * buttons on a window with three spots reads as broken,
  * where their absence reads as "that is all of them". Once shown, the disabled state means "you are
  * at this end", which is a fact worth stating. They are also pointer-only by media query, so a
  * touch user gets the swipe the spec intends; the cards themselves are buttons, so the keyboard
@@ -198,16 +196,13 @@ export default function WindowSpotStrip({
    * browser but Safari), so closing the overlay re-focuses it — and `onFocus` cannot tell that from a
    * reader arriving by keyboard. Without this a 280px panel paints 180ms after the ✕, anchored to a
    * card the pointer is nowhere near, with no pointer gesture able to close it: no `mouseenter` ever
-   * fired, so no `mouseleave` is pending. It is dismissible (Escape, scroll, resize) and it is
-   * inherited verbatim from `CloseToHome.jsx:525-528`, which ships in v1 today — but the hook is new
-   * and unfrozen, so it is fixed here rather than reproduced.
+   * fired, so no `mouseleave` is pending. It is dismissible (Escape, scroll, resize).
    */
   const focusHandedBack = useRef(false);
 
-  // Dismiss first, for the reason `CloseToHome` gives at its own call site: the map overlay renders
-  // above the pane but the peek is portalled to the body, so a panel left standing would sit over
-  // the overlay it just opened. `.wf-peek`'s z-index is below the overlay's as a second line of
-  // defence — see index.css.
+  // Dismiss first: the map overlay renders above the pane but the peek is portalled to the body,
+  // so a panel left standing would sit over the overlay it just opened. `.wf-peek`'s z-index is
+  // below the overlay's as a second line of defence — see index.css.
   const openSpot = useCallback((spot) => {
     dismiss();
     focusHandedBack.current = true;

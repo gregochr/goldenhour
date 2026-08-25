@@ -159,8 +159,6 @@ describe('buildMapOverlay', () => {
     expect(ov.focus.points).toHaveLength(2);
     expect(ov.caption).toContain('2 locations');
   });
-  // The aurora trigger exists because the alert banner is live in BOTH Plan arms while its v1
-  // action — switch to the Map tab — only means something in the arm that has one.
   describe('the aurora trigger', () => {
     it('hands the map the aurora event for the night in question', () => {
       const ov = buildMapOverlay({ kind: 'aurora', date: DATE }, ctx([loc('Kielder', 'Northumberland', 4)]));

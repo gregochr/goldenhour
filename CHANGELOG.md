@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Removed — the v1 component estate (v1 retirement D2)
+
+The six components that only the region-first Plan ever mounted are gone, along with their tests:
+`DailyBriefing`, `BriefingSummaryStrip`, `CloseToHome`, `CardHoverPreview`, `ViewToggle`, and
+`QualitySlider` (already an orphan). Three behaviours `DailyBriefing.test.jsx` uniquely covered —
+the drill-down's drive time and location-type icon, and the second-cell drill-down switch — are
+ported into `HeatmapGrid.test.jsx`, the surviving renderer of all three. Dead exports go with them:
+`briefingApi.getCloseToHome`, `briefingDisplay.sortedSlotsByVerdict`, and `tierUtils`'
+`TIER_KEYS`/`TIER_LABELS`/`computeAuroraCellTier` (the retired slider's own constants —
+`computeCellTier` itself stays, still ordering the regional planner's rows). `index.css` loses the
+`.quality-slider*`, `.cth-*` (region cards, hover preview, window filmstrip, rail, filters), and
+briefing-summary-strip rules, plus the `--color-marginal`/`--color-dust`/`--color-pick-also` alias
+tokens; the `.cth-hover-preview` keyframes survive under new names (`wf-peek-fade/-rise/-drop`) since
+the window-first spot peek reuses them. Every surviving comment that cited one of these files as a
+"copied from" licence is rewritten to the reason, without the dead citation.
+
 ### Added — rating statistics on every cloud-verification bucket
 
 `CloudVerificationBucket` gains `ratedCount`, `meanRating` and `ratingCounts` (a 5-entry
@@ -15,6 +31,7 @@ so `ratedCount` — not `sampleCount` — is the denominator throughout, and `me
 rather than `0.0` when nothing in the bucket was rated. This is the veto-demotion prompt change's
 (#548/#549) pre-registered post-deploy instrument: a before/after pull across the deploy date, cut
 on the `vetoFired` and `stripMissed` buckets' rating distributions.
+
 
 ### Removed — the Plan-layout flag, the settings toggle, and the shell's exit hatch (v1 retirement D1)
 
