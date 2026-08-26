@@ -14,6 +14,7 @@ import org.springframework.web.client.RestClientException;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 /**
  * Enriches a lat/lon pair with metadata from external APIs.
@@ -32,6 +33,7 @@ public class LocationEnrichmentService {
     private final AuroraProperties auroraProperties;
     private final RestClient restClient;
     private final OpenMeteoForecastApi openMeteoForecastApi;
+    private final Executor forecastExecutor;
 
     /**
      * Constructs the enrichment service.
@@ -40,15 +42,18 @@ public class LocationEnrichmentService {
      * @param auroraProperties     aurora config containing the light pollution API key
      * @param restClient           shared REST client for the Open-Meteo elevation API
      * @param openMeteoForecastApi typed proxy for the Open-Meteo forecast API
+     * @param forecastExecutor     virtual-thread executor for the parallel enrichment fan-out
      */
     public LocationEnrichmentService(LightPollutionClient lightPollutionClient,
                                      AuroraProperties auroraProperties,
                                      RestClient restClient,
-                                     OpenMeteoForecastApi openMeteoForecastApi) {
+                                     OpenMeteoForecastApi openMeteoForecastApi,
+                                     Executor forecastExecutor) {
         this.lightPollutionClient = lightPollutionClient;
         this.auroraProperties = auroraProperties;
         this.restClient = restClient;
         this.openMeteoForecastApi = openMeteoForecastApi;
+        this.forecastExecutor = forecastExecutor;
     }
 
     /**
@@ -64,19 +69,26 @@ public class LocationEnrichmentService {
      * <p>If any individual call fails, its fields are null in the result rather than
      * failing the entire enrichment.
      *
+     * <p>All three run on {@code forecastExecutor}, never the default. Omitting the executor
+     * argument sends the work to {@link java.util.concurrent.ForkJoinPool#commonPool()}, which is
+     * sized for CPU-bound work at roughly one thread per core: three concurrent blocking HTTP
+     * calls per enrichment then contend there with every other common-pool user in the JVM.
+     * A virtual-thread executor is the right home for calls that spend their life waiting on a
+     * socket.
+     *
      * @param latitude  latitude in decimal degrees
      * @param longitude longitude in decimal degrees
      * @return enrichment result with nullable fields for each data source
      */
     public LocationEnrichmentResult enrich(double latitude, double longitude) {
         CompletableFuture<LightPollutionClient.SkyBrightnessResult> bortleFuture =
-                CompletableFuture.supplyAsync(() -> fetchBortle(latitude, longitude));
+                CompletableFuture.supplyAsync(() -> fetchBortle(latitude, longitude), forecastExecutor);
 
         CompletableFuture<Integer> elevationFuture =
-                CompletableFuture.supplyAsync(() -> fetchElevation(latitude, longitude));
+                CompletableFuture.supplyAsync(() -> fetchElevation(latitude, longitude), forecastExecutor);
 
         CompletableFuture<double[]> gridFuture =
-                CompletableFuture.supplyAsync(() -> fetchGridCell(latitude, longitude));
+                CompletableFuture.supplyAsync(() -> fetchGridCell(latitude, longitude), forecastExecutor);
 
         CompletableFuture.allOf(bortleFuture, elevationFuture, gridFuture).join();
 

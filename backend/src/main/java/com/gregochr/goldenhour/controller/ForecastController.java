@@ -424,7 +424,7 @@ public class ForecastController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, String>> refreshTideData() {
         LOG.info("POST /api/forecast/run/tide triggered by admin");
-        CompletableFuture.runAsync(() -> scheduledForecastService.refreshTideExtremes());
+        CompletableFuture.runAsync(() -> scheduledForecastService.refreshTideExtremes(), forecastExecutor);
         return ResponseEntity.status(HttpStatus.ACCEPTED)
                 .body(Map.of("status", "Tide refresh started", "runType", "TIDE"));
     }
@@ -442,7 +442,7 @@ public class ForecastController {
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, String>> backfillTideData() {
         LOG.info("POST /api/forecast/run/tide/backfill triggered by admin");
-        CompletableFuture.runAsync(() -> scheduledForecastService.backfillTideExtremes());
+        CompletableFuture.runAsync(() -> scheduledForecastService.backfillTideExtremes(), forecastExecutor);
         return ResponseEntity.status(HttpStatus.ACCEPTED)
                 .body(Map.of("status", "Tide backfill started (12 months, SEASCAPE locations)",
                         "runType", "TIDE"));

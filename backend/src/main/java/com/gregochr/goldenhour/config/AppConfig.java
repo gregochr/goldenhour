@@ -44,6 +44,12 @@ import java.util.concurrent.TimeUnit;
 @EnableAsync
 public class AppConfig {
 
+    /** Connect timeout applied to every outbound REST client built here. */
+    static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(10);
+
+    /** Read timeout applied to every outbound REST client built here. */
+    static final Duration READ_TIMEOUT = Duration.ofSeconds(30);
+
     /**
      * Shared {@link ObjectMapper} for JSON serialisation/deserialisation.
      *
@@ -60,15 +66,28 @@ public class AppConfig {
     /**
      * Shared {@link RestClient} instance for outbound HTTP calls.
      *
-     * <p>Used by {@code TideService} (WorldTides API) and
-     * {@code PushoverNotificationService} (Pushover REST API).
-     * Open-Meteo calls use dedicated {@code @HttpExchange} proxies instead.
+     * <p>Used by WorldTides, NOAA SWPC, Pushover, postcodes.io, OpenRouteService, Turnstile,
+     * the exchange-rate and light-pollution lookups, the NLC scraper, and the three external
+     * health indicators. Open-Meteo calls use dedicated {@code @HttpExchange} proxies instead.
      *
-     * @return a RestClient instance
+     * <p>⚠️ <b>This client must always carry timeouts.</b> It was created with
+     * {@code RestClient.create()} — no request factory, and therefore no read timeout at all —
+     * while the Open-Meteo proxies beside it were given 10s/30s for exactly the hang documented
+     * on {@link #timeoutRequestFactory()}. The fix had been applied to one caller of the failure
+     * mode rather than to the shared default. A peer that accepts a connection and then stops
+     * sending bytes pins the calling thread indefinitely: on the Turnstile path that stalls a
+     * login, on a health indicator it stalls the single-threaded status-SSE scheduler for every
+     * connected client, and on the tide refresh it consumes one of the five dynamic-scheduler
+     * threads permanently. Give a specific API its own longer-lived client rather than removing
+     * the timeouts here.
+     *
+     * @return a RestClient instance with connect and read timeouts applied
      */
     @Bean
     public RestClient restClient() {
-        return RestClient.create();
+        return RestClient.builder()
+                .requestFactory(timeoutRequestFactory())
+                .build();
     }
 
     /**
@@ -185,7 +204,7 @@ public class AppConfig {
     OpenMeteoForecastApi openMeteoForecastApi() {
         RestClient client = RestClient.builder()
                 .baseUrl("https://api.open-meteo.com")
-                .requestFactory(openMeteoRequestFactory())
+                .requestFactory(timeoutRequestFactory())
                 .build();
         return HttpServiceProxyFactory.builderFor(RestClientAdapter.create(client))
                 .build().createClient(OpenMeteoForecastApi.class);
@@ -204,7 +223,7 @@ public class AppConfig {
     OpenMeteoArchiveApi openMeteoArchiveApi() {
         RestClient client = RestClient.builder()
                 .baseUrl("https://archive-api.open-meteo.com")
-                .requestFactory(openMeteoRequestFactory())
+                .requestFactory(timeoutRequestFactory())
                 .build();
         return HttpServiceProxyFactory.builderFor(RestClientAdapter.create(client))
                 .build().createClient(OpenMeteoArchiveApi.class);
@@ -219,7 +238,7 @@ public class AppConfig {
     OpenMeteoAirQualityApi openMeteoAirQualityApi() {
         RestClient client = RestClient.builder()
                 .baseUrl("https://air-quality-api.open-meteo.com")
-                .requestFactory(openMeteoRequestFactory())
+                .requestFactory(timeoutRequestFactory())
                 .build();
         return HttpServiceProxyFactory.builderFor(RestClientAdapter.create(client))
                 .build().createClient(OpenMeteoAirQualityApi.class);
@@ -234,23 +253,34 @@ public class AppConfig {
     OpenMeteoMarineApi openMeteoMarineApi() {
         RestClient client = RestClient.builder()
                 .baseUrl("https://marine-api.open-meteo.com")
-                .requestFactory(openMeteoRequestFactory())
+                .requestFactory(timeoutRequestFactory())
                 .build();
         return HttpServiceProxyFactory.builderFor(RestClientAdapter.create(client))
                 .build().createClient(OpenMeteoMarineApi.class);
     }
 
     /**
-     * Shared HTTP request factory for all Open-Meteo REST clients.
+     * HTTP request factory carrying the default outbound timeouts, used by every REST client
+     * this class builds — the Open-Meteo proxies and the shared {@link #restClient()} alike.
      *
      * <p>Without explicit timeouts the default factory has no read timeout, causing individual
      * location calls to hang for minutes when Open-Meteo is slow (as seen in 181-second hang).
      * A 30-second read timeout allows Resilience4j retry/circuit-breaker to respond promptly.
+     *
+     * <p>A fresh instance per client: the factory is cheap, and sharing one across clients would
+     * make a future per-client tuning change silently global.
+     *
+     * <p>Package-visible so {@code AppConfigTest} can assert the durations directly. Asserting
+     * them through the built {@link RestClient} is not possible — it exposes no accessor for its
+     * request factory — and a "returns non-null" test passes just as happily against the
+     * untimed {@code RestClient.create()} this replaced.
+     *
+     * @return a request factory with a 10-second connect and 30-second read timeout
      */
-    private static SimpleClientHttpRequestFactory openMeteoRequestFactory() {
+    static SimpleClientHttpRequestFactory timeoutRequestFactory() {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(Duration.ofSeconds(10));
-        factory.setReadTimeout(Duration.ofSeconds(30));
+        factory.setConnectTimeout(CONNECT_TIMEOUT);
+        factory.setReadTimeout(READ_TIMEOUT);
         return factory;
     }
 }
