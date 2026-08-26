@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — two errors in the plan's Stage 3, found while writing its kickoff prompt
+
+§2.1 said *"markers already comply; cluster badges do not"*. **Wrong, and it understated what the
+snap fixes.** There are two labelled continuous fills, both through `scoreColour`: the cluster
+bubble, and an individual marker for a location with both potentials but no rating — whose fill
+comes from `Math.round((fierySky + goldenHour) / 2)` and whose label is that raw average, so a
+marker reading "62" paints from 3.1★. The `ratingColour` path does comply, since `rating` is an
+integer. Snapping inside `scoreColour` covers both without touching either call site — the
+chokepoint argument holding up under a case it was not written for.
+
+**The marker arcs move to Stage 5, not Stage 3.** They hard-code `#f97316` / `#E5A00D` at five
+sites, and the brief is right that they must move with the score bars — same two metrics, and the
+pin and popup must not disagree. But the bars only reach the ramp in Stage 5 via `starFromScore`.
+Moving the arcs in Stage 3 would open a window where the pin reads the ramp and the popup still
+reads a gradient — the precise disagreement the brief exists to prevent.
+
+Adds the Stage 3 kickoff prompt, and marks Stage 2 landed.
+
 ### Changed — the hot leg is monotonic, and the bimodal potentials get frozen piecewise anchors
 
 Two revisions from Design, both prompted by findings rather than preference.

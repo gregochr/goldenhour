@@ -75,9 +75,21 @@ Two further notes:
 only *good enough* where one of them clears 4.5:1. Every ramp through mid-luminance has points
 where neither does; the question is whether any label lands on one.
 
-**It is live, not theoretical.** `markerUtils.starsFromAverage(avg)` returns `avg / 20` — a
-*continuous* 0–5 value — which `scoreColour` feeds straight to `rampHex`. Cluster badges therefore
-paint interpolated fills and put a count label on them.
+**It is live, not theoretical, and it reaches TWO surfaces rather than one.**
+`markerUtils.starsFromAverage(avg)` returns `avg / 20` — a *continuous* 0–5 value — which
+`scoreColour` feeds straight to `rampHex`. Both of its ramp-bearing callers are labelled:
+
+- the **cluster bubble** (`markerUtils.js:204`), whose fill comes from `mean(ratings) × 20` and
+  carries a count;
+- an **individual marker** (`markerUtils.js:90`) for a location with both potentials but no rating
+  yet, whose fill comes from `Math.round((fierySky + goldenHour) / 2)` and whose label is that raw
+  average — so a marker reading "62" paints from 3.1★, an interpolated point.
+
+⚠️ An earlier draft of this section said "markers already comply; cluster badges do not." **That
+was wrong** and understated what the snap fixes. The `ratingColour` path *does* comply — `rating`
+is an integer 1–5 — but the average path does not. Snapping inside `scoreColour` covers both
+without touching either call site, which is the chokepoint argument holding up under a case it was
+not written for.
 
 **The existing guard cannot see it.** `MarkerIcon.test.jsx`'s sweep is `it.each([1, 2, 3, 4, 5])` —
 the only five values never at risk. It passes by luck, not by construction.
@@ -239,8 +251,12 @@ was added to each affected `describe`'s `afterEach`. `npm run lint && npm test &
   0–100 average becomes a whole-star ramp colour — but the function survives and its four call
   sites keep calling it. Deleting it and routing the callers straight at the ramp is exactly the
   failure §2.1 exists to prevent: continuous fills under labels.
-- Move the Fiery Sky / Golden Hour arcs off hard-coded `#f97316` / `#E5A00D` onto the same
-  source as the score bars, so the pin and the popup cannot disagree about the same two numbers.
+- ⚠️ **The Fiery Sky / Golden Hour arcs move in Stage 5, not here.** They hard-code `#f97316` and
+  `#E5A00D` at five sites in `markerUtils.js`, and the brief is right that they must move with the
+  score bars — they are the same two metrics, and the pin and the popup must not disagree. But the
+  bars only reach the ramp in Stage 5, via `starFromScore` + `ANCHORS`. Moving the arcs here would
+  open a window where the pin reads the ramp and the popup still reads a gradient, which is the
+  precise disagreement the brief is trying to prevent. Sequencing corrected 2026-08-26.
 - **Ink needs no work at whole stars** — `readableInkOn` already derives it per fill, and all five
   temperature stops clear AA (1★ 7.13:1, 2★ 6.04, 3★ 6.51, 4★ 4.87, 5★ 5.52, computed).
 - **Snap the cluster fill to whole stars** (§2.1's decision). Be precise about where:
@@ -391,6 +407,17 @@ requirement the note was protecting.
 The Plan call sites keep their `score != null &&` guards — they render *nothing* for a missing
 score, where the popup renders an em dash. That difference is deliberate and survives the merge:
 a tooltip with a stray dash in it is noise; a popup row that vanishes is a layout jump.
+
+#### Also in this stage: the marker arcs
+
+The Fiery Sky / Golden Hour arcs in `markerUtils.js` hard-code `#f97316` and `#E5A00D` at five
+sites (`buildMarkerSvg`'s pair, its single-metric ring, and `createClusterIcon`'s pair). They are
+**the same two metrics the bars render**, so they move onto `rampHex(starFromScore(v, metric))`
+here, in the same commit — not in Stage 3, which would leave the pin on the ramp while the popup
+was still on a gradient.
+
+Note the arcs are strokes with no label on them, so the whole-star rule of §2.1 does not apply:
+they may sample the ramp continuously.
 
 #### Scope boundary
 

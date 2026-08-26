@@ -122,7 +122,7 @@ commit as the work.
 
 ---
 
-## Stage 2 — Tokens and legend
+## Stage 2 — Tokens and legend ✅ LANDED (#637)
 
 > You are implementing **Stage 2** of `docs/engineering/heat-scale-unification-plan.md`. Read that
 > plan's §1, §2 and Stage 2 first. Stage 1 landed in #633 — `frontend/src/utils/scoreRamp.js`
@@ -221,3 +221,91 @@ commit as the work.
 > `[Unreleased]` — expect a conflict there and rebase rather than merge. Do **not** push until
 > asked. Update the plan's Stage 2 section to record what landed, including anything this prompt
 > got wrong.
+
+---
+
+## Stage 3 — Markers and clusters onto whole stars
+
+> You are implementing **Stage 3** of `docs/engineering/heat-scale-unification-plan.md`. Read that
+> plan's §2.1 and Stage 3 before writing anything — §2.1 is the decision this stage implements and
+> the reasoning matters more than the diff. Stages 1 and 2 have landed: `scoreRamp.js` exports
+> `STOPS_VERDICT`, `STOPS_TEMP`, `setMode`, `getMode`, `activeStops` and `scoreFromPercent`, and
+> `MODE` still defaults to `'verdict'`. **Do not flip the default** — that is Stage 7.
+>
+> **Goal.** One rule, applied at one place:
+>
+> > **Any fill that carries a label samples the ramp at whole stars. Only label-free surfaces
+> > interpolate.**
+>
+> **Why it matters.** `readableInkOn` picks whichever of `#0F172A` / `#FFFFFF` contrasts better
+> with the fill, which only clears WCAG AA where one of them reaches 4.5:1. Every ramp through
+> mid-luminance has a band where neither does — the temperature ramp spends **10.2%** of its range
+> there, in two runs (2.48–2.60★ and 4.21–4.48★). All five *whole* stars clear comfortably
+> (7.13, 6.04, 6.51, 5.03, 5.56:1), so sampling only at whole stars makes the label safe **by
+> construction** rather than by luck.
+>
+> **⚠️ Trap 1 — the existing guard passes by luck and will not catch a regression here.**
+> `MarkerIcon.test.jsx`'s contrast sweep is `it.each([1, 2, 3, 4, 5])` — the only five values never
+> at risk. It is green today and would stay green if you got this wrong. Do not treat it as
+> coverage.
+>
+> **⚠️ Trap 2 — there are TWO labelled continuous fills, not one.** Both go through
+> `markerUtils.scoreColour(avg)`, which is `avg == null ? NO_DATA_COLOUR :
+> rampHex(starsFromAverage(avg))` with `starsFromAverage` being `avg / 20`:
+>
+> - the **cluster bubble** (`markerUtils.js:204`) — fill from `mean(ratings) × 20`, labelled with a
+>   count;
+> - an **individual marker** (`markerUtils.js:90`) — a location with both potentials but no rating,
+>   fill from `Math.round((fierySky + goldenHour) / 2)`, labelled with that raw average. A marker
+>   reading "62" paints from 3.1★.
+>
+> The `ratingColour` path already complies (`rating` is an integer 1–5) and needs no change.
+>
+> **The change.**
+>
+> 1. **Round inside `scoreColour`, at its single `rampHex(...)` call** —
+>    `rampHex(Math.round(starsFromAverage(avg)))`. **Not at the two call sites**: a third would
+>    eventually be added without it, and the failure is invisible — no test, lint or build fails
+>    when a labelled fill drifts into the dead zone.
+> 2. **Round, do not floor.** The nearest whole star is the honest reading of an average; flooring
+>    systematically under-reports and would render an 89-average cluster as 4★ when it is nearer 5.
+>    `rampHex` already clamps to 1–5, so `avg = 0` needs no special case.
+> 3. **Do not touch `readableInkOn`.** It already derives ink per fill, which is better than the
+>    hard 3★ threshold the design brief originally specified — implementing a threshold now would
+>    be a regression. #627 is the commit that got this right.
+>
+> **Not in this stage:** the Fiery Sky / Golden Hour arcs. They hard-code `#f97316` / `#E5A00D` at
+> five sites and the brief says to move them — but they are the same two metrics the score bars
+> render, and the bars only reach the ramp in **Stage 5**. Moving the arcs now would leave the pin
+> on the ramp while the popup is still on a gradient, which is the exact disagreement the brief
+> wants to prevent. Leave them.
+>
+> **Tests.**
+>
+> - **Assert the invariant directly**: no label-bearing fill is ever produced from a fractional
+>   star. The strongest form is a property-style sweep — for every `avg` from 0 to 100, assert
+>   `scoreColour(avg)` is one of the five whole-star colours of the active mode. That is a claim
+>   about the rule, not about a sample.
+> - Assert it in **both** modes; the rule is not mode-specific.
+> - Pin the two callers: a cluster whose ratings average to something fractional, and a marker
+>   built from a fiery/golden pair that averages to a non-multiple of 20, both land on a whole-star
+>   colour.
+> - `scoreColour(null)` still returns `NO_DATA_COLOUR` and does not go near the ramp.
+> - ⚠️ Existing assertions in `MarkerIcon.test.jsx` (`scoreColour(40)`, `scoreColour(60)` …) may
+>   change value where the old fractional star rounded differently. Where one does, **check the new
+>   value is right before updating it** — that is the stage working, not a test to silence.
+> - Reset the mode in `afterEach`; `MODE` is module state and leaks across cases.
+>
+> **Gates, all four, before you push:**
+>
+> ```
+> cd frontend && npm run lint && npm test && npm audit --audit-level=high && npm run build
+> ```
+>
+> **Before committing**, run an adversarial review of the diff (CLAUDE.md, "UI Work — Review
+> Cadence"). Tell review agents to read only. Ask one lens specifically: *is there any path by
+> which a labelled fill can still be produced from a fractional star?*
+>
+> **Commit and PR.** Conventional commit (`feat:`). `CHANGELOG.md` entry under `[Unreleased]` —
+> expect a conflict and rebase rather than merge. Do **not** push until asked. Update the plan's
+> Stage 3 section with what landed, including anything this prompt got wrong.
