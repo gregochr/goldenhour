@@ -5,6 +5,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Removed — a dependency `BriefingService` never used
+
+`BriefingEvaluationService` was declared as a field, documented as a `@param`, injected
+`@Lazy` (with a comment explaining which cycle the laziness broke) and assigned — and then
+never read, anywhere in 1315 lines. The bean itself is untouched and still serves
+`BriefingEvaluationController`, `EvaluationViewService` and the pipeline's pick service;
+only `BriefingService`'s unused injection of it is gone, along with the mock and the six
+test fixtures that were passing it in.
+
+Found while planning a larger extraction, by classifying all 26 constructor parameters by
+usage site rather than by reading the field list — which is why a `@Lazy` injection with a
+plausible javadoc had survived unread.
+
+### Added — a plan for the served-briefing assembly boundary
+
+`docs/engineering/served-briefing-assembler-plan.md`. From an architecture review run
+against a scrubbed checkout, then revised after an adversarial pass that found the first
+draft's headline benefit overstated (the constructor goes 26 → 24, not "materially
+smaller" — only two parameters are genuinely serve-only) and two of its wiring routes
+silently broken. Both failure routes are now written down as things not to do, since each
+produces a green build: one is a Spring startup cycle that the usual local gate cannot see
+because that command excludes context-booting tests, and the other captures a field-injected
+`@Value` before injection runs, reading `0.0` — the value that disables the honesty filter's
+coverage tier.
+
 ### Fixed — three defects found by an independent architecture review
 
 An unseeded [Codex](https://openai.com/codex) survey of the backend, run against a checkout with

@@ -128,8 +128,6 @@ class BriefingServiceTest {
     @Mock
     private HotTopicAggregator hotTopicAggregator;
     @Mock
-    private BriefingEvaluationService briefingEvaluationService;
-    @Mock
     private EvaluationViewService evaluationViewService;
     @Mock
     private com.gregochr.goldenhour.service.pipeline.BestBetFallbackService bestBetFallbackService;
@@ -174,7 +172,7 @@ class BriefingServiceTest {
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
-                briefingEvaluationService, evaluationViewService, bestBetFallbackService,
+                evaluationViewService, bestBetFallbackService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
                 windowTideRollupBuilder, snapshots());
     }
@@ -470,7 +468,7 @@ class BriefingServiceTest {
                     bluebellGlossService, auroraSummaryBuilder,
                     new BriefingHierarchyBuilder(verdictEvaluator),
                     slotBuilder, eventPublisher, hotTopicAggregator,
-                    briefingEvaluationService, evaluationViewService, bestBetFallbackService,
+                    evaluationViewService, bestBetFallbackService,
                     BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), BST_CLOCK, marineWaveRefreshService,
                     windowTideRollupBuilder, snapshots());
             freshService.loadPersistedBriefing();
@@ -848,7 +846,7 @@ class BriefingServiceTest {
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
-                briefingEvaluationService, evaluationViewService, bestBetFallbackService,
+                evaluationViewService, bestBetFallbackService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
                 windowTideRollupBuilder, snapshots());
         freshService.loadPersistedBriefing();
@@ -882,7 +880,7 @@ class BriefingServiceTest {
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
-                briefingEvaluationService, evaluationViewService, bestBetFallbackService,
+                evaluationViewService, bestBetFallbackService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
                 windowTideRollupBuilder, snapshots());
         freshService.loadPersistedBriefing();
@@ -909,7 +907,7 @@ class BriefingServiceTest {
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
-                briefingEvaluationService, evaluationViewService, bestBetFallbackService,
+                evaluationViewService, bestBetFallbackService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
                 windowTideRollupBuilder, snapshots());
         freshService.loadPersistedBriefing();
@@ -1450,7 +1448,7 @@ class BriefingServiceTest {
                     bluebellGlossService, auroraSummaryBuilder,
                     new BriefingHierarchyBuilder(verdictEvaluator),
                     slotBuilder, eventPublisher, hotTopicAggregator,
-                    briefingEvaluationService, evaluationViewService, bestBetFallbackService,
+                    evaluationViewService, bestBetFallbackService,
                     BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
                     windowTideRollupBuilder, snapshots());
             freshService.loadPersistedBriefing();

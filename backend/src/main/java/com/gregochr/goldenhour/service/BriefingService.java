@@ -83,7 +83,6 @@ public class BriefingService {
     private final BriefingSlotBuilder slotBuilder;
     private final ApplicationEventPublisher eventPublisher;
     private final HotTopicAggregator hotTopicAggregator;
-    private final BriefingEvaluationService briefingEvaluationService;
     private final EvaluationViewService evaluationViewService;
     private final com.gregochr.goldenhour.service.pipeline.BestBetFallbackService bestBetFallbackService;
     private final SeasonalWindow bluebellSeason;
@@ -164,7 +163,6 @@ public class BriefingService {
      * @param slotBuilder                builder for individual briefing slots
      * @param eventPublisher             Spring event publisher for cache invalidation
      * @param hotTopicAggregator         aggregator for seasonal and special-interest hot topics
-     * @param briefingEvaluationService  cached Claude evaluation scores (lazy to break cycle)
      * @param evaluationViewService      merged evaluation view service (lazy to break cycle)
      * @param bestBetFallbackService     serves the fail-safe stale best-bet fallback on FAILED
      * @param bluebellSeason             the configured bluebell season window
@@ -191,7 +189,6 @@ public class BriefingService {
             BriefingSlotBuilder slotBuilder,
             ApplicationEventPublisher eventPublisher,
             HotTopicAggregator hotTopicAggregator,
-            @Lazy BriefingEvaluationService briefingEvaluationService,
             @Lazy EvaluationViewService evaluationViewService,
             com.gregochr.goldenhour.service.pipeline.BestBetFallbackService bestBetFallbackService,
             SeasonalWindow bluebellSeason,
@@ -217,7 +214,6 @@ public class BriefingService {
         this.slotBuilder = slotBuilder;
         this.eventPublisher = eventPublisher;
         this.hotTopicAggregator = hotTopicAggregator;
-        this.briefingEvaluationService = briefingEvaluationService;
         this.evaluationViewService = evaluationViewService;
         this.bestBetFallbackService = bestBetFallbackService;
         this.bluebellSeason = bluebellSeason;
