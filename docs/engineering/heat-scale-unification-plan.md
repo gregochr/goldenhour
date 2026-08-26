@@ -207,11 +207,11 @@ literals, since the 2★/4★ tokens are interpolated points, not stops in that 
 was added to each affected `describe`'s `afterEach`. `npm run lint && npm test && npm audit
 --audit-level=high && npm run build` all pass.
 
-- ⚠️ **First, correct the two hot stops that Stage 1 shipped.** `STOPS_TEMP` on main carries the
-  pre-revision `4.3: '#D63A26'` and `5: '#F26034'`; they must become **`#DE4826`** and
-  **`#C82820`**. This belongs here rather than in its own stage because the tokens below are
-  sampled from the corrected ramp — landing them against the old stops would put two artifacts
-  out of step.
+- ✅ **The two hot stops Stage 1 shipped were corrected here.** `STOPS_TEMP`'s pre-revision
+  `4.3: '#D63A26'` and `5: '#F26034'` became **`#DE4826`** and **`#C82820`**. It belonged in this
+  stage rather than its own because the tokens are sampled from the corrected ramp — landing them
+  against the old stops would have put two artifacts out of step. `heatTokens.test.js` asserts
+  each token equals `rampHex(score)` rather than a literal, so they cannot drift apart again.
 - `--color-heat-1 … --color-heat-5` in `index.css`: `#3A5C70`, `#4C6677`, `#C49440`, **`#DF6229`**,
   **`#C82820`** (the *corrected* ramp sampled at whole stars, for discrete uses; the field itself
   interpolates). Note 2★ and 4★ are **interpolated points, not stops** — do not expect to find

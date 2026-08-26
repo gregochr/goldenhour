@@ -203,6 +203,12 @@ do not read it.
 
 Comment-only: no behaviour, no signatures, no tests changed.
 
+Landed against the **revised** ramp: the hot leg's `4.3` and `5` stops were corrected to `#DE4826`
+and `#C82820` in the same commit, and the tokens sampled from the corrected ramp — Design revised
+them after 4.3★ was found to read hotter than 5★ (a luminance trough at 0.175 between 0.264 and
+0.275). `heatTokens.test.js` asserts each token equals `rampHex(score)` rather than a literal, so
+the two artifacts cannot drift apart again.
+
 ## [v2.19.0] - 2026-08-25
 
 ### Added — AGENTS.md context files for external AI code review

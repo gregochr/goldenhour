@@ -9,7 +9,7 @@ import { setMode, rampHex } from '../utils/scoreRamp.js';
  * exactly the reason this file's own comment gives — see it before "fixing" a mismatch here by
  * moving the tokens back to the plain block).
  *
- * <p>2★ and 4★ are interpolated points, not `STOPS_TEMP` entries — `#4C6677` and `#DD5F29` do not
+ * <p>2★ and 4★ are interpolated points, not `STOPS_TEMP` entries — `#4C6677` and `#DF6229` do not
  * appear in that list — so the only honest way to verify them is to ask the ramp for the colour it
  * actually renders at those scores, not to grep the stop table.
  */

@@ -165,8 +165,8 @@
   --color-heat-1: #3A5C70;
   --color-heat-2: #4C6677;
   --color-heat-3: #C49440;
-  --color-heat-4: #DD5F29;
-  --color-heat-5: #F26034;
+  --color-heat-4: #DF6229;
+  --color-heat-5: #C82820;
 
   /* ── Heat field, the two colours the canvas and the DOM both need ──
      Everything else the field paints comes from `scoreRamp.js`, which is the single source for the

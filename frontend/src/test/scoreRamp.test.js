@@ -190,8 +190,8 @@ describe('scoreRamp', () => {
       expect(rampHex(1)).toBe('#3A5C70');
       expect(rampHex(2)).toBe('#4C6677');
       expect(rampHex(3)).toBe('#C49440');
-      expect(rampHex(4)).toBe('#DD5F29');
-      expect(rampHex(5)).toBe('#F26034');
+      expect(rampHex(4)).toBe('#DF6229');
+      expect(rampHex(5)).toBe('#C82820');
     });
 
     it('falls back to verdict for an unrecognised mode string, rather than selecting temp by accident', () => {
@@ -205,8 +205,8 @@ describe('scoreRamp', () => {
       setMode('temp');
       expect(rampHex(0)).toBe('#3A5C70');
       expect(rampHex(-4)).toBe('#3A5C70');
-      expect(rampHex(6)).toBe('#F26034');
-      expect(rampHex(99)).toBe('#F26034');
+      expect(rampHex(6)).toBe('#C82820');
+      expect(rampHex(99)).toBe('#C82820');
     });
 
     it('sends a non-finite score to the bottom of the ramp in temp mode too', () => {

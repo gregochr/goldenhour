@@ -51,6 +51,14 @@ export const STOPS_VERDICT = [
  * label clears 4.5:1 against it — lightening it breaks marker contrast. `3` exists as its own
  * stop because `rating` is an integer and 3★ is likely the commonest value; interpolating
  * 2.8→3.2 put it on a dun khaki.
+ *
+ * <p><b>The hot leg descends monotonically in luminance</b> — 0.264 at 3.9, 0.203 at 4.3, 0.139
+ * at 5. It used to dip to 0.175 at 4.3 and recover to 0.275 at 5, which made 4.3★ read hotter
+ * than the stop above it. ⚠️ <b>Do not brighten `5` past `4.3`.</b> Gold at 3★ is already the
+ * ramp's brightest point, so a bright top end gives a middling night and a great one the same
+ * visual weight; the top is the ramp's deepest colour by design. Making the leg monotonic also
+ * cut the sub-AA band from 13.2% in three runs to 10.2% in two — a ramp that reverses direction
+ * crosses the dead zone twice.
  */
 export const STOPS_TEMP = [
   { score: 1, hex: '#3A5C70' },
@@ -59,8 +67,8 @@ export const STOPS_TEMP = [
   { score: 3, hex: '#C49440' },
   { score: 3.2, hex: '#C99230' },
   { score: 3.9, hex: '#DF6B2A' },
-  { score: 4.3, hex: '#D63A26' },
-  { score: 5, hex: '#F26034' },
+  { score: 4.3, hex: '#DE4826' },
+  { score: 5, hex: '#C82820' },
 ];
 
 /** Lowest score the ramps are defined for; anything below clamps to it. Both lists span 1–5. */
