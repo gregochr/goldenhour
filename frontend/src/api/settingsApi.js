@@ -56,6 +56,24 @@ export async function getDriveTimes() {
 }
 
 /**
+ * Saves the caller's map colour preferences.
+ *
+ * <p>Its own endpoint rather than fields on `saveHome`: a colour preference is not home-derived,
+ * so folding it into that request would deserialise the home fields to null and wipe a saved
+ * postcode.
+ *
+ * @param {'temp'|'verdict'} mapColourScale which ramp paints the map
+ * @param {boolean} markersFollowScale whether markers follow the scale
+ * @returns {Promise<Object>} UserSettingsResponse
+ */
+export async function saveMapColourPreferences(mapColourScale, markersFollowScale) {
+  const response = await apiClient.put(`${BASE_URL}/map-colours`, {
+    mapColourScale, markersFollowScale,
+  });
+  return response.data;
+}
+
+/**
  * Fetches the caller's reach — drive minutes and distance — for the whole enabled roster.
  *
  * <p>The per-user half of the window-first spot strip's two-contract join. It is deliberately

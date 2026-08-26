@@ -89,13 +89,16 @@ const FRAME_PAD_DEG = 0.12;
  * @param {Array}    [props.seasonalFeatures]
  * @param {object}   [props.homeCoords]
  * @param {number}   [props.homeRadiusMiles]
+ * @param {'temp'|'verdict'} [props.mapColourScale] the active scoreRamp mode, forwarded to
+ *                                         `MapView` so a live switch reaches this pane's
+ *                                         never-unmounted instance
  * @param {Function} [props.onOpenSettings]
  */
 export default function WindowFirstMapPane({
   locations, dates, selectedDate, onSelectDate, handoff = null, autoEventType = null,
   briefingScores = new Map(),
   onForecastRun = null, seasonalFeatures = [], homeCoords = null, homeRadiusMiles = null,
-  onOpenSettings = null,
+  mapColourScale = null, onOpenSettings = null,
 }) {
   const wrapRef = useRef(null);
   const [resizeNonce, setResizeNonce] = useState(0);
@@ -221,6 +224,7 @@ export default function WindowFirstMapPane({
         seasonalFeatures={seasonalFeatures}
         homeCoords={homeCoords}
         homeRadiusMiles={homeRadiusMiles}
+        mapColourScale={mapColourScale}
         onOpenSettings={onOpenSettings}
         resizeNonce={resizeNonce}
         heat={heat}
@@ -247,5 +251,7 @@ WindowFirstMapPane.propTypes = {
   seasonalFeatures: PropTypes.array,
   homeCoords: PropTypes.object,
   homeRadiusMiles: PropTypes.number,
+  /** The active `scoreRamp` mode — forwarded to `MapView` so its `React.memo` sees a live switch. */
+  mapColourScale: PropTypes.oneOf(['temp', 'verdict']),
   onOpenSettings: PropTypes.func,
 };

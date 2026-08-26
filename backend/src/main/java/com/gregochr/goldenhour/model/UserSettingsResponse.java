@@ -15,6 +15,13 @@ import java.time.Instant;
  * @param localRadiusMiles      the caller's Close to home radius in miles, or null when never
  *                              chosen (the service applies the default)
  * @param driveTimesCalculatedAt   when drive times were last calculated, or null
+ * @param mapColourScale           which ramp paints the map — {@code "temp"} or {@code "verdict"},
+ *                                 or null when never chosen. Raw pass-through, deliberately not
+ *                                 defaulted here: a later stage needs to tell "never chose" apart
+ *                                 from "explicitly chose verdict" to change the default safely.
+ * @param markersFollowScale       whether markers follow {@code mapColourScale}. The service
+ *                                 resolves a never-chosen value to {@code true}, so this is never
+ *                                 null.
  */
 public record UserSettingsResponse(
         String username,
@@ -25,5 +32,7 @@ public record UserSettingsResponse(
         Double homeLongitude,
         String homePlaceName,
         Integer localRadiusMiles,
-        Instant driveTimesCalculatedAt) {
+        Instant driveTimesCalculatedAt,
+        String mapColourScale,
+        boolean markersFollowScale) {
 }

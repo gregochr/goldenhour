@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.model.DriveTimeRefreshResponse;
+import com.gregochr.goldenhour.model.MapColourPreferencesRequest;
 import com.gregochr.goldenhour.model.PostcodeLookupRequest;
 import com.gregochr.goldenhour.model.PostcodeLookupResult;
 import com.gregochr.goldenhour.model.SaveHomeRequest;
@@ -88,6 +89,20 @@ public class UserSettingsController {
     public UserSettingsResponse saveHome(@RequestBody SaveHomeRequest request,
             Authentication auth) {
         return settingsService.saveHome(auth, request);
+    }
+
+    /**
+     * Saves the caller's map colour preferences — which ramp paints the map, and whether markers
+     * follow it.
+     *
+     * @param request the chosen scale and whether markers follow it
+     * @param auth    the current authentication context
+     * @return the updated user settings
+     */
+    @PutMapping("/map-colours")
+    public UserSettingsResponse saveMapColourPreferences(
+            @RequestBody MapColourPreferencesRequest request, Authentication auth) {
+        return settingsService.saveMapColourPreferences(auth, request);
     }
 
     /**

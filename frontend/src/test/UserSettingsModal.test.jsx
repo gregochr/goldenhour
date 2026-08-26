@@ -8,9 +8,12 @@ vi.mock('../api/settingsApi', () => ({
   lookupPostcode: vi.fn(),
   saveHome: vi.fn(),
   refreshDriveTimes: vi.fn(),
+  saveMapColourPreferences: vi.fn(),
 }));
 
-import { getSettings, lookupPostcode, saveHome, refreshDriveTimes } from '../api/settingsApi';
+import {
+  getSettings, lookupPostcode, saveHome, refreshDriveTimes, saveMapColourPreferences,
+} from '../api/settingsApi';
 
 const PRO_SETTINGS = {
   username: 'alice',
@@ -458,5 +461,89 @@ describe('UserSettingsModal', () => {
     renderModal();
     await waitFor(() => expect(screen.getByText('Set a home location first')).toBeInTheDocument());
     expect(screen.getByTestId('settings-refresh-drive-btn')).toBeDisabled();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Map Colours (Stage 6) — ungated, new toggle/checkbox pattern
+  // ---------------------------------------------------------------------------
+
+  it('renders the Map Colours section for a LITE user — reading the map is not a Pro feature', async () => {
+    getSettings.mockResolvedValue(LITE_SETTINGS);
+    renderModal();
+    await waitFor(() => expect(screen.getByText('Map Colours')).toBeInTheDocument());
+    expect(screen.getByTestId('settings-map-colour-verdict')).not.toBeDisabled();
+    expect(screen.getByTestId('settings-map-colour-temp')).not.toBeDisabled();
+    expect(screen.getByTestId('settings-markers-follow-toggle')).not.toBeDisabled();
+    // Not inside any greyed-out wrapper — this section has no Pro gate at all.
+    expect(screen.getByText('Map Colours').closest('.opacity-45')).toBeNull();
+  });
+
+  it('defaults to the verdict scale and markers-follow-on when never chosen', async () => {
+    getSettings.mockResolvedValue({ ...PRO_SETTINGS, mapColourScale: null, markersFollowScale: true });
+    renderModal();
+    await waitFor(() => expect(screen.getByTestId('settings-map-colour-verdict')).toBeChecked());
+    expect(screen.getByTestId('settings-map-colour-temp')).not.toBeChecked();
+    expect(screen.getByTestId('settings-markers-follow-toggle')).toBeChecked();
+  });
+
+  it('reflects an explicitly saved temp scale', async () => {
+    getSettings.mockResolvedValue({ ...PRO_SETTINGS, mapColourScale: 'temp', markersFollowScale: false });
+    renderModal();
+    await waitFor(() => expect(screen.getByTestId('settings-map-colour-temp')).toBeChecked());
+    expect(screen.getByTestId('settings-map-colour-verdict')).not.toBeChecked();
+    expect(screen.getByTestId('settings-markers-follow-toggle')).not.toBeChecked();
+  });
+
+  it('the colour scale control is native, labelled radio inputs — keyboard-operable by construction', async () => {
+    getSettings.mockResolvedValue(PRO_SETTINGS);
+    renderModal();
+    await waitFor(() => expect(screen.getByTestId('settings-map-colour-verdict')).toBeInTheDocument());
+    const verdictRadio = screen.getByTestId('settings-map-colour-verdict');
+    const tempRadio = screen.getByTestId('settings-map-colour-temp');
+    const toggle = screen.getByTestId('settings-markers-follow-toggle');
+    expect(verdictRadio.tagName).toBe('INPUT');
+    expect(verdictRadio.type).toBe('radio');
+    expect(tempRadio.type).toBe('radio');
+    expect(toggle.type).toBe('checkbox');
+    // Each control has an accessible label reachable via getByLabelText — proof it is labelled,
+    // not just present. A bare `<div onClick>` would fail this.
+    expect(screen.getByLabelText(/Verdict — red means/)).toBe(verdictRadio);
+    expect(screen.getByLabelText(/Temperature — cold blue/)).toBe(tempRadio);
+    expect(screen.getByLabelText('Markers follow the colour scale')).toBe(toggle);
+  });
+
+  it('round-trips the colour scale choice through settingsApi', async () => {
+    getSettings.mockResolvedValue({ ...PRO_SETTINGS, mapColourScale: 'verdict', markersFollowScale: true });
+    saveMapColourPreferences.mockResolvedValue({ ...PRO_SETTINGS, mapColourScale: 'temp', markersFollowScale: true });
+    renderModal();
+    await waitFor(() => expect(screen.getByTestId('settings-map-colour-temp')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('settings-map-colour-temp'));
+
+    await waitFor(() => expect(saveMapColourPreferences).toHaveBeenCalledWith('temp', true));
+    await waitFor(() => expect(screen.getByTestId('settings-map-colour-temp')).toBeChecked());
+  });
+
+  it('round-trips the markers-follow toggle through settingsApi', async () => {
+    getSettings.mockResolvedValue({ ...PRO_SETTINGS, mapColourScale: 'temp', markersFollowScale: true });
+    saveMapColourPreferences.mockResolvedValue({ ...PRO_SETTINGS, mapColourScale: 'temp', markersFollowScale: false });
+    renderModal();
+    await waitFor(() => expect(screen.getByTestId('settings-markers-follow-toggle')).toBeChecked());
+
+    fireEvent.click(screen.getByTestId('settings-markers-follow-toggle'));
+
+    await waitFor(() => expect(saveMapColourPreferences).toHaveBeenCalledWith('temp', false));
+    await waitFor(() => expect(screen.getByTestId('settings-markers-follow-toggle')).not.toBeChecked());
+  });
+
+  it('shows an error and keeps the section usable when the save fails', async () => {
+    getSettings.mockResolvedValue({ ...PRO_SETTINGS, mapColourScale: 'verdict', markersFollowScale: true });
+    saveMapColourPreferences.mockRejectedValue(new Error('fail'));
+    renderModal();
+    await waitFor(() => expect(screen.getByTestId('settings-map-colour-temp')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('settings-map-colour-temp'));
+
+    await waitFor(() => expect(screen.getByTestId('settings-colour-error')).toBeInTheDocument());
   });
 });

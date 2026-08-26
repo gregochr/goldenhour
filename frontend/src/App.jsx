@@ -10,6 +10,7 @@ import NlcSightingBanner from './components/NlcSightingBanner.jsx';
 import HealthIndicator from './components/HealthIndicator.jsx';
 import UserSettingsModal from './components/UserSettingsModal.jsx';
 import { getSettings } from './api/settingsApi.js';
+import { setMode, getMode } from './utils/scoreRamp.js';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { AuroraStatusProvider } from './context/AuroraStatusContext.jsx';
 import { useAuroraStatus } from './hooks/useAuroraStatus.js';
@@ -137,6 +138,12 @@ function AppInner() {
   // The Close-to-home radius, from the same settings read. It frames the map's "centre on home"
   // camera move, so that control shows the area this user calls local rather than a fixed 30.
   const [homeRadiusMiles, setHomeRadiusMiles] = useState(null);
+  // The active scoreRamp mode, mirrored into state and handed to the Map pane as a genuine prop.
+  // `MapView` is `React.memo`'d and this pane's mount is never unmounted, so a mode switch made
+  // in Settings needs a real prop change to reach an already-alive instance — `setMode` alone only
+  // updates module state nothing here is subscribed to. Read back via `getMode()` rather than
+  // duplicating its 'temp'-or-'verdict' resolution rule.
+  const [mapColourScale, setMapColourScale] = useState(getMode());
   // Non-null when the settings dialog was opened to land on a particular field — currently only
   // the map control's "you have no postcode" branch, which exists to point at exactly that input.
   const [settingsFocus, setSettingsFocus] = useState(null);
@@ -162,6 +169,13 @@ function AppInner() {
             : null,
         );
         setHomeRadiusMiles(s?.localRadiusMiles ?? null);
+        // The one place the loaded preference reaches the ramp, so Plan and Map can never
+        // disagree about what a colour means (heat-scale-unification-plan.md, rule 1). setMode
+        // already treats anything but 'temp' as 'verdict', so a never-chosen null is safe here.
+        setMode(s?.mapColourScale);
+        // Mirrored into state so the Map pane's `React.memo` actually sees the change — see the
+        // declaration above.
+        setMapColourScale(getMode());
       })
       .catch(() => { /* settings are optional — the block just stays hidden */ });
   }, []);
@@ -443,6 +457,7 @@ function AppInner() {
                     seasonalFeatures={seasonalFeatures}
                     homeCoords={homeCoords}
                     homeRadiusMiles={homeRadiusMiles}
+                    mapColourScale={mapColourScale}
                     onOpenSettings={() => setSettingsFocus('postcode')}
                   />
                 </Suspense>

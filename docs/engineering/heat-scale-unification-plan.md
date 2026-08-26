@@ -593,28 +593,72 @@ pass entirely unedited here (the fill genuinely changes), so pin the parts that 
 label text, the `data-score` attribute, the `100 - pct` rest-width, and the null branch. Add one
 test that the fill is the ramp's colour for that score rather than any gradient string.
 
-### Stage 6 — The preference, full-stack (still defaulting to verdict)
+### Stage 6 — The preference, full-stack (still defaulting to verdict) — SHIPPED
 
 The brief says persist through `settingsApi`, not `localStorage`. That makes this a **backend**
 stage, which the brief does not say out loud:
 
-- Migration (next free V-number — **read it off `main`, never from a written-down number**) adding
-  `map_colour_scale` and `markers_follow_scale` as columns on **`app_user`**. ⚠️ **There is no
-  `user_settings` table** — every user setting is a column on `app_user` (`V67` for the home
-  location, `V136` for `local_radius_miles`), and `user_drive_time` is the only side table. A
-  migration written against `user_settings` fails at deploy.
-- Entity, `UserSettingsResponse` (currently a 9-field record), `UserSettingsService`,
-  `UserSettingsController`.
-- ⚠️ `HttpCachingConfigTest.personalDataPathsAreNeverFiltered` pins that everything under
-  `/api/user/settings*` is never ETag-filtered. New fields ride the existing path, so this stays
-  green — but do not add a new path here without adding it to that test.
-- Frontend: `settingsApi`, then a new **Map Colours** section in `UserSettingsModal.jsx`.
-  The modal has **no toggle or checkbox pattern today** — only text inputs and `btn-primary`
-  buttons — so the control itself is new work. Follow the existing section shape (uppercase
-  `text-xs font-medium text-plex-text-muted tracking-wide` heading, matching Profile / Home
-  Location / Drive Times), and leave it **outside the `isPro` gate**: reading the map is not a
-  Pro feature.
-- Wire the loaded setting into `setMode()` at one place, so Plan and Map can never disagree.
+- Migration **V147** (read off `main` at implementation time — `V146` was the last one there) adds
+  `map_colour_scale VARCHAR(10)` and `markers_follow_scale BOOLEAN` as nullable, no-default columns
+  on **`app_user`**. There is no `user_settings` table — every user setting is a column on
+  `app_user` (`V67` for the home location, `V136` for `local_radius_miles`), and `user_drive_time`
+  is the only side table.
+- `AppUserEntity`, `UserSettingsResponse` (9 → 11 fields), a new `MapColourPreferencesRequest`,
+  `UserSettingsService`, `UserSettingsController`. **The two new fields are NOT symmetric, on
+  purpose.** `mapColourScale` is a raw nullable pass-through everywhere (entity → response) — Stage
+  7 needs "never chosen" distinguishable from "explicitly chose verdict" to flip the *default*
+  without overriding an explicit choice, exactly `local_radius_miles`'s reasoning.
+  `markersFollowScale` IS defaulted, by `UserSettingsService.mapToResponse`, to `true` when null —
+  its own default is never expected to change across stages, so there is no future distinction to
+  protect. `MapColourPreferencesRequest.markersFollowScale` is boxed `Boolean`, not primitive: a
+  primitive would let Jackson silently bind an omitted field to `false`, quietly flipping the
+  preference for anyone sending a partial body, so it 400s instead (found in review, fixed before
+  landing — see below).
+- A colour preference is not home-derived, so it does **not** ride `PUT /home` (which would
+  deserialise the home fields to null and wipe a saved postcode). It has its own endpoint,
+  `PUT /api/user/settings/map-colours`, requiring both fields together and rejecting an
+  unrecognised `mapColourScale` with 400.
+- `HttpCachingConfigTest.personalDataPathsAreNeverFiltered` gained a pinned entry for
+  `/api/user/settings/map-colours` — write-only (PUT) today so already excluded by construction,
+  pinned anyway so a future GET added under that path cannot be missed.
+- Frontend: `settingsApi` gained `saveMapColourPreferences`, and a new **Map Colours** section
+  landed in `UserSettingsModal.jsx` — the modal's first toggle/checkbox pattern (a radio pair for
+  the scale, a checkbox for `markersFollowScale`), both keyboard-operable native inputs with real
+  `<label>` wrapping, matching the existing section shape and left **outside** the `isPro` gate.
+- The loaded setting reaches `scoreRamp.setMode()` in exactly one place: `App.jsx`'s
+  `loadHomeCoords`, which already re-fetches settings on mount and whenever the settings modal
+  closes — so Plan and Map can never disagree about what a colour means.
+
+⚠️ **What this stage's own brief did not anticipate, found by adversarial review before landing,
+and fixed in the same commit rather than deferred:** wiring `setMode()` to a live control for the
+first time exposed two latent bugs that nothing before this stage could have triggered, because
+nothing before this stage ever called `scoreRamp.setMode('temp')` from a running app.
+
+1. **`MapView`'s marker-icon cache had no mode in its key.** `makeMarkerIcon`'s module-level
+   `markerIconCache` was keyed by name + scores + flags only — correct for as long as the active
+   ramp never varied for the life of a tab, which it never had. A user switching the preference
+   would see markers frozen in the OLD scale indefinitely, because an identical cache key served
+   back the icon built under the previous mode. Fixed by folding `scoreRamp.getMode()` directly
+   into the cache key, read live at build time rather than threaded in as a parameter — the same
+   call `rampHex`/`ratingColour` already make to choose the colour, so the two can never disagree.
+2. **`MapView` is `React.memo`'d, and its two long-lived mounts are never unmounted** — the Map
+   pane sits `hidden` rather than destroyed between tab visits (`WindowFirstMapPane`'s own
+   documented reasoning), so a mode switch made while it is already alive has no prop of its own
+   that changes: nothing else in its normal prop set differs when only the colour preference does.
+   `React.memo`'s shallow prop compare would skip the re-render entirely, so `makeMarkerIcon` would
+   never even be called again. Fixed with a new `mapColourScale` prop on `MapView` (threaded from
+   `App.jsx` → `WindowFirstMapPane` → `MapView`) whose sole job is to change value and defeat the
+   memo compare — its content is deliberately never read for colour (`void mapColourScale;`, with a
+   comment explaining why), which is what keeps it from being a second, potentially-lagging source
+   of truth alongside `getMode()`. The overlay's separate `MapView` mount omits the prop: it always
+   mounts fresh from a closed state, so `getMode()` is already correct on first render.
+3. **A missing or invalid `mapColourScale` threw a 500, not a 400.** `VALID_MAP_COLOUR_SCALES` is
+   `Set.of("temp", "verdict")`, whose `contains()` throws `NullPointerException` on a null argument
+   rather than returning `false`. Fixed with an explicit null check before the set lookup.
+
+All three are covered by new tests: `MapViewColourScaleLive.test.jsx` pins the cache-key and
+memo-bust fixes (asserting on the actual rendered `divIcon` html, not on internals), and
+`UserSettingsServiceTest` pins both 400-not-500 cases.
 
 Default stays `'verdict'` through this stage. That gives a dogfooding window where the scale can
 be switched on deliberately before it becomes everyone's default.

@@ -94,6 +94,9 @@ class HttpCachingConfigTest {
         // Today's light for the masthead. Names the caller's home postcode, so it belongs to this
         // family and not beside the almanac it superficially resembles.
         "/api/user/settings/light",
+        // Map colour preferences (Stage 6). Write-only (PUT) today, so already excluded by the
+        // GET-only filter — pinned anyway so a future GET added under this path cannot be missed.
+        "/api/user/settings/map-colours",
         // Close to home is derived from the caller's home postcode and their own drive times.
         // It sits UNDER /api/briefing, which IS revalidated — so this entry is the one that
         // proves the whitelist's exact-match semantics are doing real work here, not just in
