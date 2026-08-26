@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — the potential distribution is bimodal, and it blocks Stage 5 on a design call
+
+The pre-ship shape check ran against production. Both 0–100 metrics are **bimodal**: fiery peaks at
+10–19 and again at 70–79, golden at 20–29 and 70–79, both with a trough at 50–59. Most evenings are
+unremarkable and a distinct minority are good — a real property of the sky, not an artifact.
+
+The specific worry the check existed for is **refuted**: only 12 exact-zero fiery readings and 5
+golden, so the low mass is genuine dim-sky forecasts rather than stood-down slots, and `lo` is not
+calibrated against non-observations.
+
+The consequence is worse than the worry. Under the measured pair the ramp is barely used — 51.4% of
+fiery readings land in the 1★ band, its dominant bucket (44% of all readings) spans 0.56 of a star,
+and golden clamps 18% of readings to an identical maximum, so a good evening and a great one render
+the same. **This is the linear map, not the choice of constants**: six alternative pairs per metric
+were tested against an even-occupancy target and none beat p05/p95. A two-point linear map cannot
+spread a bimodal population.
+
+That undercuts the ramp's own rationale — `STOPS_TEMP`'s uneven spacing exists precisely so the
+scale discriminates, and a linear mapping then compresses 44% of readings into half a star. The
+plan now records two options (accept an absolute scale, or move to a piecewise map anchored on the
+trough) with a recommendation, and marks Stage 5 blocked pending that decision. `scoreFromPercent`
+has no caller yet, so the change is contained. Stages 2, 3, 6 and 7 are unaffected.
+
 ### Fixed — the Stage 2 spec named one gradient site when there are two
 
 `docs/engineering/heat-scale-unification-plan.md`'s Stage 2 and the new Stage 2 kickoff prompt now

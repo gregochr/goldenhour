@@ -239,15 +239,69 @@ reads — with `docs/engineering/heat-scale-stage4-calibration.sql`:
 - **The two metrics genuinely differ** — 7 points apart at the bottom — which is why the brief
   insisted on one pair per metric. That instinct was right even though its numbers were not.
 
-⚠️ **One check outstanding, and it is cheap.** Queries 3 and 3b of the calibration SQL report the
-distribution's *shape* as a **histogram**, not as percentiles — percentiles cannot see modality at
-all, since a unimodal and a bimodal population can share every summary value. The question is
-whether there is a mass of stood-down slots near zero **separate** from a hump of real forecasts.
-If there is, p05 is measuring the floor of the stand-down cluster rather than the bottom of the
-useful scale, and `lo` belongs at the trough between the two modes instead. 3b is the
-zero-inflation probe, because a spike sitting entirely inside the 0–9 bucket is invisible to the
-histogram above it. The pair above is safe to build against either way; run this before Stage 5
-**ships**, not before it starts.
+⚠️ **The shape check has been run, and it changes the question. Stage 5 is blocked on a design
+decision.** Measured on production 2026-08-26, same store, 10-point buckets plus a zero probe:
+
+| bucket | fiery | golden |
+|---|---|---|
+| 0–9 | 1,543 | 145 |
+| **10–19** | **8,655** | 3,202 |
+| **20–29** | 3,622 | **6,829** |
+| 30–39 | 1,443 | 1,456 |
+| 40–49 | 1,071 | 1,348 |
+| **50–59** | **516** ← trough | **1,247** ← trough |
+| 60–69 | 1,044 | 2,103 |
+| **70–79** | **1,566** | **2,952** |
+| 80–89 | 121 | 300 |
+| 90–99 | 251 | 250 |
+
+**Both metrics are bimodal**, with a trough at 50–59 and a second peak at 70–79. Most evenings are
+unremarkable; a distinct minority are good. That is a real property of the sky, not an artifact.
+
+**The zero-inflation hypothesis is refuted** — 12 exact zeros for fiery, 5 for golden, and only 333
+/ 88 readings at or below 5. The low mass is genuine dim-sky forecasts, not stood-down slots. So
+`lo` is *not* calibrating against non-observations, which was the specific worry.
+
+**But the consequence is worse than the worry.** Under the measured pair, the ramp is barely used:
+
+| | 1★ | 2★ | 3★ | 4★ | 5★ |
+|---|---|---|---|---|---|
+| fiery (8 / 72) | **51.4%** | 18.3% | 12.7% | 2.6% | 15.0% |
+| golden (15 / 76) | 16.9% | **41.8%** | 6.8% | 16.9% | 17.7% |
+
+Fiery's dominant bucket — **44% of all readings** — spans **0.56 of a star**. Golden clamps **18%**
+of readings to an identical maximum, so a good evening and a great one render the same. The gold
+middle both metrics were tuned around receives 12.7% and 6.8%.
+
+**This is not a bad choice of `lo`/`hi`; it is the linear map itself.** Six alternative pairs per
+metric were tested against an even-occupancy target and **none beat p05/p95** — the shipped pairs
+are the best a two-point linear map can do. A linear map cannot spread a bimodal population, and
+no amount of retuning changes that.
+
+⚠️ **This directly undercuts the ramp's own design rationale.** `STOPS_TEMP`'s uneven spacing exists
+because "evenly spaced stops … render every night the same orange". The stops were tuned to
+discriminate; a linear `scoreFromPercent` then compresses 44% of readings into half a star and
+undoes it.
+
+**The decision — Design's or the owner's, not a mechanical one.** Two real options:
+
+1. **Accept it.** The bar is then *absolute*: a raw 15 is a dim sky and renders cold, honestly. The
+   cost is that the commonest readings are mutually indistinguishable, and the bar discriminates
+   worst exactly where most evenings live.
+2. **Make the mapping non-linear** — percentile-rank, or piecewise-linear anchored on the trough
+   (lower mode → 1–2★, trough ≈55 → 3★, upper mode → 4–5★). This is the only thing that can spread
+   a bimodal population. The cost is that colour becomes *relative* to the population, so a fixed
+   reading's colour drifts as the distribution shifts, and the anchors need re-measuring
+   periodically.
+
+I lean to **(2), piecewise on the trough** — it preserves the design's own discrimination intent,
+the trough is a stable landmark in both metrics, and it keeps the anchors explicit rather than
+hiding a distribution table in the client. But the absolute-versus-relative question is a product
+judgement about what a bar *means*, and it belongs with whoever owns that.
+
+**Scope of the change if (2) is chosen:** `scoreFromPercent` has exactly one intended caller
+(Stage 5's score bars) and none today, so the fix is contained to that function and its tests.
+**Stages 2, 3, 6 and 7 are unaffected and can proceed.**
 
 ### Stage 5 — One score bar, continuous solid fill
 
