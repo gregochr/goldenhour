@@ -500,30 +500,7 @@ class UserSettingsServiceTest {
         assertThat(response.mapColourScale()).isNull();
     }
 
-    @Test
-    @DisplayName("getSettings defaults markersFollowScale to true when never chosen")
-    void getSettings_neverChosenFollowScale_defaultsTrue() {
-        stubAuth();
-        AppUserEntity user = buildUser();
-        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
 
-        UserSettingsResponse response = service.getSettings(auth);
-
-        assertThat(response.markersFollowScale()).isTrue();
-    }
-
-    @Test
-    @DisplayName("getSettings honours an explicit markersFollowScale of false")
-    void getSettings_explicitFollowScaleFalse_isHonoured() {
-        stubAuth();
-        AppUserEntity user = buildUser();
-        user.setMarkersFollowScale(false);
-        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
-
-        UserSettingsResponse response = service.getSettings(auth);
-
-        assertThat(response.markersFollowScale()).isFalse();
-    }
 
     @Test
     @DisplayName("saveMapColourPreferences persists an explicit 'temp' choice")
@@ -533,14 +510,12 @@ class UserSettingsServiceTest {
         when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
 
         UserSettingsResponse response = service.saveMapColourPreferences(auth,
-                new MapColourPreferencesRequest("temp", false));
+                new MapColourPreferencesRequest("temp"));
 
         assertThat(response.mapColourScale()).isEqualTo("temp");
-        assertThat(response.markersFollowScale()).isFalse();
         ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
         verify(userRepository).save(captor.capture());
         assertThat(captor.getValue().getMapColourScale()).isEqualTo("temp");
-        assertThat(captor.getValue().getMarkersFollowScale()).isFalse();
     }
 
     @Test
@@ -550,10 +525,9 @@ class UserSettingsServiceTest {
         AppUserEntity user = buildUser();
         when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
 
-        service.saveMapColourPreferences(auth, new MapColourPreferencesRequest("verdict", true));
+        service.saveMapColourPreferences(auth, new MapColourPreferencesRequest("verdict"));
 
         assertThat(user.getMapColourScale()).isEqualTo("verdict");
-        assertThat(user.getMarkersFollowScale()).isTrue();
     }
 
     @Test
@@ -562,7 +536,7 @@ class UserSettingsServiceTest {
         // Validated before the user is even looked up, so auth.getName() is never called here.
 
         assertThatThrownBy(() -> service.saveMapColourPreferences(auth,
-                new MapColourPreferencesRequest("rainbow", true)))
+                new MapColourPreferencesRequest("rainbow")))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("temp' or 'verdict'");
 
@@ -575,26 +549,13 @@ class UserSettingsServiceTest {
         // VALID_MAP_COLOUR_SCALES is Set.of(...), whose contains() throws NullPointerException on
         // a null argument rather than returning false — an omitted field must still 400.
         assertThatThrownBy(() -> service.saveMapColourPreferences(auth,
-                new MapColourPreferencesRequest(null, true)))
+                new MapColourPreferencesRequest(null)))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("temp' or 'verdict'");
 
         verify(userRepository, never()).save(any());
     }
 
-    @Test
-    @DisplayName("saveMapColourPreferences rejects a missing markersFollowScale rather than silently flipping it false")
-    void saveMapColourPreferences_nullFollowScale_throws400() {
-        // markersFollowScale is boxed Boolean on the request for exactly this: a primitive would
-        // let Jackson bind an omitted JSON field to false with no error, silently overriding the
-        // caller's stored preference for anyone who sends a partial body.
-        assertThatThrownBy(() -> service.saveMapColourPreferences(auth,
-                new MapColourPreferencesRequest("temp", null)))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("markersFollowScale");
-
-        verify(userRepository, never()).save(any());
-    }
 
     @Test
     @DisplayName("getSettings throws NoSuchElementException for unknown user")

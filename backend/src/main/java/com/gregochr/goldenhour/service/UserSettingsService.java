@@ -44,8 +44,6 @@ public class UserSettingsService {
     /** The only two values {@code mapColourScale} may take. */
     private static final Set<String> VALID_MAP_COLOUR_SCALES = Set.of("temp", "verdict");
 
-    /** Default for a caller who has never chosen whether markers follow the scale. */
-    private static final boolean DEFAULT_MARKERS_FOLLOW_SCALE = true;
 
     private static final Logger LOG = LoggerFactory.getLogger(UserSettingsService.class);
 
@@ -244,18 +242,11 @@ public class UserSettingsService {
             throw new ResponseStatusException(BAD_REQUEST,
                     "mapColourScale must be 'temp' or 'verdict'");
         }
-        // markersFollowScale is boxed on the request for exactly this: a missing JSON field binds
-        // a primitive boolean to false with no error, silently flipping the preference for anyone
-        // who omits it. Rejected here instead, the same way an unrecognised scale is.
-        if (request.markersFollowScale() == null) {
-            throw new ResponseStatusException(BAD_REQUEST, "markersFollowScale is required");
-        }
         AppUserEntity user = getUser(auth);
         user.setMapColourScale(request.mapColourScale());
-        user.setMarkersFollowScale(request.markersFollowScale());
         userRepository.save(user);
-        LOG.info("User '{}' saved map colour preferences: scale={}, markersFollow={}",
-                user.getUsername(), request.mapColourScale(), request.markersFollowScale());
+        LOG.info("User '{}' saved map colour preference: scale={}",
+                user.getUsername(), request.mapColourScale());
         // null place name, matching saveHome: this save does not geocode, and the modal already
         // merges the previous placeName forward rather than losing it to a blanked field.
         return mapToResponse(user, null);
@@ -301,8 +292,6 @@ public class UserSettingsService {
                 placeName,
                 user.getLocalRadiusMiles(),
                 user.getDriveTimesCalculatedAt(),
-                user.getMapColourScale(),
-                user.getMarkersFollowScale() != null
-                        ? user.getMarkersFollowScale() : DEFAULT_MARKERS_FOLLOW_SCALE);
+                user.getMapColourScale());
     }
 }

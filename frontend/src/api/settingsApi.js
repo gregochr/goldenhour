@@ -63,13 +63,10 @@ export async function getDriveTimes() {
  * postcode.
  *
  * @param {'temp'|'verdict'} mapColourScale which ramp paints the map
- * @param {boolean} markersFollowScale whether markers follow the scale
  * @returns {Promise<Object>} UserSettingsResponse
  */
-export async function saveMapColourPreferences(mapColourScale, markersFollowScale) {
-  const response = await apiClient.put(`${BASE_URL}/map-colours`, {
-    mapColourScale, markersFollowScale,
-  });
+export async function saveMapColourPreferences(mapColourScale) {
+  const response = await apiClient.put(`${BASE_URL}/map-colours`, { mapColourScale });
   return response.data;
 }
 

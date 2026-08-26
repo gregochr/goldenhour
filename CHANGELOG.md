@@ -38,6 +38,21 @@ a `mapColourScale` prop whose sole job is to change value and defeat the memo's 
 — its content is deliberately never read for colour. Default stays `'verdict'` through this stage,
 giving a dogfooding window before Stage 7 flips it for everyone.
 
+
+⚠️ **`markersFollowScale` was removed before this landed**, on the owner's call, after Codex's
+review found it persisted and rendered as a checkbox but **consumed by nothing** —
+`markerUtils.js` never referenced it, so turning it off did nothing at all.
+
+The obvious fix was the one thing this series forbids. Cross-cutting rule 1 is *"one `MODE`, read
+from one module: Plan thumbnails and the Map tab must never disagree about what a colour means"* —
+and `markersFollowScale = false` means exactly that disagreement, the field and legend on `temp`
+with the markers on `verdict`, the same location painted two ways on one screen. Honouring it
+needs a per-call mode override or a second module-level mode, and both break the invariant the
+whole series exists to establish. The plan had already flagged the doubt as an open question.
+
+So the column, the request field, the response field, the checkbox and their tests are gone.
+Markers always follow the scale. Shipping the control inert was the one option not on the table: a
+setting that does nothing is worse than either honouring it or not offering it.
 ### Changed — Stage 7 is blocked: the score number's tint fails AA in temperature mode
 
 ### Fixed — two comments left dangling by the tint removal

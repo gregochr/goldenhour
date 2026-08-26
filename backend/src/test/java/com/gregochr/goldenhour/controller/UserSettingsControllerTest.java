@@ -43,7 +43,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
         when(settingsService.getSettings(any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
                         "DH1 3LE", 54.7761, -1.5733, "Durham, County Durham",
-                        null, Instant.parse("2026-04-01T10:00:00Z"), null, true));
+                        null, Instant.parse("2026-04-01T10:00:00Z"), null));
 
         mockMvc.perform(get("/api/user/settings"))
                 .andExpect(status().isOk())
@@ -81,7 +81,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void saveHome_returnsUpdatedSettings() throws Exception {
         when(settingsService.saveHome(any(), any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
-                        "DH1 3LE", 54.7761, -1.5733, null, null, null, null, true));
+                        "DH1 3LE", 54.7761, -1.5733, null, null, null, null));
 
         mockMvc.perform(put("/api/user/settings/home")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -96,14 +96,13 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void saveMapColourPreferences_returnsUpdatedSettings() throws Exception {
         when(settingsService.saveMapColourPreferences(any(), any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
-                        null, null, null, null, null, null, "temp", false));
+                        null, null, null, null, null, null, "temp"));
 
         mockMvc.perform(put("/api/user/settings/map-colours")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"mapColourScale\": \"temp\", \"markersFollowScale\": false}"))
+                        .content("{\"mapColourScale\": \"temp\"}"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.mapColourScale").value("temp"))
-                .andExpect(jsonPath("$.markersFollowScale").value(false));
+                .andExpect(jsonPath("$.mapColourScale").value("temp"));
     }
 
     @Test
@@ -115,7 +114,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
 
         mockMvc.perform(put("/api/user/settings/map-colours")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"mapColourScale\": \"rainbow\", \"markersFollowScale\": true}"))
+                        .content("{\"mapColourScale\": \"rainbow\"}"))
                 .andExpect(status().isBadRequest());
     }
 
@@ -124,7 +123,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void saveMapColourPreferences_unauthenticated_returns401() throws Exception {
         mockMvc.perform(put("/api/user/settings/map-colours")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"mapColourScale\": \"temp\", \"markersFollowScale\": true}"))
+                        .content("{\"mapColourScale\": \"temp\"}"))
                 .andExpect(status().isUnauthorized());
     }
 

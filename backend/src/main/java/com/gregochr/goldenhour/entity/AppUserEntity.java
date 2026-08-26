@@ -119,13 +119,6 @@ public class AppUserEntity implements UserDetails {
     @Column(name = "map_colour_scale", length = 10)
     private String mapColourScale;
 
-    /**
-     * Whether markers follow {@link #mapColourScale} rather than staying on their own, or
-     * {@code null} when never chosen — {@code UserSettingsService} resolves that to {@code true}.
-     */
-    @Column(name = "markers_follow_scale")
-    private Boolean markersFollowScale;
-
     /** When the user accepted the Terms &amp; Conditions. */
     @Column(name = "terms_accepted_at")
     private Instant termsAcceptedAt;

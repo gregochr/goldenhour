@@ -9,10 +9,6 @@ package com.gregochr.goldenhour.model;
  *
  * @param mapColourScale     which ramp paints the map — must be {@code "temp"} or
  *                           {@code "verdict"}; any other value is rejected
- * @param markersFollowScale whether markers follow {@code mapColourScale}; boxed rather than
- *                           primitive so a missing field deserialises to {@code null} and is
- *                           rejected, rather than Jackson silently binding a primitive to
- *                           {@code false} and quietly flipping the preference for whoever omits it
  */
-public record MapColourPreferencesRequest(String mapColourScale, Boolean markersFollowScale) {
+public record MapColourPreferencesRequest(String mapColourScale) {
 }

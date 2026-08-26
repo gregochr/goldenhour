@@ -19,9 +19,6 @@ import java.time.Instant;
  *                                 or null when never chosen. Raw pass-through, deliberately not
  *                                 defaulted here: a later stage needs to tell "never chose" apart
  *                                 from "explicitly chose verdict" to change the default safely.
- * @param markersFollowScale       whether markers follow {@code mapColourScale}. The service
- *                                 resolves a never-chosen value to {@code true}, so this is never
- *                                 null.
  */
 public record UserSettingsResponse(
         String username,
@@ -33,6 +30,5 @@ public record UserSettingsResponse(
         String homePlaceName,
         Integer localRadiusMiles,
         Instant driveTimesCalculatedAt,
-        String mapColourScale,
-        boolean markersFollowScale) {
+        String mapColourScale) {
 }

@@ -43,7 +43,6 @@ export default function UserSettingsModal({
   // constant here the way the radius fallback is: scoreRamp.js's own setMode already treats
   // anything but 'temp' as 'verdict', so this display default just mirrors that module's contract.
   const [mapColourScale, setMapColourScale] = useState('verdict');
-  const [markersFollowScale, setMarkersFollowScale] = useState(true);
   const [colourSaving, setColourSaving] = useState(false);
   const [colourError, setColourError] = useState(false);
   const [lookupResult, setLookupResult] = useState(null);
@@ -73,7 +72,6 @@ export default function UserSettingsModal({
       // user who never touched the slider.
       setRadiusChosen(data.localRadiusMiles != null);
       setMapColourScale(data.mapColourScale === 'temp' ? 'temp' : 'verdict');
-      setMarkersFollowScale(data.markersFollowScale !== false);
       if (data.driveTimesCalculatedAt && data.homePostcode) {
         setDriveTimesPostcode(data.homePostcode);
       }
@@ -180,13 +178,12 @@ export default function UserSettingsModal({
    * and wires `setMode` from the result when this modal closes — the one place the loaded setting
    * reaches the ramp, so Plan and Map can never disagree.
    */
-  const handleMapColourChange = async (nextScale, nextFollow) => {
+  const handleMapColourChange = async (nextScale) => {
     setMapColourScale(nextScale);
-    setMarkersFollowScale(nextFollow);
     setColourSaving(true);
     setColourError(false);
     try {
-      const updated = await saveMapColourPreferences(nextScale, nextFollow);
+      const updated = await saveMapColourPreferences(nextScale);
       setSettings((prev) => ({ ...prev, ...updated, homePlaceName: updated?.homePlaceName
         ?? prev?.homePlaceName }));
     } catch {
@@ -467,7 +464,7 @@ export default function UserSettingsModal({
                     name="map-colour-scale"
                     value="verdict"
                     checked={mapColourScale === 'verdict'}
-                    onChange={() => handleMapColourChange('verdict', markersFollowScale)}
+                    onChange={() => handleMapColourChange('verdict')}
                     data-testid="settings-map-colour-verdict"
                   />
                   Verdict — red means don&rsquo;t go, green means go
@@ -478,22 +475,12 @@ export default function UserSettingsModal({
                     name="map-colour-scale"
                     value="temp"
                     checked={mapColourScale === 'temp'}
-                    onChange={() => handleMapColourChange('temp', markersFollowScale)}
+                    onChange={() => handleMapColourChange('temp')}
                     data-testid="settings-map-colour-temp"
                   />
                   Temperature — cold blue through gold to hot orange-red
                 </label>
               </fieldset>
-              <label className="flex items-center gap-2 text-sm text-plex-text cursor-pointer mt-1">
-                <input
-                  type="checkbox"
-                  checked={markersFollowScale}
-                  disabled={colourSaving}
-                  onChange={(e) => handleMapColourChange(mapColourScale, e.target.checked)}
-                  data-testid="settings-markers-follow-toggle"
-                />
-                Markers follow the colour scale
-              </label>
               <span
                 className="font-mono text-xs text-plex-text-muted"
                 aria-live="polite"
