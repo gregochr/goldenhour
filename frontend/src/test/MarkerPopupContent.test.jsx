@@ -140,6 +140,48 @@ describe('MarkerPopupContent', () => {
       renderPopup({ role: 'PRO_USER' });
       expect(screen.queryByText('Fiery Sky')).not.toBeInTheDocument();
     });
+
+    // Stage 8: the section used to be gated on fierySkyPotential ALONE, so a location scored only
+    // on Golden Hour lost the heading, the tooltip and a real measurement because the OTHER
+    // measurement was missing.
+    //
+    // ⚠️ Both rows still render. `ScoreBar` draws an em dash for a null score, deliberately — a
+    // popup row that vanishes is a layout jump, where the Plan surfaces (which gate per row and
+    // render nothing) are a tooltip where a stray dash would be noise. See the plan's Stage 5b.
+    // Asserting the missing row is ABSENT here would silently reverse that decision.
+    it('shows the Scores section when only Golden Hour has a value', () => {
+      renderPopup({
+        role: 'PRO_USER',
+        forecast: { ...BASE_FORECAST, fierySkyPotential: null, goldenHourPotential: 62 },
+      });
+      fireEvent.click(screen.getByTestId('more-details-toggle'));
+      expect(screen.getByText('Scores')).toBeInTheDocument();
+      expect(screen.getByText('Golden Hour')).toBeInTheDocument();
+      expect(screen.getByText('62')).toBeInTheDocument();
+      expect(screen.getByText('Fiery Sky')).toBeInTheDocument();
+      expect(screen.getByTestId('popup-score-fiery').textContent).toContain('\u2014');
+    });
+
+    it('shows the Scores section when only Fiery Sky has a value', () => {
+      renderPopup({
+        role: 'PRO_USER',
+        forecast: { ...BASE_FORECAST, fierySkyPotential: 78, goldenHourPotential: null },
+      });
+      fireEvent.click(screen.getByTestId('more-details-toggle'));
+      expect(screen.getByText('Scores')).toBeInTheDocument();
+      expect(screen.getByText('Fiery Sky')).toBeInTheDocument();
+      expect(screen.getByText('78')).toBeInTheDocument();
+      expect(screen.getByTestId('popup-score-golden').textContent).toContain('\u2014');
+    });
+
+    it('hides the Scores section only when BOTH are absent', () => {
+      renderPopup({
+        role: 'PRO_USER',
+        forecast: { ...BASE_FORECAST, fierySkyPotential: null, goldenHourPotential: null },
+      });
+      fireEvent.click(screen.getByTestId('more-details-toggle'));
+      expect(screen.queryByText('Scores')).not.toBeInTheDocument();
+    });
   });
 
   describe('footer visibility by role', () => {

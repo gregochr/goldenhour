@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the Golden Hour score a null Fiery Sky was hiding (Stage 8)
+
+`MarkerPopupContent` gated its whole **Scores** section on `fierySkyPotential` alone, in two places
+— the forecast branch and the briefing drill-down — while `goldenHourPotential` was resolved
+independently. A location with no Fiery Sky reading but a perfectly good Golden Hour one showed no
+Scores section at all: the heading, the tooltip and a real measurement suppressed by the absence of
+the *other* measurement. Both gates now ask for either axis.
+
+⚠️ **Both rows still render, and that is deliberate.** `ScoreBar` draws an em dash for a null
+score; the Plan surfaces gate per row and render nothing. Stage 5b recorded why the two differ — a
+tooltip with a stray dash is noise, a popup row that vanishes is a layout jump — so the per-row
+gating that would look natural here is exactly what must not be added, and the tests assert the
+dash rather than the row's absence. An earlier cut of this fix, written against the pre-5b tree,
+did add per-row gating and pinned it; it would have reversed a documented decision silently.
+
 ### Changed — Stage 7 is blocked: the score number's tint fails AA in temperature mode
 
 Stage 5b tints the score bar's number from the ramp, floored at 2.8★ so it clears 4.5:1 as *text*

@@ -678,7 +678,7 @@ setting; it is a sentence.
 
 ---
 
-### Stage 8 — the Golden Hour score a null Fiery Sky hides
+### Stage 8 — the Golden Hour score a null Fiery Sky hides ✅ landed
 
 Found during Stage 5b's browser verification, **pre-existing** and correctly left out of that
 stage's scope. Scheduled last, on the owner's instruction, because it is a behaviour fix rather
