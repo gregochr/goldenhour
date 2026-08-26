@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — CodeQL skips its expensive half on documentation-only pull requests
+
+`codeql.yml` had no path filter, so a diff touching only `*.md` and `docs/` still paid for a
+checkout, `setup-java`, `mvnw compile -DskipTests` and a full two-language analysis — measured at
+8m35s–11m30s and, by this workflow's own note, the critical path of the PR gate. It found nothing,
+by construction: the check is configured as a **diff** scan reporting only alerts a PR introduces,
+and a diff with no code introduces none. The two jobs it might otherwise have done are already
+covered — the Monday schedule catches new queries against unchanged code, and the Backend job
+proves the build compiles.
+
+It now runs `ci.yml`'s docs-only detector (copied rather than shared: a `workflow_call` dependency
+between two required gates fails closed in the worst way) and skips `setup-java`, the Maven build
+and the java-kotlin analysis on a documentation-only diff.
+
+⚠️ **The JavaScript analysis deliberately still runs, and that is not a missed optimisation.**
+`CodeQL` — the required status check on `main` — is posted by the github-advanced-security app off
+the back of a code-scanning analysis, not by this workflow's job, which reports separately as
+`CodeQL Analysis` and is not required. Skipping every analysis would leave the required check never
+created for that SHA, and a required check that never reports blocks the merge permanently, fixable
+by no commit — the same failure this file already refuses to risk by staying off the self-hosted
+runner. So the rule is: drop the expensive half, keep something reporting.
+
 ### Fixed — two errors in the plan's Stage 3, found while writing its kickoff prompt
 
 §2.1 said *"markers already comply; cluster badges do not"*. **Wrong, and it understated what the
