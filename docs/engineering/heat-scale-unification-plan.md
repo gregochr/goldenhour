@@ -307,7 +307,18 @@ no reason beyond `mockCluster` being lexically out of scope at that point — fi
 - Add a test asserting the invariant directly — *label-bearing fills sample at whole stars* —
   rather than extending the existing value sweep, which passes on the only five safe values.
 
-### Stage 4 — Calibrate the two 0–100 metrics — RESOLVED, needs no further production data
+### Stage 4 — Calibrate the two 0–100 metrics — RESOLVED, and it ships NO code
+
+⚠️ **There is no Stage 4 pull request, and there should not be one.** This stage's deliverable was
+always *numbers*, not software: measure the two metrics, decide how they map onto the ramp. All
+three of its outputs are delivered — the query is committed at
+`docs/engineering/heat-scale-stage4-calibration.sql`, the measurement is below, and the decision is
+the `ANCHORS` tables.
+
+Its would-be code changed shape when the distribution turned out bimodal. The original plan had it
+handing Stage 5 a `lo`/`hi` pair; the replacement is a pair of anchor **tables**, and a table with
+no function to read it is not a shippable unit. So the tables land in **Stage 5a** alongside
+`starFromScore`, which is the thing that gives them meaning. Nothing is outstanding here.
 
 The ramp is indexed 1–5 because ratings are. `fierySkyPotential` and `goldenHourPotential` are
 0–100, and assuming they span the full ramp is wrong.
