@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.client.PostcodeLookupException;
 import com.gregochr.goldenhour.client.PostcodesIoClient;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.model.DriveTimeRefreshResponse;
+import com.gregochr.goldenhour.model.MapColourPreferencesRequest;
 import com.gregochr.goldenhour.model.PostcodeLookupResult;
 import com.gregochr.goldenhour.model.SaveHomeRequest;
 import com.gregochr.goldenhour.model.UserSettingsResponse;
@@ -17,8 +18,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.Objects;
 import java.util.NoSuchElementException;
+import java.util.Objects;
+import java.util.Set;
 
 import static org.springframework.http.HttpStatus.BAD_REQUEST;
 import static org.springframework.http.HttpStatus.TOO_MANY_REQUESTS;
@@ -38,6 +40,10 @@ public class UserSettingsService {
 
     /** Widest before "close to home" stops meaning it — a 50-mile radius is a 60-minute drive. */
     public static final int MAX_LOCAL_RADIUS_MILES = 50;
+
+    /** The only two values {@code mapColourScale} may take. */
+    private static final Set<String> VALID_MAP_COLOUR_SCALES = Set.of("temp", "verdict");
+
 
     private static final Logger LOG = LoggerFactory.getLogger(UserSettingsService.class);
 
@@ -214,6 +220,39 @@ public class UserSettingsService {
     }
 
     /**
+     * Persists the caller's map colour preferences.
+     *
+     * <p>Its own endpoint rather than fields on {@code saveHome}: a colour preference is not
+     * home-derived, so folding it into that request would deserialise the home fields to null and
+     * wipe a saved postcode.
+     *
+     * @param auth    the authenticated user
+     * @param request the chosen scale and whether markers follow it
+     * @return the updated user settings response
+     * @throws ResponseStatusException 400 if {@code mapColourScale} is not "temp" or "verdict"
+     */
+    @Transactional
+    public UserSettingsResponse saveMapColourPreferences(Authentication auth,
+            MapColourPreferencesRequest request) {
+        // Null-checked before the Set lookup: VALID_MAP_COLOUR_SCALES is Set.of(...), whose
+        // contains() throws NullPointerException on a null argument rather than returning false —
+        // an omitted field would otherwise 500 instead of the 400 a bad request deserves.
+        if (request.mapColourScale() == null
+                || !VALID_MAP_COLOUR_SCALES.contains(request.mapColourScale())) {
+            throw new ResponseStatusException(BAD_REQUEST,
+                    "mapColourScale must be 'temp' or 'verdict'");
+        }
+        AppUserEntity user = getUser(auth);
+        user.setMapColourScale(request.mapColourScale());
+        userRepository.save(user);
+        LOG.info("User '{}' saved map colour preference: scale={}",
+                user.getUsername(), request.mapColourScale());
+        // null place name, matching saveHome: this save does not geocode, and the modal already
+        // merges the previous placeName forward rather than losing it to a blanked field.
+        return mapToResponse(user, null);
+    }
+
+    /**
      * Resolves the authenticated user's database ID.
      *
      * @param auth the authentication context
@@ -252,6 +291,7 @@ public class UserSettingsService {
                 user.getHomeLongitude(),
                 placeName,
                 user.getLocalRadiusMiles(),
-                user.getDriveTimesCalculatedAt());
+                user.getDriveTimesCalculatedAt(),
+                user.getMapColourScale());
     }
 }

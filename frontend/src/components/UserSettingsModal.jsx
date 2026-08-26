@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import PropTypes from 'prop-types';
 import Modal from './shared/Modal';
-import { getSettings, lookupPostcode, saveHome, refreshDriveTimes } from '../api/settingsApi';
+import {
+  getSettings, lookupPostcode, saveHome, refreshDriveTimes, saveMapColourPreferences,
+} from '../api/settingsApi';
 import { formatRelativeAge } from '../utils/relativeTime.js';
 
 const ROLE_LABELS = {
@@ -37,6 +39,12 @@ export default function UserSettingsModal({
   const [radiusSaving, setRadiusSaving] = useState(false);
   const [radiusError, setRadiusError] = useState(false);
   const [radiusChosen, setRadiusChosen] = useState(false);
+  // 'verdict' until settings load — the server-side default while never chosen. Not read from a
+  // constant here the way the radius fallback is: scoreRamp.js's own setMode already treats
+  // anything but 'temp' as 'verdict', so this display default just mirrors that module's contract.
+  const [mapColourScale, setMapColourScale] = useState('verdict');
+  const [colourSaving, setColourSaving] = useState(false);
+  const [colourError, setColourError] = useState(false);
   const [lookupResult, setLookupResult] = useState(null);
   const [lookupError, setLookupError] = useState(null);
   const [lookingUp, setLookingUp] = useState(false);
@@ -63,6 +71,7 @@ export default function UserSettingsModal({
       // converting "never chosen" into "chose 22" and overriding the server-side default for a
       // user who never touched the slider.
       setRadiusChosen(data.localRadiusMiles != null);
+      setMapColourScale(data.mapColourScale === 'temp' ? 'temp' : 'verdict');
       if (data.driveTimesCalculatedAt && data.homePostcode) {
         setDriveTimesPostcode(data.homePostcode);
       }
@@ -158,6 +167,29 @@ export default function UserSettingsModal({
       setRadiusError(true);
     } finally {
       setRadiusSaving(false);
+    }
+  };
+
+  /**
+   * Persists the map colour preferences. Both fields are sent together — the endpoint has no
+   * partial-update idiom, unlike `saveHome`'s radius, because nothing else shares this request.
+   *
+   * <p>Does not call `scoreRamp.setMode` itself. `App.jsx`'s `loadHomeCoords` re-fetches settings
+   * and wires `setMode` from the result when this modal closes — the one place the loaded setting
+   * reaches the ramp, so Plan and Map can never disagree.
+   */
+  const handleMapColourChange = async (nextScale) => {
+    setMapColourScale(nextScale);
+    setColourSaving(true);
+    setColourError(false);
+    try {
+      const updated = await saveMapColourPreferences(nextScale);
+      setSettings((prev) => ({ ...prev, ...updated, homePlaceName: updated?.homePlaceName
+        ?? prev?.homePlaceName }));
+    } catch {
+      setColourError(true);
+    } finally {
+      setColourSaving(false);
     }
   };
 
@@ -415,6 +447,51 @@ export default function UserSettingsModal({
               )}
               {refreshError && (
                 <p className="text-sm text-red-400 mt-1" data-testid="settings-refresh-error">{refreshError}</p>
+              )}
+            </div>
+          </section>
+
+          {/* Map Colours — deliberately ungated. Reading the map is not a Pro feature, unlike the
+              drive times and local radius above; every account should be able to try the scale. */}
+          <section>
+            <h3 className="text-xs font-medium text-plex-text-muted uppercase tracking-wide mb-2">Map Colours</h3>
+            <div className="flex flex-col gap-2">
+              <fieldset className="flex flex-col gap-1.5" disabled={colourSaving}>
+                <legend className="text-sm text-plex-text mb-1">Colour scale</legend>
+                <label className="flex items-center gap-2 text-sm text-plex-text cursor-pointer">
+                  <input
+                    type="radio"
+                    name="map-colour-scale"
+                    value="verdict"
+                    checked={mapColourScale === 'verdict'}
+                    onChange={() => handleMapColourChange('verdict')}
+                    data-testid="settings-map-colour-verdict"
+                  />
+                  Verdict — red means don&rsquo;t go, green means go
+                </label>
+                <label className="flex items-center gap-2 text-sm text-plex-text cursor-pointer">
+                  <input
+                    type="radio"
+                    name="map-colour-scale"
+                    value="temp"
+                    checked={mapColourScale === 'temp'}
+                    onChange={() => handleMapColourChange('temp')}
+                    data-testid="settings-map-colour-temp"
+                  />
+                  Temperature — cold blue through gold to hot orange-red
+                </label>
+              </fieldset>
+              <span
+                className="font-mono text-xs text-plex-text-muted"
+                aria-live="polite"
+                data-testid="settings-colour-status"
+              >
+                {colourSaving ? 'Saving…' : ''}
+              </span>
+              {colourError && (
+                <p className="text-xs text-red-400" data-testid="settings-colour-error">
+                  Could not save the colour preference. Try again.
+                </p>
               )}
             </div>
           </section>

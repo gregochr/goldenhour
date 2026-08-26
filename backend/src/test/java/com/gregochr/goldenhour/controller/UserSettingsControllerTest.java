@@ -43,7 +43,7 @@ class UserSettingsControllerTest extends AbstractControllerTest {
         when(settingsService.getSettings(any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
                         "DH1 3LE", 54.7761, -1.5733, "Durham, County Durham",
-                        null, Instant.parse("2026-04-01T10:00:00Z")));
+                        null, Instant.parse("2026-04-01T10:00:00Z"), null));
 
         mockMvc.perform(get("/api/user/settings"))
                 .andExpect(status().isOk())
@@ -81,13 +81,50 @@ class UserSettingsControllerTest extends AbstractControllerTest {
     void saveHome_returnsUpdatedSettings() throws Exception {
         when(settingsService.saveHome(any(), any())).thenReturn(
                 new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
-                        "DH1 3LE", 54.7761, -1.5733, null, null, null));
+                        "DH1 3LE", 54.7761, -1.5733, null, null, null, null));
 
         mockMvc.perform(put("/api/user/settings/home")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"postcode\": \"DH1 3LE\", \"latitude\": 54.7761, \"longitude\": -1.5733}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.homePostcode").value("DH1 3LE"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("PUT /api/user/settings/map-colours saves the preference and returns settings")
+    void saveMapColourPreferences_returnsUpdatedSettings() throws Exception {
+        when(settingsService.saveMapColourPreferences(any(), any())).thenReturn(
+                new UserSettingsResponse("testuser", "test@example.com", "PRO_USER",
+                        null, null, null, null, null, null, "temp"));
+
+        mockMvc.perform(put("/api/user/settings/map-colours")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mapColourScale\": \"temp\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mapColourScale").value("temp"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("PUT /api/user/settings/map-colours returns 400 for an invalid scale")
+    void saveMapColourPreferences_invalidScale_returns400() throws Exception {
+        when(settingsService.saveMapColourPreferences(any(), any())).thenThrow(
+                new ResponseStatusException(BAD_REQUEST, "mapColourScale must be 'temp' or 'verdict'"));
+
+        mockMvc.perform(put("/api/user/settings/map-colours")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mapColourScale\": \"rainbow\"}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @DisplayName("PUT /api/user/settings/map-colours returns 401 without authentication")
+    void saveMapColourPreferences_unauthenticated_returns401() throws Exception {
+        mockMvc.perform(put("/api/user/settings/map-colours")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"mapColourScale\": \"temp\"}"))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test

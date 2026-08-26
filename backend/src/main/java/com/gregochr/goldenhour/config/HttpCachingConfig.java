@@ -59,6 +59,9 @@ public class HttpCachingConfig {
      *   <li>{@code /api/travel-days} — carries an optional free-text note plus absence dates.</li>
      *   <li>{@code /api/user/settings}, {@code /api/user/settings/drive-times} — home postcode /
      *       lat-lon and home-proximity data. Also fetched at most once, so there is nothing to save.</li>
+     *   <li>{@code /api/user/settings/map-colours} — write-only (PUT), so it is excluded from this
+     *       set by construction, but it lives under the same personal-data prefix and is pinned
+     *       alongside its siblings so a later GET added here cannot be missed.</li>
      * </ul>
      * Admin-only and interaction-only reads are omitted too: they pay the response-buffering cost
      * with no repeat-fetch payoff, and every extra entry widens the surface that has to stay in
