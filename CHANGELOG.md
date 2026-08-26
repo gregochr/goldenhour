@@ -5,6 +5,37 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Removed — the score number's tint (Stage 7 prerequisite)
+
+Stage 5b tinted the score bar's number from the ramp, floored at 2.8★ so it cleared 4.5:1 as text.
+Design's call on 2026-08-26 was to remove the tint entirely, on grounds broader than the contrast
+failure that raised it.
+
+**A ramp is a fill scale, and a fill scale cannot double as a text scale.** As a fill,
+`readableInkOn` puts ink *on top* and picks it per fill. As text, the ramp colour **is** the ink on
+a dark surface — so the two uses want opposite things from the same value, and the monotonic hot leg
+that made fills better necessarily made text worse. Dimming settles it: a tint that must survive
+`.wf-loc-row[data-dim]`'s 0.8 opacity needs headroom, and a fill ramp's hot end has none by
+construction.
+
+Two reasons independent of contrast, and they are why a tint would be wrong even if every stop
+passed: a numeral is a **precise** value where colour is a **categorical** impression, so tinting it
+makes the exact thing look approximate — while the bar beside it already encodes hot-ness twice, by
+length and by fill; and thin coloured text is the weakest place to spend colour for colour-blind
+readers, where two large fills stay separable and two similar numerals do not. The tint was a third
+encoding of a datum already encoded twice, and it was the one costing contrast.
+
+The bar's fill is unchanged — it is a plate, not text. `NUMBER_TINT_FLOOR`, the tint derivation and
+the computed-contrast test that pinned them are gone, and `contrast()` is private again in
+`windowFirstSpots.js`: it was exported for that test alone, `readableInkOn` uses it internally, and
+an export with no external caller is the kind this project sweeps.
+
+Two tests replace the ones removed, pinning the **absence**: the number is painted from a text token
+and never from the ramp, and its colour does not vary with the score. A tint reads as the obvious
+improvement right up until it is measured, so the absence needs a guard rather than a comment.
+
+Unblocks Stage 7, which is now the flip and the notice alone.
+
 ### Fixed — the Golden Hour score a null Fiery Sky was hiding (Stage 8)
 
 `MarkerPopupContent` gated its whole **Scores** section on `fierySkyPotential` alone, in two places
