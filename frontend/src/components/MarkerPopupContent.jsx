@@ -957,14 +957,14 @@ export default function MarkerPopupContent({
               )}
 
               {/* Score bars — PRO/ADMIN only */}
-              {role !== 'LITE_USER' && popupFiery != null && (
+              {role !== 'LITE_USER' && (popupFiery != null || popupGolden != null) && (
                 <div style={{ marginBottom: '6px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: 'var(--color-plex-text-muted)', marginBottom: '4px' }}>
                     <span>Scores</span>
                     <InfoTip text="Fiery Sky measures dramatic colour from clouds catching light. Golden Hour measures overall light quality and can score high even with clear sky." />
                   </div>
-                  <PopupScoreRow label="Fiery Sky" score={popupFiery} />
-                  <PopupScoreRow label="Golden Hour" score={popupGolden} />
+                  {popupFiery != null && <PopupScoreRow label="Fiery Sky" score={popupFiery} />}
+                  {popupGolden != null && <PopupScoreRow label="Golden Hour" score={popupGolden} />}
                 </div>
               )}
 
@@ -1162,14 +1162,18 @@ export default function MarkerPopupContent({
                     {briefingScore.summary}
                   </div>
                 )}
-                {role !== 'LITE_USER' && briefingScore.fierySkyPotential != null && (
+                {role !== 'LITE_USER' && (briefingScore.fierySkyPotential != null || briefingScore.goldenHourPotential != null) && (
                   <div style={{ marginBottom: '6px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '10px', color: 'var(--color-plex-text-muted)', marginBottom: '4px' }}>
                       <span>Scores</span>
                       <InfoTip text="Fiery Sky measures dramatic colour from clouds catching light. Golden Hour measures overall light quality and can score high even with clear sky." />
                     </div>
-                    <PopupScoreRow label="Fiery Sky" score={briefingScore.fierySkyPotential} />
-                    <PopupScoreRow label="Golden Hour" score={briefingScore.goldenHourPotential} />
+                    {briefingScore.fierySkyPotential != null && (
+                      <PopupScoreRow label="Fiery Sky" score={briefingScore.fierySkyPotential} />
+                    )}
+                    {briefingScore.goldenHourPotential != null && (
+                      <PopupScoreRow label="Golden Hour" score={briefingScore.goldenHourPotential} />
+                    )}
                   </div>
                 )}
                 {role === 'LITE_USER' && (
