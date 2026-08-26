@@ -304,7 +304,16 @@ Two consequences worth stating plainly:
 `POST /api/forecast/run` | `POST /api/forecast/run/very-short-term|short-term|long-term`
 
 ### Locations & Regions (Bearer / ADMIN for writes)
-`GET|POST /api/locations` | `PUT /api/locations/{name}/reset-failures` (ADMIN) | `GET|POST /api/regions` | `PUT /api/regions/{id}` | `PUT /api/regions/{id}/enabled` | `PUT /api/regions/{id}/base` (ADMIN) | `GET /api/regions/drive-times`
+`GET /api/locations` | `POST /api/locations` (ADMIN) | `PUT /api/locations/{name}/reset-failures` (ADMIN) | `GET|POST /api/regions` | `PUT /api/regions/{id}` | `PUT /api/regions/{id}/enabled` | `PUT /api/regions/{id}/base` (ADMIN) | `GET /api/regions/drive-times`
+
+> **`POST /api/locations` is ADMIN**, and was not until 2026-08-26 — it was the one mutation on
+> `LocationController` carrying no `@PreAuthorize`, so `/api/**` → `.authenticated()` let any LITE
+> account create one. Unlike the tide and almanac endpoints this file once mis-documented as ADMIN
+> (where the doc was wrong and Bearer was the intent), here the *code* was wrong: every sibling
+> mutation was gated, the admin UI already mounted the creation screen behind `isAdmin`, and
+> creation has real side effects — `enabled` defaults true, so the row joins the global roster
+> immediately, and a coastal one spends a billable WorldTides request from inside
+> `LocationService.add`.
 
 > **`GET /api/regions/drive-times`** is the shared region-base drive-time matrix — `{regionId:
 > {locationId: minutes}}`, from each region's admin-entered base town to the whole roster. Bearer

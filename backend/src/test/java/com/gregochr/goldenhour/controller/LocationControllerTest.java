@@ -25,6 +25,7 @@ import java.util.NoSuchElementException;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -69,7 +70,7 @@ class LocationControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("POST /api/locations returns 200 with the saved entity for valid input")
     void addLocation_validRequest_returnsSavedEntity() throws Exception {
         LocationEntity saved = buildEntity(3L, "Bamburgh Castle", 55.6090, -1.7099);
@@ -85,7 +86,7 @@ class LocationControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("POST /api/locations with metadata returns 200")
     void addLocation_withMetadata_returnsSavedEntity() throws Exception {
         LocationEntity saved = LocationEntity.builder()
@@ -110,7 +111,7 @@ class LocationControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("POST /api/locations returns 400 when the service rejects a duplicate name")
     void addLocation_duplicateName_returns400() throws Exception {
         when(locationService.add(any(AddLocationRequest.class)))
@@ -124,7 +125,7 @@ class LocationControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = "ADMIN")
     @DisplayName("POST /api/locations returns 400 when the service rejects an invalid latitude")
     void addLocation_invalidLatitude_returns400() throws Exception {
         when(locationService.add(any(AddLocationRequest.class)))
@@ -176,6 +177,22 @@ class LocationControllerTest extends AbstractControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"solarEventTypes\":[\"SUNSET\"]}"))
                 .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("POST /api/locations returns 403 for non-ADMIN and never reaches the service")
+    void addLocation_nonAdmin_returns403AndDoesNotCreate() throws Exception {
+        // The status alone is the weaker half of this assertion. Creation defaults the row to
+        // enabled and, for a coastal location, spends a billable WorldTides request from inside
+        // LocationService.add — so what matters is that the service is never entered at all.
+        mockMvc.perform(post("/api/locations")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"name\":\"Rogue Bay\",\"lat\":55.6,\"lon\":-1.7,"
+                                + "\"locationType\":\"SEASCAPE\"}"))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(locationService);
     }
 
     // --- resetLocationFailures endpoint ---

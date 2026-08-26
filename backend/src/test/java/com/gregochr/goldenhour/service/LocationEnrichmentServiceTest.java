@@ -57,8 +57,10 @@ class LocationEnrichmentServiceTest {
     @BeforeEach
     void setUp() {
         restClient = mock(RestClient.class, RETURNS_DEEP_STUBS);
+        // Same-thread executor: the fan-out is what production parallelises, but a test asserting
+        // which values come back should not also be racing three threads to find out.
         service = new LocationEnrichmentService(lightPollutionClient, auroraProperties,
-                restClient, openMeteoForecastApi);
+                restClient, openMeteoForecastApi, Runnable::run);
     }
 
     // ── Happy path ─────────────────────────────────────────────────────────

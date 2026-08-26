@@ -5,6 +5,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — three defects found by an independent architecture review
+
+An unseeded [Codex](https://openai.com/codex) survey of the backend, run against a checkout with
+`CLAUDE.md` and both `AGENTS.md` removed so the reviewer could not be led to the answers. Each
+finding was verified against the source before anything was changed.
+
+**`POST /api/locations` was open to any logged-in account.** Every other mutation on that
+controller carries `@PreAuthorize("hasRole('ADMIN')")` — including the enabled-toggle — and this
+one carried nothing, so `SecurityConfig`'s `/api/**` → `.authenticated()` fallback let a LITE user
+create locations. Creation is not a harmless per-user act: `enabled` defaults to `true`, so a new
+row joins the global forecast roster at once, and a coastal one makes `LocationService.add` fire a
+**billable WorldTides request** before returning. The admin UI already assumed the gate — the
+creation screen only ever mounts behind `isAdmin` — so no user-facing path changes. Four tests had
+pinned the gap open by asserting `200` under a bare `@WithMockUser`; they now run as ADMIN, beside
+a new test proving a non-admin gets `403` **and never reaches the service**.
+
+**The shared `RestClient` had no timeouts at all.** It was built with `RestClient.create()` — no
+request factory, therefore no read timeout — while the Open-Meteo proxies a few lines below had
+carried 10s connect / 30s read since the 181-second hang that motivated them. The fix had been
+applied to one caller of the failure mode rather than to the shared default. **14 production
+classes** use that client: WorldTides, NOAA SWPC, Pushover, postcodes.io, OpenRouteService,
+Turnstile, exchange rates, light pollution, the NLC scraper and the three external health
+indicators. A peer that accepts a connection and then stops sending bytes pinned the calling
+thread indefinitely — stalling a login on the Turnstile path, stalling the single-threaded
+status-SSE scheduler for *every* connected client on a health probe, and permanently consuming one
+of five dynamic-scheduler threads on the tide refresh. Both clients now share one
+`timeoutRequestFactory()`.
+
+**Two tide endpoints and the location-enrichment fan-out ran on the common pool.**
+`CompletableFuture.runAsync` without an executor argument silently selects
+`ForkJoinPool.commonPool()`, which is sized for CPU-bound work at about one thread per core — while
+every sibling call in the same controller passed `forecastExecutor`. Enrichment put three blocking
+HTTP calls per request there. All now use the virtual-thread executor.
+
+⚠️ The `restClient_returnsNonNull` test passed throughout, because "non-null" is equally true of
+the untimed client. The timeouts are now asserted directly.
+
 ## [v2.19.1] - 2026-08-26
 
 ### Added — one colour scale across every scored surface

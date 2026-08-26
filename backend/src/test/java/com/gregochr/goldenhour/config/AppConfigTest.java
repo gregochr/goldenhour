@@ -4,8 +4,11 @@ import com.anthropic.client.AnthropicClient;
 import okhttp3.Protocol;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.client.RestClient;
 
+import java.time.Duration;
 import java.util.concurrent.Executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -26,6 +29,31 @@ class AppConfigTest {
         RestClient result = config.restClient();
 
         assertThat(result).isNotNull();
+    }
+
+    @Test
+    @DisplayName("outbound request factory carries both a connect and a read timeout")
+    void timeoutRequestFactory_setsBothTimeouts() {
+        // The shared RestClient was built by RestClient.create() until 2026-08-26 — no request
+        // factory, so no read timeout, so a peer that accepted a connection and then went quiet
+        // held the calling thread forever. restClient_returnsNonNull above passed throughout:
+        // "non-null" is true of the untimed client too, which is why it never caught this.
+        SimpleClientHttpRequestFactory factory = AppConfig.timeoutRequestFactory();
+
+        assertThat(ReflectionTestUtils.getField(factory, "connectTimeout"))
+                .isEqualTo((int) AppConfig.CONNECT_TIMEOUT.toMillis());
+        assertThat(ReflectionTestUtils.getField(factory, "readTimeout"))
+                .isEqualTo((int) AppConfig.READ_TIMEOUT.toMillis());
+    }
+
+    @Test
+    @DisplayName("both timeouts are bounded, so a stalled peer cannot pin a thread indefinitely")
+    void timeouts_areBoundedAndNonZero() {
+        // Zero means "infinite" to SimpleClientHttpRequestFactory, so a non-zero assertion is the
+        // one that matters; the upper bound keeps a future edit from re-creating the hang by
+        // setting something like an hour.
+        assertThat(AppConfig.CONNECT_TIMEOUT).isBetween(Duration.ofSeconds(1), Duration.ofSeconds(30));
+        assertThat(AppConfig.READ_TIMEOUT).isBetween(Duration.ofSeconds(1), Duration.ofSeconds(60));
     }
 
     @Test

@@ -56,12 +56,22 @@ public class LocationController {
     /**
      * Adds a new location to the persisted set.
      *
+     * <p>ADMIN-only, like every other mutation on this controller. Creation is emphatically not a
+     * per-user action: {@code LocationEntity.enabled} defaults to {@code true}, so a new row joins
+     * the global forecast roster immediately, and a coastal one makes {@code LocationService.add}
+     * call {@code tideService.fetchAndStoreTideExtremes} — a billable WorldTides request — before
+     * it returns. Until 2026-08-26 this mapping carried no {@code @PreAuthorize} while its five
+     * siblings all did, so {@code SecurityConfig}'s {@code /api/**} → {@code .authenticated()}
+     * fallback let any LITE account expand the roster and spend on tides, one uniquely named
+     * location at a time.
+     *
      * @param request the location name, coordinates, and metadata
      * @return the saved location entity
      * @throws IllegalArgumentException if the name is blank, lat/lon are out of range,
      *                                  or a location with the same name already exists (HTTP 400)
      */
     @PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
     public LocationEntity addLocation(@RequestBody AddLocationRequest request) {
         return locationService.add(request);
     }

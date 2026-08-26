@@ -92,6 +92,24 @@ Checkstyle and SpotBugs gate those in CI.
     all sync-engine call sites pass manual=true.** Known, documented; don't
     re-report as dead code without checking the memory note first.
 
+### Bugs that were fixed and must not come back
+
+- **Every outbound `RestClient` carries timeouts.** The shared bean was
+  `RestClient.create()` — no request factory, so no read timeout — while the
+  Open-Meteo proxies beside it had 10s/30s for exactly that failure. 14
+  production classes share it, including Turnstile on the login path and the
+  three health indicators feeding the single-threaded status-SSE scheduler.
+  Build from `AppConfig.timeoutRequestFactory()`; give a slow API its own
+  longer-lived client rather than dropping the timeouts. A "returns non-null"
+  test does not catch this — it passes against the untimed client too.
+- **`POST /api/locations` is ADMIN-gated.** It was the only mutation on
+  `LocationController` without `@PreAuthorize`, and `/api/**` →
+  `.authenticated()` is not a gate. Creation defaults `enabled` to true and a
+  coastal one spends a billable WorldTides request inside `LocationService.add`.
+- **`CompletableFuture.runAsync`/`supplyAsync` always take an explicit
+  executor.** Omitting it selects `ForkJoinPool.commonPool()`, sized for
+  CPU-bound work; these calls block on sockets. Use `forecastExecutor`.
+
 ### Conventions
 
 - Table `locations` is **plural**; its metadata side-tables
