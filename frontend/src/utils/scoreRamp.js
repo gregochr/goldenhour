@@ -133,14 +133,18 @@ export function getMode() {
 }
 
 /**
- * The active mode's stop list, exported so a consumer building a gradient from every stop (the map
- * legend, the heat strip's footer bar) reads one answer to "which ramp is live" rather than each
- * branching on {@link getMode} independently — two call sites doing that could disagree about what
- * a colour means, which is the one thing this module exists to prevent.
+ * The active mode's stop list. **Private.**
+ *
+ * <p>It was briefly exported so the two gradient consumers (the map legend, the heat strip's
+ * footer bar) would read one answer to "which ramp is live" rather than each branching on
+ * {@link getMode}. {@link rampGradientCss} does that job properly — it also positions each stop by
+ * its score rather than by its index, which is the defect that export left open — so nothing
+ * outside this module needs the raw list any more. Callers wanting a gradient take
+ * {@link rampGradientCss}; callers wanting one colour take {@link rampHex} or {@link rampRgb}.
  *
  * @returns {Array<{score: number, hex: string}>} the active mode's stop list
  */
-export function activeStops() {
+function activeStops() {
   return MODE === 'temp' ? STOPS_TEMP : STOPS_VERDICT;
 }
 
@@ -224,6 +228,15 @@ export function rampHex(score) {
  *
  * <p>The reference kernel's equivalent (`rampPct`) returns a colour directly; this app keeps
  * domain-mapping and colour-lookup separate on purpose; the different name is deliberate.
+ *
+ * <p>⚠️ <b>SUPERSEDED, and it has no caller.</b> The two 0–100 metrics it was written for turned
+ * out to be <b>bimodal</b> — measured over 19,832 evaluations, fiery peaks at 10–19 and again at
+ * 70–79, golden at 20–29 and 70–79 — and no two-point linear map can spread a bimodal population.
+ * Under it, 51% of fiery readings landed in the 1★ band and a good evening rendered identically to
+ * a great one. The replacement is a frozen piecewise table per metric
+ * ({@code ANCHORS} + {@code starFromScore}), landing in Stage 5, which deletes this function.
+ * Do not build anything new on it; see
+ * {@code docs/engineering/heat-scale-unification-plan.md} Stage 4.
  *
  * @param {number} value the metric's raw reading
  * @param {number} lo the value that maps to a score of 1
