@@ -170,12 +170,21 @@ number** — assert `toBe(1)`, not a colour string.
 
 - `--color-heat-1 … --color-heat-5` in `index.css`: `#3A5C70`, `#4C6677`, `#C49440`, `#DD5F29`,
   `#F26034` (the temperature ramp sampled at whole stars, for discrete uses; the field itself
-  interpolates).
+  interpolates). Note 2★ and 4★ are **interpolated points, not stops** — do not expect to find
+  them in `STOPS_TEMP`.
 - **Do not touch `--color-verdict-*`.** Those are saturated web colours for verdict *words*
   (`#16a34a` / `#d97706` / `#b91c1c`) and are unrelated to the muted ramp, despite older handoff
   notes claiming otherwise.
-- The map legend (`MapView.jsx`, `wf-map-heat-legend-ramp`) redraws its bar from the active ramp.
-  **The words `poor → worth it` do not change on either scale** — the bar carries the metaphor,
+- ⚠️ **There are TWO ramp-gradient sites, not one**, and this plan previously named only the map's:
+  - `MapView.jsx:2137` — the map legend, built inline during render from `STOPS_VERDICT`.
+  - `WindowFirstHeatStrip.jsx:78` — `RAMP_GRADIENT`, the Plan footer's ramp bar.
+- ⚠️ **`RAMP_GRADIENT` is a module-level `const`, evaluated once at import.** Its own comment says
+  "Computed once at module load — it depends on nothing that changes", which was true before Stage 1
+  and is **false now**: it depends on `MODE`. Left as a module constant it will silently keep
+  painting the verdict ramp forever after a later stage flips the default, with nothing failing.
+  It has to become a function or move inside the render. Update that comment too — a stale comment
+  asserting the old invariant is how this returns.
+- **The words `poor → worth it` do not change on either scale** — the bar carries the metaphor,
   the words carry the meaning.
 
 ### Stage 3 — Markers and clusters onto the ramp

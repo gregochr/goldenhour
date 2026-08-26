@@ -7,7 +7,15 @@ commit as the work.
 
 ---
 
-## Stage 1 — Two ramps in one module, no visual change
+## Stage 1 — Two ramps in one module, no visual change ✅ LANDED (#633)
+
+> **Kept for the record. Its "Trap 3" below was WRONG and is corrected here.** `RAMP_STOPS` was
+> imported by **two production files** (`MapView.jsx`, `WindowFirstHeatStrip.jsx` — both build a
+> legend gradient from the stop list) plus **five** test files, not by three test files and no
+> production code. The claim came from a `grep | head` whose truncation was not noticed. The
+> implementing session's import-consistency lens caught it. **Lesson for every prompt below: a
+> truncated grep is not a survey.**
+
 
 > You are implementing **Stage 1** of `docs/engineering/heat-scale-unification-plan.md`. Read that
 > plan's §1, §2 and Stage 1 before writing anything. Do not read the design bundle at
@@ -111,3 +119,91 @@ commit as the work.
 > **Commit and PR.** Conventional commit (`feat:`). Add a `CHANGELOG.md` entry under
 > `[Unreleased]` — every PR does, so expect a conflict there and rebase rather than merge. Do
 > **not** push until asked. Update the plan's Stage 1 line to record what landed.
+
+---
+
+## Stage 2 — Tokens and legend
+
+> You are implementing **Stage 2** of `docs/engineering/heat-scale-unification-plan.md`. Read that
+> plan's §1, §2 and Stage 2 first. Stage 1 landed in #633 — `frontend/src/utils/scoreRamp.js`
+> already exports `STOPS_VERDICT`, `STOPS_TEMP`, `setMode`, `getMode` and `scoreFromPercent`, and
+> `MODE` defaults to `'verdict'`. Do not re-do Stage 1, and do not flip the default: that is
+> Stage 7.
+>
+> **Goal.** Two things: give `index.css` the five discrete heat tokens, and make **both** ramp
+> gradients follow the active mode instead of hard-coding the verdict stops.
+>
+> **⚠️ Trap 1 — there are TWO gradient sites and they are not alike.**
+>
+> - `components/MapView.jsx:2137` — the map legend, built **inline during render** from
+>   `STOPS_VERDICT`. Re-renders, so it only needs its source changed.
+> - `components/WindowFirstHeatStrip.jsx:78` — `RAMP_GRADIENT`, a **module-level `const`
+>   evaluated once at import**. Its own doc comment says "Computed once at module load — it
+>   depends on nothing that changes." That was true before Stage 1 and is **false now**: it
+>   depends on `MODE`. Left as a module constant it will keep painting the verdict ramp forever
+>   after Stage 7 flips the default, and **nothing will fail** — no test, no lint, no build.
+>   Make it a function (or move it into the render) and **rewrite that comment**; a stale comment
+>   asserting the old invariant is exactly how this defect comes back.
+>
+> **⚠️ Trap 2 — `--color-heat-sea` already exists and is unrelated.** It is the kernel's sea
+> colour from the heat-field series. Do not touch it, and do not assume a `--color-heat-*` grep
+> hit means the new tokens are already there.
+>
+> **⚠️ Trap 3 — do not touch `--color-verdict-*`.** Those are saturated web colours for verdict
+> *words* and have nothing to do with the muted ramp, despite older handoff notes saying otherwise.
+> Note `index.css` already carries a comment near them, added in #627 and updated by Stage 1, which
+> explains that three of them double as verdict-ramp stops — read it before editing that block.
+>
+> **The change.**
+>
+> 1. Add to `index.css`, beside the verdict tokens rather than in a new block of their own:
+>
+>    ```css
+>    --color-heat-1: #3A5C70;
+>    --color-heat-2: #4C6677;
+>    --color-heat-3: #C49440;
+>    --color-heat-4: #DD5F29;
+>    --color-heat-5: #F26034;
+>    ```
+>
+>    These are `STOPS_TEMP` sampled at **whole stars**, for discrete uses; the field itself
+>    interpolates and calls the ramp directly. ⚠️ **2★ and 4★ are interpolated points, not stops** —
+>    you will not find `#4C6677` or `#DD5F29` in `STOPS_TEMP`, and that is correct. If you verify
+>    them, verify by calling `rampHex(2)` / `rampHex(4)` with the mode set to `'temp'`, not by
+>    grepping the stop list.
+> 2. Both gradient sites read the **active** stop list rather than `STOPS_VERDICT`. `scoreRamp.js`
+>    does not export an "active stops" accessor today — add one there (one line beside `getMode`)
+>    rather than letting each call site branch on `getMode()` itself. Two call sites branching
+>    independently is the same duplication this series exists to remove.
+> 3. The legend's words — `poor → worth it` — **do not change on either scale.** The bar carries
+>    the metaphor; the words carry the meaning.
+>
+> **This stage still changes no pixels** while `MODE` is `'verdict'`: both gradients must render
+> byte-identically to today. That is the strongest assertion available to you — write it.
+>
+> **Tests.**
+>
+> - Both gradients are unchanged from today's output in the default mode.
+> - After `setMode('temp')`, both gradients change **and agree with each other** — the point of
+>   the stage is that Plan and Map cannot disagree about what a colour means.
+> - ⚠️ A test that only asserts the *string changed* will pass even if `RAMP_GRADIENT` is still a
+>   module constant, because module state is captured per test file. Assert the actual expected
+>   temperature colours, and make at least one test set the mode **after** the module is imported
+>   — that is what proves the value is not frozen at import time.
+> - Reset the mode in `afterEach`; `MODE` is module state and leaks across cases.
+>
+> **Gates, all four, before you push:**
+>
+> ```
+> cd frontend && npm run lint && npm test && npm audit --audit-level=high && npm run build
+> ```
+>
+> **Before committing**, run an adversarial review of the diff (CLAUDE.md, "UI Work — Review
+> Cadence"). Tell review agents to read only — a reviewer that mutates the tree can destroy
+> unstaged work. Given Trap 1, ask one lens specifically: *would this still be correct after
+> `setMode('temp')` at runtime, not just at import?*
+>
+> **Commit and PR.** Conventional commit (`feat:`). Add a `CHANGELOG.md` entry under
+> `[Unreleased]` — expect a conflict there and rebase rather than merge. Do **not** push until
+> asked. Update the plan's Stage 2 section to record what landed, including anything this prompt
+> got wrong.
