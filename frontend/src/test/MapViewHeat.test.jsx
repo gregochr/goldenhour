@@ -107,7 +107,7 @@ vi.mock('../components/markerUtils.js', async (importOriginal) => {
 });
 
 import MapView from '../components/MapView.jsx';
-import { RAMP_STOPS } from '../utils/scoreRamp.js';
+import { STOPS_VERDICT } from '../utils/scoreRamp.js';
 import { markerLabelAndColour } from '../components/markerUtils.js';
 
 const TODAY = '2026-01-15';
@@ -661,7 +661,7 @@ describe('MapView heat — the marker swap (D2/D8)', () => {
     // while calling the spy inside the loop body grows the array out from under its own iterator —
     // an infinite loop that OOMs the worker. It reproduced exactly that way once.
     for (const args of [...markerCalls]) {
-      expect(markerLabelAndColour(...args).colour).toBe(RAMP_STOPS[3].hex);
+      expect(markerLabelAndColour(...args).colour).toBe(STOPS_VERDICT[3].hex);
     }
 
     markerCalls.length = 0;
@@ -682,11 +682,11 @@ describe('MapView heat — the marker swap (D2/D8)', () => {
       })),
     };
     const inHeat = clusterIconCalls.at(-1)(cluster).options.html;
-    expect(inHeat).toContain(RAMP_STOPS[4].hex);
+    expect(inHeat).toContain(STOPS_VERDICT[4].hex);
 
     fireEvent.click(screen.getByRole('button', { name: 'Medallions' }));
     const inMedallions = clusterIconCalls.at(-1)(cluster).options.html;
-    expect(inMedallions).toContain(RAMP_STOPS[4].hex);
+    expect(inMedallions).toContain(STOPS_VERDICT[4].hex);
   });
 
   it('draws the ramp key from the ramp itself, so the picture and its legend cannot drift', async () => {
@@ -694,7 +694,7 @@ describe('MapView heat — the marker swap (D2/D8)', () => {
     // jsdom normalises hex to `rgb()` in a computed gradient, so the stops are compared as
     // channels — which is the same claim, and the one a browser would render.
     const style = screen.getByTestId('wf-map-heat-legend-ramp').getAttribute('style');
-    for (const stop of RAMP_STOPS) {
+    for (const stop of STOPS_VERDICT) {
       const n = parseInt(stop.hex.slice(1), 16);
       expect(style).toContain(`rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`);
     }

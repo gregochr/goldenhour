@@ -8,7 +8,7 @@ import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { badgeChannel } from '../utils/windowFirstCards.js';
 import { beyondRegions, GLANCE_MINUTES } from '../utils/planningArea.js';
 import { scopeRegions, scopeSpots } from '../utils/planOrigin.js';
-import { RAMP_STOPS, rampRgb, rgb } from '../utils/scoreRamp.js';
+import { STOPS_VERDICT, rampRgb, rgb } from '../utils/scoreRamp.js';
 import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { topMovers } from '../utils/movement.js';
@@ -75,8 +75,8 @@ const MIN_THUMB_PX = 26;
  * copy that can drift with nothing failing. Computed once at module load — it depends on nothing
  * that changes.
  */
-const RAMP_GRADIENT = `linear-gradient(90deg, ${RAMP_STOPS
-  .map((stop, index) => `${stop.hex} ${Math.round((index / (RAMP_STOPS.length - 1)) * 100)}%`)
+const RAMP_GRADIENT = `linear-gradient(90deg, ${STOPS_VERDICT
+  .map((stop, index) => `${stop.hex} ${Math.round((index / (STOPS_VERDICT.length - 1)) * 100)}%`)
   .join(', ')})`;
 
 /** The planning-area threshold in whole hours, for the beyond line's own sentence. */

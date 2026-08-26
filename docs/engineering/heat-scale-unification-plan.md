@@ -133,9 +133,20 @@ Each stage is independently shippable, independently revertible, and sized for o
 session. Every stage that touches UI takes the project's adversarial-review cadence before it
 lands (CLAUDE.md, "UI Work — Review Cadence").
 
-### Stage 1 — Two ramps in one module, no visual change
+### Stage 1 — Two ramps in one module, no visual change ✅ landed
 
 `frontend/src/utils/scoreRamp.js` gains a second stop list and a mode.
+
+**Status:** implemented and adversarially reviewed (four read-only lenses: correctness,
+import-site consistency, test quality, docs/conventions — all clean, no findings). One thing this
+stage's own "Trap 3" note got wrong, caught by the consistency review: `RAMP_STOPS` was not
+imported by only the three named test files — it was also imported by two **production** files,
+`components/MapView.jsx` and `components/WindowFirstHeatStrip.jsx` (both build a legend gradient
+directly from the stop list), plus two more test files the note missed
+(`MapViewHeat.test.jsx`, `windowFirstSpots.test.js`). All were mechanical renames to
+`STOPS_VERDICT`; no assertion values or rendered pixels changed. `frontend/src/index.css`'s
+cross-file pointer comment (added in #627) also named the old export and was corrected in
+passing. `npm run lint && npm test && npm audit --audit-level=high && npm run build` all pass.
 
 - Rename the existing `RAMP_STOPS` to `STOPS_VERDICT` (its five hexes already match the
   reference kernel's `STOPS_VERDICT` exactly — verified, no colour drift).

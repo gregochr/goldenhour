@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Stage 1 of the colour-scale unification: two ramps, one mode switch, no visual change
+
+`utils/scoreRamp.js` gains a second stop list — `STOPS_TEMP`, the temperature ramp's eight
+deliberately uneven stops, cold blue through gold to hot orange-red — alongside the renamed
+`STOPS_VERDICT` (was `RAMP_STOPS`), plus module-level `setMode()`/`getMode()` and
+`scoreFromPercent()` for mapping a 0–100 metric onto the ramp's 1–5 score domain ahead of Stage 5.
+`MODE` defaults to `'verdict'`, so `rampRgb`/`rampHex` are byte-identical to today's output at
+every call site — this stage is provably zero-visual-change. An unrecognised mode string falls
+back to `'verdict'` rather than risking the not-yet-shipped ramp. The rename reaches two
+production consumers the plan's own trap note missed (`MapView.jsx` and
+`WindowFirstHeatStrip.jsx`, whose legend gradients are built directly from the stop list) plus
+five test files — all mechanical renames with no assertion values changed.
+
 ### Fixed — three defects in the colour-scale plan found by Codex review on #632
 
 Stage 3 contradicted itself: its first bullet deleted `scoreColour()` while its snap rule required

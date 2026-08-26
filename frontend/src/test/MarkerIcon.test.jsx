@@ -7,7 +7,7 @@ import {
   createClusterIcon,
   STAND_DOWN_COLOUR,
 } from '../components/markerUtils.js';
-import { RAMP_STOPS, rampHex } from '../utils/scoreRamp.js';
+import { STOPS_VERDICT, rampHex } from '../utils/scoreRamp.js';
 
 const HALF_CIRC = Math.PI * 19;
 const FULL_CIRC = 2 * Math.PI * 19;
@@ -25,33 +25,33 @@ describe('scoreColour', () => {
   });
 
   it('clamps to the 1★ ramp stop at and below 20 (0-100 average / 20 = stars)', () => {
-    expect(scoreColour(0)).toBe(RAMP_STOPS[0].hex);
-    expect(scoreColour(10)).toBe(RAMP_STOPS[0].hex);
-    expect(scoreColour(20)).toBe(RAMP_STOPS[0].hex);
+    expect(scoreColour(0)).toBe(STOPS_VERDICT[0].hex);
+    expect(scoreColour(10)).toBe(STOPS_VERDICT[0].hex);
+    expect(scoreColour(20)).toBe(STOPS_VERDICT[0].hex);
   });
 
   it('lands exactly on the 2★ ramp stop at 40', () => {
-    expect(scoreColour(40)).toBe(RAMP_STOPS[1].hex);
+    expect(scoreColour(40)).toBe(STOPS_VERDICT[1].hex);
   });
 
   it('lands exactly on the 3★ ramp stop at 60', () => {
-    expect(scoreColour(60)).toBe(RAMP_STOPS[2].hex);
+    expect(scoreColour(60)).toBe(STOPS_VERDICT[2].hex);
   });
 
   it('lands exactly on the 4★ ramp stop at 80', () => {
-    expect(scoreColour(80)).toBe(RAMP_STOPS[3].hex);
+    expect(scoreColour(80)).toBe(STOPS_VERDICT[3].hex);
   });
 
   it('clamps to the 5★ ramp stop at 100', () => {
-    expect(scoreColour(100)).toBe(RAMP_STOPS[4].hex);
+    expect(scoreColour(100)).toBe(STOPS_VERDICT[4].hex);
   });
 
   it('maps a 0–100 average onto stars by dividing by 20, which inverts the cluster’s own mean', () => {
     // `createClusterIcon` builds its average as `mean(ratings) × 20`, so a cluster of straight 4★
     // spots must land exactly on the 4★ stop rather than somewhere inside a bucket. Round-trip, not
     // a magic number: change either half alone and this fails.
-    expect(scoreColour(4 * 20)).toBe(RAMP_STOPS[3].hex);
-    expect(scoreColour(3 * 20)).toBe(RAMP_STOPS[2].hex);
+    expect(scoreColour(4 * 20)).toBe(STOPS_VERDICT[3].hex);
+    expect(scoreColour(3 * 20)).toBe(STOPS_VERDICT[2].hex);
   });
 
   it('interpolates between stops rather than bucketing, which is the whole difference', () => {
@@ -417,13 +417,13 @@ describe('markerLabelAndColour', () => {
   it('returns rating label and rating colour when both scores and rating present', () => {
     const result = markerLabelAndColour(4, 80, 50, false);
     expect(result.label).toBe('4\u2605');
-    expect(result.colour).toBe(RAMP_STOPS[3].hex);
+    expect(result.colour).toBe(STOPS_VERDICT[3].hex);
   });
 
   it('returns the matching ramp stop for each star level', () => {
     for (let r = 1; r <= 5; r++) {
       const result = markerLabelAndColour(r, 60, 40, false);
-      expect(result.colour).toBe(RAMP_STOPS[r - 1].hex);
+      expect(result.colour).toBe(STOPS_VERDICT[r - 1].hex);
     }
   });
 
@@ -436,7 +436,7 @@ describe('markerLabelAndColour', () => {
   it('returns rating label when only rating is present (no scores)', () => {
     const result = markerLabelAndColour(3, null, null, false);
     expect(result.label).toBe('3\u2605');
-    expect(result.colour).toBe(RAMP_STOPS[2].hex);
+    expect(result.colour).toBe(STOPS_VERDICT[2].hex);
   });
 
   it('returns — and grey when no data at all', () => {
@@ -448,9 +448,9 @@ describe('markerLabelAndColour', () => {
   it('clamps an out-of-range rating to the ramp\'s ends rather than falling back to grey', () => {
     // rampHex is defined on the continuum and clamps at both ends — there is no longer a five-key
     // table that can answer "undefined" for a value outside 1-5.
-    expect(markerLabelAndColour(99, null, null, false).colour).toBe(RAMP_STOPS[4].hex);
-    expect(markerLabelAndColour(0, null, null, false).colour).toBe(RAMP_STOPS[0].hex);
-    expect(markerLabelAndColour(-5, null, null, false).colour).toBe(RAMP_STOPS[0].hex);
+    expect(markerLabelAndColour(99, null, null, false).colour).toBe(STOPS_VERDICT[4].hex);
+    expect(markerLabelAndColour(0, null, null, false).colour).toBe(STOPS_VERDICT[0].hex);
+    expect(markerLabelAndColour(-5, null, null, false).colour).toBe(STOPS_VERDICT[0].hex);
   });
 });
 

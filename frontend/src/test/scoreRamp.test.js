@@ -1,5 +1,9 @@
-import { describe, it, expect } from 'vitest';
-import { RAMP_STOPS, RAMP_MIN, RAMP_MAX, rampRgb, rampHex, rgb } from '../utils/scoreRamp.js';
+import {
+  describe, it, expect, afterEach,
+} from 'vitest';
+import {
+  STOPS_VERDICT, RAMP_MIN, RAMP_MAX, rampRgb, rampHex, rgb, setMode, getMode, scoreFromPercent,
+} from '../utils/scoreRamp.js';
 
 /**
  * The ramp is the single source of the v2 colour language — the canvas kernel reads the triples,
@@ -9,10 +13,16 @@ import { RAMP_STOPS, RAMP_MIN, RAMP_MAX, rampRgb, rampHex, rgb } from '../utils/
  * still produce plausible colours).
  */
 describe('scoreRamp', () => {
+  // MODE is module state, not a per-test fixture — a test that calls setMode('temp') and forgets
+  // to undo it would leak into every test that runs after it, in this file or another.
+  afterEach(() => {
+    setMode('verdict');
+  });
+
   describe('the five stops', () => {
     it('is the design\'s verdict-anchored palette, in ascending score order', () => {
-      expect(RAMP_STOPS.map((s) => s.score)).toEqual([1, 2, 3, 4, 5]);
-      expect(RAMP_STOPS.map((s) => s.hex)).toEqual([
+      expect(STOPS_VERDICT.map((s) => s.score)).toEqual([1, 2, 3, 4, 5]);
+      expect(STOPS_VERDICT.map((s) => s.hex)).toEqual([
         '#B03A2A',
         '#C8452F', // --color-verdict-standdown
         '#E0A542', // --color-verdict-marginal
@@ -35,7 +45,7 @@ describe('scoreRamp', () => {
     });
 
     it('derives the same colours as hex, so the canvas and the DOM cannot disagree', () => {
-      RAMP_STOPS.forEach((stop) => {
+      STOPS_VERDICT.forEach((stop) => {
         expect(rampHex(stop.score)).toBe(stop.hex);
       });
     });
@@ -155,6 +165,71 @@ describe('scoreRamp', () => {
         expect(rampHex(score)).toMatch(/^#[0-9A-F]{6}$/);
       });
       expect(rampHex(1)).toHaveLength(7);
+    });
+  });
+
+  describe('mode', () => {
+    it('defaults to verdict', () => {
+      expect(getMode()).toBe('verdict');
+    });
+
+    it('every whole star returns today\'s colour in the default mode — the zero-visual-change proof', () => {
+      expect(rampHex(1)).toBe('#B03A2A');
+      expect(rampHex(2)).toBe('#C8452F');
+      expect(rampHex(3)).toBe('#E0A542');
+      expect(rampHex(4)).toBe('#B0BE74');
+      expect(rampHex(5)).toBe('#8AAE72');
+    });
+
+    it('switches to the temperature ramp, whose 2★ and 4★ are interpolated rather than stops', () => {
+      setMode('temp');
+      expect(getMode()).toBe('temp');
+      // 2★ falls between the 1 and 2.2 stops, and 4★ between the 3.9 and 4.3 stops — neither is a
+      // stop in its own right, which is exactly what pins the uneven spacing: a regularised ramp
+      // would put a stop at 2 and 4 and these values would not move under interpolation error.
+      expect(rampHex(1)).toBe('#3A5C70');
+      expect(rampHex(2)).toBe('#4C6677');
+      expect(rampHex(3)).toBe('#C49440');
+      expect(rampHex(4)).toBe('#DD5F29');
+      expect(rampHex(5)).toBe('#F26034');
+    });
+
+    it('falls back to verdict for an unrecognised mode string, rather than selecting temp by accident', () => {
+      setMode('temp');
+      setMode('bogus');
+      expect(getMode()).toBe('verdict');
+      expect(rampHex(1)).toBe('#B03A2A');
+    });
+
+    it('clamps outside 1–5 in temp mode the same way verdict does', () => {
+      setMode('temp');
+      expect(rampHex(0)).toBe('#3A5C70');
+      expect(rampHex(-4)).toBe('#3A5C70');
+      expect(rampHex(6)).toBe('#F26034');
+      expect(rampHex(99)).toBe('#F26034');
+    });
+
+    it('sends a non-finite score to the bottom of the ramp in temp mode too', () => {
+      setMode('temp');
+      [NaN, undefined, Infinity, -Infinity, 'abc', {}, []].forEach((bad) => {
+        expect(rampHex(bad)).toBe('#3A5C70');
+      });
+    });
+  });
+
+  describe('scoreFromPercent', () => {
+    it('maps lo to 1 and hi to 5, as numbers rather than colours', () => {
+      expect(scoreFromPercent(10, 10, 90)).toBe(1);
+      expect(scoreFromPercent(90, 10, 90)).toBe(5);
+    });
+
+    it('clamps beyond both ends of the domain', () => {
+      expect(scoreFromPercent(0, 10, 90)).toBe(1);
+      expect(scoreFromPercent(100, 10, 90)).toBe(5);
+    });
+
+    it('maps the midpoint to the middle of the score range', () => {
+      expect(scoreFromPercent(50, 10, 90)).toBe(3);
     });
   });
 });

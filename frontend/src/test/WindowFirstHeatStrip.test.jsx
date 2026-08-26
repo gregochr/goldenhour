@@ -7,7 +7,7 @@ import WindowFirstHeatStrip, {
 import { aspect, BBOX, bbox, drawGeo, land, load } from '../utils/heatField.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { GLANCE_MINUTES } from '../utils/planningArea.js';
-import { RAMP_STOPS } from '../utils/scoreRamp.js';
+import { STOPS_VERDICT } from '../utils/scoreRamp.js';
 
 /**
  * The Plan pane's heat strip — six solar-window thumbnails, replacing the day rail (plan D1, §1.1).
@@ -1396,7 +1396,7 @@ describe('WindowFirstHeatStrip — the legend', () => {
     await renderStrip();
 
     const painted = screen.getByTestId('wf-heat-legbar').style.background;
-    RAMP_STOPS.forEach((stop) => {
+    STOPS_VERDICT.forEach((stop) => {
       const [r, g, b] = [1, 3, 5].map((i) => parseInt(stop.hex.slice(i, i + 2), 16));
       expect(painted).toContain(`rgb(${r}, ${g}, ${b})`);
     });
