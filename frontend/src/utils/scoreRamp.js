@@ -17,8 +17,11 @@
  * hot orange-red — and a module-level {@link setMode}/{@link getMode} switch between them. The
  * switch lives here, not per-consumer, so the field, the markers and the map legend can never
  * disagree about what a colour means (`docs/engineering/heat-scale-unification-plan.md`, rule 1).
- * {@link getMode} defaults to `'verdict'`, so nothing downstream repaints until a later stage
- * flips it.
+ * {@link getMode}'s own bootstrap value is still `'verdict'` (see {@link MODE}'s doc); the reader
+ * who has never chosen gets the temperature scale because `App.jsx` resolves that through
+ * {@link resolveMode} and calls {@link setMode} once settings load, not because this module
+ * defaults there itself. {@link resolveMode} is how a caller reading a stored preference tells
+ * "never chosen" apart from an explicit `'verdict'`.
  *
  * <p>This is the map's only SCORE colour language now. It once stood beside a separate five-bucket
  * table ({@code markerUtils.RATING_COLOURS}) that belonged to v1, the pilot's frozen comparison
@@ -114,12 +117,33 @@ function clamp(v, a, b) {
  * Which stop list {@link rampRgb}/{@link rampHex} read. Module state rather than a parameter, so
  * every caller across the app — the field, the markers, the map legend — shares one answer to
  * "what does this colour mean" without threading a mode through every call site.
+ *
+ * <p>Still initialised to the literal `'verdict'`, deliberately NOT {@link DEFAULT_MODE} — this is
+ * the module's raw, pre-any-settings bootstrap value, alive only for the one render before
+ * `App.jsx`'s settings fetch resolves and calls `setMode(resolveMode(...))`. Chasing it onto
+ * {@link DEFAULT_MODE} would mean every consumer that renders `MapView`/the ramp without going
+ * through that real wiring — which is most of this project's test suite — silently starts painting
+ * from the temperature ramp instead of the verdict one it was written and pinned against. The one
+ * user-visible cost is a same-render flash before the fetch lands, which existed before Stage 7 too
+ * (the bootstrap value has never matched a stored `'temp'` choice on first paint either).
  */
 let MODE = 'verdict';
 
 /**
+ * The default mode for a reader who has never explicitly chosen one — Stage 7's flip target,
+ * returned by {@link resolveMode} for a `null`/`undefined` stored preference. NOT the module's own
+ * bootstrap value (see {@link MODE}) — the flip is delivered by `App.jsx`/`UserSettingsModal.jsx`
+ * calling `setMode(resolveMode(stored))` once settings load, not by this module defaulting to it.
+ */
+export const DEFAULT_MODE = 'temp';
+
+/**
  * Switches the active ramp. Anything other than `'temp'` selects `'verdict'` — an unrecognised
- * value must never silently select the not-yet-shipped ramp.
+ * value must never silently select the ramp a caller did not ask for.
+ *
+ * <p>This is the low-level setter only. It has no notion of "never chosen" — that distinction is
+ * {@link resolveMode}'s job, and callers reading a stored preference should go through that first
+ * (`setMode(resolveMode(stored))`), not hand a possibly-null value straight to this guard.
  *
  * @param {string} m `'temp'` or `'verdict'`
  */
@@ -130,6 +154,31 @@ export function setMode(m) {
 /** @returns {string} the active mode, `'temp'` or `'verdict'` */
 export function getMode() {
   return MODE;
+}
+
+/**
+ * Resolves a STORED preference (`UserSettingsResponse.mapColourScale`, or the modal's own copy of
+ * it) to a mode, distinguishing "never chosen" from "chose something this build cannot read" —
+ * the distinction V147 stores the column nullable-with-no-DEFAULT to preserve, and that `setMode`'s
+ * single fallback branch cannot make on its own (Stage 5a's guard collapses both into `'verdict'`).
+ *
+ * <ul>
+ *   <li>`null`/`undefined` — never chosen — resolves to {@link DEFAULT_MODE}, the new default.</li>
+ *   <li>`'temp'` or `'verdict'` — an explicit choice — resolves to itself, unchanged.</li>
+ *   <li>anything else — a corrupt or unrecognised value — resolves to `'verdict'`, <b>not</b> to
+ *     {@link DEFAULT_MODE}. A non-null value that fails to parse is evidence of a bug somewhere
+ *     upstream, not evidence of "no preference" — and defaulting the case this build cannot
+ *     interpret to the newer, less-familiar ramp is the direction that could quietly surprise a
+ *     reader who once made a real, valid choice. Falling back to `'verdict'`, the ramp every
+ *     existing reader has already been seeing, is the safer read of data that cannot be trusted.</li>
+ * </ul>
+ *
+ * @param {string|null|undefined} stored the raw `mapColourScale` value from settings
+ * @returns {'temp'|'verdict'}
+ */
+export function resolveMode(stored) {
+  if (stored == null) return DEFAULT_MODE;
+  return stored === 'temp' || stored === 'verdict' ? stored : 'verdict';
 }
 
 /**

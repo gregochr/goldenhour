@@ -4,6 +4,7 @@ import Modal from './shared/Modal';
 import {
   getSettings, lookupPostcode, saveHome, refreshDriveTimes, saveMapColourPreferences,
 } from '../api/settingsApi';
+import { resolveMode } from '../utils/scoreRamp.js';
 import { formatRelativeAge } from '../utils/relativeTime.js';
 
 const ROLE_LABELS = {
@@ -39,10 +40,12 @@ export default function UserSettingsModal({
   const [radiusSaving, setRadiusSaving] = useState(false);
   const [radiusError, setRadiusError] = useState(false);
   const [radiusChosen, setRadiusChosen] = useState(false);
-  // 'verdict' until settings load — the server-side default while never chosen. Not read from a
-  // constant here the way the radius fallback is: scoreRamp.js's own setMode already treats
-  // anything but 'temp' as 'verdict', so this display default just mirrors that module's contract.
-  const [mapColourScale, setMapColourScale] = useState('verdict');
+  // `resolveMode(undefined)` — i.e. `DEFAULT_MODE` — until settings load, for the same reason
+  // `App.jsx`'s `mapColourScale` state seeds from `getMode()`: before the fetch resolves, "not
+  // loaded yet" and "loaded and genuinely never chosen" read the same way, and both now mean
+  // `'temp'`. Calling through `resolveMode` rather than hardcoding the literal is what keeps this
+  // radio and the map it sits beside from ever being seeded to two different defaults again.
+  const [mapColourScale, setMapColourScale] = useState(() => resolveMode(undefined));
   const [colourSaving, setColourSaving] = useState(false);
   const [colourError, setColourError] = useState(false);
   const [lookupResult, setLookupResult] = useState(null);
@@ -71,7 +74,7 @@ export default function UserSettingsModal({
       // converting "never chosen" into "chose 22" and overriding the server-side default for a
       // user who never touched the slider.
       setRadiusChosen(data.localRadiusMiles != null);
-      setMapColourScale(data.mapColourScale === 'temp' ? 'temp' : 'verdict');
+      setMapColourScale(resolveMode(data.mapColourScale));
       if (data.driveTimesCalculatedAt && data.homePostcode) {
         setDriveTimesPostcode(data.homePostcode);
       }

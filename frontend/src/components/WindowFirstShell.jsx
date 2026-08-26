@@ -283,7 +283,7 @@ const panelDomId = (id) => `window-first-panel-${id}`;
 export default function WindowFirstShell({
   onOpenSettings, onSignOut, contentDisabled, onShowOnMap, onEvaluationScoresChange,
   onSeasonalFeaturesChange, locations, mapPane, operationsPane, tabRequest, healthPill,
-  light, onSetPostcode,
+  light, onSetPostcode, mapColourScale = null,
 }) {
   const {
     heatStripCards, heatPointSets, heatSpots, reachById, regionSeries,
@@ -1284,6 +1284,7 @@ export default function WindowFirstShell({
             goes at M2. Inside the greyed region, because it is forecast content. */}
         <Suspense fallback={null}>
           <WindowFirstHeatStrip
+            colourMode={mapColourScale}
             cards={heatStripCards}
             pointSets={heatPointSets}
             spots={heatSpots}
@@ -1621,6 +1622,8 @@ export default function WindowFirstShell({
 }
 
 WindowFirstShell.propTypes = {
+  /** The active scoreRamp mode, forwarded to the heat strip as its paint-repaint key. */
+  mapColourScale: PropTypes.oneOf(['temp', 'verdict']),
   onOpenSettings: PropTypes.func.isRequired,
   onSignOut: PropTypes.func.isRequired,
   contentDisabled: PropTypes.bool,

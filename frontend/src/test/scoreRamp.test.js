@@ -1,12 +1,12 @@
 import {
-  describe, it, expect, afterEach,
+  describe, it, expect, afterEach, vi,
 } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, URL as NodeURL } from 'node:url';
 import {
-  STOPS_VERDICT, RAMP_MIN, RAMP_MAX, rampRgb, rampHex, rgb, setMode, getMode,
-  rampGradientCss, ANCHORS, starFromScore,
+  STOPS_VERDICT, RAMP_MIN, RAMP_MAX, rampRgb, rampHex, rgb, setMode, getMode, resolveMode,
+  DEFAULT_MODE, rampGradientCss, ANCHORS, starFromScore,
 } from '../utils/scoreRamp.js';
 
 /**
@@ -74,7 +74,10 @@ describe('scoreFromPercent is fully deleted', () => {
 
 describe('scoreRamp', () => {
   // MODE is module state, not a per-test fixture — a test that calls setMode('temp') and forgets
-  // to undo it would leak into every test that runs after it, in this file or another.
+  // to undo it would leak into every test that runs after it, in this file or another. 'verdict'
+  // is chosen as the reset target because most tests below assert against STOPS_VERDICT's
+  // literals, NOT because it is still the module's own default — Stage 7 flipped that to
+  // DEFAULT_MODE ('temp'). See the 'mode' describe block for the module's actual bootstrap value.
   afterEach(() => {
     setMode('verdict');
   });
@@ -229,6 +232,22 @@ describe('scoreRamp', () => {
   });
 
   describe('mode', () => {
+    it('a freshly imported module still bootstraps to verdict, deliberately not to DEFAULT_MODE', async () => {
+      // A freshly imported module, not this file's shared instance — every other test here runs
+      // after the suite's `afterEach` has already forced MODE to 'verdict' at least once, so
+      // reading `getMode()` mid-suite would pass regardless of what the module actually bootstraps
+      // to. `vi.resetModules()` is what makes this genuinely fresh state rather than the file's
+      // own. Stage 7's flip is delivered by `App.jsx` calling `setMode(resolveMode(stored))` once
+      // settings load — NOT by this module defaulting to `DEFAULT_MODE` itself, which would repaint
+      // every consumer that renders the ramp without going through that wiring (most of this
+      // project's test suite) from the temperature ramp instead of the verdict one it was written
+      // and pinned against.
+      vi.resetModules();
+      const fresh = await import('../utils/scoreRamp.js');
+      expect(fresh.getMode()).toBe('verdict');
+      expect(fresh.DEFAULT_MODE).toBe('temp');
+    });
+
     it('defaults to verdict', () => {
       expect(getMode()).toBe('verdict');
     });
@@ -274,6 +293,30 @@ describe('scoreRamp', () => {
       [NaN, undefined, Infinity, -Infinity, 'abc', {}, []].forEach((bad) => {
         expect(rampHex(bad)).toBe('#3A5C70');
       });
+    });
+  });
+
+  describe('resolveMode', () => {
+    // The Stage 7 trap: "never chosen" (null) and "chose something this build cannot read" (any
+    // other unrecognised value) must NOT collapse onto the same answer, even though `setMode`'s
+    // own single-fallback guard treats them identically.
+    it('resolves null (never chosen) to DEFAULT_MODE, the new default', () => {
+      expect(resolveMode(null)).toBe(DEFAULT_MODE);
+      expect(resolveMode(undefined)).toBe(DEFAULT_MODE);
+    });
+
+    it('resolves an explicit \'verdict\' to itself, unchanged by the flip', () => {
+      expect(resolveMode('verdict')).toBe('verdict');
+    });
+
+    it('resolves an explicit \'temp\' to itself', () => {
+      expect(resolveMode('temp')).toBe('temp');
+    });
+
+    it('resolves an unrecognised non-null value to verdict, NOT to DEFAULT_MODE', () => {
+      expect(resolveMode('bogus')).toBe('verdict');
+      expect(resolveMode('')).toBe('verdict');
+      expect(resolveMode('TEMP')).toBe('verdict');
     });
   });
 

@@ -92,13 +92,16 @@ const FRAME_PAD_DEG = 0.12;
  * @param {'temp'|'verdict'} [props.mapColourScale] the active scoreRamp mode, forwarded to
  *                                         `MapView` so a live switch reaches this pane's
  *                                         never-unmounted instance
+ * @param {boolean}  [props.colourScaleDefaulted] whether the loaded colour preference was never
+ *                                         explicitly chosen — forwarded to `MapView`'s one-time
+ *                                         "colours changed" notice
  * @param {Function} [props.onOpenSettings]
  */
 export default function WindowFirstMapPane({
   locations, dates, selectedDate, onSelectDate, handoff = null, autoEventType = null,
   briefingScores = new Map(),
   onForecastRun = null, seasonalFeatures = [], homeCoords = null, homeRadiusMiles = null,
-  mapColourScale = null, onOpenSettings = null,
+  mapColourScale = null, colourScaleDefaulted = false, onOpenSettings = null,
 }) {
   const wrapRef = useRef(null);
   const [resizeNonce, setResizeNonce] = useState(0);
@@ -225,6 +228,7 @@ export default function WindowFirstMapPane({
         homeCoords={homeCoords}
         homeRadiusMiles={homeRadiusMiles}
         mapColourScale={mapColourScale}
+        colourScaleDefaulted={colourScaleDefaulted}
         onOpenSettings={onOpenSettings}
         resizeNonce={resizeNonce}
         heat={heat}
@@ -253,5 +257,7 @@ WindowFirstMapPane.propTypes = {
   homeRadiusMiles: PropTypes.number,
   /** The active `scoreRamp` mode — forwarded to `MapView` so its `React.memo` sees a live switch. */
   mapColourScale: PropTypes.oneOf(['temp', 'verdict']),
+  /** Whether the colour preference was never explicitly chosen — forwarded to `MapView`'s notice. */
+  colourScaleDefaulted: PropTypes.bool,
   onOpenSettings: PropTypes.func,
 };

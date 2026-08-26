@@ -265,8 +265,10 @@ describe('App — panes handed to WindowFirstShell', () => {
 
 describe('App — wires the loaded map colour preference into scoreRamp', () => {
   afterEach(() => {
-    // The spy is a passthrough on the real singleton module — restore its module-level MODE so
-    // this test cannot leak a 'temp' ramp into any other file running in the same process.
+    // The spy is a passthrough on the real singleton module — restore its module-level MODE to
+    // its own raw bootstrap value ('verdict', deliberately NOT `DEFAULT_MODE` — see scoreRamp.js's
+    // own comment on `MODE`) so this test cannot leak a switched ramp into any other file running
+    // in the same process.
     scoreRamp.setMode('verdict');
   });
 
@@ -280,8 +282,29 @@ describe('App — wires the loaded map colour preference into scoreRamp', () => 
     expect(scoreRamp.getMode()).toBe('temp');
   });
 
-  it('a never-chosen preference resolves to verdict, not a silent temp switch', async () => {
+  it('an explicit \'verdict\' preference reaches setMode and is not swept up in the flip', async () => {
+    getSettings.mockResolvedValue({ mapColourScale: 'verdict' });
+    const setModeSpy = vi.spyOn(scoreRamp, 'setMode');
+    renderApp();
+
+    await screen.findByTestId('window-first-pane-empty');
+    await waitFor(() => expect(setModeSpy).toHaveBeenCalledWith('verdict'));
+    expect(scoreRamp.getMode()).toBe('verdict');
+  });
+
+  // Stage 7: flipped from Stage 6's 'a never-chosen preference resolves to verdict' now that the
+  // default has actually flipped — a reader who has never chosen gets the temperature scale.
+  it('a never-chosen preference resolves to temp, the new default', async () => {
     getSettings.mockResolvedValue({ mapColourScale: null });
+    renderApp();
+
+    await screen.findByTestId('window-first-pane-empty');
+    await waitFor(() => expect(getSettings).toHaveBeenCalled());
+    expect(scoreRamp.getMode()).toBe('temp');
+  });
+
+  it('an unrecognised stored value resolves to verdict, not silently to the new default', async () => {
+    getSettings.mockResolvedValue({ mapColourScale: 'garbled' });
     renderApp();
 
     await screen.findByTestId('window-first-pane-empty');
