@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — two comments left dangling by the tint removal
+
+`#648` deleted `NUMBER_TINT_FLOOR` but two comments still cited it, and one of them documented an
+export that no longer exists.
+
+`windowFirstSpots.js`'s `contrast()` doc said it was *exported* so a test could recompute an AA
+claim about `ScoreBar`'s tint. Both halves are now false — the tint and its test are gone, and the
+function was made private in the same PR — so the comment explained a public API to a reader
+looking at a private one. It now records why it is private and what would justify exporting it
+again.
+
+`index.css`'s row-dim rule said the score number "is tinted from the ramp, floored at 2.8★
+specifically so it clears 4.5:1 once THIS rule dims it". The number carries a text token now. More
+usefully, the note is inverted into the warning that matters: **do not re-tint it from the ramp**,
+because this rule's 0.8 opacity is precisely what a ramp-derived tint cannot survive — a fill
+ramp's hot end has no headroom for dimming, which is why the tint was removed.
+
 ### Removed — the score number's tint (Stage 7 prerequisite)
 
 Implements the decision recorded below: `NUMBER_TINT_FLOOR`, the tint derivation and the
