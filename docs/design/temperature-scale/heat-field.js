@@ -21,10 +21,16 @@ const STOPS_VERDICT=[[1,[176,58,42]],[2,[200,69,47]],[3,[224,165,66]],[4,[176,19
    the crossover at 3, so a 2.5 night reads cold and a 4.6 night reads hot.
    The 2.2 stop is held dark on purpose, and it helps twice: a cold night reads cold, and the
    app's white marker ink clears 4.5:1 against a dark fill. Do not lighten it toward mid-tone —
-   mid-luminance is where neither #0F172A nor #FFFFFF passes. The worst stop on that count is
-   4.3 (#D63A26): dark ink reaches 3.82:1, white only 4.67:1. It is safe only because every
-   label-bearing surface samples at whole stars; if one ever goes continuous, fix 4.3 first. */
-const STOPS_TEMP=[[1,[58,92,112]],[2.2,[80,104,120]],[2.8,[146,140,128]],[3,[196,148,64]],[3.2,[201,146,48]],[3.9,[223,107,42]],[4.3,[214,58,38]],[5,[242,96,52]]];
+   mid-luminance is where neither #0F172A nor #FFFFFF passes.
+
+   The hot leg is MONOTONIC in luminance on purpose: 0.264 at 3.9, 0.203 at 4.3, 0.139 at 5.
+   It used to dip to 0.175 at 4.3 and recover to 0.275 at 5, which made 4.3 read hotter than
+   the stop above it. Keep it descending. 5 is the deepest, most saturated red rather than the
+   brightest: gold at 3 is already the ramp's brightest point, so a bright top end would give a
+   middling night and a great one the same visual weight. Interior values between 3.9 and 5 sit
+   in the dead zone where neither ink passes, which is safe only because label-bearing surfaces
+   sample at whole stars — 4 and 5 themselves clear 4.5:1 (4.84:1 and 5.56:1). */
+const STOPS_TEMP=[[1,[58,92,112]],[2.2,[80,104,120]],[2.8,[146,140,128]],[3,[196,148,64]],[3.2,[201,146,48]],[3.9,[223,107,42]],[4.3,[222,72,38]],[5,[200,40,32]]];
 let MODE='temp';
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 function rampOn(STOPS,s){s=clamp(s,1,5);
@@ -187,6 +193,31 @@ const HF={
    Fiery Sky and Golden Hour scores do not use the ends. Measure, then set lo/hi. */
 HF.rampPct=(v,lo,hi)=>{lo=lo==null?0:lo;hi=hi==null?100:hi;
  return ramp(1+clamp((v-lo)/(hi-lo),0,1)*4)};
+
+/* Piecewise raw-to-star for the 0-100 metrics. Both are BIMODAL — measured over 19,832
+   cached evaluations: fiery peaks at 10-19 and again at 70-79, golden at 20-29 and 70-79,
+   both trough at 50-59. No two-point linear map can spread a bimodal population, so lo/hi
+   is out; these tables replace it.
+
+   The anchors are FROZEN CONSTANTS, not a running calibration. They were derived from one
+   measurement and then fixed, exactly like STOPS_TEMP's uneven spacing — which was also
+   derived from measured regional means and is never re-measured per week. Re-measure only
+   to check the physics has not moved; do not re-anchor per season. Re-anchoring would make
+   the colour relative to the population, and a 3.0 must look like a 3.0 in every week.
+
+   Spacing is deliberately NOT even-occupancy. 70% of fiery readings are below 30 and all of
+   them mean the same thing — don't bother — so they get 1.3 stars between them. The top
+   third of the range holds ~15% of readings and every decision worth making, so it gets 1.8.
+   Colour is spent where the decision is, not where the readings pile up. */
+const ANCHORS={
+ fiery:[[0,1],[20,1.9],[35,2.4],[50,2.8],[60,3.2],[72,4],[85,4.7],[100,5]],
+ golden:[[0,1],[25,1.9],[40,2.4],[55,3],[70,3.8],[85,4.6],[100,5]]};
+HF.ANCHORS=ANCHORS;
+HF.starFromScore=(v,metric)=>{const A=ANCHORS[metric]||ANCHORS.fiery;v=clamp(v,0,100);
+ for(let i=0;i<A.length-1;i++){const[x0,y0]=A[i],[x1,y1]=A[i+1];
+  if(v<=x1)return y0+(y1-y0)*((v-x0)/(x1-x0))}
+ return 5};
+HF.rampScore=(v,metric)=>ramp(HF.starFromScore(v,metric));
 HF.STOPS_TEMP=STOPS_TEMP;HF.STOPS_VERDICT=STOPS_VERDICT;HF.rampOn=rampOn;
 HF.setMode=m=>{MODE=(m==='verdict'?'verdict':'temp')};
 HF.getMode=()=>MODE;

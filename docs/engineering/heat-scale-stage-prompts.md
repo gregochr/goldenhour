@@ -156,14 +156,28 @@ commit as the work.
 >
 > **The change.**
 >
-> 1. Add to `index.css`, beside the verdict tokens rather than in a new block of their own:
+> 1. **First, correct the two hot stops Stage 1 shipped.** `STOPS_TEMP` in
+>    `frontend/src/utils/scoreRamp.js` carries the pre-revision values; change them:
+>
+>    ```
+>    { score: 4.3, hex: '#D63A26' }  ->  { score: 4.3, hex: '#DE4826' }
+>    { score: 5,   hex: '#F26034' }  ->  { score: 5,   hex: '#C82820' }
+>    ```
+>
+>    The ramp was revised on 2026-08-26 because 4.3★ read hotter than 5★ — luminance ran
+>    0.264 → **0.175** → 0.275, a trough then a recovery. It now descends 0.264 → 0.203 → 0.139.
+>    ⚠️ **Do not brighten `5` past `4.3`.** Gold at 3★ is already the ramp's brightest point, so a
+>    bright top end gives a middling night and a great one the same visual weight; the top is the
+>    ramp's *deepest* colour by design. Stage 1's tests assert the old whole-star colours for temp
+>    mode and will fail — update them to `#3A5C70`, `#4C6677`, `#C49440`, `#DF6229`, `#C82820`.
+> 2. Then add to `index.css`, beside the verdict tokens rather than in a new block of their own:
 >
 >    ```css
 >    --color-heat-1: #3A5C70;
 >    --color-heat-2: #4C6677;
 >    --color-heat-3: #C49440;
->    --color-heat-4: #DD5F29;
->    --color-heat-5: #F26034;
+>    --color-heat-4: #DF6229;
+>    --color-heat-5: #C82820;
 >    ```
 >
 >    These are `STOPS_TEMP` sampled at **whole stars**, for discrete uses; the field itself
@@ -171,11 +185,11 @@ commit as the work.
 >    you will not find `#4C6677` or `#DD5F29` in `STOPS_TEMP`, and that is correct. If you verify
 >    them, verify by calling `rampHex(2)` / `rampHex(4)` with the mode set to `'temp'`, not by
 >    grepping the stop list.
-> 2. Both gradient sites read the **active** stop list rather than `STOPS_VERDICT`. `scoreRamp.js`
+> 3. Both gradient sites read the **active** stop list rather than `STOPS_VERDICT`. `scoreRamp.js`
 >    does not export an "active stops" accessor today — add one there (one line beside `getMode`)
 >    rather than letting each call site branch on `getMode()` itself. Two call sites branching
 >    independently is the same duplication this series exists to remove.
-> 3. The legend's words — `poor → worth it` — **do not change on either scale.** The bar carries
+> 4. The legend's words — `poor → worth it` — **do not change on either scale.** The bar carries
 >    the metaphor; the words carry the meaning.
 >
 > **This stage still changes no pixels** while `MODE` is `'verdict'`: both gradients must render

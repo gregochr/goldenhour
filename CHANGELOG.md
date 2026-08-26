@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — the hot leg is monotonic, and the bimodal potentials get frozen piecewise anchors
+
+Two revisions from Design, both prompted by findings rather than preference.
+
+**The ramp's hot leg had a luminance dip**, spotted by the owner noticing 4.3★ read hotter than
+5★. Not a swap — luminance ran 0.264 → **0.175** → 0.275, a trough and a recovery, so 4.3 genuinely
+was the heaviest colour on the ramp. `4.3` moves `#D63A26` → `#DE4826` and `5` moves `#F26034` →
+`#C82820`, descending 0.264 → 0.203 → 0.139. Two measured side effects, both good: the sub-AA band
+falls from **13.2% in three runs to 10.2% in two** (a ramp that reverses direction crosses the dead
+zone twice), and every whole star now clears comfortably — 7.13, 6.04, 6.51, 5.03, 5.56:1. The
+constraint is recorded beside the stops: **do not brighten `5` past `4.3`**, because gold at 3★ is
+already the brightest point and a bright top end gives a middling night and a great one the same
+visual weight. Tokens `--color-heat-4` and `--color-heat-5` become `#DF6229` and `#C82820`, and
+Stage 2 now corrects the two stops Stage 1 shipped before sampling tokens from them.
+
+**The bimodal distribution is resolved by `ANCHORS` + `starFromScore`**, a frozen piecewise table
+per metric, and Stage 5 is unblocked with no further production data needed. Measured effect: 2.4×
+(fiery) and 1.7× (golden) more resolution in the 60–100 decision zone, and the end of a clamping
+plateau where the linear map rendered 72, 85 and 100 identically. `scoreFromPercent`, shipped in
+Stage 1, is superseded — it has no caller and Stage 5 deletes it.
+
+Two corrections to this plan's own earlier reasoning are recorded rather than quietly dropped.
+It scored candidate mappings against an **even-occupancy target**, which was a self-invented proxy
+and not the goal — colour belongs where the decision is, not where the readings pile up, so heavy
+concentration in the low bands is intended. And it presented piecewise-versus-linear and
+relative-versus-absolute as one choice, naming periodic re-measuring as the cost of piecewise;
+they are **independent axes**, and freezing the anchors buys the mechanism without that cost.
+
 ### Fixed — the Stage 2 spec named one gradient site when there are two
 
 `docs/engineering/heat-scale-unification-plan.md`'s Stage 2 and the new Stage 2 kickoff prompt now
