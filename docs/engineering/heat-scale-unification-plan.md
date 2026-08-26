@@ -1,6 +1,6 @@
 # One colour scale, everywhere — implementation plan
 
-**Status: planned, not started.** Source of truth for the design intent is the Claude Design
+**Status: SHIPPED — all 8 stages landed.** Source of truth for the design intent is the Claude Design
 handoff, committed alongside this plan at `docs/design/temperature-scale/`
 (`temperature-scale.html` §07 is its change list, `heat-field.js` is the reference kernel,
 `PROMPTS.md` the implementation prompt). This document is the *port*
@@ -663,7 +663,21 @@ memo-bust fixes (asserting on the actual rendered `divIcon` html, not on interna
 Default stays `'verdict'` through this stage. That gives a dogfooding window where the scale can
 be switched on deliberately before it becomes everyone's default.
 
-### Stage 7 — Flip the default, and tell people
+⚠️ **`markersFollowScale` did not survive to `main`.** A second review (Codex, before this branch
+merged) found it persisted and rendered as a checkbox but was consumed by nothing —
+`markerUtils.js` never referenced it, so turning it off did nothing at all. The obvious fix was the
+one thing this series forbids: cross-cutting rule 1 is one `MODE` read from one module so Plan and
+Map can never disagree about what a colour means, and `markersFollowScale = false` means exactly
+that disagreement — field and legend on `temp`, markers on `verdict`, one location painted two ways
+on one screen. Honouring it needs a per-call mode override or a second module-level mode, and both
+break the invariant the whole series exists to establish; §5 question 3 above had already flagged
+the doubt. Owner's call: removed rather than shipped inert. The column (edited in place on V147,
+which had not yet reached `main`), the request/response fields, the checkbox and their tests are
+gone. Every mention of `markersFollowScale` elsewhere in this document, including the two bullets
+above and the table row it is not mentioned in below, describes the state before this removal.
+Markers always follow the scale; there is only ever one preference to resolve.
+
+### Stage 7 — Flip the default, and tell people — SHIPPED
 
 ✅ **DECIDED 2026-08-26 (Design): drop the number tint.** The measurements below stand; what
 changed is that the answer is settled, and on stronger grounds than contrast alone.
@@ -748,6 +762,58 @@ Once that is settled:
 The notice is the only part of this work that reaches the person who was misreading the old map.
 The preference does not — they will never open Settings to discover they were wrong. It is not a
 setting; it is a sentence.
+
+#### What actually shipped
+
+The brief above predates `markersFollowScale`'s removal (see the addendum at the end of Stage 6) —
+there was only ever one preference to flip by the time this landed, so "`markersFollowScale`
+defaults on" never applied.
+
+- `scoreRamp.js` gains `DEFAULT_MODE` (`'temp'`) and `resolveMode(stored)`, which is what Trap 1
+  turned out to require: `null`/`undefined` (never chosen) resolves to `DEFAULT_MODE`; `'temp'` or
+  `'verdict'` (an explicit choice) resolves to itself; anything else (a corrupt or unrecognised
+  stored value) resolves to `'verdict'`, **not** to `DEFAULT_MODE` — collapsing that case onto the
+  new default would be a silent, un-chosen opt-in for exactly the data this build cannot interpret,
+  and `'verdict'` is the ramp every existing reader has already been seeing. `setMode` itself is
+  untouched — it stays the low-level guard Stage 5a wrote, and both real callers now go through
+  `resolveMode` first (`setMode(resolveMode(stored))`) rather than handing it a raw stored value.
+- ⚠️ **`scoreRamp.js`'s own raw bootstrap value (`let MODE = 'verdict'`) is deliberately NOT
+  `DEFAULT_MODE`.** The product-facing flip is delivered entirely by `App.jsx`'s `loadHomeCoords`
+  effect calling `setMode(resolveMode(...))` once the settings fetch resolves — not by the module
+  defaulting to `'temp'` at import. Checked directly rather than assumed: dozens of existing test
+  files render `MapView`/read the ramp without ever calling `setMode`, relying on the raw bootstrap
+  value staying `'verdict'` to match the literals they pin against. Chasing the bootstrap value onto
+  `DEFAULT_MODE` would have repainted every one of them from the verdict palette they were written
+  and reviewed against onto the temperature one — caught by running the full suite before committing
+  to the approach, not by reasoning about it in the abstract. The one user-visible cost of leaving it
+  as `'verdict'` is a same-render flash before the settings fetch lands, which is not new: the
+  bootstrap value never matched a stored `'temp'` choice on first paint either, before or after this
+  stage.
+- Trap 2 (the settings radio disagreeing with the map on load) turned out to be structurally
+  impossible to observe rather than merely fixed: `UserSettingsModal.jsx` gates its whole settings
+  body behind a `loading` flag, so the radios never render before `fetchSettings` resolves — there is
+  no pre-load DOM state for a stale hardcoded default to leak into. Seeded from `resolveMode(undefined)`
+  anyway, so the seed and the fetch-driven value share one function rather than two literals that
+  could drift apart again if the loading gate is ever relaxed.
+- `colourScaleDefaulted` — a new boolean, `true` only when the loaded `mapColourScale` was raw
+  `null` — threads from `App.jsx`'s `loadHomeCoords` (set in the same effect as `setMode`, so the two
+  can never land a render apart) through `WindowFirstMapPane.jsx` into `MapView.jsx`, and directly
+  into the Plan-tab overlay's own `MapView` mount. The notice's condition is
+  `colourScaleDefaulted && getMode() === 'temp' && !dismissed` — checking the live mode independently
+  of the stored-null signal rather than assuming one implies the other, so the notice's own wording
+  ("cold to hot") can never describe a ramp that is not actually live.
+- ⚠️ **Placement found a real bug in review, not just a corner to pick.** The heat toolbar
+  (`.wf-map-toolbar`, top-left, `z-index: 1100`) can run wide enough on an ordinary desktop map width
+  to reach under a naively-placed top-right chip — the toolbar's own `left: 60px` exists for the
+  identical reason (clearing Leaflet's zoom control), which is what made the risk visible on review
+  rather than assumed away. The notice sits at `z-[1200]`, above the toolbar, so a wide toolbar can
+  at most render visually under the notice for the one render it is shown — never block its dismiss
+  button, which is the one thing a one-time notice cannot afford to lose.
+- Dismissal persists through the map's existing fail-soft `readMapFilter`/`writeMapFilter`
+  localStorage helpers — the same shape every other map filter already uses, so a storage-denied
+  browser degrades to "shows every visit" rather than crashing, without new code to guard it.
+
+**The series is complete.** Stages 1 through 8 have all landed.
 
 ---
 

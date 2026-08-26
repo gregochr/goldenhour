@@ -26,6 +26,9 @@ import { LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel, SKY_SUBJECT_TYPES
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
 import { rampHex, rampGradientCss, getMode } from '../utils/scoreRamp.js';
 
+/** localStorage key for the "colours changed" notice's one-time dismissal. */
+const COLOUR_SCALE_NOTICE_DISMISSED_KEY = 'colourScaleNoticeDismissed';
+
 /**
  * The map's own localStorage filter keys, read/written fail-soft — a storage-denied browser
  * (Safari "Block all cookies", an enterprise site-data policy) throws `SecurityError` on bare
@@ -779,7 +782,7 @@ const OVERLAY_MAP_HEIGHT_PX = 470;
 const OVERLAY_MAP_HEIGHT_FILTERS_OPEN_PX = 300;
 const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
 
-function MapView({ locations, date, onSelectDate = null, autoEventType, handoffEventType, handoffFilterAction, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null }) {
+function MapView({ locations, date, onSelectDate = null, autoEventType, handoffEventType, handoffFilterAction, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -790,6 +793,10 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
   // colour read (`rampHex`, and `getMode()` in `makeMarkerIcon`'s cache key) goes straight to
   // `scoreRamp`'s live module state, the one place that can never disagree with what gets painted.
   // A prop-derived value used for that instead could lag the real mode by a render.
+  // Also forwarded to `MapHeatLayer` as its paint-dependency key — the heat BITMAP is memoised
+  // on data that does not change when only the preference does, so without it the canvas keeps
+  // the old ramp while the markers around it repaint. Neither use reads the value for colour:
+  // every colour read goes to `scoreRamp`'s live module state.
   void mapColourScale;
   const { role } = useAuth();
   const isMobile = useIsMobile();
@@ -885,6 +892,26 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
   const [viewlineUpsellDismissed, setViewlineUpsellDismissed] = useState(false);
   const showViewlineUpsell = role === 'LITE_USER' && !viewlineUpsellDismissed
     && auroraStatus != null && ALERT_WORTHY_LEVELS.has(auroraStatus.level);
+  // The Stage 7 flip's one-time "colours changed" notice. Persisted (not session-only, unlike the
+  // viewline chip above): the reader who needs telling is exactly the one who will never open
+  // Settings to find out, so this has to survive across visits until they have actually seen it
+  // once. `readMapFilter`/`writeMapFilter` are the map's existing fail-soft localStorage helpers —
+  // a storage-denied browser must not crash on this any more than it may on the filter state they
+  // already guard, several of which are read inside a `useState` initializer exactly like this one.
+  const [colourScaleNoticeDismissed, setColourScaleNoticeDismissed] = useState(
+    () => readMapFilter(COLOUR_SCALE_NOTICE_DISMISSED_KEY) === '1',
+  );
+  const dismissColourScaleNotice = () => {
+    setColourScaleNoticeDismissed(true);
+    writeMapFilter(COLOUR_SCALE_NOTICE_DISMISSED_KEY, '1');
+  };
+  // `colourScaleDefaulted` alone is not quite enough: it says the STORED preference was null, but
+  // the notice's own words ("cold to hot") only make sense while the live ramp is actually temp.
+  // Cheap and correct to check both rather than assume the one implies the other forever — if
+  // `DEFAULT_MODE` ever stops being `'temp'`, a defaulted reader would otherwise still get a
+  // notice describing a ramp they are not looking at.
+  const showColourScaleNotice = colourScaleDefaulted && getMode() === 'temp'
+    && !colourScaleNoticeDismissed;
   const { viewline } = useAuroraViewline(viewlineEnabled, auroraStatus?.triggerType);
   const [auroraScores, setAuroraScores] = useState({});
   const [storedAuroraResults, setStoredAuroraResults] = useState({}); // locationName → result
@@ -1848,6 +1875,7 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
                less than the map already does. */
             <Suspense fallback={null}>
               <MapHeatLayer
+                colourMode={mapColourScale}
                 points={heatPoints}
                 conf={heatWindow?.conf ?? null}
                 markersLocked={selectedLocationName != null}
@@ -2165,6 +2193,39 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
           </div>
         )}
 
+        {/* Stage 7's one-time notice: the only part of the colour-scale flip that reaches a reader
+            who was misreading the old map — the preference itself does not, because they will
+            never open Settings to discover they were wrong. Top-right, the one corner of this map
+            nothing else claims: bottom-left is the viewline chip below, bottom-centre the scored
+            legend further down, bottom-right Leaflet's own attribution, and top-left the zoom
+            control (plus the heat toolbar, in heat view).
+
+            ⚠️ z-[1200], ABOVE `.wf-map-toolbar`'s 1100 (index.css), deliberately. That toolbar is
+            `left: 60px` with `max-width: calc(100% - 68px)` and can genuinely run wide enough on an
+            ordinary (non-mobile) map width to reach under this corner — the toolbar's own comment
+            explains why IT needs to clear Leaflet's zoom control the same way. Sitting below it
+            would let the toolbar paint over this chip's DISMISS button, which is the one thing this
+            notice does — a one-time message the reader cannot act on is worse than a briefly
+            crowded corner. */}
+        {showColourScaleNotice && (
+          <div
+            data-testid="colour-scale-notice"
+            className="absolute top-2 right-2 z-[1200] bg-plex-surface/80 backdrop-blur-sm
+              text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30 flex items-center gap-2"
+            style={{ fontSize: '11px' }}
+          >
+            Colours now run cold to hot.
+            <button
+              data-testid="colour-scale-notice-dismiss"
+              onClick={dismissColourScaleNotice}
+              className="text-plex-text-muted hover:text-plex-text transition-colors"
+              aria-label="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* Aurora viewline upsell chip for LITE users */}
         {showViewlineUpsell && (
           <div
@@ -2338,6 +2399,13 @@ MapView.propTypes = {
    * live state (`rampHex`, `getMode()`), never from this prop.
    */
   mapColourScale: PropTypes.oneOf(['temp', 'verdict']),
+  /**
+   * Whether the loaded `mapColourScale` preference was never explicitly chosen — the signal the
+   * one-time "colours changed" notice needs to tell a defaulted reader apart from one who picked
+   * either scale on purpose. `false` (the safe, no-notice default) until the caller's own settings
+   * fetch resolves.
+   */
+  colourScaleDefaulted: PropTypes.bool,
 };
 
 export default React.memo(MapView);

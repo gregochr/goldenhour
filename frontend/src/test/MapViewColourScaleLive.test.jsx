@@ -21,7 +21,7 @@
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import { setMode, getMode } from '../utils/scoreRamp.js';
 
 const divIconCalls = [];
@@ -172,5 +172,134 @@ describe('MapView repaints when the live colour scale changes', () => {
     expect(verdictIcon).toBeTruthy();
     expect(verdictIcon.html).not.toEqual(tempIcon.html);
     expect(getMode()).toBe('verdict');
+  });
+});
+
+/**
+ * Stage 7's one-time "colours changed" notice — the only part of the default flip that reaches a
+ * reader who was misreading the old map (heat-scale-unification-plan.md, Stage 7). It needs BOTH
+ * signals true to show: the stored preference was never chosen (`colourScaleDefaulted`) AND the
+ * live ramp is actually temp (`getMode()`) — see `MapView`'s own comment on `showColourScaleNotice`
+ * for why the second check exists on top of the first.
+ */
+describe('MapView\'s Stage 7 "colours changed" notice', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('shows when the preference was never chosen and the live ramp is temp', () => {
+    setMode('temp');
+    const name = uniqueName();
+    render(
+      <MapView
+        locations={[makeLocation(name, 54.8)]}
+        date={TODAY}
+        autoEventType={null}
+        colourScaleDefaulted
+      />,
+    );
+    expect(screen.getByTestId('colour-scale-notice')).toBeInTheDocument();
+    expect(screen.getByText('Colours now run cold to hot.')).toBeInTheDocument();
+  });
+
+  it('stays hidden for an explicit choice — colourScaleDefaulted is false', () => {
+    // The reader who explicitly picked verdict or temp is not being told anything changed,
+    // because for them nothing did.
+    setMode('temp');
+    const name = uniqueName();
+    render(
+      <MapView
+        locations={[makeLocation(name, 54.8)]}
+        date={TODAY}
+        autoEventType={null}
+        colourScaleDefaulted={false}
+      />,
+    );
+    expect(screen.queryByTestId('colour-scale-notice')).toBeNull();
+  });
+
+  it('stays hidden while the live ramp is verdict, even if colourScaleDefaulted is true', () => {
+    // Belt-and-braces: `colourScaleDefaulted` always resolves to a live temp ramp today (both come
+    // from the same settings fetch), but the notice's own words only make sense while the ramp
+    // actually IS temp — this pins that the component checks rather than assumes.
+    setMode('verdict');
+    const name = uniqueName();
+    render(
+      <MapView
+        locations={[makeLocation(name, 54.8)]}
+        date={TODAY}
+        autoEventType={null}
+        colourScaleDefaulted
+      />,
+    );
+    expect(screen.queryByTestId('colour-scale-notice')).toBeNull();
+  });
+
+  it('dismissing hides it, persists the dismissal, and a fresh mount stays hidden', () => {
+    setMode('temp');
+    const name = uniqueName();
+    render(
+      <MapView
+        locations={[makeLocation(name, 54.8)]}
+        date={TODAY}
+        autoEventType={null}
+        colourScaleDefaulted
+      />,
+    );
+    fireEvent.click(screen.getByTestId('colour-scale-notice-dismiss'));
+    expect(screen.queryByTestId('colour-scale-notice')).toBeNull();
+    expect(localStorage.getItem('colourScaleNoticeDismissed')).toBe('1');
+
+    const otherName = uniqueName();
+    render(
+      <MapView
+        locations={[makeLocation(otherName, 55.0)]}
+        date={TODAY}
+        autoEventType={null}
+        colourScaleDefaulted
+      />,
+    );
+    expect(screen.queryAllByTestId('colour-scale-notice')).toHaveLength(0);
+  });
+
+  // Several of MapView's own localStorage-backed `useState` initialisers run during the first
+  // render, before any error boundary has anything mounted to catch — a storage-denied browser
+  // (Safari "Block all cookies", an enterprise site-data policy) throws SecurityError on bare
+  // access, and unguarded that crashes the whole app, not just this notice.
+  it('a storage-denied browser does not crash on mount, and reads as "not yet dismissed"', () => {
+    const getItemSpy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('The operation is insecure.', 'SecurityError');
+    });
+    setMode('temp');
+    const name = uniqueName();
+    expect(() => render(
+      <MapView
+        locations={[makeLocation(name, 54.8)]}
+        date={TODAY}
+        autoEventType={null}
+        colourScaleDefaulted
+      />,
+    )).not.toThrow();
+    expect(screen.getByTestId('colour-scale-notice')).toBeInTheDocument();
+    getItemSpy.mockRestore();
+  });
+
+  it('a storage-denied browser does not crash on dismiss, and still hides for the session', () => {
+    setMode('temp');
+    const name = uniqueName();
+    render(
+      <MapView
+        locations={[makeLocation(name, 54.8)]}
+        date={TODAY}
+        autoEventType={null}
+        colourScaleDefaulted
+      />,
+    );
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('The operation is insecure.', 'SecurityError');
+    });
+    expect(() => fireEvent.click(screen.getByTestId('colour-scale-notice-dismiss'))).not.toThrow();
+    expect(screen.queryByTestId('colour-scale-notice')).toBeNull();
+    setItemSpy.mockRestore();
   });
 });

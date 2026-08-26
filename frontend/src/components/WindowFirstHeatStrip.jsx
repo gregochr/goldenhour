@@ -309,7 +309,7 @@ export function bestReachLine(card) {
  */
 export default function WindowFirstHeatStrip({
   cards, pointSets, spots, reachById, hotTopics, openKeys, todayStr, runAge, onOpenWindow,
-  origin = null, onSearchRegion,
+  origin = null, onSearchRegion, colourMode = null,
 }) {
   // Framing is the ONE thing scope is allowed to decide about the field: which regions are in shot.
   // It must never become the point set — handing the scoped list to the kernel would turn the
@@ -456,7 +456,17 @@ export default function WindowFirstHeatStrip({
         fit: fitTo,
       });
     }
-  }, [cards, pointSets, unscored, fitTo, todayStr, frameAspect]);
+  // `colourMode` is a REPAINT KEY, not a colour source — the same rule `MapHeatLayer` states.
+  // These thumbnails paint through `heatField.js` -> `rampRgb`, which reads `scoreRamp`'s live
+  // module state; when the settings fetch resolves after the first paint, `MODE` changes with no
+  // card, point or frame changing, so a memoised callback keeps the OLD ramp on every thumbnail
+  // while the verdict words and badges beside them repaint. Whether that happens at all depends
+  // on which fetch wins, which makes it a race rather than a consistent bug.
+    // Referenced so it is a REAL dependency, not a suppressed one: `exhaustive-deps` cannot see
+    // that this callback's colours come from `scoreRamp`'s module state, so it reads the entry as
+    // unnecessary. `void` makes the dependency honest and keeps the rule on.
+    void colourMode;
+  }, [cards, pointSets, unscored, fitTo, todayStr, frameAspect, colourMode]);
 
   /**
    * The card whose well the hook's gate measures.
@@ -968,6 +978,8 @@ export default function WindowFirstHeatStrip({
 }
 
 WindowFirstHeatStrip.propTypes = {
+  /** The active scoreRamp mode — a repaint key only; see the paint callback's note. */
+  colourMode: PropTypes.oneOf(['temp', 'verdict']),
   cards: PropTypes.arrayOf(PropTypes.shape({
     key: PropTypes.string.isRequired,
     date: PropTypes.string.isRequired,
