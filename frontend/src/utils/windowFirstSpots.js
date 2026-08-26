@@ -80,7 +80,7 @@ function luminance(hex) {
  * live hex values rather than hard-coding the pre-computed answer, which would keep passing even if
  * the underlying colours drifted below AA.
  */
-export function contrast(a, b) {
+function contrast(a, b) {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (hi + 0.05) / (lo + 0.05);
 }

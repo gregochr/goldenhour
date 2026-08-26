@@ -644,11 +644,12 @@ So this is not a compromise forced by a contrast failure. The tint was a **third
 datum already encoded twice, and it happened to be the one costing contrast. Removing it would be
 right even if every stop passed.
 
-⚠️ **This is work, not just a decision.** Stage 5b shipped the tint — it passes AA in verdict mode,
-so nothing is failing on `main` today. `NUMBER_TINT_FLOOR`, the tint derivation and the contrast
-test that pins them come out, and the `contrast()` export 5b added to `windowFirstSpots.js` for that
-test should be re-checked for other callers before it goes with them. Do it **before** the flip; it
-does not depend on the flip.
+✅ **The removal has landed.** `NUMBER_TINT_FLOOR`, the tint derivation and the computed-contrast
+test are gone; `contrast()` is private again in `windowFirstSpots.js` (it was exported for that test
+alone, and `readableInkOn` uses it internally). Two tests pin the **absence** — the number comes from
+a text token, and its colour does not vary with the score — because a tint reads as the obvious
+improvement right up until it is measured, which is how it got in. **Stage 7 is now the flip and the
+notice alone.**
 
 **The original blocker analysis, kept because the measurements are the evidence:**
 

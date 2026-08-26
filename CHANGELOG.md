@@ -5,6 +5,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Removed — the score number's tint (Stage 7 prerequisite)
+
+Implements the decision recorded below: `NUMBER_TINT_FLOOR`, the tint derivation and the
+computed-contrast test that pinned them are gone, and the number is painted from a text token
+again. The bar's fill is unchanged — it is a plate, not text, and carries no contrast requirement.
+
+`contrast()` is private again in `windowFirstSpots.js`: it was exported for the deleted test alone,
+`readableInkOn` uses it internally, and an export with no external caller is the kind this project
+sweeps.
+
+Two tests replace the ones removed and pin the **absence** — the number is painted from a text token
+and never from the ramp, and its colour does not vary with the score. A tint reads as the obvious
+improvement right up until it is measured, which is how it got in, so the absence wants a guard
+rather than a comment.
+
+**Stage 7 is now the flip and the notice alone.**
+
 ### Changed — Stage 7 unblocked: drop the score number's tint (Design's call)
 
 The measurements stand; the answer is settled, and on stronger grounds than contrast alone.
