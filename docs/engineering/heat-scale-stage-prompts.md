@@ -519,8 +519,14 @@ commit as the work.
 
 ---
 
-## Stage 6 — The preference, full-stack
+## Stage 6 — The preference, full-stack ✅ LANDED (#650)
 
+> **Kept for the record, and it shipped with ONE setting, not two.** `markersFollowScale` was
+> removed before this merged: review found it persisted and rendered as a checkbox but consumed by
+> nothing, and honouring it would have put the field on one scale and the markers on another —
+> the disagreement cross-cutting rule 1 exists to prevent. See the plan's §5 question 3. Read the
+> goal line below as `mapColourScale` alone.
+>
 > You are implementing **Stage 6** of `docs/engineering/heat-scale-unification-plan.md`. Read its
 > Stage 6 section first. Stages 1, 2, 3, 5a and 5b have merged; `MODE` still defaults to
 > `'verdict'` and **this stage does not flip it** — that is Stage 7.
@@ -598,3 +604,88 @@ commit as the work.
 > **Commit and PR.** Conventional commit (`feat:`). `CHANGELOG.md` entry under `[Unreleased]` —
 > expect a conflict, rebase rather than merge. Do **not** push until asked. Update the plan's
 > Stage 6 section with what landed, including anything this prompt got wrong.
+
+---
+
+## Stage 7 — Flip the default, and tell people
+
+> You are implementing **Stage 7** of `docs/engineering/heat-scale-unification-plan.md` — the last
+> stage. Read its Stage 7 section first. Stages 1, 2, 3, 5a, 5b, 6 and 8 have merged, and the score
+> number's tint was removed as this stage's prerequisite.
+>
+> **Goal.** Two things: a reader who has never chosen gets the temperature scale, and a reader who
+> was using the old one is told the colours changed.
+>
+> **⚠️ Trap 1 — "never chosen" and "invalid" are different, and today they both land on verdict.**
+> This is the whole difficulty of the stage.
+>
+> `setMode(m)` is `MODE = m === 'temp' ? 'temp' : 'verdict'`. That fallback is a **safety guard**
+> from Stage 5a — *"an unrecognised value must never silently select the not-yet-shipped ramp"* —
+> **not** the product default for a user who has never chosen. `V147` deliberately stores
+> `map_colour_scale` nullable with no `DEFAULT`, and `UserSettingsResponse` passes it through raw
+> rather than defaulting, **precisely so this stage can tell the two apart**. That was the whole
+> point of following `V136`'s precedent.
+>
+> After the flip they must diverge: **null (never chosen) → `temp`**, while a corrupt or
+> unrecognised stored value should still resolve to something deliberate rather than to the new
+> default by accident. Decide which and say why in a comment; do not collapse the two cases just
+> because `setMode` currently does.
+>
+> **⚠️ Trap 2 — the default is currently resolved in three places.** `setMode`'s fallback,
+> `App.jsx`'s `setMode(s?.mapColourScale)`, and `UserSettingsModal.jsx`'s
+> `useState('verdict')` — the radio's pre-load state. Flip one and the modal will show "Verdict"
+> selected while the map paints temperature, which is the same class of disagreement rule 1 exists
+> to prevent, just between the map and its own settings screen.
+>
+> **Resolve it in ONE place.** The natural shape is a `DEFAULT_MODE` constant plus a
+> `resolveMode(stored)` in `scoreRamp.js` that both `App.jsx` and the modal call, leaving `setMode`
+> as the low-level setter with its guard intact. Nothing else in this series is allowed two answers
+> to "which ramp is live", and neither is this.
+>
+> **⚠️ Trap 3 — do not change anyone's explicit choice.** Someone who deliberately picked
+> `verdict` stores the string `'verdict'` and must keep it. Only `null` moves. If you find yourself
+> writing a migration that backfills the column, stop — that is the distinction `V147` exists to
+> protect, and a backfill destroys it permanently.
+>
+> **The notice.**
+>
+> A one-time, dismissible line on the map: **"Colours now run cold to hot."** It is the only part
+> of this work that reaches the person who was misreading the old map — the preference does not,
+> because they will never open Settings to discover they were wrong. **It is not a setting; it is a
+> sentence.**
+>
+> - Dismissal persists in `localStorage`. ⚠️ **Use `MapView.jsx`'s existing fail-soft helpers**
+>   (`readMapFilter` / `writeMapFilter`) or the same `try/catch` shape: a storage-denied browser
+>   throws `SecurityError` on bare access, and several of these reads happen inside `useState`
+>   initialisers — i.e. during render, where an unguarded throw crashes the whole app rather than
+>   the map. That convention is already documented in that file; follow it.
+> - `MapView` has no toolbar. Its only overlays are a bottom-left upsell chip and a bottom-centre
+>   legend over a fixed 500px map — place the notice without fighting either.
+> - Someone who has explicitly chosen `verdict` is not being told anything changed, because for
+>   them nothing did. Consider whether the notice should show at all in that case.
+>
+> **The legend's words do not change.** `poor → worth it` reads correctly on either scale — the bar
+> carries the metaphor, the words carry the meaning.
+>
+> **⚠️ This stage changes what every reader sees.** Browser-verify it:
+> `./mvnw -Plocal-dev spring-boot:run -Dspring-boot.run.profiles=local` (port **8083**) and
+> `npm run dev`, sign in as `admin` / `golden2026`. Check the map, the Plan matrix and the legend on
+> both scales, and the notice's appear-once-then-dismiss behaviour. A local DB with no evaluation
+> run has no ratings — say plainly which states you saw and which you could not.
+>
+> **Tests.** A never-chosen user resolves to `temp`; an explicit `'verdict'` still resolves to
+> `verdict`; an unrecognised stored value resolves as decided; the modal's pre-load radio matches
+> whatever `resolveMode` says, so the two can never disagree; the notice renders once, dismisses,
+> and stays dismissed; a storage-denied browser neither crashes nor shows it forever.
+>
+> **Gates.** Frontend all four: `cd frontend && npm run lint && npm test && npm audit
+> --audit-level=high && npm run build`. Backend only if you touch it: `./mvnw checkstyle:check`
+> then `./mvnw clean verify` (⚠️ needs Docker), gating on the **exit code**, never a grep of the
+> output.
+>
+> **Before committing**, adversarial review of the diff, read-only agents. Ask one lens: *can the
+> map and the settings modal ever disagree about which scale is active?*
+>
+> **Commit and PR.** Conventional commit (`feat:`). `CHANGELOG.md` under `[Unreleased]` — expect a
+> conflict, rebase rather than merge. Do **not** push until asked. Update the plan's Stage 7
+> section, and mark the series complete.

@@ -5,21 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the Stage 7 kickoff prompt, the last in the series
 
-⚠️ **A third instance of the same repaint bug, found by review before this merged.** Stage 6 caught
-`MapView`'s marker-icon cache going stale when the preference resolves after first paint. The
-**canvases** have the same problem and its fix did not reach them: `WindowFirstHeatStrip`'s and
-`MapHeatLayer`'s paint callbacks are memoised on data that does not change when only the mode does,
-while the kernel they paint through (`heatField.js` → `rampRgb`) reads `scoreRamp`'s live module
-state. So the Plan thumbnails and the map bitmap would keep the old ramp while the markers, legend
-and verdict words around them repainted — and whether it happened at all depended on which fetch
-resolved first, making it a **race** rather than a consistent bug.
+Its difficulty is not the flip itself but a distinction three stages were built to preserve:
+**"never chosen" and "invalid" are different, and today they both land on `verdict`.** `setMode`'s
+fallback is a *safety* guard from Stage 5a — an unrecognised value must never silently select a
+not-yet-shipped ramp — not the product default. `V147` stores the column nullable with no
+`DEFAULT`, and `UserSettingsResponse` passes it through raw, precisely so this stage can tell a
+null apart from an explicit `'verdict'`. After the flip they must diverge, and a migration that
+backfills the column would destroy that distinction permanently.
 
-Both now take a `colourMode` prop threaded from `App.jsx`, in their dependency arrays. It is a
-**repaint key, not a colour source** — every colour read still goes to the live module state, which
-is the one thing that cannot disagree with what was painted. `void colourMode;` in each body makes
-the dependency genuine rather than an `exhaustive-deps` suppression: the rule cannot see a
-module-global read, and a suppressed warning would have hidden the next instance of this.
+The prompt also names the trap that the default is currently resolved in **three** places —
+`setMode`'s fallback, `App.jsx`, and the modal's pre-load `useState('verdict')` — so flipping one
+would leave the settings screen showing "Verdict" while the map paints temperature: the same class
+of disagreement rule 1 exists to prevent, between the map and its own settings page. One
+`resolveMode`, called by both.
+
+And for the notice: `MapView`'s existing fail-soft `localStorage` helpers are mandatory rather than
+optional, because several of those reads happen inside `useState` initialisers, where a
+storage-denied browser's `SecurityError` crashes the app rather than the map.
+
 ### Added — Stage 6: the map colour preference, full-stack (still defaulting to verdict)
 
 Two settings a caller can now choose and have persist: `mapColourScale` (`'temp'` or `'verdict'`)
@@ -102,6 +107,21 @@ chip, the scored-locations legend, Leaflet's attribution or the zoom control —
 the heat toolbar's, found by review: that toolbar can run wide enough on an ordinary map width to
 reach under this corner, and a notice whose dismiss button a reader cannot click is worse than a
 briefly crowded one.
+
+⚠️ **A third instance of the same repaint bug, found by review before this merged.** Stage 6 caught
+`MapView`'s marker-icon cache going stale when the preference resolves after first paint. The
+**canvases** have the same problem and its fix did not reach them: `WindowFirstHeatStrip`'s and
+`MapHeatLayer`'s paint callbacks are memoised on data that does not change when only the mode does,
+while the kernel they paint through (`heatField.js` → `rampRgb`) reads `scoreRamp`'s live module
+state. So the Plan thumbnails and the map bitmap would keep the old ramp while the markers, legend
+and verdict words around them repainted — and whether it happened at all depended on which fetch
+resolved first, making it a **race** rather than a consistent bug.
+
+Both now take a `colourMode` prop threaded from `App.jsx`, in their dependency arrays. It is a
+**repaint key, not a colour source** — every colour read still goes to the live module state, which
+is the one thing that cannot disagree with what was painted. `void colourMode;` in each body makes
+the dependency genuine rather than an `exhaustive-deps` suppression: the rule cannot see a
+module-global read, and a suppressed warning would have hidden the next instance of this.
 
 ### Fixed — two comments left dangling by the tint removal
 
