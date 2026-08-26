@@ -221,28 +221,80 @@ export function rampHex(score) {
 }
 
 /**
- * Maps a 0–100 metric onto the ramp's 1–5 score domain, so a caller can compose
- * `rampHex(scoreFromPercent(v, lo, hi))` to colour a percentage-based reading on the same ramp as
- * a star rating. Returns a number, not a colour — {@link rampHex}/{@link rampRgb} already take a
- * score, so this stays a pure domain mapping.
+ * Frozen piecewise raw-to-star tables for the two 0–100 metrics, verbatim from the design
+ * handoff's reference kernel (`docs/design/temperature-scale/heat-field.js`). Each entry is
+ * `[value, score]`; `starFromScore` interpolates linearly between the bracketing pair.
  *
- * <p>The reference kernel's equivalent (`rampPct`) returns a colour directly; this app keeps
- * domain-mapping and colour-lookup separate on purpose; the different name is deliberate.
+ * <p>Replaces the linear `lo`/`hi` map ({@code scoreFromPercent}, deleted): both metrics are
+ * <b>bimodal</b> — measured over 19,832 production evaluations, fiery peaks at 10–19 and again at
+ * 70–79, golden at 20–29 and 70–79, both troughing at 50–59. No two-point linear map can spread a
+ * bimodal population; under it 51% of fiery readings landed in the 1★ band and 72/85/100 all
+ * rendered as 5★, a good evening and a great one painted identically.
  *
- * <p>⚠️ <b>SUPERSEDED, and it has no caller.</b> The two 0–100 metrics it was written for turned
- * out to be <b>bimodal</b> — measured over 19,832 evaluations, fiery peaks at 10–19 and again at
- * 70–79, golden at 20–29 and 70–79 — and no two-point linear map can spread a bimodal population.
- * Under it, 51% of fiery readings landed in the 1★ band and a good evening rendered identically to
- * a great one. The replacement is a frozen piecewise table per metric
- * ({@code ANCHORS} + {@code starFromScore}), landing in Stage 5, which deletes this function.
- * Do not build anything new on it; see
- * {@code docs/engineering/heat-scale-unification-plan.md} Stage 4.
+ * <p>Two properties are load-bearing and must not be "improved":
  *
- * @param {number} value the metric's raw reading
- * @param {number} lo the value that maps to a score of 1
- * @param {number} hi the value that maps to a score of 5
- * @returns {number} 1–5, clamped outside [lo, hi]
+ * <p><b>1. Frozen constants, not a running calibration.</b> Derived from one measurement and then
+ * fixed — the same standing {@link STOPS_TEMP}'s uneven spacing already has. Re-measure only to
+ * check the physics has not moved; do not re-anchor per season, because that makes colour relative
+ * to the population and a 3.0 must look like a 3.0 in every week.
+ *
+ * <p><b>2. Deliberately NOT even-occupancy spacing.</b> 70% of fiery readings sit below 30 and all
+ * mean the same thing — don't bother — so they share 1.3 stars, while the top third of the range
+ * holds ~15% of readings and every decision worth making, and gets 1.8. Heavy concentration in the
+ * low bands is the intended outcome, not a defect to tune away.
+ *
+ * @see starFromScore
  */
-export function scoreFromPercent(value, lo, hi) {
-  return 1 + clamp((value - lo) / (hi - lo), 0, 1) * 4;
+export const ANCHORS = {
+  fiery: [[0, 1], [20, 1.9], [35, 2.4], [50, 2.8], [60, 3.2], [72, 4], [85, 4.7], [100, 5]],
+  golden: [[0, 1], [25, 1.9], [40, 2.4], [55, 3], [70, 3.8], [85, 4.6], [100, 5]],
+};
+
+/**
+ * Maps a 0–100 metric reading onto the ramp's 1–5 score domain via {@link ANCHORS}'s frozen
+ * piecewise table for the given metric, so a caller can compose
+ * `rampHex(starFromScore(v, metric))` to colour a percentage-based reading on the same ramp as a
+ * star rating. Returns a number, not a colour — {@link rampHex}/{@link rampRgb} already take a
+ * score, so this stays a pure domain mapping; the reference kernel's equivalent (`rampScore`)
+ * composes the colour lookup in, this app keeps the two separate on purpose.
+ *
+ * <p>⚠️ An unrecognised {@code metric} throws rather than silently falling back to `fiery`
+ * (the reference kernel's `ANCHORS[metric] || ANCHORS.fiery`). The two tables disagree — at
+ * v=80, fiery gives 4.43 and golden 4.33 — so a typo'd metric name would otherwise return a
+ * plausible wrong answer with nothing failing.
+ *
+ * <p>⚠️ A non-finite {@code value} resolves to the BOTTOM of the ramp (1), never the top, matching
+ * {@link rampRgb}'s own rule. `clamp(v, 0, 100)` alone does not give you this: `Math.max(0,
+ * Math.min(100, NaN))` is `NaN`, which fails every `v <= x1` test in the interpolation loop below
+ * and would fall out the bottom to the reference kernel's trailing `return 5` — painting a missing
+ * reading as the ramp's hottest, most confident colour. An unknown reading must never render as
+ * the best one; under-reporting is the safe direction.
+ *
+ * @param {number} value the metric's raw 0–100 reading
+ * @param {'fiery'|'golden'} metric which anchor table to use
+ * @returns {number} 1–5
+ */
+export function starFromScore(value, metric) {
+  // Object.hasOwn, not bracket-access truthiness: `ANCHORS[metric]` walks the prototype chain,
+  // so a metric string that happens to name an Object.prototype member ('toString',
+  // 'constructor', 'hasOwnProperty', …) resolves to a truthy non-array value instead of
+  // `undefined` — the guard below would then silently pass, the loop body would never execute
+  // against that non-array 'anchors', and control would fall through to the trailing `return 5`,
+  // exactly the unthrown top-of-ramp failure this function exists to prevent.
+  if (!Object.hasOwn(ANCHORS, metric)) {
+    throw new Error(`starFromScore: unknown metric '${metric}'`);
+  }
+  const anchors = ANCHORS[metric];
+  if (!Number.isFinite(value)) {
+    return 1;
+  }
+  const v = clamp(value, 0, 100);
+  for (let i = 0; i < anchors.length - 1; i += 1) {
+    const [x0, y0] = anchors[i];
+    const [x1, y1] = anchors[i + 1];
+    if (v <= x1) {
+      return y0 + (y1 - y0) * ((v - x0) / (x1 - x0));
+    }
+  }
+  return 5;
 }

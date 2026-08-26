@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Stage 5a of the colour-scale unification: piecewise star mapping for the two 0–100 metrics
+
+`scoreRamp.js` gains `ANCHORS` (frozen per-metric anchor tables for `fiery`/`golden`, verbatim from
+the design handoff's reference kernel) and `starFromScore(value, metric)`, replacing the linear
+`scoreFromPercent` Stage 1 shipped. Both potentials measured bimodal over 19,832 production
+evaluations — no two-point linear map can spread a bimodal population, and under the old map 51% of
+fiery readings landed in the 1★ band while 72/85/100 all rendered as an identical 5★. The anchors are
+frozen constants, re-measured only to check the physics hasn't moved, and deliberately not
+even-occupancy: the bottom 70% of fiery readings share 1.3 stars because they all mean "don't
+bother," while the top third — where the decision actually lives — gets 1.8.
+
+Two deliberate divergences from the reference kernel, both load-bearing: an unrecognised `metric`
+throws rather than silently falling back to `fiery` (the two tables disagree by up to 0.1★ at the
+same input), and a non-finite `value` resolves to the bottom of the ramp (1) rather than the
+reference kernel's fall-through to the top (5), matching `rampRgb`'s own existing non-finite rule —
+under-reporting is the safe direction.
+
+`scoreFromPercent` is deleted outright (function, JSDoc, and its tests), pinned by a repo-wide sweep
+asserting no import of it survives anywhere in the frontend source, plus a direct assertion that
+`scoreRamp.js` itself no longer exports it. Nothing calls `starFromScore` yet — it changes no pixels;
+Stage 5b wires it into the score bars and marker arcs.
+
+An adversarial review (correctness, test quality, docs/forward-impact) caught one real defect before
+this landed: the unrecognised-metric guard used bracket-access truthiness (`ANCHORS[metric]`), which
+walks the prototype chain — a metric string naming an `Object.prototype` member (`'toString'`,
+`'constructor'`, …) resolved to a truthy non-array value, silently passed the guard, and fell through
+to an unthrown top-of-ramp result. Fixed with `Object.hasOwn`, with a test pinning it directly.
+
 ### Changed — Stage 5 splits, and two defects in the reference mapping are caught before porting
 
 Stage 5 as specified was four jobs in one session: build Stage 4's mapping — never coded, since
