@@ -3,7 +3,7 @@
  * Extracted from MapView for testability.
  */
 import L from 'leaflet';
-import { rampHex } from '../utils/scoreRamp.js';
+import { rampHex, starFromScore } from '../utils/scoreRamp.js';
 import { readableInkOn } from '../utils/windowFirstSpots.js';
 
 /** Half-circumference of the arc circle (radius 19). */
@@ -158,10 +158,10 @@ export function buildMarkerSvg(label, colour, fierySky, goldenHour, rating, isPu
     const goldenFill = HALF_CIRC * (goldenHour / 100);
 
     const fieryArc = fierySky > 0
-      ? `<path d="${LEFT_ARC}" fill="none" stroke="#f97316" stroke-width="3" stroke-linecap="round" stroke-dasharray="${fieryFill.toFixed(2)} ${HALF_CIRC.toFixed(2)}"/>`
+      ? `<path d="${LEFT_ARC}" fill="none" stroke="${rampHex(starFromScore(fierySky, 'fiery'))}" stroke-width="3" stroke-linecap="round" stroke-dasharray="${fieryFill.toFixed(2)} ${HALF_CIRC.toFixed(2)}"/>`
       : '';
     const goldenArc = goldenHour > 0
-      ? `<path d="${RIGHT_ARC}" fill="none" stroke="#E5A00D" stroke-width="3" stroke-linecap="round" stroke-dasharray="${goldenFill.toFixed(2)} ${HALF_CIRC.toFixed(2)}"/>`
+      ? `<path d="${RIGHT_ARC}" fill="none" stroke="${rampHex(starFromScore(goldenHour, 'golden'))}" stroke-width="3" stroke-linecap="round" stroke-dasharray="${goldenFill.toFixed(2)} ${HALF_CIRC.toFixed(2)}"/>`
       : '';
 
     return `<svg width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg" style="filter:drop-shadow(0 2px 6px rgba(0,0,0,0.7))">
@@ -173,11 +173,13 @@ export function buildMarkerSvg(label, colour, fierySky, goldenHour, rating, isPu
 </svg>`;
   }
 
-  // Haiku: single full ring proportional to rating/5
+  // Haiku: single full ring proportional to rating/5. rating is a 1-5 STAR, not a 0-100 potential —
+  // rampHex(rating) samples the ramp directly. Routing it through starFromScore would read a 5★
+  // rating as the raw value 5 and map it to ~1.2★, painting a top-rated location the ramp's cold end.
   const fill = FULL_CIRC * (rating / 5);
   return `<svg width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg" style="filter:drop-shadow(0 2px 6px rgba(0,0,0,0.7))">
   <circle cx="22" cy="22" r="19" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="3"/>
-  <circle cx="22" cy="22" r="19" fill="none" stroke="#E5A00D" stroke-width="3" stroke-linecap="round" stroke-dasharray="${fill.toFixed(2)} ${(FULL_CIRC - fill).toFixed(2)}" transform="rotate(90 22 22)"/>
+  <circle cx="22" cy="22" r="19" fill="none" stroke="${rampHex(rating)}" stroke-width="3" stroke-linecap="round" stroke-dasharray="${fill.toFixed(2)} ${(FULL_CIRC - fill).toFixed(2)}" transform="rotate(90 22 22)"/>
   <circle cx="22" cy="22" r="17" fill="${colour}" stroke="rgba(255,255,255,0.2)" stroke-width="1.5"/>
   <text x="22" y="22" text-anchor="middle" dominant-baseline="central" font-size="15" font-weight="800" fill="${ink}">${label}</text>
 </svg>`;
@@ -235,11 +237,11 @@ export function createClusterIcon(cluster, role) {
     arcsHtml = `<circle cx="22" cy="22" r="19" fill="none" stroke="rgba(255,255,255,0.1)" stroke-width="3"/>`;
     if (avgFiery > 0) {
       const fill = HALF_CIRC * (avgFiery / 100);
-      arcsHtml += `<path d="${LEFT_ARC}" fill="none" stroke="#f97316" stroke-width="3" stroke-linecap="round" stroke-dasharray="${fill.toFixed(2)} ${HALF_CIRC.toFixed(2)}"/>`;
+      arcsHtml += `<path d="${LEFT_ARC}" fill="none" stroke="${rampHex(starFromScore(avgFiery, 'fiery'))}" stroke-width="3" stroke-linecap="round" stroke-dasharray="${fill.toFixed(2)} ${HALF_CIRC.toFixed(2)}"/>`;
     }
     if (avgGolden > 0) {
       const fill = HALF_CIRC * (avgGolden / 100);
-      arcsHtml += `<path d="${RIGHT_ARC}" fill="none" stroke="#E5A00D" stroke-width="3" stroke-linecap="round" stroke-dasharray="${fill.toFixed(2)} ${HALF_CIRC.toFixed(2)}"/>`;
+      arcsHtml += `<path d="${RIGHT_ARC}" fill="none" stroke="${rampHex(starFromScore(avgGolden, 'golden'))}" stroke-width="3" stroke-linecap="round" stroke-dasharray="${fill.toFixed(2)} ${HALF_CIRC.toFixed(2)}"/>`;
     }
   }
 

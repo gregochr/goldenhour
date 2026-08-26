@@ -443,11 +443,51 @@ narrow again. `npm run lint && npm test && npm audit --audit-level=high && npm r
   full 0–100 integer sweep per metric, the prototype-collision throw case above, and the
   `scoreFromPercent`-deletion pair (repo-wide import sweep + direct non-export assertion).
 
-#### Stage 5b — wire it up (not started)
+#### Stage 5b — wire it up ✅ landed
 
-Everything below this line is unstarted. It is the `ScoreBar` merge, the eight call-site migration,
-and the marker/cluster arc + rating-ring colouring — a UI stage, taken through the browser
-verification workflow and its own adversarial review before it lands, per CLAUDE.md's cadence.
+**Status:** implemented, unit-tested (19 new `ScoreBar.test.jsx` tests + updated `MarkerIcon.test.jsx`
+assertions; 4,232 frontend tests green, lint clean), browser-verified against a seeded local DB
+(H2 direct SQL insert, since triggering a real Claude evaluation needs `ANTHROPIC_API_KEY`), and
+adversarially reviewed (8 finder angles via the Agent tool, each verified) before landing, per
+CLAUDE.md's UI cadence.
+
+**What the plan got wrong, corrected during implementation:**
+
+- **The call-site table omitted `dense` for `LocationFourDaySheet`.** Both current Plan surfaces
+  (`WindowSpotPeek`'s peek and `LocationFourDaySheet`'s location sheet) rendered at the same 10px
+  scale before this merge, via `PlanScoreBar`'s hard-coded `fontSize: '10px'`. The table's call-site
+  mapping listed "add `dense`" only for `WindowSpotPeek`; taken literally, `LocationFourDaySheet`
+  would have silently jumped to the popup's 11px scale and lost `labelClassName` support (needed for
+  the row-dimming CSS rule) — nothing in the plan's rationale asked for either change. Both Plan call
+  sites pass `dense` in the shipped code.
+- **"Tinted to match" needed a floor, not the raw ramp hue.** The literal instruction — tint the
+  number to the same colour as the bar — fails WCAG AA at the ramp's dark end: 1★ measures 2.84:1 and
+  2★ measures 3.54:1 against `--color-plex-surface` as plain text, both under 4.5:1, and worse once
+  `LocationFourDaySheet`'s row-dimming rule (0.8 opacity) applies. Caught in the browser, not on
+  paper, exactly as this section's own instructions asked. Fixed with `NUMBER_TINT_FLOOR = 2.8` (the
+  first star value where the ramp clears AA in every state, on every real background this component
+  renders against, with margin) — the bar's own fill stays unclamped, since it carries no text and
+  therefore no contrast requirement of its own.
+- **The rating ring vs. disc "halo" question, resolved in the browser as asked.** At every rating
+  below 5★, the ring's partial arc (a visible gap against the dark background track) unambiguously
+  reads as a progress gauge regardless of the colour match with the disc beneath it. At a full 5★
+  ring, colour and disc match exactly and the arc has no gap — but it reads as an intentional glow for
+  a top rating, not a broken halo. No second colour language was invented; `rampHex(rating)` ships as
+  specified.
+- **Adversarial review caught two real defects fixed before landing** (not anticipated by this plan
+  text): `starFromScore`'s metric-typo guard was skipped whenever `score` was `null`, so a bad metric
+  on a not-yet-scored slot passed silently instead of throwing (now validated unconditionally); and
+  the AA-floor's own doc comment claimed general safety without scoping it to `scoreRamp.js`'s default
+  `verdict` mode — the module's dormant `temp` mode has a genuinely darker hot end that would fail AA
+  once a later stage wires it to a live control, which a one-sided floor does nothing to prevent (now
+  documented as an explicit, unresolved gap for whoever ships Stage 6/7's preference).
+- **One further real defect found, correctly left unfixed here**: the map popup's Scores section is
+  gated on `fierySky != null` alone, so a location scored on Golden Hour only shows no scores at all
+  in the popup (Plan surfaces gate each bar independently and don't have this bug). Pre-existing,
+  unchanged by this diff, out of this stage's scope — flagged as a follow-up rather than folded in.
+
+Below this line is the original brief, kept for the record of what was asked; the corrections above
+are what actually shipped.
 
 ⚠️ **Read §2's Change 5 row first.** Both premises in the brief are stale: `ScoreBar.jsx` was
 deleted in D4, and the "four buckets, so 26 and 49 are the same colour" defect **no longer exists**

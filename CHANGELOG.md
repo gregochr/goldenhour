@@ -5,6 +5,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Stage 5b of the colour-scale unification: one score bar, continuous solid fill
+
+`PlanScoreBar` (Plan pane) and `MarkerPopupContent`'s module-private `PopupScoreRow` (map popup) —
+two components independently quoting the same two gradient strings — merge into one
+`components/ScoreBar.jsx`, used at all eight call sites (`WindowSpotPeek` ×2, `LocationFourDaySheet`
+×2, `MarkerPopupContent` ×4). The fill is a continuous solid colour sampled from the ramp
+(`rampHex(starFromScore(score, metric))`, Stage 5a's mapping) instead of a hard-coded CSS gradient —
+a bar has one value, and a gradient across a ramp that starts cold would paint a five-hue rainbow for
+one number. The two markup styles stay genuinely different (Plan's Tailwind-classed `.wf-peek-bar` at
+10px vs. the popup's inline-style markup at 11px, switched by a `dense` prop) rather than being forced
+into one shape — converting either to pure Tailwind is pre-existing debt, not this stage's job. The
+score number is now tinted to match the bar, closing `PlanScoreBar`'s documented no-tint deviation,
+but **floored at 2.8★** (`NUMBER_TINT_FLOOR`) rather than the bar's raw score: the ramp's own bottom
+stops measure as low as 2.84:1 against the app's `--color-plex-surface`/`--color-plex-surface-light`
+tokens as plain text — a real WCAG-AA failure the literal "tint to match" ask would have shipped,
+caught before landing and pinned by a test that recomputes contrast from the live ramp colours rather
+than asserting the pre-computed answer (`windowFirstSpots.js`'s `luminance`/`contrast` helpers are now
+exported for this). `markerUtils.js`'s five hard-coded arc/ring hex literals (`#f97316`, `#E5A00D`)
+move onto the same ramp: the four 0–100 potential arcs via `rampHex(starFromScore(v, metric))`, and
+the Haiku rating ring via `rampHex(rating)` directly — deliberately *not* through `starFromScore`,
+since a 1–5 star rating routed through the 0–100 anchor table would read a 5★ location as the raw
+value 5 and paint it the ramp's cold end.
+
+Browser-checked: the rating ring sits immediately outside a disc filled from the same
+`rampHex(rating)` value, so at a full ring (5★) both are the identical hue. Verified in the running
+app at 1★, 2★, 4★ and 5★ — the partial-arc shape (any rating below 5★) unambiguously reads as a
+progress gauge regardless of the colour match, and even the closed 5★ ring reads as an intentional
+glow for a top rating rather than a broken halo; no second colour language was introduced.
+
+Adversarial review (8 finder angles, verified) caught two real defects fixed before landing: the
+`metric` typo guard was skipped whenever `score` was `null` (now validated unconditionally, so a bad
+metric on a not-yet-scored slot fails at the call site instead of staying silent until scored); and
+the AA-floor's own doc comment overclaimed general safety without scoping it to the ramp's default
+`verdict` mode — the dormant `temp` mode's hot end is genuinely darker and would fail AA once a later
+stage wires it to a live control, which the floor (a one-sided `Math.max`) does nothing to prevent.
+One further real defect was found but is pre-existing and out of scope (the map popup hides the whole
+Scores section, including a valid Golden Hour bar, whenever Fiery Sky alone is null) — flagged as a
+follow-up rather than fixed here.
+
 ### Added — Stage 5a of the colour-scale unification: piecewise star mapping for the two 0–100 metrics
 
 `scoreRamp.js` gains `ANCHORS` (frozen per-metric anchor tables for `fiery`/`golden`, verbatim from

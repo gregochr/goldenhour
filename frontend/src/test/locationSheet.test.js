@@ -218,7 +218,7 @@ describe('buildScoreIndex', () => {
   /**
    * Location-sheet superset plan, Phase 1: the two score bars ride the same index as `rating`, so
    * they take the same discard rule — an out-of-range or non-integer value never reaches
-   * `PlanScoreBar`, which clamps and would otherwise draw a bar for a number nothing produced.
+   * `ScoreBar`, which clamps and would otherwise draw a bar for a number nothing produced.
    */
   it('⚠️ discards a fierySky/goldenHour value outside 0–100 rather than displaying it', () => {
     // Band edges held constant on the OTHER axis (rating stays valid throughout) — the project's own
