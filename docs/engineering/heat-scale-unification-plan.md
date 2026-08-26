@@ -373,7 +373,26 @@ identically; the anchors do not.
 
 The measurement queries are kept at `docs/engineering/heat-scale-stage4-calibration.sql`.
 
-### Stage 5 — One score bar, continuous solid fill
+### Stage 5 — One score bar, continuous solid fill — SPLIT into 5a and 5b
+
+⚠️ **Split 2026-08-26, on sizing.** As written this was four jobs in one session: build Stage 4's
+mapping (never coded — Stage 4 was a *decision*, and `ANCHORS`/`starFromScore` exist only in the
+reference kernel), delete the superseded linear one, merge two score-bar components across eight
+call sites in three files, and move five hard-coded arc colours.
+
+- **5a — the mapping.** `ANCHORS` + `starFromScore` into `scoreRamp.js`; `scoreFromPercent`
+  deleted. **No visual change** — nothing calls it yet, the same shape as Stage 1.
+- **5b — the surfaces.** The score-bar merge and the arcs, as specified below, against 5a's landed
+  API.
+
+⚠️ Two defects in the reference implementation to fix in 5a rather than transliterate. It returns
+**5** — the top of the ramp — for a non-finite input, because `clamp` propagates `NaN` and the loop
+falls through to `return 5`; that contradicts the invariant `rampRgb` states and guards two
+functions away (*an unknown reading must never render as the best one*). And it silently falls back
+to the fiery table for an unknown metric (`ANCHORS[metric] || ANCHORS.fiery`), which returns a
+plausible wrong answer — at v=80, fiery gives 4.43 and golden 4.33.
+
+#### Stage 5b — one score bar, continuous solid fill
 
 ⚠️ **Read §2's Change 5 row first.** Both premises in the brief are stale: `ScoreBar.jsx` was
 deleted in D4, and the "four buckets, so 26 and 49 are the same colour" defect **no longer exists**

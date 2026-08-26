@@ -122,7 +122,7 @@ commit as the work.
 
 ---
 
-## Stage 2 — Tokens and legend — in review (#637)
+## Stage 2 — Tokens and legend ✅ LANDED (#637)
 
 > You are implementing **Stage 2** of `docs/engineering/heat-scale-unification-plan.md`. Read that
 > plan's §1, §2 and Stage 2 first. Stage 1 landed in #633 — `frontend/src/utils/scoreRamp.js`
@@ -224,7 +224,7 @@ commit as the work.
 
 ---
 
-## Stage 3 — Markers and clusters onto whole stars
+## Stage 3 — Markers and clusters onto whole stars ✅ LANDED (#640)
 
 > You are implementing **Stage 3** of `docs/engineering/heat-scale-unification-plan.md`. Read that
 > plan's §2.1 and Stage 3 before writing anything — §2.1 is the decision this stage implements and
@@ -318,3 +318,98 @@ commit as the work.
 > **Commit and PR.** Conventional commit (`feat:`). `CHANGELOG.md` entry under `[Unreleased]` —
 > expect a conflict and rebase rather than merge. Do **not** push until asked. Update the plan's
 > Stage 3 section with what landed, including anything this prompt got wrong.
+
+---
+
+## Stage 5a — The piecewise mapping, no visual change
+
+> ⚠️ **Stage 5 is split into 5a and 5b.** As written in the plan it was four jobs in one session:
+> build Stage 4's mapping (never coded — Stage 4 was a *decision*), delete the superseded linear
+> one, merge two score-bar components across eight call sites, and move five hard-coded arc
+> colours. 5a is the mapping alone. It changes **no pixels**, because nothing calls it yet — the
+> same shape as Stage 1, which is the point.
+>
+> You are implementing **Stage 5a** of `docs/engineering/heat-scale-unification-plan.md`. Read its
+> **Stage 4** section first: it is the evidence for why this mapping is piecewise, and the two
+> properties recorded there are the ones an implementer would otherwise "improve".
+>
+> **⚠️ Check your base.** Stages 1, 2 and 3 have merged. Confirm with
+> `git log origin/main --oneline | head -5`; if you do not see Stage 3, branch from its branch
+> rather than `main`.
+>
+> **Goal.** `frontend/src/utils/scoreRamp.js` gains `ANCHORS` and `starFromScore(value, metric)`,
+> and loses `scoreFromPercent`.
+>
+> **Why piecewise.** The two 0–100 metrics are **bimodal** — measured over 19,832 production
+> evaluations, fiery peaks at 10–19 and again at 70–79, golden at 20–29 and 70–79, both troughing
+> at 50–59. No two-point linear map can spread a bimodal population: under the measured p05/p95
+> pair, 51% of fiery readings landed in the 1★ band and **72, 85 and 100 all rendered identically**
+> as 5★ — a good evening and a great one the same colour. `scoreFromPercent` is that map. It has no
+> caller. Delete it, and its tests.
+>
+> **The tables**, verbatim from `docs/design/temperature-scale/heat-field.js`:
+>
+> ```
+> fiery:  [[0,1],[20,1.9],[35,2.4],[50,2.8],[60,3.2],[72,4],[85,4.7],[100,5]]
+> golden: [[0,1],[25,1.9],[40,2.4],[55,3],[70,3.8],[85,4.6],[100,5]]
+> ```
+>
+> Two properties are load-bearing:
+>
+> 1. **The anchors are FROZEN CONSTANTS, not a running calibration.** Derived from one measurement
+>    and then fixed — the same standing `STOPS_TEMP`'s uneven spacing has. Re-measure only to check
+>    the physics has not moved; **do not re-anchor per season**, because that makes colour relative
+>    to the population and a 3.0 must look like a 3.0 in every week.
+> 2. **The spacing is deliberately NOT even-occupancy.** 70% of fiery readings sit below 30 and all
+>    mean the same thing — *don't bother* — so they share 1.3 stars, while the top third of the
+>    range holds ~15% of readings and every decision worth making, and gets 1.8. Colour goes where
+>    the decision is, not where the readings pile up. Heavy concentration in the low bands is the
+>    intended outcome, **not** a defect to tune away.
+>
+> **⚠️ Trap 1 — the reference implementation returns the TOP of the ramp for a non-finite input.**
+> Its shape is `v = clamp(v, 0, 100)` then a loop then `return 5`. `Math.max/Math.min` propagate
+> `NaN`, so a `NaN` fails every `v <= x1` test, falls out of the loop, and hits `return 5` — a
+> missing potential painting as a **perfect** evening. That directly contradicts the invariant
+> `rampRgb` in this very module already states and guards: *an unknown reading must never render as
+> the best one; under-reporting is the safe direction.* **Guard it: non-finite resolves to 1**, and
+> say why in a comment, because the next person diffing against the kernel will see a difference
+> and want to "fix" it back.
+>
+> **⚠️ Trap 2 — the reference silently falls back to the fiery table for an unknown metric**
+> (`ANCHORS[metric] || ANCHORS.fiery`). The tables genuinely differ — at v=80 fiery gives 4.43 and
+> golden 4.33 — so a typo'd metric returns a plausible wrong answer with nothing failing. Decide
+> deliberately: either throw, or default and log. Do not copy the silent `||`.
+>
+> **⚠️ Trap 3 — return a NUMBER, not a colour.** The kernel's equivalent (`rampPct`) returns a
+> colour; this app keeps domain-mapping and colour-lookup separate, because `rampHex` / `rampRgb`
+> already take a score. Callers compose `rampHex(starFromScore(v, metric))`. This is the same
+> distinction that caused a defect in an earlier draft of the plan — assigning the number to a CSS
+> `background` renders no fill at all.
+>
+> **Nothing calls it yet.** Stage 5b wires it to the score bars and the arcs. Do not touch
+> `PlanScoreBar`, `PopupScoreRow` or `markerUtils` in this stage.
+>
+> **Tests.**
+>
+> - Every anchor point maps to its own star value exactly, for both metrics.
+> - Midpoints interpolate linearly between the surrounding anchors.
+> - Clamping: `< 0` gives 1, `> 100` gives 5.
+> - **Non-finite gives 1, not 5** — the trap above, and the most important assertion here.
+> - The two metrics genuinely differ: assert one value where fiery and golden disagree.
+> - The tables are monotonic in both axes — a property test beats eight literals, and it is what
+>   catches a mistyped anchor.
+> - `scoreFromPercent` is gone: no import of it survives anywhere.
+>
+> **Gates, all four, before you push:**
+>
+> ```
+> cd frontend && npm run lint && npm test && npm audit --audit-level=high && npm run build
+> ```
+>
+> **Before committing**, run an adversarial review of the diff (CLAUDE.md, "UI Work — Review
+> Cadence"). Tell review agents to read only. Ask one lens specifically: *can any input produce a
+> star value that is not between 1 and 5, or produce the top of the ramp without meaning to?*
+>
+> **Commit and PR.** Conventional commit (`feat:`). `CHANGELOG.md` entry under `[Unreleased]` —
+> expect a conflict and rebase rather than merge. Do **not** push until asked. Update the plan's
+> Stage 5 section to record the 5a/5b split and what landed.

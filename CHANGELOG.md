@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Stage 5 splits, and two defects in the reference mapping are caught before porting
+
+Stage 5 as specified was four jobs in one session: build Stage 4's mapping — never coded, since
+Stage 4 was a *decision* and `ANCHORS`/`starFromScore` exist only in the design bundle — delete the
+superseded linear one, merge two score-bar components across eight call sites in three files, and
+move five hard-coded arc colours. It splits into **5a**, the mapping alone (no visual change,
+nothing calls it yet, the same shape as Stage 1), and **5b**, the surfaces.
+
+Two defects in the reference implementation are recorded so 5a fixes rather than transliterates
+them. It returns **5 — the top of the ramp — for a non-finite input**: `clamp` propagates `NaN`, so
+the value fails every bound test, falls out of the loop and hits the trailing `return 5`. A missing
+potential would paint as a perfect evening, contradicting the invariant `rampRgb` states and guards
+two functions away in the same module — *an unknown reading must never render as the best one*. And
+it silently falls back to the fiery table for an unknown metric, which returns a plausible wrong
+answer rather than failing: at a raw 80, fiery gives 4.43 and golden 4.33.
+
+Adds the Stage 5a kickoff prompt, and marks Stages 2 and 3 landed.
+
 ### Added — Stage 3 of the colour-scale unification: markers and clusters snap to whole stars
 
 `markerUtils.scoreColour(avg)` — the map's only chokepoint for turning a 0–100 average into a
