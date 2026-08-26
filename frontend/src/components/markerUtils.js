@@ -49,11 +49,20 @@ function starsFromAverage(avg) {
  * every view). Stand-down, no-data and wildlife markers are not scores and keep their own fills
  * ({@link STAND_DOWN_COLOUR}, {@link NO_DATA_COLOUR}, {@code markerLabelAndColour}'s paw green).
  *
+ * <p>Rounds to the nearest whole star before sampling the ramp. Both callers put a label on the
+ * fill this returns — a cluster bubble labelled with a count, a marker labelled with the raw
+ * average — and every ramp through mid-luminance has a band where neither {@link readableInkOn}
+ * ink clears WCAG AA; only the five whole-star stops are guaranteed clear
+ * (`docs/engineering/heat-scale-unification-plan.md` §2.1). Rounding here, at the one place a
+ * 0-100 average becomes a ramp colour, is what makes that true regardless of how many callers
+ * {@code scoreColour} ever gets — a future one cannot forget to round if there is nothing left
+ * for it to do.
+ *
  * @param {number|null} avg - Average score, or null for no data.
  * @returns {string} Hex colour string.
  */
 export function scoreColour(avg) {
-  return avg == null ? NO_DATA_COLOUR : rampHex(starsFromAverage(avg));
+  return avg == null ? NO_DATA_COLOUR : rampHex(Math.round(starsFromAverage(avg)));
 }
 
 /**

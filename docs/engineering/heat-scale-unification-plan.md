@@ -243,13 +243,46 @@ was added to each affected `describe`'s `afterEach`. `npm run lint && npm test &
 - **The words `poor → worth it` do not change on either scale** — the bar carries the metaphor,
   the words carry the meaning.
 
-### Stage 3 — Markers and clusters onto the ramp
+### Stage 3 — Markers and clusters onto the ramp ✅ landed
+
+**Status:** implemented and adversarially reviewed (four read-only lenses: correctness/invariant —
+does the whole-star snap actually hold everywhere, test quality, docs/conventions, and forward
+impact on Stages 4–6. Correctness and docs/conventions came back clean; test quality and
+forward-impact each surfaced one real finding, both fixed in the same commit). Two things this
+stage's own bullet list below got wrong:
+
+- **"its four call sites" is three.** `scoreColour` is called at `markerUtils.js:99` (the avg
+  branch), `:104` (`scoreColour(null)`, short-circuits before touching the ramp) and `:213`
+  (`createClusterIcon`'s cluster average). `ratingColour()` is a separate function on the same
+  continuum, not a fourth caller of `scoreColour` — it calls `rampHex(rating)` directly, which
+  needs no rounding because every producer of `rating` (backend DTOs, aurora scores) is already an
+  integer, verified by tracing each one rather than assumed.
+- **The arc migration bullet did not ship in this stage, on purpose** — the session's actual
+  kickoff prompt explicitly superseded it: moving `#f97316`/`#E5A00D` onto the ramp now, ahead of
+  Stage 5 putting the popup's score bars on the same ramp, would have made the pin agree with
+  itself while still disagreeing with the popup showing the same two numbers — the exact
+  cross-surface disagreement this whole series exists to remove. Left for a later stage once the
+  popup is also on the ramp. The arc strokes carry no text label on the coloured line itself, so
+  they were never in scope for the §2.1 whole-star invariant either way.
+
+This stage was built on `origin/claude/heat-scale-stage-2-86f10e` (PR **#637**, open, not yet
+merged) rather than `main`, since it needs Stage 2's exported `activeStops` and corrected hot-leg
+stops (`#DE4826`/`#C82820`) — `main` alone only has Stage 1. It will need a rebase once #637 merges.
+The review's two real findings were both in the new test file, not the source change: the
+`afterEach(() => setMode('verdict'))` guard was originally written at file top level, covering
+every test in `MarkerIcon.test.jsx`, where the house convention (`scoreRamp.test.js`,
+`heatTokens.test.js`, `MapViewHeat.test.jsx`, `WindowFirstHeatStrip.test.jsx`) scopes it to the
+smallest `describe` that actually calls `setMode` — moved to match; and a new `mockClusterFor`
+helper duplicated the existing `mockCluster` helper further down the same file behaviourally, for
+no reason beyond `mockCluster` being lexically out of scope at that point — fixed by hoisting
+`mockCluster` to module scope and deleting the duplicate. `npm run lint && npm test` and
+`npm run build` all pass; `npm audit` was not re-run this stage (no dependency changed).
 
 - **Keep `scoreColour()` — reimplement it, do not delete it.** The brief says to retire it in
   favour of `HeatField.ramp()`, and that is superseded by §2.1: the snap needs a chokepoint, and
   this is it. Its *job* changes — from a stepped 0–100 twin of the ramp to the single place a
-  0–100 average becomes a whole-star ramp colour — but the function survives and its four call
-  sites keep calling it. Deleting it and routing the callers straight at the ramp is exactly the
+  0–100 average becomes a whole-star ramp colour — but the function survives and its call sites
+  keep calling it. Deleting it and routing the callers straight at the ramp is exactly the
   failure §2.1 exists to prevent: continuous fills under labels.
 - ⚠️ **The Fiery Sky / Golden Hour arcs move in Stage 5, not here.** They hard-code `#f97316` and
   `#E5A00D` at five sites in `markerUtils.js`, and the brief is right that they must move with the
@@ -263,8 +296,8 @@ was added to each affected `describe`'s `afterEach`. `npm run lint && npm test &
 
   `markerUtils.scoreColour(avg)` is the single chokepoint — it is `avg == null ? NO_DATA_COLOUR :
   rampHex(starsFromAverage(avg))`, and `starsFromAverage` is `avg / 20`, continuous. **Round inside
-  `scoreColour`**, at that call: `rampHex(Math.round(starsFromAverage(avg)))`. Not at the four call
-  sites — one of them would eventually be added without it, and the failure is invisible.
+  `scoreColour`**, at that call: `rampHex(Math.round(starsFromAverage(avg)))`. Not at its three call
+  sites — one more would eventually be added without it, and the failure is invisible.
 
   **Round, do not floor.** The nearest whole star is the honest reading of an average; flooring
   systematically under-reports and would make an 89-average cluster render as 4★ when it is nearer

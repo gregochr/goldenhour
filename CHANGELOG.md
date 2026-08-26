@@ -5,6 +5,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Stage 3 of the colour-scale unification: markers and clusters snap to whole stars
+
+`markerUtils.scoreColour(avg)` — the map's only chokepoint for turning a 0–100 average into a
+labelled marker fill — now rounds to the nearest whole star before sampling the ramp:
+`rampHex(Math.round(starsFromAverage(avg)))`, not the old direct `rampHex(starsFromAverage(avg))`.
+Per the plan's §2.1 decision (*any fill that carries a label samples the ramp at whole stars; only
+label-free surfaces interpolate*), this closes the one place a continuous fill still sat under a
+label: a cluster bubble's ratings average and a marker's raw fiery/golden average, both routed
+through `scoreColour`. Every whole star already clears WCAG AA (`readableInkOn`, #627); the ramp's
+interior does not, and rounding at this single chokepoint — rather than at either of the two
+callers — makes the interior unreachable by a label regardless of how many more callers
+`scoreColour` ever gets. Round, not floor: flooring would under-report (an 89-average cluster would
+paint 4★ rather than the truer 5★). The Fiery Sky / Golden Hour arcs stay hard-coded to
+`#f97316`/`#E5A00D` — moving them onto the ramp is explicitly deferred past this stage, since the
+popup's own score bars aren't on the ramp until Stage 5, and pinning the marker ahead of the popup
+would put two surfaces describing the same two numbers in visible disagreement.
+
+`MarkerIcon.test.jsx` gains a block that asserts the invariant directly rather than sampling
+convenient points: every integer average 0–100 lands on one of the active mode's five whole-star
+colours, checked in both verdict and temperature mode, plus the two real callers are pinned by
+name — a cluster whose ratings average to 3.5★, a marker whose fiery/golden pair averages to
+3.45★ — each landing on its rounded colour, not the interpolated one. The project's existing
+`it.each([1, 2, 3, 4, 5])` AA sweep could not have caught a regression here: those five inputs are
+the only ones never at risk, which is what made the ramp's interior a live gap rather than a
+theoretical one.
+
+This stage was built on top of the still-open Stage 2 PR (#637) rather than `main`, since Stage 3
+needs Stage 2's exported `activeStops` and corrected hot-leg stops; it will need rebasing once #637
+merges.
+
 ### Changed — CodeQL skips its expensive half on documentation-only pull requests
 
 `codeql.yml` had no path filter, so a diff touching only `*.md` and `docs/` still paid for a

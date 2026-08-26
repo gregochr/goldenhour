@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
   buildMarkerSvg,
   buildStandDownSvg,
@@ -7,7 +7,7 @@ import {
   createClusterIcon,
   STAND_DOWN_COLOUR,
 } from '../components/markerUtils.js';
-import { STOPS_VERDICT, rampHex } from '../utils/scoreRamp.js';
+import { STOPS_VERDICT, rampHex, setMode } from '../utils/scoreRamp.js';
 
 const HALF_CIRC = Math.PI * 19;
 const FULL_CIRC = 2 * Math.PI * 19;
@@ -17,6 +17,26 @@ function parseSvg(svgString) {
   const div = document.createElement('div');
   div.innerHTML = svgString;
   return div.querySelector('svg');
+}
+
+/**
+ * Helper to create a mock cluster with child markers carrying optional data.
+ * Each entry in `data` can be a number (rating only) or { rating, fierySky, goldenHour }.
+ */
+function mockCluster(count, data = []) {
+  const markers = data.map((d) => {
+    const opts = typeof d === 'number'
+      ? { rating: d }
+      : { rating: d.rating, fierySky: d.fierySky, goldenHour: d.goldenHour };
+    return { options: { icon: { options: opts } } };
+  });
+  while (markers.length < count) {
+    markers.push({ options: { icon: { options: {} } } });
+  }
+  return {
+    getChildCount: () => count,
+    getAllChildMarkers: () => markers,
+  };
 }
 
 describe('scoreColour', () => {
@@ -54,10 +74,56 @@ describe('scoreColour', () => {
     expect(scoreColour(3 * 20)).toBe(STOPS_VERDICT[2].hex);
   });
 
-  it('interpolates between stops rather than bucketing, which is the whole difference', () => {
-    // 70 → 3.5★, the midpoint between the 3★ and 4★ stops — what lets a cluster of mixed spots
-    // read as mixed instead of falling into a flat bucket colour.
-    expect(scoreColour(70)).toBe(rampHex(3.5));
+  it('snaps a fractional average to the nearest whole star rather than interpolating', () => {
+    // 70 → 3.5★ exactly, the midpoint between the 3★ and 4★ stops. Any fill that carries a label
+    // must sample the ramp at a whole star (heat-scale-unification-plan.md §2.1) — interpolating
+    // here would risk landing in a band where neither marker ink clears WCAG AA. Math.round takes
+    // the halfway case up.
+    expect(scoreColour(70)).toBe(rampHex(4));
+    expect(scoreColour(70)).not.toBe(rampHex(3.5));
+  });
+
+  it('rounds a non-halfway fractional average to its nearest star', () => {
+    // 69 → 3.45★ → rounds down to 3★.
+    expect(scoreColour(69)).toBe(rampHex(3));
+  });
+});
+
+describe('scoreColour never produces a labelled fill from a fractional star (§2.1)', () => {
+  // The property that matters, stated directly rather than sampled at a few convenient points:
+  // whatever avg comes in, what goes out is always one of the active mode's five whole-star
+  // colours — never a colour from the ramp's interior. This is the invariant the old sweep
+  // (`it.each([1, 2, 3, 4, 5])` in the AA describe below) cannot see, because those five inputs
+  // are already whole stars and were never at risk.
+
+  // MODE is module state on scoreRamp.js — only this block's sweep changes it, so only this
+  // block needs to change it back.
+  afterEach(() => {
+    setMode('verdict');
+  });
+
+  it.each(['verdict', 'temp'])('every avg from 0 to 100 lands on a whole-star colour (%s mode)', (mode) => {
+    setMode(mode);
+    const wholeStarColours = new Set([1, 2, 3, 4, 5].map((star) => rampHex(star)));
+    expect(wholeStarColours.size).toBe(5); // the five stars must be five distinct colours
+    for (let avg = 0; avg <= 100; avg += 1) {
+      expect(wholeStarColours.has(scoreColour(avg))).toBe(true);
+    }
+  });
+
+  it('a cluster whose ratings average to a fractional star still paints a whole-star colour', () => {
+    // mean([3, 4]) = 3.5 → avg 70 → 3.5★ → rounds to 4★, not the interpolated colour at 3.5.
+    const icon = createClusterIcon(mockCluster(2, [3, 4]));
+    expect(icon.options.html).toContain(rampHex(4));
+    expect(icon.options.html).not.toContain(rampHex(3.5));
+  });
+
+  it('a marker built from a fiery/golden pair averaging to a non-multiple of 20 still paints a whole-star colour', () => {
+    // avg = round((83 + 54) / 2) = 69 → 3.45★ → rounds to 3★, not the interpolated colour at 3.45.
+    const result = markerLabelAndColour(null, 83, 54, false);
+    expect(result.label).toBe(69);
+    expect(result.colour).toBe(rampHex(3));
+    expect(result.colour).not.toBe(rampHex(3.45));
   });
 });
 
@@ -275,26 +341,6 @@ describe('buildMarkerSvg', () => {
 });
 
 describe('createClusterIcon', () => {
-  /**
-   * Helper to create a mock cluster with child markers carrying optional data.
-   * Each entry in `data` can be a number (rating only) or { rating, fierySky, goldenHour }.
-   */
-  function mockCluster(count, data = []) {
-    const markers = data.map((d) => {
-      const opts = typeof d === 'number'
-        ? { rating: d }
-        : { rating: d.rating, fierySky: d.fierySky, goldenHour: d.goldenHour };
-      return { options: { icon: { options: opts } } };
-    });
-    while (markers.length < count) {
-      markers.push({ options: { icon: { options: {} } } });
-    }
-    return {
-      getChildCount: () => count,
-      getAllChildMarkers: () => markers,
-    };
-  }
-
   /** Parse the SVG HTML to a DOM element for querying. */
   function parseHtml(icon) {
     const div = document.createElement('div');
