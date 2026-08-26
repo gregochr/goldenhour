@@ -621,6 +621,53 @@ be switched on deliberately before it becomes everyone's default.
 
 ### Stage 7 — Flip the default, and tell people
 
+⚠️ **BLOCKED on a contrast decision. Measure before flipping — do not treat this as a one-line
+default change.**
+
+Stage 5b tints the score bar's **number** from the ramp, floored at `NUMBER_TINT_FLOOR = 2.8★` so
+it clears 4.5:1 as *text* on the panel background. That floor was measured against
+**`STOPS_VERDICT`**, and 5b's own review flagged, correctly, that it was not scoped to the active
+mode. Measured against `STOPS_TEMP`:
+
+| | worst point, 2.8★–5★, both backgrounds, rest and dimmed |
+|---|---|
+| verdict (today) | **4.75:1** — holds |
+| **temperature (after the flip)** | **2.38:1** — fails |
+
+**And it fails at the HOT end, where a floor cannot help**, because a floor clamps the bottom:
+
+| star | rest | dimmed (0.8) |
+|---|---|---|
+| 4.0★ | 4.82:1 | 3.55:1 |
+| 4.3★ | **4.13:1** | **3.08:1** |
+| 5.0★ | **3.08:1** | **2.38:1** |
+
+So flipping the default as-is ships failing contrast on the score number at **every rating from
+roughly 4.1★ upward** — the good evenings, the ones a reader most wants to read.
+
+⚠️ **This is a direct consequence of a fix we were right to make.** Making the hot leg monotonic
+(so 4.3★ stopped reading hotter than 5★) deepened the top end to `#C82820`. That is *better* for
+fills, where `readableInkOn` picks an ink to sit on top of it, and *worse* for text, where the ramp
+colour **is** the ink on a dark surface. The two uses pull opposite ways; the ramp is right and the
+text use of it is what has to give.
+
+**Options, for the owner or Design — not a mechanical choice:**
+
+1. **Drop the number tint.** The bar carries the colour, the numeral carries the value, and
+   SC 1.4.1 is satisfied either way. This is what `PlanScoreBar` did before 5b, and its own doc
+   comment called the no-tint deliberate — the temp-mode data now supports that position for a
+   sounder reason than the one recorded there. Smallest change; removes the whole class of problem.
+2. **Derive a readable variant of the ramp hue** — keep the hue, lift the luminance until it clears
+   4.5:1. Preserves "tinted to match" as a real idea, but it is new colour machinery and a second
+   colour language to maintain.
+3. **Tint from a clamped band** (floor *and* ceiling). Cheap, but it makes 5★ and 4★ numbers the
+   same colour — deleting the signal exactly where it matters.
+
+Recommended: **(1)**, unless Design wants to own (2). Whatever is chosen, re-measure rather than
+reasoning: the sweep is at 0.02★ across both backgrounds in rest and dimmed states.
+
+Once that is settled:
+
 - `mapColourScale` defaults to `'temp'`; `markersFollowScale` defaults on. Existing installs get
   the new scale with no migration prompt.
 - A **one-time, dismissible notice** on the map: "Colours now run cold to hot."

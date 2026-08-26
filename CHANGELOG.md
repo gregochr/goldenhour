@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Stage 7 is blocked: the score number's tint fails AA in temperature mode
+
+Stage 5b tints the score bar's number from the ramp, floored at 2.8★ so it clears 4.5:1 as *text*
+on the panel background. That floor was measured against `STOPS_VERDICT`, and 5b's own review
+flagged — correctly — that it was never scoped to the active mode. Measured against `STOPS_TEMP`,
+the worst point across both backgrounds in rest and dimmed states drops from **4.75:1** to
+**2.38:1**.
+
+**It fails at the hot end, where a floor cannot help**, because a floor clamps the bottom: 4.3★
+measures 4.13:1 at rest and 3.08:1 dimmed; 5★ measures 3.08:1 and 2.38:1. Flipping the default
+as-is would ship failing contrast on the score number at roughly every rating above 4.1★ — the good
+evenings, the ones a reader most wants to read.
+
+This is a direct consequence of a fix that was right to make. Making the hot leg monotonic — so
+4.3★ stopped reading hotter than 5★ — deepened the top end to `#C82820`, which is *better* for
+fills, where `readableInkOn` chooses an ink to sit on top, and *worse* for text, where the ramp
+colour **is** the ink on a dark surface. The two uses pull opposite ways.
+
+Three options are recorded with a recommendation (drop the number tint — the bar carries the colour
+and the numeral carries the value, which is what `PlanScoreBar` did before 5b and called
+deliberate). The decision is Design's or the owner's; Stage 7 is marked blocked until it is made.
+
 ### Added — Stage 8: the Golden Hour score a null Fiery Sky hides
 
 Found during Stage 5b's browser verification, pre-existing, and correctly left out of that stage's
