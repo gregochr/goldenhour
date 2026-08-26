@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Stage 8: the Golden Hour score a null Fiery Sky hides
+
+Found during Stage 5b's browser verification, pre-existing, and correctly left out of that stage's
+scope. `MarkerPopupContent` gates its whole **Scores** section on `fierySkyPotential` alone, in two
+places — the forecast popup and the briefing drill-down — while `goldenHourPotential` is resolved
+independently. A location with no Fiery Sky reading but a perfectly good Golden Hour one therefore
+shows no Scores section at all: heading, tooltip and a real measurement all suppressed by the
+absence of the *other* measurement.
+
+Stage 5b makes the fix smaller than it was. The old `PopupScoreRow` could not render a missing
+score; `ScoreBar` renders an em dash for one, so the gate no longer protects anything and only has
+to stop an empty section when **both** are absent. Scheduled last, on the owner's instruction, as a
+behaviour fix rather than part of the colour work.
+
 ### Changed — Stage 5b of the colour-scale unification: one score bar, continuous solid fill
 
 `PlanScoreBar` (Plan pane) and `MarkerPopupContent`'s module-private `PopupScoreRow` (map popup) —

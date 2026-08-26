@@ -631,6 +631,44 @@ setting; it is a sentence.
 
 ---
 
+### Stage 8 — the Golden Hour score a null Fiery Sky hides
+
+Found during Stage 5b's browser verification, **pre-existing** and correctly left out of that
+stage's scope. Scheduled last, on the owner's instruction, because it is a behaviour fix rather
+than part of the colour work.
+
+`MarkerPopupContent` gates its whole **Scores** section on `fierySkyPotential` alone, in **two
+places**:
+
+| site | gate |
+|---|---|
+| the forecast popup (~line 894) | `role !== 'LITE_USER' && popupFiery != null` |
+| the briefing drill-down (~line 1111) | `role !== 'LITE_USER' && briefingScore.fierySkyPotential != null` |
+
+`popupGolden` / `goldenHourPotential` are resolved independently. So a location with **no Fiery Sky
+reading but a perfectly good Golden Hour one** shows no Scores section at all — the heading, the
+tooltip and a real measurement all suppressed by the absence of the *other* measurement.
+
+**Stage 5b makes the fix simpler than it was.** The old `PopupScoreRow` could not render a missing
+score; `ScoreBar` renders an em dash for one, deliberately. So the gate no longer has to protect
+anything — it only has to stop an empty section appearing when **both** are absent:
+
+```
+role !== 'LITE_USER' && (fiery != null || golden != null)
+```
+
+⚠️ **Fix both sites or neither.** They are the same defect twice, and fixing one leaves the other
+as a puzzle for whoever meets it next.
+
+⚠️ **Check what a LITE user sees before changing the boolean's shape.** The role test and the null
+test are currently one expression; the freemium split is a product rule and this stage is not the
+place to renegotiate it.
+
+**Tests:** a location with fiery null and golden present shows the section with a dash and a real
+bar; both null shows nothing; both present is unchanged. Assert it at **both** sites — a single
+test passing at one of them is how this survived in the first place.
+
+
 ## 4. Cross-cutting rules
 
 1. **One `MODE`, read from one module.** Plan thumbnails and the Map tab must never disagree
