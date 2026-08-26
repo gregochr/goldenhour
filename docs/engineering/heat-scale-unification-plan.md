@@ -180,7 +180,32 @@ number** — assert `toBe(1)`, not a colour string.
 
 *Nothing downstream of `ramp()` changes in this stage — that is the brief's own rule.*
 
-### Stage 2 — Tokens and legend
+### Stage 2 — Tokens and legend ✅ landed
+
+**Status:** implemented and adversarially reviewed (four read-only lenses: runtime correctness —
+re-checked against a post-`setMode('temp')` runtime rather than import-time state, specifically for
+the `RAMP_GRADIENT` trap below — CSS/token correctness, test quality, docs/conventions. Three came
+back clean; the fourth flagged one asymmetric test assertion, fixed in the same commit). One thing
+this stage's own bullet list below got wrong: `--color-heat-1..5` landed in the `@theme static`
+block, not the plain block beside `--color-verdict-*`. Nothing in this stage consumes them yet, and
+Tailwind v4 prunes an unreferenced plain-block token to the empty string — the exact
+`--color-plex-panel` failure this file's own header comment already records; `--color-heat-sea`
+already lives in the static block for the same reason. `--color-verdict-*` itself was not touched.
+`scoreRamp.js` gained one exported accessor, `activeStops()`, promoting the private function Stage 1
+already wrote, so both gradient sites read one source instead of each branching on `getMode()`
+independently. The map legend was already inline in the render body, so swapping its
+`STOPS_VERDICT` import for `activeStops()` was the whole fix there. `WindowFirstHeatStrip.jsx`'s
+`RAMP_GRADIENT` is now `rampGradient()`, a plain function called from the render body, so it reads
+`activeStops()` fresh on every render; its stale "depends on nothing that changes" comment was
+rewritten rather than left standing next to code it no longer describes. Tests: both gradient
+surfaces gained a paired test each — one pinning today's verdict-stop rendering (and the *absence*
+of any temperature-stop colour), one calling `setMode('temp')` **after** the test file's own
+imports had already resolved and confirming the temperature stops appear (and the verdict ones
+don't) — the ordering a frozen-at-import constant could not have passed. A new `heatTokens.test.js`
+pins each `--color-heat-N` token against `rampHex(N)` in temp mode rather than against `STOPS_TEMP`'s
+literals, since the 2★/4★ tokens are interpolated points, not stops in that list. `setMode('verdict')`
+was added to each affected `describe`'s `afterEach`. `npm run lint && npm test && npm audit
+--audit-level=high && npm run build` all pass.
 
 - ⚠️ **First, correct the two hot stops that Stage 1 shipped.** `STOPS_TEMP` on main carries the
   pre-revision `4.3: '#D63A26'` and `5: '#F26034'`; they must become **`#DE4826`** and

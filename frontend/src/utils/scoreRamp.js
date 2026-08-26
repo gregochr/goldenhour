@@ -124,8 +124,15 @@ export function getMode() {
   return MODE;
 }
 
-/** @returns {Array<{score: number, hex: string}>} the active mode's stop list */
-function activeStops() {
+/**
+ * The active mode's stop list, exported so a consumer building a gradient from every stop (the map
+ * legend, the heat strip's footer bar) reads one answer to "which ramp is live" rather than each
+ * branching on {@link getMode} independently — two call sites doing that could disagree about what
+ * a colour means, which is the one thing this module exists to prevent.
+ *
+ * @returns {Array<{score: number, hex: string}>} the active mode's stop list
+ */
+export function activeStops() {
   return MODE === 'temp' ? STOPS_TEMP : STOPS_VERDICT;
 }
 

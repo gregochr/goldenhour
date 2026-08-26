@@ -107,7 +107,7 @@ vi.mock('../components/markerUtils.js', async (importOriginal) => {
 });
 
 import MapView from '../components/MapView.jsx';
-import { STOPS_VERDICT } from '../utils/scoreRamp.js';
+import { STOPS_VERDICT, STOPS_TEMP, setMode } from '../utils/scoreRamp.js';
 import { markerLabelAndColour } from '../components/markerUtils.js';
 
 const TODAY = '2026-01-15';
@@ -697,6 +697,44 @@ describe('MapView heat — the marker swap (D2/D8)', () => {
     for (const stop of STOPS_VERDICT) {
       const n = parseInt(stop.hex.slice(1), 16);
       expect(style).toContain(`rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`);
+    }
+  });
+});
+
+describe('MapView heat — the legend follows scoreRamp\'s active mode (heat-scale unification Stage 2)', () => {
+  // MODE is scoreRamp module state, not a per-test fixture — a test that switches it and forgets to
+  // undo it leaks into every case that runs after it, in this file or another.
+  afterEach(() => {
+    setMode('verdict');
+  });
+
+  it('stays on the verdict stops while nothing has switched the mode — the zero-visual-change proof', async () => {
+    await renderMap({ heat: heatProp() });
+    const style = screen.getByTestId('wf-map-heat-legend-ramp').getAttribute('style');
+    for (const stop of STOPS_VERDICT) {
+      const n = parseInt(stop.hex.slice(1), 16);
+      expect(style).toContain(`rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`);
+    }
+    for (const stop of STOPS_TEMP) {
+      const n = parseInt(stop.hex.slice(1), 16);
+      expect(style).not.toContain(`rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`);
+    }
+  });
+
+  it('repaints from the temperature stops once setMode(\'temp\') is called', async () => {
+    // Called before the render rather than before the import — the import already happened at the
+    // top of this file, so this is what proves the legend reads the ramp's mode at render time
+    // rather than off a value captured once when `MapView` first loaded.
+    setMode('temp');
+    await renderMap({ heat: heatProp() });
+    const style = screen.getByTestId('wf-map-heat-legend-ramp').getAttribute('style');
+    for (const stop of STOPS_TEMP) {
+      const n = parseInt(stop.hex.slice(1), 16);
+      expect(style).toContain(`rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`);
+    }
+    for (const stop of STOPS_VERDICT) {
+      const n = parseInt(stop.hex.slice(1), 16);
+      expect(style).not.toContain(`rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`);
     }
   });
 });

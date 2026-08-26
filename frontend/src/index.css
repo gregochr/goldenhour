@@ -151,6 +151,23 @@
      same trick: readable type on a 13% tint of --color-close-to-home. */
   --color-segment-active: #EBD9A8;
 
+  /* The temperature ramp's five whole-star hexes — `scoreRamp.js`'s STOPS_TEMP sampled at each
+     whole star, for discrete (non-canvas) uses that want a literal swatch. The field itself never
+     reads these: it calls `rampHex`/`rampRgb` directly and interpolates between STOPS_TEMP's
+     uneven stops, so 2 and 4 below are NOT stops in that list (they are `rampHex(2)`/`rampHex(4)`
+     in temp mode) — do not "correct" them to match a `STOPS_TEMP` entry that was never meant to be
+     here. Static, not the plain `@theme` block above, even though these sit beside
+     `--color-verdict-*` in intent: nothing yet reads `var(--color-heat-1..5)`, and Tailwind only
+     emits a plain-block token when a scanned file references it — an unreferenced one there
+     compiles to the empty string with nothing failing, which is exactly the `--color-plex-panel`
+     failure this file already records above. These land ahead of their first consumer the same
+     way the window-first palette earlier in this block did (see its header comment). */
+  --color-heat-1: #3A5C70;
+  --color-heat-2: #4C6677;
+  --color-heat-3: #C49440;
+  --color-heat-4: #DD5F29;
+  --color-heat-5: #F26034;
+
   /* ── Heat field, the two colours the canvas and the DOM both need ──
      Everything else the field paints comes from `scoreRamp.js`, which is the single source for the
      ramp and is read by the kernel and by the legend gradient alike (plan §8: JS-side hexes live
