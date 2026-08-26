@@ -449,8 +449,8 @@ describe('LocationFourDaySheet — the v3 anatomy (plan-matrix §6 M4.1)', () =>
     expect(dimmed[0]).not.toContain('.wf-loc-day');
     // Location-sheet superset plan, Phase 1: the score bars' label row joins this SAME rule (still
     // one block — the selector list widened, not a second rule), while the coloured track
-    // (`.wf-peek-bar`, painted with the fiery/golden gradient) is excluded for the identical reason
-    // the badge is — it carries its own plate, not text.
+    // (`.wf-peek-bar`, painted with a solid ramp fill since Stage 5b) is excluded for the identical
+    // reason the badge is — it carries its own plate, not text.
     expect(dimmed[0]).toContain('.wf-loc-score-label');
     expect(dimmed[0]).not.toContain('.wf-peek-bar');
     // Phase 2's light line joins the same rule for the same reason the prose does — plain text on

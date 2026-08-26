@@ -123,28 +123,26 @@ describe('MarkerPopupContent', () => {
       expect(screen.queryByTestId('pro-pill')).not.toBeInTheDocument();
     });
 
-    it('shows only the Golden Hour bar when fierySkyPotential is null', () => {
+    it('still shows the Scores section (with a Golden Hour value) when fierySkyPotential is null', () => {
       renderPopup({
         role: 'PRO_USER',
         forecast: { ...BASE_FORECAST, fierySkyPotential: null, goldenHourPotential: 62 },
       });
       fireEvent.click(screen.getByTestId('more-details-toggle'));
       expect(screen.getByText('Scores')).toBeInTheDocument();
-      expect(screen.queryByText('Fiery Sky')).not.toBeInTheDocument();
-      expect(screen.getByText('Golden Hour')).toBeInTheDocument();
-      expect(screen.getByText('62')).toBeInTheDocument();
+      expect(screen.getByTestId('popup-score-fiery')).toHaveTextContent('—');
+      expect(screen.getByTestId('popup-score-golden')).toHaveTextContent('62');
     });
 
-    it('shows only the Fiery Sky bar when goldenHourPotential is null', () => {
+    it('still shows the Scores section (with a Fiery Sky value) when goldenHourPotential is null', () => {
       renderPopup({
         role: 'PRO_USER',
         forecast: { ...BASE_FORECAST, fierySkyPotential: 78, goldenHourPotential: null },
       });
       fireEvent.click(screen.getByTestId('more-details-toggle'));
       expect(screen.getByText('Scores')).toBeInTheDocument();
-      expect(screen.getByText('Fiery Sky')).toBeInTheDocument();
-      expect(screen.getByText('78')).toBeInTheDocument();
-      expect(screen.queryByText('Golden Hour')).not.toBeInTheDocument();
+      expect(screen.getByTestId('popup-score-fiery')).toHaveTextContent('78');
+      expect(screen.getByTestId('popup-score-golden')).toHaveTextContent('—');
     });
 
     it('shows score bars for ADMIN when expanded', () => {
@@ -1357,7 +1355,7 @@ describe('MarkerPopupContent', () => {
       expect(screen.getByText('55')).toBeInTheDocument();
     });
 
-    it('state 2 (batch-scored): shows only the Golden Hour bar when fierySkyPotential is null', () => {
+    it('state 2 (batch-scored): still shows the Scores section (with a Golden Hour value) when fierySkyPotential is null', () => {
       render(
         <MarkerPopupContent
           {...DEFAULT_PROPS}
@@ -1368,12 +1366,11 @@ describe('MarkerPopupContent', () => {
         />,
       );
       expect(screen.getByText('Scores')).toBeInTheDocument();
-      expect(screen.queryByText('Fiery Sky')).not.toBeInTheDocument();
-      expect(screen.getByText('Golden Hour')).toBeInTheDocument();
-      expect(screen.getByText('55')).toBeInTheDocument();
+      expect(screen.getByTestId('popup-score-fiery')).toHaveTextContent('—');
+      expect(screen.getByTestId('popup-score-golden')).toHaveTextContent('55');
     });
 
-    it('state 2 (batch-scored): shows only the Fiery Sky bar when goldenHourPotential is null', () => {
+    it('state 2 (batch-scored): still shows the Scores section (with a Fiery Sky value) when goldenHourPotential is null', () => {
       render(
         <MarkerPopupContent
           {...DEFAULT_PROPS}
@@ -1384,9 +1381,8 @@ describe('MarkerPopupContent', () => {
         />,
       );
       expect(screen.getByText('Scores')).toBeInTheDocument();
-      expect(screen.getByText('Fiery Sky')).toBeInTheDocument();
-      expect(screen.getByText('70')).toBeInTheDocument();
-      expect(screen.queryByText('Golden Hour')).not.toBeInTheDocument();
+      expect(screen.getByTestId('popup-score-fiery')).toHaveTextContent('70');
+      expect(screen.getByTestId('popup-score-golden')).toHaveTextContent('—');
     });
 
     it('state 2 (batch-scored): hides score bars for LITE_USER and shows upgrade hint', () => {
