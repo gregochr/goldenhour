@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the Stage 2 spec named one gradient site when there are two
+
+`docs/engineering/heat-scale-unification-plan.md`'s Stage 2 and the new Stage 2 kickoff prompt now
+name **both** ramp gradients: `MapView.jsx`'s map legend, built inline during render, and
+`WindowFirstHeatStrip.jsx`'s `RAMP_GRADIENT`, a **module-level constant evaluated once at import**.
+That second one is the trap — its own comment asserts "Computed once at module load — it depends on
+nothing that changes", which was true before Stage 1 and is false now that it depends on `MODE`.
+Left as a constant it would keep painting the verdict ramp forever after Stage 7 flips the default,
+with no test, lint or build failing. The prompt calls for it to become a function, for the comment
+to be rewritten, and for a test that sets the mode *after* import — since a test that only asserts
+"the string changed" passes even against a frozen constant.
+
+Stage 1's prompt is marked landed and its **"Trap 3" corrected in place**: it claimed `RAMP_STOPS`
+was imported by three test files and no production code, when it was two production files and five
+test files. The claim came from a `grep | head` whose truncation went unnoticed; the implementing
+session's import-consistency lens caught it. Recorded rather than quietly fixed, because the lesson
+generalises to every prompt in the file — a truncated grep is not a survey.
+
 ### Added — Stage 1 of the colour-scale unification: two ramps, one mode switch, no visual change
 
 `utils/scoreRamp.js` gains a second stop list — `STOPS_TEMP`, the temperature ramp's eight
