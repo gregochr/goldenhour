@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import Modal from './shared/Modal.jsx';
 import ProvisionalMark from './shared/ProvisionalMark.jsx';
-import PlanScoreBar, { FIERY_FILL, GOLDEN_FILL } from './PlanScoreBar.jsx';
+import ScoreBar from './ScoreBar.jsx';
 import { confidenceTreatment } from '../utils/confidenceUtils.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { buildLocationSheet } from '../utils/locationSheet.js';
@@ -363,20 +363,22 @@ export default function LocationFourDaySheet({
                   {(row.fierySky != null || row.goldenHour != null) && (
                     <div data-testid="location-sheet-scores" className="wf-loc-scores">
                       {row.fierySky != null && (
-                        <PlanScoreBar
+                        <ScoreBar
                           label="Fiery Sky"
                           score={row.fierySky}
+                          metric="fiery"
                           testId="location-sheet-fiery"
-                          fill={FIERY_FILL}
+                          dense
                           labelClassName="wf-loc-score-label"
                         />
                       )}
                       {row.goldenHour != null && (
-                        <PlanScoreBar
+                        <ScoreBar
                           label="Golden Hour"
                           score={row.goldenHour}
+                          metric="golden"
                           testId="location-sheet-golden"
-                          fill={GOLDEN_FILL}
+                          dense
                           labelClassName="wf-loc-score-label"
                         />
                       )}

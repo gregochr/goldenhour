@@ -2,7 +2,7 @@ import React from 'react';
 import PropTypes from 'prop-types';
 import { createPortal } from 'react-dom';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
-import PlanScoreBar, { FIERY_FILL, GOLDEN_FILL } from './PlanScoreBar.jsx';
+import ScoreBar from './ScoreBar.jsx';
 
 /** Filled/hollow glyph row — `★★★★☆`. Ratings are integers, so no half star exists. */
 function starGlyphs(rating) {
@@ -193,19 +193,21 @@ export default function WindowSpotPeek({
       {hasScores && (
         <div data-testid="wf-peek-scores" style={{ marginTop: '8px' }}>
           {fierySky != null && (
-            <PlanScoreBar
+            <ScoreBar
               label="Fiery Sky"
               score={fierySky}
+              metric="fiery"
               testId="wf-peek-fiery"
-              fill={FIERY_FILL}
+              dense
             />
           )}
           {goldenHour != null && (
-            <PlanScoreBar
+            <ScoreBar
               label="Golden Hour"
               score={goldenHour}
+              metric="golden"
               testId="wf-peek-golden"
-              fill={GOLDEN_FILL}
+              dense
             />
           )}
         </div>

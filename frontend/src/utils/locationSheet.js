@@ -244,7 +244,7 @@ export function buildSlotIndex(days) {
  * <p>Also carries {@code fierySky}/{@code goldenHour} (location-sheet superset plan, Phase 1) —
  * the same two 0–100 model outputs the window popup's peek already shows, bounded here the same way
  * {@code rating} is: an out-of-range or non-integer value is discarded rather than reaching
- * {@link PlanScoreBar}, which clamps and would otherwise draw a bar for a number the pipeline never
+ * {@link ScoreBar}, which clamps and would otherwise draw a bar for a number the pipeline never
  * produced.
  *
  * <p>And the four golden/blue hour boundaries (Phase 2), kept RAW here — UTC ISO strings exactly as

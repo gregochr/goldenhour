@@ -16,6 +16,7 @@ import createEventSource from '../utils/createEventSource.js';
 import { bortleLabel } from '../utils/conversions.js';
 import TideIndicator from './TideIndicator.jsx';
 import InfoTip from './InfoTip.jsx';
+import ScoreBar from './ScoreBar.jsx';
 import { resolveStandDown } from '../utils/standDown.js';
 import { LOCATION_TYPE_META, DISPLAY_TYPES } from '../utils/locationTypes.js';
 
@@ -250,73 +251,6 @@ function isDustEnhanced(f) {
 const SCORE_TOOLTIPS = {
   'Fiery Sky': 'Dramatic colour from clouds catching light',
   'Golden Hour': 'Overall light quality — can score high even with clear sky',
-};
-
-/**
- * Score-bar fills run muted-grey (low) → hot colour (high), so a higher score
- * both fills further AND glows hotter. The gradient is sized to the full track
- * and the unfilled remainder is masked, so a low score shows only the muted end.
- */
-const FIERY_FILL = 'linear-gradient(90deg, #B5A06A, #E0A542 45%, #C8452F)';
-const GOLDEN_FILL = 'linear-gradient(90deg, #6B6453, #C88E2E 45%, #F5C518)';
-
-/** Value-number tint ramps (low → high), matching each bar's direction. */
-const FIERY_TINT = ['#8A8175', '#E0A542', '#E86A4A'];
-const GOLDEN_TINT = ['#8A8175', '#C88E2E', '#F5C518'];
-
-/** Linear interpolation between two #rrggbb hex colours, returning an rgb() string. */
-function lerpHex(a, b, t) {
-  const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16));
-  const pb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16));
-  const c = pa.map((v, i) => Math.round(v + (pb[i] - v) * t));
-  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
-}
-
-/** Maps a 0–100 score onto a 3-stop colour ramp (stops at 0/50/100). */
-function rampTint(stops, pct) {
-  const t = Math.min(1, Math.max(0, pct / 100));
-  return t <= 0.5 ? lerpHex(stops[0], stops[1], t / 0.5) : lerpHex(stops[1], stops[2], (t - 0.5) / 0.5);
-}
-
-/**
- * Inline score bar used inside both Leaflet popups and the mobile bottom sheet.
- *
- * @param {object} props
- * @param {string} props.label - Score label (e.g. "Fiery Sky").
- * @param {number|null} props.score - Score value 0–100, or null.
- */
-function PopupScoreRow({ label, score }) {
-  const pct = score != null ? Math.min(100, Math.max(0, score)) : null;
-  const isFiery = label === 'Fiery Sky';
-  const fill = isFiery ? FIERY_FILL : GOLDEN_FILL;
-  const numberTint = pct == null
-    ? 'var(--color-plex-text-muted)'
-    : rampTint(isFiery ? FIERY_TINT : GOLDEN_TINT, pct);
-  return (
-    <div style={{ marginBottom: '4px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: 'var(--color-plex-text-secondary)', marginBottom: '2px' }}>
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', borderBottom: '1px dotted var(--color-plex-text-muted)' }}>
-          {label}
-          {SCORE_TOOLTIPS[label] && <InfoTip text={SCORE_TOOLTIPS[label]} />}
-        </span>
-        <span style={{ fontWeight: '600', fontFamily: "'IBM Plex Mono', monospace", color: numberTint }}>{pct != null ? pct : '—'}</span>
-      </div>
-      <div style={{ position: 'relative', height: '6px', background: fill, borderRadius: '999px', overflow: 'hidden' }}>
-        <div
-          style={{
-            position: 'absolute', top: 0, right: 0, height: '100%',
-            width: pct != null ? `${100 - pct}%` : '100%',
-            background: 'var(--color-plex-surface-light)',
-          }}
-        />
-      </div>
-    </div>
-  );
-}
-
-PopupScoreRow.propTypes = {
-  label: PropTypes.string.isRequired,
-  score: PropTypes.number,
 };
 
 /**
@@ -963,8 +897,20 @@ export default function MarkerPopupContent({
                     <span>Scores</span>
                     <InfoTip text="Fiery Sky measures dramatic colour from clouds catching light. Golden Hour measures overall light quality and can score high even with clear sky." />
                   </div>
-                  <PopupScoreRow label="Fiery Sky" score={popupFiery} />
-                  <PopupScoreRow label="Golden Hour" score={popupGolden} />
+                  <ScoreBar
+                    label="Fiery Sky"
+                    score={popupFiery}
+                    metric="fiery"
+                    testId="popup-score-fiery"
+                    tooltip={SCORE_TOOLTIPS['Fiery Sky'] && <InfoTip text={SCORE_TOOLTIPS['Fiery Sky']} />}
+                  />
+                  <ScoreBar
+                    label="Golden Hour"
+                    score={popupGolden}
+                    metric="golden"
+                    testId="popup-score-golden"
+                    tooltip={SCORE_TOOLTIPS['Golden Hour'] && <InfoTip text={SCORE_TOOLTIPS['Golden Hour']} />}
+                  />
                 </div>
               )}
 
@@ -1168,8 +1114,20 @@ export default function MarkerPopupContent({
                       <span>Scores</span>
                       <InfoTip text="Fiery Sky measures dramatic colour from clouds catching light. Golden Hour measures overall light quality and can score high even with clear sky." />
                     </div>
-                    <PopupScoreRow label="Fiery Sky" score={briefingScore.fierySkyPotential} />
-                    <PopupScoreRow label="Golden Hour" score={briefingScore.goldenHourPotential} />
+                    <ScoreBar
+                      label="Fiery Sky"
+                      score={briefingScore.fierySkyPotential}
+                      metric="fiery"
+                      testId="popup-score-fiery"
+                      tooltip={SCORE_TOOLTIPS['Fiery Sky'] && <InfoTip text={SCORE_TOOLTIPS['Fiery Sky']} />}
+                    />
+                    <ScoreBar
+                      label="Golden Hour"
+                      score={briefingScore.goldenHourPotential}
+                      metric="golden"
+                      testId="popup-score-golden"
+                      tooltip={SCORE_TOOLTIPS['Golden Hour'] && <InfoTip text={SCORE_TOOLTIPS['Golden Hour']} />}
+                    />
                   </div>
                 )}
                 {role === 'LITE_USER' && (

@@ -3135,10 +3135,13 @@ button.wf-hc.also.on:hover {
   color: var(--color-plex-text-secondary);
   white-space: nowrap;
 }
-/* Score track. The gradient is the whole bar and a panel-coloured span masks the unfilled tail from
-   the right — the technique `PopupScoreRow` uses, so the two surfaces show one measurement the same
-   way. Masking rather than sizing the gradient matters: a gradient scaled to the value would change
-   the COLOUR at a given score, so 40 and 90 would print the same hue at their own right edge. */
+/* Score track. The fill is a continuous solid colour sampled from the ramp
+   (heat-scale-unification-plan.md Stage 5b) and a panel-coloured span masks the unfilled tail from
+   the right — the same technique `ScoreBar`'s popup-mode markup uses, so the two surfaces show one
+   measurement the same way. Masking rather than sizing the fill to the value matters: a fill scaled
+   to the value would move its own colour as the value changed, since a solid colour has no fixed
+   position to shrink toward — 40 and 90 would each show their own colour rather than the same one
+   at two widths. */
 .wf-peek-bar {
   position: relative;
   height: 6px;
@@ -4049,12 +4052,15 @@ button.wf-hc.also.on:hover {
 
    5. Location-sheet superset plan Phase 1 added the score bars, and split them the same way the
       badge and date box already are: `.wf-loc-score-label` (the bar's own label + number row, no
-      background of its own) joins this list, while the coloured track (`.wf-peek-bar`, filled with
-      `FIERY_FILL`/`GOLDEN_FILL`) does NOT — it carries its own plate exactly as the rating badge
-      does, for the same reason departure 1 states. No fresh ratio was measured for the label row
-      itself: it is `text-plex-text-secondary` / `text-plex-text` at 600 weight, the SAME tokens and
-      weight `.wf-loc-lv`'s own text already carries (departure 3's 4.80:1 at rest), so it is covered
-      by that measurement rather than an independent one.
+      background of its own) joins this list, while the coloured track (`.wf-peek-bar`, filled from
+      `scoreRamp.js` since Stage 5b) does NOT — it carries its own plate exactly as the rating badge
+      does, for the same reason departure 1 states. The label text itself is
+      `text-plex-text-secondary`, the SAME token `.wf-loc-lv`'s own text carries (departure 3's
+      4.80:1 at rest), so it is covered by that measurement. ⚠️ The NUMBER is different since Stage
+      5b: it is tinted from the ramp, floored at 2.8★ specifically so it clears 4.5:1 once THIS rule
+      dims it to 0.8 opacity — `ScoreBar.jsx`'s `NUMBER_TINT_FLOOR` carries the measurement this rule
+      depends on, not an independent one taken here. If this rule's opacity ever changes, that floor
+      needs re-measuring against the new value.
 
    6. Phase 2 added the light line, and it joins the list for the same reason the prose does: it is
       plain text on the body's own ground with no plate of its own. It carries

@@ -7,7 +7,7 @@ import {
   createClusterIcon,
   STAND_DOWN_COLOUR,
 } from '../components/markerUtils.js';
-import { STOPS_VERDICT, rampHex, setMode } from '../utils/scoreRamp.js';
+import { STOPS_VERDICT, rampHex, starFromScore, setMode } from '../utils/scoreRamp.js';
 
 const HALF_CIRC = Math.PI * 19;
 const FULL_CIRC = 2 * Math.PI * 19;
@@ -129,12 +129,15 @@ describe('scoreColour never produces a labelled fill from a fractional star (§2
 
 describe('buildMarkerSvg', () => {
   describe('Sonnet/Opus markers (both scores present)', () => {
-    it('contains two arc paths with correct stroke colours', () => {
+    it('derives the arc stroke colours from the ramp — a continuous sample, not a hard-coded hex', () => {
+      // Not §2.1's whole-star snap: arcs carry no label, so they may sample the ramp continuously
+      // (heat-scale-unification-plan.md Stage 5b). Asserted against the ramp function itself so this
+      // cannot silently drift from `scoreRamp.js`.
       const svg = parseSvg(buildMarkerSvg(65, '#CC8A00', 80, 50, null, false));
       const paths = svg.querySelectorAll('path');
       expect(paths).toHaveLength(2);
-      expect(paths[0].getAttribute('stroke')).toBe('#f97316');
-      expect(paths[1].getAttribute('stroke')).toBe('#E5A00D');
+      expect(paths[0].getAttribute('stroke')).toBe(rampHex(starFromScore(80, 'fiery')));
+      expect(paths[1].getAttribute('stroke')).toBe(rampHex(starFromScore(50, 'golden')));
     });
 
     it('computes correct dasharray for fiery=80, golden=40', () => {
@@ -173,7 +176,7 @@ describe('buildMarkerSvg', () => {
       const svg = parseSvg(buildMarkerSvg(25, '#6B5000', 0, 50, null, false));
       const paths = svg.querySelectorAll('path');
       expect(paths).toHaveLength(1);
-      expect(paths[0].getAttribute('stroke')).toBe('#E5A00D');
+      expect(paths[0].getAttribute('stroke')).toBe(rampHex(starFromScore(50, 'golden')));
     });
 
     it('includes a background track ring', () => {
@@ -196,10 +199,10 @@ describe('buildMarkerSvg', () => {
   });
 
   describe('Haiku markers (rating only, no scores)', () => {
-    it('contains a single arc circle with gold colour', () => {
+    it('contains a single arc circle coloured from the ramp', () => {
       const svg = parseSvg(buildMarkerSvg('3\u2605', '#A06E00', null, null, 3, false));
       const arcCircle = Array.from(svg.querySelectorAll('circle'))
-        .find((c) => c.getAttribute('stroke') === '#E5A00D' && c.getAttribute('stroke-dasharray'));
+        .find((c) => c.getAttribute('stroke') === rampHex(3) && c.getAttribute('stroke-dasharray'));
       expect(arcCircle).toBeDefined();
       expect(svg.querySelectorAll('path')).toHaveLength(0);
     });
@@ -207,7 +210,7 @@ describe('buildMarkerSvg', () => {
     it('shows full ring for rating 5', () => {
       const svg = parseSvg(buildMarkerSvg('5\u2605', '#E5A00D', null, null, 5, false));
       const arcCircle = Array.from(svg.querySelectorAll('circle'))
-        .find((c) => c.getAttribute('stroke') === '#E5A00D' && c.getAttribute('stroke-dasharray'));
+        .find((c) => c.getAttribute('stroke') === rampHex(5) && c.getAttribute('stroke-dasharray'));
       const fill = FULL_CIRC * (5 / 5);
       expect(arcCircle.getAttribute('stroke-dasharray'))
         .toBe(`${fill.toFixed(2)} ${(FULL_CIRC - fill).toFixed(2)}`);
@@ -216,7 +219,7 @@ describe('buildMarkerSvg', () => {
     it('shows 20% ring for rating 1', () => {
       const svg = parseSvg(buildMarkerSvg('1\u2605', '#6B6B6B', null, null, 1, false));
       const arcCircle = Array.from(svg.querySelectorAll('circle'))
-        .find((c) => c.getAttribute('stroke') === '#E5A00D' && c.getAttribute('stroke-dasharray'));
+        .find((c) => c.getAttribute('stroke') === rampHex(1) && c.getAttribute('stroke-dasharray'));
       const fill = FULL_CIRC * (1 / 5);
       expect(arcCircle.getAttribute('stroke-dasharray'))
         .toBe(`${fill.toFixed(2)} ${(FULL_CIRC - fill).toFixed(2)}`);
@@ -225,6 +228,17 @@ describe('buildMarkerSvg', () => {
     it('displays the rating label', () => {
       const svg = parseSvg(buildMarkerSvg('3\u2605', '#A06E00', null, null, 3, false));
       expect(svg.querySelector('text').textContent).toBe('3\u2605');
+    });
+
+    it('\u26a0\ufe0f colours the ring from rampHex(rating) directly, NOT starFromScore(rating, metric)', () => {
+      // The Stage 5b spec's own caught defect: rating is a 1-5 STAR already, not a 0-100 potential.
+      // Routing it through starFromScore would read a 5\u2605 rating as the raw value 5 and map it to
+      // ~1.2\u2605 (fiery's anchor table), painting a top-rated location the ramp's cold end.
+      const svg = parseSvg(buildMarkerSvg('5\u2605', '#8AAE72', null, null, 5, false));
+      const arcCircle = Array.from(svg.querySelectorAll('circle'))
+        .find((c) => c.getAttribute('stroke-dasharray'));
+      expect(arcCircle.getAttribute('stroke')).toBe(rampHex(5));
+      expect(arcCircle.getAttribute('stroke')).not.toBe(rampHex(starFromScore(5, 'fiery')));
     });
   });
 
@@ -264,14 +278,14 @@ describe('buildMarkerSvg', () => {
       // Should have a Haiku-style arc circle, not path-based half-arcs
       expect(svg.querySelectorAll('path')).toHaveLength(0);
       const arcCircle = Array.from(svg.querySelectorAll('circle'))
-        .find((c) => c.getAttribute('stroke') === '#E5A00D' && c.getAttribute('stroke-dasharray'));
+        .find((c) => c.getAttribute('stroke') === rampHex(4) && c.getAttribute('stroke-dasharray'));
       expect(arcCircle).toBeDefined();
     });
 
     it('ring fill is proportional to rating/5', () => {
       const svg = parseSvg(buildMarkerSvg('4\u2605', '#CC8A00', null, null, 4, false));
       const arcCircle = Array.from(svg.querySelectorAll('circle'))
-        .find((c) => c.getAttribute('stroke') === '#E5A00D' && c.getAttribute('stroke-dasharray'));
+        .find((c) => c.getAttribute('stroke') === rampHex(4) && c.getAttribute('stroke-dasharray'));
       const fill = FULL_CIRC * (4 / 5);
       expect(arcCircle.getAttribute('stroke-dasharray'))
         .toBe(`${fill.toFixed(2)} ${(FULL_CIRC - fill).toFixed(2)}`);
@@ -311,7 +325,7 @@ describe('buildMarkerSvg', () => {
       const svg = parseSvg(buildMarkerSvg(`${rating}\u2605`, '#CC8A00', null, null, rating, false));
       expect(svg.querySelectorAll('path')).toHaveLength(0);
       const arcCircle = Array.from(svg.querySelectorAll('circle'))
-        .find((c) => c.getAttribute('stroke') === '#E5A00D' && c.getAttribute('stroke-dasharray'));
+        .find((c) => c.getAttribute('stroke') === rampHex(rating) && c.getAttribute('stroke-dasharray'));
       expect(arcCircle).toBeDefined();
       expect(svg.querySelector('text').textContent).toBe(`${rating}\u2605`);
     });
@@ -411,12 +425,14 @@ describe('createClusterIcon', () => {
       { rating: 3, fierySky: 60, goldenHour: 40 },
     ];
 
-    it('shows two arc paths for ADMIN with scored markers', () => {
+    it('derives the arc stroke colours from the ramp, over the average of the cluster\'s children', () => {
       const svg = parseHtml(createClusterIcon(mockCluster(2, scored), 'ADMIN'));
       const paths = svg.querySelectorAll('path');
       expect(paths).toHaveLength(2);
-      expect(paths[0].getAttribute('stroke')).toBe('#f97316');
-      expect(paths[1].getAttribute('stroke')).toBe('#E5A00D');
+      const avgFiery = (80 + 60) / 2;
+      const avgGolden = (50 + 40) / 2;
+      expect(paths[0].getAttribute('stroke')).toBe(rampHex(starFromScore(avgFiery, 'fiery')));
+      expect(paths[1].getAttribute('stroke')).toBe(rampHex(starFromScore(avgGolden, 'golden')));
     });
 
     it('shows two arc paths for PRO_USER with scored markers', () => {
