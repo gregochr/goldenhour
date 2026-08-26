@@ -20,10 +20,21 @@ user-selectable alternative. Eight stops, deliberately uneven:
 
 ```
 [[1,[58,92,112]],[2.2,[80,104,120]],[2.8,[146,140,128]],[3,[196,148,64]],
- [3.2,[201,146,48]],[3.9,[223,107,42]],[4.3,[214,58,38]],[5,[242,96,52]]]
+ [3.2,[201,146,48]],[3.9,[223,107,42]],[4.3,[222,72,38]],[5,[200,40,32]]]
 ```
 
-Three stops are load-bearing and must not be "tidied":
+⚠️ **Revised 2026-08-26.** The hot leg's two stops moved — `4.3` from `#D63A26` to `#DE4826`,
+`5` from `#F26034` to `#C82820` — after the owner noticed 4.3★ reading hotter than 5★. It was a
+real defect, not a swap: luminance ran 0.264 → **0.175** → 0.275, a trough then a recovery. It now
+descends 0.264 → 0.203 → 0.139. Two consequences, both measured: the sub-AA band fell from
+**13.2% in three runs to 10.2% in two** (a ramp that reverses direction crosses the dead zone
+twice), and every whole star now clears comfortably — 7.13, 6.04, 6.51, **5.03**, 5.56:1.
+
+⚠️ **Do not brighten `5` past `4.3` again.** Gold at 3★ is already the ramp's brightest point, so
+a bright top end gives a middling night and a great one the same visual weight. The top is the
+ramp's *deepest* colour by design.
+
+Four stops are load-bearing and must not be "tidied":
 
 - **The uneven spacing itself.** Regional means occupy roughly 1.9–4.6. Even spacing spends the
   blue and the red on values that never survive the blur, rendering every night the same orange.
@@ -156,7 +167,10 @@ passing. `npm run lint && npm test && npm audit --audit-level=high && npm run bu
   domain**, returning a *number*, not a colour. ⚠️ The reference kernel calls this `rampPct` and
   returns a *colour* from it; this app splits domain-mapping from colour-lookup (`rampHex` /
   `rampRgb` already take a score), so it is renamed to make the divergence impossible to miss.
-  Callers compose: `rampHex(scoreFromPercent(v, lo, hi))`.
+  Callers compose: `rampHex(scoreFromPercent(v, lo, hi))`. ⚠️ **Superseded 2026-08-26** — the
+  potentials turned out bimodal, so this linear map is replaced by `starFromScore` + frozen
+  `ANCHORS` (Stage 4). It shipped with no caller and Stage 5 deletes it. Left described here
+  because it is on `main` and a reader will find it.
 - **`MODE` defaults to `'verdict'`.** This stage is therefore *provably* zero-visual-change,
   which is what makes it a safe first landing and a clean revert point.
 
@@ -168,8 +182,13 @@ number** — assert `toBe(1)`, not a colour string.
 
 ### Stage 2 — Tokens and legend
 
-- `--color-heat-1 … --color-heat-5` in `index.css`: `#3A5C70`, `#4C6677`, `#C49440`, `#DD5F29`,
-  `#F26034` (the temperature ramp sampled at whole stars, for discrete uses; the field itself
+- ⚠️ **First, correct the two hot stops that Stage 1 shipped.** `STOPS_TEMP` on main carries the
+  pre-revision `4.3: '#D63A26'` and `5: '#F26034'`; they must become **`#DE4826`** and
+  **`#C82820`**. This belongs here rather than in its own stage because the tokens below are
+  sampled from the corrected ramp — landing them against the old stops would put two artifacts
+  out of step.
+- `--color-heat-1 … --color-heat-5` in `index.css`: `#3A5C70`, `#4C6677`, `#C49440`, **`#DF6229`**,
+  **`#C82820`** (the *corrected* ramp sampled at whole stars, for discrete uses; the field itself
   interpolates). Note 2★ and 4★ are **interpolated points, not stops** — do not expect to find
   them in `STOPS_TEMP`.
 - **Do not touch `--color-verdict-*`.** Those are saturated web colours for verdict *words*
@@ -214,40 +233,71 @@ number** — assert `toBe(1)`, not a colour string.
 - Add a test asserting the invariant directly — *label-bearing fills sample at whole stars* —
   rather than extending the existing value sweep, which passes on the only five safe values.
 
-### Stage 4 — Calibrate the two 0–100 metrics — MEASURED, unblocked
+### Stage 4 — Calibrate the two 0–100 metrics — RESOLVED, needs no further production data
 
 The ramp is indexed 1–5 because ratings are. `fierySkyPotential` and `goldenHourPotential` are
-0–100, and assuming they span the full ramp is wrong. `scoreFromPercent(v, lo, hi)` from Stage 1 maps one domain to
-the other; these are its constants.
+0–100, and assuming they span the full ramp is wrong.
 
-**Measured against production 2026-08-25**, over `cached_evaluation` — the store the UI actually
-reads — with `docs/engineering/heat-scale-stage4-calibration.sql`:
+**The first answer — p05/p95 with a linear map — was measured and then discarded.** Kept here
+because the reasoning matters more than the numbers.
 
-| metric | n | `lo` (p05) | `hi` (p95) |
-|---|---|---|---|
-| `fierySkyPotential` | 19,488 | **8** | **72** |
-| `goldenHourPotential` | 19,488 | **15** | **76** |
+Measured on production 2026-08-25 over `cached_evaluation` (the store the UI reads), fiery came
+out 8 / 72 and golden 15 / 76 over 19,488 evaluations. That already overturned the design doc's
+illustrative 25–85, which would have put a typical fiery 40 at 2.0★ — the cold end — where the
+measured pair puts it at 3.0★, gold. The brief's premise that these values cluster at 50–78 was a
+fixture artifact: the real p05s are 8 and 15.
 
-**Ship these, and note what they overturn:**
+**Then the shape check killed the linear map entirely.** Measured 2026-08-26, 10-point buckets
+plus a zero probe: **both metrics are bimodal** — fiery peaks at 10–19 and again at 70–79, golden
+at 20–29 and 70–79, both troughing at 50–59. Most evenings are unremarkable and a distinct minority
+are good; that is the sky, not an artifact. The **zero-inflation hypothesis is refuted** — 12
+exact-zero fiery readings and 5 golden, so the low mass is genuine dim-sky forecasts rather than
+stood-down slots.
 
-- **The doc's illustrative 25–85 would have been wrong in both directions**, and badly. Under it a
-  typical fiery reading of 40 resolves to 2.0★ — blue-grey, the *cold* end. Under the measured
-  pair the same 40 lands at 3.0★, gold. Nearly every bar would have read colder than the sky it
-  described.
-- **The brief's premise that the values cluster at 50–78 was a fixture artifact, not the
-  population.** Real p05s are 8 and 15. The test suite is not a sample of the sky.
-- **The two metrics genuinely differ** — 7 points apart at the bottom — which is why the brief
-  insisted on one pair per metric. That instinct was right even though its numbers were not.
+No two-point linear map can spread a bimodal population. Six alternative pairs per metric were
+tested and **none beat p05/p95**: the constants were never the problem, the map was. Under it,
+51.4% of fiery readings landed in the 1★ band, its dominant bucket (44% of readings) spanned 0.56
+of a star, and golden clamped 18% of readings to an identical maximum — a good evening and a great
+one rendering the same.
 
-⚠️ **One check outstanding, and it is cheap.** Queries 3 and 3b of the calibration SQL report the
-distribution's *shape* as a **histogram**, not as percentiles — percentiles cannot see modality at
-all, since a unimodal and a bimodal population can share every summary value. The question is
-whether there is a mass of stood-down slots near zero **separate** from a hump of real forecasts.
-If there is, p05 is measuring the floor of the stand-down cluster rather than the bottom of the
-useful scale, and `lo` belongs at the trough between the two modes instead. 3b is the
-zero-inflation probe, because a spike sitting entirely inside the 0–9 bucket is invisible to the
-histogram above it. The pair above is safe to build against either way; run this before Stage 5
-**ships**, not before it starts.
+**The replacement is `ANCHORS` + `starFromScore(v, metric)`** — a piecewise-linear table per
+metric, verbatim from the reference kernel. ⚠️ `scoreFromPercent`, shipped in Stage 1, is
+**superseded**; it has no caller and Stage 5 deletes it.
+
+```
+fiery  [[0,1],[20,1.9],[35,2.4],[50,2.8],[60,3.2],[72,4],[85,4.7],[100,5]]
+golden [[0,1],[25,1.9],[40,2.4],[55,3],[70,3.8],[85,4.6],[100,5]]
+```
+
+Two properties are load-bearing, both Design's, recorded because they are what an implementer
+would "improve":
+
+1. **The anchors are FROZEN CONSTANTS, not a running calibration.** Derived from one measurement
+   then fixed — the standing `STOPS_TEMP`'s uneven spacing already has, itself derived from
+   measured regional means and never re-derived per season. Re-measure only to check the physics
+   has not moved; **do not re-anchor per season**, because that makes colour relative to the
+   population, and a 3.0 must look like a 3.0 in every week. ⚠️ This is why piecewise did **not**
+   cost what an earlier draft of this plan claimed: piecewise and *relative* are independent axes
+   and only the first was ever in question. That draft conflated them.
+2. **The spacing is deliberately NOT even-occupancy.** 70% of fiery readings sit below 30 and all
+   mean the same thing — *don't bother* — so they share 1.3 stars, while the top third of the
+   range holds ~15% of readings and every decision worth making, and gets 1.8. ⚠️ An earlier draft
+   scored candidate mappings against an even-occupancy target. **That target was wrong** — a
+   self-invented proxy, not the goal. Colour belongs where the decision is, not where the readings
+   pile up, and heavy concentration in the low bands is the intended outcome rather than a defect.
+
+**Measured effect**, over the same 19,832 evaluations:
+
+| | fiery | golden |
+|---|---|---|
+| resolution in the decision zone (60–100) | 0.019 → **0.045** stars/point (**2.4×**) | 0.026 → **0.043** (**1.7×**) |
+| 72 / 85 / 100 under the linear map | 5.00 / 5.00 / 5.00 ★ | 4.74 / 5.00 / 5.00 ★ |
+| 72 / 85 / 100 under the anchors | **4.00 / 4.70 / 5.00 ★** | **3.91 / 4.60 / 5.00 ★** |
+
+Those last two rows are the whole argument: the linear map rendered a good evening and a great one
+identically; the anchors do not.
+
+The measurement queries are kept at `docs/engineering/heat-scale-stage4-calibration.sql`.
 
 ### Stage 5 — One score bar, continuous solid fill
 
@@ -284,17 +334,18 @@ ScoreBar({ label, score, metric, testId, tooltip, dense, labelClassName })
 
   label          string, required        'Fiery Sky' | 'Golden Hour' — printed as-is
   score          number | null, required 0-100; null renders an em dash, not a zero-length bar
-  metric         'fiery' | 'golden'      REPLACES the `fill` prop — selects the lo/hi pair
+  metric         'fiery' | 'golden'      REPLACES the `fill` prop — selects the ANCHORS table
   testId         string, required        popup call sites gain one; they have none today
   tooltip        node, optional          popup passes <InfoTip .../>; Plan passes nothing
   dense          bool, default false     true = the Plan peek's 10px scale
   labelClassName string, optional        unchanged, LocationFourDaySheet's dimming hook
 ```
 
-**`fill` disappears as a prop.** It becomes `rampHex(scoreFromPercent(score, lo, hi))` for the
-metric — a **continuous solid** colour, not a gradient. Note the composition: `scoreFromPercent`
-returns a 1–5 *number* and `rampHex` turns it into a colour. Assigning the number straight to a
-CSS `background` yields no fill at all. `PlanScoreBar`'s exported `FIERY_FILL` / `GOLDEN_FILL`
+**`fill` disappears as a prop.** It becomes `rampHex(starFromScore(score, metric))` — a
+**continuous solid** colour, not a gradient. The composition matters: `starFromScore` returns a
+1–5 *number* and `rampHex` turns it into a colour; assigning the number straight to a CSS
+`background` yields no fill at all. ⚠️ **`scoreFromPercent` is superseded** (Stage 4) — it has no
+caller, so delete it in this stage rather than leaving two mappings for one job. `PlanScoreBar`'s exported `FIERY_FILL` / `GOLDEN_FILL`
 and `MarkerPopupContent`'s private copies are all deleted, along with `rampTint`, `FIERY_TINT` and
 `GOLDEN_TINT`. Solid, not gradient: a bar has one value, and a gradient across a ramp that starts
 cold is a five-hue rainbow.

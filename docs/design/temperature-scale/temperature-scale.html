@@ -175,7 +175,8 @@ ol.spec b{font-weight:600;color:var(--ink)}
   <p>The verdict ramp above is the one in <code>heatField.js</code>, and it is <b>not</b> the <code>--color-verdict-*</code> tokens. <code>frontend/src/index.css</code> ships <code>go #16a34a</code>, <code>marginal #d97706</code>, <code>standdown #b91c1c</code>, <code>awaiting #6b7280</code> — saturated web colours, not these muted ones. <code>HeatmapGrid.jsx</code> consumes those tokens live.</p>
   <p>The same goes for this document's own chrome. It is drawn in the proposed Kodachrome skin, but <code>index.css</code> still ships the blue-grey plex palette — <code>--color-plex-surface</code> is <code>#252830</code>, not the brown the handoff notes claim. <b>Treat every warm hex here as a proposal, and every hex attributed to a file as shipped.</b> Reconciling the two palettes is a separate job, and this change does not depend on it.</p>
 </div>
-<p class="note">The low end is a <b>cool slate blue</b> rather than grey, so a poor night still reads as a deliberate colour instead of missing data — and it sits in the palette already as a desaturated cousin of <code>--color-tide</code>. The cool half runs all the way to <b>2.8</b>, the crossover sits at 3, and red arrives by 4.3. The five tokens are sampled from this ramp at whole stars; §05 lists them.</p>
+<p class="note">The low end is a <b>cool slate blue</b> rather than grey, so a poor night still reads as a deliberate colour instead of missing data — and it sits in the palette already as a desaturated cousin of <code>--color-tide</code>. The cool half runs all the way to <b>2.8</b>, the crossover sits at 3, and the hot leg descends from gold through orange to a deep saturated red at 5. The five tokens are sampled from this ramp at whole stars; §05 lists them.</p>
+<p class="note"><b>Luminance falls monotonically after the gold crossover</b> — 0.33 at 3.2★, 0.26 at 3.9, 0.20 at 4.3, 0.14 at 5. That ordering is load-bearing in both directions. It once dipped to 0.175 at 4.3 and recovered to 0.275 at 5, which made <b>4.3 read hotter than the stop above it</b>: the ramp looked as though two stops had been transposed. And the top end is the ramp's <i>deepest</i> red rather than its brightest colour because gold at 3★ is already the brightest point — a bright top end would give a middling night and a great one the same visual weight. Keep the hot leg descending.</p>
 <p class="note"><b>The stops are deliberately uneven.</b> Regional means in a real week occupy about 1.9–4.6, and two thirds of location scores fall between 2.5 and 4.5 — so an evenly spaced ramp spends its blue and its red on values that never survive the blur, and paints every night the same orange. Spacing the stops onto the band the data actually occupies is what makes the scale discriminate. Interpolation and the 1–5 clamp are unchanged.</p>
 <div class="ev" id="ev"></div>
 <p class="note">Read down the right-hand column: <b>Thursday sunrise and Friday sunrise are the two nights to skip</b>, and they are the two that stay cold. That is the whole job. Note this is absolute, not normalised against the week — a 3.0 looks like a 3.0 in every week, or <b>poor → worth it</b> stops being a promise.</p>
@@ -243,7 +244,7 @@ ol.spec b{font-weight:600;color:var(--ink)}
     <div class="pins" id="pins-new"></div>
   </div>
   <div class="pinrow">
-    <div class="who"><b>Interpolated</b>what a cluster shows</div>
+    <div class="who"><b>Interpolated</b>what a cluster shows · sampled from the failing runs</div>
     <div class="pins" id="pins-int"></div>
   </div>
 </div>
@@ -253,10 +254,11 @@ ol.spec b{font-weight:600;color:var(--ink)}
   <div class="wt">Label-bearing fills snap to whole stars — the rule, and the reconciled numbers</div>
   <p><code>readableInkOn</code> picks the better of two inks, which only helps where one of them clears 4.5:1. Every ramp through mid-luminance has runs where neither does, because the two inks fail from opposite directions. Scanned at 0.01★ against the pair the app actually ships — <code>#0F172A</code> and <code>#FFFFFF</code> — and reported as <b>the share of the 401 samples that fail</b>, not as summed run width; the two conventions differ by one step per run:</p>
   <div class="bands" id="bands"></div>
-  <p><b>13.2% of samples, in three runs</b> — 2.48–2.60★, 4.10–4.24★, 4.37–4.61★. Two of the three sit in the hot half, and that is the finding worth carrying: <b>the failures cluster where 4★ and 5★ ratings live</b>, not at the cold end where the eye expects trouble. The <code>4.3</code> stop <code>#D63A26</code> is a dark saturated red — the worst case for both inks at once, with dark ink at 3.82:1 and white reaching only 4.67:1 — so the <code>3.9 → 4.3 → 5</code> leg crosses the dead zone twice. A 4.15★ cluster gets 4.26:1 at best, on a fill that looks bold and confident.</p>
-  <p>The third row is why two independent scans disagreed. This document originally scanned with its own bone <code>#F2E7D3</code> rather than the app's white, which reports <b>21.7% across two runs</b> — worse, because bone gives up contrast on the dark stops that white holds. Bone was never shipping; the app's white ink is the better of the two and needs no change.</p>
+  <p><b>10.2% of samples, in two runs</b> — 2.48–2.60★ and 4.21–4.48★, worst point 4.23:1 at 4.34★. One run in each half, and the hot-half one is the finding worth carrying: <b>the failures cluster where 4★ and 5★ ratings live</b>, not at the cold end where the eye expects trouble. Anything relying on "good scores are obviously readable" is wrong. All five whole stars clear comfortably — 7.13, 6.04, 6.51, 5.03 and 5.56:1 — so markers are safe as they stand.</p>
+  <p>This measured <b>13.2% in three runs</b> before the hot leg was made monotonic. Removing the luminance dip at 4.3 merged two of the three and cut the share by a fifth, which is the second reason to keep that leg descending: a ramp that reverses direction crosses the dead zone twice.</p>
+  <p>The third row is why two independent scans disagreed. This document originally scanned with its own bone <code>#F2E7D3</code> rather than the app's white, which reports <b>28.2% across two runs</b> — far worse, because bone gives up contrast on the dark stops that white holds, and the deeper hot end widens that gap further. Bone was never shipping; the app's white ink is the better of the two and needs no change.</p>
   <p><b>The rule: any fill that carries a label samples the ramp at whole stars. Only label-free surfaces interpolate.</b> All five whole stars clear 4.5:1 under the shipped pair, so markers are already safe. Cluster badges are not — <code>starsFromAverage</code> returns <code>avg / 20</code>, continuous, so a cluster paints an interpolated fill and puts a count on it. Snapping the cluster fill is the whole fix, and it returns the fill to the resolution the data has: <code>rating</code> is an integer.</p>
-  <p>Note what snapping does and does not buy. <b>The interior of the ramp is not safe — it is merely no longer sampled by anything that carries text.</b> The heat field keeps interpolating, correctly, because nothing in it is labelled. If a labelled surface ever goes continuous, the <code>4.3</code> stop is the one to fix first. The second-order gain is the test: <code>it.each([1, 2, 3, 4, 5])</code> passes today by luck — it tests the only five values never at risk — and snapping makes it correct by construction. Add one test asserting the invariant directly.</p>
+  <p>Note what snapping does and does not buy. <b>The interior of the ramp is not safe — it is merely no longer sampled by anything that carries text.</b> The heat field keeps interpolating, correctly, because nothing in it is labelled. If a labelled surface ever goes continuous, the <b>4.21–4.48★ run</b> is what to fix first. The second-order gain is the test: <code>it.each([1, 2, 3, 4, 5])</code> passes today by luck — it tests the only five values never at risk — and snapping makes it correct by construction. Add one test asserting the invariant directly.</p>
 </div>
 <p class="note"><code>markerUtils.js</code> <code>RATING_COLOURS</code> — grey at 1★, then dark olive gold climbing to full gold — was <b>already deleted in D3</b>. Its stepped 0–100 twin <code>scoreColour()</code> is the one still live, driving cluster badges and any marker with scores but no rating. That is the remaining duplicate to retire.</p>
 </section>
@@ -268,9 +270,11 @@ ol.spec b{font-weight:600;color:var(--ink)}
 <div class="card bars" id="bars"></div>
 <p class="note"><b>Continuous, not bucketed, and solid rather than gradient.</b> A bar has one value, so it gets one colour, sampled off the ramp at that value exactly as a marker is — which also makes 26 and 49 finally distinguishable. The earlier <code>Popup Tidy.html</code> spec called for a gradient fill; that worked when the ramp was gold→red but turns into a five-hue rainbow now that it starts cold.</p>
 <div class="warn">
-  <div class="wt">How a 0–100 metric joins a 1–5 scale — the part that needs measuring</div>
-  <p>The ramp is indexed 1–5 because ratings are. Fiery Sky and Golden Hour are <b>0–100</b>, so they need a mapping, and <b>the obvious one is wrong</b>. Assuming 0–100 spans the full ramp asserts that these metrics use their whole range — and they do not. Every fixture in the test suite sits between 50 and 78, which the naive mapping squeezes into 3.0–4.1: gold to orange, never cold, never hot. The bars would technically be on the temperature scale while showing almost none of it.</p>
-  <p>So the ramp is shared but the <b>calibration is per metric</b>: <code>HeatField.rampPct(value, lo, hi)</code>, where <code>lo</code> and <code>hi</code> are that metric's real working range. The fourth row below uses 25–85 as an illustration. <b>Those two numbers must come from the score distribution, not from a designer</b> — run a percentile over a season of stored forecasts and set them to roughly the 5th and 95th. Until that is measured, treat the calibrated row as the shape of the answer rather than the answer.</p>
+  <div class="wt">Decided — piecewise map, frozen anchors, one table per metric</div>
+  <p>Measured over 19,832 cached evaluations, <b>both metrics are bimodal</b>: fiery peaks at 10–19 and again at 70–79, golden at 20–29 and 70–79, both troughing at 50–59. Most evenings are unremarkable and a minority are good — that is the sky, not an artifact. The engineering result is correct and settles half the question: <b>no two-point linear map can spread a bimodal population</b>, and p05/p95 already beat six alternatives, so <code>rampPct</code> cannot be rescued by better constants. The map has to be piecewise.</p>
+  <p><b>But piecewise and relative are independent axes, and only one of them was ever in question.</b> The cost named against a non-linear map was that colour becomes relative to the population and the anchors need periodic re-measuring. That cost is optional. <b>Derive the anchors once from this measurement, then freeze them as constants.</b> They then have exactly the status <code>STOPS_TEMP</code>'s uneven spacing already has — also derived from measured regional means, also never re-measured per week. Re-measure to check the physics has not moved; do not re-anchor per season. Re-anchoring is what would break §01's promise that a 3.0 looks like a 3.0 in every week.</p>
+  <p><b>The even-occupancy target is the wrong target.</b> That is where the analysis leads somewhere it should not follow. Fiery has 70% of its mass below 30, and every one of those readings means the same thing: no fiery sky tonight. Spreading them across more colour buys nothing a photographer can act on, and it costs the range needed at the boundary — where a 68 and an 82 are genuinely different evenings. So the anchors compress the low mode on purpose and spend their resolution up top: <b>1.3 stars for the bottom 30% of the range where 70% of readings live, 1.8 stars for the top third where ~15% live and every real decision happens.</b> Colour goes where the decision is, not where the readings pile up.</p>
+  <p>One table per metric, since golden carries far more upper mass than fiery (25.5% above 60 against 15%) and a much thinner cold tail. Both are in the reference kernel as <code>HF.ANCHORS</code>. Row four below is the shipped-linear map for comparison; row five is this.</p>
 </div>
 <div class="warn">
   <div class="wt">One thing to watch</div>
@@ -284,7 +288,7 @@ ol.spec b{font-weight:600;color:var(--ink)}
 <div class="sh"><span class="num">07</span><h2>What changes</h2><span class="rule"></span></div>
 <ol class="spec">
   <li><b><code>heatField.js</code></b> — <code>STOPS</code> becomes <code>STOPS_TEMP</code> and <code>STOPS_VERDICT</code> with a module-level <code>MODE</code>, read by <code>ramp()</code>. Everything downstream of <code>ramp()</code> is unchanged. The patched kernel in this folder is the reference.</li>
-  <li><b>Keep the uneven stop spacing.</b> It is the difference between a scale that discriminates and one that renders every night orange. The 2.2 stop's darkness is also load-bearing — it is what lets the marker label clear contrast. If the score distribution shifts once real forecasts replace the mock, re-measure and re-space — do not fall back to even stops.</li>
+  <li><b>Keep the uneven stop spacing, and keep the hot leg descending in luminance.</b> The spacing is the difference between a scale that discriminates and one that renders every night orange. The <code>2.2</code> stop's darkness lets white ink clear contrast; the monotonic fall from <code>3.2</code> to <code>5</code> is what stops <code>4.3</code> reading hotter than <code>5</code>, and it also narrows the sub-AA runs. If the score distribution shifts once real forecasts replace the mock, re-measure and re-space — do not fall back to even stops.</li>
   <li><b>New tokens</b> — <code>--color-heat-1</code> … <code>--color-heat-5</code> in <code>index.css</code>, sampled from the ramp at whole stars. The <code>--color-verdict-*</code> tokens are untouched and unrelated: they are saturated web colours used for verdict words, not the muted ramp in <code>heatField.js</code>.</li>
   <li><b>One-time notice</b> on the map after update, dismissible, stating that colours now run cold to hot. Not a setting — a sentence.</li>
   <li><b>Settings</b> — a new <b>Map Colours</b> section in <code>components/UserSettingsModal.jsx</code>: <code>mapColourScale: 'temp' | 'verdict'</code> defaulting to <code>temp</code>, plus <code>markersFollowScale</code> defaulting on. Persist through <code>settingsApi</code> like the rest of the modal, and leave it outside the <code>isPro</code> gate.</li>
@@ -292,8 +296,8 @@ ol.spec b{font-weight:600;color:var(--ink)}
   <li><b>Marker label ink — do not touch it.</b> #627 already superseded the hard 3★ threshold this document originally specified: <code>readableInkOn</code> derives the ink per fill, which is better. Reintroducing a threshold would be a regression.</li>
   <li><b>Snap label-bearing fills to whole stars</b> — the invariant from §05. Markers already comply; <code>createClusterIcon</code> does not, because <code>starsFromAverage</code> returns <code>avg / 20</code>. Snap the cluster fill, and add a test asserting no labelled fill is ever handed a fractional star.</li>
   <li><b>Marker arcs</b> — <code>buildMarkerSvg</code> hard-codes <code>#f97316</code> for the Fiery Sky arc and <code>#E5A00D</code> for Golden Hour. If both score bars are moving onto the heat ramp, these two arcs are the same two numbers in the same component and should move with them, or the popup and the pin will disagree.</li>
-  <li><b>Calibrate the two 0–100 metrics</b> before shipping the bars. <code>HeatField.rampPct(v, lo, hi)</code> exists for this; <code>lo</code> and <code>hi</code> come from a percentile over stored <code>fierySkyPotential</code> and <code>goldenHourPotential</code> values, one pair per metric. Shipping the naive 0–100 mapping puts every bar in the gold band and wastes the scale.</li>
-  <li><b>Score bars — collapse two into one.</b> The live duplication is <b><code>PlanScoreBar</code></b> (Plan side, gradient fills) against <b><code>PopupScoreRow</code></b> in <code>components/MarkerPopupContent.jsx</code> (map popup, four buckets). <code>ScoreBar.jsx</code> was <b>deleted in D4</b> — ignore earlier references to it. Collapse the two into one component with a continuous solid fill sampled from <code>HeatField.rampPct()</code>; <code>PlanScoreBar</code>'s gradients are the thing being removed. Update whichever tests cover them.</li>
+  <li><b>Map the two 0–100 metrics with the frozen piecewise anchors</b> in <code>HF.ANCHORS</code>, via <code>starFromScore(v, metric)</code> — one table per metric. <code>rampPct</code> stays in the kernel but is <b>not</b> for these two: both metrics are bimodal and no two-point linear map spreads a bimodal population. Treat the anchors as design constants of the same standing as the ramp's own stop spacing: derived from one measurement, then fixed.</li>
+  <li><b>Score bars — collapse two into one.</b> The live duplication is <b><code>PlanScoreBar</code></b> (Plan side, gradient fills) against <b><code>PopupScoreRow</code></b> in <code>components/MarkerPopupContent.jsx</code> (map popup, four buckets). <code>ScoreBar.jsx</code> was <b>deleted in D4</b> — ignore earlier references to it. collapse them into one component with a continuous solid fill sampled from <code>HeatField.rampScore()</code>; <code>PlanScoreBar</code>'s gradients are the thing being removed. Update whichever tests cover them.</li>
   <li><b>Legend</b> — the 60×6px ramp bar redraws from the active ramp. The words <code>poor → worth it</code> do not change.</li>
 </ol>
 </section>
@@ -363,38 +367,53 @@ function pinsInto(el,rows){
  }).join('');
 }
 pinsInto(document.getElementById('pins-new'),[1,2,3,4,5].map(n=>({c:HF.rampOn(TEMP,n),l:n+'★'})));
-pinsInto(document.getElementById('pins-int'),[2.55,3.5,4.15,4.5,4.8].map(n=>({c:HF.rampOn(TEMP,n),l:'12'})));
 
 /* scan at 0.01star for runs where neither ink clears 4.5:1. The percentage is the share of
    FAILING SAMPLES, not the summed span of the runs — span-summing loses one step per run and
    reports 12.5% where sample-counting reports 13.2%. Prose, badge and PROMPTS.md all use the
    sample count; mixing the two is what made three artifacts disagree earlier. */
-function bandScan(st,pair){const runs=[];let run=null,n=0,tot=0;
- for(let i=0;i<=400;i++){const s=1+i*0.01;tot++;
-  if(bestInk(HF.rampOn(st,s),pair)[1]<4.5){n++;run?run[1]=s:run=[s,s]}
+function bandScan(st,pair){const runs=[];let run=null,n=0,tot=0,worst=[9,0];
+ for(let i=0;i<=400;i++){const s=1+i*0.01;tot++;const r=bestInk(HF.rampOn(st,s),pair)[1];
+  if(r<worst[0])worst=[r,s];
+  if(r<4.5){n++;run?run[1]=s:run=[s,s]}
   else if(run){runs.push(run);run=null}}
- if(run)runs.push(run);return{runs,pct:n/tot*100}}
+ if(run)runs.push(run);return{runs,pct:n/tot*100,worst}}
+const SCAN=bandScan(TEMP);
+
+/* Sample values are DERIVED from the scan, never written as literals: one from the midpoint of
+   each failing run, plus the ramp's worst point, plus one deliberate pass for contrast. Hard
+   coded stars went stale the moment a stop moved and left this row showing four green ticks
+   under prose arguing the opposite. */
+const intStars=[...SCAN.runs.map(r=>+((r[0]+r[1])/2).toFixed(2)),+SCAN.worst[1].toFixed(2),3.5]
+ .filter((v,i,a)=>a.indexOf(v)===i).sort((a,b)=>a-b);
+pinsInto(document.getElementById('pins-int'),intStars.map(n=>({c:HF.rampOn(TEMP,n),l:'12'})));
+
 document.getElementById('bands').innerHTML=[
  ['Verdict',VERD,null],['Temperature',TEMP,null],['Temp · bone ink',TEMP,[INK_D,INK_BONE]]
 ].map(([n,st,pair])=>{
- const{runs,pct}=bandScan(st,pair);
+ const{runs,pct}=(!pair&&st===TEMP)?SCAN:bandScan(st,pair);
  const marks=runs.map(r=>`<i style="left:${((r[0]-1)/4*100).toFixed(2)}%;width:${Math.max(0.5,(r[1]-r[0]+0.01)/4*100).toFixed(2)}%"></i>`).join('');
  return `<div class="bandrow"><span class="bn">${n}</span><div class="bb" style="background:${cssRamp(st)}">${marks}</div><span class="bv" style="color:${runs.length?'#E58C7A':'#8AAE72'}">${runs.length?runs.length+' run'+(runs.length>1?'s':'')+' · '+pct.toFixed(1)+'%':'none'}</span></div>`;
 }).join('');
 
+/* scan at 0.01star for runs where neither ink clears 4.5:1 — defined above, next to the row
+   whose samples it feeds. */
+
 /* ── 06 · score bars ────────────────────────────────────────────────────── */
-const VALS=[18,26,49,62,87];
+const VALS=[12,18,28,55,75,90];
 /* the two shipped ladders, read from source */
 const popupCol=p=>p>75?'#E5A00D':p>50?'#CC8A00':p>25?'#A06E00':'#6B6B6B';
 const BARSPEC=[
  {h:'Today · PopupScoreRow',sub:'MarkerPopupContent.jsx · four buckets',fn:popupCol,ink:'#EBEBEB'},
- {h:'Proposed',sub:'one ramp, naïve 0–100 → 1–5',fn:null,cal:null},
- {h:'Proposed · calibrated',sub:'rampPct(v, 25, 85) — numbers to be measured',fn:null,cal:[25,85]}];
+ {h:'Naïve',sub:'0–100 straight onto 1–5',fn:null,cal:null},
+ {h:'Linear · p05/p95',sub:'rampPct(v, 8, 72) — cannot spread a bimodal population',fn:null,cal:[8,72]},
+ {h:'Piecewise · recommended',sub:'starFromScore(v, \'fiery\') · frozen anchors',fn:null,anc:'fiery'}];
 document.getElementById('bars').innerHTML=BARSPEC.map(g=>
  `<div class="bgrp"><div class="bgh">${g.h}<span class="sub">${g.sub}</span></div>`+VALS.map(v=>{
-  const rc=g.cal?HF.rampPct(v,g.cal[0],g.cal[1]):HF.rampOn(TEMP,1+v/100*4);
+  const st=g.anc?HF.starFromScore(v,g.anc):null;
+  const rc=g.anc?HF.rampScore(v,g.anc):(g.cal?HF.rampPct(v,g.cal[0],g.cal[1]):HF.rampOn(TEMP,1+v/100*4));
   const col=g.fn?g.fn(v):`rgb(${rc.join(',')})`;
-  return `<div class="brow"><span class="val" style="color:${g.ink||col}">${v}</span><div class="track"><div class="fill" style="width:${v}%;background:${col}"></div></div><span class="bhex">${g.fn?col:hex(rc)}</span></div>`;
+  return `<div class="brow"><span class="val" style="color:${g.ink||col}">${v}</span><div class="track"><div class="fill" style="width:${v}%;background:${col}"></div></div><span class="bhex">${g.fn?col:(st?st.toFixed(2)+'★':hex(rc))}</span></div>`;
  }).join('')+`</div>`).join('');
 
 /* ── live fields ────────────────────────────────────────────────────────── */
