@@ -3,7 +3,6 @@ import { describe, it, expect } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import ScoreBar from '../components/ScoreBar.jsx';
 import { rampHex, starFromScore } from '../utils/scoreRamp.js';
-import { contrast } from '../utils/windowFirstSpots.js';
 
 /**
  * jsdom normalises an inline `style.background`/`style.color` hex value it reads back to `rgb(r, g,
@@ -129,78 +128,27 @@ describe('ScoreBar — dense vs popup markup', () => {
   });
 });
 
-describe('ScoreBar — the number\'s tint is floored for contrast, not the bar\'s raw score', () => {
-  it('a low score (well under the 2.8★ floor) still renders a numeral, not an unreadably dark one matching the bar', () => {
-    // Regression pin for the AA fix this stage caught: tinting the number to the literal ramp hue
-    // fails WCAG AA at the ramp's bottom (1★ measures 2.84:1 on --color-plex-surface). The bar's OWN
-    // fill is unclamped; the number's colour must differ from it once the score is low enough.
-    render(<ScoreBar label="Fiery Sky" score={0} metric="fiery" testId="bar" dense />);
-    const bar = screen.getByTestId('bar');
-    const numberEl = bar.firstElementChild.querySelector('span:last-child');
-    const trackFill = bar.querySelector('.wf-peek-bar').style.background;
-    expect(numberEl.style.color).not.toBe(trackFill);
-    expect(numberEl.style.color).toBe(toRgb(rampHex(2.8)));
+describe('ScoreBar — the number is deliberately NOT tinted', () => {
+  // Stage 5b tinted the number from the ramp, floored so it cleared AA as text. Design removed the
+  // tint entirely (plan Stage 7): a ramp is a fill scale and cannot double as a text scale, and the
+  // tint was a third encoding of a datum the bar already carries twice. This pins the absence, so a
+  // future "tint it to match the fill" cannot quietly come back — it reads as the obvious
+  // improvement right up until you measure it.
+  it('paints the number from a text token, never from the ramp', () => {
+    render(<ScoreBar label="Fiery Sky" score={95} metric="fiery" testId="t" />);
+    const number = screen.getByTestId('t').querySelector('span[style*="font-weight"]');
+    const colour = number.getAttribute('style') ?? '';
+    expect(colour).toContain('--color-plex-text');
+    expect(colour).not.toMatch(/#[0-9a-fA-F]{6}/);
   });
 
-  it('a high score (already above the floor) tints the number to its own true ramp colour', () => {
-    render(<ScoreBar label="Fiery Sky" score={100} metric="fiery" testId="bar" dense />);
-    const bar = screen.getByTestId('bar');
-    const numberEl = bar.firstElementChild.querySelector('span:last-child');
-    const trackFill = bar.querySelector('.wf-peek-bar').style.background;
-    expect(numberEl.style.color).toBe(trackFill);
-    expect(numberEl.style.color).toBe(toRgb(rampHex(starFromScore(100, 'fiery'))));
-  });
-});
-
-describe('ScoreBar — NUMBER_TINT_FLOOR actually clears AA (computed, not asserted)', () => {
-  // The module doc's AA claim is a hand-swept measurement written as prose — the same shape of claim
-  // that, unverified by code, is exactly what an adversarial review of this stage flagged: a test
-  // that only checks "the floor constant is applied" (the two tests above) would keep passing even if
-  // the floor stopped actually clearing contrast, because it never recomputes a WCAG ratio from a
-  // live colour. This sweeps the real ramp through the real `contrast()` function instead.
-  //
-  // The two hex literals are `--color-plex-surface` and `--color-plex-surface-light` from
-  // `index.css`'s `:root` block — jsdom does not resolve custom properties from a stylesheet in a
-  // component unit test, so they are duplicated here rather than read live. If either token's value
-  // changes in index.css, this test's literals must be updated to match, or it silently stops
-  // covering the real background.
-  const SURFACE = '#221A15';
-  const SURFACE_LIGHT = '#2A2019';
-  const AA = 4.5;
-
-  /** Blends `fg` toward `bg` by `alpha` (0–1) — mirrors CSS `opacity` compositing over a solid backdrop. */
-  function blendToward(fg, bg, alpha) {
-    const f = [1, 3, 5].map((i) => parseInt(fg.slice(i, i + 2), 16));
-    const b = [1, 3, 5].map((i) => parseInt(bg.slice(i, i + 2), 16));
-    const out = f.map((c, i) => Math.round(b[i] + alpha * (c - b[i])));
-    return `#${out.map((c) => c.toString(16).padStart(2, '0')).join('')}`;
-  }
-
-  it('the floor itself clears AA on both real backgrounds, at rest', () => {
-    const floorHex = rampHex(2.8);
-    expect(contrast(floorHex, SURFACE)).toBeGreaterThanOrEqual(AA);
-    expect(contrast(floorHex, SURFACE_LIGHT)).toBeGreaterThanOrEqual(AA);
-  });
-
-  it('the floor clears AA on --color-plex-surface even after the 0.8 dim opacity LocationFourDaySheet applies', () => {
-    const dimmed = blendToward(rampHex(2.8), SURFACE, 0.8);
-    expect(contrast(dimmed, SURFACE)).toBeGreaterThanOrEqual(AA);
-  });
-
-  it('nothing from the floor to 5★ dips back below AA, on either background, dimmed or not', () => {
-    for (let star = 2.8; star <= 5; star += 0.1) {
-      const hex = rampHex(star);
-      expect(contrast(hex, SURFACE)).toBeGreaterThanOrEqual(AA);
-      expect(contrast(hex, SURFACE_LIGHT)).toBeGreaterThanOrEqual(AA);
-      expect(contrast(blendToward(hex, SURFACE, 0.8), SURFACE)).toBeGreaterThanOrEqual(AA);
-    }
-  });
-
-  it('⚠️ below the floor, verdict mode genuinely fails AA — proving this is a real floor, not a no-op', () => {
-    // If this ever stopped failing, NUMBER_TINT_FLOOR would have become decorative rather than
-    // load-bearing, and the floor could safely be lowered or removed.
-    expect(contrast(rampHex(1), SURFACE)).toBeLessThan(AA);
-    expect(contrast(rampHex(2), SURFACE)).toBeLessThan(AA);
+  it('does not vary the number\'s colour with the score', () => {
+    const { unmount } = render(<ScoreBar label="Fiery Sky" score={5} metric="fiery" testId="lo" />);
+    const lo = screen.getByTestId('lo').querySelector('span[style*="font-weight"]').getAttribute('style');
+    unmount();
+    render(<ScoreBar label="Fiery Sky" score={95} metric="fiery" testId="hi" />);
+    const hi = screen.getByTestId('hi').querySelector('span[style*="font-weight"]').getAttribute('style');
+    expect(lo).toBe(hi);
   });
 });
 

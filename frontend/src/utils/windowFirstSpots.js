@@ -75,12 +75,13 @@ function luminance(hex) {
 /**
  * WCAG contrast ratio between two `#RRGGBB` colours.
  *
- * <p>Exported (Stage 5b of `heat-scale-unification-plan.md`) so a test asserting an AA claim about a
- * ramp-derived colour — e.g. `ScoreBar.jsx`'s `NUMBER_TINT_FLOOR` — can recompute the ratio from the
- * live hex values rather than hard-coding the pre-computed answer, which would keep passing even if
- * the underlying colours drifted below AA.
+ * <p>Private. It was briefly exported (Stage 5b) so a test could recompute an AA claim about
+ * `ScoreBar`'s ramp-derived number tint from live hex values; that tint was removed in Stage 7's
+ * prerequisite — a ramp is a fill scale and cannot double as a text scale — and the test went with
+ * it. {@link readableInkOn} is the only caller now. If a future test needs this again, export it
+ * again deliberately rather than leaving a reader guessing why it is public.
  */
-export function contrast(a, b) {
+function contrast(a, b) {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (hi + 0.05) / (lo + 0.05);
 }

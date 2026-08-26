@@ -4056,11 +4056,12 @@ button.wf-hc.also.on:hover {
       `scoreRamp.js` since Stage 5b) does NOT — it carries its own plate exactly as the rating badge
       does, for the same reason departure 1 states. The label text itself is
       `text-plex-text-secondary`, the SAME token `.wf-loc-lv`'s own text carries (departure 3's
-      4.80:1 at rest), so it is covered by that measurement. ⚠️ The NUMBER is different since Stage
-      5b: it is tinted from the ramp, floored at 2.8★ specifically so it clears 4.5:1 once THIS rule
-      dims it to 0.8 opacity — `ScoreBar.jsx`'s `NUMBER_TINT_FLOOR` carries the measurement this rule
-      depends on, not an independent one taken here. If this rule's opacity ever changes, that floor
-      needs re-measuring against the new value.
+      4.80:1 at rest), so it is covered by that measurement. The NUMBER carries
+      `--color-plex-text` and is covered the same way. ⚠️ It was briefly tinted from the ramp
+      (Stage 5b) and floored so the tint survived this rule's dimming; the tint was removed in
+      Stage 7's prerequisite, because a ramp is a FILL scale and cannot double as a TEXT scale —
+      the hot end has no headroom to survive a dim. Do not re-tint it from the ramp here or
+      anywhere: this rule's 0.8 opacity is precisely what a ramp-derived tint cannot survive.
 
    6. Phase 2 added the light line, and it joins the list for the same reason the prose does: it is
       plain text on the body's own ground with no plate of its own. It carries
