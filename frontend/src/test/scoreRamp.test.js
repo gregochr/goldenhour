@@ -1,7 +1,7 @@
 import {
   describe, it, expect, afterEach,
 } from 'vitest';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath, URL as NodeURL } from 'node:url';
 import {
@@ -48,8 +48,11 @@ describe('scoreFromPercent is fully deleted', () => {
     // string literals mention "scoreFromPercent" by name deliberately (including as regex-test
     // fixture strings below) and must not trip this, hence the self-exclusion.
     if (f === thisFile) return false;
-    const stat = statSync(f);
-    return stat.isFile() && IMPORTS_SCORE_FROM_PERCENT.test(readFileSync(f, 'utf8'));
+    // Read straight through rather than stat-then-read: `walk` already returns only
+    // non-directory entries, so the stat was redundant, and check-then-use on a path is a
+    // file-system race CodeQL flags (js/file-system-race). Doing the operation and letting it
+    // throw is both correct and the sanctioned shape.
+    return IMPORTS_SCORE_FROM_PERCENT.test(readFileSync(f, 'utf8'));
   });
 
   it('has no surviving import anywhere in the frontend source', () => {
