@@ -621,8 +621,36 @@ be switched on deliberately before it becomes everyone's default.
 
 ### Stage 7 — Flip the default, and tell people
 
-⚠️ **BLOCKED on a contrast decision. Measure before flipping — do not treat this as a one-line
-default change.**
+✅ **DECIDED 2026-08-26 (Design): drop the number tint.** The measurements below stand; what
+changed is that the answer is settled, and on stronger grounds than contrast alone.
+
+**The structural point, which generalises past this stage:** a ramp is a **fill** scale, and a fill
+scale cannot double as a **text** scale. As a fill, `readableInkOn` puts ink *on top* and picks it
+per fill. As text, the ramp colour **is** the ink on a dark surface. The two uses want opposite
+things from the same value, so the monotonic fix that made fills better necessarily made text
+worse — and there is no top-end value that satisfies both. **The dimmed column is what makes it
+decisive**: a tint that must survive a dimmed state needs headroom, and the hot end of a fill ramp
+has none by construction. Body ink dims gracefully; a saturated red on a dark surface does not.
+
+Two further arguments, both Design's, and both independent of contrast:
+
+- **A numeral is a precise value; colour is a categorical impression.** Tinting the numeral makes
+  the exact thing look approximate — while the bar beside it already encodes hot-ness **twice**, by
+  length and by fill.
+- **Thin coloured text is the weakest place to spend colour for colour-blind readers.** Two large
+  fills are separable where two red-ish numerals are not.
+
+So this is not a compromise forced by a contrast failure. The tint was a **third** encoding of a
+datum already encoded twice, and it happened to be the one costing contrast. Removing it would be
+right even if every stop passed.
+
+⚠️ **This is work, not just a decision.** Stage 5b shipped the tint — it passes AA in verdict mode,
+so nothing is failing on `main` today. `NUMBER_TINT_FLOOR`, the tint derivation and the contrast
+test that pins them come out, and the `contrast()` export 5b added to `windowFirstSpots.js` for that
+test should be re-checked for other callers before it goes with them. Do it **before** the flip; it
+does not depend on the flip.
+
+**The original blocker analysis, kept because the measurements are the evidence:**
 
 Stage 5b tints the score bar's **number** from the ramp, floored at `NUMBER_TINT_FLOOR = 2.8★` so
 it clears 4.5:1 as *text* on the panel background. That floor was measured against

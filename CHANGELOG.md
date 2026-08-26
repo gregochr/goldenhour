@@ -5,6 +5,46 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Stage 7 unblocked: drop the score number's tint (Design's call)
+
+The measurements stand; the answer is settled, and on stronger grounds than contrast alone.
+
+**A ramp is a fill scale, and a fill scale cannot double as a text scale.** As a fill,
+`readableInkOn` puts ink *on top* and picks it per fill. As text, the ramp colour **is** the ink on
+a dark surface. The two uses want opposite things from the same value, so the monotonic hot-leg fix
+that made fills better necessarily made text worse — and no top-end value satisfies both. The
+dimmed state is what makes it decisive: a tint that must survive dimming needs headroom, and the
+hot end of a fill ramp has none by construction.
+
+Two arguments beyond contrast, both Design's: a numeral is a **precise** value where colour is a
+**categorical** impression, so tinting the numeral makes the exact thing look approximate — while
+the bar beside it already encodes hot-ness twice, by length and by fill; and thin coloured text is
+the weakest place to spend colour for colour-blind readers, where two large fills stay separable
+and two red-ish numerals do not.
+
+The measurements that raised it, kept because they are the evidence: against `STOPS_TEMP` the worst
+point across both backgrounds in rest and dimmed states drops from **4.75:1** to **2.38:1**, and it
+fails at the **hot end** where a floor cannot help — 4.3★ measures 4.13:1 at rest and 3.08:1 dimmed,
+5★ measures 3.08:1 and 2.38:1.
+
+So it is not a compromise forced by a failure. The tint was a **third** encoding of a datum already
+encoded twice, and it happened to be the one costing contrast — removing it would be right even if
+every stop passed. It is work rather than only a decision: 5b shipped the tint (passing in verdict
+mode, so nothing is failing on `main`), and `NUMBER_TINT_FLOOR`, the tint derivation and its
+contrast test come out before the flip.
+
+### Added — the Stage 6 kickoff prompt
+
+The only backend stage in the series, which the design brief does not say out loud: persisting the
+preference through `settingsApi` rather than `localStorage` means migration, entity, DTO, service,
+controller, API module and UI. The prompt carries the repo-specific traps — read the migration
+number off `main` rather than any written-down one, there is **no `user_settings` table** (settings
+are columns on `app_user`), don't hang colour preferences off `PUT /home` where a partial body
+would wipe a postcode, and a new route under `/api/user/settings` must be added to
+`HttpCachingConfigTest.personalDataPathsAreNeverFiltered`. It names `localRadiusMiles` as the
+precedent to follow, including its nullable-no-backfill semantics — which is precisely what lets
+Stage 7 change the default for people who never chose without overriding anyone who did.
+
 ### Fixed — the Golden Hour score a null Fiery Sky was hiding (Stage 8)
 
 `MarkerPopupContent` gated its whole **Scores** section on `fierySkyPotential` alone, in two places
@@ -19,28 +59,6 @@ tooltip with a stray dash is noise, a popup row that vanishes is a layout jump �
 gating that would look natural here is exactly what must not be added, and the tests assert the
 dash rather than the row's absence. An earlier cut of this fix, written against the pre-5b tree,
 did add per-row gating and pinned it; it would have reversed a documented decision silently.
-
-### Changed — Stage 7 is blocked: the score number's tint fails AA in temperature mode
-
-Stage 5b tints the score bar's number from the ramp, floored at 2.8★ so it clears 4.5:1 as *text*
-on the panel background. That floor was measured against `STOPS_VERDICT`, and 5b's own review
-flagged — correctly — that it was never scoped to the active mode. Measured against `STOPS_TEMP`,
-the worst point across both backgrounds in rest and dimmed states drops from **4.75:1** to
-**2.38:1**.
-
-**It fails at the hot end, where a floor cannot help**, because a floor clamps the bottom: 4.3★
-measures 4.13:1 at rest and 3.08:1 dimmed; 5★ measures 3.08:1 and 2.38:1. Flipping the default
-as-is would ship failing contrast on the score number at roughly every rating above 4.1★ — the good
-evenings, the ones a reader most wants to read.
-
-This is a direct consequence of a fix that was right to make. Making the hot leg monotonic — so
-4.3★ stopped reading hotter than 5★ — deepened the top end to `#C82820`, which is *better* for
-fills, where `readableInkOn` chooses an ink to sit on top, and *worse* for text, where the ramp
-colour **is** the ink on a dark surface. The two uses pull opposite ways.
-
-Three options are recorded with a recommendation (drop the number tint — the bar carries the colour
-and the numeral carries the value, which is what `PlanScoreBar` did before 5b and called
-deliberate). The decision is Design's or the owner's; Stage 7 is marked blocked until it is made.
 
 ### Added — Stage 8: the Golden Hour score a null Fiery Sky hides
 
@@ -122,6 +140,25 @@ this landed: the unrecognised-metric guard used bracket-access truthiness (`ANCH
 walks the prototype chain — a metric string naming an `Object.prototype` member (`'toString'`,
 `'constructor'`, …) resolved to a truthy non-array value, silently passed the guard, and fell through
 to an unthrown top-of-ramp result. Fixed with `Object.hasOwn`, with a test pinning it directly.
+
+### Added — the Stage 5b kickoff prompt
+
+Covers the last substantial UI work in the colour-scale series: collapsing `PlanScoreBar` and
+`PopupScoreRow` into one `ScoreBar` across eight call sites in three files, and moving the five
+hard-coded arc colours in `markerUtils.js` onto the ramp.
+
+It leads with the fact that **5b is the first stage that changes pixels** — 1, 2 and 5a were all
+provably zero-visual-change, and this one replaces gradient and bucket fills with a continuous
+solid sampled from the ramp, in verdict mode today rather than only after Stage 7. So
+"no visual change" is not an available assertion, and the project's browser-verification cadence
+applies in full.
+
+The two traps it carries forward: `starFromScore` **throws** on an unrecognised metric (5a,
+deliberately), so passing the label string through as the metric fails at render; and the five arc
+sites are **not the same quantity** — four are 0–100 potential arcs, the fifth is the Haiku rating
+ring, which takes `rampHex(rating)` because `starFromScore` would read a 5★ rating as the raw value
+5 and paint it at ≈1.2★. The ring's proximity to a disc filled from the same rating is flagged as a
+browser check rather than a paper decision.
 
 ### Changed — Stage 5 splits, and two defects in the reference mapping are caught before porting
 
