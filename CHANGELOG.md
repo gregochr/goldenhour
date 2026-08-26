@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.19.1] - 2026-08-26
+
 ### Added — one colour scale across every scored surface
 
 The map, its markers and cluster bubbles, the Plan matrix's heat thumbnails, the window popup, the
