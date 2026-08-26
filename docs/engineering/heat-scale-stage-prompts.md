@@ -321,7 +321,7 @@ commit as the work.
 
 ---
 
-## Stage 5a — The piecewise mapping, no visual change
+## Stage 5a — The piecewise mapping, no visual change ✅ LANDED (#642)
 
 > ⚠️ **Stage 5 is split into 5a and 5b.** As written in the plan it was four jobs in one session:
 > build Stage 4's mapping (never coded — Stage 4 was a *decision*), delete the superseded linear
@@ -413,3 +413,188 @@ commit as the work.
 > **Commit and PR.** Conventional commit (`feat:`). `CHANGELOG.md` entry under `[Unreleased]` —
 > expect a conflict and rebase rather than merge. Do **not** push until asked. Update the plan's
 > Stage 5 section to record the 5a/5b split and what landed.
+
+---
+
+## Stage 5b — One score bar, and the arcs ✅ LANDED (#643)
+
+> You are implementing **Stage 5b** of `docs/engineering/heat-scale-unification-plan.md`. Read its
+> **Stage 5b** section first — it carries the merged component's interface and all eight call sites
+> mapped, and that spec was itself corrected twice by review, so do not re-derive it.
+>
+> **⚠️ Check your base.** Stages 1, 2, 3 and 5a have merged. Confirm `starFromScore` and `ANCHORS`
+> exist in `frontend/src/utils/scoreRamp.js`; if they do not, branch from 5a's branch rather than
+> `main`.
+>
+> **⚠️ This stage CHANGES PIXELS — the first one that does.** Stages 1, 2 and 5a were all provably
+> zero-visual-change. This one replaces two four-bucket/gradient bars with a continuous solid fill
+> sampled from the ramp, and it does so **in verdict mode, today**, not only after Stage 7. So:
+>
+> - "no visual change" is **not** an available assertion here; do not write one.
+> - The project's UI cadence applies in full (CLAUDE.md, "UI Work — Review Cadence"), **including
+>   browser verification**: `./mvnw -Plocal-dev spring-boot:run -Dspring-boot.run.profiles=local`
+>   (port **8083**) and `npm run dev`, sign in as `admin` / `golden2026`. A local DB with no
+>   evaluation run has no ratings, so say plainly which states you saw and which you could not.
+>
+> **Goal, two halves.**
+>
+> ### 1. One score bar
+>
+> `PlanScoreBar` (Plan side, gradient fills, used by `LocationFourDaySheet` ×2 and `WindowSpotPeek`
+> ×2) and `PopupScoreRow` (private to `MarkerPopupContent`, ×4) are the same component with
+> different clothes. Collapse them into **`components/ScoreBar.jsx`** — the plan's §Stage 5b gives
+> the exact prop list, the eight call sites and what each passes.
+>
+> Key points the spec settles, restated because they are the ones easy to get wrong:
+>
+> - **`fill` stops being a prop.** It becomes `rampHex(starFromScore(score, metric))` — a
+>   **continuous solid** colour. Not a gradient: a bar has one value, and a gradient across a ramp
+>   that starts cold is a five-hue rainbow. `PlanScoreBar`'s `FIERY_FILL` / `GOLDEN_FILL` exports
+>   and `MarkerPopupContent`'s private copies are all deleted, along with `rampTint`, `FIERY_TINT`
+>   and `GOLDEN_TINT`.
+> - **`metric` is `'fiery'` or `'golden'`, and nothing else.** ⚠️ `starFromScore` **throws** on an
+>   unrecognised metric (5a, deliberately). Do not pass the `label` string through as the metric —
+>   `'Fiery Sky'` is not `'fiery'` and will throw at render.
+> - **The two null behaviours are both deliberate and both survive.** Plan callers keep their
+>   `score != null &&` guards and render *nothing*; the popup renders an em dash. A tooltip with a
+>   stray dash is noise; a popup row that vanishes is a layout jump.
+> - **The number is tinted to match, on both surfaces.** This deliberately closes `PlanScoreBar`'s
+>   documented no-tint deviation. It does not reintroduce an SC 1.4.1 problem: the numeral states
+>   the value in text, so nothing is encoded by colour alone.
+>
+> ### 2. The arcs — five sites, and NOT all the same quantity
+>
+> ⚠️ **This is the trap that a review already caught once in the spec.** `markerUtils.js` hard-codes
+> `#f97316` / `#E5A00D` at five places, and applying one formula to all five is wrong:
+>
+> - **Four potential arcs** — `buildMarkerSvg`'s fiery/golden pair (~lines 161, 164) and
+>   `createClusterIcon`'s pair (~238, 242). These carry the 0–100 metrics, so they take
+>   `rampHex(starFromScore(v, metric))`, the same source as the bars.
+> - **One rating ring** — `buildMarkerSvg`'s single full ring (~line 180), the Haiku path, whose
+>   fill is `FULL_CIRC * (rating / 5)`. It receives a **1–5 rating**, not a 0–100 potential, and
+>   there is no metric table for it. It takes **`rampHex(rating)`**. Routing it through
+>   `starFromScore` would read a 5★ rating as the raw value **5** and map it to ≈**1.2★** — a
+>   top-rated location painted at the ramp's cold end.
+>
+> Arcs and ring carry no label, so §2.1's whole-star rule does not constrain them: they may sample
+> continuously.
+>
+> ⚠️ **One question to answer in the browser, not on paper.** The rating ring sits immediately
+> outside a disc already filled with `ratingColour(rating)` — the same value through the same
+> function. Colouring the ring from the ramp makes both the same hue, and the ring may stop reading
+> as a gauge and start reading as a halo. **Look at it.** If it reads badly, say so and stop rather
+> than inventing a second colour language for one ring.
+>
+> **Scope boundary.** `PopupScoreRow`'s inline styles move across as-is. CLAUDE.md's "Tailwind
+> only, no inline styles" rule is violated by **both** components today; converting them is
+> pre-existing debt and **not** this stage's job. Say so in the PR rather than silently expanding.
+>
+> **Tests.**
+>
+> - One component, eight call sites, both metrics.
+> - The fill is the ramp's colour for that score — assert against `rampHex(starFromScore(...))`, not
+>   a hard-coded hex, so it cannot drift from the ramp (the lesson from `heatTokens.test.js`, and
+>   from four separate literal-drift incidents in the design bundle).
+> - Both null behaviours pinned: Plan renders nothing, popup renders the dash.
+> - The rating ring uses `rampHex(rating)` — assert a 5★ ring is **not** the colour
+>   `starFromScore(5, 'fiery')` would give. That single assertion is what stops the regression the
+>   spec was corrected for.
+> - An invalid metric throws rather than rendering something plausible.
+> - `planScoreConsistency.test.js` pins the *data* side of "two surfaces, one truth"; this stage
+>   makes the *render* side structural. Check it still passes and consider whether it wants a
+>   sibling.
+>
+> **Gates, all four:**
+>
+> ```
+> cd frontend && npm run lint && npm test && npm audit --audit-level=high && npm run build
+> ```
+>
+> **Before committing**, run an adversarial review of the diff — read-only agents. Ask one lens:
+> *does any surface still derive a score colour from anything other than the ramp?*
+>
+> **Commit and PR.** Conventional commit (`feat:`). `CHANGELOG.md` entry under `[Unreleased]` —
+> expect a conflict, rebase rather than merge. Do **not** push until asked. Update the plan's
+> Stage 5b section with what landed, including anything this prompt got wrong.
+
+---
+
+## Stage 6 — The preference, full-stack
+
+> You are implementing **Stage 6** of `docs/engineering/heat-scale-unification-plan.md`. Read its
+> Stage 6 section first. Stages 1, 2, 3, 5a and 5b have merged; `MODE` still defaults to
+> `'verdict'` and **this stage does not flip it** — that is Stage 7.
+>
+> **Goal.** A user can choose between the two colour scales, and the choice persists. Two settings:
+> `mapColourScale` (`'temp' | 'verdict'`) and `markersFollowScale` (boolean).
+>
+> **⚠️ This is the only backend stage in the series.** The design brief does not say so out loud.
+> Persisting through `settingsApi` rather than `localStorage` means the whole chain: migration,
+> entity, DTO, service, controller, API module, UI.
+>
+> **⚠️ Read the migration number off `main` — never from a written-down one.** Two `V136`s
+> collided in this repo once. `ls backend/src/main/resources/db/migration/ | sort -V | tail -1`.
+>
+> **⚠️ There is no `user_settings` table.** Every user setting is a column on **`app_user`**
+> (`V67` for the home location, `V136` for `local_radius_miles`); `user_drive_time` is the only
+> side table. A migration written against `user_settings` fails at deploy.
+>
+> **Follow `localRadiusMiles` as the precedent — it is the closest thing to what you are adding**,
+> and it threads through exactly five backend files: `AppUserEntity`, `SaveHomeRequest`,
+> `UserSettingsResponse`, `UserSettingsService`, and its consumer `ReachService`. Read
+> `V136__user_local_radius.sql` before writing the migration: it is **nullable with no backfill**,
+> deliberately, so `NULL` means "never chosen" and the service applies the default. That
+> distinction matters here too — it is what lets Stage 7 change the default for people who never
+> chose, without overriding anyone who did. **A `DEFAULT` in the DDL would erase it.**
+>
+> **⚠️ Do NOT put these on `PUT /home`.** `localRadiusMiles` rides that endpoint because it *is*
+> home-derived. A colour preference is not: a rename body carrying only the colour fields would
+> deserialise the home fields to null and wipe someone's postcode. Give it its own endpoint — the
+> controller is `/api/user/settings` and already has `/home`, `/drive-times`, `/reach`, `/light`,
+> so follow that shape.
+>
+> **⚠️ `HttpCachingConfigTest.personalDataPathsAreNeverFiltered` is parameterised per path, and a
+> new route under `/api/user/settings` must be added to it.** Everything under that prefix must
+> stay `no-store`: ETag revalidation needs `Cache-Control: private, no-cache`, which persists the
+> body to a browser HTTP cache JavaScript cannot evict on logout. That is why the prefix exists.
+>
+> **Frontend.**
+>
+> - `settingsApi.js` gains the getter/setter pair.
+> - A new **Map Colours** section in `components/UserSettingsModal.jsx`. Follow the existing
+>   section shape — a `<section>` with an uppercase `text-xs font-medium text-plex-text-muted
+>   tracking-wide` heading, matching Profile / Home Location / Drive Times.
+> - ⚠️ **The modal has no toggle or checkbox pattern today** — only text inputs and `btn-primary`
+>   buttons. The control is new work. Keep it keyboard-operable and labelled; do not reach for a
+>   bare `<div onClick>`.
+> - ⚠️ **Leave it OUTSIDE the `isPro` gate.** Reading the map is not a Pro feature.
+> - Wire the loaded setting into `setMode()` at **one** place, so Plan and Map can never disagree —
+>   the rule that put `MODE` in `scoreRamp.js` rather than in each consumer.
+>
+> **⚠️ Defaults stay `'verdict'` and markers-follow-on in this stage.** The point of landing the
+> preference before the flip is a dogfooding window: the owner can switch their own account to
+> temperature and look at it against real production forecasts before it becomes everyone's
+> default. Do not pre-empt that.
+>
+> **Tests.** Backend: the migration applies; null round-trips as "never chosen"; the service
+> defaults; the controller rejects a bad value; the new path is in the caching test's list.
+> Frontend: the setting round-trips through `settingsApi`; the control is keyboard-operable; a
+> loaded `'temp'` reaches `setMode`; the section renders for a LITE user.
+>
+> **Gates.** Frontend, all four:
+> `cd frontend && npm run lint && npm test && npm audit --audit-level=high && npm run build`.
+> Backend: `cd backend && ./mvnw checkstyle:check` first (fails fast, ~15s), then
+> `./mvnw clean verify` — ⚠️ **needs Docker running**, five Testcontainers classes execute in the
+> ordinary `test` phase. **Gate on the exit code, never on a grep of the output** — `-q` suppresses
+> violation lines and `$?` after a pipe is grep's status, which has reported a false green twice in
+> this repo. Redirect to a file and `echo "exit: $?"` as its own statement.
+> ⚠️ **JaCoCo requires 80% line coverage per class**, which bites small new records — cover the
+> defensive branches with real assertions rather than deleting the guards.
+>
+> **Before committing**, run an adversarial review of the diff (CLAUDE.md, "UI Work — Review
+> Cadence"), read-only agents. Ask one lens: *can any path here leak a personal setting into a
+> cacheable response?*
+>
+> **Commit and PR.** Conventional commit (`feat:`). `CHANGELOG.md` entry under `[Unreleased]` —
+> expect a conflict, rebase rather than merge. Do **not** push until asked. Update the plan's
+> Stage 6 section with what landed, including anything this prompt got wrong.
