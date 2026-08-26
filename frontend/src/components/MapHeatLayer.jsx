@@ -184,7 +184,9 @@ function restoreMarkerPanes(map) {
  *        and thins with it, so a day-4 guess cannot look as authoritative as tonight
  * @param {boolean}  [props.markersLocked] a location is open — see {@code fadesMarkers}
  */
-export default function MapHeatLayer({ points, conf = null, markersLocked = false }) {
+export default function MapHeatLayer({
+  points, conf = null, markersLocked = false, colourMode = null,
+}) {
   const map = useMap();
 
   /**
@@ -282,7 +284,19 @@ export default function MapHeatLayer({ points, conf = null, markersLocked = fals
       conf,
       opacity: HEAT_OPACITY * fade.heat,
     });
-  }, [map, points, conf, fadesMarkers]);
+  // `colourMode` is a REPAINT KEY, not a colour source. The heat kernel paints from
+  // `scoreRamp`'s live module state (`heatField.js` -> `rampRgb`), which this callback's other
+  // dependencies cannot see: when the settings fetch resolves after the first paint, `MODE`
+  // changes with no prop or datum changing, so a memoised paint callback keeps the OLD ramp on
+  // the canvas while the markers and legend — which do read live — repaint. That is the Plan
+  // thumbnails and the map bitmap disagreeing with everything around them, and it is a RACE:
+  // whether it happens depends on which fetch resolves first. Threading the resolved mode into
+  // the dependency array is what makes the repaint happen; its value is never read for colour.
+    // Referenced so it is a REAL dependency, not a suppressed one: `exhaustive-deps` cannot see
+    // that this callback's colours come from `scoreRamp`'s module state, so it reads the entry as
+    // unnecessary. `void` makes the dependency honest and keeps the rule on.
+    void colourMode;
+  }, [map, points, conf, fadesMarkers, colourMode]);
 
   const {
     attachFrame, canvasRef, geoFailed, repaint, repaintNow,
@@ -374,6 +388,8 @@ export default function MapHeatLayer({ points, conf = null, markersLocked = fals
 }
 
 MapHeatLayer.propTypes = {
+  /** The active scoreRamp mode — a repaint key only; see the paint callback's note. */
+  colourMode: PropTypes.oneOf(['temp', 'verdict']),
   points: PropTypes.arrayOf(PropTypes.shape({
     lat: PropTypes.number,
     lng: PropTypes.number,

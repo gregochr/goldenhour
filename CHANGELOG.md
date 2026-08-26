@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+
+⚠️ **A third instance of the same repaint bug, found by review before this merged.** Stage 6 caught
+`MapView`'s marker-icon cache going stale when the preference resolves after first paint. The
+**canvases** have the same problem and its fix did not reach them: `WindowFirstHeatStrip`'s and
+`MapHeatLayer`'s paint callbacks are memoised on data that does not change when only the mode does,
+while the kernel they paint through (`heatField.js` → `rampRgb`) reads `scoreRamp`'s live module
+state. So the Plan thumbnails and the map bitmap would keep the old ramp while the markers, legend
+and verdict words around them repainted — and whether it happened at all depended on which fetch
+resolved first, making it a **race** rather than a consistent bug.
+
+Both now take a `colourMode` prop threaded from `App.jsx`, in their dependency arrays. It is a
+**repaint key, not a colour source** — every colour read still goes to the live module state, which
+is the one thing that cannot disagree with what was painted. `void colourMode;` in each body makes
+the dependency genuine rather than an `exhaustive-deps` suppression: the rule cannot see a
+module-global read, and a suppressed warning would have hidden the next instance of this.
 ### Added — Stage 6: the map colour preference, full-stack (still defaulting to verdict)
 
 Two settings a caller can now choose and have persist: `mapColourScale` (`'temp'` or `'verdict'`)

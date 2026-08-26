@@ -413,6 +413,7 @@ function AppInner() {
             locations={visibleLocations}
           >
             <WindowFirstShell
+              mapColourScale={mapColourScale}
               onOpenSettings={() => setShowSettings(true)}
               onSignOut={logout}
               light={todaysLight}

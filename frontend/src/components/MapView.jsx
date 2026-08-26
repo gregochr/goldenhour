@@ -793,6 +793,10 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
   // colour read (`rampHex`, and `getMode()` in `makeMarkerIcon`'s cache key) goes straight to
   // `scoreRamp`'s live module state, the one place that can never disagree with what gets painted.
   // A prop-derived value used for that instead could lag the real mode by a render.
+  // Also forwarded to `MapHeatLayer` as its paint-dependency key — the heat BITMAP is memoised
+  // on data that does not change when only the preference does, so without it the canvas keeps
+  // the old ramp while the markers around it repaint. Neither use reads the value for colour:
+  // every colour read goes to `scoreRamp`'s live module state.
   void mapColourScale;
   const { role } = useAuth();
   const isMobile = useIsMobile();
@@ -1871,6 +1875,7 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
                less than the map already does. */
             <Suspense fallback={null}>
               <MapHeatLayer
+                colourMode={mapColourScale}
                 points={heatPoints}
                 conf={heatWindow?.conf ?? null}
                 markersLocked={selectedLocationName != null}
