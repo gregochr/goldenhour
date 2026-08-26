@@ -51,6 +51,14 @@ export const STOPS_VERDICT = [
  * label clears 4.5:1 against it — lightening it breaks marker contrast. `3` exists as its own
  * stop because `rating` is an integer and 3★ is likely the commonest value; interpolating
  * 2.8→3.2 put it on a dun khaki.
+ *
+ * <p><b>The hot leg descends monotonically in luminance</b> — 0.264 at 3.9, 0.203 at 4.3, 0.139
+ * at 5. It used to dip to 0.175 at 4.3 and recover to 0.275 at 5, which made 4.3★ read hotter
+ * than the stop above it. ⚠️ <b>Do not brighten `5` past `4.3`.</b> Gold at 3★ is already the
+ * ramp's brightest point, so a bright top end gives a middling night and a great one the same
+ * visual weight; the top is the ramp's deepest colour by design. Making the leg monotonic also
+ * cut the sub-AA band from 13.2% in three runs to 10.2% in two — a ramp that reverses direction
+ * crosses the dead zone twice.
  */
 export const STOPS_TEMP = [
   { score: 1, hex: '#3A5C70' },
@@ -59,8 +67,8 @@ export const STOPS_TEMP = [
   { score: 3, hex: '#C49440' },
   { score: 3.2, hex: '#C99230' },
   { score: 3.9, hex: '#DF6B2A' },
-  { score: 4.3, hex: '#D63A26' },
-  { score: 5, hex: '#F26034' },
+  { score: 4.3, hex: '#DE4826' },
+  { score: 5, hex: '#C82820' },
 ];
 
 /** Lowest score the ramps are defined for; anything below clamps to it. Both lists span 1–5. */
@@ -124,9 +132,43 @@ export function getMode() {
   return MODE;
 }
 
-/** @returns {Array<{score: number, hex: string}>} the active mode's stop list */
+/**
+ * The active mode's stop list. **Private.**
+ *
+ * <p>It was briefly exported so the two gradient consumers (the map legend, the heat strip's
+ * footer bar) would read one answer to "which ramp is live" rather than each branching on
+ * {@link getMode}. {@link rampGradientCss} does that job properly — it also positions each stop by
+ * its score rather than by its index, which is the defect that export left open — so nothing
+ * outside this module needs the raw list any more. Callers wanting a gradient take
+ * {@link rampGradientCss}; callers wanting one colour take {@link rampHex} or {@link rampRgb}.
+ *
+ * @returns {Array<{score: number, hex: string}>} the active mode's stop list
+ */
 function activeStops() {
   return MODE === 'temp' ? STOPS_TEMP : STOPS_VERDICT;
+}
+
+/**
+ * The active ramp as a CSS horizontal gradient, each stop positioned by its **score** rather than
+ * by its index.
+ *
+ * <p>Index positioning is only correct by accident. `STOPS_VERDICT` has five evenly spaced stops
+ * at 1-5, so index and score coincide exactly and every gradient looks right. `STOPS_TEMP` is
+ * deliberately uneven, and there the two disagree by up to **16 percentage points** — its `2.2`
+ * stop belongs at 30% and index positioning puts it at 14%. That misplaces the legend against the
+ * canvas it is a key for, and only in `temp` mode, so a verdict-mode test cannot see it.
+ *
+ * <p>Both legends call this rather than each formatting their own gradient: the Plan footer and
+ * the Map key must never disagree about what a colour means, which is the rule that put `MODE` in
+ * this module rather than in each consumer.
+ *
+ * @returns {string} a `linear-gradient(90deg, …)` value
+ */
+export function rampGradientCss() {
+  const span = RAMP_MAX - RAMP_MIN;
+  return `linear-gradient(90deg, ${activeStops()
+    .map((stop) => `${stop.hex} ${(((stop.score - RAMP_MIN) / span) * 100).toFixed(1)}%`)
+    .join(', ')})`;
 }
 
 /** @returns {number[][]} the active mode's precomputed [r, g, b] triples */
@@ -186,6 +228,15 @@ export function rampHex(score) {
  *
  * <p>The reference kernel's equivalent (`rampPct`) returns a colour directly; this app keeps
  * domain-mapping and colour-lookup separate on purpose; the different name is deliberate.
+ *
+ * <p>⚠️ <b>SUPERSEDED, and it has no caller.</b> The two 0–100 metrics it was written for turned
+ * out to be <b>bimodal</b> — measured over 19,832 evaluations, fiery peaks at 10–19 and again at
+ * 70–79, golden at 20–29 and 70–79 — and no two-point linear map can spread a bimodal population.
+ * Under it, 51% of fiery readings landed in the 1★ band and a good evening rendered identically to
+ * a great one. The replacement is a frozen piecewise table per metric
+ * ({@code ANCHORS} + {@code starFromScore}), landing in Stage 5, which deletes this function.
+ * Do not build anything new on it; see
+ * {@code docs/engineering/heat-scale-unification-plan.md} Stage 4.
  *
  * @param {number} value the metric's raw reading
  * @param {number} lo the value that maps to a score of 1

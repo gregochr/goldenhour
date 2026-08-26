@@ -51,6 +51,31 @@ test files. The claim came from a `grep | head` whose truncation went unnoticed;
 session's import-consistency lens caught it. Recorded rather than quietly fixed, because the lesson
 generalises to every prompt in the file — a truncated grep is not a survey.
 
+### Added — Stage 2 of the colour-scale unification: tokens and the two live legends
+
+`index.css` gains `--color-heat-1..5` — the temperature ramp sampled at whole stars, for future
+discrete uses. They land in the `@theme static` block rather than beside `--color-verdict-*` as
+the plan originally said: nothing consumes them yet, and Tailwind v4 prunes an unreferenced token
+in the plain block to the empty string — the exact failure this file already documents for
+`--color-plex-panel`. `--color-verdict-*` itself is untouched.
+
+Both places that build a ramp gradient — the map legend (`MapView.jsx`) and the heat strip's footer
+bar (`WindowFirstHeatStrip.jsx`) — now read `scoreRamp.js`'s active stop list via a newly exported
+`activeStops()`, instead of the hard-coded verdict one. The heat strip's was the real trap: its
+gradient was a module-level constant computed once at import, with its own comment asserting "it
+depends on nothing that changes" — true before Stage 1, false the moment a mode switch existed. It
+is now a function called from the render body, so a later preference change repaints it; the stale
+comment is rewritten rather than left standing next to code it no longer describes. The map legend
+was already built inline during render, so swapping its import was the whole fix there.
+
+Both gradients render byte-identical to today while `MODE` stays `'verdict'`, pinned by tests that
+also assert the *absence* of the temperature stops. A second pair of tests calls `setMode('temp')`
+after each test file's own imports have already resolved and asserts the temperature colours
+appear instead — the ordering that a frozen-at-import value could not have passed. A new
+`heatTokens.test.js` pins the five CSS tokens against `rampHex(1..5)` in temp mode rather than
+against `STOPS_TEMP`'s literals, since the 2★ and 4★ tokens are interpolated points, not stops in
+that list.
+
 ### Added — Stage 1 of the colour-scale unification: two ramps, one mode switch, no visual change
 
 `utils/scoreRamp.js` gains a second stop list — `STOPS_TEMP`, the temperature ramp's eight
@@ -177,6 +202,21 @@ rather than from memory — `DisplayVerdict` in particular no longer claims the 
 do not read it.
 
 Comment-only: no behaviour, no signatures, no tests changed.
+
+Landed against the **revised** ramp: the hot leg's `4.3` and `5` stops were corrected to `#DE4826`
+and `#C82820` in the same commit, and the tokens sampled from the corrected ramp — Design revised
+them after 4.3★ was found to read hotter than 5★ (a luminance trough at 0.175 between 0.264 and
+0.275). `heatTokens.test.js` asserts each token equals `rampHex(score)` rather than a literal, so
+the two artifacts cannot drift apart again.
+
+One defect found by the Codex review and fixed here: both legends distributed their stops by array
+**index** rather than by score. That is correct by accident for `STOPS_VERDICT` — five evenly
+spaced stops, so index and score coincide exactly — and wrong by up to **16 percentage points** for
+the uneven `STOPS_TEMP`, where the `2.2` stop belongs at 30% and index placement puts it at 14%. It
+would have misplaced the key against the canvas it is a key for, and only after Stage 7 flipped the
+default, so no verdict-mode test could have caught it. Both legends now call one
+`rampGradientCss()` in `scoreRamp.js`, positioning each stop at `(score − 1) / 4`, and the tests
+assert positions rather than merely the presence of each colour.
 
 ## [v2.19.0] - 2026-08-25
 

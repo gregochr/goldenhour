@@ -3,6 +3,7 @@ import {
 } from 'vitest';
 import {
   STOPS_VERDICT, RAMP_MIN, RAMP_MAX, rampRgb, rampHex, rgb, setMode, getMode, scoreFromPercent,
+  rampGradientCss,
 } from '../utils/scoreRamp.js';
 
 /**
@@ -190,8 +191,8 @@ describe('scoreRamp', () => {
       expect(rampHex(1)).toBe('#3A5C70');
       expect(rampHex(2)).toBe('#4C6677');
       expect(rampHex(3)).toBe('#C49440');
-      expect(rampHex(4)).toBe('#DD5F29');
-      expect(rampHex(5)).toBe('#F26034');
+      expect(rampHex(4)).toBe('#DF6229');
+      expect(rampHex(5)).toBe('#C82820');
     });
 
     it('falls back to verdict for an unrecognised mode string, rather than selecting temp by accident', () => {
@@ -205,8 +206,8 @@ describe('scoreRamp', () => {
       setMode('temp');
       expect(rampHex(0)).toBe('#3A5C70');
       expect(rampHex(-4)).toBe('#3A5C70');
-      expect(rampHex(6)).toBe('#F26034');
-      expect(rampHex(99)).toBe('#F26034');
+      expect(rampHex(6)).toBe('#C82820');
+      expect(rampHex(99)).toBe('#C82820');
     });
 
     it('sends a non-finite score to the bottom of the ramp in temp mode too', () => {
@@ -230,6 +231,34 @@ describe('scoreRamp', () => {
 
     it('maps the midpoint to the middle of the score range', () => {
       expect(scoreFromPercent(50, 10, 90)).toBe(3);
+    });
+  });
+
+  describe('rampGradientCss', () => {
+    afterEach(() => setMode('verdict'));
+
+    it('positions verdict stops at their scores, which happen to equal their indices', () => {
+      // Five evenly spaced stops, so score- and index-positioning coincide. This is exactly why
+      // the index bug was invisible: every verdict-mode assertion passes either way.
+      const css = rampGradientCss();
+      ['0.0%', '25.0%', '50.0%', '75.0%', '100.0%'].forEach((pos) => {
+        expect(css).toContain(pos);
+      });
+    });
+
+    it('positions temperature stops by SCORE, not by index', () => {
+      setMode('temp');
+      const css = rampGradientCss();
+      // (score - 1) / 4 * 100 for each of the eight uneven stops.
+      [['#3A5C70', '0.0%'], ['#506878', '30.0%'], ['#928C80', '45.0%'], ['#C49440', '50.0%'],
+        ['#C99230', '55.0%'], ['#DF6B2A', '72.5%'], ['#DE4826', '82.5%'], ['#C82820', '100.0%']]
+        .forEach(([hex, pos]) => expect(css).toContain(`${hex} ${pos}`));
+    });
+
+    it('never places the 2.2 stop at its index position', () => {
+      // The regression this guards: index positioning puts 2.2 at 14%, 16pp from where it belongs.
+      setMode('temp');
+      expect(rampGradientCss()).not.toContain('#506878 14');
     });
   });
 });

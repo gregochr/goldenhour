@@ -8,7 +8,7 @@ import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { badgeChannel } from '../utils/windowFirstCards.js';
 import { beyondRegions, GLANCE_MINUTES } from '../utils/planningArea.js';
 import { scopeRegions, scopeSpots } from '../utils/planOrigin.js';
-import { STOPS_VERDICT, rampRgb, rgb } from '../utils/scoreRamp.js';
+import { rampGradientCss, rampRgb, rgb } from '../utils/scoreRamp.js';
 import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { topMovers } from '../utils/movement.js';
@@ -67,17 +67,6 @@ const THUMB_LINE = 0.5;
  */
 const MIN_THUMB_PX = 26;
 
-/**
- * The footer's ramp bar, built from the ramp module's own stops.
- *
- * <p>A JS-derived value rather than a CSS gradient literal, for the reason `scoreRamp.js` exists at
- * all: the canvas is painted from these numbers, and a hand-written gradient beside it is a second
- * copy that can drift with nothing failing. Computed once at module load — it depends on nothing
- * that changes.
- */
-const RAMP_GRADIENT = `linear-gradient(90deg, ${STOPS_VERDICT
-  .map((stop, index) => `${stop.hex} ${Math.round((index / (STOPS_VERDICT.length - 1)) * 100)}%`)
-  .join(', ')})`;
 
 /** The planning-area threshold in whole hours, for the beyond line's own sentence. */
 const GLANCE_HOURS = GLANCE_MINUTES / 60;
@@ -837,7 +826,7 @@ export default function WindowFirstHeatStrip({
           data-testid="wf-heat-legbar"
           className="wf-hstrip-legbar"
           aria-hidden="true"
-          style={{ background: RAMP_GRADIENT }}
+          style={{ background: rampGradientCss() }}
         />
         <span>poor → worth it</span>
         <span>later days render hazier — lower confidence</span>

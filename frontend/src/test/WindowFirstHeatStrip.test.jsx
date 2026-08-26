@@ -7,7 +7,7 @@ import WindowFirstHeatStrip, {
 import { aspect, BBOX, bbox, drawGeo, land, load } from '../utils/heatField.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { GLANCE_MINUTES } from '../utils/planningArea.js';
-import { STOPS_VERDICT } from '../utils/scoreRamp.js';
+import { STOPS_VERDICT, STOPS_TEMP, setMode } from '../utils/scoreRamp.js';
 
 /**
  * The Plan pane's heat strip — six solar-window thumbnails, replacing the day rail (plan D1, §1.1).
@@ -1387,18 +1387,47 @@ describe('WindowFirstHeatStrip — the confidence channel', () => {
 });
 
 describe('WindowFirstHeatStrip — the legend', () => {
+  // MODE is scoreRamp module state, not a per-test fixture — a test that switches it and forgets
+  // to undo it leaks into every case that runs after it, in this file or another.
+  afterEach(() => {
+    setMode('verdict');
+  });
+
   it('paints the ramp bar from the ramp module, not from a copied gradient', async () => {
     // `scoreRamp.js` exists so the canvas and everything beside it read one set of literals. A
     // hand-written CSS gradient here would be a second copy that drifts with nothing failing, which
     // is the exact case the module's own header argues against — so the bar's stops must BE the
     // ramp's stops. Compared as `rgb()` triples because that is what a browser (and jsdom) stores an
     // inline hex as; comparing the source strings would pass on a stylesheet that never applied.
+    //
+    // MODE defaults to 'verdict' and this stage is provably zero-visual-change while it does, so
+    // this also pins today's rendered output byte-for-byte.
     await renderStrip();
 
     const painted = screen.getByTestId('wf-heat-legbar').style.background;
     STOPS_VERDICT.forEach((stop) => {
       const [r, g, b] = [1, 3, 5].map((i) => parseInt(stop.hex.slice(i, i + 2), 16));
       expect(painted).toContain(`rgb(${r}, ${g}, ${b})`);
+    });
+  });
+
+  it('repaints from the temperature stops once setMode(\'temp\') is called — proving the gradient is read live, not frozen at import', async () => {
+    // This bar used to be a module-level constant (`RAMP_GRADIENT`) computed once when this test
+    // file's first `import` of the component resolved — which already happened, above, before this
+    // test runs. Calling setMode here, well after that import, is exactly what a frozen-at-import
+    // value could not react to: if the fix regressed back to a constant, this test would still see
+    // the verdict ramp because the module loaded before `setMode('temp')` ever ran.
+    setMode('temp');
+    await renderStrip();
+
+    const painted = screen.getByTestId('wf-heat-legbar').style.background;
+    STOPS_TEMP.forEach((stop) => {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(stop.hex.slice(i, i + 2), 16));
+      expect(painted).toContain(`rgb(${r}, ${g}, ${b})`);
+    });
+    STOPS_VERDICT.forEach((stop) => {
+      const [r, g, b] = [1, 3, 5].map((i) => parseInt(stop.hex.slice(i, i + 2), 16));
+      expect(painted).not.toContain(`rgb(${r}, ${g}, ${b})`);
     });
   });
 });
