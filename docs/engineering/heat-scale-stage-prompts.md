@@ -321,7 +321,7 @@ commit as the work.
 
 ---
 
-## Stage 5a — The piecewise mapping, no visual change
+## Stage 5a — The piecewise mapping, no visual change ✅ LANDED (#642)
 
 > ⚠️ **Stage 5 is split into 5a and 5b.** As written in the plan it was four jobs in one session:
 > build Stage 4's mapping (never coded — Stage 4 was a *decision*), delete the superseded linear
@@ -413,6 +413,109 @@ commit as the work.
 > **Commit and PR.** Conventional commit (`feat:`). `CHANGELOG.md` entry under `[Unreleased]` —
 > expect a conflict and rebase rather than merge. Do **not** push until asked. Update the plan's
 > Stage 5 section to record the 5a/5b split and what landed.
+
+---
+
+## Stage 5b — One score bar, and the arcs ✅ LANDED (#643)
+
+> You are implementing **Stage 5b** of `docs/engineering/heat-scale-unification-plan.md`. Read its
+> **Stage 5b** section first — it carries the merged component's interface and all eight call sites
+> mapped, and that spec was itself corrected twice by review, so do not re-derive it.
+>
+> **⚠️ Check your base.** Stages 1, 2, 3 and 5a have merged. Confirm `starFromScore` and `ANCHORS`
+> exist in `frontend/src/utils/scoreRamp.js`; if they do not, branch from 5a's branch rather than
+> `main`.
+>
+> **⚠️ This stage CHANGES PIXELS — the first one that does.** Stages 1, 2 and 5a were all provably
+> zero-visual-change. This one replaces two four-bucket/gradient bars with a continuous solid fill
+> sampled from the ramp, and it does so **in verdict mode, today**, not only after Stage 7. So:
+>
+> - "no visual change" is **not** an available assertion here; do not write one.
+> - The project's UI cadence applies in full (CLAUDE.md, "UI Work — Review Cadence"), **including
+>   browser verification**: `./mvnw -Plocal-dev spring-boot:run -Dspring-boot.run.profiles=local`
+>   (port **8083**) and `npm run dev`, sign in as `admin` / `golden2026`. A local DB with no
+>   evaluation run has no ratings, so say plainly which states you saw and which you could not.
+>
+> **Goal, two halves.**
+>
+> ### 1. One score bar
+>
+> `PlanScoreBar` (Plan side, gradient fills, used by `LocationFourDaySheet` ×2 and `WindowSpotPeek`
+> ×2) and `PopupScoreRow` (private to `MarkerPopupContent`, ×4) are the same component with
+> different clothes. Collapse them into **`components/ScoreBar.jsx`** — the plan's §Stage 5b gives
+> the exact prop list, the eight call sites and what each passes.
+>
+> Key points the spec settles, restated because they are the ones easy to get wrong:
+>
+> - **`fill` stops being a prop.** It becomes `rampHex(starFromScore(score, metric))` — a
+>   **continuous solid** colour. Not a gradient: a bar has one value, and a gradient across a ramp
+>   that starts cold is a five-hue rainbow. `PlanScoreBar`'s `FIERY_FILL` / `GOLDEN_FILL` exports
+>   and `MarkerPopupContent`'s private copies are all deleted, along with `rampTint`, `FIERY_TINT`
+>   and `GOLDEN_TINT`.
+> - **`metric` is `'fiery'` or `'golden'`, and nothing else.** ⚠️ `starFromScore` **throws** on an
+>   unrecognised metric (5a, deliberately). Do not pass the `label` string through as the metric —
+>   `'Fiery Sky'` is not `'fiery'` and will throw at render.
+> - **The two null behaviours are both deliberate and both survive.** Plan callers keep their
+>   `score != null &&` guards and render *nothing*; the popup renders an em dash. A tooltip with a
+>   stray dash is noise; a popup row that vanishes is a layout jump.
+> - **The number is tinted to match, on both surfaces.** This deliberately closes `PlanScoreBar`'s
+>   documented no-tint deviation. It does not reintroduce an SC 1.4.1 problem: the numeral states
+>   the value in text, so nothing is encoded by colour alone.
+>
+> ### 2. The arcs — five sites, and NOT all the same quantity
+>
+> ⚠️ **This is the trap that a review already caught once in the spec.** `markerUtils.js` hard-codes
+> `#f97316` / `#E5A00D` at five places, and applying one formula to all five is wrong:
+>
+> - **Four potential arcs** — `buildMarkerSvg`'s fiery/golden pair (~lines 161, 164) and
+>   `createClusterIcon`'s pair (~238, 242). These carry the 0–100 metrics, so they take
+>   `rampHex(starFromScore(v, metric))`, the same source as the bars.
+> - **One rating ring** — `buildMarkerSvg`'s single full ring (~line 180), the Haiku path, whose
+>   fill is `FULL_CIRC * (rating / 5)`. It receives a **1–5 rating**, not a 0–100 potential, and
+>   there is no metric table for it. It takes **`rampHex(rating)`**. Routing it through
+>   `starFromScore` would read a 5★ rating as the raw value **5** and map it to ≈**1.2★** — a
+>   top-rated location painted at the ramp's cold end.
+>
+> Arcs and ring carry no label, so §2.1's whole-star rule does not constrain them: they may sample
+> continuously.
+>
+> ⚠️ **One question to answer in the browser, not on paper.** The rating ring sits immediately
+> outside a disc already filled with `ratingColour(rating)` — the same value through the same
+> function. Colouring the ring from the ramp makes both the same hue, and the ring may stop reading
+> as a gauge and start reading as a halo. **Look at it.** If it reads badly, say so and stop rather
+> than inventing a second colour language for one ring.
+>
+> **Scope boundary.** `PopupScoreRow`'s inline styles move across as-is. CLAUDE.md's "Tailwind
+> only, no inline styles" rule is violated by **both** components today; converting them is
+> pre-existing debt and **not** this stage's job. Say so in the PR rather than silently expanding.
+>
+> **Tests.**
+>
+> - One component, eight call sites, both metrics.
+> - The fill is the ramp's colour for that score — assert against `rampHex(starFromScore(...))`, not
+>   a hard-coded hex, so it cannot drift from the ramp (the lesson from `heatTokens.test.js`, and
+>   from four separate literal-drift incidents in the design bundle).
+> - Both null behaviours pinned: Plan renders nothing, popup renders the dash.
+> - The rating ring uses `rampHex(rating)` — assert a 5★ ring is **not** the colour
+>   `starFromScore(5, 'fiery')` would give. That single assertion is what stops the regression the
+>   spec was corrected for.
+> - An invalid metric throws rather than rendering something plausible.
+> - `planScoreConsistency.test.js` pins the *data* side of "two surfaces, one truth"; this stage
+>   makes the *render* side structural. Check it still passes and consider whether it wants a
+>   sibling.
+>
+> **Gates, all four:**
+>
+> ```
+> cd frontend && npm run lint && npm test && npm audit --audit-level=high && npm run build
+> ```
+>
+> **Before committing**, run an adversarial review of the diff — read-only agents. Ask one lens:
+> *does any surface still derive a score colour from anything other than the ramp?*
+>
+> **Commit and PR.** Conventional commit (`feat:`). `CHANGELOG.md` entry under `[Unreleased]` —
+> expect a conflict, rebase rather than merge. Do **not** push until asked. Update the plan's
+> Stage 5b section with what landed, including anything this prompt got wrong.
 
 ---
 
