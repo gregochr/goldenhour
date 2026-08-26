@@ -5,6 +5,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — two errors in the plan's Stage 3, found while writing its kickoff prompt
+
+§2.1 said *"markers already comply; cluster badges do not"*. **Wrong, and it understated what the
+snap fixes.** There are two labelled continuous fills, both through `scoreColour`: the cluster
+bubble, and an individual marker for a location with both potentials but no rating — whose fill
+comes from `Math.round((fierySky + goldenHour) / 2)` and whose label is that raw average, so a
+marker reading "62" paints from 3.1★. The `ratingColour` path does comply, since `rating` is an
+integer. Snapping inside `scoreColour` covers both without touching either call site — the
+chokepoint argument holding up under a case it was not written for.
+
+**The marker arcs move to Stage 5, not Stage 3.** They hard-code `#f97316` / `#E5A00D` at five
+sites, and the brief is right that they must move with the score bars — same two metrics, and the
+pin and popup must not disagree. But the bars only reach the ramp in Stage 5 via `starFromScore`.
+Moving the arcs in Stage 3 would open a window where the pin reads the ramp and the popup still
+reads a gradient — the precise disagreement the brief exists to prevent.
+
+Adds the Stage 3 kickoff prompt, and marks Stage 2 landed.
+
+Two further defects in these same docs, found by the Codex review on #638 and fixed here. The
+Stage 3 prompt described Stage 2 as **landed** while #637 was still open, so a session branching
+from `main` and obeying "do not redo Stage 2" would have shipped the marker change with the tokens
+and mode-aware gradients still absent; it now states the dependency and how to check it. And
+Stage 5's arc-migration instruction applied **one formula to five sites** that are not the same
+quantity: four are 0–100 potential arcs, but the fifth is `buildMarkerSvg`'s Haiku **rating** ring,
+whose fill is `FULL_CIRC * (rating / 5)`. Routing that through `starFromScore` would read a 5★
+rating as the raw value 5 and paint it at ≈1.2★ — a top-rated location rendered at the ramp's cold
+end. It takes `rampHex(rating)`, and the ring's proximity to a disc already filled from the same
+value is flagged as something to look at in a browser rather than decide on paper.
+
 ### Changed — the hot leg is monotonic, and the bimodal potentials get frozen piecewise anchors
 
 Two revisions from Design, both prompted by findings rather than preference.
@@ -75,6 +104,21 @@ appear instead — the ordering that a frozen-at-import value could not have pas
 `heatTokens.test.js` pins the five CSS tokens against `rampHex(1..5)` in temp mode rather than
 against `STOPS_TEMP`'s literals, since the 2★ and 4★ tokens are interpolated points, not stops in
 that list.
+
+Landed against the **revised** ramp: the hot leg's `4.3` and `5` stops were corrected to `#DE4826`
+and `#C82820` in the same commit, and the tokens sampled from the corrected ramp — Design revised
+them after 4.3★ was found to read hotter than 5★ (a luminance trough at 0.175 between 0.264 and
+0.275). `heatTokens.test.js` asserts each token equals `rampHex(score)` rather than a literal, so
+the two artifacts cannot drift apart again.
+
+One defect found by the Codex review and fixed here: both legends distributed their stops by array
+**index** rather than by score. That is correct by accident for `STOPS_VERDICT` — five evenly
+spaced stops, so index and score coincide exactly — and wrong by up to **16 percentage points** for
+the uneven `STOPS_TEMP`, where the `2.2` stop belongs at 30% and index placement puts it at 14%. It
+would have misplaced the key against the canvas it is a key for, and only after Stage 7 flipped the
+default, so no verdict-mode test could have caught it. Both legends now call one
+`rampGradientCss()` in `scoreRamp.js`, positioning each stop at `(score − 1) / 4`, and the tests
+assert positions rather than merely the presence of each colour.
 
 ### Added — Stage 1 of the colour-scale unification: two ramps, one mode switch, no visual change
 
@@ -203,20 +247,6 @@ do not read it.
 
 Comment-only: no behaviour, no signatures, no tests changed.
 
-Landed against the **revised** ramp: the hot leg's `4.3` and `5` stops were corrected to `#DE4826`
-and `#C82820` in the same commit, and the tokens sampled from the corrected ramp — Design revised
-them after 4.3★ was found to read hotter than 5★ (a luminance trough at 0.175 between 0.264 and
-0.275). `heatTokens.test.js` asserts each token equals `rampHex(score)` rather than a literal, so
-the two artifacts cannot drift apart again.
-
-One defect found by the Codex review and fixed here: both legends distributed their stops by array
-**index** rather than by score. That is correct by accident for `STOPS_VERDICT` — five evenly
-spaced stops, so index and score coincide exactly — and wrong by up to **16 percentage points** for
-the uneven `STOPS_TEMP`, where the `2.2` stop belongs at 30% and index placement puts it at 14%. It
-would have misplaced the key against the canvas it is a key for, and only after Stage 7 flipped the
-default, so no verdict-mode test could have caught it. Both legends now call one
-`rampGradientCss()` in `scoreRamp.js`, positioning each stop at `(score − 1) / 4`, and the tests
-assert positions rather than merely the presence of each colour.
 
 ## [v2.19.0] - 2026-08-25
 
