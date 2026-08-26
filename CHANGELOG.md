@@ -53,7 +53,40 @@ whole series exists to establish. The plan had already flagged the doubt as an o
 So the column, the request field, the response field, the checkbox and their tests are gone.
 Markers always follow the scale. Shipping the control inert was the one option not on the table: a
 setting that does nothing is worse than either honouring it or not offering it.
-### Changed — Stage 7 is blocked: the score number's tint fails AA in temperature mode
+### Added — Stage 7: flip the default, and tell people
+
+The series' last stage. A reader who has never chosen a map colour scale now gets `'temp'`
+(cold-to-hot), not `'verdict'` — but the flip had to land without breaking the distinction V147
+was built to preserve: "never chosen" (`null`) and "chose something this build cannot read" (a
+corrupt or unrecognised stored string) must resolve differently, even though `setMode`'s own guard
+(Stage 5a) collapses both to `'verdict'`. `scoreRamp.js` gains `DEFAULT_MODE` (`'temp'`) and
+`resolveMode(stored)`: `null`/`undefined` resolves to `DEFAULT_MODE`, an explicit `'temp'` or
+`'verdict'` resolves to itself, and anything else still resolves to `'verdict'` — the safer read of
+data this build cannot trust, not a silent opt-in to the newer ramp. `App.jsx`'s `loadHomeCoords`
+and `UserSettingsModal.jsx` both now call through `resolveMode` instead of each carrying their own
+ad-hoc verdict-biased fallback, so the map and the settings radio can no longer be seeded from two
+different literals.
+
+⚠️ The module's own raw bootstrap value (`let MODE = 'verdict'` in `scoreRamp.js`) is **deliberately
+untouched** — the flip is delivered entirely by the real settings-fetch wiring calling
+`setMode(resolveMode(...))`, not by the module defaulting to `'temp'` on import. Chasing the
+bootstrap value onto `DEFAULT_MODE` would have repainted dozens of existing tests that render
+`MapView`/read the ramp without ever calling `setMode`, from the verdict palette they were written
+and pinned against onto the temperature one.
+
+A one-time, dismissible notice — "Colours now run cold to hot." — reaches the one reader the
+preference itself cannot: someone who was reading the old map and will never open Settings to
+discover the colours changed. Shown only when the stored preference was genuinely null *and* the
+live ramp is actually `'temp'` (belt-and-braces, not redundant — the two are checked independently
+rather than one assumed from the other); silent for an explicit choice either way, since nothing
+changed for that reader. Dismissal persists through the map's existing fail-soft
+`readMapFilter`/`writeMapFilter` localStorage helpers, the same shape every other map-filter control
+already uses, so a storage-denied browser degrades to "shows every visit" rather than crashing.
+Placed at the map's top-right corner — the one corner not already claimed by the viewline upsell
+chip, the scored-locations legend, Leaflet's attribution or the zoom control — at a z-index *above*
+the heat toolbar's, found by review: that toolbar can run wide enough on an ordinary map width to
+reach under this corner, and a notice whose dismiss button a reader cannot click is worse than a
+briefly crowded one.
 
 ### Fixed — two comments left dangling by the tint removal
 

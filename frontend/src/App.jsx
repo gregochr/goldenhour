@@ -10,7 +10,7 @@ import NlcSightingBanner from './components/NlcSightingBanner.jsx';
 import HealthIndicator from './components/HealthIndicator.jsx';
 import UserSettingsModal from './components/UserSettingsModal.jsx';
 import { getSettings } from './api/settingsApi.js';
-import { setMode, getMode } from './utils/scoreRamp.js';
+import { setMode, getMode, resolveMode } from './utils/scoreRamp.js';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { AuroraStatusProvider } from './context/AuroraStatusContext.jsx';
 import { useAuroraStatus } from './hooks/useAuroraStatus.js';
@@ -144,6 +144,11 @@ function AppInner() {
   // updates module state nothing here is subscribed to. Read back via `getMode()` rather than
   // duplicating its 'temp'-or-'verdict' resolution rule.
   const [mapColourScale, setMapColourScale] = useState(getMode());
+  // Whether the loaded `mapColourScale` was raw-null — never explicitly chosen, so this reader's
+  // map just changed colour under them rather than reflecting a preference they picked themselves.
+  // The one thing the Map tab's one-time notice needs and `mapColourScale` above cannot answer:
+  // that mirrors the RESOLVED mode, and null resolves to the same `'temp'` an explicit choice does.
+  const [colourScaleDefaulted, setColourScaleDefaulted] = useState(false);
   // Non-null when the settings dialog was opened to land on a particular field — currently only
   // the map control's "you have no postcode" branch, which exists to point at exactly that input.
   const [settingsFocus, setSettingsFocus] = useState(null);
@@ -170,12 +175,14 @@ function AppInner() {
         );
         setHomeRadiusMiles(s?.localRadiusMiles ?? null);
         // The one place the loaded preference reaches the ramp, so Plan and Map can never
-        // disagree about what a colour means (heat-scale-unification-plan.md, rule 1). setMode
-        // already treats anything but 'temp' as 'verdict', so a never-chosen null is safe here.
-        setMode(s?.mapColourScale);
+        // disagree about what a colour means (heat-scale-unification-plan.md, rule 1).
+        // `resolveMode` — not a raw pass to `setMode` — is what makes a never-chosen `null`
+        // resolve to `DEFAULT_MODE` rather than to `setMode`'s own `'verdict'` fallback.
+        setMode(resolveMode(s?.mapColourScale));
         // Mirrored into state so the Map pane's `React.memo` actually sees the change — see the
         // declaration above.
         setMapColourScale(getMode());
+        setColourScaleDefaulted(s?.mapColourScale == null);
       })
       .catch(() => { /* settings are optional — the block just stays hidden */ });
   }, []);
@@ -458,6 +465,7 @@ function AppInner() {
                     homeCoords={homeCoords}
                     homeRadiusMiles={homeRadiusMiles}
                     mapColourScale={mapColourScale}
+                    colourScaleDefaulted={colourScaleDefaulted}
                     onOpenSettings={() => setSettingsFocus('postcode')}
                   />
                 </Suspense>
@@ -556,6 +564,7 @@ function AppInner() {
               briefingScores={briefingScores}
               onForecastRun={refresh}
               seasonalFeatures={seasonalFeatures}
+              colourScaleDefaulted={colourScaleDefaulted}
               // This map arrived from a plan card, which already chose the location and the solar
               // event — so it opens with the filters folded behind a one-line context bar and
               // spends the reclaimed height on the map. The Map tab keeps the full rail.

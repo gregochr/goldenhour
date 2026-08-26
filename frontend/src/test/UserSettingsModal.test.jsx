@@ -477,11 +477,42 @@ describe('UserSettingsModal', () => {
     expect(screen.getByText('Map Colours').closest('.opacity-45')).toBeNull();
   });
 
-  it('defaults to the verdict scale when never chosen', async () => {
+  // Stage 7 flipped the default: was 'defaults to the verdict scale when never chosen'.
+  it('defaults to the temp scale when never chosen', async () => {
     getSettings.mockResolvedValue({ ...PRO_SETTINGS, mapColourScale: null });
+    renderModal();
+    await waitFor(() => expect(screen.getByTestId('settings-map-colour-temp')).toBeChecked());
+    expect(screen.getByTestId('settings-map-colour-verdict')).not.toBeChecked();
+  });
+
+  it('an explicitly saved verdict scale is not swept up in the flip', async () => {
+    getSettings.mockResolvedValue({ ...PRO_SETTINGS, mapColourScale: 'verdict' });
     renderModal();
     await waitFor(() => expect(screen.getByTestId('settings-map-colour-verdict')).toBeChecked());
     expect(screen.getByTestId('settings-map-colour-temp')).not.toBeChecked();
+  });
+
+  it('an unrecognised stored value resolves to verdict, not silently to the new default', async () => {
+    getSettings.mockResolvedValue({ ...PRO_SETTINGS, mapColourScale: 'garbled' });
+    renderModal();
+    await waitFor(() => expect(screen.getByTestId('settings-map-colour-verdict')).toBeChecked());
+    expect(screen.getByTestId('settings-map-colour-temp')).not.toBeChecked();
+  });
+
+  // Trap 2, as far as this component's own loading gate lets it be observed in the DOM: the
+  // section holding the radios is gated on `loading`/`settings` and simply does not render before
+  // `fetchSettings` resolves (`getSettings` unresolved shows only "Loading…"), so the initial
+  // `useState` value it seeds from is never independently visible — only its post-fetch value is.
+  // What IS observable, and is the actual risk Trap 2 names, is that the seed and the fetch-driven
+  // value come from the SAME call (`resolveMode`) rather than two literals that could drift apart:
+  // the never-chosen and unrecognised-value cases above already exercise `resolveMode` end to end,
+  // and a `grep` for a bare `'verdict'` default elsewhere in this file is the rest of the guard.
+  it('loading gates the colour scale section — no radio renders before settings resolve', async () => {
+    getSettings.mockReturnValue(new Promise(() => {})); // never resolves
+    renderModal();
+    expect(await screen.findByText('Loading...')).toBeInTheDocument();
+    expect(screen.queryByTestId('settings-map-colour-temp')).toBeNull();
+    expect(screen.queryByTestId('settings-map-colour-verdict')).toBeNull();
   });
 
   it('reflects an explicitly saved temp scale', async () => {
