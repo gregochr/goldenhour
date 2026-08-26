@@ -410,14 +410,27 @@ a tooltip with a stray dash in it is noise; a popup row that vanishes is a layou
 
 #### Also in this stage: the marker arcs
 
-The Fiery Sky / Golden Hour arcs in `markerUtils.js` hard-code `#f97316` and `#E5A00D` at five
-sites (`buildMarkerSvg`'s pair, its single-metric ring, and `createClusterIcon`'s pair). They are
-**the same two metrics the bars render**, so they move onto `rampHex(starFromScore(v, metric))`
-here, in the same commit — not in Stage 3, which would leave the pin on the ramp while the popup
-was still on a gradient.
+`markerUtils.js` hard-codes `#f97316` / `#E5A00D` at five sites, but ⚠️ **they are not all the
+same quantity and must not take the same formula**:
 
-Note the arcs are strokes with no label on them, so the whole-star rule of §2.1 does not apply:
+- **Four potential arcs** — `buildMarkerSvg`'s fiery/golden pair and `createClusterIcon`'s pair.
+  These carry the 0–100 metrics the score bars render, so they move onto
+  `rampHex(starFromScore(v, metric))` here, in the same commit — not in Stage 3, which would leave
+  the pin on the ramp while the popup was still on a gradient.
+- **One rating ring** — `buildMarkerSvg`'s single full ring, the Haiku path
+  (`markerUtils.js:167-171`), whose fill is `FULL_CIRC * (rating / 5)`. It receives a **1–5
+  rating**, not a 0–100 potential, and there is no metric table for it. It takes
+  **`rampHex(rating)`**. ⚠️ Routing it through `starFromScore` would read a 5★ rating as the raw
+  value 5 and map it to ≈**1.2★** — a top-rated location painted as the ramp's cold end.
+
+Neither the arcs nor the ring carry a label, so §2.1's whole-star rule does not constrain them:
 they may sample the ramp continuously.
+
+⚠️ **Open question for the implementer to check in the browser, not to decide in the abstract:**
+the rating ring sits immediately outside a disc already filled with `ratingColour(rating)` — the
+same value through the same function. Colouring the ring from the ramp makes both the same hue, and
+the ring may stop reading as a gauge and start reading as a halo. Look at it before committing; if
+it reads badly, say so rather than inventing a second colour language for one ring.
 
 #### Scope boundary
 

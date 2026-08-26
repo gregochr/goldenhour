@@ -122,7 +122,7 @@ commit as the work.
 
 ---
 
-## Stage 2 — Tokens and legend ✅ LANDED (#637)
+## Stage 2 — Tokens and legend — in review (#637)
 
 > You are implementing **Stage 2** of `docs/engineering/heat-scale-unification-plan.md`. Read that
 > plan's §1, §2 and Stage 2 first. Stage 1 landed in #633 — `frontend/src/utils/scoreRamp.js`
@@ -228,9 +228,18 @@ commit as the work.
 
 > You are implementing **Stage 3** of `docs/engineering/heat-scale-unification-plan.md`. Read that
 > plan's §2.1 and Stage 3 before writing anything — §2.1 is the decision this stage implements and
-> the reasoning matters more than the diff. Stages 1 and 2 have landed: `scoreRamp.js` exports
-> `STOPS_VERDICT`, `STOPS_TEMP`, `setMode`, `getMode`, `activeStops` and `scoreFromPercent`, and
-> `MODE` still defaults to `'verdict'`. **Do not flip the default** — that is Stage 7.
+> the reasoning matters more than the diff.
+>
+> **⚠️ Branch from Stage 2, not from `main`.** Stage 1 has merged, but **Stage 2 is still in review
+> at #637** — `main` does not yet have the heat tokens, the corrected hot stops, or the mode-aware
+> legends. Check first: if `git log origin/main --oneline | grep 'Stage 2'` finds nothing, branch
+> from `claude/heat-scale-stage-2-86f10e` and target your PR at that branch. Branching from `main`
+> and following the "do not redo Stage 2" instruction below would ship the marker change while the
+> tokens and gradients are still absent.
+>
+> With Stage 2 in place, `scoreRamp.js` exports `STOPS_VERDICT`, `STOPS_TEMP`, `setMode`,
+> `getMode`, `rampGradientCss` and `scoreFromPercent`, and `MODE` still defaults to `'verdict'`.
+> **Do not flip the default** — that is Stage 7.
 >
 > **Goal.** One rule, applied at one place:
 >
