@@ -413,3 +413,85 @@ commit as the work.
 > **Commit and PR.** Conventional commit (`feat:`). `CHANGELOG.md` entry under `[Unreleased]` —
 > expect a conflict and rebase rather than merge. Do **not** push until asked. Update the plan's
 > Stage 5 section to record the 5a/5b split and what landed.
+
+---
+
+## Stage 6 — The preference, full-stack
+
+> You are implementing **Stage 6** of `docs/engineering/heat-scale-unification-plan.md`. Read its
+> Stage 6 section first. Stages 1, 2, 3, 5a and 5b have merged; `MODE` still defaults to
+> `'verdict'` and **this stage does not flip it** — that is Stage 7.
+>
+> **Goal.** A user can choose between the two colour scales, and the choice persists. Two settings:
+> `mapColourScale` (`'temp' | 'verdict'`) and `markersFollowScale` (boolean).
+>
+> **⚠️ This is the only backend stage in the series.** The design brief does not say so out loud.
+> Persisting through `settingsApi` rather than `localStorage` means the whole chain: migration,
+> entity, DTO, service, controller, API module, UI.
+>
+> **⚠️ Read the migration number off `main` — never from a written-down one.** Two `V136`s
+> collided in this repo once. `ls backend/src/main/resources/db/migration/ | sort -V | tail -1`.
+>
+> **⚠️ There is no `user_settings` table.** Every user setting is a column on **`app_user`**
+> (`V67` for the home location, `V136` for `local_radius_miles`); `user_drive_time` is the only
+> side table. A migration written against `user_settings` fails at deploy.
+>
+> **Follow `localRadiusMiles` as the precedent — it is the closest thing to what you are adding**,
+> and it threads through exactly five backend files: `AppUserEntity`, `SaveHomeRequest`,
+> `UserSettingsResponse`, `UserSettingsService`, and its consumer `ReachService`. Read
+> `V136__user_local_radius.sql` before writing the migration: it is **nullable with no backfill**,
+> deliberately, so `NULL` means "never chosen" and the service applies the default. That
+> distinction matters here too — it is what lets Stage 7 change the default for people who never
+> chose, without overriding anyone who did. **A `DEFAULT` in the DDL would erase it.**
+>
+> **⚠️ Do NOT put these on `PUT /home`.** `localRadiusMiles` rides that endpoint because it *is*
+> home-derived. A colour preference is not: a rename body carrying only the colour fields would
+> deserialise the home fields to null and wipe someone's postcode. Give it its own endpoint — the
+> controller is `/api/user/settings` and already has `/home`, `/drive-times`, `/reach`, `/light`,
+> so follow that shape.
+>
+> **⚠️ `HttpCachingConfigTest.personalDataPathsAreNeverFiltered` is parameterised per path, and a
+> new route under `/api/user/settings` must be added to it.** Everything under that prefix must
+> stay `no-store`: ETag revalidation needs `Cache-Control: private, no-cache`, which persists the
+> body to a browser HTTP cache JavaScript cannot evict on logout. That is why the prefix exists.
+>
+> **Frontend.**
+>
+> - `settingsApi.js` gains the getter/setter pair.
+> - A new **Map Colours** section in `components/UserSettingsModal.jsx`. Follow the existing
+>   section shape — a `<section>` with an uppercase `text-xs font-medium text-plex-text-muted
+>   tracking-wide` heading, matching Profile / Home Location / Drive Times.
+> - ⚠️ **The modal has no toggle or checkbox pattern today** — only text inputs and `btn-primary`
+>   buttons. The control is new work. Keep it keyboard-operable and labelled; do not reach for a
+>   bare `<div onClick>`.
+> - ⚠️ **Leave it OUTSIDE the `isPro` gate.** Reading the map is not a Pro feature.
+> - Wire the loaded setting into `setMode()` at **one** place, so Plan and Map can never disagree —
+>   the rule that put `MODE` in `scoreRamp.js` rather than in each consumer.
+>
+> **⚠️ Defaults stay `'verdict'` and markers-follow-on in this stage.** The point of landing the
+> preference before the flip is a dogfooding window: the owner can switch their own account to
+> temperature and look at it against real production forecasts before it becomes everyone's
+> default. Do not pre-empt that.
+>
+> **Tests.** Backend: the migration applies; null round-trips as "never chosen"; the service
+> defaults; the controller rejects a bad value; the new path is in the caching test's list.
+> Frontend: the setting round-trips through `settingsApi`; the control is keyboard-operable; a
+> loaded `'temp'` reaches `setMode`; the section renders for a LITE user.
+>
+> **Gates.** Frontend, all four:
+> `cd frontend && npm run lint && npm test && npm audit --audit-level=high && npm run build`.
+> Backend: `cd backend && ./mvnw checkstyle:check` first (fails fast, ~15s), then
+> `./mvnw clean verify` — ⚠️ **needs Docker running**, five Testcontainers classes execute in the
+> ordinary `test` phase. **Gate on the exit code, never on a grep of the output** — `-q` suppresses
+> violation lines and `$?` after a pipe is grep's status, which has reported a false green twice in
+> this repo. Redirect to a file and `echo "exit: $?"` as its own statement.
+> ⚠️ **JaCoCo requires 80% line coverage per class**, which bites small new records — cover the
+> defensive branches with real assertions rather than deleting the guards.
+>
+> **Before committing**, run an adversarial review of the diff (CLAUDE.md, "UI Work — Review
+> Cadence"), read-only agents. Ask one lens: *can any path here leak a personal setting into a
+> cacheable response?*
+>
+> **Commit and PR.** Conventional commit (`feat:`). `CHANGELOG.md` entry under `[Unreleased]` —
+> expect a conflict, rebase rather than merge. Do **not** push until asked. Update the plan's
+> Stage 6 section with what landed, including anything this prompt got wrong.

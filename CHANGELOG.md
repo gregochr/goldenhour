@@ -5,6 +5,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Stage 7 unblocked: drop the score number's tint (Design's call)
+
+The measurements stand; the answer is settled, and on stronger grounds than contrast alone.
+
+**A ramp is a fill scale, and a fill scale cannot double as a text scale.** As a fill,
+`readableInkOn` puts ink *on top* and picks it per fill. As text, the ramp colour **is** the ink on
+a dark surface. The two uses want opposite things from the same value, so the monotonic hot-leg fix
+that made fills better necessarily made text worse — and no top-end value satisfies both. The
+dimmed state is what makes it decisive: a tint that must survive dimming needs headroom, and the
+hot end of a fill ramp has none by construction.
+
+Two arguments beyond contrast, both Design's: a numeral is a **precise** value where colour is a
+**categorical** impression, so tinting the numeral makes the exact thing look approximate — while
+the bar beside it already encodes hot-ness twice, by length and by fill; and thin coloured text is
+the weakest place to spend colour for colour-blind readers, where two large fills stay separable
+and two red-ish numerals do not.
+
+So it is not a compromise forced by a failure. The tint was a **third** encoding of a datum already
+encoded twice, and it happened to be the one costing contrast — removing it would be right even if
+every stop passed. It is work rather than only a decision: 5b shipped the tint (passing in verdict
+mode, so nothing is failing on `main`), and `NUMBER_TINT_FLOOR`, the tint derivation and its
+contrast test come out before the flip.
+
+### Added — the Stage 6 kickoff prompt
+
+The only backend stage in the series, which the design brief does not say out loud: persisting the
+preference through `settingsApi` rather than `localStorage` means migration, entity, DTO, service,
+controller, API module and UI. The prompt carries the repo-specific traps — read the migration
+number off `main` rather than any written-down one, there is **no `user_settings` table** (settings
+are columns on `app_user`), don't hang colour preferences off `PUT /home` where a partial body
+would wipe a postcode, and a new route under `/api/user/settings` must be added to
+`HttpCachingConfigTest.personalDataPathsAreNeverFiltered`. It names `localRadiusMiles` as the
+precedent to follow, including its nullable-no-backfill semantics — which is precisely what lets
+Stage 7 change the default for people who never chose without overriding anyone who did.
+
 ### Fixed — the Golden Hour score a null Fiery Sky was hiding (Stage 8)
 
 `MarkerPopupContent` gated its whole **Scores** section on `fierySkyPotential` alone, in two places
