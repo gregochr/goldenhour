@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the Stage 7 kickoff prompt, the last in the series
+
+Its difficulty is not the flip itself but a distinction three stages were built to preserve:
+**"never chosen" and "invalid" are different, and today they both land on `verdict`.** `setMode`'s
+fallback is a *safety* guard from Stage 5a — an unrecognised value must never silently select a
+not-yet-shipped ramp — not the product default. `V147` stores the column nullable with no
+`DEFAULT`, and `UserSettingsResponse` passes it through raw, precisely so this stage can tell a
+null apart from an explicit `'verdict'`. After the flip they must diverge, and a migration that
+backfills the column would destroy that distinction permanently.
+
+The prompt also names the trap that the default is currently resolved in **three** places —
+`setMode`'s fallback, `App.jsx`, and the modal's pre-load `useState('verdict')` — so flipping one
+would leave the settings screen showing "Verdict" while the map paints temperature: the same class
+of disagreement rule 1 exists to prevent, between the map and its own settings page. One
+`resolveMode`, called by both.
+
+And for the notice: `MapView`'s existing fail-soft `localStorage` helpers are mandatory rather than
+optional, because several of those reads happen inside `useState` initialisers, where a
+storage-denied browser's `SecurityError` crashes the app rather than the map.
+
 ### Fixed — two comments left dangling by the tint removal
 
 `#648` deleted `NUMBER_TINT_FLOOR` but two comments still cited it, and one of them documented an
