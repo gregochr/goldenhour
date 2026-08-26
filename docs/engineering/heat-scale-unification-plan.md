@@ -181,8 +181,9 @@ passing. `npm run lint && npm test && npm audit --audit-level=high && npm run bu
   `rampRgb` already take a score), so it is renamed to make the divergence impossible to miss.
   Callers compose: `rampHex(scoreFromPercent(v, lo, hi))`. ⚠️ **Superseded 2026-08-26** — the
   potentials turned out bimodal, so this linear map is replaced by `starFromScore` + frozen
-  `ANCHORS` (Stage 4). It shipped with no caller and Stage 5 deletes it. Left described here
-  because it is on `main` and a reader will find it.
+  `ANCHORS` (Stage 4). It shipped with no caller and **Stage 5a deleted it** — it is no longer in
+  the tree. Left described here because the stage list is also a history, and a reader tracing
+  Stage 1's diff will find it there.
 - **`MODE` defaults to `'verdict'`.** This stage is therefore *provably* zero-visual-change,
   which is what makes it a safe first landing and a clean revert point.
 
@@ -284,10 +285,10 @@ no reason beyond `mockCluster` being lexically out of scope at that point — fi
   0–100 average becomes a whole-star ramp colour — but the function survives and its call sites
   keep calling it. Deleting it and routing the callers straight at the ramp is exactly the
   failure §2.1 exists to prevent: continuous fills under labels.
-- ⚠️ **The Fiery Sky / Golden Hour arcs move in Stage 5, not here.** They hard-code `#f97316` and
+- ⚠️ **The Fiery Sky / Golden Hour arcs move in Stage 5b, not here.** They hard-code `#f97316` and
   `#E5A00D` at five sites in `markerUtils.js`, and the brief is right that they must move with the
   score bars — they are the same two metrics, and the pin and the popup must not disagree. But the
-  bars only reach the ramp in Stage 5, via `starFromScore` + `ANCHORS`. Moving the arcs here would
+  bars only reach the ramp in Stage 5b, via `starFromScore` + `ANCHORS`. Moving the arcs here would
   open a window where the pin reads the ramp and the popup still reads a gradient, which is the
   precise disagreement the brief is trying to prevent. Sequencing corrected 2026-08-26.
 - **Ink needs no work at whole stars** — `readableInkOn` already derives it per fill, and all five
@@ -347,7 +348,7 @@ one rendering the same.
 
 **The replacement is `ANCHORS` + `starFromScore(v, metric)`** — a piecewise-linear table per
 metric, verbatim from the reference kernel. ⚠️ `scoreFromPercent`, shipped in Stage 1, is
-**superseded**; it has no caller and Stage 5 deletes it.
+**superseded**; it has no caller and Stage 5a deletes it.
 
 ```
 fiery  [[0,1],[20,1.9],[35,2.4],[50,2.8],[60,3.2],[72,4],[85,4.7],[100,5]]
@@ -405,6 +406,49 @@ plausible wrong answer — at v=80, fiery gives 4.43 and golden 4.33.
 
 #### Stage 5b — one score bar, continuous solid fill
 
+**Split into 5a and 5b.** The ramp math (`ANCHORS` + `starFromScore`, replacing the deleted
+`scoreFromPercent`) is a self-contained, callerless module change; the `ScoreBar` merge and the
+marker-arc migration are a separate UI change with eight call sites and a browser-verifiable visual
+diff. Sizing them as one session risked the ramp math getting a shallower review than a UI stage
+earns, or the UI merge getting rushed to fit alongside it. They ship as two sessions instead.
+
+#### Stage 5a — `ANCHORS` + `starFromScore` ✅ landed
+
+**Status:** implemented and adversarially reviewed (three read-only lenses: correctness — including
+the specific question "can any input produce a star value outside 1–5, or the top of the ramp
+without meaning to" — test quality, and docs/forward-impact for Stage 5b). Correctness surfaced one
+real finding, fixed in the same commit: the unrecognised-metric guard was `if (!ANCHORS[metric])`,
+which is bracket-access truthiness rather than an own-key test — a `metric` string that happens to
+name an `Object.prototype` member (`'toString'`, `'constructor'`, `'hasOwnProperty'`, `'__proto__'`)
+resolved to a truthy non-array value, so the guard silently passed, the interpolation loop's body
+never ran against that non-array, and control fell through to the trailing `return 5` — an unthrown
+top-of-ramp result for a metric that was never recognised, in direct contradiction of the function's
+own doc comment. Fixed with `Object.hasOwn(ANCHORS, metric)`. Test quality surfaced two gaps, both
+closed in the same commit: the "`scoreFromPercent` is fully deleted" check only swept for surviving
+imports elsewhere in the tree and never asserted `scoreRamp.js` itself no longer exports the name
+(a function left defined-but-unreferenced would have passed silently); and the sweep's regex missed
+a default+named import and a barrel re-export (`export { scoreFromPercent } from '...'`) — broadened,
+and self-pinned with two fixture-string assertions of its own so the regex's reach cannot silently
+narrow again. `npm run lint && npm test && npm audit --audit-level=high && npm run build` all pass.
+
+- `scoreRamp.js` gains `ANCHORS` (the two frozen per-metric tables, verbatim from the reference
+  kernel) and `starFromScore(value, metric)` (0–100 → 1–5, piecewise-linear between anchors).
+- `scoreFromPercent` and its JSDoc are deleted outright, along with every mention outside the two
+  files' own historical prose.
+- Nothing calls `starFromScore` yet — verified by grep, not just by the plan saying so.
+  `PlanScoreBar`, `PopupScoreRow` and `markerUtils` are untouched.
+- Tests: every anchor point exact for both metrics, mid-segment interpolation, clamping outside
+  0–100, non-finite → 1 (not 5 — the most load-bearing assertion in the file), the two metrics
+  disagreeing at one shared input, a monotonicity property test over the full anchor tables and a
+  full 0–100 integer sweep per metric, the prototype-collision throw case above, and the
+  `scoreFromPercent`-deletion pair (repo-wide import sweep + direct non-export assertion).
+
+#### Stage 5b — wire it up (not started)
+
+Everything below this line is unstarted. It is the `ScoreBar` merge, the eight call-site migration,
+and the marker/cluster arc + rating-ring colouring — a UI stage, taken through the browser
+verification workflow and its own adversarial review before it lands, per CLAUDE.md's cadence.
+
 ⚠️ **Read §2's Change 5 row first.** Both premises in the brief are stale: `ScoreBar.jsx` was
 deleted in D4, and the "four buckets, so 26 and 49 are the same colour" defect **no longer exists**
 — `#A06E00` appears nowhere in the frontend, and the two live components already share
@@ -448,8 +492,8 @@ ScoreBar({ label, score, metric, testId, tooltip, dense, labelClassName })
 **`fill` disappears as a prop.** It becomes `rampHex(starFromScore(score, metric))` — a
 **continuous solid** colour, not a gradient. The composition matters: `starFromScore` returns a
 1–5 *number* and `rampHex` turns it into a colour; assigning the number straight to a CSS
-`background` yields no fill at all. ⚠️ **`scoreFromPercent` is superseded** (Stage 4) — it has no
-caller, so delete it in this stage rather than leaving two mappings for one job. `PlanScoreBar`'s exported `FIERY_FILL` / `GOLDEN_FILL`
+`background` yields no fill at all. `scoreFromPercent` is already gone — deleted in Stage 5a, which
+also landed `ANCHORS` + `starFromScore`. `PlanScoreBar`'s exported `FIERY_FILL` / `GOLDEN_FILL`
 and `MarkerPopupContent`'s private copies are all deleted, along with `rampTint`, `FIERY_TINT` and
 `GOLDEN_TINT`. Solid, not gradient: a bar has one value, and a gradient across a ramp that starts
 cold is a five-hue rainbow.

@@ -1,9 +1,12 @@
 import {
   describe, it, expect, afterEach,
 } from 'vitest';
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath, URL as NodeURL } from 'node:url';
 import {
-  STOPS_VERDICT, RAMP_MIN, RAMP_MAX, rampRgb, rampHex, rgb, setMode, getMode, scoreFromPercent,
-  rampGradientCss,
+  STOPS_VERDICT, RAMP_MIN, RAMP_MAX, rampRgb, rampHex, rgb, setMode, getMode,
+  rampGradientCss, ANCHORS, starFromScore,
 } from '../utils/scoreRamp.js';
 
 /**
@@ -13,6 +16,59 @@ import {
  * interpolation between them (a stop reordering or an off-by-one in the segment search would
  * still produce plausible colours).
  */
+/**
+ * `scoreFromPercent` was the linear lo/hi map Stage 1 shipped; Stage 4 found the two 0–100
+ * metrics bimodal and superseded it with `starFromScore` + `ANCHORS`, and this stage deletes it.
+ * A plain "does scoreRamp.js still export it" check only guards the one file that removed it —
+ * this instead sweeps every source file, so a stray import left behind anywhere else fails loudly
+ * rather than silently referencing a name that no longer exists. Kept alongside, not instead of,
+ * the direct "scoreRamp.js itself no longer exports it" check: a function left defined-and-exported
+ * but simply unreferenced would pass the sweep but not that check.
+ */
+describe('scoreFromPercent is fully deleted', () => {
+  const walk = (dir) => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const p = join(dir, entry.name);
+    if (entry.isDirectory()) return walk(p);
+    return /\.(js|jsx)$/.test(entry.name) ? [p] : [];
+  });
+
+  // Matches `import { scoreFromPercent } from '...'`, `import Foo, { scoreFromPercent } ...` and
+  // `export { scoreFromPercent } from '...'` (a barrel re-export) alike — anything between the
+  // `import`/`export` keyword and the brace block is unconstrained but for `;`/`{`, so a default
+  // import ahead of the named one does not defeat the match.
+  const IMPORTS_SCORE_FROM_PERCENT = /\b(?:import|export)\b[^;{]*\{[^}]*\bscoreFromPercent\b[^}]*\}/;
+
+  // Explicitly `node:url`'s `URL`, not the global one: jsdom's own `URL` resolves a relative
+  // reference against `document.location` rather than the given base, silently turning a
+  // `file:` URL into `http://localhost:3000/...` and making `fileURLToPath` throw below.
+  const srcDir = fileURLToPath(new NodeURL('..', import.meta.url));
+  const thisFile = fileURLToPath(import.meta.url);
+  const offenders = walk(srcDir).filter((f) => {
+    // Only flags an actual import/re-export of the name — this file's own doc comments and
+    // string literals mention "scoreFromPercent" by name deliberately (including as regex-test
+    // fixture strings below) and must not trip this, hence the self-exclusion.
+    if (f === thisFile) return false;
+    const stat = statSync(f);
+    return stat.isFile() && IMPORTS_SCORE_FROM_PERCENT.test(readFileSync(f, 'utf8'));
+  });
+
+  it('has no surviving import anywhere in the frontend source', () => {
+    expect(offenders).toEqual([]);
+  });
+
+  it('is no longer exported by scoreRamp.js itself', async () => {
+    const scoreRamp = await import('../utils/scoreRamp.js');
+    expect(scoreRamp.scoreFromPercent).toBeUndefined();
+  });
+
+  it('the sweep regex catches a default+named import and a barrel re-export', () => {
+    // Pinning the regex's own reach: these are the two forms the plain `import\s*\{...\}` pattern
+    // this test started with could not see.
+    expect(IMPORTS_SCORE_FROM_PERCENT.test("import Foo, { scoreFromPercent } from '../utils/scoreRamp.js';")).toBe(true);
+    expect(IMPORTS_SCORE_FROM_PERCENT.test("export { scoreFromPercent } from '../utils/scoreRamp.js';")).toBe(true);
+  });
+});
+
 describe('scoreRamp', () => {
   // MODE is module state, not a per-test fixture — a test that calls setMode('temp') and forgets
   // to undo it would leak into every test that runs after it, in this file or another.
@@ -218,19 +274,102 @@ describe('scoreRamp', () => {
     });
   });
 
-  describe('scoreFromPercent', () => {
-    it('maps lo to 1 and hi to 5, as numbers rather than colours', () => {
-      expect(scoreFromPercent(10, 10, 90)).toBe(1);
-      expect(scoreFromPercent(90, 10, 90)).toBe(5);
+  describe('starFromScore', () => {
+    /**
+     * `starFromScore` replaces the deleted linear `scoreFromPercent` map: the two 0–100 metrics
+     * are bimodal, so a frozen piecewise table per metric (`ANCHORS`) is used instead of a
+     * two-point lo/hi map. See `docs/engineering/heat-scale-unification-plan.md` Stage 4.
+     */
+    it('maps every fiery anchor to its own star value exactly', () => {
+      ANCHORS.fiery.forEach(([value, score]) => {
+        expect(starFromScore(value, 'fiery')).toBe(score);
+      });
     });
 
-    it('clamps beyond both ends of the domain', () => {
-      expect(scoreFromPercent(0, 10, 90)).toBe(1);
-      expect(scoreFromPercent(100, 10, 90)).toBe(5);
+    it('maps every golden anchor to its own star value exactly', () => {
+      ANCHORS.golden.forEach(([value, score]) => {
+        expect(starFromScore(value, 'golden')).toBe(score);
+      });
     });
 
-    it('maps the midpoint to the middle of the score range', () => {
-      expect(scoreFromPercent(50, 10, 90)).toBe(3);
+    it('interpolates linearly at the midpoint of a fiery segment', () => {
+      // Midpoint of [35, 2.4]-[50, 2.8]: 2.4 + 0.4 * (7.5/15) = 2.6.
+      expect(starFromScore(42.5, 'fiery')).toBeCloseTo(2.6, 10);
+    });
+
+    it('interpolates linearly at the midpoint of a golden segment', () => {
+      // Midpoint of [40, 2.4]-[55, 3]: 2.4 + 0.6 * (7.5/15) = 2.7.
+      expect(starFromScore(47.5, 'golden')).toBeCloseTo(2.7, 10);
+    });
+
+    it('clamps below 0 to a star of 1', () => {
+      expect(starFromScore(-1, 'fiery')).toBe(1);
+      expect(starFromScore(-100, 'golden')).toBe(1);
+    });
+
+    it('clamps above 100 to a star of 5', () => {
+      expect(starFromScore(101, 'fiery')).toBe(5);
+      expect(starFromScore(1000, 'golden')).toBe(5);
+    });
+
+    /**
+     * The most important assertion here. The reference kernel's loop falls out the bottom to a
+     * trailing `return 5` for a value that fails every `<=` comparison — which is exactly what a
+     * NaN does. Painting a missing reading as the ramp's hottest colour is the false-confidence
+     * failure `rampRgb`'s own non-finite guard already exists to prevent; this must match it.
+     */
+    it('resolves a non-finite value to 1, never to 5', () => {
+      [NaN, undefined, Infinity, -Infinity, 'abc', {}, []].forEach((bad) => {
+        expect(starFromScore(bad, 'fiery')).toBe(1);
+        expect(starFromScore(bad, 'golden')).toBe(1);
+      });
+    });
+
+    it('gives fiery and golden genuinely different answers for the same reading', () => {
+      // v=80 sits in fiery's [72,4]-[85,4.7] segment and golden's [70,3.8]-[85,4.6] segment.
+      const fiery = starFromScore(80, 'fiery');
+      const golden = starFromScore(80, 'golden');
+      expect(fiery).toBeCloseTo(4.4308, 3);
+      expect(golden).toBeCloseTo(4.3333, 3);
+      expect(fiery).not.toBeCloseTo(golden, 3);
+    });
+
+    it('throws for an unrecognised metric rather than silently falling back to fiery', () => {
+      expect(() => starFromScore(50, 'bogus')).toThrow();
+      expect(() => starFromScore(50, undefined)).toThrow();
+    });
+
+    it('throws for a metric string that collides with an Object.prototype member', () => {
+      // `ANCHORS[metric]` alone walks the prototype chain: 'toString', 'constructor' and
+      // 'hasOwnProperty' all resolve to a truthy non-array value on a plain object, which would
+      // defeat a bare truthiness guard and fall through the interpolation loop's empty body to
+      // its trailing `return 5` — an unthrown top-of-ramp result for a metric that was never
+      // recognised. `Object.hasOwn` is what closes this.
+      ['toString', 'constructor', 'hasOwnProperty', '__proto__'].forEach((metric) => {
+        expect(() => starFromScore(50, metric)).toThrow();
+      });
+    });
+
+    describe('the anchor tables are monotonic in both axes', () => {
+      Object.entries(ANCHORS).forEach(([metric, anchors]) => {
+        it(`${metric}: value and score both strictly increase anchor to anchor`, () => {
+          for (let i = 1; i < anchors.length; i += 1) {
+            const [prevValue, prevScore] = anchors[i - 1];
+            const [value, score] = anchors[i];
+            expect(value).toBeGreaterThan(prevValue);
+            expect(score).toBeGreaterThan(prevScore);
+          }
+        });
+
+        it(`${metric}: starFromScore is non-decreasing across the whole 0-100 domain`, () => {
+          let prev = starFromScore(0, metric);
+          for (let v = 1; v <= 100; v += 1) {
+            const cur = starFromScore(v, metric);
+            expect(cur).toBeGreaterThanOrEqual(prev);
+            prev = cur;
+          }
+        });
+      });
     });
   });
 
