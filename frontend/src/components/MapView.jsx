@@ -24,7 +24,7 @@ import { resolveStandDown } from '../utils/standDown.js';
 import { resolveAuroraNight, ukDateStr } from '../utils/mapDates.js';
 import { LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel, SKY_SUBJECT_TYPES } from '../utils/locationTypes.js';
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
-import { rampHex, activeStops } from '../utils/scoreRamp.js';
+import { rampHex, rampGradientCss } from '../utils/scoreRamp.js';
 
 /**
  * The map's own localStorage filter keys, read/written fail-soft — a storage-denied browser
@@ -2134,7 +2134,7 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
                   data-testid="wf-map-heat-legend-ramp"
                   className="wf-map-key-ramp"
                   style={{
-                    background: `linear-gradient(90deg, ${activeStops().map((stop) => stop.hex).join(', ')})`,
+                    background: rampGradientCss(),
                   }}
                 />
                 <span aria-hidden="true">Worth it</span>

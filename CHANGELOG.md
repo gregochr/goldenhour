@@ -209,6 +209,15 @@ them after 4.3★ was found to read hotter than 5★ (a luminance trough at 0.17
 0.275). `heatTokens.test.js` asserts each token equals `rampHex(score)` rather than a literal, so
 the two artifacts cannot drift apart again.
 
+One defect found by the Codex review and fixed here: both legends distributed their stops by array
+**index** rather than by score. That is correct by accident for `STOPS_VERDICT` — five evenly
+spaced stops, so index and score coincide exactly — and wrong by up to **16 percentage points** for
+the uneven `STOPS_TEMP`, where the `2.2` stop belongs at 30% and index placement puts it at 14%. It
+would have misplaced the key against the canvas it is a key for, and only after Stage 7 flipped the
+default, so no verdict-mode test could have caught it. Both legends now call one
+`rampGradientCss()` in `scoreRamp.js`, positioning each stop at `(score − 1) / 4`, and the tests
+assert positions rather than merely the presence of each colour.
+
 ## [v2.19.0] - 2026-08-25
 
 ### Added — AGENTS.md context files for external AI code review

@@ -8,7 +8,7 @@ import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { badgeChannel } from '../utils/windowFirstCards.js';
 import { beyondRegions, GLANCE_MINUTES } from '../utils/planningArea.js';
 import { scopeRegions, scopeSpots } from '../utils/planOrigin.js';
-import { activeStops, rampRgb, rgb } from '../utils/scoreRamp.js';
+import { rampGradientCss, rampRgb, rgb } from '../utils/scoreRamp.js';
 import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { topMovers } from '../utils/movement.js';
@@ -67,22 +67,6 @@ const THUMB_LINE = 0.5;
  */
 const MIN_THUMB_PX = 26;
 
-/**
- * The footer's ramp bar, built from the ramp module's own active stops.
- *
- * <p>A JS-derived value rather than a CSS gradient literal, for the reason `scoreRamp.js` exists at
- * all: the canvas is painted from these numbers, and a hand-written gradient beside it is a second
- * copy that can drift with nothing failing. A function, called from the render body, rather than a
- * module-level constant: it reads `scoreRamp`'s active mode, which can change after this module has
- * already loaded (`setMode` is a preference switch, not a load-time constant), so a value computed
- * once at import would freeze on whichever ramp was live at first import and never repaint.
- */
-function rampGradient() {
-  const stops = activeStops();
-  return `linear-gradient(90deg, ${stops
-    .map((stop, index) => `${stop.hex} ${Math.round((index / (stops.length - 1)) * 100)}%`)
-    .join(', ')})`;
-}
 
 /** The planning-area threshold in whole hours, for the beyond line's own sentence. */
 const GLANCE_HOURS = GLANCE_MINUTES / 60;
@@ -842,7 +826,7 @@ export default function WindowFirstHeatStrip({
           data-testid="wf-heat-legbar"
           className="wf-hstrip-legbar"
           aria-hidden="true"
-          style={{ background: rampGradient() }}
+          style={{ background: rampGradientCss() }}
         />
         <span>poor → worth it</span>
         <span>later days render hazier — lower confidence</span>

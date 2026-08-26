@@ -144,6 +144,29 @@ export function activeStops() {
   return MODE === 'temp' ? STOPS_TEMP : STOPS_VERDICT;
 }
 
+/**
+ * The active ramp as a CSS horizontal gradient, each stop positioned by its **score** rather than
+ * by its index.
+ *
+ * <p>Index positioning is only correct by accident. `STOPS_VERDICT` has five evenly spaced stops
+ * at 1-5, so index and score coincide exactly and every gradient looks right. `STOPS_TEMP` is
+ * deliberately uneven, and there the two disagree by up to **16 percentage points** — its `2.2`
+ * stop belongs at 30% and index positioning puts it at 14%. That misplaces the legend against the
+ * canvas it is a key for, and only in `temp` mode, so a verdict-mode test cannot see it.
+ *
+ * <p>Both legends call this rather than each formatting their own gradient: the Plan footer and
+ * the Map key must never disagree about what a colour means, which is the rule that put `MODE` in
+ * this module rather than in each consumer.
+ *
+ * @returns {string} a `linear-gradient(90deg, …)` value
+ */
+export function rampGradientCss() {
+  const span = RAMP_MAX - RAMP_MIN;
+  return `linear-gradient(90deg, ${activeStops()
+    .map((stop) => `${stop.hex} ${(((stop.score - RAMP_MIN) / span) * 100).toFixed(1)}%`)
+    .join(', ')})`;
+}
+
 /** @returns {number[][]} the active mode's precomputed [r, g, b] triples */
 function activeStopRgb() {
   return MODE === 'temp' ? STOP_RGB_TEMP : STOP_RGB_VERDICT;
