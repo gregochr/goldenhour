@@ -5,625 +5,113 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### Added — the Stage 7 kickoff prompt, the last in the series
+### Added — one colour scale across every scored surface
 
-Its difficulty is not the flip itself but a distinction three stages were built to preserve:
-**"never chosen" and "invalid" are different, and today they both land on `verdict`.** `setMode`'s
-fallback is a *safety* guard from Stage 5a — an unrecognised value must never silently select a
-not-yet-shipped ramp — not the product default. `V147` stores the column nullable with no
-`DEFAULT`, and `UserSettingsResponse` passes it through raw, precisely so this stage can tell a
-null apart from an explicit `'verdict'`. After the flip they must diverge, and a migration that
-backfills the column would destroy that distinction permanently.
+The map, its markers and cluster bubbles, the Plan matrix's heat thumbnails, the window popup, the
+location sheet and both legends now paint from **one ramp**, and that ramp runs **cold to hot** —
+deep blue at 1★ through gold at 3★ to a deep red at 5★. It replaces the red→green verdict palette,
+which survives as a per-user alternative rather than being deleted.
 
-The prompt also names the trap that the default is currently resolved in **three** places —
-`setMode`'s fallback, `App.jsx`, and the modal's pre-load `useState('verdict')` — so flipping one
-would leave the settings screen showing "Verdict" while the map paints temperature: the same class
-of disagreement rule 1 exists to prevent, between the map and its own settings page. One
-`resolveMode`, called by both.
+**The temperature scale is the default** for anyone who has never chosen. An explicit choice of
+either scale is untouched, and a corrupt stored value resolves to the old ramp rather than
+inheriting the new default — `scoreRamp.resolveMode` is the single place that decides, and a
+one-time dismissible notice on the map says *"Colours now run cold to hot"* to the reader who had
+learned the old one.
 
-And for the notice: `MapView`'s existing fail-soft `localStorage` helpers are mandatory rather than
-optional, because several of those reads happen inside `useState` initialisers, where a
-storage-denied browser's `SecurityError` crashes the app rather than the map.
+⚠️ **Red means the opposite of what it used to.** On the old ramp red was 1★ — *don't bother*. On
+this one deep red is 5★. That inversion is the reason the notice exists; the preference alone would
+never reach the person who needs it, because they will not open Settings to discover they were
+wrong.
 
-### Added — Stage 6: the map colour preference, full-stack (still defaulting to verdict)
+Shipped in stages, each independently revertible: two ramps behind one module-level mode; the
+`--color-heat-1..5` tokens and both legends; markers and clusters snapped to whole stars; the
+piecewise 0–100 mapping; one score-bar component with a continuous solid fill; the per-user
+preference; and the flip itself.
 
-Two settings a caller can now choose and have persist: `mapColourScale` (`'temp'` or `'verdict'`)
-and `markersFollowScale`. Backend-heavy on purpose — persisted through `settingsApi`, not
-`localStorage` — because the choice has to survive a reload and reach both the Plan tab and the Map
-tab from one source. Migration V147 adds `map_colour_scale`/`markers_follow_scale` as nullable,
-no-default columns on `app_user` (there is no `user_settings` table — every per-user setting lives
-here, following V67 and V136's precedent), so `NULL` still means "never chosen" rather than a
-silently-written default; that distinction is what lets Stage 7 flip the *default* for people who
-never chose without overriding anyone who explicitly picked one. `mapColourScale` rides that
-nullable, raw pass-through all the way to `UserSettingsResponse`; `markersFollowScale` is instead
-resolved to a concrete `true` by `UserSettingsService` when never chosen, since nothing about its
-own default is expected to change later. A new `PUT /api/user/settings/map-colours` carries the
-write — deliberately not folded onto `PUT /home`, which would deserialise the home fields to null
-and wipe a saved postcode — and both fields are required together (boxed `Boolean`, not primitive,
-so an omitted `markersFollowScale` 400s instead of Jackson silently binding it to `false`). The
-frontend gains a new **Map Colours** section in the settings modal (a radio pair plus the project's
-first checkbox/toggle pattern, both keyboard-operable and labelled), left outside the Pro gate since
-reading the map is not a Pro feature. `App.jsx`'s `loadHomeCoords` is the one place the loaded
-setting reaches `scoreRamp.setMode()`, so Plan and Map can never disagree about what a colour means.
+### Added — a per-user map colour preference
 
-Two defects surfaced by adversarial review before this landed, both fixed in the same commit: (1) a
-missing/invalid `mapColourScale` threw a 500 rather than a 400, because `Set.of(...).contains(null)`
-throws — now null-checked first; (2) `MapView`'s marker-icon cache and its `React.memo` wrapper both
-silently assumed the active ramp never changed for the life of a tab, which held only because
-nothing had ever called `scoreRamp.setMode('temp')` from a live control before this stage. Once a
-caller can flip it, the Map pane — never unmounted, only hidden between visits — would have kept
-painting the OLD scale indefinitely: the cache key now reads `scoreRamp.getMode()` directly (the
-same call the colour computation itself makes, so the two can never disagree), and `MapView` gained
-a `mapColourScale` prop whose sole job is to change value and defeat the memo's shallow prop compare
-— its content is deliberately never read for colour. Default stays `'verdict'` through this stage,
-giving a dogfooding window before Stage 7 flips it for everyone.
+A **Map Colours** section in the settings modal — the modal's first radio/checkbox pattern —
+choosing between the temperature and verdict scales, persisted per user and deliberately **outside
+the Pro gate**: reading the map is not a Pro feature. `V147` adds `map_colour_scale` to `app_user`,
+nullable with no `DEFAULT`, so "never chosen" stays distinguishable from "explicitly chose
+verdict" — which is what let the default flip without overriding anyone's choice.
 
+`PUT /api/user/settings/map-colours` is its own endpoint rather than fields on `PUT /home`: a body
+carrying only colour fields would deserialise the home fields to null and wipe a saved postcode.
 
-⚠️ **`markersFollowScale` was removed before this landed**, on the owner's call, after Codex's
-review found it persisted and rendered as a checkbox but **consumed by nothing** —
-`markerUtils.js` never referenced it, so turning it off did nothing at all.
+### Changed — one score bar, and the marker arcs, on the ramp
 
-The obvious fix was the one thing this series forbids. Cross-cutting rule 1 is *"one `MODE`, read
-from one module: Plan thumbnails and the Map tab must never disagree about what a colour means"* —
-and `markersFollowScale = false` means exactly that disagreement, the field and legend on `temp`
-with the markers on `verdict`, the same location painted two ways on one screen. Honouring it
-needs a per-call mode override or a second module-level mode, and both break the invariant the
-whole series exists to establish. The plan had already flagged the doubt as an open question.
+`PlanScoreBar` and the map popup's private `PopupScoreRow` were the same component with different
+clothes, drawn from quoted copies of the same two gradients — so the same score could render
+differently on different surfaces. They are now one `ScoreBar` across all eight call sites, with a
+**continuous solid fill** rather than a gradient: a bar has one value.
 
-So the column, the request field, the response field, the checkbox and their tests are gone.
-Markers always follow the scale. Shipping the control inert was the one option not on the table: a
-setting that does nothing is worse than either honouring it or not offering it.
-### Added — Stage 7: flip the default, and tell people
+`markerUtils`' five hard-coded arc colours move onto the ramp with them — four potential arcs
+through the piecewise mapping, and the Haiku rating ring through the ramp directly, because it
+carries a 1–5 rating rather than a 0–100 potential.
 
-The series' last stage. A reader who has never chosen a map colour scale now gets `'temp'`
-(cold-to-hot), not `'verdict'` — but the flip had to land without breaking the distinction V147
-was built to preserve: "never chosen" (`null`) and "chose something this build cannot read" (a
-corrupt or unrecognised stored string) must resolve differently, even though `setMode`'s own guard
-(Stage 5a) collapses both to `'verdict'`. `scoreRamp.js` gains `DEFAULT_MODE` (`'temp'`) and
-`resolveMode(stored)`: `null`/`undefined` resolves to `DEFAULT_MODE`, an explicit `'temp'` or
-`'verdict'` resolves to itself, and anything else still resolves to `'verdict'` — the safer read of
-data this build cannot trust, not a silent opt-in to the newer ramp. `App.jsx`'s `loadHomeCoords`
-and `UserSettingsModal.jsx` both now call through `resolveMode` instead of each carrying their own
-ad-hoc verdict-biased fallback, so the map and the settings radio can no longer be seeded from two
-different literals.
+The score **number** is deliberately **not** tinted from the ramp. A ramp is a fill scale and cannot
+double as a text scale: as a fill an ink is chosen to sit on top of it, but as text the ramp colour
+*is* the ink on a dark surface, and the two want opposite things from the same value. The bar
+already encodes the reading twice, by length and by fill.
 
-⚠️ The module's own raw bootstrap value (`let MODE = 'verdict'` in `scoreRamp.js`) is **deliberately
-untouched** — the flip is delivered entirely by the real settings-fetch wiring calling
-`setMode(resolveMode(...))`, not by the module defaulting to `'temp'` on import. Chasing the
-bootstrap value onto `DEFAULT_MODE` would have repainted dozens of existing tests that render
-`MapView`/read the ramp without ever calling `setMode`, from the verdict palette they were written
-and pinned against onto the temperature one.
+### Fixed — the Golden Hour score a null Fiery Sky was hiding
 
-A one-time, dismissible notice — "Colours now run cold to hot." — reaches the one reader the
-preference itself cannot: someone who was reading the old map and will never open Settings to
-discover the colours changed. Shown only when the stored preference was genuinely null *and* the
-live ramp is actually `'temp'` (belt-and-braces, not redundant — the two are checked independently
-rather than one assumed from the other); silent for an explicit choice either way, since nothing
-changed for that reader. Dismissal persists through the map's existing fail-soft
-`readMapFilter`/`writeMapFilter` localStorage helpers, the same shape every other map-filter control
-already uses, so a storage-denied browser degrades to "shows every visit" rather than crashing.
-Placed at the map's top-right corner — the one corner not already claimed by the viewline upsell
-chip, the scored-locations legend, Leaflet's attribution or the zoom control — at a z-index *above*
-the heat toolbar's, found by review: that toolbar can run wide enough on an ordinary map width to
-reach under this corner, and a notice whose dismiss button a reader cannot click is worse than a
-briefly crowded one.
+The map popup gated its whole **Scores** section on `fierySkyPotential` alone, in two places, while
+Golden Hour was resolved independently. A location with no Fiery Sky reading but a perfectly good
+Golden Hour one showed no Scores section at all — heading, tooltip and a real measurement all
+suppressed by the absence of the *other* measurement. Both gates now ask for either axis, and the
+missing one renders an em dash rather than vanishing.
 
-⚠️ **A third instance of the same repaint bug, found by review before this merged.** Stage 6 caught
-`MapView`'s marker-icon cache going stale when the preference resolves after first paint. The
-**canvases** have the same problem and its fix did not reach them: `WindowFirstHeatStrip`'s and
-`MapHeatLayer`'s paint callbacks are memoised on data that does not change when only the mode does,
-while the kernel they paint through (`heatField.js` → `rampRgb`) reads `scoreRamp`'s live module
-state. So the Plan thumbnails and the map bitmap would keep the old ramp while the markers, legend
-and verdict words around them repainted — and whether it happened at all depended on which fetch
-resolved first, making it a **race** rather than a consistent bug.
+### Fixed — markers and clusters no longer sample the ramp's unreadable interior
 
-Both now take a `colourMode` prop threaded from `App.jsx`, in their dependency arrays. It is a
-**repaint key, not a colour source** — every colour read still goes to the live module state, which
-is the one thing that cannot disagree with what was painted. `void colourMode;` in each body makes
-the dependency genuine rather than an `exhaustive-deps` suppression: the rule cannot see a
-module-global read, and a suppressed warning would have hidden the next instance of this.
-
-### Fixed — two comments left dangling by the tint removal
-
-`#648` deleted `NUMBER_TINT_FLOOR` but two comments still cited it, and one of them documented an
-export that no longer exists.
-
-`windowFirstSpots.js`'s `contrast()` doc said it was *exported* so a test could recompute an AA
-claim about `ScoreBar`'s tint. Both halves are now false — the tint and its test are gone, and the
-function was made private in the same PR — so the comment explained a public API to a reader
-looking at a private one. It now records why it is private and what would justify exporting it
-again.
-
-`index.css`'s row-dim rule said the score number "is tinted from the ramp, floored at 2.8★
-specifically so it clears 4.5:1 once THIS rule dims it". The number carries a text token now. More
-usefully, the note is inverted into the warning that matters: **do not re-tint it from the ramp**,
-because this rule's 0.8 opacity is precisely what a ramp-derived tint cannot survive — a fill
-ramp's hot end has no headroom for dimming, which is why the tint was removed.
-
-### Removed — the score number's tint (Stage 7 prerequisite)
-
-Implements the decision recorded below: `NUMBER_TINT_FLOOR`, the tint derivation and the
-computed-contrast test that pinned them are gone, and the number is painted from a text token
-again. The bar's fill is unchanged — it is a plate, not text, and carries no contrast requirement.
-
-`contrast()` is private again in `windowFirstSpots.js`: it was exported for the deleted test alone,
-`readableInkOn` uses it internally, and an export with no external caller is the kind this project
-sweeps.
-
-Two tests replace the ones removed and pin the **absence** — the number is painted from a text token
-and never from the ramp, and its colour does not vary with the score. A tint reads as the obvious
-improvement right up until it is measured, which is how it got in, so the absence wants a guard
-rather than a comment.
-
-**Stage 7 is now the flip and the notice alone.**
-
-### Changed — Stage 7 unblocked: drop the score number's tint (Design's call)
-
-The measurements stand; the answer is settled, and on stronger grounds than contrast alone.
-
-**A ramp is a fill scale, and a fill scale cannot double as a text scale.** As a fill,
-`readableInkOn` puts ink *on top* and picks it per fill. As text, the ramp colour **is** the ink on
-a dark surface. The two uses want opposite things from the same value, so the monotonic hot-leg fix
-that made fills better necessarily made text worse — and no top-end value satisfies both. The
-dimmed state is what makes it decisive: a tint that must survive dimming needs headroom, and the
-hot end of a fill ramp has none by construction.
-
-Two arguments beyond contrast, both Design's: a numeral is a **precise** value where colour is a
-**categorical** impression, so tinting the numeral makes the exact thing look approximate — while
-the bar beside it already encodes hot-ness twice, by length and by fill; and thin coloured text is
-the weakest place to spend colour for colour-blind readers, where two large fills stay separable
-and two red-ish numerals do not.
-
-The measurements that raised it, kept because they are the evidence: against `STOPS_TEMP` the worst
-point across both backgrounds in rest and dimmed states drops from **4.75:1** to **2.38:1**, and it
-fails at the **hot end** where a floor cannot help — 4.3★ measures 4.13:1 at rest and 3.08:1 dimmed,
-5★ measures 3.08:1 and 2.38:1.
-
-So it is not a compromise forced by a failure. The tint was a **third** encoding of a datum already
-encoded twice, and it happened to be the one costing contrast — removing it would be right even if
-every stop passed. It is work rather than only a decision: 5b shipped the tint (passing in verdict
-mode, so nothing is failing on `main`), and `NUMBER_TINT_FLOOR`, the tint derivation and its
-contrast test come out before the flip.
-
-### Added — the Stage 6 kickoff prompt
-
-The only backend stage in the series, which the design brief does not say out loud: persisting the
-preference through `settingsApi` rather than `localStorage` means migration, entity, DTO, service,
-controller, API module and UI. The prompt carries the repo-specific traps — read the migration
-number off `main` rather than any written-down one, there is **no `user_settings` table** (settings
-are columns on `app_user`), don't hang colour preferences off `PUT /home` where a partial body
-would wipe a postcode, and a new route under `/api/user/settings` must be added to
-`HttpCachingConfigTest.personalDataPathsAreNeverFiltered`. It names `localRadiusMiles` as the
-precedent to follow, including its nullable-no-backfill semantics — which is precisely what lets
-Stage 7 change the default for people who never chose without overriding anyone who did.
-
-### Fixed — the Golden Hour score a null Fiery Sky was hiding (Stage 8)
-
-`MarkerPopupContent` gated its whole **Scores** section on `fierySkyPotential` alone, in two places
-— the forecast branch and the briefing drill-down — while `goldenHourPotential` was resolved
-independently. A location with no Fiery Sky reading but a perfectly good Golden Hour one showed no
-Scores section at all: the heading, the tooltip and a real measurement suppressed by the absence of
-the *other* measurement. Both gates now ask for either axis.
-
-⚠️ **Both rows still render, and that is deliberate.** `ScoreBar` draws an em dash for a null
-score; the Plan surfaces gate per row and render nothing. Stage 5b recorded why the two differ — a
-tooltip with a stray dash is noise, a popup row that vanishes is a layout jump — so the per-row
-gating that would look natural here is exactly what must not be added, and the tests assert the
-dash rather than the row's absence. An earlier cut of this fix, written against the pre-5b tree,
-did add per-row gating and pinned it; it would have reversed a documented decision silently.
-
-### Added — Stage 8: the Golden Hour score a null Fiery Sky hides
-
-Found during Stage 5b's browser verification, pre-existing, and correctly left out of that stage's
-scope. `MarkerPopupContent` gates its whole **Scores** section on `fierySkyPotential` alone, in two
-places — the forecast popup and the briefing drill-down — while `goldenHourPotential` is resolved
-independently. A location with no Fiery Sky reading but a perfectly good Golden Hour one therefore
-shows no Scores section at all: heading, tooltip and a real measurement all suppressed by the
-absence of the *other* measurement.
-
-Stage 5b makes the fix smaller than it was. The old `PopupScoreRow` could not render a missing
-score; `ScoreBar` renders an em dash for one, so the gate no longer protects anything and only has
-to stop an empty section when **both** are absent. Scheduled last, on the owner's instruction, as a
-behaviour fix rather than part of the colour work.
-
-### Changed — Stage 5b of the colour-scale unification: one score bar, continuous solid fill
-
-`PlanScoreBar` (Plan pane) and `MarkerPopupContent`'s module-private `PopupScoreRow` (map popup) —
-two components independently quoting the same two gradient strings — merge into one
-`components/ScoreBar.jsx`, used at all eight call sites (`WindowSpotPeek` ×2, `LocationFourDaySheet`
-×2, `MarkerPopupContent` ×4). The fill is a continuous solid colour sampled from the ramp
-(`rampHex(starFromScore(score, metric))`, Stage 5a's mapping) instead of a hard-coded CSS gradient —
-a bar has one value, and a gradient across a ramp that starts cold would paint a five-hue rainbow for
-one number. The two markup styles stay genuinely different (Plan's Tailwind-classed `.wf-peek-bar` at
-10px vs. the popup's inline-style markup at 11px, switched by a `dense` prop) rather than being forced
-into one shape — converting either to pure Tailwind is pre-existing debt, not this stage's job. The
-score number is now tinted to match the bar, closing `PlanScoreBar`'s documented no-tint deviation,
-but **floored at 2.8★** (`NUMBER_TINT_FLOOR`) rather than the bar's raw score: the ramp's own bottom
-stops measure as low as 2.84:1 against the app's `--color-plex-surface`/`--color-plex-surface-light`
-tokens as plain text — a real WCAG-AA failure the literal "tint to match" ask would have shipped,
-caught before landing and pinned by a test that recomputes contrast from the live ramp colours rather
-than asserting the pre-computed answer (`windowFirstSpots.js`'s `luminance`/`contrast` helpers are now
-exported for this). `markerUtils.js`'s five hard-coded arc/ring hex literals (`#f97316`, `#E5A00D`)
-move onto the same ramp: the four 0–100 potential arcs via `rampHex(starFromScore(v, metric))`, and
-the Haiku rating ring via `rampHex(rating)` directly — deliberately *not* through `starFromScore`,
-since a 1–5 star rating routed through the 0–100 anchor table would read a 5★ location as the raw
-value 5 and paint it the ramp's cold end.
-
-Browser-checked: the rating ring sits immediately outside a disc filled from the same
-`rampHex(rating)` value, so at a full ring (5★) both are the identical hue. Verified in the running
-app at 1★, 2★, 4★ and 5★ — the partial-arc shape (any rating below 5★) unambiguously reads as a
-progress gauge regardless of the colour match, and even the closed 5★ ring reads as an intentional
-glow for a top rating rather than a broken halo; no second colour language was introduced.
-
-Adversarial review (8 finder angles, verified) caught two real defects fixed before landing: the
-`metric` typo guard was skipped whenever `score` was `null` (now validated unconditionally, so a bad
-metric on a not-yet-scored slot fails at the call site instead of staying silent until scored); and
-the AA-floor's own doc comment overclaimed general safety without scoping it to the ramp's default
-`verdict` mode — the dormant `temp` mode's hot end is genuinely darker and would fail AA once a later
-stage wires it to a live control, which the floor (a one-sided `Math.max`) does nothing to prevent.
-One further real defect was found but is pre-existing and out of scope (the map popup hides the whole
-Scores section, including a valid Golden Hour bar, whenever Fiery Sky alone is null) — flagged as a
-follow-up rather than fixed here.
-
-### Added — Stage 5a of the colour-scale unification: piecewise star mapping for the two 0–100 metrics
-
-`scoreRamp.js` gains `ANCHORS` (frozen per-metric anchor tables for `fiery`/`golden`, verbatim from
-the design handoff's reference kernel) and `starFromScore(value, metric)`, replacing the linear
-`scoreFromPercent` Stage 1 shipped. Both potentials measured bimodal over 19,832 production
-evaluations — no two-point linear map can spread a bimodal population, and under the old map 51% of
-fiery readings landed in the 1★ band while 72/85/100 all rendered as an identical 5★. The anchors are
-frozen constants, re-measured only to check the physics hasn't moved, and deliberately not
-even-occupancy: the bottom 70% of fiery readings share 1.3 stars because they all mean "don't
-bother," while the top third — where the decision actually lives — gets 1.8.
-
-Two deliberate divergences from the reference kernel, both load-bearing: an unrecognised `metric`
-throws rather than silently falling back to `fiery` (the two tables disagree by up to 0.1★ at the
-same input), and a non-finite `value` resolves to the bottom of the ramp (1) rather than the
-reference kernel's fall-through to the top (5), matching `rampRgb`'s own existing non-finite rule —
-under-reporting is the safe direction.
-
-`scoreFromPercent` is deleted outright (function, JSDoc, and its tests), pinned by a repo-wide sweep
-asserting no import of it survives anywhere in the frontend source, plus a direct assertion that
-`scoreRamp.js` itself no longer exports it. Nothing calls `starFromScore` yet — it changes no pixels;
-Stage 5b wires it into the score bars and marker arcs.
-
-An adversarial review (correctness, test quality, docs/forward-impact) caught one real defect before
-this landed: the unrecognised-metric guard used bracket-access truthiness (`ANCHORS[metric]`), which
-walks the prototype chain — a metric string naming an `Object.prototype` member (`'toString'`,
-`'constructor'`, …) resolved to a truthy non-array value, silently passed the guard, and fell through
-to an unthrown top-of-ramp result. Fixed with `Object.hasOwn`, with a test pinning it directly.
-
-### Added — the Stage 5b kickoff prompt
-
-Covers the last substantial UI work in the colour-scale series: collapsing `PlanScoreBar` and
-`PopupScoreRow` into one `ScoreBar` across eight call sites in three files, and moving the five
-hard-coded arc colours in `markerUtils.js` onto the ramp.
-
-It leads with the fact that **5b is the first stage that changes pixels** — 1, 2 and 5a were all
-provably zero-visual-change, and this one replaces gradient and bucket fills with a continuous
-solid sampled from the ramp, in verdict mode today rather than only after Stage 7. So
-"no visual change" is not an available assertion, and the project's browser-verification cadence
-applies in full.
-
-The two traps it carries forward: `starFromScore` **throws** on an unrecognised metric (5a,
-deliberately), so passing the label string through as the metric fails at render; and the five arc
-sites are **not the same quantity** — four are 0–100 potential arcs, the fifth is the Haiku rating
-ring, which takes `rampHex(rating)` because `starFromScore` would read a 5★ rating as the raw value
-5 and paint it at ≈1.2★. The ring's proximity to a disc filled from the same rating is flagged as a
-browser check rather than a paper decision.
-
-### Changed — Stage 5 splits, and two defects in the reference mapping are caught before porting
-
-Stage 5 as specified was four jobs in one session: build Stage 4's mapping — never coded, since
-Stage 4 was a *decision* and `ANCHORS`/`starFromScore` exist only in the design bundle — delete the
-superseded linear one, merge two score-bar components across eight call sites in three files, and
-move five hard-coded arc colours. It splits into **5a**, the mapping alone (no visual change,
-nothing calls it yet, the same shape as Stage 1), and **5b**, the surfaces.
-
-Two defects in the reference implementation are recorded so 5a fixes rather than transliterates
-them. It returns **5 — the top of the ramp — for a non-finite input**: `clamp` propagates `NaN`, so
-the value fails every bound test, falls out of the loop and hits the trailing `return 5`. A missing
-potential would paint as a perfect evening, contradicting the invariant `rampRgb` states and guards
-two functions away in the same module — *an unknown reading must never render as the best one*. And
-it silently falls back to the fiery table for an unknown metric, which returns a plausible wrong
-answer rather than failing: at a raw 80, fiery gives 4.43 and golden 4.33.
-
-Adds the Stage 5a kickoff prompt, and marks Stages 2 and 3 landed.
-
-### Added — Stage 3 of the colour-scale unification: markers and clusters snap to whole stars
-
-`markerUtils.scoreColour(avg)` — the map's only chokepoint for turning a 0–100 average into a
-labelled marker fill — now rounds to the nearest whole star before sampling the ramp:
-`rampHex(Math.round(starsFromAverage(avg)))`, not the old direct `rampHex(starsFromAverage(avg))`.
-Per the plan's §2.1 decision (*any fill that carries a label samples the ramp at whole stars; only
-label-free surfaces interpolate*), this closes the one place a continuous fill still sat under a
-label: a cluster bubble's ratings average and a marker's raw fiery/golden average, both routed
-through `scoreColour`. Every whole star already clears WCAG AA (`readableInkOn`, #627); the ramp's
-interior does not, and rounding at this single chokepoint — rather than at either of the two
-callers — makes the interior unreachable by a label regardless of how many more callers
-`scoreColour` ever gets. Round, not floor: flooring would under-report (an 89-average cluster would
-paint 4★ rather than the truer 5★). The Fiery Sky / Golden Hour arcs stay hard-coded to
-`#f97316`/`#E5A00D` — moving them onto the ramp is explicitly deferred past this stage, since the
-popup's own score bars aren't on the ramp until Stage 5, and pinning the marker ahead of the popup
-would put two surfaces describing the same two numbers in visible disagreement.
-
-`MarkerIcon.test.jsx` gains a block that asserts the invariant directly rather than sampling
-convenient points: every integer average 0–100 lands on one of the active mode's five whole-star
-colours, checked in both verdict and temperature mode, plus the two real callers are pinned by
-name — a cluster whose ratings average to 3.5★, a marker whose fiery/golden pair averages to
-3.45★ — each landing on its rounded colour, not the interpolated one. The project's existing
-`it.each([1, 2, 3, 4, 5])` AA sweep could not have caught a regression here: those five inputs are
-the only ones never at risk, which is what made the ramp's interior a live gap rather than a
-theoretical one.
-
-This stage was built on top of the still-open Stage 2 PR (#637) rather than `main`, since Stage 3
-needs Stage 2's exported `activeStops` and corrected hot-leg stops; it will need rebasing once #637
-merges.
+Any fill that carries a label now samples the ramp at whole stars; only label-free surfaces
+interpolate. Cluster bubbles and score-only markers previously painted from a continuous value, and
+every ramp through mid-luminance has a band where neither available ink clears WCAG AA — so a
+labelled badge could land somewhere unreadable. All five whole stars clear comfortably, which makes
+the label safe by construction rather than by luck.
 
 ### Changed — CodeQL skips its expensive half on documentation-only pull requests
 
-`codeql.yml` had no path filter, so a diff touching only `*.md` and `docs/` still paid for a
-checkout, `setup-java`, `mvnw compile -DskipTests` and a full two-language analysis — measured at
-8m35s–11m30s and, by this workflow's own note, the critical path of the PR gate. It found nothing,
-by construction: the check is configured as a **diff** scan reporting only alerts a PR introduces,
-and a diff with no code introduces none. The two jobs it might otherwise have done are already
-covered — the Monday schedule catches new queries against unchanged code, and the Backend job
-proves the build compiles.
+A diff touching only `*.md` and `docs/` was paying for a checkout, `setup-java`, a Maven build and a
+full two-language analysis — measured at 8m35s–11m30s, and the critical path of the PR gate — to
+find nothing, since the check reports only alerts a PR introduces. It now runs `ci.yml`'s docs-only
+detector and skips the Java half. Measured saving on the first docs PR after: **1m42s versus ~6
+minutes**.
 
-It now runs `ci.yml`'s docs-only detector (copied rather than shared: a `workflow_call` dependency
-between two required gates fails closed in the worst way) and skips `setup-java`, the Maven build
-and the java-kotlin analysis on a documentation-only diff.
-
-⚠️ **The JavaScript analysis deliberately still runs, and that is not a missed optimisation.**
-`CodeQL` — the required status check on `main` — is posted by the github-advanced-security app off
-the back of a code-scanning analysis, not by this workflow's job, which reports separately as
-`CodeQL Analysis` and is not required. Skipping every analysis would leave the required check never
-created for that SHA, and a required check that never reports blocks the merge permanently, fixable
-by no commit — the same failure this file already refuses to risk by staying off the self-hosted
-runner. So the rule is: drop the expensive half, keep something reporting.
-
-### Fixed — two errors in the plan's Stage 3, found while writing its kickoff prompt
-
-§2.1 said *"markers already comply; cluster badges do not"*. **Wrong, and it understated what the
-snap fixes.** There are two labelled continuous fills, both through `scoreColour`: the cluster
-bubble, and an individual marker for a location with both potentials but no rating — whose fill
-comes from `Math.round((fierySky + goldenHour) / 2)` and whose label is that raw average, so a
-marker reading "62" paints from 3.1★. The `ratingColour` path does comply, since `rating` is an
-integer. Snapping inside `scoreColour` covers both without touching either call site — the
-chokepoint argument holding up under a case it was not written for.
-
-**The marker arcs move to Stage 5, not Stage 3.** They hard-code `#f97316` / `#E5A00D` at five
-sites, and the brief is right that they must move with the score bars — same two metrics, and the
-pin and popup must not disagree. But the bars only reach the ramp in Stage 5 via `starFromScore`.
-Moving the arcs in Stage 3 would open a window where the pin reads the ramp and the popup still
-reads a gradient — the precise disagreement the brief exists to prevent.
-
-Adds the Stage 3 kickoff prompt, and marks Stage 2 landed.
-
-Two further defects in these same docs, found by the Codex review on #638 and fixed here. The
-Stage 3 prompt described Stage 2 as **landed** while #637 was still open, so a session branching
-from `main` and obeying "do not redo Stage 2" would have shipped the marker change with the tokens
-and mode-aware gradients still absent; it now states the dependency and how to check it. And
-Stage 5's arc-migration instruction applied **one formula to five sites** that are not the same
-quantity: four are 0–100 potential arcs, but the fifth is `buildMarkerSvg`'s Haiku **rating** ring,
-whose fill is `FULL_CIRC * (rating / 5)`. Routing that through `starFromScore` would read a 5★
-rating as the raw value 5 and paint it at ≈1.2★ — a top-rated location rendered at the ramp's cold
-end. It takes `rampHex(rating)`, and the ring's proximity to a disc already filled from the same
-value is flagged as something to look at in a browser rather than decide on paper.
-
-### Changed — the hot leg is monotonic, and the bimodal potentials get frozen piecewise anchors
-
-Two revisions from Design, both prompted by findings rather than preference.
-
-**The ramp's hot leg had a luminance dip**, spotted by the owner noticing 4.3★ read hotter than
-5★. Not a swap — luminance ran 0.264 → **0.175** → 0.275, a trough and a recovery, so 4.3 genuinely
-was the heaviest colour on the ramp. `4.3` moves `#D63A26` → `#DE4826` and `5` moves `#F26034` →
-`#C82820`, descending 0.264 → 0.203 → 0.139. Two measured side effects, both good: the sub-AA band
-falls from **13.2% in three runs to 10.2% in two** (a ramp that reverses direction crosses the dead
-zone twice), and every whole star now clears comfortably — 7.13, 6.04, 6.51, 5.03, 5.56:1. The
-constraint is recorded beside the stops: **do not brighten `5` past `4.3`**, because gold at 3★ is
-already the brightest point and a bright top end gives a middling night and a great one the same
-visual weight. Tokens `--color-heat-4` and `--color-heat-5` become `#DF6229` and `#C82820`, and
-Stage 2 now corrects the two stops Stage 1 shipped before sampling tokens from them.
-
-**The bimodal distribution is resolved by `ANCHORS` + `starFromScore`**, a frozen piecewise table
-per metric, and Stage 5 is unblocked with no further production data needed. Measured effect: 2.4×
-(fiery) and 1.7× (golden) more resolution in the 60–100 decision zone, and the end of a clamping
-plateau where the linear map rendered 72, 85 and 100 identically. `scoreFromPercent`, shipped in
-Stage 1, is superseded — it has no caller and Stage 5 deletes it.
-
-Two corrections to this plan's own earlier reasoning are recorded rather than quietly dropped.
-It scored candidate mappings against an **even-occupancy target**, which was a self-invented proxy
-and not the goal — colour belongs where the decision is, not where the readings pile up, so heavy
-concentration in the low bands is intended. And it presented piecewise-versus-linear and
-relative-versus-absolute as one choice, naming periodic re-measuring as the cost of piecewise;
-they are **independent axes**, and freezing the anchors buys the mechanism without that cost.
-
-### Fixed — the Stage 2 spec named one gradient site when there are two
-
-`docs/engineering/heat-scale-unification-plan.md`'s Stage 2 and the new Stage 2 kickoff prompt now
-name **both** ramp gradients: `MapView.jsx`'s map legend, built inline during render, and
-`WindowFirstHeatStrip.jsx`'s `RAMP_GRADIENT`, a **module-level constant evaluated once at import**.
-That second one is the trap — its own comment asserts "Computed once at module load — it depends on
-nothing that changes", which was true before Stage 1 and is false now that it depends on `MODE`.
-Left as a constant it would keep painting the verdict ramp forever after Stage 7 flips the default,
-with no test, lint or build failing. The prompt calls for it to become a function, for the comment
-to be rewritten, and for a test that sets the mode *after* import — since a test that only asserts
-"the string changed" passes even against a frozen constant.
-
-Stage 1's prompt is marked landed and its **"Trap 3" corrected in place**: it claimed `RAMP_STOPS`
-was imported by three test files and no production code, when it was two production files and five
-test files. The claim came from a `grep | head` whose truncation went unnoticed; the implementing
-session's import-consistency lens caught it. Recorded rather than quietly fixed, because the lesson
-generalises to every prompt in the file — a truncated grep is not a survey.
-
-### Added — Stage 2 of the colour-scale unification: tokens and the two live legends
-
-`index.css` gains `--color-heat-1..5` — the temperature ramp sampled at whole stars, for future
-discrete uses. They land in the `@theme static` block rather than beside `--color-verdict-*` as
-the plan originally said: nothing consumes them yet, and Tailwind v4 prunes an unreferenced token
-in the plain block to the empty string — the exact failure this file already documents for
-`--color-plex-panel`. `--color-verdict-*` itself is untouched.
-
-Both places that build a ramp gradient — the map legend (`MapView.jsx`) and the heat strip's footer
-bar (`WindowFirstHeatStrip.jsx`) — now read `scoreRamp.js`'s active stop list via a newly exported
-`activeStops()`, instead of the hard-coded verdict one. The heat strip's was the real trap: its
-gradient was a module-level constant computed once at import, with its own comment asserting "it
-depends on nothing that changes" — true before Stage 1, false the moment a mode switch existed. It
-is now a function called from the render body, so a later preference change repaints it; the stale
-comment is rewritten rather than left standing next to code it no longer describes. The map legend
-was already built inline during render, so swapping its import was the whole fix there.
-
-Both gradients render byte-identical to today while `MODE` stays `'verdict'`, pinned by tests that
-also assert the *absence* of the temperature stops. A second pair of tests calls `setMode('temp')`
-after each test file's own imports have already resolved and asserts the temperature colours
-appear instead — the ordering that a frozen-at-import value could not have passed. A new
-`heatTokens.test.js` pins the five CSS tokens against `rampHex(1..5)` in temp mode rather than
-against `STOPS_TEMP`'s literals, since the 2★ and 4★ tokens are interpolated points, not stops in
-that list.
-
-Landed against the **revised** ramp: the hot leg's `4.3` and `5` stops were corrected to `#DE4826`
-and `#C82820` in the same commit, and the tokens sampled from the corrected ramp — Design revised
-them after 4.3★ was found to read hotter than 5★ (a luminance trough at 0.175 between 0.264 and
-0.275). `heatTokens.test.js` asserts each token equals `rampHex(score)` rather than a literal, so
-the two artifacts cannot drift apart again.
-
-One defect found by the Codex review and fixed here: both legends distributed their stops by array
-**index** rather than by score. That is correct by accident for `STOPS_VERDICT` — five evenly
-spaced stops, so index and score coincide exactly — and wrong by up to **16 percentage points** for
-the uneven `STOPS_TEMP`, where the `2.2` stop belongs at 30% and index placement puts it at 14%. It
-would have misplaced the key against the canvas it is a key for, and only after Stage 7 flipped the
-default, so no verdict-mode test could have caught it. Both legends now call one
-`rampGradientCss()` in `scoreRamp.js`, positioning each stop at `(score − 1) / 4`, and the tests
-assert positions rather than merely the presence of each colour.
-
-### Added — Stage 1 of the colour-scale unification: two ramps, one mode switch, no visual change
-
-`utils/scoreRamp.js` gains a second stop list — `STOPS_TEMP`, the temperature ramp's eight
-deliberately uneven stops, cold blue through gold to hot orange-red — alongside the renamed
-`STOPS_VERDICT` (was `RAMP_STOPS`), plus module-level `setMode()`/`getMode()` and
-`scoreFromPercent()` for mapping a 0–100 metric onto the ramp's 1–5 score domain ahead of Stage 5.
-`MODE` defaults to `'verdict'`, so `rampRgb`/`rampHex` are byte-identical to today's output at
-every call site — this stage is provably zero-visual-change. An unrecognised mode string falls
-back to `'verdict'` rather than risking the not-yet-shipped ramp. The rename reaches two
-production consumers the plan's own trap note missed (`MapView.jsx` and
-`WindowFirstHeatStrip.jsx`, whose legend gradients are built directly from the stop list) plus
-five test files — all mechanical renames with no assertion values changed.
-
-### Fixed — three defects in the colour-scale plan found by Codex review on #632
-
-Stage 3 contradicted itself: its first bullet deleted `scoreColour()` while its snap rule required
-rounding *inside* that same function and forbade doing it at the call sites. An implementer could
-satisfy neither, and routing the four callers straight at the ramp reintroduces exactly the
-continuous labelled fills §2.1 exists to prevent. `scoreColour` is now explicitly **kept and
-reimplemented** — its job changes, the function survives, and the brief's "retire it" is recorded
-as superseded.
-
-`rampPct` was specified with two different return types in two stages — a 1–5 score in Stage 1's
-tests, a CSS fill in Stage 5's contract — so a score bar built to the plan would have assigned the
-number `3` to a `background` and rendered no fill. It is renamed **`scoreFromPercent`**, returns a
-number, and callers compose `rampHex(scoreFromPercent(v, lo, hi))`. The rename is deliberate: the
-reference kernel's `rampPct` returns a colour, and this app keeps domain-mapping separate from
-colour-lookup because `rampHex` / `rampRgb` already take a score.
-
-The bimodality pre-check could not have detected bimodality: six percentiles and min/max are shared
-by unimodal and bimodal populations alike. Query 3 is now a **histogram**, plus a zero-inflation
-probe for the specific shape suspected here — a spike sitting entirely inside the 0–9 bucket would
-be invisible to the histogram above it.
-
-### Added — per-stage kickoff prompts for the heat-scale series
-
-`docs/engineering/heat-scale-stage-prompts.md`, following the `heat-field-prompts.md` pattern: each
-stage's prompt is self-contained, so an implementing session needs no other session's history. The
-Stage 1 block leads with its three traps — the design brief names the wrong module, the reference
-kernel's stop format is not this app's, and `RAMP_STOPS` is imported by three test files — and
-carries the stop list pre-converted to the app's shape along with the whole-star colours its tests
-must assert, both verified arithmetically rather than transcribed.
-
-### Changed — the colour-scale plan gains its measured constants and two tightened stage specs
-
-Stage 4 is **unblocked**: the `lo`/`hi` pairs for `HeatField.rampPct` are measured against
-production over `cached_evaluation`, the store the UI actually reads — fiery **8 / 72**, golden
-**15 / 76**, n = 19,488 each. The design doc's illustrative 25–85 would have been wrong in both
-directions: under it a typical fiery reading of 40 resolves to 2.0★, the cold end, where the
-measured pair puts it at 3.0★, gold. The brief's premise that these values cluster at 50–78 turns
-out to be an artifact of the test fixtures rather than the population — the real p05s are 8 and 15.
-The query that produced them is kept at `docs/engineering/heat-scale-stage4-calibration.sql`; one
-cheap check remains outstanding (whether the distribution is bimodal, which would move `lo` to the
-upper mode's foot rather than p05).
-
-Stages 3 and 5 gain the detail that decides whether a session can be handed them cold. Stage 3 now
-names **where** the whole-star snap goes — inside `markerUtils.scoreColour`, at its single
-`rampHex(starsFromAverage(avg))` call, rounding rather than flooring — because at the four call
-sites instead, one would eventually be added without it and the failure is invisible. Stage 5 gains
-the merged component's full interface, all eight call sites mapped, and an explicit scope boundary.
-
-A fifth stale claim in the design brief is recorded with the other four: its "both step into four
-buckets, so 26 and 49 are the same colour" no longer holds — `#A06E00` appears nowhere in the
-frontend, and the two components already share byte-identical gradients. Stage 5 is a
-deduplication plus a ramp migration, not a threshold bug fix, which changes what its tests pin.
-
-### Added — the unified colour-scale plan and its Temperature Scale design bundle
-
-`docs/engineering/heat-scale-unification-plan.md` plus the Claude Design handoff it ports,
-`docs/design/temperature-scale/`. The series puts one colour language behind every scored
-surface — Plan matrix, window popup, location sheet, map markers, cluster bubbles and map
-popups — driven by a persisted per-user preference, with the current red→green ramp retained
-as the alternative rather than deleted. Seven stages, each sized for one implementing session;
-Stage 1 is provably zero-visual-change (the existing ramp is renamed `STOPS_VERDICT`, verified
-byte-identical to the reference kernel's, and the new default is not flipped until Stage 7).
-
-The plan is a *port* plan, not a transcription: four of the brief's changes are stale or
-mis-targeted against the post-v1-retirement tree and are recorded as such — Change 1 names
-`heatField.js`, which holds no stop list (the ramp is `RAMP_STOPS` in `scoreRamp.js`, so following
-it literally would create a second ramp definition); `RATING_COLOURS` was already deleted in D3;
-the marker-ink fix already landed in a better form via `readableInkOn`; and the `ScoreBar` the
-brief merges onto was deleted in D4 (the live duplication is `PlanScoreBar` against
-`PopupScoreRow`). The committed bundle keeps Design's prose verbatim and carries a repo note
-pointing at that list.
-
-One finding came out of checking the plan rather than the brief, and it settled a design rule.
-`readableInkOn` picks the better of two inks, which clears WCAG AA only where one of them reaches
-4.5:1; every ramp through mid-luminance has points where neither does. It is live rather than
-theoretical — `starsFromAverage` returns `avg / 20`, so cluster badges paint *interpolated* fills
-and label them — and the existing guard is `it.each([1, 2, 3, 4, 5])`, the only five values never
-at risk, so it passes by luck rather than by construction. The rule adopted, from Design:
-**any fill that carries a label samples at whole stars; only label-free surfaces interpolate.**
-Markers already comply, cluster badges do not, and snapping their fill is the whole change — it
-costs a cluster nothing and returns the fill to the integer resolution `rating` actually has.
-The ramp is not redesigned; all five whole stars clear AA.
-
-The plan also records a reconciliation, because two independent scans of the ramp's interior
-disagreed and both were wrong: the true figure is 13.2% of the range in three runs (2.48–2.60★,
-4.10–4.24★, 4.37–4.61★), measured on the rounded hex the browser actually receives. This document's first draft said 53% in one band — a span-versus-measure
-error that reported the distance from the first failing sample to the last. Design's scan said
-≈8% in one run, which reproduces exactly when measured against the doc's bone ink rather than the
-white the app ships, and misses the hot end entirely: the 3.9 → 4.3 → 5 leg crosses the dead zone
-twice more, right where 4★ and 5★ live. Recorded rather than dropped, because "we measured it and
-it was fine" is the wrong thing to carry forward — the interior is not fine, it is merely no
-longer sampled. Two measurement conventions are stated in the plan rather than left implicit,
-because three artifacts disagreed over them in one session: quote the failing-sample count rather
-than the summed run widths, and measure the rounded hex rather than the interpolated float —
-`rampRgb` ends in `Math.round`, so the float is a colour that never renders.
+The JavaScript analysis still runs, deliberately: the required `CodeQL` check is posted by code
+scanning off the back of an analysis, not by the workflow job, so skipping every analysis would
+leave a required check that never reports — blocking merges permanently, fixable by no commit.
 
 ### Fixed — backend Javadocs that still described the retired v1 Plan tab as live
 
 Five comments left standing by the v1 retirement, named as a follow-on in
-`docs/engineering/v1-retirement-plan.md` §8 item 5. `PlanRenderLimits` carried a paragraph
-instructing the reader to keep its constant equal by hand with `DailyBriefing.jsx`'s copy "until
-the v1 arm is removed, at which point this note goes with it" — the arm is removed, so the note
-goes. `BriefingDayPeak`'s known under-report was justified by not wanting to move v2 away from a
-frozen control that no longer exists; the under-report is unchanged and still recorded, but the
-justification now says the reason has lapsed rather than citing a control. `BriefingService`
-pointed at `DailyBriefing.jsx` for the six-event cap and now links
-`PlanRenderLimits.MAX_VISIBLE_EVENTS`, the constant that actually decides it. `DisplayVerdict`
-and `HotTopic` listed surfaces that no longer exist (the quality slider, the mobile region cards,
-the Best Bet cards) and now name the ones that read them, verified against the importing modules
-rather than from memory — `DisplayVerdict` in particular no longer claims the map markers, which
-do not read it.
+`docs/engineering/v1-retirement-plan.md` §8 item 5. `PlanRenderLimits` carried a paragraph naming
+its own expiry — keep this constant equal by hand "until the v1 arm is removed, at which point this
+note goes with it" — and the arm is removed. `DisplayVerdict` and `HotTopic` listed surfaces that no
+longer exist, and now name the ones that read them, checked against the importing modules rather
+than from memory. Comment-only.
 
-Comment-only: no behaviour, no signatures, no tests changed.
+### Changed — the series' plan, design bundle and per-stage prompts
 
+`docs/engineering/heat-scale-unification-plan.md`, the Claude Design handoff it ports
+(`docs/design/temperature-scale/`), and a self-contained kickoff prompt per stage. Kept together
+because the plan is a *port* record rather than a transcription: it documents where the brief and
+the tree disagree, and why.
+
+The corrections worth knowing about, because each was a real defect caught before any code was
+written against it. Five of the brief's changes were stale against the post-v1-retirement tree — it
+named a module that holds no stop list, a component deleted in D4, and a bucket ladder that no
+longer exists. The ramp's hot leg was non-monotonic, so 4.3★ read *hotter* than 5★; fixing it also
+cut the sub-AA band from 13.2% of the range to 10.2%. The two 0–100 metrics turned out **bimodal**
+over 19,832 production evaluations, so the linear `lo`/`hi` mapping first measured for them was
+replaced by frozen piecewise anchors — under the linear map, readings of 72, 85 and 100 all rendered
+identically.
+
+⚠️ Three of the plan's own claims were also wrong and are recorded as such rather than quietly
+fixed: it scored candidate mappings against an even-occupancy target that was a self-invented proxy;
+it treated piecewise-versus-linear and relative-versus-absolute as one choice when they are
+independent axes; and it twice named a stage "landed" while its pull request was still open.
 
 ## [v2.19.0] - 2026-08-25
 
