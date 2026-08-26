@@ -24,7 +24,7 @@ import { resolveStandDown } from '../utils/standDown.js';
 import { resolveAuroraNight, ukDateStr } from '../utils/mapDates.js';
 import { LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel, SKY_SUBJECT_TYPES } from '../utils/locationTypes.js';
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
-import { rampHex, rampGradientCss } from '../utils/scoreRamp.js';
+import { rampHex, rampGradientCss, getMode } from '../utils/scoreRamp.js';
 
 /**
  * The map's own localStorage filter keys, read/written fail-soft — a storage-denied browser
@@ -471,7 +471,18 @@ function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildli
   // `emphasis` is part of the key: a DivIcon is cached by everything that determines it, and
   // the className carries the focus/muted modifier. Omitting it would serve the Map tab's
   // plain icon to the overlay (or worse, leak the overlay's muted icon back to the Map tab).
-  const cacheKey = `${locationName}|${rating}|${fierySky}|${goldenHour}|${isPureWildlife ? 1 : 0}|${excludeFromCluster ? 1 : 0}|${isStandDown ? 1 : 0}|${emphasis ?? '-'}`;
+  //
+  // `getMode()` joined the key in Stage 6 (heat-scale-unification-plan.md), the first time
+  // anything in the running app actually calls `scoreRamp.setMode('temp')`. Before that, "same
+  // name+scores+flags → same colour" held because the active ramp never varied for the life of
+  // the tab, so the cache silently depended on a mode that was always constant. Now that a user
+  // can switch it live, a stale-mode entry would otherwise survive under an unchanged key and
+  // keep painting the OLD scale until a hard reload — the one thing this preference must not do.
+  // Read live rather than threaded in as a parameter: `rampHex`/`rampRgb` (inside
+  // `markerLabelAndColour` below) already read this exact module state to choose the colour, so
+  // calling it again here for the key can never disagree with what actually got painted — a
+  // parameter sourced from a caller's own prop could, if that prop ever lagged the real mode.
+  const cacheKey = `${locationName}|${rating}|${fierySky}|${goldenHour}|${isPureWildlife ? 1 : 0}|${excludeFromCluster ? 1 : 0}|${isStandDown ? 1 : 0}|${emphasis ?? '-'}|${getMode()}`;
   const cached = markerIconCache.get(cacheKey);
   if (cached) return cached;
 
@@ -768,7 +779,18 @@ const OVERLAY_MAP_HEIGHT_PX = 470;
 const OVERLAY_MAP_HEIGHT_FILTERS_OPEN_PX = 300;
 const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
 
-function MapView({ locations, date, onSelectDate = null, autoEventType, handoffEventType, handoffFilterAction, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null, resizeNonce = null, heat = null }) {
+function MapView({ locations, date, onSelectDate = null, autoEventType, handoffEventType, handoffFilterAction, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null }) {
+  // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
+  // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
+  // in Settings while this instance is already alive would otherwise never reach it: nothing else
+  // in its normal prop set changes when only the colour preference does. `mapColourScale` exists
+  // for exactly that: a caller that re-resolves the setting (`App.jsx`'s `loadHomeCoords`) hands
+  // down a genuinely new value, which is what breaks `React.memo`'s shallow prop compare and lets
+  // this render run at all. Its own VALUE is deliberately never consulted below — every actual
+  // colour read (`rampHex`, and `getMode()` in `makeMarkerIcon`'s cache key) goes straight to
+  // `scoreRamp`'s live module state, the one place that can never disagree with what gets painted.
+  // A prop-derived value used for that instead could lag the real mode by a render.
+  void mapColourScale;
   const { role } = useAuth();
   const isMobile = useIsMobile();
   const [userHasOverriddenEvent, setUserHasOverriddenEvent] = useState(false);
@@ -2308,6 +2330,14 @@ MapView.propTypes = {
   homeRadiusMiles: PropTypes.number,
   /** Opens the settings dialog on the postcode field. */
   onOpenSettings: PropTypes.func,
+  /**
+   * A memo-busting signal only — its value is never read. Pass the current `scoreRamp` mode (any
+   * changed value forces this `React.memo`'d component to actually re-render) when this mount can
+   * outlive a live switch, as the Map pane's does; omit it for a mount that always starts fresh,
+   * such as the Plan-tab overlay. The colour itself always comes straight from `scoreRamp`'s own
+   * live state (`rampHex`, `getMode()`), never from this prop.
+   */
+  mapColourScale: PropTypes.oneOf(['temp', 'verdict']),
 };
 
 export default React.memo(MapView);

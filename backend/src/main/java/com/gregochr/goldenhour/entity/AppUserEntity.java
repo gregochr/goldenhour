@@ -108,6 +108,17 @@ public class AppUserEntity implements UserDetails {
     @Column(name = "drive_times_calculated_at")
     private Instant driveTimesCalculatedAt;
 
+    /**
+     * Which ramp paints the heat field, markers and map legend for this caller — {@code "temp"}
+     * or {@code "verdict"}, or {@code null} when never chosen.
+     *
+     * <p>Null rather than a defaulted {@code "verdict"}, matching {@link #localRadiusMiles}'s
+     * reasoning: it is what lets a later stage change the DEFAULT for callers who never chose
+     * without overriding anyone who explicitly picked one.
+     */
+    @Column(name = "map_colour_scale", length = 10)
+    private String mapColourScale;
+
     /** When the user accepted the Terms &amp; Conditions. */
     @Column(name = "terms_accepted_at")
     private Instant termsAcceptedAt;

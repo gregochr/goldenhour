@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.client.PostcodesIoClient;
 import com.gregochr.goldenhour.entity.AppUserEntity;
 import com.gregochr.goldenhour.entity.UserRole;
 import com.gregochr.goldenhour.model.DriveTimeRefreshResponse;
+import com.gregochr.goldenhour.model.MapColourPreferencesRequest;
 import com.gregochr.goldenhour.model.PostcodeLookupResult;
 import com.gregochr.goldenhour.model.SaveHomeRequest;
 import com.gregochr.goldenhour.model.UserSettingsResponse;
@@ -24,6 +25,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -483,6 +485,77 @@ class UserSettingsServiceTest {
 
         assertThat(userId).isEqualTo(42L);
     }
+
+    // ── map colour preferences (Stage 6) ─────────────────────────────────────────
+
+    @Test
+    @DisplayName("getSettings returns null mapColourScale when never chosen — round-trips as such")
+    void getSettings_neverChosenScale_returnsNull() {
+        stubAuth();
+        AppUserEntity user = buildUser();
+        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+
+        UserSettingsResponse response = service.getSettings(auth);
+
+        assertThat(response.mapColourScale()).isNull();
+    }
+
+
+
+    @Test
+    @DisplayName("saveMapColourPreferences persists an explicit 'temp' choice")
+    void saveMapColourPreferences_persistsTemp() {
+        stubAuth();
+        AppUserEntity user = buildUser();
+        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+
+        UserSettingsResponse response = service.saveMapColourPreferences(auth,
+                new MapColourPreferencesRequest("temp"));
+
+        assertThat(response.mapColourScale()).isEqualTo("temp");
+        ArgumentCaptor<AppUserEntity> captor = ArgumentCaptor.forClass(AppUserEntity.class);
+        verify(userRepository).save(captor.capture());
+        assertThat(captor.getValue().getMapColourScale()).isEqualTo("temp");
+    }
+
+    @Test
+    @DisplayName("saveMapColourPreferences persists an explicit 'verdict' choice")
+    void saveMapColourPreferences_persistsVerdict() {
+        stubAuth();
+        AppUserEntity user = buildUser();
+        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+
+        service.saveMapColourPreferences(auth, new MapColourPreferencesRequest("verdict"));
+
+        assertThat(user.getMapColourScale()).isEqualTo("verdict");
+    }
+
+    @Test
+    @DisplayName("saveMapColourPreferences rejects an unrecognised scale")
+    void saveMapColourPreferences_invalidScale_throws400() {
+        // Validated before the user is even looked up, so auth.getName() is never called here.
+
+        assertThatThrownBy(() -> service.saveMapColourPreferences(auth,
+                new MapColourPreferencesRequest("rainbow")))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("temp' or 'verdict'");
+
+        verify(userRepository, never()).save(any());
+    }
+
+    @Test
+    @DisplayName("saveMapColourPreferences rejects a null scale with 400, not a 500")
+    void saveMapColourPreferences_nullScale_throws400NotNpe() {
+        // VALID_MAP_COLOUR_SCALES is Set.of(...), whose contains() throws NullPointerException on
+        // a null argument rather than returning false — an omitted field must still 400.
+        assertThatThrownBy(() -> service.saveMapColourPreferences(auth,
+                new MapColourPreferencesRequest(null)))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("temp' or 'verdict'");
+
+        verify(userRepository, never()).save(any());
+    }
+
 
     @Test
     @DisplayName("getSettings throws NoSuchElementException for unknown user")

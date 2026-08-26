@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import App from '../App.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
+import * as scoreRamp from '../utils/scoreRamp.js';
 import { ukDateStrOffset } from '../utils/mapDates.js';
 
 /**
@@ -254,5 +255,37 @@ describe('App — panes handed to WindowFirstShell', () => {
     // Settle on the Map tab so the absence claim is made against the fully-loaded tab bar.
     await screen.findByRole('tab', { name: 'Map' });
     expect(screen.queryByRole('tab', { name: 'Operations' })).toBeNull();
+  });
+});
+
+// ── The map colour preference reaches scoreRamp ──────────────────────────────
+//
+// loadHomeCoords is the one place App wires the loaded setting into scoreRamp.setMode, so Plan
+// and Map can never disagree about what a colour means (heat-scale-unification-plan.md, rule 1).
+
+describe('App — wires the loaded map colour preference into scoreRamp', () => {
+  afterEach(() => {
+    // The spy is a passthrough on the real singleton module — restore its module-level MODE so
+    // this test cannot leak a 'temp' ramp into any other file running in the same process.
+    scoreRamp.setMode('verdict');
+  });
+
+  it('a loaded \'temp\' preference reaches setMode', async () => {
+    getSettings.mockResolvedValue({ mapColourScale: 'temp' });
+    const setModeSpy = vi.spyOn(scoreRamp, 'setMode');
+    renderApp();
+
+    await screen.findByTestId('window-first-pane-empty');
+    await waitFor(() => expect(setModeSpy).toHaveBeenCalledWith('temp'));
+    expect(scoreRamp.getMode()).toBe('temp');
+  });
+
+  it('a never-chosen preference resolves to verdict, not a silent temp switch', async () => {
+    getSettings.mockResolvedValue({ mapColourScale: null });
+    renderApp();
+
+    await screen.findByTestId('window-first-pane-empty');
+    await waitFor(() => expect(getSettings).toHaveBeenCalled());
+    expect(scoreRamp.getMode()).toBe('verdict');
   });
 });

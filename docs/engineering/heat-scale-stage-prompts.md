@@ -521,6 +521,12 @@ commit as the work.
 
 ## Stage 6 — The preference, full-stack ✅ LANDED (#650)
 
+> **Kept for the record, and it shipped with ONE setting, not two.** `markersFollowScale` was
+> removed before this merged: review found it persisted and rendered as a checkbox but consumed by
+> nothing, and honouring it would have put the field on one scale and the markers on another —
+> the disagreement cross-cutting rule 1 exists to prevent. See the plan's §5 question 3. Read the
+> goal line below as `mapColourScale` alone.
+>
 > You are implementing **Stage 6** of `docs/engineering/heat-scale-unification-plan.md`. Read its
 > Stage 6 section first. Stages 1, 2, 3, 5a and 5b have merged; `MODE` still defaults to
 > `'verdict'` and **this stage does not flip it** — that is Stage 7.

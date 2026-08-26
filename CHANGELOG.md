@@ -25,6 +25,56 @@ And for the notice: `MapView`'s existing fail-soft `localStorage` helpers are ma
 optional, because several of those reads happen inside `useState` initialisers, where a
 storage-denied browser's `SecurityError` crashes the app rather than the map.
 
+### Added — Stage 6: the map colour preference, full-stack (still defaulting to verdict)
+
+Two settings a caller can now choose and have persist: `mapColourScale` (`'temp'` or `'verdict'`)
+and `markersFollowScale`. Backend-heavy on purpose — persisted through `settingsApi`, not
+`localStorage` — because the choice has to survive a reload and reach both the Plan tab and the Map
+tab from one source. Migration V147 adds `map_colour_scale`/`markers_follow_scale` as nullable,
+no-default columns on `app_user` (there is no `user_settings` table — every per-user setting lives
+here, following V67 and V136's precedent), so `NULL` still means "never chosen" rather than a
+silently-written default; that distinction is what lets Stage 7 flip the *default* for people who
+never chose without overriding anyone who explicitly picked one. `mapColourScale` rides that
+nullable, raw pass-through all the way to `UserSettingsResponse`; `markersFollowScale` is instead
+resolved to a concrete `true` by `UserSettingsService` when never chosen, since nothing about its
+own default is expected to change later. A new `PUT /api/user/settings/map-colours` carries the
+write — deliberately not folded onto `PUT /home`, which would deserialise the home fields to null
+and wipe a saved postcode — and both fields are required together (boxed `Boolean`, not primitive,
+so an omitted `markersFollowScale` 400s instead of Jackson silently binding it to `false`). The
+frontend gains a new **Map Colours** section in the settings modal (a radio pair plus the project's
+first checkbox/toggle pattern, both keyboard-operable and labelled), left outside the Pro gate since
+reading the map is not a Pro feature. `App.jsx`'s `loadHomeCoords` is the one place the loaded
+setting reaches `scoreRamp.setMode()`, so Plan and Map can never disagree about what a colour means.
+
+Two defects surfaced by adversarial review before this landed, both fixed in the same commit: (1) a
+missing/invalid `mapColourScale` threw a 500 rather than a 400, because `Set.of(...).contains(null)`
+throws — now null-checked first; (2) `MapView`'s marker-icon cache and its `React.memo` wrapper both
+silently assumed the active ramp never changed for the life of a tab, which held only because
+nothing had ever called `scoreRamp.setMode('temp')` from a live control before this stage. Once a
+caller can flip it, the Map pane — never unmounted, only hidden between visits — would have kept
+painting the OLD scale indefinitely: the cache key now reads `scoreRamp.getMode()` directly (the
+same call the colour computation itself makes, so the two can never disagree), and `MapView` gained
+a `mapColourScale` prop whose sole job is to change value and defeat the memo's shallow prop compare
+— its content is deliberately never read for colour. Default stays `'verdict'` through this stage,
+giving a dogfooding window before Stage 7 flips it for everyone.
+
+
+⚠️ **`markersFollowScale` was removed before this landed**, on the owner's call, after Codex's
+review found it persisted and rendered as a checkbox but **consumed by nothing** —
+`markerUtils.js` never referenced it, so turning it off did nothing at all.
+
+The obvious fix was the one thing this series forbids. Cross-cutting rule 1 is *"one `MODE`, read
+from one module: Plan thumbnails and the Map tab must never disagree about what a colour means"* —
+and `markersFollowScale = false` means exactly that disagreement, the field and legend on `temp`
+with the markers on `verdict`, the same location painted two ways on one screen. Honouring it
+needs a per-call mode override or a second module-level mode, and both break the invariant the
+whole series exists to establish. The plan had already flagged the doubt as an open question.
+
+So the column, the request field, the response field, the checkbox and their tests are gone.
+Markers always follow the scale. Shipping the control inert was the one option not on the table: a
+setting that does nothing is worse than either honouring it or not offering it.
+### Changed — Stage 7 is blocked: the score number's tint fails AA in temperature mode
+
 ### Fixed — two comments left dangling by the tint removal
 
 `#648` deleted `NUMBER_TINT_FLOOR` but two comments still cited it, and one of them documented an
