@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.evaluation;
 import com.anthropic.errors.AnthropicServiceException;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
+import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.Usage;
 import com.anthropic.models.messages.batches.BatchCreateParams;
@@ -338,6 +339,37 @@ class EvaluationServiceImplTest {
     }
 
     @Test
+    @DisplayName("evaluateNow: forecast max_tokens truncation → rejected as failure, not "
+            + "persisted as a successful outcome (the live sync engine independent of "
+            + "ClaudeEvaluationStrategy, per the Codex P1 finding on PR #659)")
+    void evaluateNow_forecastMaxTokens_rejectedAsFailure() {
+        EvaluationTask.Forecast task = forecastTask(42L, "Castlerigg", "Lake District");
+        when(batchRequestFactory.selectBuilder(eq(task.data())))
+                .thenReturn(new PromptBuilder());
+        // Deliberately no content stubbed — checkStopReason rejects before this engine ever
+        // reads response.content(), same as the sibling batch-path fixture in
+        // BatchResultProcessorTest. What content WOULD have parsed to is irrelevant here;
+        // ClaudeEvaluationStrategyTest already proves rejection is content-independent by
+        // holding content identical to a passing case and varying only the stop reason.
+        Message message = mockMessageWithStopReason(StopReason.MAX_TOKENS);
+        when(anthropicApiClient.createMessage(any())).thenReturn(message);
+        when(forecastResultHandler.handleSyncResult(eq(task),
+                any(ClaudeSyncOutcome.class), any(ResultContext.class)))
+                .thenReturn(new EvaluationResult.Errored("IllegalStateException", "x"));
+
+        EvaluationResult result = service.evaluateNow(task, BatchTriggerSource.SCHEDULED);
+
+        assertThat(result).isInstanceOf(EvaluationResult.Errored.class);
+        ArgumentCaptor<ClaudeSyncOutcome> outcomeCaptor =
+                ArgumentCaptor.forClass(ClaudeSyncOutcome.class);
+        verify(forecastResultHandler).handleSyncResult(
+                eq(task), outcomeCaptor.capture(), any(ResultContext.class));
+        ClaudeSyncOutcome outcome = outcomeCaptor.getValue();
+        assertThat(outcome.succeeded()).isFalse();
+        assertThat(outcome.errorMessage()).contains("stop_reason=max_tokens");
+    }
+
+    @Test
     @DisplayName("evaluateNow: aurora success path drains SDK Message into ClaudeSyncOutcome.success")
     void evaluateNow_auroraSuccess_drainsResponseIntoOutcome() {
         EvaluationTask.Aurora task = auroraTask(AlertLevel.MODERATE);
@@ -507,6 +539,18 @@ class EvaluationServiceImplTest {
         when(usage.outputTokens()).thenReturn(output);
         when(usage.cacheCreationInputTokens()).thenReturn(Optional.of(cacheCreate));
         when(usage.cacheReadInputTokens()).thenReturn(Optional.of(cacheRead));
+        return message;
+    }
+
+    /**
+     * Minimal fixture stubbing only {@code stopReason()} — {@code checkStopReason} rejects
+     * before this engine ever reads {@code content()}/{@code usage()}/{@code model()}, so
+     * stubbing those here would trip Mockito's unnecessary-stubbing check (the same lesson as
+     * {@code BatchResultProcessorTest.succeededResponseWithStopReason}).
+     */
+    private static Message mockMessageWithStopReason(StopReason stopReason) {
+        Message message = mock(Message.class);
+        when(message.stopReason()).thenReturn(Optional.of(stopReason));
         return message;
     }
 

@@ -135,9 +135,14 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
      * closed summary) when the cut lands after those fields but before optional ones, so without
      * this check a {@code max_tokens} truncation is persisted as a complete forecast.
      *
+     * <p>Package-private (not {@code private}) so {@link EvaluationServiceImpl#evaluateNowForecast}
+     * — the other live engine that calls Claude for a forecast, independently of this strategy
+     * class — shares this exact check rather than growing its own copy that could drift out of
+     * sync with it.
+     *
      * @param response the Claude API response
      */
-    private static void checkStopReason(Message response) {
+    static void checkStopReason(Message response) {
         StopReason stopReason = response.stopReason().orElse(null);
         if (StopReason.REFUSAL.equals(stopReason)) {
             throw new IllegalStateException(
