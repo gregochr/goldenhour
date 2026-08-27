@@ -3,6 +3,10 @@ package com.gregochr.goldenhour.repository;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity;
 import com.gregochr.goldenhour.entity.ForecastBatchEntity.BatchStatus;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -79,4 +83,25 @@ public interface ForecastBatchRepository extends JpaRepository<ForecastBatchEnti
      * @return matching {@code is_retry = true} batches (any status)
      */
     List<ForecastBatchEntity> findByPipelineRunIdAndRetryTrue(Long pipelineRunId);
+
+    /**
+     * Links a submitted batch to its job run, touching that column and nothing else.
+     *
+     * <p>⚠️ This exists instead of re-saving the entity, and the distinction is load-bearing. The
+     * tracking row is persisted the instant Anthropic returns — before job-run bookkeeping — so
+     * that polling can discover the batch as early as possible. That means the row is already
+     * visible to {@code BatchPollingService} by the time this runs. Re-saving the in-memory entity
+     * would merge <em>every</em> column from an instance that still holds the construction-time
+     * defaults, so a poller that had meanwhile completed the batch would have its
+     * {@code COMPLETED} status, counts and token totals silently reverted to {@code SUBMITTED} —
+     * putting already-processed results back in the polling set. A targeted update cannot do that.
+     *
+     * @param id       the batch primary key
+     * @param jobRunId the job run to link
+     * @return the number of rows updated (0 if the batch has since been deleted)
+     */
+    @Modifying
+    @Transactional
+    @Query("update ForecastBatchEntity b set b.jobRunId = :jobRunId where b.id = :id")
+    int linkJobRun(@Param("id") Long id, @Param("jobRunId") Long jobRunId);
 }

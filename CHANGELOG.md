@@ -32,6 +32,13 @@ failure in a table the batch's results do not depend on was enough to strand it 
 row is now persisted first, immediately after the irreversible call, and job-run linkage follows
 as a best-effort update.
 
+⚠️ That linkage is a **targeted `linkJobRun` UPDATE, never a second `save(entity)`** — a
+distinction Codex caught in the first cut of this very fix. Writing the row early is what makes it
+pollable early, so by the time bookkeeping runs the poller may already have completed the batch;
+merging the in-memory instance back would restore its construction-time defaults and revert
+`COMPLETED` to `SUBMITTED`, putting processed results back in the polling set. The fix for a
+duplicate-processing bug had quietly introduced a narrower one.
+
 ⚠️ And when that row cannot be written, `submit` no longer returns `null`. `null` means "nothing
 was submitted", and every caller reads it that way — `EvaluationServiceImpl` maps it to an empty
 handle, from which the orchestrator concludes it has a zero-batch cycle, treats that as terminal,

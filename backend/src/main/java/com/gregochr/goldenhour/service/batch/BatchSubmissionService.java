@@ -154,7 +154,7 @@ public class BatchSubmissionService {
             }
             entity.setRetry(isRetry);
             try {
-                batchRepository.save(entity);
+                entity = batchRepository.save(entity);
             } catch (Exception persistFailure) {
                 // ⚠️ Do NOT fall through to the null return. `null` means "nothing was submitted",
                 // and every caller reads it that way — EvaluationServiceImpl maps it to
@@ -173,10 +173,16 @@ public class BatchSubmissionService {
             // Job-run bookkeeping is deliberately best-effort and AFTER the row above: it feeds
             // metrics, not result processing, so losing it costs a dashboard line rather than a
             // batch.
+            //
+            // ⚠️ Linked by targeted UPDATE, never by re-saving `entity`. The row is already
+            // pollable by this point — that is the whole reason it was written first — so merging
+            // the in-memory instance back would overwrite every column with its construction-time
+            // state, reverting a batch the poller had just COMPLETED to SUBMITTED and putting its
+            // processed results back in the polling set. See ForecastBatchRepository.linkJobRun.
             JobRunEntity jobRun = jobRunService.startBatchRun(requests.size(), batch.id());
             if (jobRun != null) {
                 entity.setJobRunId(jobRun.getId());
-                batchRepository.save(entity);
+                batchRepository.linkJobRun(entity.getId(), jobRun.getId());
             }
 
             Long jobRunId = jobRun != null ? jobRun.getId() : null;

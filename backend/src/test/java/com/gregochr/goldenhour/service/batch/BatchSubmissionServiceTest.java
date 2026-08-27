@@ -28,9 +28,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -71,6 +71,17 @@ class BatchSubmissionServiceTest {
         when(messageBatch.expiresAt()).thenReturn(OffsetDateTime.now().plusHours(24));
     }
 
+    /**
+     * Opt-in stub for the tests whose submission actually reaches persistence: save() returns the
+     * instance it was given, because the service keeps that instance to link the job run by id.
+     * Deliberately not in stubBatchCreate — the tests that make save throw would then carry a stub
+     * they never use, which strict stubbing correctly rejects.
+     */
+    private void stubSaveEchoes() {
+        when(batchRepository.save(any(ForecastBatchEntity.class)))
+                .thenAnswer(inv -> inv.getArgument(0));
+    }
+
     @Test
     @DisplayName("submit: empty request list returns null without contacting Anthropic")
     void submit_emptyRequests_returnsNull() {
@@ -87,6 +98,7 @@ class BatchSubmissionServiceTest {
     @DisplayName("submit: successful scheduled submission persists entity and returns result")
     void submit_scheduledSucceeds_persistsAndReturns() {
         stubBatchCreate("msgbatch_scheduled");
+        stubSaveEchoes();
         JobRunEntity jobRun = new JobRunEntity();
         jobRun.setId(42L);
         when(jobRunService.startBatchRun(anyInt(), anyString())).thenReturn(jobRun);
@@ -114,11 +126,12 @@ class BatchSubmissionServiceTest {
 
         ArgumentCaptor<ForecastBatchEntity> entityCaptor =
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);
-        // TWO saves, deliberately. The row is persisted the moment Anthropic returns — that row is
-        // the only way the poller ever discovers the batch — and then updated with the jobRunId
-        // once bookkeeping has run. A single save would mean waiting for startBatchRun before the
-        // batch became discoverable, which is exactly the window that could strand a paid batch.
-        verify(batchRepository, times(2)).save(entityCaptor.capture());
+        // ONE save — the row is written the moment Anthropic returns, which is the only way the
+        // poller ever discovers the batch. The job-run link that follows is a TARGETED update, not
+        // a second save: by then the row is already pollable, and merging this in-memory instance
+        // back would revert a batch the poller had just completed to SUBMITTED.
+        verify(batchRepository).save(entityCaptor.capture());
+        verify(batchRepository).linkJobRun(any(), eq(42L));
         assertThat(entityCaptor.getValue().getAnthropicBatchId())
                 .isEqualTo("msgbatch_scheduled");
         assertThat(entityCaptor.getValue().getBatchType()).isEqualTo(BatchType.FORECAST);
@@ -129,6 +142,7 @@ class BatchSubmissionServiceTest {
     @DisplayName("submit: force trigger is accepted and flagged through logs/result the same way")
     void submit_forceTrigger_producesResultSameShape() {
         stubBatchCreate("msgbatch_force");
+        stubSaveEchoes();
         when(jobRunService.startBatchRun(anyInt(), anyString())).thenReturn(null);
 
         BatchCreateParams.Request request = BatchCreateParams.Request.builder()
@@ -175,6 +189,7 @@ class BatchSubmissionServiceTest {
     @DisplayName("submit: null job run still persists batch entity without linking")
     void submit_nullJobRun_persistsWithoutLink() {
         stubBatchCreate("msgbatch_nojobrun");
+        stubSaveEchoes();
         when(jobRunService.startBatchRun(anyInt(), anyString())).thenReturn(null);
 
         BatchCreateParams.Request request = BatchCreateParams.Request.builder()
@@ -224,6 +239,7 @@ class BatchSubmissionServiceTest {
             + "failure cannot strand a paid batch")
     void submit_persistsTrackingRowBeforeJobRun() {
         stubBatchCreate("msgbatch_order");
+        stubSaveEchoes();
         JobRunEntity jobRun = new JobRunEntity();
         jobRun.setId(7L);
         when(jobRunService.startBatchRun(anyInt(), anyString())).thenReturn(jobRun);

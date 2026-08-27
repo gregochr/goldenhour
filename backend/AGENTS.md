@@ -107,6 +107,12 @@ Checkstyle and SpotBugs gate those in CI.
   `OrphanedBatchException` — it must **never** return `null`, which every
   caller reads as "nothing was submitted" and the orchestrator turns into a
   terminal zero-batch cycle that briefs from stale cache.
+- **The job-run link is a targeted `linkJobRun` UPDATE, never a second
+  `save(entity)`.** Writing the row early makes it pollable early, so by the
+  time bookkeeping runs the poller may already have completed the batch.
+  Merging the in-memory instance back would restore its construction-time
+  defaults and revert `COMPLETED` to `SUBMITTED`, putting processed results
+  back in the polling set.
 
 - **Every outbound `RestClient` carries timeouts.** The shared bean was
   `RestClient.create()` — no request factory, so no read timeout — while the
