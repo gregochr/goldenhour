@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — JSON date format contract test
+
+`JsonDateFormatContractTest` pins the exact wire format `LocalDate`/`LocalDateTime`/`Instant`
+render in on real `GET /api/forecast` and `GET /api/user/settings` responses, loading the full
+Spring context (`AbstractControllerTest`) rather than a hand-built `ObjectMapper` — the six
+existing `*JsonTest` classes construct their own mapper and can only prove internal
+round-tripping, not what the MVC layer actually emits. Finding: `AppConfig.objectMapper()` is a
+Jackson 2 bean with `WRITE_DATES_AS_TIMESTAMPS` never disabled, but it turns out to be
+**irrelevant to the wire format** — this Spring Boot 4 / Spring Framework 7 app's
+`@RestController` responses go through an auto-configured **Jackson 3** (`tools.jackson`)
+`JsonMapper`/`JacksonJsonHttpMessageConverter`, a completely separate object graph. Confirmed by
+mutation: enabling `WRITE_DATES_AS_TIMESTAMPS` on the Jackson 2 bean does not change the observed
+JSON at all; the real mutation that flips dates to `[2026,4,16]`/epoch-seconds is on the Jackson 3
+`JsonMapperBuilderCustomizer`, which the new test correctly detects. No production code changed —
+the dates already render as ISO-8601 on the wire, for a different reason than assumed.
+
 ### Changed — docs now say what is actually true about Docker, migrations and Jackson
 
 Three claims in the guidance were sending session after session down the same dead ends. All three
@@ -34,7 +50,6 @@ chain at all. 48 files are on Jackson 2, 8 on Jackson 3. That bean's missing
 `WRITE_DATES_AS_TIMESTAMPS` disable is therefore real but **moot for the wire**. An architecture
 review flagged it as an API risk and the follow-up looked at the wrong mapper; the note now names
 both graphs so the next reader does not repeat it.
-
 
 ## [v2.19.2] - 2026-08-27
 
