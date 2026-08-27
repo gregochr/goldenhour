@@ -5,6 +5,27 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — `TideService`'s WorldTides vendor calls split into `WorldTidesIngestionService`
+
+Extracts `fetchAndStoreTideExtremes` (both overloads), `resolveFetchWindow`, the post-merge
+integrity check and `backfillTideExtremes` — the vendor HTTP calls, API key handling, billed-call
+metrics, the windowed merge and the 12-month backfill — into a new `WorldTidesIngestionService`.
+`TideService` stays the façade every existing caller (`ForecastController`, `LocationController`,
+`LocationService`, `ScheduledForecastService` on the ingestion side; `TideController`,
+`TideFactDeriver`, `ForecastDataAugmentor`, `WindowTideRollupBuilder`, `TideRunBuilder` on the
+interpretation side) already calls — it delegates the four ingestion methods unchanged, and no
+caller migrates in this PR. Reading stored extremes and classifying tide state
+(`deriveTideData`, `deriveDualWindowTideData`, `calculateTideAligned`, `getTideStats`) stays on
+`TideService`, which is our own data, not the vendor's.
+
+A pure move: the 66 pre-existing `TideServiceTest` and 11 `TideFetchWindowTest` assertions pass
+**unedited**, which is the whole proof. `sameKindAdjacencies`/`Adjacency` stay defined on
+`TideService` rather than moving with the integrity check, because those tests reference them by
+that class's name directly; `WorldTidesIngestionService`'s logger is deliberately still
+`TideService.class` for the same reason (several assertions attach a `ListAppender` to that
+category). A mutation check (inverting the tail-fetch's one-minute overlap margin) confirmed six
+`TideFetchWindowTest` assertions actually fail when the moved code breaks.
+
 ### Changed — the served-briefing composition is now `ServedBriefingAssembler`, not `BriefingService`
 
 Executes `docs/engineering/served-briefing-assembler-plan.md`. `reEnrichVerdicts`,
