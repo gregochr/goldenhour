@@ -43,9 +43,16 @@ The archive may not serve the exact model run the pipeline used. This plan makes
 - Complication to handle, not hide: the trend was read at the un-coned CENTRE point until F1
   (#294, 2026-07-25) and as the 3-point cone average after. Fetch all three cone bearings
   (`DirectionalSamplingGeometry.computeSolarConePoints`) — 3 points × 4 hours per row is still
-  tiny — compute both centre-only and coned variants, and use whichever matches that row's
-  persisted endpoints better; report fidelity per era so a pre/post-F1 split in accuracy is
-  visible.
+  tiny — and compute both centre-only and coned variants, but **select the variant
+  deterministically by deployment era, never per-row by fit**: pre-F1 rows use CENTRE, post-F1
+  rows use CONED, and fidelity is then measured for the era-selected variant. Choosing whichever
+  variant matches a row's persisted endpoints better would leak the validation target into the
+  selection — with two noisy reconstructions the selected errors are optimistically biased, and
+  the retained peak can come from a geometry the production evaluation never used (cross-vendor
+  review finding, 2026-08-27). Establish the era boundary from the *deploy* date of the release
+  that shipped #294, not its merge date, and exclude rows evaluated on the boundary day itself
+  (both geometries ran within it). Persist the non-selected variant's endpoint error too, as a
+  diagnostic column only — it must feed neither the fidelity gate nor the retained peak.
 - Lead-time matching: prefer requesting the archived forecast at the lead matching the row's
   persisted `days_ahead` (Open-Meteo's previous-runs API exposes `*_previous_dayN` hourly
   variables) and fall back to the plain historical-forecast API (best available lead) when the
@@ -69,10 +76,16 @@ One migration — ⚠️ read the next number from the tree ON MAIN at implement
 (`ls backend/src/main/resources/db/migration/ | sort -V | tail -1`; V142 as of this writing, but
 this repo merges daily and two V-numbers have collided before). Table `trend_peak_recon`:
 `forecast_evaluation_id` (PK, FK), `recon_peak_low_cloud`, `recon_earliest_low_cloud`,
-`recon_event_low_cloud`, `variant` (CENTRE/CONED — whichever matched), `source`
-(LEAD_MATCHED/BEST_AVAILABLE), `endpoint_abs_error` (mean of the two), `fetched_at`.
-Insert-only, keyed to the evaluation row; re-running the reconstruction overwrites by PK
-(idempotent, resumable via anti-join — same pattern as the verification backfill).
+`recon_event_low_cloud`, `variant` (CENTRE/CONED — era-selected, per the rule above), `source`
+(LEAD_MATCHED/BEST_AVAILABLE), `endpoint_abs_error` (mean of the two, for the selected variant),
+`other_variant_abs_error` (diagnostic only), `fetched_at`.
+**Insert-only with completed rows immutable; resumable via anti-join** (select evaluation IDs
+absent from `trend_peak_recon`) — a rerun therefore continues, it never overwrites. These two
+properties were originally stated together with "overwrites by PK", which is contradictory
+(cross-vendor review finding, 2026-08-27): an anti-join can never reach an existing PK. When a
+reconstruction genuinely needs redoing (a variant-selection bug, a bad partial batch), the redo
+is an **explicit admin delete** of the affected rows (`DELETE /api/admin/trend-peak-recon` with
+a date range or run marker) followed by a rerun — deliberate and visible, never a silent upsert.
 
 ### 3. Population
 
