@@ -94,6 +94,16 @@ Checkstyle and SpotBugs gate those in CI.
 
 ### Bugs that were fixed and must not come back
 
+- **`forecast_score` is read in production; the dual-write swallow is
+  deliberate but its consequence is not nil.** `ForecastDtoMapper` serves the
+  API's Claude BLUEBELL rating from that table and `SurvivorSignalReader`
+  reads components for hot topics, so the old "nothing reads it yet / the
+  record being proven" comments were false and are corrected. Keep swallowing
+  — the serving path must not fail for a secondary write — but the ERROR must
+  keep naming the consequence. Rows UPSERT latest-wins, so a lost write is
+  staleness until that slot is next evaluated; the one permanent case is a
+  slot first evaluated at **T+0**, which gets no later run.
+
 - **An absent air-quality reading is `null`, never `BigDecimal.ZERO`.**
   `OpenMeteoResponseParser.toDecimal` used to zero-fill missing PM2.5, dust
   and AOD. Zero is not neutral for these three: the system prompt grades AOD

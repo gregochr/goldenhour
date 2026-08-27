@@ -405,7 +405,10 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                     location, date, targetType, combined.components(), pipelineRunId);
         } catch (Exception e) {
             LOG.error("forecast_score woodland dual-write FAILED for component key "
-                    + "(location={}, date={}, event={}); evaluation proceeds unaffected: {}",
+                    + "(location={}, date={}, event={}); the SERVED evaluation is unaffected, but "
+                    + "this slot's forecast_score row is now stale and the API reads bluebell "
+                    + "ratings from it. Self-heals on the next evaluation of this slot — except "
+                    + "at T+0, which gets no later run: {}",
                     location.getName(), date, targetType, e.getMessage(), e);
         }
 
@@ -546,7 +549,10 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                     location, date, targetType, combined.components(), pipelineRunId);
         } catch (Exception e) {
             LOG.error("forecast_score bluebell dual-write FAILED for component key "
-                    + "(location={}, date={}, event={}); evaluation proceeds unaffected: {}",
+                    + "(location={}, date={}, event={}); the SERVED evaluation is unaffected, but "
+                    + "this slot's forecast_score row is now stale and the API reads bluebell "
+                    + "ratings from it. Self-heals on the next evaluation of this slot — except "
+                    + "at T+0, which gets no later run: {}",
                     location.getName(), date, targetType, e.getMessage(), e);
         }
 
@@ -559,8 +565,13 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * Pass 2 dual-write seam: persists the combiner's component scores to {@code forecast_score}
      * alongside the serving payload, never instead of it. Isolated so a write failure logs
      * loudly at ERROR (with the component key) and the evaluation proceeds — the serving path is
-     * the live product, {@code forecast_score} is the record being proven. The
+     * the live product and must not fail because a secondary write did. The
      * {@code REQUIRES_NEW} boundary inside the writer confines any rollback to the dual-write.
+     *
+     * <p>⚠️ This javadoc used to end "{@code forecast_score} is the record being proven", which
+     * has been false since {@code ForecastDtoMapper} started serving the API's bluebell rating
+     * from that table. Swallowing is still correct; treating the consequence as nil is not. See
+     * {@link ForecastScoreWriter} for what a lost write costs and why it usually self-heals.
      */
     private void dualWriteForecastScore(LocationEntity location, LocalDate date,
             TargetType targetType, SunsetEvaluation eval, RatingCombiner.CombinedRating combined,
@@ -570,7 +581,10 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                     location, date, targetType, eval, combined.components(), pipelineRunId);
         } catch (Exception e) {
             LOG.error("forecast_score dual-write FAILED for component key "
-                    + "(location={}, date={}, event={}); evaluation proceeds unaffected: {}",
+                    + "(location={}, date={}, event={}); the SERVED evaluation is unaffected, but "
+                    + "this slot's forecast_score row is now stale and the API reads bluebell "
+                    + "ratings from it. Self-heals on the next evaluation of this slot — except "
+                    + "at T+0, which gets no later run: {}",
                     location.getName(), date, targetType, e.getMessage(), e);
         }
     }

@@ -249,7 +249,7 @@ difference a change. This cost a day on 2026-08-03.
 | store | per-run history | written by | read by |
 |---|---|---|---|
 | `cached_evaluation` (briefing evaluation cache) | **no** — overwritten each run | `BriefingEvaluationService.writeFromBatch`, from the batch pipeline | `BriefingService.enrichSlot` — **this is the rating the UI displays**, keyed by location *name* |
-| `forecast_score` (V108) | **no** — `uq_forecast_score_component` is UNIQUE on (forecast_type, location, date, event); latest evaluation wins, deliberately matching `cached_evaluation` semantics | the Pass-2 dual write in `ForecastResultHandler` | Pass-2 consumers |
+| `forecast_score` (V108) | **no** — `uq_forecast_score_component` is UNIQUE on (forecast_type, location, date, event); latest evaluation wins, deliberately matching `cached_evaluation` semantics | the Pass-2 dual write in `ForecastResultHandler` | **`ForecastDtoMapper`** (the API DTO's Claude BLUEBELL rating) and **`SurvivorSignalReader`** (hot-topic components) — ⚠️ *not* a proving surface any more, whatever the older comments said |
 | `forecast_evaluation` | **yes**, insert-only and never pruned | the **synchronous** engine | `GET /api/forecast` (the map's primary endpoint), `EvaluationViewService`, `ForecastCalibrationService` |
 
 Two consequences worth stating plainly:
