@@ -6,11 +6,11 @@ import java.util.List;
 
 /**
  * The serve-time enrichment socket: re-derives each region's Claude-rating rollup from a
- * {@link BriefingService.RegionScoreResolver}, without the assembler needing to know how that
+ * {@link RegionScoreResolver}, without the assembler needing to know how that
  * enrichment is actually computed.
  *
  * <p>Backed today by {@link BriefingService#enrichWithCachedScores(List,
- * BriefingService.RegionScoreResolver)} — the same method the briefing <em>build</em> path
+ * RegionScoreResolver)} — the same method the briefing <em>build</em> path
  * shares via its own 1-arg overload — so the logic itself stays a single, shared implementation
  * rather than being duplicated or moved. {@code ServedBriefingAssembler} takes this narrow
  * functional dependency rather than the enrichment logic itself, so a future change to where or
@@ -28,5 +28,5 @@ public interface BriefingScoreEnricher {
      * @param resolver resolves cached Claude scores for one region/date/target
      * @return a rebuilt hierarchy with enriched slots
      */
-    List<BriefingDay> enrich(List<BriefingDay> days, BriefingService.RegionScoreResolver resolver);
+    List<BriefingDay> enrich(List<BriefingDay> days, RegionScoreResolver resolver);
 }

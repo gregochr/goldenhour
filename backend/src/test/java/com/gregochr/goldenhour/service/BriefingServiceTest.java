@@ -175,7 +175,7 @@ class BriefingServiceTest {
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 evaluationViewService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                snapshots(), assembler(CLOCK));
+                snapshots(), assembler(CLOCK), rollup(CLOCK));
     }
 
     /**
@@ -197,18 +197,36 @@ class BriefingServiceTest {
     /**
      * A real {@link ServedBriefingAssembler} over the mocked serve-only collaborators
      * ({@code bestBetFallbackService}, {@code windowTideRollupBuilder}) plus the shared
-     * {@code evaluationViewService} mock and a real {@link #snapshots()}. Its enrichment socket is
-     * left unbound here — {@code BriefingService}'s own constructor binds it, the same way
-     * production wiring does, so passing this to {@code new BriefingService(...)} is what makes it
-     * usable.
+     * {@code evaluationViewService} mock, a real {@link #snapshots()} and a real
+     * {@link #rollup(java.time.Clock)}.
+     *
+     * <p>The enrichment socket is a constructor argument now. It used to be bound afterwards by
+     * {@code BriefingService}'s constructor, because the only implementation was a method on
+     * {@code BriefingService} itself; extracting {@link BriefingRegionEvaluationRollup} removed
+     * that circularity, so the wiring here matches production exactly rather than imitating it.
      *
      * @param clock the clock the assembler's own "now" (the window-projector instant) runs on —
      *              matches whichever clock the owning {@code BriefingService} is built with
-     * @return an unbound assembler ready to be handed to {@code BriefingService}'s constructor
+     * @return an assembler ready to use
      */
     private ServedBriefingAssembler assembler(java.time.Clock clock) {
         return new ServedBriefingAssembler(bestBetFallbackService, snapshots(),
-                windowTideRollupBuilder, evaluationViewService, clock);
+                windowTideRollupBuilder, evaluationViewService, clock, rollup(clock));
+    }
+
+    /**
+     * A REAL {@link BriefingRegionEvaluationRollup}, not a mock.
+     *
+     * <p>Deliberate, and the whole point of these tests: the rollup IS the scoring policy this
+     * class asserts on — the two rating rollups, the confidence floor, gloss invalidation. Mocking
+     * it would leave every one of those assertions verifying a stub. It needs only a clock, so
+     * there is nothing to stub anyway.
+     *
+     * @param clock the clock its confidence horizon is derived from
+     * @return a live rollup on the test clock
+     */
+    private BriefingRegionEvaluationRollup rollup(java.time.Clock clock) {
+        return new BriefingRegionEvaluationRollup(clock);
     }
 
     /**
@@ -488,7 +506,7 @@ class BriefingServiceTest {
                     slotBuilder, eventPublisher, hotTopicAggregator,
                     evaluationViewService,
                     BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), BST_CLOCK, marineWaveRefreshService,
-                    snapshots(), assembler(BST_CLOCK));
+                    snapshots(), assembler(BST_CLOCK), rollup(BST_CLOCK));
             freshService.loadPersistedBriefing();
 
             DailyBriefingResponse api = freshService.getCachedBriefingForApi();
@@ -866,7 +884,7 @@ class BriefingServiceTest {
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 evaluationViewService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                snapshots(), assembler(CLOCK));
+                snapshots(), assembler(CLOCK), rollup(CLOCK));
         freshService.loadPersistedBriefing();
 
         DailyBriefingResponse cached = freshService.getCachedBriefing();
@@ -900,7 +918,7 @@ class BriefingServiceTest {
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 evaluationViewService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                snapshots(), assembler(CLOCK));
+                snapshots(), assembler(CLOCK), rollup(CLOCK));
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -927,7 +945,7 @@ class BriefingServiceTest {
                 slotBuilder, eventPublisher, hotTopicAggregator,
                 evaluationViewService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                snapshots(), assembler(CLOCK));
+                snapshots(), assembler(CLOCK), rollup(CLOCK));
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -1468,7 +1486,7 @@ class BriefingServiceTest {
                     slotBuilder, eventPublisher, hotTopicAggregator,
                     evaluationViewService,
                     BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                    snapshots(), assembler(CLOCK));
+                    snapshots(), assembler(CLOCK), rollup(CLOCK));
             freshService.loadPersistedBriefing();
 
             // Trigger below-threshold refresh: 1 location, batch throws → succeeded=0, failed=1

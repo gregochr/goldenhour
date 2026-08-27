@@ -5,6 +5,41 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — region evaluation rollup has one owner, shared by both timings
+
+The scoring policy that turns a weather/triage hierarchy into a scored one — per-slot enrichment,
+roster derivation, the two rating rollups, gloss invalidation and confidence derivation — now
+lives in `BriefingRegionEvaluationRollup` instead of inside `BriefingService`. Both callers use
+it: the build path hands it a per-region lookup, the serve path a pre-loaded bulk index, through
+the `BriefingScoreEnricher` socket that the assembler extraction created.
+
+This is what the co-change evidence pointed at. A commit touching `BriefingService` used to drag
+a mean of 8.7 Java files with it, and its companions were the serve representation and its
+policy — `BriefingRegion`, `BriefingSlot`, `BriefingGlossService` — not its infrastructure.
+
+**Two things that were only possible because this landed.** `RegionScoreResolver` is a top-level
+interface now, so neither the rollup nor the assembler reaches into another class's namespace to
+name it. And `ServedBriefingAssembler` takes its enricher by **constructor** rather than a setter
+called from `BriefingService`'s constructor: that setter existed only because the sole
+implementation was a method on `BriefingService`, and a constructor parameter would have made the
+two beans depend on each other. The rollup needs nothing but a `Clock`, so the cycle is gone at
+its source — and with it the window in which the field could be observed null.
+
+⚠️ **The constructor got LONGER, 24 → 25 parameters, and that is not a failure.** The rollup's
+only collaborator was the clock, which `BriefingService` still needs for other work, so nothing
+left. Arity was never the benefit here and should not be used to measure it — the benefit is that
+a change to rating policy now lands in a 297-line class with one job instead of inside the
+1314-line orchestrator this began as. Across the assembler and rollup extractions,
+`BriefingService` is down to **873 lines**.
+
+No behaviour change. Every assertion in `BriefingServiceTest` passes unedited — only construction
+wiring changed, and `BriefingServiceRosterTest` names the new class while its assertions stay
+byte-identical. Mutation-checked: swapping the confidence derivation from voting stats to coverage
+stats fails `aCanopySlotIsExcludedFromTheVerdictButNotFromCoverage`, the exact regression the
+two-rollup split exists to prevent. The Spring wiring was proven by a real context boot
+(`BriefingControllerTest`), not by reasoning — the local gate cannot see a startup cycle.
+
+
 ### Changed — `TideService`'s WorldTides vendor calls split into `WorldTidesIngestionService`
 
 Extracts `fetchAndStoreTideExtremes` (both overloads), `resolveFetchWindow`, the post-merge

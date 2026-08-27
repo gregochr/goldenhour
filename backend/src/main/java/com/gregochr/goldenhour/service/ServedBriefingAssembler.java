@@ -54,32 +54,28 @@ class ServedBriefingAssembler {
     private final Clock clock;
 
     /**
-     * Bound after construction by {@code BriefingService}'s own constructor — see the class
-     * javadoc for why this cannot be a constructor parameter here.
+     * The enrichment socket, now injected like any other collaborator.
+     *
+     * <p>This was a non-final field bound by a setter from {@code BriefingService}'s constructor,
+     * because the only implementation was {@code BriefingService::enrichWithCachedScores} and a
+     * constructor parameter would have made the two beans depend on each other. Extracting
+     * {@link BriefingRegionEvaluationRollup} removed the cycle at its source — the rollup needs
+     * nothing but a {@code Clock} — so ordinary constructor injection works, and with it goes the
+     * window in which this field could be observed null.
      */
-    private BriefingScoreEnricher scoreEnricher;
+    private final BriefingScoreEnricher scoreEnricher;
 
     ServedBriefingAssembler(BestBetFallbackService bestBetFallbackService,
             BriefingRegionSnapshotService regionSnapshotService,
             WindowTideRollupBuilder windowTideRollupBuilder,
             @Lazy EvaluationViewService evaluationViewService,
-            Clock clock) {
+            Clock clock,
+            BriefingScoreEnricher scoreEnricher) {
         this.bestBetFallbackService = bestBetFallbackService;
         this.regionSnapshotService = regionSnapshotService;
         this.windowTideRollupBuilder = windowTideRollupBuilder;
         this.evaluationViewService = evaluationViewService;
         this.clock = clock;
-    }
-
-    /**
-     * Supplies the enrichment socket. Called exactly once, from {@code BriefingService}'s own
-     * constructor, after this bean already exists — so the method reference it binds can safely
-     * capture {@code BriefingService}'s {@code this} without either bean needing the other to
-     * exist first.
-     *
-     * @param scoreEnricher backed by {@code BriefingService::enrichWithCachedScores}
-     */
-    void bindScoreEnricher(BriefingScoreEnricher scoreEnricher) {
         this.scoreEnricher = scoreEnricher;
     }
 
@@ -262,7 +258,7 @@ class ServedBriefingAssembler {
         }
         Map<String, Map<String, BriefingEvaluationResult>> index =
                 evaluationViewService.getScoresForEnrichmentBulk(start, end, types);
-        BriefingService.RegionScoreResolver resolver = (regionName, date, targetType) ->
+        RegionScoreResolver resolver = (regionName, date, targetType) ->
                 index.getOrDefault(regionName + "|" + date + "|" + targetType, Map.of());
         return response.withDays(scoreEnricher.enrich(response.days(), resolver));
     }
