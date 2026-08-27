@@ -91,7 +91,9 @@ public interface CloudVerificationRepository extends JpaRepository<CloudVerifica
      *
      * <p>Projects both claims the forecast makes — the gap (solar-horizon low cloud) and the
      * canvas (observer mid/high) — plus both veto triggers, the upwind distance (to split capped
-     * from uncapped samples) and the wind and solar bearings.
+     * from uncapped samples), the wind and solar bearings, and the precipitation and visibility
+     * readings behind triage's other two stand-down rules, so the promptable cut can reproduce
+     * all three.
      *
      * @param from start of the target-date window (inclusive)
      * @param to   end of the target-date window (inclusive)
@@ -103,7 +105,8 @@ public interface CloudVerificationRepository extends JpaRepository<CloudVerifica
             + " e.midCloud, e.highCloud, v.observerMidCloud, v.observerHighCloud,"
             + " e.cloudApproach.solarTrendBuilding, e.cloudApproach.upwindCurrentLowCloud,"
             + " e.cloudApproach.upwindDistanceKm, e.windDirection, e.azimuthDeg,"
-            + " e.directionalCloud.farSolarLow, v.horizonLowMin, v.horizonLowMax, v.farLowCloud)"
+            + " e.directionalCloud.farSolarLow, v.horizonLowMin, v.horizonLowMax, v.farLowCloud,"
+            + " e.precipitation, e.visibility)"
             + " FROM ForecastEvaluationEntity e, CloudVerificationEntity v"
             + " WHERE v.forecastEvaluationId = e.id"
             + " AND e.targetDate BETWEEN :from AND :to")

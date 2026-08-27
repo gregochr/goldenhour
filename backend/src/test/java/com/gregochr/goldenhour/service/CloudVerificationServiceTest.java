@@ -16,6 +16,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -650,6 +651,157 @@ class CloudVerificationServiceTest {
         assertThat(report.vetoSeparation()).isEqualTo(16.0);
     }
 
+    @Test
+    @DisplayName("report re-reads the families over the pairs passing ALL three triage rules")
+    void report_bucketsPromptableVariants() {
+        // Veto half — none carries an analysed far reading, so the corridor and blanket families
+        // cannot see them. Each of the three promptable clauses gets a fixture ON its band edge
+        // (a member) and one just past it (a non-member), with the other two clauses held in
+        // their passing state — member+non-member alone does not pin a three-clause predicate.
+        CloudVerificationPair firedDry = promptableVetoPair(true, 50, 90, null, null);
+        // Precipitation at exactly 2.0 mm: triage's rule is strictly-greater, so a member.
+        CloudVerificationPair firedAtPrecipEdge =
+                promptableVetoPair(true, 50, 70, new BigDecimal("2.0"), 8000);
+        // One hundredth over: the row the old cut wrongly counted — under 80% cloud, rained off.
+        CloudVerificationPair firedRainedOff =
+                promptableVetoPair(true, 50, 90, new BigDecimal("2.01"), 8000);
+        // Visibility at exactly 5,000 m: triage's rule is strictly-less, so a member.
+        CloudVerificationPair firedAtVisEdge =
+                promptableVetoPair(true, 50, 80, new BigDecimal("1.0"), 5000);
+        // One metre under: the other wrongly-counted row — under the cloud cut, fogged off.
+        CloudVerificationPair firedFoggedOff =
+                promptableVetoPair(true, 50, 90, new BigDecimal("1.0"), 4999);
+        // Cloud at exactly the cut with real (passing) precip and visibility readings, so the
+        // gap edge is pinned while the other two clauses are exercised rather than null.
+        CloudVerificationPair firedAtGapEdge =
+                promptableVetoPair(true, 80, 60, new BigDecimal("1.0"), 6000);
+        // Fails ONLY the cloud clause — dry, clear air, horizon over the cut.
+        CloudVerificationPair firedOverCut = promptableVetoPair(true, 81, 90, null, null);
+        CloudVerificationPair notFiredDry = promptableVetoPair(false, 50, 20, null, null);
+        CloudVerificationPair notFiredRainedOff =
+                promptableVetoPair(false, 50, 20, new BigDecimal("3.0"), null);
+        // Blanket and blocked half — corridor-shaped, observed near fixed at 80. Gap 60 sits in
+        // both blanket arms' >= 50 band but NOT the blocked band's > 60.
+        CloudVerificationPair blanketDryOpen = promptableCorridorPair(60, 55, 20, null, null);
+        CloudVerificationPair blanketRainedOff =
+                promptableCorridorPair(60, 55, 20, new BigDecimal("5.0"), null);
+        // Blanket over a corridor observed at 70: a member of the blanket variant but not its
+        // corridorOpen split, so the split is doing work and not aliasing its parent.
+        CloudVerificationPair blanketDryBlanketed = promptableCorridorPair(60, 55, 70, null, null);
+        // Gap 70 (> 60: blocked), forecast far 61 (drop 9: strip missed), observed far 20
+        // (drop 60: farClearer; <= 30: corridor open). Both blanket arms hold too (70/61), so
+        // this pair is hand-counted into FOUR of the six buckets.
+        CloudVerificationPair blockedDry = promptableCorridorPair(70, 61, 20, null, null);
+        // Identical shape, fogged off — in the old cut's blocked variant, out of every bucket
+        // here.
+        CloudVerificationPair blockedFoggedOff = promptableCorridorPair(70, 61, 20, null, 3000);
+        // Forecast drop 40: the strip was seen, so a member of the blocked variant but not the
+        // stripMissed split. Forecast far 30 also fails the blanket arm's >= 50.
+        CloudVerificationPair blockedStripSeenDry = promptableCorridorPair(70, 30, 20, null, null);
+        when(repository.findVerifiedPairs(FROM, TO)).thenReturn(List.of(firedDry,
+                firedAtPrecipEdge, firedRainedOff, firedAtVisEdge, firedFoggedOff, firedAtGapEdge,
+                firedOverCut, notFiredDry, notFiredRainedOff, blanketDryOpen, blanketRainedOff,
+                blanketDryBlanketed, blockedDry, blockedFoggedOff, blockedStripSeenDry));
+        when(repository.countVerifiedInWindow(FROM, TO)).thenReturn(15L);
+
+        CloudVerificationReport report = service.report(FROM, TO);
+
+        assertThat(report.byPromptable()).extracting(CloudVerificationBucket::key)
+                .containsExactly("vetoFired&promptable",
+                        "vetoNotFired&promptable",
+                        "farClearer&fcstBlocked&promptable",
+                        "farClearer&fcstBlocked&stripMissed&promptable",
+                        "fcstBlanket&promptable",
+                        "fcstBlanket&promptable&corridorOpen(obs<=30)");
+        // The whole vector, counted by hand. Nine of the fifteen pairs pass all three rules —
+        // the six failures are firedOverCut (cloud 81), firedRainedOff (2.01 mm), firedFoggedOff
+        // (4,999 m), notFiredRainedOff (3.0 mm), blanketRainedOff (5.0 mm) and blockedFoggedOff
+        // (3,000 m). Four of the nine fired both triggers; five did not. Two are farClearer AND
+        // blocked (blockedDry, blockedStripSeenDry) of which one missed the strip (blockedDry,
+        // drop 9). Three satisfy both blanket arms (blanketDryOpen, blanketDryBlanketed,
+        // blockedDry), and two of those sat over an observed-open corridor (blanketDryBlanketed
+        // observed 70).
+        assertThat(report.byPromptable()).extracting(CloudVerificationBucket::sampleCount)
+                .containsExactly(4, 5, 2, 1, 3, 2);
+        // The veto pair partitions the promptable population exactly — a member cannot be lost
+        // between the two variants.
+        assertThat(promptableCount(report, "vetoFired&promptable")
+                + promptableCount(report, "vetoNotFired&promptable")).isEqualTo(9);
+        // Each promptable variant is a STRICT subset of its one-rule byTriageCut namesake, read
+        // from the same report: the two wrongly-counted fired rows (rained off, fogged off) are
+        // in the old cut's variant and not in this one. A promptable count exceeding its
+        // namesake's is a predicate bug, never a finding.
+        assertThat(triageCutCount(report, "vetoFired&underTriageCut(<=80)")).isEqualTo(6);
+        assertThat(promptableCount(report, "vetoFired&promptable")).isEqualTo(4)
+                .isLessThan(triageCutCount(report, "vetoFired&underTriageCut(<=80)"));
+        assertThat(promptableCount(report, "vetoNotFired&promptable"))
+                .isLessThan(triageCutCount(report, "vetoNotFired&underTriageCut(<=80)"));
+        assertThat(promptableCount(report, "farClearer&fcstBlocked&promptable"))
+                .isLessThan(triageCutCount(report, "farClearer&fcstBlocked&underTriageCut(<=80)"));
+        assertThat(promptableCount(report, "fcstBlanket&promptable"))
+                .isLessThan(bucketCount(report, "fcstBlanket"));
+        // No scalar is served: the promptable veto separation is the reader's own subtraction of
+        // these two means — (90+70+80+60)/4 against (20+80+80+80+80)/5.
+        assertThat(promptableBucket(report, "vetoFired&promptable").meanObservedGapLow())
+                .isEqualTo(75.0);
+        assertThat(promptableBucket(report, "vetoNotFired&promptable").meanObservedGapLow())
+                .isEqualTo(68.0);
+    }
+
+    private CloudVerificationBucket promptableBucket(CloudVerificationReport report, String key) {
+        return report.byPromptable().stream()
+                .filter(bucket -> bucket.key().equals(key))
+                .findFirst()
+                .orElseThrow();
+    }
+
+    private int promptableCount(CloudVerificationReport report, String key) {
+        return promptableBucket(report, key).sampleCount();
+    }
+
+    /**
+     * A veto-shaped pair with settable triage readings and no analysed far reading.
+     *
+     * <p>Upwind is fixed at 70 (over the 60% trigger), so {@code building} alone decides the
+     * firing; the missing far reading keeps every fixture out of the corridor and blanket
+     * families.
+     *
+     * @param building         whether the [BUILDING] trend trigger fired
+     * @param forecastGapLow   forecast solar-horizon low cloud (%), or {@code null} for none
+     * @param observedGapLow   analysed solar-horizon low cloud (%)
+     * @param precipitationMm  forecast precipitation (mm), or {@code null}
+     * @param visibilityMetres forecast visibility (m), or {@code null}
+     * @return the pair
+     */
+    private CloudVerificationPair promptableVetoPair(boolean building, Integer forecastGapLow,
+            int observedGapLow, BigDecimal precipitationMm, Integer visibilityMetres) {
+        return new CloudVerificationPair("Durham UK", DATE, TargetType.SUNSET, 0, 2,
+                forecastGapLow, observedGapLow, 60, 40, 55, 40,
+                building, 70, 120, 240, 250,
+                null, null, null, null, precipitationMm, visibilityMetres);
+    }
+
+    /**
+     * A corridor-shaped pair with settable triage readings, observing 80 at the near horizon.
+     *
+     * <p>Building false and upwind 20 keep every fixture out of the veto family, so the blanket
+     * and blocked variants are decided purely by the forecast readings handed in.
+     *
+     * @param forecastGapLow   forecast solar-horizon low cloud (%)
+     * @param forecastFarLow   forecast far-solar low cloud (%), the second blanket arm
+     * @param observedFarLow   analysed far-solar low cloud (%), the corridorOpen input
+     * @param precipitationMm  forecast precipitation (mm), or {@code null}
+     * @param visibilityMetres forecast visibility (m), or {@code null}
+     * @return the pair
+     */
+    private CloudVerificationPair promptableCorridorPair(int forecastGapLow,
+            Integer forecastFarLow, int observedFarLow, BigDecimal precipitationMm,
+            Integer visibilityMetres) {
+        return new CloudVerificationPair("Durham UK", DATE, TargetType.SUNSET, 0, 2,
+                forecastGapLow, 80, 70, 30, 55, 40, false, 20, 120, 240, 250,
+                forecastFarLow, null, null, observedFarLow, precipitationMm, visibilityMetres);
+    }
+
     private int bucketCount(CloudVerificationReport report, String key) {
         return report.byCorridor().stream()
                 .filter(bucket -> bucket.key().equals(key))
@@ -704,7 +856,7 @@ class CloudVerificationServiceTest {
         return new CloudVerificationPair("Durham UK", DATE, TargetType.SUNSET, 0, 2,
                 30, observedGapLow, 60, 40, 55, 40,
                 building, upwindCurrent, upwindDistanceKm, windDirection, 250,
-                null, null, null, null);
+                null, null, null, null, null, null);
     }
 
     /**
@@ -725,13 +877,13 @@ class CloudVerificationServiceTest {
         return new CloudVerificationPair("Durham UK", DATE, TargetType.SUNSET, 0, 2,
                 forecastGapLow, observedGapLow, 60, 40, 55, 40,
                 building, upwindLow, 120, 240, 250,
-                null, null, null, null);
+                null, null, null, null, null, null);
     }
 
     private CloudVerificationPair conePair(int coneMin, int coneMax) {
         return new CloudVerificationPair("Durham UK", DATE, TargetType.SUNSET, 0, 2,
                 30, 80, 60, 40, 55, 40, false, 20, 120, 240, 250,
-                null, coneMin, coneMax, null);
+                null, coneMin, coneMax, null, null, null);
     }
 
     /**
@@ -743,7 +895,7 @@ class CloudVerificationServiceTest {
     private CloudVerificationPair blanketPairWithoutObservedFar() {
         return new CloudVerificationPair("Durham UK", DATE, TargetType.SUNSET, 0, 2,
                 90, 45, 60, 40, 70, 30, false, 20, 120, 240, 250,
-                55, null, null, null);
+                55, null, null, null, null, null);
     }
 
     private CloudVerificationPair corridorPair(int nearLow, int farLow, int canvasMid,
@@ -764,6 +916,6 @@ class CloudVerificationServiceTest {
         return new CloudVerificationPair("Durham UK", DATE, TargetType.SUNSET, 0, 2,
                 forecastGapLow, nearLow, forecastCanvasMid, forecastCanvasHigh,
                 canvasMid, canvasHigh, false, 20, 120, 240, 250,
-                forecastFarLow, null, null, farLow);
+                forecastFarLow, null, null, farLow, null, null);
     }
 }

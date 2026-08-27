@@ -638,8 +638,22 @@ same day; together they close the measurement program.
 ### The triage cut (final, 2026-08-17) — the headline figures re-attributed
 
 The fifth recut (#529, `byTriageCut`) re-read the veto and blocked families over slots at or
-under `WeatherTriageEvaluator`'s 80% stand-down threshold — the only slots a prompt could have
-been built for. It ends the measurement program, and it overturns this section's own headline:
+under `WeatherTriageEvaluator`'s 80% stand-down threshold. It ends the measurement program, and
+it overturns this section's own headline:
+
+> ⚠️ **"Promptable" here means "under the cloud triage cut", which is necessary but not
+> sufficient** (cross-vendor review finding, 2026-08-27). `WeatherTriageEvaluator` has two
+> further stand-down rules — precipitation > 2.0 mm and visibility < 5,000 m — that the ≤80 cut
+> does not reproduce, so the 545/532/326/192 populations below are *upper bounds* on
+> truly-promptable slots and their statistics are measured over a possibly-contaminated pool.
+> The reviewer's proposed filter (non-null `rating`) is **wrong for this table** and must not be
+> applied: the batch pipeline writes its ratings to `cached_evaluation`/`forecast_score`, so
+> prompted-and-scored slots are also rating-null in `forecast_evaluation` — that filter would
+> discard nearly the whole genuinely-promptable population. The correct fix is the seventh recut
+> (`promptable-cut-plan.md`): `forecast_evaluation` persists both `precipitation` and
+> `visibility`, so all three predicates can be reproduced read-side and these figures re-pulled.
+> Direction of the correction: the footprint counts can only shrink (strengthening the
+> small-footprint claims); the +3.4pp separation and the 53.6% precision can move either way.
 
 - **The veto's anti-selection was a triage artifact.** Only **545 of 3,658 fired slots (15%)**
   were promptable; over those, the separation is **+3.4pp** (observed 36.3 fired vs 32.9

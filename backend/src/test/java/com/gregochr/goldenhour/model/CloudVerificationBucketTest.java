@@ -148,6 +148,6 @@ class CloudVerificationBucketTest {
     private CloudVerificationPair pair(Integer rating) {
         return new CloudVerificationPair("Durham UK", DATE, TargetType.SUNSET, 0, rating,
                 null, null, null, null, null, null, null, null, null, null, null,
-                null, null, null, null);
+                null, null, null, null, null, null);
     }
 }

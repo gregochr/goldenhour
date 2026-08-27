@@ -64,15 +64,15 @@ class CloudVerificationPairTest {
     void gapError_missingReading_returnsNull() {
         assertThat(new CloudVerificationPair("Durham", DATE, TargetType.SUNSET, 0, 2,
                 30, 80, 60, 40, 55, 40, true, 70, 120, 240, 250,
-                null, null, null, null).gapError()).isEqualTo(-50);
+                null, null, null, null, null, null).gapError()).isEqualTo(-50);
         // Observed missing — a zero here would look like a perfect forecast.
         assertThat(new CloudVerificationPair("Durham", DATE, TargetType.SUNSET, 0, 2,
                 30, null, 60, 40, 55, 40, true, 70, 120, 240, 250,
-                null, null, null, null).gapError()).isNull();
+                null, null, null, null, null, null).gapError()).isNull();
         // Forecast missing (triaged before directional data was assembled).
         assertThat(new CloudVerificationPair("Durham", DATE, TargetType.SUNSET, 0, 2,
                 null, 80, 60, 40, 55, 40, true, 70, 120, 240, 250,
-                null, null, null, null).gapError()).isNull();
+                null, null, null, null, null, null).gapError()).isNull();
     }
 
     @Test
@@ -85,7 +85,7 @@ class CloudVerificationPairTest {
         // A canvas is only known when BOTH layers are — one layer alone could understate it.
         assertThat(new CloudVerificationPair("Durham", DATE, TargetType.SUNSET, 0, 2,
                 30, 80, 60, null, 55, 40, true, 70, 120, 240, 250,
-                null, null, null, null).canvasError()).isNull();
+                null, null, null, null, null, null).canvasError()).isNull();
         assertThat(withCanvas(null, 40).canvasError()).isNull();
     }
 
@@ -111,7 +111,7 @@ class CloudVerificationPairTest {
         // Near reading missing — no comparison to make.
         assertThat(new CloudVerificationPair("Durham", DATE, TargetType.SUNSET, 0, 2,
                 30, null, 60, 40, 55, 40, true, 70, 120, 240, 250,
-                null, null, null, 20).farDrop()).isNull();
+                null, null, null, 20, null, null).farDrop()).isNull();
     }
 
     @Test
@@ -152,25 +152,25 @@ class CloudVerificationPairTest {
             Integer windDirection, Integer azimuthDeg) {
         return new CloudVerificationPair("Durham", DATE, TargetType.SUNSET, 0, 2,
                 30, 80, 60, 40, 55, 40, building, upwindCurrent, 120, windDirection, azimuthDeg,
-                null, null, null, null);
+                null, null, null, null, null, null);
     }
 
     private CloudVerificationPair withDistance(Integer distanceKm) {
         return new CloudVerificationPair("Durham", DATE, TargetType.SUNSET, 0, 2,
                 30, 80, 60, 40, 55, 40, true, 70, distanceKm, 240, 250,
-                null, null, null, null);
+                null, null, null, null, null, null);
     }
 
     private CloudVerificationPair withCanvas(Integer observedMid, Integer observedHigh) {
         return new CloudVerificationPair("Durham", DATE, TargetType.SUNSET, 0, 2,
                 30, 80, 60, 40, observedMid, observedHigh, true, 70, 120, 240, 250,
-                null, null, null, null);
+                null, null, null, null, null, null);
     }
 
     private CloudVerificationPair measurement(Integer forecastFarLow, Integer observedGapLowMin,
             Integer observedGapLowMax, Integer observedFarLow) {
         return new CloudVerificationPair("Durham", DATE, TargetType.SUNSET, 0, 2,
                 30, 80, 60, 40, 55, 40, true, 70, 120, 240, 250,
-                forecastFarLow, observedGapLowMin, observedGapLowMax, observedFarLow);
+                forecastFarLow, observedGapLowMin, observedGapLowMax, observedFarLow, null, null);
     }
 }
