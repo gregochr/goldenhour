@@ -18,11 +18,15 @@ matters more than a fix would have.
 `SurvivorSignalReader` reads components for the hot-topic surfaces. That stale sentence was
 load-bearing — it is what made a swallowed failure look harmless.
 
-**Overstated:** it is not permanent divergence. Rows UPSERT on the component unique key with
-latest-evaluation-wins semantics, so a lost write is *staleness until that slot is next
-evaluated* — a T+3 slot gets three further attempts as it ages to T+0. The one genuinely
-permanent case is a slot first evaluated at **T+0**, which has no later run before its date
-passes. An outbox and reconciliation job would be a large change aimed at a narrow window.
+**Overstated, but less than a first pass suggested.** Rows UPSERT on the component unique key
+with latest-evaluation-wins semantics, so a lost write is repaired by the next successful
+evaluation of that slot. ⚠️ Nothing guarantees there will be one — a claim that a T+3 slot "gets
+three further attempts" was wrong and was corrected in review. `ForecastTaskCollector` skips any
+slot its weather triage stands down, at *every* horizon including T+0 and T+1, and
+`NightlyEligibilityPolicy` additionally rejects T+2 unless SETTLED/TRANSITIONAL and T+3 unless
+SETTLED. The failure modes correlate: triage fires at >80% low cloud, and that weather persists,
+so consecutive skips are the likely case rather than the freak one. A stale row can therefore
+outlive its event, and reconciliation stays an **open** trade-off rather than a dismissed one.
 
 So the swallow stays — the serving path must not fail because a secondary write did — and what
 changes is that it stops lying. The three ERROR messages said *"evaluation proceeds unaffected"*,

@@ -407,8 +407,9 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             LOG.error("forecast_score woodland dual-write FAILED for component key "
                     + "(location={}, date={}, event={}); the SERVED evaluation is unaffected, but "
                     + "this slot's forecast_score row is now stale and the API reads bluebell "
-                    + "ratings from it. Self-heals on the next evaluation of this slot — except "
-                    + "at T+0, which gets no later run: {}",
+                    + "ratings from it. Repaired only IF this slot is successfully evaluated again — "
+                    + "triage and the T+2/T+3 stability gates can skip every later "
+                    + "attempt, so a stale row can outlive its event: {}",
                     location.getName(), date, targetType, e.getMessage(), e);
         }
 
@@ -551,8 +552,9 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             LOG.error("forecast_score bluebell dual-write FAILED for component key "
                     + "(location={}, date={}, event={}); the SERVED evaluation is unaffected, but "
                     + "this slot's forecast_score row is now stale and the API reads bluebell "
-                    + "ratings from it. Self-heals on the next evaluation of this slot — except "
-                    + "at T+0, which gets no later run: {}",
+                    + "ratings from it. Repaired only IF this slot is successfully evaluated again — "
+                    + "triage and the T+2/T+3 stability gates can skip every later "
+                    + "attempt, so a stale row can outlive its event: {}",
                     location.getName(), date, targetType, e.getMessage(), e);
         }
 
@@ -583,8 +585,9 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             LOG.error("forecast_score dual-write FAILED for component key "
                     + "(location={}, date={}, event={}); the SERVED evaluation is unaffected, but "
                     + "this slot's forecast_score row is now stale and the API reads bluebell "
-                    + "ratings from it. Self-heals on the next evaluation of this slot — except "
-                    + "at T+0, which gets no later run: {}",
+                    + "ratings from it. Repaired only IF this slot is successfully evaluated again — "
+                    + "triage and the T+2/T+3 stability gates can skip every later "
+                    + "attempt, so a stale row can outlive its event: {}",
                     location.getName(), date, targetType, e.getMessage(), e);
         }
     }

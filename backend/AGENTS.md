@@ -101,8 +101,13 @@ Checkstyle and SpotBugs gate those in CI.
   record being proven" comments were false and are corrected. Keep swallowing
   — the serving path must not fail for a secondary write — but the ERROR must
   keep naming the consequence. Rows UPSERT latest-wins, so a lost write is
-  staleness until that slot is next evaluated; the one permanent case is a
-  slot first evaluated at **T+0**, which gets no later run.
+  repaired by the next successful evaluation of that slot — but ⚠️ **nothing
+  guarantees there will be one**: `ForecastTaskCollector` skips any triaged
+  slot at *every* horizon including T+0/T+1, and `NightlyEligibilityPolicy`
+  rejects T+2 unless SETTLED/TRANSITIONAL and T+3 unless SETTLED. The failure
+  modes correlate — triage fires at >80% low cloud and that weather persists —
+  so a stale row can outlive its event. Reconciliation is an open trade-off,
+  not a dismissed one.
 
 - **An absent air-quality reading is `null`, never `BigDecimal.ZERO`.**
   `OpenMeteoResponseParser.toDecimal` used to zero-fill missing PM2.5, dust

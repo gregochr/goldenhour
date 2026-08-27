@@ -51,12 +51,21 @@ import java.util.List;
  * secondary write did — but the consequence is no longer nil.
  *
  * <p><b>What a lost write actually costs.</b> Rows UPSERT on the component unique key with
- * latest-evaluation-wins semantics, so the damage is <em>staleness until that slot is next
- * evaluated</em> rather than permanent divergence: a T+3 slot gets three further attempts as it
- * ages to T+0. The exception is a slot first evaluated at <b>T+0</b>, which has no later run
- * before its date passes — there, a failed write leaves that day's bluebell rating stale or
- * absent in the DTO for good. Weigh any reconciliation work against that narrow case rather than
- * against the "permanent divergence" it can look like from the log line alone.
+ * latest-evaluation-wins semantics, so a lost write is repaired by <em>the next successful
+ * evaluation of that same slot</em> — but nothing guarantees there will be one.
+ *
+ * <p>⚠️ <b>Recovery is conditional, not scheduled.</b> An earlier draft of this javadoc claimed a
+ * T+3 slot "gets three further attempts as it ages to T+0", with T+0 as the sole permanent case.
+ * That is wrong, and the correction came from review. Two gates can drop a later cycle's attempt:
+ * {@code ForecastTaskCollector} skips any slot its weather triage stands down, which applies at
+ * <em>every</em> horizon including T+0 and T+1; and {@code NightlyEligibilityPolicy} additionally
+ * rejects T+2 unless SETTLED or TRANSITIONAL, and T+3 unless SETTLED.
+ *
+ * <p>The failure modes are also <b>correlated</b>, which is what makes this more than a
+ * theoretical gap: triage stands a slot down at &gt;80% low cloud, and that weather persists — so
+ * the days following a triaged slot are likely to be triaged too. A stale row can therefore
+ * outlive its event. Treat reconciliation as an open trade-off on this evidence, not as something
+ * already dismissed.
  *
  * <p><b>Feature flag.</b> {@code photocast.forecast-score.dual-write} (default {@code true}).
  * Flag off = no rows written; the rollback path for the whole pass is the flag, no redeploy.
