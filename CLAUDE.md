@@ -133,8 +133,8 @@ cd frontend && npm run dev
 # Trigger forecast run
 curl -X POST http://localhost:8082/api/forecast/run
 
-# Run all tests (requires Docker running — see note below)
-cd backend && ./mvnw clean verify
+# Run all tests — ALWAYS with this exclusion; see the Docker note below
+cd backend && ./mvnw clean verify -Dtest='!**/integration/**' -DfailIfNoSpecifiedTests=false
 
 # Prompt regression tests (requires ANTHROPIC_API_KEY)
 cd backend && ANTHROPIC_API_KEY=... ./mvnw test -Pprompt-regression
@@ -143,13 +143,53 @@ cd backend && ANTHROPIC_API_KEY=... ./mvnw test -Pprompt-regression
 cd frontend && npm run test
 ```
 
-**Docker must be running to run the backend test suite.** Five classes extend `IntegrationTestBase`
-(`backend/src/test/java/com/gregochr/goldenhour/integration/`) and start a `postgres:17-alpine`
-Testcontainer so the Flyway migrations run against the real production engine. There is no failsafe
-plugin and no surefire exclusion for them, so they execute in the ordinary `test` phase — `./mvnw test`
-and `./mvnw clean verify` both need Docker. With Docker stopped you get an opaque Testcontainers
-stack trace (`Could not find a valid Docker environment`), not a skip. Running the app locally does
-not need Docker (H2 file DB).
+### ⚠️ There is no Docker on this machine — and that is not going to change
+
+**Do not tell anyone to start Docker Desktop, and do not spend a session looking for it.** This
+guidance previously said "Docker must be running to run the backend test suite", which sent session
+after session hunting a daemon that has never been installed here. What follows is the truth.
+
+**Six** classes extend `IntegrationTestBase` (`backend/src/test/java/.../integration/`) and start a
+`postgres:17-alpine` Testcontainer with `spring.flyway.enabled=true`. There is no failsafe plugin
+and no surefire exclusion, so they run in the ordinary `test` phase — meaning a bare `./mvnw test`
+or `./mvnw clean verify` fails here with an opaque `Could not find a valid Docker environment`,
+not a skip.
+
+**So the local gate always carries the exclusion.** This is the normal command, not a workaround:
+
+```bash
+cd backend && ./mvnw clean verify --batch-mode --no-transfer-progress \
+  -Dtest='!**/integration/**' -DfailIfNoSpecifiedTests=false >/tmp/v.log 2>&1; echo "exit: $?"
+```
+
+**⚠️ CI is the only place a migration is proven BEFORE it merges.** Be precise about this, because
+the sloppy version of the claim is wrong: `application-dev.yml` and `application-prod.yml` both set
+`spring.flyway.enabled: true` against Postgres, so **production runs every migration at startup** —
+that is what migrations are for — and a `dev`-profile run against a real Postgres executes them too.
+
+What is true is narrower, and is the part that matters when reviewing a PR:
+
+- The **default local paths never run migrations at all.** `application-local.yml` sets
+  `spring.flyway.enabled: false` (H2 + `ddl-auto: update`), and the default test profile does the
+  same (H2 + `create-drop`). So the ordinary edit-compile-test loop cannot exercise one.
+- The only **pre-merge** execution is `IntegrationTestBase`, which turns Flyway on against a
+  Postgres 17 Testcontainer — and that needs Docker, which this machine does not have.
+- CI's `Backend — Build, Test & Coverage` job runs `./mvnw clean verify` with **no exclusion** on a
+  runner that does, so CI is where a migration is proven before merge.
+
+If you do have a native Postgres to hand, running the `dev` profile is a genuine local verification
+route — it just is not the default and does not exist on this machine.
+
+Two consequences worth internalising, because they end the recurring conversation:
+
+- **A migration PR is not "unverified" locally — it is *pending CI*.** Write the Testcontainers
+  test, run the local gate above, open the PR, and read CI's Backend job before merging. Saying
+  "I couldn't verify the migration" is only half the story; the other half is that nobody can,
+  here, and CI already does.
+- **Postgres-specific SQL cannot break local dev**, because local dev never runs migrations at all.
+  Write the migration for Postgres and do not contort it for H2.
+
+Running the app locally needs no Docker either (H2 file DB).
 
 Default local credentials: `admin` / `golden2026`
 
@@ -160,6 +200,8 @@ H2 console: `http://localhost:8082/h2-console` (JDBC: `jdbc:h2:file:./data/golde
 ## Key Architecture Decisions
 
 - **Forecast DTO** — `ForecastController` returns `ForecastEvaluationDto` via `ForecastDtoMapper`. Role-based score selection: LITE gets basic scores, PRO/ADMIN get enhanced. `basic_*` entity columns never appear in API response.
+- **⚠️ Two Jackson object graphs, and the API uses the one you are not looking at.** `AppConfig.objectMapper()` is a **Jackson 2** bean (`com.fasterxml.jackson`) injected into ~a dozen services for internal serialisation — `OpenMeteoClient`, `EvaluationViewService`, `RunProgressTracker`, the model/prompt test services. But this is Boot 4 / Framework 7, and `@RestController` responses are serialised by an **auto-configured Jackson 3** (`tools.jackson`) `JsonMapper`: there is no `MappingJackson2HttpMessageConverter` in the handler adapter's converter chain at all. 48 files are on Jackson 2, 8 on Jackson 3. Consequence: **`AppConfig.objectMapper()` is not in the HTTP response path**, so its configuration — notably that it never disables `WRITE_DATES_AS_TIMESTAMPS` — cannot affect the API wire format. A review that reads that bean and concludes the API is at risk has read the wrong graph; this has already happened once (an architecture review flagged it, and the fix hunt landed on the wrong mapper). The wire format is pinned by `backend/src/test/java/com/gregochr/goldenhour/controller/JsonDateFormatContractTest.java` (landed in #666), which asserts through the full Spring context precisely because a hand-built mapper in a test would reproduce the same mistake.
+
 - **Backend-heavy** — all calculations on backend. Frontend is a pure render layer. All four of the Plan-tab exceptions this bullet used to list are now **discharged**: `BriefingDay.peak` has been write-only since the day rail was retired at P2 (the matrix replaced it — `docs/engineering/v1-retirement-plan.md` §8.2), the grid cell reads `BriefingRegion.meanRating` computed at serve time by `PlanWindowProjector`/`enrichWithCachedScores` (Phase 3 of `docs/engineering/plan-verdict-consolidation-plan.md`), "Close to home"'s client-side proximity ranking died with `CloseToHome.jsx` in v1 retirement D2 (the backend endpoint survives with zero callers — §8.3), and the v1 arm's own copies of the roll-up and the cell derivation — kept deliberately byte-identical because v1 was the pilot's frozen comparison control — were retired with it. What is left is a **reach-scoped** class of client-side derivation, licensed rather than exceptional: P8's location sheet, which takes a max over **one location's own** windows for its `◎ best here` tag and counts its own rows for its lead line; the matrix's spread histogram (star-band counts) and its best-reachable line, both over each window's reach-gated pool (plan-matrix A10/A11); the page-level conflict message's ceiling (`planConflicts.ceilingOf` — a max across every window and every location, sanctioned by plan-matrix §5, and the one member that *does* aggregate across locations); and the popup prose slot's "this region's own best window". None of these re-derive a *server-owned* verdict or Best-pick math — the ban in plan §2.12 is on that, and each of these reads rather than recomputes. ⚠️ **That class is NAMED and has a recorded exit; it is not a precedent for client aggregation.** Reach is per-user (`/api/user/settings/reach`, never ETag'd), so "best *within reach*" has no servable answer on the shared `GET /api/briefing` payload at all — the same reasoning that put "Close to home" on its own per-user contract. They are counts of *places you could drive to*, never "N of M scored" (§6 clause 4), and ⚠️ **none of them may say "within reach" unless a drive time exists to have gated on** — `BriefingWindow`-derived `card.reachMeasured` is the single producer of that answer and six surfaces read it, because an unknown drive passes every tier and a reader with no postcode was being told six times over that a filter had run. The exit is plan-matrix §8's optional **O-4**, a never-cached per-user endpoint; until then it is debt with a name. A third client rule *filters* rather than derives: `windowFirstTopics.js` intersects each topic's served `regions` with the origin scope, exempting whole-sky types by a client type map, because `regions` means something different per strategy (A8). `docs/engineering/plan-panel-data-contracts.md` records the rest.
 - **Panel data contracts split by data ownership, not by panel** — the Plan-tab panels that are views of the *same* shared forecast snapshot derive from one `GET /api/briefing` payload, because two panels fetching independently can disagree about the same location. A panel earns its own REST contract only when it answers a different question about **differently owned** data. "Close to home" was the one that qualified (per-user home postcode + drive times) — its client died with `CloseToHome.jsx` in v1 retirement D2 (`GET /api/briefing/close-to-home` survives with no caller, `docs/engineering/v1-retirement-plan.md` §8.3), and the live per-user contracts the same principle now protects are `/api/user/settings/reach` and `/api/user/settings/light`. Personal data must never ride the shared briefing payload, because ETag revalidation requires `Cache-Control: private, no-cache`, which persists the body to a browser HTTP cache that JavaScript cannot evict on logout. `HttpCachingConfig` excludes `/api/user/settings*` for exactly that reason and `HttpCachingConfigTest.personalDataPathsAreNeverFiltered` pins it. See `docs/engineering/plan-panel-data-contracts.md`.
 - **Command pattern** — `ForecastCommand` → `ForecastCommandFactory` → `ForecastCommandExecutor`. Controllers/schedulers are thin wrappers.
@@ -561,7 +603,8 @@ Conventional commits: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `refactor:`
 ## Speeding Up the Dev Build Cycle
 
 `./mvnw clean verify` runs Checkstyle → compile → test → JaCoCo → SpotBugs → repackage — ~6–7 min, and
-**needs Docker running** (the `test` phase includes the 5 `IntegrationTestBase` Testcontainers classes).
+**cannot run bare on this machine** — the `test` phase includes the 6 `IntegrationTestBase`
+Testcontainers classes and there is no local Docker. Always pass `-Dtest='!**/integration/**'`.
 Use targeted commands instead:
 
 ```bash
@@ -574,11 +617,12 @@ cd backend && ./mvnw test -pl . -Dtest=AuroraStateCacheTest -q
 # Run all aurora-related tests only                                [no Docker]
 cd backend && ./mvnw test -Dtest="Aurora*,ClaudeAuroraInterpreter*" -q
 
-# Skip Checkstyle + SpotBugs (still runs all tests + JaCoCo)       [NEEDS DOCKER]
-cd backend && ./mvnw verify -Dcheckstyle.skip=true -Dspotbugs.skip=true -q
+# Skip Checkstyle + SpotBugs (still runs all tests + JaCoCo)
+cd backend && ./mvnw verify -Dcheckstyle.skip=true -Dspotbugs.skip=true \
+  -Dtest='!**/integration/**' -DfailIfNoSpecifiedTests=false -q
 
-# Full verify but skip clean (reuses compiled classes — shaves ~30s)  [NEEDS DOCKER]
-cd backend && ./mvnw verify -q
+# Full verify but skip clean (shaves ~30s)
+cd backend && ./mvnw verify -Dtest='!**/integration/**' -DfailIfNoSpecifiedTests=false -q
 ```
 
 **Checkstyle pre-flight before full verify** — run Checkstyle alone first; it fails fast (~15s) and catches line-length / unused-import violations before wasting 6 min:
@@ -593,7 +637,7 @@ cd backend && ./mvnw checkstyle:check -q
 cd backend && ./mvnw checkstyle:check >/tmp/cs.log 2>&1; echo "exit: $?"
 ```
 
-**Reproducing CI's `Backend — Build, Test & Coverage` locally** — a plain `./mvnw clean verify` cannot do this. The classes under `src/test/java/.../integration/` need Docker/Testcontainers; without Docker running, surefire aborts on them and the build **never reaches `jacoco:check` or `spotbugs:check`** — so the two gates most likely to fail CI are exactly the two a local `verify` silently skips. Exclude them and the build gets there:
+**Reproducing CI's `Backend — Build, Test & Coverage` locally** — a plain `./mvnw clean verify` cannot do this. The classes under `src/test/java/.../integration/` need Testcontainers, which needs Docker, which this machine does not have; surefire aborts on them and the build **never reaches `jacoco:check` or `spotbugs:check`** — so the two gates most likely to fail CI are exactly the two a local `verify` silently skips. Exclude them and the build gets there (⚠️ this also means the integration classes, and therefore every Flyway migration, are proven **only in CI** — read the Backend job on the PR):
 
 ```bash
 cd backend && ./mvnw clean verify --batch-mode --no-transfer-progress \
@@ -630,7 +674,7 @@ integrity from `https://registry.npmjs.org/<pkg>/<version>`), then prove it the 
 `rm -rf node_modules && npm ci` must exit 0, report 0 vulnerabilities, and leave the lockfile
 unchanged.
 
-The core rule: `compile → single-class test → checkstyle:check → full verify` as a ladder. Only climb to `clean verify` when you're confident everything is clean — and gate each rung on the exit code, not on what the output appears to say. The first three rungs run with Docker stopped; anything that reaches the full `test` phase (`./mvnw test`, `./mvnw verify`) does not — start Docker Desktop first, or you get a Testcontainers stack trace instead of a test failure.
+The core rule: `compile → single-class test → checkstyle:check → full verify` as a ladder. Only climb to `clean verify` when you're confident everything is clean — and gate each rung on the exit code, not on what the output appears to say. ⚠️ Every rung that reaches the full `test` phase must carry `-Dtest='!**/integration/**'`, because there is no local Docker and never will be; without it you get a Testcontainers stack trace instead of a test failure. The integration classes run in CI.
 
 ---
 
