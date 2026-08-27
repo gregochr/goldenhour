@@ -407,6 +407,15 @@ class ForecastResultHandlerTest {
                     .anyMatch(event -> event.getLevel() == Level.ERROR
                             && event.getFormattedMessage().contains("dual-write FAILED")
                             && event.getFormattedMessage().contains("Castlerigg"));
+            // …and it names the consequence. This message read "evaluation proceeds unaffected"
+            // until 2026-08-27, which was true of the evaluation and misleading about everything
+            // else: ForecastDtoMapper serves the API's bluebell rating from forecast_score, so a
+            // lost write leaves that slot stale on a surface a reader can see. An operator
+            // grepping ERROR should not have to already know that.
+            assertThat(appender.list)
+                    .filteredOn(event -> event.getLevel() == Level.ERROR)
+                    .anyMatch(event -> event.getFormattedMessage().contains("stale")
+                            && event.getFormattedMessage().contains("bluebell"));
         } finally {
             logger.detachAppender(appender);
         }

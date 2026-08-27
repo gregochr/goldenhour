@@ -27,6 +27,38 @@ promptable caveat in the veto doc, the seventh recut plan itself, two correction
 trend-peak reconstruction plan (era-deterministic variant selection; anti-join-with-immutable-
 rows persistence), and the session brief's #617 status note.
 
+### Changed — `forecast_score` write failures now say what they actually cost
+
+Codex flagged the swallowed `forecast_score` dual-write as a permanent divergence needing a repair
+queue. Verified against the source, **half of that is right and half is not**, and the correction
+matters more than a fix would have.
+
+**Right:** the code said `forecast_score` had no readers. `ForecastScoreWriter`'s javadoc read
+*"Nothing reads `forecast_score` yet — this writer exists to prove…"*, and the caller's read
+*"`forecast_score` is the record being proven"*. Both are false.
+`ForecastDtoMapper` serves the API's Claude **BLUEBELL rating** straight from that table, and
+`SurvivorSignalReader` reads components for the hot-topic surfaces. That stale sentence was
+load-bearing — it is what made a swallowed failure look harmless.
+
+**Overstated, but less than a first pass suggested.** Rows UPSERT on the component unique key
+with latest-evaluation-wins semantics, so a lost write is repaired by the next successful
+evaluation of that slot. ⚠️ Nothing guarantees there will be one — a claim that a T+3 slot "gets
+three further attempts" was wrong and was corrected in review. `ForecastTaskCollector` skips any
+slot its weather triage stands down, at *every* horizon including T+0 and T+1, and
+`NightlyEligibilityPolicy` additionally rejects T+2 unless SETTLED/TRANSITIONAL and T+3 unless
+SETTLED. The failure modes correlate: triage fires at >80% low cloud, and that weather persists,
+so consecutive skips are the likely case rather than the freak one. A stale row can therefore
+outlive its event, and reconciliation stays an **open** trade-off rather than a dismissed one.
+
+So the swallow stays — the serving path must not fail because a secondary write did — and what
+changes is that it stops lying. The three ERROR messages said *"evaluation proceeds unaffected"*,
+true of the evaluation and misleading about everything else; they now name the affected surface
+and the self-healing property, so an operator grepping ERROR does not have to already know.
+`CLAUDE.md`'s rating-store table named the readers as "Pass-2 consumers" and now names them.
+
+Pinned by mutation: reverting the wording fails the existing dual-write test, which was already
+asserting the swallow and now also asserts the message names its consequence.
+
 ### Fixed — a max_tokens-truncated Claude response was persisted as a complete forecast
 
 `ClaudeEvaluationStrategy` (sync path) checked `stop_reason` for `refusal` and

@@ -20,9 +20,15 @@ import java.util.List;
 /**
  * Pass 2 dual-write: persists the per-component scores of a single scored forecast evaluation
  * to {@code forecast_score}, alongside (never instead of) the live {@code results_json} serving
- * path. Nothing reads {@code forecast_score} yet — this writer exists to prove, via the
- * reconciliation query in {@code docs/engineering/forecast-score-reconciliation.md}, that the
- * normalised record matches the serving payload before Pass 4 migrates the read side.
+ * path.
+ *
+ * <p>⚠️ <b>{@code forecast_score} is read in production — this is no longer a proving surface.</b>
+ * This javadoc said "nothing reads {@code forecast_score} yet" until 2026-08-27, and that sentence
+ * was load-bearing: it is what justified the caller swallowing a write failure as harmless. Two
+ * live readers have since appeared. {@link com.gregochr.goldenhour.model.ForecastDtoMapper} takes
+ * the Claude BLUEBELL rating for the API DTO straight from this table, and
+ * {@code SurvivorSignalReader} reads components for the hot-topic surfaces. A lost write is
+ * therefore user-visible, not merely an unproven record.
  *
  * <p><b>What it writes</b>, per scored evaluation (location, date, SUNRISE/SUNSET):
  * <ul>
@@ -40,8 +46,26 @@ import java.util.List;
  * <p><b>Failure isolation.</b> The method runs in its own {@link Propagation#REQUIRES_NEW}
  * transaction so a write failure rolls back only the dual-write — never the caller's evaluation.
  * The caller ({@link ForecastResultHandler}) additionally wraps the call so any thrown exception
- * is logged loudly at ERROR (with the component key) and the evaluation proceeds. The serving
- * path is the live product; {@code forecast_score} is the record being proven.
+ * is logged loudly at ERROR (with the component key) and the evaluation proceeds. Swallowing is
+ * still the right call — the serving path is the live product and must not fail because a
+ * secondary write did — but the consequence is no longer nil.
+ *
+ * <p><b>What a lost write actually costs.</b> Rows UPSERT on the component unique key with
+ * latest-evaluation-wins semantics, so a lost write is repaired by <em>the next successful
+ * evaluation of that same slot</em> — but nothing guarantees there will be one.
+ *
+ * <p>⚠️ <b>Recovery is conditional, not scheduled.</b> An earlier draft of this javadoc claimed a
+ * T+3 slot "gets three further attempts as it ages to T+0", with T+0 as the sole permanent case.
+ * That is wrong, and the correction came from review. Two gates can drop a later cycle's attempt:
+ * {@code ForecastTaskCollector} skips any slot its weather triage stands down, which applies at
+ * <em>every</em> horizon including T+0 and T+1; and {@code NightlyEligibilityPolicy} additionally
+ * rejects T+2 unless SETTLED or TRANSITIONAL, and T+3 unless SETTLED.
+ *
+ * <p>The failure modes are also <b>correlated</b>, which is what makes this more than a
+ * theoretical gap: triage stands a slot down at &gt;80% low cloud, and that weather persists — so
+ * the days following a triaged slot are likely to be triaged too. A stale row can therefore
+ * outlive its event. Treat reconciliation as an open trade-off on this evidence, not as something
+ * already dismissed.
  *
  * <p><b>Feature flag.</b> {@code photocast.forecast-score.dual-write} (default {@code true}).
  * Flag off = no rows written; the rollback path for the whole pass is the flag, no redeploy.
