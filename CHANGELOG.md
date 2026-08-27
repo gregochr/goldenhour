@@ -65,6 +65,28 @@ via `ReflectionTestUtils` and asserting the below-threshold tier actually fires 
 `getCachedBriefingForApi()` — fails if the ratio is hard-coded back to the captured-`0.0` bug the
 plan describes, and passes against the real wiring.
 
+### Changed — `GET /api/locations` returns a DTO, not the JPA entity
+
+`LocationController.getLocations()` served `List<LocationEntity>` straight from the persistence
+layer, so every `@ElementCollection`/`@ManyToOne` on `LocationEntity` was eagerly loaded for a
+response that may only need names and coordinates, and adding a persistence column silently
+added an API field. A new `LocationDto` (with a nested `LocationRegionDto`) and
+`LocationDtoMapper` now sit between the entity and the wire, mirroring the entity's Jackson
+output field-for-field — including the computed `woodlandOnly` property `isWoodlandOnly()`
+contributed under Jackson's bean-getter convention. This is a pure decoupling: the payload is
+byte-for-byte the same, fetch strategies (`FetchType.EAGER`) are untouched, and the other
+`LocationController` endpoints (`POST`/`PUT`/`enrich`) still return `LocationEntity` — this PR is
+scoped to the one list endpoint; the sibling controllers with the same pattern
+(`RegionController`, `BatchAdminController`) are follow-ups.
+
+Proven, not just reasoned about: `LocationJsonContractTest` pins the exact JSON of
+`GET /api/locations` through the real Spring context (this app's controller responses go through
+an auto-configured Jackson 3 `JsonMapper`, not the Jackson 2 bean in `AppConfig` — a hand-built
+`ObjectMapper` in a test would prove the wrong object graph), was committed and
+confirmed green against the unmodified entity-serializing controller *before* the DTO existed,
+and passes unedited after the refactor. A mutation check (dropping `woodlandOnly` from the DTO)
+made it fail, then was reverted.
+
 ## [v2.19.3] - 2026-08-27
 
 ### Added — JSON date format contract test
