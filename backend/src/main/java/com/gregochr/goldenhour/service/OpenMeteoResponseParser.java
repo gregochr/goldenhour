@@ -355,9 +355,35 @@ public final class OpenMeteoResponseParser {
         return value;
     }
 
+    /**
+     * Scales an air-quality reading, preserving absence as {@code null}.
+     *
+     * <p>⚠️ <b>An absent reading must never become zero.</b> This returned
+     * {@link BigDecimal#ZERO} for null until 2026-08-27, which is not a neutral default for these
+     * three fields — it is a specific and flattering claim. The system prompt tells Claude
+     * {@code AOD thresholds: 0.05-0.15 clean (baseline)}, so a fabricated {@code AOD: 0.000} reads
+     * as <em>cleaner than clean</em> rather than as unknown, and {@code PM2.5: 0.00} alongside it
+     * completes a picture of pristine air nobody measured.
+     *
+     * <p>It was not rare. Measured against the live API on 2026-08-27, the forecast array runs 168
+     * hours while air quality runs 120, with a null tail from index 109 — so usable aerosol data
+     * ends around T+4 13:00 UTC and every later slot was being handed a full set of zeros.
+     * {@link #getAirQualityValue} already returns null for both a short array and a null element;
+     * this method was discarding that distinction on the very next line.
+     *
+     * <p>Every consumer was already null-safe — {@code PromptBuilder.isDustElevated} and
+     * {@code DustHotTopicStrategy.isDustEnhanced} both guard explicitly, and the persistence
+     * columns are nullable. The zero had been <em>defeating</em> those guards rather than
+     * satisfying them: a zero passes the null check and then fails the threshold, so the dust
+     * signal could never fire on a slot with no data.
+     *
+     * @param value the raw reading, or {@code null} when absent
+     * @param scale decimal scale to apply
+     * @return the scaled value, or {@code null} if the reading was absent
+     */
     private static BigDecimal toDecimal(Double value, int scale) {
         if (value == null) {
-            return BigDecimal.ZERO;
+            return null;
         }
         return BigDecimal.valueOf(value).setScale(scale, RoundingMode.HALF_UP);
     }

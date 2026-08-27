@@ -238,8 +238,8 @@ class OpenMeteoServiceTest {
     }
 
     @Test
-    @DisplayName("extractAtmosphericData() defaults null air quality values to zero")
-    void extractAtmosphericData_nullAirQualityValues_defaultToZero() {
+    @DisplayName("extractAtmosphericData() keeps null air quality values null, never zero")
+    void extractAtmosphericData_nullAirQualityValues_stayNull() {
         LocalDateTime solarEvent = LocalDateTime.of(2026, 6, 21, 20, 47, 0);
 
         OpenMeteoForecastResponse forecast = buildForecastResponse(
@@ -256,9 +256,9 @@ class OpenMeteoServiceTest {
         AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
-        assertThat(result.aerosol().pm25()).isEqualByComparingTo("0.00");
-        assertThat(result.aerosol().dustUgm3()).isEqualByComparingTo("0.00");
-        assertThat(result.aerosol().aerosolOpticalDepth()).isEqualByComparingTo("0.000");
+        assertThat(result.aerosol().pm25()).isNull();
+        assertThat(result.aerosol().dustUgm3()).isNull();
+        assertThat(result.aerosol().aerosolOpticalDepth()).isNull();
     }
 
     @Test
@@ -403,8 +403,8 @@ class OpenMeteoServiceTest {
     }
 
     @Test
-    @DisplayName("extractAtmosphericData() defaults aerosol values to zero when air quality list is shorter")
-    void extractAtmosphericData_airQualityListShorterThanForecast_defaultsToZero() {
+    @DisplayName("extractAtmosphericData() leaves aerosol null when the air quality list is shorter")
+    void extractAtmosphericData_airQualityListShorterThanForecast_staysNull() {
         LocalDateTime solarEvent = LocalDateTime.of(2026, 6, 21, 21, 00, 0);
 
         OpenMeteoForecastResponse forecast = buildForecastResponse(
@@ -422,9 +422,9 @@ class OpenMeteoServiceTest {
         AtmosphericData result = OpenMeteoResponseParser.extractAtmosphericData(
                 forecast, airQuality, "Durham UK", solarEvent, TargetType.SUNSET);
 
-        assertThat(result.aerosol().pm25()).isEqualByComparingTo("0.00");
-        assertThat(result.aerosol().dustUgm3()).isEqualByComparingTo("0.00");
-        assertThat(result.aerosol().aerosolOpticalDepth()).isEqualByComparingTo("0.000");
+        assertThat(result.aerosol().pm25()).isNull();
+        assertThat(result.aerosol().dustUgm3()).isNull();
+        assertThat(result.aerosol().aerosolOpticalDepth()).isNull();
     }
 
     @Test
@@ -2287,10 +2287,12 @@ class OpenMeteoServiceTest {
                 forecast, aq, "Test", LocalDateTime.of(2026, 6, 21, 8, 0),
                 TargetType.SUNSET);
 
-        // AQ values fall back to zero (getAirQualityValue returns null → toDecimal(null) = ZERO)
-        assertThat(result.aerosol().pm25()).isEqualByComparingTo("0.00");
-        assertThat(result.aerosol().dustUgm3()).isEqualByComparingTo("0.00");
-        assertThat(result.aerosol().aerosolOpticalDepth()).isEqualByComparingTo("0.000");
+        // AQ values fall back to null, exactly as the optional fields below do. They used to
+        // fall back to ZERO instead, and this test documented that asymmetry rather than
+        // questioning it: a zero is a reading, and nobody took one.
+        assertThat(result.aerosol().pm25()).isNull();
+        assertThat(result.aerosol().dustUgm3()).isNull();
+        assertThat(result.aerosol().aerosolOpticalDepth()).isNull();
         // precipProbability and temperature fall back to null (getIntegerValue / getDoubleValue)
         assertThat(result.comfort().precipitationProbability()).isNull();
         assertThat(result.comfort().temperatureCelsius()).isNull();

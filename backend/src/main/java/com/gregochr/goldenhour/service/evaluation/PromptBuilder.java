@@ -471,7 +471,7 @@ public class PromptBuilder {
                 + "Dew point: %s%n"
                 + "Weather code: %d%n"
                 + "Boundary layer: %dm, Shortwave: %.0f W/m\u00b2%n"
-                + "PM2.5: %s\u00b5g/m\u00b3, Dust: %s\u00b5g/m\u00b3, AOD: %s",
+                + "PM2.5: %s, Dust: %s, AOD: %s",
                 data.locationName(), data.targetType(), data.solarEventTime(),
                 cloud.lowCloudPercent(), cloud.midCloudPercent(), cloud.highCloudPercent(),
                 w.visibilityMetres(), w.windSpeedMs(), w.windDirectionDegrees(),
@@ -481,7 +481,9 @@ public class PromptBuilder {
                 dewPointStr,
                 w.weatherCode(),
                 a.boundaryLayerHeightMetres(), w.shortwaveRadiationWm2(),
-                a.pm25(), a.dustUgm3(), a.aerosolOpticalDepth()));
+                reading(a.pm25(), "\u00b5g/m\u00b3"),
+                reading(a.dustUgm3(), "\u00b5g/m\u00b3"),
+                reading(a.aerosolOpticalDepth(), "")));
 
         if (data.locationOrientation() != null) {
             sb.append(String.format("%nLocation orientation: %s (this location is best suited "
@@ -734,6 +736,28 @@ public class PromptBuilder {
      */
     static String toCardinal(int degrees) {
         return PromptUtils.toCardinal(degrees);
+    }
+
+    /**
+     * Renders an air-quality reading for the prompt, or {@code N/A} when it was never measured.
+     *
+     * <p>The unit rides on the value rather than on the format string, so an absent reading prints
+     * a clean {@code PM2.5: N/A} instead of {@code PM2.5: N/Aµg/m³}. {@code N/A} is this prompt's
+     * existing vocabulary for a missing reading — dew point and precipitation probability both use
+     * it a few lines above — so Claude is not being taught a new token.
+     *
+     * <p>⚠️ The alternative is worse than it looks. These values used to arrive as a hard zero
+     * whenever air quality ran short of the forecast window, and the system prompt grades AOD
+     * against {@code 0.05-0.15 clean (baseline)} — so {@code AOD: 0.000} did not read as "no
+     * data", it read as exceptionally clean air, and PM2.5 {@code 0.00} corroborated it. Absence
+     * has to be sayable, or it gets said as a measurement.
+     *
+     * @param value the reading, or {@code null} when absent
+     * @param unit  unit suffix to append when present; empty for dimensionless AOD
+     * @return the formatted reading, or {@code N/A}
+     */
+    private static String reading(java.math.BigDecimal value, String unit) {
+        return value == null ? "N/A" : value.toPlainString() + unit;
     }
 
     /**
