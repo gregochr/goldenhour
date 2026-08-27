@@ -2,12 +2,14 @@
 
 **Status:** F1 and F4 implemented 2026-07-25 (#294). **F2 attempted and REJECTED** — refuted by the
 Copt Hill ground-truth fixture. **F3 REJECTED** — adversarially reviewed, would introduce two new
-degeneracies. **D6 (silent half-veto) found and FIXED.** D7, D8 and F5 outstanding. See §4.
+degeneracies. **D6 (silent half-veto) found and FIXED.** **D7 MEASURED and ANSWERED** — the cap is
+not the broken half; the ceiling is (§9). D8 and F5 outstanding. See §4.
 
-⚠️ **`actual_outcome` is empty — zero rows, ever.** Every rule in this document is therefore
-unvalidated, including a veto that forces rating 1–2 on ~15% of evaluations. Until outcomes exist
-or reanalysis verification lands, the correct move on any scoring rule is to change **nothing** and
-improve **observability**.
+⚠️ **`actual_outcome` is empty — zero rows, ever.** Aesthetic validation therefore still does not
+exist. But the reanalysis verification this paragraph used to wait on **has now landed and
+completed** (§9: 29,016 evaluations over Feb–Aug 2026, backlog fully verified 2026-08-16), so the
+*cloud* claims the rules turn on are measured. The "change nothing" rule is retired for changes §9
+justifies; it stands for anything §9 does not reach.
 **Raised:** 2026-07-25, from a production observation on the Map tab
 **Area:** `service/CloudPointCacheReader`, `service/DirectionalSamplingGeometry`, `service/evaluation/PromptBuilder`
 
@@ -264,7 +266,7 @@ bug to patch.
 | # | Defect | Status |
 |---|---|---|
 | **D6** | **Silent half-veto.** The prefetchers placed the upwind point using wind at `findNearestIndex` while the reader re-derives it from wind at `findBestIndex` (via `extractAtmosphericData`). The two disagree for ~half of all events (a 21:37 sunset → 21:00 vs 22:00), and at the 200 km cap a ~3° bearing difference crosses a 0.1° cache cell — so the lookup missed, the upwind sample came back null, and the veto lost a trigger with no error and no log. | **FIXED** — `OpenMeteoResponseParser.resolveEventWind` is now the single decider; both prefetchers call it. |
-| **D7** | **The 200 km cap voids the trajectory identity.** `MAX_UPWIND_DISTANCE_M` binds beyond ~6.9 h at 8 m/s. The nightly batch runs ~20 h ahead of a summer sunset and every T+1…T+7 slot is far past it, so for most evaluations `dist ≠ windSpeed × timeToEvent` and the sample is just "cloud 200 km upwind now" — while `PromptBuilder:204-206` asserts otherwise and the veto forces 1–2★ on it. Anchor-independent; F3 would not have helped. | Open — measure before changing. |
+| **D7** | **The 200 km cap voids the trajectory identity.** `MAX_UPWIND_DISTANCE_M` binds beyond ~6.9 h at 8 m/s. The nightly batch runs ~20 h ahead of a summer sunset and every T+1…T+7 slot is far past it, so for most evaluations `dist ≠ windSpeed × timeToEvent` and the sample is just "cloud 200 km upwind now" — while `PromptBuilder:204-206` asserts otherwise and the veto forces 1–2★ on it. Anchor-independent; F3 would not have helped. | **MEASURED 2026-08-16 — answered, see §9.** The cap is not the broken half: capped +36.2 vs uncapped +34.9 gap error, separation −0.9pp. The ceiling itself is the defect. |
 | **D8** | **Grep-invisible sixth call site.** `OpenMeteoService:672-681` re-implements the upwind geometry inline via `GeoUtils.offsetPoint` and never calls `computeUpwindPoint`. It is the *live* path whenever `cloudCache` is null. Any future geometry change must include it or the cached and live paths will diverge. | Open — documented. |
 
 ### ~~F3 (original proposal)~~
@@ -495,17 +497,28 @@ be answered from data rather than argued from √(2Rh):
   - **113 km** (= √(2R·1)) is the far edge of the corridor where 1 km-top low cloud blocks *direct
     low sun reaching the observer* — and only that. ~~Correct for a mid-level canvas~~: low cloud at
     113 km starts shadowing a 4 km canvas at 2.03° depression, which *is* that canvas's last-light
-    depression — a zero-width window.
+    depression — a zero-width window. The "far edge" is top-height-conditional: tops of 2–3 km
+    (which Open-Meteo's low layer includes) move the observer's own gap corridor out to 160–196 km,
+    so the 113 km sample probes the *1 km-idealised* edge, not a bound on where low cloud can block
+    the low sun (cross-vendor review C1, 2026-08-27).
   - **226 km** is exactly √(2R·4): the grazing point and corridor *centre* for a **4 km mid
     canvas** (corridor 113–339 km). Chosen as "2 × horizon" for strip-vs-blanket, it is by
     coincidence the dead-centre mid-canvas probe.
   - An **8 km cirrus canvas** is blocked over **206–432 km, centred at 319 km** (= √(2R·8)).
     ~~The 226 km point sits in that corridor~~ — it sits at the near *edge*: 1 km-top cloud at
-    226 km steals only the final 0.08° of the canvas's 2.87° lit arc. Deeper low decks (tops
-    2–3 km, which Open-Meteo's low layer includes) widen the corridor to ~160–515 km and can
-    amputate the whole red phase — so the 226 km reading still carries high-canvas signal, but as
-    a synoptic-scale proxy ~90 km short of centre, not a direct measurement. A rigorous cirrus
-    probe would be a sixth archive point at ~319 km.
+    226 km steals only the final 0.08° of the canvas's 2.87° lit arc. ⚠️ That figure is specific
+    to the 226 km point and must not be generalised: 1 km cloud placed *optimally* (~299 km, the
+    tangent point at blocking onset) blocks for the final **0.185°** — 2.3× more, roughly half of
+    a ~0.4° red phase (cross-vendor review C5, 2026-08-27). Deeper low decks widen the corridor
+    per top height — **160–479 km for 2 km tops, 124–515 km for 3 km** (an earlier "~160–515"
+    spliced the 2 km near edge onto the 3 km far edge; the corridors nest, they do not blend) —
+    and can amputate the whole red phase (2 km tops block the final 0.385°, 3 km the final
+    0.601°). So the 226 km reading still carries high-canvas signal, but as a synoptic-scale
+    proxy ~90 km short of centre, not a direct measurement. A rigorous cirrus probe would be a
+    sixth archive point at ~319 km — **geometric, not "refraction-corrected" to 342–349 km**:
+    near-horizon refraction is profile-dependent and nonlinear (~0.57° at the horizon under a
+    standard atmosphere, larger than every blocking window above), so a single √k stretch is
+    uncertainty, not a correction.
 
   The far-solar point was never verified and never persisted by this table before V142.
   `byCorridor` buckets by near-minus-far divergence at ±30pp (the same threshold the production
@@ -539,3 +552,161 @@ If `farCloudier&highCanvas` is non-trivial, the "ideal scenario" rule needs a fa
 which, unlike relaxing the veto, *cannot* be gated on `missedOpportunities` (it would create
 wasted trips instead), so it should be sized here first. Neither change should land before this
 report has a re-verified window behind it.
+
+## 9. Measured results (2026-08-16 → 2026-08-17, window complete)
+
+⚠️ **Read the closing subsection ("The triage cut") first.** The veto and blocked figures in the
+earlier subsections are whole-window, and the final recut re-attributed the headlines: most of
+those populations were stood down by triage before any prompt was built, and the dramatic
+anti-selection finding did not survive the correction.
+
+Window 2026-02-01 → 2026-08-06, **29,016 evaluations, backlog fully verified** (`remaining: 0`,
+no `lastError`). Three pulls were read along the way — 7,165 rows (2026-08-13), 17,146
+(2026-08-14), 29,016 (2026-08-16) — and the third was the first that did not overturn the second,
+which is the convergence test these numbers had to pass before anything below counts as evidence.
+
+⚠️ **Partial windows reversed two conclusions.** At 7k rows the uncapped veto looked *healthy*
+(+15.4 gap error, better than population) and cone-gap error looked concentrated in gapped skies;
+both readings were dead by 17k. Anyone tempted to act on a partially re-verified window should
+read those two sentences again.
+
+Mean gap errors below include the known ~25pp forecast-vs-ERA5 baseline offset; every conclusion
+therefore rests on **within-report contrasts** (fired vs not-fired, capped vs uncapped, bucket vs
+bucket), where the offset cancels.
+
+### The veto (D2) — fires on skies that were *clearer* than average
+
+- Fired on 3,658 of 29,016 (12.6%), forcing rating 1–2 on each.
+- Observed horizon low cloud: **49.1% where it fired vs 56.8% where it did not**
+  (`vetoSeparation` −7.7pp). It does not merely fail to discriminate — it anti-selects.
+- Gap error +35.6 fired vs +24.6 not fired: it fires precisely where the forecast overpredicted
+  horizon cloud the most.
+- **D7 answered:** capped +36.2 vs uncapped +34.9, `capSeparation` −0.9pp. The 200 km cap is not
+  the broken half — the trajectory-identity critique was real but immaterial. The ceiling is the
+  defect. By wind–sun angle the veto errs at every bearing (aligned +29.8 / oblique +37.3 /
+  opposed +35.9), so no angle carve-out rescues it.
+- **Justified change:** demote the absolute ceiling (`PromptBuilder:209-220`) to a bounded
+  penalty. Not removal — Copt Hill 2026-03-11 remains a real wasted trip the signals caught — and
+  **not** F2's exemption-on-clear-horizon, which stays rejected: the demotion is unconditional,
+  not keyed to the reading Copt Hill proved misleading. Prompt-regression assertions will move
+  (user-owned); the sky-rating eval harness must be re-baselined.
+
+### Cone structure — SHELVED
+
+Gapped skies are common (34%) but error does not concentrate there (abs 32.3 vs uniform 29.2;
+mixed is worst at 38.6). By §8's own rule, surfacing min/centre/max is not warranted.
+
+### The corridor — over-pessimism measured directly; the guard still unsized
+
+- **`farClearer&midCanvas`: 3,201 skies (11%) — the rule-physics failure, measured.** Near gate
+  genuinely blocked (observed 72.8, forecast 87.1 — the forecast was roughly *right*), corridor
+  centre clear (drop 57.6), mid canvas overhead. The ">60% = blocked" rule kills a sky whose
+  canvas is underlit through the clear corridor centre. Same story via proxy for high canvases
+  (3,043 skies, gap error just +5.3).
+- **Second mechanism in the same bucket:** `meanFarError` +37 there — the forecast's own 226 km
+  reading misses the drop ERA5 sees, so the *existing* strip-vs-blanket softener under-fires
+  because its input is biased, not because the rule is absent.
+- **`farCloudier&midCanvas` (2,903) does NOT size the ideal-scenario guard.** Its mean member has
+  `forecastGapLow` 87 — the forecast called the gate blocked, so "ideal scenario" never fired.
+  The guard's target population (forecast-clear gate over a blanketed corridor) needs a
+  forecast-conditioned cut (`forecastGapLow < 20` within `farCloudier`) before it can be sized.
+  Free, read-side, not yet built.
+
+### The strip split (2026-08-17) — the blanket label is the mechanism
+
+The forecast-conditioned cuts (#522 follow-up) and the thin-strip split landed and were pulled the
+same day; together they close the measurement program.
+
+- **The ideal-scenario guard is dead**: `farCloudier&fcstClear(<20)` = 428 evenings (1.5% of all),
+  `farCloudier&fcstIdeal` = 109 (0.4%). The false-"go" case barely exists — the guard is not
+  built, by its own pre-registered decision rule.
+- **The over-pessimism population is 6,281 (21.7% of all evaluations)** — forecast gate deep in
+  the blocked band (mean 92%), observed corridor beyond genuinely clear.
+- **The split is decisive and bimodal.** `stripSeen` 2,915 (46%): the forecast far reading showed
+  the drop, `meanFarError` **+2.9** — when it sees the clearing it is nearly exact, and the THIN
+  STRIP override plausibly softened. `stripMissed` **3,366 (54%, 11.6% of ALL evaluations)**:
+  `meanFarError` **+67.7** — the forecast claimed ~89% over a ~21% corridor, a forecast-visible
+  drop of ~3pp against a real ~58pp, so the data block printed
+  `[EXTENSIVE BLANKET — full penalty applies]` and *confirmed* a blanket that was not there.
+- **Both cheap fixes are dead**: no threshold retune reaches a 3pp forecast drop, and no constant
+  bias correction fits a bimodal error (+2.9 / +67.7 is a mode split, not an offset).
+- **The design conclusion**: the far-solar forecast reading may *soften* (as strip corroboration
+  it is accurate) but must not *confirm* a blanket. Sizing the change needs one more number — the
+  blanket label's precision (how often a forecast blanket call is right at all) — measured by the
+  blanket-precision cut before `blanket-confirmation-plan.md` is executed.
+
+### The triage cut (final, 2026-08-17) — the headline figures re-attributed
+
+The fifth recut (#529, `byTriageCut`) re-read the veto and blocked families over slots at or
+under `WeatherTriageEvaluator`'s 80% stand-down threshold — the only slots a prompt could have
+been built for. It ends the measurement program, and it overturns this section's own headline:
+
+- **The veto's anti-selection was a triage artifact.** Only **545 of 3,658 fired slots (15%)**
+  were promptable; over those, the separation is **+3.4pp** (observed 36.3 fired vs 32.9
+  not-fired) — vetoed skies marginally *cloudier*, not clearer. The −7.7pp whole-window figure
+  lived entirely in the >80% population, where neither fired nor not-fired slots were ever
+  prompted. What survives for the demotion: the signal barely discriminates, and it forces 1–2★
+  on skies averaging **36% observed horizon cloud** — 545 times in six months (~2% of
+  evaluations). An absolute ceiling on that signal remains indefensible *as absolute*; the
+  dramatic framing does not.
+- **The blocked headlines collapse the same way**: `fcstBlocked&underTriageCut` = **326** of
+  6,281 (5%); `stripMissed&underTriageCut` = **192** (0.66% of all evaluations). The blanket
+  *prompt* change is a small-footprint fix.
+- **The blanket label's under-cut precision fires the pre-registered rule**: 285 of 532
+  promptable blanket calls — **53.6%** — sat over an observed-open corridor. Double the 25%
+  threshold, so `blanket-confirmation-plan.md` ships as drafted, subject to its stop-points. The
+  baseline-offset caveat is weakened here: promptable non-vetoed slots show gap error −0.2 —
+  essentially unbiased — so the ~26pp whole-window offset concentrates in heavy-cloud forecasts
+  rather than applying uniformly.
+- **The centre of gravity moves to triage.** 97% of blanket calls sit above the cut, and there
+  **4,228 of 16,210 (26%)** had an observed-open corridor — thousands of slots stood down as "—"
+  with no look at the corridor, where a scoreable sky existed. The triage-corridor question is
+  now the largest user-visible opportunity in the program, and it is a `WeatherTriageEvaluator`
+  design question, not a prompt one.
+
+### Standing caveats
+
+ERA5 is reanalysis, not observation: a disagreement means "the forecast differs from a
+better-informed model". Nothing here says a sunset was beautiful — `actual_outcome` is still
+empty, and the rating-scale consequences of any prompt change still need the eval harness plus
+user-owned regression review. The ~319 km cirrus probe remains an open, costed option; the
+`&highCanvas` buckets behave directionally like `&midCanvas`, which weakens the urgency.
+
+## 10. Cross-vendor physics review (2026-08-27)
+
+The geometry in §8 was put to an adversarial cross-vendor review (OpenAI Codex, physics-only
+brief, no repo access, no CLAUDE.md). Full report:
+`docs/engineering/adversarial-solar-cloud-physics-review.md`. Every quantitative claim in it was
+independently re-derived here before adjudication — all reproduce exactly (blocking windows,
+per-top corridors, refracted edges, the seasonal azimuth sweep). Verdicts:
+
+- **Accepted, §8 amended.** (1) The "steals only the final 0.08°" figure is specific to the
+  226 km point; optimally-placed 1 km cloud blocks the final 0.185° of an 8 km canvas's lit arc.
+  (2) The "~160–515 km" deep-deck range spliced the 2 km near edge onto the 3 km far edge; the
+  real corridors are 160–479 (2 km) and 124–515 km (3 km). (3) The 113 km "far edge" is
+  conditional on the 1 km top idealisation — 2–3 km tops move the observer's gap corridor to
+  160–196 km. (4) A ~319 km sixth point stays geometric; "342–349 km with refraction" is false
+  precision, since near-horizon refraction (~0.57°, profile-dependent) dwarfs every blocking
+  window and a single √k stretch is uncertainty, not a correction.
+- **Contested with measured evidence.** The review's C8 charge — the cone mean erases gap
+  topology (90/0/90 → 60) — was this program's own pre-registered question, and §9 answered it
+  over 33k rows: gapped skies are common (34%) but error does **not** concentrate there (abs 32.3
+  vs 29.2 uniform; mixed worst at 38.6), so keeping the mean is the measured choice, not an
+  oversight. Min/centre/max are already persisted on the verification side (V142). Likewise its
+  bimodality reading ("edge displacement, not corridor validation") matches §9's own framing, and
+  its C7 advection refutation restates D7, which §9 already measured as immaterial
+  (`capSeparation` −0.9pp) with the ceiling — now demoted — as the real defect.
+- **Aligned with standing decisions**, independently reached: keep 113/226 as labelled
+  non-binary features; far reading softens, never escalates; no threshold retune without outcome
+  validation; AOD/visibility as the useful colour covariates (the aerosol proxy already does
+  this, unknown to the reviewer).
+- **New named open questions**, evidence-gated, not commitments. (1) *Swept-azimuth cone*: from
+  sun altitude +6° to −6° the setting azimuth sweeps 14.4° (50°N equinox) to 35.1° (59°N
+  solstices, asymmetric 21.5/13.6) — a static ±15° cone centred on the event instant under-covers
+  the swept horizon at high latitude. Whether that costs accuracy is a recut question (does gap
+  error grow with latitude/season?) before it is a design one. (2) *Terrain line-of-sight*: UK
+  westward sightlines can cross >1 km terrain inside the 113 km corridor; a DEM mask per
+  location/bearing would be site-scoped and more defensible than moving any national constant.
+  (3) The review's grazing-path extinction scale (airmass ~38 at the horizon; direct-beam
+  transmission ~0.15 at AOD 0.05) is a reminder that every corridor here is geometry about
+  *reachability*, not a claim of photographic sufficiency — consistent with soften-never-confirm.

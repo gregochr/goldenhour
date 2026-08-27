@@ -1,0 +1,104 @@
+# Plan: stop the far-solar reading confirming a blanket
+
+**Status: PROPOSED, GATED on the blanket-precision cut. Not a handover task.** Like the veto
+demotion, this moves prompt-regression assertions (user-owned) and shares its two stop-points;
+per the demotion plan's §6, both changes execute in one supervised session.
+
+## 1. The evidence (veto doc §9, strip split, 2026-08-17)
+
+`stripMissed` = 3,366 evaluations — **11.6% of everything scored** — where the forecast put the
+solar gate deep in the blocked band (mean 92%), the forecast far reading claimed ~89% cloud, and
+the observed 226 km corridor was really ~21% clear. Because both forecast arms sat ≥50%, the data
+block printed `[EXTENSIVE BLANKET — full penalty applies]`: the far reading did not merely fail
+to soften — it actively confirmed a blanket that was not there.
+
+The error is **bimodal**, which is the load-bearing fact: where the forecast far reading showed a
+drop (`stripSeen`), it was nearly exact (`meanFarError` +2.9); where it showed a blanket over a
+clear corridor, it was wrong by ~68pp. So the reading is trustworthy exactly when it *softens*
+and untrustworthy in a large share of the cases where it *hardens*. Threshold retunes (a 3pp
+forecast drop clears no threshold) and constant bias corrections (there is no constant) are both
+dead — see §9.
+
+## 2. The missing number, and the gate
+
+What §9 cannot say is the blanket label's **precision**: of all forecast blanket calls (near ≥50
+AND far ≥50, mirroring the label logic at `PromptBuilder` ~:489), what fraction sat over a
+corridor that was really blanketed vs really open? The strip split conditioned on *observed*
+farClearer skies, so it counts the label's failures without its successes.
+
+`blanket-precision-cut-plan.md` (fourth recut, handover-shaped) measures it: `fcstBlanket` bucket
+split by observed corridor state.
+
+**Amended 2026-08-17, after the cut's own adversarial review** (implemented in the precision
+commit): the raw ratio's denominator is not the label's printing population.
+`WeatherTriageEvaluator` stands a slot down above 80% solar-horizon low cloud *before any prompt
+is built*, and most blanket-band members sit above that cut — so the label never printed for
+them, and the prompt rule below cannot be what stood them down. The cut therefore also ships
+`fcstBlanket&underTriageCut(<=80)` and its `corridorOpen` sub-bucket. Two consequences:
+
+1. **The decision rule below keys on the `underTriageCut` ratio** — the false-blanket rate over
+   members the prompt could actually have seen — not the raw one, which is biased down by triage
+   depletion and up by the ~25pp reanalysis baseline offset, with no established net sign.
+2. **A second, larger design question enters the supervised session**: for members *above* the
+   cut, the stand-down mechanism is triage itself, blind to the corridor. Whether
+   `WeatherTriageEvaluator` should consult the far-corridor reading before standing down a
+   high-gap slot is a separate change with a separate risk profile (it alters which slots get
+   evaluated at all, and so carries API-cost and eval-volume implications, not just rating ones).
+   It is *scoped into the session's discussion* but NOT into this plan's change; if adopted it
+   gets its own plan and its own gate.
+
+Decision rule, pre-registered before the number is seen (over `underTriageCut`):
+
+- **False-blanket rate ≥ ~25%** → the change below ships as drafted: the blanket label loses its
+  escalatory force entirely.
+- **False-blanket rate well under ~10%** → the label is mostly right; the change narrows to
+  softening its *language* (from "full penalty applies" to corroboration) without touching the
+  rating bands, and the residual is accepted until `actual_outcome` data exists to referee the
+  trade properly.
+- **Between** → user's call at the stop-point, with the number on the table.
+
+**MEASURED 2026-08-17 (v2.18.9 pull): 285 of 532 = 53.6%.** Double the first arm's threshold —
+**the change ships as drafted**, subject to §4's stop-points. Two notes recorded with the number:
+the baseline-offset caveat is weakened, since promptable non-vetoed slots show a gap error of
+−0.2pp (the whole-window ~26pp offset concentrates in heavy-cloud forecasts, so treating observed
+far divergence as mostly forecast error is better supported than when the caveat was written);
+and the direct footprint is small (`stripMissed&underTriageCut` = 192 slots, 0.66% of
+evaluations), so this change is justified by the label's measured unreliability, not by volume.
+The volume sits above the cut: **4,228 of 16,210 above-cut blanket calls (26%) had an
+observed-open corridor** — that is the triage-corridor question's sizing, and it dwarfs both
+prompt changes combined.
+
+## 3. The change (as drafted, subject to §2)
+
+`PromptBuilder`, two sites:
+
+- **The EXTENSIVE BLANKET rule text** (~:143-144: "solar horizon low cloud ≥50% AND
+  beyond-horizon low cloud also ≥50%. Full blocking penalty applies — rating 1-2, fiery_sky
+  5-20") — reworded so the far reading corroborates rather than escalates: the blocked ceiling
+  already applies from the near gate alone; a far reading ≥50% adds "the corridor beyond offers
+  no relief" *as likelihood, not certainty*, and when substantial mid/high canvas is present the
+  rating may reach 3 rather than being pinned to 1-2 by the label.
+- **The `[EXTENSIVE BLANKET — full penalty applies]` data-block label** (~:489-492) — softened to
+  match (e.g. `[FAR CORRIDOR ALSO CLOUDY]`), so the label and the rule cannot argue.
+
+Explicitly in scope at the same time: resolving the **text/label discrepancy** recorded in the
+strip-split work — the prose defines THIN STRIP with "far ≤30%" while `isThinStrip` tests only
+the ≥30pp drop. Whichever way the user decides it, prose and code must leave this change agreeing.
+
+Explicitly NOT in scope: the near-gate blocked ceiling itself (>60% = 1-2 with no canvas), the
+strip override's thresholds, and the veto rules (the demotion plan owns those).
+
+## 4. Verification
+
+Identical structure to the demotion plan §5, and executed together with it: compile/checkstyle →
+eval harness re-baseline (**STOP-POINT 1**: band-movement list to the user; blanket-affected
+fixtures must move only in the softening direction) → prompt regression run (**STOP-POINT 2**:
+diffs surfaced, assertions never edited by the model) → post-deploy, the verification report's
+`stripMissed` population is the instrument: its *rating distribution* should lift off the 1–2
+floor while `stripSeen`'s stays put — the split was built to be exactly this before/after pair.
+
+## 5. Files touched
+
+`PromptBuilder.java` (the two sites above) · `docs/engineering/cloud-approach-veto-fix.md`
+(status lines when it lands) · `CHANGELOG.md`. No verification-side, sampling, entity, or
+frontend changes.
