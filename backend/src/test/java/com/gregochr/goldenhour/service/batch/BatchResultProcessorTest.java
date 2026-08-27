@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.service.batch;
 
 import com.anthropic.client.AnthropicClient;
 import com.anthropic.core.http.StreamResponse;
+import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.batches.MessageBatchIndividualResponse;
 import com.anthropic.services.blocking.MessageService;
 import com.anthropic.services.blocking.messages.BatchService;
@@ -245,6 +246,42 @@ class BatchResultProcessorTest {
                 eq(false), eq("OVERLOADED_ERROR"),
                 eq("overloaded_error"), eq("busy"),
                 any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("FORECAST: max_tokens truncation → handler not called, no cache write, "
+            + "MAX_TOKENS logged as errored (not a silent partial success)")
+    void forecast_maxTokensTruncation_logsInlineFailureAndDoesNotPersist() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatchWithJobRun(BatchType.FORECAST, "msgbatch_fail", 1, 55L);
+
+        // The processor rejects on stop_reason alone, before ever looking at content — so this
+        // fixture carries no text at all (see succeededResponseWithStopReason). That the same
+        // rejection applies regardless of content is proven at the ClaudeEvaluationStrategyTest
+        // level, where a MAX_TOKENS fixture holds identical content to a parseable END_TURN one.
+        MessageBatchIndividualResponse response = succeededResponseWithStopReason(
+                "fc-42-2026-04-07-SUNRISE", StopReason.MAX_TOKENS);
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.of(response));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        processor.processResults(batch);
+
+        verify(forecastResultHandler, never()).parseBatchResponse(any(), any(), any(), any());
+        verify(forecastResultHandler, never()).mergeCacheKey(any(), any());
+        verify(jobRunService).logBatchResult(
+                eq(55L), eq("msgbatch_fail"), eq("fc-42-2026-04-07-SUNRISE"),
+                eq(false), eq("MAX_TOKENS"),
+                eq("truncation_error"), any(),
+                any(), any(), any(), any());
+
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getErroredCount()).isEqualTo(1);
+        assertThat(captor.getValue().getSucceededCount()).isZero();
+        assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.FAILED);
     }
 
     @Test
@@ -748,6 +785,32 @@ class BatchResultProcessorTest {
         when(usage.outputTokens()).thenReturn(200L);
         when(usage.cacheReadInputTokens()).thenReturn(Optional.of(1000L));
         when(usage.cacheCreationInputTokens()).thenReturn(Optional.of(0L));
+
+        return response;
+    }
+
+    /**
+     * Minimal succeeded-result fixture stubbing only what the max_tokens check reads
+     * (result/succeeded/message, then {@code stopReason()}) — the processor rejects the
+     * response before ever calling {@code content()}/{@code usage()}/{@code model()}, so
+     * stubbing those here would trip Mockito's unnecessary-stubbing check.
+     */
+    private MessageBatchIndividualResponse succeededResponseWithStopReason(String customId,
+            StopReason stopReason) {
+        MessageBatchIndividualResponse response = mock(MessageBatchIndividualResponse.class);
+        com.anthropic.models.messages.batches.MessageBatchResult result =
+                mock(com.anthropic.models.messages.batches.MessageBatchResult.class);
+        com.anthropic.models.messages.batches.MessageBatchSucceededResult succeeded =
+                mock(com.anthropic.models.messages.batches.MessageBatchSucceededResult.class);
+        com.anthropic.models.messages.Message message =
+                mock(com.anthropic.models.messages.Message.class);
+
+        when(response.result()).thenReturn(result);
+        when(response.customId()).thenReturn(customId);
+        when(result.isSucceeded()).thenReturn(true);
+        when(result.succeeded()).thenReturn(Optional.of(succeeded));
+        when(succeeded.message()).thenReturn(message);
+        when(message.stopReason()).thenReturn(Optional.of(stopReason));
 
         return response;
     }

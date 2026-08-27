@@ -127,11 +127,13 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
     }
 
     /**
-     * Fails fast with a clear diagnostic when Claude did not produce an evaluation to parse,
-     * rather than letting a refusal or context-window overflow surface downstream as an opaque
-     * {@code SunsetEvaluationParser} JSON-parse failure — both leave prose in {@code content}
-     * that satisfies none of the expected fields, so without this check the resulting exception
-     * message names a symptom ("failed to parse") rather than the cause.
+     * Fails fast with a clear diagnostic when Claude did not produce a complete evaluation to
+     * parse, rather than letting a refusal, context-window overflow, or token-limit truncation
+     * surface downstream as an opaque {@code SunsetEvaluationParser} JSON-parse failure — or
+     * worse, as a silent success: the parser's regex-salvage fallback can reconstruct a
+     * valid-looking {@link SunsetEvaluation} from a truncated prefix (rating, potentials, and a
+     * closed summary) when the cut lands after those fields but before optional ones, so without
+     * this check a {@code max_tokens} truncation is persisted as a complete forecast.
      *
      * @param response the Claude API response
      */
@@ -145,6 +147,11 @@ public class ClaudeEvaluationStrategy implements EvaluationStrategy {
             throw new IllegalStateException(
                     "Claude's response was cut short by the context window limit "
                             + "(stop_reason=model_context_window_exceeded)");
+        }
+        if (StopReason.MAX_TOKENS.equals(stopReason)) {
+            throw new IllegalStateException(
+                    "Claude's response was truncated at the max_tokens limit "
+                            + "(stop_reason=max_tokens)");
         }
     }
 
