@@ -150,7 +150,7 @@ public interface TideExtremeRepository extends JpaRepository<TideExtremeEntity, 
      * whichever the doc says. Once the seed batch ages past the horizon this becomes the oldest
      * surviving <em>tail</em> stamp, which saturates near the horizon rather than growing without
      * bound. The cadence still fires, but only because the re-seed interval is bounded by the
-     * horizon — see {@code TideService.RESEED_INTERVAL_DAYS}.
+     * horizon — see {@code WorldTidesIngestionService.RESEED_INTERVAL_DAYS}.
      *
      * @param locationId the location primary key
      * @param from       lower bound, normally the start of today
@@ -173,7 +173,7 @@ public interface TideExtremeRepository extends JpaRepository<TideExtremeEntity, 
      * {@code TideService.getTideStats}. Without a bound they ran over every row in the
      * table — including the forward extremes the weekly WorldTides fetch writes — which
      * silently coupled the classification threshold to whatever
-     * {@code TideService.FETCH_LENGTH_SECONDS} happened to be. Lengthening the fetch
+     * {@code WorldTidesIngestionService.FETCH_LENGTH_SECONDS} happened to be. Lengthening the fetch
      * horizon then moved spring/king classification for every coastal location, and the
      * effect reached a persisted column ({@code forecast_evaluation.surge_risk_level}),
      * the Claude prompt, hot-topic firing and rendered "N m above an average tide" copy.
