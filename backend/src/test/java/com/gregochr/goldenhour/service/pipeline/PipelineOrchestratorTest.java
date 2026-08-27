@@ -412,6 +412,14 @@ class PipelineOrchestratorTest {
             // The dropped submission must not be recorded as a completed phase.
             verify(pipelineRunService, never()).completePhase(
                     eq(RUN_ID), eq(PipelinePhase.FORECAST_BATCH_SUBMIT), any());
+            // The phase in flight is failed BEFORE the run — failRun touches only the parent
+            // row, so without this the started phase stays RUNNING forever against a run that
+            // is already terminal, and the Operations timeline shows a duration that never
+            // stops growing. The exception path below has always done this; the dropped path
+            // must match it.
+            verify(pipelineRunService).failPhase(eq(RUN_ID),
+                    eq(PipelinePhase.FORECAST_BATCH_SUBMIT),
+                    org.mockito.ArgumentMatchers.contains("submission guard"));
             verify(pipelineRunService).failRun(eq(RUN_ID),
                     org.mockito.ArgumentMatchers.contains("submission guard"));
             // The cycle never advances past submission at all.

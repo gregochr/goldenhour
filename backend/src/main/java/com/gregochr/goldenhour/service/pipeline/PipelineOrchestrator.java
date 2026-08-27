@@ -411,6 +411,17 @@ public class PipelineOrchestrator {
                 String reason = "Forecast batch submission dropped — another pipeline run "
                         + "already holds the submission guard (overlapping cycle trigger)";
                 LOG.warn("Pipeline run {} ({}): {}", runId, cycleType, reason);
+                // Fail the phase in flight BEFORE failing the run, exactly as the catch
+                // block below does. failRun touches only the parent row, so without this the
+                // started phase stays RUNNING forever and the Operations timeline shows an
+                // ever-growing "so far" duration against a run that is already terminal.
+                // Read the current phase rather than assuming FORECAST_BATCH_SUBMIT: on the
+                // intraday path the betweenSteps hook may not have fired yet, leaving
+                // STABILITY_RECLASSIFY in flight.
+                PipelinePhase inFlight = pipelineRunService.findById(runId)
+                        .map(PipelineRunEntity::getCurrentPhase)
+                        .orElse(firstPhase);
+                pipelineRunService.failPhase(runId, inFlight, reason);
                 pipelineRunService.failRun(runId, reason);
                 return false;
             }
