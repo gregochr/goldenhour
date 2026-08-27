@@ -40,6 +40,7 @@ import java.util.concurrent.Executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isA;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -113,6 +114,16 @@ class PipelineOrchestratorTest {
         // the pre-submission-failure and timeout tests never reach the retry phase.
         lenient().when(batchRetryService.selectFailures(any()))
                 .thenReturn(RetrySelection.none(5));
+        // Default: the submission guard is free, so submission succeeds — this is
+        // the overwhelmingly common case and every test not specifically exercising
+        // the dropped-submission path relies on it. Lenient + wide matchers because
+        // most tests never stub this call at all; without this default a Mockito
+        // mock would return false (the boolean default), which would make every
+        // one of those tests silently exercise the dropped-submission path instead
+        // of the sequence it actually means to test.
+        lenient().when(scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
+                any(), any(), any(), anyBoolean(), any()))
+                .thenReturn(true);
     }
 
     private PipelineRunEntity newRun() {
@@ -364,6 +375,61 @@ class PipelineOrchestratorTest {
                     eq(PipelinePhase.BRIEFING), eq("briefing broke"));
             verify(pipelineRunService).failRun(eq(RUN_ID),
                     org.mockito.ArgumentMatchers.contains("Briefing failed"));
+            verify(pipelineRunService, never()).completeRun(RUN_ID);
+        }
+    }
+
+    @Nested
+    @DisplayName("Overlapping cycle — dropped submission")
+    class DroppedSubmission {
+
+        /**
+         * The regression this task fixes: two cycles overlap (an admin trigger while
+         * a scheduled cycle is still submitting), the losing run's CAS on the batch
+         * service's shared guard fails, and it must not lie about what it did. Before
+         * the fix, the void return gave the orchestrator no way to tell "submitted"
+         * from "dropped" — it completed FORECAST_BATCH_SUBMIT unconditionally and
+         * went on to brief from stale cache. The assertion on refreshBriefing()
+         * NEVER firing is the one that matters: it is the user-visible harm this fix
+         * closes.
+         */
+        @Test
+        @DisplayName("guard already held → run FAILED with overlap reason, NO BRIEFING phase, "
+                + "briefing NEVER refreshed")
+        void dropped_submission_fails_run_without_briefing() {
+            when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
+            when(scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
+                    eq(RUN_ID),
+                    eq(NightlyCandidateCollectionStrategy.INSTANCE),
+                    eq(NightlyEligibilityPolicy.INSTANCE),
+                    eq(false),
+                    any()))
+                    .thenReturn(false);
+
+            orchestrator.runNightlyCycle();
+
+            verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_SUBMIT);
+            // The dropped submission must not be recorded as a completed phase.
+            verify(pipelineRunService, never()).completePhase(
+                    eq(RUN_ID), eq(PipelinePhase.FORECAST_BATCH_SUBMIT), any());
+            // The phase in flight is failed BEFORE the run — failRun touches only the parent
+            // row, so without this the started phase stays RUNNING forever against a run that
+            // is already terminal, and the Operations timeline shows a duration that never
+            // stops growing. The exception path below has always done this; the dropped path
+            // must match it.
+            verify(pipelineRunService).failPhase(eq(RUN_ID),
+                    eq(PipelinePhase.FORECAST_BATCH_SUBMIT),
+                    org.mockito.ArgumentMatchers.contains("submission guard"));
+            verify(pipelineRunService).failRun(eq(RUN_ID),
+                    org.mockito.ArgumentMatchers.contains("submission guard"));
+            // The cycle never advances past submission at all.
+            verify(pipelineRunService, never())
+                    .startPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_WAIT);
+            verify(pipelineRunService, never()).startPhase(RUN_ID, PipelinePhase.BRIEFING);
+            verify(forecastBatchRepository, never()).findByPipelineRunId(RUN_ID);
+            // The assertion that matters: a dropped run must never brief from
+            // whatever cache the winning run leaves mid-flight.
+            verify(briefingService, never()).refreshBriefing();
             verify(pipelineRunService, never()).completeRun(RUN_ID);
         }
     }
@@ -727,7 +793,7 @@ class PipelineOrchestratorTest {
                 @SuppressWarnings("unchecked")
                 java.util.function.Consumer<ReclassSummary> hook = inv.getArgument(4);
                 hook.accept(new ReclassSummary(3, 1, 2));
-                return null;
+                return true;
             }).when(scheduledBatchEvaluationService).submitForecastBatchForPipelineRun(
                     eq(RUN_ID), any(), any(), eq(true), any());
 
