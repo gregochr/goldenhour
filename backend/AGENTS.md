@@ -10,9 +10,21 @@ this file does *not* cover.
 - `cd backend && ./mvnw compile -q` — fast compile check (no Docker).
 - `./mvnw checkstyle:check` — fails fast on style (120-char lines, Javadoc on
   public classes/methods, no unused imports, 4-space indent).
-- Full `./mvnw clean verify` needs Docker (5 Testcontainers integration classes
-  under `src/test/java/.../integration/`); it runs JaCoCo (**80% line coverage
-  per class**) and SpotBugs (`High` threshold + FindSecBugs).
+- ⚠️ **There is NO Docker on this machine.** Never tell anyone to start it. The 6
+  `IntegrationTestBase` classes under `src/test/java/.../integration/` need
+  Testcontainers, so every local run must pass `-Dtest='!**/integration/**'`:
+  `./mvnw clean verify --batch-mode -Dtest='!**/integration/**' -DfailIfNoSpecifiedTests=false`
+  (it runs JaCoCo — **80% line coverage per class** — and SpotBugs).
+- ⚠️ **CI is the only place a migration is proven BEFORE merge** — not the only
+  place it ever runs. `application-dev.yml` and `application-prod.yml` both set
+  `spring.flyway.enabled: true` against Postgres, so production migrates at
+  startup. But the *default* local paths never do: `application-local.yml` and
+  the default test profile are H2 with Flyway off. The only pre-merge execution
+  is `IntegrationTestBase` (Postgres Testcontainer), which needs the Docker this
+  machine lacks. So a migration PR is *pending CI*, not "unverified" — write the
+  Testcontainers test, run the local gate, read CI's Backend job before merging.
+  Write migrations for **Postgres**; the default local loop never executes them,
+  so do not contort them for H2.
 - Gate on Maven's **exit code**, never on grepping its output.
 
 ## Code Review Rules
