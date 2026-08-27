@@ -2,6 +2,7 @@ package com.gregochr.goldenhour.model;
 
 import com.gregochr.goldenhour.entity.TargetType;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 
 /**
@@ -48,6 +49,10 @@ import java.time.LocalDate;
  *                              {@code null}
  * @param observedFarLow        analysed low cloud at the 226 km far-solar point (%), or
  *                              {@code null}
+ * @param precipitationMm       forecast precipitation (mm) at the scored slot, or {@code null} —
+ *                              the reading behind triage's rain rule
+ * @param visibilityMetres      forecast visibility (m) at the scored slot, or {@code null} —
+ *                              the reading behind triage's fog rule
  */
 public record CloudVerificationPair(
         String locationName,
@@ -69,7 +74,9 @@ public record CloudVerificationPair(
         Integer forecastFarLow,
         Integer observedGapLowMin,
         Integer observedGapLowMax,
-        Integer observedFarLow) {
+        Integer observedFarLow,
+        BigDecimal precipitationMm,
+        Integer visibilityMetres) {
 
     /** Upwind low cloud (%) at or above which the veto's second trigger is satisfied. */
     private static final int UPWIND_TRIGGER_PERCENT = 60;
