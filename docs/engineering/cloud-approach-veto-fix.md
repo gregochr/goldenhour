@@ -316,17 +316,28 @@ be answered from data rather than argued from √(2Rh):
   - **113 km** (= √(2R·1)) is the far edge of the corridor where 1 km-top low cloud blocks *direct
     low sun reaching the observer* — and only that. ~~Correct for a mid-level canvas~~: low cloud at
     113 km starts shadowing a 4 km canvas at 2.03° depression, which *is* that canvas's last-light
-    depression — a zero-width window.
+    depression — a zero-width window. The "far edge" is top-height-conditional: tops of 2–3 km
+    (which Open-Meteo's low layer includes) move the observer's own gap corridor out to 160–196 km,
+    so the 113 km sample probes the *1 km-idealised* edge, not a bound on where low cloud can block
+    the low sun (cross-vendor review C1, 2026-08-27).
   - **226 km** is exactly √(2R·4): the grazing point and corridor *centre* for a **4 km mid
     canvas** (corridor 113–339 km). Chosen as "2 × horizon" for strip-vs-blanket, it is by
     coincidence the dead-centre mid-canvas probe.
   - An **8 km cirrus canvas** is blocked over **206–432 km, centred at 319 km** (= √(2R·8)).
     ~~The 226 km point sits in that corridor~~ — it sits at the near *edge*: 1 km-top cloud at
-    226 km steals only the final 0.08° of the canvas's 2.87° lit arc. Deeper low decks (tops
-    2–3 km, which Open-Meteo's low layer includes) widen the corridor to ~160–515 km and can
-    amputate the whole red phase — so the 226 km reading still carries high-canvas signal, but as
-    a synoptic-scale proxy ~90 km short of centre, not a direct measurement. A rigorous cirrus
-    probe would be a sixth archive point at ~319 km.
+    226 km steals only the final 0.08° of the canvas's 2.87° lit arc. ⚠️ That figure is specific
+    to the 226 km point and must not be generalised: 1 km cloud placed *optimally* (~299 km, the
+    tangent point at blocking onset) blocks for the final **0.185°** — 2.3× more, roughly half of
+    a ~0.4° red phase (cross-vendor review C5, 2026-08-27). Deeper low decks widen the corridor
+    per top height — **160–479 km for 2 km tops, 124–515 km for 3 km** (an earlier "~160–515"
+    spliced the 2 km near edge onto the 3 km far edge; the corridors nest, they do not blend) —
+    and can amputate the whole red phase (2 km tops block the final 0.385°, 3 km the final
+    0.601°). So the 226 km reading still carries high-canvas signal, but as a synoptic-scale
+    proxy ~90 km short of centre, not a direct measurement. A rigorous cirrus probe would be a
+    sixth archive point at ~319 km — **geometric, not "refraction-corrected" to 342–349 km**:
+    near-horizon refraction is profile-dependent and nonlinear (~0.57° at the horizon under a
+    standard atmosphere, larger than every blocking window above), so a single √k stretch is
+    uncertainty, not a correction.
 
   The far-solar point was never verified and never persisted by this table before V142.
   `byCorridor` buckets by near-minus-far divergence at ±30pp (the same threshold the production
@@ -479,3 +490,42 @@ better-informed model". Nothing here says a sunset was beautiful — `actual_out
 empty, and the rating-scale consequences of any prompt change still need the eval harness plus
 user-owned regression review. The ~319 km cirrus probe remains an open, costed option; the
 `&highCanvas` buckets behave directionally like `&midCanvas`, which weakens the urgency.
+
+## 10. Cross-vendor physics review (2026-08-27)
+
+The geometry in §8 was put to an adversarial cross-vendor review (OpenAI Codex, physics-only
+brief, no repo access, no CLAUDE.md). Full report:
+`docs/engineering/adversarial-solar-cloud-physics-review.md`. Every quantitative claim in it was
+independently re-derived here before adjudication — all reproduce exactly (blocking windows,
+per-top corridors, refracted edges, the seasonal azimuth sweep). Verdicts:
+
+- **Accepted, §8 amended.** (1) The "steals only the final 0.08°" figure is specific to the
+  226 km point; optimally-placed 1 km cloud blocks the final 0.185° of an 8 km canvas's lit arc.
+  (2) The "~160–515 km" deep-deck range spliced the 2 km near edge onto the 3 km far edge; the
+  real corridors are 160–479 (2 km) and 124–515 km (3 km). (3) The 113 km "far edge" is
+  conditional on the 1 km top idealisation — 2–3 km tops move the observer's gap corridor to
+  160–196 km. (4) A ~319 km sixth point stays geometric; "342–349 km with refraction" is false
+  precision, since near-horizon refraction (~0.57°, profile-dependent) dwarfs every blocking
+  window and a single √k stretch is uncertainty, not a correction.
+- **Contested with measured evidence.** The review's C8 charge — the cone mean erases gap
+  topology (90/0/90 → 60) — was this program's own pre-registered question, and §9 answered it
+  over 33k rows: gapped skies are common (34%) but error does **not** concentrate there (abs 32.3
+  vs 29.2 uniform; mixed worst at 38.6), so keeping the mean is the measured choice, not an
+  oversight. Min/centre/max are already persisted on the verification side (V142). Likewise its
+  bimodality reading ("edge displacement, not corridor validation") matches §9's own framing, and
+  its C7 advection refutation restates D7, which §9 already measured as immaterial
+  (`capSeparation` −0.9pp) with the ceiling — now demoted — as the real defect.
+- **Aligned with standing decisions**, independently reached: keep 113/226 as labelled
+  non-binary features; far reading softens, never escalates; no threshold retune without outcome
+  validation; AOD/visibility as the useful colour covariates (the aerosol proxy already does
+  this, unknown to the reviewer).
+- **New named open questions**, evidence-gated, not commitments. (1) *Swept-azimuth cone*: from
+  sun altitude +6° to −6° the setting azimuth sweeps 14.4° (50°N equinox) to 35.1° (59°N
+  solstices, asymmetric 21.5/13.6) — a static ±15° cone centred on the event instant under-covers
+  the swept horizon at high latitude. Whether that costs accuracy is a recut question (does gap
+  error grow with latitude/season?) before it is a design one. (2) *Terrain line-of-sight*: UK
+  westward sightlines can cross >1 km terrain inside the 113 km corridor; a DEM mask per
+  location/bearing would be site-scoped and more defensible than moving any national constant.
+  (3) The review's grazing-path extinction scale (airmass ~38 at the horizon; direct-beam
+  transmission ~0.15 at AOD 0.05) is a reminder that every corridor here is geometry about
+  *reachability*, not a claim of photographic sufficiency — consistent with soften-never-confirm.
