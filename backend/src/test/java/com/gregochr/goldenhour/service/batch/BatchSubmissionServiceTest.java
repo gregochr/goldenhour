@@ -16,6 +16,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -23,10 +24,13 @@ import java.time.OffsetDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -110,7 +114,11 @@ class BatchSubmissionServiceTest {
 
         ArgumentCaptor<ForecastBatchEntity> entityCaptor =
                 ArgumentCaptor.forClass(ForecastBatchEntity.class);
-        verify(batchRepository).save(entityCaptor.capture());
+        // TWO saves, deliberately. The row is persisted the moment Anthropic returns — that row is
+        // the only way the poller ever discovers the batch — and then updated with the jobRunId
+        // once bookkeeping has run. A single save would mean waiting for startBatchRun before the
+        // batch became discoverable, which is exactly the window that could strand a paid batch.
+        verify(batchRepository, times(2)).save(entityCaptor.capture());
         assertThat(entityCaptor.getValue().getAnthropicBatchId())
                 .isEqualTo("msgbatch_scheduled");
         assertThat(entityCaptor.getValue().getBatchType()).isEqualTo(BatchType.FORECAST);
@@ -191,5 +199,53 @@ class BatchSubmissionServiceTest {
         verify(batchRepository).save(entityCaptor.capture());
         assertThat(entityCaptor.getValue().getJobRunId()).isNull();
         assertThat(entityCaptor.getValue().getBatchType()).isEqualTo(BatchType.AURORA);
+    }
+
+    @Test
+    @DisplayName("submit: a tracking-row failure throws rather than returning the null that means "
+            + "'nothing was submitted'")
+    void submit_trackingRowFails_throwsOrphanedBatchRatherThanNull() {
+        stubBatchCreate("msgbatch_orphan");
+        when(batchRepository.save(any())).thenThrow(new RuntimeException("connection reset"));
+
+        assertThatThrownBy(() -> service.submit(List.of(aRequest()), BatchType.FORECAST,
+                BatchTriggerSource.SCHEDULED, "Test orphan"))
+                .isInstanceOf(OrphanedBatchException.class)
+                .hasMessageContaining("msgbatch_orphan")
+                .extracting(e -> ((OrphanedBatchException) e).getAnthropicBatchId())
+                .isEqualTo("msgbatch_orphan");
+
+        // The batch is real, running and billable. Returning null would have been reported to the
+        // orchestrator as an empty cycle — terminal — and it would have briefed from stale cache.
+    }
+
+    @Test
+    @DisplayName("submit: the tracking row is persisted BEFORE job-run bookkeeping, so a job-run "
+            + "failure cannot strand a paid batch")
+    void submit_persistsTrackingRowBeforeJobRun() {
+        stubBatchCreate("msgbatch_order");
+        JobRunEntity jobRun = new JobRunEntity();
+        jobRun.setId(7L);
+        when(jobRunService.startBatchRun(anyInt(), anyString())).thenReturn(jobRun);
+
+        service.submit(List.of(aRequest()), BatchType.FORECAST,
+                BatchTriggerSource.SCHEDULED, "Test ordering");
+
+        // Ordering is the entire fix: forecast_batch is the only row the poller discovers work
+        // through, so it must exist before anything that merely feeds metrics is attempted.
+        InOrder inOrder = inOrder(batchRepository, jobRunService);
+        inOrder.verify(batchRepository).save(any(ForecastBatchEntity.class));
+        inOrder.verify(jobRunService).startBatchRun(anyInt(), anyString());
+    }
+
+    private static BatchCreateParams.Request aRequest() {
+        return BatchCreateParams.Request.builder()
+                .customId("fc-1-2026-04-16-SUNRISE")
+                .params(BatchCreateParams.Request.Params.builder()
+                        .model("claude-sonnet-4-6")
+                        .maxTokens(1024)
+                        .addUserMessage("test")
+                        .build())
+                .build();
     }
 }

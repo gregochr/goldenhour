@@ -304,9 +304,22 @@ public class BatchResultProcessor {
                 }
             }
         } catch (Exception e) {
-            LOG.error("Forecast batch: failed to stream results for {}: {}",
-                    batch.getAnthropicBatchId(), e.getMessage(), e);
-            markFailed(batch, "Failed to stream results: " + e.getMessage());
+            // ⚠️ FLUSH BEFORE FAILING. Everything parsed so far is sitting in the three sinks,
+            // and every one of those responses was paid for. Returning straight to markFailed
+            // threw them away: a stream that reset after 80 of 200 responses discarded all 80,
+            // never read the other 120, and marked the batch terminal so nothing polled it again.
+            //
+            // Flushing here is safe precisely because these writes MERGE rather than replace —
+            // the same property that lets coastal, inland, bluebell and woodland buckets share a
+            // region key. A partial flush therefore adds what it has and disturbs nothing else.
+            int flushed = flushAccumulated(byKey, bluebellByKey, woodlandByKey);
+            LOG.error("Forecast batch: failed to stream results for {} after {} succeeded — "
+                            + "flushed {} cache key(s) before failing: {}",
+                    batch.getAnthropicBatchId(), succeeded, flushed, e.getMessage(), e);
+            batch.setSucceededCount(succeeded);
+            batch.setErroredCount(errored);
+            markFailed(batch, "Failed to stream results after " + succeeded
+                    + " succeeded (" + flushed + " cache keys flushed): " + e.getMessage());
             return;
         }
 
@@ -343,20 +356,7 @@ public class BatchResultProcessor {
         // Merging costs a stale location lingering in a region entry until that key ages out;
         // replacing costs a paid-for evaluation. The retry path has merged for exactly this reason
         // since it was written.
-        for (Map.Entry<String, List<BriefingEvaluationResult>> entry : byKey.entrySet()) {
-            forecastResultHandler.mergeCacheKey(entry.getKey(), entry.getValue());
-        }
-        // Bluebell results always merge: the mini-batch holds only a region's bluebell sites, so
-        // overlaying them preserves the region's sky locations. The bluebell merge additionally
-        // recombines the rating with a prior sky result for OPEN_FELL sites (C3b).
-        for (Map.Entry<String, List<BriefingEvaluationResult>> entry : bluebellByKey.entrySet()) {
-            forecastResultHandler.mergeBluebellCacheKey(entry.getKey(), entry.getValue());
-        }
-        // Woodland results merge for the same reason: the mini-batch holds only a region's canopy
-        // sites, so overlaying preserves its sky locations.
-        for (Map.Entry<String, List<BriefingEvaluationResult>> entry : woodlandByKey.entrySet()) {
-            forecastResultHandler.mergeWoodlandCacheKey(entry.getKey(), entry.getValue());
-        }
+        flushAccumulated(byKey, bluebellByKey, woodlandByKey);
 
         LOG.info("Forecast batch complete: batchId={}, {} succeeded, {} errored, {} cache keys written "
                         + "({} sky + {} bluebell + {} woodland)",
@@ -682,6 +682,39 @@ public class BatchResultProcessor {
             return 0L;
         }
         return costUsd.multiply(BigDecimal.valueOf(1_000_000)).longValue();
+    }
+
+    /**
+     * Writes every accumulated result to the evaluation cache, and returns how many cache keys
+     * were written.
+     *
+     * <p>Called from <b>both</b> the normal completion path and the stream-failure path, which is
+     * the entire point of it being a method: results are accumulated in memory and only become
+     * durable here, so a path that skips it silently discards work Anthropic has already billed
+     * for. It is safe to call with partial contents because all three writes <b>merge</b> rather
+     * than replace — see the caller's comment for why that property exists.
+     *
+     * @param byKey         sky results, keyed region|date|event
+     * @param bluebellByKey bluebell results; the merge additionally recombines the rating with a
+     *                      prior sky result for OPEN_FELL sites (C3b)
+     * @param woodlandByKey woodland results; merging preserves the region's sky locations, since
+     *                      the mini-batch holds only its canopy sites
+     * @return the number of cache keys written across all three sinks
+     */
+    private int flushAccumulated(
+            Map<String, List<BriefingEvaluationResult>> byKey,
+            Map<String, List<BriefingEvaluationResult>> bluebellByKey,
+            Map<String, List<BriefingEvaluationResult>> woodlandByKey) {
+        for (Map.Entry<String, List<BriefingEvaluationResult>> entry : byKey.entrySet()) {
+            forecastResultHandler.mergeCacheKey(entry.getKey(), entry.getValue());
+        }
+        for (Map.Entry<String, List<BriefingEvaluationResult>> entry : bluebellByKey.entrySet()) {
+            forecastResultHandler.mergeBluebellCacheKey(entry.getKey(), entry.getValue());
+        }
+        for (Map.Entry<String, List<BriefingEvaluationResult>> entry : woodlandByKey.entrySet()) {
+            forecastResultHandler.mergeWoodlandCacheKey(entry.getKey(), entry.getValue());
+        }
+        return byKey.size() + bluebellByKey.size() + woodlandByKey.size();
     }
 
     private void markFailed(ForecastBatchEntity batch, String reason) {
