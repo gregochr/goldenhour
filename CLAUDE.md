@@ -162,11 +162,23 @@ cd backend && ./mvnw clean verify --batch-mode --no-transfer-progress \
   -Dtest='!**/integration/**' -DfailIfNoSpecifiedTests=false >/tmp/v.log 2>&1; echo "exit: $?"
 ```
 
-**⚠️ Flyway migrations are exercised in exactly one place: CI.** Nowhere local touches them —
-`application-local.yml` sets `spring.flyway.enabled: false` (H2 + `ddl-auto: update`), and the
-default test profile does the same (H2 + `create-drop`). Only `IntegrationTestBase` turns Flyway on,
-and only against Postgres. CI's `Backend — Build, Test & Coverage` job runs `./mvnw clean verify`
-with **no exclusion** on a runner that does have Docker, so that is where a migration is proven.
+**⚠️ CI is the only place a migration is proven BEFORE it merges.** Be precise about this, because
+the sloppy version of the claim is wrong: `application-dev.yml` and `application-prod.yml` both set
+`spring.flyway.enabled: true` against Postgres, so **production runs every migration at startup** —
+that is what migrations are for — and a `dev`-profile run against a real Postgres executes them too.
+
+What is true is narrower, and is the part that matters when reviewing a PR:
+
+- The **default local paths never run migrations at all.** `application-local.yml` sets
+  `spring.flyway.enabled: false` (H2 + `ddl-auto: update`), and the default test profile does the
+  same (H2 + `create-drop`). So the ordinary edit-compile-test loop cannot exercise one.
+- The only **pre-merge** execution is `IntegrationTestBase`, which turns Flyway on against a
+  Postgres 17 Testcontainer — and that needs Docker, which this machine does not have.
+- CI's `Backend — Build, Test & Coverage` job runs `./mvnw clean verify` with **no exclusion** on a
+  runner that does, so CI is where a migration is proven before merge.
+
+If you do have a native Postgres to hand, running the `dev` profile is a genuine local verification
+route — it just is not the default and does not exist on this machine.
 
 Two consequences worth internalising, because they end the recurring conversation:
 
@@ -188,7 +200,7 @@ H2 console: `http://localhost:8082/h2-console` (JDBC: `jdbc:h2:file:./data/golde
 ## Key Architecture Decisions
 
 - **Forecast DTO** — `ForecastController` returns `ForecastEvaluationDto` via `ForecastDtoMapper`. Role-based score selection: LITE gets basic scores, PRO/ADMIN get enhanced. `basic_*` entity columns never appear in API response.
-- **⚠️ Two Jackson object graphs, and the API uses the one you are not looking at.** `AppConfig.objectMapper()` is a **Jackson 2** bean (`com.fasterxml.jackson`) injected into ~a dozen services for internal serialisation — `OpenMeteoClient`, `EvaluationViewService`, `RunProgressTracker`, the model/prompt test services. But this is Boot 4 / Framework 7, and `@RestController` responses are serialised by an **auto-configured Jackson 3** (`tools.jackson`) `JsonMapper`: there is no `MappingJackson2HttpMessageConverter` in the handler adapter's converter chain at all. 48 files are on Jackson 2, 8 on Jackson 3. Consequence: **`AppConfig.objectMapper()` is not in the HTTP response path**, so its configuration — notably that it never disables `WRITE_DATES_AS_TIMESTAMPS` — cannot affect the API wire format. A review that reads that bean and concludes the API is at risk has read the wrong graph; this has already happened once (an architecture review flagged it, and the fix hunt landed on the wrong mapper). The wire format is pinned by `JsonDateFormatContractTest`, which asserts through the full context precisely because a hand-built mapper in a test would reproduce the same mistake.
+- **⚠️ Two Jackson object graphs, and the API uses the one you are not looking at.** `AppConfig.objectMapper()` is a **Jackson 2** bean (`com.fasterxml.jackson`) injected into ~a dozen services for internal serialisation — `OpenMeteoClient`, `EvaluationViewService`, `RunProgressTracker`, the model/prompt test services. But this is Boot 4 / Framework 7, and `@RestController` responses are serialised by an **auto-configured Jackson 3** (`tools.jackson`) `JsonMapper`: there is no `MappingJackson2HttpMessageConverter` in the handler adapter's converter chain at all. 48 files are on Jackson 2, 8 on Jackson 3. Consequence: **`AppConfig.objectMapper()` is not in the HTTP response path**, so its configuration — notably that it never disables `WRITE_DATES_AS_TIMESTAMPS` — cannot affect the API wire format. A review that reads that bean and concludes the API is at risk has read the wrong graph; this has already happened once (an architecture review flagged it, and the fix hunt landed on the wrong mapper). The wire format is pinned by `backend/src/test/java/com/gregochr/goldenhour/controller/JsonDateFormatContractTest.java` (landed in #666), which asserts through the full Spring context precisely because a hand-built mapper in a test would reproduce the same mistake.
 
 - **Backend-heavy** — all calculations on backend. Frontend is a pure render layer. All four of the Plan-tab exceptions this bullet used to list are now **discharged**: `BriefingDay.peak` has been write-only since the day rail was retired at P2 (the matrix replaced it — `docs/engineering/v1-retirement-plan.md` §8.2), the grid cell reads `BriefingRegion.meanRating` computed at serve time by `PlanWindowProjector`/`enrichWithCachedScores` (Phase 3 of `docs/engineering/plan-verdict-consolidation-plan.md`), "Close to home"'s client-side proximity ranking died with `CloseToHome.jsx` in v1 retirement D2 (the backend endpoint survives with zero callers — §8.3), and the v1 arm's own copies of the roll-up and the cell derivation — kept deliberately byte-identical because v1 was the pilot's frozen comparison control — were retired with it. What is left is a **reach-scoped** class of client-side derivation, licensed rather than exceptional: P8's location sheet, which takes a max over **one location's own** windows for its `◎ best here` tag and counts its own rows for its lead line; the matrix's spread histogram (star-band counts) and its best-reachable line, both over each window's reach-gated pool (plan-matrix A10/A11); the page-level conflict message's ceiling (`planConflicts.ceilingOf` — a max across every window and every location, sanctioned by plan-matrix §5, and the one member that *does* aggregate across locations); and the popup prose slot's "this region's own best window". None of these re-derive a *server-owned* verdict or Best-pick math — the ban in plan §2.12 is on that, and each of these reads rather than recomputes. ⚠️ **That class is NAMED and has a recorded exit; it is not a precedent for client aggregation.** Reach is per-user (`/api/user/settings/reach`, never ETag'd), so "best *within reach*" has no servable answer on the shared `GET /api/briefing` payload at all — the same reasoning that put "Close to home" on its own per-user contract. They are counts of *places you could drive to*, never "N of M scored" (§6 clause 4), and ⚠️ **none of them may say "within reach" unless a drive time exists to have gated on** — `BriefingWindow`-derived `card.reachMeasured` is the single producer of that answer and six surfaces read it, because an unknown drive passes every tier and a reader with no postcode was being told six times over that a filter had run. The exit is plan-matrix §8's optional **O-4**, a never-cached per-user endpoint; until then it is debt with a name. A third client rule *filters* rather than derives: `windowFirstTopics.js` intersects each topic's served `regions` with the origin scope, exempting whole-sky types by a client type map, because `regions` means something different per strategy (A8). `docs/engineering/plan-panel-data-contracts.md` records the rest.
 - **Panel data contracts split by data ownership, not by panel** — the Plan-tab panels that are views of the *same* shared forecast snapshot derive from one `GET /api/briefing` payload, because two panels fetching independently can disagree about the same location. A panel earns its own REST contract only when it answers a different question about **differently owned** data. "Close to home" was the one that qualified (per-user home postcode + drive times) — its client died with `CloseToHome.jsx` in v1 retirement D2 (`GET /api/briefing/close-to-home` survives with no caller, `docs/engineering/v1-retirement-plan.md` §8.3), and the live per-user contracts the same principle now protects are `/api/user/settings/reach` and `/api/user/settings/light`. Personal data must never ride the shared briefing payload, because ETag revalidation requires `Cache-Control: private, no-cache`, which persists the body to a browser HTTP cache that JavaScript cannot evict on logout. `HttpCachingConfig` excludes `/api/user/settings*` for exactly that reason and `HttpCachingConfigTest.personalDataPathsAreNeverFiltered` pins it. See `docs/engineering/plan-panel-data-contracts.md`.
@@ -605,11 +617,12 @@ cd backend && ./mvnw test -pl . -Dtest=AuroraStateCacheTest -q
 # Run all aurora-related tests only                                [no Docker]
 cd backend && ./mvnw test -Dtest="Aurora*,ClaudeAuroraInterpreter*" -q
 
-# Skip Checkstyle + SpotBugs (still runs all tests + JaCoCo)   [add the integration exclusion]
-cd backend && ./mvnw verify -Dcheckstyle.skip=true -Dspotbugs.skip=true -q
+# Skip Checkstyle + SpotBugs (still runs all tests + JaCoCo)
+cd backend && ./mvnw verify -Dcheckstyle.skip=true -Dspotbugs.skip=true \
+  -Dtest='!**/integration/**' -DfailIfNoSpecifiedTests=false -q
 
-# Full verify but skip clean (shaves ~30s)                     [add the integration exclusion]
-cd backend && ./mvnw verify -q
+# Full verify but skip clean (shaves ~30s)
+cd backend && ./mvnw verify -Dtest='!**/integration/**' -DfailIfNoSpecifiedTests=false -q
 ```
 
 **Checkstyle pre-flight before full verify** — run Checkstyle alone first; it fails fast (~15s) and catches line-length / unused-import violations before wasting 6 min:

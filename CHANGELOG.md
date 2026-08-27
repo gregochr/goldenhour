@@ -17,11 +17,14 @@ unachievable, and it cost a session a full cycle confirming — via Spotlight, `
 socket check — that no daemon exists rather than assuming a PATH problem. The local gate always
 carries `-Dtest='!**/integration/**'`; that is the normal command, not a workaround.
 
-**Flyway migrations are exercised in exactly one place: CI.** Local H2 sets
-`spring.flyway.enabled: false` in both the local profile and the default test profile; only
-`IntegrationTestBase` turns Flyway on, and only against Postgres. So a migration PR is **pending
-CI**, not "unverified" — and Postgres-specific SQL cannot break local dev, because local dev never
-runs migrations at all. The class count was also stale: six extend `IntegrationTestBase`, not five.
+**CI is the only place a migration is proven before it merges** — which is not the same as the only
+place it runs, and review caught the first draft saying so. `application-dev.yml` and
+`application-prod.yml` both enable Flyway against Postgres, so production migrates at startup. What
+is true is narrower: the *default* local paths (H2 local profile, H2 test profile) never run
+migrations, and the only pre-merge execution is `IntegrationTestBase` against a Postgres
+Testcontainer — which needs the Docker this machine lacks. So a migration PR is **pending CI**, not
+"unverified", and Postgres-specific SQL cannot break the default local loop. The class count was
+stale too: six extend `IntegrationTestBase`, not five.
 
 **⚠️ And the API does not use the ObjectMapper you are looking at.** `AppConfig.objectMapper()` is a
 **Jackson 2** bean (`com.fasterxml.jackson`) wired into about a dozen services, but this Boot 4 /
