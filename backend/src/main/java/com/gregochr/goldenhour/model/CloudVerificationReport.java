@@ -41,6 +41,12 @@ import java.util.List;
  *       solar-horizon reading before any prompt is built, so the veto and blocked buckets above
  *       are read partly over slots Claude never saw. These re-read both families over the members
  *       that could have been prompted.</li>
+ *   <li>{@code byPromptable} — the same contamination question, asked properly. The triage cut
+ *       reproduces only the first of {@code WeatherTriageEvaluator}'s three stand-down rules;
+ *       these buckets also reproduce the precipitation and visibility rules, so a slot stood
+ *       down for rain or fog under an 80% horizon no longer counts as promptable. Read beside
+ *       {@code byTriageCut}: the counts can only shrink relative to it, and any increase is a
+ *       predicate bug rather than a finding.</li>
  * </ul>
  *
  * <p>Every bucket also carries the demotion's pre-registered post-deploy instrument: the rating
@@ -66,6 +72,10 @@ import java.util.List;
  *                        sat at or below the triage cut — the population a prompt could have been
  *                        built for. Carries no scalar of its own: the under-cut veto separation is
  *                        the difference between its first two buckets' {@code meanObservedGapLow}
+ * @param byPromptable    the veto, blocked and blanket families re-read over the pairs passing
+ *                        all three of triage's stand-down rules, not just the cloud cut. Same
+ *                        no-scalar rule: its veto separation is the difference between its first
+ *                        two buckets' {@code meanObservedGapLow}
  * @param vetoSeparation  mean observed horizon cloud in {@code vetoFired} minus
  *                        {@code vetoNotFired}. Positive means vetoed slots really were cloudier,
  *                        i.e. the veto discriminates. Near zero means it fires on nothing real.
@@ -86,6 +96,7 @@ public record CloudVerificationReport(
         List<CloudVerificationBucket> byConeStructure,
         List<CloudVerificationBucket> byCorridor,
         List<CloudVerificationBucket> byTriageCut,
+        List<CloudVerificationBucket> byPromptable,
         Double vetoSeparation,
         Double capSeparation) {
 
@@ -104,6 +115,7 @@ public record CloudVerificationReport(
      * @param byConeStructure per-cone-spread metrics
      * @param byCorridor      per-corridor-divergence metrics
      * @param byTriageCut     under-the-triage-cut veto and blocked metrics
+     * @param byPromptable    all-three-triage-rules veto, blocked and blanket metrics
      * @param vetoSeparation  fired-minus-not-fired observed cloud
      * @param capSeparation   uncapped-minus-capped observed cloud
      */
@@ -112,5 +124,6 @@ public record CloudVerificationReport(
         byConeStructure = byConeStructure == null ? List.of() : List.copyOf(byConeStructure);
         byCorridor = byCorridor == null ? List.of() : List.copyOf(byCorridor);
         byTriageCut = byTriageCut == null ? List.of() : List.copyOf(byTriageCut);
+        byPromptable = byPromptable == null ? List.of() : List.copyOf(byPromptable);
     }
 }

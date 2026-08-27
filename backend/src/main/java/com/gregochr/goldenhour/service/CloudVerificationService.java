@@ -15,6 +15,7 @@ import org.springframework.data.domain.Limit;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -185,6 +186,22 @@ public class CloudVerificationService {
      * rather than claiming a prompt was or was not built.
      */
     private static final int TRIAGE_SOLAR_LOW_CLOUD_MAX_PCT = 80;
+
+    /**
+     * Forecast precipitation (mm) above which triage stands the slot down — rule 2.
+     *
+     * <p>Mirrors {@code WeatherTriageEvaluator.PRECIP_THRESHOLD}, operator and all: the rule is
+     * strictly-greater, so exactly 2.0 mm passes. Must track that rule if it ever moves.
+     */
+    private static final BigDecimal TRIAGE_PRECIP_MAX_MM = new BigDecimal("2.0");
+
+    /**
+     * Forecast visibility (m) below which triage stands the slot down — rule 3.
+     *
+     * <p>Mirrors {@code WeatherTriageEvaluator.VISIBILITY_THRESHOLD}, operator and all: the rule
+     * is strictly-less, so exactly 5,000 m passes. Must track that rule if it ever moves.
+     */
+    private static final int TRIAGE_VISIBILITY_MIN_M = 5000;
 
     /** Wind-to-sun separation (degrees) below which cloud approaches from the sun's direction. */
     private static final int ALIGNED_MAX_DEG = 45;
@@ -553,6 +570,7 @@ public class CloudVerificationService {
                 coneStructureBuckets(pairs),
                 corridorBuckets(pairs),
                 triageCutBuckets(pairs),
+                promptableBuckets(pairs),
                 null,
                 null);
         report = new CloudVerificationReport(
@@ -560,6 +578,7 @@ public class CloudVerificationService {
                 report.vetoFired(), report.vetoNotFired(), report.vetoUncapped(),
                 report.vetoCapped(), report.byWindSunAngle(),
                 report.byConeStructure(), report.byCorridor(), report.byTriageCut(),
+                report.byPromptable(),
                 separation(report.vetoFired(), report.vetoNotFired()),
                 separation(report.vetoUncapped(), report.vetoCapped()));
 
@@ -842,6 +861,82 @@ public class CloudVerificationService {
                         "farClearer&fcstBlocked&stripMissed&underTriageCut(<=80)",
                         blockedUnderCut.stream()
                                 .filter(p -> !thinStripPreconditionsHeld(p)).toList()));
+    }
+
+    /**
+     * Re-reads the veto, blocked and blanket families over the pairs passing ALL of triage's
+     * stand-down rules — the faithful version of {@link #triageCutBuckets}.
+     *
+     * <p>That list's cut reproduces only {@code WeatherTriageEvaluator}'s first rule, so a slot
+     * stood down for rain or fog under an 80% horizon still counts as "promptable" there — a
+     * cross-vendor review finding (2026-08-27, `promptable-cut-plan.md`). These buckets apply
+     * {@link #promptable}, which reproduces all three rules, and add the blanket-precision pair
+     * so every §9 headline figure has a fully-cut counterpart. The old list stays untouched as
+     * the comparison baseline: each bucket here reads against its {@code byTriageCut} or
+     * {@code byCorridor} namesake, and can only be equal or smaller — a larger count is a
+     * predicate bug, not a finding.
+     *
+     * <p>Same conventions as {@link #triageCutBuckets}, deliberately: no scalar of its own (the
+     * promptable veto separation is the first two buckets' {@code meanObservedGapLow} difference,
+     * derived by the reader), the same parent chains for the blocked family, and the same
+     * corridor-open test for the blanket precision split.
+     *
+     * @param pairs every verified pair in the window
+     * @return the veto pair, the two blocked-family variants, then the blanket-precision pair
+     */
+    private List<CloudVerificationBucket> promptableBuckets(List<CloudVerificationPair> pairs) {
+        List<CloudVerificationPair> promptable = pairs.stream()
+                .filter(CloudVerificationService::promptable).toList();
+        List<CloudVerificationPair> blockedPromptable = promptable.stream()
+                .filter(CloudVerificationService::farCorridorCleared)
+                .filter(CloudVerificationService::forecastWasBlocked)
+                .toList();
+        List<CloudVerificationPair> blanketPromptable = promptable.stream()
+                .filter(CloudVerificationService::forecastWasBlanket).toList();
+        return List.of(
+                CloudVerificationBucket.of("vetoFired&promptable", promptable.stream()
+                        .filter(CloudVerificationPair::vetoFired).toList()),
+                CloudVerificationBucket.of("vetoNotFired&promptable", promptable.stream()
+                        .filter(p -> !p.vetoFired()).toList()),
+                CloudVerificationBucket.of("farClearer&fcstBlocked&promptable",
+                        blockedPromptable),
+                CloudVerificationBucket.of("farClearer&fcstBlocked&stripMissed&promptable",
+                        blockedPromptable.stream()
+                                .filter(p -> !thinStripPreconditionsHeld(p)).toList()),
+                CloudVerificationBucket.of("fcstBlanket&promptable", blanketPromptable),
+                CloudVerificationBucket.of("fcstBlanket&promptable&corridorOpen(obs<=30)",
+                        blanketPromptable.stream()
+                                .filter(CloudVerificationService::corridorWasOpen).toList()));
+    }
+
+    /**
+     * Returns whether the slot passed all three of triage's stand-down rules.
+     *
+     * <p>Mirrors {@code WeatherTriageEvaluator.evaluate} rule by rule, operators and null
+     * semantics included: cloud at or under {@link #TRIAGE_SOLAR_LOW_CLOUD_MAX_PCT} (via
+     * {@link #forecastGapUnderTriageCut} — the evaluator falls back to observer low cloud when
+     * directional data is absent, but this report projects only the coned reading, so a pair
+     * with no gap reading stays a non-member exactly as it is for the narrower cut);
+     * precipitation not over {@link #TRIAGE_PRECIP_MAX_MM}, with {@code null} passing as the
+     * evaluator's own null guard does; and visibility not under {@link #TRIAGE_VISIBILITY_MIN_M},
+     * where {@code null} passes here although the evaluator reads the live value unguarded — a
+     * persisted null cannot be shown to have stood the slot down, and treating it as a
+     * stand-down would shrink the population on missing data rather than on evidence.
+     *
+     * <p>Still neither necessary nor sufficient for "prompted" — a JFDI run submits triaged
+     * candidates, and the canopy lanes prompt elsewhere — but unlike
+     * {@link #forecastGapUnderTriageCut} alone it reproduces every rule triage applies, so the
+     * gap between this cut and "prompted" is no longer a rule this report simply ignored.
+     *
+     * @param pair one verified pair
+     * @return true when no triage rule can be shown to have stood the slot down
+     */
+    private static boolean promptable(CloudVerificationPair pair) {
+        return forecastGapUnderTriageCut(pair)
+                && !(pair.precipitationMm() != null
+                        && pair.precipitationMm().compareTo(TRIAGE_PRECIP_MAX_MM) > 0)
+                && !(pair.visibilityMetres() != null
+                        && pair.visibilityMetres() < TRIAGE_VISIBILITY_MIN_M);
     }
 
     /**

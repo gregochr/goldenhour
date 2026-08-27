@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the promptable cut: verification buckets reproducing all three triage rules
+
+The cloud-verification report's "promptable" populations — the figures the veto demotion and
+blanket rewording were sized on — filtered on the 80% cloud cut alone, reproducing only the
+first of `WeatherTriageEvaluator`'s three stand-down rules. A cross-vendor review (2026-08-27)
+caught it: a slot stood down for rain (> 2.0 mm) or fog (< 5,000 m) under an 80% horizon still
+counted as promptable, so the 545-firing veto separation and the 53.6% blanket precision were
+measured over a possibly-contaminated pool. `CloudVerificationPair` now carries the persisted
+precipitation and visibility readings, and a new `byPromptable` bucket family re-reads the
+veto, blocked and blanket families over pairs passing all three rules — read beside
+`byTriageCut`, whose buckets are unchanged as the comparison baseline. The counts can only
+shrink relative to the old cut; the separations and the precision can move either way, which is
+what the re-pull exists to measure (`docs/engineering/promptable-cut-plan.md`). Deliberately
+not a non-null-rating filter: batch-scored slots persist their ratings in `cached_evaluation`/
+`forecast_score`, so they are rating-null in `forecast_evaluation` too and that filter would
+discard nearly the whole genuinely-promptable population.
+
+Also carried in this change, stranded from the docs PR (#661) by a merge race: the §9
+promptable caveat in the veto doc, the seventh recut plan itself, two corrections to the F6
+trend-peak reconstruction plan (era-deterministic variant selection; anti-join-with-immutable-
+rows persistence), and the session brief's #617 status note.
+
 ### Changed — `forecast_score` write failures now say what they actually cost
 
 Codex flagged the swallowed `forecast_score` dual-write as a permanent divergence needing a repair
@@ -36,7 +58,6 @@ and the self-healing property, so an operator grepping ERROR does not have to al
 
 Pinned by mutation: reverting the wording fails the existing dual-write test, which was already
 asserting the swallow and now also asserts the message names its consequence.
-
 
 ### Fixed — a max_tokens-truncated Claude response was persisted as a complete forecast
 

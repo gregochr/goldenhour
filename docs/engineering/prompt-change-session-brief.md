@@ -68,7 +68,11 @@ verification-side code.
   `stripMissed`/`vetoFired` populations are unchanged by construction (they key on persisted
   columns), so their *rating distributions* before vs after deploy are the before/after pair —
   1–2★ share should fall toward the new caps; anything above 3★ in the veto population means the
-  wording failed to hold.
+  wording failed to hold. *(Status note, 2026-08-27: when this brief was written the report could
+  not serve rating distributions — `CloudVerificationBucket` carried cloud statistics only. The
+  instrument was built as its own recut, `rating-stats-cut-plan.md`, merged as #617: every bucket
+  now carries `ratedCount`/`meanRating`/`ratingCounts`, with `ratedCount` — not `sampleCount` —
+  as the denominator, since triaged rows persist a null rating.)*
 - Conventional commit, CHANGELOG under `[Unreleased]`, never push, never tag.
 
 ## Definition of done
