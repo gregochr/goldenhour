@@ -422,7 +422,14 @@ public class PipelineOrchestrator {
                 retryFailedPhase(runId, phase == PipelinePhase.RETRY_FAILED);
             }
 
-            pipelineRunService.startPhase(runId, PipelinePhase.BRIEFING);
+            // A run resumed mid-BRIEFING already has a BRIEFING phase row — reuse it
+            // rather than starting a second one (V148 fixed the duplicate-pick fallout
+            // of getting this wrong). refreshBriefing()/persistPicksForCycle() below
+            // still re-run either way; that is deliberate (see class javadoc — a
+            // republished briefing is harmless), and persistPicksForCycle upserts.
+            if (!atOrPastBrief) {
+                pipelineRunService.startPhase(runId, PipelinePhase.BRIEFING);
+            }
             try {
                 briefingService.refreshBriefing();
                 persistPicksForCycle(runId);

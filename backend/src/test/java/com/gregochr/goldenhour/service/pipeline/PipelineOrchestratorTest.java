@@ -394,7 +394,9 @@ class PipelineOrchestratorTest {
         }
 
         @Test
-        @DisplayName("a RUNNING run mid-BRIEFING re-runs the briefing only")
+        @DisplayName("a RUNNING run mid-BRIEFING re-runs the briefing only, and does NOT "
+                + "restart the already-current BRIEFING phase (a second phase row is exactly "
+                + "the defect that let picks duplicate — see PipelineRunPickService)")
         void resumes_mid_briefing() {
             PipelineRunEntity midBrief = runInPhase(PipelinePhase.BRIEFING);
             when(pipelineRunService.findRunning()).thenReturn(List.of(midBrief));
@@ -406,8 +408,17 @@ class PipelineOrchestratorTest {
             verify(pipelineRunService, never())
                     .startPhase(RUN_ID, PipelinePhase.FORECAST_BATCH_WAIT);
             verify(forecastBatchRepository, never()).findByPipelineRunId(RUN_ID);
-            verify(pipelineRunService).startPhase(RUN_ID, PipelinePhase.BRIEFING);
+            // The run is ALREADY in BRIEFING — starting it again would insert a second
+            // pipeline_run_phase row for the same phase. This is the exact regression
+            // this task's fix closes: the guard must key off atOrPastBrief the same way
+            // the WAIT/RETRY_FAILED guards already did above it.
+            verify(pipelineRunService, never()).startPhase(RUN_ID, PipelinePhase.BRIEFING);
+            // The rest of the tail still runs — refreshBriefing()/pick persistence are
+            // deliberately not skipped (republishing a briefing is harmless; picks are
+            // now upserted, not duplicated) — and the phase still completes + the run
+            // still finishes normally.
             verify(briefingService).refreshBriefing();
+            verify(pipelineRunService).completePhase(eq(RUN_ID), eq(PipelinePhase.BRIEFING), isNull());
             verify(pipelineRunService).completeRun(RUN_ID);
         }
 

@@ -8,6 +8,7 @@ import org.springframework.data.repository.query.Param;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Spring Data repository for {@link PipelineRunPickEntity}.
@@ -29,6 +30,20 @@ public interface PipelineRunPickRepository
      *         persisted no picks, e.g. because the briefing failed)
      */
     List<PipelineRunPickEntity> findByPipelineRunIdOrderByPickRankAsc(Long pipelineRunId);
+
+    /**
+     * Finds this run's existing row for the given rank, if any — the natural
+     * key {@code (pipelineRunId, pickRank)} is unique (V148). Backs
+     * {@code PipelineRunPickService}'s upsert: reusing the existing row's id
+     * before {@code save()} turns a re-run into an UPDATE instead of a second
+     * INSERT, which is what stops a resumed BRIEFING phase from duplicating
+     * picks.
+     *
+     * @param pipelineRunId the parent pipeline run id
+     * @param pickRank      the pick's rank (1 = Best Bet, 2 = Also Good)
+     * @return the existing row for this (run, rank), if one was already persisted
+     */
+    Optional<PipelineRunPickEntity> findByPipelineRunIdAndPickRank(Long pipelineRunId, int pickRank);
 
     /**
      * Returns fresh-enough fallback pick candidates for the fail-safe served when the current

@@ -51,6 +51,31 @@ chain at all. 48 files are on Jackson 2, 8 on Jackson 3. That bean's missing
 review flagged it as an API risk and the follow-up looked at the wrong mapper; the note now names
 both graphs so the next reader does not repeat it.
 
+### Fixed — a resumed BRIEFING phase could duplicate a pipeline run's best-bet picks
+
+`PipelineOrchestrator.waitAndBriefPhase` correctly skipped the WAIT and RETRY_FAILED phases when
+resuming a run whose `currentPhase` was already `BRIEFING` — but then called
+`pipelineRunService.startPhase(runId, BRIEFING)` unconditionally anyway, inserting a second phase
+row and re-running `refreshBriefing()` + pick persistence. `PipelineRunPickService.persist()`
+always did a blind `repository.save()` on a fresh entity, so a process restart between a briefing
+publish and the run reaching `COMPLETED` could leave a pipeline run holding two rank-1 (or two
+rank-2) picks — `pipeline_run_pick`'s only index on `(pipeline_run_id, pick_rank)` was never
+unique, so nothing stopped it.
+
+Three changes, together: the orchestrator now guards `startPhase(BRIEFING)` behind the same
+`atOrPastBrief` check already used for the WAIT/RETRY_FAILED phases; `PipelineRunPickService`
+upserts on `(pipelineRunId, pickRank)` (finds the existing row and reuses its id before `save()`)
+instead of always inserting; and **V148 adds a `UNIQUE (pipeline_run_id, pick_rank)` constraint**.
+Republishing a briefing on resume is unchanged and still deliberately harmless — it rebuilds from
+the cache — only the duplicate phase row and duplicate picks are the defect being closed.
+
+⚠️ **V148 deletes rows before adding the constraint.** Production is a separate host never
+inspected from here, so the migration cannot assume the table is already clean — for any
+`(pipeline_run_id, pick_rank)` pair holding more than one row, every row except the
+highest-id (most recently written) one is deleted, in a single idempotent statement, before the
+constraint is added. If this repo already has duplicate picks in production, this migration will
+silently discard the older copies the next time it deploys.
+
 ## [v2.19.2] - 2026-08-27
 
 ### Added — the promptable cut: verification buckets reproducing all three triage rules

@@ -45,9 +45,15 @@ import java.util.stream.Collectors;
  * {@code claudeAverageRating} field is left null and the cross-run
  * comparison gracefully degrades to the confidence-level field.
  *
- * <p>The service is stateless and Spring-singleton; concurrent invocation
- * is safe because each call writes a fresh row per pick (no read-then-write
- * window on existing rows).
+ * <p>The service is stateless and Spring-singleton. Since V148,
+ * {@code (pipelineRunId, pickRank)} is a unique key and persistence upserts
+ * against it — a resumed run's re-run of the BRIEFING phase updates its own
+ * pick rows instead of duplicating them. That upsert is a find-then-save per
+ * pick, so it is not safe against two concurrent {@code persist()} calls for
+ * the <em>same</em> pipeline run (both could find nothing and insert). The
+ * orchestrator never does this — a run's BRIEFING phase, resumed or not,
+ * always runs on a single execution path — so this is not a live concern,
+ * but it is not a guarantee this service makes for an unknown caller.
  */
 @Service
 public class PipelineRunPickService {
@@ -130,9 +136,18 @@ public class PipelineRunPickService {
      * Builds the entity for a single pick, including parsing the event date
      * out of the composite event id and snapshotting the region's
      * claudeAverageRating at the moment of persistence.
+     *
+     * <p>Upserts against the {@code (pipelineRunId, pickRank)} natural key
+     * (unique since V148): if this run already persisted a row for this
+     * rank — the resumed-BRIEFING case — its id is reused, so the caller's
+     * {@code repository.save()} performs an UPDATE rather than a second
+     * INSERT. A fresh run finds nothing and gets a new (unsaved) entity, so
+     * {@code save()} inserts as before.
      */
     private PipelineRunPickEntity buildEntity(Long pipelineRunId, BestBet pick, Instant now) {
-        PipelineRunPickEntity entity = new PipelineRunPickEntity();
+        PipelineRunPickEntity entity = repository
+                .findByPipelineRunIdAndPickRank(pipelineRunId, pick.rank())
+                .orElseGet(PipelineRunPickEntity::new);
         entity.setPipelineRunId(pipelineRunId);
         entity.setPickRank(pick.rank());
         entity.setHeadline(pick.headline());
