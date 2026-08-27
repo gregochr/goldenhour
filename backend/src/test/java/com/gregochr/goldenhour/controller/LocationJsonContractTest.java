@@ -13,6 +13,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -51,7 +52,11 @@ class LocationJsonContractTest extends AbstractControllerTest {
                 .id(1L).name("Bamburgh Castle").lat(55.609).lon(-1.7099)
                 .solarEventType(Set.of(SolarEventType.SUNSET))
                 .tideType(Set.of(TideType.HIGH))
-                .locationType(Set.of(LocationType.SEASCAPE, LocationType.WOODLAND))
+                // LinkedHashSet, not Set.of(): a multi-element Set.of() iterates in an order derived
+                // from enum identity hashcodes, which varies between JVM runs and made this
+                // assertion flaky. The mapper passes this exact Set reference straight through, so
+                // pinning insertion order here pins the serialized order deterministically.
+                .locationType(new LinkedHashSet<>(List.of(LocationType.SEASCAPE, LocationType.WOODLAND)))
                 .region(region)
                 .enabled(true)
                 .createdAt(LocalDateTime.of(2026, 2, 1, 12, 0))

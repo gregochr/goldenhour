@@ -2,6 +2,8 @@ package com.gregochr.goldenhour.controller;
 
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.AddLocationRequest;
+import com.gregochr.goldenhour.model.LocationDto;
+import com.gregochr.goldenhour.model.LocationDtoMapper;
 import com.gregochr.goldenhour.model.LocationEnrichmentResult;
 import com.gregochr.goldenhour.model.UpdateLocationRequest;
 import com.gregochr.goldenhour.service.LocationEnrichmentService;
@@ -30,27 +32,31 @@ public class LocationController {
 
     private final LocationService locationService;
     private final LocationEnrichmentService locationEnrichmentService;
+    private final LocationDtoMapper locationDtoMapper;
 
     /**
      * Constructs a {@code LocationController}.
      *
      * @param locationService           the service managing persisted locations
      * @param locationEnrichmentService the service for enriching location metadata
+     * @param locationDtoMapper         maps persisted locations to their API projection
      */
     public LocationController(LocationService locationService,
-            LocationEnrichmentService locationEnrichmentService) {
+            LocationEnrichmentService locationEnrichmentService,
+            LocationDtoMapper locationDtoMapper) {
         this.locationService = locationService;
         this.locationEnrichmentService = locationEnrichmentService;
+        this.locationDtoMapper = locationDtoMapper;
     }
 
     /**
      * Returns all persisted locations ordered alphabetically by name.
      *
-     * @return list of location entities
+     * @return list of location DTOs
      */
     @GetMapping
-    public List<LocationEntity> getLocations() {
-        return locationService.findAll();
+    public List<LocationDto> getLocations() {
+        return locationDtoMapper.toDtoList(locationService.findAll());
     }
 
     /**
