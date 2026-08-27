@@ -8,6 +8,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.UniqueConstraint;
 
 import com.gregochr.goldenhour.model.Relationship;
 
@@ -29,12 +30,16 @@ import java.time.LocalDate;
  * same (region, date, event_type) can be compared directly even if the
  * advisor's headline prose differs cosmetically.
  *
- * <p>Persisted rows are immutable in normal operation — a re-run creates a
- * new {@link PipelineRunEntity} with its own picks rather than mutating
- * existing rows.
+ * <p>A resumed run reuses its own rows: {@code (pipelineRunId, pickRank)} is
+ * unique (V148), and {@code PipelineRunPickService} upserts against that key
+ * rather than blind-inserting, so re-running the BRIEFING phase for the same
+ * run updates its existing pick rows instead of duplicating them.
  */
 @Entity
-@Table(name = "pipeline_run_pick")
+@Table(name = "pipeline_run_pick",
+        uniqueConstraints = @UniqueConstraint(
+                name = "uq_pipeline_run_pick_rank",
+                columnNames = {"pipeline_run_id", "pick_rank"}))
 public class PipelineRunPickEntity {
 
     @Id

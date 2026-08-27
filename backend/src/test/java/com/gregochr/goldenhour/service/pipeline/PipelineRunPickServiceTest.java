@@ -25,6 +25,7 @@ import java.time.ZoneOffset;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -163,6 +164,77 @@ class PipelineRunPickServiceTest {
             service.persist(RUN_ID, List.of(rank1, rank2));
 
             verify(repository, times(2)).save(any(PipelineRunPickEntity.class));
+        }
+    }
+
+    @Nested
+    @DisplayName("Idempotent re-entry (upsert on pipelineRunId+pickRank, V148)")
+    class IdempotentReentry {
+
+        @Test
+        @DisplayName("no existing row for this (run, rank) → save() gets a fresh entity (id null, "
+                + "i.e. an INSERT)")
+        void noExistingRow_insertsFresh() {
+            BestBet pick = sunsetPick(1, null, List.of());
+            when(repository.findByPipelineRunIdAndPickRank(RUN_ID, 1))
+                    .thenReturn(Optional.empty());
+            when(briefingEvaluationService.getCachedScores(REGION, EVENT_DATE, TargetType.SUNSET))
+                    .thenReturn(Map.of());
+
+            service.persist(RUN_ID, List.of(pick));
+
+            ArgumentCaptor<PipelineRunPickEntity> captor =
+                    ArgumentCaptor.forClass(PipelineRunPickEntity.class);
+            verify(repository).save(captor.capture());
+            assertThat(captor.getValue().getId()).isNull();
+        }
+
+        @Test
+        @DisplayName("existing row for this (run, rank) → save() reuses its id (an UPDATE, not a "
+                + "second INSERT) — this is what stops a resumed BRIEFING phase from duplicating "
+                + "picks")
+        void existingRow_reusesIdForUpdate() {
+            BestBet pick = sunsetPick(1, null, List.of());
+            PipelineRunPickEntity existing = new PipelineRunPickEntity();
+            existing.setId(777L);
+            existing.setPipelineRunId(RUN_ID);
+            existing.setPickRank(1);
+            existing.setHeadline("stale headline from the pre-crash attempt");
+            when(repository.findByPipelineRunIdAndPickRank(RUN_ID, 1))
+                    .thenReturn(Optional.of(existing));
+            when(briefingEvaluationService.getCachedScores(REGION, EVENT_DATE, TargetType.SUNSET))
+                    .thenReturn(Map.of());
+
+            service.persist(RUN_ID, List.of(pick));
+
+            ArgumentCaptor<PipelineRunPickEntity> captor =
+                    ArgumentCaptor.forClass(PipelineRunPickEntity.class);
+            verify(repository).save(captor.capture());
+            PipelineRunPickEntity saved = captor.getValue();
+            // Same instance/id as the pre-existing row — JPA merges (UPDATE) rather
+            // than inserting a second row for this (pipelineRunId, pickRank).
+            assertThat(saved.getId()).isEqualTo(777L);
+            assertThat(saved).isSameAs(existing);
+            // Fields are refreshed to this re-run's values, not left stale.
+            assertThat(saved.getHeadline()).isEqualTo("headline-1");
+        }
+
+        @Test
+        @DisplayName("rank 1 and rank 2 are independent keys — an existing rank-1 row must not "
+                + "be reused for a rank-2 pick")
+        void differentRanks_lookedUpIndependently() {
+            BestBet rank1 = sunsetPick(1, null, List.of());
+            BestBet rank2 = sunsetPick(2, com.gregochr.goldenhour.model.Relationship.SAME_SLOT,
+                    List.of());
+            when(repository.findByPipelineRunIdAndPickRank(RUN_ID, 1)).thenReturn(Optional.empty());
+            when(repository.findByPipelineRunIdAndPickRank(RUN_ID, 2)).thenReturn(Optional.empty());
+            when(briefingEvaluationService.getCachedScores(REGION, EVENT_DATE, TargetType.SUNSET))
+                    .thenReturn(Map.of());
+
+            service.persist(RUN_ID, List.of(rank1, rank2));
+
+            verify(repository).findByPipelineRunIdAndPickRank(RUN_ID, 1);
+            verify(repository).findByPipelineRunIdAndPickRank(RUN_ID, 2);
         }
     }
 
