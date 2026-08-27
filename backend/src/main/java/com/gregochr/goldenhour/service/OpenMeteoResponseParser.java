@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.TargetType;
+import com.gregochr.goldenhour.exception.IncompleteHourlyDataException;
 import com.gregochr.goldenhour.model.AerosolData;
 import com.gregochr.goldenhour.model.AtmosphericData;
 import com.gregochr.goldenhour.model.CloudData;
@@ -79,20 +80,20 @@ public final class OpenMeteoResponseParser {
         Double aodRaw = getAirQualityValue(aq.getAerosolOpticalDepth(), idx);
 
         CloudData cloud = new CloudData(
-                h.getCloudCoverLow().get(idx),
-                h.getCloudCoverMid().get(idx),
-                h.getCloudCoverHigh().get(idx));
+                requireInt(h.getCloudCoverLow(), idx, "cloudCoverLow"),
+                requireInt(h.getCloudCoverMid(), idx, "cloudCoverMid"),
+                requireInt(h.getCloudCoverHigh(), idx, "cloudCoverHigh"));
 
         WeatherData weather = new WeatherData(
-                h.getVisibility().get(idx).intValue(),
-                BigDecimal.valueOf(h.getWindSpeed10m().get(idx))
+                (int) requireDouble(h.getVisibility(), idx, "visibility"),
+                BigDecimal.valueOf(requireDouble(h.getWindSpeed10m(), idx, "windSpeed10m"))
                         .setScale(WIND_SPEED_SCALE, RoundingMode.HALF_UP),
-                h.getWindDirection10m().get(idx),
-                BigDecimal.valueOf(h.getPrecipitation().get(idx))
+                requireInt(h.getWindDirection10m(), idx, "windDirection10m"),
+                BigDecimal.valueOf(requireDouble(h.getPrecipitation(), idx, "precipitation"))
                         .setScale(PRECIP_SCALE, RoundingMode.HALF_UP),
-                h.getRelativeHumidity2m().get(idx),
-                h.getWeatherCode().get(idx),
-                BigDecimal.valueOf(h.getShortwaveRadiation().get(idx))
+                requireInt(h.getRelativeHumidity2m(), idx, "relativeHumidity2m"),
+                requireInt(h.getWeatherCode(), idx, "weatherCode"),
+                BigDecimal.valueOf(requireDouble(h.getShortwaveRadiation(), idx, "shortwaveRadiation"))
                         .setScale(RADIATION_SCALE, RoundingMode.HALF_UP),
                 getDoubleValue(h.getDewPoint2m(), idx),
                 getDoubleValue(h.getSurfacePressure(), idx),
@@ -107,7 +108,7 @@ public final class OpenMeteoResponseParser {
                 toDecimal(pm25Raw, PRECIP_SCALE),
                 toDecimal(dustRaw, PRECIP_SCALE),
                 toDecimal(aodRaw, AOD_SCALE),
-                h.getBoundaryLayerHeight().get(idx).intValue());
+                (int) requireDouble(h.getBoundaryLayerHeight(), idx, "boundaryLayerHeight"));
 
         ComfortData comfort = new ComfortData(
                 getDoubleValue(h.getTemperature2m(), idx),
@@ -316,6 +317,42 @@ public final class OpenMeteoResponseParser {
             return null;
         }
         return values.get(idx);
+    }
+
+    /**
+     * Reads a required integer hourly value, throwing rather than returning a default when the
+     * series is absent, too short, or holds a null at the resolved index.
+     *
+     * @param values    the hourly series
+     * @param idx       the resolved slot index
+     * @param fieldName the field name to report if the value is missing
+     * @return the value at {@code idx}
+     * @throws IncompleteHourlyDataException if the value is missing
+     */
+    private static int requireInt(List<Integer> values, int idx, String fieldName) {
+        Integer value = getIntegerValue(values, idx);
+        if (value == null) {
+            throw new IncompleteHourlyDataException(fieldName, idx);
+        }
+        return value;
+    }
+
+    /**
+     * Reads a required double hourly value, throwing rather than returning a default when the
+     * series is absent, too short, or holds a null at the resolved index.
+     *
+     * @param values    the hourly series
+     * @param idx       the resolved slot index
+     * @param fieldName the field name to report if the value is missing
+     * @return the value at {@code idx}
+     * @throws IncompleteHourlyDataException if the value is missing
+     */
+    private static double requireDouble(List<Double> values, int idx, String fieldName) {
+        Double value = getDoubleValue(values, idx);
+        if (value == null) {
+            throw new IncompleteHourlyDataException(fieldName, idx);
+        }
+        return value;
     }
 
     private static BigDecimal toDecimal(Double value, int scale) {
