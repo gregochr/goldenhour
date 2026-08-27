@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — docs now say what is actually true about Docker, migrations and Jackson
+
+Three claims in the guidance were sending session after session down the same dead ends. All three
+are corrected together because they share a cause: the docs described an environment that does not
+exist here.
+
+**There is no Docker on this machine, and there never will be.** `CLAUDE.md` said "Docker must be
+running to run the backend test suite" and told readers to "start Docker Desktop first". That is
+unachievable, and it cost a session a full cycle confirming — via Spotlight, `/Applications` and a
+socket check — that no daemon exists rather than assuming a PATH problem. The local gate always
+carries `-Dtest='!**/integration/**'`; that is the normal command, not a workaround.
+
+**Flyway migrations are exercised in exactly one place: CI.** Local H2 sets
+`spring.flyway.enabled: false` in both the local profile and the default test profile; only
+`IntegrationTestBase` turns Flyway on, and only against Postgres. So a migration PR is **pending
+CI**, not "unverified" — and Postgres-specific SQL cannot break local dev, because local dev never
+runs migrations at all. The class count was also stale: six extend `IntegrationTestBase`, not five.
+
+**⚠️ And the API does not use the ObjectMapper you are looking at.** `AppConfig.objectMapper()` is a
+**Jackson 2** bean (`com.fasterxml.jackson`) wired into about a dozen services, but this Boot 4 /
+Framework 7 app serialises `@RestController` responses with an **auto-configured Jackson 3**
+(`tools.jackson`) `JsonMapper` — there is no `MappingJackson2HttpMessageConverter` in the converter
+chain at all. 48 files are on Jackson 2, 8 on Jackson 3. That bean's missing
+`WRITE_DATES_AS_TIMESTAMPS` disable is therefore real but **moot for the wire**. An architecture
+review flagged it as an API risk and the follow-up looked at the wrong mapper; the note now names
+both graphs so the next reader does not repeat it.
+
+
 ## [v2.19.2] - 2026-08-27
 
 ### Added — the promptable cut: verification buckets reproducing all three triage rules
