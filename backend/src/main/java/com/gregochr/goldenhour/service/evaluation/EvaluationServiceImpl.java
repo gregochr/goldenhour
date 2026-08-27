@@ -228,6 +228,11 @@ public class EvaluationServiceImpl implements EvaluationService {
                             .outputConfig(builder.buildOutputConfig())
                             .addUserMessage(userMessage)
                             .build());
+            // Shared with the batch/strategy engine's identical check — a max_tokens
+            // truncation must not sail through as a "successful" outcome just because this
+            // engine builds its own Message and ClaudeSyncOutcome independently of
+            // ClaudeEvaluationStrategy.
+            ClaudeEvaluationStrategy.checkStopReason(response);
             String text = response.content().stream()
                     .filter(ContentBlock::isText)
                     .map(ContentBlock::asText)

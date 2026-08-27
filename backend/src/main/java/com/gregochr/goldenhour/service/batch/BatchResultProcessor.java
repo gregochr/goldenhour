@@ -4,6 +4,7 @@ import com.anthropic.client.AnthropicClient;
 import com.anthropic.models.ErrorObject;
 import com.anthropic.models.messages.ContentBlock;
 import com.anthropic.models.messages.Message;
+import com.anthropic.models.messages.StopReason;
 import com.anthropic.models.messages.TextBlock;
 import com.anthropic.models.messages.Usage;
 import com.anthropic.models.messages.batches.MessageBatchIndividualResponse;
@@ -183,6 +184,24 @@ public class BatchResultProcessor {
                     errored++;
                     inlineFailureLog(context, customId, "NO_MESSAGE",
                             "extraction_error", "succeeded but no message", null, null);
+                    continue;
+                }
+
+                // Reject a max_tokens truncation as a failure, not a partial success. The
+                // parser's regex-salvage fallback can reconstruct a valid-looking evaluation
+                // from a truncated prefix (rating, potentials, closed summary) when the cut
+                // lands before optional fields — so without this check a truncated response
+                // is persisted as a complete forecast. Checked before text is even extracted:
+                // content is irrelevant once Anthropic itself reports the cut. Counted as
+                // errored so the RETRY_FAILED phase (selecting from failed api_call_log rows)
+                // picks it back up.
+                if (StopReason.MAX_TOKENS.equals(message.stopReason().orElse(null))) {
+                    LOG.warn("Forecast batch: response truncated at max_tokens for '{}'", customId);
+                    errored++;
+                    inlineFailureLog(context, customId, "MAX_TOKENS",
+                            "truncation_error",
+                            "Claude's response was truncated at the max_tokens limit "
+                                    + "(stop_reason=max_tokens)", null, null);
                     continue;
                 }
 

@@ -151,6 +151,29 @@ class ClaudeEvaluationStrategyTest {
     }
 
     @Test
+    @DisplayName("evaluate() throws a clear error when Claude is truncated at max_tokens, "
+            + "even when the truncated prefix would otherwise parse as a complete evaluation")
+    void evaluate_maxTokens_throwsIllegalStateException() {
+        AtmosphericData data = buildAtmosphericData();
+        // Same content a MAX_TOKENS-truncated response would leave behind: rating, potentials
+        // and a closed summary all present — exactly what the parser's regex-salvage fallback
+        // can reconstruct into a valid-looking evaluation. Holding this identical to the
+        // END_TURN fixture in evaluate_endTurn_doesNotThrow (which asserts the SAME content
+        // parses and persists) is the point: only the stop reason differs, proving stop reason
+        // — not content — drives the rejection.
+        Message response = buildMessageWithStopReason(
+                "{\"rating\": 4, \"fiery_sky\": 70, \"golden_hour\": 75,"
+                + " \"summary\": \"Promising conditions.\"}", StopReason.MAX_TOKENS);
+
+        when(anthropicApiClient.createMessage(any(MessageCreateParams.class))).thenReturn(response);
+
+        assertThatThrownBy(() -> strategy.evaluate(data))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("truncated")
+                .hasMessageContaining("stop_reason=max_tokens");
+    }
+
+    @Test
     @DisplayName("evaluate() propagates non-retryable Anthropic errors")
     void evaluate_nonRetryableError_propagates() {
         AtmosphericData data = buildAtmosphericData();

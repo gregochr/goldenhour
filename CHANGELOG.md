@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — a max_tokens-truncated Claude response was persisted as a complete forecast
+
+`ClaudeEvaluationStrategy` (sync path) checked `stop_reason` for `refusal` and
+`model_context_window_exceeded`, but not `max_tokens`. `BatchResultProcessor` (batch path) never
+checked `stop_reason` at all. Combined with `SunsetEvaluationParser`'s regex-salvage fallback —
+which can reconstruct a valid-looking evaluation from a truncated prefix (rating, potentials, a
+closed summary) when the cut lands after those fields but before optional ones — a truncated
+response could be counted a clean success, cached, and served, with optional data silently
+missing.
+
+Both engines now reject `max_tokens` as a failure, matching how `BriefingBestBetAdvisor` already
+treats it: the sync strategy throws before parsing (so nothing is cached), and the batch
+processor rejects it inline, before text is even extracted, logging `MAX_TOKENS` to
+`api_call_log` so the `RETRY_FAILED` phase picks the slot back up. Neither engine persists the
+truncated content — a retry costs one more call; a silently incomplete forecast reaching users
+does not get a second look.
+
+Pinned by fixtures that hold content identical to a parseable response and vary only the stop
+reason, and by mutation testing: removing either check makes its test fail (the batch case falls
+back to a `NO_TEXT` misclassification rather than the intended `MAX_TOKENS` one, since without
+the check `extractTextFromMessage` finds no content on the unstubbed truncation fixture).
+
 ### Fixed — an air-quality reading nobody took is no longer reported as clean air
 
 `OpenMeteoResponseParser.toDecimal` converted a missing PM2.5, dust or aerosol-optical-depth
