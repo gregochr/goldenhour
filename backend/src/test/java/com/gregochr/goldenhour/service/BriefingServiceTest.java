@@ -40,6 +40,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -172,9 +173,9 @@ class BriefingServiceTest {
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
-                evaluationViewService, bestBetFallbackService,
+                evaluationViewService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                windowTideRollupBuilder, snapshots());
+                snapshots(), assembler(CLOCK));
     }
 
     /**
@@ -191,6 +192,23 @@ class BriefingServiceTest {
      */
     private BriefingRegionSnapshotService snapshots() {
         return new BriefingRegionSnapshotService(snapshotRepository, CLOCK);
+    }
+
+    /**
+     * A real {@link ServedBriefingAssembler} over the mocked serve-only collaborators
+     * ({@code bestBetFallbackService}, {@code windowTideRollupBuilder}) plus the shared
+     * {@code evaluationViewService} mock and a real {@link #snapshots()}. Its enrichment socket is
+     * left unbound here — {@code BriefingService}'s own constructor binds it, the same way
+     * production wiring does, so passing this to {@code new BriefingService(...)} is what makes it
+     * usable.
+     *
+     * @param clock the clock the assembler's own "now" (the window-projector instant) runs on —
+     *              matches whichever clock the owning {@code BriefingService} is built with
+     * @return an unbound assembler ready to be handed to {@code BriefingService}'s constructor
+     */
+    private ServedBriefingAssembler assembler(java.time.Clock clock) {
+        return new ServedBriefingAssembler(bestBetFallbackService, snapshots(),
+                windowTideRollupBuilder, evaluationViewService, clock);
     }
 
     /**
@@ -468,9 +486,9 @@ class BriefingServiceTest {
                     bluebellGlossService, auroraSummaryBuilder,
                     new BriefingHierarchyBuilder(verdictEvaluator),
                     slotBuilder, eventPublisher, hotTopicAggregator,
-                    evaluationViewService, bestBetFallbackService,
+                    evaluationViewService,
                     BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), BST_CLOCK, marineWaveRefreshService,
-                    windowTideRollupBuilder, snapshots());
+                    snapshots(), assembler(BST_CLOCK));
             freshService.loadPersistedBriefing();
 
             DailyBriefingResponse api = freshService.getCachedBriefingForApi();
@@ -846,9 +864,9 @@ class BriefingServiceTest {
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
-                evaluationViewService, bestBetFallbackService,
+                evaluationViewService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                windowTideRollupBuilder, snapshots());
+                snapshots(), assembler(CLOCK));
         freshService.loadPersistedBriefing();
 
         DailyBriefingResponse cached = freshService.getCachedBriefing();
@@ -880,9 +898,9 @@ class BriefingServiceTest {
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
-                evaluationViewService, bestBetFallbackService,
+                evaluationViewService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                windowTideRollupBuilder, snapshots());
+                snapshots(), assembler(CLOCK));
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -907,9 +925,9 @@ class BriefingServiceTest {
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
                 slotBuilder, eventPublisher, hotTopicAggregator,
-                evaluationViewService, bestBetFallbackService,
+                evaluationViewService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                windowTideRollupBuilder, snapshots());
+                snapshots(), assembler(CLOCK));
         freshService.loadPersistedBriefing();
 
         assertThat(freshService.getCachedBriefing()).isNull();
@@ -1448,9 +1466,9 @@ class BriefingServiceTest {
                     bluebellGlossService, auroraSummaryBuilder,
                     new BriefingHierarchyBuilder(verdictEvaluator),
                     slotBuilder, eventPublisher, hotTopicAggregator,
-                    evaluationViewService, bestBetFallbackService,
+                    evaluationViewService,
                     BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
-                    windowTideRollupBuilder, snapshots());
+                    snapshots(), assembler(CLOCK));
             freshService.loadPersistedBriefing();
 
             // Trigger below-threshold refresh: 1 location, batch throws → succeeded=0, failed=1
@@ -3246,6 +3264,54 @@ class BriefingServiceTest {
             assertThat(briefingService.getCachedBriefing().days())
                     .flatMap(com.gregochr.goldenhour.model.BriefingDay::eventSummaries)
                     .allSatisfy(es -> assertThat(es.window()).isNull());
+        }
+
+        @Test
+        @DisplayName("Positive-but-below-threshold coverage is flagged lightlyEvaluated, not silently disabled")
+        void lightlyEvaluatedTierFiresWithConfiguredRatio() {
+            // The wiring tripwire for BriefingHonestyFilter's second coverage tier.
+            // minCoverageRatio is a field-injected @Value (BriefingService ~line 145) that plain
+            // `new BriefingService(...)` never populates — every OTHER test in this class runs
+            // with it defaulted to 0.0, which disables this tier entirely (0.0 can never be
+            // exceeded by a positive ratio). That is exactly the failure mode this test exists to
+            // catch: constructing ServedBriefingAssembler inside BriefingService's constructor
+            // before Spring populates this field would capture a permanent 0.0, and this tier
+            // would silently never fire in production either — with every existing test still
+            // green, because none of them set the ratio. See
+            // docs/engineering/served-briefing-assembler-plan.md, "Two wiring routes that fail
+            // SILENTLY", route 2.
+            ReflectionTestUtils.setField(briefingService, "minCoverageRatio", 0.5);
+            LocationEntity alnmouth = LocationEntity.builder()
+                    .id(3L).name("Alnmouth").lat(55.4).lon(-1.6)
+                    .locationType(Set.of(LocationType.LANDSCAPE))
+                    .tideType(Set.of())
+                    .solarEventType(Set.of(SolarEventType.SUNSET))
+                    .region(RegionEntity.builder().name("North East").build())
+                    .enabled(true).createdAt(LocalDateTime.now()).build();
+            stubFullRefresh(List.of(bamburgh(), seahouses(), alnmouth));
+            // Only Bamburgh is rated, at both build and serve — 1 of 3 scoreable slots, a ratio
+            // of 0.33: positive, but below the 0.5 threshold just configured.
+            when(evaluationViewService.getScoresForEnrichment(
+                    eq("North East"), any(LocalDate.class), any(TargetType.class)))
+                    .thenReturn(Map.of("Bamburgh", scored("Bamburgh", 4)));
+            stubServeIndex(Map.of("Bamburgh", scored("Bamburgh", 4)));
+
+            briefingService.refreshBriefing();
+            BriefingRegion served =
+                    findRegion(briefingService.getCachedBriefingForApi(), "North East");
+
+            assertThat(served.lightlyEvaluated())
+                    .as("1 of 3 scoreable is below the configured 0.5 ratio, but still positive")
+                    .isTrue();
+            // Not the full rewrite: real slots and a real summary survive — only flagged, nothing
+            // suppressed. Distinguishes this tier from the zero-coverage rewrite covered
+            // elsewhere in this class. (Not a slot COUNT assertion: this fixture's date-invariant
+            // sunsetUtc stub buckets every requested date's slots onto the one day whose
+            // solarEventTime it always returns, so a multi-location, multi-date build's first day
+            // carries every date's slots, not one day's worth — a pre-existing fixture quirk
+            // orthogonal to what this test checks.)
+            assertThat(served.slots()).isNotEmpty();
+            assertThat(served.summary()).isNotEqualTo(BriefingHonestyFilter.REPLACEMENT_SUMMARY);
         }
     }
 

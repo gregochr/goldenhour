@@ -5,6 +5,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — the served-briefing composition is now `ServedBriefingAssembler`, not `BriefingService`
+
+Executes `docs/engineering/served-briefing-assembler-plan.md`. `reEnrichVerdicts`,
+`applyBestBetFallback` and `attachMovement` — and the ordering rules stitching them together
+with `BriefingHonestyFilter` and `PlanWindowProjector` — move out of `BriefingService` verbatim,
+comments included, into a new `ServedBriefingAssembler`. `getServedBriefing()` and
+`getCachedBriefingForApi()` become one-line delegations. `enrichWithCachedScores` and its
+`RegionScoreResolver` stay in `BriefingService` (shared with the build path, out of scope) but
+are promoted to package-private, reached through a new `BriefingScoreEnricher` functional socket
+so a later change to where that logic lives can swap the implementation without touching the
+assembler. The 111 pre-existing `BriefingServiceTest` assertions pinning the six serve-path
+ordering rules pass **unedited**; a mutation check (reversing the honesty-filter/fallback order)
+confirmed one of them actually fails when that rule breaks.
+
+Not sold on constructor arity, per the plan's own correction: the real benefit is that a
+serve-path change now lands in one 250-line class with one job, not in a 1300-line orchestrator
+that changed 72 times in 12 months. The constructor does shrink, but to **24** parameters, not
+the plan's 23 — `bestBetFallbackService` and `windowTideRollupBuilder` leave entirely (Spring
+injects them straight into `ServedBriefingAssembler` now), but `BriefingService` gains one
+parameter back for the assembler itself. That was a deliberate trade against the plan's own
+`@PostConstruct`/manual-construction suggestion: a manually-`new`'d, non-bean assembler would
+have kept the old two parameters flowing through `BriefingService`'s constructor just to forward
+them, for a net arity change of zero.
+
+Both wiring failure modes the plan flags are avoided by construction rather than convention.
+`ServedBriefingAssembler` is a genuine Spring bean built with **no reference to `BriefingService`
+at all** — its enrichment socket starts unbound and is wired by a `bindScoreEnricher` call inside
+`BriefingService`'s own constructor, after both beans already exist, so neither bean's
+construction can depend on the other (no `@Lazy` needed, unlike the tide strategies' existing
+cycle-break with `BriefingService`). `minCoverageRatio` — a field-injected `@Value` populated
+after the constructor runs — is passed as a parameter on every call rather than captured at
+construction, so no ordering with Spring's injection phase can leave it stale. Both are verified,
+not just reasoned about: `GoldenHourApplicationTests` (a full `@SpringBootTest` context boot,
+which the ordinary local gate excludes) passes, and a new
+`lightlyEvaluatedTierFiresWithConfiguredRatio` test — configuring a positive `minCoverageRatio`
+via `ReflectionTestUtils` and asserting the below-threshold tier actually fires through
+`getCachedBriefingForApi()` — fails if the ratio is hard-coded back to the captured-`0.0` bug the
+plan describes, and passes against the real wiring.
+
 ## [v2.19.3] - 2026-08-27
 
 ### Added — JSON date format contract test
