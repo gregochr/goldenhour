@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.19.3] - 2026-08-27
+
 ### Added — JSON date format contract test
 
 `JsonDateFormatContractTest` pins the exact wire format `LocalDate`/`LocalDateTime`/`Instant`
