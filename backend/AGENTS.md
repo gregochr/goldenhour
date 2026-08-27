@@ -94,6 +94,26 @@ Checkstyle and SpotBugs gate those in CI.
 
 ### Bugs that were fixed and must not come back
 
+- **Accumulated batch results are flushed before any failure path returns.**
+  `BatchResultProcessor` collects results in memory and they become durable
+  only in `flushAccumulated`. The stream's catch block used to `return`
+  before it, discarding every already-parsed (and already-billed) response.
+  Flushing partial contents is safe because those writes merge, not replace.
+  Residual, on purpose: responses the stream never returned are still lost
+  and the batch still goes terminal — replay needs per-response checkpointing.
+- **The `forecast_batch` row is persisted immediately after the Anthropic
+  call, before job-run bookkeeping.** It is the only thing polling discovers
+  work through. If it cannot be written, `submit` throws
+  `OrphanedBatchException` — it must **never** return `null`, which every
+  caller reads as "nothing was submitted" and the orchestrator turns into a
+  terminal zero-batch cycle that briefs from stale cache.
+- **The job-run link is a targeted `linkJobRun` UPDATE, never a second
+  `save(entity)`.** Writing the row early makes it pollable early, so by the
+  time bookkeeping runs the poller may already have completed the batch.
+  Merging the in-memory instance back would restore its construction-time
+  defaults and revert `COMPLETED` to `SUBMITTED`, putting processed results
+  back in the polling set.
+
 - **Every outbound `RestClient` carries timeouts.** The shared bean was
   `RestClient.create()` — no request factory, so no read timeout — while the
   Open-Meteo proxies beside it had 10s/30s for exactly that failure. 14

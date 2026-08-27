@@ -5,6 +5,49 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — two ways a paid Anthropic batch could vanish without trace
+
+Both came from targeted Codex reviews of `service/batch/`, and both were verified against the
+source before anything changed. Neither produced an error a human would ever have seen: one
+reported success, the other reported "nothing to submit".
+
+**A failed result stream threw away everything it had already parsed.** Results accumulate in
+memory and become durable only in the merge loops at the end. The stream's catch block called
+`markFailed` and returned *before* those loops — so a connection reset after 80 of 200 responses
+discarded all 80, never read the remaining 120, and marked the batch terminal so polling dropped
+it. The orchestrator then saw a finished batch set and briefed from stale cache. The accumulated
+results are now flushed before the failure is recorded, which is safe precisely because these
+writes **merge** rather than replace — the same property that lets coastal, inland, bluebell and
+woodland buckets share one region key. The failure message now names how much survived.
+
+⚠️ **Still open, deliberately:** responses the stream never returned remain lost, and the batch
+still goes terminal. Recovering those needs per-response checkpointing on `(batch_id, custom_id)`
+plus idempotent `api_call_log` accounting — a larger change with a migration. This fix stops the
+work already done being thrown away; it does not make the batch replayable.
+
+**A batch could be submitted to Anthropic with no local record of it.** The `forecast_batch` row
+is the only thing that makes a batch discoverable — `BatchPollingService` finds work exclusively
+through locally persisted `SUBMITTED` rows — but it was written *after* job-run bookkeeping, so a
+failure in a table the batch's results do not depend on was enough to strand it permanently. The
+row is now persisted first, immediately after the irreversible call, and job-run linkage follows
+as a best-effort update.
+
+⚠️ That linkage is a **targeted `linkJobRun` UPDATE, never a second `save(entity)`** — a
+distinction Codex caught in the first cut of this very fix. Writing the row early is what makes it
+pollable early, so by the time bookkeeping runs the poller may already have completed the batch;
+merging the in-memory instance back would restore its construction-time defaults and revert
+`COMPLETED` to `SUBMITTED`, putting processed results back in the polling set. The fix for a
+duplicate-processing bug had quietly introduced a narrower one.
+
+⚠️ And when that row cannot be written, `submit` no longer returns `null`. `null` means "nothing
+was submitted", and every caller reads it that way — `EvaluationServiceImpl` maps it to an empty
+handle, from which the orchestrator concludes it has a zero-batch cycle, treats that as terminal,
+and refreshes the briefing while paid work is still running. That ambiguity is now an explicit
+`OrphanedBatchException` carrying the batch id, logged at ERROR with the id and a recovery note.
+
+Both fixes are pinned by mutation: reverting the flush fails the stream test, and restoring the
+original submission order fails the ordering test with a verification-in-order error.
+
 ### Removed — a dependency `BriefingService` never used
 
 `BriefingEvaluationService` was declared as a field, documented as a `@param`, injected

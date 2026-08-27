@@ -786,4 +786,54 @@ class BatchResultProcessorTest {
 
         return response;
     }
+
+    @Test
+    @DisplayName("FORECAST: a stream that dies mid-iteration still flushes everything it parsed")
+    void forecast_streamFailsMidway_flushesAccumulatedResultsBeforeFailing() {
+        stubBatchService();
+        ForecastBatchEntity batch = buildBatch(BatchType.FORECAST);
+        LocationEntity location = buildLocationWithRegion(42L, "Castlerigg", "Lake District");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(location));
+
+        MessageBatchIndividualResponse response = succeededResponse(
+                "fc-42-2026-04-07-SUNRISE",
+                "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}");
+        // One response arrives and parses; the connection then drops. Before the fix the catch
+        // block returned straight to markFailed, so this already-paid-for result was discarded
+        // along with the batch — and the batch went terminal, so nothing ever retried it.
+        @SuppressWarnings("unchecked")
+        StreamResponse<MessageBatchIndividualResponse> streamResp = mock(StreamResponse.class);
+        when(streamResp.stream()).thenReturn(Stream.concat(
+                Stream.of(response),
+                Stream.<MessageBatchIndividualResponse>generate(() -> {
+                    throw new IllegalStateException("connection reset mid-stream");
+                }).limit(1)));
+        when(batchService.resultsStreaming("msgbatch_fail")).thenReturn(streamResp);
+
+        BriefingEvaluationResult parsed = new BriefingEvaluationResult(
+                "Castlerigg", 4, 70, 65, "X");
+        when(forecastResultHandler.parseBatchResponse(
+                eq(location), any(ForecastIdentity.class),
+                any(ClaudeBatchOutcome.class), any(ResultContext.class)))
+                .thenReturn(Optional.of(new BatchSuccess(
+                        "Lake District|2026-04-07|SUNRISE", parsed)));
+
+        processor.processResults(batch);
+
+        // The whole point: the parsed result reached the cache even though the batch failed.
+        verify(forecastResultHandler).mergeCacheKey(
+                eq("Lake District|2026-04-07|SUNRISE"), eq(List.of(parsed)));
+
+        ArgumentCaptor<ForecastBatchEntity> captor =
+                ArgumentCaptor.forClass(ForecastBatchEntity.class);
+        verify(batchRepository).save(captor.capture());
+        assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.FAILED);
+        assertThat(captor.getValue().getSucceededCount())
+                .as("the count reflects what was actually parsed and flushed")
+                .isEqualTo(1);
+        assertThat(captor.getValue().getErrorMessage())
+                .as("the reason says how much survived, so the log is actionable")
+                .contains("1 succeeded")
+                .contains("1 cache keys flushed");
+    }
 }

@@ -136,21 +136,54 @@ public class BatchSubmissionService {
                     .requests(requests)
                     .build();
 
+            // ⚠️ Everything below this line runs AFTER money has been spent. The batch now exists
+            // at Anthropic and cannot be recalled, so the ordering of what follows is the whole
+            // recovery story.
             MessageBatch batch = anthropicClient.messages().batches().create(params);
             Instant expiresAt = batch.expiresAt().toInstant();
 
-            JobRunEntity jobRun = jobRunService.startBatchRun(requests.size(), batch.id());
-
+            // The forecast_batch row is persisted FIRST, before any job-run bookkeeping, because
+            // it is the ONLY thing that makes the paid batch discoverable: BatchPollingService
+            // finds work exclusively through locally persisted SUBMITTED rows. This used to run
+            // after startBatchRun, so a failure in job-run bookkeeping — a table this batch's
+            // results do not depend on — was enough to strand it forever.
             ForecastBatchEntity entity = new ForecastBatchEntity(
                     batch.id(), batchType, requests.size(), expiresAt);
-            if (jobRun != null) {
-                entity.setJobRunId(jobRun.getId());
-            }
             if (pipelineRunId != null) {
                 entity.setPipelineRunId(pipelineRunId);
             }
             entity.setRetry(isRetry);
-            batchRepository.save(entity);
+            try {
+                entity = batchRepository.save(entity);
+            } catch (Exception persistFailure) {
+                // ⚠️ Do NOT fall through to the null return. `null` means "nothing was submitted",
+                // and every caller reads it that way — EvaluationServiceImpl maps it to
+                // EvaluationHandle.empty(), from which the orchestrator concludes it has a
+                // zero-batch cycle, treats that as terminal, and briefs from stale cache while
+                // paid work is still running. An ambiguous "the remote call may have succeeded and
+                // we lost the record" must never be reported as an ordinary empty submission.
+                LOG.error("ORPHANED BATCH {}: submitted to Anthropic but the tracking row could "
+                                + "not be persisted, so polling will never discover it. "
+                                + "{} request(s), trigger={}, expires={}. Recover by inserting a "
+                                + "forecast_batch row for this id.",
+                        batch.id(), requests.size(), triggerSource, expiresAt, persistFailure);
+                throw new OrphanedBatchException(batch.id(), persistFailure);
+            }
+
+            // Job-run bookkeeping is deliberately best-effort and AFTER the row above: it feeds
+            // metrics, not result processing, so losing it costs a dashboard line rather than a
+            // batch.
+            //
+            // ⚠️ Linked by targeted UPDATE, never by re-saving `entity`. The row is already
+            // pollable by this point — that is the whole reason it was written first — so merging
+            // the in-memory instance back would overwrite every column with its construction-time
+            // state, reverting a batch the poller had just COMPLETED to SUBMITTED and putting its
+            // processed results back in the polling set. See ForecastBatchRepository.linkJobRun.
+            JobRunEntity jobRun = jobRunService.startBatchRun(requests.size(), batch.id());
+            if (jobRun != null) {
+                entity.setJobRunId(jobRun.getId());
+                batchRepository.linkJobRun(entity.getId(), jobRun.getId());
+            }
 
             Long jobRunId = jobRun != null ? jobRun.getId() : null;
             LOG.info("{} submitted: batchId={}, {} request(s), expires={}, jobRunId={}, "
@@ -159,6 +192,8 @@ public class BatchSubmissionService {
                     jobRunId, pipelineRunId, triggerSource);
 
             return new BatchSubmitResult(jobRunId, batch.id(), requests.size());
+        } catch (OrphanedBatchException e) {
+            throw e;
         } catch (Exception e) {
             LOG.error("{} submission failed (trigger={}): {}",
                     logPrefix, triggerSource, e.getMessage(), e);
