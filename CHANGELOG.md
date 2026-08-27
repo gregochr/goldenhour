@@ -27,6 +27,31 @@ reason, and by mutation testing: removing either check makes its test fail (the 
 back to a `NO_TEXT` misclassification rather than the intended `MAX_TOKENS` one, since without
 the check `extractTextFromMessage` finds no content on the unstubbed truncation fixture).
 
+### Fixed — an air-quality reading nobody took is no longer reported as clean air
+
+`OpenMeteoResponseParser.toDecimal` converted a missing PM2.5, dust or aerosol-optical-depth
+value into `BigDecimal.ZERO`. For these three fields zero is not a neutral default — the system
+prompt grades AOD against `0.05-0.15 clean (baseline)`, so a fabricated `AOD: 0.000` read as
+*cleaner than clean*, with `PM2.5: 0.00` corroborating it.
+
+**It was not a rare edge case.** Checked against the live API on 2026-08-27: the forecast array
+runs **168 hours** while air quality runs **120**, with a null tail from index 109. Usable aerosol
+data therefore ends around **T+4 13:00 UTC**, and every later slot was handed a complete set of
+zeros. Scheduled runs are largely shielded by Gate 4's T+3 evaluation ceiling — but manual admin
+runs bypass the stability filter entirely, so it was reachable.
+
+Absence now stays absent. The prompt renders `PM2.5: N/A, Dust: N/A, AOD: N/A`, using the
+vocabulary it already uses for a missing dew point or precipitation probability rather than
+teaching Claude a new token. A genuine zero still renders as zero — distinguishing the two is the
+entire point.
+
+⚠️ **The consumers were already correct; the zero had been defeating them.**
+`PromptBuilder.isDustElevated` and `DustHotTopicStrategy.isDustEnhanced` both guard for null
+explicitly, and every persistence column was already nullable. A zero passes a null check and then
+fails the threshold, so on a slot with no data the dust signal could not fire at all — it was
+being declined for the wrong reason. No migration, and the prompt's golden-master and regression
+suites pass **unchanged**, because the rendering of a present value is byte-identical.
+
 ### Fixed — a parser NPE on missing weather data was misreported as an Open-Meteo outage
 
 `OpenMeteoResponseParser.extractAtmosphericData` read every REQUIRED hourly series (cloud cover,
