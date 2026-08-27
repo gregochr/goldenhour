@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — a parser NPE on missing weather data was misreported as an Open-Meteo outage
+
+`OpenMeteoResponseParser.extractAtmosphericData` read every REQUIRED hourly series (cloud cover,
+visibility, wind, precipitation, humidity, weather code, radiation, boundary layer height) directly
+at the resolved slot index, with no bounds or null guard — while every OPTIONAL field beside it
+already used bounds-aware accessors that return `null` instead of throwing. A null element threw
+`NullPointerException`; a short array threw `IndexOutOfBoundsException`. Both callers in
+`OpenMeteoService` catch the failure and log it as an `OPEN_METEO_FORECAST` API failure with a
+status code derived from the exception, so a parser defect was indistinguishable from "Open-Meteo is
+down" and the location silently dropped out of that cycle with a misleading cause.
+
+Every required read now goes through a bounds-and-null guard (`requireInt`/`requireDouble`,
+mirroring the existing `getIntegerValue`/`getDoubleValue` pattern) and throws a new
+`IncompleteHourlyDataException` naming the missing field and index. Caller control flow is
+unchanged — the failure is still contained per-location — only the logged cause now tells the truth.
+Pinned by a parameterized test per required field (truncated array, null at index) and a mutation
+check confirming the guard's removal fails the matching test.
+
 ### Fixed — two ways a paid Anthropic batch could vanish without trace
 
 Both came from targeted Codex reviews of `service/batch/`, and both were verified against the
