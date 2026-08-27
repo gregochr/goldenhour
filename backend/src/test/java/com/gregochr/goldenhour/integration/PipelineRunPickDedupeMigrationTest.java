@@ -33,21 +33,32 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Flyway to the latest version in one shot, against an empty database, which can never
  * reproduce "duplicates already exist when V148 runs". Driving Flyway directly lets the test
  * stop at V147, seed the duplicates by hand, then apply V148 alone and inspect the result.
+ *
+ * <p>The container field is deliberately <b>not</b> {@code static}: each test method here
+ * drives Flyway (and the schema version) directly, so a shared container would leak one
+ * method's post-migration state into the next — {@code dedupeStatement_isIdempotentOnceClean}
+ * inserts {@code pipeline_run} id 1 and migrates to latest, and a shared container would then
+ * make {@link #v148_dedupesPreexistingDuplicatesThenConstrains()}'s own id-1 insert collide
+ * (or, run first, leave the schema already past V147, so the "seed pre-V148 duplicates" step
+ * would be seeding against an already-unique-constrained table). A non-static
+ * {@code @Container} field gets a fresh container per test method, matching the isolation
+ * {@link IntegrationTestBase} gets from its per-<em>class</em> restart, at method
+ * granularity — the cost is a container start per test, acceptable for two methods.
  */
 @Testcontainers
 class PipelineRunPickDedupeMigrationTest {
 
     @Container
     @SuppressWarnings("resource")
-    private static final PostgreSQLContainer<?> POSTGRES =
+    private final PostgreSQLContainer<?> postgres =
             new PostgreSQLContainer<>("postgres:17-alpine")
                     .withDatabaseName("goldenhour_migration_test")
                     .withUsername("test")
                     .withPassword("test");
 
-    private static Flyway flywayTo(String targetVersion) {
+    private Flyway flywayTo(String targetVersion) {
         FluentConfiguration config = Flyway.configure()
-                .dataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword())
+                .dataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())
                 .locations("classpath:db/migration");
         if (targetVersion != null) {
             config = config.target(targetVersion);
@@ -57,7 +68,7 @@ class PipelineRunPickDedupeMigrationTest {
 
     private Connection connect() throws SQLException {
         return DriverManager.getConnection(
-                POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
+                postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
     }
 
     @Test
@@ -141,6 +152,10 @@ class PipelineRunPickDedupeMigrationTest {
             st.execute("INSERT INTO pipeline_run_pick "
                     + "(pipeline_run_id, pick_rank, headline, recorded_at) "
                     + "VALUES (2, 2, 'run 2 plan b', now())");
+            // A third pipeline run — fk_pick_pipeline_run (V102) requires the parent row to
+            // exist before a pick can reference it.
+            st.execute("INSERT INTO pipeline_run (id, cycle_type, status, trigger_time) "
+                    + "VALUES (3, 'NIGHTLY', 'COMPLETED', now())");
             st.execute("INSERT INTO pipeline_run_pick "
                     + "(pipeline_run_id, pick_rank, headline, recorded_at) "
                     + "VALUES (3, 1, 'a third pipeline run', now())");
