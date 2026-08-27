@@ -272,12 +272,20 @@ public class PipelineOrchestrator {
             CandidateCollectionStrategy candidateStrategy,
             EligibilityPolicy eligibilityPolicy) {
         PipelineRunEntity run = pipelineRunService.startRun(cycleType);
+        boolean submitted;
         try {
-            submitPhase(run.getId(), cycleType, candidateStrategy, eligibilityPolicy);
+            submitted = submitPhase(run.getId(), cycleType, candidateStrategy, eligibilityPolicy);
         } catch (Exception e) {
             LOG.error("Pipeline run {} ({}): submission phase failed — {}", run.getId(),
                     cycleType, e.getMessage(), e);
             pipelineRunService.failRun(run.getId(), "Submit phase failed: " + e.getMessage());
+            return;
+        }
+        if (!submitted) {
+            // submitPhase already failed the run — this cycle's submission was dropped
+            // because another run held the guard. Do not dispatch the wait/brief tail:
+            // there are no batches of this run's own to wait for, and briefing now would
+            // brief from stale cache while the winning run is still in flight.
             return;
         }
         backgroundExecutor.execute(() -> waitAndBriefPhase(run.getId()));
@@ -294,12 +302,16 @@ public class PipelineOrchestrator {
      */
     public void runCycleSynchronously(PipelineRunEntity preCreatedRun) {
         Long runId = preCreatedRun.getId();
+        boolean submitted;
         try {
-            submitPhase(runId, CycleType.NIGHTLY,
+            submitted = submitPhase(runId, CycleType.NIGHTLY,
                     NightlyCandidateCollectionStrategy.INSTANCE,
                     NightlyEligibilityPolicy.INSTANCE);
         } catch (Exception e) {
             pipelineRunService.failRun(runId, "Submit phase failed: " + e.getMessage());
+            return;
+        }
+        if (!submitted) {
             return;
         }
         waitAndBriefPhase(runId);
@@ -356,8 +368,22 @@ public class PipelineOrchestrator {
      *
      * <p>The collect + submit <em>logic</em> is one shared implementation in the
      * batch service; only this phase recording differs by cycle.
+     *
+     * <p><b>A dropped submission fails the run outright.</b> The batch service's
+     * submission guard is a single {@code AtomicBoolean} shared by every trigger
+     * (scheduled and admin-fired); when this cycle loses that CAS, no batch of
+     * its own was submitted. Completing {@code FORECAST_BATCH_SUBMIT} anyway
+     * would record a phase that did nothing as successful, and letting the caller
+     * proceed to the wait/briefing tail would brief from whatever cache the
+     * winning run leaves behind — the exact overlap this method exists to
+     * prevent. The winning run's own cycle self-corrects when its batches land.
+     *
+     * @return {@code true} if this run's submission actually ran (whether or not
+     *         any batch ended up non-empty); {@code false} if the submission was
+     *         dropped because another run already held the guard — the caller
+     *         must not dispatch the wait/brief tail in that case
      */
-    private void submitPhase(Long runId, CycleType cycleType,
+    private boolean submitPhase(Long runId, CycleType cycleType,
             CandidateCollectionStrategy candidateStrategy,
             EligibilityPolicy eligibilityPolicy) {
         boolean intraday = cycleType == CycleType.INTRADAY;
@@ -379,9 +405,17 @@ public class PipelineOrchestrator {
                 : summary -> { };
 
         try {
-            scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
+            boolean submitted = scheduledBatchEvaluationService.submitForecastBatchForPipelineRun(
                     runId, candidateStrategy, eligibilityPolicy, intraday, betweenSteps);
+            if (!submitted) {
+                String reason = "Forecast batch submission dropped — another pipeline run "
+                        + "already holds the submission guard (overlapping cycle trigger)";
+                LOG.warn("Pipeline run {} ({}): {}", runId, cycleType, reason);
+                pipelineRunService.failRun(runId, reason);
+                return false;
+            }
             pipelineRunService.completePhase(runId, PipelinePhase.FORECAST_BATCH_SUBMIT, null);
+            return true;
         } catch (RuntimeException e) {
             // Fail whichever phase was in flight when the exception fired — for
             // intraday that's STABILITY_RECLASSIFY if collection failed before the

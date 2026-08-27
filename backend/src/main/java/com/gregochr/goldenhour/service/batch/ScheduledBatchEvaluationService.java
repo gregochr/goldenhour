@@ -194,9 +194,11 @@ public class ScheduledBatchEvaluationService {
      * EligibilityPolicy)} directly.
      *
      * @param pipelineRunId orchestrated cycle id
+     * @return {@code true} if this call submitted the cycle's batches; {@code false}
+     *         if the submission guard was already held and this call was dropped
      */
-    public void submitForecastBatchForPipelineRun(Long pipelineRunId) {
-        submitForecastBatchForPipelineRun(pipelineRunId,
+    public boolean submitForecastBatchForPipelineRun(Long pipelineRunId) {
+        return submitForecastBatchForPipelineRun(pipelineRunId,
                 NightlyCandidateCollectionStrategy.INSTANCE,
                 NightlyEligibilityPolicy.INSTANCE);
     }
@@ -211,11 +213,13 @@ public class ScheduledBatchEvaluationService {
      * @param pipelineRunId        orchestrated cycle id
      * @param candidateStrategy    filter deciding which event slots enter the candidate set
      * @param eligibilityPolicy    per-candidate include/skip decision function
+     * @return {@code true} if this call submitted the cycle's batches; {@code false}
+     *         if the submission guard was already held and this call was dropped
      */
-    public void submitForecastBatchForPipelineRun(Long pipelineRunId,
+    public boolean submitForecastBatchForPipelineRun(Long pipelineRunId,
             CandidateCollectionStrategy candidateStrategy,
             EligibilityPolicy eligibilityPolicy) {
-        submitForecastBatchForPipelineRun(pipelineRunId, candidateStrategy, eligibilityPolicy,
+        return submitForecastBatchForPipelineRun(pipelineRunId, candidateStrategy, eligibilityPolicy,
                 false, NO_OP_BETWEEN_STEPS);
     }
 
@@ -245,8 +249,16 @@ public class ScheduledBatchEvaluationService {
      * @param betweenCollectAndSubmit hook invoked with the cost-gate summary after
      *                               collection and before submission (used for
      *                               cycle-specific phase recording)
+     * @return {@code true} if this call acquired the submission guard and ran the
+     *         submission; {@code false} if another submission was already in
+     *         progress and this call was dropped without submitting anything. A
+     *         caller that creates a pipeline run for this call (the orchestrator)
+     *         MUST NOT treat {@code false} as success — the cycle submitted no
+     *         batches of its own and must not proceed to wait-for-completion or
+     *         briefing, which would otherwise brief from the other run's
+     *         in-flight (or stale cached) state.
      */
-    public void submitForecastBatchForPipelineRun(Long pipelineRunId,
+    public boolean submitForecastBatchForPipelineRun(Long pipelineRunId,
             CandidateCollectionStrategy candidateStrategy,
             EligibilityPolicy eligibilityPolicy,
             boolean ephemeral,
@@ -258,11 +270,12 @@ public class ScheduledBatchEvaluationService {
         if (!forecastBatchRunning.compareAndSet(false, true)) {
             LOG.warn("Forecast batch already running — orchestrator trigger dropped "
                     + "(pipelineRunId={})", pipelineRunId);
-            return;
+            return false;
         }
         try {
             doSubmitForecastBatch(pipelineRunId, candidateStrategy, eligibilityPolicy,
                     ephemeral, betweenCollectAndSubmit);
+            return true;
         } finally {
             forecastBatchRunning.set(false);
         }

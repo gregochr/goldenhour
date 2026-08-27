@@ -76,6 +76,30 @@ highest-id (most recently written) one is deleted, in a single idempotent statem
 constraint is added. If this repo already has duplicate picks in production, this migration will
 silently discard the older copies the next time it deploys.
 
+### Fixed — an overlapping pipeline run could publish a briefing from stale cache and call it a
+success
+
+`PipelineOrchestrator.runCycle` called `pipelineRunService.startRun()` before anything acquired
+`ScheduledBatchEvaluationService`'s submission guard. When a second cycle overlapped a first —
+realistically, an admin trigger via `POST /api/admin/scheduler/jobs/{jobKey}/trigger` while a
+scheduled cycle was still submitting; the two scheduled crons themselves are 13 hours apart and
+cannot collide — the loser's CAS on the shared `AtomicBoolean` failed,
+`submitForecastBatchForPipelineRun` logged "orchestrator trigger dropped" and returned `void`, and
+the orchestrator had no way to tell "submitted" from "dropped". It completed
+`FORECAST_BATCH_SUBMIT` unconditionally, `allTerminal()` read the loser's zero submitted batches as
+a terminal zero-batch cycle, and the run proceeded straight to `briefingService.refreshBriefing()`
+— rebuilding the served briefing from the *previous* cycle's cache while the winning run's batches
+were still in flight — then marked itself `COMPLETED`.
+
+`submitForecastBatchForPipelineRun` now returns `true`/`false` for "submitted"/"guard already held,
+dropped". A `false` return makes `PipelineOrchestrator.submitPhase` fail the run outright — naming
+the overlap in the failure reason — without completing `FORECAST_BATCH_SUBMIT` or starting
+`FORECAST_BATCH_WAIT`/`BRIEFING`, so the loser never calls `refreshBriefing()`. No new
+`PipelineRunStatus`, database lease, or distributed lock: the guard is only ever held for
+collect+submit (the wait/brief tail already runs on a background executor after it releases), the
+realistic collision is a rare manual-trigger race, and the winning run's own cycle refreshes the
+briefing once its batches land regardless.
+
 ## [v2.19.2] - 2026-08-27
 
 ### Added — the promptable cut: verification buckets reproducing all three triage rules
