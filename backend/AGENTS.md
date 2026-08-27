@@ -94,6 +94,16 @@ Checkstyle and SpotBugs gate those in CI.
 
 ### Bugs that were fixed and must not come back
 
+- **An absent air-quality reading is `null`, never `BigDecimal.ZERO`.**
+  `OpenMeteoResponseParser.toDecimal` used to zero-fill missing PM2.5, dust
+  and AOD. Zero is not neutral for these three: the system prompt grades AOD
+  against `0.05-0.15 clean (baseline)`, so a fabricated `0.000` claims
+  exceptionally clean air. Air quality returns a 120-hour window against the
+  forecast's 168, so this fired on every slot past ~T+4 13:00 UTC. The prompt
+  renders `N/A`; a measured zero still renders as zero, and telling the two
+  apart is the whole point. Every consumer was already null-safe — the zero
+  was defeating those guards, not satisfying them.
+
 - **Accumulated batch results are flushed before any failure path returns.**
   `BatchResultProcessor` collects results in memory and they become durable
   only in `flushAccumulated`. The stream's catch block used to `return`
