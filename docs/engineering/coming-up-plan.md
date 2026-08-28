@@ -79,11 +79,12 @@ days rolling, weekly refresh.
    rows but do not badge** until their history matures. That is the design's own cold-start rule
    ("list, do not badge") applied where it actually bites.
 2. The **recurrent/persistent branch ships as the README's documented interim rule** — with one
-   deliberate upgrade: rarity is *computed* from observed trailing-60-day arrivals wherever the
-   evidentiary bar (≥ 5 arrivals) is met, because the survivor stores already hold enough dust
-   history to support it, and a config constant sitting beside a live observed-rate label would
-   print two disagreeing numbers on one strip row. Config constants are the *fallback below the
-   bar*, not the default (D4). The band names and escalation are a UX contract and do not change
+   deliberate upgrade: **dust** rarity is *computed* from observed trailing-60-day arrivals
+   (replayed over the complete `forecast_evaluation` population — NOT the survivor stores, which
+   are triage-biased; D4) wherever the evidentiary bar (≥ 5 arrivals) is met, because a config
+   constant sitting beside a live observed-rate label would print two disagreeing numbers on one
+   strip row. **Inversions have no unbiased population until P7 and stay on the config rarity.**
+   Config constants are the *fallback*, not the default, wherever a real count is possible (D4). The band names and escalation are a UX contract and do not change
    when the full model arrives.
 3. **Start logging now** (README's instruction): a per-day per-topic presence/intensity log is P7.
    Revisit the interim pieces after ~90 days of rows; season-matching needs ≥ 2 years.
@@ -180,6 +181,15 @@ the **fixed** `DEFAULT_DAYS = 90`, never the request's clamped `days`, so a call
   dates; null → nothing is new). Badge from new entries clearing bands (D4's served `bands`),
   filtered to `kind === 'ALMANAC'` — forecast entries never badge. See D12 for why this client
   derivation is licensed.
+- **Bootstrap, or the badge never turns on** (external-review finding, §14 round 3): with NULL
+  rendering as "nothing is new" and `Mark seen` the only write — and the since-line that hosts
+  `Mark seen` rendering only when something IS new — a null-state account can never reach the
+  write, so the timestamp stays null and the badge is permanently disabled for **every** account
+  (the migration deliberately has no backfill). Fix: on the first open of the Coming up tab with a
+  null `comingUpLastSeenDate`, the client **quietly fires the same `PUT` with now** — that first
+  visit shows no badge and no NEW flags (the chosen quiet bias, unchanged), and arrivals flag from
+  then on. One write, only on the null→set transition; a failed bootstrap write stays null and
+  retries on the next visit, never loops.
 
 **D4 — Scoring: what is real, what is interim, and where the numbers live.** All scoring maths
 lives in one pure class `service/comingup/SurpriseScore.java`; all knobs in
@@ -220,10 +230,19 @@ coastal-tides condition's occurrences (D11), exactly as the design of record doe
 occurrence sits in the spring-tides condition list).
 
 *Recurrent/persistent topics (dust, inversions):* rarity is **computed from observed trailing-60-day
-arrivals** (`log2(60 / arrivals)`, window ending yesterday) wherever ≥ 5 arrivals exist — this is
-the evidentiary bar, and it makes the seasonality axis live from day one (November dust really does
-score higher than August dust). Below the bar, the config fallback rarity applies and the rate
-label degrades honestly (P4). Magnitude is interim: a config-defined bucketed mapping from the
+arrivals** (`log2(60 / arrivals)`, window ending yesterday) wherever ≥ 5 arrivals exist AND an
+**unbiased presence population** exists to count them in — this is the evidentiary bar, and it
+makes the seasonality axis live from day one (November dust really does score higher than August
+dust). ⚠️ **The survivor stores are not that population** (external-review finding, §14 round 3):
+`survivor_atmosphere`/`forecast_score` hold only rows that passed triage, so a dusty day that was
+triaged out reads as an absence — gaps stretch, rarity inflates, and routine conditions get
+promoted, the unsafe direction. So: **dust** counts arrivals by replaying `DustHotTopicStrategy`'s
+thresholds over the complete `forecast_evaluation` population (aerosol columns on every row incl.
+triaged, §1), collapsed to per-day presence across the roster; **inversions stay on the config
+fallback rarity until P7's log exists**, because no unbiased inversion population does
+(`inversion_score` is null on triaged rows, `forecast_score` is survivor-only). Below the bar, or
+without an unbiased population, the config fallback rarity applies and the rate label degrades
+honestly (P4). Magnitude is interim: a config-defined bucketed mapping from the
 topic's intensity scale to bits — **never labelled `median` or `p90`**; the quant line names it as
 a threshold (`promoted above 7/10 (interim)`). The strip's `quant` line is two independently
 degradable halves: the rarity half always present; the distribution half present only where a real
@@ -614,12 +633,15 @@ vs asserted.
   window, per-run bits per D4 (run-peak distribution, cold-start bucketing). Occurrence statuses
   per D11's precedence — `promoted` derived FROM membership of the assembled `entries` list and
   carrying `entryId`; `insidePlan` only for occurrences with no entry; else `heldBack`.
-- **Dust / Valley inversions** (D4 interim): presence + intensity over the trailing 60 days ending
-  yesterday from `SurvivorSignalReader` (fall back to `forecast_evaluation` aerosol columns if the
-  survivor read is too thin — decide with the data in front of you and record which in the phase
-  log); rarity computed from observed arrivals at/above the evidentiary bar, config fallback below
-  it — and below the bar the rate label renders the raw count and span (`3 plumes since 12 Aug`)
-  with the cadence clause **omitted entirely**, never synthesised. Quant line per D4's two-halves
+- **Dust / Valley inversions** (D4 interim): **dust** presence over the trailing 60 days ending
+  yesterday comes from replaying `DustHotTopicStrategy`'s thresholds over the complete
+  `forecast_evaluation` population (per-day presence across the roster) — NOT from
+  `SurvivorSignalReader`, whose rows exist only for triage survivors and would inflate rarity
+  (D4); the survivor surface still supplies the *forward peak* (it is the forecast side).
+  **Inversion rarity stays on the config fallback until P7** — no unbiased inversion population
+  exists. Rarity computed from observed arrivals at/above the evidentiary bar where the population
+  allows, config fallback otherwise — and below the bar the rate label renders the raw count and
+  span (`3 plumes since 12 Aug`) with the cadence clause **omitted entirely**, never synthesised. Quant line per D4's two-halves
   rule. Peak = max forecast intensity in T+0..T+3 **passing the `PEAK_LIGHT_WINDOW_MINUTES` gate**
   (D5 — satisfied by construction in v1, tested anyway: a 9/10 14:00 fixture loses to a 6/10
   sunrise one); no passing candidate → no peak, and the peak cell says so.
@@ -671,6 +693,9 @@ three surfaces). Browser-verify the strip and panels (desktop + 390px).
   `settingsApi.js` function beside `map-colours`'s with the same why-not-saveHome comment
   discipline.
 - **Eager fetch** per D13, including both comment rewrites.
+- **Bootstrap** per D3: on first open of the Coming up tab with a null `comingUpLastSeenDate`,
+  quietly `PUT` now — the null→set transition only; without it the badge never activates for any
+  account (the deadlock D3 records).
 - **Sourcing:** `lastSeen` flows through **`WindowFirstBriefingContext`** — it already calls
   `getSettings()` (`:403-407`) and keeps only the home place; add the field to that same `.then`,
   the `value` memo and its deps. `App.jsx`'s own `getSettings` is a dead end (feeds only
@@ -693,9 +718,10 @@ three surfaces). Browser-verify the strip and panels (desktop + 390px).
   entries; all clear together.
 - **CLAUDE.md:** amend the Backend-heavy bullet to name D12's class, in this PR.
 
-**Tests:** null-lastSeen quiet state, off-by-one boundary (`enteredWindow == builtFor` entry is new
-the same day), band inclusivity, forecast-never-badges, mark-seen round trip + optimistic clear,
-badge aria, census fixture. NO hysteresis test — v1 ships none (D4). Browser-verify badge states
+**Tests:** null-lastSeen quiet state AND its bootstrap (first open fires the `PUT`, shows no badge
+and no NEW flags; a failed write stays null and does not loop), off-by-one boundary
+(`enteredWindow == builtFor` entry is new the same day), band inclusivity, forecast-never-badges,
+mark-seen round trip + optimistic clear, badge aria, census fixture. NO hysteresis test — v1 ships none (D4). Browser-verify badge states
 (the design's demo has three) and 320px.
 
 ---
@@ -952,3 +978,12 @@ notable one being that `bands` had no phase owner in the P2 brief (P5's badge wo
 nothing to read); also the `regions` passthrough restored to §13, the P2 threshold rule re-keyed on
 type to break a circular P2→P4 dependency, and the §9 `index.css` delete range corrected to
 `:402-552`.
+
+Round 3 (external, Codex review on PR #678): two confirmed findings, both fixed in place. (1) The
+`lastSeenAt` design deadlocked — null renders "nothing new", `Mark seen` was the only write, and
+the since-line hosting it only renders when something IS new, so the badge could never activate
+for any account; D3/P5 gained the quiet first-open bootstrap write. (2) The observed-arrival
+rarity denominator was triage-biased — the survivor stores hold only rows that passed triage, so
+gaps stretched and rarity inflated (over-promotion, the unsafe direction); dust now counts
+arrivals over the complete `forecast_evaluation` population and inversion rarity stays on the
+config fallback until P7 supplies an unbiased log.
