@@ -1062,6 +1062,76 @@ class TideRunBuilderTest {
         assertThat(builder.build(List.of(DAY_1), List.of(seaham()), false)).isEmpty();
     }
 
+    // ── peakRange / peakRangeAt (plan D4 — magnitude scoring's numeric read) ──
+
+    @Test
+    @DisplayName("peakRange selects the same representative and range as build(), as a raw double")
+    void peakRange_matchesBuild() {
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_WHITBY, DAY_1,
+                low("04:30", 1.0), high("10:40", 3.0), low("16:50", 1.0)));
+        extremes.addAll(day(ID_SEAHAM, DAY_1,
+                low("05:00", 0.4), high("11:10", 5.0), low("17:20", 0.4)));
+        stubExtremes(extremes);
+
+        Optional<TideRunBuilder.RunPeak> peak = builder.peakRange(List.of(DAY_1), List.of(whitby(), seaham()));
+
+        assertThat(peak).isPresent();
+        assertThat(peak.get().representative().getName()).isEqualTo("Seaham");
+        assertThat(peak.get().rangeMetres()).isEqualTo(4.6, org.assertj.core.data.Offset.offset(0.001));
+    }
+
+    @Test
+    @DisplayName("peakRange takes the biggest day across a multi-day run, not just the first")
+    void peakRange_takesTheBiggestDayInTheRun() {
+        List<TideExtremeEntity> extremes = new ArrayList<>(day(ID_SEAHAM, DAY_1,
+                low("05:00", 0.4), high("11:10", 3.0), low("17:20", 0.4)));
+        extremes.addAll(day(ID_SEAHAM, DAY_2,
+                low("05:40", 0.2), high("11:50", 5.0), low("18:00", 0.2)));
+        stubExtremes(extremes);
+
+        Optional<TideRunBuilder.RunPeak> peak =
+                builder.peakRange(List.of(DAY_1, DAY_2), List.of(seaham()));
+
+        assertThat(peak).isPresent();
+        assertThat(peak.get().rangeMetres()).isEqualTo(4.8, org.assertj.core.data.Offset.offset(0.001));
+    }
+
+    @Test
+    @DisplayName("peakRange is empty with no dates, no roster, or no derivable day")
+    void peakRange_emptyInputsYieldEmpty() {
+        assertThat(builder.peakRange(List.of(), List.of(seaham()))).isEmpty();
+        assertThat(builder.peakRange(List.of(DAY_1), List.of())).isEmpty();
+
+        stubExtremes(List.of());
+        assertThat(builder.peakRange(List.of(DAY_1), List.of(seaham()))).isEmpty();
+    }
+
+    @Test
+    @DisplayName("peakRangeAt measures the location it is given, not the biggest range available — "
+            + "unlike peakRange, it never auto-selects, because the historical distribution must "
+            + "stay pinned to the same port the forward run was drawn for")
+    void peakRangeAt_usesTheGivenLocation_neverAutoSelects() {
+        List<TideExtremeEntity> both = new ArrayList<>(day(ID_WHITBY, DAY_1,
+                low("04:30", 1.0), high("10:40", 3.0), low("16:50", 1.0)));
+        // Seaham's range (4.6 m) is bigger, but the call below asks for Whitby specifically.
+        both.addAll(day(ID_SEAHAM, DAY_1, low("05:00", 0.4), high("11:10", 5.0), low("17:20", 0.4)));
+        stubExtremes(both);
+
+        java.util.OptionalDouble range = builder.peakRangeAt(whitby(), List.of(DAY_1));
+
+        assertThat(range).hasValue(2.0);
+    }
+
+    @Test
+    @DisplayName("peakRangeAt is empty for a null representative, no dates, or no derivable day")
+    void peakRangeAt_emptyInputsYieldEmpty() {
+        assertThat(builder.peakRangeAt(null, List.of(DAY_1))).isEmpty();
+        assertThat(builder.peakRangeAt(whitby(), List.of())).isEmpty();
+
+        stubExtremes(List.of());
+        assertThat(builder.peakRangeAt(whitby(), List.of(DAY_1))).isEmpty();
+    }
+
     // ── fixtures ──────────────────────────────────────────────────────────────
 
     private void stubSolar() {

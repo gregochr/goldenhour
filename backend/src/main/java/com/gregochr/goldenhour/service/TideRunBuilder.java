@@ -27,6 +27,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalDouble;
+import java.util.Objects;
 
 /**
  * Builds the per-day {@link TideRunDay} rows behind a spring or king tide pill's 24-hour chart.
@@ -270,6 +271,80 @@ public class TideRunBuilder {
                     king, roster.get(entry.getKey()), entry.getKey().equals(bestAligned)));
         }
         return result;
+    }
+
+    /**
+     * A run's chosen representative location and its own peak range, in metres.
+     *
+     * <p>Exists alongside {@link #build} because {@link TideRunDay#range()} is a formatted display
+     * string ({@code "3.6 m"}), and the "Coming up" surprise model (plan D4) needs the raw number
+     * to compare a run's peak against a historical distribution.
+     *
+     * @param representative the coastal location the run's figures were drawn for
+     * @param rangeMetres    the run's biggest single-day range in metres
+     */
+    public record RunPeak(LocationEntity representative, double rangeMetres) {
+    }
+
+    /**
+     * The run's representative location and its own peak range, chosen and computed the same way
+     * {@link #build} does internally, exposed separately because {@link TideRunDay#range()} only
+     * carries the formatted display string.
+     *
+     * @param dates            the run's dates, ascending
+     * @param coastalLocations the enabled coastal locations to choose a representative from
+     * @return the representative and its peak range, or empty when neither could be derived
+     */
+    public Optional<RunPeak> peakRange(List<LocalDate> dates, List<LocationEntity> coastalLocations) {
+        if (dates == null || dates.isEmpty() || coastalLocations == null
+                || coastalLocations.isEmpty()) {
+            return Optional.empty();
+        }
+        List<LocalDate> ordered = dates.stream().sorted().distinct().toList();
+        Map<Long, List<TideExtremeEntity>> byLocation = fetchExtremes(coastalLocations, ordered);
+        if (byLocation.isEmpty()) {
+            return Optional.empty();
+        }
+        LocationEntity representative = representativeSelector.select(
+                coastalLocations, byLocation, ordered, TideRunBuilder::rangeOn);
+        if (representative == null) {
+            return Optional.empty();
+        }
+        OptionalDouble peak = peakOf(ordered, byLocation.get(representative.getId()));
+        return peak.isPresent()
+                ? Optional.of(new RunPeak(representative, peak.getAsDouble()))
+                : Optional.empty();
+    }
+
+    /**
+     * The peak daily range in metres at a <b>fixed</b> representative location, rather than one
+     * selected per call.
+     *
+     * <p>Used to build a run-peak-range history at the same port a forward run was drawn for (plan
+     * D4) — the magnitude distribution compares like against like, so the representative must not
+     * float between the run being scored and the history it is scored against.
+     *
+     * @param representative the fixed location to measure
+     * @param dates          the run's dates, ascending
+     * @return the biggest single-day range in metres, or empty when no day in the range is
+     *         drawable at that location
+     */
+    public OptionalDouble peakRangeAt(LocationEntity representative, List<LocalDate> dates) {
+        if (representative == null || dates == null || dates.isEmpty()) {
+            return OptionalDouble.empty();
+        }
+        List<LocalDate> ordered = dates.stream().sorted().distinct().toList();
+        Map<Long, List<TideExtremeEntity>> byLocation =
+                fetchExtremes(List.of(representative), ordered);
+        return peakOf(ordered, byLocation.get(representative.getId()));
+    }
+
+    private static OptionalDouble peakOf(List<LocalDate> dates, List<TideExtremeEntity> extremes) {
+        return dates.stream()
+                .map(date -> dayTides(extremes, date))
+                .filter(Objects::nonNull)
+                .mapToDouble(DayTides::range)
+                .max();
     }
 
     /**

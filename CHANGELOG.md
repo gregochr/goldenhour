@@ -5,6 +5,45 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Coming up P2: chronology entries are scored, faceted, and merged
+
+Each eligible almanac entry now grows to the full plan §13 shape via a new assembly layer,
+`service/comingup/` (`ComingUpAssembler`, `SurpriseScore`, `ComingUpScoringProperties`). Every
+`ALMANAC` entry carries a non-null surprise score (`bits = rarity + magnitude`, plan §3/D4): rarity
+is exact for every deterministic type (`log2(meanGapDays)`, e.g. spring/king tides at 14.8 days —
+king shares the spring rate rather than its own near-annual one, since a king tide is a big spring,
+not a rarer event); magnitude defaults to the median (1.0) except for tide runs, which get a real
+distribution — a new `TideRunPeakHistory` replays `TideSizeIndex`'s roster-wide spring/king
+qualification backward over `tide_extreme` history at the same representative port a forward run was
+drawn for (two new `TideRunBuilder` methods, `peakRange`/`peakRangeAt`, expose the numeric range
+`TideRunDay` only ever carried as a formatted string), with cold-start bucketing below 60 stored
+peaks. Entries also carry server-ordered `facts` (no HTML on the wire), a first-of-type `prose` card
+("say the definition once"), a falsifiable `superlative`, a `threshold` line for tide runs, a single
+`action`, and — for overlapping tide-run/supermoon pairs — a D10 max-rule `coincidence` merge with a
+server-authored `joinNote` naming whichever topic actually carried the score. `counts` and `bands`
+are served from `ComingUpScoringProperties` (documented in `application-example.yml`'s new
+`coming-up.scoring` block) rather than left null. A meta key promoted to a typed field or fact is
+dropped from `meta` in the same commit, per §5.
+
+One schema addition beyond the original brief: **`entries[].interim`** (boolean). D4 requires a
+cold-start tide magnitude to "never badge", but the schema as planned gave a future badge reader
+(P5) no per-entry way to know a score wasn't mature — only `conditions[].interim` existed, and that's
+P4's. Added under the plan's deviation protocol (§13 updated in this commit): true unless `bits`
+rests on a mature (≥60-observation) empirical magnitude; every non-tide type stays interim for its
+whole life. This is now load-bearing for P5, not optional.
+
+Adversarially reviewed (four lenses — scoring-model correctness, data/query correctness, schema
+fidelity, test quality) before landing. Four real defects survived and were fixed: a straddling
+in-progress tide run could re-enter its own historical comparison distribution once its
+already-elapsed days fell inside the lookback window, silently depressing its own magnitude
+(`TideRunPeakHistory.peakRanges` now takes the run's own start date and clamps the window to end
+before it, not merely before today); the "biggest until X" superlative only compared a run against
+later ones, so a run with a bigger *earlier* run in the same window could still print a falsifiable
+false claim (fixed by tracking a running "biggest so far"); promoted meta keys were never actually
+dropped, contrary to §5 (fixed per type); and the cold-start "never badge" gap above. Review also
+found real test-coverage gaps — the NLC-season branch, a standalone (non-merged) supermoon, the
+`scoreNote` sentence, and the tide-wins-a-merge direction were all untested — closed with new tests.
+
 ### Changed — Coming up P1: the almanac feed is now a wrapped, eligibility-filtered response
 
 `GET /api/almanac` returns `ComingUpResponse` (`builtFor`, `bands`, `counts`, `conditions`,
