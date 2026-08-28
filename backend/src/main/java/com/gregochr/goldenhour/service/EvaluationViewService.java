@@ -519,8 +519,44 @@ public class EvaluationViewService {
         if (cachedResult == null) {
             return false;
         }
-        return cachedIsAtLeastAsFresh(cachedEvaluatedAt, forecastRow)
+        return cachedIsAtLeastAsFresh(cacheWriteTime(cachedResult, cachedEvaluatedAt), forecastRow)
                 || !hasSomethingToSay(forecastRow);
+    }
+
+    /**
+     * When the winning cached entry was written: this location's own stamp where it exists, and
+     * the region-level one only where it does not.
+     *
+     * <p>⚠️ <b>The region stamp cannot answer this question, and reading it here was the triage
+     * ratchet.</b> {@code CachedEvaluation.evaluatedAt} is per cache key and is reset by <em>any</em>
+     * write to the region, while the batch write paths <em>merge</em> — a location the batch did not
+     * carry keeps its old result and inherits the new region stamp. So a location's rating could
+     * only ever be overwritten by a fresh evaluation, a fresh evaluation only happened when triage
+     * passed, and the region stamp made the retained rating look newer than the very stand-down that
+     * had excluded it. Deteriorating weather therefore locked an optimistic rating in place: the
+     * worse the sky got, the more firmly the stale star held. Confirmed in production on
+     * 2026-08-28, where a slot scored 4★ at 01:22 on an overnight run predicting a 57% solar horizon
+     * was still being served that evening, after the 14:04 cycle read 84% and stood it down —
+     * because the 14:09 merge that retained it moved the region stamp past the 14:04 row.
+     *
+     * <p>The per-location stamp is the field's documented purpose (see
+     * {@link BriefingEvaluationResult#evaluatedAt()}), and it was added for exactly this class of
+     * error one surface over: {@code evaluation_delta_log.age_hours} was logging 24h rating
+     * movements as ~0h old off the region stamp. The gate pre-dates the field and was never moved
+     * onto it.
+     *
+     * <p>Null falls back to the region stamp rather than to a policy of its own: results cached
+     * before the field existed genuinely carry no per-location write time, and the region stamp is
+     * the same answer those entries got before. {@link #cachedIsAtLeastAsFresh} then treats a null
+     * pair as unknown, which keeps the cache — unchanged behaviour for legacy rows.
+     *
+     * @param cachedResult      the cached entry, never null
+     * @param regionEvaluatedAt the region-level cache stamp, or null when unknown
+     * @return the instant to gate this entry on, or null when neither is known
+     */
+    private static Instant cacheWriteTime(BriefingEvaluationResult cachedResult,
+            Instant regionEvaluatedAt) {
+        return cachedResult.evaluatedAt() != null ? cachedResult.evaluatedAt() : regionEvaluatedAt;
     }
 
     /**
@@ -692,7 +728,11 @@ public class EvaluationViewService {
                     cachedResult.rating(), cachedResult.summary(),
                     cachedResult.fierySkyPotential(), cachedResult.goldenHourPotential(),
                     cachedResult.triageReason(), cachedResult.triageMessage(),
-                    null, cachedEvaluatedAt,
+                    // The instant the gate above actually compared, not the region's last-touched
+                    // stamp. It is served as `forecastRunAt` on the map DTO, so on a region whose
+                    // slots span several batches the region stamp claimed a location was scored at
+                    // whatever time some other location's batch happened to land.
+                    null, cacheWriteTime(cachedResult, cachedEvaluatedAt),
                     displayVerdict,
                     null, null, null, null);
         }
@@ -768,6 +808,9 @@ public class EvaluationViewService {
      * inventing a new one. Both {@code cached_evaluation} timestamps are {@code nullable = false}
      * and the in-memory writers all stamp {@code Instant.now()}, so a null here is a
      * cannot-happen rather than a case worth a policy.
+     *
+     * <p>The instant is resolved by {@link #cacheWriteTime}, which prefers the entry's own
+     * per-location stamp — the region-level one belongs to the region, not to this slot.
      *
      * @param cachedEvaluatedAt when the cached entry was last written, or null if unknown
      * @param forecastRow       the latest forecast_evaluation row for the slot, or null

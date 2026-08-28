@@ -19,6 +19,54 @@ rows across every enabled location from the insert-only `forecast_evaluation` ta
 code-was-wrong precedent as `POST /api/locations` (2026-08-26), unlike the tides/almanac
 endpoints where Bearer is the documented intent. New tests pin ADMIN 200, LITE/PRO 403, and
 that a denied caller never reaches the expensive repository query.
+### Fixed — the triage ratchet: a stale rating outranked the stand-down that had excluded it
+
+A location's cached Claude rating could only be replaced by a fresh evaluation, and a fresh
+evaluation only happened if triage passed — so the very deterioration that should have lowered a
+rating (solar-horizon cloud climbing past the stand-down threshold) was what stopped it ever being
+lowered. The worse the sky got, the more firmly the optimistic star held.
+
+Confirmed in production on 2026-08-28 for two locations 11 km apart on the same sunset: one was
+scored 4★ at 01:22 on an overnight run predicting the low blocker clearing, stood down at 14:04
+when triage read 84% low cloud, and still showing 4★ that evening, while its neighbour — which
+happened to pass the same triage and so was re-scored — read 2★.
+
+The cause was one timestamp standing in for another. `EvaluationViewService` has gated a cached
+rating against the newest `forecast_evaluation` row since #368, but it gated on the cache's
+**region-level** stamp, which any write to the region resets. Because the batch write paths merge
+rather than replace, the 14:09 merge retained the stood-down location's entry untouched *and*
+moved the region stamp past the 14:04 stand-down — so the retained rating looked newer than its
+own contradiction. The gate now reads the **per-location** `BriefingEvaluationResult.evaluatedAt`,
+which has existed since the same class of error was fixed one surface over (`evaluation_delta_log`
+was logging 24-hour rating movements as ~0 hours old, 2026-08-11), falling back to the region stamp
+only for entries cached before that field existed. A winning cached view now also reports its own
+write time rather than the region's, which is what the map popup's "Generated" line shows.
+
+No frontend change: `resolveStandDown`'s rule that a rating beats a triage is sound once the
+backend stops serving a contradicted rating, and precedence deliberately lives in one method.
+Retention itself is unchanged — no row is deleted, and an expensive score still outlives a weather
+refresh.
+
+Adversarially reviewed (three lenses — correctness, blast radius, test quality) before landing.
+Four findings survived. Three were test defects: the "neighbour keeps its rating" guard passed
+through the unrelated *empty-row* clause rather than the freshness comparison, so every mutation of
+the new resolution left it green; the legacy-fallback test put the region stamp on the side where
+"use the fallback" and "treat null as unknown" agree, so deleting the fallback outright would not
+have failed it; and every pre-existing freshness fixture built the stampless legacy shape, which
+had quietly re-pointed the tie rule and the BST-conversion guard at a branch production no longer
+takes. The fourth was production code: `mergeBluebellFromBatch` stamped an OPEN_FELL recombination
+— which is the prior sky entry's prose, potentials and headline with only the rating blended — as
+written *now*, which under the new gate would have shielded hours-old narrative from a stand-down
+written in between. The composite now carries the sky entry's own write time; only the woodland
+case, which is genuinely new content, is stamped with the merge.
+
+Known and deliberately left, because it is a different question: the batch collector's
+`hasFreshEvaluation` still gates re-evaluation on the region stamp and skips a whole region at
+once, so a corrected slot can keep showing its stand-down until the region next falls out of its
+freshness window. That direction is the safe one — pessimistic rather than falsely optimistic — and
+the horizon caps bound it to 2 hours at T+0 and 8 at T+1.
+
+### Changed — Coming up P1: the almanac feed is now a wrapped, eligibility-filtered response
 
 `GET /api/almanac` returns `ComingUpResponse` (`builtFor`, `bands`, `counts`, `conditions`,
 `entries`) instead of a bare `AlmanacEvent[]` — the contract migration plan §4 P1 calls for, so

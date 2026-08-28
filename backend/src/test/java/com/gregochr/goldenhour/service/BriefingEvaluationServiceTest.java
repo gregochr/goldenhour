@@ -135,6 +135,87 @@ class BriefingEvaluationServiceTest {
         }
     }
 
+    @Nested
+    @DisplayName("The per-location evaluatedAt is durable — the merge gate depends on it")
+    class PerLocationStampIsDurable {
+
+        private static final String KEY = REGION + "|2026-03-30|SUNRISE";
+
+        /**
+         * Why this is pinned here rather than left to the reader of the field's javadoc.
+         *
+         * <p>{@code EvaluationViewService.cachedWins} gates a cached rating against the latest
+         * {@code forecast_evaluation} row on THIS stamp, because the region-level one is reset by
+         * any write to the region and therefore made a retained entry look newer than the very
+         * triage stand-down that had excluded it from re-evaluation (the ratchet, production
+         * 2026-08-28). Every property that gate needs is a property of this class:
+         *
+         * <ul>
+         *   <li>a merge must NOT restamp the locations it retained — otherwise the retained entry
+         *       is handed a fresh time and the ratchet is back, one field over;</li>
+         *   <li>the stamp must reach {@code results_json} and survive rehydration — otherwise the
+         *       gate silently degrades to the old region-stamp behaviour after every restart, which
+         *       is exactly the kind of failure that stays invisible for weeks.</li>
+         * </ul>
+         */
+        @Test
+        @DisplayName("a merge keeps the RETAINED location's own earlier stamp")
+        void mergeDoesNotRestampRetainedLocations() {
+            service.mergeFromBatch(KEY, List.of(
+                    new BriefingEvaluationResult("Bamburgh", 4, 70, 65, "Overnight batch.")));
+            Instant firstWrite = service.getCachedScores(REGION, DATE, TargetType.SUNRISE)
+                    .get("Bamburgh").evaluatedAt();
+            assertThat(firstWrite).isNotNull();
+
+            service.mergeFromBatch(KEY, List.of(
+                    new BriefingEvaluationResult("Penshaw Monument", 2, 20, 18, "Afternoon.")));
+
+            Map<String, BriefingEvaluationResult> scores =
+                    service.getCachedScores(REGION, DATE, TargetType.SUNRISE);
+            // Bamburgh was not in the second batch, so it must still carry the instant it was
+            // actually scored at. Restamping it here would hand the gate the afternoon's time for a
+            // rating written overnight — precisely the substitution the region stamp was making.
+            assertThat(scores.get("Bamburgh").evaluatedAt()).isEqualTo(firstWrite);
+            assertThat(scores.get("Penshaw Monument").evaluatedAt()).isNotNull();
+        }
+
+        @Test
+        @DisplayName("the stamp reaches results_json and survives a restart")
+        void stampSurvivesPersistenceAndRehydration() throws Exception {
+            service.mergeFromBatch(KEY, List.of(
+                    new BriefingEvaluationResult("Bamburgh", 4, 70, 65, "Overnight batch.")));
+            Instant written = service.getCachedScores(REGION, DATE, TargetType.SUNRISE)
+                    .get("Bamburgh").evaluatedAt();
+
+            ArgumentCaptor<CachedEvaluationEntity> captor =
+                    ArgumentCaptor.forClass(CachedEvaluationEntity.class);
+            verify(cachedEvaluationRepository).save(captor.capture());
+            String persistedJson = captor.getValue().getResultsJson();
+
+            // Rehydrate a FRESH service from that exact JSON — the restart. The date must be one
+            // rehydrateCacheOnStartup will load, and it derives "today" from the wall clock, so the
+            // key is rebuilt around it rather than around this class's fixed DATE.
+            LocalDate today = LocalDate.now(UK_ZONE);
+            CachedEvaluationEntity row = new CachedEvaluationEntity();
+            row.setCacheKey(REGION + "|" + today + "|SUNRISE");
+            row.setEvaluationDate(today);
+            row.setTargetType("SUNRISE");
+            row.setResultsJson(persistedJson);
+            row.setEvaluatedAt(written);
+            row.setUpdatedAt(Instant.now());
+            when(cachedEvaluationRepository.findByEvaluationDateGreaterThanEqual(today))
+                    .thenReturn(List.of(row));
+
+            BriefingEvaluationService restarted = new BriefingEvaluationService(
+                    cachedEvaluationRepository, deltaLogRepository,
+                    objectMapper, freshnessResolver, stabilitySnapshotProvider);
+            restarted.rehydrateCacheOnStartup();
+
+            assertThat(restarted.getCachedScores(REGION, today, TargetType.SUNRISE)
+                    .get("Bamburgh").evaluatedAt()).isEqualTo(written);
+        }
+    }
+
     @BeforeEach
     void setUp() {
         service = new BriefingEvaluationService(
@@ -405,6 +486,40 @@ class BriefingEvaluationServiceTest {
             assertThat(service.recombineBluebell(sky, bluebell).rating()).isEqualTo(5);
             // A null prior (woodland) returns the bluebell unchanged.
             assertThat(service.recombineBluebell(null, bluebell)).isSameAs(bluebell);
+        }
+
+        @Test
+        @DisplayName("OPEN_FELL keeps the SKY entry's write time — it is mostly the sky entry")
+        void openFell_keepsThePriorSkyWriteTime() {
+            // The composite returns the prior sky entry's prose, potentials and headline with only
+            // the rating blended, so stamping it with this merge's clock would let hours-old sky
+            // narrative outrank a stand-down written in between. `EvaluationViewService` gates on
+            // this field, so the lie would be load-bearing: the triage ratchet, entered through the
+            // bluebell door. WOODLAND is genuinely new content and is stamped now — the test below.
+            service.writeFromBatch(cacheKey, List.of(
+                    new BriefingEvaluationResult("Rannerdale", 3, 60, 55, "Overnight sky.")));
+            Instant skyWrite = service.getCachedScores(REGION, DATE, TargetType.SUNSET)
+                    .get("Rannerdale").evaluatedAt();
+
+            service.mergeBluebellFromBatch(cacheKey, List.of(
+                    new BriefingEvaluationResult("Rannerdale", 5, null, null, "bluebell",
+                            null, null, null)));
+
+            BriefingEvaluationResult merged = service.getCachedScores(
+                    REGION, DATE, TargetType.SUNSET).get("Rannerdale");
+            assertThat(merged.rating()).isEqualTo(4);
+            assertThat(merged.evaluatedAt()).isEqualTo(skyWrite);
+        }
+
+        @Test
+        @DisplayName("WOODLAND is new content, so it IS stamped with this write")
+        void woodland_isStampedWithThisWrite() {
+            service.mergeBluebellFromBatch(cacheKey, List.of(
+                    new BriefingEvaluationResult("Bluebell Wood", 4, null, null, "bluebell",
+                            null, null, null)));
+
+            assertThat(service.getCachedScores(REGION, DATE, TargetType.SUNSET)
+                    .get("Bluebell Wood").evaluatedAt()).isNotNull();
         }
     }
 
