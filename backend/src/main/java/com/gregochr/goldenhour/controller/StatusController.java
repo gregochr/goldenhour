@@ -41,6 +41,9 @@ import java.util.concurrent.TimeUnit;
  * <p>Each connected client receives a {@link StatusResponse} event immediately on connection
  * and every 30 seconds thereafter. Replaces the previous polling-based
  * {@code /actuator/health} approach with a push model.
+ *
+ * <p>Health (including live external probes) is evaluated once per interval and broadcast to
+ * every connected emitter, rather than once per emitter — see {@link #broadcastStatus()}.
  */
 @RestController
 @RequestMapping("/api/status")
@@ -72,6 +75,8 @@ public class StatusController {
     private final JwtService jwtService;
     private final ScheduledExecutorService scheduler;
     private final List<EmitterEntry> emitters = new CopyOnWriteArrayList<>();
+    private final Object broadcastLock = new Object();
+    private volatile ScheduledFuture<?> broadcastTask;
 
     /**
      * Constructs a {@code StatusController}.
@@ -113,13 +118,9 @@ public class StatusController {
             return emitter;
         }
 
-        // Schedule periodic pushes
-        ScheduledFuture<?> task = scheduler.scheduleAtFixedRate(
-                () -> pushSafely(emitter, session),
-                PUSH_INTERVAL_SECONDS, PUSH_INTERVAL_SECONDS, TimeUnit.SECONDS);
-
-        EmitterEntry entry = new EmitterEntry(emitter, task);
+        EmitterEntry entry = new EmitterEntry(emitter, session);
         emitters.add(entry);
+        ensureBroadcastScheduled();
 
         emitter.onCompletion(() -> cleanup(entry));
         emitter.onTimeout(() -> cleanup(entry));
@@ -129,16 +130,62 @@ public class StatusController {
         return emitter;
     }
 
-    private void pushSafely(SseEmitter emitter, SessionInfo session) {
+    /**
+     * Lazily starts the single shared broadcast task on first connection. All connected
+     * clients are pushed from one periodic evaluation rather than one task per client.
+     */
+    private void ensureBroadcastScheduled() {
+        if (broadcastTask != null) {
+            return;
+        }
+        synchronized (broadcastLock) {
+            if (broadcastTask == null) {
+                broadcastTask = scheduler.scheduleAtFixedRate(
+                        this::broadcastStatus, PUSH_INTERVAL_SECONDS, PUSH_INTERVAL_SECONDS, TimeUnit.SECONDS);
+            }
+        }
+    }
+
+    /**
+     * Computes one shared {@link StatusSnapshot} per invocation and pushes it, merged with
+     * each client's own session info, to every connected emitter. Package-private so tests can
+     * trigger a push cycle directly instead of waiting on the real scheduler.
+     */
+    void broadcastStatus() {
+        // ⚠️ NOTHING may escape this method. It is the body of a scheduleAtFixedRate task on a
+        // raw JDK executor (see the constructor), where a single uncaught exception cancels every
+        // FUTURE execution — permanently. And because broadcastTask stays non-null afterwards, no
+        // later connection starts a replacement: every connected client would hold its last
+        // status for the life of the process, with nothing in the UI to say so.
+        //
+        // Before the snapshot was shared, each emitter had its own scheduled task and its own
+        // guard, so a failing health evaluation cost that one client one interval. Consolidating
+        // the computation consolidated the blast radius with it; this catch puts the containment
+        // back where the per-task guards used to be.
         try {
-            emitter.send(SseEmitter.event().name("status").data(buildStatus(session)));
+            if (emitters.isEmpty()) {
+                return;
+            }
+            StatusSnapshot snapshot = computeSnapshot();
+            for (EmitterEntry entry : emitters) {
+                pushSafely(entry, snapshot);
+            }
         } catch (Exception e) {
-            emitter.completeWithError(e);
+            LOG.error("Status broadcast failed for this interval; {} client(s) keep their "
+                    + "previous status and the next interval retries: {}",
+                    emitters.size(), e.getMessage(), e);
+        }
+    }
+
+    private void pushSafely(EmitterEntry entry, StatusSnapshot snapshot) {
+        try {
+            entry.emitter().send(SseEmitter.event().name("status").data(toResponse(snapshot, entry.session())));
+        } catch (Exception e) {
+            entry.emitter().completeWithError(e);
         }
     }
 
     private void cleanup(EmitterEntry entry) {
-        entry.task().cancel(false);
         emitters.remove(entry);
         LOG.debug("SSE status stream closed ({} remaining)", emitters.size());
     }
@@ -148,6 +195,13 @@ public class StatusController {
      * and session info.
      */
     StatusResponse buildStatus(SessionInfo session) {
+        return toResponse(computeSnapshot(), session);
+    }
+
+    /**
+     * Evaluates health indicators and git metadata once, independent of any client session.
+     */
+    private StatusSnapshot computeSnapshot() {
         HealthDescriptor root = healthEndpoint.health();
         Map<String, HealthDescriptor> components = Map.of();
         if (root instanceof CompositeHealthDescriptor composite) {
@@ -183,8 +237,14 @@ public class StatusController {
         String appVersion = extractAppVersion(components.get("appVersion"));
         Instant startedAt = Instant.ofEpochMilli(ManagementFactory.getRuntimeMXBean().getStartTime());
 
-        return new StatusResponse(overall, List.copyOf(degraded), database,
-                services, buildInfo(), session, Instant.now(), appVersion, startedAt);
+        return new StatusSnapshot(overall, List.copyOf(degraded), database,
+                services, buildInfo(), Instant.now(), appVersion, startedAt);
+    }
+
+    private StatusResponse toResponse(StatusSnapshot snapshot, SessionInfo session) {
+        return new StatusResponse(snapshot.status(), snapshot.degraded(), snapshot.database(),
+                snapshot.services(), snapshot.build(), session, snapshot.checkedAt(),
+                snapshot.appVersion(), snapshot.startedAt());
     }
 
     private Map<String, ComponentStatus> extractServices(Map<String, HealthDescriptor> components) {
@@ -275,6 +335,18 @@ public class StatusController {
         return null;
     }
 
-    private record EmitterEntry(SseEmitter emitter, ScheduledFuture<?> task) {
+    private record EmitterEntry(SseEmitter emitter, SessionInfo session) {
+    }
+
+    /** Health/build fields shared by every client in one push cycle; excludes per-session data. */
+    private record StatusSnapshot(
+            String status,
+            List<String> degraded,
+            ComponentStatus database,
+            Map<String, ComponentStatus> services,
+            BuildInfo build,
+            Instant checkedAt,
+            String appVersion,
+            Instant startedAt) {
     }
 }
