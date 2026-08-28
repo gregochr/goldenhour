@@ -16,6 +16,10 @@ on:
     - cron: '0 2 * * MON'  # 2am UTC every Monday (before ZAP at 4am, PIT at 6am)
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Mirrors ci.yml's detector, deliberately as a copy rather than a shared workflow: this
   # file must keep reporting even when ci.yml is skipped, and a `workflow_call` dependency
