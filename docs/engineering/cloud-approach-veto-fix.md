@@ -678,6 +678,43 @@ it overturns this section's own headline:
   now the largest user-visible opportunity in the program, and it is a `WeatherTriageEvaluator`
   design question, not a prompt one.
 
+### The promptable cut, measured (2026-08-30) — and what it exposed
+
+The seventh recut (#663, `byPromptable` — all three triage rules, not just the cloud cut) was
+pulled over 2026-02-01→2026-08-18 (33,504 rows; the under-cut ceilings on this longer window are
+573 / 5,131 / 346 / 198). Findings:
+
+- **The veto demotion's justification survives the full predicate.** 223 of 573 under-cloud-cut
+  firings pass the rain/fog rules; the promptable separation is **+4.7pp** (34.2 fired vs 29.5
+  not-fired) against the one-rule cut's +3.9pp — same sign, same size class. Neither
+  pre-registered reopening trigger fired. The built-in consistency check passes: a rated row
+  proves a prompt ran, and the cut keeps ~99% of rated rows (196/198 fired, 2,604/2,641
+  not-fired) — the predicate agrees with real triage everywhere it can be checked.
+- **The blocked footprints shrink further**: 134 blocked, 106 stripMissed — the small-footprint
+  claims strengthen.
+- **The blanket "promptable" framing dissolves**: `fcstBlanket&promptable` = **1** of 614. Given
+  the structural finding below, that is not "the label barely fired" — it is that
+  blanket-shaped rows in this table are almost all stand-downs by construction. The 53.6%
+  precision figure's real payload — the forecast far reading is wrong by ~68pp where the
+  corridor is observed open — is a claim about *forecasts*, needs no prompting to be true, and
+  stands; the rewording (soften-never-confirm) remains justified on it. What §9 must stop
+  implying is that those calls reached Claude.
+
+**The structural finding — bigger than the recut.** The post-deploy window (2026-08-19→29,
+1,697 rows) has `ratedCount` 0 everywhere and `byPromptable` all zeros, and the code explains
+why: on the shared triage path, `fetchWeatherAndTriage` saves a `forecast_evaluation` row **only
+when a slot is stood down**; prompted batch slots write their results to
+`cached_evaluation`/`forecast_score` and never touch this table. In the batch era the table
+holds only stand-downs — so the under-cloud-cut rows *are* the rain/fog stand-downs (the zeros
+are the instrument being exactly right about a population that no longer contains a promptable
+row), the ERA5 verification program is now verifying only stand-downs going forward, the
+demotion's pre-registered rating-tally instrument is structurally dead on the post window (not
+thin — dead: rated rows will stay at zero absent a manual sync run), and the far-term model
+flip's evidence gate is broken with it. The fix under design: persist a `forecast_evaluation`
+row for prompted batch slots too — one write that resurrects the tally instrument, restores
+prompted slots to verification, and feeds the calibration gate. See
+`docs/engineering/prompted-row-persistence-plan.md`.
+
 ### Standing caveats
 
 ERA5 is reanalysis, not observation: a disagreement means "the forecast differs from a
