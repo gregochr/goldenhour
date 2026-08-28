@@ -139,10 +139,11 @@ public class ForceSubmitBatchService {
                             continue;
                         }
 
-                        // R4: a JFDI submit of a previously-triaged slot gets a pending row too —
-                        // the triage row (if fetchWeatherAndTriage triaged it away, `data` above
-                        // would be null and this line is unreached) records the stand-down, this
-                        // row records the override.
+                        // R4: a JFDI submit of a previously-triaged slot gets a pending row
+                        // too. fetchWeatherAndTriage returns a TRIAGED preEval WITH its data (and
+                        // has already saved the triage row), so a triaged slot reaches this line:
+                        // the triage row records the stand-down, this row records the override.
+                        // `data == null` above means the weather fetch failed, not triage.
                         Long evalRowId = forecastService.persistPendingEvaluation(preEval);
                         tasks.add(new EvaluationTask.Forecast(
                                 location, date, event, model, data,
