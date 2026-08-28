@@ -41,6 +41,7 @@ import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -249,8 +250,8 @@ class ForecastControllerTest extends AbstractControllerTest {
     void getHistory_validRange_returnsEvaluations() throws Exception {
         ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 1, 15));
         when(forecastEvaluationRepository
-                .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                        eq(1L), any(LocalDate.class), any(LocalDate.class)))
+                .findByLocationIdInAndTargetDateBetween(
+                        eq(List.of(1L)), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(List.of(entity));
         when(dtoMapper.toDtoList(any(), anyBoolean()))
                 .thenReturn(List.of(buildDto("Durham UK", 72, 80)));
@@ -270,6 +271,40 @@ class ForecastControllerTest extends AbstractControllerTest {
         mockMvc.perform(get("/api/forecast/history")
                         .param("from", "2026-02-01")
                         .param("to", "2026-01-01"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").exists());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/forecast/history accepts a range exactly at the span cap")
+    void getHistory_spanAtCap_returns200() throws Exception {
+        LocalDate from = LocalDate.of(2026, 1, 1);
+        LocalDate to = from.plusDays(ForecastController.MAX_HISTORY_SPAN_DAYS - 1);
+        when(forecastEvaluationRepository
+                .findByLocationIdInAndTargetDateBetween(
+                        eq(List.of(1L)), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(List.of());
+        when(dtoMapper.toDtoList(any(), anyBoolean())).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/forecast/history")
+                        .param("from", from.toString())
+                        .param("to", to.toString())
+                        .param("location", "Durham UK"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/forecast/history rejects a range one day over the span cap")
+    void getHistory_spanOverCap_returns400() throws Exception {
+        LocalDate from = LocalDate.of(2026, 1, 1);
+        LocalDate to = from.plusDays(ForecastController.MAX_HISTORY_SPAN_DAYS);
+
+        mockMvc.perform(get("/api/forecast/history")
+                        .param("from", from.toString())
+                        .param("to", to.toString())
+                        .param("location", "Durham UK"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").exists());
     }
@@ -435,8 +470,8 @@ class ForecastControllerTest extends AbstractControllerTest {
     void getHistory_validRange_noLocation_returnsEvaluationsForAllLocations() throws Exception {
         ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 1, 15));
         when(forecastEvaluationRepository
-                .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                        eq(1L), any(LocalDate.class), any(LocalDate.class)))
+                .findByLocationIdInAndTargetDateBetween(
+                        eq(List.of(1L)), any(LocalDate.class), any(LocalDate.class)))
                 .thenReturn(List.of(entity));
         when(dtoMapper.toDtoList(any(), anyBoolean()))
                 .thenReturn(List.of(buildDto("Durham UK", 72, 80)));
@@ -446,6 +481,33 @@ class ForecastControllerTest extends AbstractControllerTest {
                         .param("to", "2026-01-31"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].locationName").value("Durham UK"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/forecast/history with no location filter queries the repository exactly "
+            + "once, regardless of how many locations are enabled")
+    void getHistory_noLocation_queriesRepositoryExactlyOnce() throws Exception {
+        LocationEntity edinburgh = LocationEntity.builder()
+                .id(2L).name("Edinburgh UK").lat(55.9533).lon(-3.1883).build();
+        LocationEntity keswick = LocationEntity.builder()
+                .id(3L).name("Keswick UK").lat(54.6013).lon(-3.1359).build();
+        when(locationService.findAllEnabled()).thenReturn(List.of(DURHAM, edinburgh, keswick));
+        when(forecastEvaluationRepository
+                .findByLocationIdInAndTargetDateBetween(
+                        eq(List.of(1L, 2L, 3L)), any(LocalDate.class), any(LocalDate.class)))
+                .thenReturn(List.of());
+        when(dtoMapper.toDtoList(any(), anyBoolean())).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/forecast/history")
+                        .param("from", "2026-01-01")
+                        .param("to", "2026-01-31"))
+                .andExpect(status().isOk());
+
+        // The old per-location loop would have called the repository three times (once per
+        // enabled location); the fix calls it exactly once with the full id list.
+        verify(forecastEvaluationRepository, times(1))
+                .findByLocationIdInAndTargetDateBetween(any(), any(LocalDate.class), any(LocalDate.class));
     }
 
     @Test

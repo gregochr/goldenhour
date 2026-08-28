@@ -886,10 +886,8 @@ class EvaluationViewServiceTest {
                             idsCaptor.capture(), eq(DATE), eq(DATE));
             assertThat(idsCaptor.getValue()).containsExactlyInAnyOrder(1L, 2L);
 
-            // Neither of the superseded shapes is used any more.
-            verify(forecastEvaluationRepository, never())
-                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                            any(), any(), any());
+            // The superseded per-location shape is gone entirely; the other retired shape
+            // (per-slot findTop) is still on the repository but unused by this path.
             verify(forecastEvaluationRepository, never())
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
                             any(), any(), any());
