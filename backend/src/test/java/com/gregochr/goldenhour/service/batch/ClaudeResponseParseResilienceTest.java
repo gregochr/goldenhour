@@ -221,10 +221,12 @@ class ClaudeResponseParseResilienceTest {
                 new MalformedCase("chain-of-thought-no-json.json", false, false, "parse_error",
                         null, null, null, null),
 
-                // Structurally valid JSON carrying impossible numbers. The rating guardrail nulls
-                // the 91; the 0-100 scores are NOT checked (see the dedicated test below).
+                // Structurally valid JSON carrying impossible numbers. GAP CLOSED 2026-08-27:
+                // RatingValidator.validateScore now nulls the out-of-range fiery_sky (491) the
+                // same way the rating guardrail already nulled the 91 (see the dedicated test
+                // below for the full before/after on both fields).
                 new MalformedCase("rating-out-of-range.json", true, true, null,
-                        null, 491,
+                        null, null,
                         "Structurally valid JSON carrying values outside every documented bound.",
                         null),
 
@@ -364,9 +366,16 @@ class ClaudeResponseParseResilienceTest {
     }
 
     @Test
-    @DisplayName("KNOWN GAP: out-of-range 0-100 scores are persisted verbatim — RatingValidator."
-            + "validateScore is never wired up")
-    void outOfRangeScoresPassThroughUnchecked() {
+    @DisplayName("GAP CLOSED 2026-08-27: out-of-range 0-100 scores are rejected as null — "
+            + "RatingValidator.validateScore is now wired into both parse paths")
+    void outOfRangeScoresAreRejectedAsNull() {
+        // Closed deliberately: the frontend clamps fiery_sky/golden_hour to 0-100
+        // (scoreRamp.js starFromScore), so an out-of-range value like 491 rendered at the TOP
+        // of the ramp — full score bar, maximal colour — while the star rating (already
+        // validated) went null. That combination was the worst-looking failure mode available:
+        // no star, but the best-looking score bar on the screen, from garbage. Rejecting to
+        // null loses nothing diagnostically, because the raw Claude response is still persisted
+        // by jobRunService.logBatchResult on this same success path (asserted below).
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 CUSTOM_ID, readFixture("rating-out-of-range.json"),
                 new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
@@ -378,13 +387,14 @@ class ClaudeResponseParseResilienceTest {
                 .as("the rating guardrail rejects 91 rather than clamping it")
                 .isNull();
         assertThat(result.fierySkyPotential())
-                .as("fiery_sky=491 is persisted verbatim: validateScore exists but no production "
-                        + "call site invokes it")
-                .isEqualTo(491);
+                .as("fiery_sky=491 is now rejected as null by RatingValidator.validateScore")
+                .isNull();
         assertThat(result.goldenHourPotential())
-                .as("golden_hour=-3 is persisted verbatim for the same reason")
-                .isEqualTo(-3);
-        // …and the row is logged as a clean success, so nothing downstream flags the slot.
+                .as("golden_hour=-3 is now rejected as null for the same reason")
+                .isNull();
+        // …the rest of a usable evaluation still lands: one bad component nulls that component,
+        // not the whole response — so the row is still logged as a clean success, and the raw
+        // response stays diagnosable in api_call_log.
         verify(jobRunService).logBatchResult(
                 eq(JOB_RUN_ID), eq(BATCH_ID), eq(CUSTOM_ID),
                 eq(true), eq("SUCCESS"),
