@@ -27,7 +27,7 @@ the diff.
 
 | phase | date | PR | notes |
 |---|---|---|---|
-| — | — | — | (nothing landed yet) |
+| P1 | 2026-08-28 | — (not yet pushed) | Shipped as planned: `PlanHorizon`, `model/comingup/*` (all five §13 record shapes declared now, per the P1 brief, so `ComingUpResponse`'s component list never has to grow), eligibility filter, `enteredWindow`, the handoff row. Two implementation choices for a later phase to know about, neither a D-deviation: the handoff row de-dupes hot topics by `type` **alone** — D14 says "type + family" but `HotTopic` has no `family` field, that concept lives only on the almanac/chronology side (D6); and the row's swatches use a small **local** hex palette in `comingUpHandoff.js` (mirroring `HotTopicStrip.jsx`'s existing one), not D6's `--color-topic-*` tokens — those are chronology-only and land in P3a. Adversarial review (4 lenses) caught two real bugs before landing, both fixed: the handoff row's accessible name ran every phrase together with no word boundary (JSX drops whitespace-only text between sibling tags, and a separator nested as a wrapped element's leading child is trimmed before accname joins it — fix interleaves bare `' '` strings as true siblings); and `useComingUpFeed`'s wrapper-shape guard (`typeof data === 'object'`) also accepted a bare array (`typeof [] === 'object'`), silently defeating its own degrade-to-`{entries:[]}` intent on a reverted/mixed-version backend. Backend gate green (7617 tests, JaCoCo/SpotBugs clean); frontend green (175 files/4283 tests, lint clean); browser-verified desktop + 390px, including the handoff row's click→Plan-tab-focus behaviour via live DOM inspection. |
 
 ---
 

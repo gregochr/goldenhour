@@ -27,7 +27,7 @@ vi.mock('../api/almanacApi.js', () => ({
 
 const TODAY = '2026-08-08';
 
-const FEED = [{
+const FEED_ENTRIES = [{
   startDate: '2026-08-12',
   endDate: '2026-08-12',
   kind: 'ALMANAC',
@@ -36,6 +36,9 @@ const FEED = [{
   detail: 'Perseids peaks, around 100 meteors an hour at best under a dark sky.',
   meta: { zhr: '100', radiant: 'NE', bestHours: '01:00–04:00', moonIllumination: '0%' },
 }];
+
+/** The wire's wrapped shape ({@code ComingUpResponse}) — `getAlmanac` never resolves a bare array. */
+const FEED = { builtFor: TODAY, bands: null, counts: null, conditions: [], entries: FEED_ENTRIES };
 
 const card = () => ({
   key: `${TODAY}:SUNSET`,
@@ -690,7 +693,10 @@ describe('WindowFirstShell — when the feed is fetched', () => {
   it('lets the newer feed win when the date roll puts two requests in flight', async () => {
     // The only overlap this hook can produce, and responses carry no ordering guarantee — so
     // without a run id the older request landing last repaints yesterday's feed over today's.
-    const STALE = [{ ...FEED[0], title: 'Yesterday’s feed' }];
+    const STALE = {
+      ...FEED,
+      entries: [{ ...FEED_ENTRIES[0], title: 'Yesterday’s feed' }],
+    };
     let resolveStale;
     getAlmanac.mockImplementationOnce(() => new Promise((resolve) => { resolveStale = resolve; }));
     getAlmanac.mockResolvedValue(FEED);
@@ -842,5 +848,20 @@ describe('WindowFirstShell — when the feed is fetched', () => {
       expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
       expect(screen.queryByTestId('map-pane')).toBeNull();
     });
+  });
+});
+
+describe('WindowFirstShell — the Coming up handoff row (plan P1/D14)', () => {
+  it('switches to Plan and moves focus to the Plan tab, not just selection', async () => {
+    // selectTab hides the panel the row was inside immediately — without an imperative focus move
+    // afterwards, focus falls to <body> and a keyboard reader loses their place entirely.
+    renderShell();
+    await openComingUp();
+
+    fireEvent.click(screen.getByTestId('coming-up-handoff'));
+    await act(async () => { await Promise.resolve(); });
+
+    expect(tab('Plan')).toHaveAttribute('aria-selected', 'true');
+    expect(tab('Plan')).toHaveFocus();
   });
 });

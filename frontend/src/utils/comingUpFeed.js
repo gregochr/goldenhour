@@ -64,17 +64,22 @@
 const FLAG_TRUE = 'true';
 
 /**
- * The two types whose {@code meta} can vanish because a figure could not be derived.
+ * The types whose {@code meta} can vanish because a figure could not be derived — a tide run and
+ * an eclipse with no location roster, grouped here as two KINDS of event even though the tide run
+ * spans two type strings.
  *
  * <p><b>The wire's own {@code datesOnly} is NOT the degrade signal, and reading it as one puts a
  * "something is missing" caveat on a healthy row.</b> Empty {@code meta} means different things by
  * source. {@code TideAlmanacSource} drops the whole map — range, verdict, location and all —
- * when no day of the run could be derived from stored extremes, and that is a real absence a
- * reader must be told about. {@code NlcSeasonAlmanacSource}'s {@code meta} holds nothing but two
- * clip flags, so an <em>unclipped</em> season is empty by construction: it means the span shown is
- * the whole season, which is the good case. The remaining three sources always populate
+ * when no day of the run could be derived from stored extremes, and {@code EclipseAlmanacSource}
+ * drops it when it has no location roster to compute a per-location figure from and the eclipse
+ * is not rare enough to have earned a bare {@code rarity} line: both are a real absence a reader
+ * must be told about. {@code NlcSeasonAlmanacSource}'s {@code meta} holds nothing but two clip
+ * flags, so an <em>unclipped</em> season is empty by construction: it means the span shown is the
+ * whole season, which is the good case — and its type is deliberately NOT in this set, so an empty
+ * NLC season never triggers the caveat below. The remaining three sources always populate
  * {@code meta} — meteor writes five keys unconditionally, and equinox, solstice and supermoon each
- * write a {@code peakDate} from pure arithmetic — so they cannot reach the state at all.
+ * write a {@code peakDate} from pure arithmetic — so they cannot reach the empty state at all.
  *
  * <p>So the caveat is gated on the type as well as on the absence. It is the one place this module
  * needs to know what a type is, and it is here rather than in the renderer so the rule has a single
@@ -345,7 +350,7 @@ function toRow(event, todayStr) {
     detail: event.detail,
     // Marker-on-exception, the treatment this project already gives its confidence channel: the
     // reassuring value is the page's stated default and goes unmarked, and only the provisional one
-    // is called out. Every entry the five current sources emit is ALMANAC, so a chip rendered on
+    // is called out. Every entry the six current sources emit is ALMANAC, so a chip rendered on
     // all of them would be a word that never varies; the pane's footer states it once instead. A
     // FORECAST entry — which plan §3 reserves for the ~3-day hot-topic path — is marked, and an
     // unrecognised kind is marked by nothing rather than by a raw enum name.
@@ -359,7 +364,8 @@ function toRow(event, todayStr) {
     attribution: attributionFor(meta),
     // The degrade rule reaching a screen for the first time: "we know when, not how big". Gated on
     // the type as well as the absence — see TYPES_WITH_FIGURES for why an empty `meta` is a healthy
-    // state on three of the five sources and a real absence on only one.
+    // state on three of the six sources and a real absence on two (tide, eclipse) — see the class
+    // doc's TYPES_WITH_FIGURES paragraph for which is which.
     //
     // Read off the NORMALISED map, not off `event.meta`. The three ways a caller can say "nothing
     // here" — the key absent (what @JsonInclude(NON_EMPTY) actually sends), null, and `{}` (what a

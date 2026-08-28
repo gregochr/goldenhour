@@ -1725,6 +1725,23 @@ class BriefingServiceTest {
             assertThat(overlaid.bestBetModel()).isEqualTo(original.bestBetModel());
             assertThat(overlaid.seasonalFeatures()).isEqualTo(original.seasonalFeatures());
         }
+
+        /**
+         * {@link PlanHorizon} extraction (Coming up P1, D1) must be behaviour-preserving: both the
+         * build path ({@code refreshBriefing}) and the serve-time overlay ({@code getCachedBriefing})
+         * still ask the aggregator for exactly {@code today .. today+3} — four dates.
+         */
+        @Test
+        @DisplayName("hot-topic window spans exactly Plan's four days on both the build and serve paths")
+        void hotTopicWindow_spansPlanHorizon_onBothPaths() {
+            when(hotTopicAggregator.getHotTopics(any(LocalDate.class), any(LocalDate.class)))
+                    .thenReturn(List.of());
+            refreshWithOneLocation();
+            briefingService.getCachedBriefing();
+
+            verify(hotTopicAggregator, times(2))
+                    .getHotTopics(eq(FIXED_TODAY), eq(FIXED_TODAY.plusDays(3)));
+        }
     }
 
     // ── Refresh lifecycle: counters, gloss/bestBet gates, threshold, persist, event ──

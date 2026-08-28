@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef } from 'react';
 import PropTypes from 'prop-types';
 import WindowComingUpRow from './WindowComingUpRow.jsx';
+import WindowFirstComingUpHandoff from './WindowFirstComingUpHandoff.jsx';
 import { buildComingUpRows } from '../utils/comingUpFeed.js';
 import { ALMANAC_DAYS } from '../api/almanacApi.js';
 
@@ -46,7 +47,7 @@ import { ALMANAC_DAYS } from '../api/almanacApi.js';
  * <h2>The vocabulary is stated once, at the foot</h2>
  *
  * <p>Plan §3 gives the tab a two-word tag vocabulary, Almanac and Forecast, and the mock puts a
- * chip on every row. Every entry the five sources emit is {@code ALMANAC} — {@code AlmanacKind}'s
+ * chip on every row. Every entry the six sources emit is {@code ALMANAC} — {@code AlmanacKind}'s
  * own Javadoc says FORECAST is reserved and unused — so a chip on every row would be a word that
  * never varies. It is stated once here instead, and only a row that departs from it is marked:
  * the same treatment the confidence channel already takes on the Plan screen, where HIGH goes
@@ -73,14 +74,20 @@ import { ALMANAC_DAYS } from '../api/almanacApi.js';
  * @param {boolean}  [props.hidden] true while the other tab is selected
  * @param {string}   props.labelledBy the tab's element id
  * @param {string}   props.status   `idle` | `loading` | `ready` | `error`
- * @param {?Array}   props.events   the wire payload once it has arrived
+ * @param {?object}  props.events   the wrapped wire payload once it has arrived — see
+ *                                  {@code ComingUpResponse}; rows render from {@code events.entries}
+ * @param {?Array}   props.hotTopics the live `briefing.hotTopics`, for the handoff row (D14)
  * @param {string}   props.todayStr the reader's today, `YYYY-MM-DD`
  * @param {function} props.onRetry  re-runs the fetch after a failure
+ * @param {function} props.onGoToPlan switches to the Plan tab and moves focus there; takes an
+ *                                    optional date (§11.9) — passed to the handoff row unchanged
  */
 export default function WindowFirstComingUp({
-  id, labelledBy, hidden, status, events, todayStr, onRetry,
+  id, labelledBy, hidden, status, events, hotTopics, todayStr, onRetry, onGoToPlan,
 }) {
-  const rows = useMemo(() => buildComingUpRows(events, todayStr), [events, todayStr]);
+  const rows = useMemo(
+    () => buildComingUpRows(events?.entries, todayStr), [events, todayStr],
+  );
   // Nothing today can make this true — see the class comment — so the clause it controls is a
   // guard on a wire enum this arm does not own, not a feature waiting for a caller.
   const hasForecastRow = rows.some((row) => row.kindLabel);
@@ -138,9 +145,15 @@ export default function WindowFirstComingUp({
               constants today, but the rule is cheap to keep and the exception is not worth
               explaining twice. */}
           <span className="wf-cu-d" data-testid="coming-up-subtitle">
-            {`· dated events worth planning a trip around · next ${ALMANAC_DAYS} days`}
+            {`· dated events beyond Plan's four days · next ${ALMANAC_DAYS} days`}
           </span>
         </div>
+
+        <WindowFirstComingUpHandoff
+          todayStr={todayStr}
+          hotTopics={hotTopics}
+          onGoToPlan={onGoToPlan}
+        />
 
         {/* One always-mounted live region holding whichever of the three notes applies.
             ALWAYS mounted, and that is the load-bearing half: §5f records that a live region
@@ -174,7 +187,7 @@ export default function WindowFirstComingUp({
 
           {status === 'ready' && rows.length === 0 && (
             <p className="wf-cu-note" data-testid="coming-up-empty">
-              {`Nothing dated in the next ${ALMANAC_DAYS} days.`}
+              {`Nothing dated beyond Plan's four days in the next ${ALMANAC_DAYS} days.`}
             </p>
           )}
         </div>
@@ -193,7 +206,7 @@ export default function WindowFirstComingUp({
             exclusive sentences, each true of the rows above it, beat one sentence with a clause
             bolted on — that shape leaves the false half still printed. */}
         {/* ⚠️ "Fixed in advance", NOT "fixed by orbital mechanics", and the difference is a claim
-            this feed cannot support. Two of the five sources do not compute anything orbital:
+            this feed cannot support. Two of the six sources do not compute anything orbital:
             `NlcSeasonAlmanacSource` reads a hard-coded 25 May – 10 Aug calendar window, and
             `SolarAlignmentAlmanacSource` uses fixed MonthDay anchors (20 Mar, 21 Jun, 22 Sep,
             21 Dec) rather than a solved equinox instant — §5g records that those anchors are
@@ -218,7 +231,9 @@ WindowFirstComingUp.propTypes = {
   labelledBy: PropTypes.string.isRequired,
   hidden: PropTypes.bool,
   status: PropTypes.oneOf(['idle', 'loading', 'ready', 'error']).isRequired,
-  events: PropTypes.array,
+  events: PropTypes.shape({ entries: PropTypes.array }),
+  hotTopics: PropTypes.array,
   todayStr: PropTypes.string,
   onRetry: PropTypes.func.isRequired,
+  onGoToPlan: PropTypes.func.isRequired,
 };

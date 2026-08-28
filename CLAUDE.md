@@ -410,8 +410,9 @@ oversight. ⚠️ **Do not serve this from `HotTopicAggregator`.** Its signature
 its thirteen strategies ignore one — two tide strategies read a 5-day briefing cache, NLC a clarity
 cache, six read survivor signals the batch never writes past T+3, aurora inspects only `fromDate` and
 `fromDate+1`. It is also travel-day filtered and simulation-overridable. `AlmanacSource` is a separate
-interface whose contract is *answer for the whole range or do not exist*; five implementations cover
-tide runs, meteor peaks, supermoons, equinox/solstice and the NLC season. **The tide path measures
+interface whose contract is *answer for the whole range or do not exist*; six implementations cover
+tide runs, meteor peaks, supermoons, equinox/solstice, the NLC season and `EclipseAlmanacSource`.
+**The tide path measures
 water, not the moon** — `TideSizeIndex` applies the Plan tab's own two tests (a day's biggest high
 water clearing that location's `springTideThreshold`, or its `p95HighMetres`, strictly greater, *any*
 coastal location — `TideFactDeriver`'s comparisons and `KingTideHotTopicStrategy.findKingTide`'s

@@ -28,18 +28,20 @@ const EVENTS = [
 
 const renderPane = (props = {}) => {
   const onRetry = vi.fn();
+  const onGoToPlan = vi.fn();
   const result = render(
     <WindowFirstComingUp
       id="window-first-panel-coming-up"
       labelledBy="window-first-tab-coming-up"
       status="ready"
-      events={EVENTS}
+      events={{ entries: EVENTS }}
       todayStr={TODAY}
       onRetry={onRetry}
+      onGoToPlan={onGoToPlan}
       {...props}
     />,
   );
-  return { ...result, onRetry };
+  return { ...result, onRetry, onGoToPlan };
 };
 
 describe('WindowFirstComingUp — the panel contract', () => {
@@ -93,9 +95,9 @@ describe('WindowFirstComingUp — the four states', () => {
 
   it('says nothing is coming up only once the feed has actually answered with nothing', () => {
     // Reachable: `AlmanacService` returns `[]` rather than a 500 when every source throws.
-    renderPane({ status: 'ready', events: [] });
+    renderPane({ status: 'ready', events: { entries: [] } });
     expect(screen.getByTestId('coming-up-empty'))
-      .toHaveTextContent('Nothing dated in the next 90 days.');
+      .toHaveTextContent("Nothing dated beyond Plan's four days in the next 90 days.");
   });
 
   it('renders nothing but its frame before the tab has ever been opened', () => {
@@ -147,14 +149,14 @@ describe('WindowFirstComingUp — the four states', () => {
   });
 
   it('draws no empty list container when there is nothing to list', () => {
-    renderPane({ status: 'ready', events: [] });
+    renderPane({ status: 'ready', events: { entries: [] } });
     expect(screen.queryByRole('list')).toBeNull();
   });
 
   it('puts focus on the panel when a retry succeeds, rather than dropping it on the body', () => {
     // Pressing the button unmounts it, and focus on a removed element falls to <body> — a keyboard
     // reader ends up at the top of the document with no idea whether anything happened.
-    const { rerender, onRetry } = renderPane({ status: 'error', events: null });
+    const { rerender, onRetry, onGoToPlan } = renderPane({ status: 'error', events: null });
     const button = screen.getByRole('button', { name: 'Try again' });
     button.focus();
     fireEvent.click(button);
@@ -165,9 +167,10 @@ describe('WindowFirstComingUp — the four states', () => {
         id="window-first-panel-coming-up"
         labelledBy="window-first-tab-coming-up"
         status="ready"
-        events={EVENTS}
+        events={{ entries: EVENTS }}
         todayStr={TODAY}
         onRetry={onRetry}
+        onGoToPlan={onGoToPlan}
       />,
     );
 
@@ -185,7 +188,9 @@ describe('WindowFirstComingUp — the four states', () => {
 
   it('keeps its heading and footer in every state, so the pane never looks broken', () => {
     for (const status of ['idle', 'loading', 'error', 'ready']) {
-      const { unmount } = renderPane({ status, events: status === 'ready' ? [] : null });
+      const { unmount } = renderPane({
+        status, events: status === 'ready' ? { entries: [] } : null,
+      });
       expect(screen.getByTestId('coming-up-subtitle')).toBeInTheDocument();
       expect(screen.getByTestId('coming-up-footer')).toBeInTheDocument();
       unmount();
@@ -210,7 +215,7 @@ describe('WindowFirstComingUp — the certainty vocabulary', () => {
   });
 
   it('marks no row when every entry is almanac', () => {
-    // Which is every entry the five sources emit. A chip on all of them would be a word that never
+    // Which is every entry the six sources emit. A chip on all of them would be a word that never
     // varies, and the footer above already says it.
     renderPane();
     expect(screen.queryAllByTestId('coming-up-kind')).toHaveLength(0);
@@ -219,12 +224,66 @@ describe('WindowFirstComingUp — the certainty vocabulary', () => {
   it('stops claiming every date is fixed as soon as one row is not', () => {
     // The reason the sentence asks the rendered set rather than asserting what the plan expects.
     // A clause bolted onto the end would leave the false half still printed above it.
-    renderPane({ events: [{ ...EVENTS[0], kind: 'FORECAST' }] });
+    renderPane({ events: { entries: [{ ...EVENTS[0], kind: 'FORECAST' }] } });
 
     expect(screen.getByTestId('coming-up-kind')).toHaveTextContent('Forecast');
     const footer = screen.getByTestId('coming-up-footer');
     expect(footer).toHaveTextContent('Dates marked Forecast are weather-driven');
     expect(footer.textContent).not.toContain('Every date here is fixed');
+  });
+});
+
+describe('WindowFirstComingUp — the handoff row (plan D14)', () => {
+  it('renders above the chronology, stating the boundary with Plan', () => {
+    renderPane({ hotTopics: [{ type: 'DUST', label: 'Saharan dust', date: TODAY }] });
+
+    const handoff = screen.getByTestId('coming-up-handoff');
+    expect(handoff).toHaveTextContent('Now —');
+    expect(handoff).toHaveTextContent('One topic lives on those four days');
+    expect(handoff).toHaveTextContent('Saharan dust');
+    expect(handoff).toHaveTextContent('On Plan →');
+  });
+
+  it('gives each phrase its own word boundary in the accessible name, rather than gluing them '
+      + 'into one run-on string', () => {
+    // JSX drops whitespace-only text between sibling tags — it does not collapse it to a space —
+    // so without an explicit `{' '}` between every span the accessible name (the button's whole
+    // text content) reads "...four daysSaharan dustAurora possibleOn Plan" with no boundaries.
+    // Asserting via the ACCESSIBLE NAME (not toHaveTextContent, which matches a substring inside
+    // the already-glued string and would not catch this) is the point of this test.
+    renderPane({
+      hotTopics: [
+        { type: 'DUST', label: 'Saharan dust', date: TODAY },
+        { type: 'AURORA', label: 'Aurora possible', date: TODAY },
+      ],
+    });
+
+    const handoff = screen.getByRole('button', {
+      name: 'Now — Wed 12 Two topics live on those four days Saharan dust Aurora possible '
+        + 'On Plan →',
+    });
+    expect(handoff).toBeInTheDocument();
+  });
+
+  it('calls onGoToPlan when clicked', () => {
+    const { onGoToPlan } = renderPane();
+    fireEvent.click(screen.getByTestId('coming-up-handoff'));
+    expect(onGoToPlan).toHaveBeenCalledTimes(1);
+  });
+
+  it('degrades to the label-only row when the briefing has not supplied hotTopics yet', () => {
+    renderPane({ hotTopics: undefined });
+
+    const handoff = screen.getByTestId('coming-up-handoff');
+    expect(handoff).toHaveTextContent('Now —');
+    expect(handoff).toHaveTextContent('On Plan →');
+    expect(screen.queryByTestId('coming-up-handoff-summary')).toBeNull();
+  });
+
+  it('says explicitly that nothing is live once hotTopics has arrived empty', () => {
+    renderPane({ hotTopics: [] });
+    expect(screen.getByTestId('coming-up-handoff-summary'))
+      .toHaveTextContent('No topics live on those four days');
   });
 });
 
@@ -248,7 +307,7 @@ describe('WindowFirstComingUp — the degrade path', () => {
       { ...EVENTS[1], meta: {} },
     ];
     for (const event of shapes) {
-      const { unmount } = renderPane({ events: [event] });
+      const { unmount } = renderPane({ events: { entries: [event] } });
       expect(screen.getByTestId('coming-up-figures-missing')).toBeInTheDocument();
       unmount();
     }

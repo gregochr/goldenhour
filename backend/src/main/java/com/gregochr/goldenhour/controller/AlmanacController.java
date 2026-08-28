@@ -1,13 +1,11 @@
 package com.gregochr.goldenhour.controller;
 
-import com.gregochr.goldenhour.model.AlmanacEvent;
+import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
 import com.gregochr.goldenhour.service.AlmanacService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.List;
 
 /**
  * REST controller for the "Coming up" almanac feed.
@@ -42,7 +40,8 @@ public class AlmanacController {
      *
      * <p>Entries may start before today or end after the requested horizon: a season or a tide run
      * that straddles an edge is reported with its true span rather than clipped, because "this
-     * season began three weeks ago" is the useful reading and "starts today" would be false.
+     * season began three weeks ago" is the useful reading and "starts today" would be false. Only
+     * entries eligible under Plan's boundary are included — see {@link AlmanacService}.
      *
      * <p>{@code days} is clamped rather than rejected. A caller asking for 0 or 10,000 has made a
      * client-side mistake, and a feed is more useful than a 400 — there is no destructive effect to
@@ -50,10 +49,10 @@ public class AlmanacController {
      *
      * @param days feed length in days, clamped to {@value AlmanacService#MIN_DAYS}..{@value
      *             AlmanacService#MAX_DAYS}; defaults to {@value AlmanacService#DEFAULT_DAYS}
-     * @return the entries, ascending by start date then by span length
+     * @return the wrapped feed — see {@code docs/engineering/coming-up-plan.md} §13
      */
     @GetMapping
-    public List<AlmanacEvent> getAlmanac(
+    public ComingUpResponse getAlmanac(
             @RequestParam(defaultValue = "" + AlmanacService.DEFAULT_DAYS) int days) {
         return almanacService.getFeed(days);
     }

@@ -37,15 +37,11 @@ import { getAlmanac } from '../api/almanacApi.js';
  * session open past midnight showing yesterday's feed with a row still reading "Today". Keying it
  * on {@code todayStr} means the date roll invalidates it and nothing else does.
  *
- * <p>⚠️ <b>That date is Europe/London and the backend builds the feed on a UTC date, and the two
- * are deliberately not reconciled here.</b> {@code AlmanacService} uses
- * {@code LocalDate.now(ZoneOffset.UTC)}, so during BST they disagree between midnight and 01:00
- * London. Two bounded consequences, both accepted. The latch reopens at the London roll and the
- * refetch returns the same UTC-day feed, costing one request; and a session left open across that
- * hour holds a feed built for the previous UTC day until the next London roll, whose only visible
- * effect is that an entry which ended on the UTC day can still be listed — where it correctly reads
- * "Passed", because by the reader's own clock it has. London is the right key regardless: it is the
- * day the rows are described against, and the lead word is the thing a reader checks.
+ * <p>{@code AlmanacService} builds the feed on the same calendar this latch keys on —
+ * {@code Europe/London}, via {@code ForecastHorizon.today} — so there is no cross-calendar
+ * disagreement to reconcile. London is still the right key regardless of which calendar the
+ * backend happens to build on: it is the day the rows are described against, and the lead word is
+ * the thing a reader checks.
  *
  * <p>The hook is called from the shell rather than from the pane, so switching tabs does not
  * unmount it. That removes the in-flight-unmount case entirely rather than defending against it,
@@ -58,8 +54,9 @@ import { getAlmanac } from '../api/almanacApi.js';
  *
  * @param {boolean} enabled  whether the Coming up tab is the selected one
  * @param {string}  todayStr the reader's today, `YYYY-MM-DD`; the latch key
- * @returns {{status: string, events: ?Array, retry: function}} `status` is
- *          `idle` before the first open, then `loading`, then `ready` or `error`
+ * @returns {{status: string, events: ?object, retry: function}} `status` is
+ *          `idle` before the first open, then `loading`, then `ready` or `error`; `events` is the
+ *          wrapped {@code ComingUpResponse} once it has arrived
  */
 export default function useComingUpFeed(enabled, todayStr) {
   const [status, setStatus] = useState('idle');
@@ -98,9 +95,13 @@ export default function useComingUpFeed(enabled, todayStr) {
       try {
         const data = await getAlmanac();
         if (isStale()) return;
-        // An array, always — the endpoint has no 204 and no role variance. A non-array would mean
-        // something upstream changed shape, and rendering `[]` is better than crashing the pane.
-        setEvents(Array.isArray(data) ? data : []);
+        // The wrapped ComingUpResponse, always — the endpoint has no 204 and no role variance. A
+        // non-object would mean something upstream changed shape, and rendering an empty feed is
+        // better than crashing the pane. `typeof [] === 'object'` in JS, so the array check is
+        // its own clause — without it a reverted/mixed-version backend still serving the old bare
+        // array would pass straight through as `events` instead of degrading.
+        setEvents(data && typeof data === 'object' && !Array.isArray(data)
+          ? data : { entries: [] });
         setStatus('ready');
       } catch {
         if (isStale()) return;
