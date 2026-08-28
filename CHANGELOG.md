@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.19.4] - 2026-08-28
+
 ### Changed — Open-Meteo acquisition extracted from BriefingService into BriefingWeatherLoader
 
 `BriefingService` no longer knows how Open-Meteo batches. `fetchWeatherSequential`,
