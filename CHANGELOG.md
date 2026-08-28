@@ -5,6 +5,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — out-of-range Claude scores are now rejected as null, not persisted verbatim
+
+Closed a documented, deliberate gap: `RatingValidator.validateScore` existed, was fully unit
+tested, and had **no production caller** — an out-of-range 0–100 `fiery_sky`/`golden_hour` (or a
+basic-tier score, or a 0–10 `inversion_score`) from Claude was persisted verbatim. The star
+`rating` was already guarded and would go `null` on a bad value, so a malformed response produced
+the worst possible combination: no star, but a full-width score bar and maximal colour, because
+the frontend's `scoreRamp.js starFromScore` clamps to 0–100 — a `fiery_sky=491` rendered at the
+very top of the ramp.
+
+`RatingValidator.validateScore` is now wired into `SunsetEvaluationParser` on **both** parse
+paths — the strict JSON path and the regex fallback (whose `\d{1,3}`/`\d{1,2}` patterns accept
+999/99 by construction, and which is used precisely when the response didn't satisfy the
+structured contract). Rejection is per-field: one bad component is nulled, the rest of a usable
+evaluation still lands — the response is not marked `PARSE_FAILED`. Nothing is lost diagnostically:
+the raw Claude response is still persisted via `jobRunService.logBatchResult` on the success path,
+so a bad score stays visible in `api_call_log`.
+
+Mutation-checked: removing the `fiery_sky` `validateScore` call fails the renamed
+`ClaudeResponseParseResilienceTest` KNOWN GAP test and the corresponding
+`SunsetEvaluationParserTest` boundary test, restored afterwards. Full local gate green (7598
+tests).
+
 ### Fixed — status SSE stream computes the health tree once per interval, not once per client
 
 `StatusController` gave every connected `/api/status/stream` client its own periodic task, each
