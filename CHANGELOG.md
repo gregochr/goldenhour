@@ -5,6 +5,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the Coming up redesign plan and its design bundle
+
+`docs/engineering/coming-up-plan.md` plans the rebuild of the Coming up tab around the design
+handoff now vendored at `docs/design/coming-up/` (design of record `Coming Up.html`; the README's
+surprise model — `S = rarity + magnitude` in bits, four delivery bands — is the substance). Eight
+phases: contract migration (`ComingUpResponse` wrapper, a shared `PlanHorizon` for the
+`today..today+3` boundary, computed `enteredWindow`), backend chronology enrichment with real bits
+for every almanac entry, the two-part frontend chronology, the standing-conditions strip, the tab
+badge with a per-user `lastSeenAt` on `app_user`, the Hot topics door removal from the Plan tab,
+and a `topic_daily_log` nightly logger that starts feeding the full model.
+
+The plan answers the design's own "first question" from the schema: no per-day topic-presence log
+exists anywhere, but astronomy is recomputable from ephemeris at zero storage cost, dust and surge
+carry intensity on every `forecast_evaluation` row since inception/V61, inversion is survivor-only
+since V114, and aurora/NLC have no usable history — so the deterministic branch scores for real
+while dust/inversions ship the README's documented interim rule, said out loud in the UI.
+
+Two adversarial review rounds (six lenses, ~50 confirmed findings) reshaped it before landing.
+The reversals a later reader should know: tide magnitude is scored against a distribution of run
+peak ranges replayed from `tide_extreme`, not `TideStats` high-water percentiles (a run's peak is
+the max of ~28 highs, so the percentile form scored every fortnightly spring at ~p97 and would
+have badged them all — and the honest consequence is that cold-started ports list but do not badge
+at first ship); the handoff row is client-rendered from `briefing.hotTopics` because building it
+in the almanac cache would bake the aggregator's simulation override and travel-day filter into a
+day-cached ETag'd payload; `enteredWindow` is `startDate − 89` (the feed spans `today..today+89`,
+and the off-by-one swallowed exactly the arrivals the badge exists for); hysteresis does not ship
+until P7's prior-band store exists; the badge forces the almanac fetch eager, reversing a recorded
+refusal in `useComingUpFeed`; and the placeholder band edges over-fire (~18 announced/yr against
+the design's ~10 target), so P5 is gated on a synthetic-year census. §11 records twenty deliberate
+disagreements with the bundle, including that its "`HotTopicStrip.jsx` is still used elsewhere" is
+false in this codebase — the Hot topics door is its only caller, and the removal also orphans
+`TideRunRow`, `SurgeRunRow`, `CertaintyChip` and the `auroraTonight`/`auroraTomorrow` wire fields.
 ### Fixed — out-of-range Claude scores are now rejected as null, not persisted verbatim
 
 Closed a documented, deliberate gap: `RatingValidator.validateScore` existed, was fully unit

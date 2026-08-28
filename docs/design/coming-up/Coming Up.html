@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PhotoCast — Coming up, one chronology</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--surface-light:#2A2019;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,.66);--ink-3:rgba(242,231,211,.42);--ink-4:rgba(242,231,211,.26);--go:#8AAE72;--marginal:#E0A542;--poor:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--coral:#E8593F;--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:24px 20px 60px}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+.hd{max-width:1180px;margin:0 auto 13px}
+.hd .m{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px}
+.hd h1{font-size:20px;font-weight:700;letter-spacing:-.02em}
+.hd p{font-size:13px;color:var(--ink-2);max-width:92ch;margin-top:6px;text-wrap:pretty}
+.hd b{font-weight:600;color:var(--ink)}
+.demobar{max-width:1180px;margin:0 auto 10px;display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);flex-wrap:wrap}
+.demobar .sp{margin-right:auto}
+.demobar button{font-family:var(--mono);font-size:10.5px;border:1px solid var(--border);background:var(--surface);color:var(--ink-2);border-radius:7px;padding:6px 11px;cursor:pointer}
+.demobar button:hover{border-color:var(--border-light);color:var(--ink)}
+.demobar button.on{border-color:rgba(201,162,75,.55);background:rgba(201,162,75,.12);color:#EBD9A8}
+.wrap{max-width:1180px;margin:0 auto;transition:max-width .22s ease}
+.wrap.pad{max-width:834px}
+.wrap.mob{max-width:390px}
+.frame{position:relative;display:flex;flex-direction:column;height:940px;overflow:hidden;background:var(--bg);border:1px solid var(--border);border-radius:12px}
+.wrap.pad .frame{height:1000px;border-radius:18px;box-shadow:0 0 0 7px #241c17,0 22px 50px rgba(0,0,0,.55)}
+.wrap.mob .frame{height:812px;border:none;border-radius:26px;box-shadow:0 0 0 8px #241c17,0 24px 56px rgba(0,0,0,.6)}
+.scroll{flex:1;min-height:0;overflow-y:auto;scrollbar-width:thin}
+.scroll::-webkit-scrollbar{width:8px}.scroll::-webkit-scrollbar-thumb{background:var(--border-light);border-radius:9px}
+.wrap.mob .scroll{scrollbar-width:none}.wrap.mob .scroll::-webkit-scrollbar{width:0}
+
+/* ── shell ── */
+.mast{position:sticky;top:0;z-index:45;background:linear-gradient(180deg,#241B16,#1B1411);padding:13px 22px 0;border-bottom:1px solid var(--border)}
+.wrap.mob .mast{padding:9px 14px 0}
+.c-top{display:flex;align-items:center;gap:14px}
+.spine{position:relative;padding-left:25px}
+.spine::before{content:'';position:absolute;left:0;top:0;bottom:0;width:11px;background:repeating-linear-gradient(180deg,var(--border-light) 0 7px,transparent 7px 15px);border-right:1px solid var(--border)}
+.c-w{font-family:var(--serif);font-weight:600;font-size:25px;line-height:1;letter-spacing:-.022em;color:#F9F1E2;display:block}
+.c-k{font-family:var(--mono);font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--coral);margin-top:5px;display:block}
+.wrap.mob .c-w{font-size:19px}.wrap.mob .c-k{font-size:7.5px;letter-spacing:.16em}
+.c-times{margin-left:auto;display:flex;gap:15px;font-family:var(--mono);font-size:9px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);white-space:nowrap}
+.c-times b{color:var(--marginal);font-weight:500}
+.wrap.mob .c-times{display:none}
+.c-rule{margin-top:11px;height:4px;border-radius:2px;background:linear-gradient(90deg,#26313F 0%,#4A3550 9%,#B4553C 19%,#E8593F 25%,#E0A542 33%,#F2E7D3 50%,#E0A542 66%,#E8593F 74%,#7C4A56 84%,#2E3446 93%,#26313F 100%)}
+.tabs{display:flex;gap:6px;padding:11px 0 0}
+.tab{font-size:12.5px;font-weight:500;background:var(--panel);border:1px solid var(--border);border-bottom-width:0;border-radius:8px 8px 0 0;padding:8px 14px;color:var(--ink-2);cursor:pointer;font-family:var(--sans)}
+.tab.on{background:var(--surface);color:#EBD9A8;border-color:rgba(201,162,75,.5)}
+.tab{display:inline-flex;align-items:center;gap:8px}
+.bdg{font-family:var(--mono);font-size:10px;font-weight:600;line-height:1;min-width:17px;height:17px;padding:0 5px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;background:rgba(232,89,63,.18);color:#F0917C;border:1px solid rgba(232,89,63,.45)}
+.bdg.rare{background:var(--coral);color:#1B1411;border-color:var(--coral);box-shadow:0 0 0 3px rgba(232,89,63,.16);font-size:9px}
+.tab.gate{margin-left:auto;color:var(--ink-3)}
+.wrap.mob .tab.gate{display:none}
+.pane{padding:16px 22px 26px}
+.wrap.mob .pane{padding:12px 14px 20px}
+
+/* ── list head ── */
+.cuh{display:flex;align-items:baseline;gap:11px;flex-wrap:wrap;margin-bottom:3px}
+.cuh .t{font-size:16px;font-weight:700;letter-spacing:-.015em}
+.cuh .d{font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.legend{display:flex;align-items:center;gap:14px;margin-left:auto;font-family:var(--mono);font-size:9.5px;color:var(--ink-3);white-space:nowrap}
+.wrap.mob .legend{margin-left:0;margin-top:6px}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend i{width:2px;height:13px;border-radius:1px;display:block}
+.legend i.fx{background:var(--ink-3)}
+.legend i.fm{background:repeating-linear-gradient(180deg,var(--ink-3) 0 3px,transparent 3px 6px)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;padding:11px 0 4px;border-bottom:1px solid var(--border);margin-bottom:2px}
+.chip{font-family:var(--mono);font-size:10.5px;border:1px solid var(--border);background:var(--panel);color:var(--ink-2);border-radius:20px;padding:5px 12px;cursor:pointer;min-height:30px;display:inline-flex;align-items:center;gap:7px}
+.chip:hover{border-color:var(--border-light);color:var(--ink)}
+.chip.on{border-color:rgba(201,162,75,.5);background:rgba(201,162,75,.12);color:#EBD9A8}
+.chip .dt2{width:6px;height:6px;border-radius:50%;background:var(--cc)}
+.chip .n{color:var(--ink-4)}
+.chip.on .n{color:rgba(235,217,168,.6)}
+
+/* ── month rule ── */
+.mr{display:flex;align-items:center;gap:12px;padding:19px 0 9px}
+.mr:first-child{padding-top:11px}
+.mr .mm{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.15em;text-transform:uppercase;color:var(--ink-2)}
+.mr .my{font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--ink-4)}
+.mr .rl{flex:1;height:1px;background:var(--border)}
+
+/* ── entry ── */
+.tl{display:flex;flex-direction:column}
+.ent{display:grid;grid-template-columns:66px 1fr;gap:12px;align-items:stretch;margin-bottom:7px}
+.wrap.mob .ent{grid-template-columns:54px 1fr;gap:9px}
+.rail{padding-top:2px;text-align:right}
+.dbox{border:1px solid var(--border);border-radius:7px;background:rgba(0,0,0,.22);padding:4px 0 5px;text-align:center}
+.dow{display:block;font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.12em;color:var(--ink-3)}
+.dn{display:block;font-size:17px;font-weight:700;line-height:1.1;letter-spacing:-.02em}
+.dn.run{font-size:12.5px;font-family:var(--mono);font-weight:600;letter-spacing:-.02em;padding:1px 0}
+.mo{display:block;font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.12em;color:var(--ink-3)}
+.cd{display:block;font-family:var(--mono);font-size:9px;color:var(--ink-4);text-align:center;margin-top:4px;letter-spacing:.02em}
+.card{border:1px solid var(--border);border-left:2px solid var(--tc);border-radius:9px;background:color-mix(in oklch,var(--tc) 6%,transparent);padding:9px 13px 10px;cursor:pointer;transition:background .14s,border-color .14s}
+.card:hover{background:color-mix(in oklch,var(--tc) 10%,transparent);border-color:var(--border-light);border-left-color:var(--tc)}
+.card.fc{border-left-style:dashed}
+.card.now{box-shadow:0 0 0 1px color-mix(in oklch,var(--tc) 26%,transparent)}
+.card.faint{opacity:.66}
+.card.faint:hover{opacity:1}
+.ttl{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.nm{font-size:13.5px;font-weight:600;letter-spacing:-.01em}
+.feat .nm{font-size:15px;font-weight:700}
+.kd{font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--tc);opacity:.8;border:1px solid color-mix(in oklch,var(--tc) 34%,transparent);border-radius:4px;padding:1px 5px}
+.mx{margin-left:auto;font-family:var(--mono);font-size:12px;font-weight:600;color:var(--tc);white-space:nowrap}
+.pk{font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:#EBD9A8;background:rgba(201,162,75,.14);border-radius:4px;padding:1px 6px}
+.why{font-family:var(--serif);font-size:13.5px;line-height:1.55;color:var(--ink-2);margin-top:5px;max-width:76ch;text-wrap:pretty}
+.why b{color:var(--ink);font-weight:600}
+.facts{display:flex;flex-wrap:wrap;align-items:center;gap:4px 16px;margin-top:7px}
+.fact{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.fact .k{color:var(--ink-4)}
+.fact b{color:var(--ink);font-weight:600}
+.fact em{color:var(--tc);font-style:normal;font-weight:600}
+.act{font-family:var(--mono);font-size:10.5px;color:var(--tc);margin-top:8px;display:inline-flex;align-items:center;gap:6px;opacity:.85}
+.card:hover .act{opacity:1}
+.once{font-family:var(--mono);font-size:10px;color:#EBD9A8;margin-top:6px;display:flex;align-items:center;gap:6px}
+.once::before{content:'◆';font-size:7px;color:var(--home)}
+
+/* tide sparkline — the popup's wave, with amplitude carrying the range */
+.bar{display:inline-flex;align-items:center;gap:9px;font-family:var(--mono);font-size:10.5px;color:var(--ink-2)}
+.bar svg{width:84px;height:24px;display:block;flex:none;overflow:visible}
+.bar b{color:var(--ink);font-weight:600}
+
+/* coincidence — two topics, one card */
+.coin{display:flex;flex-direction:column;gap:0}
+.coin .cl{display:flex;align-items:baseline;gap:9px;padding:5px 0;flex-wrap:wrap}
+.coin .cl+.cl{border-top:1px dashed var(--border)}
+.coin .sw{width:7px;height:7px;border-radius:2px;background:var(--sc);flex:none;align-self:center}
+.coin .cn{font-size:13px;font-weight:600}
+.coin .cf{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);margin-left:auto;white-space:nowrap}
+.coin .cf b{color:var(--ink);font-weight:600}
+.join{font-family:var(--serif);font-size:13.5px;line-height:1.55;color:var(--ink-2);margin-top:7px;text-wrap:pretty}
+.join b{color:var(--ink);font-weight:600}
+
+.cufoot{margin-top:14px;padding:10px 13px;border:1px solid var(--border);border-radius:8px;background:rgba(0,0,0,.18);font-family:var(--mono);font-size:10.5px;line-height:1.65;color:var(--ink-3);text-wrap:pretty}
+.cufoot b{color:var(--ink-2);font-weight:600}
+
+/* the badge promises N new things — the list has to let you find them */
+.since{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;padding:8px 12px;border:1px solid rgba(232,89,63,.28);background:rgba(232,89,63,.07);border-radius:8px;font-family:var(--mono);font-size:10.5px;color:var(--ink-2)}
+.since.rare{border-color:rgba(232,89,63,.5);background:rgba(232,89,63,.12)}
+.since b{color:#F0917C;font-weight:600}
+.since .seen{margin-left:auto;color:var(--ink-3);border:1px solid var(--border);border-radius:6px;padding:4px 9px;background:transparent;font-family:var(--mono);font-size:10px;cursor:pointer;min-height:28px}
+.since .seen:hover{border-color:var(--border-light);color:var(--ink-2)}
+.card.fresh{box-shadow:inset 0 0 0 1px rgba(232,89,63,.24)}
+/* the handoff — Plan owns the forecast horizon, and there is always something in it */
+.hoff{display:flex;align-items:center;gap:13px;flex-wrap:wrap;margin-top:14px;padding:9px 13px;border:1px dashed var(--border-light);border-radius:9px;background:rgba(0,0,0,.12);cursor:pointer;min-height:40px}
+.hoff:hover{border-color:var(--home);background:rgba(201,162,75,.05)}
+.hr{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);white-space:nowrap}
+.hl{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);display:inline-flex;align-items:center;gap:11px;flex-wrap:wrap}
+.sws{display:inline-flex;align-items:center;gap:6px;color:var(--ink-3)}
+.sws i{width:6px;height:6px;border-radius:2px;background:var(--s);display:block;margin-left:5px}
+.sws i:first-child{margin-left:0}
+.hg{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--home);white-space:nowrap}
+
+/* standing conditions — always on, so they get one line each and never a chronology slot.
+   what they contribute to the list below is a dated peak. */
+.conds{margin-top:12px;border:1px solid var(--border);border-radius:9px;background:rgba(0,0,0,.16);overflow:hidden}
+.condh{display:flex;align-items:baseline;gap:9px;padding:8px 12px 7px;border-bottom:1px solid var(--border)}
+.condh .t{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.condh .d{font-family:var(--mono);font-size:10px;color:var(--ink-4)}
+.cond{display:grid;grid-template-columns:auto minmax(0,168px) 1fr auto;align-items:center;gap:11px;padding:9px 12px;border-top:1px solid rgba(58,44,35,.6);cursor:pointer;min-height:40px}
+.cond .kn{font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--tc);opacity:.72;margin-left:7px}
+.cond .qn{grid-column:2/-1;font-family:var(--mono);font-size:10px;color:var(--ink-4);margin-top:-2px}
+.cond .qn b{color:var(--ink-3);font-weight:600}
+.cond .pk2 b{color:var(--ink);font-weight:600}
+.cond .cx{color:var(--ink-4);margin-left:8px;font-size:9px;display:inline-block;transition:transform .15s}
+.cond.open .cx{transform:rotate(180deg)}
+.occ{display:flex;flex-direction:column;padding:3px 12px 10px 30px;background:rgba(0,0,0,.2);border-top:1px solid rgba(58,44,35,.6)}
+.occ[hidden]{display:none}
+.oh{font-family:var(--mono);font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-4);padding:7px 0 5px}
+.oc{display:grid;grid-template-columns:74px 62px 68px 112px 1fr;gap:10px;align-items:center;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);padding:4px 0;border-top:1px solid rgba(58,44,35,.4)}
+.oc .om{font-size:9px;color:var(--home);opacity:.8}
+.oc .ov{color:var(--ink-2)}
+.oc.up .od,.oc.up .ov{color:var(--ink);font-weight:600}
+.oc.up .os{color:var(--tc)}
+.oc.pl .od,.oc.pl .ov{color:var(--ink-2);font-weight:600}
+.oc.pl .os,.oc.pl .ob{color:var(--home);opacity:.85}
+.oc .ob{color:var(--ink-4)}
+.oc.up .ob{color:var(--tc);opacity:.8}
+@media(max-width:760px){.oc{grid-template-columns:64px 56px 1fr}.oc .os,.oc .om{display:none}}
+.cond:first-of-type{border-top:none}
+.cond:hover{background:rgba(255,255,255,.022)}
+.cond .sw2{width:7px;height:7px;border-radius:2px;background:var(--tc)}
+.cond .cn2{font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cond .rn{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cond .rn b{color:var(--ink-2);font-weight:600}
+.cond .pk2{font-family:var(--mono);font-size:10.5px;color:var(--tc);white-space:nowrap;display:inline-flex;align-items:center;gap:7px}
+.cond .pk2 .k{color:var(--ink-4)}
+@media(max-width:820px){.cond{grid-template-columns:auto 1fr}.cond .rn,.cond .pk2,.cond .qn{grid-column:2}}
+.wrap.mob .cond{grid-template-columns:auto 1fr}
+.wrap.mob .cond .rn,.wrap.mob .cond .pk2,.wrap.mob .cond .qn{grid-column:2}
+
+.nw{font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:#1B1411;background:var(--coral);border-radius:4px;padding:2px 6px}
+/* the bar it cleared — stated on the card, because every window has a topic and most are not here */
+.why2{font-family:var(--mono);font-size:10px;line-height:1.6;color:var(--ink-3);margin-top:7px;padding-top:7px;border-top:1px dashed var(--border);text-wrap:pretty}
+.why2 b{color:var(--tc);font-weight:600}
+
+/* notes */
+.nb{max-width:1180px;margin:30px auto 0}
+.nb h2{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:11px}
+.ng{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:9px}
+.nt{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+.nt b{display:block;font-size:12.5px;font-weight:600;margin-bottom:5px}
+.nt span{font-size:12.5px;color:var(--ink-2);line-height:1.6;text-wrap:pretty}
+.nt code{font-family:var(--mono);font-size:11px;color:#EBD9A8}
+.spec{display:grid;grid-template-columns:186px 1fr;background:var(--panel);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:12.5px;margin-top:9px}
+.spec dt{font-family:var(--mono);font-size:10.5px;letter-spacing:.04em;color:#EBD9A8;padding:11px 14px;border-top:1px solid var(--border)}
+.spec dd{color:var(--ink-2);padding:11px 14px;border-top:1px solid var(--border);line-height:1.62;text-wrap:pretty}
+.spec dt:first-of-type,.spec dd:first-of-type{border-top:none}
+.spec code{font-family:var(--mono);font-size:11px;color:var(--ink)}
+.spec b{color:var(--ink);font-weight:600}
+.lede{font-size:13px;color:var(--ink-2);line-height:1.64;max-width:96ch;margin:-3px 0 11px;text-wrap:pretty}
+.lede b{color:var(--ink);font-weight:600}
+.lede code{font-family:var(--mono);font-size:11.5px;color:#EBD9A8}
+.spec .lv{display:block;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-4);margin-top:3px}
+.stab{width:100%;border-collapse:collapse;margin-top:9px;background:var(--panel);border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.stab th{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-4);text-align:right;padding:9px 14px;border-bottom:1px solid var(--border)}
+.stab th:first-child{text-align:left}
+.stab td{font-family:var(--mono);font-size:11.5px;color:var(--ink-2);text-align:right;padding:8px 14px;border-top:1px solid rgba(58,44,35,.55)}
+.stab td:first-child{text-align:left;font-family:var(--sans);font-size:12.5px;color:var(--ink)}
+.stab tr:first-child td{border-top:none}
+.stab .o1{color:var(--ink-4)}
+.stab .o2{color:#9CCBD1}
+.stab .o3{color:#F0917C;font-weight:600}
+.stab .na{text-align:left;color:var(--ink-4);font-size:11px}
+.stab .na code{color:var(--ink-3)}
+.stab .nb2{display:block;font-size:9px;color:var(--ink-4);letter-spacing:.02em}
+.mtx{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:6px 8px 2px;margin-top:10px}
+.mtx svg{width:100%;height:auto;display:block;overflow:visible}
+.mtx text{font-family:var(--mono);fill:var(--ink-3)}
+.mkey{display:flex;flex-wrap:wrap;gap:7px 22px;padding:9px 8px 8px;border-top:1px solid var(--border);margin-top:4px;font-family:var(--mono);font-size:10.5px;color:var(--ink-4)}
+.mkey span{display:inline-flex;align-items:center;gap:8px}
+.mkey i{width:11px;height:11px;border-radius:3px;display:block;border:1px solid rgba(242,231,211,.14)}
+.mkey b{color:var(--ink-2);font-weight:600}
+@media(max-width:760px){.stab td:first-child,.stab th:first-child{max-width:150px}}
+@media(max-width:760px){.spec{grid-template-columns:1fr}.spec dd{border-top:none;padding-top:0}}
+@media(max-width:900px){.ent{grid-template-columns:58px 1fr}}
+</style>
+</head>
+<body>
+<div class="hd">
+<div class="m">PhotoCast · Coming up</div>
+<h1>Coming up starts where the forecast stops</h1>
+<p>Plan owns the next four days and there is always something in them — a hot topic on every window, an inversion most mornings, dust in the air since June. So Coming up cannot be a feed of what is happening. Two things earn a row: a <b>date fixed by orbital mechanics</b>, and the <b>forecast peak of a standing condition</b>. Everything else about those conditions stays in the strip at the top, one click from view — held back, never discarded.</p>
+</div>
+<div class="demobar"><span class="sp">viewport</span><button class="on" data-w="">Desktop</button><button data-w="pad">iPad</button><button data-w="mob">Phone</button></div>
+<div class="demobar"><span class="sp">tab badge</span><button class="on" data-s="quiet">Routine · 4.9 bits · no badge</button><button data-s="new">Announced · king tide 9.0</button><button data-s="rare">Interrupt · Orionids 9.7</button></div>
+
+<div class="wrap" id="wrap">
+<div class="frame"><div class="scroll">
+<div class="mast">
+<div class="c-top"><span class="spine"><span class="c-w">PhotoCast</span><span class="c-k">Field guide to light</span></span>
+<span class="c-times">05:26 blue<b>06:04 golden</b><b>20:10 golden</b>20:49 blue</span></div>
+<div class="c-rule"></div>
+<div class="tabs"><button class="tab">◉ Plan</button><button class="tab on">Coming up<span id="bdg"></span></button><button class="tab">◍ Map</button><button class="tab gate">Operations</button></div>
+</div>
+<div class="pane">
+<div class="cuh"><span class="t">Coming up</span><span class="d">· dated events beyond Plan’s four days, next 90 days</span>
+<span class="legend"><span><i class="fx"></i>fixed</span><span><i class="fm"></i>still firming</span></span></div>
+<div id="since"></div>
+<div class="chips" id="chips"></div>
+<div id="conds"></div>
+<div class="hoff"><span class="hr">Now — Mon 31</span><span class="hl">Three topics live on those four days<span class="sws"><i style="--s:#8AAE72"></i>aurora<i style="--s:#8FA3B8"></i>inversion<i style="--s:#6FA8B0"></i>spring tide</span></span><span class="hg">On Plan →</span></div>
+<div class="tl" id="tl"></div>
+<div class="cufoot" id="foot"></div>
+</div>
+</div></div>
+</div>
+
+<div class="nb">
+<h2>Surprise — rarity and magnitude, and the trade between them</h2>
+<p class="lede">Infrequent and large needs attention. Infrequent and average still gets it. Frequent and small is <b>still good information</b> — you just might choose to ignore it. So the bands are not a filter that throws things away; they are an escalation of <b>who starts the conversation</b>. Everything stays reachable at every level. The two measures compensate rather than gate, and both are surprisal in bits, so they add: <code>S = rarity + magnitude</code>. <b>Rarity</b> is <code>log₂</code> of the mean gap in days — daily ≈ 0, weekly ≈ 2.8, monthly ≈ 4.9, annual ≈ 8.5. <b>Magnitude</b> is <code>−log₂ P(X ≥ x)</code> against the topic's own history — median ≈ 1, p90 ≈ 3.3, p99 ≈ 6.6.</p>
+<div class="mtx" id="mtx"></div>
+<p class="lede" style="margin-top:11px">“Standing condition” stops being a category you assign and becomes one you <b>observe</b>: a topic whose typical occurrence sits in the bottom-left. Its strip line is not a dismissal — it is the handle on everything being held back, and it opens to show every occurrence with the score it got. If a routine 4/10 plume is what you wanted today, it is one click away.</p>
+<dl class="spec">
+<dt>nothing is<br>discarded</dt><dd>The three bands are <b>on request</b>, <b>in the list</b> and <b>announced</b> — delivery, not worth. A frequent, average occurrence is real information and stays one click inside its condition line, with the score it scored. The failure mode to avoid is not showing too little; it is <em>silently</em> showing too little.</dd>
+<dt>band edges<br>are knobs</dt><dd><code>5</code>, <code>7.5</code> and <code>9.5</code> are placeholders. Set them against a year of real backlog with a target rate — roughly <b>10 badges a year</b>, of which <b>one or two</b> clear the top contour, and a chronology that stays under about fifteen rows. The shape of the surface is the design decision; the exact contours are calibration.</dd>
+<dt>two badges,<br>one scale</dt><dd>The count badge and the solid <b>◆</b> are the third and fourth bands of the same surface, not two kinds of judgement. Above <code>9.5</code> there is only ever one thing, so the badge drops the number. The Orionids clear it on <b>rarity alone</b> — annual, at 8.5 — while the king tide reaches 9.0 on magnitude and stays a count. Neither is “more important” than the other in any sense the model can express beyond the total.</dd>
+<dt>rarity is not<br>unpredictability</dt><dd>A spring tide is perfectly predictable and still only fortnightly. Measuring the arrival's <em>information</em> would score it zero and drop it off the surface entirely; measuring its <b>rate</b> puts it at 3.9, which is why a median run sits just inside <b>on request</b> and a king tide clears the top band. Predictability governs confidence, not importance.</dd>
+<dt>never add<br>linked causes</dt><dd>The king tide and the supermoon are one piece of orbital mechanics. Summing their surprisal double-counts a single cause into a false alarm — take the <b>maximum</b>. Only genuinely independent coincidences add, and those are the ones worth a badge.</dd>
+<dt>evidentiary bar<br>and hysteresis</dt><dd><b>≥ 5 occurrences in the trailing 60 days</b> before a rate is trusted — two storms in sixty days gives a 95% Poisson interval of roughly <b>0.4–11</b>, which is no answer. Rates are re-estimated nightly on a trailing 60 days, with a <b>1-bit dead zone</b> at each band edge so a topic sitting on a contour does not move every night.</dd>
+<dt>seasonality<br>moves things<br>up the axis</dt><dd>Dust at one a week scores 2.8 in August. By November the gap stretches to a month and it scores 4.9 — the same plume, two bands higher, and the first one after a quiet autumn earns a row on rarity alone. Nothing special-cased; the axis just moved.</dd>
+<dt>cold start</dt><dd>Under <b>60 days</b> of history, no rate and no percentile is trustworthy. Assume high rarity, list it, do not badge. Over-listing something new for two months is a smaller failure than silently swallowing it.</dd>
+</dl>
+<h2 style="margin-top:26px">What a condition then contributes</h2>
+</div>
+
+<dl class="spec">
+<dt>intensity<br>distribution</dt><dd>The topic's own score history over a <b>trailing 90 days</b>, as a median and a p90. Each condition keeps its own scale — inversion strength 0–10, dust load 0–10, tidal range in metres — so nothing is ever compared across types, only against its own past.</dd>
+<dt>peak</dt><dd>Highest forecast or predicted value in the forward window, <b>gated on landing within 90 minutes of a light window</b>. A 9/10 inversion at two in the afternoon is not a peak worth listing, whatever its surprisal. This is the single dated thing a standing condition contributes.</dd>
+<dt>eligibility</dt><dd>Only dates <b>beyond Plan's four days</b> can badge. Inside that horizon there is always something, so nothing there can ever fire it.</dd>
+</dl>
+
+<div class="nb">
+<h2>What changed</h2>
+<div class="ng">
+<div class="nt"><b>Conditions are not events</b><span>Dust arrives about once a week and has done since June; there is an inversion most mornings. Neither is news by now, and neither has a single date to sort by — but both have <em>peaks</em>, and peaks are dated. Standing conditions get one line each saying how often they run; what they contribute to the chronology is the day they are at their best.</span></div>
+<div class="nt"><b>Tides work the same way</b><span>A spring tide every fortnight is a standing rhythm, not seven pieces of news. It gets one condition line — <code>7 runs in 90 days, biggest 12 Sept</code> — and the runs themselves stay in the chronology as single rows, because unlike dust each one is a discrete dated window you might drive to.</span></div>
+<div class="nt"><b>The two tabs stop overlapping</b><span>Every one of the next four days carries a topic, so listing them here would just be Plan again in a worse format. The handoff row states the boundary out loud — <em>now to Mon 31, three topics live, on Plan</em> — and the chronology begins after it. Plan answers <em>is tonight worth it</em>; Coming up answers <em>when is the next one</em>. Neither answers the other.</span></div>
+<div class="nt"><b>Say the definition once</b><span>Seven of eleven rows were tide runs, six carrying the identical sentence about lunar alignment and an identical "Figures for St. Mary's Lighthouse" footer. The next run explains itself in full; the rest are one line each. That alone removes about a third of the page.</span></div>
+<div class="nt"><b>The wave does the comparing</b><span>The drilldown's tide sparkline, reused — but the amplitude is now the range, so the 5.2 m king tide stands visibly taller than the 5.0 m run three weeks after the equinox. A faint average tide sits behind each wave, which is the <code>+1.9 vs avg</code> figure drawn rather than said. The marker holds high or low water on the window.</span></div>
+<div class="nt"><b>Coincidence is one event</b><span>The king tide run and the November supermoon were two unrelated rows. They are the same piece of orbital mechanics, and their overlap is the best coastal date of the quarter — so they are one card with two swatches, and the card says why they coincide.</span></div>
+<div class="nt"><b>Colour is the existing topic set</b><span>Teal coastal, green aurora, steel air, purple night sky, gold sun and moon — the same five hues already carried by the heat pills, the tide row and the drilldown. No new vocabulary, and the tab stops reading as monochrome.</span></div>
+<div class="nt"><b>The badge is silent by default</b><span>Nothing inside Plan's four days can ever fire it — there is always something there. It counts only <em>arrivals that are rare for their own type</em>: a spring tide run entering at day 90 is silence, because there is one every fortnight forever; a king tide is one a year. A handful of times a year is the only rate at which a badge stays worth looking at.</span></div>
+<div class="nt"><b>Forecast never badges</b><span>Aurora, inversion, dust and snow are live several times a week and already have the banner and the pills on Plan. The Coming up badge belongs to the almanac side — the fixed dates that have no other alarm.</span></div>
+<div class="nt"><b>Rarity escalates the shape, not the number</b><span>The count badge and the solid <code>◆</code> are the top two bands of one surface. Above 9.5 bits there is only ever one thing in play, so the badge stops counting. The Orionids get there on rarity alone; the king tide gets to 9.0 on magnitude and keeps a number.</span></div>
+<div class="nt"><b>The badge has to land somewhere</b><span>A count with nothing to find is a dead end, so the same state marks the entries: a line at the top saying what arrived, and a <code>NEW</code> flag on the row. One click marks it seen and the badge clears.</span></div>
+</div>
+</div>
+
+<script>
+const C={tide:'#6FA8B0',aur:'#8AAE72',air:'#8FA3B8',sky:'#9B8FD4',sun:'#C9A24B',dust:'#C08552'};
+// standing conditions: true for weeks, so no date and no chronology slot. they contribute a peak.
+const COND=[
+ {g:'dust',n:'Saharan dust',kind:'recurrent',run:'<b>12 plumes</b> since 14 June · about one a week',
+  q:'rarity <b>2.8</b> · mean gap 6.9 days · load median <b>4/10</b>, p90 <b>7/10</b>',
+  pk:'thickest <b>Wed 2 Sept</b>',pv:'8/10 · 7.9 bits',
+  occ:[['12 Aug','5/10',4.4,0],['19 Aug','3/10',3.2,0],['24 Aug','4/10',3.8,0],['2 Sept','8/10',7.9,1]]},
+ {g:'air',n:'Valley inversions',kind:'persistent',run:'<b>23 mornings</b> since 1 Aug · Dales &amp; Lakes',
+  q:'rarity <b>0.4</b> · present 23 of 30 days · strength median <b>5/10</b>, p90 <b>8/10</b>',
+  pk:'strongest <b>tomorrow</b>',pv:'9/10 · 5.0 bits',
+  occ:[['26 Aug','6/10',2.0,0],['27 Aug','4/10',1.0,0],['28 Aug','5/10',1.4,0],['29 Aug','9/10',5.0,2]]},
+ {g:'tide',n:'Spring tides',kind:'deterministic',run:'a run every <b>14.8 days</b> · fixed by the ephemeris',
+  q:'rarity <b>3.9</b> · 7 runs in 90 days · range median <b>4.7 m</b>, p90 <b>5.0 m</b>',
+  pk:'biggest <b>Thu 26 Nov</b>',pv:'5.2 m · 9.0 bits',
+  occ:[['30 Aug','4.8 m',5.4,2],['12 Sept','5.1 m',8.2,1],['28 Sept','5.0 m',7.2,1],['11 Oct','4.7 m',4.9,0],['27 Oct','4.9 m',7.2,1,'max w/ supermoon'],['9 Nov','4.1 m',4.0,0],['26 Nov','5.2 m',9.0,1]]}
+];
+const AVG=3.3;
+// the surprise surface: rarity = log2(mean gap in days), magnitude = -log2 P(X >= x).
+// they add, so the bands are diagonals — either axis alone can carry an occurrence up a band.
+const PTS=[
+ [1.0,0.4,'air','Inversion · typical'],[4.6,0.4,'air','Inversion 9/10 · tomorrow'],
+ [1.0,2.8,'dust','Dust plume · typical'],[5.1,2.8,'dust','Dust 8/10 · 2 Sept'],
+ [1.0,3.9,'tide','Spring tide 4.7 m · median run'],[5.1,3.9,'tide','King tide 5.2 m · 26 Nov'],
+ [3.3,4.9,'aur','First Kp 6 since March'],[1.5,5.9,'sun','Supermoon'],
+ [1.0,7.5,'sun','Autumn equinox'],[1.2,8.5,'sky','Orionids']
+];
+const XT=[[1,'median'],[3.3,'p90'],[5.1,'p97'],[6.6,'p99']],
+      YT=[[0.4,'daily'],[2.8,'weekly'],[4.9,'monthly'],[6.5,'quarterly'],[8.5,'annual']];
+(function matrix(){
+ const W=700,H=400,L=104,R=150,T=14,B=54,pw=W-L-R,ph=H-T-B,XM=7,YM=10;
+ const sx=m=>L+m/XM*pw, sy=r=>T+ph-r/YM*ph, pt=(m,r)=>sx(m)+' '+sy(r);
+ let s=`<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Rarity against magnitude, with three delivery bands">`;
+ s+=`<polygon points="${pt(0,0)} ${pt(5,0)} ${pt(0,5)}" fill="rgba(242,231,211,.014)"></polygon>`;
+ s+=`<polygon points="${pt(5,0)} ${pt(7,0)} ${pt(7,.5)} ${pt(0,7.5)} ${pt(0,5)}" fill="rgba(201,162,75,.055)"></polygon>`;
+ s+=`<polygon points="${pt(0,7.5)} ${pt(7,.5)} ${pt(7,2.5)} ${pt(0,9.5)}" fill="rgba(232,89,63,.075)"></polygon>`;
+ s+=`<polygon points="${pt(0,9.5)} ${pt(7,2.5)} ${pt(7,10)} ${pt(0,10)}" fill="rgba(232,89,63,.19)"></polygon>`;
+ YT.forEach(t=>{s+=`<line x1="${L}" y1="${sy(t[0])}" x2="${L+pw}" y2="${sy(t[0])}" stroke="rgba(242,231,211,.05)"></line>`+
+  `<text x="${L-11}" y="${sy(t[0])+3.5}" text-anchor="end" font-size="9.5">${t[1]}</text>`});
+ XT.forEach(t=>{s+=`<line x1="${sx(t[0])}" y1="${T}" x2="${sx(t[0])}" y2="${T+ph}" stroke="rgba(242,231,211,.05)"></line>`+
+  `<text x="${sx(t[0])}" y="${T+ph+17}" text-anchor="middle" font-size="9.5">${t[1]}</text>`});
+ s+=`<line x1="${sx(0)}" y1="${sy(5)}" x2="${sx(5)}" y2="${sy(0)}" stroke="rgba(242,231,211,.22)" stroke-dasharray="4 3"></line>`;
+ s+=`<line x1="${sx(0)}" y1="${sy(7.5)}" x2="${sx(7)}" y2="${sy(.5)}" stroke="rgba(232,89,63,.42)" stroke-dasharray="4 3"></line>`;
+ s+=`<line x1="${sx(0)}" y1="${sy(9.5)}" x2="${sx(7)}" y2="${sy(2.5)}" stroke="rgba(232,89,63,.75)" stroke-dasharray="4 3"></line>`;
+ s+=`<line x1="${L}" y1="${T+ph}" x2="${L+pw}" y2="${T+ph}" stroke="var(--border-light)"></line>`;
+ s+=`<line x1="${L}" y1="${T}" x2="${L}" y2="${T+ph}" stroke="var(--border-light)"></line>`;
+ PTS.forEach(p=>{const x=sx(p[0]),y=sy(p[1]),S=p[0]+p[1],top=S>=9.5,up=S>=7.5,mid=S>=5;
+  if(top)s+=`<circle cx="${x}" cy="${y}" r="9" fill="none" stroke="${C[p[2]]}" stroke-opacity=".35"></circle>`;
+  s+=`<circle cx="${x}" cy="${y}" r="${top?5.5:up?5:4}" fill="${C[p[2]]}" opacity="${mid?1:.5}"></circle>`+
+   `<text x="${x+(top?14:10)}" y="${y+3.5}" font-size="10.5" fill="${mid?'rgba(242,231,211,.82)':'rgba(242,231,211,.4)'}">${p[3]} <tspan fill="rgba(242,231,211,.34)">${S.toFixed(1)}</tspan></text>`});
+ s+=`<text x="${L+pw/2}" y="${H-9}" text-anchor="middle" font-size="9.5" letter-spacing="1.4">MAGNITUDE — HOW BIG, FOR THIS TOPIC</text>`;
+ s+=`<text transform="translate(13,${T+ph/2}) rotate(-90)" text-anchor="middle" font-size="9.5" letter-spacing="1.4">RARITY — HOW OFTEN IT HAPPENS</text>`;
+ s+=`</svg>`;
+ document.getElementById('mtx').innerHTML=s+`<div class="mkey">`+
+  [['rgba(242,231,211,.09)','On request','in the conditions strip, one click to open'],
+   ['rgba(201,162,75,.3)','In the list','a chronology row'],
+   ['rgba(232,89,63,.3)','Announced','a row and a count badge on the tab'],
+   ['rgba(232,89,63,.8)','Interrupt','the badge goes solid ◆ — one thing, not a count']]
+  .map(k=>`<span><i style="background:${k[0]}"></i><b>${k[1]}</b>${k[2]}</span>`).join('')+`</div>`;
+})();
+// one wave per run: amplitude is the range, so a 5.1 m run stands visibly taller than a 4.1 m one.
+// the faint wave behind it is an average tide, which is what "+1.5 vs avg" used to have to say in words.
+function wavePath(amp,low){let d='';for(let x=0;x<=104;x+=2){const c=Math.cos(2*Math.PI*(x-41)/62);const y=12+(low?amp*c:-amp*c);d+=(x?'L':'M')+x+' '+y.toFixed(2)}return d}
+function bar(r,d,low){const amp=Math.min(10,3+(r-AVG)*3.5),ga=3,my=(12+(low?amp:-amp)).toFixed(2);
+ return `<span class="bar"><svg viewBox="0 0 104 24" preserveAspectRatio="none" aria-hidden="true">`+
+ `<path d="${wavePath(ga,low)}" fill="none" stroke="var(--tc)" stroke-width="1" opacity=".26"></path>`+
+ `<path d="${wavePath(amp,low)}" fill="none" stroke="var(--tc)" stroke-width="1.5" stroke-linejoin="round"></path>`+
+ `<line x1="41" y1="${my}" x2="41" y2="12" stroke="#E0A542" stroke-width="1" stroke-dasharray="2 2" opacity=".75"></line>`+
+ `<circle cx="41" cy="${my}" r="2.4" fill="#E0A542"></circle></svg>`+
+ `<span><b>${r.toFixed(1)} m</b> <span style="color:var(--ink-4)">${d>0?'+':''}${d.toFixed(1)} vs avg</span></span></span>`}
+
+const EV=[
+{m:'SEP',g:'dust',fc:1,dow:'WED',dn:'2',mo:'SEP',cd:'in 5 days',feat:1,
+ nm:'Saharan dust at its thickest',kd:'Forecast · peak',mx:'8/10',
+ why:'The heaviest plume of the twelve that have crossed since June, and it lands on a sunset rather than the middle of the day. Dust reddens the low sun and holds colour well after it has gone, at the cost of contrast on the horizon.',
+ facts:['<span class="k">load</span> <b>8/10</b> · <em>p97</em>','<span class="k">rarity</span> 2.8 + <span class="k">magnitude</span> 5.1 = <b>7.9 bits</b>','<span class="k">scope</span> all 4 regions'],
+ bar2:'The other <b>11 plumes</b> this summer scored 3.2–4.4 and stayed in the strip. <b>Dashed rule:</b> dust transport runs to about 5 days, so this can still move — unlike everything below it.',
+ act:'See the plan for 2 Sept →'},
+
+{m:'SEP',g:'sky',dow:'THU',dn:'3',mo:'SEP',cd:'in 6 days',
+ nm:'Noctilucent season closes',kd:'Almanac',mx:'6 nights',
+ facts:['<span class="k">left</span> <b>6 nights</b> of 62','<span class="k">window</span> 21:04–23:31 <em>NW</em>'],
+ act:'See the plan for 3 Sept →'},
+
+{m:'SEP',g:'tide',dow:'',dn:'10–15',mo:'SEP',run:1,cd:'in 13 days',pk:'biggest until November',feat:1,
+ nm:'Spring tide run',kd:'Almanac',
+ why:'The moon\'s alignment pulls the tide further out and further in than usual, so the foreshore is at its widest and the high water at its highest. <b>Stated once here</b> — the later runs are the same thing on other dates.',
+ facts:['BAR:5.1:1.9','<span class="k">biggest</span> <b>Sat 12 Sept</b>','<span class="k">alignment</span> HW 05:48 · <em>47m before sunrise</em>'],
+ act:'Show coastal spots for 12 Sept →'},
+
+{m:'SEP',g:'sun',dow:'TUE',dn:'22',mo:'SEP',cd:'in 25 days',feat:1,
+ nm:'Autumn equinox',kd:'Almanac',mx:'twice a year',
+ why:'The sun rises almost exactly due east and sets almost exactly due west. Valleys, streets and rivers that run east–west line up with it for a few days either side, and only twice a year.',
+ facts:['<span class="k">sunrise</span> <b>089°</b> · due east','<span class="k">sunset</span> <b>271°</b> · due west','<span class="k">aligned spots</span> <b>14</b> in reach'],
+ act:'See the plan for 22 Sept →'},
+
+{m:'SEP',g:'tide',dow:'',dn:'26 SEP',mo:'–1 OCT',run:1,cd:'in 29 days',
+ nm:'Spring tide run',kd:'Almanac',
+ facts:['BAR:5.0:1.7','<span class="k">biggest</span> <b>Mon 28 Sept</b>','<span class="k">alignment</span> HW 17:48 · <em>1h00 before sunset</em>','<span class="k">score</span> <b>7.2 bits</b>'],
+ act:'Show coastal spots for 28 Sept →'},
+
+{m:'OCT',g:'sky',dow:'WED',dn:'21',mo:'OCT',cd:'in 54 days',feat:1,
+ nm:'Orionids',kd:'Almanac',mx:'~20/hr',
+ why:'Around twenty meteors an hour at best under a dark sky, radiating from the south-east and best watched between 02:00 and 05:00. The moon is 76% lit that night, so expect only the brightest to show.',
+ facts:['<span class="k">radiant</span> <em>SE</em> · from 02:00','<span class="k">moon</span> <b>76%</b>','<span class="k">dark-sky spots</span> <b>9</b> in reach'],
+ act:'Show dark-sky spots →'},
+
+{m:'OCT',g:'tide',coin:1,dow:'',dn:'25–30',mo:'OCT',run:1,cd:'in 58 days',
+ nm:'Spring tide run, on a supermoon',kd:'Almanac',
+ lines:[['#6FA8B0','Spring tide run','biggest <b>Tue 27 Oct</b> · 4.9 m · HW 15:48'],['#C9A24B','Supermoon','<b>Mon 26 Oct</b> · moonrise 17:22']],
+ join:'Same cause, two effects — the moon is closest to Earth, which both enlarges it and stretches the tide. The tide peaks a day after the moon does. Scored as the maximum of the pair: <b>7.2 bits</b>.',
+ facts:['BAR:4.9:1.6','<span class="k">alignment</span> HW 15:48 · <em>52m before sunset</em>'],
+ act:'Show coastal spots for 27 Oct →'},
+
+{m:'NOV',g:'sky',dow:'TUE',dn:'17',mo:'NOV',cd:'in 81 days',
+ nm:'Leonids',kd:'Almanac',mx:'~15/hr',
+ facts:['<span class="k">moon</span> <b>4%</b> · <em>dark</em>','<span class="k">radiant</span> E · from 01:00'],
+ act:'Show dark-sky spots →'},
+
+{m:'NOV',g:'tide',coin:1,feat:1,dow:'',dn:'23–28',mo:'NOV',run:1,cd:'in 87 days',pk:'the pick of the quarter',
+ nm:'King tide, on a supermoon',kd:'Almanac',
+ lines:[['#6FA8B0','King tide run','biggest <b>Thu 26 Nov</b> · 5.2 m · HW 16:13'],['#C9A24B','Supermoon','<b>24–25 Nov</b> · closest of the year']],
+ join:'A spring tide falling near the moon\'s closest approach — the largest tidal range of the year. High water lands <b>26 minutes after sunset</b> on the 26th, which puts the biggest water of the year under the last colour of the day. One cause, so the pair scores as the <b>maximum</b> of the two, not the sum: <b>9.0 bits</b>.',
+ facts:['BAR:5.2:1.9','<span class="k">alignment</span> HW 16:13 · <em>26m after sunset</em>','<span class="k">coastal spots</span> <b>61</b> in reach'],
+ act:'Show coastal spots for 26 Nov →'}
+];
+
+const FILT=[['all','All',''],['tide','Coastal',C.tide],['sky','Night sky',C.sky],['sun','Sun & moon',C.sun],['dust','Air & dust',C.dust]];
+let cur='all',st='quiet';
+// the badge is not "what is in the tab" — it is "what entered the window that is rare for its own type".
+// nothing inside Plan's four days can badge: there is always something there.
+const FRESH={quiet:[],new:[8],rare:[5]};
+
+function match(e){return cur==='all'||(cur==='dust'?(e.g==='dust'||e.g==='air'):e.g===cur)}
+
+function render(){
+ const fresh=FRESH[st],rare=st==='rare';
+ const b=document.getElementById('bdg');
+ b.className=fresh.length?('bdg'+(rare?' rare':'')):'';
+ b.textContent=fresh.length?(rare?'◆':fresh.length):'';
+ document.getElementById('since').innerHTML=fresh.length?`<div class="since ${rare?'rare':''}">${rare
+  ?'<b>◆ 9.7 bits</b> — the Orionids peak entered the window, 21 Oct. Annual, so rarity alone carries it over the top contour.'
+  :'<b>1 announced</b> — the king tide on the November supermoon entered the window, 26 Nov. <span style="color:var(--ink-3)">9.0 bits</span>'}<button class="seen">Mark seen</button></div>`:'';
+ const list=EV.filter(match);
+ let h='',lastM='';
+ list.forEach(e=>{
+  if(e.m!==lastM){lastM=e.m;h+=`<div class="mr"><span class="mm">${e.m}</span><span class="my">2026</span><span class="rl"></span></div>`}
+  const tc=C[e.g];
+  const facts=(e.facts||[]).map(f=>f.startsWith('BAR:')?`<span class="fact">${bar(+f.split(':')[1],+f.split(':')[2],f.split(':')[3]==='LW')}</span>`:`<span class="fact">${f}</span>`).join('');
+  const body=e.coin
+   ? `<div class="coin">${e.lines.map(l=>`<span class="cl" style="--sc:${l[0]}"><span class="sw"></span><span class="cn">${l[1]}</span><span class="cf">${l[2]}</span></span>`).join('')}</div><div class="join">${e.join}</div>`
+   : (e.why?`<div class="why">${e.why}</div>`:'');
+  h+=`<div class="ent ${e.feat?'feat':''}">
+   <div class="rail"><span class="dbox">${e.dow?`<span class="dow">${e.dow}</span>`:''}<span class="dn ${e.run?'run':''}">${e.dn}</span><span class="mo">${e.mo}</span></span><span class="cd">${e.cd}</span></div>
+   <div class="card ${e.fc?'fc':''} ${e.now?'now':''} ${e.faint?'faint':''} ${fresh.includes(EV.indexOf(e))?'fresh':''}" style="--tc:${tc}">
+    <div class="ttl"><span class="nm">${e.nm}</span>${fresh.includes(EV.indexOf(e))?'<span class="nw">new</span>':''}<span class="kd">${e.kd}</span>${e.pk?`<span class="pk">${e.pk}</span>`:''}${e.mx?`<span class="mx">${e.mx}</span>`:''}</div>
+    ${body}
+    <div class="facts">${facts}</div>
+    ${e.bar2?`<div class="why2">${e.bar2}</div>`:''}
+    <div class="act">${e.act}</div>
+   </div></div>`;
+ });
+ document.getElementById('tl').innerHTML=h;
+ const sb=document.querySelector('.seen');if(sb)sb.onclick=()=>{st='quiet';document.querySelectorAll('.demobar button[data-s]').forEach(x=>x.classList.toggle('on',x.dataset.s==='quiet'));render()};
+ const nf=EV.filter(e=>e.fc).length,na=EV.length-nf;
+ document.getElementById('foot').innerHTML=`<b>This list starts where Plan stops.</b> Two things earn a row: a date fixed by orbital mechanics, and the forecast peak of a standing condition. <b>${na}</b> here are fixed — as certain three months out as they are tonight — and carry a solid left rule. <b>${nf}</b> is a forecast peak on a dashed rule and can still move; horizons differ by topic, from three days for cloud to about five for dust transport. Routine occurrences of the conditions above are never listed, only opened.`;
+}
+document.getElementById('conds').innerHTML=`<div class="conds"><div class="condh"><span class="t">Standing conditions</span><span class="d">frequent · never announced · always one click away</span></div>`+
+ COND.map((c,i)=>`<div class="cond" data-i="${i}" style="--tc:${C[c.g]}"><span class="sw2"></span><span class="cn2">${c.n}<span class="kn">${c.kind}</span></span><span class="rn">${c.run}</span><span class="pk2"><span class="k">peak</span>${c.pk} · <b>${c.pv}</b><span class="cx">▾</span></span><span class="qn">${c.q}</span></div>`+
+ `<div class="occ" id="occ${i}" style="--tc:${C[c.g]}" hidden><span class="oh">every occurrence in the window · ${c.occ.filter(o=>!o[3]).length} held back, ${c.occ.filter(o=>o[3]===1).length} in the list${c.occ.filter(o=>o[3]===2).length?', '+c.occ.filter(o=>o[3]===2).length+' inside Plan':''}</span>`+
+ c.occ.map(o=>`<span class="oc ${o[3]===1?'up':''} ${o[3]===2?'pl':''}"><span class="od">${o[0]}</span><span class="ov">${o[1]}</span><span class="ob">${o[2].toFixed(1)} bits</span><span class="om">${o[4]||''}</span><span class="os">${o[3]===1?'in the list →':o[3]===2?'inside Plan’s four days →':'held back'}</span></span>`).join('')+`</div>`).join('')+`</div>`;
+document.getElementById('conds').onclick=e=>{const r=e.target.closest('.cond');if(!r)return;
+ const p=document.getElementById('occ'+r.dataset.i);p.hidden=!p.hidden;r.classList.toggle('open',!p.hidden)};
+document.getElementById('chips').innerHTML=FILT.map(f=>{
+ const n=f[0]==='all'?EV.length:EV.filter(e=>f[0]==='dust'?(e.g==='dust'||e.g==='air'):e.g===f[0]).length;
+ return `<button class="chip ${f[0]===cur?'on':''}" data-f="${f[0]}" ${f[2]?`style="--cc:${f[2]}"`:''}>${f[2]?'<span class="dt2"></span>':''}${f[1]}<span class="n">${n}</span></button>`}).join('');
+document.getElementById('chips').onclick=e=>{const b=e.target.closest('.chip');if(!b)return;cur=b.dataset.f;
+ document.querySelectorAll('.chip').forEach(c=>c.classList.toggle('on',c.dataset.f===cur));render()};
+document.querySelectorAll('.demobar')[0].onclick=e=>{const b=e.target.closest('button[data-w]');if(!b)return;
+ document.querySelectorAll('.demobar button[data-w]').forEach(x=>x.classList.toggle('on',x===b));
+ document.getElementById('wrap').className='wrap'+(b.dataset.w?' '+b.dataset.w:'')};
+document.querySelectorAll('.demobar')[1].onclick=e=>{const b=e.target.closest('button[data-s]');if(!b)return;
+ document.querySelectorAll('.demobar button[data-s]').forEach(x=>x.classList.toggle('on',x===b));st=b.dataset.s;render()};
+render();
+</script>
+</body>
+</html>
