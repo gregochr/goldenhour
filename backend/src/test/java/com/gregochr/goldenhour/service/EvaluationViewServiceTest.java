@@ -1199,11 +1199,22 @@ class EvaluationViewServiceTest {
                     .thenReturn(List.of(row));
         }
 
+        /**
+         * ⚠️ Stamps the write time on BOTH the per-location result and the region entry.
+         *
+         * <p>Every production write path stamps the per-location field, so an entry carrying only
+         * a region stamp is a <em>legacy</em> row, not a live one — and while this helper built the
+         * 5-arg (stampless) shape, every test below was pinning the tie rule and the BST conversion
+         * on the fallback branch alone. Setting both keeps each assertion below saying exactly what
+         * it said before, on the branch production actually takes. The legacy branch keeps its own
+         * fixture in {@code TriageRatchet}.
+         */
         private void cachedRatingAt(int rating, Instant writtenAt) {
             when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
             when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNRISE))
                     .thenReturn(Map.of("Bamburgh",
-                            new BriefingEvaluationResult("Bamburgh", rating, 80, 70, "Worth it")));
+                            new BriefingEvaluationResult("Bamburgh", rating, 80, 70, "Worth it",
+                                    null, null, null, writtenAt)));
             when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNRISE))
                     .thenReturn(Optional.ofNullable(writtenAt));
         }
@@ -1353,17 +1364,276 @@ class EvaluationViewServiceTest {
     }
 
     @Nested
+    @DisplayName("The triage ratchet — a retained rating must not inherit the region's write time")
+    class TriageRatchet {
+
+        // The production shape, confirmed 2026-08-28. Two locations 11 km apart share one region
+        // cache entry. The 01:22 overnight batch scored both. At 14:04 the briefing cycle's triage
+        // read 84% low cloud at the first one's solar horizon and stood the slot down, which
+        // EXCLUDED it from the 14:04 batch; the second passed triage, was in that batch, and was
+        // re-scored. The 14:09 merge retained the first location's entry untouched — documented
+        // design, since no path deletes individual rows — and moved the REGION stamp to 14:09, past
+        // the 14:04 stand-down that had just excluded it.
+        //
+        // Gated on the region stamp, the retained rating therefore outranked its own contradiction,
+        // and the worse the weather got the more firmly it held: only a fresh evaluation could
+        // overwrite it, and only passing triage produced one. Bamburgh plays the stood-down
+        // location here, Sandsend the re-scored one.
+        //
+        // 23 April is BST, so a LONDON-naive 15:04 forecast_run_at is 14:04Z.
+        private static final Instant OVERNIGHT_BATCH = Instant.parse("2026-04-23T01:22:00Z");
+        private static final LocalDateTime OVERNIGHT_TRIAGE = LocalDateTime.of(2026, 4, 23, 2, 5);
+        private static final LocalDateTime AFTERNOON_TRIAGE = LocalDateTime.of(2026, 4, 23, 15, 4);
+        private static final Instant AFTERNOON_MERGE = Instant.parse("2026-04-23T14:09:00Z");
+
+        private static final String KEY = REGION_NAME + "|" + DATE + "|" + SUNSET;
+
+        /**
+         * The region entry exactly as the 14:09 merge left it: Bamburgh's overnight 4 retained with
+         * its own 01:22 stamp, Sandsend re-scored to 2 and stamped 14:09, and the region-level
+         * stamp at 14:09 for both.
+         */
+        private void regionEntryAfterPartialRefresh() {
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh, sandsend));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNSET))
+                    .thenReturn(Map.of(
+                            "Bamburgh", new BriefingEvaluationResult("Bamburgh", 4, 58, 52,
+                                    "Solar horizon opens to 57%", null, null,
+                                    "Fiery skies at dusk", OVERNIGHT_BATCH),
+                            "Sandsend", new BriefingEvaluationResult("Sandsend", 2, 20, 18,
+                                    "A wall of low cloud, no light penetration", null, null,
+                                    "Low cloud shuts the door", AFTERNOON_MERGE)));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNSET))
+                    .thenReturn(Optional.of(AFTERNOON_MERGE));
+        }
+
+        /**
+         * The latest row for each location. Bamburgh's is this afternoon's stand-down. Sandsend's
+         * is an OVERNIGHT stand-down, superseded by the 14:09 evaluation that is now in the cache.
+         *
+         * <p>⚠️ Both rows must carry a triage reason, and an earlier draft gave Sandsend a bare
+         * row instead. That was realistic — a <em>passing</em> triage writes no row at all, since
+         * both {@code repository.save} calls in {@code ForecastService.fetchWeatherAndTriage} sit
+         * inside an {@code isPresent()} branch — but it made the neighbour assertion decoration:
+         * {@code cachedWins} short-circuits on {@code || !hasSomethingToSay(forecastRow)}, so
+         * Sandsend won without the freshness comparison being consulted at all, and every mutation
+         * of the stamp resolution left it green.
+         */
+        private void triageRowsLatestPerLocation() {
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            1L, DATE, SUNSET))
+                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
+                            .triage(new TriageDetails(TriageReason.HIGH_CLOUD,
+                                    "Low cloud 84% at the solar horizon — sun blocked"))
+                            .forecastRunAt(AFTERNOON_TRIAGE)
+                            .build()));
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            2L, DATE, SUNSET))
+                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
+                            .triage(new TriageDetails(TriageReason.HIGH_CLOUD,
+                                    "Low cloud 91% overnight — sun blocked"))
+                            .forecastRunAt(OVERNIGHT_TRIAGE)
+                            .build()));
+        }
+
+        @Test
+        @DisplayName("The retained rating loses to the stand-down that excluded it — the ratchet")
+        void retainedRatingLosesToTheStandDownThatExcludedIt() {
+            regionEntryAfterPartialRefresh();
+            triageRowsLatestPerLocation();
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNSET).getFirst();
+
+            assertThat(v.locationName()).isEqualTo("Bamburgh");
+            assertThat(v.source()).isEqualTo(Source.FORECAST_EVALUATION_TRIAGE);
+            assertThat(v.rating()).isNull();
+            assertThat(v.triageReason()).isEqualTo(TriageReason.HIGH_CLOUD);
+        }
+
+        @Test
+        @DisplayName("...while its re-scored neighbour in the SAME entry keeps its rating")
+        void theRefreshedNeighbourInTheSameEntryIsUntouched() {
+            // The pair, and the objection to check first: reading the per-location stamp must not
+            // become a way to blank every cached rating in a region one location was stood down in.
+            //
+            // What this pins that the two single-location tests cannot: BOTH outcomes are reached
+            // from ONE region entry in ONE call, so the gate is proved to resolve per LOCATION. A
+            // mutant that decided once per cache key — the shape the region stamp invites — passes
+            // every other test in this class and fails here. Sandsend's own stand-down is the
+            // overnight one its 14:09 evaluation superseded, so it wins on the freshness comparison
+            // itself rather than by having nothing to argue with.
+            regionEntryAfterPartialRefresh();
+            triageRowsLatestPerLocation();
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNSET).get(1);
+
+            assertThat(v.locationName()).isEqualTo("Sandsend");
+            assertThat(v.source()).isEqualTo(Source.CACHED_EVALUATION);
+            assertThat(v.rating()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("A per-location stamp NEWER than a triage row still wins — not a lose-always rule")
+        void aNewerPerLocationStampStillBeatsATriageRow() {
+            // The other edge of the same comparison. Here the region stamp is the misleading one in
+            // the opposite direction — older than the row — and the location's own write is newer,
+            // so the cache must win. Without this the change could pass every test above by simply
+            // preferring the forecast row whenever the two stamps differ.
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNSET))
+                    .thenReturn(Map.of("Bamburgh", new BriefingEvaluationResult(
+                            "Bamburgh", 3, 40, 35, "Thin strip may light up",
+                            null, null, null, AFTERNOON_MERGE)));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNSET))
+                    .thenReturn(Optional.of(OVERNIGHT_BATCH));
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            1L, DATE, SUNSET))
+                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
+                            .triage(new TriageDetails(TriageReason.HIGH_CLOUD, "84% low cloud"))
+                            .forecastRunAt(AFTERNOON_TRIAGE)
+                            .build()));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNSET).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.CACHED_EVALUATION);
+            assertThat(v.rating()).isEqualTo(3);
+        }
+
+        @Test
+        @DisplayName("A legacy entry with no per-location stamp falls back to the region stamp")
+        void legacyEntryWithoutAPerLocationStampFallsBackToTheRegionStamp() {
+            // Results cached before the field existed carry no write time of their own, so they get
+            // the answer they have always had rather than a newly invented one.
+            //
+            // ⚠️ The region stamp here is OLDER than the row, so the cache must LOSE — and that
+            // direction is the whole test. Written the other way round, with a region stamp newer
+            // than the row, "consult the fallback" and "treat a null as unknown and keep the cache"
+            // return the same answer, so deleting the fallback outright would leave it green.
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNSET))
+                    .thenReturn(Map.of("Bamburgh",
+                            new BriefingEvaluationResult("Bamburgh", 4, 58, 52, "Legacy entry")));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNSET))
+                    .thenReturn(Optional.of(OVERNIGHT_BATCH));
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            1L, DATE, SUNSET))
+                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
+                            .triage(new TriageDetails(TriageReason.HIGH_CLOUD, "84% low cloud"))
+                            .forecastRunAt(AFTERNOON_TRIAGE)
+                            .build()));
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNSET).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.FORECAST_EVALUATION_TRIAGE);
+            assertThat(v.rating()).isNull();
+        }
+
+        @Test
+        @DisplayName("A winning cached view reports ITS OWN write time, not the region's")
+        void aWinningCachedViewReportsItsOwnWriteTime() {
+            // The view's evaluatedAt is served as `forecastRunAt` on the map DTO — the "generated
+            // at" a reader judges the forecast's age by. Carrying the region stamp told them a
+            // location was scored at whatever time some other location's batch happened to land,
+            // and it would now differ from the instant the gate above actually compared.
+            when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
+            when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNSET))
+                    .thenReturn(Map.of("Bamburgh", new BriefingEvaluationResult(
+                            "Bamburgh", 4, 58, 52, "Solar horizon opens to 57%",
+                            null, null, null, OVERNIGHT_BATCH)));
+            when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNSET))
+                    .thenReturn(Optional.of(AFTERNOON_MERGE));
+            when(forecastEvaluationRepository
+                    .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                            1L, DATE, SUNSET))
+                    .thenReturn(Optional.empty());
+
+            LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNSET).getFirst();
+
+            assertThat(v.source()).isEqualTo(Source.CACHED_EVALUATION);
+            assertThat(v.evaluatedAt()).isEqualTo(OVERNIGHT_BATCH).isNotEqualTo(AFTERNOON_MERGE);
+        }
+
+        /**
+         * The same two latest rows in the bulk query shape the enrichment paths use.
+         *
+         * <p>Sandsend's row carries a reason here for the same reason it does on the view path: a
+         * row with nothing to say makes {@code toEnrichmentResult} return null, and both enrichment
+         * paths then leave the cached entry in place — via {@code putIfAbsent} on the per-region
+         * path and via the pre-seeded region map on the bulk one — so its rating would survive
+         * whatever the gate decided.
+         */
+        private void triageRowsForEnrichment() {
+            when(forecastEvaluationRepository
+                    .findLatestRunPerSlotByLocationIds(anyCollection(), eq(DATE), eq(DATE)))
+                    .thenReturn(List.of(
+                            ForecastEvaluationEntity.builder()
+                                    .location(bamburgh).targetDate(DATE).targetType(SUNSET)
+                                    .triage(new TriageDetails(TriageReason.HIGH_CLOUD,
+                                            "Low cloud 84% at the solar horizon — sun blocked"))
+                                    .forecastRunAt(AFTERNOON_TRIAGE)
+                                    .build(),
+                            ForecastEvaluationEntity.builder()
+                                    .location(sandsend).targetDate(DATE).targetType(SUNSET)
+                                    .triage(new TriageDetails(TriageReason.HIGH_CLOUD,
+                                            "Low cloud 91% overnight — sun blocked"))
+                                    .forecastRunAt(OVERNIGHT_TRIAGE)
+                                    .build()));
+        }
+
+        @Test
+        @DisplayName("The briefing payload retracts it too — one rule, not one surface")
+        void theBriefingPayloadRetractsItToo() {
+            // The Plan tab reads through the enrichment path, the map through the view path. Fixing
+            // one and not the other is how this merge came to run under three different rules once
+            // before (PR #405) — the same location reading 4 on one panel and 2 on another.
+            regionEntryAfterPartialRefresh();
+            triageRowsForEnrichment();
+
+            Map<String, BriefingEvaluationResult> result =
+                    service.getScoresForEnrichment(REGION_NAME, DATE, SUNSET);
+
+            assertThat(result.get("Bamburgh").rating()).isNull();
+            assertThat(result.get("Bamburgh").triageReason()).isEqualTo(TriageReason.HIGH_CLOUD);
+            assertThat(result.get("Sandsend").rating()).isEqualTo(2);
+        }
+
+        @Test
+        @DisplayName("...and so does the BULK serve path a re-served briefing actually uses")
+        void theBulkServePathRetractsItToo() {
+            regionEntryAfterPartialRefresh();
+            triageRowsForEnrichment();
+
+            Map<String, Map<String, BriefingEvaluationResult>> index =
+                    service.getScoresForEnrichmentBulk(DATE, DATE, Set.of(SUNSET));
+
+            assertThat(index.get(KEY).get("Bamburgh").rating()).isNull();
+            assertThat(index.get(KEY).get("Bamburgh").triageReason())
+                    .isEqualTo(TriageReason.HIGH_CLOUD);
+            assertThat(index.get(KEY).get("Sandsend").rating()).isEqualTo(2);
+        }
+    }
+
+    @Nested
     @DisplayName("Enrichment freshness gate — the briefing payload obeys the same rule as the view")
     class EnrichmentFreshness {
 
         private static final String KEY = REGION_NAME + "|" + DATE + "|" + SUNSET;
 
-        /** A cached rating for Bamburgh written at the given instant. */
+        /**
+         * A cached rating for Bamburgh written at the given instant, stamped on BOTH the
+         * per-location result and the region entry — see the twin helper in {@code MergeFreshness}
+         * for why the per-location one is not optional.
+         */
         private void cachedRatingAt(int rating, Instant writtenAt) {
             when(locationService.findAllEnabled()).thenReturn(List.of(bamburgh));
             when(briefingEvaluationService.getCachedScores(REGION_NAME, DATE, SUNSET))
                     .thenReturn(Map.of("Bamburgh",
-                            new BriefingEvaluationResult("Bamburgh", rating, 80, 70, "Worth it")));
+                            new BriefingEvaluationResult("Bamburgh", rating, 80, 70, "Worth it",
+                                    null, null, null, writtenAt)));
             when(briefingEvaluationService.getCachedEvaluatedAt(REGION_NAME, DATE, SUNSET))
                     .thenReturn(Optional.ofNullable(writtenAt));
         }
