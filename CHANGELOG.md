@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — status SSE stream computes the health tree once per interval, not once per client
+
+`StatusController` gave every connected `/api/status/stream` client its own periodic task, each
+recomputing the full actuator health tree — including live external probes (Open-Meteo,
+WorldTides, Claude) — on the single platform thread backing the shared scheduler. With N clients
+that was N full evaluations every 30 seconds instead of one; at high connection counts the
+scheduler falls permanently behind and every client's status goes stale.
+
+`broadcastStatus()` now evaluates one shared `StatusSnapshot` per interval and merges each
+client's own `SessionInfo` onto it before sending — health computation is decoupled from session
+data, so per-client fields never trigger a re-evaluation. The broadcast task itself is started
+lazily on first connection and shared by all subsequent clients, rather than one task per
+`stream()` call. Per-emitter failure isolation is unchanged: a failed send still calls
+`completeWithError` on just that emitter, and the existing `onCompletion`/`onTimeout`/`onError`
+cleanup removes only that client without affecting the broadcast loop for the rest.
+
+No change to the payload, the push interval, or per-emitter cleanup behaviour. Mutation-checked:
+reverting to a per-emitter `computeSnapshot()` call inside the broadcast loop fails the new
+"one evaluation per interval" test.
+
 ## [v2.19.4] - 2026-08-28
 
 ### Changed — Open-Meteo acquisition extracted from BriefingService into BriefingWeatherLoader
