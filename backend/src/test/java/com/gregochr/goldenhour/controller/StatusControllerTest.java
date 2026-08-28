@@ -6,7 +6,9 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.mockito.MockedConstruction;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.boot.health.actuate.endpoint.CompositeHealthDescriptor;
 import org.springframework.boot.health.actuate.endpoint.HealthDescriptor;
@@ -18,13 +20,24 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.clearInvocations;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockConstruction;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -212,6 +225,129 @@ class StatusControllerTest {
             SseEmitter emitter = controller.stream(auth, request);
 
             assertThat(emitter).isNotNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("broadcastStatus")
+    class BroadcastTests {
+
+        @Test
+        @DisplayName("One health evaluation per interval, broadcast to every connected emitter")
+        void oneEvaluationBroadcastToAllEmitters() throws IOException {
+            HealthDescriptor root = compositeOf(Map.of());
+            when(healthEndpoint.health()).thenReturn(root);
+
+            StatusController controller = new StatusController(healthEndpoint, null, null);
+            jakarta.servlet.http.HttpServletRequest request =
+                    mock(jakarta.servlet.http.HttpServletRequest.class);
+
+            int clientCount = 12;
+            try (MockedConstruction<SseEmitter> mocked = mockConstruction(SseEmitter.class)) {
+                for (int i = 0; i < clientCount; i++) {
+                    controller.stream(mockAuth("user" + i, "ROLE_PRO_USER"), request);
+                }
+                assertThat(mocked.constructed()).hasSize(clientCount);
+
+                // Each connection's own initial push already called health() once; isolate the
+                // broadcast cycle under test.
+                clearInvocations(healthEndpoint);
+
+                controller.broadcastStatus();
+
+                verify(healthEndpoint, times(1)).health();
+                for (SseEmitter emitter : mocked.constructed()) {
+                    // 1 initial connect send + 1 broadcast send.
+                    verify(emitter, times(2)).send(any(SseEmitter.SseEventBuilder.class));
+                }
+            }
+        }
+
+        @Test
+        @DisplayName("A throwing health evaluation does not kill the recurring broadcast")
+        void throwingHealthEvaluation_doesNotCancelFutureIntervals() throws Exception {
+            // The regression this guards: broadcastStatus is the body of a scheduleAtFixedRate
+            // task on a RAW JDK executor, where one uncaught exception cancels every future
+            // execution — and broadcastTask stays non-null, so no later connection starts a
+            // replacement. Every client would then hold its last status for the life of the
+            // process. Per-emitter tasks each had their own guard; sharing the computation
+            // shared the failure with it.
+            jakarta.servlet.http.HttpServletRequest request =
+                    mock(jakarta.servlet.http.HttpServletRequest.class);
+            HealthDescriptor root = compositeOf(Map.of());
+            when(healthEndpoint.health()).thenReturn(root);
+
+            StatusController controller = new StatusController(healthEndpoint, null, null);
+
+            try (MockedConstruction<SseEmitter> mocked = mockConstruction(SseEmitter.class)) {
+                controller.stream(mockAuth("user", "ROLE_PRO_USER"), request);
+                clearInvocations(healthEndpoint);
+
+                // Interval 1: the health tree blows up. This must not propagate — if it does,
+                // the real scheduler silently stops calling this method forever.
+                // doThrow/doReturn, not when(...): when(healthEndpoint.health()) CALLS health(),
+                // which by the second stubbing is already set to throw — the trap would fire in
+                // the stubbing line rather than in the code under test.
+                doThrow(new IllegalStateException("probe down")).when(healthEndpoint).health();
+                assertThatCode(controller::broadcastStatus).doesNotThrowAnyException();
+
+                // Interval 2: recovery. The client receives again, which is only possible
+                // because interval 1 was contained rather than fatal.
+                doReturn(root).when(healthEndpoint).health();
+                controller.broadcastStatus();
+
+                SseEmitter emitter = mocked.constructed().get(0);
+                // 1 initial connect send + 0 for the failed interval + 1 for the recovered one.
+                verify(emitter, times(2)).send(any(SseEmitter.SseEventBuilder.class));
+            }
+        }
+
+        @Test
+        @DisplayName("A failing send removes only that emitter; other emitters keep receiving")
+        void failingSendIsolatesOnlyThatEmitter() throws IOException {
+            HealthDescriptor root = compositeOf(Map.of());
+            when(healthEndpoint.health()).thenReturn(root);
+
+            StatusController controller = new StatusController(healthEndpoint, null, null);
+            jakarta.servlet.http.HttpServletRequest request =
+                    mock(jakarta.servlet.http.HttpServletRequest.class);
+
+            try (MockedConstruction<SseEmitter> mocked = mockConstruction(SseEmitter.class)) {
+                controller.stream(mockAuth("good1", "ROLE_PRO_USER"), request);
+                controller.stream(mockAuth("bad", "ROLE_PRO_USER"), request);
+                controller.stream(mockAuth("good2", "ROLE_PRO_USER"), request);
+
+                List<SseEmitter> constructed = mocked.constructed();
+                SseEmitter good1 = constructed.get(0);
+                SseEmitter bad = constructed.get(1);
+                SseEmitter good2 = constructed.get(2);
+
+                // Wire the mock to behave like the real SseEmitter contract: completeWithError
+                // invokes the callback registered via onError, which is what actually runs
+                // StatusController's cleanup().
+                @SuppressWarnings("unchecked")
+                ArgumentCaptor<Consumer<Throwable>> errorCaptor = ArgumentCaptor.forClass(Consumer.class);
+                verify(bad).onError(errorCaptor.capture());
+                Consumer<Throwable> registeredCleanup = errorCaptor.getValue();
+                doAnswer(invocation -> {
+                    registeredCleanup.accept(invocation.getArgument(0));
+                    return null;
+                }).when(bad).completeWithError(any());
+
+                doThrow(new IOException("broken pipe"))
+                        .when(bad).send(any(SseEmitter.SseEventBuilder.class));
+
+                controller.broadcastStatus();
+                controller.broadcastStatus();
+
+                // good1/good2: 1 initial connect send + 2 broadcast sends.
+                verify(good1, times(3)).send(any(SseEmitter.SseEventBuilder.class));
+                verify(good2, times(3)).send(any(SseEmitter.SseEventBuilder.class));
+                // bad: 1 initial connect send + 1 broadcast send that throws, then it is removed
+                // and not pushed to again on the second broadcast.
+                verify(bad, times(2)).send(any(SseEmitter.SseEventBuilder.class));
+                verify(bad, times(1)).completeWithError(any());
+            }
         }
     }
 
