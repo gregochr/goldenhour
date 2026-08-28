@@ -261,6 +261,14 @@ public class ForecastController {
      * (#655). The role-aware mapper call is kept deliberately: it costs nothing while the
      * caller is always ADMIN, and stays correct if the gate is ever relaxed.
      *
+     * <p>Unlike {@link #getForecasts}, this admin surface deliberately does NOT exclude
+     * {@code PENDING} rows (prompted-row persistence plan, R1) — it shows every run, three-state
+     * ({@code PENDING}/{@code SCORED}/{@code ABANDONED}) rows included, because that is the point
+     * of a "how did this rating evolve across runs" tool. A row's rating can arrive after its
+     * {@code forecastRunAt} for a batch-scored slot: {@code forecastRunAt} is submit time, not
+     * result time (R5 never bumps it), so a PENDING row briefly shows no rating at its own
+     * timestamp before the batch result lands and updates it in place.
+     *
      * @param from     start of the date range (inclusive), ISO format {@code yyyy-MM-dd}
      * @param to       end of the date range (inclusive), ISO format {@code yyyy-MM-dd}
      * @param location optional location name filter
@@ -490,6 +498,11 @@ public class ForecastController {
      * per-run history it exposes is an admin question ("how did this slot's rating evolve"),
      * not part of the LITE/PRO forecast product, whose surfaces show only the latest run per
      * slot. The role-aware mapper call is kept for the same defence-in-depth reason.
+     *
+     * <p>Like {@link #getHistory}, deliberately includes {@code PENDING} rows (R1) — the compare
+     * timeline plots submit-time timestamps, so a batch-scored point's rating can be populated
+     * after its own {@code forecastRunAt} on the x-axis, once the batch result lands and R5
+     * scores it in place.
      *
      * @param location   the configured location name
      * @param date       the target date, ISO format {@code yyyy-MM-dd}

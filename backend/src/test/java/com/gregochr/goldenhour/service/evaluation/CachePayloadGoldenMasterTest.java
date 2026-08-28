@@ -117,6 +117,9 @@ class CachePayloadGoldenMasterTest {
     private ForecastDataAugmentor forecastDataAugmentor;
     @Mock
     private ForecastScoreWriter forecastScoreWriter;
+    @Mock
+    private com.gregochr.goldenhour.repository.ForecastEvaluationRepository
+            forecastEvaluationRepository;
 
     /**
      * Parser handle the handler passes to the (stubbed) parser. A real Jackson-3 mapper rather
@@ -257,7 +260,8 @@ class CachePayloadGoldenMasterTest {
                 briefingEvaluationService,
                 jobRunService, parserHandle,
                 new RatingCombiner(List.of(new SkyVisitor(), new TideVisitor())),
-                forecastDataAugmentor, forecastScoreWriter, parser);
+                forecastDataAugmentor, forecastScoreWriter, parser,
+                forecastEvaluationRepository);
 
         String customId = "fc-" + location.getId() + "-2026-06-21-SUNSET";
         String rawText = "{\"injected-by-stub\":true}";
@@ -266,7 +270,7 @@ class CachePayloadGoldenMasterTest {
         when(parser.parseEvaluationWithMetadata(eq(rawText), eq(parserHandle)))
                 .thenReturn(new SunsetEvaluationParser.ParseResult(eval, false));
 
-        ForecastIdentity identity = new ForecastIdentity(location.getId(), DATE, SUNSET);
+        ForecastIdentity identity = new ForecastIdentity(location.getId(), DATE, SUNSET, null);
         Optional<BatchSuccess> parsed = handler.parseBatchResponse(
                 location, identity, outcome,
                 ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));

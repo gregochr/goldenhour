@@ -155,7 +155,7 @@ public class BatchRetryService {
             }
             if (parsed instanceof ParsedCustomId.Forecast f) {
                 byCustomId.put(customId, new RetrySelection.RetryFailure(
-                        customId, f.locationId(), f.date(), f.targetType()));
+                        customId, f.locationId(), f.date(), f.targetType(), f.evalRowId()));
             } else {
                 LOG.warn("RETRY_FAILED: dropping non-forecast failed custom_id '{}' "
                         + "(pipelineRunId={})", customId, pipelineRunId);
@@ -235,6 +235,13 @@ public class BatchRetryService {
     /**
      * Reconstructs a single failed request, or returns {@code null} if it cannot be
      * rebuilt (location gone, or assembly triaged it away, or any assembly error).
+     *
+     * <p>R6: the retry re-fetches weather, so its rating belongs to a NEW pending row — never
+     * stapled onto the precursor's now-stale snapshot. A new row is persisted only once we know
+     * this retry will actually be submitted (i.e. past the triage/null-data check below); a slot
+     * that triages away on retry adds its own triage row via {@code fetchWeatherAndTriage} and
+     * leaves the precursor for the R7 backstop sweep, exactly as the "cannot be reconstructed"
+     * case already did before this change.
      */
     private EvaluationTask.Forecast reconstruct(RetrySelection.RetryFailure failure) {
         try {
@@ -253,9 +260,18 @@ public class BatchRetryService {
                         + "— stays failed", failure.customId(), pre.triaged());
                 return null;
             }
+            Long newRowId = forecastService.persistPendingEvaluation(pre);
+            if (failure.precursorRowId() != null) {
+                forecastService.markAbandoned(failure.precursorRowId());
+            } else {
+                LOG.info("RETRY_FAILED: precursor custom_id '{}' carries no embedded row id "
+                        + "(pre-deploy format) — cannot stamp the precursor ABANDONED here; "
+                        + "the R7 backstop sweep will close it out", failure.customId());
+            }
             return new EvaluationTask.Forecast(location, failure.date(), failure.targetType(),
                     model, pre.atmosphericData(),
-                    EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                    EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
+                    EvaluationTask.Forecast.PromptKind.SKY, newRowId);
         } catch (Exception e) {
             LOG.warn("RETRY_FAILED: could not reconstruct request {} — stays failed: {}",
                     failure.customId(), e.getMessage());

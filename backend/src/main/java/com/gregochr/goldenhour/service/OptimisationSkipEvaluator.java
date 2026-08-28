@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -102,7 +103,8 @@ public class OptimisationSkipEvaluator {
         if (needsLatest) {
             latest = forecastRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            locationId, targetDate, targetType);
+                            locationId, targetDate, targetType, PageRequest.of(0, 1))
+                    .stream().findFirst();
         }
 
         // 2. FORCE_IMMINENT — if target date is today, never skip. UK civil date, because that is
@@ -130,6 +132,11 @@ public class OptimisationSkipEvaluator {
         }
 
         // 4. SKIP_EXISTING — skip if any forecast exists
+        // ⚠️ Dormant only (all sync call sites pass manual=true — see the class javadoc). If this
+        // is ever revived, `existing` must ignore PENDING rows: a batch row submitted but not yet
+        // scored is not evidence the slot has been evaluated (prompted-row persistence plan, R1's
+        // ripple census). findByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtAsc does
+        // NOT exclude PENDING today — unlike the sibling findTopBy...Desc query above, which does.
         if (activeTypes.contains(OptimisationStrategyType.SKIP_EXISTING)) {
             List<ForecastEvaluationEntity> existing = forecastRepository
                     .findByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(

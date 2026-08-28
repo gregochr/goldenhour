@@ -139,9 +139,16 @@ public class ForceSubmitBatchService {
                             continue;
                         }
 
+                        // R4: a JFDI submit of a previously-triaged slot gets a pending row
+                        // too. fetchWeatherAndTriage returns a TRIAGED preEval WITH its data (and
+                        // has already saved the triage row), so a triaged slot reaches this line:
+                        // the triage row records the stand-down, this row records the override.
+                        // `data == null` above means the weather fetch failed, not triage.
+                        Long evalRowId = forecastService.persistPendingEvaluation(preEval);
                         tasks.add(new EvaluationTask.Forecast(
                                 location, date, event, model, data,
-                                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE));
+                                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
+                                EvaluationTask.Forecast.PromptKind.SKY, evalRowId));
                     } catch (Exception e) {
                         LOG.warn("[JFDI BATCH] Failed data assembly for {} {} {}: {}",
                                 location.getName(), date, event, e.getMessage());
@@ -210,9 +217,13 @@ public class ForceSubmitBatchService {
                     continue;
                 }
 
+                // R4: same as JFDI above — a force-submit of a previously-triaged slot gets a
+                // pending row too.
+                Long evalRowId = forecastService.persistPendingEvaluation(preEval);
                 tasks.add(new EvaluationTask.Forecast(
                         location, date, event, model, data,
-                        EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE));
+                        EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
+                        EvaluationTask.Forecast.PromptKind.SKY, evalRowId));
                 LOG.info("[FORCE BATCH] INCLUDE {} | date={} event={}",
                         location.getName(), date, event);
 

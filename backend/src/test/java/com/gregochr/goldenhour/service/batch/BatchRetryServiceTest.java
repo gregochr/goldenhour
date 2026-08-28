@@ -252,10 +252,12 @@ class BatchRetryServiceTest {
                 .thenReturn(List.of());
         when(evaluationService.submit(anyList(), eq(BatchTriggerSource.RETRY), eq(RUN_ID), eq(true)))
                 .thenReturn(new EvaluationHandle(5L, "msgbatch_retry", 1));
+        when(forecastService.persistPendingEvaluation(any())).thenReturn(999L);
 
-        String customId = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE);
+        String customId = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE, 555L);
         RetrySelection selection = RetrySelection.retry(List.of(
-                new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE)), CAP);
+                new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE, 555L)),
+                CAP);
 
         int submitted = service().submitRetry(RUN_ID, selection);
 
@@ -268,7 +270,109 @@ class BatchRetryServiceTest {
                     assertThat(t.location()).isEqualTo(loc);
                     assertThat(t.date()).isEqualTo(DATE);
                     assertThat(t.targetType()).isEqualTo(TargetType.SUNRISE);
+                    // R6: the retry's task carries the NEW pending row's id, never the precursor's.
+                    assertThat(t.evalRowId()).isEqualTo(999L);
                 });
+        // R6: the precursor is stamped ABANDONED by id, not re-derived from the slot.
+        verify(forecastService).markAbandoned(555L);
+    }
+
+    // ── R6: retry pending-row lifecycle ──────────────────────────────────────
+
+    @Test
+    @DisplayName("R6: submitRetry inserts a NEW pending row and stamps the precursor ABANDONED "
+            + "by id — never staples a rating onto the precursor's stale snapshot")
+    void submitRetry_insertsNewPendingRow_andAbandonsPrecursorById() {
+        LocationEntity loc = location(42L, "Bamburgh");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
+        when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
+        when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
+                any(), any(), eq(false), isNull()))
+                .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, false));
+        when(forecastService.persistPendingEvaluation(any())).thenReturn(4242L);
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
+                .thenReturn(List.of());
+        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.RETRY), eq(RUN_ID), eq(true)))
+                .thenReturn(new EvaluationHandle(5L, "msgbatch_retry", 1));
+
+        String customId = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE, 111L);
+        RetrySelection selection = RetrySelection.retry(List.of(
+                new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE, 111L)),
+                CAP);
+
+        service().submitRetry(RUN_ID, selection);
+
+        ArgumentCaptor<ForecastPreEvalResult> pendingCaptor =
+                ArgumentCaptor.forClass(ForecastPreEvalResult.class);
+        verify(forecastService).persistPendingEvaluation(pendingCaptor.capture());
+        assertThat(pendingCaptor.getValue().location()).isEqualTo(loc);
+        assertThat(pendingCaptor.getValue().date()).isEqualTo(DATE);
+        assertThat(pendingCaptor.getValue().targetType()).isEqualTo(TargetType.SUNRISE);
+        verify(forecastService).markAbandoned(111L);
+        // Never the new row's id — that would be a self-abandon.
+        verify(forecastService, never()).markAbandoned(4242L);
+    }
+
+    @Test
+    @DisplayName("R6: a retry that triages away leaves the precursor for the R7 sweep — no new "
+            + "pending row, no ABANDONED stamp")
+    void submitRetry_triagedAway_leavesPrecursorForSweep() {
+        LocationEntity loc = location(42L, "Bamburgh");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
+        when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
+        // atmosphericData() == null models "this retry's weather triaged the slot away" — the
+        // fixture convention this file already uses for "cannot be reconstructed".
+        when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
+                any(), any(), eq(false), isNull()))
+                .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, true));
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
+                .thenReturn(List.of());
+
+        String customId = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE, 222L);
+        RetrySelection selection = RetrySelection.retry(List.of(
+                new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE, 222L)),
+                CAP);
+
+        int submitted = service().submitRetry(RUN_ID, selection);
+
+        assertThat(submitted).isZero();
+        verify(forecastService, never()).persistPendingEvaluation(any());
+        verify(forecastService, never()).markAbandoned(any());
+        verifyNoInteractions(evaluationService);
+    }
+
+    @Test
+    @DisplayName("R6: a pre-deploy custom id (no embedded row id) still submits the retry, but "
+            + "cannot stamp a precursor ABANDONED — left for the R7 backstop instead")
+    void submitRetry_oldFormatCustomId_doesNotCallMarkAbandoned() {
+        LocationEntity loc = location(42L, "Bamburgh");
+        when(locationRepository.findById(42L)).thenReturn(Optional.of(loc));
+        when(modelSelectionService.getActiveModel(any())).thenReturn(EvaluationModel.HAIKU);
+        when(forecastService.fetchWeatherAndTriage(eq(loc), eq(DATE), eq(TargetType.SUNRISE),
+                any(), any(), eq(false), isNull()))
+                .thenReturn(preEval(loc, DATE, TargetType.SUNRISE, false));
+        when(forecastService.persistPendingEvaluation(any())).thenReturn(4343L);
+        when(forecastBatchRepository.findByPipelineRunIdAndRetryTrue(RUN_ID))
+                .thenReturn(List.of());
+        when(evaluationService.submit(anyList(), eq(BatchTriggerSource.RETRY), eq(RUN_ID), eq(true)))
+                .thenReturn(new EvaluationHandle(5L, "msgbatch_retry", 1));
+
+        // Old-format id — no -r{rowId} suffix, so evalRowId (and therefore precursorRowId) is null.
+        String customId = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE);
+        RetrySelection selection = RetrySelection.retry(List.of(
+                new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE, null)),
+                CAP);
+
+        int submitted = service().submitRetry(RUN_ID, selection);
+
+        assertThat(submitted).isEqualTo(1);
+        ArgumentCaptor<ForecastPreEvalResult> pendingCaptor =
+                ArgumentCaptor.forClass(ForecastPreEvalResult.class);
+        verify(forecastService).persistPendingEvaluation(pendingCaptor.capture());
+        assertThat(pendingCaptor.getValue().location()).isEqualTo(loc);
+        assertThat(pendingCaptor.getValue().date()).isEqualTo(DATE);
+        assertThat(pendingCaptor.getValue().targetType()).isEqualTo(TargetType.SUNRISE);
+        verify(forecastService, never()).markAbandoned(any());
     }
 
     @Test
@@ -281,7 +385,7 @@ class BatchRetryServiceTest {
 
         String customId = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE);
         RetrySelection selection = RetrySelection.retry(List.of(
-                new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE)), CAP);
+                new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE, null)), CAP);
 
         int submitted = service().submitRetry(RUN_ID, selection);
 
@@ -311,7 +415,7 @@ class BatchRetryServiceTest {
 
         String customId = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE);
         RetrySelection selection = RetrySelection.retry(List.of(
-                new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE)), CAP);
+                new RetrySelection.RetryFailure(customId, 42L, DATE, TargetType.SUNRISE, null)), CAP);
 
         int submitted = service().submitRetry(RUN_ID, selection);
 

@@ -20,7 +20,6 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -96,7 +95,7 @@ class OptimisationSkipEvaluatorTest {
 
         assertThat(result).isFalse();
         verify(forecastRepository, never())
-                .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(any(), any(), any());
+                .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(any(), any(), any(), any());
     }
 
     // -------------------------------------------------------------------------
@@ -152,8 +151,8 @@ class OptimisationSkipEvaluatorTest {
     @DisplayName("SKIP_LOW_RATED skips when prior rating is below threshold")
     void skipLowRated_skipsWhenBelowThreshold() {
         when(forecastRepository.findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                eq(LOCATION.getId()), eq(TODAY), eq(TARGET)))
-                .thenReturn(Optional.of(priorEval(2, LocalDateTime.now())));
+                eq(LOCATION.getId()), eq(TODAY), eq(TARGET), any()))
+                .thenReturn(List.of(priorEval(2, LocalDateTime.now())));
 
         var strategies = List.of(
                 strategy(OptimisationStrategyType.SKIP_LOW_RATED, true, 3));
@@ -165,8 +164,8 @@ class OptimisationSkipEvaluatorTest {
     @DisplayName("SKIP_LOW_RATED does not skip when prior rating meets threshold")
     void skipLowRated_doesNotSkipWhenMeetsThreshold() {
         when(forecastRepository.findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                eq(LOCATION.getId()), eq(TODAY), eq(TARGET)))
-                .thenReturn(Optional.of(priorEval(4, LocalDateTime.now())));
+                eq(LOCATION.getId()), eq(TODAY), eq(TARGET), any()))
+                .thenReturn(List.of(priorEval(4, LocalDateTime.now())));
 
         var strategies = List.of(
                 strategy(OptimisationStrategyType.SKIP_LOW_RATED, true, 3));
@@ -178,8 +177,8 @@ class OptimisationSkipEvaluatorTest {
     @DisplayName("SKIP_LOW_RATED defaults to threshold 3 when paramValue is null")
     void skipLowRated_defaultsToThree() {
         when(forecastRepository.findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                eq(LOCATION.getId()), eq(TODAY), eq(TARGET)))
-                .thenReturn(Optional.of(priorEval(2, LocalDateTime.now())));
+                eq(LOCATION.getId()), eq(TODAY), eq(TARGET), any()))
+                .thenReturn(List.of(priorEval(2, LocalDateTime.now())));
 
         var strategies = List.of(
                 strategy(OptimisationStrategyType.SKIP_LOW_RATED, true, null));
@@ -195,8 +194,8 @@ class OptimisationSkipEvaluatorTest {
     @DisplayName("SKIP_LOW_RATED skips when no prior evaluation exists")
     void skipLowRated_skipsWhenNoPrior() {
         when(forecastRepository.findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                eq(LOCATION.getId()), eq(TODAY), eq(TARGET)))
-                .thenReturn(Optional.empty());
+                eq(LOCATION.getId()), eq(TODAY), eq(TARGET), any()))
+                .thenReturn(List.of());
 
         var strategies = List.of(
                 strategy(OptimisationStrategyType.SKIP_LOW_RATED, true, 3));
@@ -208,8 +207,8 @@ class OptimisationSkipEvaluatorTest {
     @DisplayName("SKIP_LOW_RATED does not skip when prior rating is null (unrated)")
     void skipLowRated_doesNotSkipWhenUnrated() {
         when(forecastRepository.findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                eq(LOCATION.getId()), eq(TODAY), eq(TARGET)))
-                .thenReturn(Optional.of(priorEval(null, LocalDateTime.now())));
+                eq(LOCATION.getId()), eq(TODAY), eq(TARGET), any()))
+                .thenReturn(List.of(priorEval(null, LocalDateTime.now())));
 
         var strategies = List.of(
                 strategy(OptimisationStrategyType.SKIP_LOW_RATED, true, 3));
@@ -237,8 +236,8 @@ class OptimisationSkipEvaluatorTest {
     void forceImminent_doesNotApplyToFutureDates() {
         LocalDate future = TODAY.plusDays(3);
         when(forecastRepository.findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                eq(LOCATION.getId()), eq(future), eq(TARGET)))
-                .thenReturn(Optional.of(priorEval(1, LocalDateTime.now())));
+                eq(LOCATION.getId()), eq(future), eq(TARGET), any()))
+                .thenReturn(List.of(priorEval(1, LocalDateTime.now())));
 
         var strategies = List.of(
                 strategy(OptimisationStrategyType.FORCE_IMMINENT, true, null),
@@ -256,8 +255,8 @@ class OptimisationSkipEvaluatorTest {
     void forceStale_overridesWhenStale() {
         LocalDateTime yesterday = LocalDateTime.now(ZoneOffset.UTC).minusDays(1);
         when(forecastRepository.findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                eq(LOCATION.getId()), eq(TODAY), eq(TARGET)))
-                .thenReturn(Optional.of(priorEval(1, yesterday)));
+                eq(LOCATION.getId()), eq(TODAY), eq(TARGET), any()))
+                .thenReturn(List.of(priorEval(1, yesterday)));
 
         var strategies = List.of(
                 strategy(OptimisationStrategyType.FORCE_STALE, true, null),
@@ -271,8 +270,8 @@ class OptimisationSkipEvaluatorTest {
     void forceStale_doesNotOverrideWhenFresh() {
         LocalDateTime todayMorning = LocalDate.now(ZoneOffset.UTC).atTime(6, 0);
         when(forecastRepository.findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                eq(LOCATION.getId()), eq(TODAY), eq(TARGET)))
-                .thenReturn(Optional.of(priorEval(1, todayMorning)));
+                eq(LOCATION.getId()), eq(TODAY), eq(TARGET), any()))
+                .thenReturn(List.of(priorEval(1, todayMorning)));
 
         var strategies = List.of(
                 strategy(OptimisationStrategyType.FORCE_STALE, true, null),
@@ -289,8 +288,8 @@ class OptimisationSkipEvaluatorTest {
     @DisplayName("FORCE_IMMINENT overrides SKIP_LOW_RATED no-prior skip for today")
     void forceImminent_overridesNoPriorForToday() {
         when(forecastRepository.findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                eq(LOCATION.getId()), eq(TODAY), eq(TARGET)))
-                .thenReturn(Optional.empty());
+                eq(LOCATION.getId()), eq(TODAY), eq(TARGET), any()))
+                .thenReturn(List.of());
 
         var strategies = List.of(
                 strategy(OptimisationStrategyType.FORCE_IMMINENT, true, null),

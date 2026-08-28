@@ -66,6 +66,51 @@ once, so a corrected slot can keep showing its stand-down until the region next 
 freshness window. That direction is the safe one — pessimistic rather than falsely optimistic — and
 the horizon caps bound it to 2 hours at T+0 and 8 at T+1.
 
+### Added — prompted `forecast_evaluation` rows for the `fc-` sky lane batch pipeline
+
+In the batch era, `forecast_evaluation` received rows only for triage stand-downs — a prompted
+slot's rating lived solely in `cached_evaluation`/`forecast_score`, invisible to ERA5 cloud
+verification, the calibration gate, and the cloud-approach veto's post-deploy rating instrument
+(all three read `forecast_evaluation`, and it had nothing to read for the ~85% of slots that
+actually reached a prompt). Every submitted `fc-` batch task now also persists a
+`forecast_evaluation` row at submit time (`batch_state = PENDING`, migration V149), the batch
+result scores it in place by primary key when it lands (`SCORED`), and an abandonment sweep closes
+out whatever never gets a result (`ABANDONED`) — event-driven per batch (reading the batch's
+logged custom ids from `api_call_log`) plus a 48h time-based backstop (`evaluation_abandonment_sweep`,
+V150 seed row, `DynamicSchedulerService`-managed).
+
+The submit→result link rides the batch custom id itself: `fc-{locationId}-{date}-{targetType}`
+gains an optional trailing `-r{rowId}` segment, stripped before the existing tail parser runs so it
+doesn't get misread as the target type. Backward compatible by design — a batch in flight at deploy
+carries the old, suffix-less format, which still parses (null row id, the update is skipped and
+logged, everything else proceeds); a malformed suffix is rejected as malformed, never silently
+dropped, so a paid-for response is never discarded as `MALFORMED_ID` by a parsing regression. A
+retry re-fetches weather, so it inserts a fresh pending row rather than updating the original —
+stapling a rating onto weather the retried prompt never saw would quietly corrupt ERA5's
+forecast-vs-analysis pairing — and stamps the precursor row `ABANDONED` by id.
+
+**Pending rows are invisible to every serve path** — the single load-bearing rule the whole design
+turns on. The map query and the briefing/plan view's forecast fallback both exclude `PENDING` from
+their "latest run per slot" reads (in both the outer predicate and the correlated subquery, so the
+*previous* rated row still wins rather than the slot going dark for the submit→result window), so
+the sparse `cached_evaluation` fallback keeps serving the previous score exactly as it already did.
+Zero frontend changes. Scope is the `fc-` sky lane only — `bb-`/`wd-` (bluebell/woodland) keep their
+current behaviour; the OPEN_FELL pairing's which-result-wins question is left for that lane's own
+future pass.
+
+Adversarially reviewed (four lenses — runtime correctness, the R1 serve-path guarantee, R3/R8
+backward-compatibility and scope boundary, test quality) before landing. Confirmed clean on R1 and
+R8/R3; two real gaps survived and were fixed: `BatchResultProcessorTest` wired the new abandonment
+service as a mock but never verified it was actually called on either the normal-completion or the
+stream-failure path (added `verify(...).abandonPendingForBatch(...)` to both), and two `BatchRetryServiceTest`
+assertions used `any()` in a `verify()` where the pre-eval argument was knowable (replaced with an
+`ArgumentCaptor` asserting location/date/target type). Two other findings were investigated and
+judged working-as-designed rather than fixed: a batch-submit failure after a pending row is
+persisted but before the row's `batchId` exists relies on the 48h backstop to close it out — that is
+what the backstop is *for*; and `scoreEvaluationRow` deliberately has no state guard unlike
+`markAbandoned` (a genuinely late Anthropic result should still win over a stale `ABANDONED` stamp,
+rather than being dropped on the floor).
+
 ### Changed — Coming up P1: the almanac feed is now a wrapped, eligibility-filtered response
 
 `GET /api/almanac` returns `ComingUpResponse` (`builtFor`, `bands`, `counts`, `conditions`,

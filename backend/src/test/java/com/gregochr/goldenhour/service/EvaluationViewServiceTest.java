@@ -23,6 +23,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
 
 import java.time.Instant;
 import java.time.LocalDate;
@@ -124,8 +125,8 @@ class EvaluationViewServiceTest {
                             new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.empty());
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
 
             List<LocationEvaluationView> views = service.forRegion(REGION_ID, DATE, SUNRISE);
 
@@ -148,8 +149,8 @@ class EvaluationViewServiceTest {
                             new BriefingEvaluationResult("Bamburgh", 3, 55, 40, "Fine")));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.empty());
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
 
             LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
 
@@ -173,8 +174,8 @@ class EvaluationViewServiceTest {
                     .thenReturn(Optional.of(evaluatedAt));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.empty());
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
 
             LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
 
@@ -198,8 +199,8 @@ class EvaluationViewServiceTest {
                     .build();
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.of(row));
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(row));
 
             List<LocationEvaluationView> views = service.forRegion(REGION_ID, DATE, SUNRISE);
 
@@ -226,8 +227,8 @@ class EvaluationViewServiceTest {
                     .build();
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.of(row));
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(row));
 
             LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
 
@@ -254,8 +255,8 @@ class EvaluationViewServiceTest {
                     .build();
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.of(row));
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(row));
 
             List<LocationEvaluationView> views = service.forRegion(REGION_ID, DATE, SUNRISE);
 
@@ -278,8 +279,8 @@ class EvaluationViewServiceTest {
                     .thenReturn(Map.of());
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.empty());
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
 
             List<LocationEvaluationView> views = service.forRegion(REGION_ID, DATE, SUNRISE);
 
@@ -307,8 +308,8 @@ class EvaluationViewServiceTest {
                     .build();
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.of(triageRow));
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(triageRow));
 
             List<LocationEvaluationView> views = service.forRegion(REGION_ID, DATE, SUNRISE);
 
@@ -333,8 +334,8 @@ class EvaluationViewServiceTest {
                     .build();
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.of(scoredRow));
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(scoredRow));
 
             LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
 
@@ -357,12 +358,12 @@ class EvaluationViewServiceTest {
             // Sandsend has triage in forecast_evaluation
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.empty());
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            2L, DATE, SUNRISE))
-                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
+                            2L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
                             .triage(new TriageDetails(TriageReason.LOW_VISIBILITY, "Visibility 5km"))
                             .forecastRunAt(LocalDateTime.of(2026, 4, 22, 6, 0))
                             .build()));
@@ -400,20 +401,20 @@ class EvaluationViewServiceTest {
 
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.empty());
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            2L, DATE, SUNRISE))
-                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
+                            2L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
                             .rating(2).fierySkyPotential(30).goldenHourPotential(25)
                             .summary("Mediocre").evaluationModel(EvaluationModel.HAIKU)
                             .forecastRunAt(LocalDateTime.of(2026, 4, 22, 6, 0))
                             .build()));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            3L, DATE, SUNRISE))
-                    .thenReturn(Optional.empty());
+                            3L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
 
             List<LocationEvaluationView> views = service.forRegion(REGION_ID, DATE, SUNRISE);
             assertThat(views).hasSize(3);
@@ -466,8 +467,8 @@ class EvaluationViewServiceTest {
                     .build();
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            5L, DATE, SUNRISE))
-                    .thenReturn(Optional.of(row));
+                            5L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(row));
 
             LocationEvaluationView v = service.forLocation(5L, DATE, SUNRISE);
 
@@ -491,8 +492,8 @@ class EvaluationViewServiceTest {
                             new BriefingEvaluationResult("Bamburgh", 5, 90, 80, "Fire")));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.empty());
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
 
             LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
 
@@ -508,8 +509,8 @@ class EvaluationViewServiceTest {
                             new BriefingEvaluationResult("Bamburgh", 3, 55, 40, "OK")));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.empty());
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
 
             LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
 
@@ -525,8 +526,8 @@ class EvaluationViewServiceTest {
                             new BriefingEvaluationResult("Bamburgh", 2, 30, 25, "Poor")));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.empty());
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
 
             LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
 
@@ -543,8 +544,8 @@ class EvaluationViewServiceTest {
                                     null, TriageReason.HIGH_CLOUD, "Cloud 90%")));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.empty());
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
 
             LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
 
@@ -559,8 +560,8 @@ class EvaluationViewServiceTest {
                     .thenReturn(Map.of());
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
                             .rating(4).fierySkyPotential(70).goldenHourPotential(60)
                             .summary("Good").evaluationModel(EvaluationModel.HAIKU)
                             .forecastRunAt(LocalDateTime.of(2026, 4, 22, 6, 0))
@@ -579,8 +580,8 @@ class EvaluationViewServiceTest {
                     .thenReturn(Map.of());
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
                             .triage(new TriageDetails(TriageReason.PRECIPITATION, "Rain 80%"))
                             .forecastRunAt(LocalDateTime.of(2026, 4, 22, 6, 0))
                             .build()));
@@ -598,8 +599,8 @@ class EvaluationViewServiceTest {
                     .thenReturn(Map.of());
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.empty());
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
 
             LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
 
@@ -706,7 +707,7 @@ class EvaluationViewServiceTest {
             assertThat(idsCaptor.getValue()).containsExactlyInAnyOrder(1L, 2L);
             verify(forecastEvaluationRepository, never())
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            any(), any(), any());
+                            any(), any(), any(), any());
         }
 
         @Test
@@ -890,7 +891,7 @@ class EvaluationViewServiceTest {
             // (per-slot findTop) is still on the repository but unused by this path.
             verify(forecastEvaluationRepository, never())
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            any(), any(), any());
+                            any(), any(), any(), any());
         }
 
         @Test
@@ -1194,8 +1195,8 @@ class EvaluationViewServiceTest {
                     .build();
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.of(row));
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(row));
         }
 
         /**
@@ -1239,8 +1240,8 @@ class EvaluationViewServiceTest {
         private void emptyRowRunAt(LocalDateTime runAt) {
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
                             .forecastRunAt(runAt)
                             .build()));
         }
@@ -1421,16 +1422,16 @@ class EvaluationViewServiceTest {
         private void triageRowsLatestPerLocation() {
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNSET))
-                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
+                            1L, DATE, SUNSET, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
                             .triage(new TriageDetails(TriageReason.HIGH_CLOUD,
                                     "Low cloud 84% at the solar horizon — sun blocked"))
                             .forecastRunAt(AFTERNOON_TRIAGE)
                             .build()));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            2L, DATE, SUNSET))
-                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
+                            2L, DATE, SUNSET, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
                             .triage(new TriageDetails(TriageReason.HIGH_CLOUD,
                                     "Low cloud 91% overnight — sun blocked"))
                             .forecastRunAt(OVERNIGHT_TRIAGE)
@@ -1489,8 +1490,8 @@ class EvaluationViewServiceTest {
                     .thenReturn(Optional.of(OVERNIGHT_BATCH));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNSET))
-                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
+                            1L, DATE, SUNSET, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
                             .triage(new TriageDetails(TriageReason.HIGH_CLOUD, "84% low cloud"))
                             .forecastRunAt(AFTERNOON_TRIAGE)
                             .build()));
@@ -1519,8 +1520,8 @@ class EvaluationViewServiceTest {
                     .thenReturn(Optional.of(OVERNIGHT_BATCH));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNSET))
-                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
+                            1L, DATE, SUNSET, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
                             .triage(new TriageDetails(TriageReason.HIGH_CLOUD, "84% low cloud"))
                             .forecastRunAt(AFTERNOON_TRIAGE)
                             .build()));
@@ -1547,8 +1548,8 @@ class EvaluationViewServiceTest {
                     .thenReturn(Optional.of(AFTERNOON_MERGE));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNSET))
-                    .thenReturn(Optional.empty());
+                            1L, DATE, SUNSET, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
 
             LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNSET).getFirst();
 
@@ -1857,8 +1858,8 @@ class EvaluationViewServiceTest {
                             new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.empty());
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
 
             LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
 
@@ -1891,8 +1892,8 @@ class EvaluationViewServiceTest {
                             new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNSET))
-                    .thenReturn(Optional.empty());
+                            1L, DATE, SUNSET, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
 
             LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNSET).getFirst();
 
@@ -1925,8 +1926,8 @@ class EvaluationViewServiceTest {
                             "Sandsend", new BriefingEvaluationResult("Sandsend", 3, 50, 40, "b")));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            any(), any(), any()))
-                    .thenReturn(Optional.empty());
+                            any(), any(), any(), any()))
+                    .thenReturn(List.of());
 
             List<LocationEvaluationView> views = service.forRegion(REGION_ID, DATE, SUNRISE);
 
@@ -1951,8 +1952,8 @@ class EvaluationViewServiceTest {
                             new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "a")));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            any(), any(), any()))
-                    .thenReturn(Optional.empty());
+                            any(), any(), any(), any()))
+                    .thenReturn(List.of());
 
             // The third axis of the join. Location and event are pinned by the tests either side
             // of this one; without this, a `withLight` that read a fixed date would pass them all.
@@ -1971,8 +1972,8 @@ class EvaluationViewServiceTest {
                     .thenReturn(Map.of());
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
                             .triage(new TriageDetails(TriageReason.HIGH_CLOUD, "Low cloud 85%"))
                             .forecastRunAt(LocalDateTime.of(2026, 4, 22, 6, 0))
                             .build()));
@@ -2067,8 +2068,8 @@ class EvaluationViewServiceTest {
                             new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.empty());
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
 
             LocationEvaluationView v = polar.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
 
@@ -2098,8 +2099,8 @@ class EvaluationViewServiceTest {
                             new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNRISE))
-                    .thenReturn(Optional.empty());
+                            1L, DATE, SUNRISE, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
 
             LocationEvaluationView v = degraded.forRegion(REGION_ID, DATE, SUNRISE).getFirst();
 
@@ -2126,8 +2127,8 @@ class EvaluationViewServiceTest {
                             new BriefingEvaluationResult("Bamburgh", 4, 75, 60, "Great sky")));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, TargetType.HOURLY))
-                    .thenReturn(Optional.empty());
+                            1L, DATE, TargetType.HOURLY, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
 
             LocationEvaluationView v =
                     service.forRegion(REGION_ID, DATE, TargetType.HOURLY).getFirst();

@@ -16,6 +16,7 @@ import com.gregochr.goldenhour.entity.RegionEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.repository.ForecastBatchRepository;
+import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.CostCalculator;
@@ -24,6 +25,7 @@ import com.gregochr.goldenhour.service.JobRunService;
 import com.gregochr.goldenhour.service.evaluation.AuroraResultHandler;
 import com.gregochr.goldenhour.service.evaluation.ClaudeBatchOutcome;
 import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
+import com.gregochr.goldenhour.service.evaluation.EvaluationAbandonmentService;
 import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler;
 import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler.BatchSuccess;
 import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler.ForecastIdentity;
@@ -141,6 +143,8 @@ class ClaudeResponseParseResilienceTest {
     private ForecastDataAugmentor forecastDataAugmentor;
     @Mock
     private ForecastScoreWriter forecastScoreWriter;
+    @Mock
+    private ForecastEvaluationRepository forecastEvaluationRepository;
 
     private ForecastResultHandler handler;
 
@@ -156,7 +160,8 @@ class ClaudeResponseParseResilienceTest {
                         new BluebellVisitor())),
                 forecastDataAugmentor,
                 forecastScoreWriter,
-                new SunsetEvaluationParser());
+                new SunsetEvaluationParser(),
+                forecastEvaluationRepository);
     }
 
     // ── (i) + (ii) + (iii), table-driven ─────────────────────────────────────
@@ -428,7 +433,8 @@ class ClaudeResponseParseResilienceTest {
 
         BatchResultProcessor processor = new BatchResultProcessor(
                 stubbedClient(response), batchRepository, mock(LocationRepository.class),
-                batchJobRunService, costCalculator, mockHandler, mock(AuroraResultHandler.class));
+                batchJobRunService, costCalculator, mockHandler, mock(AuroraResultHandler.class),
+                mock(EvaluationAbandonmentService.class));
 
         ForecastBatchEntity batch = new ForecastBatchEntity(
                 BATCH_ID, BatchType.FORECAST, 1, Instant.now().plusSeconds(86_400));
@@ -515,7 +521,7 @@ class ClaudeResponseParseResilienceTest {
     }
 
     private ForecastIdentity identity() {
-        return new ForecastIdentity(LOCATION_ID, DATE, SUNSET);
+        return new ForecastIdentity(LOCATION_ID, DATE, SUNSET, null);
     }
 
     /** Inland (non-tidal) so the tide visitor abstains and the sky score alone drives the rating. */

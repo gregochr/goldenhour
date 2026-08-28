@@ -229,6 +229,16 @@ public class ForecastEvaluationEntity {
     private TriageDetails triage;
 
     /**
+     * Batch submission lifecycle for a row inserted at {@code fc-} (sky lane) batch submit time.
+     * Null for every sync-engine and triage row, and for every row inserted before this column
+     * existed — never a fourth state, just "not part of the batch pending/scored/abandoned
+     * lifecycle". See {@link BatchState}.
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "batch_state", length = 20)
+    private BatchState batchState;
+
+    /**
      * Convenience accessor for the owning location's name.
      *
      * @return the location name, or {@code null} if the location is not set
