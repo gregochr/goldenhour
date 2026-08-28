@@ -5,6 +5,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Security — the two forecast backtesting endpoints are now ADMIN-gated
+
+`GET /api/forecast/history` and `GET /api/forecast/compare` carry
+`@PreAuthorize("hasRole('ADMIN')")`. Both had inherited `SecurityConfig`'s `/api/**` →
+`.authenticated()`, so any LITE account could call them — flagged during the prompted-row
+persistence review. The investigation settled both open questions: no score data was leaking
+(both endpoints already apply `ForecastDtoMapper`'s role-based selection, so LITE callers got
+basic scores, and that mapping is kept as defence in depth); and the intent is admin — history's
+span-cap javadoc calls it "the admin backtesting tool", compare's says "designed for
+backtesting", neither has ever had a frontend consumer, and history can pull up to 366 days of
+rows across every enabled location from the insert-only `forecast_evaluation` table. Same
+code-was-wrong precedent as `POST /api/locations` (2026-08-26), unlike the tides/almanac
+endpoints where Bearer is the documented intent. New tests pin ADMIN 200, LITE/PRO 403, and
+that a denied caller never reaches the expensive repository query.
 ### Fixed — the triage ratchet: a stale rating outranked the stand-down that had excluded it
 
 A location's cached Claude rating could only be replaced by a fresh evaluation, and a fresh
