@@ -166,8 +166,8 @@ class BriefingServiceTest {
                 new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
                         new WoodlandVerdictEvaluator());
         briefingService = new BriefingService(
-                locationService, openMeteoClient,
-                jobRunService, briefingCacheRepository, locationRepository,
+                locationService, weatherLoader(),
+                jobRunService, briefingCacheRepository,
                 new ObjectMapper().findAndRegisterModules(),
                 new BriefingHeadlineGenerator(CLOCK), bestBetAdvisor, glossService,
                 bluebellGlossService, auroraSummaryBuilder,
@@ -235,6 +235,21 @@ class BriefingServiceTest {
      */
     private SurgeCurveService surgeCurve() {
         return new SurgeCurveService(new StormSurgeService());
+    }
+
+    /**
+     * A REAL {@link BriefingWeatherLoader} over the mocked {@code openMeteoClient},
+     * {@code locationRepository} and {@code jobRunService} — not a mock of the loader.
+     *
+     * <p>Deliberate, same reasoning as {@link #snapshots()}: the grid-cell dedup and grid
+     * coordinate capture ARE what several tests in this class assert on (via the mocked
+     * collaborators it delegates to), so mocking the loader would leave those assertions
+     * verifying a stub.
+     *
+     * @return a fresh loader wired over the mocked collaborators
+     */
+    private BriefingWeatherLoader weatherLoader() {
+        return new BriefingWeatherLoader(openMeteoClient, locationRepository, jobRunService);
     }
 
     /** NLC clarity service wired with a real transect sampler over the mocked Open-Meteo client. */
@@ -498,8 +513,8 @@ class BriefingServiceTest {
                     new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
                             new WoodlandVerdictEvaluator());
             BriefingService freshService = new BriefingService(
-                    locationService, openMeteoClient,
-                    jobRunService, briefingCacheRepository, locationRepository, mapper,
+                    locationService, weatherLoader(),
+                    jobRunService, briefingCacheRepository, mapper,
                     new BriefingHeadlineGenerator(BST_CLOCK), bestBetAdvisor, glossService,
                     bluebellGlossService, auroraSummaryBuilder,
                     new BriefingHierarchyBuilder(verdictEvaluator),
@@ -876,8 +891,8 @@ class BriefingServiceTest {
                 new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
                         new WoodlandVerdictEvaluator());
         BriefingService freshService = new BriefingService(
-                locationService, openMeteoClient,
-                jobRunService, briefingCacheRepository, locationRepository, mapper,
+                locationService, weatherLoader(),
+                jobRunService, briefingCacheRepository, mapper,
                 new BriefingHeadlineGenerator(CLOCK), bestBetAdvisor, glossService,
                 bluebellGlossService, auroraSummaryBuilder,
                 new BriefingHierarchyBuilder(verdictEvaluator),
@@ -909,8 +924,8 @@ class BriefingServiceTest {
                 new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
                         new WoodlandVerdictEvaluator());
         BriefingService freshService = new BriefingService(
-                locationService, openMeteoClient,
-                jobRunService, briefingCacheRepository, locationRepository,
+                locationService, weatherLoader(),
+                jobRunService, briefingCacheRepository,
                 new ObjectMapper().findAndRegisterModules(),
                 new BriefingHeadlineGenerator(CLOCK), bestBetAdvisor, glossService,
                 bluebellGlossService, auroraSummaryBuilder,
@@ -936,8 +951,8 @@ class BriefingServiceTest {
                 new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
                         new WoodlandVerdictEvaluator());
         BriefingService freshService = new BriefingService(
-                locationService, openMeteoClient,
-                jobRunService, briefingCacheRepository, locationRepository,
+                locationService, weatherLoader(),
+                jobRunService, briefingCacheRepository,
                 new ObjectMapper().findAndRegisterModules(),
                 new BriefingHeadlineGenerator(CLOCK), bestBetAdvisor, glossService,
                 bluebellGlossService, auroraSummaryBuilder,
@@ -1418,30 +1433,30 @@ class BriefingServiceTest {
         @Test
         @DisplayName("Snaps to nearest 0.25° — 55.609 rounds to 55.50")
         void snapsLat() {
-            assertThat(BriefingService.horizonGridKey(new double[]{55.609, -1.710}))
+            assertThat(BriefingWeatherLoader.horizonGridKey(new double[]{55.609, -1.710}))
                     .isEqualTo("55.50,-1.75");
         }
 
         @Test
         @DisplayName("Exact quarter-degree stays unchanged")
         void exactQuarterDegree() {
-            assertThat(BriefingService.horizonGridKey(new double[]{55.25, -1.50}))
+            assertThat(BriefingWeatherLoader.horizonGridKey(new double[]{55.25, -1.50}))
                     .isEqualTo("55.25,-1.50");
         }
 
         @Test
         @DisplayName("Nearby locations with < 0.125° difference share the same grid key")
         void nearbyLocationsShareKey() {
-            String key1 = BriefingService.horizonGridKey(new double[]{55.01, -1.51});
-            String key2 = BriefingService.horizonGridKey(new double[]{55.05, -1.55});
+            String key1 = BriefingWeatherLoader.horizonGridKey(new double[]{55.01, -1.51});
+            String key2 = BriefingWeatherLoader.horizonGridKey(new double[]{55.05, -1.55});
             assertThat(key1).isEqualTo(key2);
         }
 
         @Test
         @DisplayName("Distant locations have different grid keys")
         void distantLocationsDifferentKeys() {
-            String key1 = BriefingService.horizonGridKey(new double[]{55.0, -1.5});
-            String key2 = BriefingService.horizonGridKey(new double[]{54.0, -2.0});
+            String key1 = BriefingWeatherLoader.horizonGridKey(new double[]{55.0, -1.5});
+            String key2 = BriefingWeatherLoader.horizonGridKey(new double[]{54.0, -2.0});
             assertThat(key1).isNotEqualTo(key2);
         }
     }
@@ -1478,8 +1493,8 @@ class BriefingServiceTest {
                     new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
                             new WoodlandVerdictEvaluator());
             BriefingService freshService = new BriefingService(
-                    locationService, openMeteoClient,
-                    jobRunService, briefingCacheRepository, locationRepository, mapper,
+                    locationService, weatherLoader(),
+                    jobRunService, briefingCacheRepository, mapper,
                     new BriefingHeadlineGenerator(CLOCK), bestBetAdvisor, glossService,
                     bluebellGlossService, auroraSummaryBuilder,
                     new BriefingHierarchyBuilder(verdictEvaluator),

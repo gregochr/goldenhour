@@ -5,6 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Open-Meteo acquisition extracted from BriefingService into BriefingWeatherLoader
+
+`BriefingService` no longer knows how Open-Meteo batches. `fetchWeatherSequential`,
+`captureGridCoordinates`, `fetchHorizonCloud`, `horizonGridKey` and the `HorizonCloudData` record
+they return now live in a new `BriefingWeatherLoader`, wired with `openMeteoClient` and
+`locationRepository` — both of which leave `BriefingService` entirely, since nothing else in the
+class used them. `jobRunService` stays on `BriefingService` (still needed for the run lifecycle)
+and is also handed to the new loader for its own API-call metrics.
+
+`BriefingService` still decides which dates are briefed and which locations are candidates, and
+still hands the loaded weather to `BriefingSlotBuilder` — the loader only answers "fetch the
+weather for these locations." A change to Open-Meteo batching should not need to reopen the class
+that owns caching, refresh orchestration and briefing assembly.
+
+**The constructor got SHORTER, 25 → 24 parameters** — but arity is not the point, per the same
+caveat the previous extraction in this class recorded: the benefit is that the fetch logic now
+lives in a single-purpose class instead of the orchestrator.
+
+No behaviour change — same grid-cell dedup key, same 113 km horizon offset and ±15° cone, same
+`saveAll` write in `captureGridCoordinates`. Every assertion in `BriefingServiceTest` passes
+unedited except the four `horizonGridKey` calls, which now name `BriefingWeatherLoader`.
+Mutation-checked: dropping the `saveAll` call fails
+`fetchWeather_capturesGridCoordinatesOnFirstFetch`; inverting the grid-cell dedup condition fails
+six tests across the grid-deduplication and partial-batch groups. The Spring wiring was proven by
+a real context boot (`BriefingControllerTest`), not by reasoning — the local gate excludes
+context-booting tests.
+
 ### Changed — region evaluation rollup has one owner, shared by both timings
 
 The scoring policy that turns a weather/triage hierarchy into a scored one — per-slot enrichment,
