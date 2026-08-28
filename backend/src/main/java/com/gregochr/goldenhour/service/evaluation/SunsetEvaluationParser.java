@@ -223,17 +223,25 @@ public class SunsetEvaluationParser {
         try {
             JsonNode node = mapper.readTree(cleaned);
             Integer rating = node.has("rating") ? node.get("rating").asInt() : null;
-            int fierySky = node.get("fiery_sky").asInt();
-            int goldenHour = node.get("golden_hour").asInt();
+            Integer fierySky = RatingValidator.validateScore(
+                    node.get("fiery_sky").asInt(), 0, 100, "fiery_sky", null, null);
+            Integer goldenHour = RatingValidator.validateScore(
+                    node.get("golden_hour").asInt(), 0, 100, "golden_hour", null, null);
             String summary = node.get("summary").stringValue();
             Integer basicFierySky = node.has("basic_fiery_sky")
-                    ? node.get("basic_fiery_sky").asInt() : null;
+                    ? RatingValidator.validateScore(node.get("basic_fiery_sky").asInt(),
+                            0, 100, "basic_fiery_sky", null, null)
+                    : null;
             Integer basicGoldenHour = node.has("basic_golden_hour")
-                    ? node.get("basic_golden_hour").asInt() : null;
+                    ? RatingValidator.validateScore(node.get("basic_golden_hour").asInt(),
+                            0, 100, "basic_golden_hour", null, null)
+                    : null;
             String basicSummary = node.has("basic_summary")
                     ? node.get("basic_summary").stringValue() : null;
             Integer inversionScore = node.has("inversion_score")
-                    ? node.get("inversion_score").asInt() : null;
+                    ? RatingValidator.validateScore(node.get("inversion_score").asInt(),
+                            0, 10, "inversion_score", null, null)
+                    : null;
             String inversionPotential = node.has("inversion_potential")
                     ? sanitiseInversionPotential(node.get("inversion_potential").stringValue())
                     : null;
@@ -269,22 +277,33 @@ public class SunsetEvaluationParser {
 
         Integer rating = ratingMatcher.find() ? Integer.parseInt(ratingMatcher.group(1)) : null;
         if (fierySkyMatcher.find() && goldenHourMatcher.find() && summary != null) {
-            int fierySky = Integer.parseInt(fierySkyMatcher.group(1));
-            int goldenHour = Integer.parseInt(goldenHourMatcher.group(1));
+            Integer fierySky = RatingValidator.validateScore(
+                    Integer.parseInt(fierySkyMatcher.group(1)), 0, 100, "fiery_sky", null, null);
+            Integer goldenHour = RatingValidator.validateScore(
+                    Integer.parseInt(goldenHourMatcher.group(1)), 0, 100, "golden_hour", null, null);
 
             Matcher basicFierySkyMatcher = BASIC_FIERY_SKY_PATTERN.matcher(text);
             Matcher basicGoldenHourMatcher = BASIC_GOLDEN_HOUR_PATTERN.matcher(text);
             Integer basicFierySky = basicFierySkyMatcher.find()
-                    ? Integer.parseInt(basicFierySkyMatcher.group(1)) : null;
+                    ? RatingValidator.validateScore(
+                            Integer.parseInt(basicFierySkyMatcher.group(1)),
+                            0, 100, "basic_fiery_sky", null, null)
+                    : null;
             Integer basicGoldenHour = basicGoldenHourMatcher.find()
-                    ? Integer.parseInt(basicGoldenHourMatcher.group(1)) : null;
+                    ? RatingValidator.validateScore(
+                            Integer.parseInt(basicGoldenHourMatcher.group(1)),
+                            0, 100, "basic_golden_hour", null, null)
+                    : null;
             String basicSummary = extractField(
                     BASIC_SUMMARY_PATTERN, BASIC_SUMMARY_PATTERN_SALVAGE, text);
 
             Matcher inversionScoreMatcher = INVERSION_SCORE_PATTERN.matcher(text);
             Matcher inversionPotentialMatcher = INVERSION_POTENTIAL_PATTERN.matcher(text);
             Integer inversionScore = inversionScoreMatcher.find()
-                    ? Integer.parseInt(inversionScoreMatcher.group(1)) : null;
+                    ? RatingValidator.validateScore(
+                            Integer.parseInt(inversionScoreMatcher.group(1)),
+                            0, 10, "inversion_score", null, null)
+                    : null;
             String inversionPotential = inversionPotentialMatcher.find()
                     ? sanitiseInversionPotential(inversionPotentialMatcher.group(1)) : null;
 
