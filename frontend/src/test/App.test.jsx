@@ -136,7 +136,7 @@ beforeEach(() => {
   getAuroraStatus.mockReset().mockResolvedValue(null);
   getNlcSighting.mockReset().mockResolvedValue(null);
   getAstroConditions.mockReset().mockResolvedValue(null);
-  getAlmanac.mockReset().mockResolvedValue([]);
+  getAlmanac.mockReset().mockResolvedValue({ entries: [] });
   subscribeToRunNotifications.mockReset().mockReturnValue(() => {});
   getTodaysLight.mockReset().mockResolvedValue(null); // 204 — no home postcode saved
   // Hold `useAfterFirstPaint` at false for the whole test: an idle callback that never fires keeps

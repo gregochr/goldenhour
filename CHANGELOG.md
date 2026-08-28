@@ -5,6 +5,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Coming up P1: the almanac feed is now a wrapped, eligibility-filtered response
+
+`GET /api/almanac` returns `ComingUpResponse` (`builtFor`, `bands`, `counts`, `conditions`,
+`entries`) instead of a bare `AlmanacEvent[]` — the contract migration plan §4 P1 calls for, so
+later phases can grow the same payload rather than reshape it. `entries` now carries every field
+`AlmanacEvent` did, plus `enteredWindow` (the date each entry first entered the feed's 90-day
+window, D3), and drops any entry wholly inside Plan's four-day window (D1's eligibility rule,
+`endDate > PlanHorizon.lastPlanDate(today)`) — that window boundary is now a named class,
+`PlanHorizon`, and `BriefingService`'s two hardcoded `today.plusDays(3)` hot-topic call sites point
+at it (behaviour-preserving, pinned by a new test). The frontend renders unchanged from
+`wrapper.entries`; the pane's empty-state and subtitle copy now say "beyond Plan's four days",
+since the eligibility split makes that state genuinely reachable. A new handoff row (design README
+§1, D14) sits above the chronology, client-rendered from the live `briefing.hotTopics` — never from
+the almanac cache, which would bake in the aggregator's simulation override and travel-day filter —
+stating the boundary with Plan and linking back to it with a focus-preserving tab switch.
+
+Six stale "five sources" comments (an `EclipseAlmanacSource` predates this count everywhere it
+appears) are corrected in the same commit, including CLAUDE.md's almanac paragraph, along with a
+frontend comment that had claimed a UTC/Europe-London divergence the backend had already stopped
+having.
+
+Adversarially reviewed (four lenses — backend correctness, frontend/CSS, test quality,
+accessibility/forward-compatibility) before landing. Two real findings survived: the handoff
+row's sibling `<span>`s had no text-node separators between them, so its accessible name read as
+one run-on string ("...four daysSaharan dustAurora possible...") — JSX drops whitespace-only text
+between tags rather than collapsing it to a space, and a separator placed as the leading child of
+a wrapped `<span>` is trimmed away before the browser's accname computation ever joins it, so the
+fix interleaves bare `' '` strings as true siblings rather than nesting them inside each topic's
+span; and `useComingUpFeed`'s "is this the wrapped shape" guard used `typeof data === 'object'`,
+which is also true for a bare array (`typeof [] === 'object'`) — a reverted or mixed-version
+backend still serving the pre-P1 array shape would have passed straight through instead of
+degrading to `{ entries: [] }`. Both are pinned by new tests (an accessible-name assertion via
+`getByRole('button', { name })`, and a dedicated `useComingUpFeed` hook-level test).
+
 ### Added — the Coming up redesign plan and its design bundle
 
 `docs/engineering/coming-up-plan.md` plans the rebuild of the Coming up tab around the design

@@ -402,6 +402,21 @@ export default function WindowFirstShell({
     setSheetSpot(null);
   };
   /**
+   * The Coming up tab's handoff row, going the other way (plan P1/D14).
+   *
+   * <p>{@code selectTab} hides the panel the pressed row lives in immediately, so without an
+   * imperative focus move afterwards, focus would fall to {@code <body>} — the same fall-to-body
+   * failure {@code WindowFirstComingUp}'s own retry-focus effect already argues against.
+   * {@code onGoToPlan} accepts a date already, though nothing reads it yet (§11.9): the handoff
+   * row has no single date to carry, but P3b's per-entry "plan" action will, and Plan cannot yet
+   * focus one, so the signature is settled now rather than grown again in that phase.
+   */
+  const goToPlan = (date) => {
+    void date;
+    selectTab('plan');
+    tabRefs.current[tabs.findIndex((t) => t.id === 'plan')]?.focus();
+  };
+  /**
    * Left/Right/Home/End across the bar, wrapping at both ends.
    *
    * <p>Up/Down are deliberately not handled: this is a horizontal tab list, and binding the
@@ -1206,8 +1221,10 @@ export default function WindowFirstShell({
         hidden={effectiveTab !== 'coming-up'}
         status={comingUp.status}
         events={comingUp.events}
+        hotTopics={briefing?.hotTopics}
         todayStr={todayStr}
         onRetry={comingUp.retry}
+        onGoToPlan={goToPlan}
       />
 
       {/* Hidden rather than unmounted: unmounting the pane on every tab change would discard the

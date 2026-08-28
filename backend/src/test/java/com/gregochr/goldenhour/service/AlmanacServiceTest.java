@@ -2,6 +2,8 @@ package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.AlmanacEvent;
 import com.gregochr.goldenhour.model.AlmanacKind;
+import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
+import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -178,7 +180,7 @@ class AlmanacServiceTest {
     @Test
     @DisplayName("no sources at all is an empty feed, not a failure")
     void noSourcesIsEmpty() {
-        assertThat(new AlmanacService(List.of(), CLOCK).getFeed(10)).isEmpty();
+        assertThat(new AlmanacService(List.of(), CLOCK).getFeed(10).entries()).isEmpty();
     }
 
     @Test
@@ -230,5 +232,86 @@ class AlmanacServiceTest {
         assertThatThrownBy(() -> event(DAY.plusDays(2), DAY, "broken"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("before startDate");
+    }
+
+    // ── Eligibility (plan D1) — endDate > PlanHorizon.lastPlanDate(today) ──────
+
+    /** GMT in March, so {@code ForecastHorizon.today(ELIGIBILITY_CLOCK)} is this date exactly. */
+    private static final LocalDate ELIGIBILITY_TODAY = LocalDate.of(2027, 3, 5);
+    private static final Clock ELIGIBILITY_CLOCK =
+            Clock.fixed(ELIGIBILITY_TODAY.atTime(12, 0).toInstant(ZoneOffset.UTC), ZoneOffset.UTC);
+
+    /** {@code today + 3} — Plan's last day under {@link #ELIGIBILITY_CLOCK}. */
+    private static final LocalDate LAST_PLAN_DATE = ELIGIBILITY_TODAY.plusDays(3);
+
+    @Test
+    @DisplayName("an entry ending on Plan's last day is excluded — it is strip material, not "
+            + "chronology material")
+    void entryEndingOnLastPlanDate_isExcluded() {
+        AlmanacSource source = (f, t) -> List.of(event(LAST_PLAN_DATE, LAST_PLAN_DATE, "inside"));
+
+        var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK).getFeed(90).entries();
+
+        assertThat(entries).isEmpty();
+    }
+
+    @Test
+    @DisplayName("an entry ending the day after Plan's last day is included")
+    void entryEndingJustBeyondLastPlanDate_isIncluded() {
+        LocalDate beyond = LAST_PLAN_DATE.plusDays(1);
+        AlmanacSource source = (f, t) -> List.of(event(beyond, beyond, "beyond"));
+
+        var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK).getFeed(90).entries();
+
+        assertThat(entries).extracting(ComingUpEntry::type).containsExactly("beyond");
+    }
+
+    @Test
+    @DisplayName("a run straddling Plan's boundary is eligible, because its dates say so")
+    void straddlingRun_isEligible() {
+        AlmanacSource source = (f, t) -> List.of(
+                event(LAST_PLAN_DATE.minusDays(1), LAST_PLAN_DATE.plusDays(1), "straddler"));
+
+        var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK).getFeed(90).entries();
+
+        assertThat(entries).extracting(ComingUpEntry::type).containsExactly("straddler");
+    }
+
+    // ── enteredWindow (plan D3) — startDate − (DEFAULT_DAYS − 1), fixed at 90 ──
+
+    @Test
+    @DisplayName("an entry starting on builtFor + (DEFAULT_DAYS - 1) entered the window on builtFor "
+            + "itself — the far edge of the default 90-day feed")
+    void enteredWindow_atTheFarEdge_equalsBuiltFor() {
+        LocalDate farEdge = ELIGIBILITY_TODAY.plusDays(AlmanacService.DEFAULT_DAYS - 1L);
+        AlmanacSource source = (f, t) -> List.of(event(farEdge, farEdge, "far"));
+
+        var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK).getFeed(90).entries();
+
+        assertThat(entries).hasSize(1);
+        assertThat(entries.getFirst().enteredWindow()).isEqualTo(ELIGIBILITY_TODAY);
+    }
+
+    @Test
+    @DisplayName("enteredWindow is measured against the fixed default horizon, never the caller's "
+            + "clamped days — a ?days=30 caller cannot redefine another user's arrival badge")
+    void enteredWindow_ignoresTheRequestedLength() {
+        LocalDate farEdge = ELIGIBILITY_TODAY.plusDays(AlmanacService.DEFAULT_DAYS - 1L);
+        AlmanacSource source = (f, t) -> List.of(event(farEdge, farEdge, "far"));
+
+        // Requested at a 30-day horizon — a wrong implementation keying enteredWindow off the
+        // request would compute farEdge.minusDays(29), not the fixed DEFAULT_DAYS basis.
+        var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK).getFeed(30).entries();
+
+        assertThat(entries.getFirst().enteredWindow()).isEqualTo(ELIGIBILITY_TODAY);
+    }
+
+    @Test
+    @DisplayName("the response's builtFor is the UK civil today, matching the range it was built for")
+    void responseCarriesBuiltFor() {
+        ComingUpResponse response = new AlmanacService(List.of(), ELIGIBILITY_CLOCK).getFeed(30);
+
+        assertThat(response.builtFor()).isEqualTo(ELIGIBILITY_TODAY);
+        assertThat(response.conditions()).isEmpty();
     }
 }

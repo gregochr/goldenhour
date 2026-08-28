@@ -36,7 +36,6 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -82,9 +81,6 @@ public class BriefingService {
     private final BriefingRegionSnapshotService regionSnapshotService;
     private final ServedBriefingAssembler assembler;
     private final BriefingRegionEvaluationRollup rollup;
-
-    /** UK civil-date zone for "today" derivation. */
-    private static final ZoneId LONDON = ZoneId.of("Europe/London");
 
     /**
      * Number of consecutive dates the briefing covers, starting on the day it is built.
@@ -249,8 +245,9 @@ public class BriefingService {
 
             // Overlay live hot topics so simulation toggles take effect immediately
             // without requiring a full briefing refresh.
-            LocalDate today = LocalDate.now(clock.withZone(LONDON));
-            List<HotTopic> rawTopics = hotTopicAggregator.getHotTopics(today, today.plusDays(3));
+            LocalDate today = PlanHorizon.today(clock);
+            List<HotTopic> rawTopics =
+                    hotTopicAggregator.getHotTopics(today, PlanHorizon.lastPlanDate(today));
             List<HotTopic> liveTopics = rawTopics == null ? List.of() : rawTopics;
 
             if (Objects.equals(cached.auroraTonight(), liveTonight)
@@ -354,7 +351,7 @@ public class BriefingService {
         long briefingStart = System.currentTimeMillis();
         JobRunEntity jobRun = jobRunService.startRun(RunType.BRIEFING, false, null);
 
-        LocalDate today = LocalDate.now(clock.withZone(LONDON));
+        LocalDate today = PlanHorizon.today(clock);
         List<LocalDate> dates = IntStream.range(0, BRIEFING_WINDOW_DAYS)
                 .mapToObj(today::plusDays)
                 .toList();
@@ -494,7 +491,8 @@ public class BriefingService {
             LOG.warn("Surge curve refresh failed — surge chart may be absent: {}", e.getMessage());
         }
 
-        List<HotTopic> hotTopics = hotTopicAggregator.getHotTopics(today, today.plusDays(3));
+        List<HotTopic> hotTopics =
+                hotTopicAggregator.getHotTopics(today, PlanHorizon.lastPlanDate(today));
         hotTopics = bluebellGlossService.enrichGlosses(hotTopics);
         List<String> seasonalFeatures = bluebellSeason.isActive(today)
                 ? List.of("BLUEBELL") : List.of();

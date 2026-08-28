@@ -394,7 +394,7 @@ describe('comingUpFeed — the kind marker', () => {
   });
 
   it('leaves an almanac entry unmarked, because it is the page’s stated default', () => {
-    // Every entry the five sources emit is ALMANAC, so a chip on every row would be a word that
+    // Every entry the six sources emit is ALMANAC, so a chip on every row would be a word that
     // never varies. The pane footer states it once instead, and only a departure is marked.
     expect(first({ kind: 'ALMANAC' }).kindLabel).toBeNull();
   });
