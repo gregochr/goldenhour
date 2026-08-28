@@ -314,8 +314,16 @@ public class BriefingEvaluationService {
         Instant now = Instant.now();
         for (BriefingEvaluationResult bluebell : bluebellResults) {
             BriefingEvaluationResult existing = merged.get(bluebell.locationName());
+            BriefingEvaluationResult combined = recombineBluebell(existing, bluebell);
+            // ⚠️ Stamp only what this write actually produced. An OPEN_FELL recombination returns
+            // the PRIOR sky entry's prose, potentials and headline with only the rating blended, so
+            // it carries that entry's write time out of `recombineBluebell` and must keep it. The
+            // gate in `EvaluationViewService.cacheWriteTime` reads this field to decide whether a
+            // newer stand-down supersedes the entry, so stamping hours-old sky narrative "now"
+            // would shield it from a triage written in between — the ratchet, one door over. Only
+            // the WOODLAND case, where the bluebell result stands alone, is genuinely new here.
             merged.put(bluebell.locationName(),
-                    recombineBluebell(existing, bluebell).withEvaluatedAt(now));
+                    combined.evaluatedAt() != null ? combined : combined.withEvaluatedAt(now));
         }
         cache.put(cacheKey, new CachedEvaluation(merged, now));
         persistToDb(cacheKey, merged, "BATCH");
@@ -367,7 +375,9 @@ public class BriefingEvaluationService {
                 existing.locationName(), averaged,
                 existing.fierySkyPotential(), existing.goldenHourPotential(),
                 existing.summary(), existing.triageReason(), existing.triageMessage(),
-                existing.headline());
+                // The composite is no fresher than its oldest load-bearing component, and every
+                // component except the rating comes from the prior sky entry. See the caller.
+                existing.headline(), existing.evaluatedAt());
     }
 
     /**
