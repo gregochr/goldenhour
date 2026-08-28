@@ -15,6 +15,7 @@ import com.gregochr.goldenhour.repository.CachedEvaluationRepository;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 
 import java.time.Instant;
@@ -575,7 +576,8 @@ public class EvaluationViewService {
         // Check forecast_evaluation as fallback
         ForecastEvaluationEntity forecastRow = forecastEvaluationRepository
                 .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                        loc.getId(), date, targetType)
+                        loc.getId(), date, targetType, PageRequest.of(0, 1))
+                .stream().findFirst()
                 .orElse(null);
 
         Long regionId = loc.getRegion() != null ? loc.getRegion().getId() : null;

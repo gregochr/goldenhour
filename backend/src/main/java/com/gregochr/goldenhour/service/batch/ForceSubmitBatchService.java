@@ -139,9 +139,15 @@ public class ForceSubmitBatchService {
                             continue;
                         }
 
+                        // R4: a JFDI submit of a previously-triaged slot gets a pending row too —
+                        // the triage row (if fetchWeatherAndTriage triaged it away, `data` above
+                        // would be null and this line is unreached) records the stand-down, this
+                        // row records the override.
+                        Long evalRowId = forecastService.persistPendingEvaluation(preEval);
                         tasks.add(new EvaluationTask.Forecast(
                                 location, date, event, model, data,
-                                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE));
+                                EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
+                                EvaluationTask.Forecast.PromptKind.SKY, evalRowId));
                     } catch (Exception e) {
                         LOG.warn("[JFDI BATCH] Failed data assembly for {} {} {}: {}",
                                 location.getName(), date, event, e.getMessage());
@@ -210,9 +216,13 @@ public class ForceSubmitBatchService {
                     continue;
                 }
 
+                // R4: same as JFDI above — a force-submit of a previously-triaged slot gets a
+                // pending row too.
+                Long evalRowId = forecastService.persistPendingEvaluation(preEval);
                 tasks.add(new EvaluationTask.Forecast(
                         location, date, event, model, data,
-                        EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE));
+                        EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
+                        EvaluationTask.Forecast.PromptKind.SKY, evalRowId));
                 LOG.info("[FORCE BATCH] INCLUDE {} | date={} event={}",
                         location.getName(), date, event);
 

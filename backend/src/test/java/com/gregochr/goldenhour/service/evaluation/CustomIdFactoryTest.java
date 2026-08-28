@@ -167,6 +167,7 @@ class CustomIdFactoryTest {
         assertThat(f.locationId()).isEqualTo(42L);
         assertThat(f.date()).isEqualTo(DATE);
         assertThat(f.targetType()).isEqualTo(TargetType.SUNRISE);
+        assertThat(f.evalRowId()).isNull();
     }
 
     @Test
@@ -204,7 +205,64 @@ class CustomIdFactoryTest {
     void forecastRoundTripsThroughParse() {
         String id = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE);
         assertThat(CustomIdFactory.parse(id))
-                .isEqualTo(new ParsedCustomId.Forecast(42L, DATE, TargetType.SUNRISE));
+                .isEqualTo(new ParsedCustomId.Forecast(42L, DATE, TargetType.SUNRISE, null));
+    }
+
+    @Test
+    void forecastWithEvalRowIdRoundTripsThroughParse() {
+        // R3: the new-format id carries the pending row's primary key.
+        String id = CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE, 12345L);
+        assertThat(id).isEqualTo("fc-42-2026-04-16-SUNRISE-r12345");
+        assertThat(CustomIdFactory.parse(id))
+                .isEqualTo(new ParsedCustomId.Forecast(42L, DATE, TargetType.SUNRISE, 12345L));
+    }
+
+    @Test
+    void forForecastWithNullEvalRowIdMatchesThreeArgOverload() {
+        // The four-arg overload with evalRowId=null must be byte-identical to the three-arg
+        // form — old-format callers (bluebell/woodland never call this; sync path always
+        // passes null) must not silently gain a suffix.
+        assertThat(CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE, null))
+                .isEqualTo(CustomIdFactory.forForecast(42L, DATE, TargetType.SUNRISE));
+    }
+
+    @Test
+    void oldFormatForecastIdParsesWithNullEvalRowId() {
+        // Backward compatibility is mandatory (R3): batches submitted by the previous binary
+        // are in flight at deploy. An id with no -r{rowId} suffix is not an error.
+        ParsedCustomId parsed = CustomIdFactory.parse("fc-99-2026-04-16-SUNSET");
+        assertThat(parsed).isInstanceOf(ParsedCustomId.Forecast.class);
+        assertThat(((ParsedCustomId.Forecast) parsed).evalRowId()).isNull();
+    }
+
+    @Test
+    void forecastIdWithNonDigitRowIdSuffixIsRejectedAsMalformed() {
+        // A malformed suffix must be REJECTED, not silently dropped down to a suffix-less
+        // parse — that would discard a paid-for response as MALFORMED_ID while looking, to a
+        // casual reader of the log, like a plain old-format id.
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> CustomIdFactory.parse("fc-42-2026-04-16-SUNRISE-rABC"))
+                .withMessageContaining("Malformed custom ID");
+    }
+
+    @Test
+    void forecastIdWithEmptyRowIdSuffixIsRejectedAsMalformed() {
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> CustomIdFactory.parse("fc-42-2026-04-16-SUNRISE-r"))
+                .withMessageContaining("Malformed custom ID");
+    }
+
+    @Test
+    void forecastWithEvalRowIdStaysWithin64CharCapAtLargestPlausibleIds() {
+        // fc- (3) + Long.MAX_VALUE locationId (19) + - (1) + date (10) + - (1) + SUNRISE (7)
+        // + -r (2) + Long.MAX_VALUE evalRowId (19) = 62 — headroom asserted, not assumed.
+        String id = CustomIdFactory.forForecast(
+                Long.MAX_VALUE, DATE, TargetType.SUNRISE, Long.MAX_VALUE);
+        assertThat(id).hasSizeLessThanOrEqualTo(64);
+        assertThat(id).matches(ANTHROPIC);
+        assertThat(CustomIdFactory.parse(id))
+                .isEqualTo(new ParsedCustomId.Forecast(
+                        Long.MAX_VALUE, DATE, TargetType.SUNRISE, Long.MAX_VALUE));
     }
 
     @Test
@@ -324,7 +382,7 @@ class CustomIdFactoryTest {
         String id = CustomIdFactory.forForecast(0L, DATE, TargetType.SUNRISE);
         assertThat(id).isEqualTo("fc-0-2026-04-16-SUNRISE");
         assertThat(CustomIdFactory.parse(id))
-                .isEqualTo(new ParsedCustomId.Forecast(0L, DATE, TargetType.SUNRISE));
+                .isEqualTo(new ParsedCustomId.Forecast(0L, DATE, TargetType.SUNRISE, null));
     }
 
     @Test
@@ -334,7 +392,7 @@ class CustomIdFactoryTest {
         String id = CustomIdFactory.forForecast(Long.MAX_VALUE, DATE, TargetType.SUNRISE);
         assertThat(CustomIdFactory.parse(id))
                 .isEqualTo(new ParsedCustomId.Forecast(
-                        Long.MAX_VALUE, DATE, TargetType.SUNRISE));
+                        Long.MAX_VALUE, DATE, TargetType.SUNRISE, null));
     }
 
     @Test

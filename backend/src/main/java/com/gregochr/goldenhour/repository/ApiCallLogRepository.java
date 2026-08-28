@@ -59,4 +59,15 @@ public interface ApiCallLogRepository extends JpaRepository<ApiCallLogEntity, Lo
             + "AND a.batchId IN :batchIds "
             + "ORDER BY a.calledAt DESC")
     List<ApiCallLogEntity> findFailedBatchCalls(@Param("batchIds") Collection<String> batchIds);
+
+    /**
+     * Returns every custom_id logged against the given Anthropic batch — succeeded and failed
+     * alike. Used by the R7(a) abandonment sweep to identify every request the batch touched, so
+     * whichever {@code fc-} ones never reached {@code SCORED} can be closed out.
+     *
+     * @param batchId the Anthropic batch id ({@code msgbatch_*})
+     * @return every custom_id logged against that batch
+     */
+    @Query("SELECT a.customId FROM ApiCallLogEntity a WHERE a.batchId = :batchId")
+    List<String> findCustomIdsByBatchId(@Param("batchId") String batchId);
 }

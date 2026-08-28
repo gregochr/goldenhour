@@ -33,11 +33,24 @@ import java.util.List;
  * @param meanFarDrop         mean analysed near-minus-far low cloud (pp) — reanalysis-internal,
  *                            so offset-immune
  * @param meanFarError        signed mean of (forecast − observed) far-solar low cloud
- * @param ratedCount          members with a non-null, in-range (1..5) {@code rating} — a triaged
- *                            slot is stood down before any prompt is built and so is never rated,
- *                            and a heavy-cloud bucket is mostly triaged, so this is the
- *                            denominator for every rating statistic below, never
- *                            {@code sampleCount}. An out-of-range value is excluded exactly as
+ * @param ratedCount          members with a non-null, in-range (1..5) {@code rating}. A null
+ *                            rating no longer means only "triaged" (prompted-row persistence
+ *                            plan): a triaged slot is stood down before any prompt is built and
+ *                            so is never rated, but since the {@code fc-} sky lane also persists
+ *                            a row at batch submit time, a null rating here now also covers a
+ *                            row still {@code PENDING} or closed out {@code ABANDONED} without a
+ *                            score. By the time a slot is old enough for the ERA5 archive lag,
+ *                            every one of its rows is {@code SCORED} or {@code ABANDONED} — never
+ *                            {@code PENDING} — so this stays close to a clean triaged-vs-rated
+ *                            split in practice. Not perfectly clean: a {@code SCORED} row can
+ *                            still carry a null {@code rating} when {@code RatingValidator}
+ *                            rejected an out-of-range Claude value (R5 persists the same
+ *                            validated — possibly null — rating the batch path writes to
+ *                            {@code cached_evaluation}), which this bucket already treats as
+ *                            excluded below, same as an out-of-range one. A heavy-cloud bucket
+ *                            is mostly triaged, so this is the denominator for every rating
+ *                            statistic below, never {@code sampleCount}. An out-of-range value is
+ *                            excluded exactly as
  *                            {@link com.gregochr.goldenhour.service.evaluation.RatingValidator}
  *                            treats one elsewhere — as though it were {@code null} — because the
  *                            synchronous engine writes this column without passing through that

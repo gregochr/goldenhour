@@ -86,6 +86,9 @@ class BatchResultProcessorTest {
     private ForecastResultHandler forecastResultHandler;
     @Mock
     private AuroraResultHandler auroraResultHandler;
+    @Mock
+    private com.gregochr.goldenhour.service.evaluation.EvaluationAbandonmentService
+            evaluationAbandonmentService;
 
     private BatchResultProcessor processor;
 
@@ -94,7 +97,7 @@ class BatchResultProcessorTest {
         processor = new BatchResultProcessor(
                 anthropicClient, batchRepository, locationRepository,
                 jobRunService, costCalculator,
-                forecastResultHandler, auroraResultHandler);
+                forecastResultHandler, auroraResultHandler, evaluationAbandonmentService);
     }
 
     private void stubBatchService() {
@@ -190,6 +193,9 @@ class BatchResultProcessorTest {
         assertThat(captor.getValue().getStatus()).isEqualTo(BatchStatus.COMPLETED);
         assertThat(captor.getValue().getSucceededCount()).isEqualTo(1);
         assertThat(captor.getValue().getErroredCount()).isZero();
+        // R7(a): the event-driven abandonment sweep must run at the end of every forecast
+        // batch's normal completion, not just on the failure path.
+        verify(evaluationAbandonmentService).abandonPendingForBatch("msgbatch_fail");
     }
 
     @Test
@@ -898,5 +904,9 @@ class BatchResultProcessorTest {
                 .as("the reason says how much survived, so the log is actionable")
                 .contains("1 succeeded")
                 .contains("1 cache keys flushed");
+        // R7(a): the sweep must also run on the stream-failure path — the one response that
+        // scored is fine, but the sweep still needs to close out whatever this batch's
+        // still-PENDING rows are (the never-received rest of the batch).
+        verify(evaluationAbandonmentService).abandonPendingForBatch("msgbatch_fail");
     }
 }

@@ -253,6 +253,14 @@ public class ForecastController {
      * optional-location filter resolved to a location-id list before the one repository call,
      * never a per-location query loop.
      *
+     * <p>Unlike {@link #getForecasts}, this admin surface deliberately does NOT exclude
+     * {@code PENDING} rows (prompted-row persistence plan, R1) — it shows every run, three-state
+     * ({@code PENDING}/{@code SCORED}/{@code ABANDONED}) rows included, because that is the point
+     * of a "how did this rating evolve across runs" tool. A row's rating can arrive after its
+     * {@code forecastRunAt} for a batch-scored slot: {@code forecastRunAt} is submit time, not
+     * result time (R5 never bumps it), so a PENDING row briefly shows no rating at its own
+     * timestamp before the batch result lands and updates it in place.
+     *
      * @param from     start of the date range (inclusive), ISO format {@code yyyy-MM-dd}
      * @param to       end of the date range (inclusive), ISO format {@code yyyy-MM-dd}
      * @param location optional location name filter
@@ -474,6 +482,11 @@ public class ForecastController {
      *
      * <p>Designed for backtesting — compare how the forecast rating changed across
      * multiple evaluation runs as the target date approached.
+     *
+     * <p>Like {@link #getHistory}, deliberately includes {@code PENDING} rows (R1) — the compare
+     * timeline plots submit-time timestamps, so a batch-scored point's rating can be populated
+     * after its own {@code forecastRunAt} on the x-axis, once the batch result lands and R5
+     * scores it in place.
      *
      * @param location   the configured location name
      * @param date       the target date, ISO format {@code yyyy-MM-dd}

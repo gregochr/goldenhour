@@ -180,7 +180,7 @@ class ForecastScoreDualWriteIntegrationTest extends IntegrationTestBase {
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 "fc-" + location.getId() + "-2026-06-21-SUNSET", rawJson,
                 new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
-        ForecastIdentity identity = new ForecastIdentity(location.getId(), DATE, SUNSET);
+        ForecastIdentity identity = new ForecastIdentity(location.getId(), DATE, SUNSET, null);
         // jobRunId null → no api_call_log FK dependency; pipelineRunId threaded as forecast_score provenance.
         ResultContext context = ResultContext.forBatch(
                 null, "msgbatch_dualwrite", pipelineRunId, BatchTriggerSource.SCHEDULED);

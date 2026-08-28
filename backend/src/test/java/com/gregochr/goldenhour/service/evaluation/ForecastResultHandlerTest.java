@@ -19,6 +19,9 @@ import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TideContext;
 import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.TokenUsage;
+import com.gregochr.goldenhour.entity.BatchState;
+import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.ForecastDataAugmentor;
 import com.gregochr.goldenhour.service.JobRunService;
@@ -45,6 +48,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -85,6 +89,8 @@ class ForecastResultHandlerTest {
     private ForecastDataAugmentor forecastDataAugmentor;
     @Mock
     private ForecastScoreWriter forecastScoreWriter;
+    @Mock
+    private ForecastEvaluationRepository forecastEvaluationRepository;
 
     private ForecastResultHandler handler;
 
@@ -96,7 +102,8 @@ class ForecastResultHandlerTest {
                 new RatingCombiner(List.of(
                         new SkyVisitor(), new TideVisitor(), new BluebellVisitor(),
                         new WoodlandVisitor())),
-                forecastDataAugmentor, forecastScoreWriter, parser);
+                forecastDataAugmentor, forecastScoreWriter, parser,
+                forecastEvaluationRepository);
     }
 
     @Test
@@ -110,7 +117,7 @@ class ForecastResultHandlerTest {
     @DisplayName("parseBatchResponse: success → BatchSuccess + api_call_log row")
     void parseBatchResponse_success_returnsBatchSuccessAndLogs() {
         LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
-        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE);
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, null);
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 "fc-42-2026-04-16-SUNRISE",
                 "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
@@ -138,6 +145,122 @@ class ForecastResultHandlerTest {
                 eq(null), eq(null),
                 eq(EvaluationModel.HAIKU), any(TokenUsage.class),
                 eq(DATE), eq(SUNRISE), eq(outcome.rawText()));
+        // evalRowId is null on this identity — R5's row-scoring seam must never be touched.
+        verify(forecastEvaluationRepository, never()).findById(any());
+        verify(forecastEvaluationRepository, never()).save(any());
+    }
+
+    // ── R5: scoring a PENDING row in place ─────────────────────────────────────
+
+    @Test
+    @DisplayName("R5: a batch success with a non-null evalRowId scores the pending row in place, "
+            + "agreeing with the cached_evaluation write")
+    void parseBatchResponse_withEvalRowId_scoresRowInPlaceMatchingCacheWrite() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, 777L);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-42-2026-04-16-SUNRISE-r777",
+                "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\","
+                        + "\"headline\":\"Fire over the fells\"}",
+                new TokenUsage(500, 200, 0, 1000),
+                EvaluationModel.HAIKU);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X", null, null, null, null, null,
+                                "Fire over the fells"),
+                        false));
+
+        LocalDateTime submittedAt = LocalDateTime.of(2026, 4, 16, 3, 0);
+        ForecastEvaluationEntity pendingRow = ForecastEvaluationEntity.builder()
+                .id(777L)
+                .forecastRunAt(submittedAt)
+                .batchState(BatchState.PENDING)
+                .build();
+        when(forecastEvaluationRepository.findById(777L)).thenReturn(Optional.of(pendingRow));
+
+        ResultContext context = ResultContext.forBatch(
+                99L, "msgbatch_x", BatchTriggerSource.SCHEDULED);
+        Optional<BatchSuccess> result = handler.parseBatchResponse(
+                location, identity, outcome, context);
+
+        assertThat(result).isPresent();
+        BriefingEvaluationResult cacheWrite = result.get().result();
+
+        ArgumentCaptor<ForecastEvaluationEntity> savedCaptor =
+                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(forecastEvaluationRepository).save(savedCaptor.capture());
+        ForecastEvaluationEntity saved = savedCaptor.getValue();
+
+        // The row and cached_evaluation must never disagree about one slot.
+        assertThat(saved.getRating()).isEqualTo(cacheWrite.rating());
+        assertThat(saved.getFierySkyPotential()).isEqualTo(cacheWrite.fierySkyPotential());
+        assertThat(saved.getGoldenHourPotential()).isEqualTo(cacheWrite.goldenHourPotential());
+        assertThat(saved.getSummary()).isEqualTo(cacheWrite.summary());
+        assertThat(saved.getHeadline()).isEqualTo(cacheWrite.headline());
+        assertThat(saved.getEvaluationModel()).isEqualTo(EvaluationModel.HAIKU);
+        assertThat(saved.getBatchState()).isEqualTo(BatchState.SCORED);
+        // forecast_run_at means "when the weather was sampled" — R5 must never bump it.
+        assertThat(saved.getForecastRunAt()).isEqualTo(submittedAt);
+    }
+
+    @Test
+    @DisplayName("R5: the sky-not-forecast 1★ substitution lands in the row too, not just the cache")
+    void parseBatchResponse_withEvalRowId_skyNotForecastSubstitutionLandsInRowToo() {
+        LocationEntity location = locationWithRegion(53L, "Keswick", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, 888L);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-53-2026-04-16-SUNRISE-r888",
+                "{\"fiery_sky\":40,\"golden_hour\":45,\"summary\":\"ignored\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(null, 40, 45, "Claude prose to be overridden"), false));
+
+        ForecastEvaluationEntity pendingRow = ForecastEvaluationEntity.builder()
+                .id(888L)
+                .forecastRunAt(LocalDateTime.of(2026, 4, 16, 3, 0))
+                .batchState(BatchState.PENDING)
+                .build();
+        when(forecastEvaluationRepository.findById(888L)).thenReturn(Optional.of(pendingRow));
+
+        Optional<BatchSuccess> result = handler.parseBatchResponse(
+                location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isPresent();
+        ArgumentCaptor<ForecastEvaluationEntity> savedCaptor =
+                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(forecastEvaluationRepository).save(savedCaptor.capture());
+        ForecastEvaluationEntity saved = savedCaptor.getValue();
+
+        assertThat(saved.getRating()).isEqualTo(1);
+        assertThat(saved.getSummary()).isEqualTo(ForecastResultHandler.SKY_NOT_FORECAST_SUMMARY);
+        assertThat(saved.getHeadline()).isNull();
+        assertThat(saved.getBatchState()).isEqualTo(BatchState.SCORED);
+    }
+
+    @Test
+    @DisplayName("R5: a missing pending row is swallowed, not thrown — the served rating is "
+            + "unaffected")
+    void parseBatchResponse_withEvalRowId_rowNotFound_logsAndSwallows() {
+        LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, 999L);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-42-2026-04-16-SUNRISE-r999",
+                "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(4, 70, 65, "X"), false));
+        when(forecastEvaluationRepository.findById(999L)).thenReturn(Optional.empty());
+
+        Optional<BatchSuccess> result = handler.parseBatchResponse(
+                location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().result().rating()).isEqualTo(4);
+        verify(forecastEvaluationRepository, never()).save(any());
     }
 
     @Test
@@ -145,7 +268,7 @@ class ForecastResultHandlerTest {
             + "WOODLAND, not BLUEBELL")
     void parseWoodlandBatchResponse_filesUnderWoodlandType() {
         LocationEntity location = canopyLocation(53L, "Bluebell Wood", "Lake District");
-        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE);
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null);
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 "wd-53-2026-04-16-SUNRISE",
                 "{\"rating\":5,\"summary\":\"Mist through the trunks with a low sun.\","
@@ -190,7 +313,7 @@ class ForecastResultHandlerTest {
     @DisplayName("parseWoodlandBatchResponse: a response with no rating is dropped, not defaulted")
     void parseWoodlandBatchResponse_missingRating_returnsEmpty() {
         LocationEntity location = canopyLocation(53L, "Bluebell Wood", "Lake District");
-        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE);
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null);
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 "wd-53-2026-04-16-SUNRISE", "{\"summary\":\"no rating here\"}",
                 new TokenUsage(300, 80, 0, 900), EvaluationModel.HAIKU);
@@ -208,7 +331,7 @@ class ForecastResultHandlerTest {
             + "BLUEBELL component dual-written")
     void parseBluebellBatchResponse_woodland_bluebellIsRating() {
         LocationEntity location = woodlandBluebellLocation(53L, "Bluebell Wood", "Lake District");
-        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE);
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null);
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 "bb-53-2026-04-16-SUNRISE",
                 "{\"rating\":4,\"summary\":\"Bright still light if they are in flower.\","
@@ -253,7 +376,7 @@ class ForecastResultHandlerTest {
     @DisplayName("parseBluebellBatchResponse: failed outcome → empty + failure log, no combine")
     void parseBluebellBatchResponse_failedOutcome_returnsEmpty() {
         LocationEntity location = woodlandBluebellLocation(53L, "Bluebell Wood", "Lake District");
-        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE);
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null);
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.failure(
                 "bb-53-2026-04-16-SUNRISE", "expired", "expired", "request expired");
 
@@ -271,7 +394,7 @@ class ForecastResultHandlerTest {
             + "regex_fallback marker, succeeded stays true")
     void parseBatchResponse_regexFallback_persistsRawAndMarker() {
         LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
-        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE);
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, null);
         // Realistic malformed-ish raw that would force strict-parse failure (resembles the
         // observed Bug B artifact). The parser is mocked, so this is the raw that must be
         // persisted verbatim — it is NOT a Bug B fix fixture.
@@ -303,7 +426,7 @@ class ForecastResultHandlerTest {
     @DisplayName("parseBatchResponse: failure outcome → empty + api_call_log error row")
     void parseBatchResponse_failure_returnsEmptyAndLogsError() {
         LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
-        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE);
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, null);
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.failure(
                 "fc-42-2026-04-16-SUNRISE", "OVERLOADED_ERROR",
                 "overloaded_error", "busy");
@@ -327,7 +450,7 @@ class ForecastResultHandlerTest {
     @DisplayName("parseBatchResponse: parser throws → empty + parse_error log row")
     void parseBatchResponse_parserThrows_returnsEmptyAndLogsParseError() {
         LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
-        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE);
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, null);
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 "fc-42-2026-04-16-SUNRISE", "garbage",
                 new TokenUsage(0, 0, 0, 0), EvaluationModel.HAIKU);
@@ -354,7 +477,7 @@ class ForecastResultHandlerTest {
     @DisplayName("parseBatchResponse: rating out of range → safeRating=null but BatchSuccess still returned")
     void parseBatchResponse_outOfRangeRating_safeRatingNulled() {
         LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
-        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE);
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, null);
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 "fc-42-2026-04-16-SUNRISE",
                 "{\"rating\":7,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
@@ -376,7 +499,7 @@ class ForecastResultHandlerTest {
     @DisplayName("dual-write failure is isolated: evaluation still succeeds and logs at ERROR")
     void parseBatchResponse_dualWriteThrows_evaluationProceedsAndLogsError() {
         LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
-        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE);
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, null);
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 "fc-42-2026-04-16-SUNRISE",
                 "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
@@ -428,7 +551,7 @@ class ForecastResultHandlerTest {
         location.setId(42L);
         location.setName("Castlerigg");
         // region intentionally null
-        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE);
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, null);
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 "fc-42-2026-04-16-SUNRISE",
                 "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
@@ -450,7 +573,7 @@ class ForecastResultHandlerTest {
     @DisplayName("parseBatchResponse: null jobRunId → skips api_call_log, still returns parsed result")
     void parseBatchResponse_nullJobRunId_skipsLogButReturnsResult() {
         LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
-        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE);
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, null);
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 "fc-42-2026-04-16-SUNRISE",
                 "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
@@ -472,7 +595,7 @@ class ForecastResultHandlerTest {
     @DisplayName("parseBatchResponse: persistence exception is swallowed (does not break batch)")
     void parseBatchResponse_persistenceFailure_isSwallowed() {
         LocationEntity location = locationWithRegion(42L, "Castlerigg", "Lake District");
-        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE);
+        ForecastIdentity identity = new ForecastIdentity(42L, DATE, SUNRISE, null);
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 "fc-42-2026-04-16-SUNRISE",
                 "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"X\"}",
@@ -513,7 +636,7 @@ class ForecastResultHandlerTest {
     @DisplayName("coastal aligned (regular) tide: sky 3 + tide 4 → averaged to 4")
     void parseBatchResponse_coastalAlignedTide_averagesSkyAndTide() {
         LocationEntity location = coastalLocation(50L, "Berwick", "Northumberland");
-        ForecastIdentity identity = new ForecastIdentity(50L, DATE, SUNRISE);
+        ForecastIdentity identity = new ForecastIdentity(50L, DATE, SUNRISE, null);
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 "fc-50-2026-04-16-SUNRISE",
                 "{\"rating\":3,\"fiery_sky\":55,\"golden_hour\":60,\"summary\":\"sky\"}",
@@ -538,7 +661,7 @@ class ForecastResultHandlerTest {
     @DisplayName("coastal misaligned tide: sky 3 + tide 1 → dragged to 2")
     void parseBatchResponse_coastalMisalignedTide_dragsRating() {
         LocationEntity location = coastalLocation(51L, "Spittal", "Northumberland");
-        ForecastIdentity identity = new ForecastIdentity(51L, DATE, SUNRISE);
+        ForecastIdentity identity = new ForecastIdentity(51L, DATE, SUNRISE, null);
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 "fc-51-2026-04-16-SUNRISE",
                 "{\"rating\":3,\"fiery_sky\":55,\"golden_hour\":60,\"summary\":\"sky\"}",
@@ -562,7 +685,7 @@ class ForecastResultHandlerTest {
     @DisplayName("coastal un-derivable tide (data gap): scores on sky alone, not penalised")
     void parseBatchResponse_coastalTideUnderivable_scoresSkyAlone() {
         LocationEntity location = coastalLocation(52L, "Seahouses", "Northumberland");
-        ForecastIdentity identity = new ForecastIdentity(52L, DATE, SUNRISE);
+        ForecastIdentity identity = new ForecastIdentity(52L, DATE, SUNRISE, null);
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 "fc-52-2026-04-16-SUNRISE",
                 "{\"rating\":4,\"fiery_sky\":70,\"golden_hour\":65,\"summary\":\"sky\"}",
@@ -586,7 +709,7 @@ class ForecastResultHandlerTest {
     @DisplayName("sky not forecast (inland, rating null): 1★ + not-forecast summary, no triage")
     void parseBatchResponse_skyNotForecastInland_substitutesOneStar() {
         LocationEntity location = locationWithRegion(53L, "Keswick", "Lake District");
-        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE);
+        ForecastIdentity identity = new ForecastIdentity(53L, DATE, SUNRISE, null);
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 "fc-53-2026-04-16-SUNRISE",
                 "{\"fiery_sky\":40,\"golden_hour\":45,\"summary\":\"ignored\"}",
@@ -613,7 +736,7 @@ class ForecastResultHandlerTest {
     @DisplayName("sky not forecast (coastal): 1★ substituted BEFORE combine — tide never averaged")
     void parseBatchResponse_skyNotForecastCoastal_neverScoresOnTideAlone() {
         LocationEntity location = coastalLocation(54L, "St Marys", "Northumberland");
-        ForecastIdentity identity = new ForecastIdentity(54L, DATE, SUNRISE);
+        ForecastIdentity identity = new ForecastIdentity(54L, DATE, SUNRISE, null);
         ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
                 "fc-54-2026-04-16-SUNRISE",
                 "{\"fiery_sky\":40,\"golden_hour\":45,\"summary\":\"ignored\"}",

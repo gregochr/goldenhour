@@ -148,7 +148,8 @@ public class EvaluationServiceImpl implements EvaluationService {
                         CustomIdFactory.forWoodland(locationId, task.date(), task.targetType()),
                         task.model(), task.data(), task.model().getMaxTokens()));
                 case SKY -> requests.add(batchRequestFactory.buildForecastRequest(
-                        CustomIdFactory.forForecast(locationId, task.date(), task.targetType()),
+                        CustomIdFactory.forForecast(
+                                locationId, task.date(), task.targetType(), task.evalRowId()),
                         task.model(), task.data(), task.model().getMaxTokens()));
             }
         }
