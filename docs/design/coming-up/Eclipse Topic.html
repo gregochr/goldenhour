@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>PhotoCast — ECLIPSE, an almanac event</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--surface-light:#2A2019;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,0.66);--ink-3:rgba(242,231,211,0.42);--ink-4:rgba(242,231,211,0.26);--go:#8AAE72;--marginal:#E0A542;--standdown:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--nlc:#9B8FD4;--snow:#B7CBD8;--ecl:#f87171;--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:28px 20px 70px}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+.wrap{max-width:1000px;margin:0 auto}
+.head h1{font-size:22px;font-weight:700;letter-spacing:-.015em;margin-bottom:10px}
+.head p{font-size:14px;color:var(--ink-2);line-height:1.64;max-width:800px;text-wrap:pretty}
+.head p+p{margin-top:9px}
+.head strong{color:var(--ink);font-weight:600}
+.head em{color:var(--ecl);font-style:normal}
+.bar{display:flex;align-items:baseline;gap:12px;margin:32px 0 12px}
+.bar .lbl{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.bar .sub{font-size:12px;color:var(--ink-4);font-style:italic}
+.bar .rule{flex:1;height:1px;background:var(--border)}
+.cu{border:1px solid var(--border);border-radius:11px;background:var(--panel);overflow:hidden}
+.cuh{display:flex;align-items:center;gap:10px;padding:12px 14px 11px;border-bottom:1px solid var(--border)}
+.cuh .t{font-size:15px;font-weight:700}
+.cuh .d{font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.cuh .d::before{content:'· '}
+.ev{display:grid;grid-template-columns:112px 1fr auto;gap:14px;align-items:center;padding:11px 14px;border-bottom:1px solid var(--border);cursor:pointer}
+.ev:last-child{border-bottom:none}
+.ev:hover{background:rgba(255,255,255,.02)}
+.ev .dt{font-family:var(--mono);font-size:11px;color:var(--ink-2)}
+.ev .dt b{display:block;font-size:12.5px;color:var(--ink);font-weight:600}
+.ev .nm{font-size:13px;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ev .sub{font-size:12px;color:var(--ink-2);margin-top:2px;line-height:1.5}
+.ev .rt{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);text-align:right;white-space:nowrap}
+.ev.past{opacity:.45}
+.kindk{font-family:var(--mono);font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;padding:2px 6px;border-radius:5px}
+.kindk.alm{background:rgba(111,168,176,.14);color:#9CCBD1}
+.kindk.fc{background:rgba(138,174,114,.14);color:#A8C795}
+.cufoot{padding:9px 14px;border-top:1px solid var(--border);background:rgba(0,0,0,.16);font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+/* the one new thing: a rare-event row */
+.ev.rare{background:linear-gradient(90deg,rgba(248,113,113,.09),rgba(248,113,113,0) 62%);box-shadow:inset 3px 0 0 var(--ecl)}
+.ev.rare:hover{background:linear-gradient(90deg,rgba(248,113,113,.14),rgba(248,113,113,.02) 62%)}
+.ev.rare .dt b{color:var(--ecl)}
+.ev.rare .nm{font-size:14px}
+.kindk.rare{background:rgba(248,113,113,.16);color:#fca5a5}
+.once{font-family:var(--mono);font-size:10.5px;color:#fca5a5;margin-top:4px;display:flex;align-items:center;gap:6px}
+.once::before{content:'◆';font-size:8px}
+/* topic pill, live state */
+.planner{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:14px}
+.topics{display:flex;flex-direction:column;gap:8px}
+.topic{border:1px solid var(--border);border-left:3px solid var(--ac);border-radius:8px;cursor:pointer;transition:background .14s;position:relative}
+.topic:hover{background:var(--surface-light)}
+.topic-row{display:flex;align-items:center;gap:10px;padding:10px 13px 5px}
+.topic-ico{font-size:15px;line-height:1;flex:none;width:19px;text-align:center}
+.topic-label{font-size:12.5px;font-weight:600;white-space:nowrap}
+.topic-when{font-family:var(--mono);font-size:12px;font-weight:600;white-space:nowrap;color:var(--ac);display:inline-flex;align-items:center;gap:6px}
+.topic-when .arw{font-size:13px}
+.topic-detail{font-size:12.5px;color:var(--ink-2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.topic-regions{font-family:var(--mono);font-size:11px;color:var(--ink-3);white-space:nowrap}
+.topic-exp{font-size:10px;color:var(--ink-4)}
+.info{width:15px;height:15px;border-radius:50%;border:1px solid var(--ink-4);color:var(--ac);font-family:var(--mono);font-size:9px;font-weight:600;display:inline-flex;align-items:center;justify-content:center;flex:none;cursor:help;transition:border-color .14s;position:relative}
+.info:hover{border-color:var(--ac)}
+.info .tip{position:absolute;left:50%;bottom:calc(100% + 10px);transform:translateX(-16px);z-index:40;width:320px;background:var(--surface-light);border:1px solid var(--border-light);border-radius:9px;box-shadow:0 16px 40px rgba(0,0,0,.6);padding:11px 13px;display:none;white-space:normal;text-align:left;cursor:auto}
+.info .tip::after{content:'';position:absolute;left:16px;bottom:-6px;width:11px;height:11px;transform:rotate(45deg);background:var(--surface-light);border-right:1px solid var(--border-light);border-bottom:1px solid var(--border-light)}
+.info:hover .tip{display:block}
+.tip .th{display:block;font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;margin-bottom:6px;color:var(--ac)}
+.tip .tb{display:block;font-family:var(--serif);font-size:12.5px;line-height:1.52;color:var(--ink-2);text-wrap:pretty}
+.facts{display:flex;flex-wrap:wrap;align-items:center;gap:6px 15px;padding:0 13px 10px 42px}
+.fact{font-family:var(--mono);font-size:11px;color:var(--ink-2);display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.fact .k{color:var(--ink-4)}
+.fact b{color:var(--ink);font-weight:600}
+.fact .dir{color:var(--ac);font-weight:600;letter-spacing:.02em}
+.fact-note{font-family:var(--mono);font-size:10px;color:var(--ink-4);font-style:italic}
+.safety{display:flex;align-items:center;gap:8px;margin:0 13px 11px 42px;padding:6px 10px;border:1px solid rgba(248,113,113,.34);background:rgba(248,113,113,.07);border-radius:6px;font-family:var(--mono);font-size:10.5px;color:#fca5a5}
+.safety b{color:#fecaca;font-weight:600}
+.cap{font-size:12px;color:var(--ink-3);line-height:1.6;margin:10px 2px 0;font-style:italic;text-wrap:pretty}
+.cap b{color:var(--ink-2);font-style:normal;font-weight:600}
+.spec{display:grid;grid-template-columns:152px 1fr;background:var(--panel);border:1px solid var(--border);border-radius:10px;overflow:hidden;font-size:12px}
+.spec dt{font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);padding:10px 14px;border-top:1px solid var(--border)}
+.spec dd{color:var(--ink-2);padding:10px 14px;border-top:1px solid var(--border);line-height:1.6;text-wrap:pretty}
+.spec dt:first-of-type,.spec dd:first-of-type{border-top:none}
+.spec code{font-family:var(--mono);font-size:11px;color:var(--ink)}
+.spec strong{color:var(--ink);font-weight:600}
+.sw{display:inline-block;width:9px;height:9px;border-radius:2px;background:var(--ecl);margin-right:6px}
+.foot{margin-top:30px;font-size:12px;color:var(--ink-3);line-height:1.65;max-width:820px;text-wrap:pretty}
+.foot b{color:var(--ink-2);font-weight:600}
+.foot ol{margin:8px 0 0 18px}
+.foot li{margin-bottom:5px}
+@media (max-width:640px){
+.ev{grid-template-columns:1fr;gap:4px}
+.ev .rt{text-align:left}
+.topic-row{flex-wrap:wrap;row-gap:3px}
+.topic-detail{order:6;flex-basis:100%;white-space:normal;overflow:visible;padding-left:29px}
+.topic-regions{margin-left:auto}
+.facts{padding-left:29px}
+.fact.opt{display:none}
+.safety{margin-left:29px}
+.spec{grid-template-columns:1fr}
+.spec dd{border-top:none;padding-top:0}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <h1>ECLIPSE — a new almanac event</h1>
+    <p>Yes, and you already built the machinery for it. <strong>Coming up</strong> in Plan Window First splits events into <span class="kindk alm">Almanac</span> — fixed by orbital mechanics, plan months out — and <span class="kindk fc">Forecast</span> — firms up ~3 days ahead. An eclipse is the purest almanac event there is: NASA publishes contact times to the second for every eclipse through 3000 AD. Tomorrow's was computable before PhotoCast existed.</p>
+    <p>So this isn't a new pattern. It's a <em>new event type in an existing rail</em>, plus one thing the rail can't currently express: some almanac events are routine and some are once in a lifetime, and a spring tide run shouldn't sit at the same weight as the deepest eclipse since 1999.</p>
+  </div>
+
+  <div class="bar"><span class="lbl">Coming up</span><span class="sub">the eclipse dropped into the existing rail</span><span class="rule"></span></div>
+  <div class="cu">
+    <div class="cuh"><span class="t">Coming up</span><span class="d">dated events worth planning a trip around · next 90 days</span></div>
+
+    <div class="ev rare">
+      <div class="dt"><b>Tomorrow</b>Wed 12 Aug · 19:13</div>
+      <div>
+        <div class="nm">Deep partial solar eclipse — 94%<span class="kindk rare">Almanac · rare</span></div>
+        <div class="sub">Sun only 11° above the WNW horizon at maximum. A clear low western view matters more than the last 2% of coverage.</div>
+        <div class="once">Nothing comparable from the UK until 2081</div>
+      </div>
+      <div class="rt">all regions<br>88–96%</div>
+    </div>
+
+    <div class="ev">
+      <div class="dt"><b>Tomorrow</b>Wed 12 Aug · 22:51</div>
+      <div>
+        <div class="nm">Perseid maximum<span class="kindk alm">Almanac</span></div>
+        <div class="sub">New moon — the eclipse guarantees it. Darkest possible peak night, radiant NE from 01:00.</div>
+      </div>
+      <div class="rt">9 regions<br>ZHR ~100</div>
+    </div>
+
+    <div class="ev">
+      <div class="dt"><b>Thu 13 Aug</b>21:57</div>
+      <div>
+        <div class="nm">Aurora possible — Kp 4<span class="kindk fc">Forecast</span></div>
+        <div class="sub">Glow reaches ~58°N and north. Firms up through Wednesday.</div>
+      </div>
+      <div class="rt">4 regions</div>
+    </div>
+
+    <div class="ev">
+      <div class="dt"><b>16–18 Aug</b>Sun–Tue</div>
+      <div>
+        <div class="nm">Spring tide run 3/3<span class="kindk alm">Almanac</span></div>
+        <div class="sub">4.6 m range. Alignment falls on sunset for two of the three days.</div>
+      </div>
+      <div class="rt">3 regions</div>
+    </div>
+
+    <div class="cufoot">Almanac events are fixed by orbital mechanics — plan months out. Forecast events firm up 3 days ahead. Anything live gets promoted to the top of Plan on the day.</div>
+  </div>
+  <p class="cap">The only new ingredient is the <b>rare</b> treatment — a red left rule, a warm wash falling off to the right, and a <b>once</b> line naming the recurrence interval. It fires when an almanac event's return period exceeds roughly a decade, so it stays scarce by construction: eclipses, a Great Conjunction, a genuinely exceptional tide. A spring tide run never earns it.</p>
+
+  <div class="bar"><span class="lbl">On the day</span><span class="sub">promoted into the hot-topic strip, enriched pattern unchanged</span><span class="rule"></span></div>
+  <div class="planner"><div class="topics">
+    <div class="topic" style="--ac:#f87171">
+      <div class="topic-row">
+        <span class="topic-ico">🌘</span><span class="topic-label">Deep partial eclipse</span>
+        <span class="info">i<span class="tip"><span class="th">Why 94% still isn't dusk</span><span class="tb">Brightness falls with the uncovered area, not with how dark it feels. At maximum a sliver of photosphere is still throwing roughly a twentieth of full sunlight — thousands of times brighter than a full moon, and a meter still reads daylight. What changes is the quality: colour goes metallic, shadows sharpen to knife edges, and pinholes between leaves cast crescents on the ground. The drop only becomes obvious in the last few minutes either side of maximum.</span></span></span>
+        <span class="topic-when"><span class="arw">↓</span>Today · 19:13</span>
+        <span class="topic-detail">— 94% covered, lowest sun of any UK eclipse this century</span>
+        <span class="topic-regions">◍ all regions</span><span class="topic-exp">▸</span>
+      </div>
+      <div class="facts">
+        <span class="fact"><span class="k">max</span><b>94%</b> covered · sun <span class="dir">↖ WNW</span>, only <b>11°</b> up</span>
+        <span class="fact"><span class="k">contacts</span><b>18:17 → 19:13 → 20:06</b></span>
+        <span class="fact opt"><span class="k">☀</span>sets <b>20:56</b>, 50 min after last contact</span>
+        <span class="fact-note">a clear low western horizon matters more than the last 2%</span>
+      </div>
+      <div class="safety"><b>Certified solar filter</b> — on the lens, not only over your eye. Unfiltered, the sensor goes first.</div>
+    </div>
+  </div></div>
+  <p class="cap">Same enriched two-row pill as the other thirteen topics. The <b>safety line</b> is the one addition, and it's non-dismissible: this is the only topic where the subject is the sun itself.</p>
+
+  <div class="bar"><span class="lbl">Catalog entry</span><span class="sub">to add to HOT_TOPIC_STYLES</span><span class="rule"></span></div>
+  <dl class="spec">
+    <dt>Type</dt><dd><code>ECLIPSE</code>, source <code>ALMANAC</code></dd>
+    <dt>Accent</dt><dd><span class="sw"></span><code>#f87171</code> — unused in the catalog; reads solar without colliding with DUST <code>#f97316</code> or STORM_SURGE <code>#f59e0b</code></dd>
+    <dt>Emoji</dt><dd>🌘 <code>\uD83C\uDF18</code></dd>
+    <dt>Data</dt><dd>Per region: <code>magnitudePct</code>, <code>contacts{first,max,last}</code>, <code>sunAltitudeAtMax</code>, <code>sunAzimuthAtMax</code>, <code>sunsetTime</code>. Precomputed once from an ephemeris table and stored — never derived per forecast run.</dd>
+    <dt>Regions</dt><dd>First event that covers <strong>every</strong> region at once. Magnitude is a gradient (88% NE Scotland → 96% Isles of Scilly), not a threshold — the map shades rather than pins, and the rail's right column carries a range instead of a single figure.</dd>
+    <dt>Rare flag</dt><dd>New optional field <code>returnYears</code> on almanac events. Above ~10 → <code>rare</code> styling plus the <em>once</em> line. Eclipse 55, supermoon null, spring tide null.</dd>
+    <dt>Safety</dt><dd>Non-dismissible filter warning on any ECLIPSE surface — rail row detail, topic pill, map popup.</dd>
+    <dt>Mobile</dt><dd><code>.opt</code> drop-fact is the sunset chip. Magnitude, contacts, note and safety line all stay.</dd>
+  </dl>
+
+  <div class="foot">
+    <b>Two calls for you.</b>
+    <ol>
+      <li><b>Does <em>rare</em> earn its keep?</b> It's one more visual state in a rail that's already doing two. The alternative is no new state and the recurrence interval living in the sub-line as plain text — cheaper, quieter, and probably under-sells an event this uncommon.</li>
+      <li><b>Promotion timing.</b> The rail says live events get promoted to the top of Plan on the day. An eclipse at 19:13 is worth promoting the evening before, since the trip has to be decided by then.</li>
+    </ol>
+    <p style="margin-top:12px">Figures: UK-average magnitude ~90%, 88% in north-east Scotland to ~96% in Cornwall and the Isles of Scilly. Contact times shown are London; maximum falls between 19:05 and 19:13 BST across the country, sun 6–13° above the WNW horizon.</p>
+  </div>
+</div>
+</body>
+</html>
