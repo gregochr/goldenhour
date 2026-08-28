@@ -75,10 +75,12 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"ADMIN"})
     @DisplayName("Missing required request parameter is mapped to 400 Bad Request")
     void handleMissingParam_returns400() throws Exception {
-        // GET /api/forecast/history requires 'from' and 'to' params
+        // GET /api/forecast/history requires 'from' and 'to' params. ADMIN because the endpoint
+        // gained @PreAuthorize ADMIN (2026-08-28): this test is about the missing-param mapping,
+        // not the gate, so it must not depend on whether binding or authorization runs first.
         mockMvc.perform(get("/api/forecast/history"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").exists());
