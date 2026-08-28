@@ -245,7 +245,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"ADMIN"})
     @DisplayName("GET /api/forecast/history returns 200 for a valid date range with location filter")
     void getHistory_validRange_returnsEvaluations() throws Exception {
         ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 1, 15));
@@ -265,7 +265,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"ADMIN"})
     @DisplayName("GET /api/forecast/history returns 400 when 'from' is after 'to'")
     void getHistory_fromAfterTo_returns400() throws Exception {
         mockMvc.perform(get("/api/forecast/history")
@@ -276,7 +276,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"ADMIN"})
     @DisplayName("GET /api/forecast/history accepts a range exactly at the span cap")
     void getHistory_spanAtCap_returns200() throws Exception {
         LocalDate from = LocalDate.of(2026, 1, 1);
@@ -295,7 +295,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"ADMIN"})
     @DisplayName("GET /api/forecast/history rejects a range one day over the span cap")
     void getHistory_spanOverCap_returns400() throws Exception {
         LocalDate from = LocalDate.of(2026, 1, 1);
@@ -350,7 +350,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"ADMIN"})
     @DisplayName("GET /api/forecast/compare returns 200 with DTOs for valid params")
     void getCompare_validParams_returnsEvaluations() throws Exception {
         ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 2, 28));
@@ -372,7 +372,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"ADMIN"})
     @DisplayName("GET /api/forecast/history with unknown location returns 404")
     void getHistory_unknownLocation_returns404() throws Exception {
         when(locationService.findByName(eq("Nowhere")))
@@ -387,7 +387,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"ADMIN"})
     @DisplayName("GET /api/forecast/compare with unknown location returns 404")
     void getCompare_unknownLocation_returns404() throws Exception {
         when(locationService.findByName(eq("Nowhere")))
@@ -402,12 +402,63 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"ADMIN"})
     @DisplayName("GET /api/forecast/compare returns 400 when required params are missing")
     void getCompare_missingParams_returns400() throws Exception {
         mockMvc.perform(get("/api/forecast/compare")
                         .param("location", "Durham UK"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("GET /api/forecast/history as LITE_USER returns 403 without touching the repository")
+    void getHistory_asLiteUser_returns403() throws Exception {
+        mockMvc.perform(get("/api/forecast/history")
+                        .param("from", "2026-01-01")
+                        .param("to", "2026-01-31"))
+                .andExpect(status().isForbidden());
+
+        // The gate exists partly because the query is expensive (up to a year of rows across
+        // every enabled location) — a denied caller must not reach it.
+        verify(forecastEvaluationRepository, never())
+                .findByLocationIdInAndTargetDateBetween(any(), any(LocalDate.class), any(LocalDate.class));
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("GET /api/forecast/history as PRO_USER returns 403 (admin backtesting surface)")
+    void getHistory_asProUser_returns403() throws Exception {
+        mockMvc.perform(get("/api/forecast/history")
+                        .param("from", "2026-01-01")
+                        .param("to", "2026-01-31"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("GET /api/forecast/compare as LITE_USER returns 403 without touching the repository")
+    void getCompare_asLiteUser_returns403() throws Exception {
+        mockMvc.perform(get("/api/forecast/compare")
+                        .param("location", "Durham UK")
+                        .param("date", "2026-02-28")
+                        .param("targetType", "SUNSET"))
+                .andExpect(status().isForbidden());
+
+        verify(forecastEvaluationRepository, never())
+                .findByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtAsc(
+                        anyLong(), any(LocalDate.class), any(TargetType.class));
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("GET /api/forecast/compare as PRO_USER returns 403 (admin backtesting surface)")
+    void getCompare_asProUser_returns403() throws Exception {
+        mockMvc.perform(get("/api/forecast/compare")
+                        .param("location", "Durham UK")
+                        .param("date", "2026-02-28")
+                        .param("targetType", "SUNSET"))
+                .andExpect(status().isForbidden());
     }
 
     @Test
@@ -465,7 +516,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"ADMIN"})
     @DisplayName("GET /api/forecast/history returns 200 for all locations when no location filter is given")
     void getHistory_validRange_noLocation_returnsEvaluationsForAllLocations() throws Exception {
         ForecastEvaluationEntity entity = buildEntity(DURHAM, LocalDate.of(2026, 1, 15));
@@ -484,7 +535,7 @@ class ForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @WithMockUser
+    @WithMockUser(roles = {"ADMIN"})
     @DisplayName("GET /api/forecast/history with no location filter queries the repository exactly "
             + "once, regardless of how many locations are enabled")
     void getHistory_noLocation_queriesRepositoryExactlyOnce() throws Exception {
