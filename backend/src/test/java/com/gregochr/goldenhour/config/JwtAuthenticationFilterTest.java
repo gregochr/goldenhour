@@ -12,10 +12,6 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
-import java.util.List;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -43,10 +39,6 @@ class JwtAuthenticationFilterTest {
     @DisplayName("Request with valid JWT token is authenticated and reaches the endpoint")
     void request_validJwt_isAuthenticated() throws Exception {
         String token = jwtService.generateAccessToken("alice", UserRole.LITE_USER);
-        when(forecastEvaluationRepository
-                .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                        any(), any(), any()))
-                .thenReturn(List.of());
 
         mockMvc.perform(get("/api/forecast")
                         .header("Authorization", "Bearer " + token))

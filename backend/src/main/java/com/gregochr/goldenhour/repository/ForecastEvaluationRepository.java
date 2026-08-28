@@ -21,18 +21,6 @@ import java.util.Optional;
 public interface ForecastEvaluationRepository extends JpaRepository<ForecastEvaluationEntity, Long> {
 
     /**
-     * Returns all evaluations for a location across a range of target dates, ordered by
-     * date and target type. Used to build the T through T+7 forecast timeline.
-     *
-     * @param locationId the location primary key
-     * @param from       the start of the date range (inclusive)
-     * @param to         the end of the date range (inclusive)
-     * @return evaluations ordered by target date ascending then target type ascending
-     */
-    List<ForecastEvaluationEntity> findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-            Long locationId, LocalDate from, LocalDate to);
-
-    /**
      * Returns only the most recent evaluation run per slot for a set of locations within a
      * date range.
      *
@@ -71,6 +59,33 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
             + "     OR (e2.solarEventTime IS NULL AND e.solarEventTime IS NULL)))"
             + " ORDER BY e.location.id ASC, e.targetDate ASC, e.targetType ASC")
     List<ForecastEvaluationEntity> findLatestRunPerSlotByLocationIds(
+            @Param("locationIds") Collection<Long> locationIds,
+            @Param("from") LocalDate from,
+            @Param("to") LocalDate to);
+
+    /**
+     * Returns evaluations for a set of locations within a date range, ordered by location name,
+     * then target date, then target type.
+     *
+     * <p>Backs {@code GET /api/forecast/history}: whether the caller passed one location (a
+     * singleton collection) or wants every enabled location (the full id list), this is the one
+     * query either way — {@code IN :locationIds} lets both shapes share a single round trip
+     * instead of one query per location. Ordering by location name first reproduces the order the
+     * old per-location loop produced (it iterated {@code findAllEnabled()}, which is itself
+     * name-ordered) so callers see byte-for-byte the same sequence.
+     *
+     * @param locationIds the location primary keys to query (never empty — callers should return
+     *                     an empty list without querying rather than pass one)
+     * @param from        the start of the date range (inclusive)
+     * @param to          the end of the date range (inclusive)
+     * @return evaluations ordered by location name ascending, then target date ascending, then
+     *         target type ascending
+     */
+    @Query("SELECT e FROM ForecastEvaluationEntity e JOIN FETCH e.location loc"
+            + " WHERE loc.id IN :locationIds"
+            + " AND e.targetDate BETWEEN :from AND :to"
+            + " ORDER BY loc.name ASC, e.targetDate ASC, e.targetType ASC")
+    List<ForecastEvaluationEntity> findByLocationIdInAndTargetDateBetween(
             @Param("locationIds") Collection<Long> locationIds,
             @Param("from") LocalDate from,
             @Param("to") LocalDate to);

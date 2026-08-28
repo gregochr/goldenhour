@@ -48,6 +48,35 @@ No change to the payload, the push interval, or per-emitter cleanup behaviour. M
 reverting to a per-emitter `computeSnapshot()` call inside the broadcast loop fails the new
 "one evaluation per interval" test.
 
+### Fixed — `GET /api/forecast/history` no longer queries once per location
+
+The no-location-filter branch looped over every enabled location, calling the repository once
+per location and materialising all rows in memory — cost scaled with locations × history depth,
+and the range had no upper bound. A few concurrent wide-range requests could saturate the JDBC
+pool.
+
+Replaced the per-location loop with one query: `ForecastEvaluationRepository
+.findByLocationIdInAndTargetDateBetween` takes a location-id collection (a singleton for the
+`location` filter, the full enabled roster otherwise) and fetches everything in a single round
+trip, ordered by location name then target date then target type — the exact order the old loop
+produced, since `findAllEnabled()` is itself name-ordered. The superseded single-location method
+is removed as dead code.
+
+Also caps the requested span at `MAX_HISTORY_SPAN_DAYS` (366 days, one calendar year inclusive of
+a leap day) — comfortably covers the admin backtesting use this endpoint exists for while
+bounding the worst case to a year of `forecast_evaluation` rows (insert-only, never pruned) across
+every enabled location, rather than the table's entire lifetime. An over-long range is rejected
+with the same 400 the existing `from.isAfter(to)` guard uses.
+
+No pagination added — a whole-tree search of `frontend/src` found no caller of this endpoint, so a
+cursor/page contract would be inventing an API nobody calls. The bulk query plus the span cap
+bound the cost without one. Response shape, DTO and ordering are unchanged.
+
+Proven with a real-database test (`ForecastHistoryQueryCountTest`, Hibernate statistics) that the
+fetch issues exactly one SQL statement regardless of enabled-location count — a query-counting
+proxy or Hibernate statistics is required for this, since a test asserting only the returned rows
+passes identically against the old N+1 loop.
+
 ## [v2.19.4] - 2026-08-28
 
 ### Changed — Open-Meteo acquisition extracted from BriefingService into BriefingWeatherLoader

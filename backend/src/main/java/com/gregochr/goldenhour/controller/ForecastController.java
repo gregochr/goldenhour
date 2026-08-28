@@ -40,6 +40,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -230,17 +231,35 @@ public class ForecastController {
     }
 
     /**
+     * Maximum span, in days and inclusive of both endpoints, permitted for a single
+     * {@link #getHistory} request.
+     *
+     * <p>{@code forecast_evaluation} is insert-only and never pruned (see CLAUDE.md's "Where a
+     * rating lives" table), so unlike {@link #getForecasts} — which is bounded to
+     * {@value #PAST_WINDOW_DAYS} days back plus the forward horizon — this endpoint's cost scales
+     * with however much history the caller asks for. This is the admin backtesting tool: comparing
+     * how a rating evolved across runs for a season at a time, per the class javadoc. 366 days (one
+     * calendar year, inclusive of a leap day) comfortably covers that real use while bounding the
+     * worst case to a year of rows across every enabled location rather than the table's entire
+     * lifetime.
+     */
+    static final int MAX_HISTORY_SPAN_DAYS = 366;
+
+    /**
      * Returns stored forecast evaluations within a date range.
      *
      * <p>If {@code location} is supplied only that location's evaluations are returned;
-     * otherwise evaluations for all configured locations are returned.
+     * otherwise evaluations for all enabled locations are returned, in a single query — an
+     * optional-location filter resolved to a location-id list before the one repository call,
+     * never a per-location query loop.
      *
      * @param from     start of the date range (inclusive), ISO format {@code yyyy-MM-dd}
      * @param to       end of the date range (inclusive), ISO format {@code yyyy-MM-dd}
      * @param location optional location name filter
      * @param auth     the current authentication context
      * @return evaluations ordered by target date and target type
-     * @throws IllegalArgumentException if {@code from} is after {@code to}
+     * @throws IllegalArgumentException if {@code from} is after {@code to}, or if the range
+     *                                   spans more than {@value #MAX_HISTORY_SPAN_DAYS} days
      */
     @GetMapping("/history")
     public List<ForecastEvaluationDto> getHistory(
@@ -251,20 +270,22 @@ public class ForecastController {
         if (from.isAfter(to)) {
             throw new IllegalArgumentException("'from' must not be after 'to'");
         }
-        List<com.gregochr.goldenhour.entity.ForecastEvaluationEntity> entities;
+        long spanDays = ChronoUnit.DAYS.between(from, to) + 1;
+        if (spanDays > MAX_HISTORY_SPAN_DAYS) {
+            throw new IllegalArgumentException("Requested range spans " + spanDays
+                    + " days; the maximum is " + MAX_HISTORY_SPAN_DAYS + " days");
+        }
+        List<Long> locationIds;
         if (location != null) {
-            LocationEntity loc = locationService.findByName(location);
-            entities = repository
-                    .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                            loc.getId(), from, to);
+            locationIds = List.of(locationService.findByName(location).getId());
         } else {
-            entities = locationService.findAllEnabled().stream()
-                    .flatMap(loc -> repository
-                            .findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                                    loc.getId(), from, to)
-                            .stream())
+            locationIds = locationService.findAllEnabled().stream()
+                    .map(LocationEntity::getId)
                     .toList();
         }
+        List<com.gregochr.goldenhour.entity.ForecastEvaluationEntity> entities = locationIds.isEmpty()
+                ? List.of()
+                : repository.findByLocationIdInAndTargetDateBetween(locationIds, from, to);
         return dtoMapper.toDtoList(entities, isLiteUser(auth));
     }
 
