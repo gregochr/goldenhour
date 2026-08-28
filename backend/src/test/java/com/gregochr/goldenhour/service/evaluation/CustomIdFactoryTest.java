@@ -253,6 +253,19 @@ class CustomIdFactoryTest {
     }
 
     @Test
+    void forecastIdWithOverflowingRowIdSuffixIsRejectedAsMalformedNotUncaught() {
+        // ROW_ID_SUFFIX (-r(\d+)$) matches any digit run, including one too long to fit in a
+        // long. Long.parseLong throws NumberFormatException on overflow — this must be caught
+        // and rewrapped as IllegalArgumentException like every other malformed-id case, never
+        // propagate the JDK's bare "For input string" exception uncaught (CodeQL: missing catch
+        // of NumberFormatException).
+        assertThatIllegalArgumentException()
+                .isThrownBy(() -> CustomIdFactory.parse(
+                        "fc-42-2026-04-16-SUNRISE-r99999999999999999999"))
+                .withMessageContaining("Malformed custom ID");
+    }
+
+    @Test
     void forecastWithEvalRowIdStaysWithin64CharCapAtLargestPlausibleIds() {
         // fc- (3) + Long.MAX_VALUE locationId (19) + - (1) + date (10) + - (1) + SUNRISE (7)
         // + -r (2) + Long.MAX_VALUE evalRowId (19) = 62 — headroom asserted, not assumed.

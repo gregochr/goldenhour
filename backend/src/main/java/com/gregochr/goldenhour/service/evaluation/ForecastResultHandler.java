@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.service.evaluation;
 import com.gregochr.goldenhour.entity.BatchState;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.InversionDetails;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
@@ -547,7 +548,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
                     null, null, eval.headline());
         }
         if (evalRowId != null) {
-            scoreEvaluationRow(evalRowId, result, resolvedModel);
+            scoreEvaluationRow(evalRowId, eval, result, resolvedModel);
         }
         return result;
     }
@@ -559,16 +560,29 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * bump {@code forecast_run_at} — it means "when the weather was sampled", and the freshness
      * comparisons in {@code EvaluationViewService} depend on it staying the submit-time value.
      *
+     * <p>LITE-tier basic scores and cloud-inversion outputs come from {@code eval} (the parsed
+     * Claude response), not {@code result} ({@link BriefingEvaluationResult} carries neither) —
+     * matching {@code ForecastService.buildEntity}'s sync-path parity: those fields are never
+     * touched by the sky-not-forecast substitution, only rating/summary/headline are. The
+     * inversion embeddable's own eligibility (null vs. present) was already fixed correctly at
+     * PENDING-insert time from the real {@code AtmosphericData} (a fact this method has no
+     * access to) — {@link com.gregochr.goldenhour.entity.InversionDetails#from} gates on
+     * {@code data.inversionScore() != null}, not on anything Claude returns — so this only
+     * refills an already-eligible embeddable's score/potential; an ineligible (null) embeddable
+     * stays null.
+     *
      * <p>A missing row (deleted, or an id from a different environment) is logged and swallowed
      * — the served rating (cache/forecast_score) is unaffected either way, this is only the
      * secondary durable-history write.
      *
      * @param evalRowId     primary key of the pending row
+     * @param eval          the parsed Claude evaluation — source of the basic-tier and inversion
+     *                      fields {@link BriefingEvaluationResult} does not carry
      * @param result        the validated result also being written to {@code cached_evaluation}
      * @param resolvedModel the model that produced the response
      */
-    private void scoreEvaluationRow(Long evalRowId, BriefingEvaluationResult result,
-            EvaluationModel resolvedModel) {
+    private void scoreEvaluationRow(Long evalRowId, SunsetEvaluation eval,
+            BriefingEvaluationResult result, EvaluationModel resolvedModel) {
         Optional<ForecastEvaluationEntity> row = forecastEvaluationRepository.findById(evalRowId);
         if (row.isEmpty()) {
             LOG.warn("R5: PENDING forecast_evaluation row {} not found at result time — "
@@ -581,6 +595,15 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         entity.setGoldenHourPotential(result.goldenHourPotential());
         entity.setSummary(result.summary());
         entity.setHeadline(result.headline());
+        entity.setBasicFierySkyPotential(eval.basicFierySkyPotential());
+        entity.setBasicGoldenHourPotential(eval.basicGoldenHourPotential());
+        entity.setBasicSummary(eval.basicSummary());
+        if (entity.getInversion() != null) {
+            entity.setInversion(InversionDetails.builder()
+                    .score(eval.inversionScore())
+                    .potential(eval.inversionPotential())
+                    .build());
+        }
         if (resolvedModel != null) {
             entity.setEvaluationModel(resolvedModel);
         }

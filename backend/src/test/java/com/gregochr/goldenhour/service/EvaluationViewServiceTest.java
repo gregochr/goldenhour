@@ -1422,16 +1422,16 @@ class EvaluationViewServiceTest {
         private void triageRowsLatestPerLocation() {
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNSET))
-                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
+                            1L, DATE, SUNSET, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
                             .triage(new TriageDetails(TriageReason.HIGH_CLOUD,
                                     "Low cloud 84% at the solar horizon — sun blocked"))
                             .forecastRunAt(AFTERNOON_TRIAGE)
                             .build()));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            2L, DATE, SUNSET))
-                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
+                            2L, DATE, SUNSET, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
                             .triage(new TriageDetails(TriageReason.HIGH_CLOUD,
                                     "Low cloud 91% overnight — sun blocked"))
                             .forecastRunAt(OVERNIGHT_TRIAGE)
@@ -1490,8 +1490,8 @@ class EvaluationViewServiceTest {
                     .thenReturn(Optional.of(OVERNIGHT_BATCH));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNSET))
-                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
+                            1L, DATE, SUNSET, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
                             .triage(new TriageDetails(TriageReason.HIGH_CLOUD, "84% low cloud"))
                             .forecastRunAt(AFTERNOON_TRIAGE)
                             .build()));
@@ -1520,8 +1520,8 @@ class EvaluationViewServiceTest {
                     .thenReturn(Optional.of(OVERNIGHT_BATCH));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNSET))
-                    .thenReturn(Optional.of(ForecastEvaluationEntity.builder()
+                            1L, DATE, SUNSET, PageRequest.of(0, 1)))
+                    .thenReturn(List.of(ForecastEvaluationEntity.builder()
                             .triage(new TriageDetails(TriageReason.HIGH_CLOUD, "84% low cloud"))
                             .forecastRunAt(AFTERNOON_TRIAGE)
                             .build()));
@@ -1548,8 +1548,8 @@ class EvaluationViewServiceTest {
                     .thenReturn(Optional.of(AFTERNOON_MERGE));
             when(forecastEvaluationRepository
                     .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-                            1L, DATE, SUNSET))
-                    .thenReturn(Optional.empty());
+                            1L, DATE, SUNSET, PageRequest.of(0, 1)))
+                    .thenReturn(List.of());
 
             LocationEvaluationView v = service.forRegion(REGION_ID, DATE, SUNSET).getFirst();
 

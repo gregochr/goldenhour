@@ -21,6 +21,7 @@ import com.gregochr.goldenhour.model.TideSnapshot;
 import com.gregochr.goldenhour.model.TokenUsage;
 import com.gregochr.goldenhour.entity.BatchState;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.InversionDetails;
 import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.ForecastDataAugmentor;
@@ -164,10 +165,13 @@ class ForecastResultHandlerTest {
                         + "\"headline\":\"Fire over the fells\"}",
                 new TokenUsage(500, 200, 0, 1000),
                 EvaluationModel.HAIKU);
+        // basic_* (LITE tier) and inversion fields are not carried by BriefingEvaluationResult at
+        // all — scoreEvaluationRow must source them from this parsed SunsetEvaluation directly,
+        // the same as the sync path's ForecastService.buildEntity does.
         when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
                 .thenReturn(new SunsetEvaluationParser.ParseResult(
-                        new SunsetEvaluation(4, 70, 65, "X", null, null, null, null, null,
-                                "Fire over the fells"),
+                        new SunsetEvaluation(4, 70, 65, "X", 55, 48, "Basic-tier summary",
+                                6, "MODERATE", "Fire over the fells"),
                         false));
 
         LocalDateTime submittedAt = LocalDateTime.of(2026, 4, 16, 3, 0);
@@ -175,6 +179,10 @@ class ForecastResultHandlerTest {
                 .id(777L)
                 .forecastRunAt(submittedAt)
                 .batchState(BatchState.PENDING)
+                // Mimics PENDING-insert-time state for an inversion-eligible location: the
+                // embeddable already exists (InversionDetails.from gated on the real
+                // AtmosphericData at insert time), with placeholder null score/potential.
+                .inversion(InversionDetails.builder().score(null).potential(null).build())
                 .build();
         when(forecastEvaluationRepository.findById(777L)).thenReturn(Optional.of(pendingRow));
 
@@ -201,6 +209,50 @@ class ForecastResultHandlerTest {
         assertThat(saved.getBatchState()).isEqualTo(BatchState.SCORED);
         // forecast_run_at means "when the weather was sampled" — R5 must never bump it.
         assertThat(saved.getForecastRunAt()).isEqualTo(submittedAt);
+        // LITE-tier and inversion fields, absent from BriefingEvaluationResult, must still land.
+        assertThat(saved.getBasicFierySkyPotential()).isEqualTo(55);
+        assertThat(saved.getBasicGoldenHourPotential()).isEqualTo(48);
+        assertThat(saved.getBasicSummary()).isEqualTo("Basic-tier summary");
+        assertThat(saved.getInversion()).isNotNull();
+        assertThat(saved.getInversion().getScore()).isEqualTo(6);
+        assertThat(saved.getInversion().getPotential()).isEqualTo("MODERATE");
+    }
+
+    @Test
+    @DisplayName("R5: an inversion-ineligible row's null embeddable stays null — never fabricated "
+            + "from Claude's inversion fields alone")
+    void parseBatchResponse_withEvalRowId_inversionIneligible_embeddableStaysNull() {
+        LocationEntity location = locationWithRegion(44L, "Grasmere", "Lake District");
+        ForecastIdentity identity = new ForecastIdentity(44L, DATE, SUNRISE, 779L);
+        ClaudeBatchOutcome outcome = ClaudeBatchOutcome.success(
+                "fc-44-2026-04-16-SUNRISE-r779",
+                "{\"rating\":3,\"fiery_sky\":50,\"golden_hour\":45,\"summary\":\"X\"}",
+                new TokenUsage(500, 200, 0, 1000), EvaluationModel.HAIKU);
+        // Claude's response happens to carry inversion fields (a malformed/unexpected reply, or a
+        // location misclassified upstream), but the PENDING row's own eligibility — fixed at
+        // insert time from the real AtmosphericData, which this test never gave an inversion
+        // score — says otherwise: the embeddable is null. It must stay null.
+        when(parser.parseEvaluationWithMetadata(outcome.rawText(), objectMapper))
+                .thenReturn(new SunsetEvaluationParser.ParseResult(
+                        new SunsetEvaluation(3, 50, 45, "X", null, null, null,
+                                4, "MODERATE", null),
+                        false));
+
+        ForecastEvaluationEntity pendingRow = ForecastEvaluationEntity.builder()
+                .id(779L)
+                .forecastRunAt(LocalDateTime.of(2026, 4, 16, 3, 0))
+                .batchState(BatchState.PENDING)
+                .inversion(null)
+                .build();
+        when(forecastEvaluationRepository.findById(779L)).thenReturn(Optional.of(pendingRow));
+
+        handler.parseBatchResponse(location, identity, outcome,
+                ResultContext.forBatch(99L, "msgbatch_x", BatchTriggerSource.SCHEDULED));
+
+        ArgumentCaptor<ForecastEvaluationEntity> savedCaptor =
+                ArgumentCaptor.forClass(ForecastEvaluationEntity.class);
+        verify(forecastEvaluationRepository).save(savedCaptor.capture());
+        assertThat(savedCaptor.getValue().getInversion()).isNull();
     }
 
     @Test

@@ -253,12 +253,29 @@ public final class CustomIdFactory {
         String body = customId;
         Matcher rowIdMatch = ROW_ID_SUFFIX.matcher(customId);
         if (rowIdMatch.find()) {
-            evalRowId = Long.parseLong(rowIdMatch.group(1));
+            evalRowId = parseEvalRowId(rowIdMatch.group(1), customId);
             body = customId.substring(0, rowIdMatch.start());
         }
         TailParts tail = extractDateAndTarget(body, PREFIX_FORECAST);
         Long locationId = parseLocationId(tail.before(), body);
         return new ParsedCustomId.Forecast(locationId, tail.date(), tail.targetType(), evalRowId);
+    }
+
+    /**
+     * Parses the {@code -r{evalRowId}} suffix's digit run. {@link #ROW_ID_SUFFIX} guarantees the
+     * captured group is all digits, but does not guarantee it fits in a {@code long} — an
+     * overflowing run (unreachable from a real IDENTITY-generated row id, but not from an
+     * adversarial or corrupted custom id) must still be rejected as malformed rather than
+     * propagate a bare {@link NumberFormatException} with a JDK-generic message, for the same
+     * reason {@link #parseLocationId} wraps its own {@code Long.parseLong}.
+     */
+    private static Long parseEvalRowId(String digits, String customId) {
+        try {
+            return Long.parseLong(digits);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(
+                    "Malformed custom ID (row id overflow): " + customId, e);
+        }
     }
 
     private static ParsedCustomId.Woodland parseWoodland(String customId) {
