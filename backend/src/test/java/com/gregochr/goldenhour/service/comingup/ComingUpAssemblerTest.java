@@ -81,6 +81,10 @@ class ComingUpAssemblerTest {
         assertThat(entry.metric()).isEqualTo("~20/hr");
         assertThat(entry.kindTag()).isEqualTo("Almanac");
         assertThat(entry.action().kind()).isEqualTo("dark-sky-spots");
+        // Non-tide types default the median magnitude, which is "by definition typical" (D4),
+        // never provisional — interim must default false, not true, or the badge can never fire.
+        assertThat(entry.interim()).isFalse();
+        assertThat(entry.meta()).doesNotContainKeys("zhr", "radiant", "bestHours");
     }
 
     @Test
@@ -110,6 +114,8 @@ class ComingUpAssemblerTest {
         assertThat(entry.family()).isEqualTo("eclipse");
         assertThat(entry.metric()).isEqualTo("62%");
         assertThat(entry.bits()).isGreaterThan(10.0);
+        assertThat(entry.interim()).isFalse();
+        assertThat(entry.meta()).doesNotContainKeys("coverage", "maximum", "location");
     }
 
     @Test
@@ -124,7 +130,9 @@ class ComingUpAssemblerTest {
         assertThat(entry.bits()).isCloseTo(
                 SurpriseScore.rarity(182.625) + SurpriseScore.DEFAULT_MAGNITUDE_BITS,
                 org.assertj.core.data.Offset.offset(0.06));
-        assertThat(entry.interim()).isTrue();
+        // The 1.0 default magnitude is "by definition typical" (plan D4), not provisional — only
+        // the tide branches that never reach a mature distribution are interim.
+        assertThat(entry.interim()).isFalse();
     }
 
     @Test
@@ -278,6 +286,7 @@ class ComingUpAssemblerTest {
         assertThat(entry.bits()).isNotNull();
         assertThat(entry.bits()).isCloseTo(4.89, org.assertj.core.data.Offset.offset(0.05));
         assertThat(entry.tide()).isNull();
+        assertThat(entry.interim()).as("unmeasurable — no magnitude claim at all").isTrue();
     }
 
     @Test
@@ -296,6 +305,34 @@ class ComingUpAssemblerTest {
         assertThat(entry.bits()).isCloseTo(4.89, org.assertj.core.data.Offset.offset(0.05));
         assertThat(entry.tide()).isNull();
         assertThat(entry.metric()).isEqualTo("4.6 m");
+        assertThat(entry.interim()).as("no TideStats — no magnitude claim at all").isTrue();
+        // "range" was consumed into metric AND facts (tideFacts reads it unconditionally whenever
+        // present), so dropping it is safe even though tide.delta was never built.
+        assertThat(entry.meta()).doesNotContainKey("range");
+    }
+
+    @Test
+    @DisplayName("rangeAnomaly is NOT dropped from meta when tide.delta could not be built — unlike "
+            + "range/alignment/location, nothing else in the payload carries that fact, so dropping "
+            + "it unconditionally would lose it with no typed-field replacement")
+    void rangeAnomalyIsPreservedWhenTideFieldFailsToBuild() {
+        when(tideRunBuilder.peakRange(anyList(), eq(COASTAL_ROSTER)))
+                .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 4.6)));
+        // TideStats present (so magnitude IS computed, interim should be false), but with no
+        // avgRangeMetres — the one condition under which s.tide stays null despite stats being
+        // present, per enrichTide's own gating.
+        when(tideService.getTideStats(SEAHAM.getId()))
+                .thenReturn(Optional.of(statsWithoutAvgRange()));
+        when(tideRunPeakHistory.peakRanges(any(), any(), any(), any()))
+                .thenReturn(List.of(1.0, 2.0, 3.0));
+        AlmanacEvent run = event(DAY, DAY.plusDays(3), "spring-tide", "Spring tide run",
+                AlmanacEvent.metaOf("range", "4.6 m", "rangeAnomaly", "+1.3"));
+
+        ComingUpResponse response = assembler.assemble(DAY, List.of(run));
+
+        ComingUpEntry entry = response.entries().getFirst();
+        assertThat(entry.tide()).isNull();
+        assertThat(entry.meta()).containsEntry("rangeAnomaly", "+1.3");
     }
 
     @Test
@@ -315,7 +352,8 @@ class ComingUpAssemblerTest {
         when(tideRunPeakHistory.peakRanges(eq(SEAHAM), eq(COASTAL_ROSTER), eq(DAY), eq(DAY)))
                 .thenReturn(history);
         AlmanacEvent run = event(DAY, DAY.plusDays(3), "spring-tide", "Spring tide run",
-                AlmanacEvent.metaOf("range", "5.2 m", "alignment", "HW 09:08 · 58m after sunrise"));
+                AlmanacEvent.metaOf("range", "5.2 m", "alignment", "HW 09:08 · 58m after sunrise",
+                        "rangeAnomaly", "+1.9", "location", "Seaham"));
 
         ComingUpResponse response = assembler.assemble(DAY, List.of(run));
 
@@ -325,6 +363,9 @@ class ComingUpAssemblerTest {
         assertThat(entry.tide().delta()).isEqualTo(1.9, org.assertj.core.data.Offset.offset(0.001));
         assertThat(entry.tide().phase()).isEqualTo("HW");
         assertThat(entry.interim()).isFalse();
+        // Every one of these is now represented elsewhere in the payload (tide.range/delta,
+        // metric, or facts), so — unlike the no-tide-field case above — dropping them all is safe.
+        assertThat(entry.meta()).doesNotContainKeys("range", "alignment", "rangeAnomaly", "location");
     }
 
     @Test
@@ -408,6 +449,84 @@ class ComingUpAssemblerTest {
         assertThat(second.threshold()).contains("4.0");
     }
 
+    @Test
+    @DisplayName("a run with a bigger EARLIER run in the same window never claims 'biggest until "
+            + "X' — the pre-fix code only checked later runs, so a smaller middle run could still "
+            + "print a falsifiable false claim")
+    void superlative_notClaimedWhenABiggerRunCameEarlier() {
+        LocalDate aStart = DAY;
+        LocalDate bStart = DAY.plusDays(14);
+        LocalDate cStart = DAY.plusDays(28);
+        when(tideRunBuilder.peakRange(eq(datesOf(aStart, aStart.plusDays(3))), eq(COASTAL_ROSTER)))
+                .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 5.0)));
+        when(tideRunBuilder.peakRange(eq(datesOf(bStart, bStart.plusDays(3))), eq(COASTAL_ROSTER)))
+                .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 3.0)));
+        when(tideRunBuilder.peakRange(eq(datesOf(cStart, cStart.plusDays(3))), eq(COASTAL_ROSTER)))
+                .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 6.0)));
+        when(tideService.getTideStats(SEAHAM.getId())).thenReturn(Optional.empty());
+
+        AlmanacEvent a = event(aStart, aStart.plusDays(3), "spring-tide", "Spring tide run", Map.of());
+        AlmanacEvent b = event(bStart, bStart.plusDays(3), "spring-tide", "Spring tide run", Map.of());
+        AlmanacEvent c = event(cStart, cStart.plusDays(3), "spring-tide", "Spring tide run", Map.of());
+
+        ComingUpResponse response = assembler.assemble(DAY, List.of(a, b, c));
+
+        ComingUpEntry entryA = response.entries().get(0);
+        ComingUpEntry entryB = response.entries().get(1);
+        ComingUpEntry entryC = response.entries().get(2);
+        // A (5.0) is biggest-so-far, and C (6.0) is bigger and later -> A claims "biggest until C".
+        assertThat(entryA.superlative()).isEqualTo("biggest until " + fmt(cStart));
+        // B (3.0) is NOT biggest-so-far — A already beat it — so no claim, even though C is both
+        // later and bigger than B. The pre-fix code compared B only against C and got this wrong.
+        assertThat(entryB.superlative()).isNull();
+        // C is the overall biggest with nothing later bigger, so it makes no claim either.
+        assertThat(entryC.superlative()).isNull();
+    }
+
+    @Test
+    @DisplayName("the biggest run in a window still sets the comparison set for its neighbours even "
+            + "after being absorbed into a supermoon coincidence — superlatives/thresholds must be "
+            + "computed BEFORE the merge, not after, or the merged-away run's range silently drops "
+            + "out of every other run's comparison")
+    void biggestRunMergedAway_stillSetsNeighboursComparisonSet() {
+        LocalDate aStart = DAY;
+        LocalDate bStart = DAY.plusDays(14);
+        LocalDate cStart = DAY.plusDays(28);
+        when(tideRunBuilder.peakRange(eq(datesOf(aStart, aStart.plusDays(3))), eq(COASTAL_ROSTER)))
+                .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 4.0)));
+        // B is the biggest of the three, and overlaps a supermoon — which outscores every tide run
+        // here on default magnitude alone (~6.9 vs ~4.9 bits), so B is the one that gets merged away.
+        when(tideRunBuilder.peakRange(eq(datesOf(bStart, bStart.plusDays(3))), eq(COASTAL_ROSTER)))
+                .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 6.0)));
+        when(tideRunBuilder.peakRange(eq(datesOf(cStart, cStart.plusDays(3))), eq(COASTAL_ROSTER)))
+                .thenReturn(Optional.of(new TideRunBuilder.RunPeak(SEAHAM, 5.0)));
+        when(tideService.getTideStats(SEAHAM.getId())).thenReturn(Optional.empty());
+
+        AlmanacEvent a = event(aStart, aStart.plusDays(3), "spring-tide", "Spring tide run", Map.of());
+        AlmanacEvent b = event(bStart, bStart.plusDays(3), "spring-tide", "Spring tide run", Map.of());
+        AlmanacEvent c = event(cStart, cStart.plusDays(3), "spring-tide", "Spring tide run", Map.of());
+        AlmanacEvent supermoon = event(bStart, bStart, "supermoon", "Supermoon",
+                Map.of("peakDate", bStart.toString()));
+
+        ComingUpResponse response = assembler.assemble(DAY, List.of(a, b, c, supermoon));
+
+        assertThat(response.entries()).hasSize(3);
+        ComingUpEntry entryA = response.entries().get(0);
+        ComingUpEntry merged = response.entries().get(1);
+        ComingUpEntry entryC = response.entries().get(2);
+
+        assertThat(merged.type()).isEqualTo("supermoon");
+        assertThat(merged.coincidence()).hasSize(1);
+
+        // A still knows B (6.0, merged away) is the next bigger run — not silently invisible.
+        assertThat(entryA.superlative()).isEqualTo("biggest until " + fmt(bStart));
+        assertThat(entryA.threshold()).contains("6.0").contains("5.0");
+        // C's threshold still names B's true range (6.0), the run's own comparison set unaffected
+        // by B having been folded into the supermoon's coincidence line.
+        assertThat(entryC.threshold()).contains("4.0").contains("6.0");
+        assertThat(entryC.superlative()).isNull();
+    }
+
     // ── coincidence merge (plan D10) ─────────────────────────────────────
 
     @Test
@@ -480,6 +599,13 @@ class ComingUpAssemblerTest {
 
     private static TideStats stats(String avgRange) {
         return new TideStats(null, null, null, null, 100L, new BigDecimal(avgRange),
+                null, null, null, 0L, null, null, null, 0L);
+    }
+
+    /** {@code TideStats} present (so magnitude IS scored) but with no {@code avgRangeMetres} — the
+     * one condition under which {@code tide.delta} cannot be computed despite stats resolving. */
+    private static TideStats statsWithoutAvgRange() {
+        return new TideStats(null, null, null, null, 100L, null,
                 null, null, null, 0L, null, null, null, 0L);
     }
 

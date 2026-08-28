@@ -99,9 +99,16 @@ public class ComingUpAssembler {
             staged.add(stage(builtFor, event, coastalRoster));
         }
 
+        // Superlatives/thresholds MUST run before the merge: they compare a tide run's own range
+        // against every other tide run in the window, and mergeCoincidences can absorb a whole tide
+        // run into a supermoon's coincidence line — dropping its Staged object, and its range, from
+        // the list entirely. Computed here, every run's range is still in the comparison set even
+        // if it is about to be merged away; computed after, a later smaller run could falsely claim
+        // "biggest until X" past a bigger run the reader can still see in that entry's own
+        // coincidence factsLabel.
+        markTideSuperlativesAndThresholds(staged);
         staged = mergeCoincidences(staged);
         markFirstOfType(staged);
-        markTideSuperlativesAndThresholds(staged);
         markScoreNotes(staged);
 
         List<ComingUpEntry> entries = staged.stream()
@@ -147,11 +154,13 @@ public class ComingUpAssembler {
         String joinNote;
         /** {@link Double#NaN} unless this is a tide-run entry with a derivable peak range. */
         double tideRangeMetres = Double.NaN;
-        /** True unless {@code bits} rests on a mature, exact empirical magnitude. Every ALMANAC
-         * type but tide runs stays interim for its whole life, since none has a distribution to
-         * mature into (plan D4's "never badge from a bucketed magnitude" — this is the entry-level
-         * carrier a future badge reader needs to honour that rule). */
-        boolean interim = true;
+        /** True only where magnitude was bucketed (cold start) or entirely unmeasurable — never a
+         * blanket default. A non-tide type's magnitude default (1.0, the median) is "by definition
+         * typical" (plan D4), not a provisional estimate, so it is NOT interim; only the tide
+         * branches that fail to reach a mature (≥60-observation) empirical distribution set this
+         * true. Defaults false so every other {@code enrich*} method's entries are eligible for a
+         * badge, per D4's "never badge from a bucketed magnitude" — narrowly, not universally. */
+        boolean interim;
 
         ComingUpEntry toEntry() {
             return new ComingUpEntry(event.startDate(), event.endDate(), event.kind(), event.type(),
@@ -234,11 +243,24 @@ public class ComingUpAssembler {
         s.action = new ComingUpAction(
                 "Show coastal spots for " + DATE_LABEL.format(actionDate) + " →",
                 "coastal-spots", actionDate);
-        // range/rangeAnomaly → tide + metric; alignment/location → facts (verbatim); peakDate/
-        // figuresFrom → action.date. noAlignment/partialCoverage drive facts text, not a value
-        // duplicate. highWater/alignmentDate are read nowhere yet and stay as passthrough.
-        s.meta = withoutKeys(event.meta(), "range", "rangeAnomaly", "alignment", "location",
-                "peakDate", "figuresFrom");
+        // range → metric, and read by tideFacts() whenever present, so dropping it is safe exactly
+        // when it was present at all. alignment/location → read by tideFacts() unconditionally too.
+        // peakDate/figuresFrom → action.date, computed unconditionally above. noAlignment/
+        // partialCoverage drive facts text, not a value duplicate, so they stay. highWater/
+        // alignmentDate are read nowhere yet and stay as passthrough.
+        //
+        // rangeAnomaly is DIFFERENT: it is never read from meta at all — tide.delta is computed
+        // independently from a fresh DB query (peak.rangeMetres() - avgRange), and that query can
+        // fail (no peak, no TideStats, no avgRangeMetres) in a run where TideAlmanacSource's own
+        // build-time meta still populated the string. Dropping it unconditionally would lose the
+        // only copy of that fact whenever s.tide ends up null. Drop it only when tide was actually
+        // built — the one case where a typed field genuinely supersedes it.
+        List<String> droppedKeys = new ArrayList<>(
+                List.of("range", "alignment", "location", "peakDate", "figuresFrom"));
+        if (s.tide != null) {
+            droppedKeys.add("rangeAnomaly");
+        }
+        s.meta = withoutKeys(event.meta(), droppedKeys.toArray(new String[0]));
     }
 
     private void enrichMeteor(AlmanacEvent event, Staged s) {

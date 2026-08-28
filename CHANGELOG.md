@@ -28,9 +28,11 @@ dropped from `meta` in the same commit, per §5.
 One schema addition beyond the original brief: **`entries[].interim`** (boolean). D4 requires a
 cold-start tide magnitude to "never badge", but the schema as planned gave a future badge reader
 (P5) no per-entry way to know a score wasn't mature — only `conditions[].interim` existed, and that's
-P4's. Added under the plan's deviation protocol (§13 updated in this commit): true unless `bits`
-rests on a mature (≥60-observation) empirical magnitude; every non-tide type stays interim for its
-whole life. This is now load-bearing for P5, not optional.
+P4's. Added under the plan's deviation protocol (§13 updated in this commit): false by default, true
+only on the tide branches that never reach a mature (≥60-observation) empirical magnitude —
+bucketed (cold start) or entirely unmeasurable. A non-tide type's median magnitude default is "by
+definition typical" per D4, not provisional, so it is never interim. This is now load-bearing for
+P5, not optional.
 
 Adversarially reviewed (four lenses — scoring-model correctness, data/query correctness, schema
 fidelity, test quality) before landing. Four real defects survived and were fixed: a straddling
@@ -43,6 +45,30 @@ false claim (fixed by tracking a running "biggest so far"); promoted meta keys w
 dropped, contrary to §5 (fixed per type); and the cold-start "never badge" gap above. Review also
 found real test-coverage gaps — the NLC-season branch, a standalone (non-merged) supermoon, the
 `scoreNote` sentence, and the tide-wins-a-merge direction were all untested — closed with new tests.
+
+**Post-merge conformance review, before this PR merged, found four more real defects on the same
+branch — the scoring core (SurpriseScore, the run-peak distribution, the king rule) was untouched.**
+(1) `interim` defaulted **true**, and no non-tide branch ever cleared it — every almanac type but a
+mature tide run was therefore permanently interim, which made the badge structurally unfireable for
+the whole feed, the opposite of D4's intent (narrowed above to default false, true only on the
+bucketed/unmeasurable tide branches). (2) `mergeCoincidences` ran BEFORE the superlative/threshold
+pass, so a tide run absorbed into a supermoon's coincidence line dropped out of the range-comparison
+set — and since a supermoon's default score beats a tide run's default in the common case, the
+biggest run in a window was often exactly the one merged away, letting a smaller later run falsely
+claim "biggest until X" while the true biggest was still visible in that entry's own
+`coincidence.factsLabel` (fixed by computing superlatives/thresholds over the full pre-merge set —
+merging never touches a run's own range, so this is a pure reordering). (3) `rangeAnomaly` was
+dropped from `meta` unconditionally, but `tide.delta` — the typed field meant to supersede it — is
+only built when a peak, `TideStats`, AND `avgRangeMetres` all resolve; on any miss the fact vanished
+with nothing replacing it (every other dropped tide/meteor/eclipse key was already safe, since
+something else reads it unconditionally whenever present — `rangeAnomaly` was the one exception,
+since `tide.delta` is computed from an independent DB re-query, never from the meta string itself;
+fixed to drop it only when `tide` was actually built). (4) The original superlative test only
+covered the smaller-run-first case, which passes against the pre-fix code too — added a
+bigger-earlier-run case and a three-run merge-absorbs-the-biggest case. One judgement call recorded
+rather than silently resolved: a lone tide run in a window still ships `threshold: null`, which
+reads against §5's "required on every tide-run entry" literally — left as a named gap (plan §11.21)
+rather than inventing an unreviewed degraded-line design under review-fix time pressure.
 
 ### Changed — Coming up P1: the almanac feed is now a wrapped, eligibility-filtered response
 
