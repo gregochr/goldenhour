@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 
 /**
  * Repository slice tests for {@link ForecastEvaluationRepository}.
@@ -104,9 +105,11 @@ class ForecastEvaluationRepositoryTest {
         assertThat(repository.findById(saved.getId()).orElseThrow().getConfidence()).isNull();
     }
 
+    // ── findByLocationIdInAndTargetDateBetween ──────────────────────────────
+
     @Test
-    @DisplayName("findByLocationIdAndTargetDateBetween returns evaluations in the date range")
-    void findByLocationIdAndTargetDateBetween_returnsEvaluationsInRange() {
+    @DisplayName("findByLocationIdInAndTargetDateBetween returns evaluations in the date range")
+    void findByLocationIdInAndTargetDateBetween_returnsEvaluationsInRange() {
         LocalDate today = LocalDate.of(2026, 2, 20);
         LocalDateTime run = LocalDateTime.of(2026, 2, 18, 6, 0);
         repository.save(buildSonnetEvaluation(durham, today, TargetType.SUNSET, run, 2));
@@ -114,8 +117,8 @@ class ForecastEvaluationRepositoryTest {
         repository.save(buildSonnetEvaluation(durham, today.plusDays(8), TargetType.SUNSET, run, 10));
 
         List<ForecastEvaluationEntity> results =
-                repository.findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                        durham.getId(), today, today.plusDays(7));
+                repository.findByLocationIdInAndTargetDateBetween(
+                        List.of(durham.getId()), today, today.plusDays(7));
 
         assertThat(results).hasSize(2);
         assertThat(results.get(0).getTargetDate()).isEqualTo(today);
@@ -123,17 +126,38 @@ class ForecastEvaluationRepositoryTest {
     }
 
     @Test
-    @DisplayName("findByLocationIdAndTargetDateBetween excludes evaluations for a different location")
-    void findByLocationIdAndTargetDateBetween_excludesDifferentLocation() {
+    @DisplayName("findByLocationIdInAndTargetDateBetween excludes evaluations for a location not in the id list")
+    void findByLocationIdInAndTargetDateBetween_excludesLocationNotInList() {
         LocalDate today = LocalDate.of(2026, 2, 20);
         repository.save(buildSonnetEvaluation(edinburgh, today, TargetType.SUNSET,
                 LocalDateTime.of(2026, 2, 18, 6, 0), 2));
 
         List<ForecastEvaluationEntity> results =
-                repository.findByLocationIdAndTargetDateBetweenOrderByTargetDateAscTargetTypeAsc(
-                        durham.getId(), today, today.plusDays(7));
+                repository.findByLocationIdInAndTargetDateBetween(
+                        List.of(durham.getId()), today, today.plusDays(7));
 
         assertThat(results).isEmpty();
+    }
+
+    @Test
+    @DisplayName("findByLocationIdInAndTargetDateBetween orders by location name, then date, then target type")
+    void findByLocationIdInAndTargetDateBetween_ordersByLocationNameThenDateThenType() {
+        LocalDate today = LocalDate.of(2026, 2, 20);
+        LocalDateTime run = LocalDateTime.of(2026, 2, 18, 6, 0);
+        // Edinburgh sorts after Durham alphabetically; seed rows so a date-only sort would
+        // interleave them, to prove location name is the primary sort key.
+        repository.save(buildSonnetEvaluation(edinburgh, today, TargetType.SUNSET, run, 2));
+        repository.save(buildSonnetEvaluation(durham, today, TargetType.SUNRISE, run, 2));
+        repository.save(buildSonnetEvaluation(durham, today, TargetType.SUNSET, run, 2));
+
+        List<ForecastEvaluationEntity> results = repository.findByLocationIdInAndTargetDateBetween(
+                List.of(durham.getId(), edinburgh.getId()), today, today.plusDays(7));
+
+        assertThat(results).extracting(e -> e.getLocation().getName(), ForecastEvaluationEntity::getTargetType)
+                .containsExactly(
+                        tuple("Durham UK", TargetType.SUNRISE),
+                        tuple("Durham UK", TargetType.SUNSET),
+                        tuple("Edinburgh UK", TargetType.SUNSET));
     }
 
     @Test

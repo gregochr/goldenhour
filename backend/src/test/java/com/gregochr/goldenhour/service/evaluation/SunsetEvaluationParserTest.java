@@ -6,6 +6,8 @@ import com.gregochr.goldenhour.model.WoodlandEvaluation;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -515,5 +517,153 @@ class SunsetEvaluationParserTest {
         assertThat(result.rating()).isEqualTo(5);
         assertThat(result.inversionScore()).isEqualTo(10);
         assertThat(result.inversionPotential()).isEqualTo("STRONG");
+    }
+
+    // ── RatingValidator wiring: out-of-range 0-100/0-10 scores are rejected as null ──────────
+    //
+    // The regex fallback's own patterns are digit-count-only (\d{1,3}, \d{1,2}) and cannot
+    // represent a negative sign, so a negative value never reaches the fallback's "-1" cases
+    // below at all — the field simply fails to match and the whole slot falls through to
+    // IllegalArgumentException (a pre-existing, separate limitation of the fallback regex, not
+    // something this fix changes). The -1 cases are therefore exercised via strict JSON only,
+    // where Jackson parses a negative literal without difficulty.
+
+    @ParameterizedTest(name = "fiery_sky={0} is rejected as null (strict JSON)")
+    @ValueSource(ints = {-1, 101, 999})
+    @DisplayName("parseEvaluation() rejects out-of-range fiery_sky via RatingValidator (strict JSON)")
+    void parseEvaluation_outOfRangeFierySky_strictJson_rejectedAsNull(int value) {
+        String json = "{\"rating\":3,\"fiery_sky\":" + value + ",\"golden_hour\":50,"
+                + "\"summary\":\"Test.\"}";
+
+        SunsetEvaluation result = parser.parseEvaluation(json, new ObjectMapper());
+
+        assertThat(result.fierySkyPotential()).isNull();
+        assertThat(result.goldenHourPotential()).isEqualTo(50);
+    }
+
+    @ParameterizedTest(name = "fiery_sky={0} is rejected as null (regex fallback)")
+    @ValueSource(ints = {101, 999})
+    @DisplayName("parseEvaluation() rejects out-of-range fiery_sky via RatingValidator (regex fallback)")
+    void parseEvaluation_outOfRangeFierySky_regexFallback_rejectedAsNull(int value) {
+        // Unescaped inner quote forces the regex fallback.
+        String text = "{\"rating\":3,\"fiery_sky\":" + value + ",\"golden_hour\":50,"
+                + "\"summary\":\"Beautiful \"orange\" sky.\"}";
+
+        SunsetEvaluation result = parser.parseEvaluation(text, new ObjectMapper());
+
+        assertThat(result.fierySkyPotential()).isNull();
+        assertThat(result.goldenHourPotential()).isEqualTo(50);
+    }
+
+    @ParameterizedTest(name = "golden_hour={0} is rejected as null (strict JSON)")
+    @ValueSource(ints = {-1, 101, 250})
+    @DisplayName("parseEvaluation() rejects out-of-range golden_hour via RatingValidator (strict JSON)")
+    void parseEvaluation_outOfRangeGoldenHour_strictJson_rejectedAsNull(int value) {
+        String json = "{\"rating\":3,\"fiery_sky\":50,\"golden_hour\":" + value + ","
+                + "\"summary\":\"Test.\"}";
+
+        SunsetEvaluation result = parser.parseEvaluation(json, new ObjectMapper());
+
+        assertThat(result.fierySkyPotential()).isEqualTo(50);
+        assertThat(result.goldenHourPotential()).isNull();
+    }
+
+    @ParameterizedTest(name = "golden_hour={0} is rejected as null (regex fallback)")
+    @ValueSource(ints = {101, 250})
+    @DisplayName("parseEvaluation() rejects out-of-range golden_hour via RatingValidator (regex fallback)")
+    void parseEvaluation_outOfRangeGoldenHour_regexFallback_rejectedAsNull(int value) {
+        String text = "{\"rating\":3,\"fiery_sky\":50,\"golden_hour\":" + value + ","
+                + "\"summary\":\"Beautiful \"orange\" sky.\"}";
+
+        SunsetEvaluation result = parser.parseEvaluation(text, new ObjectMapper());
+
+        assertThat(result.fierySkyPotential()).isEqualTo(50);
+        assertThat(result.goldenHourPotential()).isNull();
+    }
+
+    @ParameterizedTest(name = "inversion_score={0} is rejected as null (strict JSON)")
+    @ValueSource(ints = {-1, 11})
+    @DisplayName("parseEvaluation() rejects out-of-range inversion_score via RatingValidator (strict JSON)")
+    void parseEvaluation_outOfRangeInversionScore_strictJson_rejectedAsNull(int value) {
+        String json = "{\"rating\":5,\"fiery_sky\":85,\"golden_hour\":90,"
+                + "\"summary\":\"Dramatic inversion.\","
+                + "\"inversion_score\":" + value + ",\"inversion_potential\":\"STRONG\"}";
+
+        SunsetEvaluation result = parser.parseEvaluation(json, new ObjectMapper());
+
+        assertThat(result.inversionScore()).isNull();
+        // A rejected inversion_score does not take the sky scores down with it.
+        assertThat(result.fierySkyPotential()).isEqualTo(85);
+    }
+
+    @Test
+    @DisplayName("parseEvaluation() rejects out-of-range inversion_score via RatingValidator "
+            + "(regex fallback)")
+    void parseEvaluation_outOfRangeInversionScore_regexFallback_rejectedAsNull() {
+        String text = "{\"rating\":5,\"fiery_sky\":85,\"golden_hour\":90,"
+                + "\"summary\":\"Sea of \"clouds\" below.\","
+                + "\"inversion_score\":11,\"inversion_potential\":\"STRONG\"}";
+
+        SunsetEvaluation result = parser.parseEvaluation(text, new ObjectMapper());
+
+        assertThat(result.inversionScore()).isNull();
+        assertThat(result.fierySkyPotential()).isEqualTo(85);
+    }
+
+    @Test
+    @DisplayName("parseEvaluation() rejects out-of-range basic-tier scores via RatingValidator "
+            + "(strict JSON)")
+    void parseEvaluation_outOfRangeBasicTierScores_strictJson_rejectedAsNull() {
+        String json = "{\"rating\":4,\"fiery_sky\":75,\"golden_hour\":70,"
+                + "\"summary\":\"Good conditions.\","
+                + "\"basic_fiery_sky\":150,\"basic_golden_hour\":-5,"
+                + "\"basic_summary\":\"Decent conditions.\"}";
+
+        SunsetEvaluation result = parser.parseEvaluation(json, new ObjectMapper());
+
+        assertThat(result.basicFierySkyPotential()).isNull();
+        assertThat(result.basicGoldenHourPotential()).isNull();
+        assertThat(result.basicSummary()).isEqualTo("Decent conditions.");
+    }
+
+    @Test
+    @DisplayName("parseEvaluation() rejects out-of-range basic-tier scores via RatingValidator "
+            + "(regex fallback)")
+    void parseEvaluation_outOfRangeBasicTierScores_regexFallback_rejectedAsNull() {
+        String text = "{\"rating\":4,\"fiery_sky\":75,\"golden_hour\":70,"
+                + "\"summary\":\"Beautiful \"orange\" sky.\","
+                + "\"basic_fiery_sky\":150,\"basic_golden_hour\":200,"
+                + "\"basic_summary\":\"Decent conditions.\"}";
+
+        SunsetEvaluation result = parser.parseEvaluation(text, new ObjectMapper());
+
+        assertThat(result.basicFierySkyPotential()).isNull();
+        assertThat(result.basicGoldenHourPotential()).isNull();
+    }
+
+    @Test
+    @DisplayName("parseEvaluation() accepts boundary scores 0 and 100 via RatingValidator "
+            + "(regex fallback)")
+    void parseEvaluation_boundaryScores_regexFallback_accepted() {
+        String text = "{\"rating\":3,\"fiery_sky\":0,\"golden_hour\":100,"
+                + "\"summary\":\"Beautiful \"orange\" sky.\"}";
+
+        SunsetEvaluation result = parser.parseEvaluation(text, new ObjectMapper());
+
+        assertThat(result.fierySkyPotential()).isZero();
+        assertThat(result.goldenHourPotential()).isEqualTo(100);
+    }
+
+    @Test
+    @DisplayName("parseEvaluation() accepts inversion_score boundary 10 via RatingValidator "
+            + "(strict JSON)")
+    void parseEvaluation_inversionScoreBoundary_strictJson_accepted() {
+        String json = "{\"rating\":5,\"fiery_sky\":85,\"golden_hour\":90,"
+                + "\"summary\":\"Dramatic inversion.\","
+                + "\"inversion_score\":10,\"inversion_potential\":\"STRONG\"}";
+
+        SunsetEvaluation result = parser.parseEvaluation(json, new ObjectMapper());
+
+        assertThat(result.inversionScore()).isEqualTo(10);
     }
 }

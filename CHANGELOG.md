@@ -37,6 +37,77 @@ the design's ~10 target), so P5 is gated on a synthetic-year census. §11 record
 disagreements with the bundle, including that its "`HotTopicStrip.jsx` is still used elsewhere" is
 false in this codebase — the Hot topics door is its only caller, and the removal also orphans
 `TideRunRow`, `SurgeRunRow`, `CertaintyChip` and the `auroraTonight`/`auroraTomorrow` wire fields.
+### Fixed — out-of-range Claude scores are now rejected as null, not persisted verbatim
+
+Closed a documented, deliberate gap: `RatingValidator.validateScore` existed, was fully unit
+tested, and had **no production caller** — an out-of-range 0–100 `fiery_sky`/`golden_hour` (or a
+basic-tier score, or a 0–10 `inversion_score`) from Claude was persisted verbatim. The star
+`rating` was already guarded and would go `null` on a bad value, so a malformed response produced
+the worst possible combination: no star, but a full-width score bar and maximal colour, because
+the frontend's `scoreRamp.js starFromScore` clamps to 0–100 — a `fiery_sky=491` rendered at the
+very top of the ramp.
+
+`RatingValidator.validateScore` is now wired into `SunsetEvaluationParser` on **both** parse
+paths — the strict JSON path and the regex fallback (whose `\d{1,3}`/`\d{1,2}` patterns accept
+999/99 by construction, and which is used precisely when the response didn't satisfy the
+structured contract). Rejection is per-field: one bad component is nulled, the rest of a usable
+evaluation still lands — the response is not marked `PARSE_FAILED`. Nothing is lost diagnostically:
+the raw Claude response is still persisted via `jobRunService.logBatchResult` on the success path,
+so a bad score stays visible in `api_call_log`.
+
+Mutation-checked: removing the `fiery_sky` `validateScore` call fails the renamed
+`ClaudeResponseParseResilienceTest` KNOWN GAP test and the corresponding
+`SunsetEvaluationParserTest` boundary test, restored afterwards. Full local gate green (7598
+tests).
+
+### Fixed — status SSE stream computes the health tree once per interval, not once per client
+
+`StatusController` gave every connected `/api/status/stream` client its own periodic task, each
+recomputing the full actuator health tree — including live external probes (Open-Meteo,
+WorldTides, Claude) — on the single platform thread backing the shared scheduler. With N clients
+that was N full evaluations every 30 seconds instead of one; at high connection counts the
+scheduler falls permanently behind and every client's status goes stale.
+
+`broadcastStatus()` now evaluates one shared `StatusSnapshot` per interval and merges each
+client's own `SessionInfo` onto it before sending — health computation is decoupled from session
+data, so per-client fields never trigger a re-evaluation. The broadcast task itself is started
+lazily on first connection and shared by all subsequent clients, rather than one task per
+`stream()` call. Per-emitter failure isolation is unchanged: a failed send still calls
+`completeWithError` on just that emitter, and the existing `onCompletion`/`onTimeout`/`onError`
+cleanup removes only that client without affecting the broadcast loop for the rest.
+
+No change to the payload, the push interval, or per-emitter cleanup behaviour. Mutation-checked:
+reverting to a per-emitter `computeSnapshot()` call inside the broadcast loop fails the new
+"one evaluation per interval" test.
+
+### Fixed — `GET /api/forecast/history` no longer queries once per location
+
+The no-location-filter branch looped over every enabled location, calling the repository once
+per location and materialising all rows in memory — cost scaled with locations × history depth,
+and the range had no upper bound. A few concurrent wide-range requests could saturate the JDBC
+pool.
+
+Replaced the per-location loop with one query: `ForecastEvaluationRepository
+.findByLocationIdInAndTargetDateBetween` takes a location-id collection (a singleton for the
+`location` filter, the full enabled roster otherwise) and fetches everything in a single round
+trip, ordered by location name then target date then target type — the exact order the old loop
+produced, since `findAllEnabled()` is itself name-ordered. The superseded single-location method
+is removed as dead code.
+
+Also caps the requested span at `MAX_HISTORY_SPAN_DAYS` (366 days, one calendar year inclusive of
+a leap day) — comfortably covers the admin backtesting use this endpoint exists for while
+bounding the worst case to a year of `forecast_evaluation` rows (insert-only, never pruned) across
+every enabled location, rather than the table's entire lifetime. An over-long range is rejected
+with the same 400 the existing `from.isAfter(to)` guard uses.
+
+No pagination added — a whole-tree search of `frontend/src` found no caller of this endpoint, so a
+cursor/page contract would be inventing an API nobody calls. The bulk query plus the span cap
+bound the cost without one. Response shape, DTO and ordering are unchanged.
+
+Proven with a real-database test (`ForecastHistoryQueryCountTest`, Hibernate statistics) that the
+fetch issues exactly one SQL statement regardless of enabled-location count — a query-counting
+proxy or Hibernate statistics is required for this, since a test asserting only the returned rows
+passes identically against the old N+1 loop.
 
 ## [v2.19.4] - 2026-08-28
 
