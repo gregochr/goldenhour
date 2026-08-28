@@ -27,11 +27,13 @@ import java.util.Properties;
 import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockConstruction;
 import static org.mockito.Mockito.times;
@@ -258,6 +260,45 @@ class StatusControllerTest {
                     // 1 initial connect send + 1 broadcast send.
                     verify(emitter, times(2)).send(any(SseEmitter.SseEventBuilder.class));
                 }
+            }
+        }
+
+        @Test
+        @DisplayName("A throwing health evaluation does not kill the recurring broadcast")
+        void throwingHealthEvaluation_doesNotCancelFutureIntervals() throws Exception {
+            // The regression this guards: broadcastStatus is the body of a scheduleAtFixedRate
+            // task on a RAW JDK executor, where one uncaught exception cancels every future
+            // execution — and broadcastTask stays non-null, so no later connection starts a
+            // replacement. Every client would then hold its last status for the life of the
+            // process. Per-emitter tasks each had their own guard; sharing the computation
+            // shared the failure with it.
+            jakarta.servlet.http.HttpServletRequest request =
+                    mock(jakarta.servlet.http.HttpServletRequest.class);
+            HealthDescriptor root = compositeOf(Map.of());
+            when(healthEndpoint.health()).thenReturn(root);
+
+            StatusController controller = new StatusController(healthEndpoint, null, null);
+
+            try (MockedConstruction<SseEmitter> mocked = mockConstruction(SseEmitter.class)) {
+                controller.stream(mockAuth("user", "ROLE_PRO_USER"), request);
+                clearInvocations(healthEndpoint);
+
+                // Interval 1: the health tree blows up. This must not propagate — if it does,
+                // the real scheduler silently stops calling this method forever.
+                // doThrow/doReturn, not when(...): when(healthEndpoint.health()) CALLS health(),
+                // which by the second stubbing is already set to throw — the trap would fire in
+                // the stubbing line rather than in the code under test.
+                doThrow(new IllegalStateException("probe down")).when(healthEndpoint).health();
+                assertThatCode(controller::broadcastStatus).doesNotThrowAnyException();
+
+                // Interval 2: recovery. The client receives again, which is only possible
+                // because interval 1 was contained rather than fatal.
+                doReturn(root).when(healthEndpoint).health();
+                controller.broadcastStatus();
+
+                SseEmitter emitter = mocked.constructed().get(0);
+                // 1 initial connect send + 0 for the failed interval + 1 for the recovered one.
+                verify(emitter, times(2)).send(any(SseEmitter.SseEventBuilder.class));
             }
         }
 

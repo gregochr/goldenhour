@@ -152,12 +152,28 @@ public class StatusController {
      * trigger a push cycle directly instead of waiting on the real scheduler.
      */
     void broadcastStatus() {
-        if (emitters.isEmpty()) {
-            return;
-        }
-        StatusSnapshot snapshot = computeSnapshot();
-        for (EmitterEntry entry : emitters) {
-            pushSafely(entry, snapshot);
+        // ⚠️ NOTHING may escape this method. It is the body of a scheduleAtFixedRate task on a
+        // raw JDK executor (see the constructor), where a single uncaught exception cancels every
+        // FUTURE execution — permanently. And because broadcastTask stays non-null afterwards, no
+        // later connection starts a replacement: every connected client would hold its last
+        // status for the life of the process, with nothing in the UI to say so.
+        //
+        // Before the snapshot was shared, each emitter had its own scheduled task and its own
+        // guard, so a failing health evaluation cost that one client one interval. Consolidating
+        // the computation consolidated the blast radius with it; this catch puts the containment
+        // back where the per-task guards used to be.
+        try {
+            if (emitters.isEmpty()) {
+                return;
+            }
+            StatusSnapshot snapshot = computeSnapshot();
+            for (EmitterEntry entry : emitters) {
+                pushSafely(entry, snapshot);
+            }
+        } catch (Exception e) {
+            LOG.error("Status broadcast failed for this interval; {} client(s) keep their "
+                    + "previous status and the next interval retries: {}",
+                    emitters.size(), e.getMessage(), e);
         }
     }
 
