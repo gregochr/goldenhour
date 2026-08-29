@@ -271,14 +271,22 @@ public class UserSettingsService {
      * any account). The service does not distinguish them: both mean "this account has now seen
      * the feed as of this instant".
      *
+     * <p>Writes through {@link AppUserRepository#updateComingUpLastSeenAtByUsername}, a
+     * column-scoped bulk update, never a load-mutate-{@code save()} on the whole entity — a
+     * whole-entity save here would race {@link #saveHome}/{@link #saveMapColourPreferences} in
+     * another tab and could silently discard whichever one flushed last, since {@code
+     * AppUserEntity} has neither {@code @Version} nor {@code @DynamicUpdate} (a Codex review
+     * finding on PR #695). The subsequent {@link #getUser} re-reads the row fresh — the update's
+     * {@code clearAutomatically} evicts the persistence context first — so the response reflects
+     * the just-written instant rather than the entity as it stood before this call.
+     *
      * @param auth the authenticated user
      * @return the updated user settings response
      */
     @Transactional
     public UserSettingsResponse markComingUpSeen(Authentication auth) {
+        userRepository.updateComingUpLastSeenAtByUsername(auth.getName(), clock.instant());
         AppUserEntity user = getUser(auth);
-        user.setComingUpLastSeenAt(clock.instant());
-        userRepository.save(user);
         // null place name, matching saveMapColourPreferences: this save does not geocode.
         return mapToResponse(user, null);
     }

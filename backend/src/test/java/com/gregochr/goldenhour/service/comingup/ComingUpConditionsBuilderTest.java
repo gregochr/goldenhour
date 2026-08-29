@@ -265,7 +265,7 @@ class ComingUpConditionsBuilderTest {
 
         ComingUpCondition tides = builder.build(TODAY, List.of(run), List.of()).getFirst();
 
-        assertThat(tides.quantLabel()).contains("range median").contains("p90");
+        assertThat(tides.quantLabel()).contains("typical run").contains("top 10% reach");
         assertThat(tides.interim()).isTrue();
     }
 
@@ -277,7 +277,7 @@ class ComingUpConditionsBuilderTest {
 
         ComingUpCondition tides = builder.build(TODAY, List.of(run), List.of()).getFirst();
 
-        assertThat(tides.quantLabel()).doesNotContain("range median");
+        assertThat(tides.quantLabel()).doesNotContain("typical run");
     }
 
     @Test
@@ -320,7 +320,7 @@ class ComingUpConditionsBuilderTest {
 
         double expectedFallback = SurpriseScore.rarity(new ComingUpScoringProperties().getRecurrent()
                 .getDust().getFallbackMeanGapDays());
-        assertThat(dust.quantLabel()).startsWith("rarity " + fmt1(expectedFallback));
+        assertThat(dust.quantLabel()).startsWith(rarityWord(expectedFallback) + " (" + fmt1(expectedFallback) + ")");
         assertThat(dust.rateLabel()).doesNotContain("about");
         assertThat(dust.interim()).isTrue();
     }
@@ -338,7 +338,7 @@ class ComingUpConditionsBuilderTest {
         ComingUpCondition dust = builder.build(TODAY, List.of(), List.of()).get(1);
 
         double expectedObserved = SurpriseScore.rarity(60.0 / 5);
-        assertThat(dust.quantLabel()).startsWith("rarity " + fmt1(expectedObserved));
+        assertThat(dust.quantLabel()).startsWith(rarityWord(expectedObserved) + " (" + fmt1(expectedObserved) + ")");
         assertThat(dust.rateLabel()).contains("about");
     }
 
@@ -348,7 +348,8 @@ class ComingUpConditionsBuilderTest {
         ComingUpCondition dust = builder.build(TODAY, List.of(), List.of()).get(1);
 
         assertThat(dust.quantLabel()).doesNotContain("median").doesNotContain("p90");
-        assertThat(dust.quantLabel()).contains("promoted above AOD").contains("(interim)");
+        assertThat(dust.quantLabel()).contains("counts as a plume above a haze reading of")
+                .contains("(early threshold)");
     }
 
     @Test
@@ -372,7 +373,7 @@ class ComingUpConditionsBuilderTest {
         // All 5 arrivals counted (clears the evidentiary bar) — the null-AOD row is neither lost
         // nor does it abort processing of the rows around it.
         double expectedObserved = SurpriseScore.rarity(60.0 / 5);
-        assertThat(dust.quantLabel()).startsWith("rarity " + fmt1(expectedObserved));
+        assertThat(dust.quantLabel()).startsWith(rarityWord(expectedObserved) + " (" + fmt1(expectedObserved) + ")");
     }
 
     @Test
@@ -477,12 +478,30 @@ class ComingUpConditionsBuilderTest {
 
         double expectedFallback = SurpriseScore.rarity(new ComingUpScoringProperties().getRecurrent()
                 .getInversion().getFallbackMeanGapDays());
-        assertThat(inversion.quantLabel()).startsWith("rarity " + fmt1(expectedFallback));
+        assertThat(inversion.quantLabel())
+                .startsWith(rarityWord(expectedFallback) + " (" + fmt1(expectedFallback) + ")");
         assertThat(inversion.occurrences()).hasSize(6);
         assertThat(inversion.interim()).isTrue();
     }
 
     private static String fmt1(double value) {
         return String.format(java.util.Locale.UK, "%.1f", value);
+    }
+
+    /** Mirrors {@code ComingUpConditionsBuilder}'s private word bucketing for assertion purposes. */
+    private static String rarityWord(double bits) {
+        if (bits < 2.0) {
+            return "common";
+        }
+        if (bits < 4.0) {
+            return "occasional";
+        }
+        if (bits < 6.0) {
+            return "uncommon";
+        }
+        if (bits < 8.0) {
+            return "rare";
+        }
+        return "very rare";
     }
 }

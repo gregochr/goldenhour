@@ -89,6 +89,59 @@ standalone `handoffFilterAction` clearing gap, §11.23); hysteresis, deliberatel
 instruction to revisit the interim rarity/magnitude constants (dust, inversion, the two deterministic
 gaps named above) after roughly 90 days of `topic_daily_log` rows accrue.
 
+### Fixed — a flipped field-map chip pointed one chip-width west of its own location
+
+The window popup's field map flips a location chip whose name will not fit to the right of its
+point, putting the box's right edge at the anchor — so the 5px marker must move to the right end
+to stay on the projected point. The design bundle does that with `.loc.flip
+{flex-direction:row-reverse}`; the port shipped the flip *decision* (`data-flip`, pinned by test)
+but never the CSS, so a flipped chip kept its marker at the left end, a full chip-width west of
+the place it names. Observed in production as an east-coast chip (Infinity Bridge, Teesside)
+rendering on the Lake District's focused heat blob — correct latitude, longitude off by exactly
+the chip's width, and made more misleading by the focused region's own label being deliberately
+omitted. `index.css` now mirrors a flipped chip (`flex-direction: row-reverse`, with the rating's
+divider and padding swapped side-for-side so the measured width is byte-identical between the two
+states — the placer measures before it decides to flip). `mapChipFlipCascade.test.jsx` pins the
+cascade with the sliced-stylesheet technique, since the rest of the suite runs `css: false` and
+proved the attribute while nothing proved what it resolves to; the divider's *side* stays a
+browser claim (cssstyle drops the `var()`-carrying border shorthand) and was verified in the
+browser against the built stylesheet, marker-on-anchor within a pixel in both states.
+
+### Changed — Coming up standing conditions: plain-English scoring copy
+
+The strip's stat line (`rarity 3.9`, `4.9 bits`, `range median/p90`, `AOD 0.50 (interim)`) named
+its own internal maths — surprisal in bits, an aerosol-optical-depth reading, "interim" — with no
+gloss, which a non-specialist reader can't parse. `ComingUpConditionsBuilder` now prefixes every
+`rarity`/`bits` figure with a plain word bucketed off the same score (`common` / `occasional` /
+`uncommon` / `rare` / `very rare`, kept in parentheses rather than dropped), relabels the tide
+condition's real percentiles as "typical run" / "top 10% reach", and rewords the dust/inversion
+threshold clause as "counts as a plume/strong above X (early threshold)". Frontend mirrors the same
+bucket table (`utils/comingUpConditions.js#bitsWord`) to caption the raw `bits` figure on peaks and
+occurrences. A first pass, not user-tested — the bucket boundaries are a starting point for
+iteration, not a finished taxonomy.
+
+### Added — field-geography G1: label placement + km-per-px (`docs/engineering/field-geography-and-glyphs-plan.md`)
+
+`utils/labelPlacement.js`: `placeWithNudges`, a pure greedy label placer ported from the design
+bundle's `placeLabels` (vertical nudge ladder `0, ±13, ±24, ±36`px, edge rejection, 3px/2px
+collision padding, drop-not-stack on exhaustion) — exported alongside its constants so a later
+phase's boundary tests can pin them. `heatField.js` gains `kmPerPx`, px-per-km measured off a
+real projection at a given reference point rather than assumed, parameterised on the reference
+point (unlike the prototype's hard-coded `HOMEPT`). No UI change — this is the pure utility layer
+Phase G1 of the plan calls for; G2/G3 will consume it to draw a home marker, area names and reach
+rings on the Plan tab's map surfaces.
+
+Adversarially reviewed before landing (four prosecutor lenses: spec/prototype fidelity, test
+quality, repo conventions, and future-consumer contract fit for the not-yet-built G2/G3 phases).
+Two real mutation-survival gaps in the test suite were found and fixed: every collision-padding
+fixture placed its blocker on only one side (left/below), so the overlap test's other two clauses
+(`b.x < a.x+a.w+PAD_X`, `a.y < b.y+b.h+PAD_Y`) were never the deciding condition and a wrong
+padding constant there would have passed unnoticed — mirrored fixtures now block from the right
+and above too. `kmPerPx`'s `Math.abs` was likewise unexercised, since both stub projections
+happened to have latitude increase y; a north-up stub (latitude increasing y decreasing, as a
+real map projection does) now pins it. Both gaps were confirmed by actually applying the
+one-line mutation and watching the suite pass before the fix, then fail after it.
+
 ## [v2.19.6] - 2026-08-29
 
 ### Removed — Coming up P6: the Hot topics door and its orphan chain

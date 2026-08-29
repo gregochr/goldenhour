@@ -350,32 +350,29 @@ class UserSettingsServiceTest {
     }
 
     @Test
-    @DisplayName("markComingUpSeen stores the clock's instant and returns the derived date")
-    void markComingUpSeen_storesNowAndReturnsDerivedDate() {
+    @DisplayName("markComingUpSeen writes through the column-scoped update, never save()")
+    void markComingUpSeen_writesThroughTargetedUpdate_neverWholeEntitySave() {
         stubAuth();
+        // Simulates the row a fresh read would return once the targeted update below has landed
+        // — this test is about the SERVICE's own orchestration (write the one column, then
+        // re-read), not about proving Hibernate's bulk-update SQL against a real database (which
+        // the migration/entity mapping are proven in CI, not here).
         AppUserEntity user = buildUser();
+        user.setComingUpLastSeenAt(NOW);
         when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
 
         UserSettingsResponse response = service.markComingUpSeen(auth);
 
-        assertThat(user.getComingUpLastSeenAt()).isEqualTo(NOW);
+        verify(userRepository).updateComingUpLastSeenAtByUsername(USERNAME, NOW);
+        // Never a whole-entity save — the race a column-scoped update exists to avoid (Codex
+        // review finding, PR #695): a concurrent saveHome/saveMapColourPreferences in another tab
+        // must not be discardable by this write landing last.
+        verify(userRepository, never()).save(any());
         // 2026-08-29T10:15:30Z is well inside the London civil day it falls on.
         assertThat(response.comingUpLastSeenDate())
                 .isEqualTo(java.time.LocalDate.of(2026, 8, 29));
-        verify(userRepository).save(user);
-    }
-
-    @Test
-    @DisplayName("markComingUpSeen overwrites a prior last-seen instant — every call is 'now'")
-    void markComingUpSeen_overwritesPriorValue() {
-        stubAuth();
-        AppUserEntity user = buildUser();
-        user.setComingUpLastSeenAt(Instant.parse("2026-01-01T00:00:00Z"));
-        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
-
-        service.markComingUpSeen(auth);
-
-        assertThat(user.getComingUpLastSeenAt()).isEqualTo(NOW);
+        // No request body reaches this method at all (plan D3: "a client with a wrong clock
+        // cannot mark the future seen") — the only instant it can ever write is the server's own.
     }
 
     @Test
