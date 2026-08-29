@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PhotoCast — Putting geography back on the thumbnails</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/d3@7.9.0/dist/d3.min.js" integrity="sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/topojson-client@3.1.0/dist/topojson-client.min.js" integrity="sha384-Ukv1p/xTma6P4/2bY5KzWBw+ydSpXmhCMtyciIQVDJ1RmOxtCYNMF1uXT9T63H67" crossorigin="anonymous"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,.66);--ink-3:rgba(242,231,211,.42);--go:#8AAE72;--marginal:#E0A542;--poor:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--coral:#E8593F;--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:26px 20px 70px}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+.hd{max-width:1220px;margin:0 auto 20px}
+.hd .m{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px}
+.hd h1{font-size:21px;font-weight:700;letter-spacing:-.02em}
+.hd p{font-size:13px;color:var(--ink-2);max-width:92ch;margin-top:7px;text-wrap:pretty}
+.hd b{font-weight:600;color:var(--ink)}
+.hd code{font-family:var(--mono);font-size:11.5px;color:#EBD9A8}
+.wrap{max-width:1220px;margin:0 auto}
+.sec{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);display:flex;align-items:center;gap:12px;margin:30px 0 14px}
+.sec i{flex:1;height:1px;background:var(--border)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(272px,1fr));gap:16px}
+.opt{background:var(--panel);border:1px solid var(--border);border-radius:11px;padding:13px 13px 15px;display:flex;flex-direction:column;gap:10px}
+.opt.pick{border-color:rgba(138,174,114,.5);box-shadow:0 0 0 1px rgba(138,174,114,.16)}
+.oh{display:flex;align-items:baseline;gap:8px}
+.oh .n{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.oh .t{font-size:13.5px;font-weight:600;letter-spacing:-.01em}
+.oh .tag{margin-left:auto;font-family:var(--mono);font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--go);border:1px solid rgba(138,174,114,.4);border-radius:5px;padding:2px 6px}
+.od{font-size:12px;color:var(--ink-2);text-wrap:pretty}
+.od b{color:var(--ink);font-weight:600}
+.tile{position:relative;background:#13100e;border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.tile canvas{display:block;width:100%}
+.ov{position:absolute;inset:0;pointer-events:none}
+.ov svg{position:absolute;inset:0;width:100%;height:100%}
+
+/* area label, BBC-style: the name of the ground, not a data point */
+.rg{position:absolute;transform:translate(-50%,-50%);font-family:var(--mono);font-size:8px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:rgba(242,231,211,.62);text-shadow:0 1px 3px rgba(0,0,0,.95),0 0 8px rgba(0,0,0,.8);white-space:nowrap;text-align:center;line-height:1.25}
+.rg.hot{color:#F9F1E2}
+.rg .sc{display:block;font-size:8.5px;letter-spacing:.02em;color:var(--marginal)}
+
+/* a named place: square on the point, name beside it */
+.pl{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;gap:4px;white-space:nowrap}
+.pl .sq{width:5px;height:5px;flex:none;border-radius:1px;box-shadow:0 0 0 1px rgba(0,0,0,.65)}
+.pl .nm{font-family:var(--mono);font-size:8px;font-weight:600;letter-spacing:.02em;color:#F9F1E2;text-shadow:0 1px 3px rgba(0,0,0,.95)}
+.pl .st{font-family:var(--mono);font-size:8px;color:var(--marginal);text-shadow:0 1px 3px rgba(0,0,0,.95)}
+.pl.dim .nm{color:rgba(242,231,211,.6)}
+
+/* fixed landmark: grey, forecast-independent, there to orient you */
+.lm{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;gap:4px;white-space:nowrap}
+.lm .dt{width:3px;height:3px;border-radius:50%;background:rgba(242,231,211,.5);flex:none}
+.lm span{font-family:var(--mono);font-size:7.5px;letter-spacing:.06em;color:rgba(242,231,211,.5);text-shadow:0 1px 3px rgba(0,0,0,.95)}
+
+/* home */
+.hm{position:absolute;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:2px}
+.hm .mk{width:9px;height:9px;border-radius:50%;border:1.6px solid var(--home);background:rgba(20,15,11,.6);box-shadow:0 0 0 2.5px rgba(20,15,11,.55),0 0 9px rgba(201,162,75,.55)}
+.hm .lb{font-family:var(--mono);font-size:7.5px;font-weight:600;letter-spacing:.14em;color:#EBD9A8;text-shadow:0 1px 3px rgba(0,0,0,.95)}
+.ringlb{position:absolute;transform:translate(-50%,-50%);font-family:var(--mono);font-size:7.5px;letter-spacing:.08em;color:rgba(242,231,211,.55);background:rgba(14,11,9,.72);padding:1px 3px;border-radius:3px;white-space:nowrap}
+
+.cap{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);display:flex;gap:10px;flex-wrap:wrap}
+.cap b{color:var(--ink-2);font-weight:500}
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(196px,1fr));gap:12px}
+.sc-card{background:var(--panel);border:1px solid var(--border);border-radius:10px;overflow:hidden;display:flex;flex-direction:column}
+.sc-card .kh{display:flex;align-items:baseline;justify-content:space-between;padding:8px 10px 7px;font-family:var(--mono);font-size:9px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3)}
+.sc-card .kh b{color:var(--ink);font-weight:600;letter-spacing:.04em}
+.sc-card .tile{border:none;border-radius:0;border-top:1px solid var(--border)}
+.notes{margin-top:26px;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:11px}
+.nt{background:var(--surface);border:1px solid var(--border);border-left:2px solid var(--border-light);border-radius:8px;padding:11px 13px;font-size:12.5px;color:var(--ink-2);text-wrap:pretty}
+.nt b{display:block;color:var(--ink);font-weight:600;font-size:12.5px;margin-bottom:3px}
+.nt code{font-family:var(--mono);font-size:11px;color:#EBD9A8}
+.nt.q{border-left-color:var(--coral)}
+#loading{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);font-family:var(--mono);font-size:11px;color:var(--ink-3);background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:6px 14px}
+</style>
+</head>
+<body>
+<div class="hd">
+<div class="m">PhotoCast · plan thumbnails · geography</div>
+<h1>Where am I, and which way is good?</h1>
+<p>The heat is legible as a shape but anonymous as a place: nothing on the thumbnail says where <b>DH3 4NG</b> sits, so warmth two hundred pixels north reads the same as warmth twenty minutes up the A1. Five treatments below, all on the same window (<code>Thursday sunset</code>, the best of the week), all drawn by the existing <code>heat-field.js</code> — the only thing that changes is what gets named on top.</p>
+</div>
+
+<div class="wrap">
+<div class="sec">Five ways to name the ground<i></i></div>
+<div class="grid" id="opts"></div>
+
+<div class="sec">The recommendation, across all six windows<i></i></div>
+<div class="strip" id="strip"></div>
+
+<div class="notes">
+<div class="nt"><b>Home is not a label, it is the origin</b>Every other reading on the card — drive time, <code>leave by</code>, reach filter — is measured from one point that the picture never shows. Marking it costs nine pixels and turns the blob into a direction: <em>north of me</em>, <em>an hour west</em>.</div>
+<div class="nt"><b>Area names or place names, not both</b>Four region names and four location names on a 300px thumbnail is a legend, not a map. Areas answer "which part of the country"; places answer "where exactly" — and the card already names the single best place in its own <code>Best</code> row, so the thumbnail's job is the area.</div>
+<div class="nt"><b>The ring is the honest version of reach</b>A dashed circle at the current filter is drawn from real distance, not opinion, and it answers the second half of the question: heat inside the ring is tonight, heat outside it is a day trip. It does mean the picture carries a filter — the one thing the heat has so far refused to do.</div>
+<div class="nt"><b>Landmarks age better than regions</b>Coverage is growing to Scotland and the Peak. Region labels multiply with it; <code>Newcastle · Carlisle · Middlesbrough</code> do not, and a photographer reads a coastline off known towns faster than off area names.</div>
+<div class="nt q"><b>Open question</b>Should the label set thin out with confidence, like the heat does? Day four is a hazy guess — naming four regions on it may lend it more authority than it has earned.</div>
+</div>
+</div>
+
+<div id="loading">loading coastline…</div>
+
+<script src="heat-field.js"></script>
+<script src="plan-data.js"></script>
+<script>
+const {REGIONS,WINS,CONF,SPOTS}=PLAN;
+const ramp=HeatField.ramp,rgb=HeatField.rgb,clamp=HeatField.clamp;
+const HOMEPT=[-1.573,54.855];                       // DH3 4NG, Chester-le-Street
+const SHORT={ntw:'NORTHUMBERLAND',penn:'NORTH PENNINES',nymc:'NORTH YORK MOORS',lakes:'LAKE DISTRICT',dales:'YORKSHIRE DALES',borders:'BORDERS',peak:'PEAK DISTRICT'};
+const LANDMARKS=[['Newcastle',-1.618,54.978],['Carlisle',-2.933,54.892],['Middlesbrough',-1.235,54.574],['York',-1.080,53.960],['Keswick',-3.134,54.601]];
+const RIDS=PLAN.areaRids();
+const SP=PLAN.spotsIn(RIDS);
+const FIT=HeatField.bbox(SP,0.10);
+const AR=clamp(HeatField.aspect(FIT),0.78,1.0);
+const rAvg=(rid,i)=>d3.mean(SPOTS.filter(s=>s.rid===rid),s=>s.r[i])||0;
+const bestIn=(rid,i)=>SPOTS.filter(s=>s.named&&s.rid===rid).sort((a,b)=>b.r[i]-a.r[i]||a.min-b.min)[0];
+const hotRid=i=>RIDS.reduce((a,b)=>rAvg(b,i)>rAvg(a,i)?b:a);
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+
+/* km → px at this projection, measured rather than assumed */
+function kmScale(proj){
+ const a=proj(HOMEPT),b=proj([HOMEPT[0],HOMEPT[1]+1]);
+ return Math.abs(b[1]-a[1])/111.2;
+}
+function el(cls,html,x,y){
+ const d=document.createElement('div');d.className=cls;d.innerHTML=html;
+ d.style.left=x+'px';d.style.top=y+'px';return d;
+}
+/* one drawing routine; `mode` decides what is named on top */
+function draw(tile,i,mode,w){
+ const h=Math.round(w*AR);
+ const cv=tile.querySelector('canvas'),ov=tile.querySelector('.ov');
+ ov.innerHTML='';
+ const proj=HeatField.drawGeo(cv,w,h,SP,i,{grid:4,radius:Math.max(10,w*0.155),blur:2.4,line:0.5,conf:CONF[i],fit:FIT});
+ if(!proj)return;
+ const hp=proj(HOMEPT),kps=kmScale(proj),hot=hotRid(i);
+
+ if(mode.ring){
+  const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+  [[40,'45 min'],[80,'1h 30min']].forEach(([km,lbl])=>{
+   const r=km*kps;
+   const c=document.createElementNS('http://www.w3.org/2000/svg','circle');
+   c.setAttribute('cx',hp[0]);c.setAttribute('cy',hp[1]);c.setAttribute('r',r);
+   c.setAttribute('fill','none');c.setAttribute('stroke','rgba(201,162,75,.42)');
+   c.setAttribute('stroke-width','1');c.setAttribute('stroke-dasharray','3 3');
+   svg.appendChild(c);
+   ov.appendChild(el('ringlb',lbl,hp[0],hp[1]-r));
+  });
+  ov.appendChild(svg);
+ }
+ if(mode.landmarks)LANDMARKS.forEach(([n,lng,lat])=>{
+  const p=proj([lng,lat]);
+  ov.appendChild(el('lm',`<i class="dt"></i><span>${esc(n)}</span>`,p[0]+18,p[1]));
+ });
+ if(mode.regions)RIDS.forEach(rid=>{
+  const c=HeatField.centroid(SP,rid,s=>proj([s.lng,s.lat]));if(!c)return;
+  const av=rAvg(rid,i);
+  const sc=mode.regionScore?`<span class="sc">${av.toFixed(1)}★</span>`:'';
+  ov.appendChild(el('rg'+(rid===hot?' hot':''),SHORT[rid].replace(/ /g,'&nbsp;')+sc,c[0],c[1]));
+ });
+ if(mode.places)RIDS.forEach(rid=>{
+  const s=bestIn(rid,i);if(!s)return;
+  const p=proj([s.lng,s.lat]),c=ramp(s.r[i]);
+  ov.appendChild(el('pl'+(rid===hot?'':' dim'),
+   `<i class="sq" style="background:${rgb(c)}"></i><span class="nm">${esc(s.n)}</span><span class="st">${s.r[i]}★</span>`,
+   p[0]+52,p[1]));
+ });
+ if(mode.home)ov.appendChild(el('hm','<i class="mk"></i>'+(mode.homeLabel===false?'':'<span class="lb">HOME</span>'),hp[0],hp[1]));
+ declutter(ov,w,h);
+}
+/* Home wins, then landmarks/places, then area names: a label that cannot find 22px of
+   clear air is dropped rather than stacked on top of another one. */
+function declutter(ov,w,h){
+ const pri={hm:0,pl:1,lm:1,ringlb:2,rg:3};
+ const key=n=>(n instanceof HTMLElement?(n.getAttribute('class')||''):'').split(' ')[0];
+ const items=[...ov.children].filter(n=>pri[key(n)]!=null).sort((a,b)=>pri[key(a)]-pri[key(b)]);
+ const box=n=>{const l=parseFloat(n.style.left),t=parseFloat(n.style.top),bw=n.offsetWidth,bh=n.offsetHeight;
+  return{x:l-bw/2,y:t-bh/2,w:bw,h:bh}};
+ const hit=(a,b)=>a.x<b.x+b.w+3&&b.x<a.x+a.w+3&&a.y<b.y+b.h+2&&b.y<a.y+a.h+2;
+ const kept=[];
+ items.forEach(n=>{
+  const base=parseFloat(n.style.top);let ok=false;
+  for(const dy of [0,-13,13,-24,24,-34,34]){
+   n.style.top=(base+dy)+'px';const bx=box(n);
+   if(bx.y<1||bx.y+bx.h>h-1)continue;
+   if(!kept.some(k=>hit(bx,k))){kept.push(bx);ok=true;break}
+  }
+  if(!ok)n.style.display='none';
+ });
+}
+
+const OPTS=[
+ {n:'Now',t:'No labels',d:'The shape reads, the ground does not. Warmth in the Lakes and warmth on the Northumberland coast are the same picture until you already know the coastline.',mode:{}},
+ {n:'A',t:'Home only',d:'One marker at <b>DH3 4NG</b>. Cheapest change on the list, and it converts every blob into a bearing and a rough distance — the heat is suddenly <b>north of me</b> rather than somewhere.',mode:{home:1}},
+ {n:'B',t:'Home + area names',d:'BBC-style: the ground is named at each region\u2019s centroid, hottest region brightest. Answers <b>which part of the country</b> without adding a second data layer.',mode:{home:1,regions:1},tag:''},
+ {n:'C',t:'Home + best place per region',d:'The strongest named location in each region, squared on its point. Precise, and immediately crowded — four place names is most of the picture, and the card already names the best one below.',mode:{home:1,places:1}},
+ {n:'D',t:'Home + area names + reach rings',d:'Dashed rings at 45 min and 1h 30 from home. The picture now says both <b>where</b> and <b>whether you could get there tonight</b>.',mode:{home:1,regions:1,ring:1}},
+ {n:'E',t:'Home + towns',d:'Fixed grey landmarks instead of regions — <b>Newcastle, Carlisle, Middlesbrough</b>. Forecast-independent, and it survives coverage growing to Scotland and the Peak.',mode:{home:1,landmarks:1}}
+];
+
+function build(){
+ const host=document.getElementById('opts');
+ OPTS.forEach((o,k)=>{
+  const d=document.createElement('div');d.className='opt'+(o.n==='B'?' pick':'');
+  d.innerHTML=`<div class="oh"><span class="n">${o.n}</span><span class="t">${o.t}</span>${o.n==='B'?'<span class="tag">recommended</span>':''}</div>
+  <div class="tile"><canvas></canvas><div class="ov"></div></div>
+  <div class="od">${o.d}</div>`;
+  host.appendChild(d);
+ });
+ const strip=document.getElementById('strip');
+ WINS.forEach((w,i)=>{
+  const c=document.createElement('div');c.className='sc-card';
+  c.innerHTML=`<div class="kh"><b>${w.lbl||w.when}</b><span>${w.time}</span></div>
+  <div class="tile"><canvas></canvas><div class="ov"></div></div>`;
+  strip.appendChild(c);
+ });
+ redraw();
+}
+function redraw(){
+ const W=4;   // Thursday sunset — the best window of the six
+ document.querySelectorAll('#opts .opt').forEach((d,k)=>{
+  const t=d.querySelector('.tile');
+  draw(t,W,OPTS[k].mode,Math.max(140,Math.floor(t.clientWidth)));
+ });
+ document.querySelectorAll('#strip .sc-card').forEach((c,i)=>{
+  const t=c.querySelector('.tile');
+  draw(t,i,{home:1,regions:1},Math.max(140,Math.floor(t.clientWidth)));
+ });
+}
+let rt;addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(redraw,140)});
+HeatField.load().then(()=>{document.getElementById('loading').style.display='none';build()});
+</script>
+</body>
+</html>

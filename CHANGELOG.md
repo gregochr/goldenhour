@@ -5,6 +5,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — field-geography + topic-glyphs implementation plan and its design bundle
+
+`docs/engineering/field-geography-and-glyphs-plan.md`: the phased (G1–G4) plan for the
+2026-08-29 design handoff — a home marker and area names on the Plan tab's window thumbnails,
+dashed 45 min / 1h 30min reach rings plus the home marker on the drill-down popup field, and
+per-family emoji glyphs across the Coming up feed (timeline rows, standing-condition rows,
+filter chips; coincidence sub-lines recorded for P3b). The bundle is vendored verbatim at
+`docs/design/field-geography/`; the plan's §0 reconciliation records where the bundle's
+prototype assumptions diverge from this frontend (home coordinates are plumbed from user
+settings, not a constant; the popup already owns a greedy label placer and reserved hint box;
+production topic families differ from the prototype's) and wins over the bundle where they
+disagree. §5 records the authored decisions (ring role-gating default, eclipse/aurora glyphs,
+droppable popup region labels). Paste-ready per-phase kickoff prompts are
+`docs/engineering/field-geography-prompts.md`. Documentation only; no behaviour change.
+
 ### Added — Coming up P4: standing conditions — strip, statuses, interim scoring
 
 The Coming up tab gains its standing-conditions strip (design README §2/§2.1, plan §7): three
