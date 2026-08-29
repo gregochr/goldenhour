@@ -83,6 +83,9 @@ class TopicDailyLogJobTest {
     private TideService tideService;
 
     @Mock
+    private LunarPhaseService lunarPhaseService;
+
+    @Mock
     private LocationRepository locationRepository;
 
     @Mock
@@ -114,10 +117,12 @@ class TopicDailyLogJobTest {
                 .thenReturn(List.of());
         lenient().when(nlcClarityService.isNlcSeason(any())).thenReturn(false);
         lenient().when(regionService.findAll()).thenReturn(List.of());
+        // Default to a non-perigean date (SPRING label) unless a test says otherwise.
+        lenient().when(lunarPhaseService.nearestSyzygyIsPerigean(any())).thenReturn(false);
 
         job = new TopicDailyLogJob(forecastEvaluationRepository, forecastScoreRepository,
-                survivorAtmosphereRepository, tideExtremeRepository, tideService, locationRepository,
-                auroraForecastResultRepository, nlcClarityService, regionService,
+                survivorAtmosphereRepository, tideExtremeRepository, tideService, lunarPhaseService,
+                locationRepository, auroraForecastResultRepository, nlcClarityService, regionService,
                 topicDailyLogRepository, dynamicSchedulerService, CLOCK);
     }
 
@@ -337,13 +342,13 @@ class TopicDailyLogJobTest {
 
     // ---------------------------------------------------------------- SPRING_TIDE / KING_TIDE
 
-    private static TideStats stats(BigDecimal springThreshold, BigDecimal p95) {
-        return new TideStats(null, null, null, null, 700L, null, null, null, p95, 0L, null, springThreshold, null, 0L);
+    private static TideStats stats(BigDecimal springThreshold) {
+        return new TideStats(null, null, null, null, 700L, null, null, null, null, 0L, null, springThreshold, null, 0L);
     }
 
     @Test
-    @DisplayName("a high water above P95 fires both SPRING_TIDE and KING_TIDE")
-    void tides_aboveP95_firesBoth() {
+    @DisplayName("a qualifying high water on a perigean date logs KING_TIDE, never SPRING_TIDE")
+    void tides_perigeanDate_firesKingTideOnly() {
         RegionEntity region = region(1L);
         LocationEntity location = locationWithRegion(10L, region);
         when(locationRepository.findCoastalLocations()).thenReturn(List.of(location));
@@ -355,23 +360,21 @@ class TopicDailyLogJobTest {
                         .eventTime(LocalDateTime.of(2027, 3, 5, 6, 0))
                         .heightMetres(new BigDecimal("5.5"))
                         .build()));
-        when(tideService.getTideStats(10L))
-                .thenReturn(Optional.of(stats(new BigDecimal("4.0"), new BigDecimal("5.0"))));
+        when(tideService.getTideStats(10L)).thenReturn(Optional.of(stats(new BigDecimal("4.0"))));
+        when(lunarPhaseService.nearestSyzygyIsPerigean(YESTERDAY)).thenReturn(true);
 
         job.runScheduled();
 
-        List<TopicDailyLogEntity> spring = savedRowsOfType("SPRING_TIDE");
         List<TopicDailyLogEntity> king = savedRowsOfType("KING_TIDE");
-        assertThat(spring).hasSize(1);
-        assertThat(spring.get(0).isPresent()).isTrue();
         assertThat(king).hasSize(1);
         assertThat(king.get(0).isPresent()).isTrue();
         assertThat(king.get(0).getIntensity()).isEqualByComparingTo("5.5");
+        assertThat(savedRowsOfType("SPRING_TIDE")).isEmpty();
     }
 
     @Test
-    @DisplayName("a high water between the spring and P95 thresholds fires SPRING_TIDE only")
-    void tides_betweenThresholds_firesSpringOnly() {
+    @DisplayName("a qualifying high water on a non-perigean date logs SPRING_TIDE, never KING_TIDE")
+    void tides_nonPerigeanDate_firesSpringTideOnly() {
         RegionEntity region = region(1L);
         LocationEntity location = locationWithRegion(10L, region);
         when(locationRepository.findCoastalLocations()).thenReturn(List.of(location));
@@ -383,13 +386,62 @@ class TopicDailyLogJobTest {
                         .eventTime(LocalDateTime.of(2027, 3, 5, 6, 0))
                         .heightMetres(new BigDecimal("4.5"))
                         .build()));
-        when(tideService.getTideStats(10L))
-                .thenReturn(Optional.of(stats(new BigDecimal("4.0"), new BigDecimal("5.0"))));
+        when(tideService.getTideStats(10L)).thenReturn(Optional.of(stats(new BigDecimal("4.0"))));
+        when(lunarPhaseService.nearestSyzygyIsPerigean(YESTERDAY)).thenReturn(false);
 
         job.runScheduled();
 
         assertThat(savedRowsOfType("SPRING_TIDE").get(0).isPresent()).isTrue();
-        assertThat(savedRowsOfType("KING_TIDE").get(0).isPresent()).isFalse();
+        assertThat(savedRowsOfType("KING_TIDE")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a huge non-perigean tide stays SPRING_TIDE — never OR the height test into the "
+            + "king label (backend/AGENTS.md §2)")
+    void tides_hugeButNonPerigean_staysSpringNeverKing() {
+        RegionEntity region = region(1L);
+        LocationEntity location = locationWithRegion(10L, region);
+        when(locationRepository.findCoastalLocations()).thenReturn(List.of(location));
+        // A height that would clear even a demanding P95-style threshold, on a date the moon does
+        // NOT call perigean — the exact "August 2026" scenario CLAUDE.md/AGENTS.md record: a big
+        // spring tide clearing P95 without being perigean must never print as KING.
+        when(tideExtremeRepository.findByLocationIdInAndTypeAndEventTimeBetweenOrderByEventTimeAsc(
+                anyCollection(), eq(TideExtremeType.HIGH), any(), any()))
+                .thenReturn(List.of(TideExtremeEntity.builder()
+                        .locationId(10L)
+                        .type(TideExtremeType.HIGH)
+                        .eventTime(LocalDateTime.of(2027, 3, 5, 6, 0))
+                        .heightMetres(new BigDecimal("9.9"))
+                        .build()));
+        when(tideService.getTideStats(10L)).thenReturn(Optional.of(stats(new BigDecimal("4.0"))));
+        when(lunarPhaseService.nearestSyzygyIsPerigean(YESTERDAY)).thenReturn(false);
+
+        job.runScheduled();
+
+        assertThat(savedRowsOfType("SPRING_TIDE").get(0).isPresent()).isTrue();
+        assertThat(savedRowsOfType("KING_TIDE")).isEmpty();
+    }
+
+    @Test
+    @DisplayName("a high water at or below the spring threshold produces no row for either type")
+    void tides_belowSpringThreshold_producesNoRow() {
+        RegionEntity region = region(1L);
+        LocationEntity location = locationWithRegion(10L, region);
+        when(locationRepository.findCoastalLocations()).thenReturn(List.of(location));
+        when(tideExtremeRepository.findByLocationIdInAndTypeAndEventTimeBetweenOrderByEventTimeAsc(
+                anyCollection(), eq(TideExtremeType.HIGH), any(), any()))
+                .thenReturn(List.of(TideExtremeEntity.builder()
+                        .locationId(10L)
+                        .type(TideExtremeType.HIGH)
+                        .eventTime(LocalDateTime.of(2027, 3, 5, 6, 0))
+                        .heightMetres(new BigDecimal("3.5"))
+                        .build()));
+        when(tideService.getTideStats(10L)).thenReturn(Optional.of(stats(new BigDecimal("4.0"))));
+
+        job.runScheduled();
+
+        assertThat(savedRowsOfType("SPRING_TIDE")).isEmpty();
+        assertThat(savedRowsOfType("KING_TIDE")).isEmpty();
     }
 
     @Test
@@ -412,7 +464,7 @@ class TopicDailyLogJobTest {
                         .heightMetres(new BigDecimal("6.0"))
                         .build()));
         when(tideService.getTideStats(10L))
-                .thenReturn(Optional.of(stats(new BigDecimal("4.0"), new BigDecimal("5.0"))));
+                .thenReturn(Optional.of(stats(new BigDecimal("4.0"))));
 
         job.runScheduled();
 

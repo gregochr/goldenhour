@@ -74,10 +74,18 @@ import java.util.Map;
  *       "tops" is a compositional variant of the same underlying reading rather than a second
  *       independent phenomenon. Revisit if a future phase wants fell-summit snow logged as its own
  *       topic type.</li>
- *   <li><b>SPRING_TIDE, KING_TIDE</b> — {@code tide_extreme} + each location's stored height
- *       thresholds ({@code TideService.getTideStats}), the same unbiased, ephemeris-and-measurement
+ *   <li><b>SPRING_TIDE, KING_TIDE</b> — {@code tide_extreme} + each location's spring-tide height
+ *       threshold ({@code TideService.getTideStats}), the same unbiased, ephemeris-and-measurement
  *       basis {@link TideSizeIndex} uses — not read through that class because it answers
- *       roster-wide, not per region.</li>
+ *       roster-wide, not per region. ⚠️ <b>The two-axis rule ({@code backend/AGENTS.md} §2, "never OR
+ *       the height test into the king label"):</b> "which dates and how big" is the height test
+ *       above; "what KIND of event" is the moon's alone, via
+ *       {@link LunarPhaseService#nearestSyzygyIsPerigean}, asked once per date so the whole roster
+ *       agrees on one label that day. A qualifying date logs {@code KING_TIDE} when its nearest
+ *       syzygy is perigean and {@code SPRING_TIDE} otherwise — including a big spring that clears
+ *       its port's P95 without being perigean, the exact case
+ *       {@code KingTideHotTopicStrategy.isPerigeanSpring}'s own history warns against re-admitting.
+ *       {@code TideStats.p95HighMetres} is therefore never read here.</li>
  *   <li><b>AURORA</b> — {@code aurora_forecast_result}, written only when an admin manually
  *       triggers a run. Most nights carry no row at all; this job writes nothing for a region with
  *       no row that night (unmeasured, not false) and durably archives whatever was captured before
@@ -134,6 +142,7 @@ public class TopicDailyLogJob {
     private final SurvivorAtmosphereRepository survivorAtmosphereRepository;
     private final TideExtremeRepository tideExtremeRepository;
     private final TideService tideService;
+    private final LunarPhaseService lunarPhaseService;
     private final LocationRepository locationRepository;
     private final AuroraForecastResultRepository auroraForecastResultRepository;
     private final NlcClarityService nlcClarityService;
@@ -149,7 +158,8 @@ public class TopicDailyLogJob {
      * @param forecastScoreRepository       the survivor-only source for INVERSION
      * @param survivorAtmosphereRepository  the survivor-only source for SNOW
      * @param tideExtremeRepository         stored tide extremes for SPRING_TIDE/KING_TIDE
-     * @param tideService                   per-location spring/king height thresholds
+     * @param tideService                   per-location spring-tide height threshold
+     * @param lunarPhaseService             decides the SPRING_TIDE vs KING_TIDE label (never height)
      * @param locationRepository            the coastal roster for tide topics
      * @param auroraForecastResultRepository admin-triggered nightly aurora results
      * @param nlcClarityService             the NLC season boundary predicate
@@ -163,6 +173,7 @@ public class TopicDailyLogJob {
             SurvivorAtmosphereRepository survivorAtmosphereRepository,
             TideExtremeRepository tideExtremeRepository,
             TideService tideService,
+            LunarPhaseService lunarPhaseService,
             LocationRepository locationRepository,
             AuroraForecastResultRepository auroraForecastResultRepository,
             NlcClarityService nlcClarityService,
@@ -175,6 +186,7 @@ public class TopicDailyLogJob {
         this.survivorAtmosphereRepository = survivorAtmosphereRepository;
         this.tideExtremeRepository = tideExtremeRepository;
         this.tideService = tideService;
+        this.lunarPhaseService = lunarPhaseService;
         this.locationRepository = locationRepository;
         this.auroraForecastResultRepository = auroraForecastResultRepository;
         this.nlcClarityService = nlcClarityService;
@@ -354,8 +366,17 @@ public class TopicDailyLogJob {
                 dayMaxByLocation.merge(extreme.getLocationId(), extreme.getHeightMetres().doubleValue(), Math::max);
             }
 
-            Map<Long, Reading> springByRegion = new LinkedHashMap<>();
-            Map<Long, Reading> kingByRegion = new LinkedHashMap<>();
+            // Which dates and how big is the height test (TideSizeIndex's own axis); what KIND of
+            // event it is is the moon's alone, asked once per date so every location on the roster
+            // agrees on the same label that day — never OR the height test into the king label
+            // (backend/AGENTS.md §2). A date whose nearest syzygy is perigean logs KING_TIDE; every
+            // other qualifying date logs SPRING_TIDE — including a big spring that clears its port's
+            // P95 without being perigean (the exact case `KingTideHotTopicStrategy.isPerigeanSpring`
+            // stopped accepting `heightAboveP95()` for). `p95HighMetres` is therefore not read here
+            // at all: it answers a different, size-only question this job does not ask.
+            boolean king = lunarPhaseService.nearestSyzygyIsPerigean(date);
+            String labelType = king ? TYPE_KING_TIDE : TYPE_SPRING_TIDE;
+            Map<Long, Reading> byRegion = new LinkedHashMap<>();
 
             for (Map.Entry<Long, Double> entry : dayMaxByLocation.entrySet()) {
                 LocationEntity location = locationById.get(entry.getKey());
@@ -364,30 +385,19 @@ public class TopicDailyLogJob {
                     continue;
                 }
                 TideStats stats = tideService.getTideStats(entry.getKey()).orElse(null);
-                if (stats == null) {
+                if (stats == null || stats.springTideThreshold() == null) {
                     continue;
                 }
                 double high = entry.getValue();
-                BigDecimal highReading = BigDecimal.valueOf(high);
-
-                if (stats.springTideThreshold() != null) {
-                    Reading spring = springByRegion.computeIfAbsent(region.getId(), id -> new Reading());
-                    if (high > stats.springTideThreshold().doubleValue()) {
-                        spring.present = true;
-                    }
-                    spring.maxIntensity = maxOf(spring.maxIntensity, highReading);
+                if (high <= stats.springTideThreshold().doubleValue()) {
+                    continue;
                 }
-                if (stats.p95HighMetres() != null) {
-                    Reading king = kingByRegion.computeIfAbsent(region.getId(), id -> new Reading());
-                    if (high > stats.p95HighMetres().doubleValue()) {
-                        king.present = true;
-                    }
-                    king.maxIntensity = maxOf(king.maxIntensity, highReading);
-                }
+                Reading reading = byRegion.computeIfAbsent(region.getId(), id -> new Reading());
+                reading.present = true;
+                reading.maxIntensity = maxOf(reading.maxIntensity, BigDecimal.valueOf(high));
             }
 
-            persist(TYPE_SPRING_TIDE, date, springByRegion);
-            persist(TYPE_KING_TIDE, date, kingByRegion);
+            persist(labelType, date, byRegion);
         } catch (Exception e) {
             LOG.warn("Topic daily log: SPRING_TIDE/KING_TIDE failed for {}: {}", date, e.getMessage());
         }
