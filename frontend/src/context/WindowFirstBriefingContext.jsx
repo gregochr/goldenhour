@@ -88,6 +88,8 @@ const WindowFirstBriefingContext = createContext({
   todayStr: '',
   tomorrowStr: '',
   isPro: false,
+  comingUpLastSeenDate: undefined,
+  setComingUpLastSeenAt: () => {},
 });
 
 /**
@@ -243,6 +245,16 @@ export function WindowFirstBriefingProvider({
   // set one, on nothing more than a dropped request — plan §2.5 forbids a second source of truth
   // for exactly this reason, and a wrong answer is worse than silence.
   const [homePlace, setHomePlace] = useState(undefined);
+  /**
+   * The "Coming up" badge's per-user latch (plan D3/P5) — the Europe/London civil date the caller
+   * last opened that tab, ISO `YYYY-MM-DD`, or {@code null} once settled with no date on record.
+   *
+   * <p>Same three-state shape as {@code homePlace} and for the identical reason: {@code undefined}
+   * is "not answered yet or the request failed", which must render as no badge and no bootstrap
+   * write rather than a false "never seen" — a dropped settings request must not fire the
+   * once-only bootstrap PUT a second time.
+   */
+  const [comingUpLastSeenDate, setComingUpLastSeenDateState] = useState(undefined);
   const intervalRef = useRef(null);
 
   /**
@@ -401,9 +413,31 @@ export function WindowFirstBriefingProvider({
    */
   useEffect(() => {
     getSettings()
-      .then((settings) => setHomePlace(settings?.homePlaceName || settings?.homePostcode || null))
-      .catch(() => setHomePlace(undefined));
+      .then((settings) => {
+        setHomePlace(settings?.homePlaceName || settings?.homePostcode || null);
+        // Same response, a second field: `comingUpLastSeenDate` rides this fetch rather than one
+        // of its own — one settings call, two per-user reads, matching `homePlace` immediately
+        // above. `?? null`, not `|| null`: an empty string is not a possible date, but writing the
+        // fallback the same way keeps the two lines visibly parallel.
+        setComingUpLastSeenDateState(settings?.comingUpLastSeenDate ?? null);
+      })
+      .catch(() => {
+        setHomePlace(undefined);
+        setComingUpLastSeenDateState(undefined);
+      });
   }, [homeSettingsVersion]);
+
+  /**
+   * Sets the Coming-up last-seen date directly — no transform, unlike {@code setOrigin}.
+   *
+   * <p>Two callers: the bootstrap write's response (plan D3's null→set transition) and `Mark
+   * seen`'s optimistic clear, both of which already hold the exact ISO date string to publish
+   * (the reader's own `todayStr`, or the value the settings PUT just echoed back) — there is
+   * nothing here for this setter to derive.
+   */
+  const setComingUpLastSeenAt = useCallback((date) => {
+    setComingUpLastSeenDateState(date);
+  }, []);
 
   /**
    * Batch-scored ratings, keyed `regionName|date|targetType|locationName`.
@@ -636,6 +670,7 @@ export function WindowFirstBriefingProvider({
       // wants the home one: the planning area and the beyond line are statements about HOME, and
       // framing them from an away base would make "beyond 3h from home" a claim about Keswick.
       origin, setOrigin, regions, effectiveReachById,
+      comingUpLastSeenDate, setComingUpLastSeenAt,
     }),
     [briefing, loading, heatStripCards, windowCards, paneItems, upcomingEvents,
       travelDayDates, evaluationScores, scoresLoaded, scoreIndex, scoreRows,
@@ -643,7 +678,8 @@ export function WindowFirstBriefingProvider({
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
       ratingLens, homePlace, isPro,
-      origin, setOrigin, regions, effectiveReachById],
+      origin, setOrigin, regions, effectiveReachById,
+      comingUpLastSeenDate, setComingUpLastSeenAt],
   );
 
   return (
@@ -680,7 +716,8 @@ WindowFirstBriefingProvider.propTypes = {
  *           reachById: Map,
  *           reachLens: object, ratingLens: object, homePlace: ?string,
  *           todayStr: string,
- *           tomorrowStr: string, isPro: boolean}}
+ *           tomorrowStr: string, isPro: boolean,
+ *           comingUpLastSeenDate: (string|null|undefined), setComingUpLastSeenAt: function}}
  */
 export function useWindowFirstBriefing() {
   return useContext(WindowFirstBriefingContext);

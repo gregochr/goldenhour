@@ -106,6 +106,22 @@ public class UserSettingsController {
     }
 
     /**
+     * Records that the caller has just looked at the "Coming up" tab — the badge's only write.
+     *
+     * <p>Its own endpoint rather than fields on {@code saveHome}, matching {@code map-colours}'
+     * recorded reasoning: the last-seen instant is not home-derived, and a partial {@code /home}
+     * body would deserialise the home fields to null and wipe a saved postcode. No request body:
+     * "now" is taken from the server's clock.
+     *
+     * @param auth the current authentication context
+     * @return the updated user settings
+     */
+    @PutMapping("/coming-up-seen")
+    public UserSettingsResponse markComingUpSeen(Authentication auth) {
+        return settingsService.markComingUpSeen(auth);
+    }
+
+    /**
      * Recalculates drive times from the user's home to all locations.
      * Rate limited: max once per 30 minutes (enforced in service).
      *

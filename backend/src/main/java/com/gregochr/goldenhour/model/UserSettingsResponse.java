@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.model;
 
 import java.time.Instant;
+import java.time.LocalDate;
 
 /**
  * Response DTO for the user settings endpoint.
@@ -19,6 +20,12 @@ import java.time.Instant;
  *                                 or null when never chosen. Raw pass-through, deliberately not
  *                                 defaulted here: a later stage needs to tell "never chose" apart
  *                                 from "explicitly chose verdict" to change the default safely.
+ * @param comingUpLastSeenDate     the Europe/London civil date the caller last opened the "Coming
+ *                                 up" tab, or null when they never have. A DATE, not the stored
+ *                                 instant, deliberately (plan D3): the client compares it against
+ *                                 each entry's {@code enteredWindow} as two ISO date strings, so
+ *                                 the timezone rule stays server-side ({@code ForecastHorizon
+ *                                 .civilDate}) and the timestamp column remains the durable truth.
  */
 public record UserSettingsResponse(
         String username,
@@ -30,5 +37,6 @@ public record UserSettingsResponse(
         String homePlaceName,
         Integer localRadiusMiles,
         Instant driveTimesCalculatedAt,
-        String mapColourScale) {
+        String mapColourScale,
+        LocalDate comingUpLastSeenDate) {
 }

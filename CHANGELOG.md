@@ -5,6 +5,90 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Coming up P5: the tab badge, lastSeenAt, and arrivals (series complete)
+
+The final phase of the Coming up redesign (`docs/engineering/coming-up-plan.md` §8): a conditional
+badge on the Coming up tab counting rare new arrivals since the reader last looked, a since-line
+above the chips naming the highest-scoring one with a "Mark seen" button, and NEW flags + a fresh
+box-shadow on the chronology cards those arrivals belong to.
+
+**Census first (D4/§11.13)**: a synthetic-year fixture (`ComingUpAnnualBadgeCensusTest`) assembles
+the feed through the real ephemeris sources and the real `ComingUpAssembler` across 1 Sep 2026 – 31
+Aug 2027, counting badge-firing arrivals under the served band edges. Under the placeholder edges
+(announce 7.5 / interrupt 9.5) every annual-rate topic — five showers and the NLC season boundary —
+sat exactly on the interrupt contour: 11 badges/year but **7** of them interrupts, ~4× the design's
+"one or two". The shipped edges move ONE value, `interrupt: 9.5 → 10.0`, landing 11 badges/year with
+exactly **1** interrupt (the eclipse) — the design's ~10/year, one-or-two-interrupts target. No
+topic is special-cased; the fixture stays as a regression test so a later topic addition or rarity
+retune is re-censused rather than silently shifting the rate. Two deterministic rarity gaps
+(supermoon, eclipse) were measured against their ephemeris/catalogue alternatives and deliberately
+kept as documented estimates rather than swapped — a re-derivation of either is a re-censusing
+decision, not a constant edit (`ComingUpScoringProperties`' own Javadoc records why for each).
+
+**Backend**: `app_user.coming_up_last_seen_at` (V152, nullable, no default, no backfill — the
+V136/V147 pattern) + `PUT /api/user/settings/coming-up-seen` (its own endpoint, matching
+`map-colours`' precedent: folding this into `saveHome` would null the postcode on a partial body).
+`UserSettingsResponse.comingUpLastSeenDate` serves the Europe/London civil date derived server-side
+(`ForecastHorizon.civilDate`, new) so the client only ever compares two ISO date strings.
+
+**Frontend**: the almanac fetch is now eager (`useComingUpFeed(true, todayStr)`, fired after first
+paint for every reader) — a recorded reversal of the P1-era lazy-fetch decision (D13), because the
+badge needs to know about arrivals whether or not the reader ever opens the pane. The per-user-join
+derivation (`isNew`, the badge `{band, count}`, the since-line's entry selection — D12, licensed by
+the same reach reasoning that keeps reach off `GET /api/briefing`) lives in the new
+`utils/comingUpArrivals.js`; CLAUDE.md's Backend-heavy bullet names this class in the same commit,
+per D12's instruction. A quiet bootstrap write (`WindowFirstShell`) fires once on the first open of
+the tab with a null last-seen date — without it the badge can never activate for any account, since
+`Mark seen` is otherwise the only write and the since-line hosting it only renders when something
+is already new (the round-3 external-review deadlock finding). `Mark seen` clears optimistically to
+the reader's own civil date and then reconciles with the server's own echoed value on success.
+
+**Comment sweep**: four stale present-tense references to deleted P6 machinery, corrected —
+`index.css` (a `TideRunRow.jsx` marker citation, the retired two-door prose), `mapOverlay.js` (two
+"hot-topic click" comments for the now-producer-less `locationNames` machinery, deliberately kept
+for `test/mapOverlay.test.js` and `kind:'event'`'s shared code path), and
+`docs/engineering/v1-retirement-plan.md` (past-tensed the `auroraTonight`/`auroraTomorrow` reader
+claim with a pointer to P6's actual deletion).
+
+Adversarial review (four lenses: backend correctness, frontend runtime correctness, CSS/tokens/
+accessibility, test quality/conventions) found and fixed two real defects before landing: a
+`.wf-tab{display:inline-flex;gap:8px}` rule matching the design's literal container-level spacing
+would have doubled the Plan/Map tabs' own glyph-to-label spacing (they already bake a trailing
+space into the glyph span) — fixed by margining the badge span itself instead, zero blast radius on
+the other tabs; and `.wf-cu-since-bits` used `--color-plex-text-muted`, which measures ≈3.48:1
+against the since-line's own background — under AA's 4.5:1 floor, the same mistake this file has
+already made and corrected twice elsewhere (`--color-plex-text-secondary` fixes it, ≈6.5:1+). Also
+fixed: `Mark seen` now reconciles with the server's response rather than trusting only its own
+optimistic guess (closes a narrow, real clock-skew inconsistency window); the census fixture now
+sorts its merged event list to match `AlmanacService.build()`'s own ordering exactly (inconsequential
+to the measured counts, but a genuine fidelity gap otherwise); `ForecastHorizon.civilDate` gained its
+own direct unit tests (previously covered only indirectly).
+
+Backend gate green (7794 tests, JaCoCo/SpotBugs/Checkstyle clean). Frontend gate green (176 files,
+4122 tests, lint clean, `npm audit --audit-level=high` 0 vulnerabilities, build clean). Browser-verified live
+against the real backend: the eager fetch (confirmed via network trace — `/api/almanac` fires on
+first paint while the Plan tab is on screen, before Coming up is ever opened), the announce badge
+state (a real `Orionids` entry, 9.5 bits, driven by directly editing `coming_up_last_seen_at` in the
+local H2 DB), the bootstrap write (a null-to-set transition, confirmed via `GET /api/user/settings`
+before and after opening the tab), and `Mark seen`'s full round trip (badge, since-line and the
+entry's NEW flag/fresh box-shadow all clearing together, confirmed by the server's own echoed
+`comingUpLastSeenDate`). The interrupt (solid ◆) badge state has no live occurrence in the local
+data at the time of verification (the highest-scoring real entry is 9.5 bits, just under the
+10.0 edge) and was seen only via the unit/component test suite, matching the precedent P3b's own
+phase-log row already recorded for an analogous gap. The 320px admin four-tab overflow figure could
+not be re-measured with a real Map tab present (this sandbox's local DB has no seeded forecast data,
+so no Map tab renders) — measured instead at the three tabs this session could reach: 0px overflow
+without the badge, 9px with a single-digit announce badge showing (the badge's own 26px growth is
+mostly absorbed by ordinary flex-shrink on the neighbouring tabs before anything spills into the
+existing `overflow-x: auto` scroller).
+
+**The Coming up redesign series is complete** — P1 through P7 have all shipped. What remains open,
+by design rather than oversight: §11's recorded gaps (the lone-tide-run threshold line, §11.21; the
+standalone `handoffFilterAction` clearing gap, §11.23); hysteresis, deliberately not built in v1
+(D4 — no prior-band store exists until P7's `topic_daily_log` matures); and the plan's own
+instruction to revisit the interim rarity/magnitude constants (dust, inversion, the two deterministic
+gaps named above) after roughly 90 days of `topic_daily_log` rows accrue.
+
 ## [v2.19.6] - 2026-08-29
 
 ### Removed — Coming up P6: the Hot topics door and its orphan chain

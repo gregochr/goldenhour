@@ -2,15 +2,26 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAlmanac } from '../api/almanacApi.js';
 
 /**
- * The "Coming up" feed's fetch: lazy, once per day, and held across tab switches.
+ * The "Coming up" feed's fetch: eager (plan D13, P5), once per day, and held across tab switches.
+ *
+ * <h2>Eager now, and a recorded reversal (plan D13, P5)</h2>
+ *
+ * <p>This used to argue the opposite: "nothing above the tab bar reads the almanac, so fetching it
+ * eagerly would make every reader of the Plan tab — which is every reader, since Plan is the
+ * default tab — pay a request for a pane they may never open." The tab badge (plan D3/D4) breaks
+ * that premise: it needs to know about arrivals whether or not the reader ever opens the pane, so
+ * {@code WindowFirstShell} now calls this hook with {@code enabled} always true, firing the request
+ * after first paint for every reader. The cost this used to refuse is now spent on purpose — a
+ * count of dated arrivals is a decision-changing signal ("something new and rare is coming") where
+ * a row count of what is already there was not (see {@code WindowFirstComingUp}'s own "still no
+ * count on the tab" section, which draws exactly that line). The payload is a few KB and
+ * ETag-revalidated, so the steady-state cost of paying it on every session is one small 304.
  *
  * <h2>Why it is not in {@code WindowFirstBriefingContext}</h2>
  *
- * <p>The provider's own class comment is an explicit inventory of what the arm does and does not
- * fetch on mount, and the rule it states is that a request joins it only when something the arm
- * always draws needs the answer. Nothing above the tab bar reads the almanac. Putting it there
- * would make every reader of the Plan tab — which is every reader, since Plan is the default tab —
- * pay a request for a pane they may never open.
+ * <p>Eager is not the same question as "does this belong beside the briefing fetch". It does not,
+ * for the reason below — unchanged by the badge, because the badge changed WHEN this fires, not
+ * WHERE it is called from.
  *
  * <p>It is also a genuinely different contract, not another view of the briefing snapshot.
  * {@code docs/engineering/plan-panel-data-contracts.md} allows a panel its own endpoint when it
@@ -25,13 +36,16 @@ import { getAlmanac } from '../api/almanacApi.js';
  * apply either: {@code /api/almanac} is already on {@code HttpCachingConfig}'s revalidation
  * whitelist precisely because it carries nothing per-user.
  *
- * <h2>Lazy, and latched</h2>
+ * <h2>Eager, and latched</h2>
  *
- * <p>{@code enabled} is the tab being open — the shape {@code useAuroraViewline} already uses for a
- * fetch that must not run until its surface is on screen. The latch on top of it is new to this
- * codebase and is what makes returning to the tab free: {@code ManageView} re-mounts its sub-views
- * on every tab change and so refetches every time, which is the behaviour to avoid on a feed that
- * the backend itself rebuilds only once a UTC day.
+ * <p>{@code enabled} is kept as a parameter — the hook itself stays generic, the same shape
+ * {@code useAuroraViewline} uses for a fetch gated on its surface being on screen — but
+ * {@code WindowFirstShell} now passes {@code true} unconditionally rather than the tab's selected
+ * state, per the reversal above. The latch is what makes an eager fetch cheap rather than merely
+ * early: without it, a feed fetched once per mount would still be fine (this hook mounts once, with
+ * the shell), but the latch is also what makes returning to a closed-then-reopened tab free, and
+ * what {@code ManageView}'s remount-every-time behaviour would have cost here had this hook lived
+ * inside the pane instead of the shell.
  *
  * <p><b>The latch key is the date, not a boolean.</b> A plain "have I fetched" flag would leave a
  * session open past midnight showing yesterday's feed with a row still reading "Today". Keying it
@@ -52,11 +66,13 @@ import { getAlmanac } from '../api/almanacApi.js';
  * buy a pre-network paint on a surface that was not on screen a moment ago, at the cost of a third
  * namespace against iOS Safari's ~5 MB ceiling that {@code swrCache.js} already rations.
  *
- * @param {boolean} enabled  whether the Coming up tab is the selected one
+ * @param {boolean} enabled  whether the fetch may run — {@code WindowFirstShell} passes `true`
+ *                           unconditionally (plan D13); kept as a parameter for the hook's own
+ *                           testability and because it stays a generally useful gate
  * @param {string}  todayStr the reader's today, `YYYY-MM-DD`; the latch key
  * @returns {{status: string, events: ?object, retry: function}} `status` is
- *          `idle` before the first open, then `loading`, then `ready` or `error`; `events` is the
- *          wrapped {@code ComingUpResponse} once it has arrived
+ *          `idle` before the fetch has fired, then `loading`, then `ready` or `error`; `events` is
+ *          the wrapped {@code ComingUpResponse} once it has arrived
  */
 export default function useComingUpFeed(enabled, todayStr) {
   const [status, setStatus] = useState('idle');

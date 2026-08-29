@@ -9,6 +9,7 @@ import com.gregochr.goldenhour.model.PostcodeLookupResult;
 import com.gregochr.goldenhour.model.SaveHomeRequest;
 import com.gregochr.goldenhour.model.UserSettingsResponse;
 import com.gregochr.goldenhour.repository.AppUserRepository;
+import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.NoSuchElementException;
@@ -54,6 +56,7 @@ public class UserSettingsService {
     private final PostcodesIoClient postcodesIoClient;
     private final DriveDurationService driveDurationService;
     private final UserDriveTimeWriter driveTimeWriter;
+    private final Clock clock;
 
     /**
      * Constructs a {@code UserSettingsService}.
@@ -62,15 +65,18 @@ public class UserSettingsService {
      * @param postcodesIoClient    the postcodes.io client for geocoding
      * @param driveDurationService the drive duration calculation service
      * @param driveTimeWriter      discards stored drive times when the home moves
+     * @param clock                supplies "now" for the Coming-up last-seen write
      */
     public UserSettingsService(AppUserRepository userRepository,
             PostcodesIoClient postcodesIoClient,
             DriveDurationService driveDurationService,
-            UserDriveTimeWriter driveTimeWriter) {
+            UserDriveTimeWriter driveTimeWriter,
+            Clock clock) {
         this.userRepository = userRepository;
         this.postcodesIoClient = postcodesIoClient;
         this.driveDurationService = driveDurationService;
         this.driveTimeWriter = driveTimeWriter;
+        this.clock = clock;
     }
 
     /**
@@ -253,6 +259,31 @@ public class UserSettingsService {
     }
 
     /**
+     * Records that the caller has just looked at the "Coming up" tab (plan D3).
+     *
+     * <p>Its own endpoint's backing write, never folded into {@code saveHome} — the same reasoning
+     * {@link #saveMapColourPreferences} records: a request body carrying only this concern would
+     * deserialise the home fields to null and wipe a saved postcode. No request body at all here:
+     * "now" is the server's clock, so a client with a wrong clock cannot mark the future seen.
+     *
+     * <p>Serves both writes the client makes — the explicit {@code Mark seen} press and the quiet
+     * first-open bootstrap (D3's null→set transition, without which the badge never activates for
+     * any account). The service does not distinguish them: both mean "this account has now seen
+     * the feed as of this instant".
+     *
+     * @param auth the authenticated user
+     * @return the updated user settings response
+     */
+    @Transactional
+    public UserSettingsResponse markComingUpSeen(Authentication auth) {
+        AppUserEntity user = getUser(auth);
+        user.setComingUpLastSeenAt(clock.instant());
+        userRepository.save(user);
+        // null place name, matching saveMapColourPreferences: this save does not geocode.
+        return mapToResponse(user, null);
+    }
+
+    /**
      * Resolves the authenticated user's database ID.
      *
      * @param auth the authentication context
@@ -292,6 +323,9 @@ public class UserSettingsService {
                 placeName,
                 user.getLocalRadiusMiles(),
                 user.getDriveTimesCalculatedAt(),
-                user.getMapColourScale());
+                user.getMapColourScale(),
+                // The London civil date, derived here so the client compares two ISO date strings
+                // and no timezone rule reaches the browser (plan D3). The instant stays stored.
+                ForecastHorizon.civilDate(user.getComingUpLastSeenAt()));
     }
 }

@@ -367,7 +367,9 @@ class AlmanacServiceTest {
         assertThat(response.bands()).isNotNull();
         assertThat(response.bands().list()).isEqualTo(5.0);
         assertThat(response.bands().announce()).isEqualTo(7.5);
-        assertThat(response.bands().interrupt()).isEqualTo(9.5);
+        // 10.0, not the pre-census 9.5 — see ComingUpScoringProperties.Bands' own Javadoc (P5's
+        // census).
+        assertThat(response.bands().interrupt()).isEqualTo(10.0);
     }
 
     @Test

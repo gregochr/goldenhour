@@ -234,8 +234,13 @@ export function buildMapOverlay(trigger, ctx) {
     candidates = enabled; // event trigger: every region
   }
 
-  // A hot-topic click carries the exact qualifying spots (elevated / coastal / dark-sky …) —
-  // restrict to those pins when present, so the overlay shows only what made the topic fire.
+  // `trigger.locationNames`, when present, restricts to exact qualifying spots (elevated / coastal
+  // / dark-sky …) rather than the whole region/event pool. Producer-less today: `HotTopicStrip`'s
+  // region-drilldown taps were the only caller that ever set this, and were deleted with the door
+  // in the Coming up redesign's P6 (`docs/engineering/coming-up-plan.md` D7, phase-log row).
+  // Deliberately kept rather than removed — `test/mapOverlay.test.js` exercises it directly, and
+  // `kind:'event'` (HeatmapGrid's live caller) shares this same code path below the region/event
+  // fork — so a future producer of `locationNames` has somewhere to plug in without a schema change.
   const qualifying = trigger.locationNames && trigger.locationNames.length
     ? new Set(trigger.locationNames)
     : null;
@@ -252,11 +257,12 @@ export function buildMapOverlay(trigger, ctx) {
   const time = formatClock(pool.length > 0 ? solarTimeFor(pool[0].loc, date, eventType) : null);
 
   const filterAction = trigger.filterAction ?? null;
-  // For a hot-topic drilldown, the qualifying names let the overlay's MapView render ONLY those
-  // spots (uniform across every topic — coastal, dark-sky, elevated, …), not just fit to them.
+  // When `qualifying` names were set (see the comment above — no live producer today), they let the
+  // overlay's MapView render ONLY those spots, not just fit to them.
   const qualifyingNames = qualifying ? pool.map((r) => r.loc.name) : null;
 
-  // Hot-topic region with several qualifying spots → show just those, fit to bounds, with a caption.
+  // A region trigger with several qualifying spots named → show just those, fit to bounds, with a
+  // caption. Reachable only via `test/mapOverlay.test.js` today — see the comment above.
   if (qualifying && pool.length > 1) {
     const points = pool.map((r) => [r.loc.lat, r.loc.lon]);
     return {

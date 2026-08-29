@@ -648,14 +648,21 @@ describe('WindowFirstShell — what stays put across a tab change', () => {
 });
 
 describe('WindowFirstShell — when the feed is fetched', () => {
-  it('asks for nothing until the tab is opened', () => {
-    // Plan is the default tab and therefore every reader's first screen. An eager fetch would spend
-    // a request on every one of them for a pane most will never open.
+  it('fetches immediately on mount, before any tab is ever opened (plan D13)', async () => {
+    // Plan is the default tab and therefore every reader's first screen — this used to be exactly
+    // why the fetch waited for the tab to open, spending a request on every reader for a pane most
+    // would never look at. The tab badge (D3/D4) needs to know about arrivals whether or not the
+    // reader ever opens Coming up, so the reversal is deliberate: see useComingUpFeed.js's own
+    // class doc for the full argument.
     renderShell();
-    expect(getAlmanac).not.toHaveBeenCalled();
+    await act(async () => { await Promise.resolve(); });
+
+    expect(getAlmanac).toHaveBeenCalledTimes(1);
+    // Plan, not Coming up, is still what is on screen — the fetch ran without a tab switch.
+    expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('fetches once when the tab is first opened', async () => {
+  it('shows the already-fetched feed the moment the reader opens the tab', async () => {
     renderShell();
     await openComingUp();
 
@@ -675,6 +682,21 @@ describe('WindowFirstShell — when the feed is fetched', () => {
 
     expect(getAlmanac).toHaveBeenCalledTimes(1);
     expect(screen.getByText('Perseids')).toBeInTheDocument();
+  });
+
+  it('refetches on a date roll even though the reader never opened the tab (D13)', async () => {
+    // The eager fetch's whole point: the latch is keyed on the date regardless of which tab is on
+    // screen, so a badge computed from a stale feed does not survive past midnight just because
+    // nobody ever looked at the pane it came from.
+    const { withContext } = renderShell();
+    await act(async () => { await Promise.resolve(); });
+    expect(getAlmanac).toHaveBeenCalledTimes(1);
+
+    withContext({ todayStr: '2026-08-09', tomorrowStr: '2026-08-10' });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(getAlmanac).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('tab', { name: 'Plan' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('refetches once the date has rolled under an open tab', async () => {

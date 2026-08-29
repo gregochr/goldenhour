@@ -317,7 +317,9 @@ class ComingUpAssemblerTest {
 
         assertThat(response.bands().list()).isEqualTo(5.0);
         assertThat(response.bands().announce()).isEqualTo(7.5);
-        assertThat(response.bands().interrupt()).isEqualTo(9.5);
+        // 10.0, not the pre-census 9.5 — P5's census moved this edge (ComingUpScoringProperties'
+        // own Javadoc records why: at 9.5 every annual-rate almanac topic interrupted).
+        assertThat(response.bands().interrupt()).isEqualTo(10.0);
     }
 
     // ── tide runs: magnitude, cold start, king-as-big-spring, tide field ────
