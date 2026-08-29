@@ -425,6 +425,16 @@ export function buildWindowCards(
       // forecast run. Null — never a zero — when there is nothing to compare against; see
       // `topRegionMovement` for why the two must stay distinguishable.
       movement: scopedRegion ? regionMovement(scopedRegion) : topRegionMovement(es),
+      // The window's leading region, for the strip's thumbnail (field-geography plan §2.3). The
+      // SAME argmax `movement` reads two lines up — never a fresh one, and never recomputed from the
+      // heat-spot catalogue (backend-heavy rule) — so the brightened area name and the change line's
+      // named mover can never point at two different regions. Away re-points like every sibling
+      // field here; null when nothing in scope carries a mean, which is a deliberate deviation from
+      // the prototype's seeded `reduce` (that would brighten the first region on an all-null window).
+      hotRegionName: scopedRegion
+        ? (typeof scopedRegion.meanRating === 'number' && Number.isFinite(scopedRegion.meanRating)
+          ? (scopedRegion.regionName ?? null) : null)
+        : (topRegion(es)?.regionName ?? null),
       // The TOP REGION's confidence. Through P14 this was "the single render site", because the
       // retired day rail derived a day-level tier and deliberately rendered nothing from it. That is
       // no longer true and the change is deliberate: the heat strip reads this same field per window

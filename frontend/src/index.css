@@ -121,6 +121,18 @@
      Coming up redesign's P6 — its markers went with it. */
   --color-topic-marker: #E0A542;
 
+  /* The home marker on the Plan heat field (thumbnail dot + border, and at G3 the reach ring
+     stroke at 40% alpha) — field-geography plan §2.2. `static`, not the plain block above: its only
+     consumers are handwritten `.wf-hm-mk`/`.wf-rings` rules below, and a plain-block token with no
+     scanned Tailwind reference prunes to the empty string with nothing failing (the
+     `--color-plex-panel` incident this file already records at the top of this block). Deliberately
+     a VALUE-ALIAS of `--color-topic-sun-moon` / `--color-close-to-home` — same hex, distinct
+     semantic channels, the alias practice this block already follows for `--color-topic-marker`
+     and the seven family tokens above. Do not give its `var()` a same-value fallback
+     (`var(--color-home, #C9A24B)`): that would render identically with the token pruned, masking
+     exactly the defect this block exists to prevent. */
+  --color-home: #C9A24B;
+
   /* Badge TEXT variants. A badge is ~10px type on a 12–14% tint of its own hue, and at that size
      the full-strength channel colour does not carry — these are the lifted versions that do. Two
      families rather than one, because fill and text have different jobs: the fill names the
@@ -1237,6 +1249,10 @@ button.wf-hc.on:hover {
   display: block;
   overflow: hidden;
   border-radius: 5px;
+  /* So the label overlay below can be an absolutely-positioned sibling of the canvas, and so its
+     own inline height cannot add a gap under the picture (field-geography plan §2.2). */
+  position: relative;
+  line-height: 0;
 }
 .wf-hc-cv canvas {
   display: block;
@@ -1246,6 +1262,59 @@ button.wf-hc.on:hover {
   /* The kernel's own sea colour, so a canvas that has not painted yet is the same ground as one
      that has — a lighter placeholder would flash on every first paint. */
   background: var(--color-heat-sea);
+}
+/* ── Thumbnail geography: the home marker + area names overlay ─────────────────────────────────
+   Decorative duplication of what the card already states accessibly (plan §2.2's own note), so the
+   whole layer is `aria-hidden` — the precedent is the popup's own `.wf-mlab`. `.wf-hc-cv`'s
+   `overflow: hidden` clips a label's text-shadow and the marker's glow at the well's edge (the
+   390px horizontal-scroll defence above is load-bearing and stays); the 1px placement inset keeps
+   the text itself inside, and that clip is accepted, not a bug. */
+.wf-tlab {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+/* Home marker: dot + word, stacked as ONE placed element so a nudge moves both together. */
+.wf-hm {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  line-height: 1;
+}
+.wf-hm-mk {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1.6px solid var(--color-home);
+  background: rgba(20, 15, 11, .6);
+  box-shadow: 0 0 0 2.5px rgba(20, 15, 11, .5), 0 0 9px rgba(201, 162, 75, .5);
+}
+.wf-hm-lb {
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  font-weight: 600;
+  letter-spacing: .14em;
+  color: #EBD9A8;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .95);
+}
+/* Area names at region centroids. `data-hot` is the window's strongest region (plan §2.3) — never
+   a second colour scale, a single lift in the same ink family. */
+.wf-tlab-rg {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: .09em;
+  color: rgba(242, 231, 211, .62);
+  line-height: 1.2;
+  white-space: nowrap;
+  text-transform: uppercase;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .95), 0 0 8px rgba(0, 0, 0, .8);
+}
+.wf-tlab-rg[data-hot="true"] {
+  color: #F9F1E2;
 }
 /* ── The value grid ───────────────────────────────────────────────────────────────────────────
    Label left, value right, four rows at a shared minimum height so every card's rows land on the
