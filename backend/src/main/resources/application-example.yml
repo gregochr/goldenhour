@@ -131,6 +131,38 @@ nlc:
   source: NLCNET                              # attribution shown as "… via NLCNET"
   hex-colour: "#8E86D6"                       # NLC violet driving the banner accent
 
+coming-up:
+  scoring:                                    # the surprise model, S = rarity + magnitude, in bits.
+                            # Every value below is a PLACEHOLDER at ship (plan §11.13) — P5's
+                            # pre-ship census re-sets bands and the deterministic-type rarity gaps
+                            # from a synthetic year of the assembled feed before the badge goes live.
+    bands:
+      list: 5.0                               # "in the list" band's lower edge (lower-inclusive)
+      announce: 7.5                           # "announced" band's lower edge, adds the tab badge
+      interrupt: 9.5                          # "interrupt" band's lower edge — the solid ◆ badge
+    magnitude:
+      median-bits: 1.0                        # assigned when no per-topic distribution exists
+      p90-rank: 0.10
+      p90-bits: 3.3
+      p95-rank: 0.05
+      p95-bits: 4.3
+      p97-rank: 0.03
+      p97-bits: 5.1
+      cold-start-min-observations: 60         # below this many stored peaks, bucket rather than
+                                               # trust an exact percentile (plan D4)
+    rarity:                                   # mean inter-arrival gap in days per deterministic
+                            # (ephemeris) topic — SurpriseScore.rarity() takes log2 of this
+      spring-tide-mean-gap-days: 14.8         # half the mean synodic month. King runs share this
+                                               # rate: a king tide is a big spring, not a rarer
+                                               # event of its own (plan D4)
+      meteor-shower-mean-gap-days: 365.25     # each named shower peaks once a year
+      solar-turning-point-mean-gap-days: 182.625  # two equinoxes and two solstices a year
+      nlc-season-mean-gap-days: 365.25        # one season, once a year
+      supermoon-mean-gap-days: 60.0           # a full moon within the perigee window, empirically
+                                               # a little under every other lunar month
+      eclipse-mean-gap-days: 1500.0           # placeholder pending a catalogue-derived figure —
+                                               # only five UK-visible eclipses are catalogued at all
+
 photocast:
   tide-run:
     preferred-anchor: "St. Mary's Lighthouse"  # location NAME the spring/king tide run's 24-hour

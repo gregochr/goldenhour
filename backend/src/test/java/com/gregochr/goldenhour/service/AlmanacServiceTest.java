@@ -4,6 +4,10 @@ import com.gregochr.goldenhour.model.AlmanacEvent;
 import com.gregochr.goldenhour.model.AlmanacKind;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
+import com.gregochr.goldenhour.repository.LocationRepository;
+import com.gregochr.goldenhour.service.comingup.ComingUpAssembler;
+import com.gregochr.goldenhour.service.comingup.ComingUpScoringProperties;
+import com.gregochr.goldenhour.service.comingup.TideRunPeakHistory;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -18,11 +22,26 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.Mockito.mock;
 
 /** Unit tests for {@link AlmanacService}. */
 class AlmanacServiceTest {
 
     private static final LocalDate DAY = LocalDate.of(2026, 9, 1);
+
+    /**
+     * A real {@link ComingUpAssembler} over mocked collaborators, shared by every test in this
+     * file. None of the fixtures below use a real tide-run type, so the assembler's DB-backed
+     * tide-magnitude path is never exercised here — {@link ComingUpAssemblerTest} covers that.
+     */
+    private static ComingUpAssembler assembler() {
+        return new ComingUpAssembler(
+                mock(LocationRepository.class),
+                mock(TideRunBuilder.class),
+                mock(TideRunPeakHistory.class),
+                mock(TideService.class),
+                new ComingUpScoringProperties());
+    }
 
     /**
      * Fixed, for the cases that do not care which day it is. Not {@code Clock.systemUTC()}: six of
@@ -60,7 +79,8 @@ class AlmanacServiceTest {
         AlmanacSource late = (f, t) -> List.of(event(DAY.plusDays(10), DAY.plusDays(10), "late"));
         AlmanacSource early = (f, t) -> List.of(event(DAY, DAY, "early"));
 
-        List<AlmanacEvent> feed = new AlmanacService(List.of(late, early), CLOCK).build(DAY, DAY.plusDays(20));
+        List<AlmanacEvent> feed = new AlmanacService(List.of(late, early), CLOCK, assembler())
+                .build(DAY, DAY.plusDays(20));
 
         assertThat(feed).extracting(AlmanacEvent::type).containsExactly("early", "late");
     }
@@ -73,7 +93,7 @@ class AlmanacServiceTest {
         AlmanacSource shortSpan = (f, t) -> List.of(event(DAY, DAY, "meteor"));
         AlmanacSource alsoShort = (f, t) -> List.of(event(DAY, DAY, "aurora"));
 
-        List<AlmanacEvent> feed = new AlmanacService(List.of(longSpan, shortSpan, alsoShort), CLOCK)
+        List<AlmanacEvent> feed = new AlmanacService(List.of(longSpan, shortSpan, alsoShort), CLOCK, assembler())
                 .build(DAY, DAY.plusDays(20));
 
         assertThat(feed).extracting(AlmanacEvent::type)
@@ -90,7 +110,7 @@ class AlmanacServiceTest {
         AlmanacSource healthy = (f, t) -> List.of(event(DAY, DAY, "solstice"));
 
         List<AlmanacEvent> feed =
-                new AlmanacService(List.of(broken, healthy), CLOCK).build(DAY, DAY.plusDays(20));
+                new AlmanacService(List.of(broken, healthy), CLOCK, assembler()).build(DAY, DAY.plusDays(20));
 
         assertThat(feed).extracting(AlmanacEvent::type).containsExactly("solstice");
     }
@@ -102,14 +122,14 @@ class AlmanacServiceTest {
             throw new IllegalStateException("nope");
         };
 
-        assertThat(new AlmanacService(List.of(broken, broken), CLOCK).build(DAY, DAY)).isEmpty();
+        assertThat(new AlmanacService(List.of(broken, broken), CLOCK, assembler()).build(DAY, DAY)).isEmpty();
     }
 
     @Test
     @DisplayName("a second request for the same day and length reuses the built feed")
     void cachesWithinTheDay() {
         CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
-        AlmanacService service = new AlmanacService(List.of(source), CLOCK);
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler());
 
         service.getFeed(30);
         service.getFeed(30);
@@ -122,7 +142,7 @@ class AlmanacServiceTest {
             + "because a span can start before the window and be reported either way")
     void aDifferentLengthRebuilds() {
         CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
-        AlmanacService service = new AlmanacService(List.of(source), CLOCK);
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler());
 
         service.getFeed(30);
         service.getFeed(90);
@@ -134,7 +154,7 @@ class AlmanacServiceTest {
     @DisplayName("evict() forces the next request to rebuild")
     void evictForcesARebuild() {
         CountingSource source = new CountingSource(List.of(event(DAY, DAY, "x")));
-        AlmanacService service = new AlmanacService(List.of(source), CLOCK);
+        AlmanacService service = new AlmanacService(List.of(source), CLOCK, assembler());
 
         service.getFeed(30);
         service.evict();
@@ -152,7 +172,7 @@ class AlmanacServiceTest {
             return List.of();
         };
 
-        new AlmanacService(List.of(recorder), CLOCK).getFeed();
+        new AlmanacService(List.of(recorder), CLOCK, assembler()).getFeed();
 
         assertThat(span.get()).isEqualTo(AlmanacService.DEFAULT_DAYS).isEqualTo(90);
     }
@@ -165,7 +185,7 @@ class AlmanacServiceTest {
             span.set((int) java.time.temporal.ChronoUnit.DAYS.between(f, t) + 1);
             return List.of();
         };
-        AlmanacService service = new AlmanacService(List.of(recorder), CLOCK);
+        AlmanacService service = new AlmanacService(List.of(recorder), CLOCK, assembler());
 
         service.getFeed(0);
         assertThat(span.get()).isEqualTo(AlmanacService.MIN_DAYS);
@@ -180,7 +200,7 @@ class AlmanacServiceTest {
     @Test
     @DisplayName("no sources at all is an empty feed, not a failure")
     void noSourcesIsEmpty() {
-        assertThat(new AlmanacService(List.of(), CLOCK).getFeed(10).entries()).isEmpty();
+        assertThat(new AlmanacService(List.of(), CLOCK, assembler()).getFeed(10).entries()).isEmpty();
     }
 
     @Test
@@ -210,7 +230,7 @@ class AlmanacServiceTest {
             return List.of();
         };
 
-        new AlmanacService(List.of(recorder), lateBstEvening).getFeed(30);
+        new AlmanacService(List.of(recorder), lateBstEvening, assembler()).getFeed(30);
 
         // Every entry this feed carries is a UK-dated event — a spring tide run, an equinox, an
         // NLC season. On the UTC anchor it opened on 2027-08-11, a day the UK had already finished.
@@ -250,7 +270,7 @@ class AlmanacServiceTest {
     void entryEndingOnLastPlanDate_isExcluded() {
         AlmanacSource source = (f, t) -> List.of(event(LAST_PLAN_DATE, LAST_PLAN_DATE, "inside"));
 
-        var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK).getFeed(90).entries();
+        var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, assembler()).getFeed(90).entries();
 
         assertThat(entries).isEmpty();
     }
@@ -261,7 +281,7 @@ class AlmanacServiceTest {
         LocalDate beyond = LAST_PLAN_DATE.plusDays(1);
         AlmanacSource source = (f, t) -> List.of(event(beyond, beyond, "beyond"));
 
-        var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK).getFeed(90).entries();
+        var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, assembler()).getFeed(90).entries();
 
         assertThat(entries).extracting(ComingUpEntry::type).containsExactly("beyond");
     }
@@ -272,7 +292,7 @@ class AlmanacServiceTest {
         AlmanacSource source = (f, t) -> List.of(
                 event(LAST_PLAN_DATE.minusDays(1), LAST_PLAN_DATE.plusDays(1), "straddler"));
 
-        var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK).getFeed(90).entries();
+        var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, assembler()).getFeed(90).entries();
 
         assertThat(entries).extracting(ComingUpEntry::type).containsExactly("straddler");
     }
@@ -286,7 +306,7 @@ class AlmanacServiceTest {
         LocalDate farEdge = ELIGIBILITY_TODAY.plusDays(AlmanacService.DEFAULT_DAYS - 1L);
         AlmanacSource source = (f, t) -> List.of(event(farEdge, farEdge, "far"));
 
-        var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK).getFeed(90).entries();
+        var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, assembler()).getFeed(90).entries();
 
         assertThat(entries).hasSize(1);
         assertThat(entries.getFirst().enteredWindow()).isEqualTo(ELIGIBILITY_TODAY);
@@ -301,7 +321,7 @@ class AlmanacServiceTest {
 
         // Requested at a 30-day horizon — a wrong implementation keying enteredWindow off the
         // request would compute farEdge.minusDays(29), not the fixed DEFAULT_DAYS basis.
-        var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK).getFeed(30).entries();
+        var entries = new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, assembler()).getFeed(30).entries();
 
         assertThat(entries.getFirst().enteredWindow()).isEqualTo(ELIGIBILITY_TODAY);
     }
@@ -309,9 +329,38 @@ class AlmanacServiceTest {
     @Test
     @DisplayName("the response's builtFor is the UK civil today, matching the range it was built for")
     void responseCarriesBuiltFor() {
-        ComingUpResponse response = new AlmanacService(List.of(), ELIGIBILITY_CLOCK).getFeed(30);
+        ComingUpResponse response = new AlmanacService(List.of(), ELIGIBILITY_CLOCK, assembler()).getFeed(30);
 
         assertThat(response.builtFor()).isEqualTo(ELIGIBILITY_TODAY);
         assertThat(response.conditions()).isEmpty();
+    }
+
+    // ── P2: bands and counts (plan §5) ──────────────────────────────────────
+
+    @Test
+    @DisplayName("bands are populated from the scoring properties, not left null (plan P2)")
+    void bandsComeFromScoringProperties() {
+        ComingUpResponse response = new AlmanacService(List.of(), ELIGIBILITY_CLOCK, assembler()).getFeed(30);
+
+        assertThat(response.bands()).isNotNull();
+        assertThat(response.bands().list()).isEqualTo(5.0);
+        assertThat(response.bands().announce()).isEqualTo(7.5);
+        assertThat(response.bands().interrupt()).isEqualTo(9.5);
+    }
+
+    @Test
+    @DisplayName("counts reflect the eligible entries actually served, not a hardcoded figure")
+    void countsReflectEligibleEntries() {
+        LocalDate beyond = LAST_PLAN_DATE.plusDays(1);
+        AlmanacSource source = (f, t) -> List.of(
+                event(beyond, beyond, "meteor"), event(beyond.plusDays(1), beyond.plusDays(1), "eclipse"));
+
+        ComingUpResponse response =
+                new AlmanacService(List.of(source), ELIGIBILITY_CLOCK, assembler()).getFeed(90);
+
+        assertThat(response.counts().fixed()).isEqualTo(2);
+        assertThat(response.counts().forecast()).isZero();
+        assertThat(response.counts().byFamily()).containsEntry("night-sky", 1)
+                .containsEntry("eclipse", 1);
     }
 }
