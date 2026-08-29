@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import WindowComingUpEntry from './WindowComingUpEntry.jsx';
+import WindowComingUpConditions from './WindowComingUpConditions.jsx';
 import WindowFirstComingUpHandoff from './WindowFirstComingUpHandoff.jsx';
 import { buildChronology, chipCounts, footerCopy, FOOTER_LEAD } from '../utils/comingUpFeed.js';
+import { anyConditionInterim } from '../utils/comingUpConditions.js';
 import { ALMANAC_DAYS } from '../api/almanacApi.js';
 
 /** Served counts default to zero, matching a payload that has not arrived yet or a degraded
@@ -31,10 +33,14 @@ const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
  * "Forecast · peak"), so the card now carries its own word and the footer's old job — see plan §6:
  * "the old vocabulary job now lives on the per-card kind tag, so delete it rather than ship both".
  *
- * <h2>Standing conditions are not built here</h2>
+ * <h2>Standing conditions strip (plan §7 P4)</h2>
  *
- * <p>{@code events.conditions} ships an empty list until P4 builds the strip — this pane renders
- * nothing for it, which is the correct behaviour for an empty array rather than an omission.
+ * <p>{@code WindowComingUpConditions} renders {@code events.conditions} between the filter chips
+ * and the handoff row — the design of record's own DOM order ({@code Coming Up.html}: header →
+ * since-line → chips → conditions → handoff → chronology). It degrades to nothing for an empty or
+ * absent list rather than an omission, and this pane's own header sub-line grows a quiet
+ * "scores provisional" suffix while any visible condition is {@code interim} (README's "say so in
+ * the UI" clause).
  *
  * <h2>Still no count on the tab (D13's other half)</h2>
  *
@@ -72,6 +78,8 @@ export default function WindowFirstComingUp({
 
   const counts = events?.counts ?? EMPTY_COUNTS;
   const totalEntries = events?.entries?.length ?? 0;
+  const conditions = events?.conditions;
+  const provisional = anyConditionInterim(conditions);
   const chips = useMemo(() => chipCounts(counts), [counts]);
   const activeChipLabel = chips.find((chip) => chip.id === activeFilter)?.label ?? 'active';
   const monthGroups = useMemo(
@@ -127,6 +135,14 @@ export default function WindowFirstComingUp({
           <span className="wf-cu-h">Coming up</span>
           <span className="wf-cu-d" data-testid="coming-up-subtitle">
             {`· dated events beyond Plan's four days, next ${ALMANAC_DAYS} days`}
+            {/* Quiet, not alarming — a suffix on the existing sub-line rather than its own banner,
+                matching the README's "say so in the UI" instruction without over-stating it: this
+                marks the STRIP's scoring as provisional, not the chronology dates above it. */}
+            {provisional && (
+              <span className="wf-cu-provisional" data-testid="coming-up-provisional">
+                {' '}· scores provisional
+              </span>
+            )}
           </span>
           {/* Rendered unconditionally (plan §6) — not gated on any entry actually using a dashed
               rule. Without it a reader who happens to filter down to an all-solid subset would see
@@ -146,12 +162,6 @@ export default function WindowFirstComingUp({
             </span>
           </span>
         </div>
-
-        <WindowFirstComingUpHandoff
-          todayStr={todayStr}
-          hotTopics={hotTopics}
-          onGoToPlan={onGoToPlan}
-        />
 
         {/* One always-mounted live region holding whichever of the three notes applies.
             ALWAYS mounted, and that is the load-bearing half: §5f records that a live region
@@ -231,6 +241,25 @@ export default function WindowFirstComingUp({
           </div>
         )}
 
+        {/* Standing conditions, in the design of record's own DOM order (its `#chips` → `#conds`
+            sequence, `docs/design/coming-up/Coming Up.html`) — gated on `ready` alongside the
+            chips, since its rows read `events.conditions`, which does not exist before then. */}
+        {status === 'ready' && (
+          <WindowComingUpConditions conditions={conditions} onGoToPlan={onGoToPlan} />
+        )}
+
+        {/* The handoff row (design's `.hoff`, plan D14) sits after conditions in the design's own
+            order, but — unlike chips/conditions — is NOT gated on the almanac fetch: it reads only
+            `hotTopics`, a wholly separate data source, and used to render unconditionally before
+            this reorder. Gating it on `ready` would make the tab's own boundary statement vanish
+            during a slow or failed almanac load, which is a worse degrade than an ungated row
+            sitting one place lower than the chips it can no longer follow. */}
+        <WindowFirstComingUpHandoff
+          todayStr={todayStr}
+          hotTopics={hotTopics}
+          onGoToPlan={onGoToPlan}
+        />
+
         {status === 'ready' && monthGroups.map((group, i) => (
           <div key={group.key}>
             <div
@@ -284,6 +313,7 @@ WindowFirstComingUp.propTypes = {
       forecast: PropTypes.number,
       byFamily: PropTypes.object,
     }),
+    conditions: PropTypes.array,
   }),
   hotTopics: PropTypes.array,
   todayStr: PropTypes.string,

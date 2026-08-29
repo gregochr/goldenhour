@@ -1,9 +1,11 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.model.AlmanacEvent;
+import com.gregochr.goldenhour.model.comingup.ComingUpCondition;
 import com.gregochr.goldenhour.model.comingup.ComingUpEntry;
 import com.gregochr.goldenhour.model.comingup.ComingUpResponse;
 import com.gregochr.goldenhour.service.comingup.ComingUpAssembler;
+import com.gregochr.goldenhour.service.comingup.ComingUpConditionsBuilder;
 import com.gregochr.goldenhour.util.ForecastHorizon;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -66,6 +68,7 @@ public class AlmanacService {
     private final List<AlmanacSource> sources;
     private final Clock clock;
     private final ComingUpAssembler assembler;
+    private final ComingUpConditionsBuilder conditionsBuilder;
 
     /** Today's fully-built feed, or null before the first build of the day. */
     private final AtomicReference<CachedFeed> cache = new AtomicReference<>();
@@ -85,12 +88,16 @@ public class AlmanacService {
      * @param sources   every almanac source Spring can find
      * @param clock     supplies "today" — the feed's first day and its cache key — resolved in
      *                  {@code Europe/London} by {@link ForecastHorizon}
-     * @param assembler grows each eligible event to the full chronology entry shape (plan §5 P2)
+     * @param assembler         grows each eligible event to the full chronology entry shape
+     *                          (plan §5 P2)
+     * @param conditionsBuilder builds the standing-conditions strip (plan §7 P4)
      */
-    public AlmanacService(List<AlmanacSource> sources, Clock clock, ComingUpAssembler assembler) {
+    public AlmanacService(List<AlmanacSource> sources, Clock clock, ComingUpAssembler assembler,
+            ComingUpConditionsBuilder conditionsBuilder) {
         this.sources = List.copyOf(sources);
         this.clock = clock;
         this.assembler = assembler;
+        this.conditionsBuilder = conditionsBuilder;
     }
 
     /**
@@ -154,18 +161,23 @@ public class AlmanacService {
 
     /**
      * Builds the response for an explicit range: the raw merge, filtered to eligible entries and
-     * grown to the full chronology shape by {@link ComingUpAssembler}.
+     * grown to the full chronology shape by {@link ComingUpAssembler}, plus the standing-conditions
+     * strip (plan §7 P4) — which needs the <b>unfiltered</b> merge too, since a run wholly inside
+     * Plan's window is strip material even though it never becomes a chronology entry (D11).
      *
      * @param builtFor the date the feed starts at — also the response's {@code builtFor}
      * @param to       last day, inclusive
      * @return the assembled response
      */
     private ComingUpResponse assemble(LocalDate builtFor, LocalDate to) {
+        List<AlmanacEvent> all = build(builtFor, to);
         LocalDate cutoff = PlanHorizon.lastPlanDate(builtFor);
-        List<AlmanacEvent> eligible = build(builtFor, to).stream()
+        List<AlmanacEvent> eligible = all.stream()
                 .filter(event -> event.endDate().isAfter(cutoff))
                 .toList();
-        return assembler.assemble(builtFor, eligible);
+        ComingUpResponse core = assembler.assemble(builtFor, eligible);
+        List<ComingUpCondition> conditions = conditionsBuilder.build(builtFor, all, core.entries());
+        return new ComingUpResponse(core.builtFor(), core.bands(), core.counts(), conditions, core.entries());
     }
 
     /**

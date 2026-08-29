@@ -147,7 +147,16 @@ export default function WindowComingUpEntry({ entry, onGoToPlan }) {
   );
 
   return (
-    <div className="wf-cu-ent" role="listitem" data-testid="coming-up-entry" data-type={entry.type}>
+    // `data-entry-id` is the standing-conditions strip's scroll-to-entry anchor (plan §7 P4):
+    // `in the list →` on a promoted occurrence queries this attribute directly rather than reaching
+    // for a real DOM `id`, so a run of numeric almanac ids can never collide with another element's.
+    <div
+      className="wf-cu-ent"
+      role="listitem"
+      data-testid="coming-up-entry"
+      data-type={entry.type}
+      data-entry-id={entry.id}
+    >
       <div className="wf-cu-rail" data-testid="coming-up-rail">
         <span className="wf-cu-dbox">
           {rail.dow && <span className="wf-cu-dow">{rail.dow}</span>}

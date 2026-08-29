@@ -420,3 +420,56 @@ describe('WindowFirstComingUp — card-click fires the entry’s action', () => 
     expect(onGoToPlan).toHaveBeenCalledWith('2026-08-12');
   });
 });
+
+describe('WindowFirstComingUp — standing conditions strip (plan §7 P4)', () => {
+  const CONDITION = {
+    type: 'COASTAL_TIDES',
+    name: 'Coastal tides',
+    cadence: 'deterministic',
+    interim: false,
+    rateLabel: 'a run every 14.8 days · fixed by the ephemeris',
+    quantLabel: 'rarity 3.9 · 7 runs in 90 days',
+    peak: null,
+    occurrences: [],
+  };
+
+  it('renders the strip from events.conditions, between the chips and the handoff row — the '
+      + 'design of record\'s own DOM order', () => {
+    renderPane({ events: { entries: ENTRIES, counts: COUNTS, conditions: [CONDITION] } });
+
+    const chips = screen.getByTestId('coming-up-chips');
+    const strip = screen.getByTestId('coming-up-conditions');
+    const handoff = screen.getByTestId('coming-up-handoff');
+
+    expect(chips.compareDocumentPosition(strip)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(strip.compareDocumentPosition(handoff)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+  });
+
+  it('renders nothing for the strip when conditions is empty or absent, without breaking the pane', () => {
+    renderPane({ events: { entries: ENTRIES, counts: COUNTS, conditions: [] } });
+    expect(screen.queryByTestId('coming-up-conditions')).toBeNull();
+
+    renderPane({ events: { entries: ENTRIES, counts: COUNTS } });
+    expect(screen.queryByTestId('coming-up-conditions')).toBeNull();
+  });
+
+  it('the handoff row still renders while the almanac feed is loading or has failed — it reads '
+      + 'only hotTopics, not the almanac status', () => {
+    renderPane({ status: 'loading', events: undefined });
+    expect(screen.getByTestId('coming-up-handoff')).toBeInTheDocument();
+    expect(screen.queryByTestId('coming-up-conditions')).toBeNull();
+  });
+
+  it('the header sub-line gains a quiet "scores provisional" suffix while any visible condition '
+      + 'is interim', () => {
+    renderPane({
+      events: { entries: ENTRIES, counts: COUNTS, conditions: [{ ...CONDITION, interim: true }] },
+    });
+    expect(screen.getByTestId('coming-up-provisional')).toHaveTextContent('scores provisional');
+  });
+
+  it('the suffix is absent once every visible condition is mature', () => {
+    renderPane({ events: { entries: ENTRIES, counts: COUNTS, conditions: [CONDITION] } });
+    expect(screen.queryByTestId('coming-up-provisional')).toBeNull();
+  });
+});

@@ -33,6 +33,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
@@ -90,6 +91,13 @@ import static org.mockito.Mockito.when;
  *       {@code SpringTideHotTopicStrategy#isSpringNotKing} — and is covered by
  *       {@code BriefingSlotBuilderTest}. What is pinned here is the failure that actually shipped:
  *       one surface going silent for a whole run while the other reports it.</li>
+ *   <li><b>The third assertion (plan §7 P4) does not run {@code ComingUpConditionsBuilder}.</b> It
+ *       pins that {@code TideAlmanacSource} — the producer the strip stages verbatim rather than
+ *       re-detecting a run — agrees with the other two surfaces given the same height and
+ *       threshold. It does not exercise the strip's own occurrence/status derivation; that is
+ *       {@code ComingUpConditionsBuilderTest}'s job, covered there by its own status-precedence
+ *       tests. Combined, the two suites cover detection agreement and strip-side derivation
+ *       separately, matching how the production code is actually split.</li>
  * </ul>
  */
 @ExtendWith(MockitoExtension.class)
@@ -197,6 +205,30 @@ class TideSurfaceAgreementTest {
                 .satisfies(t -> {
                     assertThat(t.type()).isEqualTo("SPRING_TIDE");
                     assertThat(t.date()).isEqualTo(PEAK);
+                });
+
+        // The THIRD surface (plan §7 P4): the standing-conditions strip never re-detects a run —
+        // it stages whatever TideAlmanacSource already emitted (the same producer the chronology
+        // reads), so pinning it here means pinning TideAlmanacSource's own agreement with the other
+        // two, given the identical height and threshold. TideRunBuilder is a plain mock (its own
+        // figures are covered elsewhere), stubbed only enough that a real run detected from the
+        // height alone survives to a `spring-tide` AlmanacEvent, which is the fact this class exists
+        // to pin — not the numeric range that ComingUpConditionsBuilderTest already covers.
+        when(tideRunBuilder.build(anyList(), anyList(), org.mockito.ArgumentMatchers.anyBoolean()))
+                .thenReturn(java.util.Map.of());
+        TideAlmanacSource chronologySource =
+                new TideAlmanacSource(lunarPhaseService, tideRunBuilder, locationRepository, feed);
+
+        List<com.gregochr.goldenhour.model.AlmanacEvent> events = chronologySource.events(PEAK, PEAK);
+
+        assertThat(events)
+                .as("the chronology's own source — which the strip stages verbatim, never "
+                        + "re-detecting a run — reports a spring-tide event on the same day")
+                .singleElement()
+                .satisfies(e -> {
+                    assertThat(e.type()).isEqualTo("spring-tide");
+                    assertThat(e.startDate()).isEqualTo(PEAK);
+                    assertThat(e.endDate()).isEqualTo(PEAK);
                 });
     }
 

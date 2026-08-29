@@ -147,6 +147,23 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
             LocalDate targetDate, Collection<TargetType> targetTypes);
 
     /**
+     * Returns every evaluation of the given target types over a date range, across the whole
+     * roster — regardless of triage or batch state. The range form of
+     * {@link #findByTargetDateAndTargetTypeIn}, for a reader that needs several days at once
+     * rather than one day per call (e.g. the "Coming up" standing-conditions strip replaying dust
+     * presence over a trailing 60-day window, plan {@code docs/engineering/coming-up-plan.md} §7 —
+     * see that method's Javadoc for why the complete population, not a survivor surface, is the
+     * unbiased read for this column).
+     *
+     * @param from        the start of the date range (inclusive)
+     * @param to          the end of the date range (inclusive)
+     * @param targetTypes the target types to include (normally {@code SUNRISE}, {@code SUNSET})
+     * @return matching rows, in no guaranteed order
+     */
+    List<ForecastEvaluationEntity> findByTargetDateBetweenAndTargetTypeIn(
+            LocalDate from, LocalDate to, Collection<TargetType> targetTypes);
+
+    /**
      * Returns all evaluation runs for a specific location, date, and target type, ordered
      * chronologically by when the forecast was run. Used to plot forecast convergence over time.
      *
