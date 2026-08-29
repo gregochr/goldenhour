@@ -1,6 +1,6 @@
 import React, { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { computeAutoSelection } from './utils/conversions.js';
-import { buildMapOverlay } from './utils/mapOverlay.js';
+import { buildMapOverlay, normalizeMapTrigger } from './utils/mapOverlay.js';
 import LoginPage from './components/LoginPage.jsx';
 import RegisterPage from './components/RegisterPage.jsx';
 import ChangePasswordPage from './components/ChangePasswordPage.jsx';
@@ -245,31 +245,9 @@ function AppInner() {
    * so "Open the full Map tab →" lands exactly where the overlay was focused.
    */
   const handleShowOnMap = (dateOrHandoff, eventType, locationName = null) => {
-    let trigger;
-    // First, because it is the one caller that names its own kind. Without this branch the object
-    // falls past `filterAction` and `region` into the final `else` and becomes an `event` trigger
-    // whose `date` is the whole object — an overlay for a night that does not exist.
-    if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.kind === 'aurora') {
-      trigger = { kind: 'aurora', date: dateOrHandoff.date };
-    } else if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.filterAction) {
-      trigger = { kind: 'topic', filterAction: dateOrHandoff.filterAction, label: dateOrHandoff.label, date: dateOrHandoff.date };
-    } else if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.region) {
-      // A region trigger, optionally carrying a hot topic's qualifying locations + label so the
-      // overlay opens to just those pins (elevated inversion spots, coastal tide spots, …).
-      trigger = {
-        kind: 'region',
-        region: dateOrHandoff.region,
-        date: dateOrHandoff.date,
-        eventType: dateOrHandoff.eventType,
-        locationNames: dateOrHandoff.locationNames ?? null,
-        label: dateOrHandoff.label ?? null,
-        filterAction: dateOrHandoff.filterAction ?? null,
-      };
-    } else if (locationName) {
-      trigger = { kind: 'location', locationName, date: dateOrHandoff, eventType };
-    } else {
-      trigger = { kind: 'event', date: dateOrHandoff, eventType };
-    }
+    // The branch-selection logic (and its ordering — the part that actually matters, D8) lives in
+    // `normalizeMapTrigger`, tested directly there rather than only indirectly through this handler.
+    const trigger = normalizeMapTrigger(dateOrHandoff, eventType, locationName);
 
     const nonce = handoffNonce.current++;
     const overlay = buildMapOverlay(trigger, {
@@ -557,6 +535,7 @@ function AppInner() {
               autoEventType={autoSelection?.eventType ?? null}
               handoffEventType={mapOverlay.handoff.eventType ?? null}
               handoffFilterAction={mapOverlay.handoff.filterAction ?? null}
+              handoffDarkSky={mapOverlay.handoff.darkSky ?? null}
               handoffLocationName={mapOverlay.handoff.locationName ?? null}
               handoffRegion={mapOverlay.handoff.region ?? null}
               handoffNonce={mapOverlay.nonce}

@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { buildMapOverlay } from '../utils/mapOverlay.js';
+import { buildMapOverlay, normalizeMapTrigger } from '../utils/mapOverlay.js';
 
 const DATE = '2026-07-04';
 
-function loc(name, regionName, rating, { lat = 54, lon = -1, types = ['LANDSCAPE'] } = {}) {
+function loc(name, regionName, rating, { lat = 54, lon = -1, types = ['LANDSCAPE'], bortleClass = null } = {}) {
   return {
     name,
     regionName,
@@ -11,6 +11,7 @@ function loc(name, regionName, rating, { lat = 54, lon = -1, types = ['LANDSCAPE
     lon,
     enabled: true,
     locationType: types,
+    bortleClass,
     forecastsByDate: new Map([[DATE, { sunset: { rating, solarEventTime: `${DATE}T20:49:00` } }]]),
   };
 }
@@ -159,6 +160,63 @@ describe('buildMapOverlay', () => {
     expect(ov.focus.points).toHaveLength(2);
     expect(ov.caption).toContain('2 locations');
   });
+  describe('the coming-up trigger (D8, plan §6b)', () => {
+    it('coastal-spots → filters and fits to the matching pins with a caption', () => {
+      const locations = [
+        loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] }),
+        loc('Whitby', 'Yorkshire', 3, { types: ['SEASCAPE'] }),
+        loc('Elsewhere', 'Yorkshire', 3, { types: ['LANDSCAPE'] }),
+      ];
+      const ov = buildMapOverlay(
+        { kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
+        ctx(locations),
+      );
+      expect(ov.title).toBe('Spring tide run');
+      expect(ov.handoff.filterAction).toBe('SEASCAPE');
+      expect(ov.handoff.darkSky).toBe(false);
+      expect(ov.handoff.date).toBe(DATE);
+      expect(ov.focus.points).toHaveLength(2);
+      expect(ov.caption).toContain('2 locations');
+      // Never dresses a T+90 chronology date as a rating claim — claims nothing about ratings,
+      // matching the `topic` branch it is modelled on (D8).
+      expect(ov.narrativeTone).toBe('standdown');
+      expect(ov.narrativeHead).toBeNull();
+    });
+
+    it('dark-sky-spots → filters by Bortle class, never by locationType', () => {
+      const locations = [
+        loc('Kielder', 'Northumberland', 3, { bortleClass: 3 }),
+        loc('Thick Sky', 'Northumberland', 3, { bortleClass: 7 }),
+        loc('Unmeasured', 'Northumberland', 3, { bortleClass: null }),
+      ];
+      const ov = buildMapOverlay(
+        { kind: 'coming-up', darkSky: true, label: 'Perseids', date: DATE },
+        ctx(locations),
+      );
+      expect(ov.handoff.darkSky).toBe(true);
+      expect(ov.handoff.filterAction).toBeNull();
+      expect(ov.focus.names).toEqual(['Kielder']);
+    });
+
+    it('carries the trigger date, unlike the aurora branch — no rating is ever claimed for it', () => {
+      const ov = buildMapOverlay(
+        { kind: 'coming-up', filterAction: 'SEASCAPE', date: '2026-11-26' },
+        ctx([loc('Bamburgh', 'Northumberland', 3, { types: ['SEASCAPE'] })]),
+      );
+      expect(ov.handoff.date).toBe('2026-11-26');
+    });
+
+    it('falls back to a null-safe title and caption when nothing matches', () => {
+      const ov = buildMapOverlay(
+        { kind: 'coming-up', darkSky: true, date: DATE },
+        ctx([loc('Nowhere Dark', 'Northumberland', 3, { bortleClass: 8 })]),
+      );
+      expect(ov.title).toBe('Dark-sky spots');
+      expect(ov.caption).toBeNull();
+      expect(ov.focus).toBeNull();
+    });
+  });
+
   describe('the aurora trigger', () => {
     it('hands the map the aurora event for the night in question', () => {
       const ov = buildMapOverlay({ kind: 'aurora', date: DATE }, ctx([loc('Kielder', 'Northumberland', 4)]));
@@ -197,5 +255,54 @@ describe('buildMapOverlay', () => {
       const printed = `${ov.title} ${ov.subLine ?? ''} ${ov.caption ?? ''}`;
       expect(printed).toMatch(/21:49/);
     });
+  });
+});
+
+describe('normalizeMapTrigger (extracted from App.jsx\'s handleShowOnMap, D8)', () => {
+  it('a coming-up handoff normalises to kind:\'coming-up\', never kind:\'topic\'', () => {
+    // The regression this pins: both this handoff shape AND the plain-filterAction handoff (the
+    // topic-pill one, below) carry a `filterAction` — only the explicit `kind` field on the input
+    // tells them apart, and the coming-up check has to run FIRST or a coastal-spots tap becomes a
+    // kind:'topic' trigger instead (invisible today, since both branches render similarly, but
+    // fatal once P6 deletes kind:'topic' and its handler).
+    const trigger = normalizeMapTrigger(
+      { kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
+      null,
+    );
+    expect(trigger).toEqual({
+      kind: 'coming-up', filterAction: 'SEASCAPE', darkSky: false, label: 'Spring tide run', date: DATE,
+    });
+  });
+
+  it('a dark-sky coming-up handoff carries an explicit boolean darkSky and a null filterAction', () => {
+    const trigger = normalizeMapTrigger({ kind: 'coming-up', darkSky: true, date: DATE }, null);
+    expect(trigger).toEqual({
+      kind: 'coming-up', filterAction: null, darkSky: true, label: null, date: DATE,
+    });
+  });
+
+  it('a plain filterAction handoff (no kind) still normalises to kind:\'topic\' — the pre-P3b path', () => {
+    const trigger = normalizeMapTrigger({ filterAction: 'BLUEBELL', label: 'Bluebell', date: DATE }, null);
+    expect(trigger.kind).toBe('topic');
+  });
+
+  it('an aurora handoff is still checked first, ahead of coming-up and topic alike', () => {
+    const trigger = normalizeMapTrigger({ kind: 'aurora', date: DATE }, null);
+    expect(trigger).toEqual({ kind: 'aurora', date: DATE });
+  });
+
+  it('a region handoff normalises to kind:\'region\'', () => {
+    const trigger = normalizeMapTrigger({ region: 'Tyne and Wear', date: DATE, eventType: 'SUNSET' }, null);
+    expect(trigger.kind).toBe('region');
+  });
+
+  it('a plain date plus a location name normalises to kind:\'location\'', () => {
+    const trigger = normalizeMapTrigger(DATE, 'SUNSET', 'Bamburgh Beach');
+    expect(trigger).toEqual({ kind: 'location', locationName: 'Bamburgh Beach', date: DATE, eventType: 'SUNSET' });
+  });
+
+  it('a bare date with no location name normalises to kind:\'event\'', () => {
+    const trigger = normalizeMapTrigger(DATE, 'SUNSET');
+    expect(trigger).toEqual({ kind: 'event', date: DATE, eventType: 'SUNSET' });
   });
 });

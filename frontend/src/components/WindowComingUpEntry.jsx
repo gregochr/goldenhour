@@ -1,5 +1,6 @@
 import React from 'react';
 import PropTypes from 'prop-types';
+import ComingUpTideSparkline from './chart/ComingUpTideSparkline.jsx';
 
 /**
  * One chronology entry: the date rail beside its card (design README §4, plan §6). Everything the
@@ -19,6 +20,18 @@ import PropTypes from 'prop-types';
  * {@code coastal-spots} entry can never silently fall through to {@code onGoToPlan} because
  * {@code interactive} happened to be widened first (P3a phase-log row records this seam).
  *
+ * <h2>The map channel, and why the click seam dispatches by kind (D8, plan §6b)</h2>
+ *
+ * <p>{@code coastal-spots} and {@code dark-sky-spots} now dispatch through {@code onShowOnMap} with
+ * a {@code kind:'coming-up'} handoff object — a new trigger kind (D8), never the {@code kind:'topic'}
+ * branch {@code HotTopicStrip} uses today, because P6 deletes that branch outright and a new caller
+ * of it would break the moment P6 lands. Both card kinds are interactive as of this phase
+ * ({@code utils/comingUpFeed.js}'s {@code interactive} flag now names all three served kinds); the
+ * dispatch stays keyed on {@code entry.action.kind} rather than on {@code interactive} for the same
+ * reason the plan-only dispatch always was — a fourth served kind, if one is ever added, must not
+ * silently fall through to a wrong destination just because {@code interactive} happened to already
+ * be true for it.
+ *
  * <h2>No {@code aria-label} on the button — a corrected first attempt</h2>
  *
  * <p>An earlier draft set {@code aria-label={entry.action.label}} so a screen-reader user got the
@@ -36,16 +49,31 @@ import PropTypes from 'prop-types';
  * one the computed name runs every phrase together with no word boundary — the exact defect the
  * handoff row's own fix already records.
  *
+ * <h2>The coincidence card renders alongside prose, not instead of it — a corrected first attempt
+ * (D10, plan §6b)</h2>
+ *
+ * <p>{@code entry.coincidence} carries only the LOSING topic's own line — {@code ComingUpAssembler}
+ * javadoc, and the P4 phase-log row — because the winning entry's own identity is already the
+ * card's title/family/facts. The first draft of this component therefore rendered a synthesized
+ * "self" line (swatch + {@code entry.title} again) ahead of the served line, matching the design's
+ * literal two-line picture — but the design's {@code nm} for a merged entry is a COMBINED name
+ * ("Spring tide run, on a supermoon"), where the served {@code entry.title} is not, so that self
+ * line read the card's own title back verbatim immediately under the title row that had just shown
+ * it — a literal duplicate, not a design choice. Fixed by rendering only the served line(s); the
+ * card's own identity is the title row, already there.
+ *
+ * <p>The first draft also treated {@code coincidence} and {@code prose} as mutually exclusive,
+ * reasoning from the design bundle's own {@code EV} fixtures (which never carry both {@code why}
+ * and {@code coin}/{@code join} on one entry) — but the fixtures are not a wire contract.
+ * {@code ComingUpAssembler.assemble} runs {@code markFirstOfType} AFTER {@code mergeCoincidences},
+ * so a merged winner that is also the first-of-its-type in the window legitimately carries BOTH
+ * fields, and the exclusive-or silently dropped the prose whenever it did. Fixed by rendering both
+ * when both are served, in design order (prose above the coincidence lines) — a frontend-only fix
+ * that changes nothing about which entry gets which field, only that neither is thrown away.
+ *
  * <h2>What this phase does not draw</h2>
  *
- * <p>{@code entry.coincidence}/{@code entry.joinNote} (the two-topic card, D10) and
- * {@code entry.tide} (the sparkline, design README's "tide sparkline" section) are both on the wire
- * today but neither has a renderer here — both are named P3b work in plan §6b. A merged entry still
- * renders correctly as a plain card on its WINNING topic's own facts; it just does not yet show the
- * second topic's line or the joining sentence. Recorded in the P3a phase-log row so P3b knows this
- * gap is expected, not a regression.
- *
- * <p>{@code entry.scoreNote} is likewise not rendered here. Plan §13 annotates it "since-line +
+ * <p>{@code entry.scoreNote} is not rendered here. Plan §13 annotates it "since-line +
  * card read it", but §6's own card inventory for this phase never lists it, and the design bundle
  * has no visual slot for a sentence separate from the threshold line — inventing one unreviewed
  * would be exactly the mistake P2 refused to make for the lone-tide-run threshold gap (§11.21).
@@ -53,10 +81,12 @@ import PropTypes from 'prop-types';
  * than silently dropped.
  *
  * @param {object}   props
- * @param {object}   props.entry      a view from {@code buildEntryView}
- * @param {function} props.onGoToPlan switches to the Plan tab and moves focus there, given a date
+ * @param {object}   props.entry       a view from {@code buildEntryView}
+ * @param {function} props.onGoToPlan  switches to the Plan tab and moves focus there, given a date
+ * @param {function} props.onShowOnMap opens the map overlay for a `kind:'coming-up'` handoff object
+ *                                     (D8) — the `coastal-spots`/`dark-sky-spots` destinations
  */
-export default function WindowComingUpEntry({ entry, onGoToPlan }) {
+export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) {
   const { rail } = entry;
   const cardClassName = [
     'wf-cu-card',
@@ -67,12 +97,23 @@ export default function WindowComingUpEntry({ entry, onGoToPlan }) {
 
   /**
    * The one destination a card's action can carry. Switches on the SERVED kind, not on
-   * `interactive` — P3b adds a `coastal-spots`/`dark-sky-spots` branch here when the map channel
-   * exists, rather than only widening `interactive` and leaving the dispatch to fall through to
-   * `onGoToPlan` by default.
+   * `interactive` (see the class doc's "click seam" section) — `coastal-spots`/`dark-sky-spots` both
+   * route through the same new `kind:'coming-up'` map trigger (D8), differing only in which flag
+   * they carry: `filterAction` for a location-type filter (coastal), `darkSky` for the Bortle-class
+   * toggle (dark sky) — never both, and never `kind:'topic'`, which P6 deletes.
    */
   const handleClick = () => {
-    if (entry.action.kind === 'plan') onGoToPlan(entry.action.date);
+    if (entry.action.kind === 'plan') {
+      onGoToPlan(entry.action.date);
+    } else if (entry.action.kind === 'coastal-spots') {
+      onShowOnMap({
+        kind: 'coming-up', filterAction: 'SEASCAPE', label: entry.title, date: entry.action.date,
+      });
+    } else if (entry.action.kind === 'dark-sky-spots') {
+      onShowOnMap({
+        kind: 'coming-up', darkSky: true, label: entry.title, date: entry.action.date,
+      });
+    }
   };
 
   // Every top-level section is separated by a bare `{' '}` text-node sibling, not by relying on
@@ -107,6 +148,9 @@ export default function WindowComingUpEntry({ entry, onGoToPlan }) {
       </div>
       {' '}
 
+      {/* Additive with `prose`, NOT exclusive-or (a corrected first attempt — see the class doc's
+          coincidence section for why). Only the MERGED topic's own line is rendered; the winner's
+          own identity is not repeated here — see the class doc. */}
       {entry.prose && (
         <>
           <span className="wf-cu-prose" data-testid="coming-up-prose">{entry.prose}</span>
@@ -114,9 +158,45 @@ export default function WindowComingUpEntry({ entry, onGoToPlan }) {
         </>
       )}
 
-      {entry.facts.length > 0 && (
+      {entry.coincidence && entry.coincidence.length > 0 && (
+        <>
+          <span className="wf-cu-coin" data-testid="coming-up-coincidence">
+            {entry.coincidence.flatMap((line, i) => [
+              i > 0 ? ' ' : null,
+              <span
+                key={`${entry.id}:coin:${i}`}
+                className="wf-cu-coin-line"
+                data-family={line.family}
+                data-testid="coming-up-coincidence-line"
+              >
+                <span className="wf-cu-coin-swatch" aria-hidden="true" />
+                <span className="wf-cu-coin-name">{line.name}</span>
+                {' '}
+                <span className="wf-cu-coin-facts" data-testid="coming-up-coincidence-facts">
+                  {line.factsLabel}
+                </span>
+              </span>,
+            ])}
+          </span>
+          {entry.joinNote && (
+            <>
+              {' '}
+              <span className="wf-cu-join" data-testid="coming-up-join-note">{entry.joinNote}</span>
+            </>
+          )}
+          {' '}
+        </>
+      )}
+
+      {(entry.tide || entry.facts.length > 0) && (
         <>
           <div className="wf-facts" data-testid="coming-up-facts">
+            {entry.tide && (
+              <>
+                <ComingUpTideSparkline tide={entry.tide} />
+                {entry.facts.length > 0 ? ' ' : null}
+              </>
+            )}
             {entry.facts.flatMap((fact, i) => [
               i > 0 ? ' ' : null,
               // Index-keyed: the list is server-ordered and fixed per render, so position is the
@@ -219,6 +299,18 @@ WindowComingUpEntry.propTypes = {
       date: PropTypes.string,
     }).isRequired,
     interactive: PropTypes.bool.isRequired,
+    tide: PropTypes.shape({
+      range: PropTypes.number.isRequired,
+      delta: PropTypes.number.isRequired,
+      phase: PropTypes.oneOf(['HW', 'LW']).isRequired,
+    }),
+    coincidence: PropTypes.arrayOf(PropTypes.shape({
+      family: PropTypes.string.isRequired,
+      name: PropTypes.string.isRequired,
+      factsLabel: PropTypes.string.isRequired,
+    })),
+    joinNote: PropTypes.string,
   }).isRequired,
   onGoToPlan: PropTypes.func.isRequired,
+  onShowOnMap: PropTypes.func.isRequired,
 };

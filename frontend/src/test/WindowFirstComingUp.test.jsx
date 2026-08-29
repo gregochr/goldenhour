@@ -39,6 +39,7 @@ const ENTRIES = [
 const renderPane = (props = {}) => {
   const onRetry = vi.fn();
   const onGoToPlan = vi.fn();
+  const onShowOnMap = vi.fn();
   const result = render(
     <WindowFirstComingUp
       id="window-first-panel-coming-up"
@@ -48,10 +49,11 @@ const renderPane = (props = {}) => {
       todayStr={TODAY}
       onRetry={onRetry}
       onGoToPlan={onGoToPlan}
+      onShowOnMap={onShowOnMap}
       {...props}
     />,
   );
-  return { ...result, onRetry, onGoToPlan };
+  return { ...result, onRetry, onGoToPlan, onShowOnMap };
 };
 
 describe('WindowFirstComingUp — the panel contract', () => {
@@ -177,6 +179,7 @@ describe('WindowFirstComingUp — the four states', () => {
         todayStr={TODAY}
         onRetry={onRetry}
         onGoToPlan={onGoToPlan}
+        onShowOnMap={vi.fn()}
       />,
     );
     expect(screen.getByRole('tabpanel')).toHaveFocus();

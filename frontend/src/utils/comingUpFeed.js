@@ -173,6 +173,9 @@ function matchesFilter(entry, filterId) {
   return Boolean(chip?.families?.includes(entry.family));
 }
 
+/** Every served `action.kind` with a real destination as of P3b (D8) — see {@link buildEntryView}. */
+const INTERACTIVE_ACTION_KINDS = ['plan', 'coastal-spots', 'dark-sky-spots'];
+
 /**
  * Turns one wire entry into the view a card renders. Almost entirely a pass-through — P2 already
  * decided every fact, tag and label — plus the two client-only additions: the date rail (needs the
@@ -185,10 +188,10 @@ function matchesFilter(entry, filterId) {
  * falsifiable superlative naming a place in the window. Every card in the design bundle with
  * either field set the larger title; every one with neither did not.
  *
- * <p>Only a {@code plan} action is wired to a real destination in this phase — the card must not be
- * a dead pointer (plan §11.5), and the {@code coastal-spots}/{@code dark-sky-spots} map channel does
- * not exist until P3b (D8). Their label still renders; {@code interactive} is what keeps the card
- * from claiming a click it cannot honour.
+ * <p>All three served actions now have a real destination (plan §6b, D8): {@code plan} switches tabs
+ * and focuses Plan; {@code coastal-spots}/{@code dark-sky-spots} open the map overlay through the
+ * new {@code kind:'coming-up'} channel. {@code interactive} names all three — the P3a-era refusal
+ * (the map channel did not exist yet) no longer applies.
  *
  * @param {object} entry   a {@code ComingUpEntry} as served
  * @param {string} todayStr the reader's today, `YYYY-MM-DD`
@@ -212,7 +215,12 @@ export function buildEntryView(entry, todayStr) {
     facts: entry.facts ?? [],
     threshold: entry.threshold ?? null,
     action,
-    interactive: action.kind === 'plan',
+    interactive: INTERACTIVE_ACTION_KINDS.includes(action.kind),
+    // Tide entries only (P2); the sparkline (plan §6b) and the coincidence card (D10) are both
+    // straight passthroughs — nothing here is derived, only placed.
+    tide: entry.tide ?? null,
+    coincidence: entry.coincidence ?? null,
+    joinNote: entry.joinNote ?? null,
   };
 }
 

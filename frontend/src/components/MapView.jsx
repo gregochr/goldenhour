@@ -246,12 +246,10 @@ PopupResizer.propTypes = {
 
 import InfoTip from './InfoTip.jsx';
 import { buildMarkerSvg, buildStandDownSvg, markerLabelAndColour, createClusterIcon, STAND_DOWN_COLOUR } from './markerUtils.js';
+import { DARK_SKY_THRESHOLD } from '../utils/mapOverlay.js';
 
 const SUNRISE_LINE_COLOUR = '#f97316';
 const SUNSET_LINE_COLOUR  = '#a855f7';
-
-/** Bortle class at or below which a location counts as "dark sky" (aurora/astro suitable). */
-const DARK_SKY_THRESHOLD = 4;
 
 /**
  * Maps Leaflet zoom level to azimuth line length in km.
@@ -782,7 +780,7 @@ const OVERLAY_MAP_HEIGHT_PX = 470;
 const OVERLAY_MAP_HEIGHT_FILTERS_OPEN_PX = 300;
 const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
 
-function MapView({ locations, date, onSelectDate = null, autoEventType, handoffEventType, handoffFilterAction, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false }) {
+function MapView({ locations, date, onSelectDate = null, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -975,6 +973,49 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
       })();
     }
   }, [handoffFilterAction]);
+
+  // Apply a Coming up chronology handoff (`coastal-spots`/`dark-sky-spots`, D8) — sets BOTH the
+  // dark-sky toggle and the type filter together, because the coming-up channel always sends both
+  // explicitly (`mapOverlay.js`'s `coming-up` branch: `filterAction` a real value or `null`,
+  // `darkSky` always a real boolean) and the two must move in lockstep or they desynchronise.
+  //
+  // ⚠️ Depends on BOTH `handoffDarkSky` AND `handoffNonce`, unlike the standalone
+  // `handoffFilterAction` effect above (which topic pills still use, and which only ever turns a
+  // filter ON — an empty/falsy `handoffFilterAction` never fires it, so omitting the nonce there is
+  // harmless). This effect must be able to turn EITHER flag off too (dark-sky spots, then coastal
+  // spots, on the same never-unmounted map pane, and the reverse) — setting both in BOTH directions
+  // on every dispatch, keyed by the nonce so a repeat tap of the SAME action re-applies it. Omitting
+  // the nonce (copying the filter-action effect's shape for what is really a different value class)
+  // would latch a flag permanently once turned on, since a `false`/`null` value is
+  // `useEffect`-invisible without something else in the dependency array to force the re-run — this
+  // is the exact trap plan D8 names, and turned out to apply to the type filter too, not just
+  // dark-sky (found by an external review pass on the pushed PR, AGENTS.md's review-rules P1 class):
+  // the standalone `handoffFilterAction` effect above never CLEARS on a falsy value, so a
+  // coastal-spots handoff followed by a dark-sky-spots one left the stale SEASCAPE filter ANDed
+  // with the new dark-sky one — "dark-sky coastal spots only", not "all dark-sky spots" (Codex).
+  //
+  // ⚠️ Guarded on `handoffDarkSky != null` — found by adversarial review. `handoffNonce` is ONE
+  // monotonic counter shared by every `handleShowOnMap` call in the app (App.jsx), not just
+  // coming-up ones, so an unconditional `setDarkSkyFilter(!!handoffDarkSky)` fired on every handoff
+  // reaching this never-unmounted pane — a reader who manually turns Dark sky on, then taps ANY
+  // unrelated map action (a Plan location drill-down, a region row), would find it silently turned
+  // back off, since every other handoff's `handoffDarkSky` resolves to `null` (nobody else sets it).
+  // The guard is safe specifically because the coming-up channel is the only producer of this prop
+  // and it ALWAYS sends an explicit boolean (`mapOverlay.js`'s `darkSky: !!trigger.darkSky`, never
+  // `null`) — so "null" unambiguously means "a different, unrelated handoff", and only a genuine
+  // coming-up trigger (either flavour) can reach the `act` branch below. The SAME guard licenses
+  // touching `activeTypeFilters` here too: only a coming-up handoff (which always sets both flags
+  // together) reaches this branch, so a topic pill's own `handoffFilterAction`-only dispatch (no
+  // `darkSky` field at all, `handoffDarkSky` stays `null`) is untouched by this effect and keeps
+  // working exactly as it did before this phase.
+  useEffect(() => {
+    if (handoffDarkSky == null) return;
+    (async () => {
+      setDarkSkyFilter(!!handoffDarkSky);
+      setActiveTypeFilters(handoffFilterAction ? new Set([handoffFilterAction]) : new Set());
+      setAdvancedOpen(true);
+    })();
+  }, [handoffDarkSky, handoffFilterAction, handoffNonce]);
 
   // Apply a specific-location handoff from a Plan tab drill-down: fly to the
   // location and select it. HandoffPopupController opens its popup once the fly
@@ -2330,6 +2371,7 @@ MapView.propTypes = {
   autoEventType: PropTypes.string,
   handoffEventType: PropTypes.string,
   handoffFilterAction: PropTypes.string,
+  handoffDarkSky: PropTypes.bool,
   handoffLocationName: PropTypes.string,
   emphasiseLocationName: PropTypes.string,
   handoffRegion: PropTypes.string,
