@@ -56,14 +56,29 @@ selected via `focus.names` (an exact-match override that bypasses the rating-fil
 entirely), so a date up to 90 days out can never dress "no data" as "stand down" the way `kind:
 'event'` would have.
 
-**Recorded gap, not silently dropped**: `handoffFilterAction`'s existing effect still only ever
-turns a type filter ON (never clears on a falsy value, unlike the new `handoffDarkSky` effect) — a
-coastal-spots-then-dark-sky-spots sequence on the persistent Map tab can leave a stale SEASCAPE
-filter layered under the new dark-sky one. Self-describing (the filter chip row shows both), and the
-same latch already existed for topic pills before this phase; widening the fix would touch shared,
-previously-untested behaviour for every other trigger kind, so it is left as a scoped follow-up
-rather than patched under review-fix time pressure — the same treatment §11.21 gives the lone-tide-
-run threshold gap.
+**A Codex review pass on the pushed PR found one further real P1 defect, fixed:** the combined
+`handoffDarkSky` effect set the dark-sky toggle but never touched `activeTypeFilters`, so a
+coastal-spots handoff followed by a dark-sky-spots one left the stale SEASCAPE filter ANDed with the
+new dark-sky one on the persistent Map-tab pane — "dark-sky coastal spots only", not "all dark-sky
+spots". Fixed by folding `activeTypeFilters` into the same guarded, nonce-keyed effect (both flags
+now always move together, since the `coming-up` channel always sends both explicitly), with a new
+test proving a non-SEASCAPE dark-sky location becomes visible after the second handoff.
+
+**Recorded gap that remains (plan §11.23):** the standalone `handoffFilterAction` effect topic pills
+use still has no clearing branch at all — a `coming-up`-set type filter can still leak into a LATER,
+unrelated trigger (a location drilldown, a region row). Not new (the same latch already existed for
+topic pills before this phase), but its weight changes once P6 deletes `kind:'topic'` and the
+`coming-up` channel becomes the principal producer of `filterAction`-bearing handoffs — left as a
+scoped follow-up, flagged for whoever executes P6, rather than widened under review-fix time
+pressure — the same treatment §11.21 gives the lone-tide-run threshold gap.
+
+**Two small tidy-ups from the same review pass:** the sparkline's marker/lead-line now reads a new
+`--color-topic-marker` token (value-aliasing the same hex as `--color-verdict-marginal`) rather than
+the verdict token directly — D6's own rationale for the family aliases applies here too: a
+verdict-ramp retune must not silently recolour a topic surface. And `DARK_SKY_THRESHOLD` — duplicated
+between `mapOverlay.js` and `MapView.jsx` with only a comment linking the two — is now exported from
+`mapOverlay.js` (a light, dependency-free util) and imported by `MapView.jsx`, removing the
+duplicate rather than merely testing that it doesn't drift.
 
 **`chart/solarDayGeometry.js` was NOT reused for the sparkline** (recorded per §6b, for P6's
 `TideRunRow` deletion decision to read): that module's axis is a Europe/London clock day (1440
@@ -71,7 +86,7 @@ minutes, sampled by clock time); this sparkline is a fixed-phase cosine over a 6
 no relationship to a clock at all. Nothing to share beyond both being small tide SVGs.
 
 Backend: none — P3b is frontend-only, every field it renders already shipped on the wire in P2.
-Frontend gate green (179 test files, 4371 tests, lint clean, `npm audit` 0 vulnerabilities, build
+Frontend gate green (179 test files, 4372 tests, lint clean, `npm audit` 0 vulnerabilities, build
 clean). Four adversarial review lenses (runtime correctness vs spec, CSS/tokens/accessibility, test
 quality, conventions/forward-compatibility) found real defects before landing, all fixed: the
 sparkline amplitude's missing floor (documented as one, not enforced); a test whose NAME asserted

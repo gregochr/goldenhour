@@ -125,12 +125,14 @@ function toneFromRating(rating) {
 const MULTI_PROMPT = "Tap a pin to read PhotoCast's take on that region.";
 
 /**
- * The Bortle-class cutoff for "dark sky" — mirrors `MapView.jsx`'s own `DARK_SKY_THRESHOLD`
- * (module-local there too, deliberately not exported: importing the whole map component into this
- * pure util for one constant would pull an unrelated Leaflet-heavy module into a file with none of
- * its other dependencies). Named here rather than inlined per the project's no-magic-numbers rule.
+ * The Bortle-class cutoff for "dark sky". The single source of truth — `MapView.jsx` imports this
+ * rather than keeping its own copy, since a second literal `4` with only a comment linking the two
+ * can drift silently (found by review: a duplicate with no agreement test). This direction only —
+ * `mapOverlay.js` is a light, dependency-free pure util, so `MapView.jsx` (already Leaflet-heavy)
+ * importing FROM it costs nothing; the reverse would pull an unrelated map component into a file
+ * that currently needs none of its dependencies.
  */
-const DARK_SKY_THRESHOLD = 4;
+export const DARK_SKY_THRESHOLD = 4;
 
 /**
  * Builds the overlay descriptor for a trigger.

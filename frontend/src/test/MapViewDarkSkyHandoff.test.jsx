@@ -1,11 +1,14 @@
 /**
- * Tests for MapView's `handoffDarkSky` effect — the Coming up chronology's `dark-sky-spots` card
- * action (D8, plan §6b). `darkSkyFilter` is component-local `MapView` state with no handoff path
- * before this phase; the new effect gives it one, and — unlike `handoffFilterAction`, which only
- * ever turns a filter ON — it must be able to turn the toggle back OFF on the very next handoff,
- * because the same `MapView` instance backing the full Map tab is never unmounted between tab
- * visits (plan D8: "copying [`handoffFilterAction`'s] shape for a boolean latches the filter
- * permanently").
+ * Tests for MapView's Coming up handoff effect — the `coastal-spots`/`dark-sky-spots` chronology
+ * card actions (D8, plan §6b). `darkSkyFilter` is component-local `MapView` state with no handoff
+ * path before this phase; the effect gives it one, and — unlike the STANDALONE `handoffFilterAction`
+ * effect (still used by topic pills), which only ever turns a filter ON — it must be able to turn
+ * both the dark-sky toggle AND the type filter back OFF on the very next handoff, because the same
+ * `MapView` instance backing the full Map tab is never unmounted between tab visits (plan D8:
+ * "copying [`handoffFilterAction`'s] shape for a boolean latches the filter permanently" — which
+ * turned out to apply to the type filter too, not just the boolean: an external review pass on the
+ * pushed PR (Codex) found that a coastal-spots handoff followed by a dark-sky-spots one left the
+ * stale SEASCAPE filter ANDed with the new dark-sky one).
  *
  * Leaflet is stubbed exactly as `MapViewTypeFilter.test.jsx` does; one popup renders per visible
  * marker, so counting popups counts visible locations.
@@ -165,6 +168,44 @@ describe('MapView — the dark-sky handoff (D8, plan §6b)', () => {
       <MapView locations={LOCATIONS} date={TODAY} autoEventType={null} handoffEventType="SUNRISE" handoffNonce={7} />,
     );
     expect(visibleCount()).toBe(1); // still filtered — the manual toggle survived
+  });
+
+  it('a coastal-spots handoff followed by a dark-sky-spots one clears the stale type filter — '
+      + 'found by external review (Codex) on the pushed PR: without this, "dark-sky spots" showed '
+      + 'only dark-sky COASTAL spots, ANDed with the still-latched SEASCAPE filter', () => {
+    const coastalAndDark = [
+      { name: 'Coastal Dark', lat: 55.0, lon: -2.5, forecastsByDate: forecasts(4), locationType: ['SEASCAPE'], bortleClass: 3 },
+      { name: 'Inland Dark', lat: 55.1, lon: -1.6, forecastsByDate: forecasts(4), locationType: ['LANDSCAPE'], bortleClass: 3 },
+      { name: 'Coastal Bright', lat: 55.2, lon: -1.7, forecastsByDate: forecasts(4), locationType: ['SEASCAPE'], bortleClass: 8 },
+    ];
+    const { rerender } = render(
+      <MapView
+        locations={coastalAndDark}
+        date={TODAY}
+        autoEventType={null}
+        handoffFilterAction="SEASCAPE"
+        handoffDarkSky={false}
+        handoffNonce={1}
+      />,
+    );
+    // Coastal-spots: both SEASCAPE locations, regardless of Bortle class.
+    expect(visibleCount()).toBe(2);
+
+    rerender(
+      <MapView
+        locations={coastalAndDark}
+        date={TODAY}
+        autoEventType={null}
+        handoffFilterAction={null}
+        handoffDarkSky
+        handoffNonce={2}
+      />,
+    );
+    // Dark-sky-spots: both Bortle-3 locations, INCLUDING the inland (non-SEASCAPE) one — proving
+    // the SEASCAPE filter from the previous handoff was cleared, not left ANDed with the new one.
+    // (Were it still latched, only "Coastal Dark" would clear both filters and visibleCount() would
+    // read 1, not 2 — that was the bug Codex's review found.)
+    expect(visibleCount()).toBe(2);
   });
 
   it('re-applies on a repeat tap of the SAME action — the nonce forces the effect to re-run', () => {

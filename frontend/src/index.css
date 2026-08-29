@@ -111,6 +111,14 @@
   --color-topic-dust: #C08552;
   --color-topic-eclipse: #C4787F;
 
+  /* The "this is the marked point" accent on a topic-family sparkline (P3b's tide sparkline) — a
+     lead-line-and-dot indicator, not a family hue, so it does not get its own entry in the family
+     list above. Still a VALUE-ALIAS of `--color-verdict-marginal` for the same reason every alias
+     above exists: a verdict-ramp retune must not silently recolour a topic surface that happens to
+     share its hex today. `WindowTideSparkline.jsx`/`TideRunRow.jsx`'s own markers read the raw
+     verdict token directly and predate this alias; not retrofitted here to avoid an unrelated diff. */
+  --color-topic-marker: #E0A542;
+
   /* Badge TEXT variants. A badge is ~10px type on a 12–14% tint of its own hue, and at that size
      the full-strength channel colour does not carry — these are the lifted versions that do. Two
      families rather than one, because fill and text have different jobs: the fill names the

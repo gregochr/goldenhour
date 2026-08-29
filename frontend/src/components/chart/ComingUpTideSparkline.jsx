@@ -72,7 +72,7 @@ export default function ComingUpTideSparkline({ tide }) {
           y1={markerY}
           x2={SPARKLINE_MARKER_X}
           y2={SPARKLINE_AXIS_Y}
-          stroke="var(--color-verdict-marginal)"
+          stroke="var(--color-topic-marker)"
           strokeWidth="1"
           strokeDasharray="2 2"
           opacity="0.75"
@@ -82,7 +82,7 @@ export default function ComingUpTideSparkline({ tide }) {
           cx={SPARKLINE_MARKER_X}
           cy={markerY}
           r={SPARKLINE_MARKER_RADIUS}
-          fill="var(--color-verdict-marginal)"
+          fill="var(--color-topic-marker)"
         />
       </svg>
       <span className="wf-cu-spark-label" data-testid="coming-up-tide-sparkline-label">
