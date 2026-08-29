@@ -5,6 +5,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — a flipped field-map chip pointed one chip-width west of its own location
+
+The window popup's field map flips a location chip whose name will not fit to the right of its
+point, putting the box's right edge at the anchor — so the 5px marker must move to the right end
+to stay on the projected point. The design bundle does that with `.loc.flip
+{flex-direction:row-reverse}`; the port shipped the flip *decision* (`data-flip`, pinned by test)
+but never the CSS, so a flipped chip kept its marker at the left end, a full chip-width west of
+the place it names. Observed in production as an east-coast chip (Infinity Bridge, Teesside)
+rendering on the Lake District's focused heat blob — correct latitude, longitude off by exactly
+the chip's width, and made more misleading by the focused region's own label being deliberately
+omitted. `index.css` now mirrors a flipped chip (`flex-direction: row-reverse`, with the rating's
+divider and padding swapped side-for-side so the measured width is byte-identical between the two
+states — the placer measures before it decides to flip). `mapChipFlipCascade.test.jsx` pins the
+cascade with the sliced-stylesheet technique, since the rest of the suite runs `css: false` and
+proved the attribute while nothing proved what it resolves to; the divider's *side* stays a
+browser claim (cssstyle drops the `var()`-carrying border shorthand) and was verified in the
+browser against the built stylesheet, marker-on-anchor within a pixel in both states.
+
 ### Added — field-geography G1: label placement + km-per-px (`docs/engineering/field-geography-and-glyphs-plan.md`)
 
 `utils/labelPlacement.js`: `placeWithNudges`, a pure greedy label placer ported from the design
