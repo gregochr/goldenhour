@@ -162,6 +162,29 @@ coming-up:
                                                # a little under every other lunar month
       eclipse-mean-gap-days: 1500.0           # placeholder pending a catalogue-derived figure —
                                                # only five UK-visible eclipses are catalogued at all
+    recurrent:                                # standing-conditions strip topics (plan §7 P4) —
+                            # dust and inversion, whose magnitude stays config-interim forever
+                            # (never a real distribution — D4)
+      evidentiary-bar-arrivals: 5              # minimum arrivals in the trailing window before a
+                                               # topic's rate is trusted over the config fallback
+      trailing-window-days: 60                # window arrivals are counted over
+      dust:
+        fallback-mean-gap-days: 7.0            # rarity floor below the evidentiary bar
+        magnitude-threshold-aod: 0.5            # AOD at/above which a plume counts as "big"
+        magnitude-above-bits: 5.0               # magnitude once the threshold is cleared
+      inversion:
+        fallback-mean-gap-days: 4.0            # rarity NEVER upgrades until P7's log matures —
+                                               # forecast_score is survivor-biased (plan D4)
+        magnitude-threshold-score: 9.0          # the STRONG band's own floor (0–10 scale)
+        magnitude-above-bits: 5.0               # magnitude once the threshold is cleared
+    cadence:                                    # standing-condition strip words (plan §7/§11.16) —
+                            # authored here, not derived, until P7's topic_daily_log matures
+      coastal-tides: "deterministic"
+      dust: "recurrent"
+      inversion: "persistent"
+    peak-light-window-minutes: 90               # the peak gate's own bound (plan D4/D5) — not read
+                            # arithmetically yet (v1 proxy is SUNRISE/SUNSET typing); routed
+                            # through config rather than hardcoded, ready for P7
 
 photocast:
   tide-run:

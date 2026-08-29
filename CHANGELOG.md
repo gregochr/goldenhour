@@ -5,6 +5,93 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Coming up P4: standing conditions — strip, statuses, interim scoring
+
+The Coming up tab gains its standing-conditions strip (design README §2/§2.1, plan §7): three
+always-present rows — Coastal tides, Saharan dust, Valley inversions — each expandable to every
+occurrence the surprise model scored in the window. `ComingUpConditionsBuilder` (new) builds
+`conditions[]` in the assembly pass, reusing P2's own `TideRunBuilder`/`TideRunPeakHistory`/
+`SurpriseScore` machinery for every tide run in the 90-day window (not just the ones eligible for
+the chronology — a run wholly inside Plan's window is strip material, D11) rather than a second
+scoring formula. Occurrence status carries D11's precedence exactly: `promoted` (resolves to a real
+chronology entry) outranks `insidePlan` (wholly inside Plan's four days, no entry), else `heldBack`.
+
+Dust rarity upgrades to an observed rate — arrivals grouped into bursts over the trailing 60 days,
+replayed against the **complete** `forecast_evaluation` population via a new
+`findByTargetDateBetweenAndTargetTypeIn` query — once at least 5 arrivals exist; below that bar, or
+for inversions (which never upgrade until P7's `topic_daily_log` accrues an unbiased population),
+the rate falls back to a config constant and the cadence clause is omitted rather than synthesised.
+Magnitude for both stays a config-defined threshold forever ("promoted above AOD 0.50 (interim)" /
+"promoted above 9/10 (interim)") — never labelled `median`/`p90`, since no real distribution is ever
+consulted for either. `ComingUpScoringProperties` gains a `recurrent` block for these knobs,
+documented in `application-example.yml`.
+
+Frontend: `WindowComingUpConditions` (new) renders the strip between the filter chips and the
+handoff row — the design of record's own DOM order, which also moves the handoff row one place down
+from where P1 first put it. Rows carry the `auto minmax(0,168px) 1fr auto` grid and collapse at
+820px (design's own condition-row breakpoint, not the README's 820 — the two agree here, but
+occurrence rows below use README's separate 760px figure). Expansion panels carry both the `hidden`
+attribute and a display class (Tailwind v4's preflight `[hidden]` rule already carries `!important`
+in this codebase — the class is defence in depth, not the mechanism). A `promoted`/`insidePlan`
+occurrence renders as a real `<button>` wrapping every cell, not just its status text — the 760px
+breakpoint hides only the status/reason text, and if the click handler lived on a bare status span
+alone, hiding it would also remove the click target. `in the list →` scrolls to and highlights the
+matching chronology card via a new `data-entry-id` anchor on `WindowComingUpEntry`, using
+`--wf-mast-h` (not `--wf-lens-reserve`, which is Plan-only and absent on this tab). The strip's own
+header sub-line gains a quiet "scores provisional" suffix while any visible condition is interim.
+
+Extended `TideSurfaceAgreementTest` with a third assertion: given the same height and threshold, the
+chronology's own `TideAlmanacSource` — which the strip stages verbatim rather than re-detecting a
+run — reports the same spring-tide event the other two surfaces already agree on.
+
+Adversarial review (three lenses — backend scoring, frontend/CSS, conventions/phase-seams) found
+four real defects before landing, all fixed. A `Map.merge` NPE on a legitimate null-AOD-but-elevated
+-dust row (the aerosol fetch can degrade to just a surface-dust reading, per plan §1) would silently
+truncate the trailing-window read partway through, since query order is unspecified — fixed with a
+null-tolerant presence recorder. Coastal-tide run scoring had no per-run failure isolation, unlike
+dust/inversion — one bad tide row could 500 the whole `/api/almanac` response and, since coastal
+tides builds first, take the otherwise-healthy dust/inversion conditions down with it — fixed with
+the same catch-and-degrade pattern. The `reason` tag (D10's max rule) could never fire in
+production: it matched a run to its chronology entry by the run's own id, but a run that LOST a
+coincidence merge surfaces under the WINNER's id instead — so the one case `reason` exists to name
+was exactly the case the lookup missed. Fixed with a fallback match by date overlap plus a
+coincidence line carrying the run's own family, which also closes the `promoted`-status gap noted in
+an earlier draft of this entry. A `key={occurrence.date}` on the frontend's occurrence list was not
+guaranteed unique (two occurrences can share a calendar day) and reproduced a live React warning in
+this phase's own tests — fixed with a `${date}:${index}` composite. Also fixed: `.wf-cond-kind`
+stacked `opacity` on a per-topic accent colour, repeating an AA-contrast mistake `.wf-cu-kindtag`
+already found and fixed elsewhere in this file — corrected to full-strength accent, no opacity.
+
+A follow-up pre-merge conformance review against the plan (§2/§7/§13) found one blocking defect and
+five further departures from the plan text, all fixed under the deviation protocol. **Blocking:**
+`tideOccurrence`'s `insidePlan` check also required the run's own `startDate` to be on/after
+`builtFor`, which D11 never asks for — eligibility already guarantees the complement (no entry)
+implies `endDate ≤ lastPlanDate`. `TideAlmanacSource`'s backward walk routinely produces an
+in-progress run whose start already lags "today" (see P2's phase-log row), and that run was misread
+as `heldBack` — live on the Plan tab right now, reported as neither promoted nor upcoming. Fixed by
+dropping the clause; `heldBack` is now structurally unreachable for coastal tides until a future
+phase gates the chronology on bands rather than dates — noted for P5. D10's `reason` tag is now
+**bidirectional**, matching its literal "mandatory wherever the max was taken" text rather than the
+narrower reading that only fired when the other topic won; `matchingEntry`'s Javadoc now states the
+four invariants its date-overlap-plus-family heuristic depends on. The cadence words moved from Java
+string literals into `ComingUpScoringProperties.Cadence` (§7/§11.16). The "scores provisional"
+marker moved from the chronology pane's own sub-line to the strip's own header sub-line, matching
+§7's exact wording (it had shipped on the wrong header first). `PEAK_LIGHT_WINDOW_MINUTES` moved
+into `ComingUpScoringProperties.peakLightWindowMinutes`, with `passesPeakGate` now genuinely reading
+it (a non-positive configured value closes the gate). Schema addition under the deviation protocol:
+`ComingUpConditionOccurrence` gains `label` (nullable) — which run kind an occurrence is
+(`"Spring tide"`/`"King tide"`), read from the source event's own type, never re-derived, since D11
+puts spring and king runs in one row with nothing else to tell them apart; populated and tested but
+not yet rendered by the frontend, matching P3a's own precedent for shipping a field ahead of its
+renderer.
+
+A Codex review pass found one further real defect: the dust trailing-window read's `catch` left
+`maxAodByPresentDate` empty on a transient DB failure, which the zero-arrivals branch then reported
+as `"none in the last 60 days"` — a false claim of absence rather than the honest "unknown" the
+failure actually is, and since `AlmanacService` caches the built response for the whole civil day,
+that false claim would have been retained for hours after the database recovered. Fixed by tracking
+the read's own success and reporting `"history unavailable right now"` on failure instead.
+
 ## [v2.19.5] - 2026-08-29
 
 ### Changed — Coming up P3a: chronology structure — rails, cards, chips, copy

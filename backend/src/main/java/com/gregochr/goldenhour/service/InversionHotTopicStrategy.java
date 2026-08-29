@@ -56,7 +56,7 @@ public class InversionHotTopicStrategy implements HotTopicStrategy {
      * {@code PromptBuilder.InversionPotential.fromScore} (score &ge; 9 = STRONG); MODERATE
      * (7–8) and below never fire the topic.
      */
-    static final int STRONG_SCORE_INCLUSIVE = 9;
+    public static final int STRONG_SCORE_INCLUSIVE = 9;
 
     /** Band label used when a row carries no stored classification (see {@code bandLabel}). */
     private static final String DEFAULT_BAND_LABEL = "strong";

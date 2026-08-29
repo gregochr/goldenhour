@@ -71,7 +71,7 @@ public class DustHotTopicStrategy implements HotTopicStrategy {
      * @param pm25 PM2.5 in µg/m³, or null
      * @return true if the dust proxy fires
      */
-    static boolean isDustEnhanced(BigDecimal aod, BigDecimal dust, BigDecimal pm25) {
+    public static boolean isDustEnhanced(BigDecimal aod, BigDecimal dust, BigDecimal pm25) {
         boolean aodHigh = aod != null && aod.compareTo(AOD_THRESHOLD) > 0;
         boolean dustHigh = dust != null && dust.compareTo(DUST_THRESHOLD) > 0;
         boolean pm25Low = pm25 == null || pm25.compareTo(PM25_THRESHOLD) < 0;

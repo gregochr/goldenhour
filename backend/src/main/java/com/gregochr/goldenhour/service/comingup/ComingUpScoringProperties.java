@@ -29,6 +29,24 @@ public class ComingUpScoringProperties {
     /** Mean inter-arrival gap, in days, per deterministic (ephemeris) topic. */
     private Rarity rarity = new Rarity();
 
+    /** Recurrent-topic knobs shared by dust and inversion (plan P4, D4). */
+    private RecurrentTopics recurrent = new RecurrentTopics();
+
+    /** Each standing condition's authored cadence word (plan §7, §11.16). */
+    private Cadence cadence = new Cadence();
+
+    /**
+     * The peak gate's own bound, in minutes (plan D4/D5) — a third alignment window beside the
+     * existing tide-in-light (60) and surge-peak-in-light (90) constants, scoped to
+     * standing-condition peaks only. Not read arithmetically by {@code ComingUpConditionsBuilder
+     * #passesPeakGate} yet: no forward candidate carries a clock time to compare against a light
+     * window's edges, so the v1 proxy is SUNRISE/SUNSET typing — every survivor row keyed to
+     * either is already inside a light window by construction (D5: "in v1 the gate cannot fail").
+     * This is the documented bound that proxy stands in for, routed through config rather than a
+     * hardcoded literal, ready for P7's {@code landed_on_window} to make it a real comparison.
+     */
+    private int peakLightWindowMinutes = 90;
+
     /**
      * The surprise-score band edges (plan §13), lower-inclusive: a score of exactly {@link #list}
      * already clears the "in the list" band.
@@ -129,5 +147,96 @@ public class ComingUpScoringProperties {
          * note, pending a real catalogue-derived mean gap.
          */
         private double eclipseMeanGapDays = 1500.0;
+    }
+
+    /**
+     * Knobs for the standing-conditions strip's two recurrent/persistent topics — Saharan dust and
+     * valley inversions (plan §7 P4, D4). Both keep magnitude on a config-defined bucketed mapping
+     * forever at first ship (never a real distribution — see {@code ComingUpConditionsBuilder}'s
+     * class Javadoc), so {@link Dust#magnitudeAboveBits}/{@link Inversion#magnitudeAboveBits} are
+     * the fixed value an occurrence gets once it clears its own threshold, and
+     * {@link SurpriseScore#DEFAULT_MAGNITUDE_BITS} otherwise.
+     */
+    @Getter
+    @Setter
+    public static class RecurrentTopics {
+
+        /**
+         * Minimum arrivals in the trailing 60-day window before a topic's rate is trusted over the
+         * config fallback (README §3's evidentiary bar; plan D4).
+         */
+        private int evidentiaryBarArrivals = 5;
+
+        /** Length of the trailing window arrivals are counted over, in days (plan D4/§7). */
+        private int trailingWindowDays = 60;
+
+        /** Dust-specific knobs. */
+        private Dust dust = new Dust();
+
+        /** Inversion-specific knobs. */
+        private Inversion inversion = new Inversion();
+    }
+
+    /**
+     * Saharan dust knobs. Rarity is upgraded to an observed rate once the evidentiary bar is met
+     * (plan D4); {@link #fallbackMeanGapDays} is the config floor below it. Magnitude stays
+     * interim/config forever: {@link #magnitudeThresholdAod} is the aerosol optical depth an
+     * occurrence must clear to be scored as a "big" plume rather than a routine one, matching the
+     * scale {@code DustHotTopicStrategy}/{@code TopicDailyLogJob} already measure dust on (AOD),
+     * not an invented 0–10 load figure with no reading behind it.
+     */
+    @Getter
+    @Setter
+    public static class Dust {
+
+        /** Rarity fallback below the evidentiary bar — about a week between plumes. */
+        private double fallbackMeanGapDays = 7.0;
+
+        /** AOD at or above which a dust occurrence counts as magnitude-worthy (interim). */
+        private double magnitudeThresholdAod = 0.5;
+
+        /** Magnitude assigned once {@link #magnitudeThresholdAod} is cleared. */
+        private double magnitudeAboveBits = 5.0;
+    }
+
+    /**
+     * Valley inversion knobs. Rarity stays on {@link #fallbackMeanGapDays} unconditionally until
+     * P7's {@code topic_daily_log} accrues an unbiased population (plan D4/§1) — never upgraded
+     * from the survivor-biased {@code forecast_score} table. Magnitude reuses the same 0–10 scale
+     * {@code InversionScoreCalculator}/{@code InversionHotTopicStrategy} already score on, so
+     * {@link #magnitudeThresholdScore} defaults to the STRONG band's own floor.
+     */
+    @Getter
+    @Setter
+    public static class Inversion {
+
+        /** Rarity fallback — a mild UK autumn/winter estimate, revisited once P7's log matures. */
+        private double fallbackMeanGapDays = 4.0;
+
+        /** Inversion score (0–10) at or above which an occurrence counts as magnitude-worthy. */
+        private double magnitudeThresholdScore = 9.0;
+
+        /** Magnitude assigned once {@link #magnitudeThresholdScore} is cleared. */
+        private double magnitudeAboveBits = 5.0;
+    }
+
+    /**
+     * Each standing condition's cadence word (design README §2: {@code persistent} — present most
+     * days; {@code recurrent} — arrives in bursts on a stable rate; {@code deterministic} — on an
+     * ephemeris), authored here rather than derived (plan §7/§11.16) — there is no presence series
+     * to derive it from until P7's {@code topic_daily_log} matures.
+     */
+    @Getter
+    @Setter
+    public static class Cadence {
+
+        /** Coastal tides recur on a fixed ephemeris (plan D4: 14.8-day spring rate). */
+        private String coastalTides = "deterministic";
+
+        /** Saharan dust arrives in bursts (plan D4: trailing-60-day arrival count). */
+        private String dust = "recurrent";
+
+        /** Valley inversions are present on most qualifying mornings (plan D4). */
+        private String inversion = "persistent";
     }
 }
