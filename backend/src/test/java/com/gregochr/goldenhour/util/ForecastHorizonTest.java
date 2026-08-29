@@ -77,4 +77,34 @@ class ForecastHorizonTest {
                 .isEqualTo(ForecastHorizon.daysAhead(target, afternoon))
                 .isEqualTo(2);
     }
+
+    /**
+     * Unit tests for {@link ForecastHorizon#civilDate}, added by plan P5 (the "Coming up" badge's
+     * {@code comingUpLastSeenDate}, D3) — a stored {@code Instant} read back on the UK civil
+     * calendar, the serve-time counterpart to {@link ForecastHorizon#today}'s own "now" rule.
+     * Otherwise indirectly covered via {@code UserSettingsServiceTest}, but this class's own
+     * convention (above) is that every sibling method gets its own direct, zone-disagreeing
+     * pin here rather than relying solely on a caller's test to catch a regression.
+     */
+    @Test
+    @DisplayName("a stored instant just before UK midnight in summer reads as the NEXT UK day")
+    void civilDate_bstBoundary_readsAsNextUkDay() {
+        // 23:30 UTC in August is 00:30 BST the next day — the exact hour a bare UTC read of a
+        // stored timestamp would misdate by one, understating how long ago a reader last looked.
+        assertThat(ForecastHorizon.civilDate(Instant.parse("2026-08-28T23:30:00Z")))
+                .isEqualTo(LocalDate.of(2026, 8, 29));
+    }
+
+    @Test
+    @DisplayName("under GMT the same hour reads as the same UK day — the zone, not the hour, rules")
+    void civilDate_gmtBoundary_agreesWithUtc() {
+        assertThat(ForecastHorizon.civilDate(Instant.parse("2026-01-11T23:30:00Z")))
+                .isEqualTo(LocalDate.of(2026, 1, 11));
+    }
+
+    @Test
+    @DisplayName("a null instant — never opened the tab — reads as null, not a fabricated date")
+    void civilDate_nullInstant_returnsNull() {
+        assertThat(ForecastHorizon.civilDate(null)).isNull();
+    }
 }

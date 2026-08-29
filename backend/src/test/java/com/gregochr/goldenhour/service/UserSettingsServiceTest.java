@@ -20,7 +20,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -40,6 +42,10 @@ class UserSettingsServiceTest {
 
     private static final String USERNAME = "testuser";
 
+    /** Fixed rather than the wall clock, per this codebase's date-fixture rule. */
+    private static final Instant NOW = Instant.parse("2026-08-29T10:15:30Z");
+    private final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
+
     @Mock
     private AppUserRepository userRepository;
     @Mock
@@ -56,7 +62,7 @@ class UserSettingsServiceTest {
     @BeforeEach
     void setUp() {
         service = new UserSettingsService(userRepository, postcodesIoClient, driveDurationService,
-                driveTimeWriter);
+                driveTimeWriter, clock);
     }
 
     /** Stub {@code auth.getName()} — call in every test that passes {@code auth} to the service. */
@@ -311,6 +317,62 @@ class UserSettingsServiceTest {
 
         assertThat(response.homePostcode()).isEqualTo("DH1 3LE");
         assertThat(response.homePlaceName()).isNull();
+    }
+
+    @Test
+    @DisplayName("getSettings returns null comingUpLastSeenDate when the account never opened "
+            + "the tab")
+    void getSettings_neverSeenComingUp_returnsNullDate() {
+        stubAuth();
+        AppUserEntity user = buildUser();
+        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+
+        UserSettingsResponse response = service.getSettings(auth);
+
+        assertThat(response.comingUpLastSeenDate()).isNull();
+    }
+
+    @Test
+    @DisplayName("getSettings derives the London civil date from the stored last-seen instant")
+    void getSettings_withLastSeen_derivesLondonCivilDate() {
+        stubAuth();
+        AppUserEntity user = buildUser();
+        // 23:30 UTC in August is 00:30 BST the next day — the exact hour the London-derived date
+        // must disagree with a bare UTC read, or the badge would flag a fresh visit as one from
+        // "yesterday".
+        user.setComingUpLastSeenAt(Instant.parse("2026-08-28T23:30:00Z"));
+        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+
+        UserSettingsResponse response = service.getSettings(auth);
+
+        assertThat(response.comingUpLastSeenDate())
+                .isEqualTo(java.time.LocalDate.of(2026, 8, 29));
+    }
+
+    @Test
+    @DisplayName("markComingUpSeen writes through the column-scoped update, never save()")
+    void markComingUpSeen_writesThroughTargetedUpdate_neverWholeEntitySave() {
+        stubAuth();
+        // Simulates the row a fresh read would return once the targeted update below has landed
+        // — this test is about the SERVICE's own orchestration (write the one column, then
+        // re-read), not about proving Hibernate's bulk-update SQL against a real database (which
+        // the migration/entity mapping are proven in CI, not here).
+        AppUserEntity user = buildUser();
+        user.setComingUpLastSeenAt(NOW);
+        when(userRepository.findByUsername(USERNAME)).thenReturn(Optional.of(user));
+
+        UserSettingsResponse response = service.markComingUpSeen(auth);
+
+        verify(userRepository).updateComingUpLastSeenAtByUsername(USERNAME, NOW);
+        // Never a whole-entity save — the race a column-scoped update exists to avoid (Codex
+        // review finding, PR #695): a concurrent saveHome/saveMapColourPreferences in another tab
+        // must not be discardable by this write landing last.
+        verify(userRepository, never()).save(any());
+        // 2026-08-29T10:15:30Z is well inside the London civil day it falls on.
+        assertThat(response.comingUpLastSeenDate())
+                .isEqualTo(java.time.LocalDate.of(2026, 8, 29));
+        // No request body reaches this method at all (plan D3: "a client with a wrong clock
+        // cannot mark the future seen") — the only instant it can ever write is the server's own.
     }
 
     @Test

@@ -17,6 +17,8 @@ import { originAction, scopeRegions } from '../utils/planOrigin.js';
 import { buildTopicIndex, windowTopics } from '../utils/windowFirstTopics.js';
 import { buildPlanConflict } from '../utils/planConflicts.js';
 import { buildScoreIndex, buildSlotIndex, sheetSpotOf } from '../utils/locationSheet.js';
+import { deriveBadge } from '../utils/comingUpArrivals.js';
+import { markComingUpSeen } from '../api/settingsApi.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
 import useLensReserve from '../hooks/useLensReserve.js';
 import useStuckSentinel from '../hooks/useStuckSentinel.js';
@@ -292,6 +294,7 @@ export default function WindowFirstShell({
     windowCards, paneItems, loading, briefing, evaluationScores, scoresLoaded,
     scoreIndex, scoreRows, todayStr, reachLens, ratingLens, homePlace,
     origin, setOrigin, regions, effectiveReachById,
+    comingUpLastSeenDate, setComingUpLastSeenAt,
   } = useWindowFirstBriefing();
   /**
    * The search dialog's open state, and the region it should be pre-filled with.
@@ -377,7 +380,76 @@ export default function WindowFirstShell({
    * left with focus on an element that has just become unreachable.
    */
   const tabRefs = useRef([]);
-  const comingUp = useComingUpFeed(effectiveTab === 'coming-up', todayStr);
+  // `true`, unconditionally — the tab badge (plan D3/D4/D13) needs to know about arrivals whether
+  // or not the reader ever opens this pane, so the fetch fires after first paint for every reader
+  // rather than gating on the tab. See useComingUpFeed.js's own class doc for the reversal.
+  const comingUp = useComingUpFeed(true, todayStr);
+  /**
+   * The tab badge's state (plan D3/D4/D12) — null (no element at all) in the overwhelmingly common
+   * case. Read off the WHOLE served feed, never the chip-filtered subset the pane itself may be
+   * showing: the badge answers "is anything new anywhere in the feed", a question the active filter
+   * must not narrow.
+   */
+  const comingUpBadge = useMemo(
+    () => deriveBadge(comingUp.events?.entries, comingUp.events?.bands, comingUpLastSeenDate),
+    [comingUp.events, comingUpLastSeenDate],
+  );
+  /**
+   * Marks the feed seen — both `Mark seen`'s own press and the quiet bootstrap write below share
+   * this one function, because the service does not distinguish the two callers (plan D3).
+   *
+   * <p>Optimistic AND reconciled: the local date moves to `todayStr` immediately, before the
+   * request settles, clearing the badge and every NEW flag without waiting on a round trip — but
+   * a SUCCESSFUL response's own `comingUpLastSeenDate` then overwrites that guess, the same
+   * reconciliation the bootstrap write below already does. `todayStr` is the reader's own London
+   * civil date and will usually already match what the server's clock resolves "now" to, but
+   * "usually" is not "always" — a skewed client clock, or a press within the last moments before
+   * the UK civil day rolls over, can disagree with the server by a day, and nothing else in this
+   * session re-fetches settings to notice (the settings fetch is gated on
+   * `homeSettingsVersion`, which only moves when the settings modal saves). Applying the echoed
+   * value closes that gap the instant it would otherwise open. A FAILED write is left on the
+   * optimistic guess rather than rolled back: the design's own bias throughout is that silence is
+   * the safe failure, and reverting to "still new" on a dropped response would flash the badge
+   * back on for no reason a reader could see.
+   */
+  const markSeen = useCallback(() => {
+    setComingUpLastSeenAt(todayStr);
+    markComingUpSeen()
+      .then((settings) => {
+        if (settings?.comingUpLastSeenDate) setComingUpLastSeenAt(settings.comingUpLastSeenDate);
+      })
+      .catch(() => {});
+  }, [setComingUpLastSeenAt, todayStr]);
+  /**
+   * The bootstrap write (plan D3, the round-3 external-review fix for a deadlock that otherwise
+   * disables the badge for every account forever): a null `comingUpLastSeenDate` renders as
+   * "nothing new", `Mark seen` is the only other write, and the since-line hosting it only renders
+   * when something IS new — so without this, an account that has never opened the tab can never
+   * reach the one control that would set the timestamp, and stays null permanently.
+   *
+   * <p>Fires once, on the FIRST open of the Coming up tab while `comingUpLastSeenDate` is exactly
+   * {@code null} (not `undefined`, which means "not answered yet" — see the context's own class
+   * doc — and must not be mistaken for "never seen"). That first visit shows no badge and no NEW
+   * flags, matching D3's chosen quiet bias: the write happens silently, not as a visible "welcome"
+   * moment.
+   *
+   * <p>The guard ref is reset on failure, not left permanently spent — a dropped request must retry
+   * on the NEXT visit rather than never again, but must not retry instantly either. Resetting the
+   * ref alone cannot cause a tight loop: this effect only re-runs when one of its dependencies
+   * actually changes value, and none of them change while the reader sits on an open tab — only
+   * leaving and returning (which moves `effectiveTab` away and back) gives the reset ref another
+   * chance, which is exactly "next visit, never loops".
+   */
+  const bootstrapFiredRef = useRef(false);
+  useEffect(() => {
+    if (effectiveTab !== 'coming-up') return;
+    if (comingUpLastSeenDate !== null) return;
+    if (bootstrapFiredRef.current) return;
+    bootstrapFiredRef.current = true;
+    markComingUpSeen()
+      .then((settings) => setComingUpLastSeenAt(settings?.comingUpLastSeenDate ?? todayStr))
+      .catch(() => { bootstrapFiredRef.current = false; });
+  }, [effectiveTab, comingUpLastSeenDate, todayStr, setComingUpLastSeenAt]);
   /**
    * Selects a tab, and takes any dialog down with it.
    *
@@ -1134,6 +1206,20 @@ export default function WindowFirstShell({
       >
         {tabs.map((tab, index) => {
           const selected = tab.id === effectiveTab;
+          // Only the Coming up tab ever carries a badge (design §6: "forecast topics do not badge
+          // on arrival" — no other tab has an equivalent signal at all).
+          const badge = tab.id === 'coming-up' ? comingUpBadge : null;
+          // Explicit only while a badge is showing — otherwise the accessible name computes from
+          // content exactly as it always has, and there is nothing here to override. With a badge,
+          // the badge SPAN below is `aria-hidden` and this is the only place its meaning reaches a
+          // screen reader (design §6's two shapes, put into words: "1 new announced event" / "new
+          // interrupt event" — the interrupt shape carries no number to read back, matching the
+          // visual).
+          const badgeAriaLabel = badge
+            ? `${tab.label}, ${badge.band === 'interrupt'
+              ? 'new interrupt event'
+              : `${badge.count} new announced event${badge.count === 1 ? '' : 's'}`}`
+            : undefined;
           return (
             <button
               key={tab.id}
@@ -1142,6 +1228,7 @@ export default function WindowFirstShell({
               id={tabDomId(tab.id)}
               aria-selected={selected}
               aria-controls={panelDomId(tab.id)}
+              aria-label={badgeAriaLabel}
               // Roving: the bar is ONE tab stop, and the arrow keys move within it. Without this a
               // keyboard user tabs through every tab to reach the pane.
               tabIndex={selected ? 0 : -1}
@@ -1167,6 +1254,15 @@ export default function WindowFirstShell({
                 </span>
               )}
               {tab.label}
+              {badge && (
+                <span
+                  aria-hidden="true"
+                  data-testid="coming-up-tab-badge"
+                  className={badge.band === 'interrupt' ? 'wf-tab-badge wf-tab-badge-rare' : 'wf-tab-badge'}
+                >
+                  {badge.band === 'interrupt' ? '◆' : badge.count}
+                </span>
+              )}
             </button>
           );
         })}
@@ -1231,6 +1327,8 @@ export default function WindowFirstShell({
         onRetry={comingUp.retry}
         onGoToPlan={goToPlan}
         onShowOnMap={onShowOnMap}
+        comingUpLastSeenDate={comingUpLastSeenDate}
+        onMarkSeen={markSeen}
       />
 
       {/* Hidden rather than unmounted: unmounting the pane on every tab change would discard the

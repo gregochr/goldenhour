@@ -2,8 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import WindowComingUpEntry from './WindowComingUpEntry.jsx';
 import WindowComingUpConditions from './WindowComingUpConditions.jsx';
+import WindowComingUpSinceLine from './WindowComingUpSinceLine.jsx';
 import WindowFirstComingUpHandoff from './WindowFirstComingUpHandoff.jsx';
 import { buildChronology, chipCounts, footerCopy, FOOTER_LEAD } from '../utils/comingUpFeed.js';
+import { deriveBadge, selectSinceEntry } from '../utils/comingUpArrivals.js';
 import { ALMANAC_DAYS } from '../api/almanacApi.js';
 
 /** Served counts default to zero, matching a payload that has not arrived yet or a degraded
@@ -43,16 +45,19 @@ const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
  * "say so in the UI" clause): the marker is about the STRIP's scoring, not the chronology dates
  * this pane's own sub-line describes.
  *
- * <h2>Still no count on the tab (D13's other half)</h2>
+ * <h2>Still no ROW count on the tab — the fetch went eager, the reasoning did not (D13's other
+ * half, P5)</h2>
  *
- * <p>Preserved from before P2, because D13 rewrites it in P5, not here: the tab itself carries no
- * row count, for the same two reasons that predate this rewrite. The count does not exist until
- * the feed has been fetched, and the fetch is not made until the tab is opened — so it could only
- * ever appear <em>after</em> the reader had already looked, unless the fetch were made eager
- * (which D13 says P5 does, for the badge, not for this). And the number it would show is a row
- * count, which changes no decision: eleven dated events and eight are the same answer to "is
- * there anything coming up". {@code useComingUpFeed.js:9-13} carries the other half of this
- * refusal, at the fetch itself.
+ * <p>The fetch that used to justify this refusal is gone: {@code useComingUpFeed} now fires eagerly
+ * for every reader (plan D13), so the tab's badge no longer waits for a reader to have already
+ * looked. But a row count and the badge are different claims, and only one of them earned the
+ * eager fetch's cost. A row count restates how much is already in the feed — eleven dated events
+ * and eight are the same answer to "is there anything coming up" — which is not a decision-changing
+ * signal no matter how fresh the number is. The badge counts something else entirely: NEW arrivals
+ * since the reader last looked that clear a rarity band (plan D3/D4), which is exactly the kind of
+ * signal worth interrupting for. So the tab gains a badge (below, on the tab button itself) and
+ * stays without a plain count — the eager fetch paid for the one that changes what a reader does
+ * next, not for a second, cheaper number beside it.
  *
  * <h2>No role gate</h2>
  *
@@ -73,9 +78,14 @@ const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
  *                                    optional date — a `plan`-action card passes its own date
  * @param {function} props.onShowOnMap opens the map overlay for a `coastal-spots`/`dark-sky-spots`
  *                                     card action (D8, plan §6b) — forwarded to every entry
+ * @param {(string|null)} [props.comingUpLastSeenDate] the reader's stored `comingUpLastSeenDate`
+ *                                     (D3), or null/undefined before it is known — drives NEW flags,
+ *                                     the fresh box-shadow, and the since-line (plan §6/P5)
+ * @param {function} props.onMarkSeen  clears the badge and every NEW flag (plan §6/P5)
  */
 export default function WindowFirstComingUp({
   id, labelledBy, hidden, status, events, hotTopics, todayStr, onRetry, onGoToPlan, onShowOnMap,
+  comingUpLastSeenDate, onMarkSeen,
 }) {
   const [activeFilter, setActiveFilter] = useState('all');
 
@@ -85,8 +95,19 @@ export default function WindowFirstComingUp({
   const chips = useMemo(() => chipCounts(counts), [counts]);
   const activeChipLabel = chips.find((chip) => chip.id === activeFilter)?.label ?? 'active';
   const monthGroups = useMemo(
-    () => buildChronology(events?.entries, todayStr, activeFilter),
-    [events, todayStr, activeFilter],
+    () => buildChronology(events?.entries, todayStr, activeFilter, comingUpLastSeenDate),
+    [events, todayStr, activeFilter, comingUpLastSeenDate],
+  );
+  // The since-line's own two derivations (plan D3/D12) — read straight off the UNFILTERED served
+  // entries/bands, never the active chip's filtered subset: the badge and the since-line describe
+  // "what is new anywhere in the feed", not "what is new in the currently selected family".
+  const badge = useMemo(
+    () => deriveBadge(events?.entries, events?.bands, comingUpLastSeenDate),
+    [events, comingUpLastSeenDate],
+  );
+  const sinceEntry = useMemo(
+    () => selectSinceEntry(events?.entries, events?.bands, comingUpLastSeenDate),
+    [events, comingUpLastSeenDate],
   );
 
   const panelRef = useRef(null);
@@ -206,6 +227,16 @@ export default function WindowFirstComingUp({
           )}
         </div>
 
+        {/* The since-line (design §6's "the badge must land somewhere"; plan D3/D12/P5) — the
+            design of record's own DOM order, between the header and the chips. Gated on `ready`
+            alongside the chips below: `badge`/`sinceEntry` both read `events.entries`/`events.bands`,
+            neither of which exists before the fetch has answered. Renders nothing of its own when
+            `badge` is null (component-internal), which covers the overwhelmingly common case —
+            "silence is the normal state" (design §6) — without a second gate here. */}
+        {status === 'ready' && (
+          <WindowComingUpSinceLine badge={badge} entry={sinceEntry} onMarkSeen={onMarkSeen} />
+        )}
+
         {/* Chips and the chronology itself are gated on `ready`, unlike the head/handoff/footer
             above and below: their counts and rows come from data that does not exist yet during
             `idle`/`loading`/`error`, and a row of chips reading zero everywhere would understate
@@ -313,10 +344,17 @@ WindowFirstComingUp.propTypes = {
       byFamily: PropTypes.object,
     }),
     conditions: PropTypes.array,
+    bands: PropTypes.shape({
+      list: PropTypes.number,
+      announce: PropTypes.number,
+      interrupt: PropTypes.number,
+    }),
   }),
   hotTopics: PropTypes.array,
   todayStr: PropTypes.string,
   onRetry: PropTypes.func.isRequired,
   onGoToPlan: PropTypes.func.isRequired,
   onShowOnMap: PropTypes.func.isRequired,
+  comingUpLastSeenDate: PropTypes.string,
+  onMarkSeen: PropTypes.func.isRequired,
 };

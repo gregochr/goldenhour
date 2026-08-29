@@ -119,6 +119,19 @@ public class AppUserEntity implements UserDetails {
     @Column(name = "map_colour_scale", length = 10)
     private String mapColourScale;
 
+    /**
+     * When this user last opened the "Coming up" tab, or {@code null} when they never have.
+     *
+     * <p>The tab badge's only stored state (V152, plan D3): arrivals are computable from the
+     * shared almanac payload, so "what is new <em>to you</em>" needs only this one per-user
+     * instant. Null renders as no badge and no NEW flags — a brand-new account opens quiet — and
+     * the first tab open converts it to now via the client's quiet bootstrap write. Stored as the
+     * instant; the Europe/London civil date the client compares against is derived at serve time
+     * ({@code ForecastHorizon.civilDate}) so the timezone rule lives in one place.
+     */
+    @Column(name = "coming_up_last_seen_at")
+    private Instant comingUpLastSeenAt;
+
     /** When the user accepted the Terms &amp; Conditions. */
     @Column(name = "terms_accepted_at")
     private Instant termsAcceptedAt;

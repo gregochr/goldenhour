@@ -23,6 +23,7 @@ const view = (over = {}) => ({
   tide: null,
   coincidence: null,
   joinNote: null,
+  isNew: false,
   ...over,
 });
 
@@ -401,5 +402,35 @@ describe('WindowComingUpEntry — the coincidence card (D10, plan §6b)', () => 
   it('renders no join note when the server sent none', () => {
     renderEntry({ coincidence: COINCIDENCE, joinNote: null });
     expect(screen.queryByTestId('coming-up-join-note')).toBeNull();
+  });
+});
+
+describe('WindowComingUpEntry — the NEW flag and fresh box-shadow (plan D3/D12, P5)', () => {
+  it('renders no NEW flag and no fresh class on an entry that is not new', () => {
+    renderEntry({ isNew: false });
+    expect(screen.queryByTestId('coming-up-new-flag')).toBeNull();
+    expect(screen.getByTestId('coming-up-card').className).not.toContain('wf-cu-card-fresh');
+  });
+
+  it('renders the NEW flag between the name and the kind tag, matching the design order', () => {
+    renderEntry({ isNew: true });
+    const flag = screen.getByTestId('coming-up-new-flag');
+    expect(flag).toHaveTextContent('New');
+    // "between the name and the kind tag" — the flag's DOM position, not just its presence.
+    const title = screen.getByTestId('coming-up-title');
+    const kindTag = screen.getByTestId('coming-up-kindtag');
+    expect(title.compareDocumentPosition(flag) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(flag.compareDocumentPosition(kindTag) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('carries the fresh box-shadow class on a new entry', () => {
+    renderEntry({ isNew: true });
+    expect(screen.getByTestId('coming-up-card').className).toContain('wf-cu-card-fresh');
+  });
+
+  it('clears both together on an inert (non-interactive) card too', () => {
+    renderEntry({ isNew: true, interactive: false });
+    expect(screen.getByTestId('coming-up-new-flag')).toBeInTheDocument();
+    expect(screen.getByTestId('coming-up-card').className).toContain('wf-cu-card-fresh');
   });
 });

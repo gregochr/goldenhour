@@ -133,13 +133,17 @@ nlc:
 
 coming-up:
   scoring:                                    # the surprise model, S = rarity + magnitude, in bits.
-                            # Every value below is a PLACEHOLDER at ship (plan §11.13) — P5's
-                            # pre-ship census re-sets bands and the deterministic-type rarity gaps
-                            # from a synthetic year of the assembled feed before the badge goes live.
+                            # Band edges are CENSUS-SET (P5, ComingUpAnnualBadgeCensusTest): a
+                            # synthetic year of daily feed assemblies fires 11 badges of which one
+                            # (the eclipse) clears interrupt — the design's ~10/year, one-or-two
+                            # interrupts target. The census re-runs on every build.
     bands:
       list: 5.0                               # "in the list" band's lower edge (lower-inclusive)
       announce: 7.5                           # "announced" band's lower edge, adds the tab badge
-      interrupt: 9.5                          # "interrupt" band's lower edge — the solid ◆ badge
+      interrupt: 10.0                         # "interrupt" band's lower edge — the solid ◆ badge.
+                            # Census-set from 9.5: at 9.5 every annual-rate topic (5 showers, the
+                            # NLC boundary, all 9.5 bits) interrupted — 7/year; at 10.0 only the
+                            # eclipse (11.6) clears it
     magnitude:
       median-bits: 1.0                        # assigned when no per-topic distribution exists
       p90-rank: 0.10

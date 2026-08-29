@@ -93,6 +93,9 @@ export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) 
     entry.isFeature ? 'wf-cu-card-feat' : null,
     entry.isForecast ? 'wf-cu-card-fc' : null,
     entry.interactive ? null : 'wf-cu-card-inert',
+    // The fresh box-shadow (design §4 "Fresh entries…also get box-shadow"; plan P5) — clears
+    // together with the badge and the NEW flag below, all three keyed off the same `isNew`.
+    entry.isNew ? 'wf-cu-card-fresh' : null,
   ].filter(Boolean).join(' ');
 
   /**
@@ -128,8 +131,16 @@ export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) 
       <div className="wf-cu-ttl">
         <span className="wf-cu-nm" data-testid="coming-up-title">{entry.title}</span>
         {' '}
-        {/* NEW-flag slot reserved for P5 (plan §6) — goes here, between the name and the kind
-            tag, matching the design's title-row order. Not built in this phase. */}
+        {/* Between the name and the kind tag, matching the design's title-row order (plan §6/P5).
+            Clears together with the badge and the fresh box-shadow above — all three read the same
+            `entry.isNew`, computed once by comingUpArrivals.js's isNewEntry and threaded through
+            buildEntryView (plan D3/D12). */}
+        {entry.isNew && (
+          <>
+            <span className="wf-cu-new" data-testid="coming-up-new-flag">New</span>
+            {' '}
+          </>
+        )}
         <span className="wf-cu-kindtag" data-testid="coming-up-kindtag">{entry.kindTag}</span>
         {entry.superlative && (
           <>
@@ -310,6 +321,7 @@ WindowComingUpEntry.propTypes = {
       factsLabel: PropTypes.string.isRequired,
     })),
     joinNote: PropTypes.string,
+    isNew: PropTypes.bool.isRequired,
   }).isRequired,
   onGoToPlan: PropTypes.func.isRequired,
   onShowOnMap: PropTypes.func.isRequired,

@@ -9,10 +9,11 @@ import org.springframework.stereotype.Component;
  * Bound to the {@code coming-up.scoring} section of {@code application.yml}.
  *
  * <p>Every number the surprise model (plan §3, D4) uses lives here — {@link SurpriseScore} is pure
- * maths over whatever these knobs supply, and the UI never hardcodes a bit value. Everything below
- * is a <b>placeholder at ship</b> (plan §11.13): P5's pre-ship census, run over a synthetic year of
- * the assembled feed, re-sets {@link #bands} and the deterministic-type rarity gaps before the
- * badge goes live.
+ * maths over whatever these knobs supply, and the UI never hardcodes a bit value. The band edges
+ * were <b>set by P5's pre-ship census</b> ({@code ComingUpAnnualBadgeCensusTest}, plan §11.13),
+ * which runs a synthetic year of the assembled feed on every build; the two deterministic rarity
+ * gaps that were candidates for a census-time re-derivation (supermoon, eclipse) were measured
+ * and deliberately kept as documented estimates — each field's own Javadoc records why.
  */
 @Component
 @ConfigurationProperties(prefix = "coming-up.scoring")
@@ -50,6 +51,26 @@ public class ComingUpScoringProperties {
     /**
      * The surprise-score band edges (plan §13), lower-inclusive: a score of exactly {@link #list}
      * already clears the "in the list" band.
+     *
+     * <p><b>Set by P5's census</b> ({@code ComingUpAnnualBadgeCensusTest}, plan D4/§11.13), not
+     * placeholders any more: over a synthetic year of daily feed assemblies the v1 inventory is a
+     * discrete rarity ladder (supermoon 6.9 · solar turning point 8.5 · shower/NLC boundary 9.5 ·
+     * eclipse 11.6 bits, every magnitude at the 1.0 default), so the edges pick rungs.
+     * {@code announce} at 7.5 admits everything above the supermoon rung — 11 badge arrivals a
+     * year against the design's "roughly 10". {@code interrupt} moved 9.5 → 10.0: at 9.5 every
+     * annual-rate topic sat exactly on the interrupt contour (7 interrupts/year against the
+     * design's "one or two"); at 10.0 only the eclipse clears it (1/year). The census does not
+     * exercise a mature tide-run magnitude at all — {@code TideAlmanacSource} is not wired into
+     * it (see the census's own class Javadoc) — but the arithmetic is checkable directly:
+     * {@link SurpriseScore#magnitudeFromHistory} scores an unmatched-high run at
+     * {@code log2(n+1)} bits, so a record run needs a {@code n ≥ 69}-observation history to clear
+     * interrupt (9 past {@link Magnitude#coldStartMinObservations}, roughly 4–5 months of accrued
+     * spring/king runs once a port first matures at n = 60) — not the coarser "once-in-200-runs"
+     * figure an earlier draft of this note gave, which conflated this exact-percentile mechanism
+     * with the bucketed cold-start one. The census test re-runs the year on every build, so a
+     * topic addition or rarity retune fails there rather than silently shifting the rate; it does
+     * NOT, however, re-check this tide-run figure, which is unvalidated once a real port matures —
+     * see {@code ComingUpAnnualBadgeCensusTest}'s own Javadoc for the open follow-on.
      */
     @Getter
     @Setter
@@ -61,8 +82,8 @@ public class ComingUpScoringProperties {
         /** The "announced" band's lower edge, in bits. */
         private double announce = 7.5;
 
-        /** The "interrupt" band's lower edge, in bits. */
-        private double interrupt = 9.5;
+        /** The "interrupt" band's lower edge, in bits — census-set, see the class Javadoc. */
+        private double interrupt = 10.0;
     }
 
     /**
@@ -136,15 +157,22 @@ public class ComingUpScoringProperties {
         /**
          * A full moon within {@code SupermoonAlmanacSource}'s own perigee window — empirically a
          * little under every other lunar month, chosen so {@code log2(60)} ≈ the README's own
-         * worked reference (~5.9 bits), pending a catalogue-derived figure at P5's census.
+         * worked reference (~5.9 bits). P5's census measured the ephemeris-derived alternative
+         * (~3–4 supermoons a year → a ~91–122-day gap → 7.5–7.9 bits with the default magnitude)
+         * and deliberately kept this figure: the measured rate lands supermoons on the announce
+         * contour's knife edge and pushes the badge rate to ~14/year, the wrong side of the
+         * design's target, so re-deriving it is a re-censusing decision, not a constant swap —
+         * {@code ComingUpAnnualBadgeCensusTest.supermoonsArriveWithoutBadging} is the tripwire.
          */
         private double supermoonMeanGapDays = 60.0;
 
         /**
-         * UK-visible catalogued eclipses are rare enough that the exact figure barely matters this
-         * side of P5's census (only five are catalogued at all, 2026–2030) — placeholder sized to
-         * land comfortably past the README's "eclipse from EclipseCatalog spacing (≥10 [bits])"
-         * note, pending a real catalogue-derived mean gap.
+         * Deliberately NOT the catalogue-derived figure. The five catalogued UK-visible eclipses
+         * (2026–2030) average a 347-day gap — but that is four gaps from an unusually dense run,
+         * and adopting it (8.4 + 1.0 = 9.4 bits) would drop eclipses below the annual-rate topics
+         * and leave the interrupt band structurally unreachable by anything (0/year against the
+         * design's "one or two"). Kept sized past the README's "eclipse ≥ 10 bits" note; revisit
+         * with a long-run visibility catalogue, not a 4-gap sample (P5 census, plan §11.13).
          */
         private double eclipseMeanGapDays = 1500.0;
     }

@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildDateRail, chipCounts, buildEntryView, groupEntriesByMonth, buildChronology, footerCopy,
-  FILTER_CHIPS,
+  FILTER_CHIPS, formatArrivalDate,
 } from '../utils/comingUpFeed.js';
 
 const TODAY = '2026-08-09';
@@ -207,6 +207,26 @@ describe('buildEntryView', () => {
     expect(view.rail.day).toBe('16–18');
   });
 
+  describe('isNew (plan D3/D12)', () => {
+    it('is true when enteredWindow is strictly after the stored last-seen date', () => {
+      const view = buildEntryView(entry({ enteredWindow: '2026-08-09' }), TODAY, '2026-08-01');
+      expect(view.isNew).toBe(true);
+    });
+
+    it('is false when enteredWindow is on or before the stored last-seen date', () => {
+      expect(buildEntryView(entry({ enteredWindow: '2026-08-01' }), TODAY, '2026-08-01').isNew)
+        .toBe(false);
+      expect(buildEntryView(entry({ enteredWindow: '2026-07-20' }), TODAY, '2026-08-01').isNew)
+        .toBe(false);
+    });
+
+    it('is false when the last-seen date is null (never opened) or undefined (not yet known)', () => {
+      expect(buildEntryView(entry({ enteredWindow: '2026-08-09' }), TODAY, null).isNew).toBe(false);
+      expect(buildEntryView(entry({ enteredWindow: '2026-08-09' }), TODAY, undefined).isNew)
+        .toBe(false);
+    });
+  });
+
   it('does not throw on a wire entry with no facts key at all', () => {
     // Real, not hypothetical: `ComingUpEntry.facts` carries `@JsonInclude(NON_EMPTY)`, so an
     // entry the assembler gave no facts OMITS the key entirely rather than sending `[]`.
@@ -294,6 +314,23 @@ describe('buildChronology', () => {
   it('returns an empty list for anything that is not an array', () => {
     expect(buildChronology(null, TODAY, 'all')).toEqual([]);
     expect(buildChronology(undefined, TODAY, 'all')).toEqual([]);
+  });
+
+  it('threads the last-seen date through to each view’s isNew (plan P5)', () => {
+    const groups = buildChronology(
+      [entry({ id: 'a', enteredWindow: '2026-08-09' })], TODAY, 'all', '2026-08-01',
+    );
+    expect(groups[0].entries[0].isNew).toBe(true);
+  });
+});
+
+describe('formatArrivalDate', () => {
+  it('formats a served date as day + house-form short month', () => {
+    expect(formatArrivalDate('2026-09-12')).toBe('12 Sept');
+  });
+
+  it('does not pad a single-digit day', () => {
+    expect(formatArrivalDate('2026-10-03')).toBe('3 Oct');
   });
 });
 

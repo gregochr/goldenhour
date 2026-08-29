@@ -71,6 +71,19 @@ export async function saveMapColourPreferences(mapColourScale) {
 }
 
 /**
+ * Records that the caller has just looked at the "Coming up" tab (plan D3/P5) — the badge's only
+ * write. Its own endpoint rather than fields on `saveHome`, matching `saveMapColourPreferences`'s
+ * precedent: this is not home-derived, so folding it into that request would deserialise the home
+ * fields to null and wipe a saved postcode. No request body: "now" is the server's clock.
+ *
+ * @returns {Promise<Object>} UserSettingsResponse, with the freshly updated `comingUpLastSeenDate`
+ */
+export async function markComingUpSeen() {
+  const response = await apiClient.put(`${BASE_URL}/coming-up-seen`);
+  return response.data;
+}
+
+/**
  * Fetches the caller's reach — drive minutes and distance — for the whole enabled roster.
  *
  * <p>The per-user half of the window-first spot strip's two-contract join. It is deliberately

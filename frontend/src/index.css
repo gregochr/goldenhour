@@ -115,8 +115,10 @@
      lead-line-and-dot indicator, not a family hue, so it does not get its own entry in the family
      list above. Still a VALUE-ALIAS of `--color-verdict-marginal` for the same reason every alias
      above exists: a verdict-ramp retune must not silently recolour a topic surface that happens to
-     share its hex today. `WindowTideSparkline.jsx`/`TideRunRow.jsx`'s own markers read the raw
-     verdict token directly and predate this alias; not retrofitted here to avoid an unrelated diff. */
+     share its hex today. `WindowTideSparkline.jsx`'s own marker reads the raw verdict token
+     directly and predates this alias; not retrofitted here to avoid an unrelated diff.
+     `TideRunRow.jsx`, which shared this reasoning, was deleted with the Hot topics door in the
+     Coming up redesign's P6 — its markers went with it. */
   --color-topic-marker: #E0A542;
 
   /* The home marker on the Plan heat field (thumbnail dot + border, and at G3 the reach ring
@@ -188,6 +190,10 @@
   /* The active segment of a segmented control — the one non-badge member, here because it is the
      same trick: readable type on a 13% tint of --color-close-to-home. */
   --color-segment-active: #EBD9A8;
+  /* The Coming-up tab badge's lifted text variant (plan P5, design §6) — the same trick against
+     --color-plex-coral that --color-badge-also is to close-to-home: readable type on an 18% tint
+     of the raw channel, which measures under AA at this size. The design's own worked figure. */
+  --color-badge-coral: #F0917C;
 
   /* The temperature ramp's five whole-star hexes — `scoreRamp.js`'s STOPS_TEMP sampled at each
      whole star, for discrete (non-canvas) uses that want a literal swatch. The field itself never
@@ -806,7 +812,19 @@
    overflows only at 320 (by 22px, where the page itself also overflows by 6). So this is a 320px
    safeguard, not the common case — which is why nothing here changes the resting look, and why the
    bar keeps `flex` rather than becoming a scroll-snap rail. Verified inert at two tabs: no
-   scrollbar gutter, no reflow, `ruleTop` unchanged. */
+   scrollbar gutter, no reflow, `ruleTop` unchanged.
+
+   Re-measured for the P5 badge, and the number is smaller than a naive "badge width" estimate:
+   at 320px with the three tabs this sandbox can seed (Plan/Coming up/Operations — Map needs
+   forecast data this local DB has none of, the same limitation earlier phases recorded), the bar
+   sits at ZERO overflow with no badge and grows to only **9px** with a single-digit announce
+   badge showing, even though the badge itself measures 26px (18px pill + 8px margin) and the tab
+   button it sits in grows by exactly that much — because these are ordinary flex items with no
+   `flex-shrink:0`, so Plan and Operations narrow to absorb most of the growth before anything
+   spills into the scroller. The admin four-tab case (Map included) was not re-measured live —
+   seeding it needs a paid evaluation run — but the mechanism above means its overflow grows by
+   less than the badge's own width too, and `overflow-x: auto` still degrades rather than breaks
+   either way. */
 .wf-tabs {
   padding: 12px var(--wf-gutter) 4px;
   margin-bottom: -4px;
@@ -823,6 +841,41 @@
   border-bottom-width: 0;
   border-radius: 8px 8px 0 0;
   padding: 8px 14px;
+}
+/* The Coming-up tab badge (design §6) — two shapes on one surface, not two controls. `count`
+   (announce band) and `rare` (interrupt band) share every rule except background/colour/border/
+   size, matching the design's own "third and fourth bands of one surface" framing (README §3/§6).
+   `aria-hidden` in the markup; the button's own `aria-label` carries the equivalent words.
+
+   `margin-left`, NOT the design's `.tab{display:inline-flex;gap:8px}` container rule — a review
+   caught that the design's literal container-level `gap` would have applied to every OTHER tab
+   too (Plan/Map bake their own trailing-space-in-the-glyph-span spacing, so a second gap on top
+   would have widened both by the space's own width AND the new 8px, a visible regression this
+   tab never asked for). Margining the badge itself gets the identical visual result on Coming up
+   with zero blast radius on its siblings. */
+.wf-tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  margin-left: 8px;
+  border-radius: 9px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  background: color-mix(in oklch, var(--color-plex-coral) 18%, transparent);
+  color: var(--color-badge-coral);
+  border: 1px solid color-mix(in oklch, var(--color-plex-coral) 45%, transparent);
+}
+.wf-tab-badge-rare {
+  font-size: 9px;
+  background: var(--color-plex-coral);
+  color: #1B1411;
+  border-color: var(--color-plex-coral);
+  box-shadow: 0 0 0 3px color-mix(in oklch, var(--color-plex-coral) 16%, transparent);
 }
 /* The admin tab, marked the way the mock marks it — a dashed edge and a push to the right — and
    NOT with its "· admin" words, which measured +44.16px and put the four-tab bar past every common
@@ -2039,9 +2092,13 @@ button.wf-hc.also.on:hover {
 }
 
 /* ── Window-first doors (mock `.links` / `.lk` :223-228) ──
-   Two buttons, not the mock's `<div>`s: each opens a panel in place, so each is a disclosure and
-   owns `aria-expanded`/`aria-controls`. `align-items: stretch` on the row so a wrapped title on one
-   door does not leave the other short. */
+   ONE button now, not the mock's `<div>`s — the Hot topics door and its panel were removed in the
+   Coming up redesign's P6 (`docs/engineering/coming-up-plan.md` D7), leaving Regional planner as
+   the row's sole child; `flex`/`flex: 1` below already fill the container with one item, so no CSS
+   changed. It still opens a panel in place, so it is still a disclosure owning
+   `aria-expanded`/`aria-controls`. `align-items: stretch` is a no-op with one child but harmless
+   to keep — it is what kept a wrapped title from leaving a second door short, back when there was
+   one. */
 .wf-doors {
   display: flex;
   align-items: stretch;
@@ -3402,6 +3459,55 @@ button.wf-hc.also.on:hover {
   );
 }
 
+/* The since-line (design §6's "the badge must land somewhere"; plan D3/D12/P5) — a count with
+   nothing to find is a dead end, so the same state that puts a badge on the tab also marks a line
+   here, between the header and the chips (the design of record's own DOM order). Interrupt raises
+   both the border and the fill, matching the tab badge's own two-shape escalation. */
+.wf-cu-since {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in oklch, var(--color-plex-coral) 28%, transparent);
+  background: color-mix(in oklch, var(--color-plex-coral) 7%, transparent);
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-cu-since-rare {
+  border-color: color-mix(in oklch, var(--color-plex-coral) 50%, transparent);
+  background: color-mix(in oklch, var(--color-plex-coral) 12%, transparent);
+}
+.wf-cu-since b {
+  color: var(--color-badge-coral);
+  font-weight: 600;
+}
+/* The announce shape's own trailing bits figure (design: a muted span beside the headline) — NOT
+   `--color-plex-text-muted`: composited over this line's own coral-tinted background it measures
+   ≈3.48:1, under AA's 4.5:1 floor at 10.5px — the exact mistake this file has already made and
+   corrected at `.wf-search-glyph` and `.wf-cu-chip-count` (both now on `text-secondary`, ≈6.5:1+).
+   Same fix here rather than repeating it a third time. */
+.wf-cu-since-bits { color: var(--color-plex-text-secondary); }
+.wf-cu-since-seen {
+  margin-left: auto;
+  color: var(--color-plex-text-secondary);
+  border: 1px solid var(--color-plex-border);
+  border-radius: 6px;
+  padding: 4px 9px;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  cursor: pointer;
+  min-height: 28px;
+}
+.wf-cu-since-seen:hover {
+  border-color: var(--color-plex-border-light);
+  color: var(--color-plex-text);
+}
+
 /* Filter chips (design README §5, plan D6). `aria-pressed` carries the active state — see
    `WindowRegionRail`'s identical convention for a mutually-exclusive filter toggle — so the visual
    tint below is a consequence of that attribute, never the only signal. */
@@ -3620,6 +3726,11 @@ button.wf-hc.also.on:hover {
   border-color: var(--color-plex-border);
   border-left-color: var(--wf-cu-accent, var(--color-plex-border-light));
 }
+/* An arrived-since-last-view entry (design §4: "Fresh entries…also get box-shadow"; plan P5) —
+   clears together with the tab badge and the NEW flag below, all three keyed off `entry.isNew`. */
+.wf-cu-card-fresh {
+  box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--color-plex-coral) 24%, transparent);
+}
 .wf-cu-card[data-family="coastal"] { --wf-cu-accent: var(--color-topic-coastal); }
 .wf-cu-card[data-family="aurora"] { --wf-cu-accent: var(--color-topic-aurora); }
 .wf-cu-card[data-family="air"] { --wf-cu-accent: var(--color-topic-air); }
@@ -3643,6 +3754,20 @@ button.wf-hc.also.on:hover {
 /* The bigger title on a feature card (design README §4) — a first-of-type explanation or a
    falsifiable superlative, per `buildEntryView`'s `isFeature` derivation. */
 .wf-cu-card-feat .wf-cu-nm { font-size: 15px; font-weight: 700; }
+/* The NEW flag (design §4, plan P5) — between the name and the kind tag, matching the design's
+   title-row order. Same solid-coral/dark-text treatment as the tab badge's interrupt shape (one
+   escalation vocabulary, not two), since both mark exactly the same `isNew` fact. */
+.wf-cu-new {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: #1B1411;
+  background: var(--color-plex-coral);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
 /* No `opacity` — the design's 0.8 puts four of the seven topic accents under 4.5:1 at 8.5px
    against the card ground (measured on both the resting 6% tint and the hovered 10% one). Full-
    strength accent instead, the same correction `.wf-cu-action` above makes. */

@@ -1,3 +1,5 @@
+import { isNewEntry } from './comingUpArrivals.js';
+
 /**
  * The "Coming up" chronology's presentation layer — {@code ComingUpEntry[]} from
  * {@code GET /api/almanac} into the view models {@code WindowFirstComingUp} and
@@ -128,6 +130,19 @@ export function buildDateRail(startDate, endDate, todayStr) {
 }
 
 /**
+ * `12 Sept` — day and house-form short month together, the same two primitives the date rail
+ * already formats separately. Used wherever a served date needs a single readable string rather
+ * than the rail's split day/month slots — currently only the since-line's "entered the window,
+ * {date}" clause (plan §6/P5).
+ *
+ * @param {string} dateStr an ISO `YYYY-MM-DD` date
+ * @returns {string}
+ */
+export function formatArrivalDate(dateStr) {
+  return `${dayNum(dateStr)} ${monthName(dateStr)}`;
+}
+
+/**
  * The filter chips (design README §5, plan D6) — five, `All` plus four families. `aurora` is a
  * legal wire family with no chip of its own (unreachable in v1, plan §1.4); it is deliberately
  * absent from every entry below rather than folded into one, so a later chip can claim it without
@@ -178,9 +193,12 @@ const INTERACTIVE_ACTION_KINDS = ['plan', 'coastal-spots', 'dark-sky-spots'];
 
 /**
  * Turns one wire entry into the view a card renders. Almost entirely a pass-through — P2 already
- * decided every fact, tag and label — plus the two client-only additions: the date rail (needs the
- * reader's clock, which the server does not have) and {@code isFeature}, the card's larger-title
- * treatment.
+ * decided every fact, tag and label — plus three client-only additions: the date rail (needs the
+ * reader's clock, which the server does not have), {@code isFeature} (the card's larger-title
+ * treatment), and {@code isNew} (plan D3/D12 — whether this entry arrived since the reader last
+ * opened the tab, computed by {@code utils/comingUpArrivals.js}'s {@code isNewEntry}, the ONE
+ * per-user-join derivation this file threads through rather than owns; see that module's class doc
+ * for why the computation lives there and not here).
  *
  * <p>{@code isFeature} is derived, not served, because it names a PRESENTATION choice ("this card
  * gets the bigger title") rather than a new fact: it is true exactly where the card already has
@@ -193,11 +211,13 @@ const INTERACTIVE_ACTION_KINDS = ['plan', 'coastal-spots', 'dark-sky-spots'];
  * new {@code kind:'coming-up'} channel. {@code interactive} names all three — the P3a-era refusal
  * (the map channel did not exist yet) no longer applies.
  *
- * @param {object} entry   a {@code ComingUpEntry} as served
- * @param {string} todayStr the reader's today, `YYYY-MM-DD`
+ * @param {object}  entry        a {@code ComingUpEntry} as served
+ * @param {string}  todayStr     the reader's today, `YYYY-MM-DD`
+ * @param {?string} lastSeenDate the reader's stored `comingUpLastSeenDate`, or null/undefined
+ *                               before it is known — passed to {@code isNewEntry} unchanged
  * @returns {object} the view model
  */
-export function buildEntryView(entry, todayStr) {
+export function buildEntryView(entry, todayStr, lastSeenDate) {
   const action = entry.action ?? { label: '', kind: null, date: entry.startDate };
   return {
     id: entry.id,
@@ -221,6 +241,9 @@ export function buildEntryView(entry, todayStr) {
     tide: entry.tide ?? null,
     coincidence: entry.coincidence ?? null,
     joinNote: entry.joinNote ?? null,
+    // The NEW flag + fresh box-shadow (design §4, plan P5) — D12's per-user-join computation,
+    // imported rather than re-derived here (see this file's own class doc and comingUpArrivals.js's).
+    isNew: isNewEntry(entry, lastSeenDate),
   };
 }
 
@@ -257,16 +280,17 @@ export function groupEntriesByMonth(views) {
  * group the survivors by month. The one function {@code WindowFirstComingUp} actually calls; the
  * pieces above are exported separately because each is independently worth a focused test.
  *
- * @param {Array}  entries   the wire's {@code ComingUpEntry[]}, or undefined before it arrives
- * @param {string} todayStr  the reader's today, `YYYY-MM-DD`
- * @param {string} filterId  the active chip's id, e.g. `'all'`
+ * @param {Array}   entries      the wire's {@code ComingUpEntry[]}, or undefined before it arrives
+ * @param {string}  todayStr     the reader's today, `YYYY-MM-DD`
+ * @param {string}  filterId     the active chip's id, e.g. `'all'`
+ * @param {?string} lastSeenDate the reader's stored `comingUpLastSeenDate`, or null/undefined
  * @returns {Array} month groups, each holding its filtered, view-built entries
  */
-export function buildChronology(entries, todayStr, filterId) {
+export function buildChronology(entries, todayStr, filterId, lastSeenDate) {
   if (!Array.isArray(entries)) return [];
   const views = entries
     .filter((entry) => matchesFilter(entry, filterId))
-    .map((entry) => buildEntryView(entry, todayStr));
+    .map((entry) => buildEntryView(entry, todayStr, lastSeenDate));
   return groupEntriesByMonth(views);
 }
 

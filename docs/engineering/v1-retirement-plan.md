@@ -638,8 +638,10 @@ at `heatSpots.js:23`, `windowFirstTopics.js:42,219`, `windowFirstRegions.js:87,2
   `DailyBriefingResponse` fields that lose their only client reader — `bestBets`/`bestBetStatus`/
   `bestBetsWithdrawn`/`bestBetModel`, `stale`, `partialFailure`, `failedLocationCount`, and
   `BriefingDay.peak` (already unread since the day rail went in P2 — CLAUDE.md's "the v2 day rail
-  renders `BriefingDay.peak`" is stale); `auroraTonight/Tomorrow` keep a reader
-  (`WindowFirstDoors.jsx:235-236`). ⚠️ Word the best-bet note precisely: the **field** loses its
+  renders `BriefingDay.peak`" is stale); `auroraTonight/Tomorrow` kept a reader at
+  `WindowFirstDoors.jsx:235-236` (`HotTopicStrip`'s panel) until the Coming up redesign's P6
+  deleted that panel — the fields are now write-only, an owner call recorded in CLAUDE.md's own
+  "Hot topics" section rather than reversed here (`docs/engineering/coming-up-plan.md` D7). ⚠️ Word the best-bet note precisely: the **field** loses its
   renderer; `BriefingBestBetAdvisor` itself keeps three live consumers (`BriefingModelTestService` →
   `BriefingModelTestView`, `PipelineRunPickEntity` → `PipelineRunsView`'s picks,
   `AdvisorReplayController`) — "the advisor has no renderer" is false and would misdirect Phase 4.

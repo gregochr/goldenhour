@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.util;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.ChronoUnit;
@@ -115,5 +116,22 @@ public final class ForecastHorizon {
      */
     public static int daysAhead(LocalDate date, Clock clock) {
         return (int) ChronoUnit.DAYS.between(today(clock), date);
+    }
+
+    /**
+     * The UK civil date a stored instant fell on.
+     *
+     * <p>The serve-time half of the rule {@link #today} states for "now": a stored UTC timestamp
+     * compared against UK-dated content must be read on the UK calendar, or for the hour after UK
+     * midnight in summer the comparison is off by a day. Lives here so the zone choice stays in
+     * this one class rather than leaking into whichever DTO mapper needs it (first consumer: the
+     * "Coming up" badge's {@code comingUpLastSeenDate}, plan D3 — the client compares two ISO date
+     * strings and no timezone rule reaches the browser).
+     *
+     * @param instant the stored instant; may be null
+     * @return the date {@code instant} fell on in {@code Europe/London}, or null for null input
+     */
+    public static LocalDate civilDate(Instant instant) {
+        return instant == null ? null : LocalDate.ofInstant(instant, LONDON);
     }
 }
