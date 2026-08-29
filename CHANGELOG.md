@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.19.7] - 2026-08-29
+
 ### Added — field-geography G2: Plan thumbnail home marker + area names (`docs/engineering/field-geography-and-glyphs-plan.md`)
 
 The Plan tab's six window thumbnails (`WindowFirstHeatStrip.jsx`) gain a home marker — the user's
