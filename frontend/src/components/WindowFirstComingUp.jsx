@@ -1,73 +1,56 @@
-import React, { useEffect, useMemo, useRef } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
-import WindowComingUpRow from './WindowComingUpRow.jsx';
+import WindowComingUpEntry from './WindowComingUpEntry.jsx';
 import WindowFirstComingUpHandoff from './WindowFirstComingUpHandoff.jsx';
-import { buildComingUpRows } from '../utils/comingUpFeed.js';
+import { buildChronology, chipCounts, footerCopy, FOOTER_LEAD } from '../utils/comingUpFeed.js';
 import { ALMANAC_DAYS } from '../api/almanacApi.js';
 
+/** Served counts default to zero, matching a payload that has not arrived yet or a degraded
+ * legacy shape ({@code {entries: []}}, which carries no {@code counts} key at all). */
+const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
+
 /**
- * The "Coming up" pane — the 90-day almanac feed.
+ * The "Coming up" pane — the 90-day almanac chronology (plan §6, P3a).
  *
- * <p>Mock {@code .cu} (`Plan Window First.html` :158-176, rendered at :300-320); the v2 mock stubs
- * this pane and points at v1 for it, which its own README confirms ("Retained for the Coming up tab
- * in full, which v2 stubs"). Plan §3 is the specification.
+ * <p>Recreates {@code docs/design/coming-up/Coming Up.html} §4/§5 against the P2 payload: month
+ * rules, the two-column date-rail/card entry grid, the filter chips, the legend, and the replaced
+ * header/footer copy. {@code docs/engineering/coming-up-plan.md} §6 is the brief; §13 is the wire
+ * schema this component reads.
  *
- * <h2>It answers the one question a window cannot</h2>
+ * <h2>Everything here is presentation over an already-decided payload</h2>
  *
- * <p>The Plan tab is six solar windows over four days. This is "when is the next one" over ninety —
- * and plan §3's rule for keeping Plan small depends on it: seasons live here permanently, and Plan
- * only ever carries tonight's delta.
+ * <p>P2's {@code ComingUpAssembler} computed every fact, tag, threshold and action this pane shows.
+ * This component and {@code WindowComingUpEntry} place that payload; {@code utils/comingUpFeed.js}
+ * does the one kind of derivation that is still legitimately the client's — presentation arithmetic
+ * over served fields (the date rail, month grouping, filter membership), never a new fact.
  *
- * <h2>Spans here, one card per day on Plan — a difference, not a contradiction</h2>
+ * <h2>The vocabulary now lives on the card, not the footer</h2>
  *
- * <p>CLAUDE.md records that a multi-row card for a four-day tide run was tried on the Plan tab and
- * <b>reverted</b>, because "a single multi-row card for a four-day event sits at one point in a
- * chronological list and breaks the flow for every topic around it". This feed does the opposite
- * and both are right, because the two lists are indexed differently. <b>The Plan tab's list is
- * indexed by day</b> — every day has a row whether or not anything is happening on it — so a run
- * collapsed to one entry disappears from the Thursday a reader planning Thursday is looking at.
- * <b>This list is indexed by event</b>: a day with nothing has no row at all, and there are
- * seventy-nine such days in a ninety-day feed. Expanding an eleven-week NLC season into
- * seventy-seven rows would bury every other event under one of them.
+ * <p>Before P2, every entry was {@code ALMANAC} and the footer stated that once so a chip did not
+ * have to repeat it on every row. P2 gives every entry a real {@code kindTag} ("Almanac" or
+ * "Forecast · peak"), so the card now carries its own word and the footer's old job — see plan §6:
+ * "the old vocabulary job now lives on the per-card kind tag, so delete it rather than ship both".
  *
- * <p>What the difference costs is that a span's extent is no longer visible from the list's own
- * shape, so it has to be stated: the date column carries the whole span, and a span whose edges are
- * not real says so.
+ * <h2>Standing conditions are not built here</h2>
  *
- * <h2>No count on the tab, against the design README</h2>
+ * <p>{@code events.conditions} ships an empty list until P4 builds the strip — this pane renders
+ * nothing for it, which is the correct behaviour for an empty array rather than an omission.
  *
- * <p>The README specifies "Coming up (with count)" and the mock draws a `3`. It is dropped for two
- * reasons that compound. The count does not exist until the feed has been fetched, and the feed is
- * not fetched until the tab is opened — so it could only ever appear <em>after</em> the reader had
- * already looked, unless the fetch were made eager, which would spend a request on every Plan-tab
- * reader to decorate a tab. And the number it would show is the row count, which changes no
- * decision: eleven dated events and eight are the same answer to "is there anything coming up".
- * Plan §7 is where this deviation is recorded.
+ * <h2>Still no count on the tab (D13's other half)</h2>
  *
- * <h2>The vocabulary is stated once, at the foot</h2>
+ * <p>Preserved from before P2, because D13 rewrites it in P5, not here: the tab itself carries no
+ * row count, for the same two reasons that predate this rewrite. The count does not exist until
+ * the feed has been fetched, and the fetch is not made until the tab is opened — so it could only
+ * ever appear <em>after</em> the reader had already looked, unless the fetch were made eager
+ * (which D13 says P5 does, for the badge, not for this). And the number it would show is a row
+ * count, which changes no decision: eleven dated events and eight are the same answer to "is
+ * there anything coming up". {@code useComingUpFeed.js:9-13} carries the other half of this
+ * refusal, at the fetch itself.
  *
- * <p>Plan §3 gives the tab a two-word tag vocabulary, Almanac and Forecast, and the mock puts a
- * chip on every row. Every entry the six sources emit is {@code ALMANAC} — {@code AlmanacKind}'s
- * own Javadoc says FORECAST is reserved and unused — so a chip on every row would be a word that
- * never varies. It is stated once here instead, and only a row that departs from it is marked:
- * the same treatment the confidence channel already takes on the Plan screen, where HIGH goes
- * unmarked and only LOW carries a marker.
+ * <h2>No role gate</h2>
  *
- * <h2>No role gate, and no {@code contentDisabled} greying</h2>
- *
- * <p>CLAUDE.md asks that every new UI feature be assessed for role gating, so: <b>this pane is
- * identical for LITE, PRO and ADMIN, deliberately.</b> {@code GET /api/almanac} has no role gate
- * and no DTO mapper — {@code AlmanacControllerTest} pins that a LITE user gets the full payload —
- * so there is no backend 403 for a frontend treatment to reflect, and greying it would be a
- * paywall over data the endpoint hands out freely. It is also the right answer on the merits: this
- * is ephemeris, the same class of thing as {@code GET /api/tides}, which is Bearer for exactly the
- * reason CLAUDE.md records. The freemium split is about forecast detail, and there is none here.
- *
- * <p>It also does <b>not</b> take the {@code contentDisabled} greying the Plan pane and the day
- * rail take. That treatment marks forecast data that may be stale because the backend is DOWN, and
- * two things make it wrong here: an almanac does not go stale, and a DOWN backend means this pane's
- * own fetch failed, so it is already showing its error state — which says more than a grey wash
- * would.
+ * <p>Unchanged from P1: {@code GET /api/almanac} has no role gate and no DTO mapper, so this pane
+ * is identical for LITE, PRO and ADMIN.
  *
  * @param {object}   props
  * @param {string}   props.id       the panel's element id, paired with the tab's `aria-controls`
@@ -75,22 +58,26 @@ import { ALMANAC_DAYS } from '../api/almanacApi.js';
  * @param {string}   props.labelledBy the tab's element id
  * @param {string}   props.status   `idle` | `loading` | `ready` | `error`
  * @param {?object}  props.events   the wrapped wire payload once it has arrived — see
- *                                  {@code ComingUpResponse}; rows render from {@code events.entries}
+ *                                  {@code ComingUpResponse}
  * @param {?Array}   props.hotTopics the live `briefing.hotTopics`, for the handoff row (D14)
  * @param {string}   props.todayStr the reader's today, `YYYY-MM-DD`
  * @param {function} props.onRetry  re-runs the fetch after a failure
  * @param {function} props.onGoToPlan switches to the Plan tab and moves focus there; takes an
- *                                    optional date (§11.9) — passed to the handoff row unchanged
+ *                                    optional date — a `plan`-action card passes its own date
  */
 export default function WindowFirstComingUp({
   id, labelledBy, hidden, status, events, hotTopics, todayStr, onRetry, onGoToPlan,
 }) {
-  const rows = useMemo(
-    () => buildComingUpRows(events?.entries, todayStr), [events, todayStr],
+  const [activeFilter, setActiveFilter] = useState('all');
+
+  const counts = events?.counts ?? EMPTY_COUNTS;
+  const totalEntries = events?.entries?.length ?? 0;
+  const chips = useMemo(() => chipCounts(counts), [counts]);
+  const activeChipLabel = chips.find((chip) => chip.id === activeFilter)?.label ?? 'active';
+  const monthGroups = useMemo(
+    () => buildChronology(events?.entries, todayStr, activeFilter),
+    [events, todayStr, activeFilter],
   );
-  // Nothing today can make this true — see the class comment — so the clause it controls is a
-  // guard on a wire enum this arm does not own, not a feature waiting for a caller.
-  const hasForecastRow = rows.some((row) => row.kindLabel);
 
   const panelRef = useRef(null);
   const retryRef = useRef(null);
@@ -128,11 +115,9 @@ export default function WindowFirstComingUp({
       // alone would both hide this and take it out of the accessibility tree. The pairing is
       // defence in depth — the attribute is the semantic statement and the half jsdom can see.
       hidden={hidden}
-      // `wf-body` is the Plan pane's inset class, worn here too. The two panes sit in the same slot
-      // under the same tab rule, so a different inset would make the frame appear to move on a tab
-      // change — which was previously kept true by copying the literal `14px 18px 20px` into both
-      // files with a comment asking the next reader to keep them in step. One class means they
-      // cannot drift, and the phone gutter then changes both at once.
+      // `wf-body` is the Plan pane's inset class, worn here too — the two panes sit in the same
+      // slot under the same tab rule, so a different inset would make the frame appear to move on
+      // a tab change. Unchanged by this phase: the invariant plan §6 records still holds.
       className={hidden ? 'wf-body wf-cu-panel hidden' : 'wf-body wf-cu-panel'}
       ref={panelRef}
       data-testid="window-first-coming-up"
@@ -140,12 +125,25 @@ export default function WindowFirstComingUp({
       <div className="wf-cu">
         <div className="wf-cu-head">
           <span className="wf-cu-h">Coming up</span>
-          {/* The separator is written here rather than as the mock's `.cuh .d::before`, which is
-              the house pattern: a separator in CSS outlives the half it separates. Both halves are
-              constants today, but the rule is cheap to keep and the exception is not worth
-              explaining twice. */}
           <span className="wf-cu-d" data-testid="coming-up-subtitle">
-            {`· dated events beyond Plan's four days · next ${ALMANAC_DAYS} days`}
+            {`· dated events beyond Plan's four days, next ${ALMANAC_DAYS} days`}
+          </span>
+          {/* Rendered unconditionally (plan §6) — not gated on any entry actually using a dashed
+              rule. Without it a reader who happens to filter down to an all-solid subset would see
+              the legend appear and disappear as they click chips, which is worse than a legend
+              that occasionally explains a distinction not currently on screen. */}
+          <span className="wf-cu-legend" data-testid="coming-up-legend">
+            <span className="wf-cu-legend-item">
+              <span className="wf-cu-legend-swatch wf-cu-legend-swatch-fixed" aria-hidden="true" />
+              fixed
+            </span>
+            <span className="wf-cu-legend-item">
+              <span
+                className="wf-cu-legend-swatch wf-cu-legend-swatch-forecast"
+                aria-hidden="true"
+              />
+              still firming
+            </span>
           </span>
         </div>
 
@@ -163,7 +161,7 @@ export default function WindowFirstComingUp({
             reader arriving by arrow key gets no other signal that the pane is still loading or
             that it failed.
 
-            The empty line is gated on `ready`, not on `rows.length`. "Nothing in the next 90 days"
+            The empty line is gated on `ready`, not on entry count. "Nothing in the next 90 days"
             rendered while the request is still in flight is a false claim about the sky, and it is
             the state a reader sees for the whole of the first round-trip. */}
         <div role="status" data-testid="coming-up-status">
@@ -185,41 +183,89 @@ export default function WindowFirstComingUp({
             </p>
           )}
 
-          {status === 'ready' && rows.length === 0 && (
+          {status === 'ready' && totalEntries === 0 && (
             <p className="wf-cu-note" data-testid="coming-up-empty">
               {`Nothing dated beyond Plan's four days in the next ${ALMANAC_DAYS} days.`}
             </p>
           )}
+
+          {/* Distinct from the empty state above: `totalEntries` is the UNFILTERED count, so a
+              chip whose family genuinely has nothing today (dust and air are near-unreachable at
+              first ship, D9) would otherwise leave the chips on screen, the empty note absent
+              (because the feed itself is not empty) and no rows — a silent blank pane with no clue
+              why. Naming the filter, not just "nothing here", is what tells a reader to check the
+              chip rather than assume the feed broke. */}
+          {status === 'ready' && totalEntries > 0 && monthGroups.length === 0 && (
+            <p className="wf-cu-note" data-testid="coming-up-filter-empty">
+              {`Nothing dated matches the ${activeChipLabel} filter.`}
+            </p>
+          )}
         </div>
 
-        {/* A list, because it is one: eleven sibling divs give a screen-reader user no boundary
-            between one event and the next and no count to navigate by. */}
-        {status === 'ready' && rows.length > 0 && (
-          <div role="list" data-testid="coming-up-list">
-            {rows.map((row) => <WindowComingUpRow key={row.key} row={row} />)}
+        {/* Chips and the chronology itself are gated on `ready`, unlike the head/handoff/footer
+            above and below: their counts and rows come from data that does not exist yet during
+            `idle`/`loading`/`error`, and a row of chips reading zero everywhere would understate
+            the sky rather than describe it. */}
+        {status === 'ready' && (
+          <div className="wf-cu-chips" data-testid="coming-up-chips">
+            {chips.map((chip) => (
+              <button
+                key={chip.id}
+                type="button"
+                className="wf-cu-chip"
+                data-chip={chip.id}
+                data-testid="coming-up-chip"
+                // `aria-pressed`, not `aria-current`: this is a filter toggle and exactly one chip
+                // is on at a time — the same convention `WindowRegionRail` already uses for the
+                // same shape of control.
+                aria-pressed={activeFilter === chip.id}
+                onClick={() => setActiveFilter(chip.id)}
+              >
+                {chip.id !== 'all' && (
+                  <span className="wf-cu-chip-dot" aria-hidden="true" />
+                )}
+                {chip.label}
+                <span className="wf-cu-chip-count">{chip.count}</span>
+              </button>
+            ))}
           </div>
         )}
 
-        {/* The vocabulary, stated once. The first sentence asks the RENDERED SET rather than
-            asserting what the plan expects: "every date here is fixed" is a claim about what is on
-            screen, and it stops being true the moment a Forecast row appears. Two mutually
-            exclusive sentences, each true of the rows above it, beat one sentence with a clause
-            bolted on — that shape leaves the false half still printed. */}
-        {/* ⚠️ "Fixed in advance", NOT "fixed by orbital mechanics", and the difference is a claim
-            this feed cannot support. Two of the six sources do not compute anything orbital:
-            `NlcSeasonAlmanacSource` reads a hard-coded 25 May – 10 Aug calendar window, and
-            `SolarAlignmentAlmanacSource` uses fixed MonthDay anchors (20 Mar, 21 Jun, 22 Sep,
-            21 Dec) rather than a solved equinox instant — §5g records that those anchors are
-            approximate and that their accuracy is unverified. What IS true of all seven types is
-            that the date was settled before today and nothing about the weather can move it, which
-            is also the only part a reader needs. */}
+        {status === 'ready' && monthGroups.map((group, i) => (
+          <div key={group.key}>
+            <div
+              className="wf-cu-month"
+              data-testid="coming-up-month"
+              data-first={i === 0 ? 'true' : undefined}
+            >
+              <span className="wf-cu-month-name">{group.monthLabel}</span>
+              <span className="wf-cu-month-year">{group.year}</span>
+              <span className="wf-cu-month-rule" aria-hidden="true" />
+            </div>
+            {/* One list per month, not one list interrupted by month-rule divs: a `role="list"`
+                may only own `listitem` children, and a heading between two runs of entries would
+                break that contract. Grouped-list-with-a-preceding-heading is the standard pattern
+                for exactly this shape (a contacts list grouped by initial letter is the textbook
+                example). */}
+            <div
+              role="list"
+              data-testid="coming-up-list"
+              aria-label={`${group.monthLabel} ${group.year}`}
+            >
+              {group.entries.map((entry) => (
+                <WindowComingUpEntry key={entry.id} entry={entry} onGoToPlan={onGoToPlan} />
+              ))}
+            </div>
+          </div>
+        ))}
+
+        {/* Before `ready` there is no served count to state — {@link FOOTER_LEAD} alone is the
+            one sentence true regardless (the general rule, not a claim about how many of what).
+            The full paragraph, naming actual counts, renders only once the feed has answered;
+            without this split the pane claimed "every date here is fixed in advance" beneath
+            "Looking ahead…" and under "Could not load what is coming up." alike. */}
         <p className="wf-cu-foot" data-testid="coming-up-footer">
-          {hasForecastRow
-            ? 'Dates marked Forecast are weather-driven and firm up about three days ahead; every '
-              + 'other date here is fixed in advance and cannot move. '
-            : 'Every date here is fixed in advance — as certain three months out as it is tonight, '
-              + 'because none of it depends on the weather. '}
-          {'What the weather will do on the day is the Plan tab’s question.'}
+          {status === 'ready' ? footerCopy(counts) : FOOTER_LEAD}
         </p>
       </div>
     </div>
@@ -231,7 +277,14 @@ WindowFirstComingUp.propTypes = {
   labelledBy: PropTypes.string.isRequired,
   hidden: PropTypes.bool,
   status: PropTypes.oneOf(['idle', 'loading', 'ready', 'error']).isRequired,
-  events: PropTypes.shape({ entries: PropTypes.array }),
+  events: PropTypes.shape({
+    entries: PropTypes.array,
+    counts: PropTypes.shape({
+      fixed: PropTypes.number,
+      forecast: PropTypes.number,
+      byFamily: PropTypes.object,
+    }),
+  }),
   hotTopics: PropTypes.array,
   todayStr: PropTypes.string,
   onRetry: PropTypes.func.isRequired,

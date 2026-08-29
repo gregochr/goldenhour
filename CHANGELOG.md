@@ -5,6 +5,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Changed — Coming up P3a: chronology structure — rails, cards, chips, copy
+
+Recreates the design bundle's `Coming Up.html` §4/§5 against the P2 payload. `WindowComingUpRow.jsx`
+is deleted; `WindowComingUpEntry.jsx` replaces it with the two-column date-rail/card grid — single
+day (day-of-week + number), same-month span (`10–15`), and month-crossing span (`26 Sept` over
+`–1 Oct`, never collapsed to one range). Every card carries its server-computed `kindTag`
+unconditionally (the old suppress-the-default-Almanac-chip treatment is gone — the footer's old
+"every date is fixed" vocabulary job now lives on this tag), the falsifiable superlative, the
+headline metric, first-of-type prose, three-tone facts (base/strong/accent — accent in the entry's
+own topic colour), the threshold line, and its one served action as plain text. `WindowFirstComingUp.
+jsx` gains the unconditional legend, five filter chips with server-truth counts (D6: Sun & moon
+covers eclipse, Air & dust covers air+dust; counts never move on filter) and month-grouped
+`role="list"` sections. Seven `--color-topic-*` tokens land in `index.css`'s `@theme static` block.
+
+Only a `plan`-kind action renders as a real, clickable `<button>` in this phase — `coastal-spots`/
+`dark-sky-spots` render their label but stay inert (no pointer cursor, no hover change) until P3b
+builds the `kind:'coming-up'` map channel (D8); the click handler dispatches on the served
+`action.kind` itself so P3b's addition can't silently fall through. The two-topic coincidence card
+and the tide sparkline are also P3b's (§6b) — a merged entry still renders correctly on its winning
+topic's own facts in the meantime.
+
+One accessibility defect caught by adversarial review before landing: an `aria-label` on the
+interactive card's button threw away every fact, the prose and the threshold line from the
+accessibility tree, because `button` is an ARIA role with `childrenPresentational: true` — an
+explicit name override doesn't just relabel the control, it hides everything inside it. Fixed by
+letting the name compute from content instead (matching the existing handoff row), with explicit
+`{' '}` text-node separators between every section so nothing glues into one word — verified against
+`dom-accessibility-api`'s actual algorithm, not assumed. Also fixed: a CSS specificity bug that let
+hovering an inert card strip its topic-colour border; a `:first-child` month-rule selector that
+never matched because each month section is its own sibling wrapper; contrast failures from carrying
+the design's literal opacity values on the kind tag and action link; the footer stating a specific
+served count beneath the loading/error states; and a zero-count filter chip (Saharan dust/air, both
+near-unreachable at first ship per D9) silently blanking the pane with no explanation.
+
+One deviation from the design bundle: month abbreviations use this app's existing `en-GB` short form
+(`Sept`), not the design's literal three-letter `SEP` — recorded in the plan at §11.22.
+
 ### Changed — Coming up P2: chronology entries are scored, faceted, and merged
 
 Each eligible almanac entry now grows to the full plan §13 shape via a new assembly layer,
