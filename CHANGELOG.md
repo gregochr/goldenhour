@@ -33,6 +33,37 @@ roster (4 regions, 21 locations): home marker renders and disappears correctly u
 area names fall back correctly for this roster's non-matching region names, and the leading region's
 label brightens on a rated window.
 
+### Fixed — a flipped field-map chip pointed one chip-width west of its own location
+
+The window popup's field map flips a location chip whose name will not fit to the right of its
+point, putting the box's right edge at the anchor — so the 5px marker must move to the right end
+to stay on the projected point. The design bundle does that with `.loc.flip
+{flex-direction:row-reverse}`; the port shipped the flip *decision* (`data-flip`, pinned by test)
+but never the CSS, so a flipped chip kept its marker at the left end, a full chip-width west of
+the place it names. Observed in production as an east-coast chip (Infinity Bridge, Teesside)
+rendering on the Lake District's focused heat blob — correct latitude, longitude off by exactly
+the chip's width, and made more misleading by the focused region's own label being deliberately
+omitted. `index.css` now mirrors a flipped chip (`flex-direction: row-reverse`, with the rating's
+divider and padding swapped side-for-side so the measured width is byte-identical between the two
+states — the placer measures before it decides to flip). `mapChipFlipCascade.test.jsx` pins the
+cascade with the sliced-stylesheet technique, since the rest of the suite runs `css: false` and
+proved the attribute while nothing proved what it resolves to; the divider's *side* stays a
+browser claim (cssstyle drops the `var()`-carrying border shorthand) and was verified in the
+browser against the built stylesheet, marker-on-anchor within a pixel in both states.
+
+### Changed — Coming up standing conditions: plain-English scoring copy
+
+The strip's stat line (`rarity 3.9`, `4.9 bits`, `range median/p90`, `AOD 0.50 (interim)`) named
+its own internal maths — surprisal in bits, an aerosol-optical-depth reading, "interim" — with no
+gloss, which a non-specialist reader can't parse. `ComingUpConditionsBuilder` now prefixes every
+`rarity`/`bits` figure with a plain word bucketed off the same score (`common` / `occasional` /
+`uncommon` / `rare` / `very rare`, kept in parentheses rather than dropped), relabels the tide
+condition's real percentiles as "typical run" / "top 10% reach", and rewords the dust/inversion
+threshold clause as "counts as a plume/strong above X (early threshold)". Frontend mirrors the same
+bucket table (`utils/comingUpConditions.js#bitsWord`) to caption the raw `bits` figure on peaks and
+occurrences. A first pass, not user-tested — the bucket boundaries are a starting point for
+iteration, not a finished taxonomy.
+
 ### Added — field-geography G1: label placement + km-per-px (`docs/engineering/field-geography-and-glyphs-plan.md`)
 
 `utils/labelPlacement.js`: `placeWithNudges`, a pure greedy label placer ported from the design

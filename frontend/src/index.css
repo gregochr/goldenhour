@@ -4914,6 +4914,29 @@ button.wf-mchip:hover {
   padding-left: 5px;
   border-left: 1px solid var(--color-plex-border);
 }
+/* ⚠️ A FLIPPED chip mirrors its content, and without this rule it points at the wrong place. The
+   placer flips a chip whose name will not fit to the right of its point (`WindowRowFieldMap`'s
+   `data-flip`), putting the box's RIGHT edge at the anchor — so the 5px marker must move to the
+   right end to stay on the projected point. The bundle does this with `.loc.flip
+   {flex-direction:row-reverse}` (`docs/design/field-geography/Plan Tab with Heat v4.html`), and the
+   port shipped without it: the marker stayed at the left end, one chip-width west of the location
+   it names — far enough to drag a Teesside chip onto the Lake District's heat. jsdom pinned the
+   flip DECISION but runs `css: false`, so only `mapChipFlipCascade.test.jsx`'s sliced-stylesheet
+   pass can see this rule; the placer measures the chip before it decides to flip, so the two
+   states must keep an identical total width — which mirroring does, and any asymmetric padding
+   would not. */
+.wf-mchip[data-flip='true'] {
+  flex-direction: row-reverse;
+}
+/* The divider mirrors with the content: the rating now sits at the LEFT end, so its hairline goes
+   on its right — between it and the name, where it has always been. Padding swaps side-for-side to
+   keep the measured width byte-identical between the two states (see the note above). */
+.wf-mchip[data-flip='true'] .wf-mchip-r {
+  padding-left: 0;
+  padding-right: 5px;
+  border-left: 0;
+  border-right: 1px solid var(--color-plex-border);
+}
 
 /* ── The window popup (plan-matrix §6 M2.1) ───────────────────────────────────────────────────
    `Modal` centres its children in a fixed, padded overlay; this card takes the width and pins
