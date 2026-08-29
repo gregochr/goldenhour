@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — field-geography G2: Plan thumbnail home marker + area names (`docs/engineering/field-geography-and-glyphs-plan.md`)
+
+The Plan tab's six window thumbnails (`WindowFirstHeatStrip.jsx`) gain a home marker — the user's
+saved geocode, projected onto the field, shown only when planning from home — and area-name labels
+at each scoped region's centroid, brightened for the window's leading (highest-mean) region. Both
+are placed via G1's `placeWithNudges` (home first, then regions in scope order, droppable —
+never stacked or shrunk) through a two-pass off-screen measurement, mirroring `WindowRowFieldMap`'s
+existing chip-placement technique. `homeCoords` is plumbed from `App.jsx`'s existing state (already
+serving the Map pane) through `WindowFirstShell.jsx` into the strip and into `openField`, staged for
+G3's popup reach rings. `card.hotRegionName` is `windowFirstCards.js`'s existing `topRegion(es)`
+argmax — reused, never a fresh one — carried through `windowFirstStrip.js`'s whitelist fold. An
+authored region-name abbreviation table (`AREA_FULL`/`AREA_TINY`) picks the tiny set under a 215px
+drawn width, with a dev-mode-warned fallback (uppercased self for the full set; a derived
+abbreviation for the tiny one) for any region not in the table — regions are DB-managed and the
+table is deliberately non-authoritative. New tokens/CSS in `index.css` (`--color-home` in
+`@theme static`, `.wf-tlab`/`.wf-hm`/`.wf-tlab-rg`).
+
+Adversarially reviewed before landing (six prosecutor lenses: runtime behaviour, CSS/tokens, test
+quality, accessibility, project conventions, future-hazard fit for G3/G4). One real defect found and
+fixed: `hotRegionName`'s away-scoped branch returned the scoped region's name unconditionally,
+without the finite-`meanRating` gate its sibling field `topMeanRating` applies — so a window whose
+origin region was served but carried no rating (an ordinary AWAITING state) would still have
+brightened that region's label, which §2.3's "nothing rated → null, no label brightens" rule
+forbids. Fixed and pinned with a regression test. Verified in the browser against a seeded local
+roster (4 regions, 21 locations): home marker renders and disappears correctly under an away origin,
+area names fall back correctly for this roster's non-matching region names, and the leading region's
+label brightens on a rated window.
+
 ### Fixed — a flipped field-map chip pointed one chip-width west of its own location
 
 The window popup's field map flips a location chip whose name will not fit to the right of its

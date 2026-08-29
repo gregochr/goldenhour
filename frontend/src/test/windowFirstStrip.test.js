@@ -252,6 +252,34 @@ describe('buildHeatStripCards — movement', () => {
   });
 });
 
+describe('buildHeatStripCards — hotRegionName (field-geography plan §2.3)', () => {
+  // ⚠️ THE test a component-level fixture cannot replace: `WindowFirstHeatStrip.test.jsx` hands
+  // fixture cards straight to the component, so a field dropped from THIS fold — the whitelist
+  // `buildHeatStripCards` builds — would leave `data-hot` never firing in production while every
+  // component test stayed green. `windowFirstCards.test.js` pins where the value comes from
+  // (`topRegion`'s reuse); this pins that it survives the strip's own fold.
+  const events = [{ date: TODAY, targetType: 'SUNSET' }];
+
+  it('folds the card\'s hotRegionName through untouched', () => {
+    expect(build(events, [card({ hotRegionName: 'Cumbria' })])[0].hotRegionName).toBe('Cumbria');
+  });
+
+  it('is null when the card carries none', () => {
+    expect(build(events, [card({ hotRegionName: null })])[0].hotRegionName).toBeNull();
+  });
+
+  it('is null on an away day, which has no card to fold it from', () => {
+    const AWAY_DAYS = [{
+      date: TODAY,
+      eventSummaries: [{ targetType: 'SUNSET', solarEventTime: `${TODAY}T20:11:00` }],
+    }];
+    const [only] = build(events, [], new Set([TODAY]), AWAY_DAYS);
+
+    expect(only.away).toBe(true);
+    expect(only.hotRegionName).toBeNull();
+  });
+});
+
 describe('buildHeatStripCards — absence', () => {
   it('returns an empty list for no events, rather than undefined', () => {
     expect(build([], [])).toEqual([]);

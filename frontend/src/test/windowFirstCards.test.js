@@ -1005,6 +1005,49 @@ describe('buildWindowCards — topMeanRating, the Order control\'s ranking key',
     expect(card.topMeanRating).toBe(3.9);
   });
 
+  describe('hotRegionName — reused from topRegion, never a fresh argmax (field-geography plan §2.3)', () => {
+    it('names the SAME region topMeanRating and movement do', () => {
+      const [card] = build(withRegions([
+        { regionName: 'A', meanRating: 2.4, meanRatingDelta: 1.9 },
+        { regionName: 'B', meanRating: 4.6, meanRatingDelta: -0.3 },
+      ]));
+
+      expect(card.hotRegionName).toBe('B');
+      expect(card.movement.regionName).toBe('B');
+    });
+
+    it('is null when nothing in the window carries a mean — unlike the prototype\'s seeded reduce, which would brighten the first region', () => {
+      expect(build(withRegions([{ regionName: 'A' }, { regionName: 'B' }]))[0].hotRegionName)
+        .toBeNull();
+    });
+
+    it('breaks a tie on the NAME, exactly as topMeanRating and the region rail do', () => {
+      const [card] = build(withRegions([
+        { regionName: 'Northumberland', meanRating: 3.4 },
+        { regionName: 'Cumbria', meanRating: 3.4 },
+      ]));
+
+      expect(card.hotRegionName).toBe('Cumbria');
+    });
+
+    it('inherits the canopy filter — an all-woodland region never brightens a sky-gated field', () => {
+      const [card] = build({
+        events: events([TODAY, 'SUNSET']),
+        days: [day(TODAY, [{
+          targetType: 'SUNSET',
+          regions: [
+            { regionName: 'Sky', meanRating: 4.2, slots: [{ locationName: 'A', canopy: false }] },
+            { regionName: 'Woods', meanRating: 4.8, slots: [{ locationName: 'B', canopy: true }] },
+          ],
+          unregioned: [],
+          window: { verdict: 'WORTH_IT', badges: [] },
+        }])],
+      });
+
+      expect(card.hotRegionName).toBe('Sky');
+    });
+  });
+
   it('is a DIFFERENT quantity from bestRating, which is one location\'s score', () => {
     // Ranking six windows by a single best spot would put a window with one exceptional location
     // above one where a whole region is good — the opposite of "which window is the best bet". The
@@ -1130,6 +1173,36 @@ describe('buildWindowCards — the origin\'s scope', () => {
     expect(card.pool).toEqual([]);
   });
 
+  it('⚠️ hotRegionName is null for a scoped region present in the payload but carrying no mean — an ordinary AWAITING state', () => {
+    // The gap an adversarial review caught: `topMeanRating`'s scoped branch gates on
+    // `scopedRegion.meanRating` being a finite number before returning it; `hotRegionName`'s must
+    // do the same, or a window whose origin region is served but unrated would still brighten that
+    // region's label — exactly what §2.3's "nothing rated → null, no label brightens" forbids.
+    const days = [day(TODAY, [{
+      targetType: 'SUNSET',
+      regions: [
+        {
+          regionName: 'Lake District', slots: [SPOTS[0]], displayVerdict: 'AWAITING', bestRating: null,
+        },
+        {
+          regionName: 'Northumberland',
+          slots: [SPOTS[1]],
+          displayVerdict: 'WORTH_IT',
+          bestRating: 5,
+          meanRating: 4.6,
+        },
+      ],
+      unregioned: [],
+      window: { verdict: 'AWAITING', badges: [] },
+    }])];
+    const [card] = buildWindowCards(
+      events([TODAY, 'SUNSET']), days, TODAY, TOMORROW, new Set(), REACH,
+      { limitMinutes: null, defaultLimitMinutes: 90, origin: ORIGIN },
+    );
+
+    expect(card.hotRegionName).toBeNull();
+  });
+
   it('⚠️ re-points the header figures to the ORIGIN REGION\'s own served record', () => {
     // At home the card carries the window's roster-wide roll-up. Away that roll-up describes a
     // region the reader has scoped out — `best spot 5★` over a strip whose best card is 4★, and a
@@ -1143,6 +1216,7 @@ describe('buildWindowCards — the origin\'s scope', () => {
     expect(home.topMeanRating).toBe(4.6);
     expect(home.confidence).toBe('high');
     expect(home.movement).toEqual({ regionName: 'Northumberland', delta: 0.6 });
+    expect(home.hotRegionName).toBe('Northumberland');
 
     expect(away.verdict).toBe('MAYBE');
     expect(away.verdictLabel).toBe('Maybe');
@@ -1150,6 +1224,23 @@ describe('buildWindowCards — the origin\'s scope', () => {
     expect(away.topMeanRating).toBe(3.2);
     expect(away.confidence).toBe('low');
     expect(away.movement).toEqual({ regionName: 'Lake District', delta: -0.4 });
+    // Away, `hotRegionName` re-points to the scoped region itself (§2.3) — never an argmax over a
+    // roster the reader has just scoped away from.
+    expect(away.hotRegionName).toBe('Lake District');
+  });
+
+  it('⚠️ falls back to the roster-wide leader when the origin\'s own region has no record, like movement and topMeanRating', () => {
+    // `originRegion` returns null for a region the window carries no record for — an ordinary
+    // state, not every region appears in every window — and every sibling header field then falls
+    // back to describing the WHOLE window rather than fabricating a value for the missing scoped
+    // region (the class comment's "honest" fallback). `hotRegionName` follows the same rule.
+    const [card] = buildScoped({
+      limitMinutes: null,
+      defaultLimitMinutes: 90,
+      origin: { id: 9, name: 'Peak District', baseName: 'Bakewell' },
+    });
+    expect(card.movement).toEqual({ regionName: 'Northumberland', delta: 0.6 });
+    expect(card.hotRegionName).toBe('Northumberland');
   });
 
   it('⚠️ takes every re-pointed figure from the SERVED record, never from the scoped spots', () => {

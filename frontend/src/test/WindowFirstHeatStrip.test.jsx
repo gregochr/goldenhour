@@ -1672,6 +1672,10 @@ describe('WindowFirstHeatStrip — when the geometry cannot be fetched', () => {
     expect(screen.getByRole('button', { name: 'Tonight Sunset, 21:11, Worth it, best, nothing in reach' }))
       .toBeInTheDocument();
     expect(screen.getByTestId('wf-heat-foot')).toHaveTextContent('poor → worth it');
+    // The thumbnail geography overlay is a child of the well this gate removes wholesale — the
+    // FIRST of the two absence mechanisms field-geography plan §2.7 asks for (the second, `drawGeo`
+    // declining with the well still mounted, is its own test below).
+    expect(screen.queryByTestId('wf-heat-labels')).not.toBeInTheDocument();
   });
 });
 
@@ -1708,5 +1712,254 @@ describe('thumbAspect — the frame clamps, which are this component\'s and not 
   it('clamps a very tall frame down to the ceiling', () => {
     const tall = bbox([{ lat: 50.0, lng: -1.6 }, { lat: 58.0, lng: -1.5 }]);
     expect(thumbAspect(tall)).toBe(THUMB_ASPECT_MAX);
+  });
+});
+
+/**
+ * The thumbnail's home marker and area names (field-geography plan §2).
+ *
+ * <h2>What this block can and cannot prove</h2>
+ *
+ * <p>The default {@code drawGeo} mock returns null, which is exactly the "declines" case §2.7
+ * asks for and is what every OTHER describe block in this file renders under — none of them gets a
+ * home marker or an area label, which is itself evidence the new overlay does not leak into
+ * unrelated tests. Every case below that needs geometry sets its own projection with
+ * {@code mockImplementation} and reverts it in this block's own {@code afterEach}, because
+ * {@code vi.clearAllMocks()} in the file-level {@code afterEach} clears CALLS, not an
+ * implementation set by {@code mockImplementation} — a stub left in place would leak into whichever
+ * test in this file happens to run next (§2.7's stub-leakage finding).
+ *
+ * <p>The projection used throughout is the IDENTITY function, not the file's usual ×10 stub: under
+ * ×10 a real UK coordinate (lat ~55, lng ~−1.7) projects to (−17, 556), outside any plausible
+ * frame, so every anchor would edge-reject. With the identity a fixture's `lng`/`lat` values ARE
+ * the anchor's pixel coordinates, which is the synthetic-coordinate route §2.7 calls for.
+ */
+describe('WindowFirstHeatStrip — thumbnail geography (field-geography plan §2)', () => {
+  const HOME = { lat: 100, lon: 50 };
+  const IDENTITY_PROJ = ([lng, lat]) => [lng, lat];
+
+  afterEach(() => {
+    drawGeo.mockImplementation(() => null);
+  });
+
+  /** One catalogue spot at a chosen PIXEL anchor (under the identity projection above). */
+  function geoSpot(regionName, x, y) {
+    return {
+      id: regionName, name: regionName, lat: y, lng: x, regionName, rid: regionName,
+      skySubject: true, bortleClass: 3, scores: [4],
+    };
+  }
+
+  /** A uniform measured size for every label candidate in the test. */
+  async function withLabelBox(width, height, run) {
+    const w = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetWidth');
+    const h = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetHeight');
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', { configurable: true, get: () => width });
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', { configurable: true, get: () => height });
+    try {
+      return await run();
+    } finally {
+      if (w) Object.defineProperty(HTMLElement.prototype, 'offsetWidth', w);
+      else delete HTMLElement.prototype.offsetWidth;
+      if (h) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', h);
+      else delete HTMLElement.prototype.offsetHeight;
+    }
+  }
+
+  it('renders the home marker at the projected point when origin is home and homeCoords is set', async () => {
+    await withMeasuredThumbs(300, () => withLabelBox(40, 20, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      await renderStrip({ homeCoords: HOME, spots: [geoSpot('Solo Region', 250, 50)] });
+    }));
+
+    // anchor (50, 100), box (40, 20): x = 50 - 20 = 30, y = 100 - 10 + 0 = 90.
+    expect(screen.getByTestId('wf-heat-home')).toHaveStyle({ left: '30px', top: '90px' });
+  });
+
+  it('draws no home marker under an away origin, even with homeCoords set', async () => {
+    await withMeasuredThumbs(300, () => withLabelBox(40, 20, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      await renderStrip({
+        homeCoords: HOME,
+        origin: { name: 'Solo Region', baseName: 'Keswick' },
+        spots: [geoSpot('Solo Region', 250, 50)],
+      });
+    }));
+
+    expect(screen.queryByTestId('wf-heat-home')).not.toBeInTheDocument();
+  });
+
+  it('draws no home marker with no saved postcode', async () => {
+    await withMeasuredThumbs(300, () => withLabelBox(40, 20, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      await renderStrip({ homeCoords: null, spots: [geoSpot('Solo Region', 250, 50)] });
+    }));
+
+    expect(screen.queryByTestId('wf-heat-home')).not.toBeInTheDocument();
+  });
+
+  it('⚠️ home wins its space: a coincident region label is nudged clear rather than home yielding', async () => {
+    // Both boxes the same size at the SAME anchor, so the first rung that clears them pins the
+    // placement ORDER (§2.5: home first). Home takes dy=0 outright; the region is rejected at
+    // dy=0/-13/13 (all overlap home's box) and clears at dy=-24.
+    await withMeasuredThumbs(300, () => withLabelBox(40, 20, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      await renderStrip({
+        homeCoords: HOME,
+        spots: [geoSpot('Coincident Region', HOME.lon, HOME.lat)],
+      });
+    }));
+
+    expect(screen.getByTestId('wf-heat-home')).toHaveStyle({ left: '30px', top: '90px' });
+    expect(screen.getByTestId('wf-heat-area')).toHaveStyle({ left: '30px', top: '66px' });
+  });
+
+  it.each([
+    [214, 'LAKES'],
+    [215, 'LAKE DISTRICT'],
+  ])('picks the tiny table under 215px and the full table AT 215px (drawn width %ipx)', async (width, expected) => {
+    await withMeasuredThumbs(width, () => withLabelBox(50, 12, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      await renderStrip({ spots: [geoSpot('Lake District', 100, 100)] });
+    }));
+
+    const label = screen.getByTestId('wf-heat-area');
+    expect(label).toHaveTextContent(expected);
+    expect(label).toHaveAttribute('data-region', 'Lake District');
+  });
+
+  it('falls back to the uppercased name for an unmapped region on the FULL table', async () => {
+    await withMeasuredThumbs(300, () => withLabelBox(80, 12, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      await renderStrip({ spots: [geoSpot('South Downs', 100, 100)] });
+    }));
+
+    expect(screen.getByTestId('wf-heat-area')).toHaveTextContent('SOUTH DOWNS');
+  });
+
+  it('derives a short abbreviation for an unmapped region on the TINY table — never the full-name fallback', async () => {
+    // §2.4: a full-name-uppercase fallback at under 215px would fail placement outright and the
+    // region would silently lose its label, so the tiny fallback drops the leading directional and
+    // keeps the next word instead.
+    await withMeasuredThumbs(150, () => withLabelBox(40, 12, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      await renderStrip({ spots: [geoSpot('South Downs', 100, 100)] });
+    }));
+
+    expect(screen.getByTestId('wf-heat-area')).toHaveTextContent('DOWNS');
+  });
+
+  it('marks data-hot="true" on exactly the card\'s hotRegionName label', async () => {
+    await withMeasuredThumbs(300, () => withLabelBox(30, 12, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      await renderStrip({
+        cards: [stripCard({ hotRegionName: 'Region A' })],
+        spots: [geoSpot('Region A', 60, 60), geoSpot('Region B', 220, 200)],
+      });
+    }));
+
+    const labels = screen.getAllByTestId('wf-heat-area');
+    expect(labels.find((n) => n.dataset.region === 'Region A')).toHaveAttribute('data-hot', 'true');
+    expect(labels.find((n) => n.dataset.region === 'Region B')).not.toHaveAttribute('data-hot');
+  });
+
+  it('marks nothing hot when hotRegionName is null', async () => {
+    await withMeasuredThumbs(300, () => withLabelBox(30, 12, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      await renderStrip({
+        cards: [stripCard({ hotRegionName: null })],
+        spots: [geoSpot('Region A', 60, 60), geoSpot('Region B', 220, 200)],
+      });
+    }));
+
+    for (const label of screen.getAllByTestId('wf-heat-area')) {
+      expect(label).not.toHaveAttribute('data-hot');
+    }
+  });
+
+  it('drops the second of two coincident region labels at a stubbed height of 35px', async () => {
+    // The arithmetic: two boxes at one anchor overlap on every rung in [0,±13,±24,±36] whenever the
+    // stubbed height + the 2px vertical pad exceeds the largest rung (36) — true at 35 (37 > 36),
+    // false at 14 (16 < 24, the nudge test below). Both are correct outcomes at different
+    // geometries; this pins the drop.
+    await withMeasuredThumbs(300, () => withLabelBox(40, 35, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      await renderStrip({ spots: [geoSpot('Region A', 150, 150), geoSpot('Region B', 150, 150)] });
+    }));
+
+    const labels = screen.getAllByTestId('wf-heat-area');
+    expect(labels).toHaveLength(1);
+    expect(labels[0]).toHaveAttribute('data-region', 'Region A');
+  });
+
+  it('nudges rather than drops the second of two coincident labels at a stubbed height of 14px', async () => {
+    await withMeasuredThumbs(300, () => withLabelBox(40, 14, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      await renderStrip({ spots: [geoSpot('Region A', 150, 150), geoSpot('Region B', 150, 150)] });
+    }));
+
+    const labels = screen.getAllByTestId('wf-heat-area');
+    expect(labels).toHaveLength(2);
+    // anchor y=150, h=14 → h/2=7; first clear rung is -24: 150 - 7 - 24 = 119.
+    expect(labels.find((n) => n.dataset.region === 'Region B')).toHaveStyle({ top: '119px' });
+  });
+
+  it('drawGeo declining leaves the well mounted with an empty overlay (mechanism 2 of 2 — mechanism 1, `load()` rejecting, is pinned above in "when the geometry cannot be fetched")', async () => {
+    // The default mock (`drawGeo: vi.fn(() => null)`) applies unless a test sets its own, so this
+    // needs no `mockImplementation` of its own.
+    await withMeasuredThumbs(300, async () => {
+      await renderStrip({ homeCoords: HOME, spots: [geoSpot('Solo Region', 250, 50)] });
+    });
+
+    expect(screen.getByTestId('wf-heat-well')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-heat-home')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('wf-heat-area')).not.toBeInTheDocument();
+  });
+
+  it('re-places on change: an origin flip clears the home marker the next paint draws', async () => {
+    let rerender;
+    await withMeasuredThumbs(300, () => withLabelBox(40, 20, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      const cards = [stripCard()];
+      const points = scoredWindows(cards);
+      await act(async () => {
+        ({ rerender } = render(
+          <WindowFirstHeatStrip
+            spots={[geoSpot('Solo Region', 250, 50)]}
+            todayStr={TODAY}
+            onOpenWindow={vi.fn()}
+            cards={cards}
+            pointSets={points}
+            homeCoords={HOME}
+          />,
+        ));
+      });
+      expect(screen.getByTestId('wf-heat-home')).toBeInTheDocument();
+
+      await act(async () => {
+        rerender(
+          <WindowFirstHeatStrip
+            spots={[geoSpot('Solo Region', 250, 50)]}
+            todayStr={TODAY}
+            onOpenWindow={vi.fn()}
+            cards={cards}
+            pointSets={points}
+            homeCoords={HOME}
+            origin={{ name: 'Solo Region', baseName: 'Keswick' }}
+          />,
+        );
+      });
+    }));
+
+    expect(screen.queryByTestId('wf-heat-home')).not.toBeInTheDocument();
+  });
+
+  it('the overlay is aria-hidden', async () => {
+    await withMeasuredThumbs(300, () => withLabelBox(40, 20, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      await renderStrip({ homeCoords: HOME, spots: [geoSpot('Solo Region', 250, 50)] });
+    }));
+
+    expect(screen.getByTestId('wf-heat-labels')).toHaveAttribute('aria-hidden', 'true');
   });
 });

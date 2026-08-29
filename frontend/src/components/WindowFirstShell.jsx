@@ -279,11 +279,13 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  *        {@code null} is "answered, no home saved" — see {@link MastheadLight}.
  * @param {function} [props.onSetPostcode] opens settings on the home-postcode field, for the
  *        band's nudge. Defaults to {@code onOpenSettings}, so the nudge can never be a dead end.
+ * @param {?object} [props.homeCoords] {@code {lat, lon}}, or null with no postcode saved — reused
+ *        by the heat strip's home marker and (at G3) the popup field's reach rings.
  */
 export default function WindowFirstShell({
   onOpenSettings, onSignOut, contentDisabled, onShowOnMap, onEvaluationScoresChange,
   onSeasonalFeaturesChange, locations, mapPane, operationsPane, tabRequest, healthPill,
-  light, onSetPostcode, mapColourScale = null,
+  light, onSetPostcode, mapColourScale = null, homeCoords = null,
 }) {
   const {
     heatStripCards, heatPointSets, heatSpots, reachById, regionSeries,
@@ -691,9 +693,12 @@ export default function WindowFirstShell({
       // has nothing left to choose (plan §4.8).
       singleRegionScope: Boolean(origin),
       origin: origin ?? null,
+      // Not yet read — G3 wires the popup field's reach rings and home marker off this. Plumbed now
+      // (plan §2.1) so the two phases share one prop path from `App` rather than two.
+      homeCoords,
     };
   }, [openCard, heatSpots, heatPointSets, heatStripCards, regionSeries, reachById,
-    eventSummariesByKey, fieldLens, focusedRegion, origin]);
+    eventSummariesByKey, fieldLens, focusedRegion, origin, homeCoords]);
 
   // Lifted to App for the map overlay. Without this a tile handed to the map opens an overlay with
   // no narrative over a map that has filtered out every unrated pin — see the provider's note on
@@ -1317,6 +1322,7 @@ export default function WindowFirstShell({
             runAge={age}
             onOpenWindow={openWindow}
             origin={origin ?? null}
+            homeCoords={homeCoords}
             onSearchRegion={(regionName) => { if (stackedOverPopup) return; setSearchSeed(regionName); }}
           />
         </Suspense>
@@ -1678,4 +1684,13 @@ WindowFirstShell.propTypes = {
   light: PropTypes.object,
   /** Opens settings on the postcode field for the band's nudge; falls back to onOpenSettings. */
   onSetPostcode: PropTypes.func,
+  /**
+   * The user's saved geocode, or null with no postcode saved — the same value {@code App} already
+   * hands the Map pane, reused so the Plan surfaces' home marker (and, at G3, its reach rings) can
+   * never name a different point (field-geography plan §2.1). Never a constant.
+   */
+  homeCoords: PropTypes.shape({
+    lat: PropTypes.number,
+    lon: PropTypes.number,
+  }),
 };
