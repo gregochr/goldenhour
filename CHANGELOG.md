@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.19.5] - 2026-08-29
+
 ### Changed — Coming up P3a: chronology structure — rails, cards, chips, copy
 
 Recreates the design bundle's `Coming Up.html` §4/§5 against the P2 payload. `WindowComingUpRow.jsx`
