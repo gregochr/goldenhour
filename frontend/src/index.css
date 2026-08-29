@@ -3438,11 +3438,13 @@ button.wf-hc.also.on:hover {
       10-11px on `--color-plex-panel`, under AA — the same measurement `.wf-facts`'s own comment
       makes for the fact-chip tones. Applied here to the legend and chip text, which the design
       also sets in `--ink-3`.
-   2. **Card content is a real `<button>` for a `plan`-action entry, a plain `<div>` for anything
-      else** (plan §11.5, D8's seam) — the design gives every card `cursor:pointer` regardless of
-      what a click does. Only the `plan` action is wired to a destination in this phase; the
-      `coastal-spots`/`dark-sky-spots` map channel is P3b's. `.wf-cu-card-inert` is the honest
-      un-hover, un-pointer state for those, so the card never promises a click it cannot honour.
+   2. **Card content is a real `<button>` for an entry whose action has a recognised kind, a plain
+      `<div>` for anything else** (plan §11.5, D8's seam) — the design gives every card
+      `cursor:pointer` regardless of what a click does. As of P3b all three served kinds (`plan`,
+      `coastal-spots`, `dark-sky-spots`) are wired to a real destination, so `.wf-cu-card-inert` is
+      no longer a designed common state — it survives only as the honest degrade for an entry whose
+      `action.kind` is missing or unrecognised (`utils/comingUpFeed.js`'s `{ kind: null }` fallback
+      for an absent `action`), so the card never promises a click it cannot honour.
    3. **One `role="list"` per month, not one list interrupted by month-rule divs.** A `role="list"`
       may only own `listitem` children; a heading between two runs of entries would break that
       contract. Each month section is its own list, preceded by a (non-list) month rule — the
@@ -3859,7 +3861,119 @@ button.wf-hc.also.on:hover {
   margin-top: 5px;
   max-width: 76ch;
 }
-.wf-cu-card .wf-facts { margin-top: 7px; }
+
+/* The coincidence card (D10, plan §6b) — renders alongside `.wf-cu-prose`, not instead of it (see
+   `WindowComingUpEntry`'s class doc for the corrected first attempt). A `<span>` in the markup, not
+   the design's `<div class="coin">`: button content model is phrasing content only, and `.wf-cu-
+   prose`/`.wf-cu-threshold`/`.wf-cu-join` all make the same `display: block`-on-a-`<span>` trade for
+   the same reason. Each line inside is `inline-flex` instead. */
+.wf-cu-coin {
+  display: block;
+  margin-top: 5px;
+}
+.wf-cu-coin-line {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 9px;
+  flex-wrap: wrap;
+  padding: 5px 0;
+  width: 100%;
+}
+/* Lines after the first get the dashed separator (design §4's "lines after the first"); the CSS
+   sibling combinator does that without a per-line index prop. */
+.wf-cu-coin-line + .wf-cu-coin-line {
+  border-top: 1px dashed var(--color-plex-border);
+}
+.wf-cu-coin-swatch {
+  width: 7px;
+  height: 7px;
+  border-radius: 2px;
+  flex: none;
+  /* Centred against the line's baseline alignment (design's `align-self:center` on `.coin .sw`) —
+     an empty span's own baseline is its bottom margin edge, so without this the dot sits low
+     against the name text beside it rather than centred on the line. */
+  align-self: center;
+  background: var(--wf-cu-accent, var(--color-plex-border-light));
+}
+/* Swatch colour keyed on the LINE's own family (data-family on the line, not the card) — a
+   coincidence line names the OTHER topic, which is never the card's own family. `--wf-cu-accent`
+   is redeclared per line for exactly that reason; `.wf-cu-card[data-family]`'s own declaration
+   (index.css above) covers only the card's own family and would paint every swatch the same
+   colour without this. The fallback above only bites a family this list has not yet named — never
+   reachable today (the merge only ever pairs coastal with sun-moon), matching every other
+   `--wf-cu-accent` consumer's own fallback in this file. */
+.wf-cu-coin-line[data-family="coastal"] { --wf-cu-accent: var(--color-topic-coastal); }
+.wf-cu-coin-line[data-family="aurora"] { --wf-cu-accent: var(--color-topic-aurora); }
+.wf-cu-coin-line[data-family="air"] { --wf-cu-accent: var(--color-topic-air); }
+.wf-cu-coin-line[data-family="night-sky"] { --wf-cu-accent: var(--color-topic-night-sky); }
+.wf-cu-coin-line[data-family="sun-moon"] { --wf-cu-accent: var(--color-topic-sun-moon); }
+.wf-cu-coin-line[data-family="dust"] { --wf-cu-accent: var(--color-topic-dust); }
+.wf-cu-coin-line[data-family="eclipse"] { --wf-cu-accent: var(--color-topic-eclipse); }
+.wf-cu-coin-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-plex-text);
+}
+.wf-cu-coin-facts {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+  white-space: nowrap;
+}
+/* The joining sentence — Newsreader, matching `.wf-cu-prose`'s own serif treatment, since it plays
+   the same "explain it in words" role the prose slot plays on a non-merged feature card. */
+.wf-cu-join {
+  display: block;
+  font-family: var(--font-serif);
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--color-plex-text-secondary);
+  margin-top: 7px;
+  max-width: 76ch;
+}
+
+.wf-cu-card .wf-facts {
+  margin-top: 7px;
+  /* Every existing fact chip is one line of 10.5px text, so `.wf-facts`'s own default (no
+     `align-items`, i.e. `stretch`) never mattered before — every sibling was the same height. The
+     sparkline is the first 24px-tall item in this row: without `center`, `stretch` pins its
+     10.5px label to the TOP of that 24px box instead of level with the wave's own centreline.
+     Scoped to this card rather than widening the shared `.wf-facts` rule, which `WindowAttributeRow`
+     also consumes with no tall items of its own. */
+  align-items: center;
+}
+/* The tide sparkline (design README §4 "Tide sparkline", plan §6b) — a facts-row item like any
+   other, `inline-flex` so the numeric label sits beside the SVG rather than beneath it. Rendered
+   84×24 against a 104×24 viewBox (the design's own figures), stretched by `preserveAspectRatio=
+   "none"` on the SVG itself — unlike `.wf-mini` (`WindowTideSparkline`'s 1:1 box), which must NOT
+   stretch because it plots a day-shape whose circular marker `none` would turn into an ellipse. */
+.wf-cu-card .wf-facts > .wf-cu-spark {
+  /* Not the bare `.wf-cu-spark` selector: `.wf-facts > span { gap: 2px 4px }` (index.css above)
+     matches this element too at equal specificity (0,1,1) and wins on source order, so an
+     unscoped rule here is silently overridden and the design's 6px never actually renders — found
+     by review, not by eye. */
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.wf-cu-spark-svg {
+  width: 84px;
+  height: 24px;
+  flex: none;
+  overflow: visible;
+}
+.wf-cu-spark-label {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text);
+  white-space: nowrap;
+}
+/* Secondary, not `--color-plex-text-muted` — this file's own repeated AA-contrast correction
+   (`.wf-facts`'s comment above records the fourth instance of this exact fix) measures muted at
+   3.49:1 on this card ground at similarly small sizes, under the 4.5:1 AA floor; secondary is
+   6.57:1. */
+.wf-cu-spark-delta { color: var(--color-plex-text-secondary); }
 /* The third fact tone (design's `<em>`) — the topic's own accent, for the one clause per fact row
    that carries the card's actual claim (a tide's alignment, a shower's wash-out warning). `.wf-cu-
    card` scopes this so `.wf-facts`'s two other consumers (`WindowAttributeRow`, this pane's own

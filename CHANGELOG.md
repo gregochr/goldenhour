@@ -5,6 +5,100 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Coming up P3b: tide sparkline, coincidence cards, map actions
+
+The chronology card's remaining two on-the-wire-but-unrendered fields (`entry.tide`, P2;
+`entry.coincidence`/`joinNote`, D10) get renderers, and the `coastal-spots`/`dark-sky-spots` card
+actions get a real destination (D8) — closing the two gaps P3a's phase-log row recorded.
+
+**Tide sparkline.** New `ComingUpTideSparkline` (SVG, 104×24 viewBox rendered 84×24,
+`preserveAspectRatio="none"`) draws a fixed-phase cosine whose amplitude carries a run's range — a
+big spring visibly taller than a small one, with a faint "ghost" wave behind it showing what an
+average tide at the port looks like. Pure geometry lives in `utils/comingUpSparkline.js`
+(`tideSparklineAmplitude`/`tideWavePath`/`tideMarkerY`), clamped at both ends (the design's own
+formula has no floor; a below-average delta would otherwise go negative and silently invert the
+wave, dropping a marked HIGH water's marker below the axis — found by adversarial review, fixed).
+The amplitude reads the served `delta` directly (`range − avgRangeMetres`, plan §11.6 — never the
+design's hardcoded 3.3 m); `phase` (`HW`/`LW`) drives the sign, inverting the wave and dropping the
+marker below the axis for a marked low water. `aria-hidden`; the numeric label beside it
+(`5.2 m +1.9 vs avg`) carries the whole accessible answer. Renders as a facts-row item on any entry
+with a non-null `tide`.
+
+**Coincidence card.** When `entry.coincidence` is non-null, each served line (the backend only ever
+sends the LOSING topic's own line — `ComingUpCoincidenceLine`'s own javadoc — the winner's identity
+is already the card's title row) renders as a 7×7 swatch in that line's own family colour, the name,
+and the `factsLabel` right-aligned, verbatim (the absorbed run's range is load-bearing — it is how a
+reader checks the superlative, per P2's phase log); dashed separators between multiple served lines;
+then `joinNote` in the prose style below. **Renders alongside `entry.prose`, not instead of it** — a
+corrected first attempt treated the two as mutually exclusive (matching the design bundle's own `EV`
+fixtures), but `ComingUpAssembler.assemble` runs `markFirstOfType` AFTER `mergeCoincidences`, so a
+merged winner that is also first-of-its-type in the window legitimately carries both fields; the
+exclusive-or silently dropped the prose whenever it did — found by adversarial review (independently
+by all four review lenses), fixed frontend-only.
+
+**Map actions (D8).** A new `kind:'coming-up'` map-overlay trigger, modelled on the `topic` branch
+(the one that claims nothing about ratings) but never reusing it — `kind:'topic'`'s only caller,
+`HotTopicStrip`, is deleted in P6, so a new caller of that branch would break the moment it lands.
+`coastal-spots` carries `filterAction:'SEASCAPE'`; `dark-sky-spots` carries a new `darkSky` boolean
+flag. The branch-selection logic that used to live inline in `App.jsx`'s `handleShowOnMap` is now
+`normalizeMapTrigger` (`utils/mapOverlay.js`), unit-tested directly — the `coming-up` check has to
+run before the generic `filterAction` check or a coastal/dark-sky tap silently becomes a doomed
+`kind:'topic'` trigger, and that ordering had no test coverage before this phase (adversarial review
+finding). `MapView` gains a `handoffDarkSky` prop and an effect that sets `darkSkyFilter` in BOTH
+directions, guarded on `handoffDarkSky != null` — the coming-up channel always sends an explicit
+boolean, so `null` unambiguously means "an unrelated handoff", which matters because `handoffNonce`
+is one counter shared by every map action in the app: an earlier draft cleared a reader's *manually
+set* dark-sky filter on the next unrelated map tap on the same never-unmounted Map-tab pane — found
+by adversarial review (independently by two review lenses), fixed. The trigger deliberately still
+carries `date` (App.jsx's existing `setSelectedDate`/`MapView` `date` prop): the coming-up branch,
+like `topic`, never calls `ratingFor`/`solarTimeFor`, and the coming-up trigger's own markers are
+selected via `focus.names` (an exact-match override that bypasses the rating-filter pipeline
+entirely), so a date up to 90 days out can never dress "no data" as "stand down" the way `kind:
+'event'` would have.
+
+**Recorded gap, not silently dropped**: `handoffFilterAction`'s existing effect still only ever
+turns a type filter ON (never clears on a falsy value, unlike the new `handoffDarkSky` effect) — a
+coastal-spots-then-dark-sky-spots sequence on the persistent Map tab can leave a stale SEASCAPE
+filter layered under the new dark-sky one. Self-describing (the filter chip row shows both), and the
+same latch already existed for topic pills before this phase; widening the fix would touch shared,
+previously-untested behaviour for every other trigger kind, so it is left as a scoped follow-up
+rather than patched under review-fix time pressure — the same treatment §11.21 gives the lone-tide-
+run threshold gap.
+
+**`chart/solarDayGeometry.js` was NOT reused for the sparkline** (recorded per §6b, for P6's
+`TideRunRow` deletion decision to read): that module's axis is a Europe/London clock day (1440
+minutes, sampled by clock time); this sparkline is a fixed-phase cosine over a 62-unit period with
+no relationship to a clock at all. Nothing to share beyond both being small tide SVGs.
+
+Backend: none — P3b is frontend-only, every field it renders already shipped on the wire in P2.
+Frontend gate green (179 test files, 4371 tests, lint clean, `npm audit` 0 vulnerabilities, build
+clean). Four adversarial review lenses (runtime correctness vs spec, CSS/tokens/accessibility, test
+quality, conventions/forward-compatibility) found real defects before landing, all fixed: the
+sparkline amplitude's missing floor (documented as one, not enforced); a test whose NAME asserted
+the opposite of what its body checked; the `wf-cu-coin` wrapper nested as a `<div>` inside a
+`<button>` (invalid content model — the file's own established `<span>`-with-`display:block`
+pattern fixes it); the coincidence card's synthesized "self" line duplicating the card's own title
+verbatim (the design's combined name for a merged entry, e.g. "Spring tide run, on a supermoon", is
+not what the backend serves); a CSS specificity collision that silently dropped the sparkline's own
+`gap` to the shared `.wf-facts > span` rule's 4px; a missing `align-items:center` on the facts row
+that pinned the sparkline's label to the top of its 24px box instead of centring it on the wave; a
+hardcoded `#E0A542` where `--color-verdict-marginal` already names it; and the two map-channel
+defects above. Browser-verified live (Playwright headless from Bash — the interactive Browser pane
+wedged mid-session, a recorded recovery path): the sparkline renders correctly on every seeded tide
+entry (desktop and 390px) with the label centred beside the wave; the coincidence card renders both
+directions of the merge (a tide run absorbing a supermoon, and a supermoon absorbing a king tide
+run) with no duplicated title and the correct per-line swatch colour; clicking `Show coastal spots`
+opens the map overlay with the SEASCAPE filter active and the served title/caption; clicking `Show
+dark-sky spots` opens it with the Dark sky filter active; no console errors in either case. **Two
+states seen only via unit test, not the browser**: the LW (low-water) wave inversion — the seeded
+synthetic tide data happened to mark every run HW, not by any code path that could prevent LW, and
+is fully covered by both the pure-function tests and a component-level marker-position test; and the
+exact "dark-sky-then-coastal clears it" sequence on the PERSISTENT Map tab specifically (as opposed
+to the overlay, which remounts fresh each open and was verified) — the local DB has no forecast
+evaluations (a real evaluation run costs real Anthropic API spend, declined for this verification
+pass), so the app never renders a Map tab at all locally; `MapViewDarkSkyHandoff.test.jsx` exercises
+the identical prop sequence directly against `MapView`.
+
 ### Added — Coming up P4: standing conditions — strip, statuses, interim scoring
 
 The Coming up tab gains its standing-conditions strip (design README §2/§2.1, plan §7): three

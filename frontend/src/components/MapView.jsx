@@ -782,7 +782,7 @@ const OVERLAY_MAP_HEIGHT_PX = 470;
 const OVERLAY_MAP_HEIGHT_FILTERS_OPEN_PX = 300;
 const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
 
-function MapView({ locations, date, onSelectDate = null, autoEventType, handoffEventType, handoffFilterAction, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false }) {
+function MapView({ locations, date, onSelectDate = null, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -975,6 +975,34 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
       })();
     }
   }, [handoffFilterAction]);
+
+  // Apply a dark-sky handoff from the Coming up chronology's `dark-sky-spots` action (D8).
+  //
+  // ⚠️ Depends on BOTH `handoffDarkSky` AND `handoffNonce`, unlike the `handoffFilterAction` effect
+  // just above — that effect only ever turns a filter ON (an empty/falsy `handoffFilterAction`
+  // never fires it), so omitting the nonce from its deps is harmless. `darkSkyFilter` is a plain
+  // boolean the reader's own toggle button can also flip, and this handoff must be able to turn it
+  // OFF too (dark-sky spots, then coastal spots, on the same never-unmounted map pane) — setting the
+  // flag in BOTH directions on every dispatch, keyed by the nonce so a repeat tap of the SAME action
+  // re-applies it. Omitting the nonce here (copying the filter-action effect's shape for what is
+  // really a different value class) would latch the filter permanently once turned on, since a
+  // `false` value is `useEffect`-invisible without something else in the dependency array to force
+  // the re-run — this is the exact trap plan D8 names.
+  //
+  // ⚠️ Guarded on `handoffDarkSky != null` — found by adversarial review. `handoffNonce` is ONE
+  // monotonic counter shared by every `handleShowOnMap` call in the app (App.jsx), not just
+  // coming-up ones, so an unconditional `setDarkSkyFilter(!!handoffDarkSky)` fired on every handoff
+  // reaching this never-unmounted pane — a reader who manually turns Dark sky on, then taps ANY
+  // unrelated map action (a Plan location drill-down, a region row), would find it silently turned
+  // back off, since every other handoff's `handoffDarkSky` resolves to `null` (nobody else sets it).
+  // The guard is safe specifically because the coming-up channel is the only producer of this prop
+  // and it ALWAYS sends an explicit boolean (`mapOverlay.js`'s `darkSky: !!trigger.darkSky`, never
+  // `null`) — so "null" unambiguously means "a different, unrelated handoff", and only a genuine
+  // coming-up trigger (either flavour) can reach the `act` branch below.
+  useEffect(() => {
+    if (handoffDarkSky == null) return;
+    (async () => setDarkSkyFilter(!!handoffDarkSky))();
+  }, [handoffDarkSky, handoffNonce]);
 
   // Apply a specific-location handoff from a Plan tab drill-down: fly to the
   // location and select it. HandoffPopupController opens its popup once the fly
@@ -2330,6 +2358,7 @@ MapView.propTypes = {
   autoEventType: PropTypes.string,
   handoffEventType: PropTypes.string,
   handoffFilterAction: PropTypes.string,
+  handoffDarkSky: PropTypes.bool,
   handoffLocationName: PropTypes.string,
   emphasiseLocationName: PropTypes.string,
   handoffRegion: PropTypes.string,

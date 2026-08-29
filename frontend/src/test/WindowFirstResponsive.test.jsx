@@ -165,6 +165,8 @@ describe('P14 responsive hooks — shell chrome', () => {
         events={[]}
         todayStr={TODAY}
         onRetry={vi.fn()}
+        onGoToPlan={vi.fn()}
+        onShowOnMap={vi.fn()}
       />,
     );
     const pane = screen.getByTestId('window-first-coming-up', { hidden: true });
