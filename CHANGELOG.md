@@ -85,6 +85,13 @@ puts spring and king runs in one row with nothing else to tell them apart; popul
 not yet rendered by the frontend, matching P3a's own precedent for shipping a field ahead of its
 renderer.
 
+A Codex review pass found one further real defect: the dust trailing-window read's `catch` left
+`maxAodByPresentDate` empty on a transient DB failure, which the zero-arrivals branch then reported
+as `"none in the last 60 days"` — a false claim of absence rather than the honest "unknown" the
+failure actually is, and since `AlmanacService` caches the built response for the whole civil day,
+that false claim would have been retained for hours after the database recovered. Fixed by tracking
+the read's own success and reporting `"history unavailable right now"` on failure instead.
+
 ## [v2.19.5] - 2026-08-29
 
 ### Changed — Coming up P3a: chronology structure — rails, cards, chips, copy

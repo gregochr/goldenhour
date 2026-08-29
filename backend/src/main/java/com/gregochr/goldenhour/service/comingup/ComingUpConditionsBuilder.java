@@ -408,6 +408,7 @@ public class ComingUpConditionsBuilder {
         LocalDate windowStart = yesterday.minusDays(windowDays - 1L);
 
         Map<LocalDate, BigDecimal> maxAodByPresentDate = new LinkedHashMap<>();
+        boolean trailingReadFailed = false;
         try {
             for (ForecastEvaluationEntity row : forecastEvaluationRepository
                     .findByTargetDateBetweenAndTargetTypeIn(windowStart, yesterday, EVENT_TARGET_TYPES)) {
@@ -417,6 +418,12 @@ public class ComingUpConditionsBuilder {
                 }
             }
         } catch (RuntimeException e) {
+            // An empty map here is indistinguishable from "genuinely no arrivals" further down
+            // unless this flag says otherwise — without it, a transient DB failure would publish
+            // (and, since AlmanacService caches the built response for the whole civil day, RETAIN
+            // until the next rebuild) a false "none in the last N days" claim rather than the
+            // honest "we do not know" this actually is.
+            trailingReadFailed = true;
             LOG.warn("Dust trailing-window read failed — the condition will degrade to the config "
                     + "fallback rather than the whole feed failing: {}", e.toString());
         }
@@ -434,10 +441,14 @@ public class ComingUpConditionsBuilder {
                     + DATE_LABEL.format(bursts.getFirst().start()) + " · about " + describeGap(meanGapDays);
         } else {
             rarityBits = SurpriseScore.rarity(dustConfig.getFallbackMeanGapDays());
-            rateLabel = arrivals == 0
-                    ? "none in the last " + windowDays + " days"
-                    : arrivals + (arrivals == 1 ? " plume" : " plumes") + " since "
-                            + DATE_LABEL.format(bursts.getFirst().start());
+            if (trailingReadFailed) {
+                rateLabel = "history unavailable right now";
+            } else {
+                rateLabel = arrivals == 0
+                        ? "none in the last " + windowDays + " days"
+                        : arrivals + (arrivals == 1 ? " plume" : " plumes") + " since "
+                                + DATE_LABEL.format(bursts.getFirst().start());
+            }
         }
 
         List<ComingUpConditionOccurrence> occurrences = new ArrayList<>();

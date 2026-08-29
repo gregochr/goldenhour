@@ -375,6 +375,20 @@ class ComingUpConditionsBuilderTest {
         assertThat(dust.quantLabel()).startsWith("rarity " + fmt1(expectedObserved));
     }
 
+    @Test
+    @DisplayName("a failed trailing-window read reports 'unavailable', never a false 'none in the "
+            + "last N days' claim — the two are indistinguishable in the data alone, and "
+            + "AlmanacService caches the built response for the whole civil day (Codex finding)")
+    void dustTrailingWindowReadFailure_reportsUnavailableNotFalseAbsence() {
+        when(forecastEvaluationRepository.findByTargetDateBetweenAndTargetTypeIn(any(), any(), anyCollection()))
+                .thenThrow(new RuntimeException("db down"));
+
+        ComingUpCondition dust = builder.build(TODAY, List.of(), List.of()).get(1);
+
+        assertThat(dust.rateLabel()).isEqualTo("history unavailable right now");
+        assertThat(dust.rateLabel()).doesNotContain("none in the last");
+    }
+
     // ── Peak gate (D5) ───────────────────────────────────────────────────
 
     @Test
