@@ -71,9 +71,11 @@ const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
  * @param {function} props.onRetry  re-runs the fetch after a failure
  * @param {function} props.onGoToPlan switches to the Plan tab and moves focus there; takes an
  *                                    optional date — a `plan`-action card passes its own date
+ * @param {function} props.onShowOnMap opens the map overlay for a `coastal-spots`/`dark-sky-spots`
+ *                                     card action (D8, plan §6b) — forwarded to every entry
  */
 export default function WindowFirstComingUp({
-  id, labelledBy, hidden, status, events, hotTopics, todayStr, onRetry, onGoToPlan,
+  id, labelledBy, hidden, status, events, hotTopics, todayStr, onRetry, onGoToPlan, onShowOnMap,
 }) {
   const [activeFilter, setActiveFilter] = useState('all');
 
@@ -274,7 +276,12 @@ export default function WindowFirstComingUp({
               aria-label={`${group.monthLabel} ${group.year}`}
             >
               {group.entries.map((entry) => (
-                <WindowComingUpEntry key={entry.id} entry={entry} onGoToPlan={onGoToPlan} />
+                <WindowComingUpEntry
+                  key={entry.id}
+                  entry={entry}
+                  onGoToPlan={onGoToPlan}
+                  onShowOnMap={onShowOnMap}
+                />
               ))}
             </div>
           </div>
@@ -311,4 +318,5 @@ WindowFirstComingUp.propTypes = {
   todayStr: PropTypes.string,
   onRetry: PropTypes.func.isRequired,
   onGoToPlan: PropTypes.func.isRequired,
+  onShowOnMap: PropTypes.func.isRequired,
 };

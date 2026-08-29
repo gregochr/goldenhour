@@ -219,6 +219,7 @@ export default function WindowFirstMapPane({
         autoEventType={autoEventType}
         handoffEventType={handoff?.eventType ?? null}
         handoffFilterAction={handoff?.filterAction ?? null}
+        handoffDarkSky={handoff?.darkSky ?? null}
         handoffLocationName={handoff?.locationName ?? null}
         handoffRegion={handoff?.region ?? null}
         handoffNonce={handoff?.nonce ?? null}
@@ -245,6 +246,7 @@ WindowFirstMapPane.propTypes = {
   handoff: PropTypes.shape({
     eventType: PropTypes.string,
     filterAction: PropTypes.string,
+    darkSky: PropTypes.bool,
     locationName: PropTypes.string,
     region: PropTypes.string,
     nonce: PropTypes.number,

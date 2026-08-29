@@ -200,9 +200,16 @@ describe('WindowFirstMapPane', () => {
       renderPane();
       expect(MapStub.lastProps.handoffEventType).toBeNull();
       expect(MapStub.lastProps.handoffFilterAction).toBeNull();
+      expect(MapStub.lastProps.handoffDarkSky).toBeNull();
       expect(MapStub.lastProps.handoffLocationName).toBeNull();
       expect(MapStub.lastProps.handoffRegion).toBeNull();
       expect(MapStub.lastProps.handoffNonce).toBeNull();
+    });
+
+    it('forwards a darkSky handoff (D8, plan §6b) — the Coming up dark-sky-spots action', () => {
+      renderPane({ handoff: { darkSky: true, nonce: 3 } });
+      expect(MapStub.lastProps.handoffDarkSky).toBe(true);
+      expect(MapStub.lastProps.handoffNonce).toBe(3);
     });
   });
 

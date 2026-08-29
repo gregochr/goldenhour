@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, within, fireEvent } from '@testing-library/react';
+import { render, screen, within, fireEvent, cleanup } from '@testing-library/react';
 import WindowComingUpEntry from '../components/WindowComingUpEntry.jsx';
 
 /** A view as `buildEntryView` produces one. */
@@ -19,7 +19,10 @@ const view = (over = {}) => ({
   facts: [],
   threshold: null,
   action: { label: 'Show coastal spots for 16 Aug →', kind: 'coastal-spots', date: '2026-08-16' },
-  interactive: false,
+  interactive: true,
+  tide: null,
+  coincidence: null,
+  joinNote: null,
   ...over,
 });
 
@@ -28,9 +31,11 @@ const FACTS = [
   { segments: [{ text: 'tide ', tone: 'base' }, { text: 'HW 05:44 · 34m before sunrise', tone: 'accent' }] },
 ];
 
-const renderEntry = (over, onGoToPlan = vi.fn()) => {
-  const result = render(<WindowComingUpEntry entry={view(over)} onGoToPlan={onGoToPlan} />);
-  return { ...result, onGoToPlan };
+const renderEntry = (over, onGoToPlan = vi.fn(), onShowOnMap = vi.fn()) => {
+  const result = render(
+    <WindowComingUpEntry entry={view(over)} onGoToPlan={onGoToPlan} onShowOnMap={onShowOnMap} />,
+  );
+  return { ...result, onGoToPlan, onShowOnMap };
 };
 
 describe('WindowComingUpEntry — the rail', () => {
@@ -163,10 +168,10 @@ describe('WindowComingUpEntry — the click seam (plan §11.5, D8)', () => {
     expect(onGoToPlan).toHaveBeenCalledWith('2026-09-02');
   });
 
-  it('never dispatches onGoToPlan for a served kind other than plan, even if interactive were ever '
-      + 'true for one — the dispatch reads action.kind itself, not the interactive flag', () => {
+  it('never dispatches onGoToPlan for a served kind other than plan — the dispatch reads '
+      + 'action.kind itself, not the interactive flag', () => {
     // Guards the P3b seam from `comingUpFeed.js`'s own doc comment: dispatch must not fall through
-    // to `onGoToPlan` by default when a future kind is wired via `interactive` alone.
+    // to `onGoToPlan` by default when a served kind other than `plan` is wired via `interactive`.
     const { onGoToPlan } = renderEntry({
       action: { label: 'Show coastal spots for 16 Aug →', kind: 'coastal-spots', date: '2026-08-16' },
       interactive: true,
@@ -175,24 +180,44 @@ describe('WindowComingUpEntry — the click seam (plan §11.5, D8)', () => {
     expect(onGoToPlan).not.toHaveBeenCalled();
   });
 
-  it('renders a coastal-spots action as inert — no button, no click promise', () => {
-    // The map channel does not exist until P3b (D8) — the card must not be a dead pointer.
-    const { onGoToPlan } = renderEntry({
+  it('dispatches a coastal-spots action through onShowOnMap with the SEASCAPE filter (D8)', () => {
+    const { onShowOnMap } = renderEntry({
+      title: 'Spring tide run',
       action: { label: 'Show coastal spots for 16 Aug →', kind: 'coastal-spots', date: '2026-08-16' },
-      interactive: false,
+      interactive: true,
     });
-    expect(screen.queryByRole('button')).toBeNull();
-    fireEvent.click(screen.getByTestId('coming-up-card'));
-    expect(onGoToPlan).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button'));
+    expect(onShowOnMap).toHaveBeenCalledWith({
+      kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: '2026-08-16',
+    });
   });
 
-  it('renders a dark-sky-spots action as inert for the same reason', () => {
-    renderEntry({
+  it('dispatches a dark-sky-spots action through onShowOnMap with the darkSky flag (D8)', () => {
+    const { onShowOnMap } = renderEntry({
+      title: 'Perseids',
       action: { label: 'Show dark-sky spots →', kind: 'dark-sky-spots', date: '2026-08-16' },
+      interactive: true,
+    });
+    fireEvent.click(screen.getByRole('button'));
+    expect(onShowOnMap).toHaveBeenCalledWith({
+      kind: 'coming-up', darkSky: true, label: 'Perseids', date: '2026-08-16',
+    });
+  });
+
+  it('renders an entry with no interactive served kind as inert — no button, no click promise', () => {
+    // `interactive` is now true for all three served kinds, but the served view can still arrive
+    // non-interactive (e.g. `comingUpFeed.js`'s `{ kind: null }` fallback for a missing action) —
+    // that branch still needs its own honest, un-clickable render.
+    const { onGoToPlan, onShowOnMap } = renderEntry({
+      action: { label: '', kind: null, date: '2026-08-16' },
       interactive: false,
     });
     expect(screen.queryByRole('button')).toBeNull();
-    expect(screen.getByTestId('coming-up-card')).toHaveClass('wf-cu-card-inert');
+    const card = screen.getByTestId('coming-up-card');
+    expect(card).toHaveClass('wf-cu-card-inert');
+    fireEvent.click(card);
+    expect(onGoToPlan).not.toHaveBeenCalled();
+    expect(onShowOnMap).not.toHaveBeenCalled();
   });
 
   it('computes the button’s accessible name from its own content, never an aria-label override', () => {
@@ -251,5 +276,130 @@ describe('WindowComingUpEntry — structure', () => {
   it('carries the family on the card, driving its topic colour', () => {
     renderEntry({ family: 'dust' });
     expect(screen.getByTestId('coming-up-card')).toHaveAttribute('data-family', 'dust');
+  });
+});
+
+describe('WindowComingUpEntry — the tide sparkline (design README §4, plan §6b)', () => {
+  it('renders no sparkline when the entry carries no tide field', () => {
+    renderEntry({ tide: null });
+    expect(screen.queryByTestId('coming-up-tide-sparkline')).toBeNull();
+  });
+
+  it('renders the sparkline on a tide entry, as a fact-row item', () => {
+    renderEntry({ tide: { range: 5.2, delta: 1.9, phase: 'HW' } });
+    const sparkline = screen.getByTestId('coming-up-tide-sparkline');
+    expect(within(screen.getByTestId('coming-up-facts')).getByTestId('coming-up-tide-sparkline'))
+      .toBe(sparkline);
+  });
+
+  it('states the range and the delta in words beside the picture — the accessible answer', () => {
+    renderEntry({ tide: { range: 5.2, delta: 1.9, phase: 'HW' } });
+    expect(screen.getByTestId('coming-up-tide-sparkline-label')).toHaveTextContent('5.2 m +1.9 vs avg');
+  });
+
+  it('signs a negative delta without a leading plus', () => {
+    renderEntry({ tide: { range: 3.1, delta: -0.4, phase: 'HW' } });
+    expect(screen.getByTestId('coming-up-tide-sparkline-label')).toHaveTextContent('3.1 m -0.4 vs avg');
+  });
+
+  it('signs an exactly-average delta without a leading plus', () => {
+    renderEntry({ tide: { range: 3.3, delta: 0, phase: 'HW' } });
+    expect(screen.getByTestId('coming-up-tide-sparkline-label')).toHaveTextContent('3.3 m 0.0 vs avg');
+  });
+
+  it('hides the SVG from the accessibility tree — the label carries the answer', () => {
+    renderEntry({ tide: { range: 5.2, delta: 1.9, phase: 'HW' } });
+    expect(screen.getByTestId('coming-up-tide-sparkline')).toHaveAttribute('aria-hidden', 'true');
+  });
+
+  it('renders the sparkline alongside served facts, not instead of them', () => {
+    renderEntry({ tide: { range: 5.2, delta: 1.9, phase: 'HW' }, facts: FACTS });
+    const facts = screen.getByTestId('coming-up-facts');
+    expect(within(facts).getByTestId('coming-up-tide-sparkline')).toBeInTheDocument();
+    expect(within(facts).getAllByTestId('coming-up-fact')).toHaveLength(2);
+  });
+
+  it('marks a HIGH water above the axis and a LOW water below it — the geometry, not just the '
+      + 'label text', () => {
+    // A mutation that swapped `phase === 'LW'` for `phase === 'HW'` (or vice versa) inside
+    // ComingUpTideSparkline would leave every test above green, since none of them read the
+    // marker's own position — only this one does.
+    renderEntry({ tide: { range: 5.2, delta: 1.9, phase: 'HW' } });
+    const highCy = Number(screen.getByTestId('coming-up-tide-sparkline-marker').getAttribute('cy'));
+    cleanup();
+    renderEntry({ tide: { range: 5.2, delta: 1.9, phase: 'LW' } });
+    const lowCy = Number(screen.getByTestId('coming-up-tide-sparkline-marker').getAttribute('cy'));
+    expect(highCy).toBeLessThan(12); // above the axis (SVG y grows downward)
+    expect(lowCy).toBeGreaterThan(12); // below the axis
+  });
+});
+
+describe('WindowComingUpEntry — the coincidence card (D10, plan §6b)', () => {
+  const COINCIDENCE = [
+    { family: 'sun-moon', name: 'Supermoon', factsLabel: 'Mon 26 Oct · moonrise 17:22' },
+  ];
+
+  it('renders no coincidence card when the entry did not merge', () => {
+    renderEntry({ coincidence: null });
+    expect(screen.queryByTestId('coming-up-coincidence')).toBeNull();
+  });
+
+  it('renders only the served line for the merged topic — never a synthesized self line', () => {
+    // A first draft re-printed `entry.title` as a "self" line here, which duplicated the title row
+    // verbatim (the served title is not a combined name the way the design's own `nm` is) — see
+    // the class doc. The card's own identity is the title row; this renders only what was served.
+    renderEntry({
+      title: 'Spring tide run',
+      family: 'coastal',
+      coincidence: COINCIDENCE,
+      joinNote: 'Same cause, two effects.',
+    });
+    const card = screen.getByTestId('coming-up-coincidence');
+    expect(within(card).queryByText('Spring tide run')).toBeNull();
+    expect(screen.getAllByTestId('coming-up-coincidence-line')).toHaveLength(1);
+    expect(within(card).getByText('Supermoon')).toBeInTheDocument();
+  });
+
+  it('keys each line’s swatch colour on that LINE’s own served family, not the card’s', () => {
+    renderEntry({ family: 'coastal', coincidence: COINCIDENCE, joinNote: 'Same cause.' });
+    expect(screen.getByTestId('coming-up-coincidence-line')).toHaveAttribute('data-family', 'sun-moon');
+  });
+
+  it('renders the served factsLabel verbatim — the absorbed run’s range is load-bearing (P2 log)', () => {
+    renderEntry({ coincidence: COINCIDENCE, joinNote: 'Same cause.' });
+    expect(screen.getByTestId('coming-up-coincidence-facts'))
+      .toHaveTextContent('Mon 26 Oct · moonrise 17:22');
+  });
+
+  it('renders the joining sentence below the coincidence lines', () => {
+    renderEntry({
+      coincidence: COINCIDENCE,
+      joinNote: 'One perigee causes both, so the pair scores as the maximum of the two: 9.0 bits.',
+    });
+    expect(screen.getByTestId('coming-up-join-note')).toHaveTextContent(
+      'One perigee causes both, so the pair scores as the maximum of the two: 9.0 bits.',
+    );
+  });
+
+  it('renders BOTH prose and the coincidence card when the backend serves both — a corrected first '
+      + 'attempt (see the class doc)', () => {
+    // ComingUpAssembler.assemble runs markFirstOfType AFTER mergeCoincidences, so a merged winner
+    // that is also first-of-its-type in the window legitimately carries both fields. An earlier
+    // ternary treated them as exclusive and silently dropped the prose whenever both were served.
+    renderEntry({
+      prose: 'The moon’s alignment pulls the tide further out than usual.',
+      coincidence: COINCIDENCE,
+      joinNote: 'Same cause.',
+      isFeature: true,
+    });
+    expect(screen.getByTestId('coming-up-prose')).toHaveTextContent(
+      'The moon’s alignment pulls the tide further out than usual.',
+    );
+    expect(screen.getByTestId('coming-up-coincidence')).toBeInTheDocument();
+  });
+
+  it('renders no join note when the server sent none', () => {
+    renderEntry({ coincidence: COINCIDENCE, joinNote: null });
+    expect(screen.queryByTestId('coming-up-join-note')).toBeNull();
   });
 });

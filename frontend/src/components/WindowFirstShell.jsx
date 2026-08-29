@@ -1225,6 +1225,7 @@ export default function WindowFirstShell({
         todayStr={todayStr}
         onRetry={comingUp.retry}
         onGoToPlan={goToPlan}
+        onShowOnMap={onShowOnMap}
       />
 
       {/* Hidden rather than unmounted: unmounting the pane on every tab change would discard the

@@ -154,17 +154,34 @@ describe('buildEntryView', () => {
     expect(view.interactive).toBe(true);
   });
 
-  it('leaves a coastal-spots action inert — the map channel does not exist until P3b', () => {
+  it('marks a coastal-spots action interactive — the map channel now exists (P3b, D8)', () => {
     const view = buildEntryView(entry(), TODAY);
-    expect(view.interactive).toBe(false);
+    expect(view.interactive).toBe(true);
   });
 
-  it('leaves a dark-sky-spots action inert for the same reason', () => {
+  it('marks a dark-sky-spots action interactive for the same reason', () => {
     const view = buildEntryView(
       entry({ action: { label: 'Show dark-sky spots →', kind: 'dark-sky-spots', date: '2026-08-16' } }),
       TODAY,
     );
+    expect(view.interactive).toBe(true);
+  });
+
+  it('leaves an entry with no served action kind non-interactive', () => {
+    const view = buildEntryView(entry({ action: { label: 'nowhere', kind: null, date: TODAY } }), TODAY);
     expect(view.interactive).toBe(false);
+  });
+
+  it('passes tide/coincidence/joinNote through unchanged, defaulting to null when absent', () => {
+    expect(buildEntryView(entry(), TODAY).tide).toBeNull();
+    expect(buildEntryView(entry(), TODAY).coincidence).toBeNull();
+    expect(buildEntryView(entry(), TODAY).joinNote).toBeNull();
+    const tide = { range: 5.2, delta: 1.9, phase: 'HW' };
+    const coincidence = [{ family: 'sun-moon', name: 'Supermoon', factsLabel: 'Mon 26 Oct' }];
+    const view = buildEntryView(entry({ tide, coincidence, joinNote: 'Same cause.' }), TODAY);
+    expect(view.tide).toEqual(tide);
+    expect(view.coincidence).toEqual(coincidence);
+    expect(view.joinNote).toBe('Same cause.');
   });
 
   it('marks a card feature when it has a first-of-type explanation', () => {
