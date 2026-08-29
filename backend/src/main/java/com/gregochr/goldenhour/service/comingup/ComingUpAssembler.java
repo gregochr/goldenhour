@@ -16,6 +16,8 @@ import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.AlmanacService;
 import com.gregochr.goldenhour.service.TideRunBuilder;
 import com.gregochr.goldenhour.service.TideService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
@@ -47,6 +49,8 @@ import java.util.Set;
  */
 @Component
 public class ComingUpAssembler {
+
+    private static final Logger LOG = LoggerFactory.getLogger(ComingUpAssembler.class);
 
     static final String TYPE_SPRING_TIDE = "spring-tide";
     static final String TYPE_KING_TIDE = "king-tide";
@@ -92,7 +96,7 @@ public class ComingUpAssembler {
      * @return the wrapped response, entries sorted by start date then span length then type
      */
     public ComingUpResponse assemble(LocalDate builtFor, List<AlmanacEvent> eligibleEvents) {
-        List<LocationEntity> coastalRoster = locationRepository.findCoastalLocations();
+        List<LocationEntity> coastalRoster = coastalRoster();
 
         List<Staged> staged = new ArrayList<>();
         for (AlmanacEvent event : eligibleEvents) {
@@ -189,6 +193,32 @@ public class ComingUpAssembler {
             default -> enrichUnknown(event, s);
         }
         return s;
+    }
+
+    /**
+     * The coastal roster tide-run scoring is measured against, degrading to an empty list on a DB
+     * failure rather than propagating it.
+     *
+     * <p>{@code AlmanacService.build()} isolates each {@code AlmanacSource} the same way — one
+     * source failing must not blank the feed. This read sits outside that per-source protection
+     * (it happens once, before any source-specific enrichment), so without its own guard a
+     * transient failure confined to tide data would 500 the whole endpoint and discard every
+     * successfully built ephemeris entry (meteors, eclipses, equinoxes, …) that never touches a
+     * coastal location at all. An empty roster degrades gracefully on its own: every tide-run
+     * enrichment already treats "no coastal locations" the same as "no derivable peak" — interim
+     * scoring, no {@code tide} field, no metric — exactly {@link #enrichTide}'s existing degrade
+     * path for a representative it could not resolve.
+     *
+     * @return the coastal roster, or an empty list if it could not be fetched
+     */
+    private List<LocationEntity> coastalRoster() {
+        try {
+            return locationRepository.findCoastalLocations();
+        } catch (RuntimeException e) {
+            LOG.warn("Coastal roster fetch failed — tide-run entries in this build will score "
+                    + "without a distribution rather than the whole feed failing: {}", e.toString());
+            return List.of();
+        }
     }
 
     private ComingUpAction defaultAction(AlmanacEvent event) {
@@ -479,21 +509,46 @@ public class ComingUpAssembler {
         return !a.endDate().isBefore(b.startDate()) && !b.endDate().isBefore(a.startDate());
     }
 
+    /**
+     * Pairs every tide run with an overlapping supermoon (D10), then merges each pair — in two
+     * passes, deliberately, because pairing and emitting in one pass makes the result depend on
+     * list order. {@code AlmanacService.build()} sorts entries by date, and a supermoon's span
+     * commonly starts before or ends sooner than the tide run it overlaps; a single forward pass
+     * that both searches for partners AND immediately emits unmatched entries would emit that
+     * supermoon standalone before the later tide run ever got a chance to claim it — producing
+     * both the standalone supermoon AND a second, merged copy of the same coincidence. Finding
+     * every pair first, over the read-only input list, then building the output from that
+     * complete pairing is the fix: which entries merge no longer depends on which one the loop
+     * reaches first.
+     *
+     * @param staged every staged entry, any order
+     * @return the same entries with each tide-run/supermoon pair collapsed to one, in the order
+     *         a plain forward pass over the input would emit them (final ordering is imposed by
+     *         {@link #assemble} regardless)
+     */
     private List<Staged> mergeCoincidences(List<Staged> staged) {
-        List<Staged> result = new ArrayList<>();
-        Set<Integer> consumed = new HashSet<>();
+        Map<Integer, Integer> tideToSupermoon = new LinkedHashMap<>();
+        Set<Integer> supermoonConsumed = new HashSet<>();
         for (int i = 0; i < staged.size(); i++) {
-            if (consumed.contains(i)) {
+            if (!isTideRun(staged.get(i).event.type())) {
                 continue;
             }
-            Staged a = staged.get(i);
-            int partnerIndex = isTideRun(a.event.type()) ? findSupermoonPartner(staged, i, consumed) : -1;
+            int partnerIndex = findSupermoonPartner(staged, i, supermoonConsumed);
             if (partnerIndex >= 0) {
-                consumed.add(partnerIndex);
-                result.add(mergeEntries(a, staged.get(partnerIndex)));
-            } else {
-                result.add(a);
+                tideToSupermoon.put(i, partnerIndex);
+                supermoonConsumed.add(partnerIndex);
             }
+        }
+
+        List<Staged> result = new ArrayList<>();
+        for (int i = 0; i < staged.size(); i++) {
+            if (supermoonConsumed.contains(i)) {
+                continue;
+            }
+            Integer partnerIndex = tideToSupermoon.get(i);
+            result.add(partnerIndex == null
+                    ? staged.get(i)
+                    : mergeEntries(staged.get(i), staged.get(partnerIndex)));
         }
         return result;
     }

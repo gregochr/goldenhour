@@ -23,9 +23,11 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.when;
 
 /** Unit tests for {@link ComingUpAssembler}. */
@@ -133,6 +135,53 @@ class ComingUpAssemblerTest {
         // The 1.0 default magnitude is "by definition typical" (plan D4), not provisional — only
         // the tide branches that never reach a mature distribution are interim.
         assertThat(entry.interim()).isFalse();
+    }
+
+    // ── source isolation: a coastal-roster failure must not blank the feed ──
+
+    @Test
+    @DisplayName("a coastal-roster fetch failure degrades tide-run scoring rather than 500ing the "
+            + "whole feed — the same per-source isolation AlmanacService.build() already gives "
+            + "every AlmanacSource, extended to this read which sits outside that protection")
+    void coastalRosterFailure_degradesRatherThanThrows() {
+        reset(locationRepository);
+        when(locationRepository.findCoastalLocations()).thenThrow(new RuntimeException("db down"));
+
+        AlmanacEvent meteor = event(DAY, DAY, "meteor", "Perseids", Map.of());
+        AlmanacEvent tideRun = event(DAY.plusDays(5), DAY.plusDays(8), "spring-tide",
+                "Spring tide run", AlmanacEvent.metaOf("range", "4.6 m"));
+
+        ComingUpResponse response;
+        try {
+            response = assembler.assemble(DAY, List.of(meteor, tideRun));
+        } catch (RuntimeException e) {
+            throw new AssertionError("a coastal-roster failure must not propagate out of assemble()", e);
+        }
+
+        // The ephemeris entry that never touches a coastal location is unaffected.
+        assertThat(response.entries()).hasSize(2);
+        ComingUpEntry meteorEntry = response.entries().stream()
+                .filter(e -> e.type().equals("meteor")).findFirst().orElseThrow();
+        assertThat(meteorEntry.bits()).isNotNull();
+
+        // The tide run degrades exactly like "no derivable peak" — interim, default magnitude,
+        // no tide field — rather than the request failing.
+        ComingUpEntry tideEntry = response.entries().stream()
+                .filter(e -> e.type().equals("spring-tide")).findFirst().orElseThrow();
+        assertThat(tideEntry.interim()).isTrue();
+        assertThat(tideEntry.tide()).isNull();
+        assertThat(tideEntry.bits()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("assemble() never throws for a coastal-roster failure, whatever entries are in "
+            + "the window")
+    void coastalRosterFailure_neverThrows() {
+        reset(locationRepository);
+        when(locationRepository.findCoastalLocations()).thenThrow(new RuntimeException("db down"));
+        AlmanacEvent tideRun = event(DAY, DAY.plusDays(3), "king-tide", "King tide run", Map.of());
+
+        assertThatCode(() -> assembler.assemble(DAY, List.of(tideRun))).doesNotThrowAnyException();
     }
 
     @Test
@@ -549,6 +598,29 @@ class ComingUpAssemblerTest {
         assertThat(merged.coincidence().getFirst().family()).isEqualTo("coastal");
         assertThat(merged.coincidence().getFirst().name()).isEqualTo("King tide run");
         assertThat(merged.joinNote()).contains("maximum").contains("Supermoon");
+    }
+
+    @Test
+    @DisplayName("a supermoon that sorts BEFORE its overlapping tide run still merges into one "
+            + "entry, not a standalone supermoon plus a second merged copy — the merge must not "
+            + "depend on which of the pair AlmanacService.build()'s date sort happens to place "
+            + "first, since a supermoon's span commonly starts before the tide run it overlaps")
+    void supermoonSortingBeforeItsTideRun_stillMergesToOneEntry() {
+        when(tideRunBuilder.peakRange(anyList(), eq(COASTAL_ROSTER))).thenReturn(Optional.empty());
+        // Supermoon starts a day before the tide run (and so sorts first in a date-ordered list)
+        // but still overlaps it.
+        AlmanacEvent supermoon = event(DAY.minusDays(1), DAY.plusDays(1), "supermoon", "Supermoon",
+                Map.of("peakDate", DAY.toString()));
+        AlmanacEvent tideRun = event(DAY, DAY.plusDays(3), "king-tide", "King tide run", Map.of());
+
+        // Passed in the exact order a date-sorted feed would hand them: supermoon first.
+        ComingUpResponse response = assembler.assemble(DAY, List.of(supermoon, tideRun));
+
+        assertThat(response.entries()).hasSize(1);
+        ComingUpEntry merged = response.entries().getFirst();
+        assertThat(merged.type()).isEqualTo("supermoon");
+        assertThat(merged.coincidence()).hasSize(1);
+        assertThat(merged.coincidence().getFirst().name()).isEqualTo("King tide run");
     }
 
     @Test
