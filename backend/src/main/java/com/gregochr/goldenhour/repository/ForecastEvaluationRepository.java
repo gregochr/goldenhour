@@ -127,6 +127,26 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
             @Param("model") EvaluationModel evaluationModel);
 
     /**
+     * Returns every evaluation of the given target types for one date, across the whole roster —
+     * regardless of triage or batch state. {@code location} is {@code EAGER}-fetched on the entity,
+     * so this needs no {@code JOIN FETCH} to read {@code location.getRegion()} safely afterwards.
+     *
+     * <p>Used by {@code TopicDailyLogJob} for the two topics ({@code DUST}, {@code STORM_SURGE})
+     * whose columns are written pre-triage (from {@code AtmosphericData} during augmentation, not
+     * from Claude's response) and therefore reflect the complete population rather than only the
+     * rows that survived triage — see {@code CLAUDE.md}'s "Where a rating lives" table and plan
+     * §1's DUST row. May return several rows for the same (location, date, type) slot when a run
+     * was retried; callers that want one presence answer per slot should treat "any row" as
+     * qualifying rather than assume one row per slot.
+     *
+     * @param targetDate  the calendar date to query
+     * @param targetTypes the target types to include (normally {@code SUNRISE}, {@code SUNSET})
+     * @return matching rows, in no guaranteed order
+     */
+    List<ForecastEvaluationEntity> findByTargetDateAndTargetTypeIn(
+            LocalDate targetDate, Collection<TargetType> targetTypes);
+
+    /**
      * Returns all evaluation runs for a specific location, date, and target type, ordered
      * chronologically by when the forecast was run. Used to plot forecast convergence over time.
      *
