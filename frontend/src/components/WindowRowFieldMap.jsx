@@ -713,7 +713,9 @@ export default function WindowRowFieldMap({
                             name. The sheet this opens spells it out the same way, at
                             `LocationFourDaySheet`'s own rating badge. The glyph stays as the label,
                             which is what keeps 2.5.3 satisfied: the accessible name contains every
-                            visible WORD in order, and `★` is a symbol rather than one. */}
+                            visible WORD (containment is the criterion's ask, not order — a flipped
+                            chip PAINTS the rating first via `row-reverse` while the accname follows
+                            DOM order), and `★` is a symbol rather than one. */}
                         <span aria-hidden="true">{`${chip.rating}★`}</span>
                         {onOpenLocation && <span className="sr-only">{`${chip.rating} stars`}</span>}
                       </em>
