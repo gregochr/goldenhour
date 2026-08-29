@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.19.8] - 2026-08-29
+
 ### Added — Coming up P5: the tab badge, lastSeenAt, and arrivals (series complete)
 
 The final phase of the Coming up redesign (`docs/engineering/coming-up-plan.md` §8): a conditional
