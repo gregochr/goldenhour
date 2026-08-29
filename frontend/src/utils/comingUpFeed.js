@@ -1,91 +1,44 @@
 /**
- * The "Coming up" tab's derivation: {@code AlmanacEvent[]} from {@code GET /api/almanac} into the
- * row descriptors the pane paints.
+ * The "Coming up" chronology's presentation layer — {@code ComingUpEntry[]} from
+ * {@code GET /api/almanac} into the view models {@code WindowFirstComingUp} and
+ * {@code WindowComingUpEntry} paint.
  *
- * <h2>Why this file exists at all, when the backend already formatted most of it</h2>
+ * <h2>Why this file is now thin, when it used to be the whole feature</h2>
  *
- * <p>Three things force a derivation layer, and only three. Everything else is passed through.
+ * <p>Before plan P2, this module derived almost everything a row showed — facts, whose figures
+ * they were, the "we know when, not how big" degrade line — by reading an {@code AlmanacEvent}'s
+ * raw {@code meta} map. P2's {@code ComingUpAssembler} moved every one of those derivations to the
+ * backend: {@code facts}, {@code prose}, {@code threshold}, {@code superlative}, {@code metric},
+ * {@code kindTag} and {@code action} now arrive on the wire, server-formatted, per
+ * {@code docs/engineering/coming-up-plan.md} §13. Reading {@code meta} on the client again would
+ * silently re-derive something the server already decided, which is exactly the class of client
+ * aggregation CLAUDE.md's Backend-heavy bullet forbids.
  *
- * <ol>
- *   <li><b>{@code meta}'s key order is randomised per backend restart.</b> {@code AlmanacEvent}'s
- *       canonical constructor runs {@code Map.copyOf}, which returns a salt-randomised immutable
- *       map — so the insertion order {@code metaOf} carefully builds is destroyed before the JSON
- *       is written. Iterating {@code Object.entries(meta)} would reorder the fact line every time
- *       the backend restarts. The order below is therefore imposed here, and it is the only place
- *       it exists.</li>
- *   <li><b>Dates arrive as bare ISO strings</b> — {@code startDate}, {@code endDate},
- *       {@code peakDate}, {@code figuresFrom}. Somebody has to turn them into "16–18 Aug", and it
- *       cannot be the backend: the span label depends on {@code today}, which is the reader's day,
- *       not the build's.</li>
- *   <li><b>Five {@code meta} values are FLAGS, not measurements</b> — {@code washedOut},
- *       {@code partialCoverage}, {@code startsBeforeWindow}, {@code endsAfterWindow} and
- *       {@code noAlignment} are the literal string {@code "true"} and are never emitted as
- *       {@code "false"}. Printing one is a defect; each has to become a sentence or be dropped.</li>
- * </ol>
+ * <p>What is left for the client, and the reason it has to stay here rather than move to the
+ * backend, is presentation arithmetic over already-served fields — the licensed "filter/map" class
+ * plan D12 distinguishes from the per-user-join class: month grouping, the date rail's day/month/
+ * countdown strings (today is the READER's clock, not the build's), and which family a filter chip
+ * covers. None of it adds a fact the server did not already state.
  *
- * <p>What is <b>not</b> done here: no number is parsed, compared or re-formatted. {@code range} is
- * {@code "4.6 m"} and ships as {@code "4.6 m"}; {@code verdict} is a finished sentence fragment and
- * ships whole. CLAUDE.md's rule is to push formatting back rather than parse forward, and the one
- * value that tempts an exception — {@code rangeAnomaly}, which is {@code "+0.4"} with a sign, one
- * decimal and deliberately <em>no unit</em> — is handled by composing it into the same chip as
- * {@code range} so the metres are stated once and the two cannot read as different quantities. No
- * unit is invented for it.
+ * <h2>The date rail</h2>
  *
- * <h2>The allow-list, and why a strict one</h2>
+ * <p>Three shapes, per {@code docs/design/coming-up/Coming Up.html}'s {@code .dn}/{@code .mo}
+ * fields: a single day carries a day-of-week, a same-month span carries a dash range
+ * ({@code 10–15}) and one month, and a span that crosses a month carries BOTH slots — the day and
+ * month of each end, never collapsed to a single range. {@code buildDateRail} returns the two
+ * strings the rail actually prints; the component decides layout from {@code isRange} alone.
  *
- * <p>{@code factsFor} below is an exhaustive allow-list in a fixed order: a key it does not name
- * renders nothing. That is a deliberate
- * choice against the alternative of humanising unknown keys, and the reason is that every value on
- * this endpoint needs a label the wire does not carry — {@code zhr} is the bare integer
- * {@code "150"}, {@code radiant} is the bare compass point {@code "NE"}. A generic renderer would
- * produce {@code "washedOut true"} and {@code "zhr 150"}, and the failure would be silent. Silence
- * for an unrecognised key is the safer direction and is what the rest of this codebase does with an
- * unknown discriminator.
+ * <h2>Month abbreviation: `Sept`, not the design's `SEP`</h2>
  *
- * <h2>What the meteor row deliberately drops</h2>
- *
- * <p>{@code zhr}, {@code radiant} and {@code bestHours} are absent from the allow-list even though
- * they are present on every meteor entry, because {@code MeteorAlmanacSource} composes exactly
- * those three into its own {@code detail} sentence: "Perseids peaks, around 100 meteors an hour at
- * best under a dark sky, radiating from the NE. Best watched 01:00–04:00." Rendering them again as
- * chips states the same three facts twice on one row.
- *
- * <p>{@code moonIllumination} is kept, and the asymmetry is deliberate rather than an oversight in
- * the same rule. On a dark peak the prose says nothing about the moon at all, and the moon is the
- * single fact that decides whether a shower is worth the drive — so without the chip the good
- * nights are the ones carrying the least information. On a washed-out peak the sentence does
- * mention it ("The moon is 80% lit that night…"), so those rows genuinely say it twice: once as
- * prose and once as a scannable number. That is accepted. Suppressing the chip when the prose
- * happens to mention it would make the fact line change shape by row, and would hide the number on
- * exactly the rows where a reader is deciding to stay in.
+ * <p>The design bundle spells every month as three letters (`SEP`, `OCT`, `NOV` — see
+ * {@code Coming Up.html}'s {@code EV} fixture). This app already has an established house
+ * convention for the same job — {@code en-GB} {@code Intl} short months, which render September as
+ * {@code Sept} — used identically by {@code HeatmapGrid}, {@code conversions.js} and every other
+ * date column in this codebase. Recreating the design's literal three-letter spelling here would
+ * make this one pane the only place that disagrees with itself about how long "September" is
+ * allowed to be. Kept as the house form; recorded as a disagreement with the design bundle
+ * (plan §11.22) rather than silently drifting from it.
  */
-
-/** Value every boolean-ish `meta` key carries. Absence is the negative; `"false"` is never sent. */
-const FLAG_TRUE = 'true';
-
-/**
- * The types whose {@code meta} can vanish because a figure could not be derived — a tide run and
- * an eclipse with no location roster, grouped here as two KINDS of event even though the tide run
- * spans two type strings.
- *
- * <p><b>The wire's own {@code datesOnly} is NOT the degrade signal, and reading it as one puts a
- * "something is missing" caveat on a healthy row.</b> Empty {@code meta} means different things by
- * source. {@code TideAlmanacSource} drops the whole map — range, verdict, location and all —
- * when no day of the run could be derived from stored extremes, and {@code EclipseAlmanacSource}
- * drops it when it has no location roster to compute a per-location figure from and the eclipse
- * is not rare enough to have earned a bare {@code rarity} line: both are a real absence a reader
- * must be told about. {@code NlcSeasonAlmanacSource}'s {@code meta} holds nothing but two clip
- * flags, so an <em>unclipped</em> season is empty by construction: it means the span shown is the
- * whole season, which is the good case — and its type is deliberately NOT in this set, so an empty
- * NLC season never triggers the caveat below. The remaining three sources always populate
- * {@code meta} — meteor writes five keys unconditionally, and equinox, solstice and supermoon each
- * write a {@code peakDate} from pure arithmetic — so they cannot reach the empty state at all.
- *
- * <p>So the caveat is gated on the type as well as on the absence. It is the one place this module
- * needs to know what a type is, and it is here rather than in the renderer so the rule has a single
- * home and a single test.
- */
-const TYPES_WITH_FIGURES = new Set(['spring-tide', 'king-tide', 'eclipse']);
 
 /** Midday UTC, so no timezone can push a bare `YYYY-MM-DD` onto the day either side. */
 function atMidday(dateStr) {
@@ -97,298 +50,249 @@ function dayNum(dateStr) {
   return atMidday(dateStr).toLocaleDateString('en-GB', { day: 'numeric', timeZone: 'UTC' });
 }
 
-/** `Aug` — short month. en-GB renders September as `Sept`, which is why the column is measured. */
+/** `Sept` — short month, en-GB form (house convention; see the class doc). */
 function monthName(dateStr) {
   return atMidday(dateStr).toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' });
 }
 
-/**
- * `12 Aug`, joined with a NON-BREAKING space.
- *
- * <p>The date column is 112px of 11px mono and its content wraps. Seen on the running app: the
- * equinox's qualifier broke as "Exact day 22" / "Sept", splitting a date across two lines. A
- * regular space lets the line break at whichever of the two gaps happens to fall at the edge; the
- * non-breaking one makes the date atomic, so a phrase that has to wrap wraps <em>before</em> it.
- */
-function dayAndMonth(dateStr) {
-  return `${dayNum(dateStr)}\u00A0${monthName(dateStr)}`;
-}
-
-/** `Wed 12 Aug` — the form used wherever one exact day is being named. */
-function longDay(dateStr) {
-  const dow = atMidday(dateStr).toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
-  return `${dow} ${dayAndMonth(dateStr)}`;
+/** `Wed` — short weekday, en-GB form. Rail-only: nothing else in this file needs a day name. */
+function weekday(dateStr) {
+  return atMidday(dateStr).toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
 }
 
 /**
- * Whole days from `fromStr` to `toStr`; negative when `toStr` is earlier, NaN when either is not a
- * date.
- *
- * <p>Both ends are taken at midday UTC and UTC has no daylight saving, so the difference is always
- * an exact multiple of a day even across the October clock change that falls inside a feed built in
- * August. The rounding is belt and braces rather than load-bearing.
+ * Whole days from `todayStr` to `dateStr`; negative when `dateStr` is earlier, NaN when either is
+ * not a date (the empty-string default `todayStr` carries before a usable "today" exists).
  */
-function daysBetween(fromStr, toStr) {
-  const ms = atMidday(toStr).getTime() - atMidday(fromStr).getTime();
+function daysBetween(todayStr, dateStr) {
+  const ms = atMidday(dateStr).getTime() - atMidday(todayStr).getTime();
   return Math.round(ms / 86400000);
 }
 
 /**
- * The date line under the lead word.
+ * The rail's countdown line — exactly the three forms the design specifies (README §4): `now`,
+ * `tomorrow`, `in N days`. There is no fourth "already passed" form to build: plan D1's eligibility
+ * rule admits only entries whose `endDate` is beyond Plan's four-day boundary, and Plan's boundary
+ * is never before today — so nothing reaching this feed can have a `startDate` in the past that
+ * this file has to explain away as history. A span already under way (a straddling run) reads
+ * `now`, the same word a span starting today reads; the two are not distinguished, matching the
+ * design's own vocabulary of exactly three words.
  *
- * <p>A weekday appears only on a single-day entry. On a span it is dropped rather than doubled:
- * the column is 112px of 11px mono, and "Wed 12 – Thu 13 Aug" does not fit it, while the two
- * weekdays are the least useful part of a range a reader is reading as a block of nights.
+ * @param {string} startDate the entry's first day, `YYYY-MM-DD`
+ * @param {string} todayStr  the reader's today, `YYYY-MM-DD`, or `''` before it is known
+ * @returns {?string} null when there is no usable today to count from
  */
-function spanLabel(startDate, endDate, clippedStart, clippedEnd) {
-  // A clipped edge is NOT a date this row may print. `NlcSeasonAlmanacSource` cuts the span to the
-  // request window, so on a clipped start `startDate` is simply the day the feed begins — printing
-  // "9–10 Aug" for a season that opened in May states a beginning that did not happen, and a note
-  // underneath saying it began earlier then contradicts the line above it. Only the real edge is
-  // named, and when neither is real the row says so and names neither.
-  if (clippedStart && clippedEnd) return 'In progress';
-  if (clippedStart) return `Until ${dayAndMonth(endDate)}`;
-  if (clippedEnd) return `From ${dayAndMonth(startDate)}`;
-  if (startDate === endDate) return longDay(startDate);
-  const startMonth = monthName(startDate);
-  const endMonth = monthName(endDate);
-  // En dash throughout, matching every other range this project prints (the backend's own
-  // `bestHours` uses U+2013 too). Tight for one month, spaced across two, which is the ordinary
-  // typographic rule and is what keeps "30 Aug – 2 Sept" readable.
-  if (startMonth === endMonth) return `${dayNum(startDate)}–${dayAndMonth(endDate)}`;
-  return `${dayAndMonth(startDate)} – ${dayAndMonth(endDate)}`;
-}
-
-/**
- * The bold lead word: how far away this is.
- *
- * <p><b>A clipped entry reads "On now", never "Today", and that is the whole point of the flag.</b>
- * {@code NlcSeasonAlmanacSource} does not walk outwards the way the tide and supermoon sources do —
- * it clips the span to the request window and sets {@code startsBeforeWindow} to say so. So its
- * {@code startDate} is frequently today while the season began weeks ago, and a lead word derived
- * from the date alone would announce that an eleven-week season starts this morning.
- */
-function leadWord(startDate, endDate, todayStr, clippedStart) {
+function countdownFor(startDate, todayStr) {
   const until = daysBetween(todayStr, startDate);
-  // No usable today means no relative word — the context default for `todayStr` is the empty
-  // string, and every comparison against it is NaN. Returning null drops the element; the arithmetic
-  // would otherwise reach the screen as "In NaN days", which is the one output worse than silence.
-  // The dates beside it are absolute and stay correct, so the row still says when it is.
   if (!Number.isFinite(until)) return null;
-  // ⚠️ REACHABLE, despite the obvious argument that the service builds from today. The feed's
-  // "today" is UTC and this one is Europe/London, so during BST between midnight and 01:00 the
-  // reader's day is one ahead of the build's — and `MeteorAlmanacSource` emits a peak lying exactly
-  // on the build day. Such a row genuinely did end yesterday by the reader's clock, so "Passed" is
-  // the true word for it rather than a fallback; the alternative was "In -1 days".
-  // `useComingUpFeed` carries the whole two-clock argument.
-  if (daysBetween(todayStr, endDate) < 0) return 'Passed';
-  if (clippedStart || until < 0) return 'On now';
-  if (until === 0) return 'Today';
-  if (until === 1) return 'Tomorrow';
-  return `In ${until} days`;
+  if (until <= 0) return 'now';
+  if (until === 1) return 'tomorrow';
+  return `in ${until} days`;
 }
 
 /**
- * The word that introduces {@code peakDate}, by type.
+ * The date-rail box's content for one entry (design README §4, plan §6).
  *
- * <p>One word each rather than a single generic "Peak", because the backend's {@code peakDate}
- * means a different thing per source and only one of them is a peak: the tide's is the biggest
- * range of the run, the supermoon's is the night nearest perigee, and the equinox/solstice anchor
- * is an instant that does not peak at all.
+ * @param {string} startDate first day of the span, inclusive
+ * @param {string} endDate   last day of the span, inclusive
+ * @param {string} todayStr  the reader's today, `YYYY-MM-DD`, or `''` before it is known
+ * @returns {{dow: ?string, day: string, month: string, isRange: boolean, countdown: ?string}}
+ *          `dow` is null on any span (design: "omit for date ranges"). On a span crossing a month,
+ *          `day` carries the START day+month (`26 Sept`) and `month` carries the END, dash-led
+ *          (`–1 Oct`) — the design's "runs crossing a month use both slots" rule, never collapsed
+ *          to a single range.
  */
-const PEAK_WORD = {
-  'spring-tide': 'Biggest',
-  'king-tide': 'Biggest',
-  supermoon: 'Closest',
-  equinox: 'Exact day',
-  solstice: 'Exact day',
-  eclipse: 'Maximum',
-};
+export function buildDateRail(startDate, endDate, todayStr) {
+  const singleDay = startDate === endDate;
+  // Compared as `YYYY-MM` slices of the ISO strings, not as formatted month NAMES — a name
+  // collision across years (an (unrealistic) run spanning August of one year to August of the
+  // next) would otherwise read as "same month" and print a false same-month range.
+  const crossesMonth = !singleDay && startDate.slice(0, 7) !== endDate.slice(0, 7);
 
-/** Fallback for a type this build has never heard of, so a future source still reads sensibly. */
-const PEAK_WORD_DEFAULT = 'Peak';
-
-/**
- * The qualifier under the dates: what the span's edges mean, or which day inside it is the one.
- *
- * <p>The two cases are mutually exclusive on today's wire — only {@code nlc-season} sets the clip
- * flags and it never carries a {@code peakDate} — but the precedence is written down rather than
- * assumed, because a source added later could carry both and silently losing one would be worse
- * than choosing badly between them.
- */
-function whenNote(event, meta) {
-  const clippedStart = meta.startsBeforeWindow === FLAG_TRUE;
-  const clippedEnd = meta.endsAfterWindow === FLAG_TRUE;
-  if (clippedStart && clippedEnd) return 'Began before and continues past this list';
-  if (clippedStart) return 'Began before this list';
-  if (clippedEnd) return 'Continues past this list';
-  if (!meta.peakDate) return null;
-  // Redundant on a one-day entry, where the peak IS the span, and on an entry whose peak the
-  // dates already state. Suppressed rather than printed as a second copy of the same date.
-  if (event.startDate === event.endDate) return null;
-  const word = Object.hasOwn(PEAK_WORD, event.type) ? PEAK_WORD[event.type] : PEAK_WORD_DEFAULT;
-  return `${word} ${dayAndMonth(meta.peakDate)}`;
-}
-
-/** A dim segment: the label half of a chip. */
-const base = (text) => ({ text, tone: 'base' });
-
-/** A full-ink 600 segment: the value half. Matches `.wf-facts [data-tone='strong']`. */
-const strong = (text) => ({ text, tone: 'strong' });
-
-/**
- * The fact line's chips, in a fixed order this module owns.
- *
- * <p>Ordered water first, then the light, then the sky — the sequence a reader asks them in. The
- * order is hard-coded because {@code meta}'s own key order is randomised per backend restart
- * (see this file's header); reading it from the payload would reshuffle the line on every deploy.
- *
- * @param {object}  meta        the entry's derived facts
- * @param {boolean} spansOneDay whether the entry's span is a single day, which decides whether a
- *                              date inside the span is worth naming or is a second copy of the
- *                              dates already printed to the left
- */
-function factsFor(meta, spansOneDay) {
-  const facts = [];
-
-  if (meta.range) {
-    // One chip, not two. `rangeAnomaly` is "+0.4" — signed, one decimal, and deliberately WITHOUT
-    // a unit — so beside a separate "4.6 m" chip it reads as a different quantity. Composed into
-    // the same chip the metres are stated once and govern both numbers, and no unit is invented.
-    const segments = [base('range '), strong(meta.range)];
-    if (meta.rangeAnomaly) segments.push(base(` · ${meta.rangeAnomaly} vs average`));
-    facts.push({ segments });
+  let dow = null;
+  let day;
+  let month;
+  if (singleDay) {
+    dow = weekday(startDate);
+    day = dayNum(startDate);
+    month = monthName(startDate);
+  } else if (crossesMonth) {
+    day = `${dayNum(startDate)} ${monthName(startDate)}`;
+    month = `–${dayNum(endDate)} ${monthName(endDate)}`;
+  } else {
+    day = `${dayNum(startDate)}–${dayNum(endDate)}`;
+    month = monthName(startDate);
   }
 
-  // The size axis, and deliberately independent of the run's lunar label. `TideRunBuilder`
-  // populates this when the day's water clears the port's own spring threshold, so a big spring run
-  // carries it and a perigean run at a port having an ordinary day does not. What tells spring and
-  // king apart is the title; what tells big from ordinary is this.
-  if (meta.highWater) facts.push({ segments: [base('high water '), strong(meta.highWater)] });
-
-  // No "low water"/"high water" label: the phrase already opens with LW or HW and carries its own
-  // clock time. "alignment" names the question it answers instead of repeating its answer.
-  //
-  // The two keys are exclusive and the backend guarantees it — `alignment` is the clause for the
-  // one day of the run whose water lands in the light, `noAlignment` the flag saying no day does.
-  // They used to be one key carrying the biggest day's verdict, which always has a sentence for it,
-  // so an unaligned run read `alignment  peak range · LW 2h12 after sunset`: a claim of alignment
-  // over a range restatement over a low water two hours into the dark.
-  //
-  // The day is named because a run is several days and "the tide lines up with sunrise" is not
-  // actionable without knowing which morning. Suppressed on a one-day run, where the dates already
-  // say it — the same rule `whenNote` applies to `peakDate`.
-  if (meta.alignment) {
-    const onDay = spansOneDay || !meta.alignmentDate
-      ? '' : ` on ${dayAndMonth(meta.alignmentDate)}`;
-    facts.push({ segments: [base('alignment '), strong(`${meta.alignment}${onDay}`)] });
-  } else if (meta.noAlignment === FLAG_TRUE) {
-    facts.push({ segments: [base('alignment '), strong('none — water misses the light')] });
-  }
-
-  if (meta.moonIllumination) {
-    facts.push({ segments: [base('moon '), strong(meta.moonIllumination)] });
-  }
-
-  // Eclipse. Two measurements, and then the recurrence line last, because it is the one fact that
-  // is about the event's place in a century rather than about the night itself.
-  if (meta.coverage) facts.push({ segments: [base('at maximum '), strong(meta.coverage)] });
-  if (meta.maximum) facts.push({ segments: [base('peaks '), strong(meta.maximum)] });
-  // Rendered whole and unlabelled. `EclipseAlmanacSource` composes the sentence — "nothing
-  // comparable from the UK until 2081" — precisely so this file keeps its rule that no number is
-  // parsed, compared or re-formatted here; a bare `returnYears` integer would have broken it.
-  if (meta.rarity) facts.push({ segments: [strong(meta.rarity)] });
-
-  return facts;
+  return { dow, day, month, isRange: !singleDay, countdown: countdownFor(startDate, todayStr) };
 }
 
 /**
- * The caveat under the facts: whose numbers these are.
+ * The filter chips (design README §5, plan D6) — five, `All` plus four families. `aurora` is a
+ * legal wire family with no chip of its own (unreachable in v1, plan §1.4); it is deliberately
+ * absent from every entry below rather than folded into one, so a later chip can claim it without
+ * disturbing the other four.
  *
- * <p>Never omitted when there are figures. A tide run may span a whole coast and the figures are
- * one location's — CLAUDE.md settled that for the Plan tab's tide chart ("named in the footer,
- * since alignment differs by ~20 min across a coastline a topic may span") and the same numbers are
- * on this row.
- *
- * <p>{@code figuresFrom} is the fallback path: it means no single day of the run was flagged as its
- * biggest, so the figures come from the first day that could be derived at all. Saying which day,
- * and that the rest is not covered, is the difference between a caveat and a false claim that the
- * whole run looks like this.
+ * @type {Array<{id: string, label: string, families: string[]}>}
  */
-function attributionFor(meta) {
-  if (!meta.location) return null;
-  if (meta.figuresFrom) {
-    const day = dayAndMonth(meta.figuresFrom);
-    return `Figures for ${meta.location} on ${day} — the rest of the run is not covered yet`;
-  }
-  return `Figures for ${meta.location}`;
+export const FILTER_CHIPS = [
+  { id: 'all', label: 'All', families: null },
+  { id: 'coastal', label: 'Coastal', families: ['coastal'] },
+  { id: 'night-sky', label: 'Night sky', families: ['night-sky'] },
+  { id: 'sun-moon', label: 'Sun & moon', families: ['sun-moon', 'eclipse'] },
+  { id: 'air-dust', label: 'Air & dust', families: ['air', 'dust'] },
+];
+
+/**
+ * Each chip's served count, from {@code counts.byFamily} — never from the (possibly filtered)
+ * rendered list, so a chip's own number cannot change when a DIFFERENT chip is selected (design
+ * §7: "counts stay static; they describe the unfiltered set").
+ *
+ * @param {?object} counts the wire's {@code ComingUpCounts}, or null/undefined before it arrives
+ * @returns {Array<{id: string, label: string, count: number}>}
+ */
+export function chipCounts(counts) {
+  const byFamily = counts?.byFamily ?? {};
+  return FILTER_CHIPS.map((chip) => ({
+    id: chip.id,
+    label: chip.label,
+    count: chip.families
+      ? chip.families.reduce((sum, family) => sum + (byFamily[family] ?? 0), 0)
+      : Object.values(byFamily).reduce((sum, n) => sum + n, 0),
+  }));
 }
 
 /**
- * Turns one wire entry into a row descriptor.
+ * Whether `entry` belongs to the selected chip — `all` always matches, and every other chip
+ * matches on {@code entry.family} against its own family list (D6's "Sun & moon covers eclipse,
+ * Air & dust covers air+dust" mapping).
+ */
+function matchesFilter(entry, filterId) {
+  if (filterId === 'all') return true;
+  const chip = FILTER_CHIPS.find((c) => c.id === filterId);
+  return Boolean(chip?.families?.includes(entry.family));
+}
+
+/**
+ * Turns one wire entry into the view a card renders. Almost entirely a pass-through — P2 already
+ * decided every fact, tag and label — plus the two client-only additions: the date rail (needs the
+ * reader's clock, which the server does not have) and {@code isFeature}, the card's larger-title
+ * treatment.
  *
- * @param {object} event   an `AlmanacEvent` as served
+ * <p>{@code isFeature} is derived, not served, because it names a PRESENTATION choice ("this card
+ * gets the bigger title") rather than a new fact: it is true exactly where the card already has
+ * something a plain title would waste — a first-of-type explanation ({@code prose}) or a
+ * falsifiable superlative naming a place in the window. Every card in the design bundle with
+ * either field set the larger title; every one with neither did not.
+ *
+ * <p>Only a {@code plan} action is wired to a real destination in this phase — the card must not be
+ * a dead pointer (plan §11.5), and the {@code coastal-spots}/{@code dark-sky-spots} map channel does
+ * not exist until P3b (D8). Their label still renders; {@code interactive} is what keeps the card
+ * from claiming a click it cannot honour.
+ *
+ * @param {object} entry   a {@code ComingUpEntry} as served
  * @param {string} todayStr the reader's today, `YYYY-MM-DD`
- * @returns {object} the row
+ * @returns {object} the view model
  */
-function toRow(event, todayStr) {
-  // `meta` is ABSENT from the JSON when empty — @JsonInclude(NON_EMPTY) omits the key rather than
-  // sending `{}` — so every read goes through this one normalisation. The wire also carries a
-  // `datesOnly` boolean (Jackson serialises the `isDatesOnly()` getter), but it is a side effect of
-  // bean naming rather than a declared record component and no backend test pins it, so the
-  // degraded state is derived from the thing that IS pinned: the absence of `meta`.
-  const meta = event.meta || {};
-  const clippedStart = meta.startsBeforeWindow === FLAG_TRUE;
-  const facts = factsFor(meta, event.startDate === event.endDate);
+export function buildEntryView(entry, todayStr) {
+  const action = entry.action ?? { label: '', kind: null, date: entry.startDate };
   return {
-    // Composite: ~6 spring-tide entries share a title and a type across one 90-day feed, and a
-    // supermoon and a tide run can share a start date. Type plus both ends is unique by
-    // construction — one source cannot emit two entries with the same type over the same span.
-    key: `${event.type}:${event.startDate}:${event.endDate}`,
-    type: event.type,
-    title: event.title,
-    detail: event.detail,
-    // Marker-on-exception, the treatment this project already gives its confidence channel: the
-    // reassuring value is the page's stated default and goes unmarked, and only the provisional one
-    // is called out. Every entry the six current sources emit is ALMANAC, so a chip rendered on
-    // all of them would be a word that never varies; the pane's footer states it once instead. A
-    // FORECAST entry — which plan §3 reserves for the ~3-day hot-topic path — is marked, and an
-    // unrecognised kind is marked by nothing rather than by a raw enum name.
-    kindLabel: event.kind === 'FORECAST' ? 'Forecast' : null,
-    lead: leadWord(event.startDate, event.endDate, todayStr, clippedStart),
-    dates: spanLabel(
-      event.startDate, event.endDate, clippedStart, meta.endsAfterWindow === FLAG_TRUE,
-    ),
-    whenNote: whenNote(event, meta),
-    facts,
-    attribution: attributionFor(meta),
-    // The degrade rule reaching a screen for the first time: "we know when, not how big". Gated on
-    // the type as well as the absence — see TYPES_WITH_FIGURES for why an empty `meta` is a healthy
-    // state on three of the six sources and a real absence on two (tide, eclipse) — see the class
-    // doc's TYPES_WITH_FIGURES paragraph for which is which.
-    //
-    // Read off the NORMALISED map, not off `event.meta`. The three ways a caller can say "nothing
-    // here" — the key absent (what @JsonInclude(NON_EMPTY) actually sends), null, and `{}` (what a
-    // hand-written fixture writes) — must collapse to one state. `!event.meta` is false for `{}`,
-    // so that spelling would silently drop the caveat from any test or future payload that sent an
-    // empty object rather than omitting the key.
-    figuresMissing: TYPES_WITH_FIGURES.has(event.type) && Object.keys(meta).length === 0,
+    id: entry.id,
+    type: entry.type,
+    startDate: entry.startDate,
+    family: entry.family,
+    isForecast: entry.kind === 'FORECAST',
+    rail: buildDateRail(entry.startDate, entry.endDate, todayStr),
+    title: entry.title,
+    kindTag: entry.kindTag,
+    superlative: entry.superlative ?? null,
+    metric: entry.metric ?? null,
+    prose: entry.prose ?? null,
+    isFeature: Boolean(entry.prose) || Boolean(entry.superlative),
+    facts: entry.facts ?? [],
+    threshold: entry.threshold ?? null,
+    action,
+    interactive: action.kind === 'plan',
   };
 }
 
 /**
- * Builds the feed's rows, in the order the payload already put them.
+ * Groups already-filtered, already-ordered views into month sections (design README §4's month
+ * rule; plan §6). Never re-sorts — {@code AlmanacService} already sorts by start date, and a run
+ * grouping by consecutive month is only correct because the input stays chronological.
  *
- * <p><b>Never re-sorted.</b> {@code AlmanacService} sorts by start date, then by span length, then
- * by type, and that is the order to paint: chronological, with the shorter of two spans starting
- * the same day first. Sorting by {@code peakDate} instead would move a walked-outwards tide run,
- * and grouping by type would break the one spine a "what is coming" list has.
+ * <p>Grouped on the entry's OWN start month, even for a run that crosses one — the design bundle
+ * groups its month-crossing tide run (26 Sept – 1 Oct) under September, the month it begins, and
+ * does not duplicate it under October.
  *
- * @param {Array}  events   the wire payload, or null/undefined before it arrives
- * @param {string} todayStr the reader's today, `YYYY-MM-DD`
- * @returns {Array} row descriptors, one per entry
+ * @param {Array} views entry views, in server order
+ * @returns {Array<{key: string, monthLabel: string, year: string, entries: Array}>}
  */
-export function buildComingUpRows(events, todayStr) {
-  if (!Array.isArray(events)) return [];
-  return events.map((event) => toRow(event, todayStr));
+export function groupEntriesByMonth(views) {
+  const groups = [];
+  let current = null;
+  for (const view of views) {
+    const year = view.startDate.slice(0, 4);
+    const monthLabel = monthName(view.startDate);
+    const key = view.startDate.slice(0, 7);
+    if (!current || current.key !== key) {
+      current = { key, monthLabel, year, entries: [] };
+      groups.push(current);
+    }
+    current.entries.push(view);
+  }
+  return groups;
+}
+
+/**
+ * The full pipeline: filter the wire entries by the active chip, build each survivor's view, then
+ * group the survivors by month. The one function {@code WindowFirstComingUp} actually calls; the
+ * pieces above are exported separately because each is independently worth a focused test.
+ *
+ * @param {Array}  entries   the wire's {@code ComingUpEntry[]}, or undefined before it arrives
+ * @param {string} todayStr  the reader's today, `YYYY-MM-DD`
+ * @param {string} filterId  the active chip's id, e.g. `'all'`
+ * @returns {Array} month groups, each holding its filtered, view-built entries
+ */
+export function buildChronology(entries, todayStr, filterId) {
+  if (!Array.isArray(entries)) return [];
+  const views = entries
+    .filter((entry) => matchesFilter(entry, filterId))
+    .map((entry) => buildEntryView(entry, todayStr));
+  return groupEntriesByMonth(views);
+}
+
+/**
+ * The footer's opening sentence — the general rule, true whether or not the feed has answered yet.
+ * Shown on its own before {@code status === 'ready'}, so the pane never states a specific count it
+ * does not have. "Fixed in advance", not the design's "fixed by orbital mechanics": two of the six
+ * sources compute nothing orbital — the NLC season boundary is a hard-coded calendar window and the
+ * equinox/solstice dates are fixed `MonthDay` anchors, not a solved instant — a distinction the
+ * current pane already recorded and this rewrite keeps (plan §11.14).
+ */
+export const FOOTER_LEAD = 'This list starts where Plan stops. Two things earn a row: a date '
+  + 'fixed in advance, and the forecast peak of a standing condition.';
+
+/**
+ * The footer's full paragraph (design README §5, plan §6) — {@link FOOTER_LEAD} plus the served
+ * counts, read from the server's {@code counts} rather than counted off the rendered rows (so a
+ * filter never changes what the footer claims). Only meaningful once the feed has actually
+ * answered; the caller shows {@link FOOTER_LEAD} alone before then (see
+ * {@code WindowFirstComingUp}'s own gating comment).
+ *
+ * @param {{fixed: number, forecast: number}} counts the served entry counts
+ * @returns {string} the complete footer paragraph
+ */
+export function footerCopy(counts) {
+  const { fixed, forecast } = counts;
+  const tail = 'Routine occurrences of the conditions above are never listed, only opened.';
+  if (forecast === 0) {
+    return `${FOOTER_LEAD} Every date here is fixed in advance — as certain three months out as `
+      + `it is tonight, because none of it depends on the weather. ${tail}`;
+  }
+  return `${FOOTER_LEAD} ${fixed} here ${fixed === 1 ? 'is' : 'are'} fixed — as certain three `
+    + `months out as ${fixed === 1 ? 'it is' : 'they are'} tonight — and carry a solid left rule. `
+    + `${forecast} ${forecast === 1 ? 'is a forecast peak' : 'are forecast peaks'} on a dashed `
+    + `rule and can still move; horizons differ by topic, from three days for cloud to about five `
+    + `for dust transport. ${tail}`;
 }

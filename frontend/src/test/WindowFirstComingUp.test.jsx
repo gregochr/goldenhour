@@ -1,29 +1,39 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, within, fireEvent } from '@testing-library/react';
 import WindowFirstComingUp from '../components/WindowFirstComingUp.jsx';
 
 const TODAY = '2026-08-09';
 
-/** Two entries in the shape the wire actually sends — note `meta` is OMITTED, not `{}`. */
-const EVENTS = [
-  {
-    startDate: '2026-08-12',
-    endDate: '2026-08-12',
-    kind: 'ALMANAC',
-    type: 'meteor',
-    title: 'Perseids',
-    detail: 'Perseids peaks, around 100 meteors an hour at best under a dark sky.',
-    meta: { zhr: '100', radiant: 'NE', bestHours: '01:00–04:00', moonIllumination: '0%' },
-  },
-  {
-    startDate: '2026-08-12',
-    endDate: '2026-08-13',
-    kind: 'ALMANAC',
-    type: 'spring-tide',
-    title: 'Spring tide run',
-    detail: 'The moon’s alignment pulls the tide further out and further in than usual.',
-  },
+/** A `ComingUpEntry` as P2 actually serves one. */
+const wireEntry = (over = {}) => ({
+  id: 'meteor:2026-08-12:2026-08-12',
+  type: 'meteor',
+  startDate: '2026-08-12',
+  endDate: '2026-08-12',
+  kind: 'ALMANAC',
+  family: 'night-sky',
+  title: 'Perseids',
+  kindTag: 'Almanac',
+  superlative: null,
+  metric: '~100/hr',
+  prose: 'Perseids peaks, around 100 meteors an hour at best under a dark sky.',
+  facts: [],
+  threshold: null,
+  action: { label: 'Show dark-sky spots for 12 Aug →', kind: 'dark-sky-spots', date: '2026-08-12' },
+  ...over,
+});
+
+const COUNTS = { fixed: 2, forecast: 0, byFamily: { 'night-sky': 1, coastal: 1 } };
+
+const ENTRIES = [
+  wireEntry(),
+  wireEntry({
+    id: 'spring-tide:2026-08-12:2026-08-13', type: 'spring-tide', family: 'coastal',
+    title: 'Spring tide run', metric: null, prose: null,
+    startDate: '2026-08-12', endDate: '2026-08-13',
+    action: { label: 'Show coastal spots for 12 Aug →', kind: 'coastal-spots', date: '2026-08-12' },
+  }),
 ];
 
 const renderPane = (props = {}) => {
@@ -34,7 +44,7 @@ const renderPane = (props = {}) => {
       id="window-first-panel-coming-up"
       labelledBy="window-first-tab-coming-up"
       status="ready"
-      events={{ entries: EVENTS }}
+      events={{ entries: ENTRIES, counts: COUNTS }}
       todayStr={TODAY}
       onRetry={onRetry}
       onGoToPlan={onGoToPlan}
@@ -46,19 +56,13 @@ const renderPane = (props = {}) => {
 
 describe('WindowFirstComingUp — the panel contract', () => {
   it('is a tab panel tied to the tab that controls it', () => {
-    // The pairing is the whole reason the bar became a real tab widget at P13: without it a screen
-    // reader is told there is a tab list and then given no way to know what either tab controls.
     renderPane();
-
     const panel = screen.getByRole('tabpanel');
     expect(panel).toHaveAttribute('id', 'window-first-panel-coming-up');
     expect(panel).toHaveAttribute('aria-labelledby', 'window-first-tab-coming-up');
   });
 
   it('is focusable, because everything inside it is text', () => {
-    // Without tabIndex there is nowhere for focus to go after the tab is chosen — the panel has no
-    // focusable content of its own, so a keyboard user would be thrown straight past it to
-    // whatever comes next after the panel.
     renderPane();
     expect(screen.getByRole('tabpanel')).toHaveAttribute('tabindex', '0');
   });
@@ -67,16 +71,38 @@ describe('WindowFirstComingUp — the panel contract', () => {
     renderPane();
     expect(screen.getByTestId('coming-up-subtitle')).toHaveTextContent('next 90 days');
   });
+
+  it('renders the legend unconditionally — not gated on entries, filters or status', () => {
+    for (const [status, events] of [
+      ['ready', { entries: ENTRIES, counts: COUNTS }],
+      ['idle', null],
+      ['loading', null],
+      ['error', null],
+      ['ready', { entries: [], counts: { fixed: 0, forecast: 0, byFamily: {} } }],
+    ]) {
+      const { unmount } = renderPane({ status, events });
+      expect(screen.getByTestId('coming-up-legend')).toHaveTextContent('fixed');
+      expect(screen.getByTestId('coming-up-legend')).toHaveTextContent('still firming');
+      unmount();
+    }
+  });
+
+  it('keeps the legend on screen after filtering down to an all-solid subset', () => {
+    renderPane();
+    const coastalChip = screen.getAllByTestId('coming-up-chip')
+      .find((c) => within(c).queryByText('Coastal'));
+    fireEvent.click(coastalChip);
+    expect(screen.getByTestId('coming-up-legend')).toBeInTheDocument();
+  });
 });
 
 describe('WindowFirstComingUp — the four states', () => {
-  it('renders one row per entry, in the payload’s order', () => {
+  it('renders one entry per served row, in the payload’s order', () => {
     renderPane();
-
-    const rows = screen.getAllByTestId('coming-up-row');
-    expect(rows).toHaveLength(2);
-    expect(rows[0]).toHaveTextContent('Perseids');
-    expect(rows[1]).toHaveTextContent('Spring tide run');
+    const entries = screen.getAllByTestId('coming-up-entry');
+    expect(entries).toHaveLength(2);
+    expect(entries[0]).toHaveTextContent('Perseids');
+    expect(entries[1]).toHaveTextContent('Spring tide run');
   });
 
   it('says it is looking while the request is in flight', () => {
@@ -85,44 +111,33 @@ describe('WindowFirstComingUp — the four states', () => {
   });
 
   it('never claims there is nothing coming up while the request is still in flight', () => {
-    // The defect this exists to prevent: an empty state gated on `rows.length` rather than on the
-    // status renders "Nothing dated in the next 90 days" for the whole of the first round-trip —
-    // a false claim about the sky, shown at exactly the moment the reader is looking.
     renderPane({ status: 'loading', events: null });
     expect(screen.queryByTestId('coming-up-empty')).toBeNull();
-    expect(screen.queryByTestId('coming-up-row')).toBeNull();
+    expect(screen.queryByTestId('coming-up-entry')).toBeNull();
   });
 
   it('says nothing is coming up only once the feed has actually answered with nothing', () => {
-    // Reachable: `AlmanacService` returns `[]` rather than a 500 when every source throws.
-    renderPane({ status: 'ready', events: { entries: [] } });
+    renderPane({ status: 'ready', events: { entries: [], counts: { fixed: 0, forecast: 0, byFamily: {} } } });
     expect(screen.getByTestId('coming-up-empty'))
       .toHaveTextContent("Nothing dated beyond Plan's four days in the next 90 days.");
   });
 
   it('renders nothing but its frame before the tab has ever been opened', () => {
-    // `idle` is the state the pane is never actually mounted in today, since the shell only mounts
-    // it once the tab is selected. Pinned so a future eager fetch cannot make `idle` mean "empty".
     renderPane({ status: 'idle', events: null });
     expect(screen.queryByTestId('coming-up-empty')).toBeNull();
     expect(screen.queryByTestId('coming-up-loading')).toBeNull();
-    expect(screen.queryByTestId('coming-up-row')).toBeNull();
+    expect(screen.queryByTestId('coming-up-entry')).toBeNull();
+    expect(screen.queryByTestId('coming-up-chips')).toBeNull();
     expect(screen.getByTestId('coming-up-footer')).toBeInTheDocument();
   });
 
   it('says the load failed, and does not pretend the sky is empty', () => {
     renderPane({ status: 'error', events: null });
-
-    expect(screen.getByTestId('coming-up-error'))
-      .toHaveTextContent('Could not load what is coming up.');
+    expect(screen.getByTestId('coming-up-error')).toHaveTextContent('Could not load what is coming up.');
     expect(screen.queryByTestId('coming-up-empty')).toBeNull();
   });
 
   it('announces the load and the failure through one always-mounted live region', () => {
-    // ALWAYS mounted, and that is the load-bearing half: a live region inserted in the same commit
-    // as its content is unreliably announced, which is why WindowSpotSheet puts role="status" on
-    // the element that is there whatever happens. Selection follows focus on this tab bar, so a
-    // reader arriving by arrow key has no other signal that the pane is loading or that it failed.
     const { unmount } = renderPane({ status: 'loading', events: null });
     const live = screen.getByTestId('coming-up-status');
     expect(live).toHaveAttribute('role', 'status');
@@ -130,32 +145,23 @@ describe('WindowFirstComingUp — the four states', () => {
     unmount();
 
     renderPane({ status: 'error', events: null });
-    expect(screen.getByTestId('coming-up-status'))
-      .toHaveTextContent('Could not load what is coming up.');
-  });
-
-  it('keeps the live region on screen while the rows are showing, so the next state is heard', () => {
-    renderPane();
-    expect(screen.getByTestId('coming-up-status')).toBeInTheDocument();
-    expect(screen.getByTestId('coming-up-status')).toBeEmptyDOMElement();
+    expect(screen.getByTestId('coming-up-status')).toHaveTextContent('Could not load what is coming up.');
   });
 
   it('groups the entries as a list, so a screen reader gets a boundary and a count', () => {
-    // Eleven sibling divs give a screen-reader user nothing to navigate by.
+    // Both fixture entries fall in August, so this is exactly one month section — one list.
     renderPane();
     const list = screen.getByRole('list');
     expect(list).toBe(screen.getByTestId('coming-up-list'));
     expect(screen.getAllByRole('listitem')).toHaveLength(2);
   });
 
-  it('draws no empty list container when there is nothing to list', () => {
-    renderPane({ status: 'ready', events: { entries: [] } });
+  it('draws no list container when there is nothing to list', () => {
+    renderPane({ status: 'ready', events: { entries: [], counts: { fixed: 0, forecast: 0, byFamily: {} } } });
     expect(screen.queryByRole('list')).toBeNull();
   });
 
   it('puts focus on the panel when a retry succeeds, rather than dropping it on the body', () => {
-    // Pressing the button unmounts it, and focus on a removed element falls to <body> — a keyboard
-    // reader ends up at the top of the document with no idea whether anything happened.
     const { rerender, onRetry, onGoToPlan } = renderPane({ status: 'error', events: null });
     const button = screen.getByRole('button', { name: 'Try again' });
     button.focus();
@@ -167,21 +173,17 @@ describe('WindowFirstComingUp — the four states', () => {
         id="window-first-panel-coming-up"
         labelledBy="window-first-tab-coming-up"
         status="ready"
-        events={{ entries: EVENTS }}
+        events={{ entries: ENTRIES, counts: COUNTS }}
         todayStr={TODAY}
         onRetry={onRetry}
         onGoToPlan={onGoToPlan}
       />,
     );
-
     expect(screen.getByRole('tabpanel')).toHaveFocus();
   });
 
   it('offers a retry that actually retries', () => {
-    // §6 bans a control that cannot act, and the standards ask that a failed fetch leave an escape
-    // hatch on screen. This is both.
     const { onRetry } = renderPane({ status: 'error', events: null });
-
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
@@ -189,7 +191,8 @@ describe('WindowFirstComingUp — the four states', () => {
   it('keeps its heading and footer in every state, so the pane never looks broken', () => {
     for (const status of ['idle', 'loading', 'error', 'ready']) {
       const { unmount } = renderPane({
-        status, events: status === 'ready' ? { entries: [] } : null,
+        status,
+        events: status === 'ready' ? { entries: [], counts: { fixed: 0, forecast: 0, byFamily: {} } } : null,
       });
       expect(screen.getByTestId('coming-up-subtitle')).toBeInTheDocument();
       expect(screen.getByTestId('coming-up-footer')).toBeInTheDocument();
@@ -198,45 +201,160 @@ describe('WindowFirstComingUp — the four states', () => {
   });
 });
 
-describe('WindowFirstComingUp — the certainty vocabulary', () => {
-  it('states that the dates are fixed, once, at the foot', () => {
+describe('WindowFirstComingUp — month rules', () => {
+  it('renders one month rule for a feed spanning one month', () => {
     renderPane();
-    expect(screen.getByTestId('coming-up-footer'))
-      .toHaveTextContent('Every date here is fixed in advance');
+    expect(screen.getAllByTestId('coming-up-month')).toHaveLength(1);
+    expect(screen.getByTestId('coming-up-month')).toHaveTextContent('Aug');
+    expect(screen.getByTestId('coming-up-month')).toHaveTextContent('2026');
   });
 
+  it('renders one month rule per month when the feed spans more than one', () => {
+    renderPane({
+      events: {
+        entries: [...ENTRIES, wireEntry({
+          id: 'equinox:2026-09-22:2026-09-22', type: 'equinox', family: 'sun-moon',
+          title: 'Autumn equinox', metric: 'twice a year', prose: 'The sun rises due east.',
+          startDate: '2026-09-22', endDate: '2026-09-22',
+          action: { label: 'See the plan for 22 Sept →', kind: 'plan', date: '2026-09-22' },
+        })],
+        counts: { ...COUNTS, byFamily: { ...COUNTS.byFamily, 'sun-moon': 1 } },
+      },
+    });
+    const months = screen.getAllByTestId('coming-up-month');
+    expect(months.map((m) => m.textContent)).toEqual(
+      expect.arrayContaining([expect.stringContaining('Aug'), expect.stringContaining('Sept')]),
+    );
+    expect(screen.getAllByRole('list')).toHaveLength(2);
+  });
+});
+
+describe('WindowFirstComingUp — filter chips (plan D6)', () => {
+  it('renders one chip per family plus All', () => {
+    renderPane();
+    const chips = screen.getAllByTestId('coming-up-chip');
+    expect(chips.map((c) => c.textContent)).toEqual([
+      expect.stringContaining('All'),
+      expect.stringContaining('Coastal'),
+      expect.stringContaining('Night sky'),
+      expect.stringContaining('Sun & moon'),
+      expect.stringContaining('Air & dust'),
+    ]);
+  });
+
+  it('renders the served count on each chip, not the family name alone', () => {
+    // COUNTS.byFamily = { 'night-sky': 1, coastal: 1 }, so All sums to 2; the two named families
+    // read their own count and the two absent ones read 0. A chip that renders `chip.id` or a
+    // hardcoded `0` for every family, or that drops the count element outright, would still pass
+    // the "one chip per family" test above — this pins the number itself reaching the screen.
+    renderPane();
+    const chips = screen.getAllByTestId('coming-up-chip');
+    expect(within(chips[0]).getByText('2')).toBeInTheDocument(); // All
+    expect(within(chips[1]).getByText('1')).toBeInTheDocument(); // Coastal
+    expect(within(chips[4]).getByText('0')).toBeInTheDocument(); // Air & dust
+  });
+
+  it('marks the All chip pressed by default, and no other', () => {
+    renderPane();
+    const [all, coastal] = screen.getAllByTestId('coming-up-chip');
+    expect(all).toHaveAttribute('aria-pressed', 'true');
+    expect(coastal).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('filters the visible entries when a chip is pressed, flipping aria-pressed both ways', () => {
+    renderPane();
+    const [allChip] = screen.getAllByTestId('coming-up-chip');
+    const coastalChip = screen.getAllByTestId('coming-up-chip')
+      .find((c) => within(c).queryByText('Coastal'));
+    fireEvent.click(coastalChip);
+    const entries = screen.getAllByTestId('coming-up-entry');
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toHaveTextContent('Spring tide run');
+    expect(coastalChip).toHaveAttribute('aria-pressed', 'true');
+    // The boundary the standards ask for: the flip away from All must also be asserted, not just
+    // the flip onto the newly-pressed chip.
+    expect(allChip).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('never changes a chip’s own count when a DIFFERENT chip is selected', () => {
+    renderPane();
+    const before = screen.getAllByTestId('coming-up-chip').map((c) => c.textContent);
+    const coastalChip = screen.getAllByTestId('coming-up-chip')
+      .find((c) => within(c).queryByText('Coastal'));
+    fireEvent.click(coastalChip);
+    const after = screen.getAllByTestId('coming-up-chip').map((c) => c.textContent);
+    expect(after).toEqual(before);
+  });
+
+  it('names the filter, not just "nothing here", when the active filter matches no entry', () => {
+    // Distinct from the feed-is-genuinely-empty state: the feed has two entries, so silently
+    // showing nothing (as a zero-count family chip like Air & dust does at first ship, D9) would
+    // read as the pane having broken rather than as the filter being the reason.
+    renderPane();
+    const dustChip = screen.getAllByTestId('coming-up-chip')
+      .find((c) => within(c).queryByText('Air & dust'));
+    fireEvent.click(dustChip);
+    expect(screen.queryByTestId('coming-up-entry')).toBeNull();
+    expect(screen.queryByRole('list')).toBeNull();
+    expect(screen.queryByTestId('coming-up-empty')).toBeNull();
+    expect(screen.getByTestId('coming-up-filter-empty'))
+      .toHaveTextContent('Nothing dated matches the Air & dust filter.');
+  });
+});
+
+describe('WindowFirstComingUp — the vocabulary now lives on the card', () => {
   it('does not claim the dates come from orbital mechanics, because two sources compute none', () => {
-    // `NlcSeasonAlmanacSource` reads a hard-coded 25 May – 10 Aug calendar window and
-    // `SolarAlignmentAlmanacSource` uses fixed MonthDay anchors rather than a solved equinox
-    // instant — §5g records those anchors as approximate and their accuracy as unverified. "Fixed
-    // in advance" is true of all seven types; "fixed by orbital mechanics" is true of some.
     renderPane();
     expect(screen.getByTestId('coming-up-footer').textContent).not.toMatch(/orbital/i);
   });
 
-  it('marks no row when every entry is almanac', () => {
-    // Which is every entry the six sources emit. A chip on all of them would be a word that never
-    // varies, and the footer above already says it.
+  it('states the served fixed/forecast counts in the footer, not a count of rendered rows', () => {
     renderPane();
-    expect(screen.queryAllByTestId('coming-up-kind')).toHaveLength(0);
+    expect(screen.getByTestId('coming-up-footer')).toHaveTextContent('Every date here is fixed in advance');
   });
 
-  it('stops claiming every date is fixed as soon as one row is not', () => {
-    // The reason the sentence asks the rendered set rather than asserting what the plan expects.
-    // A clause bolted onto the end would leave the false half still printed above it.
-    renderPane({ events: { entries: [{ ...EVENTS[0], kind: 'FORECAST' }] } });
-
-    expect(screen.getByTestId('coming-up-kind')).toHaveTextContent('Forecast');
+  it('switches the footer copy once the served counts include a forecast entry', () => {
+    renderPane({ events: { entries: ENTRIES, counts: { fixed: 1, forecast: 1, byFamily: {} } } });
     const footer = screen.getByTestId('coming-up-footer');
-    expect(footer).toHaveTextContent('Dates marked Forecast are weather-driven');
+    expect(footer).toHaveTextContent('1 is a forecast peak');
     expect(footer.textContent).not.toContain('Every date here is fixed');
+  });
+
+  it('renders the kind tag on every entry, not marker-on-exception', () => {
+    // The footer's old "every date here is fixed" vocabulary job moved onto the per-card tag.
+    renderPane();
+    expect(screen.getAllByTestId('coming-up-kindtag')).toHaveLength(2);
+    expect(screen.getAllByTestId('coming-up-kindtag')[0]).toHaveTextContent('Almanac');
+  });
+});
+
+describe('WindowFirstComingUp — the footer never states a count it does not have', () => {
+  it('shows only the general rule, with no count, before the feed has answered', () => {
+    // The defect this guards: the old footer's copy was static and count-free, so gating it on
+    // status was never necessary — the new copy names actual numbers, and stating them beneath
+    // "Looking ahead…" or "Could not load…" would be a claim about data that has not arrived.
+    for (const [status, events] of [['idle', null], ['loading', null], ['error', null]]) {
+      const { unmount } = renderPane({ status, events });
+      const footer = screen.getByTestId('coming-up-footer');
+      expect(footer).toHaveTextContent(
+        'This list starts where Plan stops. Two things earn a row: a date fixed in advance, and '
+        + 'the forecast peak of a standing condition.',
+      );
+      expect(footer.textContent).not.toContain('Every date here is fixed in advance');
+      expect(footer.textContent).not.toMatch(/here (is|are) fixed/);
+      unmount();
+    }
+  });
+
+  it('states the real counts once the feed answers', () => {
+    renderPane();
+    expect(screen.getByTestId('coming-up-footer')).toHaveTextContent('Every date here is fixed in advance');
   });
 });
 
 describe('WindowFirstComingUp — the handoff row (plan D14)', () => {
   it('renders above the chronology, stating the boundary with Plan', () => {
     renderPane({ hotTopics: [{ type: 'DUST', label: 'Saharan dust', date: TODAY }] });
-
     const handoff = screen.getByTestId('coming-up-handoff');
     expect(handoff).toHaveTextContent('Now —');
     expect(handoff).toHaveTextContent('One topic lives on those four days');
@@ -249,8 +367,8 @@ describe('WindowFirstComingUp — the handoff row (plan D14)', () => {
     // JSX drops whitespace-only text between sibling tags — it does not collapse it to a space —
     // so without an explicit `{' '}` between every span the accessible name (the button's whole
     // text content) reads "...four daysSaharan dustAurora possibleOn Plan" with no boundaries.
-    // Asserting via the ACCESSIBLE NAME (not toHaveTextContent, which matches a substring inside
-    // the already-glued string and would not catch this) is the point of this test.
+    // This pins `WindowFirstComingUpHandoff` itself (unchanged by this phase) through the ROLE
+    // this pane renders it with, so a future edit to either file cannot silently reintroduce it.
     renderPane({
       hotTopics: [
         { type: 'DUST', label: 'Saharan dust', date: TODAY },
@@ -273,7 +391,6 @@ describe('WindowFirstComingUp — the handoff row (plan D14)', () => {
 
   it('degrades to the label-only row when the briefing has not supplied hotTopics yet', () => {
     renderPane({ hotTopics: undefined });
-
     const handoff = screen.getByTestId('coming-up-handoff');
     expect(handoff).toHaveTextContent('Now —');
     expect(handoff).toHaveTextContent('On Plan →');
@@ -287,29 +404,19 @@ describe('WindowFirstComingUp — the handoff row (plan D14)', () => {
   });
 });
 
-describe('WindowFirstComingUp — the degrade path', () => {
-  it('marks a tide run with no figures, and leaves the meteor row alone', () => {
-    renderPane();
-
-    const missing = screen.getAllByTestId('coming-up-figures-missing');
-    expect(missing).toHaveLength(1);
-    expect(screen.getAllByTestId('coming-up-row')[1]).toContainElement(missing[0]);
-  });
-
-  it('treats an empty meta object exactly as it treats an absent one', () => {
-    // Three inputs mean one thing — the key absent (what the backend sends), null, and `{}` (what a
-    // hand-written fixture writes). A predicate that only caught the first would drop the caveat
-    // from any payload or fixture that chose one of the others.
-    const shapes = [
-      { ...EVENTS[1] },
-      { ...EVENTS[1], meta: undefined },
-      { ...EVENTS[1], meta: null },
-      { ...EVENTS[1], meta: {} },
-    ];
-    for (const event of shapes) {
-      const { unmount } = renderPane({ events: { entries: [event] } });
-      expect(screen.getByTestId('coming-up-figures-missing')).toBeInTheDocument();
-      unmount();
-    }
+describe('WindowFirstComingUp — card-click fires the entry’s action', () => {
+  it('invokes onGoToPlan with the action’s own date on a plan-kind card', () => {
+    const { onGoToPlan } = renderPane({
+      events: {
+        entries: [wireEntry({
+          action: { label: 'See the plan for 12 Aug →', kind: 'plan', date: '2026-08-12' },
+        })],
+        counts: { fixed: 1, forecast: 0, byFamily: { 'night-sky': 1 } },
+      },
+    });
+    // The accessible-name contract for this button is pinned in `WindowComingUpEntry.test.jsx`;
+    // this test is about dispatch, so it targets the card directly.
+    fireEvent.click(screen.getByTestId('coming-up-card'));
+    expect(onGoToPlan).toHaveBeenCalledWith('2026-08-12');
   });
 });

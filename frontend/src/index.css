@@ -93,6 +93,24 @@
      0.08 chroma; a saturated red would read as an error state rather than as a channel. */
   --color-eclipse: #C4787F;
 
+  /* "Coming up" topic-family channels (coming-up-plan D6) — one per `ComingUpEntry.family` value,
+     driving the chronology card's left rule, its facts' accent tone and the filter chips' dots.
+     Seven names for what the design bundle's own audit found to be five actual hues: two families
+     (aurora, sun-moon) are deliberate VALUE-ALIASES of tokens that already exist for a different
+     reason, kept as their own names so a future retune of the verdict/close-to-home ramps cannot
+     silently recolour a topic that happens to share their hex today (the same reasoning
+     `--color-nlc`'s neighbouring comment already states for tide). `--color-topic-eclipse` aliases
+     the existing `--color-eclipse` for the same reason — one channel, one name, wherever it is
+     read from. `--color-topic-air` and `--color-topic-dust` are the two hues genuinely new to this
+     palette; the design bundle's own audit (plan D6) found them absent under any name. */
+  --color-topic-coastal: #6FA8B0;
+  --color-topic-aurora: #8AAE72;
+  --color-topic-air: #8FA3B8;
+  --color-topic-night-sky: #9B8FD4;
+  --color-topic-sun-moon: #C9A24B;
+  --color-topic-dust: #C08552;
+  --color-topic-eclipse: #C4787F;
+
   /* Badge TEXT variants. A badge is ~10px type on a 12–14% tint of its own hue, and at that size
      the full-strength channel colour does not carry — these are the lifted versions that do. Two
      families rather than one, because fill and text have different jobs: the fill names the
@@ -3408,29 +3426,29 @@ button.wf-hc.also.on:hover {
 }
 
 /* ── Window-first "Coming up" pane ──
-   Geometry from the v1 mock's `.cu` (:158), `.cuh` (:159-162), `.ev` (:163-171) and `.cufoot`
-   (:175) — `Plan Window First.html`, which is where the v2 bundle keeps this pane in full and
-   which its own README confirms ("Retained for the Coming up tab in full, which v2 stubs").
-   Five deviations, each with a reason:
+   P3a recreates `docs/design/coming-up/Coming Up.html` §4/§5 (the design of record) against the P2
+   wire payload — coming-up-plan.md §6. Its class names (`.ent`, `.dbox`, `.card`, `.cuh`) are kept
+   as this arm's naming spine below (`.wf-cu-ent`, `.wf-cu-dbox`, `.wf-cu-card`, …), matching the
+   `.wf-cu*` bespoke-CSS convention already established here rather than Tailwind utilities
+   (plan §11.15). Four deviations from the design bundle, each with a reason:
 
-   1. `--color-plex-text-secondary` everywhere the mock writes `--ink-3`. EIGHTH time on this
-      redesign — muted lands in the 3.4-3.5:1 band at 10-11px on every surface in this arm, and
-      `--color-plex-panel` (which every one of these rules sits on) is no exception.
-   2. **Flex, not the mock's `grid-template-columns: 112px 1fr auto`.** This is the correctness fix
-      `.wf-frow` already records: a fixed template strands content in the wrong track the moment a
-      column is conditional. The mock's own right-hand column is conditional — one of its six rows
-      renders a single line where the rest render two — and here it is dropped entirely (it carried
-      a region count the wire never sends), so a three-track template would leave a `1fr` gap
-      where nothing will ever be.
-   3. **No `cursor: pointer` and no hover state.** The mock gives the row both and never says what
-      a click does. The feed carries no location, no rating and no region, so a click has nowhere
-      to land; §6 bans a control that cannot act. A row that is not a control must not be dressed
-      as one, and the arm's own hover idiom is a border change plus a lift on things that ARE
-      buttons.
-   4. The header separator is built in JSX, not by `.cuh .d::before`. House pattern, for the reason
-      `WindowSpotCard:56-57` gives — a separator that lives in CSS survives the half it separates.
-   5. Title at 15.5px with -0.01em rather than the mock's flat 15px, matching `.wf-sheet-t` and the
-      open window card. 15px would be a fourth heading size in an arm that already has three. */
+   1. `--color-plex-text-secondary` everywhere the design writes `--ink-3`. The correction already
+      recorded for this pane's header/foot before this rewrite, carried forward: muted
+      (`--color-plex-text-muted`, the design's literal `--ink-3`) lands in the 3.4-3.5:1 band at
+      10-11px on `--color-plex-panel`, under AA — the same measurement `.wf-facts`'s own comment
+      makes for the fact-chip tones. Applied here to the legend and chip text, which the design
+      also sets in `--ink-3`.
+   2. **Card content is a real `<button>` for a `plan`-action entry, a plain `<div>` for anything
+      else** (plan §11.5, D8's seam) — the design gives every card `cursor:pointer` regardless of
+      what a click does. Only the `plan` action is wired to a destination in this phase; the
+      `coastal-spots`/`dark-sky-spots` map channel is P3b's. `.wf-cu-card-inert` is the honest
+      un-hover, un-pointer state for those, so the card never promises a click it cannot honour.
+   3. **One `role="list"` per month, not one list interrupted by month-rule divs.** A `role="list"`
+      may only own `listitem` children; a heading between two runs of entries would break that
+      contract. Each month section is its own list, preceded by a (non-list) month rule — the
+      standard "grouped list with a heading" shape.
+   4. Month abbreviations are the house `en-GB` short form (`Sept`, not the design's three-letter
+      `SEP`) — `utils/comingUpFeed.js`'s class doc gives the reason; recorded as plan §11.22. */
 .wf-cu {
   border: 1px solid var(--color-plex-border);
   border-radius: 11px;
@@ -3524,103 +3542,340 @@ button.wf-hc.also.on:hover {
   color: var(--color-plex-text-secondary);
 }
 
-/* The row. `align-items: flex-start`, not the mock's `center`: its rows are one line of prose and
-   ours are up to four (title, explanation, facts, caveat), so centring would float the date block
-   into the middle of a tall row and break the scan down the left edge. */
-.wf-cu-row {
-  display: flex;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 11px var(--wf-search-inset);
-  border-bottom: 1px solid var(--color-plex-border);
-}
-.wf-cu-row:last-of-type { border-bottom: none; }
-
-/* 112px is the mock's, kept: it is what fits "30 Aug – 2 Sep" at 11px mono without wrapping, which
-   is the widest label this column can produce. `flex: none` so a long title cannot squeeze it. */
-.wf-cu-when {
-  flex: none;
-  width: 112px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--color-plex-text-secondary);
-}
-.wf-cu-when b {
-  display: block;
-  font-size: 12.5px;
-  font-weight: 600;
-  color: var(--color-plex-text);
-}
-/* Each on its own line under the dates, because both are qualifiers ON the dates rather than
-   facts about the event, and a reader scanning the left edge should get all of "when" in one
-   place. */
-.wf-cu-when span { display: block; }
-
-/* Block layout, deliberately not flex. `.wf-facts` is borrowed from P7's attribute row and carries
-   `flex: 1; min-width: 0` for the row it was written for; inside a flex COLUMN that `flex: 1`
-   would be a vertical grow instruction. Block layout makes it inert without an override. */
-/* A line-measure cap. Dropping the mock's right-hand column handed its width to the prose, and the
-   numbers here are counted on the running app with a Range over the longest detail the five
-   sources can emit (the 218-character NLC season sentence), not estimated from the screenshot and
-   not derived from the mock's geometry — an earlier version of this comment did both and was wrong
-   twice: uncapped is 888px and 163 characters to the first line, and there is no single width the
-   mock's own `1fr` resolves to, because each of its rows is a separate grid container.
-
-   620px brings that first line to 116 characters. It is not a textbook measure and is not claimed
-   as one; it is the TIGHTEST cap that does not add a third line to that row — 560px gives 106
-   characters and a third line — and this is a feed to scan rather than prose to read end to end,
-   so a row that grows to make one sentence prettier is the worse trade. Below a 1044px viewport
-   the cap is inert, which is what a max-width is for. */
-.wf-cu-body {
-  flex: 1;
-  min-width: 0;
-  max-width: 620px;
-}
-.wf-cu-name {
+/* The legend (design README §5) — two swatches, mono, in the head row. `text-transform: uppercase`
+   is deliberately absent: unlike the rail's dow/month tokens below, the legend's own words ("fixed",
+   "still firming") are lower-case in the design and stay that way. */
+.wf-cu-legend {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--color-plex-text);
-}
-.wf-cu-detail {
-  margin-top: 2px;
-  font-size: 12px;
-  line-height: 1.5;
+  gap: 14px;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
   color: var(--color-plex-text-secondary);
+  white-space: nowrap;
 }
-.wf-cu-row .wf-facts { margin-top: 5px; }
-/* The caveat naming whose figures these are, and the degrade line. Both are about the confidence
-   of the numbers above them rather than about the event, so they take the same quiet mono
-   treatment and sit below the facts they qualify. */
-.wf-cu-attrib,
-.wf-cu-degraded {
-  margin-top: 5px;
+.wf-cu-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.wf-cu-legend-swatch {
+  width: 2px;
+  height: 13px;
+  border-radius: 1px;
+  display: block;
+}
+.wf-cu-legend-swatch-fixed { background: var(--color-plex-text-secondary); }
+.wf-cu-legend-swatch-forecast {
+  background: repeating-linear-gradient(
+    180deg, var(--color-plex-text-secondary) 0 3px, transparent 3px 6px
+  );
+}
+
+/* Filter chips (design README §5, plan D6). `aria-pressed` carries the active state — see
+   `WindowRegionRail`'s identical convention for a mutually-exclusive filter toggle — so the visual
+   tint below is a consequence of that attribute, never the only signal. */
+.wf-cu-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 11px 14px 8px;
+  border-bottom: 1px solid var(--color-plex-border);
+}
+.wf-cu-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 30px;
+  padding: 5px 12px;
   font-family: var(--font-mono);
   font-size: 10.5px;
   color: var(--color-plex-text-secondary);
+  background: var(--color-plex-panel);
+  border: 1px solid var(--color-plex-border);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: border-color 0.14s, background 0.14s, color 0.14s;
+}
+.wf-cu-chip:hover { border-color: var(--color-plex-border-light); color: var(--color-plex-text); }
+.wf-cu-chip:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; }
+.wf-cu-chip[aria-pressed="true"] {
+  border-color: rgba(201, 162, 75, 0.5);
+  background: rgba(201, 162, 75, 0.12);
+  color: #EBD9A8;
+}
+.wf-cu-chip-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--color-plex-border-light);
+}
+/* One rule per chip, naming the SAME hue its cards use — matching the design's own choice of a
+   single representative colour for a chip that spans two wire families (`sun-moon` for "Sun &
+   moon", which also covers `eclipse`; `dust` for "Air & dust", which also covers `air`). */
+.wf-cu-chip[data-chip="coastal"] .wf-cu-chip-dot { background: var(--color-topic-coastal); }
+.wf-cu-chip[data-chip="night-sky"] .wf-cu-chip-dot { background: var(--color-topic-night-sky); }
+.wf-cu-chip[data-chip="sun-moon"] .wf-cu-chip-dot { background: var(--color-topic-sun-moon); }
+.wf-cu-chip[data-chip="air-dust"] .wf-cu-chip-dot { background: var(--color-topic-dust); }
+/* `--color-plex-text-secondary`, not the design's `--ink-4` (`--color-plex-text-muted`) — the same
+   AA correction this deviation-note block already states for the legend, applied here too: muted
+   measures 3.54:1 on `--color-plex-panel` at this size, under the 4.5:1 floor. */
+.wf-cu-chip-count { color: var(--color-plex-text-secondary); }
+.wf-cu-chip[aria-pressed="true"] .wf-cu-chip-count { color: rgba(235, 217, 168, 0.6); }
+
+/* The month rule (design README §4's "month rules") — a heading, not a `listitem`; see this
+   section's own top-of-file note on why each month gets its own `role="list"` rather than one list
+   interrupted by these. */
+.wf-cu-month {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 19px 14px 9px;
+}
+/* The design's own `.mr:first-child` cannot be reused as-is: each month section here is wrapped in
+   its OWN sibling div (so its `role="list"` stays that section's alone — see this block's top
+   note), which makes `.wf-cu-month` the first child of its own wrapper in every group, not only
+   the feed's first. `data-first` names the actual first group instead. */
+.wf-cu-month[data-first="true"] { padding-top: 11px; }
+.wf-cu-month-name {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--color-plex-text);
+}
+.wf-cu-month-year {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  /* Secondary, not the design's muted `--ink-4` — the same AA correction as the legend/chip text
+     above; muted measures 3.54:1 on `--color-plex-panel` at this size. */
+  color: var(--color-plex-text-secondary);
+}
+.wf-cu-month-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--color-plex-border);
 }
 
-/* The kind chip. Visually `CertaintyChip`'s treatment — bordered, mono, 9px, uppercase, secondary
-   ink — and deliberately not that component: it derives its word from `topicCertainty(type)`,
-   which keys on the SCREAMING_SNAKE hot-topic vocabulary and would silently fall through to
-   "forecast" for every kebab-case almanac type. The word here comes off the wire. Bordered rather
-   than the mock's tinted fill because the mock's two tints are the tide teal and the verdict
-   green, and this chip is neither of those channels. */
-.wf-cu-kind {
+/* The entry grid (design README §4) — date rail beside its card. 66px desktop, 58px below 900px,
+   54px on phone (plan §6's own numbers, restated from the design's `.ent`/900px rule and this
+   arm's existing 639px phone boundary — see this file's `--wf-search-inset` note for why 639, not
+   the design's own 900, is where this arm's "phone" starts elsewhere). */
+.wf-cu-ent {
+  display: grid;
+  grid-template-columns: 66px 1fr;
+  gap: 12px;
+  align-items: stretch;
+  margin: 0 14px 7px;
+}
+@media (max-width: 899px) {
+  .wf-cu-ent { grid-template-columns: 58px 1fr; }
+}
+@media (max-width: 639px) {
+  .wf-cu-ent { grid-template-columns: 54px 1fr; gap: 9px; }
+}
+
+.wf-cu-rail {
+  padding-top: 2px;
+  text-align: right;
+}
+.wf-cu-dbox {
+  display: block;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 7px;
+  background: rgba(0, 0, 0, 0.22);
+  padding: 4px 0 5px;
+  text-align: center;
+}
+.wf-cu-dow {
+  display: block;
   font-family: var(--font-mono);
-  font-size: 9px;
-  font-weight: 400;
-  letter-spacing: 0.07em;
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--color-plex-text-secondary);
+}
+.wf-cu-dn {
+  display: block;
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--color-plex-text);
+}
+/* A span's day slot — `10–15`, or a month-crossing run's `26 Sept` — is mono and smaller than a
+   single day's bare number, matching the design's `.dn.run`. */
+.wf-cu-dn-run {
+  font-size: 12.5px;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  padding: 1px 0;
+}
+.wf-cu-mo {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-secondary);
+}
+.wf-cu-cd {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  /* Secondary, not the design's muted `--ink-4`, for the same AA reason as `.wf-cu-month-year`. */
+  color: var(--color-plex-text-secondary);
+  text-align: center;
+  margin-top: 4px;
+  letter-spacing: 0.02em;
+}
+
+/* The card. `--color-plex-border-light` is the un-themed fallback for `data-family` values this
+   build has never heard of; every real family sets `--wf-cu-accent` below. */
+.wf-cu-card {
+  display: block;
+  width: 100%;
   border: 1px solid var(--color-plex-border);
+  border-left: 2px solid var(--wf-cu-accent, var(--color-plex-border-light));
+  border-radius: 9px;
+  background: color-mix(in oklch, var(--wf-cu-accent, var(--color-plex-border-light)) 6%, transparent);
+  padding: 9px 13px 10px;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.14s, border-color 0.14s;
+}
+.wf-cu-card:hover {
+  background: color-mix(in oklch, var(--wf-cu-accent, var(--color-plex-border-light)) 10%, transparent);
+  border-color: var(--color-plex-border-light);
+  border-left-color: var(--wf-cu-accent, var(--color-plex-border-light));
+}
+.wf-cu-card:focus-visible { outline: 2px solid var(--color-plex-gold); outline-offset: 2px; }
+/* Dashed rather than solid marks a FORECAST entry that can still move — must always be paired
+   with the legend above (design README §5: "without it the dashed border is undecodable"). */
+.wf-cu-card-fc { border-left-style: dashed; }
+/* The inert state (plan §11.5, D8's seam): a `coastal-spots`/`dark-sky-spots` action has nowhere
+   to go until P3b builds the map channel, so this card must not look clickable. No pointer, no
+   hover change — the two properties `.wf-cu-card`/`:hover` above set for a real button. */
+.wf-cu-card-inert {
+  cursor: default;
+  transition: none;
+}
+/* Restates BOTH `border-color` (the shorthand, reset to the un-hovered value) AND
+   `border-left-color` explicitly — the shorthand expands to all four sides, so without the
+   explicit longhand afterwards it would win the cascade over `.wf-cu-card:hover`'s own
+   `border-left-color` (this rule is later in the sheet, same specificity) and silently strip the
+   inert card's topic-colour rule on hover. Restating both back to their resting values is what
+   makes this genuinely a no-op, matching the rule's own stated invariant above. */
+.wf-cu-card-inert:hover {
+  background: color-mix(in oklch, var(--wf-cu-accent, var(--color-plex-border-light)) 6%, transparent);
+  border-color: var(--color-plex-border);
+  border-left-color: var(--wf-cu-accent, var(--color-plex-border-light));
+}
+.wf-cu-card[data-family="coastal"] { --wf-cu-accent: var(--color-topic-coastal); }
+.wf-cu-card[data-family="aurora"] { --wf-cu-accent: var(--color-topic-aurora); }
+.wf-cu-card[data-family="air"] { --wf-cu-accent: var(--color-topic-air); }
+.wf-cu-card[data-family="night-sky"] { --wf-cu-accent: var(--color-topic-night-sky); }
+.wf-cu-card[data-family="sun-moon"] { --wf-cu-accent: var(--color-topic-sun-moon); }
+.wf-cu-card[data-family="dust"] { --wf-cu-accent: var(--color-topic-dust); }
+.wf-cu-card[data-family="eclipse"] { --wf-cu-accent: var(--color-topic-eclipse); }
+
+.wf-cu-ttl {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+.wf-cu-nm {
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-plex-text);
+}
+/* The bigger title on a feature card (design README §4) — a first-of-type explanation or a
+   falsifiable superlative, per `buildEntryView`'s `isFeature` derivation. */
+.wf-cu-card-feat .wf-cu-nm { font-size: 15px; font-weight: 700; }
+/* No `opacity` — the design's 0.8 puts four of the seven topic accents under 4.5:1 at 8.5px
+   against the card ground (measured on both the resting 6% tint and the hovered 10% one). Full-
+   strength accent instead, the same correction `.wf-cu-action` above makes. */
+.wf-cu-kindtag {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--wf-cu-accent, var(--color-plex-text-secondary));
+  border: 1px solid color-mix(in oklch, var(--wf-cu-accent, var(--color-plex-border-light)) 34%, transparent);
   border-radius: 4px;
-  padding: 1px 4px;
-  line-height: 1.4;
+  padding: 1px 5px;
+}
+.wf-cu-superlative {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: #EBD9A8;
+  background: rgba(201, 162, 75, 0.14);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.wf-cu-metric {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--wf-cu-accent, var(--color-plex-text));
   white-space: nowrap;
+}
+.wf-cu-prose {
+  /* A `<span>`, not the design's `<p>` — button content model is phrasing content only, and a
+     `<p>`/`<div>` nested inside a native `<button>` (this card, when interactive) is invalid.
+     `display: block` restores the paragraph's own line. */
+  display: block;
+  font-family: var(--font-serif);
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--color-plex-text-secondary);
+  margin-top: 5px;
+  max-width: 76ch;
+}
+.wf-cu-card .wf-facts { margin-top: 7px; }
+/* The third fact tone (design's `<em>`) — the topic's own accent, for the one clause per fact row
+   that carries the card's actual claim (a tide's alignment, a shower's wash-out warning). `.wf-cu-
+   card` scopes this so `.wf-facts`'s two other consumers (`WindowAttributeRow`, this pane's own
+   sibling arms) are untouched — neither of them emits an `accent` tone today. */
+.wf-cu-card [data-tone="accent"] {
+  color: var(--wf-cu-accent, var(--color-plex-text));
+  font-weight: 600;
+}
+/* A `<span>`, for the same button-content-model reason `.wf-cu-prose` gives. */
+.wf-cu-threshold {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.6;
+  color: var(--color-plex-text-secondary);
+  margin-top: 7px;
+  padding-top: 7px;
+  border-top: 1px dashed var(--color-plex-border);
+}
+/* No `opacity` — the design's 0.85 (0.7 combined with the accent's own hue) puts four of the seven
+   topic accents under 4.5:1 at this size against the card ground. Full-strength accent instead;
+   the same correction `.wf-cu-kindtag` below makes and the file's own `.wf-facts` precedent. */
+.wf-cu-action {
+  display: inline-flex;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--wf-cu-accent, var(--color-plex-text-secondary));
+  margin-top: 8px;
 }
 
 /* Loading, error and empty all share one line, because they are one slot: exactly one of them is
@@ -3667,31 +3922,6 @@ button.wf-hc.also.on:hover {
   outline-offset: -2px;
 }
 
-@media (max-width: 639px) {
-  /* The date block stops being a column and becomes a line above the body: 112px of a ~340px row
-     is a third of it, and the span label is short enough to sit inline.
-
-     The horizontal padding stays at 14px, matching the head and the foot. Narrowing it to 12 was
-     the first attempt and it bought two pixels of content width at the cost of the card's left
-     edge stepping in and out down the page — the head, every row and the foot must start on one
-     line, and only the vertical padding is worth tightening at this width. */
-  .wf-cu-row {
-    flex-direction: column;
-    gap: 6px;
-    padding: 10px 14px;
-  }
-  /* `display: flex` here is what puts the three parts on one line — and it also blockifies them,
-     so the desktop `display: block` on the children is overridden by the flex layout itself. An
-     explicit `display: inline` on them would be dead code (a flex item cannot be inline), which is
-     why there is none. */
-  .wf-cu-when {
-    width: auto;
-    display: flex;
-    align-items: baseline;
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-}
 
 /* ── Beyond-line link and search (heat-field plan §4.8, P7; the origin chip moved into the
    masthead's tick line at M3 and its rules went with it) ─────────────────────────────────── */
