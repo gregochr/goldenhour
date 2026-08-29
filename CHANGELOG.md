@@ -5,6 +5,44 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — Coming up P7: topic daily presence/intensity log
+
+Starts the append-only history the Coming-up scoring model needs to move off config-fallback rarity
+and interim magnitude buckets (plan §2 D4) and, later, to support band-transition hysteresis.
+`topic_daily_log` (V151) stores one row per `(topic_type, date, region_id)` — `present`,
+`intensity`, `landed_on_window`, and a `band` column that stays null until a future phase writes it.
+A new nightly job, `TopicDailyLogJob` (registered via `DynamicSchedulerService`, seeded at 04:40 —
+the only free hour-4 slot, confirmed against every `scheduler_job_config` seed/update migration),
+logs presence for the eight candidate topics — DUST, INVERSION, SPRING_TIDE, KING_TIDE,
+STORM_SURGE, SNOW, AURORA, NLC — for the UK-civil "yesterday" per region. Each topic reads from
+whichever store is least triage-biased for it (documented per topic in the job's Javadoc): DUST
+and STORM_SURGE from the complete `forecast_evaluation` population (both columns are written
+pre-triage, unlike the survivor-only `DustHotTopicStrategy` reads them through today); INVERSION
+from `forecast_score` (survivor-only — the best available, since the persisted score is Claude's
+own output and is null on any row that never reached Claude); SNOW from `survivor_atmosphere`
+(the only source left since V116 dropped the `forecast_evaluation` snow columns); AURORA from
+`aurora_forecast_result`, writing nothing for a region with no stored result that night (silence,
+never a false presence) since the table is only ever written on a manual admin trigger; and NLC as
+the deterministic NLC-season boundary (`NlcClarityService.isNlcSeason`), since no per-night
+observational signal is persisted anywhere in the codebase. AURORA and NLC always log
+`intensity: null` per the plan's explicit instruction — starting the clock is the point, not a
+comparable magnitude series. This phase is deliberately invisible: no UI change, and nothing reads
+the new table yet.
+
+SPRING_TIDE/KING_TIDE follow the two-axis rule (`backend/AGENTS.md` §2, "never OR the height test
+into the king label"): a date's stored high water against each location's spring-tide threshold
+decides *which dates and how big* (unbiased, `tide_extreme` + `TideService.getTideStats`); the
+moon alone, via `LunarPhaseService.nearestSyzygyIsPerigean`, decides *what kind* — asked once per
+date so the whole roster agrees on one label, logging `KING_TIDE` on a perigean date and
+`SPRING_TIDE` otherwise, including a big spring that clears P95 without being perigean. An external
+review (Codex, on this PR) caught an earlier draft doing exactly the forbidden thing — independently
+gating `KING_TIDE` on `TideStats.p95HighMetres` alongside `SPRING_TIDE` on the spring threshold,
+so both could fire on the same non-perigean day — fixed by removing the P95 read entirely and
+sourcing the label from the lunar test alone.
+
+Revisit the interim rarity/magnitude constants (dust config fallback, inversion config fallback,
+tide cold-start bucketing) after roughly 90 days of accrued rows, per the plan's own instruction.
+
 ### Changed — Coming up P2: chronology entries are scored, faceted, and merged
 
 Each eligible almanac entry now grows to the full plan §13 shape via a new assembly layer,
