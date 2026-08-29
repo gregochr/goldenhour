@@ -693,8 +693,10 @@ export default function WindowFirstShell({
       // has nothing left to choose (plan §4.8).
       singleRegionScope: Boolean(origin),
       origin: origin ?? null,
-      // Not yet read — G3 wires the popup field's reach rings and home marker off this. Plumbed now
-      // (plan §2.1) so the two phases share one prop path from `App` rather than two.
+      // Read by `WindowSheetDialog`, which converts it to `[lng, lat]` and hands it to
+      // `WindowRowFieldMap` as `homePoint` — the popup field's reach rings and home marker
+      // (field-geography plan §3). Plumbed alongside G2 (plan §2.1) so the two phases share one
+      // prop path from `App` rather than two.
       homeCoords,
     };
   }, [openCard, heatSpots, heatPointSets, heatStripCards, regionSeries, reachById,

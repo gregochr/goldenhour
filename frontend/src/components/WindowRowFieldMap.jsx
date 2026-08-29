@@ -3,14 +3,16 @@ import React, {
 } from 'react';
 import PropTypes from 'prop-types';
 import {
-  aspect, bbox, centroid, clamp, drawGeo,
+  aspect, bbox, centroid, clamp, drawGeo, kmPerPx,
 } from '../utils/heatField.js';
+import { placeWithNudges } from '../utils/labelPlacement.js';
 import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { scopeSpots } from '../utils/planOrigin.js';
 import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
+import { formatDriveDuration } from '../utils/briefingDisplay.js';
 
 /**
  * The field's aspect clamps — portrait on desktop, nearly square on a phone.
@@ -147,6 +149,32 @@ const HINT_BOX = { width: 118, height: 24 };
 const EMPTY_CHIPS = Object.freeze([]);
 
 /**
+ * Reach ring tiers: [km, tier minutes] — field-geography plan §3.2. The km are authored design
+ * constants; the label a ring carries is never authored text — it is {@code formatDriveDuration}
+ * applied to the tier minutes, the SAME string {@code reachLens.js}'s {@code REACH_TIERS} shows for
+ * that tier, so the two can never drift apart.
+ */
+const RING_TIERS = [[40, 45], [80, 90]];
+/** A ring drawn smaller than this, in px, is illegible — skip it rather than draw a dot. */
+const RING_MIN_PX = 18;
+/** A ring wider than this multiple of the frame's larger side is entirely off-frame — skip it. */
+const RING_OFFFRAME_FACTOR = 1.15;
+
+/**
+ * A box carrying BOTH {@code {x, y, w, h}} (G1's {@code placeWithNudges} shape) and
+ * {@code {x, y, width, height}} ({@code fits}' shape), so the placement pass can push ring, home and
+ * region-label boxes onto ONE shared list and hand that same list to either function without a
+ * conversion step. Mixing the two shapes unconverted is the plan's own flagged trap: a box missing
+ * {@code .w}/{@code .h} makes {@code placeWithNudges}' overlap test read {@code undefined} on both
+ * sides, so every comparison is false and no collision is ever detected.
+ */
+function mkBox(x, y, w, h, extra) {
+  return {
+    x, y, w, h, width: w, height: h, ...extra,
+  };
+}
+
+/**
  * Whether a candidate box sits inside the frame and clear of everything already placed.
  *
  * <p>The bundle's own {@code fits}, with its two paddings named. Greedy and order-dependent by
@@ -255,13 +283,19 @@ function fits(box, placed, frameWidth, frameHeight) {
  * scored subset would make the labels drift between windows as coverage changed, which reads as the
  * map being wrong rather than as the forecast being thin.
  *
- * <p>⚠️ <b>A region label is never DROPPED for want of room, and the location chips yield to it.</b>
- * The bundle places both layers in one greedy pass and drops whichever loses; here the labels are
- * this component's existing, tested behaviour and the chips are the new layer, so the new one gives
- * way. The measured cost is real and is recorded in the plan's phase log: on a narrow frame the
- * field can name no locations at all, because four region labels and the hint chip have taken the
- * space. The focused region's label is omitted (see the paint loop), which is the design's own rule
- * and buys back the part of the frame a reader is actually looking at.
+ * <p>⚠️ <b>A region label is dropped for want of room only when there is home geography to place
+ * first — otherwise it is never dropped, and the location chips always yield to it.</b> The bundle
+ * places every layer in one greedy pass and drops whichever loses; here the labels were this
+ * component's existing, tested behaviour and the chips were the new layer, so the new one gave way.
+ * G3 (field-geography plan §3.3 step 4) narrowed that guarantee: once a saved postcode puts reach
+ * rings and the home marker on the field, THEY outrank a region label the same way the hint corner
+ * always has, and the label is tested against the shared box list rather than seeded unconditionally
+ * — see the placement pass's own note for the exact rule and why it stops there. With no home
+ * geography this paragraph's original claim still holds byte-for-byte. The measured cost of the
+ * chips-yield rule is real and is recorded in the plan's phase log: on a narrow frame the field can
+ * name no locations at all, because four region labels and the hint chip have taken the space. The
+ * focused region's label is omitted (see the paint loop), which is the design's own rule and buys
+ * back the part of the frame a reader is actually looking at.
  *
  * @param {object}   props
  * @param {string}   props.windowKey  the window this map paints, for its keyed point set
@@ -282,13 +316,23 @@ function fits(box, placed, frameWidth, frameHeight) {
  * @param {Function} [props.onOpenLocation] called with the clicked chip. Its ABSENCE is what keeps
  *   the chips inert annotations inside the `aria-hidden` layer; its presence turns every one of
  *   them into a named button. See the chip block's comment for why the two cannot be split.
+ * @param {?number[]} [props.homePoint] {@code [lng, lat]}, or null with no postcode saved — the
+ *   reach rings and home marker (field-geography plan §3). Rendered only on a home-origin view
+ *   (see {@code hasHomeGeo}); an away origin frames a single region and home sits off-picture.
  */
 export default function WindowRowFieldMap({
   windowKey, date, confidence, spots, points, bestRating = null, regionNames, selectedRegion,
   origin = null, chips = EMPTY_CHIPS,
-  reachById, todayStr, onSelectRegion, onOpenLocation = null,
+  reachById, todayStr, onSelectRegion, onOpenLocation = null, homePoint = null,
 }) {
   const isMobile = useIsMobile();
+  /**
+   * Whether the reach rings and home marker have anything to draw from — field-geography plan §3.1.
+   * Gates the rings/marker themselves AND whether region labels become droppable (§3.3 step 4): with
+   * no home geography the placement pass below is byte-identical to the component's original,
+   * never-dropped behaviour for region labels.
+   */
+  const hasHomeGeo = origin == null && Boolean(homePoint);
   const chipCap = isMobile ? CHIP_CAP_PHONE : CHIP_CAP;
   // Scope, not area — the planning area at home and the origin's own region when away, so the
   // open row's map is framed exactly as the six thumbnails above it are. One module, so a row and
@@ -346,6 +390,9 @@ export default function WindowRowFieldMap({
   const [placed, setPlaced] = useState(null);
   const chipRefs = useRef(new Map());
   const labelRefs = useRef(new Map());
+  /** Candidate DOM nodes for the ring labels' and home marker's own two-pass measurement. */
+  const ringLabelRefs = useRef(new Map());
+  const homeLabelRef = useRef(null);
 
   /**
    * Whether the payload says nothing in this window is rated — the strip's mark, one level down.
@@ -428,6 +475,26 @@ export default function WindowRowFieldMap({
       if (!at || !Number.isFinite(at[0]) || !Number.isFinite(at[1])) continue;
       labels.push({ name, x: at[0], y: at[1] });
     }
+    // Home and its rings — only on a home-origin view with a saved postcode (field-geography plan
+    // §3.1). Read off this SAME projection, never a second one, so the marker and the coastline it
+    // sits on are always drawn from one geometry.
+    let home = null;
+    const rings = [];
+    if (hasHomeGeo) {
+      const at = project(homePoint);
+      if (at && Number.isFinite(at[0]) && Number.isFinite(at[1])) {
+        home = at;
+        const scale = kmPerPx(project, homePoint);
+        for (const [km, minutes] of RING_TIERS) {
+          const r = km * scale;
+          // Skip rules (§3.2): illegibly small, or so large it is entirely off-frame. Both sides of
+          // the boundary are strict — a ring exactly at the floor or the ceiling is drawn/skipped
+          // per the inequality, not "close enough".
+          if (r < RING_MIN_PX || r > Math.max(width, height) * RING_OFFFRAME_FACTOR) continue;
+          rings.push({ km, minutes, r });
+        }
+      }
+    }
     // The chips' ANCHORS only. Whether each one is drawn is a measurement question the placer
     // answers after layout — see `placements` — because a chip's width is its name in a font that
     // may not have loaded yet.
@@ -443,9 +510,11 @@ export default function WindowRowFieldMap({
       if (!at || !Number.isFinite(at[0]) || !Number.isFinite(at[1])) continue;
       anchors.push({ ...chip, x: at[0], y: at[1] });
     }
-    setFrame({ width, height, labels, chips: anchors });
+    setFrame({
+      width, height, labels, chips: anchors, home, rings,
+    });
   }, [windowKey, date, confidence, points, notScored, fitTo, framed, regionNames, focusRegion,
-    selectedRegion, todayStr, chips, geoByKey, chipCap]);
+    selectedRegion, todayStr, chips, geoByKey, chipCap, hasHomeGeo, homePoint]);
 
   const { attachFrame, canvasRef, geoFailed } = useHeatCanvas({
     enabled: points.length > 0 || framed.length > 0,
@@ -488,18 +557,34 @@ export default function WindowRowFieldMap({
   }, [selectable, frame, onSelectRegion, selectedRegion]);
 
   /**
-   * The greedy placement pass — regions claim their space, then the strongest locations take what
-   * is left.
+   * The greedy placement pass — the hint corners claim theirs, then home geography, then regions,
+   * then the strongest locations take what is left.
    *
    * <p>Runs in a LAYOUT effect rather than an ordinary one because it reads geometry and then
    * writes positions: an ordinary effect would let the browser paint the off-screen measuring pass
    * first, and the chips would visibly fly in from the left edge on every repaint.
    *
-   * <p>Region labels are seeded as occupied boxes and are <b>never dropped</b>, which is a
-   * deliberate deviation from the bundle: there the region layer is placed by the same pass and can
-   * lose a name to a crowded frame. Here the labels are the field's existing, tested behaviour (and
-   * the rail below is their accessible equivalent), so the new layer yields to the old one rather
-   * than the other way round.
+   * <p><b>Order (field-geography plan §3.3), and it is a priority order — an earlier population
+   * claims its space and a later one yields to it:</b>
+   * <ol>
+   *   <li>the hint corner and the not-scored corner (unchanged);
+   *   <li>ring labels, through G1's {@code placeWithNudges} — nudged or dropped;
+   *   <li>the home marker, likewise — <em>not</em> first overall, so a home point projecting into
+   *       the hint corner is nudged or dropped like anything else;
+   *   <li>region labels — see the note below;
+   *   <li>chips (unchanged).
+   * </ol>
+   *
+   * <p>⚠️ <b>Region labels are droppable ONLY when there is home geography to place first
+   * (§3.3 step 4) — with no {@code homePoint} this pass is byte-identical to the component's
+   * original behaviour.</b> That original behaviour was itself a deliberate deviation from the
+   * bundle (there the region layer is placed by the same pass and can lose a name to a crowded
+   * frame; here the labels were the field's existing, tested behaviour and the new chip layer
+   * yielded to them). Once home geography is on the field, rings and the marker outrank region
+   * labels the same way the hint corner always has, and the labels are run through {@code fits} —
+   * they are not {@code target: true}, so the 24px separation test is inert for them, and a dropped
+   * label's box is never seeded. This is the reversal the plan's phase log records; the sentence
+   * that used to state the opposite rule lived at this same paragraph.
    */
   useLayoutEffect(() => {
     // One write per frame, guarded on the frame's own identity rather than on the placements being
@@ -510,18 +595,48 @@ export default function WindowRowFieldMap({
     // The hint chip's corner, and the unscored chip's when it is drawn — both are absolutely
     // positioned siblings the placer cannot see any other way.
     if (selectable) {
-      boxes.push({
-        x: 0, y: frame.height - HINT_BOX.height, width: HINT_BOX.width, height: HINT_BOX.height,
-      });
+      boxes.push(mkBox(0, frame.height - HINT_BOX.height, HINT_BOX.width, HINT_BOX.height));
     }
     if (notScored) {
-      boxes.push({
-        x: frame.width - HINT_BOX.width,
-        y: frame.height - HINT_BOX.height,
-        width: HINT_BOX.width,
-        height: HINT_BOX.height,
-      });
+      boxes.push(mkBox(
+        frame.width - HINT_BOX.width, frame.height - HINT_BOX.height,
+        HINT_BOX.width, HINT_BOX.height,
+      ));
     }
+
+    const ringBoxes = new Map();
+    let homeBox = null;
+    if (hasHomeGeo && frame.home) {
+      for (const ring of frame.rings) {
+        const node = ringLabelRefs.current.get(ring.km);
+        const w = node?.offsetWidth ?? 0;
+        const h = node?.offsetHeight ?? 0;
+        // A zero-measured candidate means the browser has laid nothing out yet — placing on it
+        // would pin the label to one point (the chip loop's own guard, below).
+        if (!(w > 0) || !(h > 0)) continue;
+        const nudged = placeWithNudges(
+          { x: frame.home[0], y: frame.home[1] - ring.r }, { w, h }, boxes, frame.width, frame.height,
+        );
+        // ⚠️ Converted to the shared `mkBox` shape before it goes anywhere near `boxes` —
+        // `placeWithNudges` returns `{x, y, w, h}`, and pushing that raw is the plan's own flagged
+        // trap: `fits()` (region labels, chips) reads `.width`/`.height`, finds `undefined` on an
+        // unconverted box, and silently detects no collision at all.
+        const box = nudged && mkBox(nudged.x, nudged.y, nudged.w, nudged.h);
+        if (box) { boxes.push(box); ringBoxes.set(ring.km, box); }
+      }
+      const node = homeLabelRef.current;
+      const w = node?.offsetWidth ?? 0;
+      const h = node?.offsetHeight ?? 0;
+      if (w > 0 && h > 0) {
+        const nudged = placeWithNudges(
+          { x: frame.home[0], y: frame.home[1] }, { w, h }, boxes, frame.width, frame.height,
+        );
+        const box = nudged && mkBox(nudged.x, nudged.y, nudged.w, nudged.h);
+        if (box) { boxes.push(box); homeBox = box; }
+      }
+    }
+
+    const labelBoxes = new Map();
     for (const label of frame.labels) {
       const node = labelRefs.current.get(label.name);
       if (!node) continue;
@@ -529,8 +644,12 @@ export default function WindowRowFieldMap({
       const height = node.offsetHeight;
       // Centred by `transform: translate(-50%, -50%)`, so the box the placer must avoid is the
       // centroid minus half the measured size — not the top-left the style prop names.
-      boxes.push({ x: label.x - width / 2, y: label.y - height / 2, width, height });
+      const box = mkBox(label.x - width / 2, label.y - height / 2, width, height);
+      if (hasHomeGeo && !fits(box, boxes, frame.width, frame.height)) continue;
+      boxes.push(box);
+      labelBoxes.set(label.name, box);
     }
+
     const map = new Map();
     for (const chip of frame.chips) {
       if (map.size >= chipCap) break;
@@ -542,21 +661,17 @@ export default function WindowRowFieldMap({
       // state in jsdom). Placing on it would pin every chip to one point.
       if (!(width > 0) || !(height > 0)) continue;
       const top = chip.y - height / 2;
-      let box = {
-        x: chip.x - CHIP_OFFSET, y: top, width, height,
-      };
+      let box = mkBox(chip.x - CHIP_OFFSET, top, width, height);
       let flip = false;
       if (!fits(box, boxes, frame.width, frame.height)) {
-        box = {
-          x: chip.x + CHIP_OFFSET - width, y: top, width, height,
-        };
+        box = mkBox(chip.x + CHIP_OFFSET - width, top, width, height);
         flip = true;
       }
       if (!fits(box, boxes, frame.width, frame.height)) continue;
       // ⚠️ `target: true` here and NOWHERE else in this array. It is what tells `fits` that the
-      // 24px separation applies — the hint corner and the region labels above are decorations, and
-      // measuring a control's clearance against them would spend map room on a criterion that does
-      // not cover them.
+      // 24px separation applies — the hint corner, the ring/home geography and the region labels
+      // above are decorations, and measuring a control's clearance against them would spend map
+      // room on a criterion that does not cover them.
       boxes.push({ ...box, target: true });
       map.set(chip.key, { x: box.x, y: box.y, flip });
     }
@@ -566,12 +681,13 @@ export default function WindowRowFieldMap({
     // and bounded by the guard above (one per paint, and a paint is a resize, a font load or an
     // origin move), and it is a LAYOUT effect so the off-screen measuring pass is never painted.
     // `useLensReserve` and `useHeatCanvas` both solve the same problem the same way.
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setPlaced({ frame, map });
+    setPlaced({
+      frame, map, labels: labelBoxes, rings: ringBoxes, home: homeBox,
+    });
     // `placed` is read only as the guard on its own write; listing it would re-run this on that
     // write. `frame` is the identity that actually decides, and it is in the list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frame, chipCap, selectable, notScored]);
+  }, [frame, chipCap, selectable, notScored, hasHomeGeo]);
 
   /**
    * The placements that belong to the frame currently on screen, or null while the placer has not
@@ -579,6 +695,11 @@ export default function WindowRowFieldMap({
    * coordinates for one commit.
    */
   const placements = placed?.frame === frame ? placed.map : null;
+  /** Whether THIS frame's placement pass has run — the gate for the ring/home/label two-pass render. */
+  const geoMeasured = placed?.frame === frame;
+  const labelPlacements = geoMeasured ? placed.labels : null;
+  const ringPlacements = geoMeasured ? placed.rings : null;
+  const homePlacement = geoMeasured ? placed.home : undefined;
 
   // The words survive a failed topology fetch; the empty frame does not. An unpainted map implies a
   // field with nothing in it, which is a different and false claim from "the picture is
@@ -594,22 +715,107 @@ export default function WindowRowFieldMap({
           ref={canvasRef(windowKey)}
           onClick={handleClick}
         />
+        {/* The reach rings and home marker (field-geography plan §3) — a SIBLING layer of `.wf-mlab`,
+            not inside it: that layer's universal `.wf-mlab span` rule applies a centre-translate that
+            would centre-shift every `placeWithNudges` top-left box by half its own size and put a
+            dark plate on the marker's inner spans. DOM order after the canvas and before `.wf-mlab`/
+            `.wf-mchips`, so the rings paint over the field but under every label — §3.2/§3.3. */}
+        {hasHomeGeo && frame?.home && (
+          <div className="wf-mgeo" aria-hidden="true">
+            {frame.rings.length > 0 && (
+              <svg className="wf-rings" data-testid="wf-row-map-rings">
+                {frame.rings.map((ring) => (
+                  <circle
+                    key={ring.km}
+                    data-testid="wf-row-map-ring"
+                    data-km={ring.km}
+                    cx={frame.home[0]}
+                    cy={frame.home[1]}
+                    r={ring.r}
+                  />
+                ))}
+              </svg>
+            )}
+            {frame.rings.map((ring) => {
+              // Undefined while unmeasured (render off-screen to be measured); null once measured
+              // and dropped (render nothing); a box once measured and placed.
+              const box = geoMeasured ? ringPlacements.get(ring.km) : undefined;
+              if (geoMeasured && !box) return null;
+              return (
+                <span
+                  key={ring.km}
+                  ref={(node) => {
+                    if (node) ringLabelRefs.current.set(ring.km, node);
+                    else ringLabelRefs.current.delete(ring.km);
+                  }}
+                  className="wf-ringlb"
+                  data-testid="wf-row-map-ring-label"
+                  style={box
+                    ? { left: `${box.x}px`, top: `${box.y}px` }
+                    : { left: '-9999px', top: '0px', visibility: 'hidden' }}
+                >
+                  {formatDriveDuration(ring.minutes)}
+                </span>
+              );
+            })}
+            {(() => {
+              const box = geoMeasured ? homePlacement : undefined;
+              if (geoMeasured && !box) return null;
+              return (
+                <span
+                  ref={homeLabelRef}
+                  className="wf-hm"
+                  data-testid="wf-row-map-home"
+                  style={box
+                    ? { left: `${box.x}px`, top: `${box.y}px` }
+                    : { left: '-9999px', top: '0px', visibility: 'hidden' }}
+                >
+                  <i className="wf-hm-mk" aria-hidden="true" />
+                  <b className="wf-hm-lb">HOME</b>
+                </span>
+              );
+            })()}
+          </div>
+        )}
         {/* `aria-hidden` with the canvas: these are the picture's own annotations, and the rail
             below names every one of them on a real button. */}
         <span className="wf-mlab" aria-hidden="true">
-          {(frame?.labels || []).map((label) => (
-            <span
-              key={label.name}
-              ref={(node) => {
-                if (node) labelRefs.current.set(label.name, node);
-                else labelRefs.current.delete(label.name);
-              }}
-              data-testid="wf-row-map-label"
-              style={{ left: `${label.x}px`, top: `${label.y}px` }}
-            >
-              {label.name}
-            </span>
-          ))}
+          {(frame?.labels || []).map((label) => {
+            // ⚠️ Droppable ONLY when there is home geography to place first — see the placement
+            // pass's own note. With no `homePoint` this renders exactly as it always has: seeded
+            // unconditionally, at its centroid, never measured off-screen first.
+            if (!hasHomeGeo) {
+              return (
+                <span
+                  key={label.name}
+                  ref={(node) => {
+                    if (node) labelRefs.current.set(label.name, node);
+                    else labelRefs.current.delete(label.name);
+                  }}
+                  data-testid="wf-row-map-label"
+                  style={{ left: `${label.x}px`, top: `${label.y}px` }}
+                >
+                  {label.name}
+                </span>
+              );
+            }
+            if (geoMeasured && !labelPlacements.has(label.name)) return null;
+            return (
+              <span
+                key={label.name}
+                ref={(node) => {
+                  if (node) labelRefs.current.set(label.name, node);
+                  else labelRefs.current.delete(label.name);
+                }}
+                data-testid="wf-row-map-label"
+                style={geoMeasured
+                  ? { left: `${label.x}px`, top: `${label.y}px` }
+                  : { left: '-9999px', top: '0px', visibility: 'hidden' }}
+              >
+                {label.name}
+              </span>
+            );
+          })}
         </span>
 
         {/* The layer that turns the field from areas into PLACES — and, since M4 (D-3, resolved),
@@ -779,4 +985,6 @@ WindowRowFieldMap.propTypes = {
   todayStr: PropTypes.string.isRequired,
   onSelectRegion: PropTypes.func,
   onOpenLocation: PropTypes.func,
+  /** {@code [lng, lat]}, or null with no postcode saved — see {@code hasHomeGeo}. */
+  homePoint: PropTypes.arrayOf(PropTypes.number),
 };

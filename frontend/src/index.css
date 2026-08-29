@@ -1639,6 +1639,57 @@ button.wf-hc.also.on:hover {
      thumbnails' rule, and the same token. */
   background: var(--color-heat-sea);
 }
+/* ── Reach rings + home marker (field-geography plan §3) ────────────────────────────────────
+   A SIBLING of `.wf-mlab`, deliberately, not a child: `.wf-mlab span` below applies a universal
+   centre-translate, and mounting `placeWithNudges`' top-left boxes inside it would centre-shift
+   every one of them by half its own size and put a dark plate on the marker's inner spans. DOM
+   order after the canvas and before `.wf-mlab`/`.wf-mchips`, so rings paint over the field but
+   under every label — see the component's own note at the JSX for why "first child of the map
+   box" would put them under the paint instead. */
+.wf-mgeo {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.wf-rings {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+/* `color-mix` against the token rather than a hardcoded `rgba(201,162,75,.4)` literal — the same
+   pattern `--color-close-to-home`'s own border-color rule already uses two blocks up — so
+   `--color-home`'s own comment ("ring stroke at 40% alpha") names a real consumer rather than a
+   duplicated hex the token could drift out of sync with. */
+.wf-rings circle {
+  fill: none;
+  stroke: color-mix(in srgb, var(--color-home) 40%, transparent);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+.wf-ringlb {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: .08em;
+  color: rgba(235, 217, 168, .72);
+  background: rgba(14, 11, 9, .74);
+  padding: 1px 4px;
+  border-radius: 3px;
+  white-space: nowrap;
+  line-height: 1.35;
+}
+/* Popup home marker: `.wf-hm`/`.wf-hm-mk`/`.wf-hm-lb` are the thumbnail's own classes (plan §2.2),
+   reused rather than duplicated — these two rules are the only thing that differs, one size up. */
+.wf-mgeo .wf-hm-mk {
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
+}
+.wf-mgeo .wf-hm-lb {
+  font-size: 9px;
+}
 .wf-mlab {
   position: absolute;
   inset: 0;
