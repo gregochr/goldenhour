@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { familyOf, occurrenceCountsLine, anyConditionInterim } from '../utils/comingUpConditions.js';
+import { familyOf, occurrenceCountsLine, anyConditionInterim, bitsWord } from '../utils/comingUpConditions.js';
 
 describe('familyOf', () => {
   it('maps every first-ship condition type to its family token', () => {
@@ -37,6 +37,20 @@ describe('occurrenceCountsLine', () => {
   it('degrades to zero counts for a missing or non-array occurrence list', () => {
     expect(occurrenceCountsLine(undefined)).toBe('every occurrence in the window · 0 held back, 0 in the list');
     expect(occurrenceCountsLine(null)).toBe('every occurrence in the window · 0 held back, 0 in the list');
+  });
+});
+
+describe('bitsWord', () => {
+  it('buckets a surprisal score into a plain-English word, matching the backend boundaries', () => {
+    expect(bitsWord(1.9)).toBe('common');
+    expect(bitsWord(2.0)).toBe('occasional');
+    expect(bitsWord(3.9)).toBe('occasional');
+    expect(bitsWord(4.0)).toBe('uncommon');
+    expect(bitsWord(5.4)).toBe('uncommon');
+    expect(bitsWord(6.0)).toBe('rare');
+    expect(bitsWord(7.0)).toBe('rare');
+    expect(bitsWord(8.0)).toBe('very rare');
+    expect(bitsWord(9.0)).toBe('very rare');
   });
 });
 

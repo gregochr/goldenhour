@@ -52,7 +52,8 @@ import java.util.Optional;
  * {@link ComingUpScoringProperties.RecurrentTopics} is a threshold, not a percentile table — so
  * both conditions carry {@code interim: true} unconditionally, and the quant line's "distribution
  * half" (README §3) is always omitted for them, replaced by the threshold phrase D4 asks for
- * ({@code "promoted above AOD 0.50 (interim)"}).
+ * ({@code "counts as a plume above a haze reading of 0.50 (early threshold)"} — plain-English
+ * reword of the original {@code "promoted above AOD 0.50 (interim)"}, same meaning).
  *
  * <h2>Rarity: dust is upgraded from observed arrivals, inversion is not</h2>
  *
@@ -374,14 +375,38 @@ public class ComingUpConditionsBuilder {
     }
 
     private static String coastalTideQuantLabel(double rarityBits, int runCount, List<Double> rangeValues) {
-        StringBuilder label = new StringBuilder("rarity ").append(fmt1(rarityBits));
+        StringBuilder label = new StringBuilder(rarityWord(rarityBits)).append(" (").append(fmt1(rarityBits))
+                .append(")");
         label.append(" · ").append(runCount).append(runCount == 1 ? " run in 90 days" : " runs in 90 days");
         if (!rangeValues.isEmpty()) {
             List<Double> sorted = rangeValues.stream().sorted().toList();
-            label.append(" · range median ").append(fmt1(percentile(sorted, 0.50))).append(" m, p90 ")
+            label.append(" · typical run ").append(fmt1(percentile(sorted, 0.50))).append(" m, top 10% reach ")
                     .append(fmt1(percentile(sorted, 0.90))).append(" m");
         }
         return label.toString();
+    }
+
+    /**
+     * A plain-English word for a surprisal score in bits — an interim readability pass (not yet
+     * user-tested), so a reader without an information-theory background gets a sense of scale
+     * without the raw log2 unit. The boundaries are chosen so the shipped rows land where they read
+     * naturally (14.8-day tide gap → "occasional"; 4-day inversion fallback → "occasional"), not
+     * derived from any external distribution.
+     */
+    private static String rarityWord(double bits) {
+        if (bits < 2.0) {
+            return "common";
+        }
+        if (bits < 4.0) {
+            return "occasional";
+        }
+        if (bits < 6.0) {
+            return "uncommon";
+        }
+        if (bits < 8.0) {
+            return "rare";
+        }
+        return "very rare";
     }
 
     /** Nearest-rank percentile over an already-sorted list. */
@@ -481,8 +506,9 @@ public class ComingUpConditionsBuilder {
                     "AOD " + fmt2(aod), null, round1(bits), null, STATUS_INSIDE_PLAN, null));
         }
 
-        String quantLabel = "rarity " + fmt1(rarityBits) + " · promoted above AOD "
-                + fmt2(BigDecimal.valueOf(dustConfig.getMagnitudeThresholdAod())) + " (interim)";
+        String quantLabel = rarityWord(rarityBits) + " (" + fmt1(rarityBits)
+                + ") · counts as a plume above a haze reading of "
+                + fmt2(BigDecimal.valueOf(dustConfig.getMagnitudeThresholdAod())) + " (early threshold)";
         return new ComingUpCondition("DUST", "Saharan dust", scoringProperties.getCadence().getDust(), true,
                 rateLabel, quantLabel, peak, occurrences);
     }
@@ -556,8 +582,8 @@ public class ComingUpConditionsBuilder {
                     score + "/10", null, round1(bits), null, STATUS_INSIDE_PLAN, null));
         }
 
-        String quantLabel = "rarity " + fmt1(rarityBits) + " · promoted above "
-                + fmt0(inversionConfig.getMagnitudeThresholdScore()) + "/10 (interim)";
+        String quantLabel = rarityWord(rarityBits) + " (" + fmt1(rarityBits) + ") · counts as strong above "
+                + fmt0(inversionConfig.getMagnitudeThresholdScore()) + "/10 (early threshold)";
         return new ComingUpCondition("VALLEY_INVERSIONS", "Valley inversions",
                 scoringProperties.getCadence().getInversion(), true, rateLabel, quantLabel, peak, occurrences);
     }

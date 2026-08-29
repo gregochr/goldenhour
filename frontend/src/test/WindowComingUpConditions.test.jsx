@@ -10,7 +10,7 @@ const condition = (over = {}) => ({
   cadence: 'deterministic',
   interim: false,
   rateLabel: 'a run every 14.8 days · fixed by the ephemeris',
-  quantLabel: 'rarity 3.9 · 7 runs in 90 days · range median 4.7 m, p90 5.0 m',
+  quantLabel: 'occasional (3.9) · 7 runs in 90 days · typical run 4.7 m, top 10% reach 5.0 m',
   peak: { dateLabel: '26 Nov', valueLabel: '5.2 m', bits: 9.0 },
   occurrences: [],
   ...over,
@@ -58,8 +58,8 @@ describe('WindowComingUpConditions — the strip', () => {
     expect(screen.getByTestId('condition-rate')).toHaveTextContent('a run every 14.8 days');
     expect(screen.getByTestId('condition-peak')).toHaveTextContent('26 Nov');
     expect(screen.getByTestId('condition-peak')).toHaveTextContent('5.2 m');
-    expect(screen.getByTestId('condition-peak')).toHaveTextContent('9.0 bits');
-    expect(screen.getByTestId('condition-quant')).toHaveTextContent('range median 4.7 m, p90 5.0 m');
+    expect(screen.getByTestId('condition-peak')).toHaveTextContent('very rare (9.0)');
+    expect(screen.getByTestId('condition-quant')).toHaveTextContent('typical run 4.7 m, top 10% reach 5.0 m');
   });
 
   it('the strip\'s own header sub-line carries the "scores provisional" marker while any condition '
@@ -235,7 +235,8 @@ describe('WindowComingUpConditions — the strip', () => {
 
     const row = screen.getByRole('button', {
       name: 'Coastal tides deterministic a run every 14.8 days · fixed by the ephemeris '
-        + 'peak 26 Nov · 5.2 m · 9.0 bits rarity 3.9 · 7 runs in 90 days · range median 4.7 m, p90 5.0 m',
+        + 'peak 26 Nov · 5.2 m — very rare (9.0) occasional (3.9) · 7 runs in 90 days · '
+        + 'typical run 4.7 m, top 10% reach 5.0 m',
     });
     expect(row).toBeInTheDocument();
   });
@@ -254,7 +255,7 @@ describe('WindowComingUpConditions — the strip', () => {
     fireEvent.click(screen.getByTestId('condition-row'));
 
     expect(screen.getByRole('button', {
-      name: '30 Aug 4.8 m 5.4 bits max w/ supermoon in the list →',
+      name: '30 Aug 4.8 m uncommon (5.4) max w/ supermoon in the list →',
     })).toBeInTheDocument();
   });
 
