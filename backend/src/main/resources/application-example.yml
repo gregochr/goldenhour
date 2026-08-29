@@ -177,6 +177,14 @@ coming-up:
                                                # forecast_score is survivor-biased (plan D4)
         magnitude-threshold-score: 9.0          # the STRONG band's own floor (0–10 scale)
         magnitude-above-bits: 5.0               # magnitude once the threshold is cleared
+    cadence:                                    # standing-condition strip words (plan §7/§11.16) —
+                            # authored here, not derived, until P7's topic_daily_log matures
+      coastal-tides: "deterministic"
+      dust: "recurrent"
+      inversion: "persistent"
+    peak-light-window-minutes: 90               # the peak gate's own bound (plan D4/D5) — not read
+                            # arithmetically yet (v1 proxy is SUNRISE/SUNSET typing); routed
+                            # through config rather than hardcoded, ready for P7
 
 photocast:
   tide-run:

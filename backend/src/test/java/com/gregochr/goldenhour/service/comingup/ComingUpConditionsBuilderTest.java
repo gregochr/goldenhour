@@ -113,6 +113,24 @@ class ComingUpConditionsBuilderTest {
         assertThat(conditions).allSatisfy(c -> assertThat(c.occurrences()).isEmpty());
     }
 
+    @Test
+    @DisplayName("D11: a spring run and a king run in the same window land in the ONE Coastal-tides "
+            + "row, each occurrence labelled with its own run kind — never re-derived, and never "
+            + "confused with the other")
+    void springAndKingRunsShareOneRowWithDistinctLabels() {
+        AlmanacEvent springRun = tideEvent(TODAY.plusDays(5), TODAY.plusDays(6), "spring-tide");
+        AlmanacEvent kingRun = tideEvent(TODAY.plusDays(20), TODAY.plusDays(21), "king-tide");
+
+        List<ComingUpCondition> conditions = builder.build(TODAY, List.of(springRun, kingRun), List.of());
+
+        assertThat(conditions).extracting(ComingUpCondition::type).containsExactly(
+                "COASTAL_TIDES", "DUST", "VALLEY_INVERSIONS");
+        ComingUpCondition tides = conditions.getFirst();
+        assertThat(tides.occurrences()).hasSize(2);
+        assertThat(tides.occurrences()).extracting(ComingUpConditionOccurrence::label)
+                .containsExactlyInAnyOrder("Spring tide", "King tide");
+    }
+
     // ── Status precedence (D11) ──────────────────────────────────────────
 
     @Test
@@ -155,18 +173,22 @@ class ComingUpConditionsBuilderTest {
     }
 
     @Test
-    @DisplayName("a run neither promoted nor inside Plan's window defaults to heldBack")
-    void heldBackDefault() {
-        AlmanacEvent past = tideEvent(TODAY.minusDays(20), TODAY.minusDays(18), "spring-tide");
+    @DisplayName("an in-progress run with a backward-walked start (already under way, per "
+            + "TideAlmanacSource.completeRun) reads insidePlan, not heldBack — it is live on the "
+            + "Plan tab right now")
+    void inProgressRunWithBackwardWalkedStart_isInsidePlanNotHeldBack() {
+        // TideAlmanacSource's backward walk routinely produces a run whose start already lags
+        // behind "today" (see the P2 phase-log row) — this is NOT a run that ended in the past.
+        AlmanacEvent inProgress = tideEvent(TODAY.minusDays(1), TODAY.plusDays(1), "spring-tide");
 
-        ComingUpCondition tides = builder.build(TODAY, List.of(past), List.of()).getFirst();
+        ComingUpCondition tides = builder.build(TODAY, List.of(inProgress), List.of()).getFirst();
 
         ComingUpConditionOccurrence occurrence = tides.occurrences().getFirst();
-        assertThat(occurrence.status()).isEqualTo("heldBack");
+        assertThat(occurrence.status()).isEqualTo("insidePlan");
         assertThat(occurrence.entryId()).isNull();
     }
 
-    // ── Reason tag iff the max rule actually overrode this run's own score ──
+    // ── Reason tag: mandatory wherever the max rule was taken (D10), both directions ──
 
     /**
      * Builds the entry the way {@code ComingUpAssembler.mergeEntries} actually produces one when
@@ -217,16 +239,18 @@ class ComingUpConditionsBuilderTest {
     }
 
     @Test
-    @DisplayName("no reason when this run's own score already carried the merged entry's bits")
-    void noReasonWhenOwnScoreAlreadyWon() {
+    @DisplayName("reason still fires when THIS run's own score carried the merge (D10: mandatory "
+            + "wherever the max was taken, both directions) — named from this run's own "
+            + "coincidence line, which describes the loser (the other topic)")
+    void reasonFiresEvenWhenThisRunsOwnScoreWon() {
         AlmanacEvent run = tideEvent(LAST_PLAN_DATE.plusDays(1), LAST_PLAN_DATE.plusDays(1), "king-tide");
         double ownBits = SurpriseScore.rarity(14.8) + SurpriseScore.DEFAULT_MAGNITUDE_BITS;
-        ComingUpEntry mergedButTideWon = entryFor(run, Math.round(ownBits * 10.0) / 10.0,
+        ComingUpEntry mergedAndTideWon = entryFor(run, Math.round(ownBits * 10.0) / 10.0,
                 List.of(new ComingUpCoincidenceLine("sun-moon", "Supermoon", "24-25 Nov")));
 
-        ComingUpCondition tides = builder.build(TODAY, List.of(run), List.of(mergedButTideWon)).getFirst();
+        ComingUpCondition tides = builder.build(TODAY, List.of(run), List.of(mergedAndTideWon)).getFirst();
 
-        assertThat(tides.occurrences().getFirst().reason()).isNull();
+        assertThat(tides.occurrences().getFirst().reason()).isEqualTo("max w/ supermoon");
     }
 
     // ── Coastal tides quant line: real distribution allowed to name percentiles ──
@@ -357,9 +381,22 @@ class ComingUpConditionsBuilderTest {
     @DisplayName("a candidate outside a light window never becomes the peak, even scoring higher "
             + "than a same-window SUNRISE candidate")
     void peakGateExcludesNonLightWindowCandidate() {
-        assertThat(ComingUpConditionsBuilder.passesPeakGate(TargetType.HOURLY)).isFalse();
-        assertThat(ComingUpConditionsBuilder.passesPeakGate(TargetType.SUNRISE)).isTrue();
-        assertThat(ComingUpConditionsBuilder.passesPeakGate(TargetType.SUNSET)).isTrue();
+        assertThat(builder.passesPeakGate(TargetType.HOURLY)).isFalse();
+        assertThat(builder.passesPeakGate(TargetType.SUNRISE)).isTrue();
+        assertThat(builder.passesPeakGate(TargetType.SUNSET)).isTrue();
+    }
+
+    @Test
+    @DisplayName("the gate's configured minutes bound is genuinely read — a non-positive value "
+            + "closes the gate even for SUNRISE/SUNSET")
+    void peakGateReadsConfiguredMinutesBound() {
+        ComingUpScoringProperties zeroWindow = new ComingUpScoringProperties();
+        zeroWindow.setPeakLightWindowMinutes(0);
+        ComingUpConditionsBuilder zeroWindowBuilder = new ComingUpConditionsBuilder(locationRepository,
+                tideRunBuilder, tideRunPeakHistory, tideService, forecastEvaluationRepository,
+                new SurvivorSignalReader(forecastScoreRepository, survivorAtmosphereRepository), zeroWindow);
+
+        assertThat(zeroWindowBuilder.passesPeakGate(TargetType.SUNRISE)).isFalse();
     }
 
     private static SurvivorAtmosphereEntity survivorAtmosphere(LocationEntity location, LocalDate date,

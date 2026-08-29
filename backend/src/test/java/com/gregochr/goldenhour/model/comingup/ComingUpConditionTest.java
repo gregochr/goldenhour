@@ -13,7 +13,8 @@ class ComingUpConditionTest {
     private static final ComingUpConditionPeak PEAK =
             new ComingUpConditionPeak("Thu 26 Nov", "5.2 m", 9.0);
     private static final ComingUpConditionOccurrence OCCURRENCE = new ComingUpConditionOccurrence(
-            java.time.LocalDate.of(2026, 8, 30), "30 Aug", "4.8 m", 5.4, null, "insidePlan", null);
+            java.time.LocalDate.of(2026, 8, 30), "30 Aug", "4.8 m", "Spring tide", 5.4, null,
+            "insidePlan", null);
 
     @Test
     @DisplayName("carries every field, including a nullable peak")

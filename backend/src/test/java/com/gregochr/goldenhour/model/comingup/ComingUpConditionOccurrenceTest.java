@@ -16,11 +16,13 @@ class ComingUpConditionOccurrenceTest {
     @DisplayName("a promoted occurrence carries the entry id it resolves to")
     void promotedOccurrenceCarriesEntryId() {
         ComingUpConditionOccurrence occurrence = new ComingUpConditionOccurrence(
-                DAY, "30 Aug", "4.8 m", 5.4, null, "promoted", "spring-tide:2026-08-30:2026-09-01");
+                DAY, "30 Aug", "4.8 m", "Spring tide", 5.4, null, "promoted",
+                "spring-tide:2026-08-30:2026-09-01");
 
         assertThat(occurrence.date()).isEqualTo(DAY);
         assertThat(occurrence.dateLabel()).isEqualTo("30 Aug");
         assertThat(occurrence.valueLabel()).isEqualTo("4.8 m");
+        assertThat(occurrence.label()).isEqualTo("Spring tide");
         assertThat(occurrence.bits()).isEqualTo(5.4);
         assertThat(occurrence.reason()).isNull();
         assertThat(occurrence.status()).isEqualTo("promoted");
@@ -31,10 +33,19 @@ class ComingUpConditionOccurrenceTest {
     @DisplayName("a held-back occurrence carries no entry id and may carry a max-rule reason")
     void heldBackOccurrenceCarriesReasonNoEntryId() {
         ComingUpConditionOccurrence occurrence = new ComingUpConditionOccurrence(
-                DAY, "30 Aug", "4.1 m", 4.2, "max w/ supermoon", "heldBack", null);
+                DAY, "30 Aug", "4.1 m", "King tide", 4.2, "max w/ supermoon", "heldBack", null);
 
         assertThat(occurrence.reason()).isEqualTo("max w/ supermoon");
         assertThat(occurrence.status()).isEqualTo("heldBack");
         assertThat(occurrence.entryId()).isNull();
+    }
+
+    @Test
+    @DisplayName("label is null for a condition with only one occurrence kind (dust, inversion)")
+    void labelIsNullWhenNotApplicable() {
+        ComingUpConditionOccurrence occurrence = new ComingUpConditionOccurrence(
+                DAY, "30 Aug", "AOD 0.55", null, 4.2, null, "heldBack", null);
+
+        assertThat(occurrence.label()).isNull();
     }
 }

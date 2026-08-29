@@ -32,6 +32,21 @@ public class ComingUpScoringProperties {
     /** Recurrent-topic knobs shared by dust and inversion (plan P4, D4). */
     private RecurrentTopics recurrent = new RecurrentTopics();
 
+    /** Each standing condition's authored cadence word (plan §7, §11.16). */
+    private Cadence cadence = new Cadence();
+
+    /**
+     * The peak gate's own bound, in minutes (plan D4/D5) — a third alignment window beside the
+     * existing tide-in-light (60) and surge-peak-in-light (90) constants, scoped to
+     * standing-condition peaks only. Not read arithmetically by {@code ComingUpConditionsBuilder
+     * #passesPeakGate} yet: no forward candidate carries a clock time to compare against a light
+     * window's edges, so the v1 proxy is SUNRISE/SUNSET typing — every survivor row keyed to
+     * either is already inside a light window by construction (D5: "in v1 the gate cannot fail").
+     * This is the documented bound that proxy stands in for, routed through config rather than a
+     * hardcoded literal, ready for P7's {@code landed_on_window} to make it a real comparison.
+     */
+    private int peakLightWindowMinutes = 90;
+
     /**
      * The surprise-score band edges (plan §13), lower-inclusive: a score of exactly {@link #list}
      * already clears the "in the list" band.
@@ -203,5 +218,25 @@ public class ComingUpScoringProperties {
 
         /** Magnitude assigned once {@link #magnitudeThresholdScore} is cleared. */
         private double magnitudeAboveBits = 5.0;
+    }
+
+    /**
+     * Each standing condition's cadence word (design README §2: {@code persistent} — present most
+     * days; {@code recurrent} — arrives in bursts on a stable rate; {@code deterministic} — on an
+     * ephemeris), authored here rather than derived (plan §7/§11.16) — there is no presence series
+     * to derive it from until P7's {@code topic_daily_log} matures.
+     */
+    @Getter
+    @Setter
+    public static class Cadence {
+
+        /** Coastal tides recur on a fixed ephemeris (plan D4: 14.8-day spring rate). */
+        private String coastalTides = "deterministic";
+
+        /** Saharan dust arrives in bursts (plan D4: trailing-60-day arrival count). */
+        private String dust = "recurrent";
+
+        /** Valley inversions are present on most qualifying mornings (plan D4). */
+        private String inversion = "persistent";
     }
 }

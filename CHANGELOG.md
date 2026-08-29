@@ -37,8 +37,8 @@ occurrence renders as a real `<button>` wrapping every cell, not just its status
 breakpoint hides only the status/reason text, and if the click handler lived on a bare status span
 alone, hiding it would also remove the click target. `in the list →` scrolls to and highlights the
 matching chronology card via a new `data-entry-id` anchor on `WindowComingUpEntry`, using
-`--wf-mast-h` (not `--wf-lens-reserve`, which is Plan-only and absent on this tab). The header
-sub-line gains a quiet "scores provisional" suffix while any visible condition is interim.
+`--wf-mast-h` (not `--wf-lens-reserve`, which is Plan-only and absent on this tab). The strip's own
+header sub-line gains a quiet "scores provisional" suffix while any visible condition is interim.
 
 Extended `TideSurfaceAgreementTest` with a third assertion: given the same height and threshold, the
 chronology's own `TideAlmanacSource` — which the strip stages verbatim rather than re-detecting a
@@ -61,6 +61,29 @@ guaranteed unique (two occurrences can share a calendar day) and reproduced a li
 this phase's own tests — fixed with a `${date}:${index}` composite. Also fixed: `.wf-cond-kind`
 stacked `opacity` on a per-topic accent colour, repeating an AA-contrast mistake `.wf-cu-kindtag`
 already found and fixed elsewhere in this file — corrected to full-strength accent, no opacity.
+
+A follow-up pre-merge conformance review against the plan (§2/§7/§13) found one blocking defect and
+five further departures from the plan text, all fixed under the deviation protocol. **Blocking:**
+`tideOccurrence`'s `insidePlan` check also required the run's own `startDate` to be on/after
+`builtFor`, which D11 never asks for — eligibility already guarantees the complement (no entry)
+implies `endDate ≤ lastPlanDate`. `TideAlmanacSource`'s backward walk routinely produces an
+in-progress run whose start already lags "today" (see P2's phase-log row), and that run was misread
+as `heldBack` — live on the Plan tab right now, reported as neither promoted nor upcoming. Fixed by
+dropping the clause; `heldBack` is now structurally unreachable for coastal tides until a future
+phase gates the chronology on bands rather than dates — noted for P5. D10's `reason` tag is now
+**bidirectional**, matching its literal "mandatory wherever the max was taken" text rather than the
+narrower reading that only fired when the other topic won; `matchingEntry`'s Javadoc now states the
+four invariants its date-overlap-plus-family heuristic depends on. The cadence words moved from Java
+string literals into `ComingUpScoringProperties.Cadence` (§7/§11.16). The "scores provisional"
+marker moved from the chronology pane's own sub-line to the strip's own header sub-line, matching
+§7's exact wording (it had shipped on the wrong header first). `PEAK_LIGHT_WINDOW_MINUTES` moved
+into `ComingUpScoringProperties.peakLightWindowMinutes`, with `passesPeakGate` now genuinely reading
+it (a non-positive configured value closes the gate). Schema addition under the deviation protocol:
+`ComingUpConditionOccurrence` gains `label` (nullable) — which run kind an occurrence is
+(`"Spring tide"`/`"King tide"`), read from the source event's own type, never re-derived, since D11
+puts spring and king runs in one row with nothing else to tell them apart; populated and tested but
+not yet rendered by the frontend, matching P3a's own precedent for shipping a field ahead of its
+renderer.
 
 ## [v2.19.5] - 2026-08-29
 

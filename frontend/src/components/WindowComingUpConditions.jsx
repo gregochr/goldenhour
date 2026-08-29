@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import PropTypes from 'prop-types';
-import { familyOf, occurrenceCountsLine } from '../utils/comingUpConditions.js';
+import { familyOf, occurrenceCountsLine, anyConditionInterim } from '../utils/comingUpConditions.js';
 
 /**
  * The standing-conditions strip (design README §2/§2.1, plan §7 P4) — one row per frequent topic
@@ -26,6 +26,13 @@ import { familyOf, occurrenceCountsLine } from '../utils/comingUpConditions.js';
  * `useLensReserve` removes its variable on this tab, so the lens bar's larger fallback would
  * over-reserve by a bar that is not on screen here.
  *
+ * <h2>The provisional marker is scoped to this header, not the pane's (plan §7)</h2>
+ *
+ * <p>The strip's own sub-line grows a quiet "scores provisional" suffix while any visible
+ * condition is {@code interim} (README's "say so in the UI" clause) — it does not live on
+ * {@code WindowFirstComingUp}'s pane-level sub-line, which describes the chronology dates, not
+ * this strip's scoring.
+ *
  * @param {object}   props
  * @param {Array}    props.conditions the served {@code ComingUpCondition[]}, or undefined before
  *                                    the feed has arrived
@@ -36,6 +43,8 @@ export default function WindowComingUpConditions({ conditions, onGoToPlan }) {
 
   const list = Array.isArray(conditions) ? conditions : [];
   if (list.length === 0) return null;
+
+  const provisional = anyConditionInterim(list);
 
   const toggle = (type) => {
     setOpenTypes((prev) => {
@@ -49,7 +58,14 @@ export default function WindowComingUpConditions({ conditions, onGoToPlan }) {
     <div className="wf-cond" data-testid="coming-up-conditions">
       <div className="wf-cond-head">
         <span className="wf-cond-t">Standing conditions</span>
-        <span className="wf-cond-d">frequent · never announced · always one click away</span>
+        <span className="wf-cond-d">
+          frequent · never announced · always one click away
+          {provisional && (
+            <span className="wf-cond-provisional" data-testid="coming-up-provisional">
+              {' '}· scores provisional
+            </span>
+          )}
+        </span>
       </div>
       {list.map((condition) => {
         const open = openTypes.has(condition.type);

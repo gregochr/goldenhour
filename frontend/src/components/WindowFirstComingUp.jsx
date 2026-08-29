@@ -4,7 +4,6 @@ import WindowComingUpEntry from './WindowComingUpEntry.jsx';
 import WindowComingUpConditions from './WindowComingUpConditions.jsx';
 import WindowFirstComingUpHandoff from './WindowFirstComingUpHandoff.jsx';
 import { buildChronology, chipCounts, footerCopy, FOOTER_LEAD } from '../utils/comingUpFeed.js';
-import { anyConditionInterim } from '../utils/comingUpConditions.js';
 import { ALMANAC_DAYS } from '../api/almanacApi.js';
 
 /** Served counts default to zero, matching a payload that has not arrived yet or a degraded
@@ -38,9 +37,11 @@ const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
  * <p>{@code WindowComingUpConditions} renders {@code events.conditions} between the filter chips
  * and the handoff row — the design of record's own DOM order ({@code Coming Up.html}: header →
  * since-line → chips → conditions → handoff → chronology). It degrades to nothing for an empty or
- * absent list rather than an omission, and this pane's own header sub-line grows a quiet
- * "scores provisional" suffix while any visible condition is {@code interim} (README's "say so in
- * the UI" clause).
+ * absent list rather than an omission. Its own header sub-line — not this pane's — grows the quiet
+ * "scores provisional" suffix while any visible condition is {@code interim} (plan §7: the strip's
+ * header, "frequent · never announced · always one click away · scores provisional"; README's
+ * "say so in the UI" clause): the marker is about the STRIP's scoring, not the chronology dates
+ * this pane's own sub-line describes.
  *
  * <h2>Still no count on the tab (D13's other half)</h2>
  *
@@ -79,7 +80,6 @@ export default function WindowFirstComingUp({
   const counts = events?.counts ?? EMPTY_COUNTS;
   const totalEntries = events?.entries?.length ?? 0;
   const conditions = events?.conditions;
-  const provisional = anyConditionInterim(conditions);
   const chips = useMemo(() => chipCounts(counts), [counts]);
   const activeChipLabel = chips.find((chip) => chip.id === activeFilter)?.label ?? 'active';
   const monthGroups = useMemo(
@@ -135,14 +135,6 @@ export default function WindowFirstComingUp({
           <span className="wf-cu-h">Coming up</span>
           <span className="wf-cu-d" data-testid="coming-up-subtitle">
             {`· dated events beyond Plan's four days, next ${ALMANAC_DAYS} days`}
-            {/* Quiet, not alarming — a suffix on the existing sub-line rather than its own banner,
-                matching the README's "say so in the UI" instruction without over-stating it: this
-                marks the STRIP's scoring as provisional, not the chronology dates above it. */}
-            {provisional && (
-              <span className="wf-cu-provisional" data-testid="coming-up-provisional">
-                {' '}· scores provisional
-              </span>
-            )}
           </span>
           {/* Rendered unconditionally (plan §6) — not gated on any entry actually using a dashed
               rule. Without it a reader who happens to filter down to an all-solid subset would see

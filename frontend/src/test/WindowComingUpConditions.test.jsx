@@ -62,6 +62,17 @@ describe('WindowComingUpConditions — the strip', () => {
     expect(screen.getByTestId('condition-quant')).toHaveTextContent('range median 4.7 m, p90 5.0 m');
   });
 
+  it('the strip\'s own header sub-line carries the "scores provisional" marker while any condition '
+      + 'is interim, and omits it once every condition is mature (plan §7)', () => {
+    const { rerender } = render(
+      <WindowComingUpConditions conditions={[condition({ interim: true })]} onGoToPlan={vi.fn()} />,
+    );
+    expect(screen.getByTestId('coming-up-provisional')).toHaveTextContent('scores provisional');
+
+    rerender(<WindowComingUpConditions conditions={[condition({ interim: false })]} onGoToPlan={vi.fn()} />);
+    expect(screen.queryByTestId('coming-up-provisional')).toBeNull();
+  });
+
   it('shows a named empty-peak state rather than a blank cell when nothing passes the gate', () => {
     render(
       <WindowComingUpConditions conditions={[condition({ peak: null })]} onGoToPlan={vi.fn()} />,

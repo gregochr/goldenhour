@@ -460,12 +460,15 @@ describe('WindowFirstComingUp — standing conditions strip (plan §7 P4)', () =
     expect(screen.queryByTestId('coming-up-conditions')).toBeNull();
   });
 
-  it('the header sub-line gains a quiet "scores provisional" suffix while any visible condition '
-      + 'is interim', () => {
+  it('the STRIP\'s own header sub-line gains a quiet "scores provisional" suffix while any visible '
+      + 'condition is interim — never the chronology pane\'s own sub-line (plan §7)', () => {
     renderPane({
       events: { entries: ENTRIES, counts: COUNTS, conditions: [{ ...CONDITION, interim: true }] },
     });
-    expect(screen.getByTestId('coming-up-provisional')).toHaveTextContent('scores provisional');
+    const marker = screen.getByTestId('coming-up-provisional');
+    expect(marker).toHaveTextContent('scores provisional');
+    expect(screen.getByTestId('coming-up-conditions')).toContainElement(marker);
+    expect(screen.getByTestId('coming-up-subtitle')).not.toContainElement(marker);
   });
 
   it('the suffix is absent once every visible condition is mature', () => {
