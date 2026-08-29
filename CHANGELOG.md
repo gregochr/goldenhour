@@ -20,6 +20,18 @@ disagree. §5 records the authored decisions (ring role-gating default, eclipse/
 droppable popup region labels). Paste-ready per-phase kickoff prompts are
 `docs/engineering/field-geography-prompts.md`. Documentation only; no behaviour change.
 
+The plan was adversarially reviewed before use (six prosecutor lenses; ~25 surviving findings
+folded in). The heaviest: the hot-region field must reuse the existing `topRegion` helper (its
+name tie-break and canopy filter are load-bearing) **and** survive `buildHeatStripCards`'
+whitelist fold in `utils/windowFirstStrip.js`, which the first draft never named — component
+tests structurally cannot catch a dropped fold field; the popup's new geography gets its own
+`.wf-mgeo` layer because `.wf-mlab`'s universal span rule would centre-shift every top-left box;
+the ring tests were unwritable as first specified (under the suite's ×10 stub both radii fall
+below the 18px skip floor — §3.5 now carries worked per-test projection scales); two boundary
+specs were off by one against their own algorithm; `--color-home` must live in `@theme static`
+or it prunes to the empty string behind a self-masking fallback; and the §4.5 coincidence-glyph
+handoff was retargeted after Coming-up P3b landed in flight as PR #690.
+
 ### Added — Coming up P4: standing conditions — strip, statuses, interim scoring
 
 The Coming up tab gains its standing-conditions strip (design README §2/§2.1, plan §7): three

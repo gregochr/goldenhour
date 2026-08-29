@@ -15,8 +15,16 @@ owner's `PhotoCast.zip`, received 2026-08-29). Do not edit the bundle; where its
 with this plan's §0 reconciliation, **this plan wins** — §0 records what the bundle does not know
 about the real frontend. The plan is otherwise self-contained: an implementing session should be
 able to work from this file alone and use the bundle for visual reference (`Plan Tab with Heat
-v4.html` and `Coming Up.html` open directly in a browser; `Plan Thumbnail Geography.html` records
-why this treatment won and is not for implementation).
+v4.html` and `Coming Up.html` open in a browser **with network access** — they load d3/topojson
+from CDNs and the coastline from world-atlas, so in a sandbox that blocks outbound they render a
+blank map; that is the prototype's limitation, not a bug to debug. `Plan Thumbnail Geography.html`
+records why this treatment won and is not for implementation).
+
+**This plan was adversarially reviewed before landing** (six prosecutor lenses — codebase
+accuracy, design fidelity, architecture conformance, implementability, test quality, future
+hazards — 2026-08-29); the surviving findings are folded in below. Where a section carries a
+worked stub scale or an unusually specific instruction, that is usually a review finding — do not
+"simplify" it away.
 **Design fidelity:** high — colours, type sizes, letter-spacing, marker dimensions and placement
 rules below are final. The label placement is geometric and must be reimplemented as logic, not
 eyeballed.
@@ -29,8 +37,10 @@ Two changes, both about making an existing surface legible rather than adding a 
    gain a **home marker** and **area names at region centroids**; the drill-down popup field
    additionally gains **dashed reach rings** at the 45 min and 1h 30min tiers.
 2. **Topic glyphs on Coming up.** Coming up names its topics with no glyph. It gains a per-family
-   emoji glyph on timeline rows, standing-condition rows and filter chips — beside the existing
-   colour swatch, never in place of it.
+   emoji glyph on timeline rows, standing-condition rows and filter chips — where a colour swatch
+   element exists (condition rows, chips), the glyph sits beside it, never in place of it; the
+   timeline card has **no swatch element** (its colour is a `data-family` border accent), and
+   there the glyph is the title's first child.
 
 The work is four phases, each one PR, each following the repo's UI cadence (CLAUDE.md *UI Work —
 Review Cadence*): **build → tests → adversarial review of the diff → fix what survives →
@@ -61,9 +71,9 @@ line numbers before editing (they will drift).**
 | reach tiers `40 km ⇢ '45 min'`, `80 km ⇢ '1h 30min'` | Tier labels are **derived, never authored**: `utils/reachLens.js` `REACH_TIERS` builds labels with `formatDriveDuration(limitMinutes)`. Ring labels must reuse `formatDriveDuration(45)` / `formatDriveDuration(90)` so the strings can never drift from the lens. The km radii (40, 80) stay authored design constants. |
 | region names `SHORT`/`TINY` tables | Production regions come from the DB. Use an authored abbreviation map keyed by region name for the known roster, **fail-soft to the uppercased full name** for any region not in the map — the collision pass drops what cannot fit, which is the designed failure mode. |
 | `&nbsp;` in names | Use `white-space: nowrap` in CSS (the prototype sets it too; the nbsp was belt-and-braces for a DOM it built by `innerHTML`). |
-| per-window "hot" region (highest mean rating) | **Not derivable on the strip today and must not be recomputed from heat spots** — per-region means are server-owned (`BriefingRegion.meanRating`; CLAUDE.md backend-heavy §). Thread it through `utils/windowFirstCards.js` at card-build time (§2.3). |
-| Coming up families `tide/sky/sun/dust/air/moon` | Production wire families: `coastal, aurora, air, night-sky, sun-moon, dust, eclipse` (tokens `--color-topic-*`, `index.css` ~:106). Chips: `all, coastal, night-sky, sun-moon, air-dust` (`utils/comingUpFeed.js`). Wire `entry.type` values: `spring-tide, king-tide, meteor, supermoon, equinox, solstice, nlc-season, eclipse`. Mapping in §4.1. |
-| coincidence sub-lines | **No renderer exists** — `entry.coincidence`/`joinNote` are on the wire but deferred to Coming-up P3b (`WindowComingUpEntry.jsx` ~:38–47). §4.5 records the glyph spec for P3b; build nothing for it now. |
+| per-window "hot" region (highest mean rating) | The argmax **already exists**: `topRegion(es)` in `utils/windowFirstCards.js` (~:192), with a deliberate name tie-break and the `eligibleRegions` canopy filter. Reuse it (§2.3) — never a fresh argmax, never recomputed from heat spots. ⚠️ The strip's `cards` prop comes from `buildHeatStripCards` in **`utils/windowFirstStrip.js`**, a field-by-field whitelist fold — a field added in `windowFirstCards.js` alone is silently dropped before it reaches the strip. |
+| Coming up families `tide/sky/sun/dust/air/moon` | Production wire families: `coastal, aurora, air, night-sky, sun-moon, dust, eclipse` (tokens `--color-topic-*`, `index.css` ~:106). Of these, the assembler currently *emits* only `coastal`/`night-sky`/`sun-moon`/`eclipse` — `air`/`dust`/`aurora` are legal-but-unreachable today, and the glyph map still covers them. Chips: `all, coastal, night-sky, sun-moon, air-dust` (`utils/comingUpFeed.js`). Wire `entry.type` values: `spring-tide, king-tide, meteor, supermoon, equinox, solstice, nlc-season, eclipse`. Mapping in §4.1. |
+| coincidence sub-lines | The renderer is landing in **Coming-up P3b, in flight as PR #690** (adds `.wf-cu-coin-line` with a per-line `.wf-cu-coin-swatch`, no glyph). §4.5 makes the sub-line glyph a *conditional* G4 scope item: in scope if #690 has merged when G4 starts, pointer-comment-only if not. |
 | `world-atlas` CDN | Production uses the committed `src/assets/uk-land-50m.json` via `load()`. Nothing to do. |
 | styling | New pixel-precise rules go in **`frontend/src/index.css`** beside their `.wf-*` siblings, heavily commented, with `var(--font-mono)` — not Tailwind arbitrary classes, not inline styles (inline `style` only for computed values: coordinates, ramp colours, custom properties). |
 
@@ -113,20 +123,34 @@ point.)
 
 ### 1.3 Tests (`src/test/labelPlacement.test.js`, extend `heatField.test.js`)
 
-- Nudge order is tried exactly as specified (a collider at dy=0 lands the label at −13, etc.).
-- First-fit wins; the returned box joins nothing (pure function — caller owns `placed`).
-- Frame-edge rejection at all four edges, at the exact 1px inset.
-- Inflation padding asymmetry: a box 3px away horizontally collides, 4px does not; 2px/3px
-  vertically.
+- **The nudge ladder is pinned by a walk, not by asserting the constant against itself**
+  (`expect(NUDGES).toEqual([...])` proves nothing — the repo's own suites record that
+  anti-pattern). Build fixtures blocking each successive prefix: a collider at dy=0 → label lands
+  at −13; colliders at {0, −13} → +13; at {0, ±13} → −24; and so on through the whole ladder to
+  the all-blocked → null case. `placed` takes arbitrary rects, so a blocking box can straddle two
+  rungs while leaving the next clear.
+- First-fit wins; purity: the input `placed` array is **not mutated** (assert it), and the
+  returned box is the caller's to push.
+- Frame-edge rejection at all four edges, both sides of the boundary: `x = 1` accepted, `x = 0`
+  rejected (the inequality is strict `< 1`), same for y and the far edges.
+- Inflation padding, both sides of each band edge, where "gap" means edge-to-edge distance:
+  horizontally a **2px gap collides, a 3px gap is clear** (the test is strict `<`, so the 3px
+  inflation excludes gaps *below* 3); vertically a **1px gap collides, a 2px gap is clear**. Do
+  not "fix" a red test here by widening the inflation — the strict inequality is the prototype's
+  and the popup `fits`' shared semantics.
 - Exhausted ladder returns null.
 - `kmPerPx`: with a linear stub projection `([lng, lat]) => [lng * 10, lat * 10]`, one degree of
-  latitude is 10px so `kmPerPx = 10 / 111.2`; assert to a tolerance.
+  latitude is 10px so `kmPerPx = 10 / 111.2`; assert to a tolerance. A linear stub is blind to
+  the refPoint parameterisation §1.2 exists for, so add one fixture with a latitude-dependent
+  scale (e.g. `([lng, lat]) => [lng * 10, lat * lat]`) asserting two reference points give two
+  different answers — this kills the mutant that ignores `refPoint`.
 
 ---
 
 ## 2. Phase G2 — Plan thumbnails: home marker + area names
 
 **Files:** `WindowFirstHeatStrip.jsx`, `utils/windowFirstCards.js` (hot region),
+**`utils/windowFirstStrip.js`** (the whitelist fold the field must survive — §2.3),
 `WindowFirstShell.jsx` + `App.jsx` (homeCoords plumbing), `index.css`, tests.
 
 ### 2.1 Plumbing
@@ -144,12 +168,17 @@ sibling of the canvas inside it:
 ```jsx
 <span data-testid="wf-heat-well" className="wf-hc-cv">
   <canvas aria-hidden="true" … />
-  {!geoFailed && <span className="wf-tlab" aria-hidden="true" data-testid="wf-thumb-labels">…</span>}
+  <span className="wf-tlab" aria-hidden="true" data-testid="wf-heat-labels">…</span>
 </span>
 ```
 
+(No `!geoFailed` gate on the overlay — the existing gate already unmounts the whole well on that
+path; an inner gate would be dead code.)
+
 The whole overlay is `aria-hidden` — every name on it is decorative duplication of information the
 card already states accessibly, and the existing popup labels (`.wf-mlab`) set the precedent.
+(Note the `!geoFailed` gate already unmounts the entire **well** today — the overlay needs no gate
+of its own for that path; see the two distinct absence mechanisms in §2.7.)
 
 `index.css` (next to the `.wf-hc-*` block, commented):
 
@@ -158,7 +187,7 @@ card already states accessibly, and the existing popup labels (`.wf-mlab`) set t
 
 /* home marker: dot + word, stacked */
 .wf-hm{position:absolute;display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1}
-.wf-hm-mk{width:9px;height:9px;border-radius:50%;border:1.6px solid var(--color-home, #C9A24B);
+.wf-hm-mk{width:9px;height:9px;border-radius:50%;border:1.6px solid var(--color-home);
   background:rgba(20,15,11,.6);
   box-shadow:0 0 0 2.5px rgba(20,15,11,.5), 0 0 9px rgba(201,162,75,.5)}
 .wf-hm-lb{font-family:var(--font-mono);font-size:7.5px;font-weight:600;letter-spacing:.14em;
@@ -172,18 +201,47 @@ card already states accessibly, and the existing popup labels (`.wf-mlab`) set t
 .wf-tlab-rg[data-hot="true"]{color:#F9F1E2}
 ```
 
-Define `--color-home: #C9A24B` once in the `@theme`/token block beside the other `--color-*`
-tokens, with a comment naming its consumers (home marker border, ring stroke at 40% alpha, §3).
+Define `--color-home: #C9A24B` once, **in the `@theme static` block, not the plain `@theme`** —
+a plain-block token whose only consumers are handwritten `var()` rules prunes to the empty string
+(the `--color-plex-panel` incident recorded in `index.css`'s own comments and in the review-cadence
+section of CLAUDE.md). Do **not** give the `var()` a same-value fallback: `var(--color-home,
+#C9A24B)` would render identically with the token pruned, masking exactly the defect the block
+choice prevents. Comment the token with its consumers (home marker border, ring stroke at 40%
+alpha, §3) and note that `#C9A24B` deliberately aliases the value of `--color-topic-sun-moon` /
+`--color-close-to-home` — same hex, distinct semantic channels, the repo's established practice.
 
-### 2.3 The hot region (server-owned means, threaded, never recomputed)
+Positioning convention for everything the overlay places: `placeWithNudges` returns a **top-left**
+box; set `left`/`top` from it directly. Nothing in `.wf-tlab` inherits a centre-translate (unlike
+the popup's `.wf-mlab span` — see the §3.3 layering note). Known and accepted: the well's
+`overflow:hidden` (load-bearing, 390px scroll defence) will clip a label's text-shadow and the
+marker's 9px glow at the frame edge — the 1px placement inset keeps the text itself inside; do
+not "fix" the clip.
 
-The design brightens the region with the **highest mean rating for that window**. Per-region means
-are server-owned (`BriefingRegion.meanRating`) and the strip does not receive them today. Add
-`card.hotRegionName` in `utils/windowFirstCards.js` where each card is built from the served
-briefing day/event: the argmax over that window's served region means (ties → first in served
-order; nothing rated → `null`, and no label brightens). This is a *read* of served data — an
-argmax like the popup's region rail's sort — not a recomputation, so it stays inside the licensed
-client-derivation class. **Do not** compute means from the heat-spot catalogue.
+### 2.3 The hot region (reuse `topRegion`, and survive the strip fold)
+
+The design brightens the region with the **highest mean rating for that window**. That argmax
+**already exists**: `topRegion(es)` in `utils/windowFirstCards.js` (~:192) — it runs over
+`eligibleRegions(es)` (the canopy filter, whose absence is a recorded production defect: an
+all-woodland region rated 4.8 on a misty dawn must not brighten a sky-gated field) and ties break
+on the region **name** via `localeCompare`, under a load-bearing comment ("Keep them identical,
+or reconverge both on one helper") that keeps the thumbnail, the movement chip and the popup
+rail's rank 1 naming the same region. So:
+
+- `card.hotRegionName = topRegion(es)?.regionName ?? null` at the same site that builds
+  `movement` — **never a fresh argmax, and never the prototype's served-order tiebreak** (that is
+  the exact divergence the comment forbids). Under an away origin, follow the same
+  `scopedRegion` re-pointing every sibling field takes; nothing rated → `null`, no label
+  brightens (a deliberate deviation from the prototype's `reduce`, which seeds with the first
+  region and would brighten it on an all-null window — recorded in §5.4).
+- ⚠️ **The strip never sees `windowFirstCards` output directly.** Its `cards` prop comes from
+  `buildHeatStripCards` in `utils/windowFirstStrip.js`, an explicit field-by-field whitelist fold
+  — carry `hotRegionName: card?.hotRegionName ?? null` there too, and pin the fold with a
+  `windowFirstStrip` test. The component tests hand fixture cards straight in and **cannot** see
+  a dropped fold field; without the fold test a session can go fully green while `data-hot` never
+  fires in production.
+
+This is a *read* of served data, inside the licensed client-derivation class. **Do not** compute
+means from the heat-spot catalogue.
 
 ### 2.4 Area-name text
 
@@ -199,10 +257,23 @@ const AREA_TINY = { 'Northumberland':'NORTHUMB.', 'North Pennines':'PENNINES',
   'Borders':'BORDERS', 'Peak District':'PEAK' };
 ```
 
-Verify the keys against the seeded roster's actual region names at implementation time (they come
-from the DB; adjust keys, not the pattern). Fallback for an unmapped region: `name.toUpperCase()`
-in both sets — CSS uppercases anyway; the map exists only for the authored tiny forms. Tiny set is
-chosen per card when the drawn width `< 215px`.
+Verify the keys against the seeded roster's actual region names at implementation time — and note
+that check is *local-only*: production regions are DB-managed via the Admin UI on a separate host,
+and `RegionService.setName` makes renames routine (V137 exists to clean up after one), so the map
+is deliberately non-authoritative and will drift. Three guards, all cheap:
+
+- Fallback for an unmapped region: `name.toUpperCase()` in the **full** set. For the **tiny** set,
+  a full-name-uppercase fallback is the wrong degrade — a long name at `< 215px` fails placement
+  and the region silently loses its label entirely — so derive the tiny fallback instead: drop
+  leading directionals (`NORTH/SOUTH/EAST/WEST`), keep the first remaining word, uppercase.
+- A dev-mode warning when a scoped region misses the map
+  (`import.meta.env.DEV && console.warn(...)`) so a rename or roster growth surfaces at the next
+  local session rather than as an unlabeled blob.
+- A comment on the table citing the rename precedent, so a later session knows the map is a
+  styling nicety over a derivation rule, not a registry.
+
+Tiny set is chosen per card when the **drawn width** — the well's `clientWidth`, the same
+measurement the paint uses — is `< 215px` (strict; 215 exactly takes the full set).
 
 Area names carry **no rating** — the card's spread histogram and the popup's region rail already
 state it.
@@ -229,34 +300,70 @@ Then a `useLayoutEffect` places labels per card using the two-pass measurement p
 `offsetWidth`/`offsetHeight`, commit survivors):
 
 1. Priority order: **home first** (it always wins its space), then regions in scope order.
-2. Each through `placeWithNudges` against the accumulating box list.
+2. Each through `placeWithNudges` against the accumulating box list. The home marker is placed as
+   **one element** (dot + word), so a nudge moves the dot with it — up to ±36px off the exact
+   geographic point, and vertical-only nudging means an anchor within half its width of the left
+   or right frame edge fails every rung and drops. Both are the prototype's own behaviour
+   (`labelThumb` places the whole `.hm` through `placeLabels`), accepted, not bugs to fix.
 3. Null result → the label is not rendered this pass.
 
 Placement re-runs whenever the anchors state changes — which the existing throttle/observer
-machinery already drives; add nothing.
+machinery already drives; add nothing. One bookkeeping duty: the strip carries a **measured**
+long-task figure in a doc comment near the paint pass (~:415–421); G2 adds a measurement pass and
+a second commit to that work, so re-measure in the browser and update the figure in the same
+commit — a stale measured claim is the citation-rot this repo documents. (Optional, not required:
+label sizes are fixed monospace strings, so a `(text, class)`-keyed size cache would skip the
+hidden-measure pass after the first paint.)
 
 ### 2.6 data-testids
 
-`wf-thumb-labels` (overlay), `wf-thumb-home`, `wf-thumb-area` (+ `data-region`, `data-hot`).
+`wf-heat-labels` (overlay), `wf-heat-home`, `wf-heat-area` (+ `data-region`, `data-hot`) — the
+strip's existing testids are all `wf-heat-*`; stay in that namespace.
 
 ### 2.7 Tests (`WindowFirstHeatStrip.test.jsx` + placement already covered by G1)
 
-Follow the suite's existing canvas conventions, but this phase needs the `drawGeo` mock upgraded
-from `null` to the linear stub projection (`([lng, lat]) => [lng*10, lat*10]`) **for the new
-tests** so anchors are hand-checkable — keep existing tests on whichever stub they assert against.
-Stub `offsetWidth`/`offsetHeight` on `HTMLElement.prototype` for the measurement pass (the dialog
-suite's pattern).
+Follow the suite's existing canvas conventions, with three mechanics the review established:
+
+- **Stub upgrade without leakage.** The suite's module mock is `drawGeo: vi.fn(() => null)` and
+  its `afterEach` is `vi.clearAllMocks()`, which clears *calls* but does **not** restore an
+  implementation set by `mockImplementation` — and after this phase the strip *reads* `drawGeo`'s
+  return, so a leaked stub silently changes sibling tests. Use `mockImplementationOnce` /
+  `mockReturnValueOnce` per test (or reset to `() => null` in `afterEach` explicitly).
+- **Fixture coordinates must project inside the frame.** Under the linear ×10 stub, real-UK
+  coordinates (lat ~55, lng ~−1.7) land at (−17, 556) — outside any plausible frame, so
+  `placeWithNudges` edge-rejects everything. Use synthetic coordinates chosen so the anchors land
+  where the test needs them.
+- **Element sizes for the measurement pass** come from `HTMLElement.prototype`
+  `offsetWidth`/`offsetHeight` stubs; where a test needs two *different* sizes, use the suite's
+  data-driven getter pattern (`withWellWidths`-style, keyed off the element) rather than a second
+  uniform stub.
+
+Tests:
 
 - Home marker rendered at the projected point when `origin` is null and `homeCoords` set.
 - No home marker when `origin` is an away region; none when `homeCoords` is null.
-- One area label per scoped region with a computable centroid; text from the tiny table under a
-  stubbed `clientWidth < 215`, full table above.
-- Unmapped region name falls back to its uppercased self.
+- **Home wins its space:** a region centroid coincident with the home anchor loses its label (or
+  is nudged) while home stays — this pins the placement *order*, which nothing else does.
+- One area label per scoped region with a computable centroid; tiny table at stubbed drawn width
+  **214**, full table at **215** (the rule is strict `<`).
+- Unmapped region name falls back per §2.4 (full: uppercased self; tiny: derived abbreviation).
 - `data-hot="true"` on exactly the card's `hotRegionName` label; no hot when null.
-- Collision: two regions with coincident centroids → second label absent (dropped, not stacked).
-- Overlay absent when `drawGeo` returns null (geoFailed path).
+- Collision drop: two regions with coincident centroids **and a stubbed label height ≥ 35px** →
+  second label absent. The arithmetic matters: at the dialog suite's uniform 14px height, rung
+  −24 clears (24 ≥ 14 + 2) and the second label is *nudged*, not dropped — so also keep a
+  short-stub fixture asserting the nudge outcome (second label present at dy −24). Both are
+  correct behaviours at different geometries; pin each.
+- **Two absence mechanisms, two tests** (they are different code paths): `load()` rejection sets
+  `geoFailed` and unmounts the whole well (existing behaviour — assert no well); `drawGeo`
+  returning null leaves the well mounted and clears that card's anchors (assert the well present,
+  zero labels inside the overlay).
+- **Re-placement on change:** rerender with changed anchors (origin flip or a spots change) and
+  assert label positions moved — the layout effect's dependency list is new code and a dropped
+  dependency means stale labels over a repainted coastline.
 - Overlay is `aria-hidden`.
-- `windowFirstCards`: `hotRegionName` argmax, tie-break, null when nothing rated.
+- `windowFirstCards`: `hotRegionName` = `topRegion` reuse (tie on name, canopy filter inherited),
+  null when nothing rated, away re-point. **`windowFirstStrip`: the fold carries the field** —
+  this is the test that the component suite structurally cannot replace (§2.3).
 
 ---
 
@@ -276,13 +383,19 @@ Rings state the reach thresholds in real distance, deliberately **not** a filter
 heat — the field still paints every rated location regardless of reach (filtering the field per
 driver would make the same night look different to two people). They are gated on a saved
 postcode, not on `reachMeasured`: they claim a distance from home, not that a drive-time filter
-ran. (Recorded as a decision in §5; the six `reachMeasured` surfaces are untouched.)
+ran. One consequence to have in writing before the first user report: the ring is straight-line
+km wearing a duration label while the lens tier is measured road minutes, so a spot can sit
+inside the "45 min" ring yet outside the lens's 45-min tier (and vice versa) — **designed
+behaviour, triage it as such, not as a bug**. §5.2 carries the unresolved tension with the reach
+vocabulary rule and the owner flag.
 
 ### 3.2 Rings
 
-An SVG layer rendered as the **first child** of the map box's overlay stack (before `.wf-mlab`
-and `.wf-mchips` in DOM order, so it paints under every label — the stack is z-ordered by DOM
-order):
+An SVG layer rendered as the first child of the new `.wf-mgeo` layer (§3.3), which itself sits
+**after the canvas and before `.wf-mlab`/`.wf-mchips`** in DOM order — the overlay siblings are
+z-ordered by DOM order, so the rings paint over the field but under every label. (The canvas is
+the map box's true first child; "first child of the map box" would put the rings *under the
+paint*, invisible.)
 
 ```css
 .wf-rings{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
@@ -301,28 +414,56 @@ Radius in px: `km * kmPerPx(proj, homePoint)`. Skip a ring when `r < 18` (illegi
 
 ### 3.3 Ring labels and home marker, in the existing placement pass
 
-The pass in `WindowRowFieldMap`'s layout effect changes order to:
+⚠️ **Layering: the new elements get their own overlay layer, NOT `.wf-mlab`.** `index.css` has a
+universal `.wf-mlab span` rule (absolute positioning, `translate(-50%,-50%)`, its own dark plate,
+9.5px type — the translate/line-height pair is documented as load-bearing there). Mounting the
+home marker or ring labels inside it would centre-shift every `placeWithNudges` top-left box by
+half its own size and put plates on the marker's inner spans. Render instead a sibling layer
+`.wf-mgeo` (`position:absolute; inset:0; pointer-events:none`) holding the rings SVG, the ring
+labels and the home marker — placed in DOM order **after the canvas, before `.wf-mlab` and
+`.wf-mchips`**, so it paints under both label layers. Top-left positioning throughout, no
+inherited transform.
+
+The placement pass in `WindowRowFieldMap`'s layout effect changes order to:
 
 1. hint corner box (unchanged) and not-scored corner box (unchanged);
 2. **ring labels** — anchor at the ring's top (`x: hx, y: hy - r`), placed via G1's
    `placeWithNudges` against the shared box list;
-3. **home marker** — anchored at `proj(homePoint)`, via `placeWithNudges`;
-4. region labels — as today, **but now dropped if they collide with an already-placed box**
-   (previously they were seeded first and could collide with nothing; the prototype's `drawBig`
-   drops a region label that cannot fit, and home/rings outrank regions by design — "home is
-   first, so it always wins its space"). No nudge ladder for region labels (prototype parity);
+3. **home marker** — anchored at `proj(homePoint)`, via `placeWithNudges`. Rings + home outrank
+   region labels (they are placed earlier); note home is *not* first overall — the two corner
+   reservations and the ring labels precede it, so a home point projecting into the hint corner
+   is nudged (up to 36px) or dropped, and a home within half its width of a side edge drops
+   (vertical-only nudges). All prototype-accepted; pin the popup home position in a test (§3.5).
+4. region labels — **droppable, but only when `homePoint` produced boxes**: run them through the
+   component's existing `fits` (they are not `target: true`, so the 24px separation test is inert
+   for them; a dropped label's box is not seeded). With no `homePoint` the pass must stay
+   byte-identical to today's never-dropped behaviour — that is what makes §3.5's "no homePoint →
+   field unchanged" promise true, and it scopes the behaviour change to exactly what §5.5
+   records. Making labels droppable also forces them onto the chips' **two-pass**
+   measure-then-commit treatment (today they render at their centroid immediately); survivors
+   ride the same single state object as the chips (`placed` grows a `labels` member — the
+   one-piece-of-state invariant holds).
 5. chips — unchanged (flip-then-drop, target separation, caps).
+
+Mechanical traps the review caught: the component's box vocabulary is `{x, y, width, height}`
+while G1's `placeWithNudges` contract is `{x, y, w, h}` — **normalise to one shape before
+mixing** (unconverted, `b.w` is `undefined`, every comparison is false, and no collision is ever
+detected); ring/home boxes never carry `target: true`. And the standing comment at the pass
+(~:498, "region labels … are never dropped … the new layer yields to the old one") states the
+**opposite** of this change — rewrite it in the same commit, and note the reversal beside §5.5.
 
 All new elements are `pointer-events: none` (the overlay already is; only `.wf-mchip` buttons opt
 back in), so the field's nearest-centroid click is never intercepted. The centroid-click handler
 itself is untouched.
 
 ```css
+.wf-mgeo{position:absolute;inset:0;pointer-events:none}
 .wf-ringlb{position:absolute;font-family:var(--font-mono);font-size:8.5px;letter-spacing:.08em;
-  color:rgba(235,217,168,.72);background:rgba(14,11,9,.74);padding:1px 4px;border-radius:3px}
+  color:rgba(235,217,168,.72);background:rgba(14,11,9,.74);padding:1px 4px;border-radius:3px;
+  white-space:nowrap;line-height:1.35}
 /* popup home marker: same structure as the thumbnail's, one size up */
-.wf-mlab .wf-hm-mk{width:12px;height:12px;border-width:2px}
-.wf-mlab .wf-hm-lb{font-size:9px}
+.wf-mgeo .wf-hm-mk{width:12px;height:12px;border-width:2px}
+.wf-mgeo .wf-hm-lb{font-size:9px}
 ```
 
 ### 3.4 data-testids
@@ -331,23 +472,52 @@ itself is untouched.
 
 ### 3.5 Tests (`WindowRowFieldMap.test.jsx`, `WindowSheetDialog.test.jsx`)
 
-The suite already stubs a linear projection, so every expected pixel is hand-checkable:
+⚠️ **The suite's default ×10 stub cannot exercise ring geometry.** Work the arithmetic before
+writing anything: under `([lng, lat]) => [lng*10, lat*10]`, `kmPerPx = 10/111.2 ≈ 0.09 px/km`, so
+r₄₀ ≈ 3.6px and r₈₀ ≈ 7.2px — **both under the 18px skip floor, so no ring ever renders** and
+every positive ring assertion is unreachable. And the mocked projection ignores the frame, so
+"shrink the frame until r < 18" is a false mechanism (that intuition is a browser fact about
+`drawGeo`'s bbox fit, which the mock discards). Reach every case **by choosing the projection
+scale per test** (`mockImplementationOnce` with `([lng, lat]) => [lng*S, lat*S]`), keeping the
+geometry honest through the real `kmPerPx`:
 
-- Ring radii: with the linear stub, `kmPerPx = 10/111.2`; assert both circles' `r` to tolerance,
-  centred on the projected home point.
-- Skip rules at both boundaries: a frame small enough that `r < 18` drops the 40km ring; a frame
-  small enough that `r > 1.15 × max(w,h)` drops the 80km ring; both skipped → no `wf-row-map-rings`
-  element at all.
+- **Visible rings:** S = 100 → r₄₀ ≈ 35.97px, r₈₀ ≈ 71.94px on a 600px frame (1.15 × 600 = 690,
+  neither off-frame). Divide fixture lat/lng by 10 relative to the ×10 fixtures and every
+  existing pixel expectation is preserved, so ring tests can share fixtures with label/chip
+  tests. Assert both radii to tolerance, centred on the projected home point — **and assert the
+  home marker's own committed position** (nothing else pins it).
+- **Skip floor, both sides of the edge:** S = 30 → r₄₀ ≈ 10.8 (skipped), r₈₀ ≈ 21.6 (drawn).
+  Band edge: S = 50.04 puts r₄₀ at exactly 18.00 — drawn, the rule is strict `<`; S = 49.9 →
+  17.95, skipped.
+- **Off-frame rule:** scale *plus* frame: S = 100 at width 60 (above the component's 57px paint
+  floor; height ≈ 53) → 1.15 × 60 = 69 < r₈₀ ≈ 71.9 (skipped) while r₄₀ ≈ 36 stays drawn.
+- **Both skipped → no rings element at all:** the default ×10 stub, unmodified.
+
+Remaining tests:
+
 - Ring labels carry `formatDriveDuration(45)` / `formatDriveDuration(90)` output exactly (import
   the function in the test — never a literal, so the strings cannot drift from the lens).
 - Ring labels and home join the shared box list: a chip whose anchor sits on a ring label is
   flipped or dropped (extend the existing collision fixtures).
 - Home marker outranks a region label: a region centroid coincident with the home anchor loses
-  its label (the behaviour change in §3.3 step 4, pinned deliberately).
+  its label (the behaviour change in §3.3 step 4, pinned deliberately — this also pins the pass
+  *order*).
 - Away origin (`origin` set): no rings, no home marker, even with `homePoint` supplied.
-- No `homePoint`: neither renders; the rest of the field is unchanged.
-- The hint box still wins its corner against a ring label anchored there.
-- SVG layer is the overlay stack's first child (DOM-order assertion).
+- No `homePoint`: neither renders, **and region labels keep today's never-dropped behaviour** —
+  the §3.3 step-4 scoping made this "field unchanged" promise literal; pin it.
+- The hint box still wins its corner against a ring label anchored there (fixture arithmetic:
+  the ring's top `(hx, hy − r)` must land in the bottom-left, i.e. home projects below the
+  frame's bottom edge with r reaching back in — choose S and the home fixture together).
+- DOM order: canvas → `.wf-mgeo` (rings SVG first within it) → `.wf-mlab` → `.wf-mchips`; assert
+  the relative order of the four siblings, **not** `mapbox.firstChild` (that is the canvas — an
+  assertion pinning the SVG first would pin the rings under the paint).
+- **Phone fixture:** the popup is where box space is scarcest on the phone (aspect band 0.5–0.95,
+  chip cap 6), and rings + home are placed *before* chips — add a phone-aspect fixture with rings
+  present asserting the surviving chip count, and put a 390px full-screen popup pass in G3's
+  browser checklist.
+- The pointer pass-through is a CSS claim jsdom cannot test (no hit-testing): assert `.wf-mgeo`
+  carries no click handler, re-run the existing centroid-click boundary tests with rings + home
+  in the fixture, and name the actual pass-through as a **browser-verified** claim in the PR.
 
 ---
 
@@ -359,8 +529,9 @@ The suite already stubs a linear projection, so every expected pixel is hand-che
 ### 4.1 The glyph module
 
 ```js
-/* One glyph per topic family, beside (never instead of) the colour swatch: the swatch carries
-   the topic colour system, the glyph carries recognition. Removing either loses something. */
+/* One glyph per topic family, beside (never instead of) the colour swatch where a swatch element
+   exists — condition rows and chips; the timeline card's colour is a border accent, no swatch.
+   The swatch carries the topic colour system, the glyph carries recognition. */
 export const FAMILY_GLYPHS = {
   coastal: '🌊', 'night-sky': '🌌', aurora: '🌌', 'sun-moon': '☀️',
   dust: '🏜️', air: '☁️', eclipse: '◐',
@@ -406,9 +577,17 @@ from the prototype only in accessibility, not appearance.
 ### 4.4 Tests (`WindowComingUpEntry.test.jsx`, `WindowComingUpConditions.test.jsx`, `WindowFirstComingUp.test.jsx`, new `comingUpGlyphs.test.js`)
 
 - `comingUpGlyphs.test.js`: every wire family yields a glyph; `supermoon` overrides its family;
-  unknown family/type → null; **completeness pin**: the test holds its own literal copy of the
-  family list (the `windowFirstTopics` scope-set pattern) so a new wire family fails the test
-  rather than silently rendering glyph-less.
+  unknown family/type → null. **Completeness pins, honestly scoped** (the review killed the
+  claim that a literal copy catches new wire families — families arrive as served strings, so a
+  copy of `FAMILY_GLYPHS`' own keys is circular and a brand-new served family fails nothing):
+  (a) derive the client's family universe from **live exports** and assert glyph coverage over it
+  — every family in `FILTER_CHIPS[].families` (`comingUpFeed.js`) ∪ the `comingUpConditions.js`
+  family map's values ∪ `{aurora}` has a `FAMILY_GLYPHS` entry, and every non-`all`
+  `FILTER_CHIPS` id has a `CHIP_GLYPHS` entry — so registering a family or chip anywhere
+  client-side without a glyph fails; (b) keep one literal copy of the seven-token family list
+  *naming its source* (the `--color-topic-*` token block) as mutation coverage for deletions and
+  typos, the `windowFirstTopics` pattern done properly. A served family registered nowhere
+  client-side renders glyph-less **and** swatch-less by design — state that in the test file.
 - Entry: glyph rendered before the title, correct per family; absent (no empty span) for an
   unknown family; `aria-hidden`; the accessible name of the card does **not** contain the emoji.
 - Featured entry gets the 14px class by virtue of the existing `wf-cu-card-feat` (jsdom asserts
@@ -418,42 +597,89 @@ from the prototype only in accessibility, not appearance.
   layout is pinned).
 - Chips: coastal/night-sky/sun-moon/air-dust carry their glyphs; `all` carries none.
 
-### 4.5 Deferred: coincidence sub-lines (hand to Coming-up P3b — build nothing now)
+### 4.5 Coincidence sub-lines — conditional G4 scope (P3b is in flight as PR #690)
 
-When P3b builds the coincidence renderer, each sub-line carries a small glyph after its swatch:
-`<span className="wf-cu-gi wf-cu-gi-sm">` at `font-size:11px`, resolved per sub-line by topic
-(the design's `glyphOf`: a line naming a moon → 🌙, a tide/water → 🌊, else none — prefer keying
-off served type over the design's name-regex if the wire carries one per line). Add this note to
-the P3b work item; leave a one-line comment at the deferred-renderer site in
-`WindowComingUpEntry.jsx` pointing here.
+Coming-up P3b — **open as PR #690 at the time this plan was reviewed** — builds the coincidence
+renderer: `.wf-cu-coin-line` rows each carrying a `.wf-cu-coin-swatch` in the line's own family
+colour, no glyph. When G4 starts, check whether #690 has merged:
+
+- **Merged (the likely order):** the sub-line glyph is **in G4's scope** — a fourth insertion
+  point: `<span className="wf-cu-gi wf-cu-gi-sm" aria-hidden="true">` at `font-size:11px`,
+  directly **after** `.wf-cu-coin-swatch` in each line, resolved by the line's served family
+  (prefer that over the design's name-regex `glyphOf`; fall back to the regex — moon → 🌙,
+  tide/water → 🌊, else nothing — only if a line carries no family). Add the corresponding CSS
+  (`.wf-cu-gi-sm{font-size:11px}`) and a test per line.
+- **Not merged:** build nothing for it; leave a one-line comment at the renderer site in
+  `WindowComingUpEntry.jsx` pointing here, and say so in the G4 PR description so the retrofit
+  is scheduled rather than forgotten.
+
+Either way, expect textual merge conflicts with #690 in `WindowComingUpEntry.jsx` and
+`WindowFirstComingUp.jsx` — mechanical, but budget for them.
 
 ---
 
 ## 5. Decisions this plan has already made — do not re-litigate
 
 1. **Home is the user's saved geocode, never a constant.** No marker or rings without a saved
-   postcode; no fallback point. (The bundle says so itself.)
-2. **Rings are ungated by role** for now: they derive from the reader's own postcode plus fixed
-   distance constants, not from per-user drive-time data, and the design deliberately decoupled
-   them from the reach filter. CLAUDE.md's freemium note makes "the local radius" a Pro feature on
-   the Map tab — if the owner wants the rings behind the same gate it is one condition at the §3.1
-   gate; flag it in the PR description as an owner call, default open.
+   postcode; no fallback point. (The bundle says so itself.) The recovery route for a no-postcode
+   account is the masthead's existing empty-state nudge to the postcode field — do not invent an
+   on-field "add your postcode" affordance.
+2. **Rings default open, flagged for the owner — this one IS open for the owner to overturn,
+   and the G3 PR must present it properly.** The full picture: the ring labels are duration
+   strings ("45 min") manufactured from straight-line km, which sits in tension with the reach
+   vocabulary rule ("no surface says *within reach* unless a drive time gated it") and with
+   `reachLens.js`'s own warning that a chip reading "45 min" hiding a longer drive is the most
+   damaging thing that control can do; a LITE reader additionally sees these strings live on the
+   field while the same strings sit greyed behind a Pro pill in the lens bar on the same screen
+   (LITE is pinned to Any, and drive times are Pro — so every LITE user with a postcode is
+   permanently in the rings-without-measured-drives state). Against that: the design authored
+   these labels deliberately as decoupled distance statements, and there is precedent for
+   shipping ungated with the question recorded. Note the earlier draft's cited precedent was
+   wrong — there is **no** radius circle on the Map tab; the Pro gate lives on the two settings
+   *controls* (drive times, local radius). Alternatives if the owner wants them: km labels
+   ("40 km"), or duration labels only when `reachMeasured`. Default open; the PR flag must name
+   the LITE incoherence and the km-vs-minutes divergence, not just say "role gating".
 3. **Ring labels are the reach lens's own strings** (`formatDriveDuration`), never authored text.
-4. **The hot region rides `windowFirstCards`**, from served region means — never recomputed from
-   the heat catalogue (backend-heavy rule).
-5. **Region labels on the popup become droppable** (only against home/ring boxes, which are placed
-   first). Behaviour change from "seeded, never dropped", pinned by a test, matching the
-   prototype's `drawBig` and its priority rationale.
+4. **The hot region is `topRegion(es)?.regionName`** — the existing helper, its name tie-break
+   and canopy filter inherited by construction; never a fresh argmax, never recomputed from the
+   heat catalogue (backend-heavy rule). Unlike the prototype's seeded `reduce`, an unrated window
+   brightens **nothing** — a deliberate deviation, pinned by test.
+5. **Region labels on the popup become droppable — only when `homePoint` produced boxes** (rings
+   and home are placed first and outrank them; with no homePoint the pass is byte-identical to
+   today). Behaviour change from "seeded, never dropped", pinned by tests on both sides, matching
+   the prototype's `drawBig`. The standing comment at the pass (~:498) records the old rule and
+   must be rewritten in the same commit.
 6. **Glyph spans are `aria-hidden`** — production convention beats prototype silence on this.
 7. **Eclipse → `◐`, aurora → `🌌`, air-dust chip → `🏜️`** — authored extensions where the design
    was silent, chosen for cross-surface consistency with `HotTopicStrip` and the design's own
-   chip table.
-8. **Coincidence-line glyphs are P3b's**, specified in §4.5.
-9. **Rejected by the design bundle, worth not re-proposing:** best-place-per-region names on the
-   thumbnail (four place names is a legend; the card's Best row already names one); fixed town
-   landmarks (reads as a basemap the app does not have); rings on the thumbnails (too small; the
-   small field's job is the shape of the night). No animation on any label — they appear with
-   their field.
+   chip table. (`HotTopicStrip` is slated for deletion in Coming-up P6 — the `◐` character is a
+   literal here and outlives it; only this rationale sentence goes stale.)
+8. **Coincidence-line glyphs are conditional G4 scope** (P3b's renderer is in flight as PR #690)
+   — §4.5 has the branch.
+9. **The prototype's served-`ic` per-event glyph override is not carried** — no `ic` field exists
+   on the almanac wire; if one is ever added, prepend `entry?.ic ??` to `entryGlyph`'s chain.
+10. **`ComingUpConditionOccurrence.label` (P3b's unrendered field) is out of G4's scope.** P3b's
+    phase log leaves it "for whichever phase next touches the occurrence row"; G4 touches the
+    condition row's *family cell*, not the occurrence row — decided here so G4's review doesn't
+    charge the omission.
+11. **Rejected by the design bundle, worth not re-proposing:** best-place-per-region names on the
+    thumbnail (four place names is a legend; the card's Best row already names one); fixed town
+    landmarks (reads as a basemap the app does not have); rings on the thumbnails (too small; the
+    small field's job is the shape of the night). No animation on any label — they appear with
+    their field.
+
+## 5b. Interaction with the Coming-up series (no ordering assumed)
+
+The Coming-up train (P3b in flight as PR #690; P5, P6 planned) shares files with G4 and, at the
+shell, with G2/G3. Nothing here assumes an order — expect and budget for merge conflicts rather
+than trying to sequence around them:
+
+- `WindowComingUpEntry.jsx`: G4's title glyph vs P3b's coincidence renderer + action switch
+  (#690) vs P5's NEW-flag slot ("between the name and the kind tag" — G4's glyph goes *before*
+  the name, so the two slots don't collide semantically, only textually).
+- `WindowFirstComingUp.jsx`: G4's chip glyphs vs #690's shell/handoff edits vs P5's badge work.
+- `WindowFirstShell.jsx`: G2/G3's homeCoords plumbing vs P6's layout work — mechanical.
+- `CHANGELOG.md`: conflicts guaranteed regardless (every PR appends to `[Unreleased]`).
 
 ## 6. Design token appendix (final values)
 
