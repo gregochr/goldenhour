@@ -43,13 +43,19 @@ public record RetrySelection(Decision decision, List<RetrySelection.RetryFailure
     /**
      * A single genuinely-failed forecast request to reconstruct and re-submit.
      *
-     * @param customId   the original batch custom id ({@code fc-{locationId}-{date}-{event}})
-     * @param locationId location id parsed from the custom id
-     * @param date       evaluation date parsed from the custom id
-     * @param targetType SUNRISE / SUNSET / HOURLY parsed from the custom id
+     * @param customId       the original batch custom id
+     *                       ({@code fc-{locationId}-{date}-{event}[-r{precursorRowId}]})
+     * @param locationId     location id parsed from the custom id
+     * @param date           evaluation date parsed from the custom id
+     * @param targetType     SUNRISE / SUNSET / HOURLY parsed from the custom id
+     * @param precursorRowId primary key of the precursor's {@code PENDING} {@code
+     *                       forecast_evaluation} row (prompted-row persistence plan, R6), or
+     *                       {@code null} for a pre-deploy custom id with no embedded row id — in
+     *                       that case the precursor cannot be stamped {@code ABANDONED} here and
+     *                       is left for the R7 backstop sweep instead
      */
     public record RetryFailure(String customId, Long locationId, LocalDate date,
-            TargetType targetType) {
+            TargetType targetType, Long precursorRowId) {
     }
 
     /**

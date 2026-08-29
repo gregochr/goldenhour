@@ -4,15 +4,18 @@ import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.CalibrationPair;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Collection;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * Repository for {@link ForecastEvaluationEntity} persistence operations.
@@ -31,8 +34,10 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
      * lat/lon, so a coordinate edit changes it, and including it would return a stale pre-edit
      * row alongside the latest one for the same slot.
      *
-     * <p>Because every evaluation run inserts a new row (runs are never updated in place), the
-     * table accumulates many rows per slot as forecasts are re-evaluated. The map view renders
+     * <p>Because every evaluation run inserts a new row (runs are never updated in place, with one
+     * designed exception — {@code ForecastResultHandler} scores a batch-{@code PENDING} row by
+     * primary key when its result lands, rather than inserting a second row), the table
+     * accumulates many rows per slot as forecasts are re-evaluated. The map view renders
      * only the latest run per slot, so this query performs that de-duplication at source — via a
      * single batched query instead of one query per location. The correlated {@code MAX} subquery
      * is supported by the composite index {@code idx_forecast_eval_latest_run} on
@@ -41,19 +46,31 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
      * <p>{@code JOIN FETCH e.location} initialises the eagerly-mapped location in the same query,
      * avoiding a secondary select per returned row.
      *
+     * <p>⚠️ Excludes {@code PENDING} rows (batch-submitted, not yet scored) from both the outer
+     * selection and the correlated {@code MAX} subquery. A pending row must never win this query:
+     * it would blank the map's prompted pins for the submit→result window, suppressing the sparse
+     * {@code cached_evaluation} fallback that exists precisely for that window (see
+     * {@code ForecastController.getForecasts}'s javadoc). Excluding it from the {@code MAX}
+     * subquery too is what lets the previous (non-pending) row still win — otherwise the outer
+     * predicate could never match once a newer pending row exists for the slot.
+     *
      * @param locationIds the location primary keys to query
      * @param from        the start of the date range (inclusive)
      * @param to          the end of the date range (inclusive)
-     * @return the latest run per slot, ordered by location, target date, then target type
+     * @return the latest non-pending run per slot, ordered by location, target date, then target type
      */
     @Query("SELECT e FROM ForecastEvaluationEntity e JOIN FETCH e.location"
             + " WHERE e.location.id IN :locationIds"
             + " AND e.targetDate BETWEEN :from AND :to"
+            + " AND (e.batchState IS NULL"
+            + "   OR e.batchState <> com.gregochr.goldenhour.entity.BatchState.PENDING)"
             + " AND e.forecastRunAt = ("
             + "   SELECT MAX(e2.forecastRunAt) FROM ForecastEvaluationEntity e2"
             + "   WHERE e2.location.id = e.location.id"
             + "   AND e2.targetDate = e.targetDate"
             + "   AND e2.targetType = e.targetType"
+            + "   AND (e2.batchState IS NULL"
+            + "     OR e2.batchState <> com.gregochr.goldenhour.entity.BatchState.PENDING)"
             + "   AND (e.targetType <> com.gregochr.goldenhour.entity.TargetType.HOURLY"
             + "     OR e2.solarEventTime = e.solarEventTime"
             + "     OR (e2.solarEventTime IS NULL AND e.solarEventTime IS NULL)))"
@@ -122,16 +139,68 @@ public interface ForecastEvaluationRepository extends JpaRepository<ForecastEval
             Long locationId, LocalDate targetDate, TargetType targetType);
 
     /**
-     * Returns the most recent evaluation for a given location, date, and target type.
-     * Used to check prior ratings before deciding whether an Opus optimisation run is worthwhile.
+     * Returns the most recent non-{@code PENDING} evaluation for a given location, date, and
+     * target type. Used to check prior ratings before deciding whether an Opus optimisation run
+     * is worthwhile, and by the briefing/plan view as its per-slot forecast fallback.
+     *
+     * <p>⚠️ Excludes {@code PENDING} rows (R1): a batch row submitted but not yet scored must
+     * never shadow the previous cycle's rated or triaged row for this slot. Callers pass
+     * {@code PageRequest.of(0, 1)} to cap the result to the single most recent row — a custom
+     * {@code @Query} cannot express {@code Optional}-returning "top 1" directly (JPQL has no
+     * {@code LIMIT}), so the caller takes {@code .stream().findFirst()}.
      *
      * @param locationId the location primary key
      * @param targetDate the date being forecast
      * @param targetType SUNRISE or SUNSET
-     * @return the most recent evaluation, if any
+     * @param pageable   caps the result; pass {@code PageRequest.of(0, 1)}
+     * @return the most recent non-pending evaluation, newest first
      */
-    Optional<ForecastEvaluationEntity> findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
-            Long locationId, LocalDate targetDate, TargetType targetType);
+    @Query("SELECT e FROM ForecastEvaluationEntity e"
+            + " WHERE e.location.id = :locationId"
+            + " AND e.targetDate = :targetDate"
+            + " AND e.targetType = :targetType"
+            + " AND (e.batchState IS NULL"
+            + "   OR e.batchState <> com.gregochr.goldenhour.entity.BatchState.PENDING)"
+            + " ORDER BY e.forecastRunAt DESC")
+    List<ForecastEvaluationEntity> findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+            @Param("locationId") Long locationId,
+            @Param("targetDate") LocalDate targetDate,
+            @Param("targetType") TargetType targetType,
+            Pageable pageable);
+
+    /**
+     * R7(a) event-driven abandonment: stamps {@code ABANDONED} every still-{@code PENDING} row
+     * among the given primary keys. A no-op for any id already {@code SCORED} (the batch result
+     * beat the sweep) or already {@code ABANDONED} (an R6 retry precursor stamp beat it here) —
+     * the {@code WHERE} clause only ever touches rows still awaiting a result.
+     *
+     * @param ids candidate row ids (typically every {@code fc-} row a just-ended batch touched)
+     * @return the number of rows actually stamped {@code ABANDONED}
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE ForecastEvaluationEntity e SET e.batchState ="
+            + " com.gregochr.goldenhour.entity.BatchState.ABANDONED"
+            + " WHERE e.id IN :ids"
+            + " AND e.batchState = com.gregochr.goldenhour.entity.BatchState.PENDING")
+    int abandonPending(@Param("ids") Collection<Long> ids);
+
+    /**
+     * R7(b) time-based backstop: stamps {@code ABANDONED} every {@code PENDING} row whose
+     * {@code forecast_run_at} (the submit-time timestamp — R4/R5 never bump it) is older than
+     * {@code cutoff}. Catches crash windows, unreconstructable retries, and any path the R7(a)
+     * event-driven stamp missed.
+     *
+     * @param cutoff rows submitted before this instant are stamped {@code ABANDONED}
+     * @return the number of rows stamped {@code ABANDONED}
+     */
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Transactional
+    @Query("UPDATE ForecastEvaluationEntity e SET e.batchState ="
+            + " com.gregochr.goldenhour.entity.BatchState.ABANDONED"
+            + " WHERE e.batchState = com.gregochr.goldenhour.entity.BatchState.PENDING"
+            + " AND e.forecastRunAt < :cutoff")
+    int abandonPendingOlderThan(@Param("cutoff") LocalDateTime cutoff);
 
     /**
      * Pairs every rated evaluation with the outcome a photographer recorded for the same slot.

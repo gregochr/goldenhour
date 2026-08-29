@@ -70,6 +70,13 @@ public sealed interface EvaluationTask
      *                    rubric). Selects both the prompt builder at submit time and the
      *                    parser/visitor path at result time; carried on the custom id so the
      *                    async batch round-trip knows which produced a response
+     * @param evalRowId   primary key of the {@code PENDING} {@code forecast_evaluation} row this
+     *                    task's submission is the carrier for, or {@code null} when no pending
+     *                    row was created (every non-{@code SKY} task, and every {@code SKY} task
+     *                    on the synchronous path). Embedded in the batch custom id (R3) so the
+     *                    result side can score the row in place (R5) without a lookup by natural
+     *                    key, which goes ambiguous whenever nightly + intraday + JFDI overlap on
+     *                    one slot
      */
     record Forecast(
             LocationEntity location,
@@ -78,7 +85,8 @@ public sealed interface EvaluationTask
             EvaluationModel model,
             AtmosphericData data,
             WriteTarget writeTarget,
-            PromptKind promptKind
+            PromptKind promptKind,
+            Long evalRowId
     ) implements EvaluationTask {
 
         /**
@@ -128,12 +136,15 @@ public sealed interface EvaluationTask
             Objects.requireNonNull(data, "data");
             Objects.requireNonNull(writeTarget, "writeTarget");
             Objects.requireNonNull(promptKind, "promptKind");
+            // evalRowId is deliberately nullable — see the record component javadoc.
         }
 
         /**
-         * Convenience constructor for the common {@link PromptKind#SKY} case — the six-arg
-         * shape every pre-Pass-3 caller uses. Bluebell tasks pass {@link PromptKind#BLUEBELL}
-         * explicitly via the canonical constructor.
+         * Convenience constructor for the common {@link PromptKind#SKY} case with no pending
+         * row — the six-arg shape every pre-Pass-3 caller uses. Bluebell/woodland tasks pass
+         * {@link PromptKind#BLUEBELL}/{@link PromptKind#WOODLAND} explicitly via the seven-arg
+         * constructor; a sky-lane batch submission that persisted a pending row (R4) uses the
+         * canonical eight-arg constructor directly to carry its {@code evalRowId}.
          *
          * @param location    target location entity
          * @param date        evaluation date
@@ -144,7 +155,25 @@ public sealed interface EvaluationTask
          */
         public Forecast(LocationEntity location, LocalDate date, TargetType targetType,
                 EvaluationModel model, AtmosphericData data, WriteTarget writeTarget) {
-            this(location, date, targetType, model, data, writeTarget, PromptKind.SKY);
+            this(location, date, targetType, model, data, writeTarget, PromptKind.SKY, null);
+        }
+
+        /**
+         * Convenience constructor for an explicit {@link PromptKind} with no pending row — used
+         * by the bluebell and woodland task builders (R8: pending rows are sky-lane only).
+         *
+         * @param location    target location entity
+         * @param date        evaluation date
+         * @param targetType  SUNRISE / SUNSET / HOURLY
+         * @param model       Claude model to use
+         * @param data        fully prepared atmospheric data
+         * @param writeTarget where the engine should write the parsed result
+         * @param promptKind  which prompt evaluates this task
+         */
+        public Forecast(LocationEntity location, LocalDate date, TargetType targetType,
+                EvaluationModel model, AtmosphericData data, WriteTarget writeTarget,
+                PromptKind promptKind) {
+            this(location, date, targetType, model, data, writeTarget, promptKind, null);
         }
 
         @Override

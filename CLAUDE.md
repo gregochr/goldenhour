@@ -340,7 +340,18 @@ Two consequences worth stating plainly:
 `POST /api/auth/logout|change-password` | `PUT /api/auth/marketing-emails`
 
 ### Forecast (Bearer)
-`GET /api/forecast` | `GET /api/forecast/compare`
+`GET /api/forecast` | `GET /api/forecast/{id}`
+
+### Forecast backtesting (ADMIN)
+`GET /api/forecast/history` | `GET /api/forecast/compare`
+
+> **Both gained `@PreAuthorize ADMIN` on 2026-08-28** — until then they inherited `/api/**` →
+> `.authenticated()`, so any LITE account could call them. Like `POST /api/locations` (fixed
+> 2026-08-26), the *code* was the wrong side: both javadocs describe backtesting tools (history's
+> span-cap javadoc literally says "the admin backtesting tool"), neither has ever had a frontend
+> consumer, and history can pull up to 366 days of rows across every enabled location from the
+> insert-only `forecast_evaluation` table. No data was leaking in the meantime — both already
+> applied `ForecastDtoMapper`'s role-based score selection, which they keep as defence in depth.
 
 ### Forecast runs (ADMIN)
 `POST /api/forecast/run` | `POST /api/forecast/run/very-short-term|short-term|long-term`

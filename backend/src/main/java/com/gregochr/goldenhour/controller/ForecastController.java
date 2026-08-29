@@ -246,12 +246,28 @@ public class ForecastController {
     static final int MAX_HISTORY_SPAN_DAYS = 366;
 
     /**
-     * Returns stored forecast evaluations within a date range.
+     * Returns stored forecast evaluations within a date range. Restricted to ADMIN only.
      *
      * <p>If {@code location} is supplied only that location's evaluations are returned;
      * otherwise evaluations for all enabled locations are returned, in a single query — an
      * optional-location filter resolved to a location-id list before the one repository call,
      * never a per-location query loop.
+     *
+     * <p><b>Why ADMIN:</b> this is the admin backtesting tool (see
+     * {@link #MAX_HISTORY_SPAN_DAYS}) with no frontend consumer — it inherited plain
+     * {@code .authenticated()} from {@code SecurityConfig} until 2026-08-28, letting any LITE
+     * account pull up to a year of rows across every enabled location from an insert-only,
+     * never-pruned table. The gate matches intent the way {@code POST /api/locations}' did
+     * (#655). The role-aware mapper call is kept deliberately: it costs nothing while the
+     * caller is always ADMIN, and stays correct if the gate is ever relaxed.
+     *
+     * <p>Unlike {@link #getForecasts}, this admin surface deliberately does NOT exclude
+     * {@code PENDING} rows (prompted-row persistence plan, R1) — it shows every run, three-state
+     * ({@code PENDING}/{@code SCORED}/{@code ABANDONED}) rows included, because that is the point
+     * of a "how did this rating evolve across runs" tool. A row's rating can arrive after its
+     * {@code forecastRunAt} for a batch-scored slot: {@code forecastRunAt} is submit time, not
+     * result time (R5 never bumps it), so a PENDING row briefly shows no rating at its own
+     * timestamp before the batch result lands and updates it in place.
      *
      * @param from     start of the date range (inclusive), ISO format {@code yyyy-MM-dd}
      * @param to       end of the date range (inclusive), ISO format {@code yyyy-MM-dd}
@@ -262,6 +278,7 @@ public class ForecastController {
      *                                   spans more than {@value #MAX_HISTORY_SPAN_DAYS} days
      */
     @GetMapping("/history")
+    @PreAuthorize("hasRole('ADMIN')")
     public List<ForecastEvaluationDto> getHistory(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
@@ -471,9 +488,21 @@ public class ForecastController {
 
     /**
      * Returns all evaluation runs for a specific location, date, and target type.
+     * Restricted to ADMIN only.
      *
      * <p>Designed for backtesting — compare how the forecast rating changed across
      * multiple evaluation runs as the target date approached.
+     *
+     * <p><b>Why ADMIN:</b> same reasoning as {@link #getHistory} — a backtesting surface with
+     * no frontend consumer that inherited plain {@code .authenticated()} until 2026-08-28. The
+     * per-run history it exposes is an admin question ("how did this slot's rating evolve"),
+     * not part of the LITE/PRO forecast product, whose surfaces show only the latest run per
+     * slot. The role-aware mapper call is kept for the same defence-in-depth reason.
+     *
+     * <p>Like {@link #getHistory}, deliberately includes {@code PENDING} rows (R1) — the compare
+     * timeline plots submit-time timestamps, so a batch-scored point's rating can be populated
+     * after its own {@code forecastRunAt} on the x-axis, once the batch result lands and R5
+     * scores it in place.
      *
      * @param location   the configured location name
      * @param date       the target date, ISO format {@code yyyy-MM-dd}
@@ -482,6 +511,7 @@ public class ForecastController {
      * @return evaluations ordered by forecast_run_at ascending
      */
     @GetMapping("/compare")
+    @PreAuthorize("hasRole('ADMIN')")
     public List<ForecastEvaluationDto> getCompare(
             @RequestParam String location,
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date,

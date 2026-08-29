@@ -860,7 +860,7 @@ class PipelineOrchestratorTest {
             RetrySelection selection = RetrySelection.retry(List.of(
                     new RetrySelection.RetryFailure("fc-42-2026-05-26-SUNSET", 42L,
                             java.time.LocalDate.of(2026, 5, 26),
-                            com.gregochr.goldenhour.entity.TargetType.SUNSET)), 5);
+                            com.gregochr.goldenhour.entity.TargetType.SUNSET, null)), 5);
             when(pipelineRunService.startRun(CycleType.NIGHTLY)).thenReturn(newRun());
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(newRun()));
             when(forecastBatchRepository.findByPipelineRunId(RUN_ID))
@@ -915,7 +915,7 @@ class PipelineOrchestratorTest {
             RetrySelection selection = RetrySelection.retry(List.of(
                     new RetrySelection.RetryFailure("fc-42-2026-05-26-SUNSET", 42L,
                             java.time.LocalDate.of(2026, 5, 26),
-                            com.gregochr.goldenhour.entity.TargetType.SUNSET)), 5);
+                            com.gregochr.goldenhour.entity.TargetType.SUNSET, null)), 5);
             when(pipelineRunService.startRun(CycleType.INTRADAY)).thenReturn(intraday);
             when(pipelineRunService.findById(RUN_ID)).thenReturn(Optional.of(intraday));
             when(forecastBatchRepository.findByPipelineRunId(RUN_ID))

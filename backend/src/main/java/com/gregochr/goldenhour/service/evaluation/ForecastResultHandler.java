@@ -1,6 +1,9 @@
 package com.gregochr.goldenhour.service.evaluation;
 
+import com.gregochr.goldenhour.entity.BatchState;
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
+import com.gregochr.goldenhour.entity.InversionDetails;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.entity.TideType;
@@ -10,6 +13,7 @@ import com.gregochr.goldenhour.model.BriefingEvaluationResult;
 import com.gregochr.goldenhour.model.SunsetEvaluation;
 import com.gregochr.goldenhour.model.TideContext;
 import com.gregochr.goldenhour.model.TokenUsage;
+import com.gregochr.goldenhour.repository.ForecastEvaluationRepository;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.ForecastDataAugmentor;
 import com.gregochr.goldenhour.service.JobRunService;
@@ -83,6 +87,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
     private final RatingCombiner ratingCombiner;
     private final ForecastDataAugmentor forecastDataAugmentor;
     private final ForecastScoreWriter forecastScoreWriter;
+    private final ForecastEvaluationRepository forecastEvaluationRepository;
 
     /**
      * Constructs the handler.
@@ -105,6 +110,9 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * @param forecastScoreWriter       Pass 2 dual-write: persists the combiner's component scores
      *                                  to {@code forecast_score} alongside the serving path,
      *                                  isolated so its failure never fails the evaluation
+     * @param forecastEvaluationRepository R5 seam: scores a {@code PENDING} {@code
+     *                                  forecast_evaluation} row in place by primary key when a
+     *                                  batch result carries a non-null {@code evalRowId}
      */
     public ForecastResultHandler(BriefingEvaluationService briefingEvaluationService,
             JobRunService jobRunService,
@@ -112,7 +120,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             RatingCombiner ratingCombiner,
             ForecastDataAugmentor forecastDataAugmentor,
             ForecastScoreWriter forecastScoreWriter,
-            SunsetEvaluationParser parser) {
+            SunsetEvaluationParser parser,
+            ForecastEvaluationRepository forecastEvaluationRepository) {
         this.briefingEvaluationService = briefingEvaluationService;
         this.parser = parser;
         this.jobRunService = jobRunService;
@@ -120,6 +129,7 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         this.ratingCombiner = ratingCombiner;
         this.forecastDataAugmentor = forecastDataAugmentor;
         this.forecastScoreWriter = forecastScoreWriter;
+        this.forecastEvaluationRepository = forecastEvaluationRepository;
     }
 
     @Override
@@ -147,8 +157,12 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * @param locationId location id from the custom id
      * @param date       evaluation date
      * @param targetType SUNRISE / SUNSET / HOURLY
+     * @param evalRowId  primary key of the {@code PENDING} row this result scores in place (R5),
+     *                   or {@code null} for every non-{@code fc-} lane and for an {@code fc-} id
+     *                   with no embedded row id (pre-deploy format)
      */
-    public record ForecastIdentity(Long locationId, LocalDate date, TargetType targetType) {
+    public record ForecastIdentity(Long locationId, LocalDate date, TargetType targetType,
+            Long evalRowId) {
     }
 
     /**
@@ -185,7 +199,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
             String modelName = outcome.model() != null ? outcome.model().name() : "UNKNOWN";
             BriefingEvaluationResult result = buildResult(
                     location, eval, parsed.date(), parsed.targetType(), regionName, modelName,
-                    context != null ? context.pipelineRunId() : null);
+                    context != null ? context.pipelineRunId() : null,
+                    parsed.evalRowId(), outcome.model());
 
             if (parsed0.usedRegexFallback()) {
                 // Strict JSON parse failed and the regex fallback recovered the result (possibly
@@ -447,7 +462,8 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
         BriefingEvaluationResult result = buildResult(
                 task.location(), eval, task.date(), task.targetType(),
                 regionName, task.model().name(),
-                context != null ? context.pipelineRunId() : null);
+                context != null ? context.pipelineRunId() : null,
+                task.evalRowId(), task.model());
 
         persistSyncLog(context, outcome, task);
         if (task.writeTarget() == EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE) {
@@ -489,34 +505,110 @@ public class ForecastResultHandler implements ResultHandler<EvaluationTask.Forec
      * @param modelName     model id for the rating guardrail log context
      * @param pipelineRunId the orchestrated pipeline run id for forecast_score provenance, or
      *                      {@code null} on the sync/admin path
+     * @param evalRowId     primary key of the {@code PENDING} {@code forecast_evaluation} row
+     *                      this result scores in place (R5), or {@code null} when there is none
+     *                      (bluebell/woodland results never reach this method; a sky result on
+     *                      the sync path, an unparseable pre-deploy custom id, or a lane out of
+     *                      R8 scope)
+     * @param resolvedModel the model that actually produced this response, persisted on the row
+     *                      alongside the rating so the row's {@code evaluation_model} reflects
+     *                      what scored it rather than only what was requested
      * @return the result to persist (cache payload element)
      */
     private BriefingEvaluationResult buildResult(LocationEntity location, SunsetEvaluation eval,
             LocalDate date, TargetType targetType, String regionName, String modelName,
-            Long pipelineRunId) {
+            Long pipelineRunId, Long evalRowId, EvaluationModel resolvedModel) {
+        BriefingEvaluationResult result;
         if (eval.rating() == null) {
             // Sky not forecast: Claude omitted the rating. The combiner never runs, so there is
             // no genuine component score to record — no forecast_score dual-write here (Pass 2).
-            return new BriefingEvaluationResult(
+            // The row and cached_evaluation must never disagree about one slot (2026-08-03 three-
+            // rules lesson), so this substitution lands in the row too (R5) — same as the scored
+            // branch below.
+            result = new BriefingEvaluationResult(
                     location.getName(), SKY_NOT_FORECAST_RATING,
                     eval.fierySkyPotential(), eval.goldenHourPotential(), SKY_NOT_FORECAST_SUMMARY,
                     null, null, null);
+        } else {
+            Set<TideType> tideTypes = location.getTideType();
+            TideContext tide = (tideTypes != null && !tideTypes.isEmpty())
+                    ? forecastDataAugmentor.deriveTideContext(location, date, targetType)
+                            .orElse(null)
+                    : null;
+            RatingCombiner.CombinedRating combined =
+                    ratingCombiner.combine(location, new VisitorContext(eval, tide));
+            Integer safeRating = RatingValidator.validateRating(
+                    combined.rating(), regionName, date, targetType, location.getName(), modelName);
+
+            dualWriteForecastScore(location, date, targetType, eval, combined, pipelineRunId);
+
+            result = new BriefingEvaluationResult(
+                    location.getName(), safeRating,
+                    eval.fierySkyPotential(), eval.goldenHourPotential(), eval.summary(),
+                    null, null, eval.headline());
         }
-        Set<TideType> tideTypes = location.getTideType();
-        TideContext tide = (tideTypes != null && !tideTypes.isEmpty())
-                ? forecastDataAugmentor.deriveTideContext(location, date, targetType).orElse(null)
-                : null;
-        RatingCombiner.CombinedRating combined =
-                ratingCombiner.combine(location, new VisitorContext(eval, tide));
-        Integer safeRating = RatingValidator.validateRating(
-                combined.rating(), regionName, date, targetType, location.getName(), modelName);
+        if (evalRowId != null) {
+            scoreEvaluationRow(evalRowId, eval, result, resolvedModel);
+        }
+        return result;
+    }
 
-        dualWriteForecastScore(location, date, targetType, eval, combined, pipelineRunId);
-
-        return new BriefingEvaluationResult(
-                location.getName(), safeRating,
-                eval.fierySkyPotential(), eval.goldenHourPotential(), eval.summary(),
-                null, null, eval.headline());
+    /**
+     * R5: scores a {@code PENDING} {@code forecast_evaluation} row in place by primary key —
+     * the same validated rating, potentials, summary and headline as the
+     * {@code cached_evaluation} write, including the sky-not-forecast substitution. Does NOT
+     * bump {@code forecast_run_at} — it means "when the weather was sampled", and the freshness
+     * comparisons in {@code EvaluationViewService} depend on it staying the submit-time value.
+     *
+     * <p>LITE-tier basic scores and cloud-inversion outputs come from {@code eval} (the parsed
+     * Claude response), not {@code result} ({@link BriefingEvaluationResult} carries neither) —
+     * matching {@code ForecastService.buildEntity}'s sync-path parity: those fields are never
+     * touched by the sky-not-forecast substitution, only rating/summary/headline are. The
+     * inversion embeddable's own eligibility (null vs. present) was already fixed correctly at
+     * PENDING-insert time from the real {@code AtmosphericData} (a fact this method has no
+     * access to) — {@link com.gregochr.goldenhour.entity.InversionDetails#from} gates on
+     * {@code data.inversionScore() != null}, not on anything Claude returns — so this only
+     * refills an already-eligible embeddable's score/potential; an ineligible (null) embeddable
+     * stays null.
+     *
+     * <p>A missing row (deleted, or an id from a different environment) is logged and swallowed
+     * — the served rating (cache/forecast_score) is unaffected either way, this is only the
+     * secondary durable-history write.
+     *
+     * @param evalRowId     primary key of the pending row
+     * @param eval          the parsed Claude evaluation — source of the basic-tier and inversion
+     *                      fields {@link BriefingEvaluationResult} does not carry
+     * @param result        the validated result also being written to {@code cached_evaluation}
+     * @param resolvedModel the model that produced the response
+     */
+    private void scoreEvaluationRow(Long evalRowId, SunsetEvaluation eval,
+            BriefingEvaluationResult result, EvaluationModel resolvedModel) {
+        Optional<ForecastEvaluationEntity> row = forecastEvaluationRepository.findById(evalRowId);
+        if (row.isEmpty()) {
+            LOG.warn("R5: PENDING forecast_evaluation row {} not found at result time — "
+                    + "cannot score in place", evalRowId);
+            return;
+        }
+        ForecastEvaluationEntity entity = row.get();
+        entity.setRating(result.rating());
+        entity.setFierySkyPotential(result.fierySkyPotential());
+        entity.setGoldenHourPotential(result.goldenHourPotential());
+        entity.setSummary(result.summary());
+        entity.setHeadline(result.headline());
+        entity.setBasicFierySkyPotential(eval.basicFierySkyPotential());
+        entity.setBasicGoldenHourPotential(eval.basicGoldenHourPotential());
+        entity.setBasicSummary(eval.basicSummary());
+        if (entity.getInversion() != null) {
+            entity.setInversion(InversionDetails.builder()
+                    .score(eval.inversionScore())
+                    .potential(eval.inversionPotential())
+                    .build());
+        }
+        if (resolvedModel != null) {
+            entity.setEvaluationModel(resolvedModel);
+        }
+        entity.setBatchState(BatchState.SCORED);
+        forecastEvaluationRepository.save(entity);
     }
 
     /**

@@ -26,8 +26,14 @@ public sealed interface ParsedCustomId {
      * @param locationId database ID of the location
      * @param date       forecast date
      * @param targetType SUNRISE, SUNSET, or HOURLY
+     * @param evalRowId  primary key of the {@code PENDING} {@code forecast_evaluation} row this
+     *                   submission is the carrier for (prompted-row persistence plan, R3), or
+     *                   {@code null} when the id carries no {@code -r{rowId}} suffix — either a
+     *                   pre-deploy id (backward compatibility is mandatory: batches submitted by
+     *                   the previous binary are in flight at deploy) or a malformed suffix, which
+     *                   {@link CustomIdFactory#parse} rejects rather than silently drops
      */
-    record Forecast(Long locationId, LocalDate date, TargetType targetType)
+    record Forecast(Long locationId, LocalDate date, TargetType targetType, Long evalRowId)
             implements ParsedCustomId {
     }
 

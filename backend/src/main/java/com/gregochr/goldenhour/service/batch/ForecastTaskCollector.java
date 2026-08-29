@@ -536,10 +536,15 @@ public class ForecastTaskCollector {
                     continue;
                 }
 
+                // R4: persist the PENDING row before submission — it is the durable carrier of
+                // this preEval's snapshot, and its id rides the batch custom_id (R3) so the
+                // result side can score it in place (R5).
+                Long evalRowId = forecastService.persistPendingEvaluation(preEval);
                 EvaluationTask.Forecast eval = new EvaluationTask.Forecast(
                         candidate.location(), candidate.date(), candidate.targetType(),
                         decision.model(), preEval.atmosphericData(),
-                        EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                        EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
+                        EvaluationTask.Forecast.PromptKind.SKY, evalRowId);
                 boolean isCoastal = preEval.atmosphericData().tide() != null;
                 String locationType = isCoastal ? "coastal" : "inland";
 
@@ -816,10 +821,14 @@ public class ForecastTaskCollector {
                 if (!decision.eligible()) {
                     continue;
                 }
+                // R4: persist the PENDING row before submission (see the sibling scheduled-flow
+                // call site above for why).
+                Long evalRowId = forecastService.persistPendingEvaluation(preEval);
                 EvaluationTask.Forecast eval = new EvaluationTask.Forecast(
                         candidate.location(), candidate.date(), candidate.targetType(),
                         decision.model(), preEval.atmosphericData(),
-                        EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE);
+                        EvaluationTask.Forecast.WriteTarget.BRIEFING_CACHE,
+                        EvaluationTask.Forecast.PromptKind.SKY, evalRowId);
                 if (preEval.atmosphericData().tide() != null) {
                     coastal.add(eval);
                 } else {

@@ -70,6 +70,112 @@ rather than silently resolved: a lone tide run in a window still ships `threshol
 reads against §5's "required on every tide-run entry" literally — left as a named gap (plan §11.21)
 rather than inventing an unreviewed degraded-line design under review-fix time pressure.
 
+### Security — the two forecast backtesting endpoints are now ADMIN-gated
+
+`GET /api/forecast/history` and `GET /api/forecast/compare` carry
+`@PreAuthorize("hasRole('ADMIN')")`. Both had inherited `SecurityConfig`'s `/api/**` →
+`.authenticated()`, so any LITE account could call them — flagged during the prompted-row
+persistence review. The investigation settled both open questions: no score data was leaking
+(both endpoints already apply `ForecastDtoMapper`'s role-based selection, so LITE callers got
+basic scores, and that mapping is kept as defence in depth); and the intent is admin — history's
+span-cap javadoc calls it "the admin backtesting tool", compare's says "designed for
+backtesting", neither has ever had a frontend consumer, and history can pull up to 366 days of
+rows across every enabled location from the insert-only `forecast_evaluation` table. Same
+code-was-wrong precedent as `POST /api/locations` (2026-08-26), unlike the tides/almanac
+endpoints where Bearer is the documented intent. New tests pin ADMIN 200, LITE/PRO 403, and
+that a denied caller never reaches the expensive repository query.
+### Fixed — the triage ratchet: a stale rating outranked the stand-down that had excluded it
+
+A location's cached Claude rating could only be replaced by a fresh evaluation, and a fresh
+evaluation only happened if triage passed — so the very deterioration that should have lowered a
+rating (solar-horizon cloud climbing past the stand-down threshold) was what stopped it ever being
+lowered. The worse the sky got, the more firmly the optimistic star held.
+
+Confirmed in production on 2026-08-28 for two locations 11 km apart on the same sunset: one was
+scored 4★ at 01:22 on an overnight run predicting the low blocker clearing, stood down at 14:04
+when triage read 84% low cloud, and still showing 4★ that evening, while its neighbour — which
+happened to pass the same triage and so was re-scored — read 2★.
+
+The cause was one timestamp standing in for another. `EvaluationViewService` has gated a cached
+rating against the newest `forecast_evaluation` row since #368, but it gated on the cache's
+**region-level** stamp, which any write to the region resets. Because the batch write paths merge
+rather than replace, the 14:09 merge retained the stood-down location's entry untouched *and*
+moved the region stamp past the 14:04 stand-down — so the retained rating looked newer than its
+own contradiction. The gate now reads the **per-location** `BriefingEvaluationResult.evaluatedAt`,
+which has existed since the same class of error was fixed one surface over (`evaluation_delta_log`
+was logging 24-hour rating movements as ~0 hours old, 2026-08-11), falling back to the region stamp
+only for entries cached before that field existed. A winning cached view now also reports its own
+write time rather than the region's, which is what the map popup's "Generated" line shows.
+
+No frontend change: `resolveStandDown`'s rule that a rating beats a triage is sound once the
+backend stops serving a contradicted rating, and precedence deliberately lives in one method.
+Retention itself is unchanged — no row is deleted, and an expensive score still outlives a weather
+refresh.
+
+Adversarially reviewed (three lenses — correctness, blast radius, test quality) before landing.
+Four findings survived. Three were test defects: the "neighbour keeps its rating" guard passed
+through the unrelated *empty-row* clause rather than the freshness comparison, so every mutation of
+the new resolution left it green; the legacy-fallback test put the region stamp on the side where
+"use the fallback" and "treat null as unknown" agree, so deleting the fallback outright would not
+have failed it; and every pre-existing freshness fixture built the stampless legacy shape, which
+had quietly re-pointed the tie rule and the BST-conversion guard at a branch production no longer
+takes. The fourth was production code: `mergeBluebellFromBatch` stamped an OPEN_FELL recombination
+— which is the prior sky entry's prose, potentials and headline with only the rating blended — as
+written *now*, which under the new gate would have shielded hours-old narrative from a stand-down
+written in between. The composite now carries the sky entry's own write time; only the woodland
+case, which is genuinely new content, is stamped with the merge.
+
+Known and deliberately left, because it is a different question: the batch collector's
+`hasFreshEvaluation` still gates re-evaluation on the region stamp and skips a whole region at
+once, so a corrected slot can keep showing its stand-down until the region next falls out of its
+freshness window. That direction is the safe one — pessimistic rather than falsely optimistic — and
+the horizon caps bound it to 2 hours at T+0 and 8 at T+1.
+
+### Added — prompted `forecast_evaluation` rows for the `fc-` sky lane batch pipeline
+
+In the batch era, `forecast_evaluation` received rows only for triage stand-downs — a prompted
+slot's rating lived solely in `cached_evaluation`/`forecast_score`, invisible to ERA5 cloud
+verification, the calibration gate, and the cloud-approach veto's post-deploy rating instrument
+(all three read `forecast_evaluation`, and it had nothing to read for the ~85% of slots that
+actually reached a prompt). Every submitted `fc-` batch task now also persists a
+`forecast_evaluation` row at submit time (`batch_state = PENDING`, migration V149), the batch
+result scores it in place by primary key when it lands (`SCORED`), and an abandonment sweep closes
+out whatever never gets a result (`ABANDONED`) — event-driven per batch (reading the batch's
+logged custom ids from `api_call_log`) plus a 48h time-based backstop (`evaluation_abandonment_sweep`,
+V150 seed row, `DynamicSchedulerService`-managed).
+
+The submit→result link rides the batch custom id itself: `fc-{locationId}-{date}-{targetType}`
+gains an optional trailing `-r{rowId}` segment, stripped before the existing tail parser runs so it
+doesn't get misread as the target type. Backward compatible by design — a batch in flight at deploy
+carries the old, suffix-less format, which still parses (null row id, the update is skipped and
+logged, everything else proceeds); a malformed suffix is rejected as malformed, never silently
+dropped, so a paid-for response is never discarded as `MALFORMED_ID` by a parsing regression. A
+retry re-fetches weather, so it inserts a fresh pending row rather than updating the original —
+stapling a rating onto weather the retried prompt never saw would quietly corrupt ERA5's
+forecast-vs-analysis pairing — and stamps the precursor row `ABANDONED` by id.
+
+**Pending rows are invisible to every serve path** — the single load-bearing rule the whole design
+turns on. The map query and the briefing/plan view's forecast fallback both exclude `PENDING` from
+their "latest run per slot" reads (in both the outer predicate and the correlated subquery, so the
+*previous* rated row still wins rather than the slot going dark for the submit→result window), so
+the sparse `cached_evaluation` fallback keeps serving the previous score exactly as it already did.
+Zero frontend changes. Scope is the `fc-` sky lane only — `bb-`/`wd-` (bluebell/woodland) keep their
+current behaviour; the OPEN_FELL pairing's which-result-wins question is left for that lane's own
+future pass.
+
+Adversarially reviewed (four lenses — runtime correctness, the R1 serve-path guarantee, R3/R8
+backward-compatibility and scope boundary, test quality) before landing. Confirmed clean on R1 and
+R8/R3; two real gaps survived and were fixed: `BatchResultProcessorTest` wired the new abandonment
+service as a mock but never verified it was actually called on either the normal-completion or the
+stream-failure path (added `verify(...).abandonPendingForBatch(...)` to both), and two `BatchRetryServiceTest`
+assertions used `any()` in a `verify()` where the pre-eval argument was knowable (replaced with an
+`ArgumentCaptor` asserting location/date/target type). Two other findings were investigated and
+judged working-as-designed rather than fixed: a batch-submit failure after a pending row is
+persisted but before the row's `batchId` exists relies on the 48h backstop to close it out — that is
+what the backstop is *for*; and `scoreEvaluationRow` deliberately has no state guard unlike
+`markAbandoned` (a genuinely late Anthropic result should still win over a stale `ABANDONED` stamp,
+rather than being dropped on the floor).
+
 ### Changed — Coming up P1: the almanac feed is now a wrapped, eligibility-filtered response
 
 `GET /api/almanac` returns `ComingUpResponse` (`builtFor`, `bands`, `counts`, `conditions`,

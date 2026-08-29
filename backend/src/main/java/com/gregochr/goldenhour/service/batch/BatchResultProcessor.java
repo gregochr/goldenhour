@@ -24,6 +24,7 @@ import com.gregochr.goldenhour.service.evaluation.AuroraResultHandler;
 import com.gregochr.goldenhour.service.evaluation.AuroraResultHandler.AuroraBatchOutcome;
 import com.gregochr.goldenhour.service.evaluation.ClaudeBatchOutcome;
 import com.gregochr.goldenhour.service.evaluation.CustomIdFactory;
+import com.gregochr.goldenhour.service.evaluation.EvaluationAbandonmentService;
 import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler;
 import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler.BatchSuccess;
 import com.gregochr.goldenhour.service.evaluation.ForecastResultHandler.ForecastIdentity;
@@ -69,6 +70,7 @@ public class BatchResultProcessor {
     private final CostCalculator costCalculator;
     private final ForecastResultHandler forecastResultHandler;
     private final AuroraResultHandler auroraResultHandler;
+    private final EvaluationAbandonmentService evaluationAbandonmentService;
 
     /**
      * Constructs the batch result processor.
@@ -82,6 +84,9 @@ public class BatchResultProcessor {
      * @param costCalculator         calculates token-based costs for batch results
      * @param forecastResultHandler  per-response forecast result handler
      * @param auroraResultHandler    aurora batch handler
+     * @param evaluationAbandonmentService R7(a) event-driven sweep: stamps ABANDONED every
+     *                               still-PENDING {@code forecast_evaluation} row this
+     *                               forecast batch's requests never scored
      */
     public BatchResultProcessor(AnthropicClient anthropicClient,
             ForecastBatchRepository batchRepository,
@@ -89,7 +94,8 @@ public class BatchResultProcessor {
             JobRunService jobRunService,
             CostCalculator costCalculator,
             ForecastResultHandler forecastResultHandler,
-            AuroraResultHandler auroraResultHandler) {
+            AuroraResultHandler auroraResultHandler,
+            EvaluationAbandonmentService evaluationAbandonmentService) {
         this.anthropicClient = anthropicClient;
         this.batchRepository = batchRepository;
         this.locationRepository = locationRepository;
@@ -97,6 +103,7 @@ public class BatchResultProcessor {
         this.costCalculator = costCalculator;
         this.forecastResultHandler = forecastResultHandler;
         this.auroraResultHandler = auroraResultHandler;
+        this.evaluationAbandonmentService = evaluationAbandonmentService;
     }
 
     /**
@@ -246,19 +253,24 @@ public class BatchResultProcessor {
                 boolean isWoodland = false;
                 switch (parsed) {
                     case ParsedCustomId.Forecast f ->
-                        identity = new ForecastIdentity(f.locationId(), f.date(), f.targetType());
+                        identity = new ForecastIdentity(
+                                f.locationId(), f.date(), f.targetType(), f.evalRowId());
                     case ParsedCustomId.Bluebell b -> {
-                        identity = new ForecastIdentity(b.locationId(), b.date(), b.targetType());
+                        identity = new ForecastIdentity(
+                                b.locationId(), b.date(), b.targetType(), null);
                         isBluebell = true;
                     }
                     case ParsedCustomId.Woodland w -> {
-                        identity = new ForecastIdentity(w.locationId(), w.date(), w.targetType());
+                        identity = new ForecastIdentity(
+                                w.locationId(), w.date(), w.targetType(), null);
                         isWoodland = true;
                     }
                     case ParsedCustomId.Jfdi j ->
-                        identity = new ForecastIdentity(j.locationId(), j.date(), j.targetType());
+                        identity = new ForecastIdentity(
+                                j.locationId(), j.date(), j.targetType(), null);
                     case ParsedCustomId.ForceSubmit fs -> {
-                        identity = new ForecastIdentity(fs.locationId(), fs.date(), fs.targetType());
+                        identity = new ForecastIdentity(
+                                fs.locationId(), fs.date(), fs.targetType(), null);
                         LOG.info("Batch result: processing force-submit result for "
                                 + "locationId={} date={} event={}",
                                 fs.locationId(), fs.date(), fs.targetType());
@@ -339,6 +351,9 @@ public class BatchResultProcessor {
             batch.setErroredCount(errored);
             markFailed(batch, "Failed to stream results after " + succeeded
                     + " succeeded (" + flushed + " cache keys flushed): " + e.getMessage());
+            // R7(a): every response streamed before the failure either scored its row (R5) or is
+            // still PENDING — close those out now rather than waiting on the 48h backstop.
+            evaluationAbandonmentService.abandonPendingForBatch(batch.getAnthropicBatchId());
             return;
         }
 
@@ -397,6 +412,10 @@ public class BatchResultProcessor {
                     batch.getRequestCount() - succeeded,
                     toMicroDollars(batch.getEstimatedCostUsd()));
         }
+
+        // R7(a): every response that succeeded scored its row in place already (R5); anything
+        // still PENDING here failed, errored, expired, or was malformed — close it out now.
+        evaluationAbandonmentService.abandonPendingForBatch(batch.getAnthropicBatchId());
     }
 
     /**

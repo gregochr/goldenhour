@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service;
 
 import com.gregochr.goldenhour.entity.EvaluationModel;
+import com.gregochr.goldenhour.entity.BatchState;
 import com.gregochr.goldenhour.entity.CloudApproachDetails;
 import com.gregochr.goldenhour.entity.DirectionalCloudDetails;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
@@ -524,6 +525,53 @@ public class ForecastService {
         LOG.info("Forecast sentinel-skipped: {} {} {} — {}", preEval.location().getName(),
                 preEval.targetType(), preEval.date(), reason);
         return saved;
+    }
+
+    /**
+     * Persists a {@code PENDING} placeholder row for a slot about to be submitted to the batch
+     * API (prompted-row persistence plan, R4).
+     *
+     * <p>The row is the durable carrier of the 66-field forecast snapshot used to build the
+     * prompt — unavailable at result time and lost on restart otherwise. {@code
+     * ForecastResultHandler} scores it in place by primary key when the batch result lands (R5),
+     * or the abandonment sweep closes it out {@code ABANDONED} if the batch never resolves (R7).
+     * Invisible to every serve path while {@code PENDING} (R1) — see the two exclusions on
+     * {@link com.gregochr.goldenhour.repository.ForecastEvaluationRepository}.
+     *
+     * <p>Scope is the {@code fc-} sky lane only (R8) — callers are the sky-lane batch task
+     * construction seams (scheduled, region-filtered admin, JFDI, force-submit, retry). Bluebell
+     * and woodland tasks do not call this.
+     *
+     * @param preEval the pre-evaluation result about to be submitted for Claude evaluation
+     * @return the persisted row's primary key, embedded in the batch custom_id (R3)
+     */
+    public Long persistPendingEvaluation(ForecastPreEvalResult preEval) {
+        SunsetEvaluation emptyEval = new SunsetEvaluation(null, null, null, null);
+        ForecastEvaluationEntity entity = buildEntity(
+                preEval.location(), preEval.location().getLat(), preEval.location().getLon(),
+                preEval.date(), preEval.targetType(), preEval.daysAhead(), preEval.eventTime(),
+                preEval.azimuth(), preEval.atmosphericData(), emptyEval, preEval.model());
+        entity.setBatchState(BatchState.PENDING);
+        return repository.save(entity).getId();
+    }
+
+    /**
+     * Stamps a {@code PENDING} row {@code ABANDONED} (prompted-row persistence plan, R6).
+     *
+     * <p>Used when a retry re-fetches weather and inserts a fresh pending row for the same slot:
+     * the precursor's snapshot is stale (the retry's prompt was built from different weather), so
+     * a rating must never be stapled onto it. A no-op if the row is no longer {@code PENDING}
+     * (already scored or already abandoned) or no longer exists.
+     *
+     * @param rowId the precursor row's primary key
+     */
+    public void markAbandoned(Long rowId) {
+        repository.findById(rowId).ifPresent(row -> {
+            if (row.getBatchState() == BatchState.PENDING) {
+                row.setBatchState(BatchState.ABANDONED);
+                repository.save(row);
+            }
+        });
     }
 
     /**

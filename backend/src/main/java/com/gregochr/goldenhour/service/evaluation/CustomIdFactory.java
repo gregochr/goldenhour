@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.entity.TargetType;
 import java.time.LocalDate;
 import java.time.format.DateTimeParseException;
 import java.util.Objects;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -14,12 +15,24 @@ import java.util.regex.Pattern;
  *
  * <p>Formats:
  * <ul>
- *   <li>Forecast (scheduled): {@code fc-{locationId}-{date}-{targetType}}</li>
+ *   <li>Forecast (scheduled): {@code fc-{locationId}-{date}-{targetType}}, optionally with a
+ *       trailing {@code -r{evalRowId}} segment (prompted-row persistence plan, R3) carrying the
+ *       primary key of the {@code PENDING} {@code forecast_evaluation} row this submission is
+ *       the carrier for</li>
  *   <li>Bluebell (scheduled): {@code bb-{locationId}-{date}-{targetType}}</li>
  *   <li>JFDI: {@code jfdi-{locationId}-{date}-{targetType}}</li>
  *   <li>Force-submit: {@code force-{sanitisedRegion}-{locationId}-{date}-{targetType}}</li>
  *   <li>Aurora: {@code au-{alertLevel}-{date}}</li>
  * </ul>
+ *
+ * <p>The optional forecast {@code -r{evalRowId}} suffix is stripped BEFORE the shared
+ * {@code -{date}-{targetType}} tail parser runs (that parser takes the segment after the last
+ * hyphen as the target type — a naïve append would misparse the row id as one). Backward
+ * compatibility is mandatory: batches submitted by the previous binary are in flight at deploy,
+ * so an id with no suffix is not an error — it parses with a {@code null} {@code evalRowId}. An
+ * id WITH a suffix that fails to match {@code -r\d+$} (non-digit, empty) is not silently treated
+ * as suffix-less either — it falls through to the tail parser unstripped, where the malformed
+ * segment fails {@code TargetType} resolution and the whole id is rejected as malformed.
  *
  * <p>Parsing dispatches by prefix rather than hyphen count — the previous implementation
  * in {@code BatchResultProcessor} counted parts after {@code split("-")} (fc/jfdi = 6,
@@ -37,6 +50,9 @@ public final class CustomIdFactory {
     private static final int MAX_LENGTH = 64;
     private static final Pattern ANTHROPIC_PATTERN = Pattern.compile("^[a-zA-Z0-9_-]{1,64}$");
     private static final Pattern REGION_STRIP = Pattern.compile("[^a-zA-Z0-9]");
+
+    /** Trailing {@code -r{evalRowId}} suffix on a forecast custom ID (R3). */
+    private static final Pattern ROW_ID_SUFFIX = Pattern.compile("-r(\\d+)$");
 
     private static final String PREFIX_FORECAST = "fc-";
     private static final String PREFIX_BLUEBELL = "bb-";
@@ -62,10 +78,30 @@ public final class CustomIdFactory {
      *                                  limit or contains invalid characters
      */
     public static String forForecast(Long locationId, LocalDate date, TargetType targetType) {
+        return forForecast(locationId, date, targetType, null);
+    }
+
+    /**
+     * Builds a forecast custom ID for the scheduled batch path, carrying the primary key of the
+     * {@code PENDING} {@code forecast_evaluation} row this submission is the carrier for
+     * (prompted-row persistence plan, R3).
+     *
+     * @param locationId database ID of the location
+     * @param date       forecast date
+     * @param targetType SUNRISE, SUNSET, or HOURLY
+     * @param evalRowId  primary key of the pending row, or {@code null} to omit the suffix
+     *                   (matches the three-arg {@link #forForecast(Long, LocalDate, TargetType)})
+     * @return an ID of the form {@code "fc-{locationId}-{date}-{targetType}[-r{evalRowId}]"}
+     * @throws IllegalArgumentException if the resulting ID exceeds the Anthropic 64-char
+     *                                  limit or contains invalid characters
+     */
+    public static String forForecast(Long locationId, LocalDate date, TargetType targetType,
+            Long evalRowId) {
         Objects.requireNonNull(locationId, "locationId");
         Objects.requireNonNull(date, "date");
         Objects.requireNonNull(targetType, "targetType");
-        return validate(PREFIX_FORECAST + locationId + "-" + date + "-" + targetType.name());
+        String base = PREFIX_FORECAST + locationId + "-" + date + "-" + targetType.name();
+        return validate(evalRowId != null ? base + "-r" + evalRowId : base);
     }
 
     /**
@@ -213,9 +249,33 @@ public final class CustomIdFactory {
     }
 
     private static ParsedCustomId.Forecast parseForecast(String customId) {
-        TailParts tail = extractDateAndTarget(customId, PREFIX_FORECAST);
-        Long locationId = parseLocationId(tail.before(), customId);
-        return new ParsedCustomId.Forecast(locationId, tail.date(), tail.targetType());
+        Long evalRowId = null;
+        String body = customId;
+        Matcher rowIdMatch = ROW_ID_SUFFIX.matcher(customId);
+        if (rowIdMatch.find()) {
+            evalRowId = parseEvalRowId(rowIdMatch.group(1), customId);
+            body = customId.substring(0, rowIdMatch.start());
+        }
+        TailParts tail = extractDateAndTarget(body, PREFIX_FORECAST);
+        Long locationId = parseLocationId(tail.before(), body);
+        return new ParsedCustomId.Forecast(locationId, tail.date(), tail.targetType(), evalRowId);
+    }
+
+    /**
+     * Parses the {@code -r{evalRowId}} suffix's digit run. {@link #ROW_ID_SUFFIX} guarantees the
+     * captured group is all digits, but does not guarantee it fits in a {@code long} — an
+     * overflowing run (unreachable from a real IDENTITY-generated row id, but not from an
+     * adversarial or corrupted custom id) must still be rejected as malformed rather than
+     * propagate a bare {@link NumberFormatException} with a JDK-generic message, for the same
+     * reason {@link #parseLocationId} wraps its own {@code Long.parseLong}.
+     */
+    private static Long parseEvalRowId(String digits, String customId) {
+        try {
+            return Long.parseLong(digits);
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(
+                    "Malformed custom ID (row id overflow): " + customId, e);
+        }
     }
 
     private static ParsedCustomId.Woodland parseWoodland(String customId) {

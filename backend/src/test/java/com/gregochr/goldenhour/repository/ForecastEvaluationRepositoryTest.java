@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.repository;
 
 import com.gregochr.goldenhour.entity.ActualOutcomeEntity;
+import com.gregochr.goldenhour.entity.BatchState;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.ForecastEvaluationEntity;
 import com.gregochr.goldenhour.model.CalibrationPair;
@@ -14,6 +15,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.jpa.test.autoconfigure.DataJpaTest;
+import org.springframework.data.domain.PageRequest;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -356,6 +358,145 @@ class ForecastEvaluationRepositoryTest {
         assertThat(results).hasSize(1);
         assertThat(results.get(0).getId()).isEqualTo(latest.getId());
         assertThat(results.get(0).getEvaluationModel()).isEqualTo(EvaluationModel.SONNET);
+    }
+
+    // ── R1: PENDING rows are invisible to the serve-side latest-run queries ─────
+
+    @Test
+    @DisplayName("R1 non-member: a NEWER PENDING row never shadows the prior rated row — the "
+            + "rated row is served, the slot is not blanked while a batch is in flight")
+    void findLatestRunPerSlot_excludesNewerPendingRow_ratedRowStillServed() {
+        LocalDate today = LocalDate.of(2026, 2, 20);
+        ForecastEvaluationEntity rated = repository.save(buildSonnetEvaluation(
+                durham, today, TargetType.SUNSET, LocalDateTime.of(2026, 2, 18, 6, 0), 2));
+        ForecastEvaluationEntity pending = buildSonnetEvaluation(
+                durham, today, TargetType.SUNSET, LocalDateTime.of(2026, 2, 19, 18, 0), 1);
+        pending.setBatchState(BatchState.PENDING);
+        repository.save(pending);
+
+        List<ForecastEvaluationEntity> results = repository.findLatestRunPerSlotByLocationIds(
+                List.of(durham.getId()), today, today.plusDays(7));
+
+        assertThat(results).hasSize(1);
+        assertThat(results.getFirst().getId()).isEqualTo(rated.getId());
+        assertThat(results.getFirst().getBatchState()).isNotEqualTo(BatchState.PENDING);
+    }
+
+    @Test
+    @DisplayName("R1 member: a SCORED row with a newer forecastRunAt DOES win — the exclusion is "
+            + "on batch_state, not on being part of the batch lifecycle at all")
+    void findLatestRunPerSlot_scoredRowWithNewerForecastRunAt_wins() {
+        LocalDate today = LocalDate.of(2026, 2, 20);
+        repository.save(buildSonnetEvaluation(
+                durham, today, TargetType.SUNSET, LocalDateTime.of(2026, 2, 18, 6, 0), 2));
+        ForecastEvaluationEntity scored = buildSonnetEvaluation(
+                durham, today, TargetType.SUNSET, LocalDateTime.of(2026, 2, 19, 18, 0), 1);
+        scored.setBatchState(BatchState.SCORED);
+        ForecastEvaluationEntity saved = repository.save(scored);
+
+        List<ForecastEvaluationEntity> results = repository.findLatestRunPerSlotByLocationIds(
+                List.of(durham.getId()), today, today.plusDays(7));
+
+        assertThat(results).hasSize(1);
+        assertThat(results.getFirst().getId()).isEqualTo(saved.getId());
+        assertThat(results.getFirst().getBatchState()).isEqualTo(BatchState.SCORED);
+    }
+
+    @Test
+    @DisplayName("R1: findTopBy...Desc excludes a newer PENDING row for the same slot")
+    void findTopByForecastRunAtDesc_excludesNewerPendingRow() {
+        LocalDate today = LocalDate.of(2026, 2, 20);
+        ForecastEvaluationEntity rated = repository.save(buildSonnetEvaluation(
+                durham, today, TargetType.SUNSET, LocalDateTime.of(2026, 2, 18, 6, 0), 2));
+        ForecastEvaluationEntity pending = buildSonnetEvaluation(
+                durham, today, TargetType.SUNSET, LocalDateTime.of(2026, 2, 19, 18, 0), 1);
+        pending.setBatchState(BatchState.PENDING);
+        repository.save(pending);
+
+        List<ForecastEvaluationEntity> results = repository
+                .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                        durham.getId(), today, TargetType.SUNSET, PageRequest.of(0, 1));
+
+        assertThat(results).singleElement()
+                .satisfies(e -> assertThat(e.getId()).isEqualTo(rated.getId()));
+    }
+
+    @Test
+    @DisplayName("R1: findTopBy...Desc still finds a rated row when the only newer row is PENDING "
+            + "— non-member proving the query is not simply always empty for a slot with a "
+            + "pending row present")
+    void findTopByForecastRunAtDesc_noPriorRows_pendingOnly_returnsEmpty() {
+        LocalDate today = LocalDate.of(2026, 2, 20);
+        ForecastEvaluationEntity pending = buildSonnetEvaluation(
+                durham, today, TargetType.SUNSET, LocalDateTime.of(2026, 2, 19, 18, 0), 1);
+        pending.setBatchState(BatchState.PENDING);
+        repository.save(pending);
+
+        List<ForecastEvaluationEntity> results = repository
+                .findTopByLocationIdAndTargetDateAndTargetTypeOrderByForecastRunAtDesc(
+                        durham.getId(), today, TargetType.SUNSET, PageRequest.of(0, 1));
+
+        assertThat(results).isEmpty();
+    }
+
+    // ── R7: the abandonment sweep bulk updates ──────────────────────────────────
+
+    @Test
+    @DisplayName("R7(a): abandonPending stamps only still-PENDING rows among the given ids — a "
+            + "SCORED or already-ABANDONED row is untouched")
+    void abandonPending_stampsOnlyStillPendingRows() {
+        LocalDate today = LocalDate.of(2026, 2, 20);
+        ForecastEvaluationEntity pending = buildSonnetEvaluation(
+                durham, today, TargetType.SUNSET, LocalDateTime.of(2026, 2, 19, 6, 0), 1);
+        pending.setBatchState(BatchState.PENDING);
+        ForecastEvaluationEntity pendingSaved = repository.save(pending);
+
+        ForecastEvaluationEntity scored = buildSonnetEvaluation(
+                durham, today, TargetType.SUNRISE, LocalDateTime.of(2026, 2, 19, 6, 0), 1);
+        scored.setBatchState(BatchState.SCORED);
+        ForecastEvaluationEntity scoredSaved = repository.save(scored);
+
+        ForecastEvaluationEntity alreadyAbandoned = buildSonnetEvaluation(
+                edinburgh, today, TargetType.SUNSET, LocalDateTime.of(2026, 2, 19, 6, 0), 1);
+        alreadyAbandoned.setBatchState(BatchState.ABANDONED);
+        ForecastEvaluationEntity abandonedSaved = repository.save(alreadyAbandoned);
+
+        int updated = repository.abandonPending(
+                List.of(pendingSaved.getId(), scoredSaved.getId(), abandonedSaved.getId()));
+
+        assertThat(updated).isEqualTo(1);
+        assertThat(repository.findById(pendingSaved.getId()).orElseThrow().getBatchState())
+                .isEqualTo(BatchState.ABANDONED);
+        assertThat(repository.findById(scoredSaved.getId()).orElseThrow().getBatchState())
+                .isEqualTo(BatchState.SCORED);
+        assertThat(repository.findById(abandonedSaved.getId()).orElseThrow().getBatchState())
+                .isEqualTo(BatchState.ABANDONED);
+    }
+
+    @Test
+    @DisplayName("R7(b) band edge: a PENDING row exactly one minute older than the cutoff is "
+            + "abandoned; one a minute younger is not")
+    void abandonPendingOlderThan_bandEdgeBothSides() {
+        LocalDateTime cutoff = LocalDateTime.of(2026, 2, 20, 12, 0);
+        LocalDate today = LocalDate.of(2026, 2, 20);
+
+        ForecastEvaluationEntity older = buildSonnetEvaluation(
+                durham, today, TargetType.SUNSET, cutoff.minusMinutes(1), 1);
+        older.setBatchState(BatchState.PENDING);
+        ForecastEvaluationEntity olderSaved = repository.save(older);
+
+        ForecastEvaluationEntity younger = buildSonnetEvaluation(
+                durham, today, TargetType.SUNRISE, cutoff.plusMinutes(1), 1);
+        younger.setBatchState(BatchState.PENDING);
+        ForecastEvaluationEntity youngerSaved = repository.save(younger);
+
+        int updated = repository.abandonPendingOlderThan(cutoff);
+
+        assertThat(updated).isEqualTo(1);
+        assertThat(repository.findById(olderSaved.getId()).orElseThrow().getBatchState())
+                .isEqualTo(BatchState.ABANDONED);
+        assertThat(repository.findById(youngerSaved.getId()).orElseThrow().getBatchState())
+                .isEqualTo(BatchState.PENDING);
     }
 
     private ForecastEvaluationEntity buildEvaluation(LocationEntity location,
