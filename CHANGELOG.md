@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.19.6] - 2026-08-29
+
 ### Removed — Coming up P6: the Hot topics door and its orphan chain
 
 Executes the Coming up redesign plan's D7 (`docs/engineering/coming-up-plan.md`): the Hot topics
