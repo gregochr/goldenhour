@@ -174,9 +174,9 @@ export function ukDateStrOffset(days, now = new Date()) {
  * Whole days from today (UK) to {@code dateStr} — negative for past dates.
  *
  * <p>Exists so that every "Today"/"Tomorrow" label in the app answers to the same calendar as the
- * date strip it sits beside. {@code formatDateLabel} and {@code HotTopicStrip}'s
- * {@code leadDayWord} both derived this from browser-local calendar fields, which is how a card
- * could read "Tomorrow" over a date the strip was calling "Today".
+ * date strip it sits beside. {@code formatDateLabel} used to derive this from browser-local
+ * calendar fields, which is how a card could read "Tomorrow" over a date the strip was calling
+ * "Today" (the same bug the now-deleted {@code HotTopicStrip}'s own day word once carried).
  *
  * @param {string} dateStr - ISO date, YYYY-MM-DD
  * @param {Date} [now]     - the instant "today" is read from; injectable for tests

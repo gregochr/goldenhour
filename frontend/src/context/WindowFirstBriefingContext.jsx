@@ -88,7 +88,6 @@ const WindowFirstBriefingContext = createContext({
   todayStr: '',
   tomorrowStr: '',
   isPro: false,
-  isLiteUser: false,
 });
 
 /**
@@ -566,11 +565,13 @@ export function WindowFirstBriefingProvider({
     [upcomingEvents, windowCards, travelDayDates],
   );
 
-  // Booleans, never the role. Plan §5c: `role` enters this arm at the provider and stops there, and
+  // A boolean, never the role. Plan §5c: `role` enters this arm at the provider and stops there, and
   // what anything below receives is a decision already made — a threshold for the lens, a boolean
-  // for the two components behind the doors.
+  // for the door behind it (`WindowFirstRegionalPanel`). `isLiteUser` lived here too until the
+  // Coming up redesign's P6 deleted its only reader (`WindowFirstDoors`'s `HotTopicStrip` panel,
+  // `docs/engineering/coming-up-plan.md` D7) — removed rather than left as a readerless field,
+  // the same orphan-hunting discipline that phase applied to `auroraTonight`/`HotTopic.tideRun`.
   const isPro = role === 'PRO_USER' || role === 'ADMIN';
-  const isLiteUser = role === 'LITE_USER';
 
   // Built once for the page rather than per strip: the spot peek looks a slot up by
   // (locationName, date, targetType), and `evaluationScores` is keyed with the region name in
@@ -629,7 +630,7 @@ export function WindowFirstBriefingProvider({
       heatPointSets,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
-      ratingLens, homePlace, isPro, isLiteUser,
+      ratingLens, homePlace, isPro,
       // The origin and its two inputs. `effectiveReachById` is published beside `reachById` rather
       // than in place of it, because the two answer different questions and one consumer still
       // wants the home one: the planning area and the beyond line are statements about HOME, and
@@ -641,7 +642,7 @@ export function WindowFirstBriefingProvider({
       heatSpotList, heatPointSets,
       regionSeries,
       reachById, todayStr, tomorrowStr, reachLens,
-      ratingLens, homePlace, isPro, isLiteUser,
+      ratingLens, homePlace, isPro,
       origin, setOrigin, regions, effectiveReachById],
   );
 
@@ -679,7 +680,7 @@ WindowFirstBriefingProvider.propTypes = {
  *           reachById: Map,
  *           reachLens: object, ratingLens: object, homePlace: ?string,
  *           todayStr: string,
- *           tomorrowStr: string, isPro: boolean, isLiteUser: boolean}}
+ *           tomorrowStr: string, isPro: boolean}}
  */
 export function useWindowFirstBriefing() {
   return useContext(WindowFirstBriefingContext);

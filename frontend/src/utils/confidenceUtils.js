@@ -16,7 +16,8 @@ const HORIZON_MEDIUM_MAX_DAYS = 3; // T+2, T+3
 
 /**
  * Whole days from {@code todayStr} to {@code dateStr}, both ISO {@code YYYY-MM-DD}.
- * Computed in UTC to avoid DST/local-midnight drift (mirrors HotTopicStrip.leadDayWord).
+ * Computed in UTC to avoid DST/local-midnight drift (mirrors {@code mapDates.js}'s
+ * {@code ukDayOffset}).
  *
  * @param {string} dateStr  target date (YYYY-MM-DD)
  * @param {string} todayStr reference "today" (YYYY-MM-DD)

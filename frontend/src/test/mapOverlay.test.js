@@ -145,21 +145,6 @@ describe('buildMapOverlay', () => {
     expect(ov.handoff.filterAction).toBeNull();
   });
 
-  it('topic trigger → filters and fits to the matching pins with a caption', () => {
-    const locations = [
-      loc('Wood A', 'Region One', 3, { types: ['BLUEBELL'] }),
-      loc('Wood B', 'Region Two', 3, { types: ['BLUEBELL'] }),
-      loc('Coast', 'Region Three', 3, { types: ['SEASCAPE'] }),
-    ];
-    const ov = buildMapOverlay(
-      { kind: 'topic', filterAction: 'BLUEBELL', label: 'Bluebell conditions', date: DATE },
-      ctx(locations),
-    );
-    expect(ov.title).toBe('Bluebell conditions');
-    expect(ov.handoff.filterAction).toBe('BLUEBELL');
-    expect(ov.focus.points).toHaveLength(2);
-    expect(ov.caption).toContain('2 locations');
-  });
   describe('the coming-up trigger (D8, plan §6b)', () => {
     it('coastal-spots → filters and fits to the matching pins with a caption', () => {
       const locations = [
@@ -259,12 +244,11 @@ describe('buildMapOverlay', () => {
 });
 
 describe('normalizeMapTrigger (extracted from App.jsx\'s handleShowOnMap, D8)', () => {
-  it('a coming-up handoff normalises to kind:\'coming-up\', never kind:\'topic\'', () => {
-    // The regression this pins: both this handoff shape AND the plain-filterAction handoff (the
-    // topic-pill one, below) carry a `filterAction` — only the explicit `kind` field on the input
-    // tells them apart, and the coming-up check has to run FIRST or a coastal-spots tap becomes a
-    // kind:'topic' trigger instead (invisible today, since both branches render similarly, but
-    // fatal once P6 deletes kind:'topic' and its handler).
+  it('a coming-up handoff normalises to kind:\'coming-up\'', () => {
+    // P6 (`docs/engineering/coming-up-plan.md` D7) deleted kind:'topic' and its only producer
+    // (`HotTopicStrip`), so `coming-up` is now normalizeMapTrigger's only `filterAction`-bearing
+    // object shape. This pins that it still normalises correctly now that it has no sibling shape
+    // to be confused with.
     const trigger = normalizeMapTrigger(
       { kind: 'coming-up', filterAction: 'SEASCAPE', label: 'Spring tide run', date: DATE },
       null,
@@ -281,12 +265,17 @@ describe('normalizeMapTrigger (extracted from App.jsx\'s handleShowOnMap, D8)', 
     });
   });
 
-  it('a plain filterAction handoff (no kind) still normalises to kind:\'topic\' — the pre-P3b path', () => {
+  it('a plain filterAction handoff with no kind and no region falls through to an event trigger — kind:\'topic\' no longer exists', () => {
+    // P6 deleted the branch that used to catch this shape, because its only producer
+    // (`HotTopicStrip`) died with it — nothing in the app builds a bare `{filterAction}` object any
+    // more. Pinned here so a reintroduced caller of this shape fails loudly (an `event` trigger
+    // whose `date` is the whole object, not a date string) rather than silently reviving `topic`.
     const trigger = normalizeMapTrigger({ filterAction: 'BLUEBELL', label: 'Bluebell', date: DATE }, null);
-    expect(trigger.kind).toBe('topic');
+    expect(trigger.kind).toBe('event');
+    expect(trigger.date).toEqual({ filterAction: 'BLUEBELL', label: 'Bluebell', date: DATE });
   });
 
-  it('an aurora handoff is still checked first, ahead of coming-up and topic alike', () => {
+  it('an aurora handoff is still checked first, ahead of coming-up', () => {
     const trigger = normalizeMapTrigger({ kind: 'aurora', date: DATE }, null);
     expect(trigger).toEqual({ kind: 'aurora', date: DATE });
   });

@@ -32,8 +32,9 @@ import { windowKey } from './heatSpots.js';
  * <em>populated</em> lists that mean something else, so the same intersection test would delete
  * aurora from every away plan while every naive test passed.
  *
- * <p>So {@link WHOLE_SKY_TOPIC_TYPES} is a type map, following the {@code topicCertainty}
- * precedent. An <b>unrecognised</b> type is exempt too, which is the {@code badgeChannel} rule
+ * <p>So {@link WHOLE_SKY_TOPIC_TYPES} is a type map, following the precedent of the now-deleted
+ * {@code topicCertainty} module (P6, `docs/engineering/coming-up-plan.md` D7). An
+ * <b>unrecognised</b> type is exempt too, which is the {@code badgeChannel} rule
  * applied to a filter rather than to a colour: a new topic kind fails quietly and additively,
  * because showing a topic the scope might not want is a mild over-claim while deleting one
  * outright is a silent loss. A region-scoped topic that serves an <b>empty</b> {@code regions}

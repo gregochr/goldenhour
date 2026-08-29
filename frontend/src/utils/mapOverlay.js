@@ -12,13 +12,13 @@
  *
  * <h2>Order is the whole point</h2>
  *
- * <p>Every `else if` here is checked against the shape of `dateOrHandoff`, and two branches
- * overlap on the SAME field: a `kind:'coming-up'` object (D8's map channel) and the generic
- * `filterAction`-bearing object that becomes `kind:'topic'` both carry a `filterAction`. The
- * `coming-up` check MUST run first, or a coastal/dark-sky action silently becomes a `kind:'topic'`
- * trigger instead — which happens to render an identical-looking overlay today (both branches share
- * the same shape), so the regression would be invisible until P6 deletes `kind:'topic'` and its
- * only caller, `HotTopicStrip`, along with it (plan D8, D7).
+ * <p>Every `else if` here is checked against the shape of `dateOrHandoff`, and it used to matter
+ * that the `kind:'coming-up'` check (D8's map channel) ran BEFORE the generic `filterAction`-bearing
+ * check that used to become `kind:'topic'` — both objects carried a `filterAction`, and getting the
+ * order wrong would have silently turned a coastal/dark-sky action into a `kind:'topic'` trigger
+ * instead. P6 (`docs/engineering/coming-up-plan.md` D7) deleted `kind:'topic'` and its only caller,
+ * `HotTopicStrip`, along with it, so that hazard is gone rather than merely ordered around — the
+ * history is kept here because the next new trigger kind should reason about ordering the same way.
  *
  * @param {*}        dateOrHandoff either a plain date string, or a handoff object naming its own
  *                                 `kind`/`filterAction`/`region`
@@ -34,20 +34,16 @@ export function normalizeMapTrigger(dateOrHandoff, eventType, locationName = nul
     return { kind: 'aurora', date: dateOrHandoff.date };
   }
   if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.kind === 'coming-up') {
-    // The Coming up chronology's own map channel (D8) — named explicitly, checked before the
-    // generic `filterAction` branch below, so it can never fall into `kind:'topic'` (the branch
-    // P6 deletes) just because both carry a `filterAction`.
+    // The Coming up chronology's own map channel (D8) — named explicitly. It used to be checked
+    // ahead of a generic `filterAction` branch that became `kind:'topic'`, since both shapes carried
+    // a `filterAction`; P6 deleted that branch and its only caller (`HotTopicStrip`), so `coming-up`
+    // is now the sole producer of a bare `filterAction` handoff.
     return {
       kind: 'coming-up',
       filterAction: dateOrHandoff.filterAction ?? null,
       darkSky: !!dateOrHandoff.darkSky,
       label: dateOrHandoff.label ?? null,
       date: dateOrHandoff.date,
-    };
-  }
-  if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.filterAction) {
-    return {
-      kind: 'topic', filterAction: dateOrHandoff.filterAction, label: dateOrHandoff.label, date: dateOrHandoff.date,
     };
   }
   if (dateOrHandoff && typeof dateOrHandoff === 'object' && dateOrHandoff.region) {
@@ -138,7 +134,7 @@ export const DARK_SKY_THRESHOLD = 4;
  * Builds the overlay descriptor for a trigger.
  *
  * @param {Object} trigger  normalised trigger:
- *   { kind: 'region'|'event'|'location'|'topic'|'coming-up', region?, locationName?, filterAction?,
+ *   { kind: 'region'|'event'|'location'|'coming-up', region?, locationName?, filterAction?,
  *     darkSky?, label?, date, eventType }
  * @param {Object} ctx  { locations, briefingScores, todayStr, tomorrowStr, nonce }
  * @returns {Object} { title, subLine, narrative, narrativeHead, narrativeTone, caption, focus, handoff }
@@ -165,7 +161,7 @@ export function buildMapOverlay(trigger, ctx) {
     return {
       title: 'Aurora tonight',
       subLine: null,
-      // The same neutral prompt and tone the multi-pin topic overlay uses. Not `go`: an alert says
+      // The same neutral prompt and tone every other multi-pin overlay uses. Not `go`: an alert says
       // the geomagnetic conditions are worth a look, not that the sky above any given pin is clear.
       narrative: MULTI_PROMPT,
       narrativeHead: null,
@@ -180,18 +176,17 @@ export function buildMapOverlay(trigger, ctx) {
 
   // ── Coming up (D8) — a chronology card's action: filter the map and fit to the matching pins ──
   //
-  // Modelled on the `topic` branch immediately below — the one branch that deliberately claims
-  // nothing about ratings — but its OWN kind, never `kind:'topic'` itself: `HotTopicStrip` is the
-  // only producer of that trigger today and P6 deletes its branch outright, so a new caller of it
-  // here would break the moment P6 lands (plan D8).
+  // Was modelled on a `topic` branch that claimed nothing about ratings; P6
+  // (`docs/engineering/coming-up-plan.md` D7) deleted that branch and its only producer
+  // (`HotTopicStrip`) outright, so `coming-up` is now this file's only filter-and-fit trigger.
   //
   // Two mutually exclusive filters, matching the card actions D8 names: `filterAction` (a
   // `locationType`, e.g. `SEASCAPE` for coastal spots) or `darkSky` (the Bortle-class toggle,
   // which has no `locationType` of its own — MapView's own manual toggle filters the same way).
   // The `date` IS carried into `selectedDate`/`MapView`, deliberately — unlike `location`/`region`/
-  // `event`, this branch never calls `ratingFor`/`solarTimeFor` for it (matching `topic`, right
-  // below), so a Coming-up date past Plan's four-day horizon cannot dress "no data" as "stand
-  // down": there is no rating-derived claim here to get wrong. Recorded in the P3b phase log.
+  // `event`, this branch never calls `ratingFor`/`solarTimeFor` for it, so a Coming-up date past
+  // Plan's four-day horizon cannot dress "no data" as "stand down": there is no rating-derived
+  // claim here to get wrong. Recorded in the P3b phase log.
   if (trigger.kind === 'coming-up') {
     const matches = trigger.darkSky
       ? enabled.filter((l) => l.bortleClass != null && l.bortleClass <= DARK_SKY_THRESHOLD)
@@ -209,25 +204,6 @@ export function buildMapOverlay(trigger, ctx) {
         : null,
       focus: points.length > 0 ? { points, names: matches.map((l) => l.name), nonce } : null,
       handoff: { filterAction: trigger.darkSky ? null : trigger.filterAction, darkSky: !!trigger.darkSky, date },
-    };
-  }
-
-  // ── Topic (hot topic) — filter the map and fit to the matching pins ──
-  if (trigger.kind === 'topic') {
-    const matches = enabled.filter((l) => (l.locationType || []).includes(trigger.filterAction));
-    const points = matches.map((l) => [l.lat, l.lon]);
-    const regions = new Set(matches.map((l) => l.regionName).filter(Boolean));
-    return {
-      title: trigger.label || trigger.filterAction || 'Hot topic',
-      subLine: regions.size > 0 ? `${regions.size} ${regions.size === 1 ? 'region' : 'regions'}` : null,
-      narrative: MULTI_PROMPT,
-      narrativeHead: null,
-      narrativeTone: 'standdown',
-      caption: matches.length > 0
-        ? `◍ ${matches.length} ${matches.length === 1 ? 'location' : 'locations'} — tap a pin to open it`
-        : null,
-      focus: points.length > 0 ? { points, names: matches.map((l) => l.name), nonce } : null,
-      handoff: { filterAction: trigger.filterAction, date },
     };
   }
 

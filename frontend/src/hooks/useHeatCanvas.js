@@ -104,12 +104,13 @@ const RESIZE_THROTTLE_MS = 170;
  * adversarial-review findings against P2's first cut and one was found only in a browser. A second
  * copy would take the rules and not the reasons, and the next performance or correctness fix would
  * land on one host and not the other, which is precisely the drift the one-kernel architecture
- * exists to prevent. {@code solarDayGeometry.js} set the precedent: share the pure mechanics, let
- * each host keep its own JSX.
+ * exists to prevent. {@code solarDayGeometry.js} (deleted in P6,
+ * `docs/engineering/coming-up-plan.md` D7) set the precedent: share the pure mechanics, let each
+ * host keep its own JSX.
  *
  * <p>The proof the extraction was behaviour-preserving is that {@code WindowFirstHeatStrip.test.jsx}
- * passed <b>unedited</b>, all 41 of its tests, against this hook — the {@code solarDayGeometry}
- * precedent, same proof.
+ * passed <b>unedited</b>, all 41 of its tests, against this hook — the same proof
+ * {@code solarDayGeometry.js}'s own extraction relied on.
  *
  * <p>⚠️ That file was edited <em>afterwards</em>, in the same commit, and the edit is not a
  * weakening: it adds a {@code cleanup()} between the two renders of one boundary test, plus its

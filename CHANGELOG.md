@@ -5,6 +5,52 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Removed — Coming up P6: the Hot topics door and its orphan chain
+
+Executes the Coming up redesign plan's D7 (`docs/engineering/coming-up-plan.md`): the Hot topics
+door and panel are gone from the Plan tab, along with everything that had no other caller once it
+was. The Plan tab's foot is now a single, full-width Regional planner door — no CSS change was
+needed, since `.wf-doors`/`.wf-door`'s existing flex rules already go full-width with one child.
+
+**Deleted**: `HotTopicStrip.jsx` (1310 lines, every LITE freemium topic treatment included),
+`components/shared/CertaintyChip.jsx`, `utils/topicCertainty.js`, `TideRunRow.jsx`, `SurgeRunRow.jsx`,
+and — found orphaned by the same deletion once both charts were gone, not on the plan's own list —
+`components/chart/solarDayGeometry.js`, plus every one of their test files. The `kind:'topic'`
+branches of `normalizeMapTrigger`/`buildMapOverlay` (`utils/mapOverlay.js`) are gone too; the
+`coastal-spots`/`dark-sky-spots` map channel P3b built (`kind:'coming-up'`) is unaffected and is now
+the app's only filter-and-fit map trigger. `planDoors.js`'s `DOOR_IDS` drops `'topics'` — one line,
+no compat shim, since the existing unknown-id filter already handles a stale stored key.
+
+**⚠️ Two things this discharges rather than defers, both documented at length elsewhere and worth
+calling out here so the removal reads as a decision:**
+- **`HotTopic.tideRun` is now write-only.** Its only renderer, `TideRunRow`'s 24-hour
+  cosine-interpolated tide curve — the chart CLAUDE.md's "Tide runs (Hot Topics)" bullet documents
+  in detail — has no replacement. The Coming up tab's own `ComingUpTideSparkline` (P3b) is an
+  unrelated, independently-built chart over a different field and does not read `tideRun`. The
+  backend derivation (`TideRunBuilder`, `TideRunDay`, the roster-alignment tally) is untouched — an
+  owner call, not a mechanical follow-on of a frontend deletion.
+- **`auroraTonight`/`auroraTomorrow` are now write-only** on the `/api/briefing` response — their
+  only reader was the deleted `HotTopicStrip` panel. Backend fields kept, same treatment as the
+  v1-retirement fields CLAUDE.md already documents this way.
+- The long-standing "reconvergence with `HotTopicStrip` is DUE" instruction in
+  `windowFirstRows.js` is **discharged by removal, not deferred**: the LITE fact-blur disagreement
+  it named had a second party, and that party no longer exists.
+
+**Recorded, not closed**: `docs/engineering/coming-up-plan.md` §11.23 flagged that `MapView`'s
+standalone `handoffFilterAction` effect never clears on an unrelated later handoff, and that its
+weight would grow once this phase made `coming-up` the sole producer of that handoff shape. It now
+is that sole producer, and the gap is real — but closing it changes behaviour for every trigger
+kind (a manually-set Advanced-panel filter would be cleared by an unrelated navigation too), which
+is a UX decision this phase declined to make unasked. See the plan's §11.23 update and the P6
+phase-log row for the full reasoning.
+
+**One further orphan found by adversarial review, fixed**: `WindowFirstBriefingContext.jsx`'s
+`isLiteUser` field had exactly one production reader — the deleted `HotTopicStrip` panel — and was
+left computing and publishing a value nothing consumed. Removed under the same discipline applied
+to the rest of this phase's orphan chain.
+
+Frontend-and-docs only; no backend code changes.
+
 ### Added — field-geography + topic-glyphs implementation plan and its design bundle
 
 `docs/engineering/field-geography-and-glyphs-plan.md`: the phased (G1–G4) plan for the
