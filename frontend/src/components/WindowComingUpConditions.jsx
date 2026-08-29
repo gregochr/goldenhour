@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import PropTypes from 'prop-types';
-import { familyOf, occurrenceCountsLine, anyConditionInterim } from '../utils/comingUpConditions.js';
+import { familyOf, occurrenceCountsLine, anyConditionInterim, bitsWord } from '../utils/comingUpConditions.js';
 
 /**
  * The standing-conditions strip (design README §2/§2.1, plan §7 P4) — one row per frequent topic
@@ -97,7 +97,7 @@ export default function WindowComingUpConditions({ conditions, onGoToPlan }) {
                     {' '}
                     {condition.peak.dateLabel}
                     {' · '}
-                    <b>{condition.peak.valueLabel} · {condition.peak.bits.toFixed(1)} bits</b>
+                    <b>{condition.peak.valueLabel} — {bitsWord(condition.peak.bits)} ({condition.peak.bits.toFixed(1)})</b>
                   </>
                 ) : (
                   <span className="wf-cond-peak-label">no gated peak right now</span>
@@ -180,7 +180,7 @@ function OccurrenceRow({ occurrence, onGoToPlan }) {
       {' '}
       <span className="wf-cond-ov">{occurrence.valueLabel}</span>
       {' '}
-      <span className="wf-cond-ob">{occurrence.bits.toFixed(1)} bits</span>
+      <span className="wf-cond-ob">{bitsWord(occurrence.bits)} ({occurrence.bits.toFixed(1)})</span>
       {' '}
       <span className="wf-cond-om">{occurrence.reason ?? ''}</span>
       {' '}

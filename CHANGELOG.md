@@ -23,6 +23,19 @@ proved the attribute while nothing proved what it resolves to; the divider's *si
 browser claim (cssstyle drops the `var()`-carrying border shorthand) and was verified in the
 browser against the built stylesheet, marker-on-anchor within a pixel in both states.
 
+### Changed — Coming up standing conditions: plain-English scoring copy
+
+The strip's stat line (`rarity 3.9`, `4.9 bits`, `range median/p90`, `AOD 0.50 (interim)`) named
+its own internal maths — surprisal in bits, an aerosol-optical-depth reading, "interim" — with no
+gloss, which a non-specialist reader can't parse. `ComingUpConditionsBuilder` now prefixes every
+`rarity`/`bits` figure with a plain word bucketed off the same score (`common` / `occasional` /
+`uncommon` / `rare` / `very rare`, kept in parentheses rather than dropped), relabels the tide
+condition's real percentiles as "typical run" / "top 10% reach", and rewords the dust/inversion
+threshold clause as "counts as a plume/strong above X (early threshold)". Frontend mirrors the same
+bucket table (`utils/comingUpConditions.js#bitsWord`) to caption the raw `bits` figure on peaks and
+occurrences. A first pass, not user-tested — the bucket boundaries are a starting point for
+iteration, not a finished taxonomy.
+
 ### Added — field-geography G1: label placement + km-per-px (`docs/engineering/field-geography-and-glyphs-plan.md`)
 
 `utils/labelPlacement.js`: `placeWithNudges`, a pure greedy label placer ported from the design

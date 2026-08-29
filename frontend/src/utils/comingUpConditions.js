@@ -61,3 +61,20 @@ export function occurrenceCountsLine(occurrences) {
 export function anyConditionInterim(conditions) {
   return Array.isArray(conditions) && conditions.some((c) => c.interim);
 }
+
+/**
+ * A plain-English word for a surprisal score in bits — mirrors
+ * {@code ComingUpConditionsBuilder.rarityWord} on the backend (same boundaries), used to caption
+ * the raw `bits` figure the server sends on a peak or occurrence rather than showing the bare
+ * information-theory unit on its own. An interim readability pass, not yet user-tested.
+ *
+ * @param {number} bits the surprisal score
+ * @returns {string} 'common' | 'occasional' | 'uncommon' | 'rare' | 'very rare'
+ */
+export function bitsWord(bits) {
+  if (bits < 2.0) return 'common';
+  if (bits < 4.0) return 'occasional';
+  if (bits < 6.0) return 'uncommon';
+  if (bits < 8.0) return 'rare';
+  return 'very rare';
+}
