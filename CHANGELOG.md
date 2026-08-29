@@ -5,6 +5,32 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — field-geography + topic-glyphs implementation plan and its design bundle
+
+`docs/engineering/field-geography-and-glyphs-plan.md`: the phased (G1–G4) plan for the
+2026-08-29 design handoff — a home marker and area names on the Plan tab's window thumbnails,
+dashed 45 min / 1h 30min reach rings plus the home marker on the drill-down popup field, and
+per-family emoji glyphs across the Coming up feed (timeline rows, standing-condition rows,
+filter chips; coincidence sub-lines recorded for P3b). The bundle is vendored verbatim at
+`docs/design/field-geography/`; the plan's §0 reconciliation records where the bundle's
+prototype assumptions diverge from this frontend (home coordinates are plumbed from user
+settings, not a constant; the popup already owns a greedy label placer and reserved hint box;
+production topic families differ from the prototype's) and wins over the bundle where they
+disagree. §5 records the authored decisions (ring role-gating default, eclipse/aurora glyphs,
+droppable popup region labels). Paste-ready per-phase kickoff prompts are
+`docs/engineering/field-geography-prompts.md`. Documentation only; no behaviour change.
+
+The plan was adversarially reviewed before use (six prosecutor lenses; ~25 surviving findings
+folded in). The heaviest: the hot-region field must reuse the existing `topRegion` helper (its
+name tie-break and canopy filter are load-bearing) **and** survive `buildHeatStripCards`'
+whitelist fold in `utils/windowFirstStrip.js`, which the first draft never named — component
+tests structurally cannot catch a dropped fold field; the popup's new geography gets its own
+`.wf-mgeo` layer because `.wf-mlab`'s universal span rule would centre-shift every top-left box;
+the ring tests were unwritable as first specified (under the suite's ×10 stub both radii fall
+below the 18px skip floor — §3.5 now carries worked per-test projection scales); two boundary
+specs were off by one against their own algorithm; `--color-home` must live in `@theme static`
+or it prunes to the empty string behind a self-masking fallback; and the §4.5 coincidence-glyph
+handoff was retargeted after Coming-up P3b landed in flight as PR #690.
 ### Added — Coming up P3b: tide sparkline, coincidence cards, map actions
 
 The chronology card's remaining two on-the-wire-but-unrendered fields (`entry.tide`, P2;
