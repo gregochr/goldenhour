@@ -62,7 +62,8 @@ export const AWAY_STATE_LABEL = 'Not forecast';
  * @returns {Array<{key: string, date: string, targetType: string, dow: string, sunrise: boolean,
  *   label: string, time: string, verdict: ?string, verdictLabel: string, bestRating: ?number,
  *   pickKind: ?string, away: boolean, confidence: ?string, movement: ?object, pool: Array,
- *   reachMeasured: boolean, bestReach: ?object, badges: Array}>} descriptors
+ *   reachMeasured: boolean, bestReach: ?object, badges: Array,
+ *   hotRegionName: ?string}>} descriptors
  */
 export function buildHeatStripCards(
   upcomingEvents, windowCards, travelDayDates, briefingDays, todayStr, tomorrowStr,
@@ -151,6 +152,12 @@ export function buildHeatStripCards(
       // list both died at M2, so nothing carries one now and a reader sent looking for it finds
       // nothing.
       badges: card?.allBadges ?? [],
+      // Folded like everything else here, never a fresh argmax (field-geography plan §2.3). The
+      // strip never sees `buildWindowCards`' output directly — this fold is the only place a field
+      // added there reaches the thumbnail, and a field-geography-specific test pins that this one
+      // survives the fold, because the component tests hand fixture cards straight in and cannot
+      // see one dropped here.
+      hotRegionName: card?.hotRegionName ?? null,
     };
   });
 }

@@ -1,12 +1,15 @@
-import React, { useCallback, useMemo } from 'react';
+import React, {
+  useCallback, useLayoutEffect, useMemo, useRef, useState,
+} from 'react';
 import PropTypes from 'prop-types';
 import {
-  aspect, bbox, clamp, drawGeo,
+  aspect, bbox, centroid, clamp, drawGeo,
 } from '../utils/heatField.js';
 import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { badgeChannel } from '../utils/windowFirstCards.js';
 import { beyondRegions, GLANCE_MINUTES } from '../utils/planningArea.js';
+import { placeWithNudges } from '../utils/labelPlacement.js';
 import { scopeRegions, scopeSpots } from '../utils/planOrigin.js';
 import { rampGradientCss, rampRgb, rgb } from '../utils/scoreRamp.js';
 import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
@@ -188,6 +191,82 @@ export function bestReachLine(card) {
 }
 
 /**
+ * Area-name tables for the thumbnail's region labels (field-geography plan §2.4), keyed by region
+ * name as served.
+ *
+ * <p>Authored against the roster the design fidelity note treats as final, <b>not</b> the local
+ * seed's own regions (`Northumberland & Tyneside` / `The Lake District` / `The Scottish Borders` —
+ * `scripts/dev-seed-locations.sh`), so a local browser session exercises {@link areaLabel}'s
+ * fallback rather than this table for every region on screen; that is the designed degrade, not a
+ * bug in the map. Production regions are DB-managed via the Admin UI and
+ * {@code RegionService.setName} makes renames routine (V137 exists to clean up after one) — this
+ * table is deliberately non-authoritative and WILL drift. It is a styling nicety over the
+ * derivation rule below, never a registry.
+ */
+export const AREA_FULL = {
+  Northumberland: 'NORTHUMBERLAND',
+  'North Pennines': 'NORTH PENNINES',
+  'North York Moors': 'NORTH YORK MOORS',
+  'Lake District': 'LAKE DISTRICT',
+  'Yorkshire Dales': 'YORKSHIRE DALES',
+  Borders: 'BORDERS',
+  'Peak District': 'PEAK DISTRICT',
+};
+/** @see AREA_FULL */
+export const AREA_TINY = {
+  Northumberland: 'NORTHUMB.',
+  'North Pennines': 'PENNINES',
+  'North York Moors': 'N Y MOORS',
+  'Lake District': 'LAKES',
+  'Yorkshire Dales': 'DALES',
+  Borders: 'BORDERS',
+  'Peak District': 'PEAK',
+};
+
+/**
+ * The drawn width, in px, under which a thumbnail's region labels take {@link AREA_TINY} rather
+ * than {@link AREA_FULL} — the well's own {@code clientWidth}, the same measurement the paint pass
+ * reads. Strict: exactly 215 takes the full set.
+ */
+export const TINY_NAME_WIDTH = 215;
+
+/** A leading directional dropped from an unmapped region's tiny-set fallback. @see areaLabel */
+const DIRECTIONAL = /^(north|south|east|west)$/i;
+
+/**
+ * One region's label, in the size table {@code tiny} selects.
+ *
+ * <p>The two fallbacks are deliberately different shapes. The full set falls back to the
+ * uppercased name unchanged — always legible, if long. The tiny set does NOT take that fallback:
+ * a long name at under {@link TINY_NAME_WIDTH} fails {@code placeWithNudges} outright and the
+ * region silently loses its label, so the tiny fallback derives a short one instead — drop a
+ * leading directional, keep the first remaining word, uppercase it.
+ *
+ * <p>Warns once per miss, dev-mode only, so a rename or roster growth surfaces at the next local
+ * session rather than as an unlabeled blob (§2.4's three guards).
+ *
+ * @param {string} regionName the region name as served
+ * @param {boolean} tiny whether this card drew under {@link TINY_NAME_WIDTH}
+ * @returns {string} the label text
+ */
+function areaLabel(regionName, tiny) {
+  const table = tiny ? AREA_TINY : AREA_FULL;
+  const known = table[regionName];
+  if (known) return known;
+  if (import.meta.env.DEV) {
+    console.warn(
+      `WindowFirstHeatStrip: no area-name mapping for region "${regionName}" — falling back. `
+      + 'Regions are DB-managed and renamed routinely; this table is a styling nicety, not a '
+      + 'registry (field-geography plan §2.4).',
+    );
+  }
+  if (!tiny) return String(regionName ?? '').toUpperCase();
+  const words = String(regionName ?? '').trim().split(/\s+/).filter(Boolean);
+  const head = (words.length > 1 && DIRECTIONAL.test(words[0]) ? words[1] : words[0]) || '';
+  return head.toUpperCase();
+}
+
+/**
  * The Plan pane's matrix — the week as day columns, sunrise over sunset, and the plan itself.
  *
  * <h2>It is no longer an index into a list; it IS the plan</h2>
@@ -306,10 +385,13 @@ export function bestReachLine(card) {
  * @param {Function} [props.onOpenWindow] opens and reveals a window's card
  * @param {?object}  [props.origin]   the away origin, or null for home — framing and scope
  * @param {Function} [props.onSearchRegion] opens search pre-filled with a region name
+ * @param {?object}  [props.homeCoords] {@code {lat, lon}}, or null with no postcode saved — the
+ *                                    thumbnail's home marker (field-geography plan §2). Never
+ *                                    drawn under an away origin, even when set.
  */
 export default function WindowFirstHeatStrip({
   cards, pointSets, spots, reachById, hotTopics, openKeys, todayStr, runAge, onOpenWindow,
-  origin = null, onSearchRegion, colourMode = null,
+  origin = null, onSearchRegion, colourMode = null, homeCoords = null,
 }) {
   // Framing is the ONE thing scope is allowed to decide about the field: which regions are in shot.
   // It must never become the point set — handing the scoped list to the kernel would turn the
@@ -393,6 +475,28 @@ export default function WindowFirstHeatStrip({
   }, [cards]);
 
   /**
+   * Per-card geography for the thumbnail overlay's home marker and area names (field-geography
+   * plan §2.5) — one state object keyed by card key, replaced WHOLESALE on every paint, never
+   * mutated incrementally. Anchors must never outlive the projection that produced them: a card
+   * whose {@code drawGeo} call declines (geo failed, or too small) is simply absent from the next
+   * map, which is what clears its labels rather than leaving them pinned to a stale coastline.
+   */
+  const [frames, setFrames] = useState(() => new Map());
+  /**
+   * Where each card's home marker and region labels actually ended up, or absent while the placer
+   * has not run for that card's current frame — the same two-pass measurement
+   * {@code WindowRowFieldMap} uses for its chips, because these labels are droppable (G1's
+   * {@code placeWithNudges}) rather than the popup's own never-dropped region labels.
+   */
+  const [labelPlacements, setLabelPlacements] = useState(() => new Map());
+  /** Candidate DOM nodes for the measurement pass, keyed by `${cardKey}::home` / `${cardKey}::region::${name}`. */
+  const labelNodeRefs = useRef(new Map());
+  const registerLabelNode = useCallback((key, node) => {
+    if (node) labelNodeRefs.current.set(key, node);
+    else labelNodeRefs.current.delete(key);
+  }, []);
+
+  /**
    * One paint per card, at that card's OWN width.
    *
    * <p>⚠️ <b>The single measurement P2 took is no longer valid, and this is the change.</b> The
@@ -417,7 +521,19 @@ export default function WindowFirstHeatStrip({
    * twelve-step width storm. The control run — the identical storm with this section
    * {@code display: none} — produced <b>zero</b> long tasks, so the cost is this surface's and not
    * the shell's. It is ~1.0–1.3 M device pixels across six canvases at DPR 2, roughly 3× P2's
-   * one-row strip: the matrix trades six narrow thumbnails for two rows of wider ones.
+   * one-row strip: the matrix trades six narrow thumbnails for two rows of wider ones. This figure
+   * is the CANVAS paint alone and predates G2.
+   *
+   * <p><b>G2 re-measured the ADDED cost</b> — the geometry pass this paragraph now sits above
+   * (anchor computation via {@code centroid}, plus the label placement {@code useLayoutEffect}) —
+   * rather than replace the figure above with one from a different-sized catalogue, which would be
+   * its own citation-rot. An eight-step width storm (1180→1000→820→640→390 and back) against a
+   * seeded 21-location, 4-region local catalogue — far short of production's ~61-location roster,
+   * so not a like-for-like comparison with the number above — recorded exactly <b>one</b> long
+   * task, at 54 ms, across the whole storm. That is at the LOW end of the pre-G2 range on a
+   * fraction of the roster, which is consistent with the added work being cheap relative to the
+   * canvas paint it rides alongside, but a production-scale re-measurement of the combined pass is
+   * a browser claim this session's local roster cannot make.
    *
    * <p>It is a cost per LAYOUT CHANGE, not per render — a resize, a rotate, an origin move — and the
    * dials are the plan's §5 invariants, so nothing here is retuned to buy it back. The identified
@@ -427,6 +543,7 @@ export default function WindowFirstHeatStrip({
    * than here.
    */
   const paint = useCallback(({ width, canvases }) => {
+    const nextFrames = new Map();
     for (const card of cards) {
       const canvas = canvases.get(card.key);
       if (!canvas) continue;
@@ -440,7 +557,7 @@ export default function WindowFirstHeatStrip({
       const tier = resolveConfidence(
         { confidence: card.confidence }, daysOut(card.date, todayStr),
       );
-      drawGeo(canvas, cardWidth, cardHeight, points, POINT_SCORE_INDEX, {
+      const projection = drawGeo(canvas, cardWidth, cardHeight, points, POINT_SCORE_INDEX, {
         grid: THUMB_GRID,
         // Scaled to THIS card, so a solo full-width card is not drawn with a paired card's blur
         // radius — the same reason its width is measured separately.
@@ -455,7 +572,36 @@ export default function WindowFirstHeatStrip({
         hatch: unscored.has(card.key),
         fit: fitTo,
       });
+      // No projection, no anchors — three different reasons (P0's note on `drawGeo`), none of
+      // which leaves geometry worth keeping. Simply absent from `nextFrames`, which is what clears
+      // this card's overlay below.
+      if (!projection) continue;
+      // Home is drawn from the SAME framing spots the region anchors read (`framed`), never this
+      // card's own point set — the region's location on the coastline does not change from window
+      // to window, only which projection is drawing it (field-geography plan §2.5).
+      let home = null;
+      if (!origin && homeCoords) {
+        const at = projection([homeCoords.lon, homeCoords.lat]);
+        if (at && Number.isFinite(at[0]) && Number.isFinite(at[1])) home = at;
+      }
+      const regions = [];
+      for (const name of scopeNames) {
+        const at = centroid(framed, name, (s) => projection([s.lng, s.lat]));
+        if (!at || !Number.isFinite(at[0]) || !Number.isFinite(at[1])) continue;
+        regions.push({ name, x: at[0], y: at[1] });
+      }
+      nextFrames.set(card.key, {
+        width: cardWidth,
+        height: cardHeight,
+        home,
+        regions,
+        tiny: cardWidth < TINY_NAME_WIDTH,
+        hot: card.hotRegionName ?? null,
+      });
     }
+    // Replaced wholesale, never merged with the previous map — a card missing from this pass (its
+    // canvas not yet attached, or `drawGeo` declining) must not keep last paint's anchors.
+    setFrames(nextFrames);
   // `colourMode` is a REPAINT KEY, not a colour source — the same rule `MapHeatLayer` states.
   // These thumbnails paint through `heatField.js` -> `rampRgb`, which reads `scoreRamp`'s live
   // module state; when the settings fetch resolves after the first paint, `MODE` changes with no
@@ -466,7 +612,63 @@ export default function WindowFirstHeatStrip({
     // that this callback's colours come from `scoreRamp`'s module state, so it reads the entry as
     // unnecessary. `void` makes the dependency honest and keeps the rule on.
     void colourMode;
-  }, [cards, pointSets, unscored, fitTo, todayStr, frameAspect, colourMode]);
+  }, [cards, pointSets, unscored, fitTo, todayStr, frameAspect, colourMode, framed, scopeNames,
+    origin, homeCoords]);
+
+  /**
+   * The greedy placement pass for the thumbnail overlay — home first, then regions in scope order
+   * (field-geography plan §2.5), each through G1's {@code placeWithNudges} against the accumulating
+   * box list. A layout effect rather than an ordinary one because it reads geometry (the candidate
+   * elements' measured size) and then writes positions: an ordinary effect would let the browser
+   * paint the off-screen measuring pass first, and every label would visibly snap into place a
+   * frame later.
+   *
+   * <p>Two-pass measurement, the same technique {@code WindowRowFieldMap} uses for its chips: the
+   * render below always emits a candidate for every anchor in {@code frames}, off-screen and
+   * hidden until this effect has measured and placed it. Unlike that component's OWN region labels
+   * (seeded, never dropped), these are droppable — a name that cannot find clear air is absent
+   * rather than stacked or shrunk.
+   */
+  useLayoutEffect(() => {
+    const next = new Map();
+    for (const [cardKey, f] of frames) {
+      const boxes = [];
+      let home = null;
+      if (f.home) {
+        const node = labelNodeRefs.current.get(`${cardKey}::home`);
+        const w = node?.offsetWidth ?? 0;
+        const h = node?.offsetHeight ?? 0;
+        if (w > 0 && h > 0) {
+          const box = placeWithNudges({ x: f.home[0], y: f.home[1] }, { w, h }, boxes, f.width, f.height);
+          if (box) {
+            boxes.push(box);
+            home = box;
+          }
+        }
+      }
+      const regions = new Map();
+      for (const region of f.regions) {
+        const node = labelNodeRefs.current.get(`${cardKey}::region::${region.name}`);
+        const w = node?.offsetWidth ?? 0;
+        const h = node?.offsetHeight ?? 0;
+        // A zero-measured candidate means the browser has laid nothing out yet (the ordinary state
+        // in jsdom) — placing on it would pin every region to one point.
+        if (!(w > 0) || !(h > 0)) continue;
+        const box = placeWithNudges({ x: region.x, y: region.y }, { w, h }, boxes, f.width, f.height);
+        if (box) {
+          boxes.push(box);
+          regions.set(region.name, box);
+        }
+      }
+      next.set(cardKey, { frame: f, home, regions });
+    }
+    // A setState in an effect, and it is the case the rule's own escape hatch is for: this is a
+    // MEASUREMENT, not a derivation — a label's size is its text in a font the browser may still be
+    // swapping, so it cannot be known from props alone. Bounded by `frames` being the only
+    // dependency: this write changes `labelPlacements`, never `frames`, so it cannot loop.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setLabelPlacements(next);
+  }, [frames]);
 
   /**
    * The card whose well the hook's gate measures.
@@ -517,6 +719,13 @@ export default function WindowFirstHeatStrip({
     const notScored = unscored.has(card.key);
     const open = Boolean(openKeys?.has(card.key));
     const facts = derived.get(card.key);
+    // The thumbnail overlay's geometry for this card, and its placement once measured. `measured`
+    // is false on the very first render after a paint — before the layout effect has had a chance
+    // to run — which is exactly when the candidates below must render off-screen for measurement
+    // rather than at a stale or absent position.
+    const geoFrame = frames.get(card.key) ?? null;
+    const placement = labelPlacements.get(card.key);
+    const measured = Boolean(placement && placement.frame === geoFrame);
     const tint = card.away ? null : verdictTint(card.verdict);
     const place = { '--c': column, '--r': row };
     const poolTotal = facts.spread.total;
@@ -581,6 +790,51 @@ export default function WindowFirstHeatStrip({
               data-testid="wf-heat-canvas"
               ref={canvasRef(card.key)}
             />
+            {/* Decorative duplication of what the card already states accessibly — the popup's own
+                `.wf-mlab` is the precedent (plan §2.2) — so the whole layer is `aria-hidden`. No
+                `!geoFailed` gate of its own: the check above already unmounts the whole well on
+                that path, and this is the SECOND, independent absence mechanism — `drawGeo`
+                returning null clears `geoFrame` for this card while the well stays mounted. */}
+            <span className="wf-tlab" aria-hidden="true" data-testid="wf-heat-labels">
+              {geoFrame?.home && (() => {
+                // Undefined while unmeasured (render off-screen to be measured); null once
+                // measured and dropped (render nothing); a box once measured and placed.
+                const box = measured ? placement.home : undefined;
+                if (measured && !box) return null;
+                return (
+                  <span
+                    ref={(node) => registerLabelNode(`${card.key}::home`, node)}
+                    className="wf-hm"
+                    data-testid="wf-heat-home"
+                    style={box
+                      ? { left: `${box.x}px`, top: `${box.y}px` }
+                      : { left: '-9999px', top: '0px', visibility: 'hidden' }}
+                  >
+                    <i className="wf-hm-mk" aria-hidden="true" />
+                    <b className="wf-hm-lb">HOME</b>
+                  </span>
+                );
+              })()}
+              {(geoFrame?.regions || []).map((region) => {
+                const box = measured ? placement.regions.get(region.name) : undefined;
+                if (measured && !box) return null;
+                return (
+                  <span
+                    key={region.name}
+                    ref={(node) => registerLabelNode(`${card.key}::region::${region.name}`, node)}
+                    className="wf-tlab-rg"
+                    data-testid="wf-heat-area"
+                    data-region={region.name}
+                    data-hot={region.name === geoFrame.hot ? 'true' : undefined}
+                    style={box
+                      ? { left: `${box.x}px`, top: `${box.y}px` }
+                      : { left: '-9999px', top: '0px', visibility: 'hidden' }}
+                  >
+                    {areaLabel(region.name, geoFrame.tiny)}
+                  </span>
+                );
+              })}
+            </span>
           </span>
         )}
         <span className="wf-hc-pls" aria-hidden="true">
@@ -1011,6 +1265,8 @@ WindowFirstHeatStrip.propTypes = {
     }),
     /** The window's badges BEFORE row promotion — the matrix names every topic on the night. */
     badges: PropTypes.array,
+    /** The window's leading region, for the thumbnail's brightened area name. Null when unrated. */
+    hotRegionName: PropTypes.string,
   })).isRequired,
   pointSets: PropTypes.instanceOf(Map),
   spots: PropTypes.array.isRequired,
@@ -1031,4 +1287,12 @@ WindowFirstHeatStrip.propTypes = {
   }),
   /** Opens search pre-filled with a region name. Omit and the beyond line renders without its link. */
   onSearchRegion: PropTypes.func,
+  /**
+   * The user's saved geocode, or null with no postcode saved — never a constant (field-geography
+   * plan §2.1). Drawn only when {@code origin} is also null.
+   */
+  homeCoords: PropTypes.shape({
+    lat: PropTypes.number,
+    lon: PropTypes.number,
+  }),
 };

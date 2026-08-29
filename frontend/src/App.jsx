@@ -395,6 +395,9 @@ function AppInner() {
               onOpenSettings={() => setShowSettings(true)}
               onSignOut={logout}
               light={todaysLight}
+              // The Map pane's own home marker source, reused so the Plan surfaces' home marker and
+              // reach rings can never name a different point (field-geography plan §2.1).
+              homeCoords={homeCoords}
               // The band's nudge exists to get a postcode saved, so it lands ON that field
               // rather than on the settings screen in general — the same handler the map's
               // "you have no postcode" branch uses.
