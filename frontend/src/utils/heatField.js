@@ -293,6 +293,23 @@ export function centroid(spots, rid, project) {
 }
 
 /**
+ * Px per km at {@code refPoint}, measured off the projection rather than assumed, so a ring drawn
+ * from it is real distance. 1° latitude ≈ 111.2 km.
+ *
+ * <p>The bundle's own {@code kmPx}, parameterised on the reference point instead of a hard-coded
+ * home coordinate — production's home is a per-user saved geocode, never a constant.
+ *
+ * @param {Function} project the projection, mapping {@code [lng, lat]} to a screen point
+ * @param {number[]} refPoint {@code [lng, lat]} to measure the scale at
+ * @returns {number} px per km at that point
+ */
+export function kmPerPx(project, refPoint) {
+  const a = project(refPoint);
+  const b = project([refPoint[0], refPoint[1] + 1]);
+  return Math.abs(b[1] - a[1]) / 111.2;
+}
+
+/**
  * The unscored plate's hatch — spacing in CSS px, ink and line width.
  *
  * <p>CSS px rather than a fraction of the surface, so the texture reads the same on a 55px

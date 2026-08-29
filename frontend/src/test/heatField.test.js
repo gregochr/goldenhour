@@ -9,6 +9,7 @@ import {
   drawTiles,
   field,
   fit,
+  kmPerPx,
   land,
   latLngBounds,
   load,
@@ -663,6 +664,35 @@ describe('heatField — geometry helpers', () => {
     it('returns null for a region with no spots, so a caller cannot label empty space', () => {
       expect(centroid(REGIONAL, 'west', project)).toBeNull();
       expect(centroid([], 'north', project)).toBeNull();
+    });
+  });
+
+  describe('kmPerPx', () => {
+    it('measures px-per-km off a linear stub projection', () => {
+      // One degree of latitude is 10px under this stub, so kmPerPx = 10 / 111.2.
+      const linear = ([lng, lat]) => [lng * 10, lat * 10];
+      expect(kmPerPx(linear, [-1.573, 54.855])).toBeCloseTo(10 / 111.2, 9);
+    });
+
+    it('reads the scale AT refPoint — a linear stub cannot tell this apart from ignoring it', () => {
+      // A latitude-dependent projection kills the mutant that drops the refPoint parameter and
+      // hard-codes a fixed reference point instead (the prototype's own HOMEPT literal).
+      const latDependent = ([lng, lat]) => [lng * 10, lat * lat];
+      const north = kmPerPx(latDependent, [-1.573, 10]);
+      const south = kmPerPx(latDependent, [-1.573, 50]);
+      expect(north).not.toBeCloseTo(south, 3);
+      // |b[1]-a[1]| = (lat+1)^2 - lat^2 = 2*lat + 1
+      expect(north).toBeCloseTo(21 / 111.2, 9);
+      expect(south).toBeCloseTo(101 / 111.2, 9);
+    });
+
+    it('takes the absolute value — a real projection puts north above south (y falls as lat rises)', () => {
+      // Both stubs above have y RISE with latitude, so a dropped Math.abs would still pass them —
+      // a north-up screen projection (d3's geoMercator included) does the opposite: going further
+      // north moves a point UP the canvas, i.e. to a SMALLER y. Without Math.abs this returns a
+      // negative scale on exactly the projection shape the function exists to be used with.
+      const northUp = ([lng, lat]) => [lng * 10, -lat * 10];
+      expect(kmPerPx(northUp, [-1.573, 54.855])).toBeCloseTo(10 / 111.2, 9);
     });
   });
 

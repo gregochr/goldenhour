@@ -5,6 +5,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — field-geography G1: label placement + km-per-px (`docs/engineering/field-geography-and-glyphs-plan.md`)
+
+`utils/labelPlacement.js`: `placeWithNudges`, a pure greedy label placer ported from the design
+bundle's `placeLabels` (vertical nudge ladder `0, ±13, ±24, ±36`px, edge rejection, 3px/2px
+collision padding, drop-not-stack on exhaustion) — exported alongside its constants so a later
+phase's boundary tests can pin them. `heatField.js` gains `kmPerPx`, px-per-km measured off a
+real projection at a given reference point rather than assumed, parameterised on the reference
+point (unlike the prototype's hard-coded `HOMEPT`). No UI change — this is the pure utility layer
+Phase G1 of the plan calls for; G2/G3 will consume it to draw a home marker, area names and reach
+rings on the Plan tab's map surfaces.
+
+Adversarially reviewed before landing (four prosecutor lenses: spec/prototype fidelity, test
+quality, repo conventions, and future-consumer contract fit for the not-yet-built G2/G3 phases).
+Two real mutation-survival gaps in the test suite were found and fixed: every collision-padding
+fixture placed its blocker on only one side (left/below), so the overlap test's other two clauses
+(`b.x < a.x+a.w+PAD_X`, `a.y < b.y+b.h+PAD_Y`) were never the deciding condition and a wrong
+padding constant there would have passed unnoticed — mirrored fixtures now block from the right
+and above too. `kmPerPx`'s `Math.abs` was likewise unexercised, since both stub projections
+happened to have latitude increase y; a north-up stub (latitude increasing y decreasing, as a
+real map projection does) now pins it. Both gaps were confirmed by actually applying the
+one-line mutation and watching the suite pass before the fix, then fail after it.
+
 ## [v2.19.6] - 2026-08-29
 
 ### Removed — Coming up P6: the Hot topics door and its orphan chain
