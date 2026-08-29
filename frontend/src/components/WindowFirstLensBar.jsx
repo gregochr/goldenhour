@@ -161,8 +161,8 @@ export default function WindowFirstLensBar({
           exempts an inactive control from the contrast floor, which is what lets the tiers sit
           at 0.45 — but the "Pro" pill is not inactive, it is the call to action, and inside the
           wrapper it rendered at 3.68:1 against a 4.5:1 floor (measured on the running app;
-          12.59:1 outside it). `HotTopicStrip` already ships its upsell as a sibling of the
-          blurred content for the same reason. */}
+          12.59:1 outside it). The now-deleted `HotTopicStrip` shipped its own upsell as a sibling
+          of the blurred content for the same reason. */}
       <LensSegment
         id="window-first-lens-tiers"
         groupTestId="window-first-lens-controls"

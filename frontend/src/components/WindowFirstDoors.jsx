@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import PropTypes from 'prop-types';
-import HotTopicStrip from './HotTopicStrip.jsx';
 import WindowFirstRegionalPanel from './WindowFirstRegionalPanel.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 import { readStoredDoors, writeStoredDoors } from '../utils/planDoors.js';
@@ -48,25 +47,18 @@ Door.propTypes = {
 };
 
 /**
- * The two doors at the foot of the Plan pane, and what they open.
+ * The one door at the foot of the Plan pane, and what it opens.
  *
- * <h2>Neither door carries a count, and the design's two are why</h2>
- *
- * <p>The mock draws "4 regions →" and "3 live →". The first is the species plan §6 bans outright —
- * a count of our own roster, not of tonight ("11 aligned is a fact about the database, not about
- * tonight"), and the same charge that removed P7's "61 coastal locations →". The second is arguably
- * about tonight, since a topic is live because conditions made it so. It is dropped anyway, for a
- * reason about the pair rather than about either one: two tiles of identical construction where one
- * carries a number and the other cannot reads as a defect in the one that does not, and the
- * zero-topics case — the only thing a count was going to protect the reader from — is answered
- * structurally below instead. Settled here so a later phase does not re-derive it from the mock.
+ * <p>Coming-up redesign plan §9 (P6) removed the Hot topics door and its panel — the strip's
+ * standing conditions and the "Coming up" chronology now cover the topics it used to hold
+ * (`docs/engineering/coming-up-plan.md` D7). This leaves the Regional planner as the pane's only
+ * door; `.wf-doors` is a flex row and `.wf-door` is `flex: 1`, so a single child already goes
+ * full-width with no CSS change.
  *
  * <h2>A door is not rendered when there is nothing behind it</h2>
  *
- * <p>Which is what a count would otherwise have had to say. No hot topics, no hot-topics door; no
- * grid to plan over, no regional-planner door. This is the honest form of "3 live": the reader
- * learns whether it is worth opening by whether it is there, and never opens a door onto an empty
- * room.
+ * <p>No grid to plan over, no regional-planner door — the reader learns whether it is worth
+ * opening by whether it is there, and never opens a door onto an empty room.
  *
  * <p><b>"Nothing behind it" had three terms for the grid, and now has two.</b> The first gate was
  * {@code upcomingEvents.length > 0}, which was wrong twice:
@@ -87,54 +79,25 @@ Door.propTypes = {
  *       band — whose own wording, "no forecast generated", is the phrase this arm's own away
  *       treatment deliberately rejects. (⚠️ That treatment is a MATRIX CELL now; the away row this
  *       comment used to name as sitting "directly above" went with the card list at M2, and nothing
- *       is between the matrix and these doors.) {@code windowCards} is the travel-filtered set by construction, so
+ *       is between the matrix and this door.) {@code windowCards} is the travel-filtered set by construction, so
  *       it is the honest denominator.</li>
  * </ul>
  *
- * <h2>The panels are mounted once and then hidden, not unmounted</h2>
+ * <h2>The panel is mounted once and then hidden, not unmounted</h2>
  *
- * <p>Two reasons, one per door. {@code aria-controls} must name an element that exists, so a closed
- * door whose panel is unmounted points at nothing. And the regional panel fetches one astro request
- * per visible date on mount, so unmounting would refire that wave on every reopen. {@code hidden} is
- * {@code display: none} — no layout, and removed from the accessibility tree — so a collapsed panel
- * costs the DOM nodes and nothing else. Nothing is fetched until a door is opened for the first
- * time, which is the point of the door.
- *
- * <h2>The doors are independent, not a radio pair</h2>
- *
- * <p>Both panels are tall and both sit at the foot of a long pane, so making them mutually exclusive
- * would silently collapse one when the reader opened the other — a scroll jump with no cause the
- * reader can see. Two disclosures, two states.
- *
- * <h2>{@code HotTopicStrip} is passed through unchanged, and that is a decision</h2>
- *
- * <p>Plan §5b and §7 assign P9 a reconvergence: {@code TopicFacts} blurs every topic's fact chips
- * for LITE, P7 settled that the window card's attribute rows are <b>not</b> gated, and this door is
- * the first time the two surfaces are in the same arm. <b>The reconvergence is not made here, and
- * the premise it rested on is why.</b> The plan describes the blanket blur as "the single place to
- * make it"; on inspection it is one of five LITE treatments in that component — the pill is
- * {@code opacity: 0.45}, {@code canExpandRich} and {@code canRevealRegions} are both forced off,
- * {@code handleClick} returns early, the tide chart is blurred as well as the facts, and an
- * "Upgrade to Pro" call to action replaces the lot. Editing only the facts blur would leave a
- * greyed, inert pill carrying sharp numbers, which is strictly <em>more</em> incoherent than today.
- * Editing all of it is a freemium-policy change, not a layout fix:
- * {@code freemium_ui_strategy.md} does not mention hot topics at all, so there is no written policy
- * to appeal to, and the strip as it stands is exactly the treatment CLAUDE.md's own role-gating
- * pattern prescribes (opacity 0.45, "Upgrade to Pro"). The rows were the argued exception, not the
- * strip.
- *
- * <p>What is left standing, recorded rather than hidden: for a LITE user, a tide's metres and a
- * snow depth are readable on the window card's attribute row and blurred on the same topic's pill
- * behind this door, so for those two channels the tease is already defeated. That is a real defect
- * and it belongs to whoever owns the pricing story — the shape plan §2.8 already settled for the
- * pick gloss. Handed to P15's pre-pilot sweep with the evidence.
+ * <p>{@code aria-controls} must name an element that exists, so a closed door whose panel is
+ * unmounted points at nothing. And the regional panel fetches one astro request per visible date
+ * on mount, so unmounting would refire that wave on every reopen. {@code hidden} is
+ * {@code display: none} — no layout, and removed from the accessibility tree — so a collapsed
+ * panel costs the DOM nodes and nothing else. Nothing is fetched until the door is opened for the
+ * first time, which is the point of the door.
  *
  * @param {object}   props
  * @param {Array}    props.locations     enabled locations, for the grid's two joins
  * @param {Function} [props.onShowOnMap] the map handoff
  */
 export default function WindowFirstDoors({ locations, onShowOnMap }) {
-  const { briefing, windowCards, isLiteUser } = useWindowFirstBriefing();
+  const { windowCards } = useWindowFirstBriefing();
   // Restored from the session, so a remount lands on the doors the reader left rather than
   // re-collapsing them.
   const [openDoors, setOpenDoors] = useState(readStoredDoors);
@@ -160,7 +123,6 @@ export default function WindowFirstDoors({ locations, onShowOnMap }) {
     });
   };
 
-  const hotTopics = briefing?.hotTopics || [];
   // `windowCards` rather than `upcomingEvents` because the grid drops away columns itself.
   //
   // The viewport term is GONE, and its removal is the point of the change rather than a tidy-up.
@@ -174,60 +136,27 @@ export default function WindowFirstDoors({ locations, onShowOnMap }) {
   // seam itself is untouched and still live for `useIsMobile`'s other callers — this file simply no
   // longer has a side in it.
   const showRegional = (windowCards || []).length > 0;
-  const showTopics = hotTopics.length > 0;
-  if (!showRegional && !showTopics) return null;
+  if (!showRegional) return null;
 
   const regionalOpen = openDoors.has('regional');
-  const topicsOpen = openDoors.has('topics');
 
   return (
     <div data-testid="window-first-doors" className="flex flex-col" style={{ gap: '10px' }}>
       <div className="wf-doors">
-        {showRegional && (
-          <Door
-            testId="window-first-door-regional"
-            title="Regional planner"
-            description="every region, every window"
-            panelId="window-first-panel-regional"
-            open={regionalOpen}
-            onToggle={() => toggle('regional')}
-          />
-        )}
-        {showTopics && (
-          <Door
-            testId="window-first-door-topics"
-            title="Hot topics"
-            description="the detail behind the badges"
-            panelId="window-first-panel-topics"
-            open={topicsOpen}
-            onToggle={() => toggle('topics')}
-          />
-        )}
+        <Door
+          testId="window-first-door-regional"
+          title="Regional planner"
+          description="every region, every window"
+          panelId="window-first-panel-regional"
+          open={regionalOpen}
+          onToggle={() => toggle('regional')}
+        />
       </div>
 
       <div id="window-first-panel-regional" hidden={!regionalOpen}>
-        {showRegional && everOpened.has('regional') && (
+        {everOpened.has('regional') && (
           <div className="wf-door-panel" data-testid="window-first-panel-regional-body">
             <WindowFirstRegionalPanel locations={locations} onShowOnMap={onShowOnMap} />
-          </div>
-        )}
-      </div>
-
-      <div id="window-first-panel-topics" hidden={!topicsOpen}>
-        {showTopics && everOpened.has('topics') && (
-          <div className="wf-door-panel" data-testid="window-first-panel-topics-body">
-            <HotTopicStrip
-              hotTopics={hotTopics}
-              isLiteUser={isLiteUser}
-              onTopicTap={(topic) => {
-                if (topic.filterAction && onShowOnMap) {
-                  onShowOnMap({ filterAction: topic.filterAction, date: topic.date });
-                }
-              }}
-              onShowOnMap={onShowOnMap}
-              auroraTonight={briefing?.auroraTonight || null}
-              auroraTomorrow={briefing?.auroraTomorrow || null}
-            />
           </div>
         )}
       </div>

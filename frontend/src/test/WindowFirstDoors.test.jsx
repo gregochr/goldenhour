@@ -6,27 +6,19 @@ import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 
 // Only the regional panel is stubbed, and only because mounting it fires one astro request per
 // visible date — this file is about the door, not about the grid, and the grid has its own suite.
-// `HotTopicStrip` is rendered FOR REAL: the one thing P9 decided about it is what it is handed for
-// a LITE user, and a stub that echoed the prop back would assert the test's own fixture.
 vi.mock('../components/WindowFirstRegionalPanel.jsx', () => ({
   default: () => <div data-testid="stub-regional" />,
 }));
 
-const TOPIC = {
-  type: 'SPRING_TIDE', label: 'Spring tides', date: '2026-08-05', filterAction: 'TIDE',
-};
-
 const EVENTS = [{ date: '2026-08-04', targetType: 'SUNSET' }];
 
 const ctx = (overrides = {}) => ({
-  briefing: { generatedAt: '2026-08-04T12:00:00', hotTopics: [TOPIC] },
   // The regional door gates on the TRAVEL-FILTERED set, which is what `windowCards` is — the grid
   // drops away columns itself, so a horizon that is entirely away has no grid behind the door.
   windowCards: EVENTS.map((e) => ({ key: `${e.date}:${e.targetType}`, ...e })),
   // Supplied and deliberately NEVER equal to `windowCards` in the travel test below, so a revert to
   // the pre-review gate is caught rather than passing on a fixture where both are the same length.
   upcomingEvents: EVENTS,
-  isLiteUser: false,
   ...overrides,
 });
 
@@ -67,13 +59,11 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('WindowFirstDoors', () => {
-  describe('what each door claims', () => {
-    it('names both doors and what is behind them', () => {
+  describe('what the door claims', () => {
+    it('names the door and what is behind it', () => {
       renderDoors();
       expect(screen.getByTestId('window-first-door-regional')).toHaveTextContent('Regional planner');
       expect(screen.getByTestId('window-first-door-regional')).toHaveTextContent('every region, every window');
-      expect(screen.getByTestId('window-first-door-topics')).toHaveTextContent('Hot topics');
-      expect(screen.getByTestId('window-first-door-topics')).toHaveTextContent('the detail behind the badges');
     });
 
     it('counts no regions, because the roster is not a fact about tonight', () => {
@@ -83,35 +73,12 @@ describe('WindowFirstDoors', () => {
       renderDoors();
       expect(screen.getByTestId('window-first-door-regional').textContent).not.toMatch(/\d+\s*regions?/i);
     });
-
-    it('counts no live topics either, though that one was arguable', () => {
-      // Dropped for a reason about the PAIR: two tiles of identical construction where one carries
-      // a number and the other cannot reads as a defect in the one that does not.
-      renderDoors({ briefing: { hotTopics: [TOPIC, { ...TOPIC, type: 'AURORA' }] } });
-      expect(screen.getByTestId('window-first-door-topics').textContent).not.toMatch(/\d+\s*live/i);
-      expect(screen.getByTestId('window-first-door-topics').textContent).not.toMatch(/\b\d+\b/);
-    });
   });
 
   describe('a door with nothing behind it is not drawn', () => {
-    it('drops the hot-topics door when there are no topics', () => {
-      // This is the honest form of "3 live": the reader learns whether it is worth opening by
-      // whether it is there, and never opens a door onto an empty room.
-      renderDoors({ briefing: { hotTopics: [] } });
-      expect(screen.queryByTestId('window-first-door-topics')).toBeNull();
-      expect(screen.getByTestId('window-first-door-regional')).toBeInTheDocument();
-    });
-
-    it('drops it when the payload carries no hotTopics field at all', () => {
-      // A legacy cached briefing. Distinct input from an empty array.
-      renderDoors({ briefing: { generatedAt: '2026-08-04T12:00:00' } });
-      expect(screen.queryByTestId('window-first-door-topics')).toBeNull();
-    });
-
     it('drops the regional door when there are no windows to plan over', () => {
       renderDoors({ windowCards: [], upcomingEvents: [] });
       expect(screen.queryByTestId('window-first-door-regional')).toBeNull();
-      expect(screen.getByTestId('window-first-door-topics')).toBeInTheDocument();
     });
 
     it('keeps the regional door on a phone, now that the grid has a phone layout', () => {
@@ -126,24 +93,6 @@ describe('WindowFirstDoors', () => {
       setViewport(true);
       renderDoors();
       expect(screen.getByTestId('window-first-door-regional')).toBeInTheDocument();
-      expect(screen.getByTestId('window-first-door-topics')).toBeInTheDocument();
-    });
-
-    // ⚠️ Deliberately NOT tested here: that the door opens onto a grid rather than an empty box.
-    // This file stubs `WindowFirstRegionalPanel` (see the mock at the top), so a test asserting the
-    // panel "really mounts" at phone width would be asserting a stub div that has no viewport
-    // behaviour and no `HeatmapGrid` inside it — green whether or not the grid renders. The claim
-    // is real and it is covered where it can be: `HeatmapGrid.test.jsx` § "the phone layout" pins
-    // that the grid is no longer `hidden sm:grid` and that it sits in a scroll port. Splitting it
-    // that way is the standards doc's own rule about not mocking a component's children to make a
-    // test pass.
-
-    it('keeps the hot-topics door on a phone, because that strip has no breakpoint gate', () => {
-      // The two tiles look identical, so hiding both would be as wrong as hiding neither.
-      setViewport(true);
-      renderDoors();
-      fireEvent.click(screen.getByTestId('window-first-door-topics'));
-      expect(screen.getByTestId('hot-topic-strip')).toBeInTheDocument();
     });
 
     it('drops the regional door when every window in the horizon is a travel day', () => {
@@ -159,13 +108,8 @@ describe('WindowFirstDoors', () => {
       expect(screen.queryByTestId('window-first-door-regional')).toBeNull();
     });
 
-    it('renders nothing at all when neither has anything behind it', () => {
-      renderDoors({ windowCards: [], briefing: { hotTopics: [] } });
-      expect(screen.queryByTestId('window-first-doors')).toBeNull();
-    });
-
-    it('renders nothing when there is no briefing yet', () => {
-      renderDoors({ briefing: null, windowCards: [] });
+    it('renders nothing at all when there is nothing behind the door', () => {
+      renderDoors({ windowCards: [] });
       expect(screen.queryByTestId('window-first-doors')).toBeNull();
     });
   });
@@ -186,12 +130,11 @@ describe('WindowFirstDoors', () => {
       expect(document.getElementById(target)).toHaveAttribute('hidden');
     });
 
-    it('mounts nothing behind a door until it is opened', () => {
+    it('mounts nothing behind the door until it is opened', () => {
       // The whole point of the door: the regional panel fires one astro request per visible date
       // on mount, and a closed door must cost nothing.
       renderDoors();
       expect(screen.queryByTestId('stub-regional')).toBeNull();
-      expect(screen.queryByTestId('hot-topic-strip')).toBeNull();
     });
 
     it('mounts the panel and unhides it on open', () => {
@@ -218,83 +161,21 @@ describe('WindowFirstDoors', () => {
       expect(screen.getByTestId('stub-regional')).toBeInTheDocument();
       expect(document.getElementById(door.getAttribute('aria-controls'))).toHaveAttribute('hidden');
     });
-
-    it('leaves one door alone when the other is opened', () => {
-      // Both panels are tall and both sit at the foot of a long pane, so a radio pair would
-      // collapse one under the reader with no cause they can see.
-      renderDoors();
-      fireEvent.click(screen.getByTestId('window-first-door-regional'));
-      fireEvent.click(screen.getByTestId('window-first-door-topics'));
-
-      expect(screen.getByTestId('window-first-door-regional')).toHaveAttribute('aria-expanded', 'true');
-      expect(screen.getByTestId('window-first-door-topics')).toHaveAttribute('aria-expanded', 'true');
-      expect(screen.getByTestId('stub-regional')).toBeInTheDocument();
-      expect(screen.getByTestId('hot-topic-strip')).toBeInTheDocument();
-    });
   });
 
-  describe('what the hot-topics door hands the strip', () => {
-    it('gives it the briefing\'s own topics', () => {
-      renderDoors();
-      fireEvent.click(screen.getByTestId('window-first-door-topics'));
-      expect(screen.getByTestId('hot-topic-pill-SPRING_TIDE')).toHaveTextContent('Spring tides');
-    });
-
-    it('leaves the strip\'s LITE treatment unchanged, which is P9\'s recorded decision', () => {
-      // Plan §5b assigned P9 a reconvergence on the blanket fact blur. It is NOT made: the blur is
-      // one of five LITE treatments in that component, so editing it alone would leave a greyed,
-      // inert pill carrying sharp numbers — strictly more incoherent than today — and editing all
-      // of it is a freemium-policy change, not a layout fix. Handed to P15 with the evidence.
-      // Asserted through the strip's OWN upsell rather than through the prop, so it cannot pass by
-      // echoing this test's fixture back at it.
-      renderDoors({ isLiteUser: true });
-      fireEvent.click(screen.getByTestId('window-first-door-topics'));
-      expect(screen.getByTestId('hot-topic-upsell')).toHaveTextContent('Upgrade to Pro');
-    });
-
-    it('shows no upsell to a user who is not on LITE', () => {
-      renderDoors({ isLiteUser: false });
-      fireEvent.click(screen.getByTestId('window-first-door-topics'));
-      expect(screen.queryByTestId('hot-topic-upsell')).toBeNull();
-    });
-
-    it('routes a topic tap to the map as a filter', () => {
-      const { onShowOnMap } = renderDoors();
-      fireEvent.click(screen.getByTestId('window-first-door-topics'));
-      fireEvent.click(screen.getByTestId('hot-topic-pill-SPRING_TIDE'));
-
-      expect(onShowOnMap).toHaveBeenCalledWith({ filterAction: 'TIDE', date: '2026-08-05' });
-    });
-
-    it('hands over the briefing\'s aurora summary, which the strip cannot fetch itself', () => {
-      // Without it an AURORA pill never expands — `resolveAuroraData` returns null and so
-      // `canExpandRich` is false — and the topic loses its whole rich card silently.
-      renderDoors({
-        briefing: {
-          hotTopics: [{ type: 'AURORA', label: 'Aurora', date: '2026-08-05', detail: 'tonight' }],
-          auroraTonight: { alertLevel: 'MODERATE', kpIndex: 5, locations: [] },
-        },
-      });
-      fireEvent.click(screen.getByTestId('window-first-door-topics'));
-      fireEvent.click(screen.getByTestId('hot-topic-pill-AURORA'));
-
-      expect(screen.getByTestId('aurora-expanded-card')).toBeInTheDocument();
-    });
-  });
-
-  // Without persistence, remounting the pane collapsed both doors even when the reader had just
-  // opened one — a working position lost to incidental React churn.
-  describe('remembering which doors were left open', () => {
-    const doorPanel = () => screen.queryByTestId('window-first-panel-topics-body');
+  // Without persistence, remounting the pane collapsed the door even when the reader had just
+  // opened it — a working position lost to incidental React churn.
+  describe('remembering whether the door was left open', () => {
+    const doorPanel = () => screen.queryByTestId('window-first-panel-regional-body');
 
     // The behavioural round trip, and the only one here that fails for the right reason. Written
     // first for that reason: the storage assertions below all pass for an implementation that
     // writes correctly and restores nothing.
-    it('reopens the doors it was left with', () => {
+    it('reopens the door it was left with', () => {
       const { unmount } = renderDoors();
       expect(doorPanel()).toBeNull();
 
-      fireEvent.click(screen.getByTestId('window-first-door-topics'));
+      fireEvent.click(screen.getByTestId('window-first-door-regional'));
       expect(doorPanel()).toBeInTheDocument();
       unmount();
 
@@ -302,21 +183,21 @@ describe('WindowFirstDoors', () => {
       expect(doorPanel()).toBeInTheDocument();
       // The control must not claim a state the DOM lacks — a restored door whose panel was never
       // mounted would announce `aria-expanded="true"` over nothing.
-      expect(screen.getByTestId('window-first-door-topics')).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByTestId('window-first-door-regional')).toHaveAttribute('aria-expanded', 'true');
     });
 
     it('starts closed on a fresh session', () => {
       renderDoors();
       expect(doorPanel()).toBeNull();
-      expect(screen.getByTestId('window-first-door-topics')).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.getByTestId('window-first-door-regional')).toHaveAttribute('aria-expanded', 'false');
     });
 
     it('keeps a closed door closed across the round trip', () => {
       // The negative half. Without it, "reopens what was left" passes for a component that simply
       // opens everything on mount.
       const { unmount } = renderDoors();
-      fireEvent.click(screen.getByTestId('window-first-door-topics'));
-      fireEvent.click(screen.getByTestId('window-first-door-topics'));
+      fireEvent.click(screen.getByTestId('window-first-door-regional'));
+      fireEvent.click(screen.getByTestId('window-first-door-regional'));
       unmount();
 
       renderDoors();
@@ -342,7 +223,7 @@ describe('WindowFirstDoors', () => {
       const before = keysNow(localStorage);
 
       renderDoors();
-      fireEvent.click(screen.getByTestId('window-first-door-topics'));
+      fireEvent.click(screen.getByTestId('window-first-door-regional'));
 
       expect(keysNow(localStorage)).toEqual(before);
       expect(keysNow(sessionStorage)).toContain('photocast.planDoors');

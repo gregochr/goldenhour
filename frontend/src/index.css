@@ -326,257 +326,6 @@
   background: #fff;
 }
 
-/* Hot Topic strip — single-column vertical stack (one collapsed row per topic).
-   The tidy-up reveals each topic's region list on tap, so rows must span the
-   full width; a two-column grid truncated the detail/region text. */
-.hot-topic-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 0;
-}
-
-/* The topic row's detail sentence. Here rather than inline because the phone rule below gives it a
-   whole row of its own, which is a `flex-basis` — and an inline `flex` shorthand sets flex-basis at
-   a priority no stylesheet can reach. */
-.hot-topic-detail {
-  flex: 1;
-  min-width: 0;
-}
-
-/* The fact chip's own box. `display` sits here rather than in the component's style object for
-   exactly the reason `.hot-topic-detail` above does: the phone rule below hides the optional chips,
-   and an inline `display` beats a stylesheet rule at any specificity, media query or not. For as
-   long as this lived inline that rule silently did nothing — measured at 375px, an `.opt` chip
-   carried `class="opt"` and computed `display: flex`, and overhung the row's right edge by ~2px.
-   The `.certainty-chip` half of the same rule was never affected, because it sets no inline
-   display, which is what made the failure look selective rather than mechanical.
-
-   Deliberately a single class, so it is *less* specific than `.hot-topic-facts .opt` and the drop
-   holds however the two rules end up ordered. Scoped to the chip rather than written as
-   `.hot-topic-facts > span`, which would also catch the row's italic "where to look" note. The
-   chip's remaining layout stays inline — nothing in a stylesheet needs to reach it. */
-.hot-topic-fact {
-  display: inline-flex;
-}
-
-/* Enriched hot-topic fact line: on narrow viewports drop the least-critical (`.opt`) chips so
-   the line stays to the headline metric plus the "where to look" note. The certainty-vocabulary
-   chip is likewise meta rather than content, so it drops on mobile to keep the pill's detail
-   sentence its full width (the chip sits in the no-shrink label group, so it would otherwise
-   steal from the flex-1 detail). */
-@media (max-width: 639px) {
-  .hot-topic-facts .opt,
-  .certainty-chip {
-    display: none;
-  }
-
-  /* ── The topic row becomes two lines on a phone ──
-     The comment above had the mechanism right and the remedy half-sized. The label group is
-     `flex-shrink: 0` and holds the emoji, the title, the info tip and — on a tide run — a
-     `SPRING RUN n/N` chip; the region count and the chevron after it are `flex-shrink: 0` too. So
-     the only thing that could yield was the detail sentence, and once it had yielded everything the
-     row simply overflowed its card. Dropping the certainty chip bought ~60px and postponed it.
-
-     Measured on the running app at 390px, reproducing production's rows (local data carries one
-     topic with no regions, so this configuration cannot occur here): label group 132px for "Cloud
-     inversion", 185.8px for "Noctilucent cloud season", 210.4px with the run chip — against 298px
-     of row. The last two put the chevron **3.4px and 27.9px past the card's right edge**, which is
-     exactly the ordering the reported screenshot shows.
-
-     So: the row wraps, the detail takes its own row, and the count drops. The count is the piece to
-     lose — the chevron is the affordance and the title is the identity, while "4 regions" is a
-     number the panel below states anyway. Re-measured after: zero overflow on all three rows plus a
-     pathological "12 regions", the chevron 14px inside the card, no title truncated, and the detail
-     legible at 272px where it had been squeezed to nothing. Uniform 64px rows.
-
-     `min-width: 0` and the title's ellipsis are insurance, not the mechanism — nothing measured
-     needed them. They mean a title longer than any that exists today truncates rather than spills. */
-  .hot-topic-row {
-    flex-wrap: wrap;
-    row-gap: 4px;
-  }
-  .hot-topic-label {
-    min-width: 0;
-  }
-  /* The TITLE only. `.hot-topic-label > span` would also catch the emoji, the info tip and the run
-     chip, and clipping those is a different bug from the one being fixed. */
-  .hot-topic-title {
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  /* Ordered after the label so it right-aligns on the first line; the detail then takes the second
-     rather than sitting between the title and its own chevron. */
-  .hot-topic-chevron {
-    order: 2;
-    margin-left: auto;
-  }
-  .hot-topic-detail {
-    order: 3;
-    flex-basis: 100%;
-  }
-  .hot-topic-regions {
-    display: none;
-  }
-}
-
-/* ── Multi-day tide run: one card per day, one chart per card ──
-   A spring tide is a RUN, not n unrelated days, and the question it has to answer is whether a
-   usable water lands near a solar event. Tide times and solar times used to sit in different parts
-   of the UI, leaving that as subtraction; here the curve is drawn against the day's own sunrise and
-   sunset. Uses existing tokens only — the topic accent arrives as --tr-accent from the component. */
-.tide-run {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-}
-.tide-row {
-  display: grid;
-  grid-template-columns: 150px 1fr 224px;
-  align-items: center;
-  gap: 14px;
-  padding: 7px 0 9px;
-}
-.tr-range b { color: var(--color-plex-text); font-weight: 600; font-size: 11.5px; }
-.tr-range i { font-style: normal; color: var(--color-plex-text-muted); margin-left: 5px; }
-/* Third line of the metric column, not a third inline chip: "0.4 m off the record" qualifies the
-   two readings above it and must not be mistaken for a peer of them. Own line, one step down. */
-   Selector must carry the type as well: bare `.tr-rank` (0,1,0) loses to `.tr-range i` (0,1,1)
-   above, and the dropped `margin-left: 0` indented this line 5px out of step with the two it sits
-   under — the one alignment a three-line stack has to get right. */
-.tr-range i.tr-rank { display: block; margin-left: 0; font-size: 9.5px; }
-
-.tr-chart { position: relative; height: 32px; margin: 4px 0 3px; }
-.tr-chart svg { display: block; width: 100%; height: 100%; }
-
-/* Tide labels sit BELOW the curve, sun labels ABOVE it — they must never share a line. */
-.tr-lab {
-  position: absolute;
-  bottom: -5px;
-  transform: translateX(-50%);
-  font-size: 8.5px;
-  letter-spacing: 0.03em;
-  color: var(--color-plex-text-muted);
-  white-space: nowrap;
-}
-.tr-lab b { color: var(--color-plex-text-secondary); font-weight: 500; }
-
-.tr-sun {
-  position: absolute;
-  top: -1px;
-  bottom: -1px;
-  width: 1px;
-  background: rgba(224, 165, 66, 0.5);
-}
-.tr-sun span {
-  position: absolute;
-  top: -13px;
-  left: 3px;
-  font-size: 8.5px;
-  color: var(--color-verdict-marginal);
-  white-space: nowrap;
-}
-/* Sunset's label hangs to the LEFT of its rule, or it runs off the right edge of the chart. */
-.tr-sun-set span { left: auto; right: 3px; }
-
-/* ── Storm surge chart ──
-   A SIBLING of the tide chart, not a variant: it plots metres against a scale where the tide row
-   plots high-or-low against two baselines. The axis and label rails are shared so two adjacent
-   pills read on the same 24-hour day; the mark is dashed because a surge is a forecast and a tide
-   is an almanac, and they must not look equally certain. */
-.sr-chart { position: relative; height: 32px; margin: 4px 0 3px; }
-.sr-chart svg { display: block; width: 100%; height: 100%; }
-
-/* Peak / high-water labels sit BELOW the curve, sun labels ABOVE — never on one line. */
-.sr-lab {
-  position: absolute;
-  bottom: -5px;
-  transform: translateX(-50%);
-  font-size: 8.5px;
-  letter-spacing: 0.03em;
-  color: var(--color-plex-text-muted);
-  white-space: nowrap;
-}
-.sr-lab b { color: var(--color-plex-text-secondary); font-weight: 500; }
-
-.sr-sun {
-  position: absolute;
-  top: -1px;
-  bottom: -1px;
-  width: 1px;
-  background: rgba(224, 165, 66, 0.5);
-}
-.sr-sun span {
-  position: absolute;
-  top: -13px;
-  left: 3px;
-  font-size: 8.5px;
-  color: var(--color-verdict-marginal);
-  white-space: nowrap;
-}
-/* Sunset's label hangs LEFT of its rule, or it runs off the right edge. */
-.sr-sun-set span { left: auto; right: 3px; }
-
-.tr-verdict { text-align: right; color: var(--color-plex-text-muted); }
-.tr-verdict b { color: var(--color-plex-text-secondary); font-weight: 500; }
-/* Ranking by EMPHASIS, not by order: the aligned day's verdict takes the topic accent while the
-   run stays in date order. Reordering would hide that the run continues on badly-timed days. */
-/* The accent marks the ONE day of the run whose water lands closest to the light, not every day
-   whose water lands in it. It used to key on `.aligned`, which was scarce enough to read as
-   emphasis while alignment meant "the low water, on a spring run" — about a third of run-days, and
-   never all four of a run. Now that either water can align it fires on ~58% of run-days and around
-   a quarter of runs have every day aligned, where an accent on all four cards marks nothing and the
-   reader loses the day to pick. Nothing is hidden by narrowing it: an aligned day keeps its
-   verdict, its chart and its editorial line, and only the emphasis is reserved. */
-.tide-row.best .tr-verdict { color: var(--tr-accent); }
-.tide-row.best .tr-verdict b { color: var(--tr-accent); font-weight: 600; }
-
-.tr-foot {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  flex-wrap: wrap;
-  border-top: 1px solid var(--color-plex-border);
-  margin-top: 2px;
-  padding-top: 8px;
-  color: var(--color-plex-text-muted);
-}
-.tr-foot b { color: var(--color-plex-text-secondary); font-weight: 500; }
-.tr-foot .key { display: inline-flex; align-items: center; gap: 5px; font-size: 9.5px; }
-.tr-foot .swatch { width: 14px; height: 0; border-top: 1.5px solid var(--tr-accent); }
-.tr-foot .swatch.sun { border-top: 1px solid var(--color-verdict-marginal); }
-.tr-foot .phrase { font-family: var(--font-serif); font-style: italic; font-size: 12.5px; }
-.tr-foot .topic-map { color: var(--color-tide); font-size: 10px; }
-.tr-foot .topic-map:hover { text-decoration: underline; }
-
-/* The chip tying a run's days together — "SPRING RUN 2/4". */
-.runchip {
-  font-family: var(--font-mono);
-  font-size: 9px;
-  letter-spacing: 0.08em;
-  color: var(--tr-accent, var(--color-tide));
-  border: 1px solid color-mix(in oklch, var(--tr-accent, var(--color-tide)) 40%, transparent);
-  border-radius: 4px;
-  padding: 1px 5px;
-  white-space: nowrap;
-}
-
-/* Below the three-column layout's comfortable width the verdict is what survives: it says in
-   words what the chart draws, so it stacks under rather than shrinking beside. */
-@media (max-width: 767px) {
-  .tide-row { grid-template-columns: 1fr; gap: 4px; }
-  .tr-verdict { text-align: left; }
-  .tr-foot { gap: 10px; }
-  /* The legend swatches go — the chart's colours are self-evident beside it. `.tr-loc` STAYS:
-     it is the only place the representative location is named, and the whole run is drawn for
-     that one coastline. Times differ by ~20 minutes across a coastline a topic may span, so
-     dropping the name leaves clock times on a phone with nothing saying which shore they are
-     for — losing the caveat exactly where the times are most likely to be read in the field. */
-  .tr-foot .key { display: none; }
-}
-
 /* Heatmap cell hover tooltip (desktop) — verdict + gloss + weather, one interaction away.
    Portalled to <body> and positioned via JS (position: fixed), so the plan card's overflow:hidden
    can't clip the rightmost column's tip (matches the summary-strip region tooltip). It anchors
@@ -2276,12 +2025,11 @@ button.wf-hc.also.on:hover {
 /* A re-parented component brings its own focusables, and the sticky lens bar does not know about
    any of them. `HeatmapGrid`'s cells are `role="button" tabIndex={0}` divs with `min-height: 52px`
    (HeatmapGrid.jsx:618-626) — SHORTER than the bar's 53.5px, so an unreserved one focused from
-   above is not partly obscured but obscured ENTIRELY. Its poor-regions toggle, the drill-down's
-   three buttons and every hot-topic pill are in the same position. None of them carry a `.wf-`
-   class of their own — they are standalone components with their own prop contract, not styled by
-   their caller — so the reservation goes on the panel that mounts them and reaches them by
-   descent. Same 60px, same derivation, and it tracks the bar's height exactly as the block below
-   does. */
+   above is not partly obscured but obscured ENTIRELY. Its poor-regions toggle and the drill-down's
+   three buttons are in the same position. None of them carry a `.wf-` class of their own — they
+   are standalone components with their own prop contract, not styled by their caller — so the
+   reservation goes on the panel that mounts them and reaches them by descent. Same 60px, same
+   derivation, and it tracks the bar's height exactly as the block below does. */
 .wf-door-panel :is(a[href], button, [tabindex]:not([tabindex='-1'])) {
   /* ⚠️ 188, not the 60 this was until M5. The two other fallback sites moved at M3 and this one was
      missed: 60px was derived from the PRE-M3 bar height (53.5 + a focus ring), and M3 made the
@@ -2646,7 +2394,8 @@ button.wf-hc.also.on:hover {
 }
 /* `--color-badge-tide`, not the spec's `--tide` — and NOT because the channel colour fails here.
    Both were measured on the running app against this bar's own `--surface`: `--color-tide` lands
-   at **6.44:1** and clears AA at 10.5px (the tide-run footer already prints 10px type in it), and
+   at **6.44:1** and clears AA at 10.5px (the now-deleted tide-run footer used to print 10px type
+   in it, P6, `docs/engineering/coming-up-plan.md` D7), and
    `--color-badge-tide` at **9.68:1**. The reason for the lifted one is that this is the only
    ACTIONABLE text on the bar, and an actionable element earns more separation than a static fact
    line. Recorded with both figures so the choice does not read as a contrast fix it is not.
@@ -2947,8 +2696,9 @@ button.wf-hc.also.on:hover {
   }
   .wf-mini { display: none; }
   .wf-facts { gap: 3px 12px; }
-  /* The row's least-critical chip drops here, the same treatment `.hot-topic-facts .opt` gets and
-     for the same reason — the line stays to what the window is actually about. */
+  /* The row's least-critical chip drops here, the same treatment the now-deleted
+     `.hot-topic-facts .opt` used to get (P6, `docs/engineering/coming-up-plan.md` D7) and for the
+     same reason — the line stays to what the window is actually about. */
   .wf-facts .opt { display: none; }
 }
 

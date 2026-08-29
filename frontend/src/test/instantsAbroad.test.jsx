@@ -14,12 +14,6 @@
  * not the reader's. A UK photographer abroad, or one whose device is simply on the wrong zone, was
  * being shown a different day.
  *
- * <p>One block asks a *calendar* question rather than an instant one — `HotTopicStrip`'s
- * "Today"/"Tomorrow" day word, which is derived from a date string against a frozen clock. It lives
- * here anyway, because the reason it needs a zone is identical to every block above it and the
- * component is already rendered in this file. `mapDatesAbroad.test.js` covers the shared helper it
- * calls; this covers the caller.
- *
  * ⚠️ Pinned to `America/New_York` on purpose, and the offset (UTC−4 in summer, −5 in winter) is what
  * does the work: every fixture is chosen so the New York answer and the UK answer genuinely differ,
  * and every assertion below fails against the code as it was. Do not "harmonise" this with the other
@@ -29,14 +23,13 @@
 process.env.TZ = 'America/New_York';
 
 import React from 'react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 
 import { formatInstantUk, parseUtcInstant } from '../utils/conversions.js';
 import { formatDetectedAt } from '../components/AuroraBanner.jsx';
 import { formatReportedAt } from '../components/NlcSightingBanner.jsx';
 import HealthIndicator from '../components/HealthIndicator.jsx';
-import HotTopicStrip from '../components/HotTopicStrip.jsx';
 import UserManagementView from '../components/UserManagementView.jsx';
 import WaitlistManagementView from '../components/WaitlistManagementView.jsx';
 import { tsLabel } from '../components/SkyRatingEvalView.jsx';
@@ -297,97 +290,6 @@ describe('the health popup abroad', () => {
     fireEvent.click(screen.getByTestId('health-indicator'));
 
     expect(screen.getByTestId('health-build').textContent).toContain('1 Apr 2026');
-  });
-});
-
-describe('the hot-topic event time abroad', () => {
-  it('renders a datetime event time on the UK clock, as the bare "HH:mm" form already is', () => {
-    // The API normally sends a bare "HH:mm" the backend has already put on the UK clock. This
-    // branch is the defensive one for a full datetime — and it rendered in the device's zone, so
-    // which clock the strip showed depended on which shape happened to arrive.
-    render(<HotTopicStrip hotTopics={[{
-      type: 'INVERSION',
-      label: 'CLOUD INVERSION',
-      detail: 'Strong inversion likely at elevated locations',
-      date: '2026-07-03',
-      priority: 2,
-      regions: ['Yorkshire Dales'],
-      eventType: 'SUNRISE',
-      eventTime: '2026-07-03T03:41:00Z',
-    }]} />);
-
-    expect(screen.getByTestId('topic-timing-lead-INVERSION').textContent).toContain('· 04:41');
-  });
-});
-
-describe('the hot-topic day word abroad', () => {
-  /**
-   * 02:00 BST on 14 August 2026 — 21:00 on the 13th in New York, so the two calendars name
-   * different days. The same instant `mapDatesAbroad.test.js` uses, deliberately: this is the
-   * caller of the helper that file covers, and one fixture for both keeps the arithmetic checkable
-   * in one place.
-   *
-   * <p>The UK/New York bands diverge for the five hours after UK midnight, and do so all year
-   * (UTC−4 in summer, −5 in winter). The suite's own UTC pin separates them for one hour a day and
-   * only during BST, which is why this belongs in a file pinned abroad rather than at a cleverly
-   * chosen UTC instant.
-   */
-  const UK_SMALL_HOURS = '2026-08-14T01:00:00Z';
-
-  beforeEach(() => {
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(new Date(UK_SMALL_HOURS));
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  const dayWordFor = (date) => {
-    render(<HotTopicStrip hotTopics={[{
-      type: 'INVERSION',
-      label: 'CLOUD INVERSION',
-      detail: 'Strong inversion likely at elevated locations',
-      date,
-      priority: 2,
-      regions: ['Yorkshire Dales'],
-      eventType: 'SUNRISE',
-      eventTime: '05:43',
-    }]} />);
-    return screen.getByTestId('topic-timing-lead-INVERSION').textContent;
-  };
-
-  it('really is on a zone that disagrees with the UK at this instant', () => {
-    // Guards the guard, as both abroad files do — but re-asserted at THIS fixture, because the
-    // file's opening check uses a different instant and a day word is only discriminating inside
-    // the divergent band. If the pin stopped taking effect, the three tests below would quietly
-    // become duplicates of the midday ones in `HotTopicStrip.test.jsx` instead of failing.
-    expect(new Date().toLocaleDateString('en-CA')).toBe('2026-08-13');
-    expect(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date()))
-      .toBe('2026-08-14');
-  });
-
-  it('calls the UK today "Today", not the device today', () => {
-    // The revert this exists to catch: `Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())`
-    // reads browser-local calendar fields, which here are New York's — one day behind — so the
-    // 14th came out as "Tomorrow" on a card sitting beside a date strip already calling it "Today".
-    expect(dayWordFor('2026-08-14')).toContain('Today');
-  });
-
-  it('calls the UK tomorrow "Tomorrow" rather than dropping it to a weekday', () => {
-    // The browser basis puts this two days out, past the Today/Tomorrow words entirely, so the
-    // wording degrades to "Sat" — the same defect one day further on, and a different symptom.
-    const lead = dayWordFor('2026-08-15');
-    expect(lead).toContain('Tomorrow');
-    expect(lead).not.toContain('Sat');
-  });
-
-  it('calls the UK yesterday by its weekday, never "Today"', () => {
-    // The opposite direction, and the one that puts two "Today"s on one screen: on the browser
-    // basis the 13th IS today, so a topic whose day is already over led with "Today sunrise".
-    const lead = dayWordFor('2026-08-13');
-    expect(lead).toContain('Thu');
-    expect(lead).not.toContain('Today');
   });
 });
 

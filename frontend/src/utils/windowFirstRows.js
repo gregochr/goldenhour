@@ -17,22 +17,20 @@
  *
  * <h2>The row is not role-gated</h2>
  *
- * <p>Plan §7 asks this to be settled rather than let two surfaces disagree. {@code HotTopicStrip}
- * blurs every topic's fact chips for LITE — a blanket paywall tease over a promotional strip, not a
- * judgement about tides — and this row is not that surface. It is the window's own context: tide
- * chips and tide-aligned markers are ungated for every role. `freemium_ui_strategy.md` blurs
- * cloud-layer breakdown, aerosol metrics and the technical panel; tide is almanac (the product
- * already classifies it so — `topicCertainty`), and `GET /api/tides` is deliberately Bearer rather
- * than ADMIN for the same reason. So: no gate, and no `role` plumbed into this arm.
+ * <p>Plan §7 asks this to be settled rather than let two surfaces disagree. It is the window's own
+ * context: tide chips and tide-aligned markers are ungated for every role. `freemium_ui_strategy.md`
+ * blurs cloud-layer breakdown, aerosol metrics and the technical panel; tide is almanac, and
+ * {@code GET /api/tides} is deliberately Bearer rather than ADMIN for the same reason. So: no gate,
+ * and no `role` plumbed into this arm.
  *
- * <p><b>⚠️ The reconvergence with {@code HotTopicStrip} is DUE.</b> {@code WindowFirstDoors}
- * renders the strip unchanged, so the two surfaces disagree on one screen — sharply here, blurred a
- * door away. It is left that way on purpose: the fix is a <em>pricing</em> decision, not a
- * rendering one ({@code freemium_ui_strategy.md:79} grants LITE the scores and {@code :98} forbids
- * blocking the core score), and resolving it edits {@code HotTopicStrip} and
- * {@code MarkerPopupContent} — parked as a follow-on (plan §8). The §6 sweep confirmed it is
- * unreachable for the pilot roster (self-registration yields {@code PRO_USER}), which is why it did
- * not gate the sweep — not because it stopped being true.
+ * <p><b>The reconvergence with {@code HotTopicStrip} that used to be DUE here is now DISCHARGED, by
+ * removal rather than by a pricing decision.</b> {@code HotTopicStrip} used to blur every topic's
+ * fact chips for LITE — a blanket paywall tease over a promotional strip, not a judgement about
+ * tides — so this row and that strip disagreed on one screen: sharply here, blurred a door away.
+ * The Coming up redesign's P6 (`docs/engineering/coming-up-plan.md` D7) deleted
+ * {@code WindowFirstDoors}'s Hot topics door and {@code HotTopicStrip} along with it, so there is no
+ * second surface left to disagree with this one — the debt is closed because the other party to the
+ * disagreement no longer exists, not because {@code freemium_ui_strategy.md} was ever amended.
  */
 
 /** The sparkline's box, in user units — the design's 104×24. */
@@ -145,10 +143,10 @@ function tideFacts(tide) {
  *
  * <p>`x = i/(n−1)·104`, `y = (1−curve[i])·24`, the mark at `windowPosition·104` /
  * `(1−windowLevel)·24` — plan §2.4a. No clock is parsed and nothing is normalised here, which is
- * why this does not reach for `components/chart/solarDayGeometry.js`: that module exists for the
- * hot-topic strip's 1000×32 axis, where the client turns `"05:44"` into a position. Here the
- * backend has already done it, and borrowing the constants would imply a shared axis these two
- * charts do not have.
+ * why this never reached for the now-deleted `components/chart/solarDayGeometry.js` (P6,
+ * `docs/engineering/coming-up-plan.md` D7): that module existed for the Hot topics strip's 1000×32
+ * axis, where the client turned `"05:44"` into a position. Here the backend has already done it,
+ * and borrowing the constants would have implied a shared axis these two charts never had.
  *
  * @param {object} tide the window's tide rollup
  * @returns {?{path: string, markX: ?number, markY: ?number}} null when there is no shape to draw
@@ -183,9 +181,9 @@ export function tideSparkline(tide) {
  *
  * <p>The distinction the data actually carries is {@code emphasis} — the headline quantity against
  * its context — and that is the one the row renders. {@code key} takes the base tone rather than
- * `HotTopicStrip`'s muted, for the AA reason recorded on {@link base}. `dir` is dropped: it is the
- * strip's look-direction arrow, no snow strategy emits one, and inventing a treatment for a field
- * with no live producer would be a guess the row states as fact.
+ * the now-deleted {@code HotTopicStrip}'s muted, for the AA reason recorded on {@link base}. `dir`
+ * is dropped: it was the strip's look-direction arrow, no snow strategy emits one, and inventing a
+ * treatment for a field with no live producer would be a guess the row states as fact.
  *
  * <p>Exported since M2: the window popup's topic rows carry the same facts (plan §5's "name,
  * `detail`, <b>facts</b>, `description` behind the `i`"), and a second mapping there would be a

@@ -1,10 +1,15 @@
 /**
- * Which of the window-first pane's two doors the reader left open.
+ * Which of the window-first pane's doors the reader left open.
+ *
+ * <p>Down to one door (Regional planner) since the Coming up redesign's P6 removed the Hot topics
+ * door (`docs/engineering/coming-up-plan.md` D7) — the shape below still generalises over a set of
+ * ids rather than a single boolean, since a future door is a one-line `DOOR_IDS` addition rather
+ * than a rewrite.
  *
  * <h2>Why this is persisted at all</h2>
  *
- * <p>Without it, remounting the pane (a tab switch, a re-render of the shell) collapsed both doors
- * even when the reader had just opened one — a working position lost to incidental React churn
+ * <p>Without it, remounting the pane (a tab switch, a re-render of the shell) collapsed the door
+ * even when the reader had just opened it — a working position lost to incidental React churn
  * rather than to anything the reader did.
  *
  * <h2>sessionStorage, not localStorage</h2>
@@ -24,7 +29,7 @@
 export const PLAN_DOORS_KEY = 'photocast.planDoors';
 
 /** The door ids this build has. An id outside this set is treated as absent, not as an error. */
-const DOOR_IDS = ['regional', 'topics'];
+const DOOR_IDS = ['regional'];
 
 /**
  * The doors that were left open.
