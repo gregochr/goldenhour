@@ -75,7 +75,10 @@ export function qualifyingArrivals(entries, bands, lastSeenDate) {
  * The tab badge's state (design §6): {@code null} when nothing qualifies, otherwise the band the
  * HIGHEST-scoring qualifying arrival reached and, for `announce`, how many qualify in total.
  * `interrupt` carries no count — the design's "above 9.5 there is only ever one thing in play, so
- * the badge drops the number".
+ * the badge drops the number" (the design's own placeholder edge; P5's census moved the SHIPPED
+ * edge to 10.0 — see {@code ComingUpScoringProperties.Bands}' own Javadoc — the quoted reasoning
+ * still holds, just at the new contour, which this function reads off the served `bands` rather
+ * than hardcoding either number).
  *
  * @param {Array}   entries      the wire's {@code ComingUpEntry[]}, or undefined
  * @param {?object} bands        the served {@code ComingUpBands}, or null/undefined

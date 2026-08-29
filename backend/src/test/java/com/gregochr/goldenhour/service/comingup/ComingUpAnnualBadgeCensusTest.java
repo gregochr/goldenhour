@@ -51,16 +51,35 @@ import static org.mockito.Mockito.when;
  * default and no deterministic rate rarer than annual except the eclipse catalogue, the score
  * ladder is discrete: supermoon 6.9 · solar turning point 8.5 · shower/NLC 9.5 · eclipse 11.6.
  * The census therefore moves ONE edge: <b>interrupt 9.5 → 10.0</b> — above "annual rarity +
- * typical magnitude" (9.5), below the eclipse (11.6), and reachable by a mature tide-run
- * magnitude only around the once-in-200-runs mark (3.9 + ~7.7 Laplace) — leaving announce at 7.5
- * (the 6.9→8.5 rung gap gives no reason to move within it). Result: 11 badge arrivals/year, 1
- * interrupt. No topic is special-cased (plan §11.13's instruction); the whole change is which
- * rungs of the ladder fire which band.
+ * typical magnitude" (9.5) and below the eclipse (11.6) — leaving announce at 7.5 (the 6.9→8.5
+ * rung gap gives no reason to move within it). Result: 11 badge arrivals/year, 1 interrupt. No
+ * topic is special-cased (plan §11.13's instruction); the whole change is which rungs of the
+ * ladder fire which band. A mature (non-cold-start) tide-run magnitude, though never exercised by
+ * this census (see below), is separately checkable against {@code interrupt}: {@link
+ * SurpriseScore#magnitudeFromHistory}'s Laplace-corrected {@code log2(n+1)} scores a record run,
+ * so clearing 10.0 needs a {@code n ≥ 69}-observation run-peak history at that port — 9 past the
+ * {@code coldStartMinObservations = 60} floor, roughly 4–5 months of accrued runs past first
+ * maturity — not the coarser "once-in-200-runs" figure an earlier draft of this note gave.
  *
- * <p><b>What is deliberately out of the numerator.</b> Tide runs (interim under cold start — D4's
- * "list, don't badge"; {@code TideAlmanacSource} is not wired in here, and a fixture comment
- * below records why that omission cannot change the counts) and FORECAST-kind entries (never
- * badge, design §6; none exist at first ship anyway, D9).
+ * <p><b>What is deliberately out of the numerator, and the one open question that leaves.</b> Tide
+ * runs (interim under cold start — D4's "list, don't badge"; {@code TideAlmanacSource} is not
+ * wired in here, and a fixture comment below records why that omission cannot change the counts
+ * TODAY) and FORECAST-kind entries (never badge, design §6; none exist at first ship anyway, D9).
+ * ⚠️ <b>The tide-run omission is valid only while every port is cold-started, and nothing pins
+ * that it stays that way.</b> §11.13 also names a design-bundle contradiction this census does
+ * NOT resolve: the design says "a spring tide run entering at day 90 is silence" while its own
+ * worked example scores one 8.2 = Announced. That contradiction is resolved TODAY only by the
+ * separate {@code interim} exclusion (P2's own addition, unrelated to which edge {@code
+ * interrupt} sits at) — not by this census, which never scores a real tide run at all. Once any
+ * port's stored run-peak history crosses {@code coldStartMinObservations} (D4: ~2.5 years of
+ * history, the 12-month backfill yields ~25 — a long way off, not the 90-day horizon of the
+ * recurrent-topic constants below), its tide-run entries stop being {@code interim} and start
+ * competing for a band on their own real magnitude — a scenario this census has never measured
+ * and the band edges above were never checked against. Revisit then: wire
+ * {@code TideAlmanacSource} into this census with a matured port's real history and re-run it,
+ * the same instinct that already motivates revisiting the recurrent-topic (dust/inversion)
+ * constants after P7's {@code topic_daily_log} accrues ~90 days of rows — this is that same kind
+ * of check, on a much longer clock.
  */
 class ComingUpAnnualBadgeCensusTest {
 

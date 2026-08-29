@@ -59,10 +59,18 @@ public class ComingUpScoringProperties {
      * {@code announce} at 7.5 admits everything above the supermoon rung — 11 badge arrivals a
      * year against the design's "roughly 10". {@code interrupt} moved 9.5 → 10.0: at 9.5 every
      * annual-rate topic sat exactly on the interrupt contour (7 interrupts/year against the
-     * design's "one or two"); at 10.0 only the eclipse clears it (1/year), and a mature tide-run
-     * magnitude can still reach it at roughly the once-in-200-runs mark. The census test re-runs
-     * the year on every build, so a topic addition or rarity retune fails there rather than
-     * silently shifting the rate.
+     * design's "one or two"); at 10.0 only the eclipse clears it (1/year). The census does not
+     * exercise a mature tide-run magnitude at all — {@code TideAlmanacSource} is not wired into
+     * it (see the census's own class Javadoc) — but the arithmetic is checkable directly:
+     * {@link SurpriseScore#magnitudeFromHistory} scores an unmatched-high run at
+     * {@code log2(n+1)} bits, so a record run needs a {@code n ≥ 69}-observation history to clear
+     * interrupt (9 past {@link Magnitude#coldStartMinObservations}, roughly 4–5 months of accrued
+     * spring/king runs once a port first matures at n = 60) — not the coarser "once-in-200-runs"
+     * figure an earlier draft of this note gave, which conflated this exact-percentile mechanism
+     * with the bucketed cold-start one. The census test re-runs the year on every build, so a
+     * topic addition or rarity retune fails there rather than silently shifting the rate; it does
+     * NOT, however, re-check this tide-run figure, which is unvalidated once a real port matures —
+     * see {@code ComingUpAnnualBadgeCensusTest}'s own Javadoc for the open follow-on.
      */
     @Getter
     @Setter
