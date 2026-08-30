@@ -405,6 +405,66 @@ describe('WindowComingUpEntry — the coincidence card (D10, plan §6b)', () => 
   });
 });
 
+describe('WindowComingUpEntry — the topic glyph (G4, plan §4.2)', () => {
+  it('renders the family glyph before the title, aria-hidden', () => {
+    renderEntry({ family: 'coastal', type: 'spring-tide' });
+    const glyph = screen.getByTestId('coming-up-glyph');
+    expect(glyph).toHaveTextContent('🌊');
+    expect(glyph).toHaveAttribute('aria-hidden', 'true');
+    const title = screen.getByTestId('coming-up-title');
+    expect(glyph.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('overrides the family glyph for a supermoon entry', () => {
+    renderEntry({ family: 'sun-moon', type: 'supermoon', title: 'Supermoon' });
+    expect(screen.getByTestId('coming-up-glyph')).toHaveTextContent('🌙');
+  });
+
+  it('renders no glyph span at all for an unknown family — never an empty one', () => {
+    renderEntry({ family: 'not-a-real-family', type: 'not-a-real-type' });
+    expect(screen.queryByTestId('coming-up-glyph')).toBeNull();
+  });
+
+  it('never contributes to the card\'s accessible name — the glyph is aria-hidden', () => {
+    renderEntry({
+      title: 'Spring tide run',
+      family: 'coastal',
+      action: { label: 'See the plan for 2 Sept →', kind: 'plan', date: '2026-09-02' },
+      interactive: true,
+    });
+    // The glyph is present in the DOM (plain textContent would include it) but excluded from the
+    // accessible-name computation because it is aria-hidden — the accessible name is the proof.
+    expect(screen.getByTestId('coming-up-glyph')).toHaveTextContent('🌊');
+    expect(screen.getByRole('button')).toHaveAccessibleName(
+      'Spring tide run Almanac See the plan for 2 Sept →',
+    );
+  });
+});
+
+describe('WindowComingUpEntry — coincidence sub-line glyph (G4, plan §4.5, P3b merged #690)', () => {
+  const COINCIDENCE = [
+    { family: 'sun-moon', name: 'Supermoon', factsLabel: 'Mon 26 Oct · moonrise 17:22' },
+  ];
+
+  it('renders the glyph directly after the swatch, resolved by the line\'s own family', () => {
+    renderEntry({ family: 'coastal', coincidence: COINCIDENCE, joinNote: 'Same cause.' });
+    const line = screen.getByTestId('coming-up-coincidence-line');
+    const swatch = line.querySelector('.wf-cu-coin-swatch');
+    const glyph = within(line).getByTestId('coming-up-coincidence-glyph');
+    expect(glyph).toHaveTextContent('☀️');
+    expect(glyph).toHaveAttribute('aria-hidden', 'true');
+    expect(swatch.compareDocumentPosition(glyph) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('renders no glyph for a line whose family resolves to nothing', () => {
+    renderEntry({
+      coincidence: [{ family: 'not-a-real-family', name: 'Mystery event', factsLabel: 'today' }],
+      joinNote: 'Same cause.',
+    });
+    expect(screen.queryByTestId('coming-up-coincidence-glyph')).toBeNull();
+  });
+});
+
 describe('WindowComingUpEntry — the NEW flag and fresh box-shadow (plan D3/D12, P5)', () => {
   it('renders no NEW flag and no fresh class on an entry that is not new', () => {
     renderEntry({ isNew: false });
