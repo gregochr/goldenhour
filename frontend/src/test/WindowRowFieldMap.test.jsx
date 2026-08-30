@@ -1016,25 +1016,32 @@ describe('WindowRowFieldMap — the location chips', () => {
 });
 
 /**
- * Reach rings + home marker (field-geography plan §3).
+ * Reach rings + home marker (field-geography plan §3, radii re-authored to miles at §5.2).
  *
  * <h2>⚠️ The suite's default ×10 stub cannot exercise ring geometry</h2>
  *
  * <p>Under {@code ([lng, lat]) => [lng * 10, lat * 10]}, {@code kmPerPx = 10 / 111.2 ≈ 0.09 px/km},
- * so r₄₀ ≈ 3.6px and r₈₀ ≈ 7.2px — both under the 18px skip floor, and no ring ever renders. Every
- * positive ring test below overrides the projection scale with {@code drawGeo.mockImplementationOnce}
- * and works the arithmetic through the real {@code kmPerPx}, never against a shrunk frame — the mock
- * discards the frame entirely, so "shrink the frame until r < 18" would prove nothing.
+ * so r₂₅ᵐⁱ ≈ 3.6px and r₅₀ᵐⁱ ≈ 7.2px — both under the 18px skip floor, and no ring ever renders.
+ * Every positive ring test below overrides the projection scale with
+ * {@code drawGeo.mockImplementationOnce} and works the arithmetic through the real
+ * {@code kmPerPx}, never against a shrunk frame — the mock discards the frame entirely, so "shrink
+ * the frame until r < 18" would prove nothing.
  *
  * <p>Home points are chosen inside {@code SPOTS}' own small lat/lng range (never real UK
  * coordinates), for the reason {@code WindowSheetDialog.test.jsx}'s own fixture records: a real
  * postcode projects far outside any plausible frame under a linear stub, and {@code placeWithNudges}
  * only nudges VERTICALLY, so a wrong x drops the anchor on every rung.
+ *
+ * <p>⚠️ 25 mi / 50 mi are 40.2336 / 80.4672 km ({@code MI_TO_KM = 1.609344}) — not the round 40/80
+ * km the plan authored before §5.2, so every radius below is reworked from that constant rather
+ * than copied from the old fixtures; a coincidental closeness to the old numbers would have hidden
+ * a km-vs-mile mix-up.
  */
 describe('WindowRowFieldMap — reach rings + home marker', () => {
   it('draws both rings at their real distance and commits the home marker’s own position', async () => {
-    // S = 100: r₄₀ = 40 × 100/111.2 ≈ 35.97px, r₈₀ ≈ 71.94px — neither exceeds 1.15 × 600 = 690, so
-    // both are drawn on a 600px frame.
+    // S = 100: kmPerPx = 100/111.2 ≈ 0.899281 px/km. r₂₅ᵐⁱ = 40.2336 × that ≈ 36.18px,
+    // r₅₀ᵐⁱ = 80.4672 × that ≈ 72.36px — neither exceeds 1.15 × 600 = 690, so both are drawn on a
+    // 600px frame.
     drawGeo.mockImplementationOnce(() => ([lng, lat]) => [lng * 100, lat * 100]);
     await withMeasuredMap(600, async () => {
       await withChipBoxes(40, 14, async () => {
@@ -1043,9 +1050,9 @@ describe('WindowRowFieldMap — reach rings + home marker', () => {
     });
     const rings = screen.getAllByTestId('wf-row-map-ring');
     expect(rings).toHaveLength(2);
-    const byKm = new Map(rings.map((r) => [r.dataset.km, r]));
-    expect(Number(byKm.get('40').getAttribute('r'))).toBeCloseTo(35.97, 1);
-    expect(Number(byKm.get('80').getAttribute('r'))).toBeCloseTo(71.94, 1);
+    const byMi = new Map(rings.map((r) => [r.dataset.mi, r]));
+    expect(Number(byMi.get('25').getAttribute('r'))).toBeCloseTo(36.18, 1);
+    expect(Number(byMi.get('50').getAttribute('r'))).toBeCloseTo(72.36, 1);
     rings.forEach((ring) => {
       expect(Number(ring.getAttribute('cx'))).toBeCloseTo(300, 5);
       expect(Number(ring.getAttribute('cy'))).toBeCloseTo(300, 5);
@@ -1055,7 +1062,10 @@ describe('WindowRowFieldMap — reach rings + home marker', () => {
     expect(screen.getByTestId('wf-row-map-home')).toHaveStyle({ left: '280px', top: '293px' });
   });
 
-  it('labels each ring with the reach lens’s own duration string, never authored text', async () => {
+  it('labels each ring "25 mi"/"50 mi" by default — a distance claim, not a duration one', async () => {
+    // `reachMeasured` absent → false (§5.2's safe direction): the miles formatter, not
+    // `formatDriveDuration`, which is exactly the claim a straight-line ring may make for every
+    // account regardless of whether a drive time exists to gate on.
     drawGeo.mockImplementationOnce(() => ([lng, lat]) => [lng * 100, lat * 100]);
     await withMeasuredMap(600, async () => {
       await withChipBoxes(40, 14, async () => {
@@ -1063,50 +1073,74 @@ describe('WindowRowFieldMap — reach rings + home marker', () => {
       });
     });
     const labels = screen.getAllByTestId('wf-row-map-ring-label');
+    expect(labels.map((l) => l.textContent)).toEqual(['25 mi', '50 mi']);
+  });
+
+  it('upgrades to the reach lens’s own duration string only when reachMeasured is true', async () => {
+    drawGeo.mockImplementationOnce(() => ([lng, lat]) => [lng * 100, lat * 100]);
+    await withMeasuredMap(600, async () => {
+      await withChipBoxes(40, 14, async () => {
+        await renderMap({ homePoint: [3, 3], reachMeasured: true });
+      });
+    });
+    const labels = screen.getAllByTestId('wf-row-map-ring-label');
     // Imported, never a literal — the strings can never drift from `reachLens.js`'s own tiers.
     expect(labels.map((l) => l.textContent)).toEqual([formatDriveDuration(45), formatDriveDuration(90)]);
   });
 
-  it('skips the 40 km ring under the 18px floor while the 80 km ring, in the SAME frame, clears it', async () => {
-    // S = 30: r₄₀ ≈ 10.79 (skipped), r₈₀ ≈ 21.58 (drawn).
+  it('an undefined reachMeasured renders the miles labels too — the fail-soft default, not just false', async () => {
+    drawGeo.mockImplementationOnce(() => ([lng, lat]) => [lng * 100, lat * 100]);
+    await withMeasuredMap(600, async () => {
+      await withChipBoxes(40, 14, async () => {
+        // reachMeasured deliberately omitted from the props object — an absent prop, not `false`.
+        await renderMap({ homePoint: [3, 3] });
+      });
+    });
+    const labels = screen.getAllByTestId('wf-row-map-ring-label');
+    expect(labels.map((l) => l.textContent)).toEqual(['25 mi', '50 mi']);
+  });
+
+  it('skips the 25 mi ring under the 18px floor while the 50 mi ring, in the SAME frame, clears it', async () => {
+    // S = 30: kmPerPx = 30/111.2 ≈ 0.269784. r₂₅ᵐⁱ ≈ 10.85 (skipped), r₅₀ᵐⁱ ≈ 21.71 (drawn).
     drawGeo.mockImplementationOnce(() => ([lng, lat]) => [lng * 30, lat * 30]);
     await withMeasuredMap(600, async () => {
       await withChipBoxes(40, 14, async () => {
         await renderMap({ homePoint: [3, 3] });
       });
     });
-    expect(screen.getAllByTestId('wf-row-map-ring').map((r) => r.dataset.km)).toEqual(['80']);
+    expect(screen.getAllByTestId('wf-row-map-ring').map((r) => r.dataset.mi)).toEqual(['50']);
   });
 
   it.each([
-    [50.04, true, 'r₄₀ = 18.00px exactly — the rule is strict "<", so 18.00 is drawn'],
-    [49.9, false, 'r₄₀ ≈ 17.95px — just under the floor, skipped'],
-  ])('S=%s: the 40 km ring is %s (%s)', async (scale, drawn) => {
+    [49.74946313528991, true, 'r₂₅ᵐⁱ = 18.00px exactly — the rule is strict "<", so 18.00 is drawn'],
+    [49.6, false, 'r₂₅ᵐⁱ ≈ 17.95px — just under the floor, skipped'],
+  ])('S=%s: the 25 mi ring is %s (%s)', async (scale, drawn) => {
     drawGeo.mockImplementationOnce(() => ([lng, lat]) => [lng * scale, lat * scale]);
     await withMeasuredMap(600, async () => {
       await withChipBoxes(40, 14, async () => {
         // homePoint's LATITUDE is 0, not 3 — `kmPerPx` measures `project([lng, lat+1]) -
         // project([lng, lat])`, and only at lat 0 does that subtraction land on the boundary
         // EXACTLY under floating point (`1×S − 0×S`); at lat 3 the same subtraction (`4×S − 3×S`)
-        // loses a bit and the S=50.04 case reads 17.999999999999996, failing the boundary this
-        // test exists to pin.
+        // loses a bit, the same reason the plan's own pre-§5.2 40 km fixture used lat 0 rather
+        // than lat 3 — reworked for 40.2336 km rather than copied, since the boundary scale itself
+        // moves with the radius (`S = 18 × 111.2 / 40.2336 ≈ 49.7495`, not the old 50.04).
         await renderMap({ homePoint: [3, 0] });
       });
     });
-    const kms = screen.queryAllByTestId('wf-row-map-ring').map((r) => r.dataset.km);
-    expect(kms.includes('40')).toBe(drawn);
+    const mis = screen.queryAllByTestId('wf-row-map-ring').map((r) => r.dataset.mi);
+    expect(mis.includes('25')).toBe(drawn);
   });
 
-  it('skips the 80 km ring once it grows past 1.15× the frame, while the 40 km ring — same scale — stays', async () => {
+  it('skips the 50 mi ring once it grows past 1.15× the frame, while the 25 mi ring — same scale — stays', async () => {
     // width 60 (above the 56px paint floor), height ≈ 53 (aspect floors at 0.88 for these spots):
-    // 1.15 × max(60, 53) = 69. r₈₀ ≈ 71.94 (skipped), r₄₀ ≈ 35.97 (drawn).
+    // 1.15 × max(60, 53) = 69. r₅₀ᵐⁱ ≈ 72.36 (skipped), r₂₅ᵐⁱ ≈ 36.18 (drawn).
     drawGeo.mockImplementationOnce(() => ([lng, lat]) => [lng * 100, lat * 100]);
     await withMeasuredMap(60, async () => {
       await withChipBoxes(20, 10, async () => {
         await renderMap({ homePoint: [3, 3] });
       });
     });
-    expect(screen.getAllByTestId('wf-row-map-ring').map((r) => r.dataset.km)).toEqual(['40']);
+    expect(screen.getAllByTestId('wf-row-map-ring').map((r) => r.dataset.mi)).toEqual(['25']);
   });
 
   it('draws no rings element at all when both skip — the default ×10 stub, unmodified', async () => {
@@ -1122,9 +1156,10 @@ describe('WindowRowFieldMap — reach rings + home marker', () => {
 
   it('rings and home join the SHARED box list: a chip anchored on a ring label’s own box is bumped', async () => {
     drawGeo.mockImplementationOnce(() => ([lng, lat]) => [lng * 100, lat * 100]);
-    // The 40 km ring's label commits at (280, 257.03)–(320, 271.03) (40×14, no obstacle ahead of
-    // it). This spot's own projected point, (300, 264), sits squarely inside that box, so neither
-    // the chip's unflipped nor its flipped candidate clears it.
+    // The 25 mi ring's label commits at (280, 256.82)–(320, 270.82) (40×14, no obstacle ahead of
+    // it — r₂₅ᵐⁱ ≈ 36.18px at S=100, so its anchor sits at y ≈ 263.82). This spot's own projected
+    // point, (300, 264), sits squarely inside that box, so neither the chip's unflipped nor its
+    // flipped candidate clears it.
     const onTheRing = [spot({
       id: 50, name: 'On The Ring', lng: 3, lat: 2.64, regionName: 'Lakes', rid: 'Lakes',
     })];
@@ -1214,7 +1249,8 @@ describe('WindowRowFieldMap — reach rings + home marker', () => {
     // frame at every nudge rung) within y ∈ [1, 22] — and the hint's own collision band, inflated by
     // its 2px pad, is (-3, 55): it swallows that ENTIRE safe range, so every one of the seven nudge
     // rungs is rejected either by the frame edge or by the hint, regardless of the ring's own anchor.
-    // Anchored here (dy=0 lands at y=10, comfortably "safe") so the drop is provably the hint's
+    // Anchored here (r₂₅ᵐⁱ ≈ 36.18px at S=100, home at y=60.97, so the anchor sits at y ≈ 24.79 and
+    // dy=0 lands the box-top at y ≈ 9.79, comfortably "safe") so the drop is provably the hint's
     // doing, not the frame's.
     drawGeo.mockImplementationOnce(() => ([lng, lat]) => [lng * 100, lat * 100]);
     await withMeasuredMap(60, async () => {

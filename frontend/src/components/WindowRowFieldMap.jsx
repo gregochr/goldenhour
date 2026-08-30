@@ -148,17 +148,43 @@ const HINT_BOX = { width: 118, height: 24 };
 /** One frozen array, so a caller that draws no chips does not hand over a fresh prop each render. */
 const EMPTY_CHIPS = Object.freeze([]);
 
+/** 1 mile in km — the SI/international definition, exact, not an approximation. */
+const MI_TO_KM = 1.609344;
+
 /**
- * Reach ring tiers: [km, tier minutes] — field-geography plan §3.2. The km are authored design
- * constants; the label a ring carries is never authored text — it is {@code formatDriveDuration}
- * applied to the tier minutes, the SAME string {@code reachLens.js}'s {@code REACH_TIERS} shows for
- * that tier, so the two can never drift apart.
+ * Reach ring tiers — field-geography plan §3.2, re-authored per §5.2 (owner decision, 2026-08-30):
+ * distance in miles, not the earlier unlabelled 40/80 km. The km radius is derived from the mile
+ * constant here, at the definition site, so the unit intent is explicit; {@code kmPerPx} and every
+ * other projection calculation downstream stay in km untouched. 25 mi / 50 mi ≈ 40.2336 / 80.4672
+ * km — visually indistinguishable circles from the original 40/80 km, since those km values were
+ * always authored design constants rather than a measurement of anything.
+ *
+ * <p>The label a ring carries depends on {@code reachMeasured} (§5.2): by default it states the
+ * distance itself ({@code formatMiles}, below) — a claim true for every account, measured or not.
+ * Only when a real drive time gated the reach lens on this screen does the ring upgrade to
+ * {@code formatDriveDuration} applied to the tier minutes, the SAME string
+ * {@code reachLens.js}'s {@code REACH_TIERS} shows for that tier, so the two duration strings can
+ * never drift apart. A distance ring stating a distance is honest regardless of role; a duration
+ * label is a claim the reach-vocabulary rule reserves for a surface a measured drive actually
+ * gated, so it must not appear for a reader `reachMeasured` says none exists for.
  */
-const RING_TIERS = [[40, 45], [80, 90]];
+const RING_TIERS = [[25, 45], [50, 90]].map(([mi, minutes]) => ({
+  mi, km: mi * MI_TO_KM, minutes,
+}));
 /** A ring drawn smaller than this, in px, is illegible — skip it rather than draw a dot. */
 const RING_MIN_PX = 18;
 /** A ring wider than this multiple of the frame's larger side is entirely off-frame — skip it. */
 const RING_OFFFRAME_FACTOR = 1.15;
+
+/**
+ * "25 mi" — a ring's default label, a distance statement never gated on role or reach. Deliberately
+ * a tiny LOCAL formatter (§5.2/§5.3): the codebase's {@code distanceMiles} vocabulary
+ * ({@code WindowSpotCard.jsx}'s {@code reachLine}) has no exported formatter to reuse, and §5.3's
+ * "labels are the lens's own strings" rule exists to stop a DURATION string drifting from
+ * {@code reachLens.js} — a plain distance is a different claim, answerable from the authored mile
+ * constant alone, so it does not need a shared producer to stay honest.
+ */
+const formatMiles = (mi) => `${mi} mi`;
 
 /**
  * A box carrying BOTH {@code {x, y, w, h}} (G1's {@code placeWithNudges} shape) and
@@ -319,11 +345,17 @@ function fits(box, placed, frameWidth, frameHeight) {
  * @param {?number[]} [props.homePoint] {@code [lng, lat]}, or null with no postcode saved — the
  *   reach rings and home marker (field-geography plan §3). Rendered only on a home-origin view
  *   (see {@code hasHomeGeo}); an away origin frames a single region and home sits off-picture.
+ * @param {boolean}  [props.reachMeasured] whether a real drive time gated the reach lens on this
+ *   screen — the SAME {@code card.reachMeasured} the header/footer/strip already read (CLAUDE.md's
+ *   reach-vocabulary rule), never re-derived here from drive times or role. Absent/undefined is
+ *   treated as {@code false} (§5.2's safe direction): the ring then states its default distance
+ *   label rather than a duration claim nothing measured.
  */
 export default function WindowRowFieldMap({
   windowKey, date, confidence, spots, points, bestRating = null, regionNames, selectedRegion,
   origin = null, chips = EMPTY_CHIPS,
   reachById, todayStr, onSelectRegion, onOpenLocation = null, homePoint = null,
+  reachMeasured = false,
 }) {
   const isMobile = useIsMobile();
   /**
@@ -485,13 +517,15 @@ export default function WindowRowFieldMap({
       if (at && Number.isFinite(at[0]) && Number.isFinite(at[1])) {
         home = at;
         const scale = kmPerPx(project, homePoint);
-        for (const [km, minutes] of RING_TIERS) {
+        for (const { mi, km, minutes } of RING_TIERS) {
           const r = km * scale;
           // Skip rules (§3.2): illegibly small, or so large it is entirely off-frame. Both sides of
           // the boundary are strict — a ring exactly at the floor or the ceiling is drawn/skipped
           // per the inequality, not "close enough".
           if (r < RING_MIN_PX || r > Math.max(width, height) * RING_OFFFRAME_FACTOR) continue;
-          rings.push({ km, minutes, r });
+          rings.push({
+            mi, minutes, r,
+          });
         }
       }
     }
@@ -608,7 +642,7 @@ export default function WindowRowFieldMap({
     let homeBox = null;
     if (hasHomeGeo && frame.home) {
       for (const ring of frame.rings) {
-        const node = ringLabelRefs.current.get(ring.km);
+        const node = ringLabelRefs.current.get(ring.mi);
         const w = node?.offsetWidth ?? 0;
         const h = node?.offsetHeight ?? 0;
         // A zero-measured candidate means the browser has laid nothing out yet — placing on it
@@ -622,7 +656,7 @@ export default function WindowRowFieldMap({
         // trap: `fits()` (region labels, chips) reads `.width`/`.height`, finds `undefined` on an
         // unconverted box, and silently detects no collision at all.
         const box = nudged && mkBox(nudged.x, nudged.y, nudged.w, nudged.h);
-        if (box) { boxes.push(box); ringBoxes.set(ring.km, box); }
+        if (box) { boxes.push(box); ringBoxes.set(ring.mi, box); }
       }
       const node = homeLabelRef.current;
       const w = node?.offsetWidth ?? 0;
@@ -726,9 +760,9 @@ export default function WindowRowFieldMap({
               <svg className="wf-rings" data-testid="wf-row-map-rings">
                 {frame.rings.map((ring) => (
                   <circle
-                    key={ring.km}
+                    key={ring.mi}
                     data-testid="wf-row-map-ring"
-                    data-km={ring.km}
+                    data-mi={ring.mi}
                     cx={frame.home[0]}
                     cy={frame.home[1]}
                     r={ring.r}
@@ -739,14 +773,14 @@ export default function WindowRowFieldMap({
             {frame.rings.map((ring) => {
               // Undefined while unmeasured (render off-screen to be measured); null once measured
               // and dropped (render nothing); a box once measured and placed.
-              const box = geoMeasured ? ringPlacements.get(ring.km) : undefined;
+              const box = geoMeasured ? ringPlacements.get(ring.mi) : undefined;
               if (geoMeasured && !box) return null;
               return (
                 <span
-                  key={ring.km}
+                  key={ring.mi}
                   ref={(node) => {
-                    if (node) ringLabelRefs.current.set(ring.km, node);
-                    else ringLabelRefs.current.delete(ring.km);
+                    if (node) ringLabelRefs.current.set(ring.mi, node);
+                    else ringLabelRefs.current.delete(ring.mi);
                   }}
                   className="wf-ringlb"
                   data-testid="wf-row-map-ring-label"
@@ -754,7 +788,10 @@ export default function WindowRowFieldMap({
                     ? { left: `${box.x}px`, top: `${box.y}px` }
                     : { left: '-9999px', top: '0px', visibility: 'hidden' }}
                 >
-                  {formatDriveDuration(ring.minutes)}
+                  {/* §5.2: distance by default (true for every account, measured or not); the
+                      duration string only once a real drive time gated this screen's reach lens
+                      — never re-derived, the same `reachMeasured` the header/footer read. */}
+                  {reachMeasured ? formatDriveDuration(ring.minutes) : formatMiles(ring.mi)}
                 </span>
               );
             })}
@@ -987,4 +1024,6 @@ WindowRowFieldMap.propTypes = {
   onOpenLocation: PropTypes.func,
   /** {@code [lng, lat]}, or null with no postcode saved — see {@code hasHomeGeo}. */
   homePoint: PropTypes.arrayOf(PropTypes.number),
+  /** Whether a real drive time gated the reach lens — {@code card.reachMeasured}, never re-derived. */
+  reachMeasured: PropTypes.bool,
 };

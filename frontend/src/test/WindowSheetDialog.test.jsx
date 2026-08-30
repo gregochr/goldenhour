@@ -8,6 +8,7 @@ import {
 import WindowSheetDialog from '../components/WindowSheetDialog.jsx';
 import { buildTopicIndex } from '../utils/windowFirstTopics.js';
 import { drawGeo } from '../utils/heatField.js';
+import { formatDriveDuration } from '../utils/briefingDisplay.js';
 
 /**
  * The window popup — one window's whole drill-down, as a dialog over the plan.
@@ -882,6 +883,40 @@ describe('WindowSheetDialog — the field’s home point', () => {
         }),
       });
       expect(screen.queryByTestId('wf-row-map-home')).toBeNull();
+    });
+  });
+});
+
+/**
+ * The ring labels' distance-vs-duration choice (field-geography plan §5.2) reads
+ * {@code card.reachMeasured} — the SAME single producer the header/footer/strip already read
+ * (CLAUDE.md's reach-vocabulary rule) — and this dialog's own responsibility is only to pass it
+ * through unchanged, never re-derive it from drive times or role. `WindowRowFieldMap.test.jsx` owns
+ * the ring geometry and the two label strings themselves; what only THIS file can be wrong about is
+ * whether the dialog wires the right value in.
+ */
+describe('WindowSheetDialog — ring labels read card.reachMeasured, never re-derive it', () => {
+  it('upgrades the ring labels to drive-duration strings when card.reachMeasured is true', () => {
+    drawGeo.mockImplementationOnce(() => ([lng, lat]) => [lng * 100, lat * 100]);
+    withMeasured(() => {
+      renderDialog({
+        card: card({ reachMeasured: true }),
+        field: field({ homeCoords: { lat: 2, lon: 2 } }),
+      });
+      const labels = screen.getAllByTestId('wf-row-map-ring-label').map((l) => l.textContent);
+      expect(labels).toEqual([formatDriveDuration(45), formatDriveDuration(90)]);
+    });
+  });
+
+  it('defaults the ring labels to miles when card.reachMeasured is false', () => {
+    drawGeo.mockImplementationOnce(() => ([lng, lat]) => [lng * 100, lat * 100]);
+    withMeasured(() => {
+      renderDialog({
+        card: card({ reachMeasured: false }),
+        field: field({ homeCoords: { lat: 2, lon: 2 } }),
+      });
+      const labels = screen.getAllByTestId('wf-row-map-ring-label').map((l) => l.textContent);
+      expect(labels).toEqual(['25 mi', '50 mi']);
     });
   });
 });
