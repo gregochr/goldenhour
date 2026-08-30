@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Documentation — matrix-axis plan (Plan tab "days ahead" strip)
+
+Implementation plan for the `design_handoff_matrix_axis` bundle
+(`docs/engineering/matrix-axis-plan.md`, bundle vendored at `docs/design/matrix-axis/`): the
+strip's sunrise/sunset axis made explicit via row rails, tinted card chips, and sticky day
+tiles + rails. Two phases (chips + tokens; rows restructure + sticky), every implementation
+decision pre-made (§3 D1–D20), deviations from the bundle recorded (§4), adversarially reviewed
+before landing (five lenses; §10 records the refuted charges so they are not re-raised).
+Documentation only; no behaviour change.
+
 ## [v2.19.8] - 2026-08-29
 
 ### Added — Coming up P5: the tab badge, lastSeenAt, and arrivals (series complete)
