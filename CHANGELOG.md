@@ -5,6 +5,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — a spring or king tide is a claim about the DAY, and now sits on both of its windows
+
+The Plan matrix labelled a day-level fact with a window-level one. `PlanWindowProjector` bucketed a
+tide topic by `TideRunDay.alignedEvent`, so a pill reading **"Spring tide"** — a statement about the
+moon and the water, true at both ends of the day — appeared only on the window whose light the tide
+happened to align with. A spring run's evening cards showed no tide at all, and a day whose
+alignment had already passed (or whose aligned window fell past the end of the forecast) showed none
+anywhere: `HotTopicEventEnricher` nulls `eventType` in both cases, and the old guard read that null
+as "no anchor" and binned the whole topic.
+
+The alignment claim is untouched — it was always correct, and every field descending from
+`TideRunBuilder`'s single `inLight` point still answers exactly the question it was built for. What
+changed is that the label and the placement now ask the same question, and the alignment sentence
+stays on the window it is about.
+
+- `PlanWindowProjector.keysFor` buckets `KING_TIDE`/`SPRING_TIDE` onto **both** of their date's
+  windows, by type and **before** `eventType` is consulted. Expired windows need no guard:
+  `renderHorizon` drops past drafts before the badge map is read.
+- **The badge is now built per window key, not per topic** (`badgeFor`). One shared instance printed
+  `tide aligned with sunrise at 47 of 61 coastal locations` onto an evening card. This restores the
+  design bundle's own `WTOPICS {[windowId]: [{t, d}]}` shape, whose per-window `d` the first port
+  collapsed away — a silent simplification that `plan-matrix-plan.md` §4 never recorded as a
+  decision.
+- New `TideRunDay.sunriseWater`/`sunsetWater` (nullable, **no migration** — they ride the
+  `daily_briefing_cache` JSON and legacy payloads deserialize to null): the water nearest each solar
+  event, stated neutrally — `high water 1h49 before sunset`. Deliberately **not** gated on
+  `aligned`, because that is the whole point. ⚠️ Each is measured against **its own** event, never
+  `signedGap`'s nearer-of-the-two — which is right for the alignment question and would report an
+  evening card `2h50 after sunrise`.
+- Both tide kinds are covered by construction: the two strategies share `alignmentInfo`,
+  `nonExpiredEvents` and `TideRunBuilder`, and the change lands above the point where they diverge.
+- `utils/windowFirstTopics.js` mirrors the new bucketing (`DAY_SCOPED_TOPIC_TYPES`). ⚠️ This mirror
+  is load-bearing: left keyed on `eventType`, the sunset badge finds no topic, `topicForBadge`
+  returns null, and a null topic is **kept unfiltered** — so the region scope filter would quietly
+  stop applying to every new window with the whole suite still green.
+
 ### Added — field geography and glyphs G4: Coming up topic glyphs
 
 The final phase of `docs/engineering/field-geography-and-glyphs-plan.md` (§4): a per-family emoji

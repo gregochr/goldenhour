@@ -13,6 +13,7 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.PlanRenderedEvent;
+import com.gregochr.goldenhour.model.TideRunDay;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -536,30 +537,72 @@ public final class PlanWindowProjector {
     }
 
     /**
-     * Buckets every hot topic onto the window(s) it belongs to.
+     * Buckets every hot topic onto the window(s) it belongs to, with the badge each window earns.
      *
-     * <p>A topic with no date or no solar event is bucketed nowhere — storm surge and clearance
-     * carry no event anchor at all, and a tide topic resolves one only when its metrics say which
-     * event it aligns with. A NIGHT topic lands on two windows; see the class Javadoc.
+     * <p>A topic with no date is bucketed nowhere, and so is one with neither a solar anchor nor a
+     * day-level claim — storm surge and clearance carry no anchor at all. A NIGHT topic lands on two
+     * windows; see the class Javadoc. A tide topic lands on both of its day's windows; see
+     * {@link #keysFor}.
+     *
+     * <p><b>The badge is built per key, not per topic.</b> It used to be one instance pushed to
+     * every window, which was correct while a topic's every window said the same thing. A tide
+     * topic's two windows do not: one is the window the water aligns with and the other is simply
+     * another window on a day the sea is worth planning around, and handing the second the first's
+     * sentence would print {@code "tide aligned with sunrise at 47 of 61 coastal locations"} on an
+     * evening card. This is the design bundle's own {@code WTOPICS {[windowId]: [{t, d}]}} shape,
+     * whose per-window {@code d} the first port collapsed away.
      */
     private static Map<WindowKey, List<BriefingWindow.Badge>> bucketTopics(List<HotTopic> topics) {
         Map<WindowKey, List<BriefingWindow.Badge>> byWindow = new HashMap<>();
         for (HotTopic topic : topics) {
-            if (topic.date() == null || topic.eventType() == null) {
+            if (topic.date() == null) {
                 continue;
             }
-            BriefingWindow.Badge badge = new BriefingWindow.Badge(
-                    topic.type(), topic.label(), topic.detail(), topic.facts(), topic.eventTime(),
-                    TopicRarity.rankOf(topic.type()), topic.note(), topic.rarityNote(), topic.safetyNote());
             for (WindowKey key : keysFor(topic)) {
-                byWindow.computeIfAbsent(key, k -> new ArrayList<>()).add(badge);
+                byWindow.computeIfAbsent(key, k -> new ArrayList<>()).add(badgeFor(topic, key));
             }
         }
         return byWindow;
     }
 
+    /**
+     * Whether this topic's claim is about a <em>day</em> rather than about one window of it.
+     *
+     * <p>True for the two tide kinds and nothing else. A spring or king tide is a fact about the
+     * moon and the water, neither of which cares which end of the day you stand at — so the pill
+     * reading "Spring tide" is true of that day's sunrise and its sunset alike. Every other topic
+     * type names a window: an inversion burns off, an aurora needs the dark.
+     *
+     * @param type the served topic type
+     * @return true when both of the date's windows should carry the badge
+     */
+    private static boolean isDayScoped(String type) {
+        return "KING_TIDE".equals(type) || "SPRING_TIDE".equals(type);
+    }
+
+    /**
+     * The windows a topic's badge lands on.
+     *
+     * <p>⚠️ <b>A day-scoped topic is bucketed onto both windows regardless of {@code eventType},
+     * including when it has none.</b> That null is not "no anchor" for a tide — it is
+     * {@code HotTopicEventEnricher} reporting that the alignment has already passed, or that no
+     * water reached the light at all. Reading it as "bucket nowhere" is what left a spring tide day
+     * with no tide indication anywhere on the matrix once its morning had gone, and what leaves a
+     * run's last day blank when its alignment falls past the end of the forecast.
+     *
+     * <p>Expired windows need no guard here. {@link #renderHorizon} drops past drafts before this
+     * map is ever consulted, so a badge bucketed onto this morning's elapsed sunrise is simply
+     * never read.
+     */
     private static List<WindowKey> keysFor(HotTopic topic) {
         LocalDate date = topic.date();
+        if (isDayScoped(topic.type())) {
+            return List.of(new WindowKey(date, TargetType.SUNRISE),
+                    new WindowKey(date, TargetType.SUNSET));
+        }
+        if (topic.eventType() == null) {
+            return List.of();
+        }
         return switch (topic.eventType()) {
             case EVENT_SUNRISE -> List.of(new WindowKey(date, TargetType.SUNRISE));
             case EVENT_SUNSET -> List.of(new WindowKey(date, TargetType.SUNSET));
@@ -567,6 +610,54 @@ public final class PlanWindowProjector {
                     new WindowKey(date.plusDays(1), TargetType.SUNRISE));
             default -> List.of();
         };
+    }
+
+    /**
+     * The badge one window carries for one topic.
+     *
+     * <p>Identical to the topic's own line everywhere except a day-scoped topic's <b>non-aligned</b>
+     * window, which states its own water neutrally instead — {@code "high water 1h49 before
+     * sunset"}. The alignment sentence is a window-level claim and stays on the window it is about;
+     * this one is asked of the window being drawn.
+     *
+     * <p>The {@code eventTime} moves with it, from the run row's own sunrise/sunset. It has no
+     * client reader on the Plan surface today, so this is about not writing a falsehood onto the
+     * wire rather than about anything rendered.
+     *
+     * <p>Falls back to the topic's own detail whenever the run row is missing — a tidal day whose
+     * tide could not be derived, or a payload cached before {@code sunriseWater} existed. The badge
+     * is then the day-level claim with the day-level sentence under it, which over-states nothing.
+     */
+    private static BriefingWindow.Badge badgeFor(HotTopic topic, WindowKey key) {
+        String detail = topic.detail();
+        String eventTime = topic.eventTime();
+        TideRunDay run = topic.tideRun();
+        if (isDayScoped(topic.type()) && !isAlignedWindow(topic, key) && run != null) {
+            boolean sunrise = key.targetType() == TargetType.SUNRISE;
+            String water = sunrise ? run.sunriseWater() : run.sunsetWater();
+            if (water != null) {
+                detail = water;
+                eventTime = sunrise ? run.sunrise() : run.sunset();
+            }
+        }
+        return new BriefingWindow.Badge(topic.type(), topic.label(), detail, topic.facts(),
+                eventTime, TopicRarity.rankOf(topic.type()), topic.note(), topic.rarityNote(),
+                topic.safetyNote());
+    }
+
+    /**
+     * Whether this window is the one the topic's own {@code eventType} names.
+     *
+     * <p>A topic with no {@code eventType} has no aligned window, so every window it lands on takes
+     * the neutral form — which is the whole point on a day whose alignment has already passed.
+     */
+    private static boolean isAlignedWindow(HotTopic topic, WindowKey key) {
+        if (topic.eventType() == null) {
+            return false;
+        }
+        return key.targetType() == TargetType.SUNRISE
+                ? EVENT_SUNRISE.equals(topic.eventType())
+                : EVENT_SUNSET.equals(topic.eventType());
     }
 
     private static Integer rarestRank(List<BriefingWindow.Badge> badges) {
