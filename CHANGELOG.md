@@ -5,6 +5,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.19.9] - 2026-08-30
+
 ### Added — matrix-axis Phase 1: sunrise/sunset card chips
 
 Phase 1 (§5) of `docs/engineering/matrix-axis-plan.md`: the Plan tab's heat-strip cards state which
