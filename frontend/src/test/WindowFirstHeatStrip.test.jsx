@@ -1,4 +1,6 @@
 import React from 'react';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, cleanup, render, screen, fireEvent, within } from '@testing-library/react';
 import WindowFirstHeatStrip, {
@@ -467,6 +469,22 @@ describe('WindowFirstHeatStrip — what a card says', () => {
     });
     expect(screen.getAllByTestId('wf-heat-sun').map((s) => s.textContent))
       .toEqual(['SUNSET', 'SUNRISE']);
+  });
+
+  it('tints the sunrise/sunset chip by which one it is (matrix-axis plan D13)', async () => {
+    // Both in one render — kills the swap mutant (am/pm reversed) and the constant mutant (both
+    // cards landing on the same class) at once.
+    await renderStrip({
+      cards: [
+        stripCard(),
+        stripCard({ key: '2026-08-05:SUNRISE', date: '2026-08-05', targetType: 'SUNRISE', dow: 'Wed', sunrise: true, label: 'Tomorrow sunrise', time: '05:20' }),
+      ],
+    });
+    const [sunset, sunrise] = screen.getAllByTestId('wf-heat-sun');
+    expect(sunset).toHaveClass('wf-hc-sun', 'pm');
+    expect(sunset).not.toHaveClass('am');
+    expect(sunrise).toHaveClass('wf-hc-sun', 'am');
+    expect(sunrise).not.toHaveClass('pm');
   });
 
   it('marks the open row\'s card, so the matrix says which row you are in', async () => {
@@ -1961,5 +1979,131 @@ describe('WindowFirstHeatStrip — thumbnail geography (field-geography plan §2
     }));
 
     expect(screen.getByTestId('wf-heat-labels')).toHaveAttribute('aria-hidden', 'true');
+  });
+});
+
+describe('the stylesheet half, which jsdom cannot evaluate (matrix-axis plan §5.4)', () => {
+  /**
+   * Read as text — same house pattern as `WindowFirstShellSticky.test.jsx`'s stylesheet half.
+   * Every claim here is scoped to the BLOCK it belongs to rather than grepped across the whole
+   * file, because the member/non-member trap is real: a token declared in the plain `@theme`
+   * block (which Tailwind prunes when nothing references it — plan D14) would still satisfy a
+   * whole-file `toContain`, and a `letter-spacing`/`padding` pair correct on desktop but pasted
+   * outside the 639px media block would break every card at that width while still passing a
+   * grep. Brace-depth matching — the technique `mapChipFlipCascade.test.jsx` uses — is what makes
+   * "scoped to the block" true rather than aspirational.
+   */
+  const readCss = () => readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
+
+  /** Index of the `}` that closes the block whose `{` is at `openBrace`. */
+  function matchingClose(css, openBrace) {
+    let depth = 0;
+    for (let i = openBrace; i < css.length; i += 1) {
+      if (css[i] === '{') depth += 1;
+      else if (css[i] === '}') {
+        depth -= 1;
+        if (depth === 0) return i;
+      }
+    }
+    return -1;
+  }
+
+  /** The full text (opener through matching closer) of the block whose header is `header`. */
+  function blockNamed(header) {
+    const css = readCss();
+    const at = css.indexOf(header);
+    expect(at, `${header} must exist`).toBeGreaterThan(-1);
+    const openBrace = css.indexOf('{', at);
+    const close = matchingClose(css, openBrace);
+    expect(close, `${header} block must close`).toBeGreaterThan(-1);
+    return css.slice(at, close + 1);
+  }
+
+  /** A flat (no nested `{`) rule block — the `WindowFirstShellSticky.test.jsx` `block()` shape. */
+  function flatRule(selector) {
+    const css = readCss();
+    const at = css.indexOf(`\n${selector} {`);
+    expect(at, `${selector} must exist`).toBeGreaterThan(-1);
+    return css.slice(at, css.indexOf('\n}', at));
+  }
+
+  /**
+   * The specific 639px media block that holds the phone transpose — there are several
+   * `@media (max-width: 639px)` blocks in the file, so the header text alone does not pick one
+   * out; anchoring on the block's own comment (unique in the file) and walking backward to its
+   * enclosing `@media` keeps this pinned to the right block even if another 639px block is added
+   * above it later.
+   */
+  function phoneTransposeBlock() {
+    const css = readCss();
+    const marker = css.indexOf('The phone transpose (plan-matrix §6 M1 task 5)');
+    expect(marker, 'the phone transpose block must exist').toBeGreaterThan(-1);
+    const at = css.lastIndexOf('@media (max-width: 639px)', marker);
+    expect(at, 'its enclosing @media (max-width: 639px) must exist').toBeGreaterThan(-1);
+    const openBrace = css.indexOf('{', at);
+    const close = matchingClose(css, openBrace);
+    return css.slice(at, close + 1);
+  }
+
+  it('declares the two matrix-axis tokens inside @theme static, not the pruned plain block', () => {
+    const themeStatic = blockNamed('@theme static');
+    expect(themeStatic).toContain('--color-plex-dawn: #8FA8C4;');
+    expect(themeStatic).toContain('--color-plex-coral-bright: #EE8064;');
+    // The failure this guards: passing on a whole-file grep while the declaration actually sits in
+    // the plain @theme block above, where Tailwind prunes an unreferenced token to nothing.
+    const plainTheme = readCss().slice(readCss().indexOf('@theme {'), readCss().indexOf('@theme static'));
+    expect(plainTheme).not.toContain('--color-plex-dawn');
+    expect(plainTheme).not.toContain('--color-plex-coral-bright');
+  });
+
+  it('gives the chip its padding and rounded corners', () => {
+    const base = flatRule('.wf-hc-sun');
+    expect(base).toContain('padding: 3px 6px');
+    expect(base).toContain('border-radius: 4px');
+  });
+
+  it('tints the sunrise chip — wash, ring and ink, not just the token name', () => {
+    const am = flatRule('.wf-hc-sun.am');
+    expect(am).toContain('color: var(--color-plex-dawn);');
+    // Mixed against the panel TOKEN, never `transparent` — a forced deviation from the plan's
+    // literal D13 value (see the CSS's own comment): a translucent wash let a hovered card's
+    // verdict tint bleed through and dropped contrast below 4.5:1. The full string is asserted,
+    // not just the `15%` prefix, so a regression back to `transparent` — which would silently
+    // reintroduce that failure — actually fails this test instead of passing on the shared prefix.
+    expect(am).toContain('background: color-mix(in srgb, var(--color-plex-dawn) 15%, var(--color-plex-panel));');
+    expect(am).toContain('box-shadow: inset 0 0 0 1px');
+  });
+
+  it('tints the sunset chip — wash, ring and ink, not just the token name', () => {
+    const pm = flatRule('.wf-hc-sun.pm');
+    expect(pm).toContain('color: var(--color-plex-coral-bright);');
+    expect(pm).toContain('background: color-mix(in srgb, var(--color-plex-coral) 15%, var(--color-plex-panel));');
+    expect(pm).toContain('box-shadow: inset 0 0 0 1px');
+  });
+
+  it('dims the away cell enough for the new chip to still clear 4.5:1 (matrix-axis plan D16)', () => {
+    // Raised from the pre-existing 0.78 to 0.87: measured (getComputedStyle + manual ratio) at
+    // 0.78 the chip's ink-on-wash backdrop cleared only 4.03:1 (am) / 3.95:1 (pm), below the
+    // floor, even though the plain secondary text this rule was written for was comfortably
+    // above it (4.68:1) — a full-cell `opacity` dims every string inside equally, so the weakest
+    // one sets the floor for all of them. At 0.87: chip am 4.64:1, chip pm 4.57:1, secondary
+    // text 5.50:1 — all clear.
+    expect(flatRule('.wf-hc-away')).toContain('opacity: 0.87;');
+  });
+
+  it('compacts the chip inside the phone media block, and only there', () => {
+    const phone = phoneTransposeBlock();
+    expect(phone).toContain('.wf-hstrip .wf-hc-sun { letter-spacing: 0.04em; padding: 2px 4px; }');
+    // Outside the media block the compaction would apply at every width and break the desktop
+    // rail's spacing — the member/non-member trap this test exists to catch.
+    const outsidePhoneBlock = readCss().replace(phone, '');
+    expect(outsidePhoneBlock).not.toContain('letter-spacing: 0.04em; padding: 2px 4px;');
+  });
+
+  it('deletes the on-state caption recolor (matrix-axis plan D15)', () => {
+    // Comments stripped first — D15's own tombstone comment names the deleted selector on purpose,
+    // and a literal-text search would trip over its own explanation.
+    const withoutComments = readCss().replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(withoutComments).not.toContain('.wf-hc.on .wf-hc-sun');
   });
 });

@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — matrix-axis Phase 1: sunrise/sunset card chips
+
+Phase 1 (§5) of `docs/engineering/matrix-axis-plan.md`: the Plan tab's heat-strip cards state which
+end of the day they are. The existing `SUNRISE`/`SUNSET` caption (`.wf-hc-sun`) becomes a tinted
+chip — dawn-blue for sunrise, coral for sunset — instead of plain secondary-ink text, so a card read
+alone, or on the phone where Phase 2's row rails are dropped, still carries its own axis signal. Two
+new tokens, `--color-plex-dawn` and `--color-plex-coral-bright`, land in `@theme static`. No
+structural change, no new state, no API change — the row-rail/sticky-heading restructure is Phase 2.
+
+⚠️ **Forced deviation from the plan's literal D13 CSS**, found and fixed during browser contrast
+verification: the bundle's chip background (`color-mix(…, transparent)`) is measured translucent,
+so a hovered card's own verdict tint bled through and dropped the chip's contrast as low as 4.01:1
+— below the 4.5:1 floor, on a state the design bundle's flat prototype has no equivalent for. Fixed
+by mixing the wash against `--color-plex-panel` instead of `transparent`: the two are pixel-identical
+on a plain card (opaque-over-opaque compositing), but the panel-mixed form is itself fully opaque and
+so cannot be seen through by anything behind it — hover tint, the open-card gold wash, or any verdict
+tint. Separately, per the plan's own D16 (which did anticipate this specific risk), the pre-existing
+`.wf-hc-away` opacity is raised 0.78 → 0.87 so the chip also clears 4.5:1 inside a dimmed away cell
+(measured 4.64:1 / 4.57:1, secondary text still 5.50:1). Both changes are documented at length in
+`index.css` beside the rules they touch.
+
+Adversarial review (six lenses: runtime behaviour, CSS/tokens/cascade, test quality, accessibility,
+project conventions, Phase-2 friction) surfaced and fixed three real issues before landing: two test
+assertions pinned only the `color-mix(…, TOKEN 15%` prefix and so passed identically whether the
+background mixed against `transparent` or `--color-plex-panel` (now assert the full value); the
+raised away-cell opacity had no test coverage at all (added); and a CSS comment misstated one of its
+own diagnostic contrast figures (a hovered-state number that was actually the away-cell one).
+
 ### Fixed — a spring or king tide is a claim about the DAY, and now sits on both of its windows
 
 The Plan matrix labelled a day-level fact with a window-level one. `PlanWindowProjector` bucketed a

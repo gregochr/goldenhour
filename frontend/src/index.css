@@ -227,6 +227,14 @@
      carries the pointer back. Making the kernel read a CSS variable was rejected: the kernel is
      deliberately framework-free and is shared with the Leaflet host, which has no sea at all. */
   --color-heat-sea: #13100e;
+
+  /* Matrix-axis (docs/engineering/matrix-axis-plan.md D14) — the sunrise/sunset axis pair. Consumed
+     by hand-written CSS only (the strip's `.wf-hc-sun.am`/`.pm` chip rules below, and Phase 2's
+     `.wf-rail`), so `static` per this block's own pruning rule. `--color-plex-dawn` is Phase 1's
+     rail/chip sunrise blue; `--color-plex-coral-bright` is the sunset chip's TEXT-only lift of
+     `--color-plex-coral` (the wash and ring still mix from the base coral token). */
+  --color-plex-dawn: #8FA8C4;
+  --color-plex-coral-bright: #EE8064;
 }
 
 @layer base {
@@ -1203,15 +1211,20 @@ button.wf-hc.on:hover {
 /* An away window is a read-out, not a control: no hover, no pointer, and the whole cell sits back
    so the eye runs past it to the days that were forecast.
 
-   ⚠️ 0.78, not the design's 0.62, and the difference is AA. `opacity` composites the WHOLE cell, so
-   it multiplies ink that is already an alpha: secondary × 0.62 measures 3.43:1 against the 4.5:1
-   floor (and the muted this rule originally sat over gave 2.14:1). × 0.78 measures 4.68:1. The two
-   strings inside are the only thing an away cell has to say — its state and its sun time, which
-   `windowFirstStrip.js` keeps precisely because they are almanac — so they are the last text here
-   that may be dimmed below legibility. The mock has no away card; its `.ev.weak{opacity:.62}` is a
-   different element. */
+   ⚠️ 0.87, not the design's 0.62 (raised again from a prior 0.78 by the matrix-axis chip — plan
+   D16). `opacity` composites the WHOLE cell, so it multiplies ink that is already an alpha:
+   secondary × 0.62 measures 3.43:1 against the 4.5:1 floor (and the muted this rule originally sat
+   over gave 2.14:1); × 0.78 measured 4.68:1 for secondary text, comfortably above the floor — but
+   the sunrise/sunset chip's ink-on-wash backdrop starts from a lower resting contrast than plain
+   secondary text does, and at × 0.78 it measured only 4.03:1 (am) / 3.95:1 (pm), BELOW the floor.
+   D16's decided fix is exactly this: raise the away-cell opacity until every string it dims clears
+   4.5:1, never lighten a token. Measured at × 0.87: chip am 4.64:1, chip pm 4.57:1, secondary text
+   5.50:1 — all clear. The two strings this rule was written for — an away cell's state and its sun
+   time, which `windowFirstStrip.js` keeps precisely because they are almanac — are the last text
+   here that may be dimmed below legibility; the chip is now a third. The mock has no away card;
+   its `.ev.weak{opacity:.62}` is a different element. */
 .wf-hc-away {
-  opacity: 0.78;
+  opacity: 0.87;
 }
 .wf-hc-top {
   display: flex;
@@ -1219,20 +1232,53 @@ button.wf-hc.on:hover {
   gap: 5px;
   min-height: 19px;
 }
-/* The event as a WORD. 6.88:1 on the panel and 5.51:1 at worst on a hovered tint; at this size
-   muted measures 3.2–3.6:1 — see `.wf-hstrip-k` above for the standing correction. */
+/* The event as a WORD — now a tinted chip stating which end of the day this is (matrix-axis plan
+   D13), so a card read alone, or on the phone where the row rails are dropped, still states its
+   axis. Measured (getComputedStyle + manual ratio, browser-verified 2026-08-30): `am` chip ink on
+   its wash over the panel 5.60:1, `pm` likewise 5.55:1; both inside an away cell (now opacity 0.87
+   — see that rule's own comment) 4.64:1 / 4.57:1. Base `color` below is the unreachable-today
+   no-modifier fallback — every render adds `.am` or `.pm` (`card.sunrise` is a strict boolean),
+   so this is dead code's colour, kept legible rather than invisible on the day it ever fires.
+   ⚠️ The wash mixes against `--color-plex-panel`, NOT `transparent` — a deviation from the bundle's
+   literal value (plan D13/§4, forced rather than chosen). A translucent wash over `transparent`
+   lets whatever sits BEHIND the chip show through: the card's own hover tint (`.wf-hc.vg`/`.vm`/
+   `.vp:hover`, up to 17% at the lighter `--color-plex-surface`) lifts the composited backdrop
+   toward the ink's own brightness and measured as low as 4.01:1 (am, `.vg:hover`) / 4.06:1 (pm,
+   `.vm:hover`) — below the floor, on a state the bundle's flat prototype has no equivalent for.
+   Mixing against the panel token instead pins the backdrop to a constant regardless of what the
+   card underneath is doing — `.on`'s gold wash and every verdict tint included, since the mix of
+   two opaque colours is itself fully opaque and so cannot be seen through at all — and on the
+   plain (non-hover, non-tinted) card the two forms are pixel-identical, since `color-mix(X%, panel)`
+   *is* what `color-mix(X%, transparent)` painted over a panel background already resolves to — this
+   changes only the hovered/tinted states, from failing to matching the resting figure above. */
 .wf-hc-sun {
   font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 600;
-  letter-spacing: 0.09em;
+  letter-spacing: 0.11em;
   text-transform: uppercase;
   line-height: 1;
   color: var(--color-plex-text-secondary);
+  padding: 3px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  min-width: 0;
+  overflow: hidden;
 }
-.wf-hc.on .wf-hc-sun {
-  color: var(--color-close-to-home);
+.wf-hc-sun.am {
+  color: var(--color-plex-dawn);
+  background: color-mix(in srgb, var(--color-plex-dawn) 15%, var(--color-plex-panel));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-plex-dawn) 30%, transparent);
 }
+.wf-hc-sun.pm {
+  color: var(--color-plex-coral-bright);
+  background: color-mix(in srgb, var(--color-plex-coral) 15%, var(--color-plex-panel));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-plex-coral) 30%, transparent);
+}
+/* `.wf-hc.on .wf-hc-sun` used to recolor the caption gold when a card was open — deleted
+   (matrix-axis plan D15): at (0,3,0) it would out-specify `.wf-hc-sun.am`/`.pm` (0,2,0) and
+   gold-recolor a dawn-blue or coral chip. The chip's tint is the axis signal now and must not
+   change with open state; the open card still carries its own gold wash + border markers. */
 /* The canvas well. Unpadded and full width, which is not cosmetic: the component measures THIS box
    per card to size that card's canvas, so anything but a bare content box would put a constant in
    `WindowFirstHeatStrip.jsx` that silently rots the next time this padding changes.
@@ -1956,6 +2002,13 @@ button.wf-hc.also.on:hover {
   /* The third footer clause goes: two of them decode the picture and the third qualifies it, and a
      phone bar has room for the two that are load-bearing. */
   .wf-hstrip-sp { display: none; }
+  /* Chip compaction (matrix-axis plan D13) — keeps the sunrise/sunset chip's min-content width
+     inside its 2-column track; without it the chip's desktop padding/letter-spacing can push a
+     narrow card wider than its column. ⚠️ (0,2,0), the same specificity as `.wf-hc-sun.am`/`.pm`
+     below — it wins any property they share on a tie, since it is later in source order. It sets
+     none today (spacing only, no colour), so the tint is untouched; a future addition here must
+     not add `color`/`background` without raising this rule's specificity to match. */
+  .wf-hstrip .wf-hc-sun { letter-spacing: 0.04em; padding: 2px 4px; }
 }
 
 /* Map overlay panel — rises in on open */

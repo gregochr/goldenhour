@@ -779,7 +779,7 @@ export default function WindowFirstHeatStrip({
         {/* The WORD, not an arrow — the design's own call, and it is right: a down arrow for
             sunset reads as a falling forecast. The glyph it replaces was P2's. */}
         <span className="wf-hc-top" aria-hidden="true">
-          <span data-testid="wf-heat-sun" className="wf-hc-sun">
+          <span data-testid="wf-heat-sun" className={`wf-hc-sun ${card.sunrise ? 'am' : 'pm'}`}>
             {card.sunrise ? 'SUNRISE' : 'SUNSET'}
           </span>
         </span>
