@@ -383,7 +383,7 @@ describe('the row-rails stylesheet half (matrix-axis plan §6, D6/D8/D9/D10/D12)
     // Omit `position: sticky` and `top`/`z-index` are inert — every other assertion here would
     // still pass against a rail that never actually sticks.
     expect(rail).toContain('position: sticky');
-    expect(rail).toContain('top: calc(var(--wf-mast-h, 128px) + var(--wf-lens-h, 54px) + var(--wf-dh-h, 49px) - 2px)');
+    expect(rail).toContain('top: calc(var(--wf-mast-h, 128px) + var(--wf-lens-h, 54px) + var(--wf-dh-h, 45px) - 2px)');
     expect(rail).toContain('z-index: 14');
     expect(rail).toContain('background: linear-gradient(180deg, var(--color-plex-bg)');
   });
@@ -405,7 +405,7 @@ describe('the row-rails stylesheet half (matrix-axis plan §6, D6/D8/D9/D10/D12)
   it('reserves scroll room for a card under the pinned tiles + rail, in full', () => {
     // Existence alone would pass at a truncated string that happened to add up to 0.
     expect(readCss()).toContain(
-      'scroll-margin-top: calc(var(--wf-lens-reserve, 188px) + var(--wf-dh-h, 49px) + 17px)',
+      'scroll-margin-top: calc(var(--wf-lens-reserve, 188px) + var(--wf-dh-h, 45px) + 17px)',
     );
   });
 

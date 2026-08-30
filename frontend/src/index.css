@@ -1100,9 +1100,10 @@
   position: sticky;
   /* Tiles' own top calc PLUS `--wf-dh-h` (the tile row's rendered height including its 9px
      padding-top, measured by `WindowFirstHeatStrip`'s own ResizeObserver — D11(b)), minus 2px to
-     close that same hairline against the tile row's bottom edge. 49px is the browser-measured
-     resting tile-row height, provisional until §6 step 6 re-measures it. */
-  top: calc(var(--wf-mast-h, 128px) + var(--wf-lens-h, 54px) + var(--wf-dh-h, 49px) - 2px);
+     close that same hairline against the tile row's bottom edge. 45px is the browser-measured
+     resting tile-row height (36px tiles + 9px padding-top, live app at 1280px, 2026-08-30 —
+     the plan's provisional 49px re-measured per its §6 step 6). */
+  top: calc(var(--wf-mast-h, 128px) + var(--wf-lens-h, 54px) + var(--wf-dh-h, 45px) - 2px);
   z-index: 14;
   display: flex;
   align-items: center;
@@ -1152,7 +1153,7 @@
    not quoted here in full, so this comment cannot become a second occurrence of the string that
    search relies on being unique). */
 .wf-hstrip.wf-hstrip-rows .wf-hc {
-  scroll-margin-top: calc(var(--wf-lens-reserve, 188px) + var(--wf-dh-h, 49px) + 17px);
+  scroll-margin-top: calc(var(--wf-lens-reserve, 188px) + var(--wf-dh-h, 45px) + 17px);
 }
 /* The day, said once per column instead of once per card: a calendar tile, then a hairline rule
    running to the right edge of the column. The rule is the column's header in the same legend
