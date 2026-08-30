@@ -582,7 +582,7 @@ class TideAlmanacSourceTest {
                 // accent, so this fixture only has to stay internally consistent.
                 alignmentPhrase != null,
                 alignmentPhrase == null ? null : "sunrise", alignmentPhrase,
-                new TideRunDay.RosterAlignment(3, 0, 4), peak, null);
+                new TideRunDay.RosterAlignment(3, 0, 4), null, null, peak, null);
     }
 
     @Test
