@@ -13,7 +13,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   Switched `MapView`'s `TileLayer` to Esri's free, keyless Canvas basemap (`World_Dark_Gray_Base` +
   `World_Dark_Gray_Reference` for labels, stacked to match the previous single-tile look) and
   updated the CSP `img-src` allow-list from `basemaps.cartocdn.com` to `server.arcgisonline.com`
-  accordingly (`nginx.conf`).
+  accordingly (`nginx.conf`). `maxZoom` is capped at 16 (Esri's native tile resolution) rather than
+  kept at the old 19 — nothing in the app zooms past 16 (lat/lon is edited via numeric fields, never
+  by placing a pin on the map), so there was no feature to trade against the blur an upscaled 17-19
+  would otherwise show.
 
 ## [v2.19.8] - 2026-08-29
 

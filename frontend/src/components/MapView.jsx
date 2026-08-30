@@ -1929,17 +1929,19 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
               "API KEY REQUIRED" watermark instead of the tile. Esri's Canvas basemaps stay
               free and keyless, so the dark theme is now two stacked Esri layers: an unlabelled
               base plus a reference overlay for place labels, matching what dark_all rendered
-              as a single tile before. */}
+              as a single tile before.
+              maxZoom is capped at 16 — Esri only renders these tiles natively that deep, and
+              nothing in this app ever zooms further (lat/lon is edited via numeric fields, not
+              by placing a pin on the map), so there is no feature to trade against the blur an
+              upscaled zoom 17-19 would otherwise show. */}
           <TileLayer
             url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
             attribution="Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors, GIS User Community"
-            maxZoom={19}
-            maxNativeZoom={16}
+            maxZoom={16}
           />
           <TileLayer
             url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
-            maxZoom={19}
-            maxNativeZoom={16}
+            maxZoom={16}
           />
           <ZoomTracker onZoom={setZoom} />
           {/* Map tab only. The Plan overlay is already focused on the spot the user asked about,
