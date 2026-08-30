@@ -81,8 +81,6 @@ class HotTopicEventEnricherTest {
                 // Non-null with alignedEvent, as the builder guarantees.
                 alignedEvent == null ? null : "HW 04:04 · 39m before " + alignedEvent,
                 new TideRunDay.RosterAlignment(alignedEvent == null ? 0 : 47, 0, 61),
-                // sunriseWater/sunsetWater: not this fixture's subject.
-                null, null,
                 false, null));
     }
 
@@ -106,7 +104,7 @@ class HotTopicEventEnricherTest {
         HotTopic topic = topic("KING_TIDE", null).withTideRun(new TideRunDay(
                 "KING RUN", 1, 1, "SAT 04", "Seaham", "4.2 m", null, "5.1 m", null, null,
                 "04:43", "21:41", null, List.of(), "HW midday · 6h after sunrise", false, false,
-                null, null, new TideRunDay.RosterAlignment(40, 0, 61), null, null, false, null));
+                null, null, new TideRunDay.RosterAlignment(40, 0, 61), false, null));
 
         assertThat(enrichOne(topic).eventType()).isNull();
     }

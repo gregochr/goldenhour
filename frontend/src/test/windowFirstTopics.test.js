@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import {
-  REGION_SCOPED_TOPIC_TYPES, WHOLE_SKY_TOPIC_TYPES,
+  DAY_SCOPED_TOPIC_TYPES, REGION_SCOPED_TOPIC_TYPES, WHOLE_SKY_TOPIC_TYPES,
   buildTopicIndex, isWholeSkyTopic, topicWindowKeys, windowTopics,
 } from '../utils/windowFirstTopics.js';
 
@@ -375,5 +377,52 @@ describe('buildTopicIndex — degrade', () => {
       topic({ type: 'SNOW_MIST', label: 'Snow mist' }),
     ]);
     expect(index.get('2026-08-05:SUNRISE')).toHaveLength(2);
+  });
+});
+
+/**
+ * The backend/client mirror, pinned mechanically rather than by comment.
+ *
+ * <p>⚠️ `DAY_SCOPED_TOPIC_TYPES` is a hand-copy of `PlanWindowProjector.isDayScoped`, and the module
+ * comment says the two "have to move together" while shipping nothing that makes them. The failure
+ * is silent and it fails toward the OLD, known-wrong behaviour: a type present on the backend and
+ * absent here buckets by `eventType`, so its badge lands on one window, `topicForBadge` finds no
+ * topic on the other, and a null topic is <b>kept unfiltered</b> — the region scope filter quietly
+ * stops applying, with every other test green.
+ *
+ * <p>This follows the repo's own drift-canary pattern (`ForecastTypeSeedDriftTest` parses the Flyway
+ * SQL; `PitExclusionDriftTest` parses `pom.xml`) and sits on the FRONTEND side deliberately: CI gates
+ * the frontend job on a repo-wide docs-only flag, so a backend-only edit to `isDayScoped` still runs
+ * this suite and still goes red.
+ */
+describe('DAY_SCOPED_TOPIC_TYPES — the backend mirror', () => {
+  // `import.meta.dirname`, as `nomodule-fallback.test.js` does for a path outside src/ — an
+  // `import.meta.url` File URL is rewritten by Vite for paths that escape the project root.
+  const PROJECTOR = path.resolve(import.meta.dirname,
+    '../../../backend/src/main/java/com/gregochr/goldenhour/service/PlanWindowProjector.java');
+
+  it('matches PlanWindowProjector.isDayScoped exactly', () => {
+    const src = readFileSync(PROJECTOR, 'utf8');
+    const body = src.match(/private static boolean isDayScoped\(String type\) \{([\s\S]*?)\n {4}\}/);
+    expect(body, 'isDayScoped not found — has it been renamed or moved?').not.toBeNull();
+
+    const backend = [...body[1].matchAll(/"([A-Z_]+)"\.equals/g)].map((m) => m[1]);
+    expect(backend.length, 'no type literals found in isDayScoped').toBeGreaterThan(0);
+    expect([...backend].sort()).toEqual([...DAY_SCOPED_TOPIC_TYPES].sort());
+  });
+
+  it('names only types the backend actually ships', () => {
+    // Transitive, and deliberately so. `REGION_SCOPED_TOPIC_TYPES` is already pinned to the shipped
+    // roster by the union test above, so asserting membership there pins these names to it too —
+    // without a second hand-maintained copy of the sixteen, which would rot independently.
+    //
+    // The invariant is real, not a convenience: a day-scoped topic is one whose CONDITIONS are
+    // geographic (a tide happens at a coastline) but whose TIMING is not (it happens all day). A
+    // whole-sky type could never be day-scoped in the sense that matters here, because its regions
+    // are not an eligibility roster at all. This also catches the one thing the mirror canary
+    // cannot: the same typo made in both files.
+    for (const type of DAY_SCOPED_TOPIC_TYPES) {
+      expect(REGION_SCOPED_TOPIC_TYPES).toContain(type);
+    }
   });
 });

@@ -13,7 +13,6 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.PlanRenderedEvent;
-import com.gregochr.goldenhour.model.TideRunDay;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -137,7 +136,7 @@ public final class PlanWindowProjector {
         if (response == null) {
             return null;
         }
-        Map<WindowKey, List<BriefingWindow.Badge>> badges = bucketTopics(response.hotTopics());
+        Map<WindowKey, List<BriefingWindow.Badge>> badges = bucketTopics(response.hotTopics(), tides);
 
         // Pass 1: draft every window with its candidate — the best region it could offer.
         List<Draft> drafts = new ArrayList<>();
@@ -552,14 +551,16 @@ public final class PlanWindowProjector {
      * evening card. This is the design bundle's own {@code WTOPICS {[windowId]: [{t, d}]}} shape,
      * whose per-window {@code d} the first port collapsed away.
      */
-    private static Map<WindowKey, List<BriefingWindow.Badge>> bucketTopics(List<HotTopic> topics) {
+    private static Map<WindowKey, List<BriefingWindow.Badge>> bucketTopics(List<HotTopic> topics,
+            Map<WindowKey, BriefingWindowTide> tides) {
         Map<WindowKey, List<BriefingWindow.Badge>> byWindow = new HashMap<>();
         for (HotTopic topic : topics) {
             if (topic.date() == null) {
                 continue;
             }
             for (WindowKey key : keysFor(topic)) {
-                byWindow.computeIfAbsent(key, k -> new ArrayList<>()).add(badgeFor(topic, key));
+                byWindow.computeIfAbsent(key, k -> new ArrayList<>())
+                        .add(badgeFor(topic, key, tides));
             }
         }
         return byWindow;
@@ -590,9 +591,13 @@ public final class PlanWindowProjector {
      * with no tide indication anywhere on the matrix once its morning had gone, and what leaves a
      * run's last day blank when its alignment falls past the end of the forecast.
      *
-     * <p>Expired windows need no guard here. {@link #renderHorizon} drops past drafts before this
-     * map is ever consulted, so a badge bucketed onto this morning's elapsed sunrise is simply
-     * never read.
+     * <p>⚠️ Expired windows need no guard here, but <b>not</b> because this class protects itself:
+     * {@link #draft} reads the badge map for every summary, past ones included, and
+     * {@link #renderHorizon} does not run until afterwards — so a badge on this morning's elapsed
+     * sunrise IS serialised. What stops it being drawn is the client, which renders only
+     * {@code renderedEvents} and re-applies its own pastness test on top. Stated precisely because
+     * the first cut of this comment claimed an ordering guarantee this class does not have, which
+     * would have misled anyone adding a consumer that walks the payload directly.
      */
     private static List<WindowKey> keysFor(HotTopic topic) {
         LocalDate date = topic.date();
@@ -616,33 +621,65 @@ public final class PlanWindowProjector {
      * The badge one window carries for one topic.
      *
      * <p>Identical to the topic's own line everywhere except a day-scoped topic's <b>non-aligned</b>
-     * window, which states its own water neutrally instead — {@code "high water 1h49 before
+     * window, which states that window's own water instead — {@code "HW 19:28 · 1h43 before
      * sunset"}. The alignment sentence is a window-level claim and stays on the window it is about;
      * this one is asked of the window being drawn.
      *
-     * <p>The {@code eventTime} moves with it, from the run row's own sunrise/sunset. It has no
-     * client reader on the Plan surface today, so this is about not writing a falsehood onto the
-     * wire rather than about anything rendered.
+     * <p>⚠️ <b>The water is READ from {@link BriefingWindowTide}, never re-derived.</b> The first
+     * cut of this computed it in {@code TideRunBuilder} as two new {@code TideRunDay} components,
+     * which was wrong twice over. That builder clips its extremes to the Europe/London civil day, so
+     * a late-June sunset whose nearest water is the following morning's high was told about the
+     * previous evening's low — wrong extremum, wrong side, wrong state word. And the run row's
+     * geometry belongs to the <em>run's</em> representative location, which is selected over a
+     * different date list from the plan's, so the sentence was an unattributed high-water time
+     * sitting beside an attributed one — the exact claim {@link BriefingWindowTide}'s own contract
+     * forbids. This map answers the same question ("the nearest extreme of either kind, and its
+     * offset from this window's own solar event") against the full extreme series, for the window
+     * being drawn, from the location the row beneath it names.
      *
-     * <p>Falls back to the topic's own detail whenever the run row is missing — a tidal day whose
-     * tide could not be derived, or a payload cached before {@code sunriseWater} existed. The badge
-     * is then the day-level claim with the day-level sentence under it, which over-states nothing.
+     * <p>{@code eventTime} is dropped rather than moved. The topic's own value names the aligned
+     * event, which this window is not, and the alternatives all name a third clock anchor — the
+     * split {@code BriefingWindowTide} warns about. No claim is the honest one; nothing on the Plan
+     * surface reads the field.
+     *
+     * <p>Falls back to the topic's own detail when this window has no tide rollup at all — an
+     * inland window, or a coastal one with no stored extremes. The badge is then the day-level
+     * claim with the day-level sentence under it, which over-states nothing.
      */
-    private static BriefingWindow.Badge badgeFor(HotTopic topic, WindowKey key) {
+    private static BriefingWindow.Badge badgeFor(HotTopic topic, WindowKey key,
+            Map<WindowKey, BriefingWindowTide> tides) {
         String detail = topic.detail();
         String eventTime = topic.eventTime();
-        TideRunDay run = topic.tideRun();
-        if (isDayScoped(topic.type()) && !isAlignedWindow(topic, key) && run != null) {
-            boolean sunrise = key.targetType() == TargetType.SUNRISE;
-            String water = sunrise ? run.sunriseWater() : run.sunsetWater();
+        if (isDayScoped(topic.type()) && !isAlignedWindow(topic, key)) {
+            String water = nearestWaterPhrase(tides == null ? null : tides.get(key));
             if (water != null) {
                 detail = water;
-                eventTime = sunrise ? run.sunrise() : run.sunset();
+                eventTime = null;
             }
         }
         return new BriefingWindow.Badge(topic.type(), topic.label(), detail, topic.facts(),
                 eventTime, TopicRarity.rankOf(topic.type()), topic.note(), topic.rarityNote(),
                 topic.safetyNote());
+    }
+
+    /**
+     * This window's nearest water, in the shape {@code TideRunDay.alignmentPhrase} already uses —
+     * {@code "HW 19:28 · 1h43 before sunset"} — or null when the window carries no tide.
+     *
+     * <p>Deliberately the same idiom as the aligned window's clause, so a reader moving between the
+     * two cards of one day is reading one sentence form with one meaning, and the only difference is
+     * which window it is about.
+     *
+     * <p>All three parts are required. They are written together by {@code WindowTideRollupBuilder}
+     * and a partial set means the rollup could not name a nearest extreme, in which case there is
+     * nothing to say and the caller keeps the topic's own line.
+     */
+    private static String nearestWaterPhrase(BriefingWindowTide tide) {
+        if (tide == null || tide.nearestType() == null
+                || tide.nearestTime() == null || tide.nearestOffset() == null) {
+            return null;
+        }
+        return tide.nearestType() + " " + tide.nearestTime() + " · " + tide.nearestOffset();
     }
 
     /**

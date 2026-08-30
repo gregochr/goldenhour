@@ -82,6 +82,67 @@ resting height is **45px, not the provisional 49px** estimate, so the `--wf-dh-h
 its test strings and the plan's quotes were updated together (the 54px lens literal was confirmed
 as-is).
 
+### Fixed — the day-scoped tide badge's per-window line now reaches the popup, and is read rather than re-derived
+
+Follow-up to v2.19.9's day-scoped tide badge, from the adversarial review that release skipped. Six
+read-only lenses over the merged diff; the two live defects below were each found independently by
+three or more of them, and every claim was re-verified against the source before being acted on.
+
+**The per-window line never reached the popup.** `WindowTopicRows` resolved its detail as
+`topic?.detail || badge.detail`, preferring the joined topic — and the topic is one object shared by
+both of its windows, so its line is the *aligned* window's. The evening card of a spring run went on
+printing `tide aligned with sunrise at 47 of 61 coastal locations`, the exact string v2.19.9's notes
+name as the defect, while the card chip's tooltip said `LW 18:14 · 1h49 before sunset` eight pixels
+away. The precedence is now badge-first — the badge is the window's payload, the topic the day-level
+fallback. The comment justifying the old order cited two dead premises: that both fields "carry the
+same sentence" (v2.19.9 deliberately made them differ) and consistency with the Hot Topics door
+(deleted in the Coming up redesign's P6). ⚠️ Every fixture in `WindowTopicRows.test.jsx` gave the two
+fields the *same literal*, so no assertion could tell which won; the new cases differ them.
+
+**The water is now READ from `BriefingWindowTide`, not re-derived.** v2.19.9 computed it in
+`TideRunBuilder` as two new `TideRunDay` components (`sunriseWater`/`sunsetWater`) plus a `waterAt`
+helper. That was wrong twice over. `TideRunBuilder` clips its extremes to the Europe/London civil
+day, so a late-June sunset whose nearest water is the next morning's high was told about the previous
+evening's low — **wrong extremum, wrong side, wrong state word**. And the run row's geometry belongs
+to the *run's* representative location, selected over a different date list from the plan's, so the
+sentence was an unattributed high-water time beside an attributed one — the claim
+`BriefingWindowTide`'s own contract forbids by name. That record already answers this exact question
+("the nearest extreme of either kind, and its offset from this window's own solar event") against the
+full extreme series, for the window being drawn, from the location the row beneath it names — and its
+map was already in scope four lines above `bucketTopics`. So `TideRunDay` reverts to its v2.19.8
+shape: the two components, `waterAt`, the two word constants and five test-fixture edits are all
+gone, and the fix is a net *deletion*. `Badge.eventTime` is now dropped on the non-aligned window
+rather than moved, because every candidate value names a third clock anchor.
+
+**Corrections to v2.19.9's own notes**, which stated three things that were not true:
+
+- "One shared instance **printed** `tide aligned with sunrise…` onto an evening card" — it never did.
+  Before that release a tide landed on one window only, so the condition described is one it created
+  and then fixed. The javadoc had it right (subjunctive); the notes and commit message did not.
+- "a day whose aligned window fell **past the end of the forecast**… `HotTopicEventEnricher` nulls
+  `eventType` in both cases" — it does not. `SolarEventFreshness` is a pure clock test with no
+  knowledge of the horizon. That blank came from `renderHorizon`'s `MAX_VISIBLE_EVENTS` cap, a
+  separate mechanism.
+- "`renderHorizon` drops past drafts before the badge map is read" — the reverse. `draft` reads the
+  map for every summary at `:146`; `renderHorizon` runs at `:155`. Badges on elapsed windows *are*
+  serialised; what stops them being drawn is the client. The javadoc now says so, because the old
+  wording claimed a within-class guarantee this class does not have.
+
+**Tests.** The sunset-aligned direction was entirely unpinned — mutating `isAlignedWindow`'s sunset
+arm to `false` passed the whole suite while silently deleting the alignment sentence from every
+sunset-aligned tide (the commoner case on a summer run); the fixture that should have caught it
+paired `alignedEvent: "sunrise"` with `eventType: "SUNSET"`, a payload production cannot emit. Added,
+along with the eventTime-dropped case and a partial-rollup fallback. ⚠️ **`DAY_SCOPED_TOPIC_TYPES`
+now has a drift canary** (`windowFirstTopics.test.js` parses `PlanWindowProjector.isDayScoped` and
+asserts set equality), following the repo's own `ForecastTypeSeedDriftTest`/`PitExclusionDriftTest`
+pattern. It sits on the frontend side deliberately: CI gates that job on a repo-wide docs-only flag,
+so a backend-only edit still runs it. Both new guards were verified to go red under mutation.
+
+Still open, recorded rather than fixed: `isDayScoped` is a backend predicate mirrored by a client
+type list, where `TopicRarity`'s precedent ("the client reads it off the wire") and
+`plan-matrix-plan.md` §4 A8's "never a client list of types" both argue it should be a served field
+on `HotTopic`. That would delete the third client type map and the canary with it. See §4 A26.
+
 ## [v2.19.9] - 2026-08-30
 
 ### Added — matrix-axis Phase 1: sunrise/sunset card chips

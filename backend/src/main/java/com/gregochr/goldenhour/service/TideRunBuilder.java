@@ -126,12 +126,6 @@ public class TideRunBuilder {
      */
     private static final long ALIGNED_WINDOW_MINUTES = 60;
 
-    /** The two solar events, as every sentence in this class spells them. */
-    private static final String SUNRISE_WORD = "sunrise";
-
-    /** @see #SUNRISE_WORD */
-    private static final String SUNSET_WORD = "sunset";
-
     /**
      * Stored extremes (highs and lows together) a location needs before its highest recorded water
      * may be called "the record". At roughly four extremes a day this is about six months, so the
@@ -616,9 +610,6 @@ public class TideRunBuilder {
                 inLight == null ? null : solarWord(inLight.minutes(), sunriseMinutes, sunsetMinutes),
                 alignmentPhrase(inLight, sunriseMinutes, sunsetMinutes),
                 roster,
-                // Asked of BOTH events unconditionally, unlike every field above — see waterAt.
-                waterAt(day.points(), sunriseMinutes, SUNRISE_WORD),
-                waterAt(day.points(), sunsetMinutes, SUNSET_WORD),
                 peak,
                 // The editorial line is claimed ONLY when a water reaches the light, and names the
                 // water that got there. On a day where nothing does, the draw is true and useless —
@@ -648,45 +639,6 @@ public class TideRunBuilder {
         return (point.type() == TideExtremeType.HIGH ? "HW" : "LW")
                 + " " + TideWording.clock(point.minutes())
                 + " · " + TideWording.offsetPhrase(gap, word);
-    }
-
-    /**
-     * The water nearest one named solar event, stated neutrally — {@code "high water 1h49 before
-     * sunset"} — or null when the day carries no extremes.
-     *
-     * <p><b>This is not a weaker {@link #alignmentPhrase}, and the difference is the whole point.</b>
-     * Everything else on the row descends from {@code inLight}: one water, the one that reached the
-     * light, and silence everywhere it did not. That is right for an <em>alignment</em> claim. But
-     * a spring or king tide is a property of the <b>day</b>, so a card for that day's other window
-     * says "Spring tide" truthfully and then has nothing to put under it. This answers that window:
-     * not whether the water aligns, simply where it is.
-     *
-     * <p>⚠️ <b>Measured against the event it was asked about, never against the nearer one.</b>
-     * {@link #signedGap} deliberately picks whichever of sunrise and sunset is closer, which is
-     * correct for "is this water in the light" and wrong here: an afternoon high water sitting
-     * marginally closer to sunrise would be reported to the <em>sunset</em> card as
-     * {@code "3h02 after sunrise"}. Hence the local gap rather than a call to that helper.
-     *
-     * <p>No usefulness threshold, deliberately. Extremes sit about 6h12 apart, so the nearest is at
-     * most ~3h06 away and the phrase degrades to a fair description of mid-tide rather than to a
-     * false one. Withholding it beyond some cutoff would leave the pill's detail blank on exactly
-     * the windows a reader is least able to guess about, and silence is not more honest than an
-     * accurate "3h02 before sunset".
-     *
-     * @param points        the day's extremes
-     * @param eventMinutes  the solar event, minutes past local midnight
-     * @param solarWord     that event's name, as {@link TideWording#offsetPhrase} will spell it
-     * @return the neutral state phrase, or null when the day has no extremes
-     */
-    private static String waterAt(List<Point> points, int eventMinutes, String solarWord) {
-        Point nearest = points.stream()
-                .min(Comparator.comparingLong(p -> Math.abs(p.minutes() - (long) eventMinutes)))
-                .orElse(null);
-        if (nearest == null) {
-            return null;
-        }
-        String state = nearest.type() == TideExtremeType.HIGH ? "high water " : "low water ";
-        return state + TideWording.offsetPhrase(nearest.minutes() - (long) eventMinutes, solarWord);
     }
 
     /**

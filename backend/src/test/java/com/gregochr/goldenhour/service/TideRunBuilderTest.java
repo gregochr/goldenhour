@@ -311,43 +311,6 @@ class TideRunBuilderTest {
     }
 
     @Test
-    @DisplayName("each window's water is measured against ITS OWN event, not the nearer one")
-    void build_windowWater_measuresAgainstItsOwnSolarEvent() {
-        // Both extremes sit in the morning half (sunrise 08:10, sunset 16:30), so the low at 11:00
-        // is nearest to SUNSET of the two waters while itself being nearer to sunrise. That is the
-        // trap: `signedGap` deliberately picks whichever solar event is closer — right for the
-        // alignment question, and here it would report the evening card "2h50 after sunrise",
-        // wrong in both the event named and the number.
-        //
-        // The two phrases also differ in their state word, so a hardcoded "high water " fails too.
-        stubSolar();
-        stubExtremes(day(ID_SEAHAM, DAY_1, high("09:00", 5.0), low("11:00", 0.4)));
-
-        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), false).get(DAY_1);
-
-        assertThat(day.sunriseWater()).isEqualTo("high water 50m after sunrise");
-        assertThat(day.sunsetWater()).isEqualTo("low water 5h30 before sunset");
-    }
-
-    @Test
-    @DisplayName("both windows get their water on an ALIGNED day — the phrases are not gated on it")
-    void build_windowWater_isNotGatedOnAlignment() {
-        // Everything else descending from the day's geometry is keyed to `inLight` and silent when
-        // no water reaches the light. These two are not: "Spring tide" is a claim about the day, so
-        // the day's other window is owed its own water even when the alignment belongs elsewhere.
-        // Here the alignment is the morning's, and the evening still gets a sentence of its own.
-        stubSolar();
-        stubExtremes(day(ID_SEAHAM, DAY_1,
-                low("02:00", 0.4), high("08:35", 5.0), low("14:20", 0.4)));
-
-        TideRunDay day = builder.build(List.of(DAY_1), List.of(seaham()), true).get(DAY_1);
-
-        assertThat(day.alignedEvent()).isEqualTo("sunrise");
-        assertThat(day.sunriseWater()).isEqualTo("high water 25m after sunrise");
-        assertThat(day.sunsetWater()).isEqualTo("low water 2h10 before sunset");
-    }
-
-    @Test
     @DisplayName("a SPRING run whose high water is the one in the light is aligned, and says so")
     void build_springRun_highWaterInTheLight_isAlignedThroughout() {
         // THE case this change exists for. A spring tide's gift is a big RANGE, which lifts high
