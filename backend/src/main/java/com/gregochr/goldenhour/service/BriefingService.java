@@ -1,5 +1,6 @@
 package com.gregochr.goldenhour.service;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.DailyBriefingCacheEntity;
 import com.gregochr.goldenhour.entity.JobRunEntity;
@@ -214,8 +215,29 @@ public class BriefingService {
     void loadPersistedBriefing() {
         briefingCacheRepository.findById(1).ifPresent(entity -> {
             try {
-                DailyBriefingResponse persisted = objectMapper.readValue(
-                        entity.getPayload(), DailyBriefingResponse.class);
+                // ⚠️ UNKNOWN PROPERTIES ARE TOLERATED HERE, AND ONLY HERE.
+                //
+                // `AppConfig.objectMapper()` is a bare `new ObjectMapper()`, so
+                // FAIL_ON_UNKNOWN_PROPERTIES is ON — correct for every other use of that bean,
+                // where an unexpected field means a genuine contract mismatch. This read is the one
+                // place where a payload written by a DIFFERENT BUILD is the expected condition: the
+                // row is a cache, and the JVM reading it has just been upgraded or rolled back.
+                //
+                // Strict, a field REMOVED from the payload's shape bricks the load. That is not
+                // hypothetical: v2.19.9 shipped `TideRunDay.sunriseWater`/`sunsetWater` and this
+                // branch removes them, so every cache row written by v2.19.9 carries two properties
+                // this build does not know. The catch below would swallow it as a WARN and leave the
+                // briefing empty — no Plan tab — until the next scheduled refresh, up to ~8 hours
+                // away (04:00/14:00/22:00). The same hazard applies in the rollback direction, and
+                // to any future field removal anywhere in this response.
+                //
+                // Scoped to the reader rather than the bean so nothing else loses its strictness,
+                // and applied to the whole response rather than to one record so the next removal
+                // is covered without anyone remembering to annotate it.
+                DailyBriefingResponse persisted = objectMapper
+                        .readerFor(DailyBriefingResponse.class)
+                        .without(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+                        .readValue(entity.getPayload());
                 cache.set(persisted);
                 lastKnownGood.set(persisted);
                 LOG.info("Loaded persisted briefing from DB (generated {})", entity.getGeneratedAt());

@@ -883,14 +883,34 @@ class BriefingServiceTest {
 
         when(briefingCacheRepository.findById(1)).thenReturn(Optional.of(entity));
 
-        // Re-create service to trigger @PostConstruct
+        // Re-created to trigger @PostConstruct.
+        BriefingService freshService = serviceWith(mapper);
+        freshService.loadPersistedBriefing();
+
+        DailyBriefingResponse cached = freshService.getCachedBriefing();
+        assertThat(cached).isNotNull();
+        assertThat(cached.headline()).isEqualTo("Test headline");
+    }
+
+    /**
+     * A service wired exactly as the container wires it, for the two tests that must drive
+     * {@code loadPersistedBriefing} on a freshly-constructed instance.
+     *
+     * <p>Extracted rather than copied because the constructor takes 24 collaborators: a second
+     * hand-maintained copy drifts, and a drifted copy of a 24-arg call is a compile error at best
+     * and a silently different service at worst.
+     *
+     * @param mapper the mapper under test — the parameter that actually varies between the two
+     * @return a service that has not yet loaded anything
+     */
+    private BriefingService serviceWith(ObjectMapper mapper) {
         BriefingVerdictEvaluator verdictEvaluator = new BriefingVerdictEvaluator();
         LunarPhaseService lunarPhaseService = new LunarPhaseService(new LunarCalculator());
         BriefingSlotBuilder slotBuilder = new BriefingSlotBuilder(
                 solarService, locationService,
                 new TideFactDeriver(tideService, lunarPhaseService, solarService), verdictEvaluator,
                         new WoodlandVerdictEvaluator());
-        BriefingService freshService = new BriefingService(
+        return new BriefingService(
                 locationService, weatherLoader(),
                 jobRunService, briefingCacheRepository, mapper,
                 new BriefingHeadlineGenerator(CLOCK), bestBetAdvisor, glossService,
@@ -900,11 +920,42 @@ class BriefingServiceTest {
                 evaluationViewService,
                 BLUEBELL_WINDOW, nlc(), meteor(), surgeCurve(), CLOCK, marineWaveRefreshService,
                 snapshots(), assembler(CLOCK), rollup(CLOCK));
+    }
+
+    @Test
+    @DisplayName("loadPersistedBriefing accepts a payload carrying fields this build has removed")
+    void loadPersistedBriefing_unknownProperty_fromAnOlderBuild_stillLoads() throws Exception {
+        // ⚠️ THE UPGRADE PATH, and it is not hypothetical. v2.19.9 shipped
+        // `TideRunDay.sunriseWater`/`sunsetWater`; this branch removes them, so every
+        // `daily_briefing_cache` row written by that release carries two properties this build does
+        // not know. `AppConfig.objectMapper()` is a bare `new ObjectMapper()`, so
+        // FAIL_ON_UNKNOWN_PROPERTIES is ON — strict, the load throws, the catch swallows it as a
+        // WARN, and there is NO briefing (so no Plan tab) until the next scheduled refresh, up to
+        // ~8 hours later. The same applies on rollback, and to any future field removal.
+        //
+        // The unknown property is injected as raw JSON rather than by serialising an old record,
+        // because the old shape no longer exists to serialise — which is precisely the condition
+        // under test. It is placed on the RESPONSE root: the fix is scoped to the reader for the
+        // whole payload, so pinning it at the root is what stops a later removal anywhere inside
+        // needing its own annotation.
+        ObjectMapper mapper = new ObjectMapper().findAndRegisterModules();
+        DailyBriefingResponse persisted = new DailyBriefingResponse(
+                LocalDateTime.now(ZoneOffset.UTC), "Survived the upgrade", List.of(), List.of(),
+                null, null, false, false, 0, "Opus", List.of(), List.of());
+        String json = mapper.writeValueAsString(persisted)
+                .replaceFirst("^\\{", "{\"sunriseWater\":\"high water 22m before sunrise\",");
+
+        DailyBriefingCacheEntity entity = new DailyBriefingCacheEntity();
+        entity.setId(1);
+        entity.setGeneratedAt(persisted.generatedAt());
+        entity.setPayload(json);
+        when(briefingCacheRepository.findById(1)).thenReturn(Optional.of(entity));
+
+        BriefingService freshService = serviceWith(mapper);
         freshService.loadPersistedBriefing();
 
-        DailyBriefingResponse cached = freshService.getCachedBriefing();
-        assertThat(cached).isNotNull();
-        assertThat(cached.headline()).isEqualTo("Test headline");
+        assertThat(freshService.getCachedBriefing()).isNotNull();
+        assertThat(freshService.getCachedBriefing().headline()).isEqualTo("Survived the upgrade");
     }
 
     @Test

@@ -138,6 +138,19 @@ asserts set equality), following the repo's own `ForecastTypeSeedDriftTest`/`Pit
 pattern. It sits on the frontend side deliberately: CI gates that job on a repo-wide docs-only flag,
 so a backend-only edit still runs it. Both new guards were verified to go red under mutation.
 
+**⚠️ Removing a field from the persisted briefing needed an upgrade path, and now has one.**
+`AppConfig.objectMapper()` is a bare `new ObjectMapper()`, so `FAIL_ON_UNKNOWN_PROPERTIES` is **on**
+— right for every other use of that bean. But `BriefingService.loadPersistedBriefing` reads a
+`daily_briefing_cache` row written by a *different build*, which is exactly where an unknown property
+is expected rather than exceptional: every row v2.19.9 wrote carries the `sunriseWater`/`sunsetWater`
+this branch removes. Strict, the load throws, the existing catch swallows it as a WARN, and there is
+no briefing — **no Plan tab** — until the next scheduled refresh, up to ~8 hours away. The reader at
+that one site now tolerates unknown properties; the shared bean keeps its strictness everywhere else,
+and the tolerance is applied to the whole response rather than to one record, so the next field
+removal anywhere inside it is covered without anyone remembering to annotate it. (Found by Codex on
+the PR. The same hazard runs in the rollback direction and pre-dates this change — it was latent for
+every field addition to that payload.)
+
 Still open, recorded rather than fixed: `isDayScoped` is a backend predicate mirrored by a client
 type list, where `TopicRarity`'s precedent ("the client reads it off the wire") and
 `plan-matrix-plan.md` §4 A8's "never a client list of types" both argue it should be a served field
