@@ -5,36 +5,6 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-## [v2.19.9] - 2026-08-30
-
-### Added — matrix-axis Phase 1: sunrise/sunset card chips
-
-Phase 1 (§5) of `docs/engineering/matrix-axis-plan.md`: the Plan tab's heat-strip cards state which
-end of the day they are. The existing `SUNRISE`/`SUNSET` caption (`.wf-hc-sun`) becomes a tinted
-chip — dawn-blue for sunrise, coral for sunset — instead of plain secondary-ink text, so a card read
-alone, or on the phone where Phase 2's row rails are dropped, still carries its own axis signal. Two
-new tokens, `--color-plex-dawn` and `--color-plex-coral-bright`, land in `@theme static`. No
-structural change, no new state, no API change — the row-rail/sticky-heading restructure is Phase 2.
-
-⚠️ **Forced deviation from the plan's literal D13 CSS**, found and fixed during browser contrast
-verification: the bundle's chip background (`color-mix(…, transparent)`) is measured translucent,
-so a hovered card's own verdict tint bled through and dropped the chip's contrast as low as 4.01:1
-— below the 4.5:1 floor, on a state the design bundle's flat prototype has no equivalent for. Fixed
-by mixing the wash against `--color-plex-panel` instead of `transparent`: the two are pixel-identical
-on a plain card (opaque-over-opaque compositing), but the panel-mixed form is itself fully opaque and
-so cannot be seen through by anything behind it — hover tint, the open-card gold wash, or any verdict
-tint. Separately, per the plan's own D16 (which did anticipate this specific risk), the pre-existing
-`.wf-hc-away` opacity is raised 0.78 → 0.87 so the chip also clears 4.5:1 inside a dimmed away cell
-(measured 4.64:1 / 4.57:1, secondary text still 5.50:1). Both changes are documented at length in
-`index.css` beside the rules they touch.
-
-Adversarial review (six lenses: runtime behaviour, CSS/tokens/cascade, test quality, accessibility,
-project conventions, Phase-2 friction) surfaced and fixed three real issues before landing: two test
-assertions pinned only the `color-mix(…, TOKEN 15%` prefix and so passed identically whether the
-background mixed against `transparent` or `--color-plex-panel` (now assert the full value); the
-raised away-cell opacity had no test coverage at all (added); and a CSS comment misstated one of its
-own diagnostic contrast figures (a hovered-state number that was actually the away-cell one).
-
 ### Added — matrix-axis Phase 2: row rails and sticky headings
 
 Phase 2 (§6) of `docs/engineering/matrix-axis-plan.md`: the Plan tab's day×event matrix now says
@@ -83,11 +53,47 @@ stylesheet, since this environment's sandboxed egress cannot reach JitPack to bu
 run the live app — see the note below): the scroll sequence pins tiles then the sunrise rail with no
 hairline gap, releases the sunrise rail with its own row and pins the sunset rail at the identical
 offset, z-index ordering holds (masthead 45 > lens 20 > tiles 15 > rail 14), and a keyboard-focused
-card under the pinned chrome scrolls in below it rather than underneath. ⚠️ **Not verified in this
-session**: the live app end-to-end (real data, canvas painting, the popup, the ~700px wrapped-lens-bar
-band, the `isMobile` branch flip and its canvas repaint) — the local backend requires `solar-utils`
-from JitPack, which this sandboxed session's egress policy blocks (403). The 54px/49px sticky
-fallback literals therefore remain provisional pending that live-app measurement pass.
+card under the pinned chrome scrolls in below it rather than underneath. The implementing session
+could not run the live app (its sandboxed egress blocks JitPack, so the backend cannot build) and
+said so; the gap was closed before merge by a **live-app verification pass on the dev machine**
+(real backend + seeded H2 + Vite, Playwright headless Chromium): every static-harness claim
+reconfirmed against the running app, the popup verified above the pinned chrome, focused cards
+verified landing below it, both directions of the 639px `isMobile` flip verified repainting their
+canvases, a scroll-position walk proving the sunrise rail pins at exactly its calc offset while its
+cards remain and leaves with them — and one mandated correction found: the day-tile row's measured
+resting height is **45px, not the provisional 49px** estimate, so the `--wf-dh-h` fallback literal,
+its test strings and the plan's quotes were updated together (the 54px lens literal was confirmed
+as-is).
+
+## [v2.19.9] - 2026-08-30
+
+### Added — matrix-axis Phase 1: sunrise/sunset card chips
+
+Phase 1 (§5) of `docs/engineering/matrix-axis-plan.md`: the Plan tab's heat-strip cards state which
+end of the day they are. The existing `SUNRISE`/`SUNSET` caption (`.wf-hc-sun`) becomes a tinted
+chip — dawn-blue for sunrise, coral for sunset — instead of plain secondary-ink text, so a card read
+alone, or on the phone where Phase 2's row rails are dropped, still carries its own axis signal. Two
+new tokens, `--color-plex-dawn` and `--color-plex-coral-bright`, land in `@theme static`. No
+structural change, no new state, no API change — the row-rail/sticky-heading restructure is Phase 2.
+
+⚠️ **Forced deviation from the plan's literal D13 CSS**, found and fixed during browser contrast
+verification: the bundle's chip background (`color-mix(…, transparent)`) is measured translucent,
+so a hovered card's own verdict tint bled through and dropped the chip's contrast as low as 4.01:1
+— below the 4.5:1 floor, on a state the design bundle's flat prototype has no equivalent for. Fixed
+by mixing the wash against `--color-plex-panel` instead of `transparent`: the two are pixel-identical
+on a plain card (opaque-over-opaque compositing), but the panel-mixed form is itself fully opaque and
+so cannot be seen through by anything behind it — hover tint, the open-card gold wash, or any verdict
+tint. Separately, per the plan's own D16 (which did anticipate this specific risk), the pre-existing
+`.wf-hc-away` opacity is raised 0.78 → 0.87 so the chip also clears 4.5:1 inside a dimmed away cell
+(measured 4.64:1 / 4.57:1, secondary text still 5.50:1). Both changes are documented at length in
+`index.css` beside the rules they touch.
+
+Adversarial review (six lenses: runtime behaviour, CSS/tokens/cascade, test quality, accessibility,
+project conventions, Phase-2 friction) surfaced and fixed three real issues before landing: two test
+assertions pinned only the `color-mix(…, TOKEN 15%` prefix and so passed identically whether the
+background mixed against `transparent` or `--color-plex-panel` (now assert the full value); the
+raised away-cell opacity had no test coverage at all (added); and a CSS comment misstated one of its
+own diagnostic contrast figures (a hovered-state number that was actually the away-cell one).
 
 ### Fixed — a spring or king tide is a claim about the DAY, and now sits on both of its windows
 
