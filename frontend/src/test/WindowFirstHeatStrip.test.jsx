@@ -1655,7 +1655,7 @@ describe('WindowFirstHeatStrip — the row-rails branch (matrix-axis plan §6, D
 
 describe('WindowFirstHeatStrip — the day-tile row\'s measured height (matrix-axis plan D11(b))', () => {
   /** Heights by class — the same pattern `WindowFirstShellSticky.test.jsx` uses for its own RO. */
-  const HEIGHTS = { 'wf-dhrow': 49 };
+  const HEIGHTS = { 'wf-dhrow': 45 };
 
   beforeEach(() => {
     // A RUNNING observer, unlike the suite-wide no-op stub — nothing here needs to fire it (the
@@ -1691,7 +1691,7 @@ describe('WindowFirstHeatStrip — the day-tile row\'s measured height (matrix-a
     // Never merely "a value was written" — that assertion alone passes at `0px`, which is exactly
     // the defect a mock class absent from `HEIGHTS` would produce (every element measures 0 in
     // jsdom unless the stub above says otherwise).
-    expect(section.style.getPropertyValue('--wf-dh-h')).toBe('49px');
+    expect(section.style.getPropertyValue('--wf-dh-h')).toBe('45px');
 
     // The cleanup path a fresh-mount phone test can never exercise: the property was never written
     // in the first place there, so there is nothing for that test to prove got removed.
