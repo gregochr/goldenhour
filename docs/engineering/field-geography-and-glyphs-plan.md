@@ -1,13 +1,13 @@
 # Field geography and topic glyphs — implementation plan
 
-**Status: G1 and G2 complete.** This line and the phase table below are the source of truth
+**Status: G1–G3 complete.** This line and the phase table below are the source of truth
 between implementing sessions — update both in the same commit as each phase.
 
 | phase | scope | state |
 |---|---|---|
 | G1 | `utils/labelPlacement.js` + `kmPerPx` (pure, tested) | done — merged (#694, `bd1ebe29`) |
-| G2 | Plan thumbnails: home marker + area names | done — `feature/field-geo-g2-thumbs`, not yet merged |
-| G3 | Popup field: reach rings + home marker | not started |
+| G2 | Plan thumbnails: home marker + area names | done — merged (#698) |
+| G3 | Popup field: reach rings + home marker | done — `feature/field-geo-g3-rings`, not yet merged |
 | G4 | Coming up topic glyphs | not started |
 
 **Source:** the design handoff is vendored verbatim at `docs/design/field-geography/` (from the

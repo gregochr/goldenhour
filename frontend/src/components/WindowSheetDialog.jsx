@@ -252,6 +252,17 @@ export default function WindowSheetDialog({
     }));
   }, [card.spots, field.selectedRegion]);
 
+  /**
+   * The field's own reach rings and home marker anchor (field-geography plan §3.1) — converted to
+   * the projection's {@code [lng, lat]} order at the point of use, never stored both shapes. Gating
+   * on the origin lives inside {@code WindowRowFieldMap} itself (it already receives {@code origin});
+   * this is only the shape conversion.
+   */
+  const homePoint = useMemo(
+    () => (field.homeCoords ? [field.homeCoords.lon, field.homeCoords.lat] : null),
+    [field.homeCoords],
+  );
+
   /** The quiet sentence the strip's slot shows when this window's gated pool is empty. */
   /**
    * What the dialog's live region says — the window it is on, and the region focus if there is one.
@@ -517,6 +528,7 @@ export default function WindowSheetDialog({
               // annotation or a control. Undefined when the shell offers no sheet, which keeps the
               // layer inert rather than shipping eight names that do nothing.
               onOpenLocation={onOpenLocation}
+              homePoint={homePoint}
             />
             )}
             <div className="wf-wsh-side">

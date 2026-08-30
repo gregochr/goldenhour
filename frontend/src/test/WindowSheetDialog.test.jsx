@@ -146,6 +146,9 @@ function field(overrides = {}) {
     selectedRegion: null,
     singleRegionScope: false,
     origin: null,
+    // Null by default — no saved postcode, the ordinary account. The field-geography plan §3.1
+    // wiring: converted to `[lng, lat]` and handed to `WindowRowFieldMap` as `homePoint`.
+    homeCoords: null,
     ...overrides,
   };
 }
@@ -833,6 +836,52 @@ describe('WindowSheetDialog — the field can never name a spot the list has exc
       renderDialog({ field: field({ selectedRegion: 'Dales' }) });
       const chips = screen.getAllByTestId('wf-row-map-chip').map((n) => n.dataset.location);
       expect(chips).toEqual(expect.arrayContaining(['Malham Cove', 'Bamburgh Beach']));
+    });
+  });
+});
+
+/**
+ * The field's own home point (field-geography plan §3.1) — `WindowRowFieldMap` owns the actual
+ * ring/marker rendering and its arithmetic ({@code WindowRowFieldMap.test.jsx}); what only THIS
+ * file can be wrong about is the shape conversion and the gating this dialog is responsible for.
+ */
+describe('WindowSheetDialog — the field’s home point', () => {
+  it('converts the saved postcode’s {lat, lon} to the projection’s [lng, lat] order', () => {
+    // Synthetic, in-frame coordinates — the same trap the strip's own suite records: a real UK
+    // postcode (lat ~55, lng ~-1.6) projects hugely off-frame under this file's ×10 stub, and
+    // `placeWithNudges` only nudges VERTICALLY, so an anchor with a wildly wrong x is dropped by
+    // every rung. Kept inside `HEAT_SPOTS`' own lat/lng range (4–26) instead.
+    //
+    // ⚠️ Asserted by POSITION, not just presence — lon ≠ lat here on purpose. `{lat:16, lon:14}`
+    // projects to (140, 160) in the correct [lng, lat] order and commits, unnudged, at
+    // `(140 - 30, 160 - 7) = (110, 153)` (a 60×14 box under `withMeasured`'s stub). Swapping the
+    // order in `WindowSheetDialog`'s conversion — `[lat, lon]` instead of `[lng, lat]` — still
+    // renders A marker (the point stays on-screen either way), just at (130, 133); presence alone
+    // cannot tell the two apart. Verified by temporarily swapping the production line and
+    // confirming this assertion fails there before restoring it.
+    withMeasured(() => {
+      renderDialog({ field: field({ homeCoords: { lat: 16, lon: 14 } }) });
+      expect(screen.getByTestId('wf-row-map-home')).toHaveStyle({ left: '110px', top: '153px' });
+    });
+  });
+
+  it('draws no home marker with no saved postcode', () => {
+    withMeasured(() => {
+      renderDialog();
+      expect(screen.queryByTestId('wf-row-map-home')).toBeNull();
+    });
+  });
+
+  it('draws no home marker under an away origin, even with a saved postcode', () => {
+    withMeasured(() => {
+      renderDialog({
+        field: field({
+          homeCoords: { lat: 16, lon: 14 },
+          origin: { name: 'Dales', baseName: 'Bakewell' },
+          singleRegionScope: true,
+        }),
+      });
+      expect(screen.queryByTestId('wf-row-map-home')).toBeNull();
     });
   });
 });

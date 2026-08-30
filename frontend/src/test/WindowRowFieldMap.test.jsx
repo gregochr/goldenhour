@@ -7,6 +7,7 @@ import WindowRowFieldMap, {
 import { bbox, drawGeo, land, load } from '../utils/heatField.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
+import { formatDriveDuration } from '../utils/briefingDisplay.js';
 
 /**
  * The open row's full-width field map.
@@ -642,6 +643,38 @@ const CHIP = (overrides = {}) => ({
   key: '1', locationId: 1, locationName: 'Bamburgh', rating: 4, ...overrides,
 });
 
+/**
+ * A catalogue for the cap cases: twelve chips in a row, and two ballast spots that drag each
+ * region's centroid hundreds of pixels below them.
+ *
+ * <p>Both halves are load-bearing. The row is spaced 30px against 6px boxes so no two chips can
+ * crowd each other; the ballast keeps the region LABEL out of the row, because a label the
+ * placer must avoid would drop chips for a reason this test is not about.
+ *
+ * <p>⚠️ <b>30px, not the 20px this fixture used through M4.</b> The placer gained a second
+ * separation test at M5 — {@code MIN_TARGET_SEPARATION_PX}, WCAG 2.5.8's Spacing exception, which
+ * is a distance between CENTRES rather than a clearance between rectangles — and at 20px apart
+ * these chips cleared the old rule and failed the new one, so the cap test started measuring
+ * crowding instead of the cap. The spacing is the fixture's way of saying "assume the placer can
+ * fit all twelve"; the number that satisfies that has moved, and the assertion has not.
+ *
+ * <p>Module-level (not local to the chip cap describe block) because the reach-rings suite's own
+ * phone fixture reuses it — home projected onto `Spot 0`'s own point is what it displaces.
+ */
+const capSpots = () => {
+  const row = Array.from({ length: 12 }, (_, i) => spot({
+    id: 100 + i, name: `Spot ${i}`, lng: 4 + i * 3, lat: 6,
+  }));
+  return [
+    ...row,
+    spot({ id: 900, name: 'Ballast A', lng: 4, lat: 200 }),
+    spot({ id: 901, name: 'Ballast B', lng: 37, lat: 200, regionName: 'Dales', rid: 'Dales' }),
+  ];
+};
+const capChips = () => Array.from({ length: 12 }, (_, i) => CHIP({
+  key: String(100 + i), locationId: 100 + i, locationName: `Spot ${i}`,
+}));
+
 describe('WindowRowFieldMap — the location chips', () => {
   it('draws none at all when the caller hands over no chips', async () => {
     // The default, and what keeps every other test in this file unchanged.
@@ -808,35 +841,6 @@ describe('WindowRowFieldMap — the location chips', () => {
     });
     expect(screen.queryAllByTestId('wf-row-map-chip')).toHaveLength(0);
   });
-
-  /**
-   * A catalogue for the cap cases: twelve chips in a row, and two ballast spots that drag each
-   * region's centroid hundreds of pixels below them.
-   *
-   * <p>Both halves are load-bearing. The row is spaced 30px against 6px boxes so no two chips can
-   * crowd each other; the ballast keeps the region LABEL out of the row, because a label the
-   * placer must avoid would drop chips for a reason this test is not about.
-   *
-   * <p>⚠️ <b>30px, not the 20px this fixture used through M4.</b> The placer gained a second
-   * separation test at M5 — {@code MIN_TARGET_SEPARATION_PX}, WCAG 2.5.8's Spacing exception, which
-   * is a distance between CENTRES rather than a clearance between rectangles — and at 20px apart
-   * these chips cleared the old rule and failed the new one, so the cap test started measuring
-   * crowding instead of the cap. The spacing is the fixture's way of saying "assume the placer can
-   * fit all twelve"; the number that satisfies that has moved, and the assertion has not.
-   */
-  const capSpots = () => {
-    const row = Array.from({ length: 12 }, (_, i) => spot({
-      id: 100 + i, name: `Spot ${i}`, lng: 4 + i * 3, lat: 6,
-    }));
-    return [
-      ...row,
-      spot({ id: 900, name: 'Ballast A', lng: 4, lat: 200 }),
-      spot({ id: 901, name: 'Ballast B', lng: 37, lat: 200, regionName: 'Dales', rid: 'Dales' }),
-    ];
-  };
-  const capChips = () => Array.from({ length: 12 }, (_, i) => CHIP({
-    key: String(100 + i), locationId: 100 + i, locationName: `Spot ${i}`,
-  }));
 
   it('⚠️ caps how many it draws, keeping the ones the caller ranked first', async () => {
     // Eight on a desktop frame. The caller hands them over in the order they deserve the space, so
@@ -1008,5 +1012,288 @@ describe('WindowRowFieldMap — the location chips', () => {
       });
     });
     expect(screen.queryAllByTestId('wf-row-map-chip')).toHaveLength(0);
+  });
+});
+
+/**
+ * Reach rings + home marker (field-geography plan §3).
+ *
+ * <h2>⚠️ The suite's default ×10 stub cannot exercise ring geometry</h2>
+ *
+ * <p>Under {@code ([lng, lat]) => [lng * 10, lat * 10]}, {@code kmPerPx = 10 / 111.2 ≈ 0.09 px/km},
+ * so r₄₀ ≈ 3.6px and r₈₀ ≈ 7.2px — both under the 18px skip floor, and no ring ever renders. Every
+ * positive ring test below overrides the projection scale with {@code drawGeo.mockImplementationOnce}
+ * and works the arithmetic through the real {@code kmPerPx}, never against a shrunk frame — the mock
+ * discards the frame entirely, so "shrink the frame until r < 18" would prove nothing.
+ *
+ * <p>Home points are chosen inside {@code SPOTS}' own small lat/lng range (never real UK
+ * coordinates), for the reason {@code WindowSheetDialog.test.jsx}'s own fixture records: a real
+ * postcode projects far outside any plausible frame under a linear stub, and {@code placeWithNudges}
+ * only nudges VERTICALLY, so a wrong x drops the anchor on every rung.
+ */
+describe('WindowRowFieldMap — reach rings + home marker', () => {
+  it('draws both rings at their real distance and commits the home marker’s own position', async () => {
+    // S = 100: r₄₀ = 40 × 100/111.2 ≈ 35.97px, r₈₀ ≈ 71.94px — neither exceeds 1.15 × 600 = 690, so
+    // both are drawn on a 600px frame.
+    drawGeo.mockImplementationOnce(() => ([lng, lat]) => [lng * 100, lat * 100]);
+    await withMeasuredMap(600, async () => {
+      await withChipBoxes(40, 14, async () => {
+        await renderMap({ homePoint: [3, 3] });
+      });
+    });
+    const rings = screen.getAllByTestId('wf-row-map-ring');
+    expect(rings).toHaveLength(2);
+    const byKm = new Map(rings.map((r) => [r.dataset.km, r]));
+    expect(Number(byKm.get('40').getAttribute('r'))).toBeCloseTo(35.97, 1);
+    expect(Number(byKm.get('80').getAttribute('r'))).toBeCloseTo(71.94, 1);
+    rings.forEach((ring) => {
+      expect(Number(ring.getAttribute('cx'))).toBeCloseTo(300, 5);
+      expect(Number(ring.getAttribute('cy'))).toBeCloseTo(300, 5);
+    });
+    // Home is anchored at the same (300, 300); its box is measured 40×14, so the first (dy=0)
+    // candidate is `{x: 300 - 20, y: 300 - 7}` and nothing placed ahead of it collides.
+    expect(screen.getByTestId('wf-row-map-home')).toHaveStyle({ left: '280px', top: '293px' });
+  });
+
+  it('labels each ring with the reach lens’s own duration string, never authored text', async () => {
+    drawGeo.mockImplementationOnce(() => ([lng, lat]) => [lng * 100, lat * 100]);
+    await withMeasuredMap(600, async () => {
+      await withChipBoxes(40, 14, async () => {
+        await renderMap({ homePoint: [3, 3] });
+      });
+    });
+    const labels = screen.getAllByTestId('wf-row-map-ring-label');
+    // Imported, never a literal — the strings can never drift from `reachLens.js`'s own tiers.
+    expect(labels.map((l) => l.textContent)).toEqual([formatDriveDuration(45), formatDriveDuration(90)]);
+  });
+
+  it('skips the 40 km ring under the 18px floor while the 80 km ring, in the SAME frame, clears it', async () => {
+    // S = 30: r₄₀ ≈ 10.79 (skipped), r₈₀ ≈ 21.58 (drawn).
+    drawGeo.mockImplementationOnce(() => ([lng, lat]) => [lng * 30, lat * 30]);
+    await withMeasuredMap(600, async () => {
+      await withChipBoxes(40, 14, async () => {
+        await renderMap({ homePoint: [3, 3] });
+      });
+    });
+    expect(screen.getAllByTestId('wf-row-map-ring').map((r) => r.dataset.km)).toEqual(['80']);
+  });
+
+  it.each([
+    [50.04, true, 'r₄₀ = 18.00px exactly — the rule is strict "<", so 18.00 is drawn'],
+    [49.9, false, 'r₄₀ ≈ 17.95px — just under the floor, skipped'],
+  ])('S=%s: the 40 km ring is %s (%s)', async (scale, drawn) => {
+    drawGeo.mockImplementationOnce(() => ([lng, lat]) => [lng * scale, lat * scale]);
+    await withMeasuredMap(600, async () => {
+      await withChipBoxes(40, 14, async () => {
+        // homePoint's LATITUDE is 0, not 3 — `kmPerPx` measures `project([lng, lat+1]) -
+        // project([lng, lat])`, and only at lat 0 does that subtraction land on the boundary
+        // EXACTLY under floating point (`1×S − 0×S`); at lat 3 the same subtraction (`4×S − 3×S`)
+        // loses a bit and the S=50.04 case reads 17.999999999999996, failing the boundary this
+        // test exists to pin.
+        await renderMap({ homePoint: [3, 0] });
+      });
+    });
+    const kms = screen.queryAllByTestId('wf-row-map-ring').map((r) => r.dataset.km);
+    expect(kms.includes('40')).toBe(drawn);
+  });
+
+  it('skips the 80 km ring once it grows past 1.15× the frame, while the 40 km ring — same scale — stays', async () => {
+    // width 60 (above the 56px paint floor), height ≈ 53 (aspect floors at 0.88 for these spots):
+    // 1.15 × max(60, 53) = 69. r₈₀ ≈ 71.94 (skipped), r₄₀ ≈ 35.97 (drawn).
+    drawGeo.mockImplementationOnce(() => ([lng, lat]) => [lng * 100, lat * 100]);
+    await withMeasuredMap(60, async () => {
+      await withChipBoxes(20, 10, async () => {
+        await renderMap({ homePoint: [3, 3] });
+      });
+    });
+    expect(screen.getAllByTestId('wf-row-map-ring').map((r) => r.dataset.km)).toEqual(['40']);
+  });
+
+  it('draws no rings element at all when both skip — the default ×10 stub, unmodified', async () => {
+    await withMeasuredMap(600, async () => {
+      await withChipBoxes(40, 14, async () => {
+        await renderMap({ homePoint: [3, 3] });
+      });
+    });
+    expect(screen.queryByTestId('wf-row-map-rings')).toBeNull();
+    // Only the RINGS skip — the home marker itself is a separate gate and still draws.
+    expect(screen.getByTestId('wf-row-map-home')).toBeInTheDocument();
+  });
+
+  it('rings and home join the SHARED box list: a chip anchored on a ring label’s own box is bumped', async () => {
+    drawGeo.mockImplementationOnce(() => ([lng, lat]) => [lng * 100, lat * 100]);
+    // The 40 km ring's label commits at (280, 257.03)–(320, 271.03) (40×14, no obstacle ahead of
+    // it). This spot's own projected point, (300, 264), sits squarely inside that box, so neither
+    // the chip's unflipped nor its flipped candidate clears it.
+    const onTheRing = [spot({
+      id: 50, name: 'On The Ring', lng: 3, lat: 2.64, regionName: 'Lakes', rid: 'Lakes',
+    })];
+    await withMeasuredMap(600, async () => {
+      await withChipBoxes(40, 14, async () => {
+        await renderMap({
+          spots: onTheRing,
+          regionNames: ['Lakes'],
+          homePoint: [3, 3],
+          chips: [{
+            key: '50', locationId: 50, locationName: 'On The Ring', rating: 4,
+          }],
+        });
+      });
+    });
+    expect(screen.queryByTestId('wf-row-map-chip')).toBeNull();
+  });
+
+  it('⚠️ the home marker outranks a region label at the same point — the behaviour change, pinned', async () => {
+    // Field-geography plan §3.3 step 4/§5.5: droppable only in the presence of home geography.
+    // A single-spot region whose only location IS the home point puts both anchors on the same
+    // pixel — home is placed first and the region label's identical candidate box collides with it.
+    drawGeo.mockImplementationOnce(() => ([lng, lat]) => [lng * 100, lat * 100]);
+    const coincident = [spot({
+      id: 9, name: 'Coincident', lng: 3, lat: 3, regionName: 'Lakes', rid: 'Lakes',
+    })];
+    await withMeasuredMap(600, async () => {
+      await withChipBoxes(40, 14, async () => {
+        await renderMap({ spots: coincident, regionNames: ['Lakes'], homePoint: [3, 3] });
+      });
+    });
+    expect(screen.getByTestId('wf-row-map-home')).toBeInTheDocument();
+    expect(screen.queryAllByTestId('wf-row-map-label')).toHaveLength(0);
+  });
+
+  it('draws nothing home-shaped under an away origin, even with a homePoint supplied', async () => {
+    await withMeasuredMap(600, async () => {
+      await withChipBoxes(40, 14, async () => {
+        await renderMap({
+          origin: { name: 'Dales', baseName: 'Bakewell' },
+          homePoint: [3, 3],
+        });
+      });
+    });
+    expect(screen.queryByTestId('wf-row-map-home')).toBeNull();
+    expect(screen.queryByTestId('wf-row-map-rings')).toBeNull();
+    expect(screen.queryAllByTestId('wf-row-map-ring-label')).toHaveLength(0);
+  });
+
+  it('with no homePoint draws nothing home-shaped, and region labels keep their never-dropped behaviour', async () => {
+    await withMeasuredMap(600, async () => {
+      await renderMap();
+    });
+    expect(screen.queryByTestId('wf-row-map-home')).toBeNull();
+    expect(screen.queryByTestId('wf-row-map-rings')).toBeNull();
+    // The field-unchanged promise (§3.5): the SAME two labels, at the SAME centroids, as the
+    // component's original behaviour with no home geography involved at all.
+    expect(screen.getAllByTestId('wf-row-map-label').map((l) => l.textContent))
+      .toEqual(['Coast', 'Dales']);
+  });
+
+  it('⚠️ with no homePoint, two COINCIDENT region labels both survive — proving `fits` never ran', async () => {
+    // The test above uses Coast/Dales, whose centroids sit 200px apart and would never collide
+    // either way — it cannot tell "never tested for collision" apart from "nothing here would
+    // have collided anyway". This fixture collides on purpose (see the sibling "home marker
+    // outranks a region label" test, which drops one of an identical pair once `hasHomeGeo` is
+    // true): with no homePoint, `fits()` does not run at all, so BOTH survive at the exact same
+    // pixel, which is what makes "never dropped" a claim about the code path rather than the data.
+    const coincident = [
+      spot({
+        id: 20, name: 'A', lng: 4, lat: 6, regionName: 'North', rid: 'North',
+      }),
+      spot({
+        id: 21, name: 'B', lng: 4, lat: 6, regionName: 'South', rid: 'South',
+      }),
+    ];
+    await withMeasuredMap(600, async () => {
+      await renderMap({ spots: coincident, regionNames: ['North', 'South'] });
+    });
+    expect(screen.getAllByTestId('wf-row-map-label').map((l) => l.textContent))
+      .toEqual(['North', 'South']);
+  });
+
+  it('the hint corner still wins against a ring label anchored into it', async () => {
+    // Frame 60×53 (height rounds from the 0.88 aspect floor), hint box {0, 29, 118, 24} (selectable
+    // — the default two-region fixture). A 40×30 ring label's box-top is only "safe" (inside the
+    // frame at every nudge rung) within y ∈ [1, 22] — and the hint's own collision band, inflated by
+    // its 2px pad, is (-3, 55): it swallows that ENTIRE safe range, so every one of the seven nudge
+    // rungs is rejected either by the frame edge or by the hint, regardless of the ring's own anchor.
+    // Anchored here (dy=0 lands at y=10, comfortably "safe") so the drop is provably the hint's
+    // doing, not the frame's.
+    drawGeo.mockImplementationOnce(() => ([lng, lat]) => [lng * 100, lat * 100]);
+    await withMeasuredMap(60, async () => {
+      await withChipBoxes(30, 30, async () => {
+        await renderMap({ homePoint: [0.2, 0.6097] });
+      });
+    });
+    expect(screen.getByTestId('wf-row-map-hint')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-row-map-ring-label')).toBeNull();
+  });
+
+  it('orders the layers: canvas → .wf-mgeo (rings SVG first within it) → .wf-mlab → .wf-mchips', async () => {
+    drawGeo.mockImplementationOnce(() => ([lng, lat]) => [lng * 100, lat * 100]);
+    await withMeasuredMap(600, async () => {
+      await withChipBoxes(40, 14, async () => {
+        await renderMap({
+          homePoint: [3, 3],
+          chips: [{
+            key: '1', locationId: 1, locationName: 'Bamburgh', rating: 4,
+          }],
+        });
+      });
+    });
+    const mapbox = screen.getByTestId('wf-row-map-canvas').parentElement;
+    const children = Array.from(mapbox.children);
+    expect(children[0].tagName).toBe('CANVAS');
+    expect(children[1]).toHaveClass('wf-mgeo');
+    expect(children[2]).toHaveClass('wf-mlab');
+    expect(children[3]).toHaveClass('wf-mchips');
+    // Rings paint over the field but under every label — first child within `.wf-mgeo`, not the
+    // map box's first child (which would put them under the paint instead).
+    expect(children[1].firstChild.tagName.toLowerCase()).toBe('svg');
+  });
+
+  it('caps at six on a phone even with home geography also claiming space', async () => {
+    // At this stub scale both rings skip (the "both skipped" test above pins that threshold), so
+    // what this fixture actually exercises is the HOME MARKER — placed in the same priority slot
+    // the rings share — outranking a chip that would otherwise have taken the cap's last place.
+    // Home projects onto `Spot 0`'s own point exactly, so its box collides with both of that chip's
+    // candidates (unflipped and flipped) and `Spot 6` fills the cap in its place.
+    useIsMobile.mockReturnValue(true);
+    try {
+      await withMeasuredMap(600, async () => {
+        await withChipBoxes(6, 6, async () => {
+          await renderMap({ spots: capSpots(), chips: capChips(), homePoint: [4, 6] });
+        });
+      });
+      const drawn = screen.getAllByTestId('wf-row-map-chip').map((n) => n.dataset.location);
+      expect(drawn).toHaveLength(6);
+      expect(drawn).not.toContain('Spot 0');
+      expect(drawn).toContain('Spot 6');
+    } finally {
+      useIsMobile.mockReturnValue(false);
+    }
+  });
+
+  it('carries no click handler of its own — the pointer pass-through is a browser-verified CSS claim', async () => {
+    drawGeo.mockImplementationOnce(() => ([lng, lat]) => [lng * 100, lat * 100]);
+    await withMeasuredMap(600, async () => {
+      await withChipBoxes(40, 14, async () => {
+        await renderMap({ homePoint: [3, 3] });
+      });
+    });
+    const geo = document.querySelector('.wf-mgeo');
+    expect(geo).not.toHaveAttribute('onclick');
+    // Nothing is listening on the layer itself; the canvas underneath is what `handleClick` tests
+    // below confirm still receives the click. `pointer-events: none` is a CSS claim jsdom cannot
+    // hit-test — see the PR's own browser-verification pass.
+    expect(() => fireEvent.click(geo)).not.toThrow();
+  });
+
+  it('still selects a region by centroid click with rings and the home marker also on the field', async () => {
+    const { onSelectRegion } = await withMeasuredMap(600, async () => {
+      const handles = await withChipBoxes(
+        40, 14, async () => renderMap({ homePoint: [3, 3] }),
+      );
+      fireEvent.click(stubCanvasBox(600), { clientX: 60, clientY: 60 });
+      return handles;
+    });
+    expect(onSelectRegion).toHaveBeenCalledWith('Coast');
   });
 });

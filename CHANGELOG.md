@@ -121,6 +121,56 @@ roster (4 regions, 21 locations): home marker renders and disappears correctly u
 area names fall back correctly for this roster's non-matching region names, and the leading region's
 label brightens on a rated window.
 
+### Added — field-geography G3: popup field reach rings + home marker (`docs/engineering/field-geography-and-glyphs-plan.md`)
+
+The window popup's field map (`WindowRowFieldMap.jsx`) gains two dashed reach rings (40 km / 80 km,
+labelled with the reach lens's own `formatDriveDuration(45)`/`formatDriveDuration(90)` strings, never
+authored text) and a home marker, rendered on a new `.wf-mgeo` layer — a SIBLING of the existing
+`.wf-mlab`/`.wf-mchips` layers, not a child, because `.wf-mlab span`'s universal centre-transform
+would corrupt `placeWithNudges`' top-left boxes. DOM order: canvas → `.wf-mgeo` (rings SVG first) →
+`.wf-mlab` → `.wf-mchips`, so rings paint over the field but under every label. Ring radii come from
+G1's `kmPerPx`, skipped when illegibly small (`r < 18px`) or entirely off-frame
+(`r > max(w,h) × 1.15`). `WindowSheetDialog.jsx` converts `field.homeCoords` to `[lng, lat]` once and
+hands it down as `homePoint`; gating (`origin == null && homePoint != null`) lives inside
+`WindowRowFieldMap` itself.
+
+**A deliberate, scoped behaviour change**: region labels on this map become droppable — via the
+component's existing `fits()` — but ONLY when home geography is present; with no `homePoint` the
+placement pass is byte-identical to the map's original, never-dropped behaviour (pinned both ways).
+Rings and the home marker are placed first and outrank a region label the same way the hint corner
+already did. Browser-verified against the seeded local roster: on a real desktop popup (four regions,
+a Newcastle postcode), all four region labels legitimately lost this contest at once — two to genuine
+collision with the home/ring geometry, two to the frame-edge test given the popup's ~290px width and
+region names as long as "Northumberland & Tyneside" — while the SAME window's phone-width popup (a
+taller frame) kept one. This is the plan's own anticipated cost (§3.3, "on a narrow frame the field
+can name no locations at all") extended from chips to region labels; not a regression, but worth
+knowing before the first user report.
+
+⚠️ **Owner flag, not yet resolved** (plan §5.2, default open): the ring labels are duration strings
+manufactured from straight-line km, not measured drive time — in tension with the reach vocabulary
+rule that no surface says "within reach" unless a drive time gated it, and with `reachLens.js`'s own
+warning that a "45 min" reading which hides a longer real drive is the most damaging thing that
+control can do. A LITE-tier reader sees these rings live on the field while the same duration strings
+sit greyed behind a Pro pill in the lens bar on the same screen — every LITE user with a saved
+postcode is permanently in that incoherent state (LITE is pinned to "Any" reach; drive times are Pro).
+Alternatives on the table: km labels instead of durations, or duration labels shown only when
+`reachMeasured`. Shipped ungated per the plan's own precedent for shipping with the question recorded.
+
+Adversarially reviewed before landing (four lenses: runtime/React correctness, CSS/layering/tokens,
+test quality, plan conformance/accessibility). Two independent reviewers flagged the same stale
+class-level doc comment (a "region labels are never dropped" claim, unconditional, contradicting the
+new conditional rule 300 lines later in the same file) — fixed. The test-quality pass found two real
+gaps and both are closed: the dialog-level "home point order conversion" test asserted marker
+*presence* only, which a `[lat, lon]`/`[lng, lat]` swap bug would still pass (now asserts the
+committed pixel position, verified against a temporary swap of the production line and reverted); and
+the "no homePoint, region labels never dropped" test used a fixture (Coast/Dales, 200px apart) that
+could never have collided either way, so it could not distinguish "the collision test never ran" from
+"nothing here would have collided anyway" — a second test using two regions with COINCIDENT centroids
+closes that gap. `docs/engineering/field-geography-and-glyphs-plan.md` §5.5 records the ring-tests
+floating-point trap this phase's own test suite hit and fixed (a boundary fixture at a `homePoint`
+latitude other than 0 lands `r₄₀` a few `1e-16` under 18px, purely from JS float subtraction, and
+silently proves the wrong thing).
+
 ### Fixed — a flipped field-map chip pointed one chip-width west of its own location
 
 The window popup's field map flips a location chip whose name will not fit to the right of its
