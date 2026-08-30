@@ -111,19 +111,6 @@ import java.util.List;
  *                     to correct. So the clause exists separately rather than being recovered by
  *                     trimming the verdict's text, which would make the verdict's punctuation
  *                     load-bearing
- * @param sunriseWater the water nearest this day's own sunrise, stated neutrally —
- *                     {@code "high water 22m before sunrise"} — or null when the day carries no
- *                     extremes at all. Deliberately NOT gated on {@link #aligned}: it answers a
- *                     different question from {@link #alignmentPhrase}, which names the one water
- *                     that reached the light and is silent everywhere else. This one is asked of
- *                     <b>every</b> window on a tidal day, because "Spring tide" is a claim about the
- *                     day and a reader looking at the evening card is owed the evening's water.
- *                     <p>⚠️ Measured against <b>its own event</b>, never against the nearer of the
- *                     two. {@code TideRunBuilder}'s {@code signedGap} picks the nearer solar event
- *                     and is right for the alignment question; used here it would label the sunset
- *                     card's water {@code "before sunrise"} whenever that extremum happened to sit
- *                     closer to the morning
- * @param sunsetWater  the same question asked of this day's sunset; see {@link #sunriseWater}
  * @param peak         true on the run's biggest-range day
  * @param phrase       the editorial line for the water that reached the light, or null when none
  *                     did — the draw is only claimed when a water lands in usable light.
@@ -153,8 +140,6 @@ public record TideRunDay(
         @JsonInclude(JsonInclude.Include.NON_NULL) String alignedEvent,
         @JsonInclude(JsonInclude.Include.NON_NULL) String alignmentPhrase,
         @JsonInclude(JsonInclude.Include.NON_NULL) RosterAlignment roster,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String sunriseWater,
-        @JsonInclude(JsonInclude.Include.NON_NULL) String sunsetWater,
         boolean peak,
         @JsonInclude(JsonInclude.Include.NON_NULL) String phrase) {
 
@@ -184,10 +169,6 @@ public record TideRunDay(
      * @param alignedEvent which solar event it aligned with, or null
      * @param alignmentPhrase the alignment clause alone, or null
      * @param roster       the roster-wide alignment tally, or null
-     * @param sunriseWater the neutral state of the water at this day's sunrise, or null. Absent
-     *                     from legacy cached payloads, where it deserializes to null and the badge
-     *                     falls back to the topic's own detail line
-     * @param sunsetWater  the same for this day's sunset, or null
      * @param peak         whether this is the run's biggest-range day
      * @param phrase       the editorial line for this event type
      */
@@ -213,8 +194,6 @@ public record TideRunDay(
             @JsonProperty("alignedEvent") String alignedEvent,
             @JsonProperty("alignmentPhrase") String alignmentPhrase,
             @JsonProperty("roster") RosterAlignment roster,
-            @JsonProperty("sunriseWater") String sunriseWater,
-            @JsonProperty("sunsetWater") String sunsetWater,
             @JsonProperty("peak") boolean peak,
             @JsonProperty("phrase") String phrase) {
         this.runLabel = runLabel;
@@ -237,8 +216,6 @@ public record TideRunDay(
         this.alignedEvent = alignedEvent;
         this.alignmentPhrase = alignmentPhrase;
         this.roster = roster;
-        this.sunriseWater = sunriseWater;
-        this.sunsetWater = sunsetWater;
         this.peak = peak;
         this.phrase = phrase;
     }

@@ -18,7 +18,6 @@ import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.HotTopic;
 import com.gregochr.goldenhour.model.HotTopicFact;
 import com.gregochr.goldenhour.model.PlanRenderedEvent;
-import com.gregochr.goldenhour.model.TideRunDay;
 import com.gregochr.goldenhour.model.Verdict;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -938,17 +937,21 @@ class PlanWindowProjectorTest {
 
         // ── Day-scoped topics (tides) ────────────────────────────────────────
 
+        /** Both of TODAY's windows carrying a tide, each with its own nearest water. */
+        private Map<PlanWindowProjector.WindowKey, BriefingWindowTide> bothTides() {
+            return Map.of(
+                    keyOf(TargetType.SUNRISE), windowTide("HW", "05:47", "22m before sunrise"),
+                    keyOf(TargetType.SUNSET), windowTide("LW", "18:14", "1h49 before sunset"));
+        }
+
         @Test
         @DisplayName("a spring tide lands on BOTH of its day's windows")
         void aTideTopicSpansBothWindowsOfItsDay() {
             // "Spring tide" is a claim about the day. Placing it by `alignedEvent` labelled a
             // day-level fact with a window-level one, so an evening card on a spring run showed
             // no tide at all.
-            HotTopic tide = topic("SPRING_TIDE", "SUNRISE")
-                    .withTideRun(tideRun("high water 22m before sunrise",
-                            "high water 1h49 before sunset"));
-
-            DailyBriefingResponse out = project(twoWindowDay(), List.of(tide));
+            DailyBriefingResponse out = projectWithTides(twoWindowDay(),
+                    List.of(topic("SPRING_TIDE", "SUNRISE")), bothTides());
 
             assertThat(windowOf(out, TargetType.SUNRISE).badges()).hasSize(1);
             assertThat(windowOf(out, TargetType.SUNSET).badges()).hasSize(1);
@@ -960,61 +963,67 @@ class PlanWindowProjectorTest {
             // The two strategies share every piece of alignment machinery, so a fix that reached
             // only one of them would be a coincidence of type strings. Asserted separately because
             // that string is the only thing distinguishing them here.
-            HotTopic tide = topic("KING_TIDE", "SUNSET")
-                    .withTideRun(tideRun("low water 2h10 after sunrise",
-                            "high water 29m before sunset"));
-
-            DailyBriefingResponse out = project(twoWindowDay(), List.of(tide));
+            DailyBriefingResponse out = projectWithTides(twoWindowDay(),
+                    List.of(topic("KING_TIDE", "SUNRISE")), bothTides());
 
             assertThat(windowOf(out, TargetType.SUNRISE).badges()).hasSize(1);
             assertThat(windowOf(out, TargetType.SUNSET).badges()).hasSize(1);
         }
 
         @Test
-        @DisplayName("the non-aligned window states its own water, not the alignment sentence")
+        @DisplayName("a SUNRISE-aligned tide keeps its alignment line on the morning only")
         void theNonAlignedWindowCarriesItsOwnNeutralDetail() {
-            // The whole reason the badge is built per key. One shared instance printed
-            // "tide aligned with sunrise at 47 of 61 coastal locations" onto an evening card.
-            HotTopic tide = topic("SPRING_TIDE", "SUNRISE")
-                    .withTideRun(tideRun("high water 22m before sunrise",
-                            "high water 1h49 before sunset"));
-
-            DailyBriefingResponse out = project(twoWindowDay(), List.of(tide));
+            // The whole reason the badge is built per key: one shared instance would hand the
+            // evening card the morning's "tide aligned with sunrise at 47 of 61 coastal
+            // locations". The neutral line is READ from the window's own tide rollup, not
+            // re-derived — see badgeFor.
+            DailyBriefingResponse out = projectWithTides(twoWindowDay(),
+                    List.of(topic("SPRING_TIDE", "SUNRISE")), bothTides());
 
             assertThat(windowOf(out, TargetType.SUNRISE).badges().get(0).detail())
                     .isEqualTo("SPRING_TIDE detail");
             assertThat(windowOf(out, TargetType.SUNSET).badges().get(0).detail())
-                    .isEqualTo("high water 1h49 before sunset");
+                    .isEqualTo("LW 18:14 · 1h49 before sunset");
         }
 
         @Test
-        @DisplayName("the non-aligned window's eventTime moves to that window's own solar time")
-        void theNonAlignedWindowCarriesItsOwnEventTime() {
-            // Held to the same standard as the detail: a badge saying 06:09 on an evening card is
-            // a falsehood on the wire even while nothing on the Plan surface reads it.
-            HotTopic tide = topic("SPRING_TIDE", "SUNRISE")
-                    .withTideRun(tideRun("high water 22m before sunrise",
-                            "high water 1h49 before sunset"));
+        @DisplayName("a SUNSET-aligned tide keeps its alignment line on the evening only")
+        void theSunsetAlignedWindowKeepsTheAlignmentSentence() {
+            // ⚠️ The mirror image, and it was MISSING from the first cut — every test there held
+            // the aligned event at SUNRISE, so mutating isAlignedWindow's sunset arm to `false`
+            // passed the whole suite while silently deleting the alignment sentence from every
+            // sunset-aligned tide. That is the more common case on a summer run.
+            DailyBriefingResponse out = projectWithTides(twoWindowDay(),
+                    List.of(topic("KING_TIDE", "SUNSET")), bothTides());
 
-            DailyBriefingResponse out = project(twoWindowDay(), List.of(tide));
+            assertThat(windowOf(out, TargetType.SUNSET).badges().get(0).detail())
+                    .isEqualTo("KING_TIDE detail");
+            assertThat(windowOf(out, TargetType.SUNRISE).badges().get(0).detail())
+                    .isEqualTo("HW 05:47 · 22m before sunrise");
+        }
+
+        @Test
+        @DisplayName("the non-aligned window states no event time at all")
+        void theNonAlignedWindowDropsTheEventTime() {
+            // The topic's own value names the ALIGNED event, which this window is not, and every
+            // alternative names a third clock anchor. No claim is the honest one — held to the
+            // detail's standard even though nothing on the Plan surface reads the field.
+            DailyBriefingResponse out = projectWithTides(twoWindowDay(),
+                    List.of(topic("SPRING_TIDE", "SUNRISE")), bothTides());
 
             assertThat(windowOf(out, TargetType.SUNRISE).badges().get(0).eventTime())
                     .isEqualTo("21:11");
-            assertThat(windowOf(out, TargetType.SUNSET).badges().get(0).eventTime())
-                    .isEqualTo("20:03");
+            assertThat(windowOf(out, TargetType.SUNSET).badges().get(0).eventTime()).isNull();
         }
 
         @Test
         @DisplayName("a tide whose alignment has already passed still badges both windows")
         void aTideWithNoEventTypeStillSpansItsDay() {
-            // The bug this fix is really about. `HotTopicEventEnricher` nulls eventType once the
+            // The bug this work is really about. `HotTopicEventEnricher` nulls eventType once the
             // aligned event is behind us, and the old guard dropped the whole topic — so a spring
             // day carried no tide indication anywhere from mid-morning onwards.
-            HotTopic tide = topic("SPRING_TIDE", null)
-                    .withTideRun(tideRun("high water 53m before sunrise",
-                            "high water 2h24 before sunset"));
-
-            DailyBriefingResponse out = project(twoWindowDay(), List.of(tide));
+            DailyBriefingResponse out = projectWithTides(twoWindowDay(),
+                    List.of(topic("SPRING_TIDE", null)), bothTides());
 
             assertThat(windowOf(out, TargetType.SUNRISE).badges()).hasSize(1);
             assertThat(windowOf(out, TargetType.SUNSET).badges()).hasSize(1);
@@ -1026,26 +1035,22 @@ class PlanWindowProjectorTest {
             // There is no aligned window to protect, so neither window may keep the topic's own
             // "alignment already passed" sentence — on an evening card that denies an alignment
             // belonging to a morning that is gone.
-            HotTopic tide = topic("SPRING_TIDE", null)
-                    .withTideRun(tideRun("high water 53m before sunrise",
-                            "high water 2h24 before sunset"));
-
-            DailyBriefingResponse out = project(twoWindowDay(), List.of(tide));
+            DailyBriefingResponse out = projectWithTides(twoWindowDay(),
+                    List.of(topic("SPRING_TIDE", null)), bothTides());
 
             assertThat(windowOf(out, TargetType.SUNRISE).badges().get(0).detail())
-                    .isEqualTo("high water 53m before sunrise");
+                    .isEqualTo("HW 05:47 · 22m before sunrise");
             assertThat(windowOf(out, TargetType.SUNSET).badges().get(0).detail())
-                    .isEqualTo("high water 2h24 before sunset");
+                    .isEqualTo("LW 18:14 · 1h49 before sunset");
         }
 
         @Test
-        @DisplayName("a tide with no run row still spans, falling back to its own detail")
-        void aTideWithNoRunRowFallsBackToTheTopicDetail() {
-            // A tidal day whose tide could not be derived, and a payload cached before
-            // sunriseWater existed. The day-level claim survives; only the per-window sentence is
-            // lost, which over-states nothing.
-            DailyBriefingResponse out =
-                    project(twoWindowDay(), List.of(topic("SPRING_TIDE", "SUNRISE")));
+        @DisplayName("a tide with no rollup for a window still spans, keeping the topic's line")
+        void aTideWithNoWindowTideFallsBackToTheTopicDetail() {
+            // An inland window, or a coastal one with no stored extremes. The day-level claim
+            // survives; only the per-window sentence is lost, which over-states nothing.
+            DailyBriefingResponse out = projectWithTides(twoWindowDay(),
+                    List.of(topic("SPRING_TIDE", "SUNRISE")), Map.of());
 
             assertThat(windowOf(out, TargetType.SUNRISE).badges().get(0).detail())
                     .isEqualTo("SPRING_TIDE detail");
@@ -1054,13 +1059,14 @@ class PlanWindowProjectorTest {
         }
 
         @Test
-        @DisplayName("a run row with a null water phrase falls back rather than blanking the detail")
-        void aNullWaterPhraseFallsBackToTheTopicDetail() {
-            // waterAt returns null for a day carrying no extremes at all. A blank detail would be
-            // a badge with a label and nothing under it.
-            HotTopic tide = topic("SPRING_TIDE", "SUNRISE").withTideRun(tideRun(null, null));
-
-            DailyBriefingResponse out = project(twoWindowDay(), List.of(tide));
+        @DisplayName("a partial tide rollup falls back rather than printing half a sentence")
+        void aPartialWindowTideFallsBackToTheTopicDetail() {
+            // All three parts are written together, so a partial set means the rollup could not
+            // name a nearest extreme. `HW null · null` would be a badge with a label and rubble
+            // under it.
+            DailyBriefingResponse out = projectWithTides(twoWindowDay(),
+                    List.of(topic("SPRING_TIDE", "SUNRISE")),
+                    Map.of(keyOf(TargetType.SUNSET), windowTide("LW", null, "1h49 before sunset")));
 
             assertThat(windowOf(out, TargetType.SUNSET).badges().get(0).detail())
                     .isEqualTo("SPRING_TIDE detail");
@@ -1584,6 +1590,30 @@ class PlanWindowProjectorTest {
         return PlanWindowProjector.apply(response(days, topics), now, Map.of());
     }
 
+    /** As {@link #project}, with the per-window tide rollups the neutral badge detail reads. */
+    private static DailyBriefingResponse projectWithTides(List<BriefingDay> days,
+            List<HotTopic> topics, Map<PlanWindowProjector.WindowKey, BriefingWindowTide> tides) {
+        return PlanWindowProjector.apply(response(days, topics), NOW, tides);
+    }
+
+    /**
+     * A window's tide rollup carrying only the three fields the neutral badge detail reads.
+     *
+     * <p>The rest is the shape the record demands. {@code curve} is empty and the position/level
+     * are zero because nothing in this file draws the sparkline.
+     */
+    private static BriefingWindowTide windowTide(String nearestType, String nearestTime,
+            String nearestOffset) {
+        return new BriefingWindowTide("St Mary's Lighthouse", TideState.HIGH,
+                BriefingWindowTide.Direction.FALLING, nearestType, nearestTime, nearestOffset,
+                "4.2 m", null, null, List.of(), 0.0, 0.0);
+    }
+
+    /** The window key for one of {@link #TODAY}'s two events. */
+    private static PlanWindowProjector.WindowKey keyOf(TargetType type) {
+        return new PlanWindowProjector.WindowKey(TODAY, type);
+    }
+
     /** Every pick on the response, so an invariant about their number can be stated as one. */
     private static List<BriefingWindow.Pick> picksOf(DailyBriefingResponse r) {
         return r.days().stream()
@@ -1795,15 +1825,4 @@ class PlanWindowProjectorTest {
                 null, null, null, null, null, null);
     }
 
-    /**
-     * A tide run row carrying only what the badge derivation reads: the two neutral water phrases
-     * and the two solar times. Everything else is the shape the record demands, not the fixture's
-     * subject.
-     */
-    private static TideRunDay tideRun(String sunriseWater, String sunsetWater) {
-        return new TideRunDay("SPRING RUN 2/4", 2, 4, "MON 31", "St Mary's Lighthouse",
-                "2.4 m", null, null, null, null, "06:09", "20:03", null, List.of(),
-                "verdict", true, false, "sunrise", "HW 05:47 · 22m before sunrise", null,
-                sunriseWater, sunsetWater, false, null);
-    }
 }

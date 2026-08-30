@@ -126,7 +126,7 @@ const EVENT_NIGHT = 'NIGHT';
  * {@link REGION_SCOPED_TOPIC_TYPES} — a tide is scoped by geography and unscoped by time of day,
  * which is exactly why one set could not answer both questions.
  */
-const DAY_SCOPED_TOPIC_TYPES = new Set(['KING_TIDE', 'SPRING_TIDE']);
+export const DAY_SCOPED_TOPIC_TYPES = new Set(['KING_TIDE', 'SPRING_TIDE']);
 
 /** Whether a topic type is exempt from the scope intersection — see the class comment. */
 export function isWholeSkyTopic(type) {
