@@ -7,7 +7,7 @@ between implementing sessions — update both in the same commit as each phase.
 |---|---|---|
 | G1 | `utils/labelPlacement.js` + `kmPerPx` (pure, tested) | done — merged (#694, `bd1ebe29`) |
 | G2 | Plan thumbnails: home marker + area names | done — merged (#698) |
-| G3 | Popup field: reach rings + home marker | done — `feature/field-geo-g3-rings`, not yet merged |
+| G3 | Popup field: reach rings + home marker | done — merged (#701, `768f8af3`) |
 | G4 | Coming up topic glyphs | not started |
 
 **Source:** the design handoff is vendored verbatim at `docs/design/field-geography/` (from the
@@ -35,7 +35,8 @@ Two changes, both about making an existing surface legible rather than adding a 
    UK coastline, but nothing on them names a place. Every other reading on a card — drive time,
    `leave by`, the reach filter — is measured from one origin the picture never showed. Thumbnails
    gain a **home marker** and **area names at region centroids**; the drill-down popup field
-   additionally gains **dashed reach rings** at the 45 min and 1h 30min tiers.
+   additionally gains **dashed reach rings** at two reach-distance tiers (25 mi / 50 mi, labelled
+   by distance by default and by drive duration only once a real drive time is measured — §5.2).
 2. **Topic glyphs on Coming up.** Coming up names its topics with no glyph. It gains a per-family
    emoji glyph on timeline rows, standing-condition rows and filter chips — where a colour swatch
    element exists (condition rows, chips), the glyph sits beside it, never in place of it; the
@@ -68,7 +69,7 @@ line numbers before editing (they will drift).**
 | `HOMEPT = [-1.573, 54.855]` | **Must not be a constant.** `App.jsx` holds `homeCoords` (`{lat, lon}`, null when no postcode saved) from user settings. It currently reaches only the Map pane — plumbing it to the Plan surfaces is new work (§2, §3). |
 | resize → redraw, debounce 140 ms | `hooks/useHeatCanvas.js` already owns this: ResizeObserver via ref callback + leading-edge throttle `RESIZE_THROTTLE_MS = 170`. **Reuse it — do not add a debounce.** Labels re-place whenever the paint effect re-runs. |
 | popup `placeLabels` + hint box | `WindowRowFieldMap.jsx` already has a greedy placer: `fits(box, placed, w, h)` with `BOX_GAP=3`/`EDGE_GAP=2` + a 24px centre-separation test for `target:true` boxes (WCAG 2.5.8); pass order hint-corner → not-scored corner → region labels (seeded) → chips (flip-then-drop); two-pass measurement at `left:-9999px; visibility:hidden`. `HINT_BOX = {width:118, height:24}` is already reserved bottom-left. The projection and anchors live in **one** state object (`frame`) so a click is never answered against a projection the labels weren't drawn from — keep that invariant. |
-| reach tiers `40 km ⇢ '45 min'`, `80 km ⇢ '1h 30min'` | Tier labels are **derived, never authored**: `utils/reachLens.js` `REACH_TIERS` builds labels with `formatDriveDuration(limitMinutes)`. Ring labels must reuse `formatDriveDuration(45)` / `formatDriveDuration(90)` so the strings can never drift from the lens. The km radii (40, 80) stay authored design constants. |
+| reach tiers `40 km ⇢ '45 min'`, `80 km ⇢ '1h 30min'` | Tier labels are **derived, never authored**: `utils/reachLens.js` `REACH_TIERS` builds labels with `formatDriveDuration(limitMinutes)`. Ring labels must reuse `formatDriveDuration(45)` / `formatDriveDuration(90)` so the strings can never drift from the lens. The km radii (40, 80) stay authored design constants. ⚠️ **§5.2 later re-authored both halves of this row**: the radii are now 25 mi / 50 mi (40.2336 / 80.4672 km), and the ring label only reuses `formatDriveDuration` when `reachMeasured` is true — otherwise it is the authored miles string. This row is kept as the historical record of the G3 reconciliation; §3.2/§5.2 are the current behaviour. |
 | region names `SHORT`/`TINY` tables | Production regions come from the DB. Use an authored abbreviation map keyed by region name for the known roster, **fail-soft to the uppercased full name** for any region not in the map — the collision pass drops what cannot fit, which is the designed failure mode. |
 | `&nbsp;` in names | Use `white-space: nowrap` in CSS (the prototype sets it too; the nbsp was belt-and-braces for a DOM it built by `innerHTML`). |
 | per-window "hot" region (highest mean rating) | The argmax **already exists**: `topRegion(es)` in `utils/windowFirstCards.js` (~:192), with a deliberate name tie-break and the `eligibleRegions` canopy filter. Reuse it (§2.3) — never a fresh argmax, never recomputed from heat spots. ⚠️ The strip's `cards` prop comes from `buildHeatStripCards` in **`utils/windowFirstStrip.js`**, a field-by-field whitelist fold — a field added in `windowFirstCards.js` alone is silently dropped before it reaches the strip. |
@@ -381,13 +382,14 @@ carries `origin` in `openField`) **and** `homePoint` is non-null.
 
 Rings state the reach thresholds in real distance, deliberately **not** a filtered view of the
 heat — the field still paints every rated location regardless of reach (filtering the field per
-driver would make the same night look different to two people). They are gated on a saved
-postcode, not on `reachMeasured`: they claim a distance from home, not that a drive-time filter
-ran. One consequence to have in writing before the first user report: the ring is straight-line
-km wearing a duration label while the lens tier is measured road minutes, so a spot can sit
-inside the "45 min" ring yet outside the lens's 45-min tier (and vice versa) — **designed
-behaviour, triage it as such, not as a bug**. §5.2 carries the unresolved tension with the reach
-vocabulary rule and the owner flag.
+driver would make the same night look different to two people). The *rings themselves* are gated
+on a saved postcode only, not on `reachMeasured`: they claim a distance from home, not that a
+drive-time filter ran. The *ring label*, since §5.2's decision, is gated on `reachMeasured` too —
+see §3.2 and §5.2 for the resolved distance-vs-duration split. One consequence to have in writing
+before the first user report, unchanged by that decision: even for a `reachMeasured` reader the
+ring is straight-line km wearing a duration label while the lens tier is measured road minutes, so
+a spot can sit inside the "45 min" ring yet outside the lens's 45-min tier (and vice versa) —
+**designed behaviour, triage it as such, not as a bug**. §5.2 records this residual explicitly.
 
 ### 3.2 Rings
 
@@ -405,8 +407,17 @@ paint*, invisible.)
 Two circles centred on `proj(homePoint)`:
 
 ```js
-const RING_TIERS = [[40, 45], [80, 90]];   // [km, tier minutes] — km are authored design constants
-// label: formatDriveDuration(minutes) — the SAME string the reach lens shows for that tier
+const MI_TO_KM = 1.609344;   // 1 mi in km — exact, not an approximation
+const RING_TIERS = [[25, 45], [50, 90]].map(([mi, minutes]) => ({ mi, km: mi * MI_TO_KM, minutes }));
+// 25 mi / 50 mi ≈ 40.2336 / 80.4672 km — re-authored from km to miles at §5.2 (owner decision,
+// 2026-08-30); visually indistinguishable circles from the original 40/80 km, since those km
+// values were always authored design constants rather than a measurement of anything. The km
+// radius is derived from the mile constant HERE, at the definition site, so the unit intent is
+// explicit; kmPerPx and every projection calculation downstream stay in km, untouched.
+//
+// label: by default `${mi} mi` (a distance claim, true for every account); upgrades to
+// formatDriveDuration(minutes) — the SAME string the reach lens shows for that tier — only when
+// `reachMeasured` is true (§5.2).
 ```
 
 Radius in px: `km * kmPerPx(proj, homePoint)`. Skip a ring when `r < 18` (illegible) or
@@ -468,35 +479,52 @@ itself is untouched.
 
 ### 3.4 data-testids
 
-`wf-row-map-rings`, `wf-row-map-ring` (+ `data-km`), `wf-row-map-ring-label`, `wf-row-map-home`.
+`wf-row-map-rings`, `wf-row-map-ring` (+ `data-mi` — re-authored from `data-km` at §5.2, since the
+new km values are non-round decimals and 25/50 mi are the clean identifiers now), `wf-row-map-ring-label`,
+`wf-row-map-home`.
 
 ### 3.5 Tests (`WindowRowFieldMap.test.jsx`, `WindowSheetDialog.test.jsx`)
 
 ⚠️ **The suite's default ×10 stub cannot exercise ring geometry.** Work the arithmetic before
 writing anything: under `([lng, lat]) => [lng*10, lat*10]`, `kmPerPx = 10/111.2 ≈ 0.09 px/km`, so
-r₄₀ ≈ 3.6px and r₈₀ ≈ 7.2px — **both under the 18px skip floor, so no ring ever renders** and
+r₂₅ᵐⁱ ≈ 3.6px and r₅₀ᵐⁱ ≈ 7.2px — **both under the 18px skip floor, so no ring ever renders** and
 every positive ring assertion is unreachable. And the mocked projection ignores the frame, so
 "shrink the frame until r < 18" is a false mechanism (that intuition is a browser fact about
 `drawGeo`'s bbox fit, which the mock discards). Reach every case **by choosing the projection
 scale per test** (`mockImplementationOnce` with `([lng, lat]) => [lng*S, lat*S]`), keeping the
 geometry honest through the real `kmPerPx`:
 
-- **Visible rings:** S = 100 → r₄₀ ≈ 35.97px, r₈₀ ≈ 71.94px on a 600px frame (1.15 × 600 = 690,
-  neither off-frame). Divide fixture lat/lng by 10 relative to the ×10 fixtures and every
-  existing pixel expectation is preserved, so ring tests can share fixtures with label/chip
-  tests. Assert both radii to tolerance, centred on the projected home point — **and assert the
-  home marker's own committed position** (nothing else pins it).
-- **Skip floor, both sides of the edge:** S = 30 → r₄₀ ≈ 10.8 (skipped), r₈₀ ≈ 21.6 (drawn).
-  Band edge: S = 50.04 puts r₄₀ at exactly 18.00 — drawn, the rule is strict `<`; S = 49.9 →
-  17.95, skipped.
+⚠️ **These S values were reworked from the 40/80 km arithmetic, not copied from it** — 25 mi /
+50 mi are 40.2336 / 80.4672 km (`MI_TO_KM = 1.609344`), close to but not identical to the old
+round 40/80, so every boundary scale below moves too.
+
+- **Visible rings:** S = 100 → `kmPerPx = 100/111.2 ≈ 0.899281`, r₂₅ᵐⁱ ≈ 36.18px, r₅₀ᵐⁱ ≈ 72.36px
+  on a 600px frame (1.15 × 600 = 690, neither off-frame). Divide fixture lat/lng by 10 relative to
+  the ×10 fixtures and every existing pixel expectation is preserved, so ring tests can share
+  fixtures with label/chip tests. Assert both radii to tolerance, centred on the projected home
+  point — **and assert the home marker's own committed position** (nothing else pins it).
+- **Skip floor, both sides of the edge:** S = 30 → r₂₅ᵐⁱ ≈ 10.85 (skipped), r₅₀ᵐⁱ ≈ 21.71 (drawn).
+  Band edge: `S = 18 × 111.2 / 40.2336 ≈ 49.74946313528991` puts r₂₅ᵐⁱ at exactly 18.00 (verified
+  in double precision, not just algebraically) — drawn, the rule is strict `<`; S = 49.6 →
+  ≈ 17.95, skipped. As with the old 50.04/49.9 pair, use `homePoint` latitude 0 (not 3) for the
+  exact-boundary case — `kmPerPx` subtracts two projected points, and only at lat 0 does
+  `1×S − 0×S` avoid the float error `4×S − 3×S` (lat 3) introduces; that error happens to land on
+  the opposite side of 18.0 for the new constant than it did for the old one, so do not assume the
+  old fixture's direction carries over unchecked.
 - **Off-frame rule:** scale *plus* frame: S = 100 at width 60 (above the component's 57px paint
-  floor; height ≈ 53) → 1.15 × 60 = 69 < r₈₀ ≈ 71.9 (skipped) while r₄₀ ≈ 36 stays drawn.
+  floor; height ≈ 53) → 1.15 × 60 = 69 < r₅₀ᵐⁱ ≈ 72.36 (skipped) while r₂₅ᵐⁱ ≈ 36.18 stays drawn.
 - **Both skipped → no rings element at all:** the default ×10 stub, unmodified.
 
 Remaining tests:
 
-- Ring labels carry `formatDriveDuration(45)` / `formatDriveDuration(90)` output exactly (import
-  the function in the test — never a literal, so the strings cannot drift from the lens).
+- **Both label states, both files.** `WindowRowFieldMap.test.jsx` pins the ring label TEXT against
+  its own `reachMeasured` prop directly: absent/`false` → `"25 mi"` / `"50 mi"` (via the local
+  `formatMiles`, never a literal); `true` → `formatDriveDuration(45)` / `formatDriveDuration(90)`
+  (imported, never a literal, so the strings cannot drift from the lens); undefined explicitly
+  (prop omitted, not passed as `false`) → the miles labels too — §5.2's fail-soft direction.
+  `WindowSheetDialog.test.jsx` pins the ONE thing only that file can be wrong about: that the
+  dialog passes `card.reachMeasured` through unchanged rather than re-deriving it — same two label
+  states, driven by `card({ reachMeasured: true/false })` rather than a raw prop.
 - Ring labels and home join the shared box list: a chip whose anchor sits on a ring label is
   flipped or dropped (extend the existing collision fixtures).
 - Home marker outranks a region label: a region centroid coincident with the home anchor loses
@@ -624,22 +652,44 @@ Either way, expect textual merge conflicts with #690 in `WindowComingUpEntry.jsx
    postcode; no fallback point. (The bundle says so itself.) The recovery route for a no-postcode
    account is the masthead's existing empty-state nudge to the postcode field — do not invent an
    on-field "add your postcode" affordance.
-2. **Rings default open, flagged for the owner — this one IS open for the owner to overturn,
-   and the G3 PR must present it properly.** The full picture: the ring labels are duration
-   strings ("45 min") manufactured from straight-line km, which sits in tension with the reach
-   vocabulary rule ("no surface says *within reach* unless a drive time gated it") and with
-   `reachLens.js`'s own warning that a chip reading "45 min" hiding a longer drive is the most
-   damaging thing that control can do; a LITE reader additionally sees these strings live on the
-   field while the same strings sit greyed behind a Pro pill in the lens bar on the same screen
-   (LITE is pinned to Any, and drive times are Pro — so every LITE user with a postcode is
-   permanently in the rings-without-measured-drives state). Against that: the design authored
-   these labels deliberately as decoupled distance statements, and there is precedent for
-   shipping ungated with the question recorded. Note the earlier draft's cited precedent was
-   wrong — there is **no** radius circle on the Map tab; the Pro gate lives on the two settings
-   *controls* (drive times, local radius). Alternatives if the owner wants them: km labels
-   ("40 km"), or duration labels only when `reachMeasured`. Default open; the PR flag must name
-   the LITE incoherence and the km-vs-minutes divergence, not just say "role gating".
-3. **Ring labels are the reach lens's own strings** (`formatDriveDuration`), never authored text.
+2. **DECIDED 2026-08-30 (owner call, restated on #701 — do not re-litigate).** The open question
+   from G3 was whether a straight-line ring may carry a duration label ("45 min") for every
+   account, including the LITE readers who see the same string greyed behind a Pro pill in the
+   lens bar on the same screen. The owner's resolution, implemented in the ring-miles follow-up:
+   - **Radii re-authored from km to miles**: 40/80 km → **25 mi / 50 mi** (40.2336 / 80.4672 km at
+     `1 mi = 1.609344 km`) — visually indistinguishable circles, since the km values were always
+     authored design constants rather than a measurement of anything. `kmPerPx` and every
+     projection calculation stay in km; the km radius is derived from the mile constant at the
+     `RING_TIERS` definition site so the unit intent is explicit.
+   - **Labels default to the distance itself — "25 mi" / "50 mi" — and upgrade to the duration
+     strings (`formatDriveDuration(45)` / `formatDriveDuration(90)`, imported, never literals)
+     only when `reachMeasured` is true.** `reachMeasured` is the existing single producer
+     (`card.reachMeasured`, from `BriefingWindow` — CLAUDE.md's reach-vocabulary rule), read
+     as a plumbed prop and never re-derived from drive times or role; absent/undefined renders
+     the miles labels (the fail-soft direction). Rationale: a distance ring stating a distance
+     makes no drive-time claim, so it is honest for every account whether or not a drive time was
+     ever measured; the duration label is a claim the reach-vocabulary rule reserves for a surface
+     a real drive time actually gated, and unconditionally printing it here — as the G3 draft
+     did — is exactly the "45 min hiding a longer drive" hazard `reachLens.js` itself warns
+     against. Gating the *label* on `reachMeasured` resolves that without gating the *rings*
+     themselves on anything (they still render for every saved postcode, per decision 1 above)
+     and without touching role at all — a LITE reader with a measured drive time sees the
+     duration string exactly like a PRO reader would; the axis that decides is measurement, not
+     the pill.
+   - **Residual, accepted with eyes open**: even for a `reachMeasured` reader, the ring is still a
+     straight-line circle wearing a *label* built from the tier's road-minute figure — the ring
+     itself never routes a road, so a spot can sit inside the "45 min" ring's circle yet outside
+     the lens's actual 45-min tier (and vice versa), exactly as §3.1's own note already recorded
+     before this decision. That divergence is unchanged by the miles re-authoring and is not what
+     this decision resolves; it is designed behaviour, to be triaged as such rather than as a bug
+     if a user ever reports it.
+3. **SUPERSEDED by decision 2's `reachMeasured` gate, above — kept as history.** This line
+   originally read "Ring labels are the reach lens's own strings (`formatDriveDuration`), never
+   authored text," full stop. That is now true only once `reachMeasured` is true; the default
+   label is the authored miles string (`formatMiles`, a deliberate, documented exception to §5.3
+   — a distance claim is not the duration claim §5.3's rule exists to protect). When
+   `reachMeasured` **is** true the duration half of this rule still holds exactly as before:
+   `formatDriveDuration`, imported, never a literal.
 4. **The hot region is `topRegion(es)?.regionName`** — the existing helper, its name tie-break
    and canopy filter inherited by construction; never a fresh argmax, never recomputed from the
    heat catalogue (backend-heavy rule). Unlike the prototype's seeded `reduce`, an unrated window
@@ -694,7 +744,7 @@ than trying to sequence around them:
 | mono | IBM Plex Mono (`var(--font-mono)`, 600 already bundled) | every label |
 | label sizes | 7.5 / 8 / 8.5 / 9 px | HOME (thumb), area name, ring label, HOME (popup) |
 | glyph sizes | 11 / 12 / 12.5 / 14 px | chip, condition, row, featured row |
-| ring geometry | 40 km, 80 km; 1px dashed `3 3` | reach rings |
+| ring geometry | 25 mi / 50 mi (40.2336 / 80.4672 km); 1px dashed `3 3` | reach rings — re-authored to miles at §5.2 |
 | ring skip rules | `r < 18px` or `r > max(w,h) × 1.15` | legibility / off-frame |
 | nudge ladder | 0, ±13, ±24, ±36 px | collision resolution |
 | collision padding | 3px x, 2px y | collision resolution |
