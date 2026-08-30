@@ -5,6 +5,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- Map tab basemap tiles rendering an "API KEY REQUIRED" watermark instead of the dark basemap.
+  CARTO's `basemaps.cartocdn.com` `dark_all` tiles now require a registered API key
+  (https://carto.com/basemaps/apikey); anonymous requests are watermarked rather than served.
+  Switched `MapView`'s `TileLayer` to Esri's free, keyless Canvas basemap (`World_Dark_Gray_Base` +
+  `World_Dark_Gray_Reference` for labels, stacked to match the previous single-tile look) and
+  updated the CSP `img-src` allow-list from `basemaps.cartocdn.com` to `server.arcgisonline.com`
+  accordingly (`nginx.conf`).
+
 ## [v2.19.8] - 2026-08-29
 
 ### Added — Coming up P5: the tab badge, lastSeenAt, and arrivals (series complete)
