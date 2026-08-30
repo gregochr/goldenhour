@@ -1,6 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import ComingUpTideSparkline from './chart/ComingUpTideSparkline.jsx';
+import { entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
 
 /**
  * One chronology entry: the date rail beside its card (design README §4, plan §6). Everything the
@@ -88,6 +89,7 @@ import ComingUpTideSparkline from './chart/ComingUpTideSparkline.jsx';
  */
 export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) {
   const { rail } = entry;
+  const glyph = entryGlyph(entry);
   const cardClassName = [
     'wf-cu-card',
     entry.isFeature ? 'wf-cu-card-feat' : null,
@@ -129,6 +131,12 @@ export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) 
   const cardBody = (
     <>
       <div className="wf-cu-ttl">
+        {glyph && (
+          <>
+            <span className="wf-cu-gi" aria-hidden="true" data-testid="coming-up-glyph">{glyph}</span>
+            {' '}
+          </>
+        )}
         <span className="wf-cu-nm" data-testid="coming-up-title">{entry.title}</span>
         {' '}
         {/* Between the name and the kind tag, matching the design's title-row order (plan §6/P5).
@@ -172,22 +180,30 @@ export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) 
       {entry.coincidence && entry.coincidence.length > 0 && (
         <>
           <span className="wf-cu-coin" data-testid="coming-up-coincidence">
-            {entry.coincidence.flatMap((line, i) => [
-              i > 0 ? ' ' : null,
-              <span
-                key={`${entry.id}:coin:${i}`}
-                className="wf-cu-coin-line"
-                data-family={line.family}
-                data-testid="coming-up-coincidence-line"
-              >
-                <span className="wf-cu-coin-swatch" aria-hidden="true" />
-                <span className="wf-cu-coin-name">{line.name}</span>
-                {' '}
-                <span className="wf-cu-coin-facts" data-testid="coming-up-coincidence-facts">
-                  {line.factsLabel}
-                </span>
-              </span>,
-            ])}
+            {entry.coincidence.flatMap((line, i) => {
+              const coinGlyph = coincidenceLineGlyph(line);
+              return [
+                i > 0 ? ' ' : null,
+                <span
+                  key={`${entry.id}:coin:${i}`}
+                  className="wf-cu-coin-line"
+                  data-family={line.family}
+                  data-testid="coming-up-coincidence-line"
+                >
+                  <span className="wf-cu-coin-swatch" aria-hidden="true" />
+                  {coinGlyph && (
+                    <span className="wf-cu-gi wf-cu-gi-sm" aria-hidden="true" data-testid="coming-up-coincidence-glyph">
+                      {coinGlyph}
+                    </span>
+                  )}
+                  <span className="wf-cu-coin-name">{line.name}</span>
+                  {' '}
+                  <span className="wf-cu-coin-facts" data-testid="coming-up-coincidence-facts">
+                    {line.factsLabel}
+                  </span>
+                </span>,
+              ];
+            })}
           </span>
           {entry.joinNote && (
             <>

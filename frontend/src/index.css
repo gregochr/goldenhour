@@ -3790,6 +3790,23 @@ button.wf-hc.also.on:hover {
 .wf-cu-card[data-family="dust"] { --wf-cu-accent: var(--color-topic-dust); }
 .wf-cu-card[data-family="eclipse"] { --wf-cu-accent: var(--color-topic-eclipse); }
 
+/* Topic glyphs (G4, plan §4) — beside, never instead of, a colour swatch where one exists (chips,
+   condition rows); the timeline card has no swatch element (its colour is the `data-family` border
+   accent above), so there the glyph is the title's first child. `aria-hidden` throughout — the
+   adjacent text already names the topic, matching the swatches' own precedent. */
+.wf-cu-gi { font-size: 12.5px; line-height: 1; flex: none; align-self: center; filter: saturate(.9); }
+.wf-cu-card-feat .wf-cu-gi { font-size: 14px; }
+.wf-cu-gi-cond { font-size: 12px; width: 14px; text-align: center; }
+.wf-cu-gi-chip { font-size: 11px; margin-right: 1px; }
+/* The coincidence sub-line glyph (§4.5, P3b's `.wf-cu-coin-line`) — smaller than the row glyph,
+   matching the sub-line's own reduced scale against the card's title row. Compound selector, not
+   `.wf-cu-gi-sm` alone: a coincidence line very often sits on a featured card (the merge usually
+   carries prose), and `.wf-cu-card-feat .wf-cu-gi` above is a two-class (0,2,0) selector that would
+   otherwise beat a one-class `.wf-cu-gi-sm` (0,1,0) regardless of source order, bumping this glyph
+   to 14px. Matching its specificity here (also 0,2,0) lets source order — this rule is later —
+   settle it back to 11px on every card, featured or not. */
+.wf-cu-gi.wf-cu-gi-sm { font-size: 11px; }
+
 .wf-cu-ttl {
   display: flex;
   align-items: baseline;
@@ -4109,6 +4126,13 @@ button.wf-hc.also.on:hover {
   height: 7px;
   border-radius: 2px;
   background: var(--wf-cond-accent, var(--color-plex-border-light));
+}
+/* Swatch + glyph occupy grid column 1 together (G4, plan §4.2) — the wrapper, not a fifth grid
+   item, so `.wf-cond-row`'s column count is unchanged. */
+.wf-cond-fam {
+  display: flex;
+  align-items: center;
+  gap: 7px;
 }
 .wf-cond-name {
   font-size: 12.5px;

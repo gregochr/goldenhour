@@ -5,6 +5,7 @@ import WindowComingUpConditions from './WindowComingUpConditions.jsx';
 import WindowComingUpSinceLine from './WindowComingUpSinceLine.jsx';
 import WindowFirstComingUpHandoff from './WindowFirstComingUpHandoff.jsx';
 import { buildChronology, chipCounts, footerCopy, FOOTER_LEAD } from '../utils/comingUpFeed.js';
+import { CHIP_GLYPHS } from '../utils/comingUpGlyphs.js';
 import { deriveBadge, selectSinceEntry } from '../utils/comingUpArrivals.js';
 import { ALMANAC_DAYS } from '../api/almanacApi.js';
 
@@ -257,7 +258,14 @@ export default function WindowFirstComingUp({
                 onClick={() => setActiveFilter(chip.id)}
               >
                 {chip.id !== 'all' && (
-                  <span className="wf-cu-chip-dot" aria-hidden="true" />
+                  <>
+                    <span className="wf-cu-chip-dot" aria-hidden="true" />
+                    {CHIP_GLYPHS[chip.id] && (
+                      <span className="wf-cu-gi wf-cu-gi-chip" aria-hidden="true" data-testid="coming-up-chip-glyph">
+                        {CHIP_GLYPHS[chip.id]}
+                      </span>
+                    )}
+                  </>
                 )}
                 {chip.label}
                 <span className="wf-cu-chip-count">{chip.count}</span>
