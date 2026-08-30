@@ -161,6 +161,30 @@ describe('WindowFirstShell — the measured sticky chrome', () => {
     expect(shell.style.getPropertyValue('--wf-lens-reserve')).toBe('');
     expect(shell.style.getPropertyValue('--wf-mast-h')).toBe('118px');
   });
+
+  it('⚠️ publishes --wf-lens-h at the bar\'s OWN height (matrix-axis plan D11(a))', () => {
+    // The row-tile rail's own sticky `top` calc, alongside `--wf-mast-h` — the bar's height alone,
+    // not the sum `--wf-lens-reserve` carries.
+    renderShell();
+
+    expect(screen.getByTestId('window-first-shell').style.getPropertyValue('--wf-lens-h'))
+      .toBe('54px');
+  });
+
+  it('⚠️ writes --wf-lens-h as a MEASURED 0px when the bar is gone, never clears it', () => {
+    // The one place this hook's clear-on-absent discipline is deliberately reversed: `-wf-lens-h`
+    // has no safe fallback state the way `--wf-lens-reserve` does, because a 54px sticky `top` for a
+    // rail with no bar above it floats the row-rails matrix over open space. `bar ?? 0` is still a
+    // real measurement — of an absent element's rendered height — never the banned zero fallback
+    // baked into the stylesheet.
+    renderShell();
+    fireEvent.click(screen.getByTestId('window-first-tab-coming-up'));
+    act(() => resizeCallbacks.forEach((cb) => cb()));
+
+    const shell = screen.getByTestId('window-first-shell');
+    expect(screen.queryByTestId('window-first-lens')).toBeNull();
+    expect(shell.style.getPropertyValue('--wf-lens-h')).toBe('0px');
+  });
 });
 
 describe('WindowFirstShell — the stuck lens treatment', () => {
@@ -334,5 +358,71 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
     // The stale-invariant guard. The claim was true when it was written and M3 falsified it; a
     // comment asserting it must not survive the commit that made it wrong.
     expect(readCss()).not.toContain('`position: sticky` here and nowhere above it');
+  });
+});
+
+describe('the row-rails stylesheet half (matrix-axis plan §6, D6/D8/D9/D10/D12)', () => {
+  const readCss = () => readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
+  const block = (selector) => {
+    const css = readCss();
+    const at = css.indexOf(`\n${selector} {`);
+    expect(at, `${selector} must exist`).toBeGreaterThan(-1);
+    return css.slice(at, css.indexOf('\n}', at));
+  };
+
+  it('sticks the day-tile row under the masthead + lens bar, at the design\'s z-index', () => {
+    const dhrow = block('.wf-dhrow');
+    expect(dhrow).toContain('position: sticky');
+    expect(dhrow).toContain('top: calc(var(--wf-mast-h, 128px) + var(--wf-lens-h, 54px) - 1px)');
+    expect(dhrow).toContain('z-index: 15');
+    expect(dhrow).toContain('background: linear-gradient(180deg, var(--color-plex-bg)');
+  });
+
+  it('sticks the rail under the day-tile row, at the design\'s z-index', () => {
+    const rail = block('.wf-rail');
+    // Omit `position: sticky` and `top`/`z-index` are inert — every other assertion here would
+    // still pass against a rail that never actually sticks.
+    expect(rail).toContain('position: sticky');
+    expect(rail).toContain('top: calc(var(--wf-mast-h, 128px) + var(--wf-lens-h, 54px) + var(--wf-dh-h, 45px) - 2px)');
+    expect(rail).toContain('z-index: 14');
+    expect(rail).toContain('background: linear-gradient(180deg, var(--color-plex-bg)');
+  });
+
+  it('gives the rows-mode grids the same overflow-safe track string as the base grid', () => {
+    // ⚠️ Scoped to the NEW rule's own block, not a whole-file `toContain` — the base `.wf-hstrip`
+    // grid (untouched, D2) already carries this exact string, so an unscoped assertion would keep
+    // passing even if the new rows-mode rule regressed to a bare `1fr` (the overflow this rule
+    // exists to prevent, per its own CSS comment).
+    const css = readCss();
+    const start = css.indexOf(
+      '.wf-hstrip.wf-hstrip-rows .wf-dhrow,\n.wf-hstrip.wf-hstrip-rows .wf-hcards {',
+    );
+    expect(start, 'the rows-mode grid rule must exist').toBeGreaterThan(-1);
+    const rowsGridBlock = css.slice(start, css.indexOf('\n}', start));
+    expect(rowsGridBlock).toContain('repeat(var(--dc, 4), minmax(0, 1fr))');
+  });
+
+  it('reserves scroll room for a card under the pinned tiles + rail, in full', () => {
+    // Existence alone would pass at a truncated string that happened to add up to 0.
+    expect(readCss()).toContain(
+      'scroll-margin-top: calc(var(--wf-lens-reserve, 188px) + var(--wf-dh-h, 45px) + 17px)',
+    );
+  });
+
+  it('never falls back either new property to a bare zero', () => {
+    const css = readCss();
+    expect(css).not.toContain('--wf-lens-h, 0');
+    expect(css).not.toContain('--wf-dh-h, 0');
+  });
+
+  it('leaves the existing sticky chrome assertions untouched', () => {
+    // The pre-existing lens z-index and mast-height fallback, and the base scroll-margin selector
+    // list this describe block's own sibling already pins — additive rules must not disturb them.
+    expect(block('.wf-lens')).toContain('z-index: 20');
+    expect(block('.wf-shell')).toMatch(/--wf-mast-h:\s*\d+px/);
+    const css = readCss();
+    const at = css.lastIndexOf('scroll-margin-top: var(--wf-lens-reserve');
+    const selectors = css.slice(css.lastIndexOf('\n}', at), at);
+    expect(selectors).toContain('.wf-hc,');
   });
 });

@@ -12,8 +12,8 @@ import { useEffect, useRef, useState } from 'react';
 const RING_ALLOWANCE = 6;
 
 /**
- * Keeps `--wf-mast-h` equal to the masthead's height and `--wf-lens-reserve` equal to the whole of
- * the sticky chrome above the cards.
+ * Keeps `--wf-mast-h` equal to the masthead's height, `--wf-lens-reserve` equal to the whole of the
+ * sticky chrome above the cards, and `--wf-lens-h` equal to the bar's own height.
  *
  * <h2>Why this is measured rather than written down</h2>
  *
@@ -31,7 +31,17 @@ const RING_ALLOWANCE = 6;
  *       jsdom evaluates no CSS at all.</li>
  * </ul>
  *
- * <h2>Two properties, because M3 made the masthead sticky too</h2>
+ * <h2>Three properties, and the third does not follow the other two's clear-on-absent rule</h2>
+ *
+ * <p>`--wf-lens-h` (matrix-axis plan D11(a)) is the bar's OWN height, for the row-tile rail's sticky
+ * `top` calc alongside `--wf-mast-h`. Unlike `--wf-mast-h`/`--wf-lens-reserve`, it is written as a
+ * MEASURED `0px` when the bar is absent rather than cleared to the stylesheet's fallback — clearing
+ * would leave the tiles' `top` resting on a 54px fallback with no bar there to justify it, floating
+ * the row over open space with cards scrolling through the naked band above them. A measured zero is
+ * not the banned zero *fallback literal* the rest of this file's discipline forbids: it is what the
+ * bar's own height actually is when it does not exist.
+ *
+ * <h2>Two OLDER properties, because M3 made the masthead sticky too</h2>
  *
  * <p>`--wf-mast-h` is what the lens bar sticks BELOW. The design pins the bar at
  * `top: var(--mastH)` and calls the value "measured from the masthead at runtime" — a literal here
@@ -74,7 +84,7 @@ const RING_ALLOWANCE = 6;
 export default function useLensReserve(rootRef) {
   // The last value written per property, so a resize that changes nothing does not touch the DOM.
   // `ResizeObserver` fires on sub-pixel reflows the bar has plenty of.
-  const written = useRef({ '--wf-mast-h': null, '--wf-lens-reserve': null });
+  const written = useRef({ '--wf-mast-h': null, '--wf-lens-reserve': null, '--wf-lens-h': null });
   // State rather than a ref, because a consumer renders on it. It changes only when the masthead's
   // own height does — the tick line wrapping, the home button appearing — which is rare enough that
   // the render it costs is not on any scroll or resize hot path.
@@ -122,6 +132,13 @@ export default function useLensReserve(rootRef) {
       // Cleared when the bar is gone even if the masthead is not: with no bar, there is nothing on
       // the pane to reserve against beyond the masthead, and the stylesheet's fallback covers it.
       write('--wf-lens-reserve', bar === null ? null : (mast ?? 0) + bar + RING_ALLOWANCE);
+      // ⚠️ MEASURED ZERO, NOT CLEARED — the one place this hook's own discipline is deliberately
+      // reversed (matrix-axis plan D11(a)). `--wf-lens-reserve` clears so the stylesheet's fallback
+      // takes over when there is nothing to reserve against; the row-tile rail's sticky `top` has no
+      // such safe fallback state, because a 54px fallback for a bar that does not exist floats the
+      // tiles over open space with cards scrolling through the naked band above them. `bar ?? 0` is
+      // still a real measurement, just of an absent element's rendered height.
+      write('--wf-lens-h', bar ?? 0);
     };
 
     observer = new ResizeObserver(apply);
@@ -135,6 +152,7 @@ export default function useLensReserve(rootRef) {
       observer.disconnect();
       clear('--wf-mast-h');
       clear('--wf-lens-reserve');
+      clear('--wf-lens-h');
     };
   }, [rootRef]);
 

@@ -5,6 +5,83 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — matrix-axis Phase 2: row rails and sticky headings
+
+Phase 2 (§6) of `docs/engineering/matrix-axis-plan.md`: the Plan tab's day×event matrix now says
+its own axis. On desktop/tablet, `WindowFirstHeatStrip` renders a restructured layout — a full-width
+day-tile row (`.wf-dhrow`) plus two `SUNRISE`/`SUNSET` rail rows (`.wf-rail`, dawn-blue and coral,
+each `aria-hidden` since every card already states its own event in its accessible name) — all three
+sticky: the day tiles pin under the lens bar, and each rail pins under the tiles for exactly as long
+as its own row's cards are on screen, then leaves with them. The phone layout is byte-for-byte
+unchanged (`useIsMobile()` branches between the two structures; nothing is double-rendered). A new
+`useLensReserve` property, `--wf-lens-h`, and a new strip-local ResizeObserver publishing
+`--wf-dh-h` supply the sticky offset math; a new `scroll-margin-top` rule keeps a keyboard-focused
+card from scrolling in underneath the newly-pinned chrome. No new props, no API change.
+
+Restructuring the DOM from day-major to **row-major** (every sunrise-row card before every
+sunset-row card, instead of each day's own pair together) was required for row-scoped sticky
+containment, and it reordered `getAllByTestId('wf-heat-card')` wherever a fixture mixed sunrise and
+sunset cards — budgeted as real work per the plan's §6.4 inventory, not discovered breakage. Every
+affected assertion across `WindowFirstHeatStrip.test.jsx`, `WindowFirstShell.test.jsx` and
+`WindowFirstShellRegion.test.jsx` was re-derived against the new order (traced through
+`buildWindowMatrix`, not swapped mechanically) and the two shell comments documenting the old
+"focus the matrix's first card" chronology were updated to say "first card of the sunrise row."
+
+⚠️ **Forced deviation from the plan's literal D8 CSS**, found by the adversarial review's
+accessibility lens and then measured in a browser: the rail's fade-to-page-background gradient
+(`linear-gradient(180deg, var(--color-plex-bg) 0 70%, transparent)`) put the rail *text's own bottom
+edge* inside the fading 30%, so a saturated card scrolling underneath composited with the glyphs
+directly. Measured with the score ramp's own hottest stop (`#C82820`) scrolled beneath: coral rail
+text dropped to 4.02:1, below the 4.5:1 floor. Fixed by moving the cutoff to 85% (past the text's own
+13.5px bottom edge inside the 16.5px rail box, close to the day-tile row's own 82% for the same
+reason) — text zone re-measured fully opaque (dawn 7.56:1, coral 5.24:1); only the ~2.5px of bottom
+padding below the text, where no glyph renders, still fades. See `index.css` beside `.wf-rail` and
+plan §4's A-14.
+
+Adversarial review (five lenses: runtime behaviour, CSS/tokens/cascade, test quality, accessibility,
+project conventions) surfaced and fixed three further issues before landing: the region-shell test
+file's DOM-order sweep was completed for all nine `openWindow()` call sites rather than the two the
+first pass touched (the other seven happened to still pass, on a fixture whose two windows carry
+identical region content — now documented rather than silently relying on that symmetry); a
+stylesheet-half test asserting the rows-mode grid's overflow-safe track string was checking the
+whole file rather than the new rule's own block, so it would have kept passing against a regressed
+rule; and a CSS comment's own prose had drifted into containing the literal search string a sticky
+test locates by exact text, which was rephrased to no longer collide with it.
+
+⚠️ **A further P1 finding landed after opening the PR** (an automated GitHub review, verified by
+reading `useHeatCanvas.js` directly rather than taken on trust): `isMobile` toggling alone does not
+re-run `useHeatCanvas`'s paint effect — none of `measureAndPaint`'s dependencies, nor its
+`landNonce`/`resizeNonce`, are wired to it — so the freshly-mounted canvases of the branch just
+swapped IN could stay blank until an unrelated later event happened to repaint them. §2's own risk
+note anticipated exactly this and named the fix ("bumping the observer nonce on branch change, not a
+rewrite"), which had not actually been implemented. Fixed by calling the hook's own `repaintNow` from
+an effect keyed on `isMobile` (skipped on the first commit, to avoid a doubled first paint). Proven
+with a fixture-hygiene fix alongside it: `WindowFirstHeatStrip.test.jsx`'s `renderStrip`/`rerender`
+test helper was rebuilding its `spots` array and `pointSets` map fresh on every call, which alone
+gave `paint` a new identity on every re-render and would have masked whether the fix — or the test
+helper's own instability — was what triggered a repaint; both arrays are now built once and reused,
+matching how the real context provides them.
+
+Browser-verified (Playwright headless Chromium against a static harness built from the real compiled
+stylesheet, since this environment's sandboxed egress cannot reach JitPack to build the backend and
+run the live app — see the note below): the scroll sequence pins tiles then the sunrise rail with no
+hairline gap, releases the sunrise rail with its own row and pins the sunset rail at the identical
+offset, z-index ordering holds (masthead 45 > lens 20 > tiles 15 > rail 14), and a keyboard-focused
+card under the pinned chrome scrolls in below it rather than underneath. The implementing session
+could not run the live app (its sandboxed egress blocks JitPack, so the backend cannot build) and
+said so; the gap was closed before merge by a **live-app verification pass on the dev machine**
+(real backend + seeded H2 + Vite, Playwright headless Chromium): every static-harness claim
+reconfirmed against the running app, the popup verified above the pinned chrome, focused cards
+verified landing below it, both directions of the 639px `isMobile` flip verified repainting their
+canvases, a scroll-position walk proving the sunrise rail pins at exactly its calc offset while its
+cards remain and leaves with them (the flip crossings fire resize events, the case the hook already
+self-corrects; the branch-flip `repaintNow` guard added above targets the discrete jump that
+produces none, and that narrower case rests on its unit test — a real `drawGeo` call-count
+assertion, not a smoke test) — and one mandated correction found: the day-tile row's measured
+resting height is **45px, not the provisional 49px** estimate, so the `--wf-dh-h` fallback literal,
+its test strings and the plan's quotes were updated together (the 54px lens literal was confirmed
+as-is).
+
 ## [v2.19.9] - 2026-08-30
 
 ### Added — matrix-axis Phase 1: sunrise/sunset card chips

@@ -251,7 +251,17 @@ describe('WindowFirstShell — the strip it hosts', () => {
     ...extra,
   });
 
-  /** Opens the first window's popup, awaiting the matrix's own `lazy()` boundary first. */
+  /**
+   * Opens the Nth `wf-heat-card` in DOCUMENT order, awaiting the matrix's own `lazy()` boundary
+   * first.
+   *
+   * <p>⚠️ `nth` is a DOM position, not a window's position in `heatStripCards`/the popup's own ring
+   * — the two agree only when every fixture card shares one row. Since matrix-axis plan §6 the
+   * desktop default is ROW-MAJOR: the whole sunrise row precedes the whole sunset row, so on the
+   * `twoWindows()` fixture below (today's SUNSET then tomorrow's SUNRISE) `nth: 0` opens tomorrow's
+   * sunrise and `nth: 1` opens today's sunset — the reverse of the array/ring order those two
+   * windows are still stepped in by `window-sheet-next`/`-prev`.
+   */
   const openPopup = async (nth = 0) => {
     await screen.findByTestId('wf-heat-strip');
     await act(async () => { fireEvent.click(screen.getAllByTestId('wf-heat-card')[nth]); });
@@ -394,16 +404,19 @@ describe('WindowFirstShell — the strip it hosts', () => {
     });
 
     it('opens on the window whose cell was pressed, and marks that cell', async () => {
+      // ⚠️ DOM index 0, not 1 (matrix-axis plan §6.4) — the desktop default is now ROW-MAJOR: the
+      // whole sunrise row precedes the whole sunset row, so `SECOND` (tomorrow's sunrise) is the
+      // FIRST `wf-heat-card` in document order even though it is the second window chronologically.
       renderWithBriefing(twoWindows());
-      await openPopup(1);
+      await openPopup(0);
       expect(screen.getByTestId('window-sheet-title')).toHaveTextContent('Tomorrow sunrise');
       expect(screen.getAllByTestId('wf-heat-card').map((c) => c.dataset.open))
-        .toEqual([undefined, 'true']);
+        .toEqual(['true', undefined]);
     });
 
     it('says which of the six it is, and steps to the next one', async () => {
       renderWithBriefing(twoWindows());
-      await openPopup(0);
+      await openPopup(1);
       expect(screen.getByTestId('window-sheet-of')).toHaveTextContent('1/2');
 
       await act(async () => { fireEvent.click(screen.getByTestId('window-sheet-next')); });
@@ -415,14 +428,14 @@ describe('WindowFirstShell — the strip it hosts', () => {
       // Six windows on a ring. A disabled arrow at each end would be two controls that do nothing
       // on the two windows a reader is most often in.
       renderWithBriefing(twoWindows());
-      await openPopup(0);
+      await openPopup(1);
       await act(async () => { fireEvent.click(screen.getByTestId('window-sheet-prev')); });
       expect(screen.getByTestId('window-sheet-of')).toHaveTextContent('2/2');
     });
 
     it('closes on its own esc control, leaving the plan where it was', async () => {
       renderWithBriefing(twoWindows());
-      await openPopup(0);
+      await openPopup(1);
       fireEvent.click(screen.getByTestId('window-sheet-close'));
       expect(screen.queryByTestId('window-sheet')).toBeNull();
       expect(screen.getAllByTestId('wf-heat-card')).toHaveLength(2);
@@ -431,7 +444,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
     describe('the arrow keys step it, and only while it is topmost', () => {
       it('steps forward on ArrowRight and back on ArrowLeft', async () => {
         renderWithBriefing(twoWindows());
-        await openPopup(0);
+        await openPopup(1);
         await act(async () => { fireEvent.keyDown(document, { key: 'ArrowRight' }); });
         expect(screen.getByTestId('window-sheet-of')).toHaveTextContent('2/2');
         await act(async () => { fireEvent.keyDown(document, { key: 'ArrowLeft' }); });
@@ -440,21 +453,21 @@ describe('WindowFirstShell — the strip it hosts', () => {
 
       it('wraps, exactly as the visible control does', async () => {
         renderWithBriefing(twoWindows());
-        await openPopup(0);
+        await openPopup(1);
         await act(async () => { fireEvent.keyDown(document, { key: 'ArrowLeft' }); });
         expect(screen.getByTestId('window-sheet-of')).toHaveTextContent('2/2');
       });
 
       it('⚠️ leaves a modified arrow alone, because Alt+Left is the browser\'s Back', async () => {
         renderWithBriefing(twoWindows());
-        await openPopup(0);
+        await openPopup(1);
         await act(async () => { fireEvent.keyDown(document, { key: 'ArrowRight', altKey: true }); });
         expect(screen.getByTestId('window-sheet-of')).toHaveTextContent('1/2');
       });
 
       it('⚠️ leaves a text field\'s caret keys alone', async () => {
         renderWithBriefing(twoWindows());
-        await openPopup(0);
+        await openPopup(1);
         const input = document.createElement('input');
         document.body.appendChild(input);
         await act(async () => { fireEvent.keyDown(input, { key: 'ArrowRight' }); });
@@ -466,7 +479,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
         // The stacked surface has its own arrow behaviour, and stepping the popup underneath it
         // would move a page the reader cannot see.
         renderWithBriefing(twoWindows());
-        await openPopup(0);
+        await openPopup(1);
         fireEvent.click(screen.getByTestId('window-sheet-pick'));
         await act(async () => { fireEvent.keyDown(document, { key: 'ArrowRight' }); });
         expect(screen.getByTestId('window-sheet-of')).toHaveTextContent('1/2');
@@ -485,7 +498,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
         // ⚠️ `Modal` installs a document-level Escape listener PER INSTANCE, so two open dialogs
         // both close on one press unless the lower one declines the key. This is that guard.
         renderWithBriefing(twoWindows());
-        await openPopup(0);
+        await openPopup(1);
         fireEvent.click(screen.getByTestId('window-sheet-pick'));
         expect(screen.getByTestId('window-pick-dialog')).toBeInTheDocument();
 
@@ -509,7 +522,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
        */
       it('⚠️ walks search → sheet → popup, one layer per press', async () => {
         renderWithBriefing(twoWindows());
-        await openPopup(0);
+        await openPopup(1);
         fireEvent.click(screen.getByTestId('window-sheet-pick'));
         await act(async () => { fireEvent.keyDown(document, { key: '/' }); });
         // Search over a sheet over the popup would be three layers; the guard refuses it, so the
@@ -537,7 +550,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
         // plan behind it. The guard existed before search could be open over the popup at all,
         // which means nothing could exercise it until now.
         renderWithBriefing(twoWindows());
-        await openPopup(0);
+        await openPopup(1);
         const before = screen.getByTestId('window-sheet-title').textContent;
 
         await act(async () => { fireEvent.keyDown(document, { key: '/' }); });
@@ -551,7 +564,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
     describe('the / shortcut against the popup', () => {
       it('opens search over an open popup — the stack M3 exists to allow', async () => {
         renderWithBriefing(twoWindows());
-        await openPopup(0);
+        await openPopup(1);
 
         await act(async () => { fireEvent.keyDown(document, { key: '/' }); });
 
@@ -565,7 +578,7 @@ describe('WindowFirstShell — the strip it hosts', () => {
         // Those are already stacked; a third layer has nowhere to go, and the reader's place in
         // the sheet would be lost behind a box they cannot see the list of.
         renderWithBriefing(twoWindows());
-        await openPopup(0);
+        await openPopup(1);
         fireEvent.click(screen.getByTestId('window-sheet-pick'));
 
         await act(async () => { fireEvent.keyDown(document, { key: '/' }); });
@@ -810,7 +823,9 @@ describe('WindowFirstShell — the strip it hosts', () => {
 
       expect(screen.getByTestId('window-sheet-title')).toHaveTextContent('Tomorrow sunrise');
       // And the cell says so in the accessibility tree, not only in the stylesheet.
-      expect(within(strip).getAllByTestId('wf-heat-card')[1])
+      // ⚠️ Index 0, not 1 (matrix-axis plan §6.4) — row-major DOM puts the sunrise row (this
+      // fixture's tomorrow-sunrise card) before the sunset row (today's own card).
+      expect(within(strip).getAllByTestId('wf-heat-card')[0])
         .toHaveAttribute('aria-expanded', 'true');
     });
 
