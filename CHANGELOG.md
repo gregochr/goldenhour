@@ -5,6 +5,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — field geography and glyphs G4: Coming up topic glyphs
+
+The final phase of `docs/engineering/field-geography-and-glyphs-plan.md` (§4): a per-family emoji
+glyph on Coming up's timeline card titles, standing-condition rows, filter chips and — since
+Coming-up P3b (#690) had already merged — the coincidence sub-lines P3b renders.
+
+New pure module `utils/comingUpGlyphs.js`: `FAMILY_GLYPHS` (one glyph per `--color-topic-*` family,
+including an authored eclipse `◐` and an aurora that shares night-sky's `🌌`), a `supermoon` type
+override (`🌙`, beating its `sun-moon` family), `CHIP_GLYPHS` for the four non-`all` filter chips,
+and `coincidenceLineGlyph` (resolves a coincidence sub-line's glyph by its own served `family`,
+falling back to a name regex only when a line carries no family at all — not reachable on today's
+wire, kept as the documented degrade).
+
+Every glyph span is `aria-hidden` — the adjacent text already names the topic, matching the
+swatches' own precedent — and beside, never instead of, a colour swatch where one exists (condition
+rows wrap the existing swatch and the new glyph in one `.wf-cond-fam` grid cell, keeping the row's
+column count unchanged; filter chips place it after the existing dot, with `all` deliberately bare).
+The timeline card has no swatch element, so there the glyph is the title's first child.
+
+Tests derive the family/chip completeness pins from live exports (`FILTER_CHIPS`,
+`CONDITION_FAMILY`) rather than a circular copy of the glyph module's own keys, per the plan's
+explicit warning against that antipattern.
+
+Adversarial review (five lenses: correctness, CSS/design fidelity, test quality, accessibility, plan
+conformance) plus browser verification against the local recipe surfaced and fixed one real defect
+before landing: `.wf-cu-card-feat .wf-cu-gi`'s pre-existing two-class selector silently outranked
+the new `.wf-cu-gi-sm` on a featured card (very common for a merged/coincidence entry), rendering
+the coincidence-line glyph at 14px instead of the plan's 11px regardless of source order — fixed by
+matching its specificity (`.wf-cu-gi.wf-cu-gi-sm`), confirmed via `getComputedStyle` in the running
+app both before and after.
+
+### Fixed
+
+- Map tab basemap tiles rendering an "API KEY REQUIRED" watermark instead of the dark basemap.
+  CARTO's `basemaps.cartocdn.com` `dark_all` tiles now require a registered API key
+  (https://carto.com/basemaps/apikey); anonymous requests are watermarked rather than served.
+  Switched `MapView`'s `TileLayer` to Esri's free, keyless Canvas basemap (`World_Dark_Gray_Base` +
+  `World_Dark_Gray_Reference` for labels, stacked to match the previous single-tile look) and
+  updated the CSP `img-src` allow-list from `basemaps.cartocdn.com` to `server.arcgisonline.com`
+  accordingly (`nginx.conf`). `maxZoom` is capped at 16 (Esri's native tile resolution) rather than
+  kept at the old 19 — nothing in the app zooms past 16 (lat/lon is edited via numeric fields, never
+  by placing a pin on the map), so there was no feature to trade against the blur an upscaled 17-19
+  would otherwise show.
+
 ### Documentation — matrix-axis plan (Plan tab "days ahead" strip)
 
 Implementation plan for the `design_handoff_matrix_axis` bundle

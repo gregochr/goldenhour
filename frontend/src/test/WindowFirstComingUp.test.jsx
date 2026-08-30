@@ -305,6 +305,38 @@ describe('WindowFirstComingUp — filter chips (plan D6)', () => {
   });
 });
 
+describe('WindowFirstComingUp — filter chip glyphs (G4, plan §4.2)', () => {
+  it('renders a glyph on every family chip, after the existing dot', () => {
+    renderPane();
+    const chips = screen.getAllByTestId('coming-up-chip');
+    const [, coastal, nightSky, sunMoon, airDust] = chips;
+    expect(within(coastal).getByTestId('coming-up-chip-glyph')).toHaveTextContent('🌊');
+    expect(within(nightSky).getByTestId('coming-up-chip-glyph')).toHaveTextContent('🌌');
+    expect(within(sunMoon).getByTestId('coming-up-chip-glyph')).toHaveTextContent('☀️');
+    expect(within(airDust).getByTestId('coming-up-chip-glyph')).toHaveTextContent('🏜️');
+
+    const dot = coastal.querySelector('.wf-cu-chip-dot');
+    const glyph = within(coastal).getByTestId('coming-up-chip-glyph');
+    expect(dot.compareDocumentPosition(glyph) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('renders the All chip bare — no dot, no glyph', () => {
+    renderPane();
+    const [all] = screen.getAllByTestId('coming-up-chip');
+    expect(all.querySelector('.wf-cu-chip-dot')).toBeNull();
+    expect(within(all).queryByTestId('coming-up-chip-glyph')).toBeNull();
+  });
+
+  it('hides every chip glyph from the accessibility tree', () => {
+    renderPane();
+    const chips = screen.getAllByTestId('coming-up-chip');
+    for (const chip of chips) {
+      const glyph = within(chip).queryByTestId('coming-up-chip-glyph');
+      if (glyph) expect(glyph).toHaveAttribute('aria-hidden', 'true');
+    }
+  });
+});
+
 describe('WindowFirstComingUp — the vocabulary now lives on the card', () => {
   it('does not claim the dates come from orbital mechanics, because two sources compute none', () => {
     renderPane();

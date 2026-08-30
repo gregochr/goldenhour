@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import PropTypes from 'prop-types';
 import { familyOf, occurrenceCountsLine, anyConditionInterim, bitsWord } from '../utils/comingUpConditions.js';
+import { FAMILY_GLYPHS } from '../utils/comingUpGlyphs.js';
 
 /**
  * The standing-conditions strip (design README §2/§2.1, plan §7 P4) — one row per frequent topic
@@ -69,7 +70,8 @@ export default function WindowComingUpConditions({ conditions, onGoToPlan }) {
       </div>
       {list.map((condition) => {
         const open = openTypes.has(condition.type);
-        const accent = `var(--color-topic-${familyOf(condition.type)})`;
+        const family = familyOf(condition.type);
+        const accent = `var(--color-topic-${family})`;
         const panelId = `coming-up-condition-panel-${condition.type}`;
         return (
           <div key={condition.type} style={{ '--wf-cond-accent': accent }}>
@@ -81,7 +83,12 @@ export default function WindowComingUpConditions({ conditions, onGoToPlan }) {
               onClick={() => toggle(condition.type)}
               data-testid="condition-row"
             >
-              <span className="wf-cond-sw" aria-hidden="true" />
+              <span className="wf-cond-fam">
+                <span className="wf-cond-sw" aria-hidden="true" />
+                <span className="wf-cu-gi wf-cu-gi-cond" aria-hidden="true" data-testid="condition-glyph">
+                  {FAMILY_GLYPHS[family]}
+                </span>
+              </span>
               <span className="wf-cond-name" data-testid="condition-name">
                 {condition.name}
                 {' '}
