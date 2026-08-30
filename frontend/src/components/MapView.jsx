@@ -1924,10 +1924,24 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
             </Suspense>
           )}
           {heatOffered && <HeatBoundsController bounds={heatBounds} nonce={heatFitNonce} />}
+          {/* CARTO's basemaps.cartocdn.com dark_all tiles now require a registered API key
+              (https://carto.com/basemaps/apikey) — anonymous requests render an
+              "API KEY REQUIRED" watermark instead of the tile. Esri's Canvas basemaps stay
+              free and keyless, so the dark theme is now two stacked Esri layers: an unlabelled
+              base plus a reference overlay for place labels, matching what dark_all rendered
+              as a single tile before.
+              maxZoom is capped at 16 — Esri only renders these tiles natively that deep, and
+              nothing in this app ever zooms further (lat/lon is edited via numeric fields, not
+              by placing a pin on the map), so there is no feature to trade against the blur an
+              upscaled zoom 17-19 would otherwise show. */}
           <TileLayer
-            url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-            attribution='&copy; <a href="https://carto.com/attributions">CARTO</a>'
-            maxZoom={19}
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+            attribution="Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors, GIS User Community"
+            maxZoom={16}
+          />
+          <TileLayer
+            url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
+            maxZoom={16}
           />
           <ZoomTracker onZoom={setZoom} />
           {/* Map tab only. The Plan overlay is already focused on the spot the user asked about,

@@ -8,7 +8,7 @@
  * is governed by the CSP's `connect-src`, which `nginx.conf` sets to `'self'` plus the postcode
  * geocoder alone — the fetch simply cannot succeed in production, and adding an origin to the CSP
  * to buy one static file is the wrong trade. (The CSP does name a CDN elsewhere: `img-src` allows
- * `basemaps.cartocdn.com` for the Leaflet tiles. That is a different directive and a different
+ * `server.arcgisonline.com` for the Leaflet tiles. That is a different directive and a different
  * question — it does not make a geometry fetch possible.) The geometry is therefore generated
  * once, here, and committed as a build asset. Nothing about the coastline is fetched at runtime.
  *

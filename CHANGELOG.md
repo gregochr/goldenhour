@@ -36,6 +36,19 @@ the coincidence-line glyph at 14px instead of the plan's 11px regardless of sour
 matching its specificity (`.wf-cu-gi.wf-cu-gi-sm`), confirmed via `getComputedStyle` in the running
 app both before and after.
 
+### Fixed
+
+- Map tab basemap tiles rendering an "API KEY REQUIRED" watermark instead of the dark basemap.
+  CARTO's `basemaps.cartocdn.com` `dark_all` tiles now require a registered API key
+  (https://carto.com/basemaps/apikey); anonymous requests are watermarked rather than served.
+  Switched `MapView`'s `TileLayer` to Esri's free, keyless Canvas basemap (`World_Dark_Gray_Base` +
+  `World_Dark_Gray_Reference` for labels, stacked to match the previous single-tile look) and
+  updated the CSP `img-src` allow-list from `basemaps.cartocdn.com` to `server.arcgisonline.com`
+  accordingly (`nginx.conf`). `maxZoom` is capped at 16 (Esri's native tile resolution) rather than
+  kept at the old 19 — nothing in the app zooms past 16 (lat/lon is edited via numeric fields, never
+  by placing a pin on the map), so there was no feature to trade against the blur an upscaled 17-19
+  would otherwise show.
+
 ## [v2.19.8] - 2026-08-29
 
 ### Added — Coming up P5: the tab badge, lastSeenAt, and arrivals (series complete)
