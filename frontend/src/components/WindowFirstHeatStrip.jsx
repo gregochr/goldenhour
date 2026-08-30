@@ -1,11 +1,12 @@
 import React, {
-  useCallback, useLayoutEffect, useMemo, useRef, useState,
+  useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState,
 } from 'react';
 import PropTypes from 'prop-types';
 import {
   aspect, bbox, centroid, clamp, drawGeo,
 } from '../utils/heatField.js';
 import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
+import { useIsMobile } from '../hooks/useIsMobile.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { badgeChannel } from '../utils/windowFirstCards.js';
 import { beyondRegions, GLANCE_MINUTES } from '../utils/planningArea.js';
@@ -698,6 +699,48 @@ export default function WindowFirstHeatStrip({
     paint,
   });
 
+  // The row-rails restructure (matrix-axis plan §6, D3): one structure for a tablet/desktop reader
+  // (day tiles + two rails, both sticky), the phone's own single day-major grid for the other. The
+  // same 639px query the phone CSS block already keys on, so the JS branch and the CSS flip
+  // together — see `useIsMobile`'s own doc.
+  const isMobile = useIsMobile();
+
+  /**
+   * `.wf-dhrow`'s own rendered height, published as `--wf-dh-h` for the two rails' sticky `top`
+   * calc (matrix-axis plan D11(b)) — the day-tile row sits ABOVE both rails, so each rail has to
+   * know how tall it is to pin directly beneath it.
+   *
+   * <p>A STATE-carrying callback ref, not a plain {@code useRef}: the node exists only in the
+   * desktop branch and arrives and leaves on every viewport flip, and a plain ref plus an effect
+   * with an empty dependency array would run once against whatever was mounted at that moment and
+   * never again — the exact defect `plan-matrix-plan.md`'s M3 already recorded against a
+   * conditionally-mounted sentinel. Depending on the NODE itself is what makes the effect re-run on
+   * arrival and on departure.
+   */
+  const [dhrowNode, setDhrowNode] = useState(null);
+
+  useEffect(() => {
+    if (!dhrowNode || typeof ResizeObserver === 'undefined') return undefined;
+    // The property lands on the SECTION, the common ancestor of the tile row and both rails' sticky
+    // `top` calcs — the same reasoning `useLensReserve` already applies to `--wf-mast-h`.
+    const section = dhrowNode.closest('.wf-hstrip-block');
+    if (!section) return undefined;
+    // Synchronous measure on attach (the `useLensReserve` shape) — the observer covers everything
+    // after. A resize/RO write while the pane is `hidden` (a background tab) is inert and simply
+    // self-corrects on return; that is not the forbidden zero FALLBACK, which is a literal baked
+    // into the stylesheet rather than a real, if stale, measurement.
+    const write = () => {
+      section.style.setProperty('--wf-dh-h', `${Math.round(dhrowNode.getBoundingClientRect().height)}px`);
+    };
+    write();
+    const observer = new ResizeObserver(write);
+    observer.observe(dhrowNode);
+    return () => {
+      observer.disconnect();
+      section.style.removeProperty('--wf-dh-h');
+    };
+  }, [dhrowNode]);
+
   // Nothing to index. The matrix is a picture of the field, so with no catalogue joined — a scores
   // fetch that failed, a session with no roster — it withdraws entirely rather than drawing six
   // empty coastlines under a header claiming to summarise them. The window rows are untouched.
@@ -1022,6 +1065,59 @@ export default function WindowFirstHeatStrip({
     </div>
   );
 
+  /**
+   * The day, said once per column instead of once per card. The rule running to the right edge of
+   * the column is its header — the same legend idiom the picks use.
+   *
+   * <p>Extracted (matrix-axis plan D3) so the desktop `.wf-dhrow` and the phone's day-major loop
+   * share one definition rather than two spellings of the same tile drifting apart — the diff that
+   * introduced this function moves the JSX unchanged rather than rewriting it.
+   *
+   * @param {object} day the matrix's day descriptor
+   * @param {number} column the grid column, 1-based
+   */
+  const renderDayHeader = (day, column) => (
+    <div
+      key={day.date}
+      data-testid="wf-heat-day"
+      data-today={day.today ? 'true' : undefined}
+      className={`wf-hday${day.today ? ' today' : ''}`}
+      style={{ '--c': column, '--r': MATRIX_ROW.header }}
+    >
+      <span className="wf-hday-cal">
+        {/* ⚠️ The WORD for today, in the weekday's own slot, and it is a deliberate
+            deviation from the bundle ("Today's column: … No 'TODAY' word"). The design's
+            reason for omitting it was that "the cards below already carry Tonight/Today in
+            their own labels" — true of P2's thumbnail, which drew `card.label`, and false
+            of the v3 card face, which draws the sun word instead and leaves the day
+            label in the visually-hidden sentence alone. That left the today column marked
+            by a gold tile border and a gold digit and by nothing else. The window rows
+            still below the matrix rescue it this phase; M2 deletes them, so restoring the
+            word now is cheaper than restoring it as an M2 blocker. Same slot, same size,
+            no second row — only the tile is a few pixels wider, which shortens its own
+            rule and nothing else. */}
+        <span className="wf-hday-dow">{day.today ? 'Today' : day.dow}</span>
+        <span className="wf-hday-dn">{day.dn}</span>
+      </span>
+      <span className="wf-hday-rule" aria-hidden="true" />
+    </div>
+  );
+
+  /**
+   * One sun-word rail — the full-width `SUNRISE`/`SUNSET` band above each row (matrix-axis plan D7).
+   * A div, not a button: nothing here is clickable, and every card already self-describes its event
+   * in its own hidden sentence, so the rail is `aria-hidden` rather than a second announcement of
+   * the same axis.
+   *
+   * @param {boolean} am sunrise rail (`true`) or sunset (`false`)
+   */
+  const renderRail = (am) => (
+    <div className={`wf-rail ${am ? 'am' : 'pm'}`} data-testid="wf-heat-rail" aria-hidden="true">
+      <span>{am ? 'Sunrise' : 'Sunset'}</span>
+      <span className="wf-rail-rule" />
+    </div>
+  );
+
   // A plain `<section>`, deliberately without an `aria-label`: a NAMED section becomes a `region`
   // landmark, and this would be the arm's only one — a landmark inside a tabpanel whose name
   // matches no visible text, announced ahead of buttons that each name themselves. The grouping
@@ -1039,51 +1135,69 @@ export default function WindowFirstHeatStrip({
         <span className="wf-hstrip-rule" aria-hidden="true" />
       </div>
 
-      <div
-        ref={attachFrame}
-        data-testid="wf-heat-grid"
-        className="wf-hstrip"
-        style={{ '--dc': matrix.columns }}
-      >
-        {matrix.days.map((day, index) => {
-          const column = index + 1;
-          return (
-            <React.Fragment key={day.date}>
-              {/* The day, said once per column instead of once per card. The rule running to the
-                  right edge of the column is its header — the same legend idiom the picks use. */}
-              <div
-                data-testid="wf-heat-day"
-                data-today={day.today ? 'true' : undefined}
-                className={`wf-hday${day.today ? ' today' : ''}`}
-                style={{ '--c': column, '--r': MATRIX_ROW.header }}
-              >
-                <span className="wf-hday-cal">
-                  {/* ⚠️ The WORD for today, in the weekday's own slot, and it is a deliberate
-                      deviation from the bundle ("Today's column: … No 'TODAY' word"). The design's
-                      reason for omitting it was that "the cards below already carry Tonight/Today in
-                      their own labels" — true of P2's thumbnail, which drew `card.label`, and false
-                      of the v3 card face, which draws the sun word instead and leaves the day
-                      label in the visually-hidden sentence alone. That left the today column marked
-                      by a gold tile border and a gold digit and by nothing else. The window rows
-                      still below the matrix rescue it this phase; M2 deletes them, so restoring the
-                      word now is cheaper than restoring it as an M2 blocker. Same slot, same size,
-                      no second row — only the tile is a few pixels wider, which shortens its own
-                      rule and nothing else. */}
-                  <span className="wf-hday-dow">{day.today ? 'Today' : day.dow}</span>
-                  <span className="wf-hday-dn">{day.dn}</span>
-                </span>
-                <span className="wf-hday-rule" aria-hidden="true" />
-              </div>
-              {day.am
-                ? renderCard(day.am, column, MATRIX_ROW.sunrise, day.solo)
-                : renderEmpty(day.amEmpty, column, MATRIX_ROW.sunrise, `${day.date}:am`)}
-              {day.pm
-                ? renderCard(day.pm, column, MATRIX_ROW.sunset, day.solo)
-                : renderEmpty(day.pmEmpty, column, MATRIX_ROW.sunset, `${day.date}:pm`)}
-            </React.Fragment>
-          );
-        })}
-      </div>
+      {/* ⚠️ Two structures from one matrix, never both mounted at once (matrix-axis plan D3). A
+          desktop reader gets sticky day tiles plus two row-scoped rails, which needs `.wf-dhrow` and
+          `.wf-hrow` to contain rail + cards together — a rail can only pin over its own row's cards
+          if its containing block wraps both, and a single grid confines a sticky item to its own row
+          track. A phone reader keeps today's exact single-grid, day-major markup unchanged, because
+          rendering both and hiding one would double the heat-field canvases and burn a hidden one's
+          measurement retry budget at `clientWidth` 0. */}
+      {isMobile ? (
+        <div
+          ref={attachFrame}
+          data-testid="wf-heat-grid"
+          className="wf-hstrip"
+          style={{ '--dc': matrix.columns }}
+        >
+          {matrix.days.map((day, index) => {
+            const column = index + 1;
+            return (
+              <React.Fragment key={day.date}>
+                {renderDayHeader(day, column)}
+                {day.am
+                  ? renderCard(day.am, column, MATRIX_ROW.sunrise, day.solo)
+                  : renderEmpty(day.amEmpty, column, MATRIX_ROW.sunrise, `${day.date}:am`)}
+                {day.pm
+                  ? renderCard(day.pm, column, MATRIX_ROW.sunset, day.solo)
+                  : renderEmpty(day.pmEmpty, column, MATRIX_ROW.sunset, `${day.date}:pm`)}
+              </React.Fragment>
+            );
+          })}
+        </div>
+      ) : (
+        <div
+          ref={attachFrame}
+          data-testid="wf-heat-grid"
+          className="wf-hstrip wf-hstrip-rows"
+          style={{ '--dc': matrix.columns }}
+        >
+          <div ref={setDhrowNode} data-testid="wf-heat-dhrow" className="wf-dhrow">
+            {matrix.days.map((day, index) => renderDayHeader(day, index + 1))}
+          </div>
+          <div className="wf-hrow">
+            {renderRail(true)}
+            <div data-testid="wf-heat-cards" className="wf-hcards">
+              {matrix.days.map((day, index) => {
+                const column = index + 1;
+                return day.am
+                  ? renderCard(day.am, column, MATRIX_ROW.sunrise, day.solo)
+                  : renderEmpty(day.amEmpty, column, MATRIX_ROW.sunrise, `${day.date}:am`);
+              })}
+            </div>
+          </div>
+          <div className="wf-hrow">
+            {renderRail(false)}
+            <div data-testid="wf-heat-cards" className="wf-hcards">
+              {matrix.days.map((day, index) => {
+                const column = index + 1;
+                return day.pm
+                  ? renderCard(day.pm, column, MATRIX_ROW.sunset, day.solo)
+                  : renderEmpty(day.pmEmpty, column, MATRIX_ROW.sunset, `${day.date}:pm`);
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div data-testid="wf-heat-foot" className="wf-hstrip-foot">
         <span

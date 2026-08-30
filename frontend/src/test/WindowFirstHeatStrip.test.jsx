@@ -10,6 +10,7 @@ import { aspect, BBOX, bbox, drawGeo, land, load } from '../utils/heatField.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { GLANCE_MINUTES } from '../utils/planningArea.js';
 import { STOPS_VERDICT, STOPS_TEMP, setMode } from '../utils/scoreRamp.js';
+import { useIsMobile } from '../hooks/useIsMobile.js';
 
 /**
  * The Plan pane's heat strip — six solar-window thumbnails, replacing the day rail (plan D1, §1.1).
@@ -42,6 +43,13 @@ vi.mock('../utils/heatField.js', async (importOriginal) => {
     drawGeo: vi.fn(() => null),
   };
 });
+
+// `setup.js` stubs `matchMedia` to `matches: false` for the whole suite, so the phone branch is
+// unreachable by rendering alone — mocked at the hook boundary (`setup.js:46`'s documented
+// convention, the `WindowRowFieldMap.test.jsx` precedent) so a test can flip it mid-run with
+// `rerender`, which a per-file matchMedia stub cannot do without flipping every other test in this
+// large file too (matrix-axis plan §6.4).
+vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: vi.fn(() => false) }));
 
 const TODAY = '2026-08-04';
 
@@ -148,8 +156,26 @@ function scoredWindows(cards) {
 async function renderStrip(props = {}) {
   const onOpenWindow = vi.fn();
   const cards = props.cards ?? [stripCard()];
+  let rerenderRoot;
   await act(async () => {
-    render(
+    const result = render(
+      <WindowFirstHeatStrip
+        spots={[spot()]}
+        todayStr={TODAY}
+        onOpenWindow={onOpenWindow}
+        {...props}
+        cards={cards}
+        pointSets={props.pointSets ?? scoredWindows(cards)}
+      />,
+    );
+    rerenderRoot = result.rerender;
+  });
+  // Re-renders the SAME props this call used — a flip test calls this once, mutates the hook mock,
+  // then `await rerender()` with no arguments to re-commit against the new branch, rather than
+  // needing to reconstruct the element itself. Wrapped in its own `act` for the same reason the
+  // initial render is: the branch flip mounts/unmounts the `--wf-dh-h` effect.
+  const rerender = async () => act(async () => {
+    rerenderRoot(
       <WindowFirstHeatStrip
         spots={[spot()]}
         todayStr={TODAY}
@@ -160,7 +186,7 @@ async function renderStrip(props = {}) {
       />,
     );
   });
-  return { onOpenWindow };
+  return { onOpenWindow, rerender };
 }
 
 /**
@@ -461,6 +487,11 @@ describe('WindowFirstHeatStrip — what a card says', () => {
 
   it('says SUNSET or SUNRISE as a word, never an arrow', async () => {
     // The design's own call and it is right: a down arrow for sunset reads as a falling forecast.
+    //
+    // ⚠️ ['SUNRISE', 'SUNSET'], not day order — the desktop default renders the ROW-MAJOR structure
+    // (matrix-axis plan §6 D1/D3): the whole sunrise row's cards, in day order, come before the
+    // whole sunset row's, so this fixture's tomorrow-sunrise card (day 2's AM cell) precedes
+    // today's sunset (day 1's PM cell) in DOM order even though today renders in the first column.
     await renderStrip({
       cards: [
         stripCard(),
@@ -468,7 +499,7 @@ describe('WindowFirstHeatStrip — what a card says', () => {
       ],
     });
     expect(screen.getAllByTestId('wf-heat-sun').map((s) => s.textContent))
-      .toEqual(['SUNSET', 'SUNRISE']);
+      .toEqual(['SUNRISE', 'SUNSET']);
   });
 
   it('tints the sunrise/sunset chip by which one it is (matrix-axis plan D13)', async () => {
@@ -480,7 +511,8 @@ describe('WindowFirstHeatStrip — what a card says', () => {
         stripCard({ key: '2026-08-05:SUNRISE', date: '2026-08-05', targetType: 'SUNRISE', dow: 'Wed', sunrise: true, label: 'Tomorrow sunrise', time: '05:20' }),
       ],
     });
-    const [sunset, sunrise] = screen.getAllByTestId('wf-heat-sun');
+    // ⚠️ Row-major order (see the test above): the sunrise row's card precedes the sunset row's.
+    const [sunrise, sunset] = screen.getAllByTestId('wf-heat-sun');
     expect(sunset).toHaveClass('wf-hc-sun', 'pm');
     expect(sunset).not.toHaveClass('am');
     expect(sunrise).toHaveClass('wf-hc-sun', 'am');
@@ -741,12 +773,18 @@ describe('WindowFirstHeatStrip — the grid it lays out', () => {
   it('places each cell in its own column and row rather than flowing them', async () => {
     // Explicit placement is what lets the phone transpose the identical markup into two columns
     // under a spanning day heading with no second render path.
+    //
+    // ⚠️ Row-major DOM order (matrix-axis plan §6.4): the desktop default renders the whole sunrise
+    // row before the whole sunset row, so `getAllByTestId` returns day 2's sunrise card, then day
+    // 3's sunrise card, THEN day 1's sunset card, then day 2's sunset card — day order within each
+    // row, but the two rows themselves in sunrise-then-sunset order rather than day order. `--c`/
+    // `--r` are unaffected; only which index each card lands at changes.
     await renderStrip({ cards: WEEK });
     const cards = screen.getAllByTestId('wf-heat-card');
-    expect(cards[0]).toHaveStyle({ '--c': '1', '--r': '3' });
-    expect(cards[1]).toHaveStyle({ '--c': '2', '--r': '2' });
-    expect(cards[2]).toHaveStyle({ '--c': '2', '--r': '3' });
-    expect(cards[3]).toHaveStyle({ '--c': '3', '--r': '2' });
+    expect(cards[0]).toHaveStyle({ '--c': '2', '--r': '2' });
+    expect(cards[1]).toHaveStyle({ '--c': '3', '--r': '2' });
+    expect(cards[2]).toHaveStyle({ '--c': '1', '--r': '3' });
+    expect(cards[3]).toHaveStyle({ '--c': '2', '--r': '3' });
   });
 
   it('heads each column with its weekday and date, once per day', async () => {
@@ -799,11 +837,16 @@ describe('WindowFirstHeatStrip — the grid it lays out', () => {
   it('marks a day holding one window as solo, which is what widens it on a phone', async () => {
     // jsdom has no layout, so the media query itself is a browser claim — what is asserted here is
     // the class the rule selects on.
+    //
+    // ⚠️ Row-major indices (matrix-axis plan §6.4, same fixture and DOM order as the placement test
+    // above): [day2 sunrise, day3 sunrise, day1 sunset, day2 sunset]. Day 1 (sunset only) and day 3
+    // (sunrise only) are the solo days, which is now cards[2] and cards[1] respectively.
     await renderStrip({ cards: WEEK });
     const cards = screen.getAllByTestId('wf-heat-card');
-    expect(cards[0]).toHaveClass('solo');
-    expect(cards[1]).not.toHaveClass('solo');
-    expect(cards[3]).toHaveClass('solo');
+    expect(cards[0]).not.toHaveClass('solo');
+    expect(cards[1]).toHaveClass('solo');
+    expect(cards[2]).toHaveClass('solo');
+    expect(cards[3]).not.toHaveClass('solo');
   });
 });
 
@@ -1024,6 +1067,11 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
   const UNSCORED = stripCard({
     key: '2026-08-07:SUNRISE',
     date: '2026-08-07',
+    // ⚠️ `targetType` was missing here pre-matrix-axis: the fixture's own key, `sunrise: true` and
+    // label all say sunrise, but `stripCard`'s default `targetType: 'SUNSET'` silently survived,
+    // which only mattered once row-major placement started keying the matrix off `targetType`
+    // (§6.4) — day-major placement never let a mismatched row leak into DOM order.
+    targetType: 'SUNRISE',
     dow: 'Sat',
     sunrise: true,
     label: 'Saturday sunrise',
@@ -1049,7 +1097,10 @@ describe('WindowFirstHeatStrip — a window nobody rated', () => {
 
   it('marks the unrated tile and not its identically-worded neighbour', async () => {
     await renderStrip({ cards: BOTH });
-    const [scored, unrated] = screen.getAllByTestId('wf-heat-card');
+    // ⚠️ Row-major DOM order (matrix-axis plan §6.4): SCORED is a sunset (day 1's PM cell) and
+    // UNSCORED is a sunrise on a later day (day 2's AM cell), so the whole sunrise row — UNSCORED —
+    // precedes the whole sunset row — SCORED — in document order, inverting this destructuring.
+    const [unrated, scored] = screen.getAllByTestId('wf-heat-card');
 
     expect(scored).not.toHaveAttribute('data-unscored');
     expect(unrated).toHaveAttribute('data-unscored', 'true');
@@ -1474,6 +1525,179 @@ describe('WindowFirstHeatStrip — the canvases', () => {
     const grid = screen.getByTestId('wf-heat-grid');
     expect(grid).toHaveClass('wf-hstrip');
     expect(grid).toHaveStyle({ '--dc': '1' });
+  });
+});
+
+describe('WindowFirstHeatStrip — the row-rails branch (matrix-axis plan §6, D1/D3/D4)', () => {
+  afterEach(() => {
+    useIsMobile.mockReturnValue(false);
+  });
+
+  it('mounts the rows structure on the desktop default, and the plain single-grid markup on a phone', async () => {
+    const { rerender } = await renderStrip();
+    const desktopGrid = screen.getByTestId('wf-heat-grid');
+    expect(desktopGrid).toHaveClass('wf-hstrip', 'wf-hstrip-rows');
+    expect(screen.getByTestId('wf-heat-dhrow')).toBeInTheDocument();
+    expect(screen.getAllByTestId('wf-heat-rail')).toHaveLength(2);
+
+    useIsMobile.mockReturnValue(true);
+    await rerender();
+
+    // ⚠️ Neither `wf-heat-grid` unmounts nor a second one mounts — it is the SAME container
+    // re-rendered without the rows modifier, `.wf-dhrow` or any rail (D3: one structure at a time).
+    const phoneGrid = screen.getByTestId('wf-heat-grid');
+    expect(phoneGrid).toHaveClass('wf-hstrip');
+    expect(phoneGrid).not.toHaveClass('wf-hstrip-rows');
+    expect(screen.queryByTestId('wf-heat-dhrow')).toBeNull();
+    expect(screen.queryByTestId('wf-heat-rail')).toBeNull();
+  });
+
+  /**
+   * Four days: today (sunset only, gone this morning), an ordinary paired day, an AWAY day (both
+   * windows travel) and a solo sunrise-only day past the end of the forecast — deliberately built
+   * to exercise every branch `buildWindowMatrix` can produce in one fixture, per the plan's D1/D5/D9
+   * assertion list.
+   */
+  const ROWS_FIXTURE = [
+    stripCard(),
+    stripCard({
+      key: '2026-08-05:SUNRISE', date: '2026-08-05', targetType: 'SUNRISE', sunrise: true, dow: 'Wed',
+      label: 'Tomorrow sunrise', time: '05:20',
+    }),
+    stripCard({
+      key: '2026-08-05:SUNSET', date: '2026-08-05', targetType: 'SUNSET', dow: 'Wed',
+      label: 'Tomorrow sunset', time: '21:09',
+    }),
+    stripCard({
+      key: '2026-08-06:SUNRISE', date: '2026-08-06', targetType: 'SUNRISE', sunrise: true, dow: 'Thu',
+      label: 'Thursday sunrise', time: '05:22', away: true, verdict: null, verdictLabel: 'Not forecast',
+    }),
+    stripCard({
+      key: '2026-08-06:SUNSET', date: '2026-08-06', targetType: 'SUNSET', dow: 'Thu',
+      label: 'Thursday sunset', time: '21:06', away: true, verdict: null, verdictLabel: 'Not forecast',
+    }),
+    stripCard({
+      key: '2026-08-07:SUNRISE', date: '2026-08-07', targetType: 'SUNRISE', sunrise: true, dow: 'Fri',
+      label: 'Friday sunrise', time: '05:24',
+    }),
+  ];
+
+  it('desktop: dhrow precedes both rails, each row\'s cards land in the matching wf-hcards group', async () => {
+    await renderStrip({ cards: ROWS_FIXTURE });
+
+    const grid = screen.getByTestId('wf-heat-grid');
+    expect(grid).toHaveStyle({ '--dc': '4' });
+
+    const dhrow = screen.getByTestId('wf-heat-dhrow');
+    const rails = screen.getAllByTestId('wf-heat-rail');
+    expect(rails).toHaveLength(2);
+    rails.forEach((rail) => expect(rail).toHaveAttribute('aria-hidden', 'true'));
+    expect(rails[0]).toHaveClass('wf-rail', 'am');
+    expect(rails[0]).toHaveTextContent('Sunrise');
+    expect(rails[1]).toHaveClass('wf-rail', 'pm');
+    expect(rails[1]).toHaveTextContent('Sunset');
+    // `.wf-dhrow` before EITHER rail in document order — the sticky stack presumes tiles first.
+    rails.forEach((rail) => {
+      expect(dhrow.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    });
+
+    // The dhrow holds every day header — four days, none dropped.
+    expect(within(dhrow).getAllByTestId('wf-heat-day')).toHaveLength(4);
+
+    const cardGroups = screen.getAllByTestId('wf-heat-cards');
+    expect(cardGroups).toHaveLength(2);
+    const [amGroup, pmGroup] = cardGroups;
+
+    // Sunrise group: tomorrow's sunrise, the away day's sunrise, Friday's solo sunrise — never a
+    // sunset. Today's own sunrise is the "gone" hole, not a card.
+    const amCards = within(amGroup).getAllByTestId('wf-heat-card');
+    expect(amCards).toHaveLength(3);
+    expect(within(amGroup).getByText('this morning has gone')).toBeInTheDocument();
+
+    // Sunset group: today, tomorrow, the away day — never a sunrise. Friday's own sunset is past
+    // the end of the forecast, so it is the OTHER named hole, in the PM group this time.
+    const pmCards = within(pmGroup).getAllByTestId('wf-heat-card');
+    expect(pmCards).toHaveLength(3);
+    expect(within(pmGroup).getByText('past the end of the forecast')).toBeInTheDocument();
+
+    // An away day contributes a cell to BOTH rows, not just one — identified by its own time,
+    // since the away day's label lives inside the card's longer joined accessible-name sentence
+    // rather than as its own text node.
+    const amAway = amCards.filter((c) => c.getAttribute('data-away') === 'true');
+    expect(amAway).toHaveLength(1);
+    expect(amAway[0]).toHaveTextContent('05:22');
+    const pmAway = pmCards.filter((c) => c.getAttribute('data-away') === 'true');
+    expect(pmAway).toHaveLength(1);
+    expect(pmAway[0]).toHaveTextContent('21:06');
+  });
+
+  it('phone: no rail, no rows modifier, no dhrow — direct children stay in day-major DOM order', async () => {
+    useIsMobile.mockReturnValue(true);
+    await renderStrip({ cards: ROWS_FIXTURE });
+
+    expect(screen.queryByTestId('wf-heat-rail')).toBeNull();
+    expect(screen.queryByTestId('wf-heat-dhrow')).toBeNull();
+    const grid = screen.getByTestId('wf-heat-grid');
+    expect(grid).not.toHaveClass('wf-hstrip-rows');
+
+    // The exact sequence the phone CSS's DOM-order flow depends on: header, sunrise cell, sunset
+    // cell, once per day — this is what protects day-major flow now that the desktop branch above
+    // is row-major (§6.4's "day-major protection now lives in the phone-branch test").
+    const kinds = Array.from(grid.children).map((el) => el.getAttribute('data-testid'));
+    expect(kinds).toEqual([
+      'wf-heat-day', 'wf-heat-empty', 'wf-heat-card',
+      'wf-heat-day', 'wf-heat-card', 'wf-heat-card',
+      'wf-heat-day', 'wf-heat-card', 'wf-heat-card',
+      'wf-heat-day', 'wf-heat-card', 'wf-heat-empty',
+    ]);
+  });
+});
+
+describe('WindowFirstHeatStrip — the day-tile row\'s measured height (matrix-axis plan D11(b))', () => {
+  /** Heights by class — the same pattern `WindowFirstShellSticky.test.jsx` uses for its own RO. */
+  const HEIGHTS = { 'wf-dhrow': 49 };
+
+  beforeEach(() => {
+    // A RUNNING observer, unlike the suite-wide no-op stub — nothing here needs to fire it (the
+    // effect measures synchronously on attach), but a no-op-only class would silently pass even if
+    // that synchronous measurement regressed to depending on the observer's first callback.
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(cb) { this.cb = cb; }
+
+      observe() {}
+
+      unobserve() {}
+
+      disconnect() {}
+    });
+    vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function rect() {
+      const height = Object.entries(HEIGHTS)
+        .find(([cls]) => this.classList?.contains(cls))?.[1] ?? 0;
+      return {
+        height, width: 0, top: 0, left: 0, right: 0, bottom: height, x: 0, y: 0, toJSON: () => ({}),
+      };
+    });
+  });
+
+  afterEach(() => {
+    useIsMobile.mockReturnValue(false);
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('publishes --wf-dh-h at the tile row\'s measured height, and removes it on the cleanup path', async () => {
+    const { rerender } = await renderStrip();
+    const section = screen.getByTestId('wf-heat-strip');
+    // Never merely "a value was written" — that assertion alone passes at `0px`, which is exactly
+    // the defect a mock class absent from `HEIGHTS` would produce (every element measures 0 in
+    // jsdom unless the stub above says otherwise).
+    expect(section.style.getPropertyValue('--wf-dh-h')).toBe('49px');
+
+    // The cleanup path a fresh-mount phone test can never exercise: the property was never written
+    // in the first place there, so there is nothing for that test to prove got removed.
+    useIsMobile.mockReturnValue(true);
+    await rerender();
+    expect(section.style.getPropertyValue('--wf-dh-h')).toBe('');
   });
 });
 

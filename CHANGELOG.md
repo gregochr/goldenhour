@@ -33,6 +33,60 @@ background mixed against `transparent` or `--color-plex-panel` (now assert the f
 raised away-cell opacity had no test coverage at all (added); and a CSS comment misstated one of its
 own diagnostic contrast figures (a hovered-state number that was actually the away-cell one).
 
+### Added — matrix-axis Phase 2: row rails and sticky headings
+
+Phase 2 (§6) of `docs/engineering/matrix-axis-plan.md`: the Plan tab's day×event matrix now says
+its own axis. On desktop/tablet, `WindowFirstHeatStrip` renders a restructured layout — a full-width
+day-tile row (`.wf-dhrow`) plus two `SUNRISE`/`SUNSET` rail rows (`.wf-rail`, dawn-blue and coral,
+each `aria-hidden` since every card already states its own event in its accessible name) — all three
+sticky: the day tiles pin under the lens bar, and each rail pins under the tiles for exactly as long
+as its own row's cards are on screen, then leaves with them. The phone layout is byte-for-byte
+unchanged (`useIsMobile()` branches between the two structures; nothing is double-rendered). A new
+`useLensReserve` property, `--wf-lens-h`, and a new strip-local ResizeObserver publishing
+`--wf-dh-h` supply the sticky offset math; a new `scroll-margin-top` rule keeps a keyboard-focused
+card from scrolling in underneath the newly-pinned chrome. No new props, no API change.
+
+Restructuring the DOM from day-major to **row-major** (every sunrise-row card before every
+sunset-row card, instead of each day's own pair together) was required for row-scoped sticky
+containment, and it reordered `getAllByTestId('wf-heat-card')` wherever a fixture mixed sunrise and
+sunset cards — budgeted as real work per the plan's §6.4 inventory, not discovered breakage. Every
+affected assertion across `WindowFirstHeatStrip.test.jsx`, `WindowFirstShell.test.jsx` and
+`WindowFirstShellRegion.test.jsx` was re-derived against the new order (traced through
+`buildWindowMatrix`, not swapped mechanically) and the two shell comments documenting the old
+"focus the matrix's first card" chronology were updated to say "first card of the sunrise row."
+
+⚠️ **Forced deviation from the plan's literal D8 CSS**, found by the adversarial review's
+accessibility lens and then measured in a browser: the rail's fade-to-page-background gradient
+(`linear-gradient(180deg, var(--color-plex-bg) 0 70%, transparent)`) put the rail *text's own bottom
+edge* inside the fading 30%, so a saturated card scrolling underneath composited with the glyphs
+directly. Measured with the score ramp's own hottest stop (`#C82820`) scrolled beneath: coral rail
+text dropped to 4.02:1, below the 4.5:1 floor. Fixed by moving the cutoff to 85% (past the text's own
+13.5px bottom edge inside the 16.5px rail box, close to the day-tile row's own 82% for the same
+reason) — text zone re-measured fully opaque (dawn 7.56:1, coral 5.24:1); only the ~2.5px of bottom
+padding below the text, where no glyph renders, still fades. See `index.css` beside `.wf-rail` and
+plan §4's A-14.
+
+Adversarial review (five lenses: runtime behaviour, CSS/tokens/cascade, test quality, accessibility,
+project conventions) surfaced and fixed three further issues before landing: the region-shell test
+file's DOM-order sweep was completed for all nine `openWindow()` call sites rather than the two the
+first pass touched (the other seven happened to still pass, on a fixture whose two windows carry
+identical region content — now documented rather than silently relying on that symmetry); a
+stylesheet-half test asserting the rows-mode grid's overflow-safe track string was checking the
+whole file rather than the new rule's own block, so it would have kept passing against a regressed
+rule; and a CSS comment's own prose had drifted into containing the literal search string a sticky
+test locates by exact text, which was rephrased to no longer collide with it.
+
+Browser-verified (Playwright headless Chromium against a static harness built from the real compiled
+stylesheet, since this environment's sandboxed egress cannot reach JitPack to build the backend and
+run the live app — see the note below): the scroll sequence pins tiles then the sunrise rail with no
+hairline gap, releases the sunrise rail with its own row and pins the sunset rail at the identical
+offset, z-index ordering holds (masthead 45 > lens 20 > tiles 15 > rail 14), and a keyboard-focused
+card under the pinned chrome scrolls in below it rather than underneath. ⚠️ **Not verified in this
+session**: the live app end-to-end (real data, canvas painting, the popup, the ~700px wrapped-lens-bar
+band, the `isMobile` branch flip and its canvas repaint) — the local backend requires `solar-utils`
+from JitPack, which this sandboxed session's egress policy blocks (403). The 54px/49px sticky
+fallback literals therefore remain provisional pending that live-app measurement pass.
+
 ### Fixed — a spring or king tide is a claim about the DAY, and now sits on both of its windows
 
 The Plan matrix labelled a day-level fact with a window-level one. `PlanWindowProjector` bucketed a
