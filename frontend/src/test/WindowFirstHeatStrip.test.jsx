@@ -156,16 +156,26 @@ function scoredWindows(cards) {
 async function renderStrip(props = {}) {
   const onOpenWindow = vi.fn();
   const cards = props.cards ?? [stripCard()];
+  // ⚠️ Computed ONCE, outside both JSX trees below, and reused by `rerender()` — not called fresh
+  // each time. `spot()`/`scoredWindows(cards)` return a NEW array/Map on every call, and a flip test
+  // that rebuilt them per render would give `paint` (and so `measureAndPaint`) a new prop identity
+  // on every `rerender()`, which fires the hook's OWN natural repaint regardless of whether the
+  // branch-flip fix under test does anything at all — the exact false-positive this file's
+  // repaint-on-flip test exists to rule out. Production holds these references stable across a pure
+  // `isMobile` re-render (they come from context state, not a fresh literal per render), so a stable
+  // fixture here is the faithful one, not merely the convenient one.
+  const spots = props.spots ?? [spot()];
+  const pointSets = props.pointSets ?? scoredWindows(cards);
   let rerenderRoot;
   await act(async () => {
     const result = render(
       <WindowFirstHeatStrip
-        spots={[spot()]}
+        spots={spots}
         todayStr={TODAY}
         onOpenWindow={onOpenWindow}
         {...props}
         cards={cards}
-        pointSets={props.pointSets ?? scoredWindows(cards)}
+        pointSets={pointSets}
       />,
     );
     rerenderRoot = result.rerender;
@@ -177,12 +187,12 @@ async function renderStrip(props = {}) {
   const rerender = async () => act(async () => {
     rerenderRoot(
       <WindowFirstHeatStrip
-        spots={[spot()]}
+        spots={spots}
         todayStr={TODAY}
         onOpenWindow={onOpenWindow}
         {...props}
         cards={cards}
-        pointSets={props.pointSets ?? scoredWindows(cards)}
+        pointSets={pointSets}
       />,
     );
   });
@@ -1550,6 +1560,27 @@ describe('WindowFirstHeatStrip — the row-rails branch (matrix-axis plan §6, D
     expect(phoneGrid).not.toHaveClass('wf-hstrip-rows');
     expect(screen.queryByTestId('wf-heat-dhrow')).toBeNull();
     expect(screen.queryByTestId('wf-heat-rail')).toBeNull();
+  });
+
+  it('⚠️ repaints on the branch flip itself, not only on a resize/RO event that happens to follow it', async () => {
+    // `useHeatCanvas`'s paint effect re-runs only on its own nonces (a resize/RO observation, or the
+    // vendored coastline resolving) — neither of which `isMobile` toggling alone is guaranteed to
+    // move. Without an explicit repaint on the flip, the freshly-mounted branch's canvases would
+    // stay blank until an UNRELATED later event happened to paint them (a real defect a reviewer
+    // found against the first cut of this phase). No resize/RO event is fired here at all — if the
+    // repaint depended on one, this test would see a single call for the whole render.
+    let rerender;
+    await withMeasuredThumbs(160, async () => {
+      ({ rerender } = await renderStrip());
+    });
+    expect(drawGeo).toHaveBeenCalledTimes(1);
+    drawGeo.mockClear();
+
+    useIsMobile.mockReturnValue(true);
+    await withMeasuredThumbs(160, async () => {
+      await rerender();
+    });
+    expect(drawGeo).toHaveBeenCalledTimes(1);
   });
 
   /**

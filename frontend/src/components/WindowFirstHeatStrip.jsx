@@ -689,7 +689,9 @@ export default function WindowFirstHeatStrip({
     return null;
   }, [matrix]);
 
-  const { attachFrame, canvasRef, geoFailed } = useHeatCanvas({
+  const {
+    attachFrame, canvasRef, geoFailed, repaintNow,
+  } = useHeatCanvas({
     enabled: cards.length > 0,
     // The first PLACED card's well is the GATE's measured box — see `paint` for why it is no longer
     // the width every canvas is drawn at.
@@ -740,6 +742,33 @@ export default function WindowFirstHeatStrip({
       section.style.removeProperty('--wf-dh-h');
     };
   }, [dhrowNode]);
+
+  /**
+   * Forces a repaint on the branch flip itself, rather than depending on the resize/RO events that
+   * ordinarily accompany a viewport crossing (the risk §2 already names, and its own sanctioned
+   * fix — "bumping the observer nonce on branch change" — rather than a rewrite of the hook).
+   *
+   * <p>{@code useHeatCanvas}'s paint effect re-runs only on ITS OWN nonces (a resize/RO observation,
+   * or the vendored coastline resolving) — neither of which {@code isMobile} toggling is guaranteed
+   * to produce. An ordinary drag across 639px keeps firing further resize events after the branch
+   * swaps, which self-correct it; but a single, discrete jump (a window-manager snap, the last
+   * settled resize of a gesture landing exactly at the boundary) can leave the freshly-mounted
+   * canvases of the NEW branch blank — {@code attachFrame} re-seeds `lastSizeRef` to the new
+   * container's current box on attach, so even that container's first `ResizeObserver` callback
+   * reads as "unchanged" and skips the repaint it would otherwise deliver.
+   *
+   * <p>Skipped on the FIRST commit: the hook's own mount effect already paints the initial branch,
+   * and calling {@code repaintNow} again immediately would be the doubled first paint this file's
+   * other guards (`alreadyLoaded`, the seeded `lastSizeRef`) exist to avoid.
+   */
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    if (!mountedRef.current) {
+      mountedRef.current = true;
+      return;
+    }
+    repaintNow();
+  }, [isMobile, repaintNow]);
 
   // Nothing to index. The matrix is a picture of the field, so with no catalogue joined — a scores
   // fetch that failed, a session with no roster — it withdraws entirely rather than drawing six

@@ -76,6 +76,20 @@ whole file rather than the new rule's own block, so it would have kept passing a
 rule; and a CSS comment's own prose had drifted into containing the literal search string a sticky
 test locates by exact text, which was rephrased to no longer collide with it.
 
+⚠️ **A further P1 finding landed after opening the PR** (an automated GitHub review, verified by
+reading `useHeatCanvas.js` directly rather than taken on trust): `isMobile` toggling alone does not
+re-run `useHeatCanvas`'s paint effect — none of `measureAndPaint`'s dependencies, nor its
+`landNonce`/`resizeNonce`, are wired to it — so the freshly-mounted canvases of the branch just
+swapped IN could stay blank until an unrelated later event happened to repaint them. §2's own risk
+note anticipated exactly this and named the fix ("bumping the observer nonce on branch change, not a
+rewrite"), which had not actually been implemented. Fixed by calling the hook's own `repaintNow` from
+an effect keyed on `isMobile` (skipped on the first commit, to avoid a doubled first paint). Proven
+with a fixture-hygiene fix alongside it: `WindowFirstHeatStrip.test.jsx`'s `renderStrip`/`rerender`
+test helper was rebuilding its `spots` array and `pointSets` map fresh on every call, which alone
+gave `paint` a new identity on every re-render and would have masked whether the fix — or the test
+helper's own instability — was what triggered a repaint; both arrays are now built once and reused,
+matching how the real context provides them.
+
 Browser-verified (Playwright headless Chromium against a static harness built from the real compiled
 stylesheet, since this environment's sandboxed egress cannot reach JitPack to build the backend and
 run the live app — see the note below): the scroll sequence pins tiles then the sunrise rail with no
@@ -83,9 +97,11 @@ hairline gap, releases the sunrise rail with its own row and pins the sunset rai
 offset, z-index ordering holds (masthead 45 > lens 20 > tiles 15 > rail 14), and a keyboard-focused
 card under the pinned chrome scrolls in below it rather than underneath. ⚠️ **Not verified in this
 session**: the live app end-to-end (real data, canvas painting, the popup, the ~700px wrapped-lens-bar
-band, the `isMobile` branch flip and its canvas repaint) — the local backend requires `solar-utils`
-from JitPack, which this sandboxed session's egress policy blocks (403). The 54px/49px sticky
-fallback literals therefore remain provisional pending that live-app measurement pass.
+band) — the local backend requires `solar-utils` from JitPack, which this sandboxed session's egress
+policy blocks (403). The `isMobile` branch-flip repaint fix above is unit-tested (a real `drawGeo`
+call count assertion, not merely a smoke test) but its actual canvas output on a real viewport crossing
+is still a browser claim this session could not make. The 54px/49px sticky fallback literals therefore
+remain provisional pending a live-app measurement pass.
 
 ### Fixed — a spring or king tide is a claim about the DAY, and now sits on both of its windows
 
