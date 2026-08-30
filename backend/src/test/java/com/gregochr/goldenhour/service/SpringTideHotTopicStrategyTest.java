@@ -977,6 +977,8 @@ class SpringTideHotTopicStrategyTest {
                         "sunrise".equals(alignedEvent) ? 12 : 0,
                         "sunset".equals(alignedEvent) ? 12 : 0,
                         61),
+                // sunriseWater/sunsetWater: not this fixture's subject.
+                null, null,
                 false, null);
     }
 }

@@ -46,13 +46,16 @@ const NE = 'Northumberland & Tyneside';
 const LAKES = 'The Lake District';
 
 describe('topicWindowKeys — PlanWindowProjector.keysFor, replicated', () => {
+  // ⚠️ These name INVERSION/DUST rather than taking the fixture's default type, which is
+  // `KING_TIDE` — a day-scoped type that lands on both windows and would make the single-window
+  // assertions below assert the wrong rule's output. A window-scoped type is the subject here.
   it('buckets a SUNRISE topic onto its own morning', () => {
-    expect(topicWindowKeys(topic({ eventType: 'SUNRISE', date: '2026-08-05' })))
+    expect(topicWindowKeys(topic({ type: 'INVERSION', eventType: 'SUNRISE', date: '2026-08-05' })))
       .toEqual(['2026-08-05:SUNRISE']);
   });
 
   it('buckets a SUNSET topic onto its own evening', () => {
-    expect(topicWindowKeys(topic({ eventType: 'SUNSET', date: '2026-08-05' })))
+    expect(topicWindowKeys(topic({ type: 'DUST', eventType: 'SUNSET', date: '2026-08-05' })))
       .toEqual(['2026-08-05:SUNSET']);
   });
 
@@ -64,20 +67,58 @@ describe('topicWindowKeys — PlanWindowProjector.keysFor, replicated', () => {
   });
 
   it('crosses a month boundary on the NIGHT case', () => {
-    expect(topicWindowKeys(topic({ eventType: 'NIGHT', date: '2026-08-31' })))
+    expect(topicWindowKeys(topic({ type: 'NLC', eventType: 'NIGHT', date: '2026-08-31' })))
       .toEqual(['2026-08-31:SUNSET', '2026-09-01:SUNRISE']);
   });
 
-  it('buckets a topic with no solar anchor nowhere', () => {
+  it('buckets a WINDOW-scoped topic with no solar anchor nowhere', () => {
     // `HotTopicEventEnricher` leaves `eventType` null for a topic with no anchor, and the projector
     // skips it. Storm surge and clearance topics reach the briefing this way.
-    expect(topicWindowKeys(topic({ eventType: null }))).toEqual([]);
-    expect(topicWindowKeys(topic({ eventType: 'DAWN_CHORUS' }))).toEqual([]);
+    expect(topicWindowKeys(topic({ type: 'STORM_SURGE', eventType: null }))).toEqual([]);
+    expect(topicWindowKeys(topic({ type: 'DUST', eventType: 'DAWN_CHORUS' }))).toEqual([]);
   });
 
   it('buckets a topic with no date nowhere, rather than keying on undefined', () => {
     expect(topicWindowKeys(topic({ date: null }))).toEqual([]);
     expect(topicWindowKeys(null)).toEqual([]);
+  });
+
+  // ── Day-scoped types ──────────────────────────────────────────────────────
+
+  it('buckets a KING_TIDE onto both windows of its own day', () => {
+    // "King tide" is a claim about the day, so it is true of that day's sunrise and its sunset
+    // alike. The order matters only in that it is asserted: the projector emits SUNRISE first.
+    expect(topicWindowKeys(topic({ type: 'KING_TIDE', eventType: 'SUNRISE', date: '2026-08-05' })))
+      .toEqual(['2026-08-05:SUNRISE', '2026-08-05:SUNSET']);
+  });
+
+  it('buckets a SPRING_TIDE onto both windows on the same rule', () => {
+    // Asserted separately from KING_TIDE because the type string is the only thing distinguishing
+    // them, on a client whose backend counterpart shares every piece of alignment machinery.
+    expect(topicWindowKeys(topic({ type: 'SPRING_TIDE', eventType: 'SUNSET', date: '2026-08-05' })))
+      .toEqual(['2026-08-05:SUNRISE', '2026-08-05:SUNSET']);
+  });
+
+  it('buckets a tide with a NULL eventType onto both windows anyway', () => {
+    // ⚠️ The case the whole change is about, and the one that would be lost by mirroring the
+    // backend's day-scoping AFTER the eventType guard rather than before it. A null eventType on a
+    // tide does not mean "no anchor" — it means the alignment has already passed, or that no water
+    // reached the light. Neither says the day has stopped being tidal.
+    expect(topicWindowKeys(topic({ type: 'SPRING_TIDE', eventType: null, date: '2026-08-05' })))
+      .toEqual(['2026-08-05:SUNRISE', '2026-08-05:SUNSET']);
+  });
+
+  it('never gives a tide the NIGHT topic\'s next-morning window', () => {
+    // Day-scoped and night-spanning are different shapes: a tide covers both windows of ONE date,
+    // where a NIGHT topic covers one window of each of two. Returning the night pair here would put
+    // a tide badge on a day the tide is not about.
+    expect(topicWindowKeys(topic({ type: 'KING_TIDE', eventType: 'NIGHT', date: '2026-08-05' })))
+      .toEqual(['2026-08-05:SUNRISE', '2026-08-05:SUNSET']);
+  });
+
+  it('still buckets a tide with no date nowhere', () => {
+    // The date guard runs before the type branch — a day-scoped topic with no day has no windows.
+    expect(topicWindowKeys(topic({ type: 'KING_TIDE', date: null }))).toEqual([]);
   });
 });
 
@@ -318,8 +359,14 @@ describe('buildTopicIndex — degrade', () => {
   });
 
   it('puts a NIGHT topic under both of its keys', () => {
-    const index = buildTopicIndex([topic({ eventType: 'NIGHT', date: '2026-08-05' })]);
+    // AURORA, not the fixture's day-scoped `KING_TIDE` default — see topicWindowKeys' own suite.
+    const index = buildTopicIndex([topic({ type: 'AURORA', eventType: 'NIGHT', date: '2026-08-05' })]);
     expect([...index.keys()].sort()).toEqual(['2026-08-05:SUNSET', '2026-08-06:SUNRISE']);
+  });
+
+  it('puts a tide under both windows of its own day', () => {
+    const index = buildTopicIndex([topic({ type: 'SPRING_TIDE', eventType: 'SUNRISE' })]);
+    expect([...index.keys()].sort()).toEqual(['2026-08-05:SUNRISE', '2026-08-05:SUNSET']);
   });
 
   it('collects two topics anchored to the same window under one key', () => {

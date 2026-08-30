@@ -529,6 +529,9 @@ export default function WindowSheetDialog({
               // layer inert rather than shipping eight names that do nothing.
               onOpenLocation={onOpenLocation}
               homePoint={homePoint}
+              // Field-geography plan §5.2: the ring labels' distance-vs-duration choice reads the
+              // SAME `card.reachMeasured` the header/footer/strip already do — never re-derived.
+              reachMeasured={reachMeasured}
             />
             )}
             <div className="wf-wsh-side">

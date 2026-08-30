@@ -22,6 +22,13 @@ import { windowKey } from './heatSpots.js';
  * evening card still joins. The key is the served {@code eventType} field, never a client list of
  * which types are nocturnal: the backend decides that per topic and can change its mind.
  *
+ * <p>⚠️ <b>The tide types are bucketed by TYPE, before {@code eventType} is consulted at all</b>
+ * ({@link DAY_SCOPED_TOPIC_TYPES}) — they land on both of the date's windows. If this mirror is
+ * left keyed on {@code eventType} while the backend spans them, the sunset badge finds no topic,
+ * {@code topicForBadge} returns null, and a null topic is <b>kept unfiltered</b> — so the region
+ * scope filter quietly stops applying to every one of the new windows, with every test still
+ * green. The two implementations have to move together.
+ *
  * <h3>Rule 2 — the scope filter is exempt BY TYPE, not by whether {@code regions} is populated</h3>
  *
  * <p>{@code HotTopic.regions} is not a uniform eligibility roster; its meaning differs per
@@ -105,6 +112,22 @@ const EVENT_SUNRISE = 'SUNRISE';
 const EVENT_SUNSET = 'SUNSET';
 const EVENT_NIGHT = 'NIGHT';
 
+/**
+ * The topic types whose claim is about a DAY rather than about one window of it — mirroring
+ * {@code PlanWindowProjector.isDayScoped}.
+ *
+ * <p>A spring or king tide is a fact about the moon and the water, and neither cares which end of
+ * the day you stand at, so its badge lands on both of the date's windows. Every other type names a
+ * window: an inversion burns off, an aurora needs the dark.
+ *
+ * <p>⚠️ <b>This is a THIRD type map, and it is not either of the two above it.</b>
+ * {@link WHOLE_SKY_TOPIC_TYPES} asks whether {@code regions} is an eligibility roster;
+ * this asks how many windows the topic covers. The tide types are members here and of
+ * {@link REGION_SCOPED_TOPIC_TYPES} — a tide is scoped by geography and unscoped by time of day,
+ * which is exactly why one set could not answer both questions.
+ */
+const DAY_SCOPED_TOPIC_TYPES = new Set(['KING_TIDE', 'SPRING_TIDE']);
+
 /** Whether a topic type is exempt from the scope intersection — see the class comment. */
 export function isWholeSkyTopic(type) {
   const t = String(type || '').toUpperCase();
@@ -127,6 +150,12 @@ function nextDay(dateStr) {
 export function topicWindowKeys(topic) {
   const date = topic?.date;
   if (!date) return [];
+  // ⚠️ BEFORE the eventType switch, and independent of it. A tide topic's eventType is null
+  // whenever its alignment has already passed or no water reached the light, and reading that as
+  // "anchored nowhere" is the defect this mirrors the fix for — see `PlanWindowProjector.keysFor`.
+  if (DAY_SCOPED_TOPIC_TYPES.has(String(topic.type || '').toUpperCase())) {
+    return [windowKey(date, EVENT_SUNRISE), windowKey(date, EVENT_SUNSET)];
+  }
   switch (topic.eventType) {
     case EVENT_SUNRISE: return [windowKey(date, EVENT_SUNRISE)];
     case EVENT_SUNSET: return [windowKey(date, EVENT_SUNSET)];

@@ -33,6 +33,42 @@ background mixed against `transparent` or `--color-plex-panel` (now assert the f
 raised away-cell opacity had no test coverage at all (added); and a CSS comment misstated one of its
 own diagnostic contrast figures (a hovered-state number that was actually the away-cell one).
 
+### Fixed — a spring or king tide is a claim about the DAY, and now sits on both of its windows
+
+The Plan matrix labelled a day-level fact with a window-level one. `PlanWindowProjector` bucketed a
+tide topic by `TideRunDay.alignedEvent`, so a pill reading **"Spring tide"** — a statement about the
+moon and the water, true at both ends of the day — appeared only on the window whose light the tide
+happened to align with. A spring run's evening cards showed no tide at all, and a day whose
+alignment had already passed (or whose aligned window fell past the end of the forecast) showed none
+anywhere: `HotTopicEventEnricher` nulls `eventType` in both cases, and the old guard read that null
+as "no anchor" and binned the whole topic.
+
+The alignment claim is untouched — it was always correct, and every field descending from
+`TideRunBuilder`'s single `inLight` point still answers exactly the question it was built for. What
+changed is that the label and the placement now ask the same question, and the alignment sentence
+stays on the window it is about.
+
+- `PlanWindowProjector.keysFor` buckets `KING_TIDE`/`SPRING_TIDE` onto **both** of their date's
+  windows, by type and **before** `eventType` is consulted. Expired windows need no guard:
+  `renderHorizon` drops past drafts before the badge map is read.
+- **The badge is now built per window key, not per topic** (`badgeFor`). One shared instance printed
+  `tide aligned with sunrise at 47 of 61 coastal locations` onto an evening card. This restores the
+  design bundle's own `WTOPICS {[windowId]: [{t, d}]}` shape, whose per-window `d` the first port
+  collapsed away — a silent simplification that `plan-matrix-plan.md` §4 never recorded as a
+  decision.
+- New `TideRunDay.sunriseWater`/`sunsetWater` (nullable, **no migration** — they ride the
+  `daily_briefing_cache` JSON and legacy payloads deserialize to null): the water nearest each solar
+  event, stated neutrally — `high water 1h49 before sunset`. Deliberately **not** gated on
+  `aligned`, because that is the whole point. ⚠️ Each is measured against **its own** event, never
+  `signedGap`'s nearer-of-the-two — which is right for the alignment question and would report an
+  evening card `2h50 after sunrise`.
+- Both tide kinds are covered by construction: the two strategies share `alignmentInfo`,
+  `nonExpiredEvents` and `TideRunBuilder`, and the change lands above the point where they diverge.
+- `utils/windowFirstTopics.js` mirrors the new bucketing (`DAY_SCOPED_TOPIC_TYPES`). ⚠️ This mirror
+  is load-bearing: left keyed on `eventType`, the sunset badge finds no topic, `topicForBadge`
+  returns null, and a null topic is **kept unfiltered** — so the region scope filter would quietly
+  stop applying to every new window with the whole suite still green.
+
 ### Added — field geography and glyphs G4: Coming up topic glyphs
 
 The final phase of `docs/engineering/field-geography-and-glyphs-plan.md` (§4): a per-family emoji
@@ -63,6 +99,37 @@ the new `.wf-cu-gi-sm` on a featured card (very common for a merged/coincidence 
 the coincidence-line glyph at 14px instead of the plan's 11px regardless of source order — fixed by
 matching its specificity (`.wf-cu-gi.wf-cu-gi-sm`), confirmed via `getComputedStyle` in the running
 app both before and after.
+
+### Changed — field-geography G3 follow-up: reach rings in miles, duration labels gated on measured reach (`docs/engineering/field-geography-and-glyphs-plan.md` §5.2)
+
+Resolves the owner flag G3 shipped with (plan §5.2, 2026-08-30 decision — do not re-litigate).
+The popup field's two dashed reach rings are re-authored from 40 km / 80 km to **25 mi / 50 mi**
+(40.2336 / 80.4672 km at `1 mi = 1.609344 km`) — visually indistinguishable circles, since the km
+values were always authored design constants rather than a measurement of anything. `kmPerPx` and
+every projection calculation stay in km; the km radius is derived from the mile constant at the
+`RING_TIERS` definition site in `WindowRowFieldMap.jsx` so the unit intent is explicit.
+
+**Ring labels now default to the distance itself — "25 mi" / "50 mi" — and upgrade to the reach
+lens's own duration strings (`formatDriveDuration(45)`/`formatDriveDuration(90)`, imported, never
+literals) only when `reachMeasured` is true.** `reachMeasured` is the existing single producer
+(`card.reachMeasured`, from `BriefingWindow`) plumbed through `WindowSheetDialog` → `WindowRowFieldMap`
+as a prop and never re-derived from drive times or role; absent/undefined renders the miles labels
+(the fail-soft direction). A distance ring stating a distance is honest for every account whether
+or not a drive time was ever measured; a duration label is a claim the reach-vocabulary rule
+reserves for a surface a real drive time actually gated, and printing it unconditionally — as G3
+shipped it — was exactly the "45 min hiding a longer drive" hazard `reachLens.js` itself warns
+against, and became a visible Pro delta on the same screen where the lens bar greys the same
+strings behind a Pro pill for LITE. Gating the label alone resolves both without touching the
+rings' own gate (still a saved postcode, unchanged) or role.
+
+The `wf-row-map-ring` test id's identifying attribute is renamed `data-km` → `data-mi` (25/50 are
+clean identifiers; the new km values are non-round decimals). A tiny local `formatMiles` formatter
+lives beside `RING_TIERS` — a deliberate, documented exception to the plan's §5.3 rule that ring
+labels are the lens's own strings, since a distance claim is not the duration claim that rule
+exists to protect. Residual, accepted with eyes open: even for a `reachMeasured` reader the ring is
+still a straight-line circle wearing a road-minute label, so a spot can sit inside the "45 min"
+ring yet outside the lens's actual 45-min tier (and vice versa) — unchanged by this decision,
+designed behaviour, triage as such.
 
 ### Fixed
 

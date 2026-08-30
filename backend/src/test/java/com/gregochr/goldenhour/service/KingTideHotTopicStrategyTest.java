@@ -1406,6 +1406,8 @@ class KingTideHotTopicStrategyTest {
                 // Non-null with alignedEvent, as the builder guarantees.
                 alignedEvent == null ? null : "HW 04:58 · 39m before " + alignedEvent,
                 new TideRunDay.RosterAlignment(sunriseAligned, sunsetAligned, measured),
+                // sunriseWater/sunsetWater: not this fixture's subject.
+                null, null,
                 false, null);
     }
 }
