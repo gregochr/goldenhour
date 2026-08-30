@@ -273,3 +273,42 @@ describe('WindowComingUpConditions — the strip', () => {
     expect(() => fireEvent.click(screen.getByTestId('condition-occurrence'))).not.toThrow();
   });
 });
+
+describe('WindowComingUpConditions — the topic glyph (G4, plan §4.2)', () => {
+  it('wraps the swatch and the glyph in one `.wf-cond-fam` container, keeping the row a 5-item grid', () => {
+    render(<WindowComingUpConditions conditions={[condition({ type: 'COASTAL_TIDES' })]} onGoToPlan={vi.fn()} />);
+
+    const row = screen.getByTestId('condition-row');
+    const fam = row.querySelector('.wf-cond-fam');
+    expect(fam).toBeInTheDocument();
+    expect(fam.children).toHaveLength(2);
+    const swatch = fam.querySelector('.wf-cond-sw');
+    const glyph = within(fam).getByTestId('condition-glyph');
+    expect(swatch).toBeInTheDocument();
+    expect(glyph).toBeInTheDocument();
+    // Order, not just presence — "after the existing swatch" (plan §4.2) is a DOM-position claim.
+    expect(swatch.compareDocumentPosition(glyph) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Column count pin: fam / name / rate / peak / quant — unchanged from the pre-glyph 5, since
+    // the glyph joined the swatch's existing grid cell rather than adding one of its own.
+    expect(row.children).toHaveLength(5);
+  });
+
+  it.each([
+    ['COASTAL_TIDES', '🌊'],
+    ['DUST', '🏜️'],
+    ['VALLEY_INVERSIONS', '☁️'],
+  ])('carries the %s condition\'s family glyph', (type, glyph) => {
+    render(<WindowComingUpConditions conditions={[condition({ type })]} onGoToPlan={vi.fn()} />);
+    expect(screen.getByTestId('condition-glyph')).toHaveTextContent(glyph);
+  });
+
+  it('falls back to the night-sky glyph for a condition type the family map does not know', () => {
+    render(<WindowComingUpConditions conditions={[condition({ type: 'SOME_FUTURE_CONDITION' })]} onGoToPlan={vi.fn()} />);
+    expect(screen.getByTestId('condition-glyph')).toHaveTextContent('🌌');
+  });
+
+  it('hides the glyph from the accessibility tree', () => {
+    render(<WindowComingUpConditions conditions={[condition()]} onGoToPlan={vi.fn()} />);
+    expect(screen.getByTestId('condition-glyph')).toHaveAttribute('aria-hidden', 'true');
+  });
+});
