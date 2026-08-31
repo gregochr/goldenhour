@@ -3579,13 +3579,29 @@ button.wf-hc.also.on:hover {
    real interactive element rather than a `:hover` that has to be paired with a click handler on
    a `<div>` to mean anything to a keyboard or screen-reader user. */
 .wf-cu-handoff {
+  /* One source for the side inset, because it has to appear in BOTH the margin and the width.
+     When it did not, this row overran the panel: `width: 100%` resolves against the containing
+     block and the horizontal margins are ADDED to it, so the button's margin box came out 28px
+     wider than `.wf-cu` — whose `overflow: hidden` then clipped the dashed border's right edge
+     away entirely, leaving a row that reads as running off the right of the screen.
+     ⚠️ `width: auto` is NOT the fix: a `<button>` shrink-wraps even as a block-level flex
+     container (measured 39.6px against a 388px panel), which is why the width was pinned here in
+     the first place. The design of record needs no width at all — its `.pane` carries the padding
+     and `.hoff` has only a `margin-top` (`docs/design/coming-up/Coming Up.html`) — but the port
+     gives each child of the bordered `.wf-cu` its own inset, so this row has to fund its own. */
+  --wf-cu-handoff-inset: 14px;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 13px;
-  width: 100%;
+  /* Subtracted twice rather than multiplied by 2: `calc(a - var() - var())` is the exact shape
+     four sticky rules in this file already ship (`.wf-dhrow`, `.wf-rail`, and two
+     `scroll-margin-top`s), so this adds no compatibility surface beyond what already runs on
+     every reader's device. A `var()` under multiplication would have been the only such
+     construct in the stylesheet, and WebKit cannot be exercised from the dev environment. */
+  width: calc(100% - var(--wf-cu-handoff-inset) - var(--wf-cu-handoff-inset));
   min-height: 40px;
-  margin: 12px 14px 0;
+  margin: 12px var(--wf-cu-handoff-inset) 0;
   padding: 9px 13px;
   border: 1px dashed var(--color-plex-border-light);
   border-radius: 9px;
