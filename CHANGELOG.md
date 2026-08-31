@@ -5,6 +5,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — the Codex review gate is enforced by CI, not just documented
+
+Codex is now the only reviewer on this repo, so green CI is not evidence that anything read the
+diff. `.github/workflows/codex-review-gate.yml` + `scripts/codex-review-gate.sh` add a **Codex
+review** check that fails closed until Codex answers, using the same mechanic `ci.yml`'s docs-only
+job documents as a trap — a required check that never reports blocks the merge — with that property
+as the point rather than the hazard. ⚠️ It blocks nothing until "Codex review" is ticked as a
+required status check on `main`; the workflow alone only reports.
+
+It **polls** rather than only listening on `pull_request_review`, because Codex's no-suggestions
+answer is a 👍 reaction and **GitHub emits no webhook for reactions**. Filtering reactions by
+`user.login` server-side also closes the attribution hole from #714, where a 👍 could only be
+inferred to be Codex's: a 👍 from a human no longer satisfies the gate.
+
+⚠️ **Freshness is reported, not enforced, and that is deliberate.** A 👍 cannot be re-issued
+(GitHub allows one reaction of a content per user) and Codex does not review on push, so a PR whose
+only signal is a 👍 has no way to produce a fresh one after a fix commit. Enforcing freshness would
+deadlock most PRs, and a gate everyone overrides gates nothing — so a stale signal solicits one
+`@codex review` per head SHA, then passes with a prominent warning naming the unreviewed commits.
+`CODEX_GATE_REQUIRE_FRESH=true` flips it to a failure once Codex is known to answer a re-request
+with a review rather than a silent 👍.
+
+Dependabot PRs are exempt so the existing `dependabot-auto-merge.yml` policy keeps working; drafts
+are exempt so a 15-minute poll is not billed per draft push. Both are marked in the script as
+decisions to revisit. Every branch — no signal, fresh review, fresh 👍, stale 👍 lax and strict, a
+👍 from a non-Codex user, a review on an old SHA, draft, Dependabot, override label, and an
+unreadable head commit — was driven against a stubbed GitHub API before landing.
+
 ### Added — CLAUDE.md records the Codex merge gate
 
 Codex reviews every PR here (wired up in the ChatGPT Codex settings, not in this tree) and has

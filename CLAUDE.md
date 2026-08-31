@@ -642,6 +642,14 @@ decides it has reported.
 
 **The gate: CI green + no merge conflict + Codex has answered + its findings addressed.**
 
+Since Codex became the **only** reviewer, that gate is also enforced by CI rather than left to
+convention: `.github/workflows/codex-review-gate.yml` + `scripts/codex-review-gate.sh` report a
+**Codex review** check that fails closed until Codex answers. It polls (there is no reaction
+webhook to listen to), exempts drafts and Dependabot, and carries a `codex-override` label as its
+logged escape hatch. Read the ⚠️ block at the top of the script before changing its freshness
+behaviour — it records why a stale 👍 warns rather than blocks. ⚠️ The check only *blocks* once it
+is ticked as a required status check in the `main` branch protection; the workflow alone reports.
+
 ⚠️ **Codex answers in one of two ways, and only one of them is a review record.**
 `chatgpt-codex-connector[bot]` posts a review **when it has suggestions**, and reacts **👍 on the
 PR itself when it has none** — its own notice on each review says so. So:

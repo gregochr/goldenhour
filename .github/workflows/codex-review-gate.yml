@@ -1,0 +1,68 @@
+name: Codex review gate
+
+# Codex is the only reviewer on this repo, so green CI is not evidence that anything read the
+# diff. This is the check that says it did, and it FAILS CLOSED: a required status check that
+# never reports blocks the merge, which is the same mechanic ci.yml's docs-only job documents
+# ("A workflow filtered out by path never runs, so those checks never report, and the PR sits
+# BLOCKED forever"). Here that property is the point rather than the trap.
+#
+# The failure this exists to stop: a PR can be green in three minutes while Codex is still
+# thinking — on #712 the review landed 2m26s after open — so "CI green, no review comments" is
+# usually evidence that the review has NOT HAPPENED, not that it passed.
+#
+# ── Setup required in the repository (Settings), or this gates nothing ──────────────────────
+#   Branch protection / ruleset on `main` → Require status checks to pass → add **Codex review**.
+#   Until that is ticked this workflow only reports; it cannot block anything.
+#
+# Optional repo variable: CODEX_GATE_REQUIRE_FRESH=true makes a signal older than the head
+# commit a failure instead of a warning. Read the ⚠️ in scripts/codex-review-gate.sh before
+# setting it — a 👍 cannot be re-issued, so it deadlocks any PR that takes a fix commit.
+#
+# Escape hatch: the `codex-override` label passes the gate and leaves the reason on the PR.
+
+on:
+  # No `branches:` filter, for the reason ci.yml states at length: a filter means "PRs whose
+  # BASE is main", so a stacked PR would have no gate at all.
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review]
+  # Fires the moment Codex submits a review, so a PR that already timed out goes green without
+  # a manual re-run. There is NO equivalent event for the 👍 — GitHub emits no reaction
+  # webhook — which is why the script polls rather than only listening here.
+  pull_request_review:
+    types: [submitted]
+
+# `issues:` covers the reactions and labels endpoints (a PR is an issue to those APIs) and the
+# re-review comment; `pull-requests:` covers the reviews endpoint.
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: codex-gate-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  codex-review:
+    # ⚠️ This name is the contract with branch protection. Renaming the job silently detaches
+    # the required check, and a detached required check is one that never reports — which
+    # blocks every PR rather than failing open. Rename both together.
+    name: Codex review
+    runs-on: ubuntu-latest
+    # The script's own deadline is 15m; this is the backstop if it wedges on a hung API call.
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Wait for Codex to answer
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          IS_DRAFT: ${{ github.event.pull_request.draft }}
+          IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
+          REQUIRE_FRESH: ${{ vars.CODEX_GATE_REQUIRE_FRESH || 'false' }}
+        run: ./scripts/codex-review-gate.sh
