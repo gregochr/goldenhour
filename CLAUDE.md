@@ -632,6 +632,56 @@ Conventional commits: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `refactor:`
 
 ---
 
+## Merging a PR — the Codex gate
+
+Codex reviews **every** PR in this repo automatically (it is wired up in the ChatGPT Codex
+settings, not in this tree — nothing here triggers it). It has repeatedly caught real P1 defects
+that CI passed, so a PR is not ready to merge on green CI alone. `AGENTS.md` and
+`backend/AGENTS.md` steer what it *reports*; this section is the other half — how a session
+decides it has reported.
+
+**The gate: CI green + no merge conflict + Codex has answered + its findings addressed.**
+
+⚠️ **Codex answers in one of two ways, and only one of them is a review record.**
+`chatgpt-codex-connector[bot]` posts a review **when it has suggestions**, and reacts **👍 on the
+PR itself when it has none** — its own notice on each review says so. So:
+
+| what you see | what it means |
+|---|---|
+| a Codex review | it found something — read it, fix or contest each point, push, then let it re-review |
+| **👍 on the PR, no review** | it ran and had nothing to say — gate satisfied |
+| **neither** | ⚠️ **it has not run yet — wait, do not merge** |
+
+That third row is the one that bites. A PR can be green within three minutes while Codex is still
+thinking (on #712 the review landed 2m26s after open), so "CI is green and there are no review
+comments" is *not* evidence of a clean review — it is usually evidence that the review has not
+happened. Poll `get_reviews` **and** the PR's `reactions` before concluding anything.
+
+⚠️ **The 👍 cannot always be attributed, and a merge report must say so.** There is no
+reaction-author lookup in the GitHub MCP toolset, and a remote Claude Code session may have
+`api.github.com` blocked outright (it returns *"GitHub access is not enabled for this session"*).
+Where the session has `gh` or API access, verify it and state the result:
+
+```bash
+gh api repos/gregochr/goldenhour/issues/<n>/reactions --jq '.[] | {content, user: .user.login}'
+```
+
+Where it does not, the corroboration is that the two signals are **complementary** across this
+repo's history — a PR with a Codex review carries no 👍 (#712), a PR with nothing to flag carries a
+👍 and no review (#711, #714). That is sound enough to merge on, and it is an inference: say
+"inferred from the reaction, not attributed" in the merge report rather than reporting it as a
+verified review.
+
+⚠️ **Do not post `@codex review` merely to force an attributable record.** Codex's output is
+comment-or-👍 *however* it is triggered, so a no-findings re-run most likely returns another
+unattributable 👍 — the comment buys noise, not certainty. `@codex review` is for genuinely asking
+for a **re-review after a push**, which is what it is for.
+
+Merge method: **squash**, matching the current convention (#711, #712; the merge commits on #708
+and #710 predate it).
+
+---
+
 ## Speeding Up the Dev Build Cycle
 
 `./mvnw clean verify` runs Checkstyle → compile → test → JaCoCo → SpotBugs → repackage — ~6–7 min, and

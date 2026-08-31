@@ -5,6 +5,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added — CLAUDE.md records the Codex merge gate
+
+Codex reviews every PR here (wired up in the ChatGPT Codex settings, not in this tree) and has
+repeatedly caught P1 defects CI passed, but nothing said how a session should *read* that review
+before merging. `AGENTS.md`/`backend/AGENTS.md` steer what Codex reports; this is the other half.
+
+The load-bearing point is that Codex answers in **two** ways and only one is a review record: it
+posts a review when it has suggestions, and reacts **👍 on the PR** when it has none. So *neither*
+signal present means it has not run yet — not that it passed. A PR can be green within three
+minutes while the review is still pending (on #712 the review landed 2m26s after open), which makes
+"CI green, no review comments" the easiest way to merge past a review that never happened.
+
+Also recorded: the 👍 **cannot always be attributed** — there is no reaction-author lookup in the
+GitHub MCP toolset, and a remote session may have `api.github.com` blocked entirely, so the section
+gives the `gh api …/reactions` command for sessions that can run it and requires the merge report to
+say "inferred, not attributed" for those that cannot. And ⚠️ **do not post `@codex review` just to
+force an attributable record** — Codex's output is comment-or-👍 however it is triggered, so a
+no-findings re-run most likely returns another unattributable 👍; that suggestion was floated during
+#714 and is written down as rejected so it is not tried again.
+
 ### Fixed — the Coming up handoff row overran the panel's right edge
 
 The Plan handoff strip on the Coming up tab (`NOW — THU 3 … On Plan →`) rendered with no right-hand
