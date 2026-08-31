@@ -5,6 +5,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the Coming up handoff row overran the panel's right edge
+
+The Plan handoff strip on the Coming up tab (`NOW — THU 3 … On Plan →`) rendered with no right-hand
+dashed border, running off the right of the screen on phones. `.wf-cu-handoff` set `width: 100%`
+*and* `margin: 12px 14px 0`: `width: 100%` resolves against the containing block, so the horizontal
+margins were added on top of it and the button's margin box came out 28px wider than `.wf-cu`
+(measured 388px panel, 403px right edge — 14px past the panel's inner edge). `.wf-cu` is
+`overflow: hidden`, so the excess was not merely off-centre — it was clipped, taking the dashed
+border's whole right edge and the trailing edge of `On Plan →` with it.
+
+The width is now `calc(100% - var(--wf-cu-handoff-inset) * 2)`, with the margin spelling the same
+side inset through that one property so the two halves cannot drift apart again. Measured in
+Chromium at 320/390/430/768px: a symmetric 14px inset and zero overflow at every width.
+
+⚠️ Simply dropping `width: 100%` is **not** the fix, and the new rule's comment says so: a
+`<button>` shrink-wraps even as a block-level flex container (`width: auto` measured 39.6px against
+a 388px panel), which is why the width was pinned here in the first place. The design of record
+needs no width at all — its `.pane` carries the padding and `.hoff` has only a `margin-top`
+(`docs/design/coming-up/Coming Up.html`) — but the port gives each child of the bordered `.wf-cu`
+its own inset, so this row has to fund its own. A stylesheet-wide audit found no second instance of
+the pattern.
+
+`comingUpHandoffGeometry.test.js` pins the relationship (that the width compensates for the margin,
+both spelled with one custom property) as text, since `vite.config.js` sets `css: false` and jsdom
+has no layout engine — the same approach and the same reason as `heatTokens.test.js`. It was checked
+against the old rule and fails on it. The resulting geometry is the browser check's, not the suite's.
+
 ### Added — matrix-axis Phase 2: row rails and sticky headings
 
 Phase 2 (§6) of `docs/engineering/matrix-axis-plan.md`: the Plan tab's day×event matrix now says
