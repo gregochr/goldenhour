@@ -53,6 +53,8 @@ describe('.wf-cu-handoff cannot overflow the panel that clips it', () => {
   it('subtracts both margins from the width instead of asking for the whole panel', () => {
     const width = declaration(body, 'width');
     expect(width).not.toBe('100%');
-    expect(width).toBe('calc(100% - var(--wf-cu-handoff-inset) * 2)');
+    expect(width).toBe(
+      'calc(100% - var(--wf-cu-handoff-inset) - var(--wf-cu-handoff-inset))',
+    );
   });
 });

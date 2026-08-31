@@ -3594,7 +3594,12 @@ button.wf-hc.also.on:hover {
   align-items: center;
   flex-wrap: wrap;
   gap: 13px;
-  width: calc(100% - var(--wf-cu-handoff-inset) * 2);
+  /* Subtracted twice rather than multiplied by 2: `calc(a - var() - var())` is the exact shape
+     four sticky rules in this file already ship (`.wf-dhrow`, `.wf-rail`, and two
+     `scroll-margin-top`s), so this adds no compatibility surface beyond what already runs on
+     every reader's device. A `var()` under multiplication would have been the only such
+     construct in the stylesheet, and WebKit cannot be exercised from the dev environment. */
+  width: calc(100% - var(--wf-cu-handoff-inset) - var(--wf-cu-handoff-inset));
   min-height: 40px;
   margin: 12px var(--wf-cu-handoff-inset) 0;
   padding: 9px 13px;

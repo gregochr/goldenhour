@@ -15,9 +15,25 @@ margins were added on top of it and the button's margin box came out 28px wider 
 `overflow: hidden`, so the excess was not merely off-centre — it was clipped, taking the dashed
 border's whole right edge and the trailing edge of `On Plan →` with it.
 
-The width is now `calc(100% - var(--wf-cu-handoff-inset) * 2)`, with the margin spelling the same
-side inset through that one property so the two halves cannot drift apart again. Measured in
-Chromium at 320/390/430/768px: a symmetric 14px inset and zero overflow at every width.
+The width is now `calc(100% - var(--wf-cu-handoff-inset) - var(--wf-cu-handoff-inset))`, with the
+margin spelling the same side inset through that one property so the two halves cannot drift apart
+again. The inset is subtracted **twice rather than multiplied by 2**: `calc(a - var() - var())` is
+the exact shape four sticky rules in this file already ship (`.wf-dhrow`, `.wf-rail` and two
+`scroll-margin-top`s, all load-bearing on every Plan-tab scroll), so the fix adds no compatibility
+surface beyond what already runs on every reader's device, where `var()` under multiplication would
+have been the stylesheet's only such construct. That matters because **WebKit cannot be exercised
+from the dev environment** — its Playwright build is blocked by the network policy — so the iPad
+claim rests on a construct already in production rather than on an untested one. The built CSS was
+checked too: the minifier preserves the declaration verbatim, so what ships is what is written here.
+
+Verified against the real component and the real stylesheet (a throwaway Vite harness mounting
+`WindowFirstComingUp`, not a synthetic repro) at 39 viewport/content combinations — iPhone SE
+through iPad Pro 12.9 landscape, both iPad multitasking widths (Slide Over 320px, Split View 507px),
+three iPad device descriptors, and one/three/six-topic rows so the wrapped states are covered as
+well as the single line. Symmetric 14px inset, zero panel overflow, zero document overflow and the
+`On Plan →` link inside the clip rect in every one. The old rule was re-measured the same way and
+overran by 28px at **every** width including all iPad sizes — this was never a phone-only defect,
+just less conspicuous on a wide screen where the row is short.
 
 ⚠️ Simply dropping `width: 100%` is **not** the fix, and the new rule's comment says so: a
 `<button>` shrink-wraps even as a block-level flex container (`width: auto` measured 39.6px against
