@@ -252,6 +252,18 @@ const SUNRISE_LINE_COLOUR = '#f97316';
 const SUNSET_LINE_COLOUR  = '#a855f7';
 
 /**
+ * Zoom at which the Esri reference (place-name) layer joins the base tile — map-tab-v2-plan.md §3
+ * P3, values from `docs/design/map-tab-v2/README.md`'s "The basemap" section.
+ *
+ * <p>Below this the layer is UNMOUNTED, not merely hidden: dropping town labels below the glance
+ * scale is "the biggest single legibility win" (our own location chips carry a rating theirs
+ * cannot, so the two were competing for the same pixels), and past it the chips have thinned out
+ * enough that the village you are driving through becomes useful context again — a layer toggled
+ * back on under our control, not baked into the tile at every scale.
+ */
+const REFERENCE_LAYER_MIN_ZOOM = 11.8;
+
+/**
  * Maps Leaflet zoom level to azimuth line length in km.
  * Zoomed out (zoom 7-8) → long lines; zoomed in (zoom 13+) → short lines.
  */
@@ -274,10 +286,40 @@ function lineKmForZoom(zoom) {
 }
 
 /**
- * Invisible component that tracks map zoom and calls onZoom when it changes.
+ * Invisible component that tracks map zoom and calls onZoom when it changes — including the
+ * INITIAL zoom at mount, not only the zoom after the first `zoomend`.
+ *
+ * <p>⚠️ PR #728 review (Codex, confirmed after our own review wrongly refuted the same charge):
+ * without the mount effect below, `onZoom`'s consumer state seeds at whatever `useState` default
+ * the caller chose (`MapView`'s `zoom` starts at `9`) and stays there until the reader's first
+ * zoom gesture fires a real `zoomend`. React-leaflet applies the construction-time `bounds` fit
+ * BEFORE children render, and this component's `zoomend` listener attaches AFTER — so a map whose
+ * initial fit lands somewhere else entirely never corrects the guess until the user zooms. This is
+ * reachable on the Plan overlay in particular: its construction `bounds` can fit tight on one
+ * focused location, easily landing past 11.8. And it is wrong regardless of reachability, since
+ * the seed is a guess where the truth (`map.getZoom()`) is one call away.
+ *
+ * <p>The reference-layer gate (map-tab-v2-plan.md §3 P3) was the first consumer for which this
+ * guess was VISIBLE — a whole extra tile layer either mounted or not — but every other reader of
+ * the same `zoom` state had the identical gap, silently: the azimuth-length interpolation
+ * (`lineKmForZoom`) drew wrong-length lines for the same pre-first-zoom window, and any later
+ * phase's own zoom threshold would have inherited it too. This fixes the state at its one source
+ * rather than patching each consumer.
+ *
+ * <p>`useMapEvents` returns the map instance (the same contract as `useMap()`), so no second hook
+ * is needed to read the truth once, on mount.
  */
 function ZoomTracker({ onZoom }) {
-  useMapEvents({ zoomend: (e) => onZoom(e.target.getZoom()) });
+  const map = useMapEvents({ zoomend: (e) => onZoom(e.target.getZoom()) });
+  useEffect(() => {
+    // Guarded the same way `MapSizeSync` guards `invalidateSize` above — several test harnesses
+    // across this file stub `useMapEvents`/`useMap` returning `null` (they exercise a `zoomend`
+    // handler directly rather than a real map instance), and calling `getZoom` on that would throw
+    // on every one of them. `onZoom` is `setZoom` from `useState`, stable across renders, so this
+    // fires once per real `map` instance (once per MapView mount) rather than on every render.
+    if (typeof map?.getZoom !== 'function') return;
+    onZoom(map.getZoom());
+  }, [map, onZoom]);
   return null;
 }
 
@@ -1910,6 +1952,30 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
           boundsOptions={openingBounds ? { padding: [28, 28] } : { padding: [60, 60] }}
           style={{ height: '100%', width: '100%' }}
           zoomControl
+          /* Fractional zoom on the TAB only (map-tab-v2-plan.md §3 P3) — without it, every zoom
+             threshold this redesign is adding (the reference layer's 11.8, later phases' 11.5/11.2/
+             10.6/10.4) becomes a whole-number step instead of a gradient. `zoomSnap` is a Leaflet
+             map OPTION read once at `L.map()` construction, and `overlayMode` is a prop that never
+             changes across a given MapView mount, so branching on it here is safe.
+
+             This phase touches the overlay in THREE ways, and only this one is a divergence
+             between the two mounts — naming all three so a reader does not conflate them: the tile
+             CLASSES below reach both mounts and are pure dress (no behaviour change either side);
+             the reference layer's zoom gate (also below) reaches both mounts too, and IS a
+             behaviour change on the overlay (it used to keep that layer on unconditionally) —
+             deliberate and plan-sanctioned, not an oversight; and `zoomSnap` here is the one Leaflet
+             construction OPTION that deliberately does NOT reach the overlay, which keeps Leaflet's
+             own default (1) — the shared-component blast-radius rule (§2: gate every shared change
+             behind a caller opt-in, treat any overlay behaviour diff as a review finding) applied to
+             the one place this phase actually needed a fork.
+
+             ⚠️ Written as an explicit `1`, not `overlayMode ? undefined : 0`: Leaflet's own
+             `_limitZoom` reads `this.options.zoomSnap` as a bare truthy check (`if (snap) {...}`),
+             and `L.Util.setOptions` copies every OWN key from the options object onto the map's
+             options — including one whose value is `undefined` — so an explicit `undefined` shadows
+             the prototype's default of `1` and is exactly as falsy as `0`. That would have put the
+             overlay into fractional zoom too, silently. */
+          zoomSnap={overlayMode ? 1 : 0}
         >
           {heatOn && (
             /* No fallback: the field is a picture, and a spinner where a picture is loading says
@@ -1933,16 +1999,42 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
               maxZoom is capped at 16 — Esri only renders these tiles natively that deep, and
               nothing in this app ever zooms further (lat/lon is edited via numeric fields, not
               by placing a pin on the map), so there is no feature to trade against the blur an
-              upscaled zoom 17-19 would otherwise show. */}
+              upscaled zoom 17-19 would otherwise show (map-tab-v2-plan.md §4.4, decision D-6 —
+              the bundle's maxNativeZoom:16/maxZoom:19 upscale is declined for now).
+
+              `.wf-basemap-warm`/`.wf-basemap-ref` (index.css) are the two CSS filters from
+              docs/design/map-tab-v2/README.md's "The basemap" section, verbatim — Leaflet's
+              GridLayer adds `options.className` straight onto each tile <img>, so these are per-
+              tile filters, not app theme tokens. Both TileLayers reach BOTH mounts (the tab and the
+              Plan overlay) deliberately, and the CLASSES are pure tile dress: no behaviour changes
+              either side, so this is not gated on `overlayMode` (map-tab-v2-plan.md §3 P3). */}
           <TileLayer
             url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
             attribution="Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors, GIS User Community"
             maxZoom={16}
+            className="wf-basemap-warm"
           />
-          <TileLayer
-            url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
-            maxZoom={16}
-          />
+          {/* Unmounted below REFERENCE_LAYER_MIN_ZOOM rather than merely hidden — see that
+              constant's comment for why the labels come back late instead of never loading. `zoom`
+              is ZoomTracker's own state (below), already read by both mounts, so this needs no new
+              wiring: crossing the threshold mid-session re-renders from the next `zoomend`, exactly
+              like every other zoom-gated surface in this file.
+
+              ⚠️ Unlike the classes above, THIS gate reaching both mounts IS a behaviour change on
+              the overlay, not merely dress: the reference layer used to be unconditionally on there
+              too, and the overlay's own flyTo commonly lands around zoom 11 — below the threshold —
+              so a reader opening it on one location can now see no town labels where it always
+              showed them before. Deliberate and plan-sanctioned (§3 P3's "MapView.jsx tab+overlay
+              both benefit"), reviewed and confirmed as such; recorded here so it reads as a decision
+              rather than an accident on the one surface this phase's dress is not entirely inert. */}
+          {zoom >= REFERENCE_LAYER_MIN_ZOOM && (
+            <TileLayer
+              url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Reference/MapServer/tile/{z}/{y}/{x}"
+              maxZoom={16}
+              className="wf-basemap-ref"
+              opacity={0.6}
+            />
+          )}
           <ZoomTracker onZoom={setZoom} />
           {/* Map tab only. The Plan overlay is already focused on the spot the user asked about,
               and "go home" there would throw away the framing they opened it for — worse, its

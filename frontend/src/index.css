@@ -266,6 +266,23 @@
   }
 }
 
+/* ── Basemap dress (map-tab-v2-plan.md §3 P3) ──
+   Filters ported VERBATIM from docs/design/map-tab-v2/README.md's "The basemap" section (also
+   docs/design/map-tab-v2/Map Tab v2.html's `.basewarm`/`.baseref`), applied via the `className`
+   prop on the two Esri TileLayers in MapView.jsx. Leaflet's GridLayer adds `options.className`
+   straight onto each tile <img>, so these are literal per-tile filters, not app theme tokens —
+   they stay OUT of the `@theme static` block above (a bare declaration here is fine; that block's
+   pruning rule only bites a `var()` reference with no consumer). Reach BOTH the Map tab and the
+   Plan overlay mount deliberately: pure tile dress, not a behavioural change, so it is exempt from
+   the overlay-freeze rule that `zoomSnap` (MapView.jsx) is not. */
+.wf-basemap-warm {
+  filter: saturate(.5) sepia(.32) brightness(.9) contrast(1.08);
+}
+
+.wf-basemap-ref {
+  filter: saturate(.35) sepia(.3) brightness(1.02);
+}
+
 /* Leaflet zoom controls — dark Plex theme */
 .leaflet-control-zoom {
   border: 1px solid #3A2C23 !important;
@@ -305,16 +322,41 @@
   border-radius: 0 0 7px 7px !important;
 }
 
-/* Leaflet attribution — subtle dark style */
+/* Leaflet attribution — quieted further toward the palette (map-tab-v2-plan.md §3 P3; intent from
+   docs/design/map-tab-v2/Map Tab v2.html's `.leaflet-control-attribution` rule, ~L84-85). Every
+   number below is the bundle's literal, taken VERBATIM — background, both text colours, font-size,
+   padding — not translated or approximated. No choice was required to get there: the bundle's
+   text colours (rgba(242,231,211,.3) and rgba(242,231,211,.42)) are byte-for-byte the app's own
+   existing `rgba(242, 231, 211, …)` family (already in use on `.leaflet-control-zoom a`'s
+   `#F2E7D3` = rgb(242,231,211) above), and its background (rgba(20,16,13,.62)) sits within a few
+   units per channel of this app's own `--color-plex-bg` (#181210 = rgb(24,18,16)) — the bundle was
+   evidently authored against this exact deployment (the README's own provider note: "the shipped
+   app already attributes Tiles © Esri"), so the two palettes coincide rather than one being
+   translated into the other.
+
+   `!important` is NOT optional here, and it is not a leftover: Leaflet's own stylesheet sets the
+   background through `.leaflet-container .leaflet-control-attribution` (two classes, specificity
+   0,0,2,0), which beats a plain `.leaflet-control-attribution` (0,0,1,0) regardless of which
+   stylesheet loads second — verified against the vendored `leaflet/dist/leaflet.css`, and pinned
+   by `basemapDressCascade.test.jsx`'s attribution case below.
+
+   `background`, not `background-color`: Leaflet's own rule sets the property via the `background`
+   shorthand (`background: #fff; background: rgba(255, 255, 255, 0.8);`), and matching its form
+   here is deliberate, not cosmetic — a longhand `background-color` here proved to lose to
+   Leaflet's non-important shorthand in the test's cascade engine even WITH `!important` (verified
+   empirically: shorthand-vs-shorthand resolves `!important` correctly, longhand-vs-shorthand does
+   not), so writing the same property form Leaflet uses is what makes the win provable, not just
+   assumed. */
 .leaflet-control-attribution {
-  background-color: rgba(34, 26, 21, 0.85) !important;
-  color: rgba(242, 231, 211, 0.42) !important;
-  font-size: 10px !important;
+  background: rgba(20, 16, 13, 0.62) !important;
+  color: rgba(242, 231, 211, 0.3) !important;
+  font-size: 9px !important;
+  padding: 1px 5px !important;
   border-radius: 4px 0 0 0;
 }
 
 .leaflet-control-attribution a {
-  color: rgba(242, 231, 211, 0.66) !important;
+  color: rgba(242, 231, 211, 0.42) !important;
 }
 
 .leaflet-control-attribution a:hover {
