@@ -6,6 +6,7 @@ import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.AuroraForecastResultEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.AuroraForecastPreview;
+import com.gregochr.goldenhour.model.AuroraForecastResultDto;
 import com.gregochr.goldenhour.model.AuroraForecastRunRequest;
 import com.gregochr.goldenhour.model.AuroraForecastRunResponse;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
@@ -308,6 +309,78 @@ class AuroraForecastRunServiceTest {
         assertThat(window.dusk().getMinute()).isEqualTo(35);
         assertThat(window.dawn().getHour()).isEqualTo(3);
         assertThat(window.dawn().getMinute()).isEqualTo(25);
+    }
+
+    // -------------------------------------------------------------------------
+    // getResultsForDate — night window on the DTO (map-tab-v2 plan §3 P5)
+    // -------------------------------------------------------------------------
+
+    /**
+     * A stored result for a night well before {@link #TODAY} must carry <em>that night's own</em>
+     * window — never the clock's current night. This is the exact night-vs-date trap
+     * {@code docs/engineering/aurora-night-selection.md} records:
+     * {@code AuroraPollingJob.calculateTonightWindow()} takes no date and reads the clock, so
+     * reusing it here would silently pin tonight's window onto a historical row. Fixing the clock
+     * to {@link #CLOCK} (2027-02-10) and scoring a January date is what makes that mistake visible
+     * — a wall-clock-based implementation would return {@link #TODAY}'s window (20:35/03:25)
+     * regardless of which date was asked for.
+     */
+    @Test
+    @DisplayName("getResultsForDate serves a PAST night's own window, not tonight's")
+    void getResultsForDate_pastNight_usesThatNightsOwnWindow() {
+        LocalDate pastNight = LocalDate.of(2027, 1, 15);
+        LocationEntity loc = LocationEntity.builder()
+                .id(1L).name("Kielder").lat(55.2).lon(-2.5).bortleClass(2).build();
+        AuroraForecastResultEntity entity = AuroraForecastResultEntity.builder()
+                .location(loc)
+                .forecastDate(pastNight)
+                .runTimestamp(Instant.parse("2027-01-15T18:00:00Z"))
+                .stars(3)
+                .summary("Possible aurora")
+                .factors("✓ Geomagnetic: MINOR")
+                .triaged(false)
+                .triageReason(null)
+                .source("claude")
+                .alertLevel("MINOR")
+                .maxKp(4.0)
+                .build();
+        when(resultRepository.findByForecastDate(pastNight)).thenReturn(List.of(entity));
+
+        List<AuroraForecastResultDto> dtos = service.getResultsForDate(pastNight);
+
+        assertThat(dtos).hasSize(1);
+        AuroraForecastResultDto dto = dtos.get(0);
+        // computeWindowForDate(pastNight) per the class-level stub: dusk 20:35 on pastNight,
+        // dawn 03:25 the following morning — NOT TODAY's 2027-02-10T20:35/2027-02-11T03:25.
+        assertThat(dto.nightStart()).isEqualTo(LocalDateTime.of(2027, 1, 15, 20, 35));
+        assertThat(dto.nightEnd()).isEqualTo(LocalDateTime.of(2027, 1, 16, 3, 25));
+    }
+
+    @Test
+    @DisplayName("getResultsForDate's window matches computeWindowForDate for that same date")
+    void getResultsForDate_windowMatchesComputeWindowForDate() {
+        LocationEntity loc = LocationEntity.builder()
+                .id(2L).name("Embleton Bay").lat(55.5).lon(-1.6).bortleClass(3).build();
+        AuroraForecastResultEntity entity = AuroraForecastResultEntity.builder()
+                .location(loc)
+                .forecastDate(TODAY)
+                .runTimestamp(Instant.parse("2027-02-10T18:00:00Z"))
+                .stars(4)
+                .summary("Great conditions")
+                .factors("✓ Geomagnetic: MODERATE")
+                .triaged(false)
+                .triageReason(null)
+                .source("claude")
+                .alertLevel("MODERATE")
+                .maxKp(6.0)
+                .build();
+        when(resultRepository.findByForecastDate(TODAY)).thenReturn(List.of(entity));
+
+        TonightWindow expected = service.computeWindowForDate(TODAY);
+        List<AuroraForecastResultDto> dtos = service.getResultsForDate(TODAY);
+
+        assertThat(dtos.get(0).nightStart()).isEqualTo(expected.dusk().toLocalDateTime());
+        assertThat(dtos.get(0).nightEnd()).isEqualTo(expected.dawn().toLocalDateTime());
     }
 
     // -------------------------------------------------------------------------

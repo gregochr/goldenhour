@@ -619,11 +619,18 @@ public class AuroraForecastRunService {
     /**
      * Converts an entity to a DTO for the map view API response.
      *
+     * <p>{@code nightStart}/{@code nightEnd} are derived per this result's own
+     * {@link AuroraForecastResultEntity#getForecastDate()} via {@link #computeWindowForDate},
+     * never {@code AuroraPollingJob.calculateTonightWindow()} — that method takes no date and
+     * reads the clock, so it would pin <em>tonight's</em> window onto a result for any other
+     * date. A stored result for a past or future night must carry that night's own window.
+     *
      * @param entity the stored aurora result
      * @return the DTO with all location fields inlined
      */
     private AuroraForecastResultDto toDto(AuroraForecastResultEntity entity) {
         LocationEntity loc = entity.getLocation();
+        TonightWindow window = computeWindowForDate(entity.getForecastDate());
         return new AuroraForecastResultDto(
                 loc.getId(),
                 loc.getName(),
@@ -636,6 +643,8 @@ public class AuroraForecastRunService {
                 entity.isTriaged(),
                 entity.getTriageReason(),
                 entity.getAlertLevel(),
-                entity.getMaxKp() != null ? entity.getMaxKp() : 0.0);
+                entity.getMaxKp() != null ? entity.getMaxKp() : 0.0,
+                window.dusk().toLocalDateTime(),
+                window.dawn().toLocalDateTime());
     }
 }

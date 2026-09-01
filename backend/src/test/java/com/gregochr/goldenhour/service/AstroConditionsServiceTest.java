@@ -8,6 +8,7 @@ import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.AstroConditionsService.CloudResult;
 import com.gregochr.goldenhour.service.AstroConditionsService.MoonResult;
 import com.gregochr.goldenhour.service.AstroConditionsService.NightHour;
+import com.gregochr.goldenhour.service.AstroConditionsService.NightWindow;
 import com.gregochr.goldenhour.service.AstroConditionsService.VisibilityResult;
 import com.gregochr.solarutils.LunarCalculator;
 import com.gregochr.solarutils.LunarPhase;
@@ -33,8 +34,10 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
@@ -668,6 +671,86 @@ class AstroConditionsServiceTest {
 
             // No forecast → location skipped → nothing persisted
             assertThat(result).isZero();
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // resolveNightWindow — P5 (map-tab-v2): the night window served on AstroConditionsDto
+    // -------------------------------------------------------------------------
+
+    @Nested
+    @DisplayName("resolveNightWindow")
+    class ResolveNightWindowTests {
+
+        /** Durham, UK — the fixed reference point evaluateAndPersist scores every night from. */
+        private static final double REFERENCE_LAT = 54.776;
+        private static final double REFERENCE_LON = -1.575;
+
+        @Test
+        @DisplayName("Stored nauticalDuskUtc/nauticalDawnUtc are served as-is, with no solarService call")
+        void storedInstantsPresent_areServedWithoutRecompute() {
+            AstroConditionsEntity entity = new AstroConditionsEntity();
+            entity.setForecastDate(LocalDate.of(2026, 4, 1));
+            LocalDateTime storedDusk = LocalDateTime.of(2026, 4, 1, 19, 40);
+            LocalDateTime storedDawn = LocalDateTime.of(2026, 4, 2, 4, 55);
+            entity.setNauticalDuskUtc(storedDusk);
+            entity.setNauticalDawnUtc(storedDawn);
+
+            NightWindow window = service.resolveNightWindow(entity);
+
+            assertThat(window.start()).isEqualTo(storedDusk);
+            assertThat(window.end()).isEqualTo(storedDawn);
+            verifyNoInteractions(solarService);
+        }
+
+        @Test
+        @DisplayName("Legacy row with null stored columns recomputes via solarService at the "
+                + "reference coordinates, dawn measured from the following date")
+        void legacyNullColumns_recomputeFallback() {
+            AstroConditionsEntity entity = new AstroConditionsEntity();
+            LocalDate forecastDate = LocalDate.of(2026, 4, 1);
+            entity.setForecastDate(forecastDate);
+            entity.setNauticalDuskUtc(null);
+            entity.setNauticalDawnUtc(null);
+
+            LocalDateTime fallbackDusk = LocalDateTime.of(2026, 4, 1, 19, 42);
+            LocalDateTime fallbackDawn = LocalDateTime.of(2026, 4, 2, 4, 53);
+            when(solarService.nauticalDuskUtc(eq(REFERENCE_LAT), eq(REFERENCE_LON), eq(forecastDate)))
+                    .thenReturn(fallbackDusk);
+            when(solarService.nauticalDawnUtc(
+                    eq(REFERENCE_LAT), eq(REFERENCE_LON), eq(forecastDate.plusDays(1))))
+                    .thenReturn(fallbackDawn);
+
+            NightWindow window = service.resolveNightWindow(entity);
+
+            assertThat(window.start()).isEqualTo(fallbackDusk);
+            assertThat(window.end()).isEqualTo(fallbackDawn);
+            verify(solarService).nauticalDuskUtc(REFERENCE_LAT, REFERENCE_LON, forecastDate);
+            verify(solarService).nauticalDawnUtc(
+                    REFERENCE_LAT, REFERENCE_LON, forecastDate.plusDays(1));
+        }
+
+        @Test
+        @DisplayName("A row with dusk stored but dawn null still recomputes both from solarService")
+        void partiallyNullColumns_recomputeFallback() {
+            AstroConditionsEntity entity = new AstroConditionsEntity();
+            LocalDate forecastDate = LocalDate.of(2026, 4, 1);
+            entity.setForecastDate(forecastDate);
+            entity.setNauticalDuskUtc(LocalDateTime.of(2026, 4, 1, 19, 40));
+            entity.setNauticalDawnUtc(null);
+
+            LocalDateTime fallbackDusk = LocalDateTime.of(2026, 4, 1, 19, 42);
+            LocalDateTime fallbackDawn = LocalDateTime.of(2026, 4, 2, 4, 53);
+            when(solarService.nauticalDuskUtc(eq(REFERENCE_LAT), eq(REFERENCE_LON), eq(forecastDate)))
+                    .thenReturn(fallbackDusk);
+            when(solarService.nauticalDawnUtc(
+                    eq(REFERENCE_LAT), eq(REFERENCE_LON), eq(forecastDate.plusDays(1))))
+                    .thenReturn(fallbackDawn);
+
+            NightWindow window = service.resolveNightWindow(entity);
+
+            assertThat(window.start()).isEqualTo(fallbackDusk);
+            assertThat(window.end()).isEqualTo(fallbackDawn);
         }
     }
 

@@ -11,6 +11,7 @@ import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -156,7 +157,9 @@ class AuroraForecastControllerTest extends AbstractControllerTest {
         List<AuroraForecastResultDto> dtos = List.of(
                 new AuroraForecastResultDto(1L, "Embleton Bay", 55.5, -1.6, 2,
                         4, "Great conditions", "✓ Geomagnetic: MODERATE", false, null,
-                        "MODERATE", 5.5));
+                        "MODERATE", 5.5,
+                        LocalDateTime.of(2026, 3, 21, 18, 5),
+                        LocalDateTime.of(2026, 3, 22, 5, 25)));
         when(forecastRunService.getResultsForDate(date)).thenReturn(dtos);
 
         mockMvc.perform(get("/api/aurora/forecast/results")
@@ -165,6 +168,26 @@ class AuroraForecastControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$[0].locationName").value("Embleton Bay"))
                 .andExpect(jsonPath("$[0].stars").value(4))
                 .andExpect(jsonPath("$[0].triaged").value(false));
+    }
+
+    @Test
+    @DisplayName("GET /results serves the night window on the JSON response")
+    @WithMockUser(roles = "ADMIN")
+    void results_admin_ridesNightWindowOnJson() throws Exception {
+        LocalDate date = LocalDate.of(2026, 3, 21);
+        List<AuroraForecastResultDto> dtos = List.of(
+                new AuroraForecastResultDto(1L, "Embleton Bay", 55.5, -1.6, 2,
+                        4, "Great conditions", "✓ Geomagnetic: MODERATE", false, null,
+                        "MODERATE", 5.5,
+                        LocalDateTime.of(2026, 3, 21, 18, 5),
+                        LocalDateTime.of(2026, 3, 22, 5, 25)));
+        when(forecastRunService.getResultsForDate(date)).thenReturn(dtos);
+
+        mockMvc.perform(get("/api/aurora/forecast/results")
+                        .param("date", "2026-03-21"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].nightStart").value("2026-03-21T18:05:00"))
+                .andExpect(jsonPath("$[0].nightEnd").value("2026-03-22T05:25:00"));
     }
 
     // -------------------------------------------------------------------------

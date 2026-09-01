@@ -243,6 +243,39 @@ public class AstroConditionsService {
         }
     }
 
+    /**
+     * Resolves the night window ({@code nauticalDuskUtc}–{@code nauticalDawnUtc}) a stored
+     * astro conditions row was actually scored over.
+     *
+     * <p>Prefers the window persisted on the entity — the V64 {@code nauticalDuskUtc}/
+     * {@code nauticalDawnUtc} columns {@link #evaluateAndPersist} writes for every row at the same
+     * fixed reference point ({@link #REFERENCE_LAT}, {@link #REFERENCE_LON}) it scores the night
+     * from. Serving the stored instants is deliberate: a fresh recompute could silently diverge
+     * from the window a row's rating was actually evaluated over, after any future change to the
+     * solar calculation.
+     *
+     * <p>Recomputes only as an explicit fallback for legacy rows whose stored columns are null,
+     * using the identical {@code solarService.nauticalDuskUtc}/{@code nauticalDawnUtc} calls and
+     * reference coordinates {@link #evaluateAndPersist} itself uses (dawn measured from the
+     * <em>following</em> date, exactly as the write path does) — so a recomputed fallback cannot
+     * disagree with a row that does carry the stored value for the same night.
+     *
+     * @param entity the persisted astro conditions row
+     * @return the night's dusk–dawn window
+     */
+    public NightWindow resolveNightWindow(AstroConditionsEntity entity) {
+        LocalDateTime dusk = entity.getNauticalDuskUtc();
+        LocalDateTime dawn = entity.getNauticalDawnUtc();
+        if (dusk != null && dawn != null) {
+            return new NightWindow(dusk, dawn);
+        }
+        LocalDate date = entity.getForecastDate();
+        LocalDateTime fallbackDusk = solarService.nauticalDuskUtc(REFERENCE_LAT, REFERENCE_LON, date);
+        LocalDateTime fallbackDawn = solarService.nauticalDawnUtc(
+                REFERENCE_LAT, REFERENCE_LON, date.plusDays(1));
+        return new NightWindow(fallbackDusk, fallbackDawn);
+    }
+
     // -------------------------------------------------------------------------
     // Night hour extraction
     // -------------------------------------------------------------------------
@@ -472,5 +505,16 @@ public class AstroConditionsService {
 
     /** Moon scoring result. */
     record MoonResult(double modifier, String explanation) {
+    }
+
+    /**
+     * The night window ({@code nauticalDuskUtc}–{@code nauticalDawnUtc}) a score was evaluated
+     * over, as resolved by {@link #resolveNightWindow}. Public because it crosses into the
+     * controller package to serve {@code AstroConditionsDto.nightStart}/{@code nightEnd}.
+     *
+     * @param start nautical dusk, UTC
+     * @param end   nautical dawn (the following morning), UTC
+     */
+    public record NightWindow(LocalDateTime start, LocalDateTime end) {
     }
 }

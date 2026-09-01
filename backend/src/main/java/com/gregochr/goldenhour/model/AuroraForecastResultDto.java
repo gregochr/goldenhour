@@ -1,5 +1,7 @@
 package com.gregochr.goldenhour.model;
 
+import java.time.LocalDateTime;
+
 /**
  * DTO representing a stored aurora forecast result for the map view.
  *
@@ -18,6 +20,16 @@ package com.gregochr.goldenhour.model;
  * @param triageReason  reason for triage rejection, or null if Claude-scored
  * @param alertLevel    geomagnetic alert level (QUIET, MINOR, MODERATE, STRONG)
  * @param maxKp         highest Kp value forecast for this night
+ * @param nightStart    start of the dark window this result was scored over — nautical dusk, UTC
+ *                      (naive). Derived per this result's own {@code forecastDate} via
+ *                      {@code AuroraForecastRunService.computeWindowForDate(date)} at serve time —
+ *                      the same date-aware calculation the run itself was scored with. Never the
+ *                      clock-based {@code AuroraPollingJob.calculateTonightWindow()}, which reads
+ *                      no date at all and would silently pin tonight's window onto a T+1 or
+ *                      historical row (the night-vs-date trap
+ *                      {@code docs/engineering/aurora-night-selection.md} records).
+ * @param nightEnd      end of the dark window this result was scored over — nautical dawn (the
+ *                      following morning), UTC. Same provenance as {@code nightStart}.
  */
 public record AuroraForecastResultDto(
         Long locationId,
@@ -31,4 +43,6 @@ public record AuroraForecastResultDto(
         boolean triaged,
         String triageReason,
         String alertLevel,
-        double maxKp) {}
+        double maxKp,
+        LocalDateTime nightStart,
+        LocalDateTime nightEnd) {}
