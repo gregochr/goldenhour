@@ -286,10 +286,40 @@ function lineKmForZoom(zoom) {
 }
 
 /**
- * Invisible component that tracks map zoom and calls onZoom when it changes.
+ * Invisible component that tracks map zoom and calls onZoom when it changes — including the
+ * INITIAL zoom at mount, not only the zoom after the first `zoomend`.
+ *
+ * <p>⚠️ PR #728 review (Codex, confirmed after our own review wrongly refuted the same charge):
+ * without the mount effect below, `onZoom`'s consumer state seeds at whatever `useState` default
+ * the caller chose (`MapView`'s `zoom` starts at `9`) and stays there until the reader's first
+ * zoom gesture fires a real `zoomend`. React-leaflet applies the construction-time `bounds` fit
+ * BEFORE children render, and this component's `zoomend` listener attaches AFTER — so a map whose
+ * initial fit lands somewhere else entirely never corrects the guess until the user zooms. This is
+ * reachable on the Plan overlay in particular: its construction `bounds` can fit tight on one
+ * focused location, easily landing past 11.8. And it is wrong regardless of reachability, since
+ * the seed is a guess where the truth (`map.getZoom()`) is one call away.
+ *
+ * <p>The reference-layer gate (map-tab-v2-plan.md §3 P3) was the first consumer for which this
+ * guess was VISIBLE — a whole extra tile layer either mounted or not — but every other reader of
+ * the same `zoom` state had the identical gap, silently: the azimuth-length interpolation
+ * (`lineKmForZoom`) drew wrong-length lines for the same pre-first-zoom window, and any later
+ * phase's own zoom threshold would have inherited it too. This fixes the state at its one source
+ * rather than patching each consumer.
+ *
+ * <p>`useMapEvents` returns the map instance (the same contract as `useMap()`), so no second hook
+ * is needed to read the truth once, on mount.
  */
 function ZoomTracker({ onZoom }) {
-  useMapEvents({ zoomend: (e) => onZoom(e.target.getZoom()) });
+  const map = useMapEvents({ zoomend: (e) => onZoom(e.target.getZoom()) });
+  useEffect(() => {
+    // Guarded the same way `MapSizeSync` guards `invalidateSize` above — several test harnesses
+    // across this file stub `useMapEvents`/`useMap` returning `null` (they exercise a `zoomend`
+    // handler directly rather than a real map instance), and calling `getZoom` on that would throw
+    // on every one of them. `onZoom` is `setZoom` from `useState`, stable across renders, so this
+    // fires once per real `map` instance (once per MapView mount) rather than on every render.
+    if (typeof map?.getZoom !== 'function') return;
+    onZoom(map.getZoom());
+  }, [map, onZoom]);
   return null;
 }
 

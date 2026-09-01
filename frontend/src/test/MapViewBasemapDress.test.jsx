@@ -11,6 +11,13 @@
  * overlay diff this phase makes, everything else (the tile classes, the reference gate) reaching
  * both mounts on purpose.
  *
+ * <p>⚠️ A fourth claim, added after PR #728 review (Codex confirmed the charge our own review
+ * wrongly refuted): the reference layer's presence is correct AT MOUNT, seeded from the map's own
+ * live `getZoom()` rather than left on `zoom`'s `useState(9)` guess until the first real
+ * `zoomend`. The two tests in the last `describe` below render with no `fireZoomend` call at all
+ * — they pin the mount-time seed specifically, which the earlier zoom-threshold tests (which all
+ * fire a `zoomend` before asserting) could not see.
+ *
  * <p>What resolves the CLASS NAMES to actual `filter` values is a separate, browser-adjacent
  * claim — see `basemapDressCascade.test.jsx`, which injects a slice of the real `index.css` and
  * asserts `getComputedStyle`. This file only proves the right props reach the right element.
@@ -41,6 +48,24 @@ let tileLayerCalls = [];
  * whichever component happened to call the hook last.
  */
 let mapEventHandlers = [];
+/**
+ * What the mocked map itself reports at the moment `useMapEvents` is called — i.e. what
+ * `ZoomTracker`'s mount effect reads via `map.getZoom()` (PR #728 review: without that effect the
+ * component silently used `zoom`'s `useState(9)` guess for the whole pre-first-`zoomend` window).
+ * Reset to `9` in `beforeEach`; a test sets it BEFORE calling `renderMap()` to control what the
+ * map "already was" at construction, mirroring react-leaflet's real contract — the
+ * construction-time `bounds` fit lands before any child (including `ZoomTracker`) ever renders.
+ */
+let mockMapZoomAtMount = 9;
+/**
+ * The object handed back from `useMapEvents` — a SINGLE stable reference (not rebuilt per call),
+ * matching react-leaflet's real contract of one Leaflet `Map` instance per `MapContainer`. That
+ * stability matters here: `ZoomTracker`'s mount effect depends on `[map, onZoom]`, and a mock that
+ * returned a fresh object literal on every render would make that dependency "change" on every
+ * render too, firing the effect repeatedly instead of once at mount — masking the exact bug class
+ * this fix and its tests exist to catch.
+ */
+const mockMapInstance = { getZoom: () => mockMapZoomAtMount };
 vi.mock('react-leaflet', () => ({
   MapContainer: (props) => {
     mapContainerProps.last = props;
@@ -53,9 +78,12 @@ vi.mock('react-leaflet', () => ({
   Marker: ({ children }) => <div>{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
+  // Real react-leaflet's `useMapEvents` both registers listeners AND returns the map instance —
+  // `ZoomTracker` now reads the latter's `getZoom()` in a mount effect, so the mock must hand back
+  // something that answers it, not `null`.
   useMapEvents: (handlers) => {
     mapEventHandlers.push(handlers);
-    return null;
+    return mockMapInstance;
   },
   useMap: () => ({
     eachLayer: () => {},
@@ -151,6 +179,7 @@ beforeEach(() => {
   mapContainerProps.last = null;
   tileLayerCalls = [];
   mapEventHandlers = [];
+  mockMapZoomAtMount = 9;
   role = 'PRO_USER';
 });
 afterEach(() => { vi.useRealTimers(); localStorage.clear(); });
@@ -236,6 +265,30 @@ describe('MapView basemap dress — the reference layer is UNMOUNTED below zoom 
 
     tileLayerCalls = [];
     fireZoomend(9);
+    expect(tileLayerCalls.some((p) => p.url.includes('World_Dark_Gray_Reference'))).toBe(false);
+  });
+});
+
+/**
+ * PR #728 review (Codex, confirmed after our own review wrongly refuted the same charge):
+ * react-leaflet applies the construction-time `bounds` fit BEFORE any child renders, so a map
+ * whose initial fit lands past 11.8 (reachable in particular on the Plan overlay, whose
+ * construction `bounds` can fit tight on one focused location) must show the reference layer
+ * from its very first paint — not wait for a `zoomend` that may never come if the reader never
+ * touches the zoom control. Every test above fires `fireZoomend` before asserting, so none of
+ * them could see a bug in the MOUNT-time seed specifically; these two render with no `fireZoomend`
+ * call at all.
+ */
+describe('MapView basemap dress — the reference layer seeds from the live map at mount (PR #728 review)', () => {
+  it('is present immediately when the map itself already reports zoom 12 at construction, with no zoomend ever fired', async () => {
+    mockMapZoomAtMount = 12;
+    await renderMap();
+    expect(tileLayerCalls.some((p) => p.url.includes('World_Dark_Gray_Reference'))).toBe(true);
+  });
+
+  it('is absent immediately when the map itself reports the tab’s usual initial zoom (9) at construction', async () => {
+    mockMapZoomAtMount = 9;
+    await renderMap();
     expect(tileLayerCalls.some((p) => p.url.includes('World_Dark_Gray_Reference'))).toBe(false);
   });
 });

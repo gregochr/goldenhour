@@ -25,3 +25,10 @@ One side effect of fractional zoom, recorded so it reads as known rather than ac
 `react-leaflet-cluster`'s `disableClusteringAtZoom={13}` is evaluated against `Math.round`, so on
 the tab unclustering now effectively begins from actual zoom ~12.5 rather than exactly 13 —
 acceptable for this phase, since P10 retires clustering on the tab entirely.
+
+PR #728 review caught one more gap our own review had wrongly refuted: the reference-layer gate
+was reading the zoom state's hard-coded `useState(9)` seed, not the map's own zoom, for the whole
+window between mount and the first real `zoomend` — reachable in particular on the Plan overlay,
+whose construction `bounds` can fit tight on one focused location well past 11.8. `ZoomTracker` now
+seeds that state from the live map at mount (`useMapEvents`'s own return value), closing the gap
+for the gate and for every other consumer of the same state that had it silently too.
