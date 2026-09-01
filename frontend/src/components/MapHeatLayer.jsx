@@ -5,7 +5,10 @@ import PropTypes from 'prop-types';
 import { createPortal } from 'react-dom';
 import L from 'leaflet';
 import { useMap } from 'react-leaflet';
-import { clamp, drawTiles, radiusFor } from '../utils/heatField.js';
+import {
+  clamp, drawTiles, fit, land, load, radiusFor,
+} from '../utils/heatField.js';
+import { createLandMask } from '../utils/landMask.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { getMode } from '../utils/scoreRamp.js';
@@ -32,10 +35,15 @@ const CANVAS_KEY = 'field';
  * WHICH, and a smear cannot answer which. The field does not vanish at the top: it settles to
  * {@link HEAT_FLOOR}, a faint wash, because the regional answer is still true at street level and
  * removing it entirely would make the two views feel like different maps.
+ *
+ * <p>Re-tuned at map-tab-v2-plan.md §3 P4 — {@code 10.4 → 12.0} and floor {@code 0.12}, from
+ * {@code 10.6 → 12.2}/{@code 0.17} — co-tuned in the same commit as the radius re-tune and the
+ * land clip below (docs/design/map-tab-v2/README.md, "Field / label handover"): the old band was
+ * part of why the field swam offshore.
  */
-const FADE_FROM = 10.6;
-const FADE_TO = 12.2;
-const HEAT_FLOOR = 0.17;
+const FADE_FROM = 10.4;
+const FADE_TO = 12.0;
+const HEAT_FLOOR = 0.12;
 
 /**
  * The opacity below which the marker panes stop being click targets.
@@ -44,11 +52,18 @@ const HEAT_FLOOR = 0.17;
  */
 const MARKER_INTERACTIVE_ALPHA = 0.2;
 
-/** The kernel dials for this host — §4.5's numbers, and the prototype's before that. */
+/**
+ * The kernel dials for this host — §4.5's numbers, and the prototype's before that.
+ *
+ * <p>Re-tuned at map-tab-v2-plan.md §3 P4 — {@code 7200m / 30–190px}, from
+ * {@code 8500m / 34–240px} — in the SAME commit as the land clip below, because the two were
+ * co-tuned: the old radius is part of why the field swam offshore
+ * (docs/design/map-tab-v2/README.md, "The heat field").
+ */
 const HEAT_OPACITY = 0.9;
-const RADIUS_METRES = 8500;
-const RADIUS_MIN_PX = 34;
-const RADIUS_MAX_PX = 240;
+const RADIUS_METRES = 7200;
+const RADIUS_MIN_PX = 30;
+const RADIUS_MAX_PX = 190;
 const GRID = 6;
 const BLUR = 4;
 
@@ -61,6 +76,56 @@ const BLUR = 4;
  * `bloomBlur`, never raise the gate.
  */
 const FIELD_BLOOM = 1;
+
+/**
+ * The land clip (map-tab-v2-plan.md §3 P4) — dropped at/above this zoom, where a 1:50m
+ * coastline's own survey error would show as a visibly false coast. By then the field is already
+ * close to {@link FADE_TO}'s floor opacity, so an unclipped wash over water reads less wrong than a
+ * hard edge in the wrong place (docs/design/map-tab-v2/README.md, "The heat field").
+ */
+const LAND_CLIP_MAX_ZOOM = 11.5;
+
+/**
+ * The clip's own blur, in px — a hard {@code ctx.clip()} would put a crisp edge through a blurred
+ * field, which reads as an artefact wherever the eye knows the line should not be sharp.
+ */
+const LAND_CLIP_SOFT_PX = 4;
+
+/**
+ * The seaward dilation of the land mask, in metres of Natural Earth 1:50m survey slack. Without
+ * it, clipping raw erased 7 of 51 coastal locations (including a 5★) by cutting through their own
+ * gaussian core — a rated location painting as empty ground being worse than the bug the clip
+ * fixes (docs/design/map-tab-v2/README.md, "The heat field").
+ */
+const COAST_ERROR_METRES = 4200;
+const COAST_ERROR_MIN_PX = 3;
+const COAST_ERROR_MAX_PX = 120;
+
+/**
+ * The coastline stroke's own fade-out, independent of the land clip's own threshold above: the
+ * stroke is gone by zoom 11, a county-scale zoom below where the clip itself drops (11.5), because
+ * past it the basemap's own detail has taken over asserting the coast.
+ */
+const COAST_STROKE_MAX_ZOOM = 11;
+const COAST_STROKE_FADE_SPAN = 1.6;
+const COAST_STROKE_MAX_ALPHA = 0.5;
+const COAST_STROKE_WIDTH = 0.8;
+const COAST_STROKE_RGB = '242,231,211';
+
+/**
+ * The coastline stroke's alpha at a given zoom — {@code clamp((11 − zoom) / 1.6, 0, 1) × 0.5}.
+ *
+ * <p>Exported so the fade can be pinned precisely on pure numbers, the way {@link fadeAt} already
+ * is, rather than parsed back out of a canvas {@code strokeStyle} string.
+ *
+ * @param {number} zoom the map's current zoom
+ * @returns {number} 0 at/above {@link COAST_STROKE_MAX_ZOOM}, rising to 0.5 as the zoom falls
+ */
+export function coastAlphaAt(zoom) {
+  return clamp(
+    (COAST_STROKE_MAX_ZOOM - zoom) / COAST_STROKE_FADE_SPAN, 0, 1,
+  ) * COAST_STROKE_MAX_ALPHA;
+}
 
 /**
  * The panes faded with the zoom.
@@ -201,6 +266,13 @@ export default function MapHeatLayer({
   const map = useMap();
 
   /**
+   * The land clip's own {@code Path2D} cache (map-tab-v2-plan.md §3 P4) — one per map mount, in a
+   * state initialiser for the same reason the pane below is: it must exist before the first paint
+   * runs, not after a second render pass triggered by a {@code useMemo} recompute.
+   */
+  const [landMask] = useState(() => createLandMask(map));
+
+  /**
    * The pane, made in a state initialiser so it exists on the FIRST render.
    *
    * <p>The {@code CentreOnHomeControl} precedent, and for the same reason: the portal needs
@@ -278,13 +350,33 @@ export default function MapHeatLayer({
    */
   const fadesMarkers = points.length > 0 && !markersLocked;
 
-  const paint = useCallback(({ canvases }) => {
+  const paint = useCallback(({ width, height, canvases }) => {
     const canvas = canvases.get(CANVAS_KEY);
     if (!canvas || !map?.getZoom) return;
     L.DomUtil?.setPosition?.(canvas, map.containerPointToLayerPoint([0, 0]));
-    const fade = fadeAt(map.getZoom());
+    const zoom = map.getZoom();
+    const fade = fadeAt(zoom);
     if (fadesMarkers) applyMarkerFade(map, fade.markers);
     else restoreMarkerPanes(map);
+
+    /* The land clip (map-tab-v2-plan.md §3 P4) — dropped at/above LAND_CLIP_MAX_ZOOM. `landPath`
+       can still be null below the threshold while the topology is in flight: the kernel treats a
+       null `clipPath` as no clip at all, which is the graceful, prototype-matching fallback the
+       mount effect below resolves out of the moment `load()` settles. */
+    const clipActive = zoom < LAND_CLIP_MAX_ZOOM;
+    const landPath = clipActive ? landMask.get() : null;
+    let clipOpts = null;
+    if (clipActive) {
+      const origin = map.getPixelBounds().min;
+      clipOpts = {
+        clipPath: landPath,
+        clipSoft: LAND_CLIP_SOFT_PX,
+        clipGrow: radiusFor(map, COAST_ERROR_METRES, COAST_ERROR_MIN_PX, COAST_ERROR_MAX_PX),
+        clipDx: -origin.x,
+        clipDy: -origin.y,
+      };
+    }
+
     drawTiles(canvas, map, points, POINT_SCORE_INDEX, {
       radius: radiusFor(map, RADIUS_METRES, RADIUS_MIN_PX, RADIUS_MAX_PX),
       grid: GRID,
@@ -299,7 +391,29 @@ export default function MapHeatLayer({
       // glow over a green "go" would be a false signal. In verdict mode this spreads NO keys at
       // all, not a falsy one, so `drawTiles` sees today's exact options object.
       ...(getMode() === 'temp' ? { bloom: FIELD_BLOOM } : null),
+      // Same rule as the bloom above: below LAND_CLIP_MAX_ZOOM this spreads all five clip keys
+      // (clipPath may still be null); at/above it, none at all — absence, not a falsy value.
+      ...(clipOpts || null),
     });
+
+    /* Coastline stroke, from the SAME Path2D the clip uses (never a second geometry) — drawn on
+       the same canvas, after the field, whenever the fade alpha is above zero: even an empty
+       point set or a field already at its floor opacity still gets a coast, because the coast is
+       furniture, not a claim about the data (map-tab-v2-plan.md §3 P4). Skipped only when there is
+       no path to stroke — the same graceful "topology not here yet" fallback as the clip above. */
+    const coastAlpha = coastAlphaAt(zoom);
+    if (coastAlpha > 0 && landPath) {
+      // Reacquires the SAME context `drawTiles` just painted into — `fit`'s backing-store write is
+      // guarded against reallocation when the size has not changed, so this costs a transform
+      // reset, not a fresh canvas.
+      const ctx = fit(canvas, width, height);
+      ctx.save();
+      ctx.translate(clipOpts.clipDx, clipOpts.clipDy);
+      ctx.strokeStyle = `rgba(${COAST_STROKE_RGB},${coastAlpha.toFixed(3)})`;
+      ctx.lineWidth = COAST_STROKE_WIDTH;
+      ctx.stroke(landPath);
+      ctx.restore();
+    }
   // `colourMode` is a REPAINT KEY, not a colour source. The heat kernel paints from
   // `scoreRamp`'s live module state (`heatField.js` -> `rampRgb`), which this callback's other
   // dependencies cannot see: when the settings fetch resolves after the first paint, `MODE`
@@ -312,7 +426,7 @@ export default function MapHeatLayer({
     // that this callback's colours come from `scoreRamp`'s module state, so it reads the entry as
     // unnecessary. `void` makes the dependency honest and keeps the rule on.
     void colourMode;
-  }, [map, points, conf, fadesMarkers, colourMode]);
+  }, [map, points, conf, fadesMarkers, colourMode, landMask]);
 
   const {
     attachFrame, canvasRef, geoFailed, repaint, repaintNow,
@@ -321,12 +435,49 @@ export default function MapHeatLayer({
     measureKey: CANVAS_KEY,
     paint,
     measure,
-    // `drawTiles` draws no coastline and clips to nothing — the basemap carries the geography. With
-    // this true the layer would sit blank until a topology asset it never draws had been fetched.
-    // (It does not save the `geo` chunk — see the hook's own note; `drawTiles` shares a module with
-    // `drawGeo`, and on this arm the Plan tab has fetched it long before the Map tab is opened.)
+    // `drawTiles` itself draws no coastline and clips to nothing — the basemap carries the
+    // geography; the land clip and coastline stroke above are painted by THIS component, straight
+    // onto `drawTiles`'s own canvas, after it returns. With `requiresLand` true the hook would
+    // decline every paint — the whole field, not just the clip — until the topology resolved,
+    // which is the opposite of the graceful "paint unclipped, then upgrade" fallback P4 wants,
+    // so the topology fetch and its retry are owned by this component's own mount effect below,
+    // never by the hook.
     requiresLand: false,
   });
+
+  /**
+   * Fetches the vendored UK land geometry the clip and the coastline stroke both need
+   * (map-tab-v2-plan.md §3 P4). `load()` shares one in-flight promise with every other caller
+   * (see its own doc comment), so mounting this alongside the Plan tab's thumbnails costs nothing
+   * extra, and calling it again on a remount is free once the topology has already resolved.
+   *
+   * <p>A rejection is logged and swallowed, never rethrown: the field already paints unclipped, so
+   * a permanent blank would be the wrong failure mode for geometry that is cosmetic to the rest of
+   * the tab, not load-bearing.
+   *
+   * <p>{@code alreadyLoaded} mirrors {@code useHeatCanvas}'s own identical guard on its
+   * {@code requiresLand} path: {@code load()} resolves immediately when the Plan tab (or an
+   * earlier mount of this same component) has already fetched the topology, and repainting again
+   * in that case would be a doubled paint on every mount after the first, of a clip the FIRST
+   * paint already had — {@code landMask.get()} reads {@code land()} itself, so nothing was
+   * missing.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    const alreadyLoaded = land() != null;
+    load()
+      .then(() => {
+        if (cancelled || alreadyLoaded) return;
+        // The cache is keyed on zoom, and the topology arriving does not change the zoom — so
+        // without this the clip would stay absent until the reader's next pan or zoom.
+        landMask.invalidate();
+        repaintNow();
+      })
+      .catch((err) => {
+        console.error('[MapHeatLayer] land geometry failed to load; the field stays unclipped', err);
+      });
+    return () => { cancelled = true; };
+  }, [landMask, repaintNow]);
 
   /**
    * The settle, deduped on the VIEW rather than on the tick.
@@ -353,13 +504,21 @@ export default function MapHeatLayer({
 
   useEffect(() => {
     if (typeof map?.on !== 'function') return undefined;
+    // The land mask is cached on zoom alone, so a genuine zoom change already busts it on the
+    // next `get()` — this is belt-and-braces, not load-bearing. map-tab-v2-plan.md §3 P4 names
+    // both triggers explicitly, and `map.project` (what the cache is built from) does not depend
+    // on the container at all, so a resize invalidation costs one Path2D rebuild against a
+    // mistake, never a correctness fix.
+    const invalidateMask = () => landMask.invalidate();
     map.on('move zoom viewreset resize', repaint);
     map.on('moveend zoomend', settle);
+    map.on('zoomend resize', invalidateMask);
     return () => {
       map.off('move zoom viewreset resize', repaint);
       map.off('moveend zoomend', settle);
+      map.off('zoomend resize', invalidateMask);
     };
-  }, [map, repaint, settle]);
+  }, [map, repaint, settle, landMask]);
 
   /**
    * The container as the hook's observed frame.

@@ -15,7 +15,16 @@ vi.mock('react-leaflet', () => ({ useMap: () => currentMap }));
 
 const drawTiles = vi.fn();
 const radiusFor = vi.fn(() => 120);
-const load = vi.fn(() => Promise.resolve({ type: 'FeatureCollection', features: [] }));
+// P4 RE-PIN (map-tab-v2-plan.md §3 P4): `land()` now tracks the SAME latch the mocked `load()`
+// flips, so `MapHeatLayer`'s `alreadyLoaded = land() != null` guard sees a faithful reflection of
+// "has the topology arrived" rather than a permanently-null stub. Reset per test so one test's
+// resolved load cannot leak into the next's "topology not here yet" fixtures.
+let mockLandLoaded = false;
+const LAND_FIXTURE = { type: 'FeatureCollection', features: [] };
+const load = vi.fn(() => Promise.resolve(LAND_FIXTURE).then((v) => {
+  mockLandLoaded = true;
+  return v;
+}));
 vi.mock('../utils/heatField.js', async (importOriginal) => {
   const actual = await importOriginal();
   return {
@@ -23,10 +32,21 @@ vi.mock('../utils/heatField.js', async (importOriginal) => {
     drawTiles: (...args) => drawTiles(...args),
     radiusFor: (...args) => radiusFor(...args),
     load: (...args) => load(...args),
+    land: () => (mockLandLoaded ? LAND_FIXTURE : null),
   };
 });
 
-import MapHeatLayer, { fadeAt, markersAreInteractive } from '../components/MapHeatLayer.jsx';
+// P4's land clip: the component's own wiring is this file's business, but the Path2D cache build
+// itself is `landMask.test.js`'s — so it is mocked here, the same way `drawTiles`'s own pixels are
+// out of scope for this file. Defaults to "no topology yet" (`get` returns null), matching what
+// the real module would answer before `load()` resolves.
+const landMaskGet = vi.fn(() => null);
+const landMaskInvalidate = vi.fn();
+vi.mock('../utils/landMask.js', () => ({
+  createLandMask: vi.fn(() => ({ get: landMaskGet, invalidate: landMaskInvalidate })),
+}));
+
+import MapHeatLayer, { coastAlphaAt, fadeAt, markersAreInteractive } from '../components/MapHeatLayer.jsx';
 import { setMode } from '../utils/scoreRamp.js';
 
 /**
@@ -73,6 +93,10 @@ function makeMap({ zoom = 9, size = { x: 800, y: 500 }, panes = null, onScreen =
     getCenter() { return this.centre; },
     getSize: () => size,
     getContainer: () => container,
+    // P4's land clip reads this for `clipDx`/`clipDy`. A fixed origin is a safe default for every
+    // test that does not care about it; the land-clip describe block below overrides it per test
+    // to assert the translation is actually threaded through.
+    getPixelBounds: () => ({ min: { x: 0, y: 0 } }),
     getPane: (name) => built[name] || null,
     createPane: (name) => {
       const el = document.createElement('div');
@@ -123,6 +147,9 @@ beforeEach(() => {
   // Re-asserted here, not left to `vi.clearAllMocks()`: that clears CALLS, not implementations, so
   // one test's `mockReturnValue` would otherwise be in force for every test after it.
   radiusFor.mockReturnValue(120);
+  // P4 RE-PIN: one test's resolved `load()` must not leave `land()` answering non-null for the
+  // next test's "topology not here yet" fixture.
+  mockLandLoaded = false;
 });
 
 afterEach(() => {
@@ -171,14 +198,13 @@ describe('MapHeatLayer — the pane', () => {
     expect(currentMap.panes['wf-heat']).toBe(existing);
   });
 
-  it('never fetches the vendored coastline, which this host does not draw', async () => {
-    // `requiresLand: false` is not just a wait-skip: `load()` is what pulls the 9 KB topology chunk,
-    // and `drawTiles` clips to nothing — the basemap carries the geography. Flip the flag and every
-    // Map-tab visit fetches an asset it cannot use, and the field waits for it first.
-    currentMap = makeMap({ panes: markerPanes() });
-    await mount();
-    expect(load).not.toHaveBeenCalled();
-  });
+  // P4 RE-PIN (map-tab-v2-plan.md §3 P4): "never fetches the vendored coastline, which this host
+  // does not draw" asserted `load` was NEVER called — true only while this host drew no
+  // coastline. P4 gives it one (the land clip + the coastline stroke), so the premise is now
+  // deliberately false: this host DOES fetch the topology, on mount, unconditionally. Its inverse
+  // — "kicks off the land geometry load on mount" — lives in the new
+  // "MapHeatLayer — the land clip" describe block below; deleted here rather than left as an
+  // orphaned contradiction beside it.
 
   it('hides the canvas for the zoom animation instead of letting it detach', async () => {
     // Leaflet does NOT scale a pane's contents during a zoom animation — only elements carrying
@@ -215,7 +241,18 @@ describe('MapHeatLayer — the paint', () => {
   it('hands the kernel §4.5’s dials, the window’s confidence and the map itself', async () => {
     currentMap = makeMap({ panes: markerPanes() });
     await mount({ conf: 0.5 });
-    expect(drawTiles).toHaveBeenCalledTimes(1);
+    // P4 RE-PIN (map-tab-v2-plan.md §3 P4): the "faithful" fix (wiring the mocked `land()` to the
+    // same latch the mocked `load()` flips, at the top of this file) was tried first and cannot
+    // suppress this to 1× — `alreadyLoaded` is captured synchronously BEFORE the mocked promise
+    // resolves, one commit too early for any `land()` mock to change the outcome on a single fresh
+    // mount. That is not instability to paper over: in THIS harness the count is 2-BY-DESIGN
+    // (mount paint + load-resolve repaint) and deterministic — an adversarial review's refuter
+    // injected a duplicated `repaintNow()` into a scratch copy and an exact count caught it where
+    // a relaxed one did not. PRODUCTION cold mounts can legitimately exceed 2 (a genuine
+    // zoomend/moveend landing during the `load()` gap adds its own settle-triggered repaint), which
+    // is exactly why this pins the UNIT-level invariant only and no integration path asserts an
+    // exact count.
+    expect(drawTiles).toHaveBeenCalledTimes(2);
     const [canvas, map, points, win, opts] = drawTiles.mock.calls[0];
     expect(canvas).toBeInstanceOf(HTMLCanvasElement);
     expect(map).toBe(currentMap);
@@ -226,7 +263,8 @@ describe('MapHeatLayer — the paint', () => {
     expect(opts.grid).toBe(6);
     expect(opts.blur).toBe(4);
     expect(opts.conf).toBe(0.5);
-    expect(radiusFor).toHaveBeenCalledWith(currentMap, 8500, 34, 240);
+    // P4 RE-PIN: 8500/34/240 → 7200/30/190 (map-tab-v2-plan.md §3 P4).
+    expect(radiusFor).toHaveBeenCalledWith(currentMap, 7200, 30, 190);
   });
 
   it('sizes the radius in real distance, so a mile means a mile at every zoom', async () => {
@@ -432,17 +470,23 @@ describe('MapHeatLayer — what it declines to do', () => {
 
 describe('MapHeatLayer — the zoom handover (D8)', () => {
   it('computes the two opacities in opposite directions across one band', () => {
-    // Below the band the field is whole and the markers are gone; above it the markers are whole and
-    // the field settles to a 17% wash rather than vanishing — the regional answer is still true at
-    // street level.
+    // P4 RE-PIN (map-tab-v2-plan.md §3 P4): the band was re-tuned 10.6→12.2/0.17 to
+    // 10.4→12.0/0.12 in the same commit as the land clip and the radius re-tune (the old band was
+    // part of why the field swam offshore). Values below are computed fresh from the formula at
+    // the NEW band's own edges and midpoint (11.2, not the old band's 11.4), not copied from any
+    // implementation output.
+    //
+    // Below the band the field is whole and the markers are gone; above it the markers are whole
+    // and the field settles to a 12% wash rather than vanishing — the regional answer is still
+    // true at street level.
     expect(fadeAt(9)).toEqual({ markers: 0, heat: 1 });
-    expect(fadeAt(10.6)).toEqual({ markers: 0, heat: 1 });
-    expect(fadeAt(12.2).markers).toBe(1);
-    expect(fadeAt(12.2).heat).toBeCloseTo(0.17, 5);
+    expect(fadeAt(10.4)).toEqual({ markers: 0, heat: 1 });
+    expect(fadeAt(12.0).markers).toBe(1);
+    expect(fadeAt(12.0).heat).toBeCloseTo(0.12, 5);
     expect(fadeAt(19).markers).toBe(1);
-    const mid = fadeAt(11.4);
+    const mid = fadeAt(11.2);
     expect(mid.markers).toBeCloseTo(0.5, 5);
-    expect(mid.heat).toBeCloseTo(0.585, 5);
+    expect(mid.heat).toBeCloseTo(1 - 0.88 * 0.5, 5);
   });
 
   it('multiplies the field’s own 0.9 by the zoom fade rather than replacing it', async () => {
@@ -453,7 +497,8 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
     currentMap = makeMap({ zoom: 13, panes: markerPanes() });
     drawTiles.mockClear();
     await mount();
-    expect(drawTiles.mock.calls[0][4].opacity).toBeCloseTo(0.9 * 0.17, 5);
+    // P4 RE-PIN: floor 0.17 → 0.12 (map-tab-v2-plan.md §3 P4).
+    expect(drawTiles.mock.calls[0][4].opacity).toBeCloseTo(0.9 * 0.12, 5);
   });
 
   it('hides the marker panes wholesale at the zoom the tab opens at', async () => {
@@ -492,13 +537,16 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
     // tab opens at, and the markers are the only route to a location's popup. Restore `visibility`
     // here and this test still passes — which is why the accessibility half is asserted below.
     //
-    // t = 0.2 sits at zoom 10.92; 10.9 is below it and 11.0 is above.
-    currentMap = makeMap({ zoom: 10.9, panes: markerPanes() });
+    // P4 RE-PIN (map-tab-v2-plan.md §3 P4): the band retune (10.6→12.2 to 10.4→12.0) moved where
+    // t crosses 0.2 from zoom 10.92 to zoom 10.4 + 0.2×1.6 = 10.72 — the PROPERTY under test (no
+    // sub-20%-opacity click target) is unchanged, only the zoom that straddles it. 10.7 is below
+    // the new crossing (t≈0.1875) and 10.8 is above it (t≈0.25).
+    currentMap = makeMap({ zoom: 10.7, panes: markerPanes() });
     await mount();
     expect(currentMap.panes.markerPane.style.pointerEvents).toBe('none');
     expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(true);
 
-    currentMap = makeMap({ zoom: 11, panes: markerPanes() });
+    currentMap = makeMap({ zoom: 10.8, panes: markerPanes() });
     await mount();
     expect(currentMap.panes.markerPane.style.pointerEvents).toBe('');
     expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(false);
@@ -517,10 +565,16 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
   it('cross-fades rather than stepping — a fractional zoom gives a fractional opacity', async () => {
     // Endpoint-only assertions cannot tell a ramp from a step: `String(Math.round(opacity))` in the
     // fade, or a `heat < 1 ? FLOOR : 1` in the paint, passes every 0-and-1 test in this file.
+    //
+    // P4 RE-PIN (map-tab-v2-plan.md §3 P4): zoom 11.4 is no longer the band's exact midpoint under
+    // the new 10.4→12.0 band (that's 11.2 — see "computes the two opacities" above), so the
+    // expected values here are recomputed from the formula at this same zoom rather than copied
+    // from the old band's coincidentally-round 0.5/0.585: t = (11.4−10.4)/1.6 = 0.625,
+    // heat = 1 − 0.88×0.625 = 0.45.
     currentMap = makeMap({ zoom: 11.4, panes: markerPanes() });
     await mount();
-    expect(Number(currentMap.panes.markerPane.style.opacity)).toBeCloseTo(0.5, 5);
-    expect(drawTiles.mock.calls[0][4].opacity).toBeCloseTo(0.9 * 0.585, 5);
+    expect(Number(currentMap.panes.markerPane.style.opacity)).toBeCloseTo(0.625, 5);
+    expect(drawTiles.mock.calls[0][4].opacity).toBeCloseTo(0.9 * 0.45, 5);
   });
 
   it('pins the markers at full strength while a location is OPEN', async () => {
@@ -533,7 +587,15 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
     expect(currentMap.panes.markerPane.style.opacity).toBe('');
     expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(false);
     // The field itself is unaffected — only the handover is suspended.
-    expect(drawTiles).toHaveBeenCalledTimes(1);
+    // P4 RE-PIN (map-tab-v2-plan.md §3 P4): the count is 2-BY-DESIGN in this harness (mount paint +
+    // load-resolve repaint), deterministic, and worth pinning exactly — an adversarial review's
+    // refuter injected a duplicated `repaintNow()` into a scratch copy and only an exact count
+    // caught it (a relaxed `toHaveBeenCalled()` did not). See the fuller note on "hands the kernel
+    // §4.5's dials" above for why `alreadyLoaded` cannot suppress this to 1× here. PRODUCTION cold
+    // mounts can legitimately exceed 2 (a genuine zoomend/moveend landing during the `load()` gap
+    // adds its own repaint) — this pins the UNIT-level invariant only, which is why no integration
+    // path asserts an exact count.
+    expect(drawTiles).toHaveBeenCalledTimes(2);
   });
 
   it('does NOT fade the markers when the window has no field to hand over to', async () => {
@@ -544,7 +606,10 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
     await mount({ points: [] });
     // The positive control: `''` is also jsdom's default, so without proving the paint RAN this
     // assertion passes for a layer that never did anything at all.
-    expect(drawTiles).toHaveBeenCalledTimes(1);
+    // P4 RE-PIN: 2-BY-DESIGN for the same reason as the sibling test above (mount paint +
+    // load-resolve repaint, deterministic in this harness; production can legitimately exceed 2 on
+    // a zoomend/moveend landing mid-`load()`, so only the unit-level invariant is pinned here).
+    expect(drawTiles).toHaveBeenCalledTimes(2);
     expect(currentMap.panes.markerPane.style.opacity).toBe('');
     expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(false);
   });
@@ -561,5 +626,217 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
     expect(currentMap.panes.markerPane.style.opacity).toBe('');
     expect(currentMap.panes.markerPane.style.pointerEvents).toBe('');
     expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(false);
+  });
+});
+
+/**
+ * A canvas 2d context richer than the file's default `getContext = () => ({})` stub — enough for
+ * the real `fit()` (called directly by `MapHeatLayer` for the coastline stroke, unlike every other
+ * draw in this file, which goes through the mocked `drawTiles`) to run without throwing.
+ *
+ * <p>Without this, any test whose `landMask.get()` resolves to a real (truthy) path at a zoom
+ * where the stroke's own alpha is above zero hits `ctx.setTransform is not a function` INSIDE the
+ * paint callback — and because that callback can run inside this file's `load().then()` chain, the
+ * exception lands in the load effect's own `.catch()` and is silently logged as a "land geometry
+ * failed to load", not surfaced as a test failure. Installing this stub is what turns that into an
+ * honest assertion failure instead of a masked crash.
+ */
+function makeCanvasCtxStub() {
+  return {
+    setTransform: vi.fn(),
+    save: vi.fn(),
+    restore: vi.fn(),
+    translate: vi.fn(),
+    stroke: vi.fn(),
+    clearRect: vi.fn(),
+  };
+}
+
+/**
+ * The land clip, the coastline stroke and the co-tuned dials (map-tab-v2-plan.md §3 P4) — the fix
+ * for the founding "heat sits in the sea" complaint.
+ *
+ * <p>`landMask.js` is mocked here (see the top of the file): its own Path2D build is
+ * `landMask.test.js`'s business, and this file's job is the WIRING — that `MapHeatLayer` asks the
+ * mask for the right zoom-gated options and reacts correctly to the mask having (or not having)
+ * a path yet.
+ */
+describe('MapHeatLayer — the land clip (map-tab-v2-plan.md §3 P4)', () => {
+  beforeEach(() => {
+    landMaskGet.mockReset();
+    landMaskGet.mockReturnValue(null);
+    landMaskInvalidate.mockReset();
+    // See `makeCanvasCtxStub`'s own doc comment — some cases here give `landMaskGet` a real path
+    // at a zoom where the coastline stroke would also fire.
+    HTMLCanvasElement.prototype.getContext = () => makeCanvasCtxStub();
+  });
+
+  it('re-tunes the field to the P4 dials — 7200m / 30–190px', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount();
+    expect(radiusFor).toHaveBeenCalledWith(currentMap, 7200, 30, 190);
+  });
+
+  it('re-tunes the field/marker handover band to 10.4→12.0, floor 0.12', () => {
+    // Pinned as pure numbers on `fadeAt` itself, the same idiom as the pre-existing D8 suite
+    // (which still pins the OLD 10.6/12.2/0.17 band — see this phase's own report on that).
+    expect(fadeAt(10.4)).toEqual({ markers: 0, heat: 1 });
+    expect(fadeAt(12.0).markers).toBe(1);
+    expect(fadeAt(12.0).heat).toBeCloseTo(0.12, 5);
+    // The midpoint of the NEW band (11.2, not the old band's 11.4) is where the two curves cross.
+    const mid = fadeAt(11.2);
+    expect(mid.markers).toBeCloseTo(0.5, 5);
+    expect(mid.heat).toBeCloseTo(1 - 0.88 * 0.5, 5);
+  });
+
+  it('passes the clip keyed to the map’s own pixel origin, below zoom 11.5', async () => {
+    const stubPath = { __stub: 'land' };
+    landMaskGet.mockReturnValue(stubPath);
+    currentMap = makeMap({ zoom: 10, panes: markerPanes() });
+    currentMap.getPixelBounds = () => ({ min: { x: 120, y: 80 } });
+    await mount();
+    const opts = drawTiles.mock.calls.at(-1)[4];
+    expect(opts.clipPath).toBe(stubPath);
+    expect(opts.clipSoft).toBe(4);
+    expect(opts.clipDx).toBe(-120);
+    expect(opts.clipDy).toBe(-80);
+    // The ~4km seaward dilation (map-tab-v2-plan.md §3 P4) — without it a 1:50m clip erased 7 of
+    // 51 coastal locations, including a 5★.
+    expect(radiusFor).toHaveBeenCalledWith(currentMap, 4200, 3, 120);
+  });
+
+  it('carries none of the five clip keys at or above zoom 11.5 — absence, not a falsy value', async () => {
+    currentMap = makeMap({ zoom: 11.5, panes: markerPanes() });
+    await mount();
+    const opts = drawTiles.mock.calls.at(-1)[4];
+    expect('clipPath' in opts).toBe(false);
+    expect('clipSoft' in opts).toBe(false);
+    expect('clipGrow' in opts).toBe(false);
+    expect('clipDx' in opts).toBe(false);
+    expect('clipDy' in opts).toBe(false);
+  });
+
+  it('still passes clipPath (null) and the other four keys below the threshold before the topology resolves', async () => {
+    // landMaskGet's default (null) stands for "load() has not resolved yet" — the graceful
+    // fallback the kernel reads as "no clip", never a permanent blank.
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount();
+    const opts = drawTiles.mock.calls.at(-1)[4];
+    expect(opts.clipPath).toBeNull();
+    expect(opts.clipSoft).toBe(4);
+    expect('clipGrow' in opts).toBe(true);
+  });
+
+  it('kicks off the land geometry load on mount', async () => {
+    currentMap = makeMap({ panes: markerPanes() });
+    await mount();
+    expect(load).toHaveBeenCalledTimes(1);
+  });
+
+  it('invalidates the mask and repaints once the topology resolves, without user interaction', async () => {
+    let resolveLoad;
+    load.mockImplementationOnce(() => new Promise((res) => { resolveLoad = res; }));
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount();
+    expect(drawTiles.mock.calls.at(-1)[4].clipPath).toBeNull();
+    const stubPath = { __stub: 'resolved' };
+    landMaskGet.mockReturnValue(stubPath);
+    drawTiles.mockClear();
+    await act(async () => {
+      resolveLoad({ type: 'FeatureCollection', features: [] });
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(landMaskInvalidate).toHaveBeenCalled();
+    expect(drawTiles).toHaveBeenCalledTimes(1);
+    expect(drawTiles.mock.calls.at(-1)[4].clipPath).toBe(stubPath);
+  });
+
+  it('logs and stays unclipped when the land geometry fails to load', async () => {
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    load.mockImplementationOnce(() => Promise.reject(new Error('no chunk')));
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(consoleSpy).toHaveBeenCalled();
+    expect(drawTiles.mock.calls.at(-1)[4].clipPath).toBeNull();
+    consoleSpy.mockRestore();
+  });
+
+  it('invalidates the mask on zoomend and on a container resize', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount();
+    landMaskInvalidate.mockClear();
+    await act(async () => { currentMap.fire('resize'); });
+    expect(landMaskInvalidate).toHaveBeenCalled();
+    landMaskInvalidate.mockClear();
+    currentMap.zoom = 10;
+    await act(async () => { currentMap.fire('zoomend'); });
+    expect(landMaskInvalidate).toHaveBeenCalled();
+  });
+});
+
+/**
+ * The coastline stroke — drawn from the SAME Path2D the clip uses, straight onto the field's own
+ * canvas. This block keeps its own named `ctxStub` (rather than the anonymous one
+ * `makeCanvasCtxStub` hands the land-clip block above) because every test here reads it back —
+ * `ctxStub.stroke`, `.lineWidth`, `.strokeStyle` — to assert what was actually drawn. Restored by
+ * the file's own top-level `afterEach`, like every other override in this file.
+ */
+describe('MapHeatLayer — the coastline stroke (map-tab-v2-plan.md §3 P4)', () => {
+  let ctxStub;
+
+  beforeEach(() => {
+    landMaskGet.mockReset();
+    landMaskGet.mockReturnValue(null);
+    landMaskInvalidate.mockReset();
+    ctxStub = makeCanvasCtxStub();
+    HTMLCanvasElement.prototype.getContext = () => ctxStub;
+  });
+
+  it('pins the alpha formula at the fade band’s ends — 0.5 at z≤9.4, 0 at z≥11', () => {
+    expect(coastAlphaAt(9.4)).toBeCloseTo(0.5, 5);
+    expect(coastAlphaAt(4)).toBeCloseTo(0.5, 5);
+    expect(coastAlphaAt(11)).toBe(0);
+    expect(coastAlphaAt(15)).toBe(0);
+    expect(coastAlphaAt(10.2)).toBeCloseTo(0.25, 5);
+  });
+
+  it('strokes the SAME Path2D the clip uses, below zoom 11', async () => {
+    const stubPath = { __stub: 'land' };
+    landMaskGet.mockReturnValue(stubPath);
+    currentMap = makeMap({ zoom: 9.4, panes: markerPanes() });
+    await mount();
+    expect(ctxStub.stroke).toHaveBeenCalledWith(stubPath);
+    expect(ctxStub.lineWidth).toBe(0.8);
+    expect(ctxStub.strokeStyle).toMatch(/^rgba\(242,231,211,/);
+  });
+
+  it('fades the stroke to nothing by zoom 11, even though the clip is still active', async () => {
+    const stubPath = { __stub: 'land' };
+    landMaskGet.mockReturnValue(stubPath);
+    currentMap = makeMap({ zoom: 11, panes: markerPanes() });
+    await mount();
+    expect(ctxStub.stroke).not.toHaveBeenCalled();
+    // The clip itself is still on at zoom 11 (< 11.5) — only the stroke's OWN, tighter fade has
+    // reached zero.
+    expect(drawTiles.mock.calls.at(-1)[4].clipSoft).toBe(4);
+  });
+
+  it('still strokes the coast with an empty point set', async () => {
+    const stubPath = { __stub: 'land' };
+    landMaskGet.mockReturnValue(stubPath);
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount({ points: [] });
+    expect(ctxStub.stroke).toHaveBeenCalledWith(stubPath);
+  });
+
+  it('draws no stroke while the topology has not resolved, even below zoom 11', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount();
+    expect(ctxStub.stroke).not.toHaveBeenCalled();
   });
 });
