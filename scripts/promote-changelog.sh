@@ -54,10 +54,47 @@ if ! grep -q '^## \[Unreleased\]' CHANGELOG.md; then
     exit 1
 fi
 
+# The directory must hold EXACTLY: README.md plus dated entries. Anything else is
+# rejected before a byte changes, because a file the fold cannot see but the caller's
+# accounting can (release.sh counts changelog.d via git ls-tree) would promote a
+# heading while leaving the entry behind — a half-promoted state whose retry the
+# duplicate-heading guard then blocks. A dot-prefixed `.fix.md` is the canonical
+# example: `*.md` never matches it. So the fold set is the documented convention
+# EXACTLY (YYYYMMDD-<slug>.md), and everything outside it — dotfiles, undated names,
+# subdirectories — is a loud error, not a silent skip.
+STRAY=""
+for f in changelog.d/* changelog.d/.[!.]* changelog.d/..?*; do
+    [[ -e "$f" ]] || continue
+    BASE="${f##*/}"
+    [[ "$BASE" == "README.md" ]] && continue
+    case "$BASE" in
+        ([0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-*.md)
+            [[ -f "$f" ]] && continue
+            ;;
+    esac
+    STRAY="${STRAY}${f}"$'\n'
+done
+if [[ -n "$STRAY" ]]; then
+    echo "Error: changelog.d/ contains files that are not YYYYMMDD-<slug>.md entries:" >&2
+    printf '%s' "$STRAY" | sed 's/^/  /' >&2
+    echo "The fold would not see them, so promoting now would leave them behind and" >&2
+    echo "wedge the release at its leftover check. Rename or remove them first" >&2
+    echo "(see changelog.d/README.md); nothing was changed." >&2
+    exit 1
+fi
+
 # Newline-separated rather than an array: the empty-array "${a[@]}" expansion is an
 # unbound-variable error under set -u on the bash 3.2 macOS ships, and entry filenames
 # are convention-bound to YYYYMMDD-<slug>.md (no whitespace), which the loop enforces.
-PENDING=$(find changelog.d -maxdepth 1 -name '*.md' ! -name 'README.md' 2>/dev/null | LC_ALL=C sort -r || true)
+# A shell glob rather than find(1): a suppressed find failure would silently empty the
+# list and promote a heading with nothing folded under it, and the glob has no error
+# path at all (an unmatched pattern stays literal and fails the -e test).
+PENDING=""
+for f in changelog.d/[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-*.md; do
+    [[ -e "$f" ]] || continue
+    PENDING="${PENDING}${f}"$'\n'
+done
+PENDING=$(printf '%s' "$PENDING" | LC_ALL=C sort -r)
 
 BLOCK=$(mktemp)
 PROMOTED=$(mktemp)

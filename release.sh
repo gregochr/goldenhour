@@ -198,7 +198,23 @@ UNRELEASED_BODY=$(unreleased_body_at "$TARGET_SHA" || true)
 # the convention that ended the every-two-PRs-conflict on the [Unreleased] line.
 # Read at the TARGET commit like the body above; the fold itself runs on the working
 # tree, which the target-is-main-HEAD and clean-tree guards make the same content.
-PENDING_AT_TARGET=$(git ls-tree -r --name-only "$TARGET_SHA" -- changelog.d 2>/dev/null | grep -v 'README\.md$' || true)
+#
+# Refuse FIRST on anything in the directory that is not a dated entry. The fold's
+# glob matches exactly YYYYMMDD-<slug>.md, so a dot-prefixed or misnamed tracked file
+# is invisible to it while remaining visible to the accounting here — promoting would
+# insert the heading, leave that file behind, trip the post-promotion leftover check,
+# and the duplicate-heading guard would then block a retry at this version. The helper
+# re-checks this on the promotion branch; checking here as well fails BEFORE any
+# branch exists, so nothing is left to clean up.
+STRAY_AT_TARGET=$(git ls-tree -r --name-only "$TARGET_SHA" -- changelog.d 2>/dev/null | grep -v 'README\.md$' | grep -Ev '^changelog\.d/[0-9]{8}-[^/]+\.md$' || true)
+if [[ -n "$STRAY_AT_TARGET" ]]; then
+    echo "Error: changelog.d/ contains files that are not YYYYMMDD-<slug>.md entries:"
+    printf '%s\n' "$STRAY_AT_TARGET" | sed 's/^/  /'
+    echo "The release fold would not see them and the release would wedge at its"
+    echo "leftover check. Rename or remove them first (see changelog.d/README.md)."
+    exit 1
+fi
+PENDING_AT_TARGET=$(git ls-tree -r --name-only "$TARGET_SHA" -- changelog.d 2>/dev/null | grep -E '^changelog\.d/[0-9]{8}-[^/]+\.md$' || true)
 
 if [[ -n "$UNRELEASED_BODY" || -n "$PENDING_AT_TARGET" ]]; then
     DIRECT_COUNT=0

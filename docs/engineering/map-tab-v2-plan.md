@@ -244,15 +244,21 @@ The fix for the founding complaint ("heat sits in the sea"), in `MapHeatLayer.js
 The minimum backend for honest astro/aurora rows in the EV list (gap analysis: **no served night
 time exists anywhere**):
 
-- `AstroConditionsDto` gains the night window it was scored over — `nightStart`/`nightEnd`: the
-  **nautical** dusk/dawn window `evaluateAndPersist` scores over (computed at the fixed reference
-  point). Those instants exist only on the **write** path today — the GET path serves persisted
-  `astro_conditions` rows that do not store them — so the serve path recomputes the same
-  `solarService.nauticalDuskUtc`/`nauticalDawnUtc` calls (deterministic, so still no migration)
-  rather than persisting or letting the client re-derive. DTO + service + controller tests.
-- `AuroraForecastResultDto`: confirm it can be joined to a night and a representative time; if the
-  polling job's `calculateTonightWindow` values are cheaply available, serve the same two fields.
-  If not cheap, aurora rows use the astro night window of the same date (recorded approximation).
+- `AstroConditionsDto` gains the night window it was scored over — `nightStart`/`nightEnd`,
+  **mapped from the entity's stored `nauticalDuskUtc`/`nauticalDawnUtc`** (V64 columns, written by
+  `evaluateAndPersist` at the fixed reference point — they have been persisted all along, so no
+  migration and no serve-time computation). Serve the STORED instants: a recompute can diverge
+  from the window the score was actually computed over after any solar-calculation change.
+  Recompute via `solarService.nauticalDuskUtc`/`nauticalDawnUtc` only as an explicit fallback for
+  legacy rows whose columns are null. (An earlier revision of this plan claimed the instants
+  existed only on the write path — wrong, caught by cross-vendor review on #723; the entity has
+  stored them since V64.) DTO + service + controller tests.
+- `AuroraForecastResultDto`: serve the same two fields derived **per result date** via
+  `AuroraForecastRunService.computeWindowForDate(date)` — the date-aware calculation the run was
+  scored with. Never `AuroraPollingJob.calculateTonightWindow()`: it takes no date and reads the
+  clock, so it would pin TONIGHT's window on a T+1 or historical row — the night-vs-date trap
+  `docs/engineering/aurora-night-selection.md` records, and `computeWindowForDate`'s own javadoc
+  warns against exactly this reuse. (Also a cross-vendor review catch on #723.)
 - **Do not** invent night confidence or night topics (owner items, §6). The EV rows will render
   confidence via the client's existing capped-inference rule (`MAX_INFERRED_TIER` precedent —
   absent field ⇒ capped at medium, never high).
@@ -301,9 +307,13 @@ pills, and the in-map select — on the tab only.
   when thin — the bundle's OPEN 1 caveat "if the real astro score only exists for dark-sky
   locations, the event row should say so"); aurora mode = selecting an aurora row (stored results,
   viewline overlay gates move from `date === auroraNight` to "the selected EV row is that
-  night's aurora row"; keep the auto-jump latch semantics). **LITE**: aurora rows render greyed
-  with the ProPill (freemium pattern — visible, `opacity .45`, `pointer-events none`); the aurora
-  APIs already fold 403s to null so nothing else leaks.
+  night's aurora row"; keep the auto-jump latch semantics). **LITE**: aurora rows are ABSENT,
+  not greyed — the freemium greyed-row treatment is unimplementable today, because
+  `AuroraForecastController` is role-gated at class level and `getAuroraForecastAvailableDates()`
+  folds the 403 to `[]`, so a LITE client cannot even learn an aurora night exists to grey out.
+  (Caught by cross-vendor review on #723 — an earlier revision promised the greyed row.)
+  Rendering it needs LITE-safe presence metadata first, which is O-9's second half; P6 does not
+  block on that decision.
 - Tests: `mapEvents` unit suite (ordering incl. night-after-sunset, aurora presence rule,
   beyond-briefing solar rows, best/swatch stats, empty briefing, LITE shape); control interaction
   tests; the existing `MapViewAstro`/`MapViewAuroraNight`/`MapViewSunsetToggle`/
@@ -582,7 +592,9 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
 - **O-8** `regionId` on briefing region rollups (kills the name-keyed join class).
 - **O-9** Aurora nightly scheduling (today: manually triggered — `POST /api/aurora/forecast/run`,
   ADMIN or PRO, no scheduled producer — so most nights have no aurora row) — prerequisite for
-  aurora being a *dependable* EV column; also whether LITE should see greyed aurora rows or none.
+  aurora being a *dependable* EV column; also whether LITE should see greyed aurora rows or none
+  (greyed requires LITE-safe presence metadata the role-gated aurora API cannot serve today —
+  until that backend decision, P6 ships LITE with no aurora rows).
 - **O-10** Night confidence + night topics as served channels (until then: capped inference, no
   topics on night rows).
 - **O-11** The LITE/PRO split on `GET /api/briefing/evaluate/scores` (pre-existing leak the Plan
