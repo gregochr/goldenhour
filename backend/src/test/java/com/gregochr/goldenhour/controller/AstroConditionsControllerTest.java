@@ -10,6 +10,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.Mockito.when;
@@ -51,8 +52,25 @@ class AstroConditionsControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$[0].bortleClass").value(3))
                 .andExpect(jsonPath("$[0].moonPhase").value("NEW_MOON"))
                 .andExpect(jsonPath("$[0].moonIlluminationPct").value(2.0))
+                .andExpect(jsonPath("$[0].nightStart").value("2026-04-01T19:40:00"))
+                .andExpect(jsonPath("$[0].nightEnd").value("2026-04-02T04:55:00"))
                 .andExpect(jsonPath("$[1].locationName").value("Hilltop Observatory"))
                 .andExpect(jsonPath("$[1].stars").value(2));
+    }
+
+    @Test
+    @DisplayName("GET /api/astro/conditions serves the stored night window on the JSON response")
+    @WithMockUser(roles = {"ADMIN"})
+    void getConditions_ridesStoredNightWindowOnJson() throws Exception {
+        AstroConditionsEntity entity = buildEntity("Dark Sky Park", 4);
+
+        when(astroConditionsRepository.findByForecastDate(LocalDate.of(2026, 4, 1)))
+                .thenReturn(List.of(entity));
+
+        mockMvc.perform(get("/api/astro/conditions").param("date", "2026-04-01"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].nightStart").value("2026-04-01T19:40:00"))
+                .andExpect(jsonPath("$[0].nightEnd").value("2026-04-02T04:55:00"));
     }
 
     @Test
@@ -153,6 +171,8 @@ class AstroConditionsControllerTest extends AbstractControllerTest {
         entity.setFogCapped(false);
         entity.setMoonPhase("NEW_MOON");
         entity.setMoonIlluminationPct(2.0);
+        entity.setNauticalDuskUtc(LocalDateTime.of(2026, 4, 1, 19, 40));
+        entity.setNauticalDawnUtc(LocalDateTime.of(2026, 4, 2, 4, 55));
         return entity;
     }
 }

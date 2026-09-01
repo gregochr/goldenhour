@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.model;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 /**
  * DTO for astro observing conditions at a single location for a given night.
@@ -19,6 +20,19 @@ import java.time.LocalDate;
  * @param forecastDate         the scored night
  * @param moonPhase            lunar phase name (e.g. "Waxing Crescent")
  * @param moonIlluminationPct  moon illumination percentage (0–100)
+ * @param nightStart           start of the night window this score was evaluated over — nautical
+ *                             dusk, UTC (naive, matching the entity's own {@code _utc}-suffixed
+ *                             columns). Served from the row's own stored
+ *                             {@code nauticalDuskUtc}/{@code nauticalDawnUtc} (persisted since V64
+ *                             at the fixed reference point {@code AstroConditionsService} scores
+ *                             every night from), so this is the window the row's rating actually
+ *                             reflects — never a value recomputed against a solar calculation that
+ *                             may have since changed. Only a legacy row with null stored columns
+ *                             falls back to a recompute, and that fallback is explicit and
+ *                             documented at {@code AstroConditionsService.resolveNightWindow}.
+ * @param nightEnd             end of the night window this score was evaluated over — nautical
+ *                             dawn (the following morning), UTC. Same provenance as
+ *                             {@code nightStart}.
  */
 public record AstroConditionsDto(
         Long locationId,
@@ -33,6 +47,8 @@ public record AstroConditionsDto(
         String moonExplanation,
         LocalDate forecastDate,
         String moonPhase,
-        Double moonIlluminationPct
+        Double moonIlluminationPct,
+        LocalDateTime nightStart,
+        LocalDateTime nightEnd
 ) {
 }

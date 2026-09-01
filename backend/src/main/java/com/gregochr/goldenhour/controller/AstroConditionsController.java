@@ -3,6 +3,7 @@ package com.gregochr.goldenhour.controller;
 import com.gregochr.goldenhour.entity.AstroConditionsEntity;
 import com.gregochr.goldenhour.model.AstroConditionsDto;
 import com.gregochr.goldenhour.repository.AstroConditionsRepository;
+import com.gregochr.goldenhour.service.AstroConditionsService;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -24,14 +25,19 @@ import java.util.List;
 public class AstroConditionsController {
 
     private final AstroConditionsRepository repository;
+    private final AstroConditionsService service;
 
     /**
      * Constructs the controller.
      *
      * @param repository astro conditions data access
+     * @param service    resolves the night window a row was scored over (stored, with a
+     *                   legacy-row recompute fallback)
      */
-    public AstroConditionsController(AstroConditionsRepository repository) {
+    public AstroConditionsController(AstroConditionsRepository repository,
+            AstroConditionsService service) {
         this.repository = repository;
+        this.service = service;
     }
 
     /**
@@ -44,7 +50,7 @@ public class AstroConditionsController {
     public List<AstroConditionsDto> getConditions(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate date) {
         return repository.findByForecastDate(date).stream()
-                .map(AstroConditionsController::toDto)
+                .map(this::toDto)
                 .toList();
     }
 
@@ -60,7 +66,8 @@ public class AstroConditionsController {
                 .toList();
     }
 
-    private static AstroConditionsDto toDto(AstroConditionsEntity entity) {
+    private AstroConditionsDto toDto(AstroConditionsEntity entity) {
+        AstroConditionsService.NightWindow window = service.resolveNightWindow(entity);
         return new AstroConditionsDto(
                 entity.getLocation().getId(),
                 entity.getLocation().getName(),
@@ -74,7 +81,9 @@ public class AstroConditionsController {
                 entity.getMoonExplanation(),
                 entity.getForecastDate(),
                 entity.getMoonPhase(),
-                entity.getMoonIlluminationPct()
+                entity.getMoonIlluminationPct(),
+                window.start(),
+                window.end()
         );
     }
 }
