@@ -28,6 +28,10 @@ Rules:
   it re-opens the merge-conflict problem for that PR, which is the one thing this directory
   exists to end.
 - **Never rewrite or delete another change's entry file.** They are consumed at release time.
+- **The filename convention is enforced, loudly.** The release fold folds exactly
+  `YYYYMMDD-<slug>.md` and refuses to run while anything else sits in this directory (a
+  dot-prefixed, undated, or misplaced file would otherwise be invisible to the fold but visible
+  to the release's accounting — a wedge, not a skip).
 
 ## What happens at release
 
