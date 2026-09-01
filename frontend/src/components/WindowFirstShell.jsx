@@ -985,7 +985,10 @@ export default function WindowFirstShell({
    * destroyed itself: it sat in the empty state it was replacing, so a keyboard reader was dropped
    * at {@code <body>} having just asked to be shown something. This message sits above the matrix
    * and every action here also unmounts it — so the same problem, one level up, and the same
-   * remedy: focus goes to the matrix's first card, which is what the reader has just been shown.
+   * remedy: focus goes to the first card of the sunrise row, which is what the reader has just been
+   * shown (matrix-axis plan D20 — the row-major DOM the rails restructure introduced means the
+   * first {@code button[data-testid="wf-heat-card"]} in document order is the first day's sunrise
+   * card rather than the first day's own first window, but it is still the visually top-left card).
    */
   const applyConflictAction = (action) => {
     if (action?.kind === 'reach') reachLens?.selectTier(action.id);
@@ -1685,8 +1688,10 @@ export default function WindowFirstShell({
                 // declines to focus it, and the reader is dropped at `<body>` while the page
                 // re-frames underneath them. `button[…]` rather than `[…]`, because an away window
                 // keeps its matrix cell as a non-focusable `<div>` and `querySelector` returns DOM
-                // order. Deferred a frame because the matrix is re-rendering on this very commit,
-                // and optional-CALLED because jsdom implements no layout.
+                // order — which, since the rails restructure, lands on the first card of the
+                // SUNRISE row rather than the first day's own first window (matrix-axis plan D20).
+                // Deferred a frame because the matrix is re-rendering on this very commit, and
+                // optional-CALLED because jsdom implements no layout.
                 requestAnimationFrame(() => {
                   document.querySelector('button[data-testid="wf-heat-card"]')?.focus?.();
                 });

@@ -1027,6 +1027,134 @@
   grid-column: var(--c);
   grid-row: var(--r);
 }
+/* ── The row rails and sticky headings (desktop/tablet only, matrix-axis plan §6 D1/D4–D10) ────
+   A second desktop-only structure over the SAME matrix data: `.wf-dhrow` (day tiles) then two
+   `.wf-hrow` blocks (`.wf-rail` + `.wf-hcards`), so a rail can pin over exactly its own row's
+   cards — sticky containment is a CSS fact, not a preference, and a single grid confines a sticky
+   item to its own row track, which a rail spanning every day cannot be inside one.
+
+   ⚠️ (0,2,0), specifically so this beats the BASE `.wf-hstrip { display: grid; … }` above ((0,1,0))
+   at every width, not only during a viewport-flip transient — the phone media block below declares
+   only track/gap overrides and its direct-child rules cannot match this structure's DOM at all, so
+   both transient directions are closed: this DOM at phone width still holds this flex layout, and
+   the phone's own DOM at desktop width lands in the base grid where its `--c`/`--r` place it
+   correctly (D4). */
+.wf-hstrip.wf-hstrip-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+/* Cells keep emitting `--c`/`--r` in both structures (the render functions are branch-free); this
+   mode consumes only `--c` — `--r` is structural here (which grid a cell is IN says its row) and is
+   left to the base rule above, which also harmlessly matches these same children under
+   `display: flex` (an unset `--c`/`--r` on a flex child does nothing). Explicit `--c` rather than
+   relying on natural flow, which would place correctly today, so columns stay honest if a future
+   change ever skips a cell (D5). */
+.wf-hstrip.wf-hstrip-rows .wf-dhrow > *,
+.wf-hstrip.wf-hstrip-rows .wf-hcards > * {
+  grid-column: var(--c);
+}
+.wf-hstrip.wf-hstrip-rows .wf-dhrow,
+.wf-hstrip.wf-hstrip-rows .wf-hcards {
+  display: grid;
+  /* ⚠️ `minmax(0, 1fr)`, load-bearing here for the same reason as the base grid above (D6) — a bare
+     `1fr` lets the chip's min-content width overflow the track on a narrow desktop/tablet viewport. */
+  grid-template-columns: repeat(var(--dc, 4), minmax(0, 1fr));
+  gap: 8px;
+  align-items: stretch;
+}
+.wf-hrow {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+/* The day-tile row. Pins under the lens bar for as long as the strip is in view (D9, D10 for the
+   z-ordering constraint this comment states so the next chrome renumbering can see it): masthead 45
+   > lens 20 > tiles 15 > rails 14 > every z-auto stacking context inside the strip (a hovered
+   card's transform, the always-on `.wf-hc-away` opacity context) > the pick legend, which is
+   correctly UNDER a pinned layer since it is absolute and z-auto inside its own card. Dialogs
+   (z-50), `.wf-peek` (60) and `MapOverlay` (200) stay above all of it. ⚠️ 15/14 is a DELIBERATE
+   deviation from the design bundle's 22/20: the bundle's lens bar is z-30, this app's is z-20, so
+   the bundle's own numbers would paint the tiles OVER the lens bar as they slide under it — only the
+   ordering is normative, not the literals. */
+.wf-dhrow {
+  position: sticky;
+  /* `--wf-lens-h` (0 when the bar is absent — `useLensReserve` writes a MEASURED zero rather than
+     clearing, D11(a)) + `--wf-mast-h`, minus 1px to close the hairline against the lens bar's own
+     bottom border: the bar painting over the tiles' top 1px is what keeps that border visible
+     through `heightOf`'s rounding. 128px/54px are the app's own measured chrome heights (masthead
+     resting height, lens bar resting height — NOT the design bundle's 48px/44px fallbacks). */
+  top: calc(var(--wf-mast-h, 128px) + var(--wf-lens-h, 54px) - 1px);
+  z-index: 15;
+  padding-top: 9px;
+  /* The PAGE background, not the panel — `.wf-hstrip-block` sits directly on `--color-plex-bg`
+     (`App.jsx`'s `body`), so the fade beneath the sticky tiles must fade to the same ground the
+     cards scrolling underneath it are painted on. */
+  background: linear-gradient(180deg, var(--color-plex-bg) 0 82%, transparent);
+}
+/* The sunrise/sunset rail. A DIV, not a button — nothing here is clickable, every card already
+   states its own event in its accessible name, and announcing the axis a second time would be
+   noise (D7). Pins directly under the day-tile row for exactly as long as its own row's cards are
+   on screen, then leaves with them — the row-scoped containment D1 restructured the markup for. */
+.wf-rail {
+  position: sticky;
+  /* Tiles' own top calc PLUS `--wf-dh-h` (the tile row's rendered height including its 9px
+     padding-top, measured by `WindowFirstHeatStrip`'s own ResizeObserver — D11(b)), minus 2px to
+     close that same hairline against the tile row's bottom edge. 45px is the browser-measured
+     resting tile-row height (36px tiles + 9px padding-top, live app at 1280px, 2026-08-30 —
+     the plan's provisional 49px re-measured per its §6 step 6). */
+  top: calc(var(--wf-mast-h, 128px) + var(--wf-lens-h, 54px) + var(--wf-dh-h, 45px) - 2px);
+  z-index: 14;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 4px 2px 3px;
+  /* ⚠️ 85%, NOT the plan's literal D8 value of 70% — a forced deviation found and fixed during
+     browser contrast verification (the same class of fix Phase 1's A-12 made for the chip wash).
+     The rail's own text occupies roughly the box's 4px–13.5px band (padding-top + one line at
+     line-height 1) inside its 16.5px total height — at a 70% cutoff the fade begins at ~11.55px,
+     so the text's own bottom edge sat INSIDE the fade, compositing with whatever card is sliding up
+     underneath it. Measured with a saturated ramp-hot canvas (#C82820, the ramp's own hottest stop)
+     scrolled directly beneath: `--color-plex-coral` text dropped to 4.02:1 at the text's own bottom
+     row and 1.79:1 at the box's structural bottom edge — both below the 4.5:1 floor. At 85% the
+     fade begins at ~14.03px, past the text's 13.5px bottom edge, so the text zone measured fully
+     opaque again (dawn 7.56:1, coral 5.24:1) while the remaining ~2.5px of bottom padding — where
+     no glyph ever renders — still fades (2.07–2.98:1 there, and that is fine: WCAG applies to
+     rendered text, not to empty padding pixels). Close to D9's own 82% cutoff for the same reason:
+     both exist to keep a sticky layer's own text out of its fade zone. */
+  background: linear-gradient(180deg, var(--color-plex-bg) 0 85%, transparent);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  line-height: 1;
+}
+.wf-rail.am { color: var(--color-plex-dawn); }
+.wf-rail.am .wf-rail-rule {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--color-plex-dawn) 42%, transparent), transparent);
+}
+.wf-rail.pm { color: var(--color-plex-coral); }
+.wf-rail.pm .wf-rail-rule {
+  background: linear-gradient(90deg, color-mix(in srgb, var(--color-plex-coral) 42%, transparent), transparent);
+}
+.wf-rail-rule {
+  flex: 1;
+  height: 1px;
+}
+/* New scroll reserve for strip cards under the pinned tiles + rail (D12, found in planning — the
+   design bundle has no keyboard focus handling to have seen it). Without this a keyboard-focused
+   card under the row structure scrolls up underneath the newly-sticky tiles + rail, the exact
+   defect class `--wf-lens-reserve` already exists to prevent one layer down. 17px is the rail's
+   fixed height rounded up: 16.5px = 9.5px line-height-1 text + 4px top padding + 3px bottom padding
+   (it cannot wrap), and rounding up is the harmless overshoot direction. Additive to the base
+   `.wf-hc` rule below — more specific, and its `calc(` prefix cannot collide with that other rule's
+   own reservation property, which a sticky test locates by its own exact declaration text (deliberately
+   not quoted here in full, so this comment cannot become a second occurrence of the string that
+   search relies on being unique). */
+.wf-hstrip.wf-hstrip-rows .wf-hc {
+  scroll-margin-top: calc(var(--wf-lens-reserve, 188px) + var(--wf-dh-h, 45px) + 17px);
+}
 /* The day, said once per column instead of once per card: a calendar tile, then a hairline rule
    running to the right edge of the column. The rule is the column's header in the same legend
    idiom the pick uses on the card border below it. */
@@ -3451,13 +3579,29 @@ button.wf-hc.also.on:hover {
    real interactive element rather than a `:hover` that has to be paired with a click handler on
    a `<div>` to mean anything to a keyboard or screen-reader user. */
 .wf-cu-handoff {
+  /* One source for the side inset, because it has to appear in BOTH the margin and the width.
+     When it did not, this row overran the panel: `width: 100%` resolves against the containing
+     block and the horizontal margins are ADDED to it, so the button's margin box came out 28px
+     wider than `.wf-cu` — whose `overflow: hidden` then clipped the dashed border's right edge
+     away entirely, leaving a row that reads as running off the right of the screen.
+     ⚠️ `width: auto` is NOT the fix: a `<button>` shrink-wraps even as a block-level flex
+     container (measured 39.6px against a 388px panel), which is why the width was pinned here in
+     the first place. The design of record needs no width at all — its `.pane` carries the padding
+     and `.hoff` has only a `margin-top` (`docs/design/coming-up/Coming Up.html`) — but the port
+     gives each child of the bordered `.wf-cu` its own inset, so this row has to fund its own. */
+  --wf-cu-handoff-inset: 14px;
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 13px;
-  width: 100%;
+  /* Subtracted twice rather than multiplied by 2: `calc(a - var() - var())` is the exact shape
+     four sticky rules in this file already ship (`.wf-dhrow`, `.wf-rail`, and two
+     `scroll-margin-top`s), so this adds no compatibility surface beyond what already runs on
+     every reader's device. A `var()` under multiplication would have been the only such
+     construct in the stylesheet, and WebKit cannot be exercised from the dev environment. */
+  width: calc(100% - var(--wf-cu-handoff-inset) - var(--wf-cu-handoff-inset));
   min-height: 40px;
-  margin: 12px 14px 0;
+  margin: 12px var(--wf-cu-handoff-inset) 0;
   padding: 9px 13px;
   border: 1px dashed var(--color-plex-border-light);
   border-radius: 9px;

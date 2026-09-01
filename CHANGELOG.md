@@ -16,6 +16,187 @@ worker and re-served the same stale, now-crashing shell. Only a hard reload (whi
 around the service worker) actually recovered. New `utils/serviceWorkerReset.js` unregisters every
 service worker registration and empties Cache Storage, fail-soft, before the reload.
 
+### Fixed — the Coming up handoff row overran the panel's right edge
+
+The Plan handoff strip on the Coming up tab (`NOW — THU 3 … On Plan →`) rendered with no right-hand
+dashed border, running off the right of the screen on phones. `.wf-cu-handoff` set `width: 100%`
+*and* `margin: 12px 14px 0`: `width: 100%` resolves against the containing block, so the horizontal
+margins were added on top of it and the button's margin box came out 28px wider than `.wf-cu`
+(measured 388px panel, 403px right edge — 14px past the panel's inner edge). `.wf-cu` is
+`overflow: hidden`, so the excess was not merely off-centre — it was clipped, taking the dashed
+border's whole right edge and the trailing edge of `On Plan →` with it.
+
+The width is now `calc(100% - var(--wf-cu-handoff-inset) - var(--wf-cu-handoff-inset))`, with the
+margin spelling the same side inset through that one property so the two halves cannot drift apart
+again. The inset is subtracted **twice rather than multiplied by 2**: `calc(a - var() - var())` is
+the exact shape four sticky rules in this file already ship (`.wf-dhrow`, `.wf-rail` and two
+`scroll-margin-top`s, all load-bearing on every Plan-tab scroll), so the fix adds no compatibility
+surface beyond what already runs on every reader's device, where `var()` under multiplication would
+have been the stylesheet's only such construct. That matters because **WebKit cannot be exercised
+from the dev environment** — its Playwright build is blocked by the network policy — so the iPad
+claim rests on a construct already in production rather than on an untested one. The built CSS was
+checked too: the minifier preserves the declaration verbatim, so what ships is what is written here.
+
+Verified against the real component and the real stylesheet (a throwaway Vite harness mounting
+`WindowFirstComingUp`, not a synthetic repro) at 39 viewport/content combinations — iPhone SE
+through iPad Pro 12.9 landscape, both iPad multitasking widths (Slide Over 320px, Split View 507px),
+three iPad device descriptors, and one/three/six-topic rows so the wrapped states are covered as
+well as the single line. Symmetric 14px inset, zero panel overflow, zero document overflow and the
+`On Plan →` link inside the clip rect in every one. The old rule was re-measured the same way and
+overran by 28px at **every** width including all iPad sizes — this was never a phone-only defect,
+just less conspicuous on a wide screen where the row is short.
+
+⚠️ Simply dropping `width: 100%` is **not** the fix, and the new rule's comment says so: a
+`<button>` shrink-wraps even as a block-level flex container (`width: auto` measured 39.6px against
+a 388px panel), which is why the width was pinned here in the first place. The design of record
+needs no width at all — its `.pane` carries the padding and `.hoff` has only a `margin-top`
+(`docs/design/coming-up/Coming Up.html`) — but the port gives each child of the bordered `.wf-cu`
+its own inset, so this row has to fund its own. A stylesheet-wide audit found no second instance of
+the pattern.
+
+`comingUpHandoffGeometry.test.js` pins the relationship (that the width compensates for the margin,
+both spelled with one custom property) as text, since `vite.config.js` sets `css: false` and jsdom
+has no layout engine — the same approach and the same reason as `heatTokens.test.js`. It was checked
+against the old rule and fails on it. The resulting geometry is the browser check's, not the suite's.
+
+### Added — matrix-axis Phase 2: row rails and sticky headings
+
+Phase 2 (§6) of `docs/engineering/matrix-axis-plan.md`: the Plan tab's day×event matrix now says
+its own axis. On desktop/tablet, `WindowFirstHeatStrip` renders a restructured layout — a full-width
+day-tile row (`.wf-dhrow`) plus two `SUNRISE`/`SUNSET` rail rows (`.wf-rail`, dawn-blue and coral,
+each `aria-hidden` since every card already states its own event in its accessible name) — all three
+sticky: the day tiles pin under the lens bar, and each rail pins under the tiles for exactly as long
+as its own row's cards are on screen, then leaves with them. The phone layout is byte-for-byte
+unchanged (`useIsMobile()` branches between the two structures; nothing is double-rendered). A new
+`useLensReserve` property, `--wf-lens-h`, and a new strip-local ResizeObserver publishing
+`--wf-dh-h` supply the sticky offset math; a new `scroll-margin-top` rule keeps a keyboard-focused
+card from scrolling in underneath the newly-pinned chrome. No new props, no API change.
+
+Restructuring the DOM from day-major to **row-major** (every sunrise-row card before every
+sunset-row card, instead of each day's own pair together) was required for row-scoped sticky
+containment, and it reordered `getAllByTestId('wf-heat-card')` wherever a fixture mixed sunrise and
+sunset cards — budgeted as real work per the plan's §6.4 inventory, not discovered breakage. Every
+affected assertion across `WindowFirstHeatStrip.test.jsx`, `WindowFirstShell.test.jsx` and
+`WindowFirstShellRegion.test.jsx` was re-derived against the new order (traced through
+`buildWindowMatrix`, not swapped mechanically) and the two shell comments documenting the old
+"focus the matrix's first card" chronology were updated to say "first card of the sunrise row."
+
+⚠️ **Forced deviation from the plan's literal D8 CSS**, found by the adversarial review's
+accessibility lens and then measured in a browser: the rail's fade-to-page-background gradient
+(`linear-gradient(180deg, var(--color-plex-bg) 0 70%, transparent)`) put the rail *text's own bottom
+edge* inside the fading 30%, so a saturated card scrolling underneath composited with the glyphs
+directly. Measured with the score ramp's own hottest stop (`#C82820`) scrolled beneath: coral rail
+text dropped to 4.02:1, below the 4.5:1 floor. Fixed by moving the cutoff to 85% (past the text's own
+13.5px bottom edge inside the 16.5px rail box, close to the day-tile row's own 82% for the same
+reason) — text zone re-measured fully opaque (dawn 7.56:1, coral 5.24:1); only the ~2.5px of bottom
+padding below the text, where no glyph renders, still fades. See `index.css` beside `.wf-rail` and
+plan §4's A-14.
+
+Adversarial review (five lenses: runtime behaviour, CSS/tokens/cascade, test quality, accessibility,
+project conventions) surfaced and fixed three further issues before landing: the region-shell test
+file's DOM-order sweep was completed for all nine `openWindow()` call sites rather than the two the
+first pass touched (the other seven happened to still pass, on a fixture whose two windows carry
+identical region content — now documented rather than silently relying on that symmetry); a
+stylesheet-half test asserting the rows-mode grid's overflow-safe track string was checking the
+whole file rather than the new rule's own block, so it would have kept passing against a regressed
+rule; and a CSS comment's own prose had drifted into containing the literal search string a sticky
+test locates by exact text, which was rephrased to no longer collide with it.
+
+⚠️ **A further P1 finding landed after opening the PR** (an automated GitHub review, verified by
+reading `useHeatCanvas.js` directly rather than taken on trust): `isMobile` toggling alone does not
+re-run `useHeatCanvas`'s paint effect — none of `measureAndPaint`'s dependencies, nor its
+`landNonce`/`resizeNonce`, are wired to it — so the freshly-mounted canvases of the branch just
+swapped IN could stay blank until an unrelated later event happened to repaint them. §2's own risk
+note anticipated exactly this and named the fix ("bumping the observer nonce on branch change, not a
+rewrite"), which had not actually been implemented. Fixed by calling the hook's own `repaintNow` from
+an effect keyed on `isMobile` (skipped on the first commit, to avoid a doubled first paint). Proven
+with a fixture-hygiene fix alongside it: `WindowFirstHeatStrip.test.jsx`'s `renderStrip`/`rerender`
+test helper was rebuilding its `spots` array and `pointSets` map fresh on every call, which alone
+gave `paint` a new identity on every re-render and would have masked whether the fix — or the test
+helper's own instability — was what triggered a repaint; both arrays are now built once and reused,
+matching how the real context provides them.
+
+Browser-verified (Playwright headless Chromium against a static harness built from the real compiled
+stylesheet, since this environment's sandboxed egress cannot reach JitPack to build the backend and
+run the live app — see the note below): the scroll sequence pins tiles then the sunrise rail with no
+hairline gap, releases the sunrise rail with its own row and pins the sunset rail at the identical
+offset, z-index ordering holds (masthead 45 > lens 20 > tiles 15 > rail 14), and a keyboard-focused
+card under the pinned chrome scrolls in below it rather than underneath. The implementing session
+could not run the live app (its sandboxed egress blocks JitPack, so the backend cannot build) and
+said so; the gap was closed before merge by a **live-app verification pass on the dev machine**
+(real backend + seeded H2 + Vite, Playwright headless Chromium): every static-harness claim
+reconfirmed against the running app, the popup verified above the pinned chrome, focused cards
+verified landing below it, both directions of the 639px `isMobile` flip verified repainting their
+canvases, a scroll-position walk proving the sunrise rail pins at exactly its calc offset while its
+cards remain and leaves with them (the flip crossings fire resize events, the case the hook already
+self-corrects; the branch-flip `repaintNow` guard added above targets the discrete jump that
+produces none, and that narrower case rests on its unit test — a real `drawGeo` call-count
+assertion, not a smoke test) — and one mandated correction found: the day-tile row's measured
+resting height is **45px, not the provisional 49px** estimate, so the `--wf-dh-h` fallback literal,
+its test strings and the plan's quotes were updated together (the 54px lens literal was confirmed
+as-is).
+
+### Fixed — the day-scoped tide badge's per-window line now reaches the popup, and is read rather than re-derived
+
+Follow-up to v2.19.9's day-scoped tide badge, from the adversarial review that release skipped. Six
+read-only lenses over the merged diff; the two live defects below were each found independently by
+three or more of them, and every claim was re-verified against the source before being acted on.
+
+**The per-window line never reached the popup.** `WindowTopicRows` resolved its detail as
+`topic?.detail || badge.detail`, preferring the joined topic — and the topic is one object shared by
+both of its windows, so its line is the *aligned* window's. The evening card of a spring run went on
+printing `tide aligned with sunrise at 47 of 61 coastal locations`, the exact string v2.19.9's notes
+name as the defect, while the card chip's tooltip said `LW 18:14 · 1h49 before sunset` eight pixels
+away. The precedence is now badge-first — the badge is the window's payload, the topic the day-level
+fallback. The comment justifying the old order cited two dead premises: that both fields "carry the
+same sentence" (v2.19.9 deliberately made them differ) and consistency with the Hot Topics door
+(deleted in the Coming up redesign's P6). ⚠️ Every fixture in `WindowTopicRows.test.jsx` gave the two
+fields the *same literal*, so no assertion could tell which won; the new cases differ them.
+
+**The water is now READ from `BriefingWindowTide`, not re-derived.** v2.19.9 computed it in
+`TideRunBuilder` as two new `TideRunDay` components (`sunriseWater`/`sunsetWater`) plus a `waterAt`
+helper. That was wrong twice over. `TideRunBuilder` clips its extremes to the Europe/London civil
+day, so a late-June sunset whose nearest water is the next morning's high was told about the previous
+evening's low — **wrong extremum, wrong side, wrong state word**. And the run row's geometry belongs
+to the *run's* representative location, selected over a different date list from the plan's, so the
+sentence was an unattributed high-water time beside an attributed one — the claim
+`BriefingWindowTide`'s own contract forbids by name. That record already answers this exact question
+("the nearest extreme of either kind, and its offset from this window's own solar event") against the
+full extreme series, for the window being drawn, from the location the row beneath it names — and its
+map was already in scope four lines above `bucketTopics`. So `TideRunDay` reverts to its v2.19.8
+shape: the two components, `waterAt`, the two word constants and five test-fixture edits are all
+gone, and the fix is a net *deletion*. `Badge.eventTime` is now dropped on the non-aligned window
+rather than moved, because every candidate value names a third clock anchor.
+
+**Corrections to v2.19.9's own notes**, which stated three things that were not true:
+
+- "One shared instance **printed** `tide aligned with sunrise…` onto an evening card" — it never did.
+  Before that release a tide landed on one window only, so the condition described is one it created
+  and then fixed. The javadoc had it right (subjunctive); the notes and commit message did not.
+- "a day whose aligned window fell **past the end of the forecast**… `HotTopicEventEnricher` nulls
+  `eventType` in both cases" — it does not. `SolarEventFreshness` is a pure clock test with no
+  knowledge of the horizon. That blank came from `renderHorizon`'s `MAX_VISIBLE_EVENTS` cap, a
+  separate mechanism.
+- "`renderHorizon` drops past drafts before the badge map is read" — the reverse. `draft` reads the
+  map for every summary at `:146`; `renderHorizon` runs at `:155`. Badges on elapsed windows *are*
+  serialised; what stops them being drawn is the client. The javadoc now says so, because the old
+  wording claimed a within-class guarantee this class does not have.
+
+**Tests.** The sunset-aligned direction was entirely unpinned — mutating `isAlignedWindow`'s sunset
+arm to `false` passed the whole suite while silently deleting the alignment sentence from every
+sunset-aligned tide (the commoner case on a summer run); the fixture that should have caught it
+paired `alignedEvent: "sunrise"` with `eventType: "SUNSET"`, a payload production cannot emit. Added,
+along with the eventTime-dropped case and a partial-rollup fallback. ⚠️ **`DAY_SCOPED_TOPIC_TYPES`
+now has a drift canary** (`windowFirstTopics.test.js` parses `PlanWindowProjector.isDayScoped` and
+asserts set equality), following the repo's own `ForecastTypeSeedDriftTest`/`PitExclusionDriftTest`
+pattern. It sits on the frontend side deliberately: CI gates that job on a repo-wide docs-only flag,
+so a backend-only edit still runs it. Both new guards were verified to go red under mutation.
+
+Still open, recorded rather than fixed: `isDayScoped` is a backend predicate mirrored by a client
+type list, where `TopicRarity`'s precedent ("the client reads it off the wire") and
+`plan-matrix-plan.md` §4 A8's "never a client list of types" both argue it should be a served field
+on `HotTopic`. That would delete the third client type map and the canary with it. See §4 A26.
+
 ## [v2.19.9] - 2026-08-30
 
 ### Added — matrix-axis Phase 1: sunrise/sunset card chips

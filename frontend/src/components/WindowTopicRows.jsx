@@ -64,10 +64,19 @@ export default function WindowTopicRows({ rows }) {
     <div data-testid="wf-topic-rows" className="wf-trows">
       {rows.map(({ badge, topic, wholeSky, regionsInScope, scopedRegions }) => {
         const channel = badgeChannel(badge.type);
-        // The full topic's line where the join found one, the badge's own where it did not. Both
-        // fields exist on both payloads and carry the same sentence; preferring the topic's is what
-        // keeps the row identical to the Hot Topics door for a reader who opens both.
-        const detail = topic?.detail || badge.detail || null;
+        // ⚠️ The BADGE's line first, the topic's as the fallback — and the order is load-bearing.
+        //
+        // It used to be the other way round, justified by "both fields carry the same sentence, and
+        // preferring the topic's keeps the row identical to the Hot Topics door". Both premises are
+        // now dead. `PlanWindowProjector.badgeFor` deliberately gives a day-scoped topic's
+        // non-aligned window a DIFFERENT sentence — that window's own water — and the Hot Topics
+        // door was deleted in the Coming up redesign's P6.
+        //
+        // Left topic-first, the evening card of a spring run printed `tide aligned with sunrise at
+        // 47 of 61 coastal locations`: the topic is one object shared by both of its windows, so its
+        // line is the ALIGNED window's, and the join now succeeds on both. The badge is the
+        // window-specific payload and the topic is the day-level fallback, so the badge wins.
+        const detail = badge.detail || topic?.detail || null;
         const science = topic?.description || null;
         // From the BADGE, which is where the served facts ride — the joined topic carries none.
         const facts = (badge.facts || []).length > 0 ? topicFacts(badge) : [];

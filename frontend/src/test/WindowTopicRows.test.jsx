@@ -54,6 +54,45 @@ function renderJoined({ key, badges, topics, scope }) {
   return rows;
 }
 
+/**
+ * ⚠️ The badge's detail and the topic's are DIFFERENT here on purpose.
+ *
+ * <p>Every other fixture in this file gives both the same literal, which is exactly what let the
+ * row prefer the wrong one undetected. `PlanWindowProjector.badgeFor` gives a day-scoped topic's
+ * non-aligned window its own water, so on a spring run's evening card the topic's line is the
+ * MORNING's alignment sentence. With identical fixtures no assertion can tell which field won.
+ *
+ * <p>Driven through {@code renderJoined}, so the real join decides which topic the badge resolves
+ * to — the point being that for a tide it now resolves on BOTH windows.
+ */
+describe('detail precedence — the badge is the window, the topic is the day', () => {
+  const DAY_LINE = 'tide aligned with sunrise at 47 of 61 coastal locations';
+  const WINDOW_LINE = 'LW 18:14 · 1h49 before sunset';
+
+  it('renders the badge line, not the topic line, when they differ', () => {
+    renderJoined({
+      key: windowKey(D, 'SUNSET'),
+      badges: [badge({ detail: WINDOW_LINE })],
+      topics: [topic({ eventType: 'SUNRISE', detail: DAY_LINE })],
+      scope: [],
+    });
+
+    expect(screen.getByTestId('wf-topic-row-detail')).toHaveTextContent(WINDOW_LINE);
+    expect(screen.queryByText(DAY_LINE)).toBeNull();
+  });
+
+  it('falls back to the topic line when the badge carries none', () => {
+    renderJoined({
+      key: windowKey(D, 'SUNSET'),
+      badges: [badge({ detail: undefined })],
+      topics: [topic({ eventType: 'SUNRISE', detail: DAY_LINE })],
+      scope: [],
+    });
+
+    expect(screen.getByTestId('wf-topic-row-detail')).toHaveTextContent(DAY_LINE);
+  });
+});
+
 describe('WindowTopicRows — what a row says', () => {
   it('names the topic, its detail, and puts the science behind the i', () => {
     renderJoined({
