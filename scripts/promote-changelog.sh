@@ -57,7 +57,17 @@ fi
 # Newline-separated rather than an array: the empty-array "${a[@]}" expansion is an
 # unbound-variable error under set -u on the bash 3.2 macOS ships, and entry filenames
 # are convention-bound to YYYYMMDD-<slug>.md (no whitespace), which the loop enforces.
-PENDING=$(find changelog.d -maxdepth 1 -name '*.md' ! -name 'README.md' 2>/dev/null | LC_ALL=C sort -r || true)
+# A shell glob rather than find(1): a suppressed find failure would silently empty the
+# list and promote a heading with nothing folded under it — a half-promoted state the
+# duplicate-heading guard then blocks a retry of — and the glob has no error path at
+# all (an unmatched pattern stays literal and fails the -e test).
+PENDING=""
+for f in changelog.d/*.md; do
+    [[ -e "$f" ]] || continue
+    [[ "${f##*/}" == "README.md" ]] && continue
+    PENDING="${PENDING}${f}"$'\n'
+done
+PENDING=$(printf '%s' "$PENDING" | LC_ALL=C sort -r)
 
 BLOCK=$(mktemp)
 PROMOTED=$(mktemp)
