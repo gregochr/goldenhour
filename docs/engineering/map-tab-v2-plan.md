@@ -17,7 +17,9 @@ the diff (~6 prosecutor lenses + refutation agents, read-only) → fix survivors
 verification (backend `./mvnw -Plocal-dev spring-boot:run -Dspring-boot.run.profiles=local`, port
 **8083**; `npm run dev`; `admin`/`golden2026`) → commit. Frontend gate before any push-request:
 `npm run lint && npm test && npm audit --audit-level=high && npm run build`. Backend phases use the
-no-Docker verify from CLAUDE.md. Never push; never tag. Update `CHANGELOG.md` every phase. Paste
+no-Docker verify from CLAUDE.md. Never push; never tag. Every phase adds a
+`changelog.d/YYYYMMDD-<slug>.md` entry (never a direct `CHANGELOG.md` edit — the convention
+changed under this plan; see `changelog.d/README.md`). Paste
 the relevant section of THIS plan (and the bundle README section) into any review agent's prompt —
 review agents cannot see untracked context and a compliance lens with no spec returns zero findings.
 
@@ -153,11 +155,21 @@ caller passes the new options yet).
   every coverage; rises with score; × conf); call-order extension of the `paint` suite (field
   draw → `lighter` → bloom draw → restore, and blur formula); soft-mask route order (temp surface,
   own-mask surface, single `destination-in`); `drawTiles` score-callback; hatch+bloom
-  non-interaction; return-shape. Two stub facts an implementing session hits mid-test: the
-  recorder snapshots only `fillStyle`/`strokeStyle`/`lineWidth` per call — extend it with
-  `globalCompositeOperation` and `filter` (today's filter assertions are final-state only); and
+  non-interaction; return-shape. Four stub facts an implementing session hits mid-test (the
+  count was two until P1 was built — the last two were discovered by the build and its review):
+  the recorder snapshots only `fillStyle`/`strokeStyle`/`lineWidth` per call — extend it with
+  `globalCompositeOperation` and `filter` (today's filter assertions are final-state only);
   **jsdom 30 defines no `Path2D` at all**, so tests pass an opaque sentinel as `clipPath` and the
-  kernel must only ever hand it to `ctx.fill/stroke/clip`, never construct or introspect it.
+  kernel must only ever hand it to `ctx.fill/stroke/clip`, never construct or introspect it; the
+  stub context needs a `.canvas` back-reference (the soft-mask route sizes its temp surface from
+  `ctx.canvas.width`, and a real browser context always has one); and `translate` must join the
+  recorder's intercepted-method list (both clip routes call it). Two more lessons from the build,
+  recorded so later phases stop rediscovering them: the soft-mask suite MUST carry a case with
+  the backing store at 2× the CSS size (every test at the degenerate sx = 1 leaves the whole
+  device-px machinery — temp-surface sizing, both `setTransform`s, the identity reset, the final
+  downscale — deletable with a green suite, and DPR 2 is the mainstream production case); and
+  expect float-exactness traps in blur/transform assertions (`3 × 2.4 ≠ 7.2` in binary float;
+  `-0` from a negated zero offset fails a naive `toEqual`).
 
 ### P2 — Bloom on: the whole "Plan screen colour change" — S/M
 
@@ -238,6 +250,12 @@ The fix for the founding complaint ("heat sits in the sea"), in `MapHeatLayer.js
 - Unit tests: mask-cache invalidation matrix (zoom/resize/load), clip-threshold gating, option
   plumbing. **jsdom has no `Path2D` at all** — `landMask` tests stub the constructor by
   injection; the mask build itself is browser-verified.
+- **Performance note from P1's review**: the kernel's soft-mask route allocates two fresh
+  viewport-size canvases (the temp surface and the mask surface, each at the full device-pixel
+  backing size) on **every clipped paint** — which, once this phase passes `clipPath`+`clipSoft`,
+  is per-frame during pan/zoom below the clip threshold. Profile on the real map; if it shows,
+  the fix is surface reuse across frames inside the kernel (a P4 kernel change with its own
+  tests), not dropping the soft mask.
 
 ### P5 — Night events become servable (backend) — S/M
 
@@ -305,7 +323,11 @@ pills, and the in-map select — on the tab only.
   `wf-map-window` select is absorbed. Rewire what those controls fed: astro mode = selecting an
   astro row (`drawTiles` with the P1 `score` callback over astro stars; bortle-only roster note
   when thin — the bundle's OPEN 1 caveat "if the real astro score only exists for dark-sky
-  locations, the event row should say so"); aurora mode = selecting an aurora row (stored results,
+  locations, the event row should say so". ⚠️ **The score callback has no exclusion seam** —
+  P1's review established that a callback returning `null`/`undefined` for an unrated location
+  yields a NaN weight that poisons every field cell that spot touches. FILTER the spot list to
+  scored locations before calling `drawTiles`; never signal "unscored" through the callback's
+  return value); aurora mode = selecting an aurora row (stored results,
   viewline overlay gates move from `date === auroraNight` to "the selected EV row is that
   night's aurora row"; keep the auto-jump latch semantics). **LITE**: aurora rows are ABSENT,
   not greyed — the freemium greyed-row treatment is unimplementable today, because
@@ -503,7 +525,8 @@ labels > ring > heat) are asserted.
 - Delete orphans: `DateStrip` (if no consumer), the tab-only branches of the old drawer/window
   select, dead test files — each deletion named in the PR (an orphan kept is an owner question,
   the v1-retirement idiom).
-- Update CLAUDE.md (Map tab bullet), this plan's §4 ledger with anything new, CHANGELOG.
+- Update CLAUDE.md (Map tab bullet), this plan's §4 ledger with anything new, and the phase's
+  changelog.d entry.
 - Re-run the P4 alpha check and P2 luminance table one final time (they are cheap and they are
   the two that regress silently).
 
