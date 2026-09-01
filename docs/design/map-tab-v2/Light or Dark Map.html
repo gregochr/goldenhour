@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PhotoCast — light or dark, on the temperature scale</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,.66);--ink-3:rgba(242,231,211,.42);--go:#8AAE72;--poor:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--sans:'IBM Plex Sans',system-ui,sans-serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:24px 20px 60px}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+.hd{max-width:1320px;margin:0 auto 14px}
+.hd .m{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px}
+.hd h1{font-size:20px;font-weight:700;letter-spacing:-.02em}
+.hd p{font-size:13px;color:var(--ink-2);max-width:94ch;margin-top:6px;text-wrap:pretty}
+.hd b{font-weight:600;color:var(--ink)}
+.hd code{font-family:var(--mono);font-size:11.5px;color:#EBD9A8}
+.lum{max-width:1320px;margin:12px auto 0;border:1px solid var(--border);border-radius:9px;background:var(--surface);overflow:hidden}
+.lum table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px}
+.lum th,.lum td{text-align:left;padding:6px 11px;border-bottom:1px solid var(--border)}
+.lum th{font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);font-weight:600}
+.lum tr:last-child td{border-bottom:none}
+.lum td b{color:var(--ink)}
+.lum .ok{color:#A8C795}.lum .no{color:#E58C7A}
+.bar{max-width:1320px;margin:12px auto 10px;display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.bar .sp{margin-right:auto}
+.bar button{flex:none;font-family:var(--mono);font-size:10.5px;border:1px solid var(--border);background:var(--surface);color:var(--ink-2);border-radius:7px;padding:6px 11px;cursor:pointer}
+.bar button:hover{border-color:var(--border-light);color:var(--ink)}
+.bar button.on{border-color:rgba(201,162,75,.55);background:rgba(201,162,75,.12);color:#EBD9A8}
+.grid{max-width:1320px;margin:0 auto;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}
+@media(max-width:760px){.grid{grid-template-columns:1fr}}
+.opt{border:1px solid var(--border);border-radius:11px;overflow:hidden;background:var(--panel);display:flex;flex-direction:column}
+.opt.pick{border-color:rgba(138,174,114,.55);box-shadow:inset 0 0 0 1px rgba(138,174,114,.3)}
+.oh{display:flex;align-items:baseline;gap:8px;padding:8px 11px 7px;border-bottom:1px solid var(--border);background:var(--surface)}
+.oh .n{font-size:12.5px;font-weight:600;letter-spacing:-.01em}
+.oh .t{font-family:var(--mono);font-size:9px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);margin-left:auto;white-space:nowrap}
+.opt.pick .oh .t{color:#A8C795}
+.mb{position:relative;height:330px;background:#161310}
+.mb.lgt{background:#e9e6e0}
+.mb .lf{position:absolute;inset:0}
+.mb canvas.hf{position:absolute;inset:0;z-index:410;pointer-events:none}
+.mb .lb{position:absolute;inset:0;z-index:420;pointer-events:none}
+.leaflet-container{background:#161310;font-family:var(--mono)}
+.mb.lgt .leaflet-container{background:#e9e6e0}
+.leaflet-control-attribution{display:none}
+.basewarm{filter:saturate(.5) sepia(.32) brightness(.9) contrast(1.08)}
+.basewarmlight{filter:saturate(.45) sepia(.34) brightness(1.02) contrast(.96)}
+.sw{padding:8px 11px 0}
+.sw .rb{display:block;height:10px;border-radius:999px;border:1px solid rgba(0,0,0,.35)}
+.sw .ends{display:flex;justify-content:space-between;margin-top:3px}
+.sw .ends i{font-style:normal;font-family:var(--mono);font-size:9px;color:var(--ink-3)}
+.loc{position:absolute;display:flex;align-items:center;gap:4px;padding:1px 4px;border-radius:4px;background:rgba(14,11,9,.86);box-shadow:inset 0 0 0 1px var(--border-light),0 2px 6px rgba(0,0,0,.5);font-family:var(--mono);font-size:8.5px;white-space:nowrap}
+.loc i{width:4px;height:4px;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.85)}
+.loc b{font-weight:600;color:var(--ink)}
+.loc em{font-style:normal;font-weight:600;color:var(--ink-2);padding-left:3px;border-left:1px solid var(--border-light)}
+.lgt .loc{background:rgba(252,250,246,.92);box-shadow:inset 0 0 0 1px rgba(0,0,0,.2),0 2px 6px rgba(0,0,0,.2)}
+.lgt .loc b{color:#221a17}
+.lgt .loc em{color:rgba(34,26,23,.66);border-left-color:rgba(0,0,0,.2)}
+.hm{position:absolute;display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1}
+.hm .mk{width:9px;height:9px;border-radius:50%;border:1.7px solid var(--home);background:rgba(20,15,11,.6);box-shadow:0 0 0 2px rgba(20,15,11,.5),0 0 8px rgba(201,162,75,.5)}
+.hm .lb2{font-family:var(--mono);font-size:7px;font-weight:600;letter-spacing:.13em;color:#EBD9A8;text-shadow:0 1px 3px rgba(0,0,0,.95)}
+.lgt .hm .mk{background:rgba(255,253,250,.7);box-shadow:0 0 0 2px rgba(255,255,255,.6)}
+.lgt .hm .lb2{color:#6b4f16;text-shadow:0 1px 3px rgba(255,255,255,.95)}
+.on{padding:8px 11px 11px;font-size:12px;color:var(--ink-2);line-height:1.55;text-wrap:pretty;flex:1}
+.on .v{display:block;font-family:var(--mono);font-size:9.5px;color:#A8C795;margin-top:6px}
+.notes{max-width:1320px;margin:16px auto 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(290px,1fr));gap:8px}
+.nt{border:1px solid var(--border);border-left:3px solid var(--home);border-radius:8px;background:var(--surface);padding:10px 13px}
+.nt b{display:block;font-size:12.5px;font-weight:600;margin-bottom:3px}
+.nt span{font-size:12px;color:var(--ink-2);line-height:1.55;text-wrap:pretty}
+.nt em{font-style:normal;color:var(--ink);font-weight:500}
+.nt code{font-family:var(--mono);font-size:11px;color:#EBD9A8}
+.nt.rec{border-left-color:var(--go)}
+.nt.warn{border-left-color:var(--poor)}
+#load{max-width:1320px;margin:10px auto 0;font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+#load:empty{display:none}
+</style>
+</head>
+<body>
+
+<div class="hd">
+<div class="m">PhotoCast · map tab · light or dark</div>
+<h1>Light or dark, judged on the temperature scale</h1>
+<p>You were right to push back. My earlier verdict was computed on the <b>RAG ramp</b>, where the good end is a light green — and that argument does not survive the cold-to-hot scale, whose good end is a <b>deep red, the darkest colour on the ramp by design</b>. Both ramps peak in the middle, so the ground decides which end separates from it. Swapping the scale <b>inverts the basemap polarity</b>.</p>
+</div>
+
+<div class="lum">
+<table>
+<tr><th>Ramp</th><th>1★</th><th>3★</th><th>5★</th><th>On dark · #2A2724 = 39</th><th>On light · #E9E6E0 = 230</th></tr>
+<tr><td><b>RAG</b> red→green</td><td>82</td><td>170</td><td>162</td><td class="ok">5★ separates by 123, 1★ by 43 — hot pops</td><td class="no">5★ by 68, 1★ by 148 — poor pops</td></tr>
+<tr><td><b>Temperature</b> blue→red</td><td>86</td><td>152</td><td>73</td><td class="no">5★ separates by 34, 3★ by 113 — gold pops</td><td class="ok">5★ by 157, 3★ by 78 — hot pops</td></tr>
+</table>
+</div>
+
+<div class="bar"><span class="sp">Relative luminance, 0–255. Synced maps — drag any one.</span>
+<button data-go="54.95,-2.1,7.4" class="on">Regional glance</button>
+<button data-go="55.15,-1.62,9.6">County</button>
+<button data-go="54.55,-3.15,10.4">Lakes</button>
+</div>
+
+<div class="grid" id="grid"></div>
+<div id="load">loading coastline…</div>
+
+<div class="notes">
+<div class="nt warn"><b>What is actually wrong today</b><span>On the current dark map the <em>gold 3★ middle is the brightest thing on the screen</em> and the deep red 5★ sinks toward the basemap. So the map is loudest where the night is merely average and quietest where it is worth driving for. That is not a preference, it is the ordering being backwards — and it only appeared when the scale changed from RAG to cold-to-hot.</span></div>
+<div class="nt rec"><b>The recommendation: stay dark, add a heat bloom</b><span>A blend mode cannot fix this, and it is worth being clear why: <code>screen</code> and <code>lighter</code> are monotonic in source luminance, so they lift the whole field and leave the ranking exactly where it was. A dark red will never outrank a light gold under either. What works is a <em>second emissive layer whose alpha follows the score</em>, gated from 3★ up — hot areas then glow brightest because they are hot, not because of what their colour happens to weigh. The stops stay frozen, the night feel stays, and the luminance climb from 3★ to 5★ becomes monotonic again: 152, 153, 165, 189. Cell 2.</span></div>
+<div class="nt"><b>Light is the honest alternative — with one flaw</b><span>Deep red on pale grey is the highest-contrast thing on the map with no compositing trick at all, and the gold middle recedes on its own. But because the ramp peaks in the middle, <em>both</em> ends separate from a pale ground: the cold blue reads as a heavy grey smudge over the Lakes and Dales, so “don't bother” draws the eye almost as hard as “go”. Cell 4 shows it warmed into the palette, which is worth looking at before rejecting light for clashing. The other costs are an inverted label style to maintain, and a daylight instrument for a thing you use at dusk.</span></div>
+<div class="nt"><b>Do not fix this by changing the ramp</b><span>The obvious move — lighten the hot end so it pops on dark — is ruled out upstream. <code>design_temp_scale</code> froze the stops with the hot leg <em>descending</em> in luminance specifically so 4.3★ cannot read hotter than 5★, and it narrowed the marker sub-AA runs from 13.2% to 10.2%. Re-lightening the top would reintroduce both problems to solve a compositing question.</span></div>
+<div class="nt"><b>What the bloom costs</b><span>It is a second pass over the same grid, so the field paint roughly doubles in cost — still cheap, because the grid is 6px cells and the pass is a plain alpha write. The bloom is multiplied by forecast confidence so a day-4 guess cannot glow as hard as tonight, and it is gated at 3★ so nothing in the cold or middle half is touched. Worth confirming on the real screen that a cluster of adjacent 4★ locations does not accumulate into a false 5★.</span></div>
+<div class="nt"><b>The prototype was on the wrong scale</b><span>Separately: <code>design/heat-field.js</code> still carried the old RAG stops, so every map I have shown you this session was coloured by a scale the app has already moved off. It now carries the real <code>STOPS_TEMP</code> — uneven spacing and descending hot leg intact — which is why the Map tab looks different from the screenshots earlier in this conversation.</span></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="https://unpkg.com/d3@7.9.0/dist/d3.min.js" integrity="sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/topojson-client@3.1.0/dist/topojson-client.min.js" integrity="sha384-Ukv1p/xTma6P4/2bY5KzWBw+ydSpXmhCMtyciIQVDJ1RmOxtCYNMF1uXT9T63H67" crossorigin="anonymous"></script>
+<script src="heat-field.js"></script>
+<script src="plan-data.js"></script>
+<script src="ramp-basemap.js"></script>
+</body>
+</html>

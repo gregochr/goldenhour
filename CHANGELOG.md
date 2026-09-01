@@ -5,6 +5,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Docs — Map tab v2 + heat bloom implementation plan
+
+Vendored the Map-tab redesign handoff at `docs/design/map-tab-v2/` (one chronological window
+control, filters popover, land-clipped heat field, greedy-placed labels, anchored callout, Regions
+jump list — plus the heat bloom and ink rule the Plan tab shares) and landed its port plan at
+`docs/engineering/map-tab-v2-plan.md`: thirteen phases (P1 kernel bloom/soft-mask → P2 the whole
+Plan-screen colour change → P3–P4 basemap dress + land clip → P5 night-event times → P6–P12 the
+window control, popover chrome, labels, callout, pins, jump list and responsive pass → P13 sweep),
+a corrections ledger for everything the codebase had already shipped past the bundle (the Esri dark
+basemap, the in-map window select, the ink rule, Woodland as a location type), a
+disagreements-on-purpose section, and the owner-decision list (verdict-mode retirement, hillshade,
+ring distances, aurora scheduling among them). No code changes.
+
 ### Fixed — the Coming up handoff row overran the panel's right edge
 
 The Plan handoff strip on the Coming up tab (`NOW — THU 3 … On Plan →`) rendered with no right-hand

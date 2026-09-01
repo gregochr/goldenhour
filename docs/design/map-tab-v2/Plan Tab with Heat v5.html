@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PhotoCast — Plan tab v5, the two rows named</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/d3@7.9.0/dist/d3.min.js" integrity="sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/topojson-client@3.1.0/dist/topojson-client.min.js" integrity="sha384-Ukv1p/xTma6P4/2bY5KzWBw+ydSpXmhCMtyciIQVDJ1RmOxtCYNMF1uXT9T63H67" crossorigin="anonymous"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--surface-light:#2A2019;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--line:#3A2C23;--ink:#F2E7D3;--ink-2:rgba(242,231,211,.66);--ink-3:rgba(242,231,211,.42);--go:#8AAE72;--marginal:#E0A542;--poor:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--coral:#E8593F;--dawn:#8FA8C4;--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:24px 20px 60px}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+.hd{max-width:1180px;margin:0 auto 13px}
+.hd .m{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px}
+.hd h1{font-size:20px;font-weight:700;letter-spacing:-.02em}
+.hd p{font-size:13px;color:var(--ink-2);max-width:90ch;margin-top:6px;text-wrap:pretty}
+.hd b{font-weight:600;color:var(--ink)}
+.hd code{font-family:var(--mono);font-size:11.5px;color:#EBD9A8}
+.demobar{max-width:1180px;margin:0 auto 10px;display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);flex-wrap:wrap}
+.demobar .sp{margin-right:auto}
+.demobar button{font-family:var(--mono);font-size:10.5px;border:1px solid var(--border);background:var(--surface);color:var(--ink-2);border-radius:7px;padding:6px 11px;cursor:pointer}
+.demobar button:hover{border-color:var(--border-light);color:var(--ink)}
+.demobar button.on{border-color:rgba(201,162,75,.55);background:rgba(201,162,75,.12);color:#EBD9A8}
+.wrap{max-width:1180px;margin:0 auto;transition:max-width .22s ease}
+.wrap.pad{max-width:834px}
+.wrap.mob{max-width:390px}
+
+.frame{position:relative;display:flex;flex-direction:column;height:900px;overflow:hidden;background:var(--bg);border:1px solid var(--border);border-radius:12px}
+.wrap.pad .frame{height:1000px;border-radius:18px;box-shadow:0 0 0 7px #241c17,0 22px 50px rgba(0,0,0,.55)}
+.wrap.mob .frame{height:812px;border:none;border-radius:26px;box-shadow:0 0 0 8px #241c17,0 24px 56px rgba(0,0,0,.6)}
+.status{display:none;align-items:center;justify-content:space-between;padding:9px 18px 3px;font-family:var(--mono);font-size:9.5px;color:var(--ink-3);flex:none}
+.wrap.mob .status{display:flex}
+.scroll{flex:1;min-height:0;overflow-y:auto;position:relative;scrollbar-width:thin}
+.scroll::-webkit-scrollbar{width:8px}.scroll::-webkit-scrollbar-thumb{background:var(--border-light);border-radius:9px}
+.wrap.mob .scroll{scrollbar-width:none}
+.wrap.mob .scroll::-webkit-scrollbar{width:0}
+
+/* ── masthead: the light rule, and the one statement of where you plan from ── */
+.mast{position:sticky;top:0;z-index:45;background:linear-gradient(180deg,#241B16,#1B1411);padding:14px 22px 0;border-bottom:1px solid var(--border)}
+.wrap.pad .mast{padding:13px 20px 0}
+.wrap.mob .mast{padding:9px 14px 0}
+.c-top{display:flex;align-items:center;gap:14px}
+.spine{position:relative;padding-left:25px;display:flex;flex-direction:column;align-items:flex-start}
+.spine::before{content:'';position:absolute;left:0;top:0;bottom:0;width:11px;background:repeating-linear-gradient(180deg,var(--border-light) 0 7px,transparent 7px 15px);border-right:1px solid var(--border)}
+.c-w{font-family:var(--serif);font-weight:600;font-size:26px;line-height:1;letter-spacing:-.022em;color:#F9F1E2}
+.c-k{font-family:var(--mono);font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--coral);margin-top:5px}
+.wrap.pad .c-w{font-size:23px}
+.wrap.mob .c-w{font-size:19px}
+.wrap.mob .c-k{font-size:7.5px;letter-spacing:.16em;margin-top:4px}
+.wrap.mob .spine{padding-left:19px}
+.wrap.mob .spine::before{width:8px}
+.mright{margin-left:auto;display:flex;align-items:center;gap:9px}
+.up{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--go);border:1px solid rgba(138,174,114,.4);border-radius:6px;padding:4px 8px;white-space:nowrap}
+.up .dot{width:6px;height:6px;border-radius:50%;background:var(--go);box-shadow:0 0 6px var(--go)}
+.up .vv{color:var(--ink-3);font-weight:400}
+.wrap.mob .up .vv{display:none}
+.cog{width:15px;height:15px;border-radius:50%;border:2px solid var(--ink-3);flex:none}
+.signout{font-size:11.5px;font-weight:500;background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:5px 9px;color:var(--ink-2);white-space:nowrap}
+.wrap.mob .signout{display:none}
+.c-rule{margin-top:12px;height:4px;border-radius:2px;background:linear-gradient(90deg,#26313F 0%,#4A3550 9%,#B4553C 19%,#E8593F 25%,#E0A542 33%,#F2E7D3 50%,#E0A542 66%,#E8593F 74%,#7C4A56 84%,#2E3446 93%,#26313F 100%)}
+.c-ticks{display:flex;align-items:center;gap:8px;padding:5px 0 8px}
+.mast.on .c-ticks{display:none}
+.c-times{margin-left:auto;display:flex;gap:16px;font-family:var(--mono);font-size:9px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);white-space:nowrap}
+.c-times b{color:var(--marginal);font-weight:500}
+.wrap.pad .c-times{gap:12px}
+.wrap.mob .c-times{gap:9px;font-size:8.5px;letter-spacing:.08em}
+/* origin lives in the tick line: the postcode is stated here and nowhere else */
+.oloc{display:flex;align-items:center;gap:8px;background:transparent;border:1px solid transparent;border-radius:7px;padding:4px 7px 4px 6px;margin-left:-6px;cursor:pointer;font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-2);min-height:30px;min-width:0}
+.oloc:hover{border-color:var(--border);background:rgba(255,255,255,.03)}
+.oloc .nm{font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.oloc.away{border-color:rgba(111,168,176,.4);background:rgba(111,168,176,.09)}
+.oloc .pinsvg{width:13px;height:13px;display:block;flex:none;color:var(--home)}
+.oloc.away .pinsvg{color:var(--tide)}
+.oloc .sep{width:1px;align-self:stretch;background:var(--border);margin:0 1px}
+.oloc .find{display:flex;align-items:center;gap:5px;color:var(--ink-3);white-space:nowrap}
+.oloc:hover .find{color:var(--ink-2)}
+.oloc .find svg{width:12px;height:12px;display:block}
+.oloc .kbd{font-size:9px;border:1px solid var(--border-light);border-radius:4px;padding:0 4px;opacity:.8;letter-spacing:0}
+.wrap.mob .oloc{gap:6px;font-size:9px;letter-spacing:.08em;min-height:34px}
+.gohome{display:none;align-items:center;justify-content:center;background:var(--panel);border:1px solid var(--border-light);border-radius:7px;width:30px;height:30px;cursor:pointer;color:var(--home);flex:none}
+.gohome.on{display:flex}
+.wrap.mob .gohome.on{width:34px;height:34px}
+.gohome:hover{border-color:var(--home);background:rgba(201,162,75,.12)}
+.gohome svg{width:15px;height:15px;display:block}
+.field{display:none;align-items:center;gap:9px;background:var(--panel);border:1px solid rgba(201,162,75,.5);border-radius:9px;padding:0 11px;min-height:38px;margin:7px 0 9px}
+.mast.on .field{display:flex}
+.field .ic{font-family:var(--mono);font-size:12px;color:var(--home)}
+.field input{flex:1;background:none;border:none;outline:none;color:var(--ink);font-family:var(--sans);font-size:14.5px;font-weight:500;padding:8px 0;min-width:0}
+.field input::placeholder{color:var(--ink-3);font-weight:400}
+.field .esc{font-family:var(--mono);font-size:10px;color:var(--ink-3);border:1px solid var(--border);background:none;border-radius:5px;padding:3px 6px;cursor:pointer;flex:none}
+.drop{position:absolute;left:22px;right:22px;top:calc(100% - 3px);z-index:48;background:var(--surface-light);border:1px solid var(--border-light);border-radius:0 0 11px 11px;border-top:none;box-shadow:0 26px 60px rgba(0,0,0,.66);display:none;overflow:hidden}
+.wrap.mob .drop{left:12px;right:12px}
+.mast.on .drop{display:block}
+.dtitle{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);padding:9px 13px 6px;display:flex;gap:8px;align-items:baseline}
+.dtitle.brk{border-top:1px solid var(--border);padding-top:9px}
+.dtitle .hint{letter-spacing:0;text-transform:none;font-weight:400;color:rgba(242,231,211,.3)}
+.dlist{padding:0 7px 7px;display:flex;flex-direction:column;gap:3px}
+.res{display:grid;grid-template-columns:auto 1fr auto auto;gap:11px;align-items:center;padding:8px 10px;border-radius:8px;border:1px solid transparent;background:none;text-align:left;cursor:pointer;width:100%;font-family:var(--sans)}
+.res:hover,.res.sel{background:rgba(201,162,75,.1);border-color:rgba(201,162,75,.32)}
+.res .gl{font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+.res.reg .gl{color:var(--home);font-size:13px}
+.res .nm{font-size:13.5px;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+.res .nm mark{background:rgba(201,162,75,.28);color:#F6E9C8;border-radius:2px;padding:0 1px}
+.res .sub{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:2px;display:flex;gap:8px;flex-wrap:wrap}
+.res .sub .aw{color:#9CCBD1}
+.res .sub .out{color:#E0A542}
+.res .bst{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);text-align:right;white-space:nowrap}
+.res .bst b{display:block;font-size:12px;font-weight:600;color:var(--ink)}
+.res .act{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--tide);white-space:nowrap;border:1px solid rgba(111,168,176,.35);border-radius:5px;padding:4px 7px}
+.res.reg .act{color:#EBD9A8;border-color:rgba(201,162,75,.4)}
+.dnone{padding:4px 13px 12px;font-family:var(--mono);font-size:11px;color:var(--ink-3);line-height:1.7}
+.dnone b{color:var(--ink-2);font-weight:600}
+.dfoot{border-top:1px solid var(--border);background:rgba(0,0,0,.22);padding:7px 13px;font-family:var(--mono);font-size:10px;color:var(--ink-3);display:flex;gap:12px;flex-wrap:wrap}
+.dfoot .k2{color:var(--ink-2)}
+.wrap.mob .res{grid-template-columns:auto 1fr auto}
+.wrap.mob .res .act{display:none}
+
+.tabs{display:flex;gap:6px;padding:2px 22px 0}
+.wrap.mob .tabs{padding:2px 14px 0}
+.tab{font-size:12.5px;font-weight:500;color:var(--ink-2);border:1px solid var(--border);border-bottom-width:0;background:var(--panel);border-radius:8px 8px 0 0;padding:8px 14px;cursor:pointer;white-space:nowrap;font-family:var(--sans)}
+.wrap.mob .tab{padding:8px 11px;font-size:12px}
+.tab.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:inset 0 2px 0 var(--home)}
+.tab.gate{margin-left:auto;color:var(--ink-3)}
+.wrap.mob .tab.gate{display:none}
+.tabrule{height:1px;background:var(--border)}
+.sent{height:1px}
+.lens{position:sticky;top:var(--mastH,48px);z-index:30;background:var(--surface);border-bottom:1px solid var(--border);padding:10px 22px;display:flex;align-items:center;gap:9px;flex-wrap:wrap;transition:box-shadow .18s ease,border-color .18s ease}
+.lens.stuck{box-shadow:0 12px 26px rgba(0,0,0,.5);border-bottom-color:var(--border-light)}
+.wrap.mob .lens{padding:9px 14px;display:block}
+.wrap.mob .lens>.lgrp,.wrap.mob .lens>.cnt{display:none}
+.k{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);white-space:nowrap;flex:none}
+.lgrp{display:flex;align-items:center;gap:9px}
+.lrow{display:none}
+.wrap.mob .lrow{display:flex;align-items:center;gap:8px}
+.wrap.mob .lrow+.lrow{margin-top:6px}
+.seg{display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:var(--panel)}
+.wrap.mob .seg{flex:1}
+.seg button{font-family:var(--mono);font-size:11px;padding:6px 11px;background:transparent;border:none;border-right:1px solid var(--border);color:var(--ink-2);cursor:pointer;white-space:nowrap;min-height:34px}
+.wrap.mob .seg button{flex:1;padding:6px 4px;min-height:38px}
+.seg button:last-child{border-right:none}
+.seg button.on{background:rgba(201,162,75,.15);color:#EBD9A8;font-weight:600}
+.seg.star button.on{background:rgba(138,174,114,.16);color:#B5CFA3}
+.stick{font-family:var(--mono);font-size:9px;letter-spacing:.06em;text-transform:uppercase;padding:2px 5px;border-radius:4px;background:rgba(224,165,66,.14);color:#EFC377;white-space:nowrap}
+.rst{font-family:var(--mono);font-size:10.5px;color:var(--tide);cursor:pointer;background:none;border:none;white-space:nowrap}
+.lens .cnt{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);white-space:nowrap}
+.cnt b{color:var(--ink-2);font-weight:600}
+.body{padding:13px 22px 20px;display:flex;flex-direction:column;gap:10px}
+.wrap.mob .body{padding:11px 14px 18px}
+
+.sumh{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.sumh .rule{flex:1;height:1px;background:var(--border);min-width:10px}
+.sumh .n{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.wrap.mob .sumh .n{display:none}
+/* The strip is a matrix: a column per day, sunrise row then sunset row, so the shape of the
+   week is in the layout itself. Desktop builds it as three stacked blocks — the day tiles,
+   then a row block per window — so each row can pin its own label while its cards are in
+   view; the phone flows the same cells into two columns under a day heading. */
+.hstrip{display:flex;flex-direction:column;gap:7px}
+.dhrow,.hcards{display:grid;grid-template-columns:repeat(var(--dc,4),minmax(0,1fr));gap:8px;align-items:stretch}
+.hrow{display:flex;flex-direction:column;gap:7px}
+.wrap.mob .hstrip{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px 8px}
+/* the phone does not pin the day: a day group is a heading plus one row of two cards, so the
+   heading is barely ever off screen — and a third sticky layer under the masthead and lens
+   bar would cost scroll height permanently to say what the card's time and chip already say */
+.wrap.mob .hstrip>.dh{grid-column:1/-1}
+/* the phone has no width to spend on an empty cell: the day's one window takes the full row */
+.wrap.mob .hstrip>.hg{display:none}
+.wrap.mob .hc.solo{grid-column:1/-1}
+/* the rows, named once across the top of each one instead of read off six separate cards:
+   sunrise band above, sunset band below, so the matrix states its own axis. Each label is
+   sticky inside its own row block: it holds under the day tiles while its cards are on
+   screen, then leaves with them — so the sunrise rail goes as the sunrise cards go. */
+.rail{position:sticky;top:calc(var(--mastH,48px) + var(--lensH,44px) + var(--dhH,40px) - 2px);z-index:20;display:flex;align-items:center;gap:9px;padding:4px 2px 3px;background:linear-gradient(180deg,var(--bg) 0 70%,transparent);font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;line-height:1}
+.rail .rln{flex:1;height:1px}
+.rail.am{color:var(--dawn)}.rail.am .rln{background:linear-gradient(90deg,color-mix(in srgb,var(--dawn) 42%,transparent),transparent)}
+.rail.pm{color:var(--coral)}.rail.pm .rln{background:linear-gradient(90deg,color-mix(in srgb,var(--coral) 42%,transparent),transparent)}
+.wrap.mob .rail{display:none}
+/* the columns keep their headings: the day tiles pin under the lens bar once the strip
+   reaches it, and unpin when the strip scrolls past — the cards move, the axis does not */
+.dhrow{position:sticky;top:calc(var(--mastH,48px) + var(--lensH,44px) - 1px);z-index:22;padding-top:9px;background:linear-gradient(180deg,var(--bg) 0 82%,transparent)}
+/* the day, said once per column instead of once per card */
+.dh{display:flex;align-items:center;gap:8px;padding:0 2px 3px;font-family:var(--mono);line-height:1}
+.dh .cal{display:grid;justify-items:center;gap:2px;padding:3px 6px 4px;border:1px solid var(--line);border-radius:5px;background:rgba(0,0,0,.24)}
+.dh .cd{font-size:8px;font-weight:600;letter-spacing:.12em;color:var(--ink-3)}
+.dh .cn{font-size:14px;font-weight:600;color:var(--ink-2);font-variant-numeric:tabular-nums}
+/* the rule the tile sits on is the column header, the same legend idiom the cards use */
+.dh .cr{flex:1;height:1px;background:var(--line)}
+.dh.tdy .cal{border-color:color-mix(in srgb,var(--home) 45%,transparent)}
+.dh.tdy .cn{color:var(--home)}
+.wrap.mob .dh{margin-top:4px}
+/* an empty cell says why it is empty — the gap is information, not a hole */
+.hg{display:flex;align-items:center;justify-content:center;border:1px dashed var(--line);border-radius:9px;padding:10px;min-height:110px}
+.hg span{font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;color:var(--ink-3);text-align:center;text-wrap:pretty}
+.wrap.mob .hg{min-height:64px}
+.hc{border:1px solid var(--border);border-radius:9px;background:var(--panel);padding:6px 6px 7px;cursor:pointer;text-align:left;font:inherit;color:inherit;display:flex;flex-direction:column;gap:5px;position:relative;overflow:visible;transition:border-color .14s,background .14s,transform .12s}
+.wrap.sideways .hc{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto 1fr;grid-template-areas:"cv top" "cv pls";gap:5px 12px;padding:8px}
+.wrap.sideways .hc>.tmap{grid-area:cv}
+.wrap.sideways .hc>.top{grid-area:top;align-self:start}
+.wrap.sideways .hc>.pls{grid-area:pls;align-self:stretch;align-content:start;grid-template-rows:21px 20px 32px 1fr;padding-bottom:2px}
+.wrap.sideways .hc>.pls .tps2{align-self:end}
+.hc:hover{border-color:var(--border-light);transform:translateY(-2px)}
+/* the verdict tints the whole card, the way the regional planner tints a whole cell: the
+   grade is the surface you are looking at, not a chip in the corner. Kept at 6–7% so it
+   never competes with the field itself, and the pick still reads as the border. */
+.hc.vg{background:linear-gradient(rgba(138,174,114,.12),rgba(138,174,114,.12)),var(--panel)}
+.hc.vm{background:linear-gradient(rgba(224,165,66,.1),rgba(224,165,66,.1)),var(--panel)}
+.hc.vp{background:linear-gradient(rgba(200,69,47,.09),rgba(200,69,47,.09)),var(--panel)}
+.hc.vg:hover{background:linear-gradient(rgba(138,174,114,.17),rgba(138,174,114,.17)),var(--surface)}
+.hc.vm:hover{background:linear-gradient(rgba(224,165,66,.15),rgba(224,165,66,.15)),var(--surface)}
+.hc.vp:hover{background:linear-gradient(rgba(200,69,47,.14),rgba(200,69,47,.14)),var(--surface)}
+.hc .top{display:flex;align-items:center;gap:5px;min-height:19px}
+.hc .dow{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.09em;color:var(--ink-3);line-height:1}
+.hc.on .dow{color:var(--home)}
+/* the same fact on the card itself — the phone drops the rail, and a card seen alone
+   should still say which end of the day it is */
+.hc .ar{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;line-height:1;padding:3px 6px;border-radius:4px;white-space:nowrap;min-width:0;overflow:hidden}
+.wrap.mob .hc .ar{letter-spacing:.04em;padding:2px 4px}
+.hc .ar.am{color:var(--dawn);background:color-mix(in srgb,var(--dawn) 15%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--dawn) 30%,transparent)}
+.hc .ar.pm{color:#EE8064;background:color-mix(in srgb,var(--coral) 15%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--coral) 30%,transparent)}
+.dl{display:inline-flex;align-items:center;height:13px;overflow:hidden;font-family:var(--mono);font-size:8.5px;font-weight:600;margin-left:auto;white-space:nowrap;line-height:1}
+.dl.up{color:#A8C795}.dl.dn{color:#E58C7A}.dl.same{color:var(--ink-3);font-weight:400}
+.hc canvas{display:block;width:100%;height:auto;border-radius:5px;background:#13100e}
+/* the geography layer: home, then the names of the ground. Both hosts share the classes so
+   the thumbnail and the popup field can never disagree about what a label means. */
+.tmap{position:relative;line-height:0}
+.tlab{position:absolute;inset:0;pointer-events:none}
+.tlab>.rg2{position:absolute;font-family:var(--mono);font-size:8px;font-weight:600;letter-spacing:.09em;color:rgba(242,231,211,.62);text-shadow:0 1px 3px rgba(0,0,0,.95),0 0 8px rgba(0,0,0,.8);white-space:nowrap;line-height:1.2}
+.tlab>.rg2.hot{color:#F9F1E2}
+.hm{position:absolute;display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1}
+.hm .mk{width:9px;height:9px;border-radius:50%;border:1.6px solid var(--home);background:rgba(20,15,11,.6);box-shadow:0 0 0 2.5px rgba(20,15,11,.5),0 0 9px rgba(201,162,75,.5)}
+.hm .lb{font-family:var(--mono);font-size:7.5px;font-weight:600;letter-spacing:.14em;color:#EBD9A8;text-shadow:0 1px 3px rgba(0,0,0,.95)}
+.mlab>.hm .mk{width:12px;height:12px;border-width:2px}
+.mlab>.hm .lb{font-size:9px}
+.ringlb{position:absolute;font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;color:rgba(235,217,168,.72);background:rgba(14,11,9,.74);padding:1px 4px;border-radius:3px;white-space:nowrap;line-height:1.35}
+.rings{position:absolute;inset:0;width:100%;height:100%}
+.rings circle{fill:none;stroke:rgba(201,162,75,.4);stroke-width:1;stroke-dasharray:3 3}
+.hc .bot{display:none}
+/* label left, pill right — one aligned column under every map */
+.pls{display:grid;grid-template-columns:auto 1fr;gap:4px 6px;align-items:center;margin-top:1px}
+.pls>span{min-height:20px;display:flex;align-items:center;min-width:0}
+.pls .pv2{min-height:32px}
+.pls .tt{font-family:var(--mono);font-size:12px;font-weight:600;color:var(--ink-2);letter-spacing:-.01em}
+.hc.on .pls .tt{color:var(--ink)}
+.pls .k2{font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+/* the best spot gets two lines rather than an ellipsis: the card is short of width and long
+   of height, so a name that will not fit across wraps down. The rating sits in the label slot,
+   captionless, which hands the whole value column to the name. */
+.st1{display:block;min-width:0;font-family:var(--mono);font-size:11px;font-weight:600;color:var(--ink);line-height:1.3;text-align:right;text-wrap:pretty}
+.st1.none{color:var(--ink-3);font-weight:400}
+.rt{font-family:var(--mono);font-size:12px;font-weight:600;align-self:start;padding:1px 6px;border-radius:5px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.35)}
+.pls .pv2{grid-column:2;display:block;text-align:right;overflow:hidden}
+.hist{display:flex;align-items:flex-end;gap:2px;height:14px;flex:none;cursor:help}
+.hist i{width:5px;border-radius:1px;min-height:1px;display:block}
+.pls .sp1{gap:8px;cursor:help;flex-wrap:nowrap}
+/* every topic named, full width, wrapping into the room the card has spare */
+.pls .tps2{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:4px 9px;justify-content:flex-end;min-height:21px;align-items:flex-end;padding-top:2px}
+.st2{font-family:var(--mono);font-size:11px;font-weight:600;color:var(--ink-2)}
+.hc .t{display:none}
+.hc.on .t{color:var(--ink)}
+.hc .bot .bdg{margin-left:auto;font-size:9px;padding:2px 6px}
+.wrap.mob .hc .bot .bdg{font-size:9.5px;padding:3px 7px}
+.hc .flag{display:none}
+/* the pick is the frame: one card is bordered green (best bet), one lightly (also good),
+   and the words sit in the border line itself so nothing competes with the verdict */
+.hc.also{border-color:rgba(138,174,114,.5)}
+.hc.best{border-color:#8AAE72;box-shadow:inset 0 0 0 1px rgba(138,174,114,.45)}
+.lg{position:absolute;top:-8px;right:13px;padding:0 7px;background:inherit;font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;line-height:16px;white-space:nowrap}
+.lg.wb{color:#B6D49F}
+.lg.wa{color:#8CA87A;font-weight:600}
+.hc.on,.hc.on:hover{border-color:rgba(201,162,75,.62);background:linear-gradient(rgba(201,162,75,.11),rgba(201,162,75,.11)),var(--panel);box-shadow:none}
+/* words, not badges — verdict in its grade colour, the two picks as uppercase labels.
+   One type scale at every viewport: the desktop card now has as much room as the iPad one. */
+.vw{font-family:var(--mono);font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vw.vg{color:#A8C795}
+.vw.vm{color:#EFC377}
+.vw.vp{color:#E58C7A}
+.tw{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:10.5px;font-weight:600;letter-spacing:.02em;color:var(--tc);white-space:nowrap}
+.tw .ic{font-size:10.5px;line-height:1;filter:saturate(.8)}
+.tw.more{display:none}
+.pls .pv{justify-content:flex-end;flex-wrap:nowrap;gap:6px;overflow:hidden}
+.hc .go{position:absolute;left:0;right:0;bottom:0;padding:3px 8px 4px;font-family:var(--mono);font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#EBD9A8;background:linear-gradient(180deg,transparent,rgba(201,162,75,.16));text-align:right;opacity:0;transition:opacity .14s}
+.hc:hover .go{opacity:1}
+.sumfoot{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:10px;color:var(--ink-3);flex-wrap:wrap}
+.legbar{width:60px;height:6px;border-radius:999px;background:linear-gradient(90deg,#C8452F,#E0A542 52%,#8AAE72);flex:none}
+.sumfoot .sp{margin-left:auto}
+.wrap.mob .sumfoot .sp,.wrap.pad .sumfoot .sp{display:none}
+.chgline{font-family:var(--mono);font-size:10px;color:var(--ink-3);line-height:1.5;text-wrap:pretty}
+.chgline b{color:var(--ink-2);font-weight:600}
+.chgline.beyond:empty{display:none}
+.chgline.beyond{color:rgba(242,231,211,.34)}
+.chgline.beyond button{font-family:var(--mono);font-size:10px;color:var(--tide);background:none;border:none;cursor:pointer;padding:0}
+.chgline.beyond button:hover{color:#8fc4cc}
+#msgs:empty{display:none}
+#msgs{display:flex;flex-direction:column;gap:8px}
+
+.clash{border:1px solid rgba(224,165,66,.4);background:rgba(224,165,66,.07);border-radius:11px;padding:11px 13px;display:flex;flex-direction:column;gap:5px}
+.clash b{font-size:13.5px;font-weight:700;letter-spacing:-.01em;color:#EFC377}
+.clash span{font-family:var(--mono);font-size:11px;color:var(--ink-2);line-height:1.6}
+.clash .acts{display:flex;gap:14px;flex-wrap:wrap;margin-top:3px}
+.clash button{font-family:var(--mono);font-size:11px;color:var(--tide);background:none;border:none;cursor:pointer;padding:0}
+.rlead{border:1px solid rgba(111,168,176,.28);border-left:2px solid var(--tide);border-radius:11px;background:rgba(111,168,176,.055);padding:11px 13px;font-family:var(--serif);font-size:13.5px;line-height:1.55;color:var(--ink);text-wrap:pretty}
+
+.bdg{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:999px;border:1px solid var(--border-light);background:rgba(255,255,255,.04);color:var(--ink-2);white-space:nowrap}
+.bdg.good{border-color:rgba(138,174,114,.5);background:rgba(138,174,114,.14);color:#A8C795;font-weight:600}
+.bdg.poor{border-color:rgba(200,69,47,.4);background:rgba(200,69,47,.12);color:#E58C7A}
+.bdg.pickb{border-color:rgba(138,174,114,.6);background:rgba(138,174,114,.2);color:#A8C795;font-weight:600}
+.bdg.out{border-color:rgba(224,165,66,.45);background:rgba(224,165,66,.11);color:#EFC377}
+.bdg.tpb{color:var(--tc);border-color:color-mix(in oklch,var(--tc) 48%,transparent);background:color-mix(in oklch,var(--tc) 14%,transparent);font-weight:600}
+
+/* ── the window popup ─────────────────────────────────────────────────────── */
+.sheet{position:absolute;inset:0;z-index:60;display:none}
+.sheet.on{display:block}
+#sheet{z-index:70}
+.scrim{position:absolute;inset:0;background:rgba(8,6,5,.74)}
+.card{position:absolute;left:50%;top:20px;transform:translateX(-50%);width:min(680px,calc(100% - 36px));max-height:calc(100% - 40px);display:flex;flex-direction:column;background:var(--bg);border:1px solid var(--border-light);border-radius:13px;box-shadow:0 30px 80px rgba(0,0,0,.72);overflow:hidden}
+.wcard{width:min(780px,calc(100% - 32px));top:16px;max-height:calc(100% - 32px)}
+.wrap.pad .wcard{width:calc(100% - 28px)}
+.wrap.mob .card{left:0;top:0;transform:none;width:100%;height:100%;max-height:100%;border:none;border-radius:0}
+.wsh{display:flex;align-items:flex-start;gap:11px;padding:12px 15px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(201,162,75,.07),transparent),var(--surface);flex:none}
+.wsh .dbox{border:1px solid var(--border-light);border-radius:7px;text-align:center;padding:3px 7px 4px;background:rgba(0,0,0,.2);flex:none}
+.wsh .dow2{display:block;font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;color:var(--ink-3)}
+.wsh .dn{display:block;font-size:15px;font-weight:700;line-height:1.15}
+.wst{min-width:0;flex:1}
+.wst .l1{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.wst h3{font-size:16px;font-weight:700;letter-spacing:-.02em}
+.wst .t2{font-family:var(--mono);font-size:13px;font-weight:600;color:var(--ink-2)}
+.wst .l2{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:5px;display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.wnav{display:flex;align-items:center;gap:4px;flex:none}
+.wnav button{font-family:var(--mono);font-size:14px;line-height:1;color:var(--ink-2);background:var(--panel);border:1px solid var(--border);border-radius:7px;width:30px;height:30px;cursor:pointer}
+.wnav button:hover{border-color:var(--border-light);color:var(--ink)}
+.wnav .of{font-family:var(--mono);font-size:10px;color:var(--ink-3);padding:0 2px}
+.wnav .x2{width:auto;padding:0 9px;font-size:11px;margin-left:5px}
+.wrap.mob .wnav button{width:38px;height:38px;font-size:16px}
+.wrap.mob .wnav .x2{padding:0 11px;font-size:11px;margin-left:auto}
+.wrap.mob .wsh{flex-wrap:wrap;padding:10px 14px 11px}
+.wrap.mob .wnav{order:-1;width:100%;margin-bottom:9px}
+.wrap.mob .wst .l2{gap:9px;font-size:9.5px;margin-top:4px}
+.wsb{overflow-y:auto;padding:11px 0 2px;scrollbar-width:thin}
+.wsb::-webkit-scrollbar{width:8px}.wsb::-webkit-scrollbar-thumb{background:var(--border-light);border-radius:9px}
+.wsf{display:flex;align-items:center;gap:10px;padding:8px 15px;border-top:1px solid var(--border);background:rgba(0,0,0,.22);font-family:var(--mono);font-size:10.5px;color:var(--ink-3);flex-wrap:wrap;flex:none}
+.wsf .fx{padding:2px 7px;border-radius:999px;background:rgba(201,162,75,.1);box-shadow:inset 0 0 0 1px rgba(201,162,75,.28);color:#EBD9A8;white-space:nowrap}
+.wsf .go{margin-left:auto;color:var(--tide);cursor:pointer}
+.wrap.mob .wsf .go{margin-left:0}
+.wgrid{display:grid;grid-template-columns:minmax(280px,39%) 1fr;gap:0 14px;align-items:start;padding:0 15px 11px}
+.wrap.mob .wgrid{grid-template-columns:1fr;gap:11px 0}
+.wside{min-width:0}
+.wside .rlab,.wside .rrail{margin-left:0;margin-right:0}
+.wside .rrail{grid-template-columns:repeat(auto-fit,minmax(112px,1fr))}
+.wrap.pad .wside .rrail{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
+.wrap.mob .wside .rrail{grid-template-columns:1fr 1fr}
+.mapbox{position:relative;line-height:0;border:1px solid var(--border);border-radius:9px;overflow:hidden}
+.mapbox canvas{display:block;width:100%;height:auto;cursor:pointer}
+.mlab{position:absolute;inset:0;pointer-events:none}
+/* two label layers on the field: the coarse region names, and BBC-style location chips
+   that put a real name and a real rating on the blob — placed by collision, best first */
+.mlab>.rg{position:absolute;font-family:var(--mono);font-size:9.5px;font-weight:600;line-height:1.35;color:#F2E7D3;text-shadow:0 1px 3px rgba(0,0,0,.95),0 0 10px rgba(0,0,0,.8);white-space:nowrap;padding:3px 5px;border-radius:5px}
+.mlab>.rg.hot{background:rgba(20,15,12,.85);box-shadow:inset 0 0 0 1px var(--border-light)}
+.mlab>.loc{position:absolute;display:flex;align-items:center;gap:5px;padding:2px 5px;border-radius:5px;background:rgba(14,11,9,.84);box-shadow:inset 0 0 0 1px var(--border-light),0 2px 6px rgba(0,0,0,.5);font-family:var(--mono);font-size:9px;white-space:nowrap;pointer-events:auto;cursor:pointer}
+.mlab>.loc:hover{background:rgba(14,11,9,.95);box-shadow:inset 0 0 0 1px var(--home),0 2px 8px rgba(0,0,0,.6)}
+.mlab>.loc.flip{flex-direction:row-reverse}
+.mlab>.loc i{width:5px;height:5px;flex:none;background:#F2E7D3;box-shadow:0 0 0 1px rgba(0,0,0,.85)}
+.mlab>.loc b{font-weight:600;color:var(--ink);letter-spacing:.01em}
+.mlab>.loc em{font-style:normal;font-weight:600;padding-left:4px;border-left:1px solid var(--border-light)}
+.mlab>.loc.flip em{padding:0 4px 0 0;border-left:none;border-right:1px solid var(--border-light)}
+.wrap.mob .mlab>.loc{font-size:10px;padding:3px 6px}
+.mhint{position:absolute;left:8px;bottom:7px;font-family:var(--mono);font-size:9px;color:var(--ink-3);background:rgba(20,15,12,.8);padding:3px 6px;border-radius:5px}
+
+.rlab{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin:0 15px 6px}
+.wrap.mob .rlab .tail{display:none}
+.rrail{display:grid;grid-template-columns:repeat(auto-fit,minmax(128px,1fr));gap:6px;margin:0 15px 11px}
+.wrap.pad .rrail{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.wrap.mob .rrail{grid-template-columns:1fr 1fr}
+.rr{border:1px solid var(--border);border-left:2px solid var(--border-light);border-radius:8px;background:var(--panel);padding:7px 9px 8px;cursor:pointer;text-align:left;font:inherit;color:inherit;display:flex;flex-direction:column;gap:2px;min-height:56px}
+.rr:hover{border-color:var(--border-light);background:var(--surface)}
+.rr.on{background:rgba(201,162,75,.1);border-color:rgba(201,162,75,.5)}
+.rr.g{border-left-color:var(--go)}.rr.m{border-left-color:var(--marginal)}.rr.p{border-left-color:var(--poor)}
+.rr .rn{font-size:11.5px;font-weight:600;letter-spacing:-.01em;line-height:1.2}
+.rr .rv{font-family:var(--mono);font-size:9.5px;font-weight:600}
+.rr.g .rv{color:#A8C795}.rr.m .rv{color:#EFC377}.rr.p .rv{color:#E58C7A}
+.rr .rm{font-family:var(--mono);font-size:9px;color:var(--ink-3);margin-top:auto}
+.rr .far{color:#9CCBD1}
+.rr.all{border-left-color:var(--home)}
+.rr.all .rv{color:var(--home)}
+.wrap.mob .rr{min-height:62px}
+.wrap.pad .rr.all,.wrap.mob .rr.all{grid-column:1/-1;min-height:46px;flex-direction:row;align-items:center;gap:9px;flex-wrap:wrap}
+.wrap.pad .rr.all .rm,.wrap.mob .rr.all .rm{margin-top:0;margin-left:auto}
+
+/* always present, so picking a region swaps words instead of moving the tide and locations */
+.nsl{padding:9px 12px 11px;border:1px solid var(--border);border-left:2px solid var(--border-light);border-radius:8px;background:rgba(255,255,255,.022);min-height:124px;display:flex;flex-direction:column;gap:4px}
+.nsl.g{border-left-color:var(--go)}.nsl.m{border-left-color:var(--marginal)}.nsl.p{border-left-color:var(--poor)}
+.nsl.all{border-left-color:var(--home)}
+.nsl .nh{display:flex;align-items:baseline;gap:9px;flex-wrap:wrap}
+.nsl .ttl{font-size:14px;font-weight:700;letter-spacing:-.01em}
+.nsl p{font-family:var(--serif);font-size:13px;line-height:1.5;color:var(--ink-2);text-wrap:pretty;max-width:74ch}
+.nsl p b{color:var(--ink);font-weight:600}
+.wrap.pad .nsl{min-height:112px}
+.wrap.mob .nsl{min-height:0}
+
+.rows{display:flex;flex-direction:column;gap:7px;margin:0 15px 11px}
+.frow{display:grid;grid-template-columns:auto auto 1fr;gap:12px;align-items:center;padding:7px 11px;border:1px solid rgba(111,168,176,.28);border-left:2px solid var(--tide);border-radius:8px;background:rgba(111,168,176,.055)}
+.frow .k3{font-family:var(--mono);font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:#9CCBD1;white-space:nowrap}
+.mini{width:104px;flex:none}
+.mini svg{display:block;width:104px;height:24px;overflow:visible}
+.frow .f{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);display:flex;gap:14px;flex-wrap:wrap}
+.frow .f>span{white-space:nowrap}
+.frow .f b{color:var(--ink);font-weight:600}
+.frow .f .dim{color:var(--ink-3)}
+.wrap.mob .frow{grid-template-columns:1fr;gap:6px}
+.wrap.mob .frow .f>span{white-space:normal}
+.wrap.mob .mini{display:none}
+
+/* the hot-topic row, carried over from the shipped Hot Topics list */
+.tpr{gap:6px}
+.trow{display:flex;align-items:center;gap:10px;padding:7px 11px;border:1px solid var(--border);border-left:2px solid var(--tc);border-radius:8px;background:color-mix(in oklch,var(--tc) 6%,transparent)}
+.trow .ic{font-size:13px;line-height:1;flex:none}
+.trow .lb{font-size:12px;font-weight:600;white-space:nowrap}
+.trow .i{font-family:var(--mono);font-size:9px;font-weight:600;color:var(--tc);border:1px solid color-mix(in oklch,var(--tc) 50%,transparent);border-radius:50%;width:14px;height:14px;display:grid;place-items:center;cursor:help;flex:none}
+.trow .dt{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.trow .rg{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);white-space:nowrap}
+.wrap.mob .trow{flex-wrap:wrap;gap:7px}
+.wrap.mob .trow .dt{flex:1 0 100%;white-space:normal}
+
+.strip{position:relative;padding:0 15px}
+.spots{display:flex;gap:8px;padding:0 0 11px;overflow-x:auto;scroll-snap-type:x proximity;scrollbar-width:none}
+.spots::-webkit-scrollbar{display:none}
+.spots>.spot{flex:0 0 calc((100% - 24px)/3.5);scroll-snap-align:start}
+.wrap.pad .spots>.spot{flex:0 0 calc((100% - 16px)/2.6)}
+.wrap.mob .spots>.spot{flex:0 0 76%}
+.spot{border:1px solid var(--border);border-radius:8px;padding:9px 10px;background:rgba(0,0,0,.16);display:flex;flex-direction:column;gap:4px;cursor:pointer;transition:transform .12s,border-color .14s;min-height:118px;text-align:left;font:inherit;color:inherit}
+.spot:hover{transform:translateY(-2px);border-color:var(--border-light)}
+.spot .top{display:flex;justify-content:space-between;gap:8px;align-items:flex-start}
+.spot .nm{font-size:12.5px;font-weight:600;line-height:1.25}
+.spot .st{font-family:var(--mono);font-size:10px;font-weight:600;padding:2px 6px;border-radius:5px;white-space:nowrap;flex:none}
+.spot .rg,.spot .mt{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.spot .lv{font-family:var(--mono);font-size:10.5px;color:rgba(235,217,168,.72)}
+.spot .lv b{color:#EBD9A8;font-weight:600}
+.spot .op{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-top:auto}
+.spot:hover .op{color:var(--tide)}
+.quiet{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);padding:0 15px 11px}
+
+.sh{display:flex;align-items:flex-start;gap:11px;padding:13px 16px 11px;border-bottom:1px solid var(--border);background:var(--surface)}
+.sh .bk{font-family:var(--mono);font-size:15px;color:var(--ink-2);background:none;border:none;cursor:pointer;padding:0 2px}
+.sh h3{font-size:16.5px;font-weight:700;letter-spacing:-.02em}
+.sh .meta{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:4px;display:flex;gap:9px;flex-wrap:wrap}
+.sh .x2{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink-3);border:1px solid var(--border);background:none;border-radius:7px;padding:5px 9px;cursor:pointer;flex:none}
+.wrap.mob .sh .x2{display:none}
+.tl{overflow-y:auto;padding:11px 16px 14px;display:flex;flex-direction:column;gap:6px}
+.ev{display:grid;grid-template-columns:52px 1fr;gap:11px;align-items:start;padding:8px 11px;border:1px solid var(--border);border-radius:10px;background:var(--panel);cursor:pointer}
+.ev.top{border-color:rgba(201,162,75,.45);background:linear-gradient(180deg,rgba(201,162,75,.07),transparent 62%),var(--panel)}
+.ev.weak{opacity:.62}
+.ev>div{min-width:0}
+.ev .dbox{border:1px solid var(--border-light);border-radius:7px;text-align:center;padding:3px 0 4px;background:rgba(0,0,0,.2)}
+.ev .dow2{display:block;font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;color:var(--ink-3)}
+.ev .dn{display:block;font-size:15px;font-weight:700;line-height:1.15}
+.ev .ttl{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.ev .ttl .w{font-size:14px;font-weight:700;letter-spacing:-.01em}
+.ev .ttl .t2{font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--ink-2)}
+.ev .ttl .tag{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:#EBD9A8}
+.ev .ttl .st{margin-left:auto;font-family:var(--mono);font-size:11px;font-weight:600;padding:2px 6px;border-radius:5px}
+.ev .car{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.ev .lv2{font-family:var(--mono);font-size:10.5px;color:rgba(235,217,168,.72);margin-top:4px;display:block}
+.ev .lv2 b{color:#EBD9A8;font-weight:600}
+.ev .why{font-family:var(--serif);font-size:12.5px;line-height:1.5;color:var(--ink-2);margin-top:6px;text-wrap:pretty}
+.lead2{padding:11px 16px 12px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(201,162,75,.06),transparent)}
+.lead2 .kk{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);display:block;margin-bottom:5px}
+.lead2 p{font-family:var(--serif);font-size:14px;line-height:1.55;color:var(--ink);text-wrap:pretty}
+.ft{padding:9px 16px;border-top:1px solid var(--border);background:rgba(0,0,0,.22);display:flex;align-items:center;gap:13px;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);flex-wrap:wrap}
+.ft button{font-family:var(--mono);font-size:10.5px;color:var(--tide);background:none;border:none;cursor:pointer;padding:0}
+
+.notes{max-width:1180px;margin:18px auto 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:8px}
+.nt{border:1px solid var(--border);border-left:3px solid var(--home);border-radius:8px;background:var(--surface);padding:10px 13px}
+.nt b{display:block;font-size:12.5px;font-weight:600;margin-bottom:3px}
+.nt span{font-size:12px;color:var(--ink-2);line-height:1.55;text-wrap:pretty}
+.nt em{font-style:normal;color:var(--ink);font-weight:500}
+.nt code{font-family:var(--mono);font-size:11px;color:#EBD9A8}
+.nt.cut{border-left-color:var(--poor)}
+#loading{max-width:1180px;margin:0 auto;padding:26px;text-align:center;font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+</style>
+</head>
+<body>
+
+<div class="hd">
+<div class="m">PhotoCast · plan tab · v5</div>
+<h1>The pills move onto the pictures, and the row list goes away</h1>
+<p>Same data, one storey shallower. Each of the six windows states its own verdict on its own thumbnail — verdict, <code>Best bet</code> or <code>Also good</code>, and any hot topic on that night — so the list of six rows that used to repeat all of it is deleted, and with it the accordion, the second heat map, and the four ways a window told you it was <code>Maybe</code>. The frames take the vertical the list was using, laid out as a <b>matrix</b>: a column per day, sunrise row above sunset row, so reading down is one day and reading across compares the same light day to day. Two cells are empty by definition — this morning has gone, the last evening is past the end of the forecast — and they say so rather than being closed up. Everything that lived inside an open row now opens as <b>one popup on the picture you clicked</b>: the big field, the region pills, tide, and the ranked locations. The postcode is stated once, in the light rule, which is also the search trigger and the origin control.</p>
+</div>
+
+<div class="demobar"><span class="sp">One document, three viewports.</span>
+<button id="bD" class="on">▭ Desktop</button><button id="bP">▭ iPad</button><button id="bM">▭ iPhone</button></div>
+
+<div class="wrap" id="wrap">
+<div class="frame">
+<div class="status"><span>9:41</span><span>▮▮▮ ◗</span></div>
+<div class="scroll" id="scroll">
+<div class="mast" id="mast">
+<div class="c-top"><span class="spine"><span class="c-w">PhotoCast</span><span class="c-k">Field guide to light</span></span>
+<span class="mright"><span class="up"><span class="dot"></span>UP <span class="vv">v2.18.12</span></span><span class="cog"></span><span class="signout">Sign out</span></span></div>
+<div class="c-rule"></div>
+<div class="c-ticks"><button class="oloc" id="orig"></button><button class="gohome" id="gohome" title="Plan from home again" aria-label="Plan from home again"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 10.6 12 4l8.5 6.6"></path><path d="M5.6 12.2V20h12.8v-7.8"></path></svg></button><span class="c-times" id="ctimes"></span></div>
+<div class="field"><span class="ic">◎</span><input type="text" placeholder="Location, region or day" id="inp"><button class="esc" data-act="close">esc</button></div>
+<div class="drop" id="drop"></div></div>
+<div class="tabs"><button class="tab on">◉ Plan</button><button class="tab">Coming up</button><button class="tab">◍ Map</button><button class="tab gate">Operations</button></div>
+<div class="tabrule"></div>
+<div class="sent" id="sent"></div>
+<div class="lens" id="lens">
+<div class="lgrp"><span class="k" id="rk">How far to travel</span><div class="seg" id="reach"></div>
+<span class="stick" id="stick">today only</span><button class="rst" id="rst">Back to 45 min</button></div>
+<div class="lgrp"><span class="k">Rated</span><div class="seg star" id="rate"></div></div>
+<div class="lrow"><span class="k" id="rk2">Drive</span><div class="seg" id="reach2"></div></div>
+<div class="lrow"><span class="k">Rated</span><div class="seg star" id="rate2"></div></div>
+<span class="cnt" id="cnt"></span>
+</div>
+<div class="body">
+<div id="msgs"></div>
+<div class="sumh"><span class="k" id="sumk">The days ahead</span><span class="rule"></span><span class="n" id="sumn"></span></div>
+<div class="hstrip" id="hstrip"></div>
+<div class="sumfoot"><span class="legbar"></span><span>poor → worth it</span><span>later days render hazier — lower confidence</span><span class="sp">Tap a window for its regions, tide and locations</span></div><div class="chgline" id="chgline"></div>
+<div class="chgline beyond" id="beyond"></div>
+</div>
+</div>
+<div class="sheet" id="wsheet"><div class="scrim" data-act="closewin"></div><div class="card wcard" id="wcard"></div></div>
+<div class="sheet" id="sheet"><div class="scrim" data-act="closespot"></div><div class="card" id="card"></div></div>
+</div>
+
+<div class="notes">
+<div class="nt"><b>The verdict belongs on the picture</b><span>A thumbnail carries the day, the arrow, the field, the time, its verdict, whether it is the pick, and any hot topic on that night. That is the whole judgement, so the row underneath had nothing left to say — it was restating the pill in four different ways. Six pictures, six verdicts, no list.</span></div>
+<div class="nt cut"><b>The per-card delta earned nothing</b><span>A <code>▲0.3</code> chip on every card was a third statement of movement: the line under the strip already names the two windows that actually moved, in words, with the region that moved them, and the popup header states it with the run age beside it. Nobody drives somewhere over three tenths of a star, so the card is quieter without it. If that top-right slot wants filling later, the honest candidate is the window's best spot — <em>Bamburgh 5★</em> — not a trend arrow.</span></div>
+<div class="nt"><b>The drill-down is a popup, not a storey</b><span>Region pills, narrative, tide and ranked locations open over the plan rather than pushing it down the page. You come back to exactly the view you left, which the accordion could never promise: opening row four used to move rows five and six.</span></div>
+<div class="nt cut"><b>What this deletes</b><span>The six-row list, the row-level accordion, the second heat map per row, <code>Order · When / Best</code>, and the duplicate postcode. The strip was always chronological, so an order control that only re-ranked the rows had nothing left to re-rank.</span></div>
+<div class="nt"><b>One postcode, in the rule</b><span>The light rule already says <code>Home · DH3 4NG</code> beside today's blue and golden times, so the origin chip below it was saying the same thing twice. Now the tick line <em>is</em> the origin control: it names where the plan is computed from, and it opens search.</span></div>
+<div class="nt"><b>Picking a region swaps words, not furniture</b><span>The prose slot under the pills is always there at the same size — unpicked it reads the window as a whole, picked it reads that region. The panel it replaces appeared on selection and shoved tide and locations down the popup, which made a filter feel like a navigation. Counts stay on the pill, the filters stay in the footer, and the <code>All regions</code> pill is the clear.</span></div>
+<div class="nt"><b>The grade tints the surface</b><span>Following the regional planner, the verdict now washes the whole card rather than sitting in a chip: green for Worth it, amber for Maybe, red-brown for Poor, at around a tenth opacity so it never competes with the field inside it. The word stays in the same column in its grade colour, and the pick is still the border, so three signals coexist without any of them being a badge.</span></div>
+<div class="nt"><b>The pick rides the border, the verdict stays put</b><span>Set inside the card, <code>BEST BET</code> had to fight the verdict word for the same slot and lost — smaller type, same green, and it displaced the verdict entirely. Now it sits in the border line like a legend on a fieldset, so the frame that already marks the card gets named, and all six cards keep a verdict in the same column. Exactly one window is <code>BEST BET</code> and one is <code>ALSO GOOD</code>: a recommendation that fires on half the week is not a recommendation.</span></div>
+<div class="nt"><b>The week is a grid, not a queue</b><span>Four day columns by sunrise and sunset on desktop and iPad; the phone transposes the same markup — day heading across the row, its two windows beneath — and gives a day with only one window the full width. Because every card is stacked, the record has the whole card width, so a name like St Mary's Lighthouse fits on one line. The popup is a centred card on desktop and iPad, and full-screen on phone.</span></div>
+<div class="nt"><b>Two numbers were one number twice</b><span>The average <em>is</em> the verdict word — same figure, rounded to “Worth it” — and a bare ceiling read 5★ on four of six cards, so a two-row table discriminated nothing. In its place, one row that names a place: the best spot you could actually reach, its rating in the ramp colour, and the <code>spread</code> bars beside it — 1★→5★ counts, so a lone spike on the right reads <em>one good spot, drive to it</em> and a right-weighted block reads <em>the whole area is on</em>. Hover the bars for exact counts, or the name for its region, drive and leave-by.</span></div>
+<div class="nt"><b>Topic eligibility is derived, not declared</b><span>A king tide is only true where there is tide, and an inversion needs valleys to pool fog in — so each topic names a location property it <code>needs</code> (<code>coast</code>, <code>lake</code>) and a region qualifies only if it holds a named location with it. Aurora and NLC carry no requirement, because at this latitude the whole planning area sees them or none of it does. The consequence is that <em>moving the origin edits the topic list by itself</em>: plan from the Lake District and the tide topic drops out, with no per-region topic table to maintain. The popup row states the scope and how many regions currently qualify.</span></div>
+<div class="nt"><b>More than one topic on a night</b><span>Every topic is named on the card. A night carrying three — noctilucent season over a king tide with dust in the air — is the most interesting night of the week, so collapsing two of them into <code>+2</code> behind a hover had it backwards, and a phone has no hover at all. The line wraps into the room the card has spare, ordered rarest first: aurora, NLC, king tide, inversion, dust. The popup still carries each one in full with its science note.</span></div>
+<div class="nt"><b>Hot topics ride the window they happen in</b><span>A topic is true of a night, not of a location, so it sits on the picture: <code>✦ NLC</code> on tonight, <code>🌌 Aurora</code> across Wednesday night's pair, <code>☁️ Inversion</code> on Friday's mist. The slot is reserved on every card so a topic-free window doesn't shorten its neighbours, and the popup carries the full row — name, detail, region count, and the science behind the <code>i</code>.</span></div>
+<div class="nt"><b>The field names places, not just areas</b><span>The popup map carries location chips — a square on the point, the name, and that window's rating — so the blob resolves into <em>Bamburgh 5★</em> rather than "somewhere up the coast". They come from the same filtered pool the cards below are ranked from, so the map can never name a spot the list has excluded. Placement is greedy: regions claim space first, then the strongest locations, and a chip that cannot fit is dropped rather than overlapped. Tap one for its four days.</span></div>
+<div class="nt"><b>The field names where you are</b><span>Every reading on a card is measured from <code>DH3 4NG</code>, and until now the picture never showed it. A marker and the four area names turn a warm blob into a bearing — <em>north of me</em>, <em>an hour west</em> — and the popup adds dashed rings at 45 min and 1h 30 so the same field says whether tonight's warmth is reachable tonight.</span></div>
+<div class="nt"><b>Area names, not place names</b><span>Four region names and four location names on one thumbnail is a legend, not a map. The thumbnail answers <em>which part of the country</em>; the card's <code>Best</code> row and the popup's location chips answer <em>where exactly</em>.</span></div>
+<div class="nt"><b>Still one heat kernel</b><span>Thumbnails and the popup field both come from <code>heat-field.js</code> with the same bucketing, fitted to whatever the origin has in scope. Nothing about the field maths changed — the frames are simply taller now that the row list is not competing for the page.</span></div>
+<div class="nt"><b>Open question for the port</b><span>The lens is down to two controls. If reach and rating are the only two, they could move into the tick line beside the postcode and give the plan its whole vertical back — worth trying before the markers get their verdict tokens.</span></div>
+</div>
+
+<div id="loading">loading coastline…</div>
+
+<script src="heat-field.js"></script>
+<script src="plan-data.js"></script>
+<script src="plan-tab-v5.js"></script>
+</body>
+</html>
