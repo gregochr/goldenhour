@@ -5,6 +5,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Fixed — the Plan crash recovery button didn't survive the crash it exists for
+
+`PlanErrorBoundary`'s "Clear cached data and reload" control cleared the app's own
+`localStorage`/`sessionStorage` and reloaded, but never touched the PWA service worker or its
+Cache Storage. A post-deploy `ChunkLoadError` — a stale tab trying to lazy-load a route chunk
+whose hash the new build no longer serves — is caused by that service worker precaching the old
+shell in the first place, so the button's own reload was routed straight back through the same
+worker and re-served the same stale, now-crashing shell. Only a hard reload (which Chromium routes
+around the service worker) actually recovered. New `utils/serviceWorkerReset.js` unregisters every
+service worker registration and empties Cache Storage, fail-soft, before the reload.
+
 ### Fixed — the Coming up handoff row overran the panel's right edge
 
 The Plan handoff strip on the Coming up tab (`NOW — THU 3 … On Plan →`) rendered with no right-hand

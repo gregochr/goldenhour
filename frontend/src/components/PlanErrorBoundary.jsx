@@ -5,6 +5,7 @@ import { clearSwrCache } from '../utils/swrCache.js';
 import { PLAN_REACH_KEY } from '../utils/reachLens.js';
 import { PLAN_RATING_KEY } from '../utils/ratingLens.js';
 import { PLAN_DOORS_KEY } from '../utils/planDoors.js';
+import { purgeServiceWorkerState } from '../utils/serviceWorkerReset.js';
 
 /**
  * Catches a render failure anywhere in the Plan and offers a way out of it.
@@ -37,9 +38,12 @@ import { PLAN_DOORS_KEY } from '../utils/planDoors.js';
  *
  * <p>A plain "Reload" would return a reader whose crash reproduces from persisted state straight
  * back to the same panel — a control whose only effect is itself. "Clear cached data and reload"
- * removes exactly the persisted **selections** that would re-select the same broken render path
- * (see {@code handleClearAndReload} below) and then reloads; "Sign out" ends the session the
- * subtree took down with it. Neither acts on its own — the reader chooses.
+ * removes exactly the persisted **selections** that would re-select the same broken render path,
+ * unregisters the PWA service worker and empties the Cache Storage it owns (see
+ * {@link ../utils/serviceWorkerReset.js} — a post-deploy `ChunkLoadError`, the other headline
+ * reason this subtree crashes, is served BY that worker, so a reload with it left in place lands
+ * back on the exact same stale shell), and then reloads; "Sign out" ends the session the subtree
+ * took down with it. Neither acts on its own — the reader chooses.
  *
  * @param {object}   props
  * @param {React.ReactNode} props.children   the subtree this guards
@@ -90,7 +94,7 @@ class PlanErrorBoundary extends React.Component {
     }
   }
 
-  handleClearAndReload() {
+  async handleClearAndReload() {
     // Not because a malformed key can throw — the readers here are all fail-soft — but because a
     // VALID stored selection re-selects the same render path on every reload, so clearing the
     // hydrated payload cache alone can land the reader straight back in the crash. The auth keys
@@ -105,6 +109,9 @@ class PlanErrorBoundary extends React.Component {
       // control the reader has left, and it must not go silently dead under a storage-denied
       // browser the way an unguarded call here would leave it.
     }
+    // Also fail-soft internally (see serviceWorkerReset.js) — this call must never be the reason
+    // the reload below doesn't happen.
+    await purgeServiceWorkerState();
     const { reload = () => window.location.reload() } = this.props;
     reload();
   }
