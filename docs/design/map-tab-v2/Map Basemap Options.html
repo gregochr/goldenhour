@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PhotoCast — basemap options for the field</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,.66);--ink-3:rgba(242,231,211,.42);--go:#8AAE72;--marginal:#E0A542;--poor:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:24px 20px 60px}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+.hd{max-width:1320px;margin:0 auto 14px}
+.hd .m{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px}
+.hd h1{font-size:20px;font-weight:700;letter-spacing:-.02em}
+.hd p{font-size:13px;color:var(--ink-2);max-width:92ch;margin-top:6px;text-wrap:pretty}
+.hd b{font-weight:600;color:var(--ink)}
+.hd code{font-family:var(--mono);font-size:11.5px;color:#EBD9A8}
+.bar{max-width:1320px;margin:0 auto 10px;display:flex;align-items:center;gap:7px;flex-wrap:wrap;font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.bar .sp{margin-right:auto}
+.bar button{font-family:var(--mono);font-size:10.5px;border:1px solid var(--border);background:var(--surface);color:var(--ink-2);border-radius:7px;padding:6px 11px;cursor:pointer}
+.bar button:hover{border-color:var(--border-light);color:var(--ink)}
+.bar button.on{border-color:rgba(201,162,75,.55);background:rgba(201,162,75,.12);color:#EBD9A8}
+.grid{max-width:1320px;margin:0 auto;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:11px}
+@media(max-width:1000px){.grid{grid-template-columns:1fr 1fr}}
+.opt{border:1px solid var(--border);border-radius:11px;overflow:hidden;background:var(--panel);display:flex;flex-direction:column}
+.opt.pick{border-color:rgba(138,174,114,.55);box-shadow:inset 0 0 0 1px rgba(138,174,114,.3)}
+.oh{display:flex;align-items:baseline;gap:8px;padding:8px 11px 7px;border-bottom:1px solid var(--border);background:var(--surface)}
+.oh .n{font-size:12.5px;font-weight:600;letter-spacing:-.01em}
+.oh .t{font-family:var(--mono);font-size:9px;letter-spacing:.09em;text-transform:uppercase;color:var(--ink-3);margin-left:auto;white-space:nowrap}
+.opt.pick .oh .t{color:#A8C795}
+.mb{position:relative;height:270px;background:#161310}
+.mb .lf{position:absolute;inset:0}
+.mb canvas.hf{position:absolute;inset:0;z-index:410;pointer-events:none}
+.mb .lb{position:absolute;inset:0;z-index:420;pointer-events:none}
+.leaflet-container{background:#161310;font-family:var(--mono)}
+.leaflet-control-attribution{display:none}
+.on2{filter:saturate(.55) sepia(.3) brightness(.94) contrast(1.06)}
+.on3{filter:saturate(.4) sepia(.22) brightness(.86)}
+.loc{position:absolute;display:flex;align-items:center;gap:4px;padding:1px 4px;border-radius:4px;background:rgba(14,11,9,.84);box-shadow:inset 0 0 0 1px var(--border-light),0 2px 6px rgba(0,0,0,.5);font-family:var(--mono);font-size:8.5px;white-space:nowrap}
+.loc i{width:4px;height:4px;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.85)}
+.loc b{font-weight:600;color:var(--ink)}
+.loc em{font-style:normal;font-weight:600;padding-left:3px;border-left:1px solid var(--border-light)}
+.rg2{position:absolute;font-family:var(--mono);font-size:8px;font-weight:600;letter-spacing:.09em;color:rgba(242,231,211,.62);text-shadow:0 1px 3px rgba(0,0,0,.95),0 0 8px rgba(0,0,0,.85);white-space:nowrap}
+.lgt .rg2{color:#2b2320;text-shadow:0 1px 3px rgba(255,255,255,.9),0 0 8px rgba(255,255,255,.75)}
+.lgt .loc{background:rgba(252,249,244,.9);box-shadow:inset 0 0 0 1px rgba(0,0,0,.18),0 2px 6px rgba(0,0,0,.18)}
+.lgt .loc b{color:#221a17}
+.lgt .loc em{border-left-color:rgba(0,0,0,.2)}
+.hm{position:absolute;display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1}
+.hm .mk{width:9px;height:9px;border-radius:50%;border:1.7px solid var(--home);background:rgba(20,15,11,.6);box-shadow:0 0 0 2px rgba(20,15,11,.5),0 0 8px rgba(201,162,75,.5)}
+.hm .lb2{font-family:var(--mono);font-size:7px;font-weight:600;letter-spacing:.13em;color:#EBD9A8;text-shadow:0 1px 3px rgba(0,0,0,.95)}
+.on{padding:9px 11px 11px;font-size:12px;color:var(--ink-2);line-height:1.55;text-wrap:pretty;flex:1}
+.on b{color:var(--ink);font-weight:600}
+.on .v{display:block;font-family:var(--mono);font-size:9.5px;letter-spacing:.04em;margin-top:6px}
+.on .v.up{color:#A8C795}.on .v.dn{color:#E58C7A}
+.notes{max-width:1320px;margin:16px auto 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:8px}
+.nt{border:1px solid var(--border);border-left:3px solid var(--home);border-radius:8px;background:var(--surface);padding:10px 13px}
+.nt b{display:block;font-size:12.5px;font-weight:600;margin-bottom:3px}
+.nt span{font-size:12px;color:var(--ink-2);line-height:1.55;text-wrap:pretty}
+.nt em{font-style:normal;color:var(--ink);font-weight:500}
+.nt code{font-family:var(--mono);font-size:11px;color:#EBD9A8}
+.nt.rec{border-left-color:var(--go)}
+.nt.warn{border-left-color:var(--poor)}
+#load{max-width:1320px;margin:10px auto 0;font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+#load:empty{display:none}
+</style>
+</head>
+<body>
+
+<div class="hd">
+<div class="m">PhotoCast · map tab · basemap</div>
+<h1>Which ground the field should sit on</h1>
+<p>Same field, same locations, same window, six basemaps. All six maps are <b>synced</b> — drag or zoom any one and the rest follow — because the answer changes with scale: a basemap that reads at the regional glance can be useless at the headland you are driving to. The thing to judge is not which map is prettiest on its own but which one <b>disappears</b>: the field is the data, and the ground under it is there to say <em>where</em> and nothing else.</p>
+</div>
+
+<div class="bar"><span class="sp">Synced · drag any map</span>
+<button data-go="54.95,-2.1,7.4" class="on">Regional glance</button>
+<button data-go="55.15,-1.62,9.6">County</button>
+<button data-go="55.6,-1.72,12.2">Headland · Bamburgh</button>
+<button data-go="54.55,-3.15,10.4">Lakes</button>
+</div>
+
+<div class="grid" id="grid"></div>
+<div id="load">loading coastline…</div>
+
+<div class="notes">
+<div class="nt rec"><b>The recommendation</b><span>Stay dark, but change two things. <em>Drop the basemap's own place labels</em> — GLASGOW, Morpeth, Ashington are competing with our location chips for the same pixels, and ours carry a rating the basemap's cannot. And <em>warm the tiles into the palette</em>: the stock dark tiles are neutral blue-grey inside a warm brown UI, so the map currently reads as a third-party component embedded in the app rather than part of it. A CSS filter does it at zero tile cost.</span></div>
+<div class="nt"><b>Why not light</b><span>The field is a translucent warm ramp — red through amber to green. On a light ground the low end of that ramp is the least visible part, which inverts the meaning: <em>poor</em> should be quiet, not invisible, and <em>go</em> should be the thing your eye lands on. A dark ground also lets the field carry the glow that makes a warm blob read as light rather than as a shape. Positron is in the grid so you can see it rather than take my word.</span></div>
+<div class="nt"><b>The case for terrain</b><span>This is the one genuinely open question. A hillshaded dark basemap shows aspect, valleys and the shape of the coast — which is what a landscape photographer is actually reading a map for: does that edge face west, will fog pool in that dale, is there a headland to shoot from. It costs contrast against the field, so it is a real trade rather than a free win.</span></div>
+<div class="nt warn"><b>The provider decision, forced</b><span>The shipped app's attribution says <code>Tiles © Esri</code> while this prototype was on CARTO — and CARTO's no-label styles now return tiles with <code>API KEY REQUIRED</code> drawn into the image, so the one change with the clearest benefit is not available on the current provider without a key. Esri serves the whole set unwatermarked, including the layer the app already credits. That effectively settles it: go where the app already is, and choose deliberately rather than inheriting whichever prototype the code came from.</span></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="https://unpkg.com/d3@7.9.0/dist/d3.min.js" integrity="sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/topojson-client@3.1.0/dist/topojson-client.min.js" integrity="sha384-Ukv1p/xTma6P4/2bY5KzWBw+ydSpXmhCMtyciIQVDJ1RmOxtCYNMF1uXT9T63H67" crossorigin="anonymous"></script>
+<script src="heat-field.js"></script>
+<script src="plan-data.js"></script>
+<script src="basemap-options.js"></script>
+</body>
+</html>
