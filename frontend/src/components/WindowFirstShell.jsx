@@ -1532,6 +1532,7 @@ export default function WindowFirstShell({
               ? (card) => openOverPopup({ sheetKey: card.key })
               : undefined}
             scoreIndex={scoreIndex}
+            colourMode={mapColourScale}
           />
         </Suspense>
       )}

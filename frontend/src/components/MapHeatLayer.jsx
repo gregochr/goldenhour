@@ -8,6 +8,7 @@ import { useMap } from 'react-leaflet';
 import { clamp, drawTiles, radiusFor } from '../utils/heatField.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
+import { getMode } from '../utils/scoreRamp.js';
 
 /**
  * The pane the field is painted into, and its stacking order.
@@ -50,6 +51,16 @@ const RADIUS_MIN_PX = 34;
 const RADIUS_MAX_PX = 240;
 const GRID = 6;
 const BLUR = 4;
+
+/**
+ * The bloom flag for this surface — `docs/design/map-tab-v2/README.md`, "The heat bloom (required
+ * on a dark ground)" table's "Map tab field" row (3.0/190/2.4). No `bloomFrom`/`bloomA`/`bloomBlur`
+ * dial is set here: the kernel's own defaults in `heatField.js` (`field()`'s `bloomFrom`/`bloomA`,
+ * `blitField`'s `bloomBlur`) already ARE that row, so this host asks only for the layer to exist.
+ * `bloomFrom` must stay at 3.0 on every surface regardless — to tame a small surface, cut
+ * `bloomBlur`, never raise the gate.
+ */
+const FIELD_BLOOM = 1;
 
 /**
  * The panes faded with the zoom.
@@ -283,6 +294,11 @@ export default function MapHeatLayer({
       // the haze is a qualifier on a claim, not a claim of its own.
       conf,
       opacity: HEAT_OPACITY * fade.heat,
+      // Bloom only in TEMPERATURE mode (map-tab-v2-plan.md §3 P2, decision D-1): the bloom's whole
+      // rationale is the temp ramp's luminance inversion, and the verdict ramp has none — an ember
+      // glow over a green "go" would be a false signal. In verdict mode this spreads NO keys at
+      // all, not a falsy one, so `drawTiles` sees today's exact options object.
+      ...(getMode() === 'temp' ? { bloom: FIELD_BLOOM } : null),
     });
   // `colourMode` is a REPAINT KEY, not a colour source. The heat kernel paints from
   // `scoreRamp`'s live module state (`heatField.js` -> `rampRgb`), which this callback's other

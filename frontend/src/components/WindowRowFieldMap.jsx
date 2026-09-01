@@ -13,6 +13,7 @@ import { scopeSpots } from '../utils/planOrigin.js';
 import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
+import { getMode } from '../utils/scoreRamp.js';
 
 /**
  * The field's aspect clamps — portrait on desktop, nearly square on a phone.
@@ -43,6 +44,18 @@ const MAP_RADIUS_MIN = 20;
 const MAP_RADIUS_FACTOR = 0.072;
 const MAP_BLUR = 3.6;
 const MAP_LINE = 0.85;
+
+/**
+ * The bloom dials for this surface — `docs/design/map-tab-v2/README.md`, "The heat bloom
+ * (required on a dark ground)" table's "Plan tab popup map" row (170/2.0). `bloomFrom` must stay
+ * at 3.0 on every surface (the gate where the temperature ramp's own luminance peaks — see
+ * `field()`'s comment in `heatField.js`); to tame this surface's glow, cut `bloomBlur` — never
+ * raise the gate.
+ */
+const MAP_BLOOM = 1;
+const MAP_BLOOM_FROM = 3;
+const MAP_BLOOM_A = 170;
+const MAP_BLOOM_BLUR = 2;
 
 /**
  * The measurement floor, sized for this component's own aspect band.
@@ -355,7 +368,7 @@ export default function WindowRowFieldMap({
   windowKey, date, confidence, spots, points, bestRating = null, regionNames, selectedRegion,
   origin = null, chips = EMPTY_CHIPS,
   reachById, todayStr, onSelectRegion, onOpenLocation = null, homePoint = null,
-  reachMeasured = false,
+  reachMeasured = false, colourMode = null,
 }) {
   const isMobile = useIsMobile();
   /**
@@ -487,6 +500,13 @@ export default function WindowRowFieldMap({
       // deliberate rather than as a dimmer version of the unfocused one. Byte-identical, never
       // normalised (`heatSpots.js`), and withheld when no point carries it — see `focusRegion`.
       focus: focusRegion,
+      // Bloom only in TEMPERATURE mode (map-tab-v2-plan.md §3 P2, decision D-1): the bloom's whole
+      // rationale is the temp ramp's luminance inversion, and the verdict ramp has none — an ember
+      // glow over a green "go" would be a false signal. In verdict mode this spreads NO keys at
+      // all, not falsy ones, so `drawGeo` sees today's exact options object.
+      ...(getMode() === 'temp' ? {
+        bloom: MAP_BLOOM, bloomFrom: MAP_BLOOM_FROM, bloomA: MAP_BLOOM_A, bloomBlur: MAP_BLOOM_BLUR,
+      } : null),
     });
     // Three different reasons `drawGeo` returns null (P0's note); none of them leaves a projection
     // worth keeping, and a stale one would answer clicks against geometry no longer on screen.
@@ -547,8 +567,19 @@ export default function WindowRowFieldMap({
     setFrame({
       width, height, labels, chips: anchors, home, rings,
     });
+  // `colourMode` is a REPAINT KEY, not a colour source — the same rule `WindowFirstHeatStrip` and
+  // `MapHeatLayer` state. This map paints through `heatField.js` -> `rampRgb`, which reads
+  // `scoreRamp`'s live module state; when the settings fetch resolves after the first paint, `MODE`
+  // changes with no prop or datum here changing, so a memoised callback would keep the OLD ramp
+  // (and the OLD bloom gate above) on this canvas while everything around it repaints live. Unlike
+  // the strip and the tile host, this component never carried the prop at all until P2 added the
+  // bloom gate — the trap the plan's own §3 P2 warns about.
+    // Referenced so it is a REAL dependency, not a suppressed one: `exhaustive-deps` cannot see
+    // that this callback's colours (and now its bloom options) come from `scoreRamp`'s module
+    // state. `void` makes the dependency honest and keeps the rule on.
+    void colourMode;
   }, [windowKey, date, confidence, points, notScored, fitTo, framed, regionNames, focusRegion,
-    selectedRegion, todayStr, chips, geoByKey, chipCap, hasHomeGeo, homePoint]);
+    selectedRegion, todayStr, chips, geoByKey, chipCap, hasHomeGeo, homePoint, colourMode]);
 
   const { attachFrame, canvasRef, geoFailed } = useHeatCanvas({
     enabled: points.length > 0 || framed.length > 0,
@@ -1026,4 +1057,6 @@ WindowRowFieldMap.propTypes = {
   homePoint: PropTypes.arrayOf(PropTypes.number),
   /** Whether a real drive time gated the reach lens — {@code card.reachMeasured}, never re-derived. */
   reachMeasured: PropTypes.bool,
+  /** The active scoreRamp mode — a repaint key only; see the paint callback's note. */
+  colourMode: PropTypes.oneOf(['temp', 'verdict']),
 };

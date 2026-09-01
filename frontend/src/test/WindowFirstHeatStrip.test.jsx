@@ -1511,6 +1511,40 @@ describe('WindowFirstHeatStrip — the legend', () => {
   });
 });
 
+describe('WindowFirstHeatStrip — the heat bloom (map-tab-v2-plan.md §3 P2)', () => {
+  // MODE is scoreRamp module state — see the legend block's own note above.
+  afterEach(() => {
+    setMode('verdict');
+  });
+
+  it('adds this surface\'s exact bloom dials in temperature mode (README "Plan tab thumbnails" row)', async () => {
+    setMode('temp');
+    await withMeasuredThumbs(160, async () => {
+      await renderStrip();
+    });
+    const opts = drawGeo.mock.calls.at(-1)[5];
+    expect(opts.bloom).toBe(1);
+    expect(opts.bloomFrom).toBe(3);
+    expect(opts.bloomA).toBe(155);
+    expect(opts.bloomBlur).toBe(0.9);
+  });
+
+  it('carries NO bloom keys at all in verdict mode — absence, not a falsy value', async () => {
+    // The verdict ramp has no luminance inversion, so a bloom over it would be a false signal
+    // (plan D-1). `bloom: 0` would still be a key `field()` would read; the options object here
+    // must be identical to today's pre-P2 shape.
+    setMode('verdict');
+    await withMeasuredThumbs(160, async () => {
+      await renderStrip();
+    });
+    const opts = drawGeo.mock.calls.at(-1)[5];
+    expect('bloom' in opts).toBe(false);
+    expect('bloomFrom' in opts).toBe(false);
+    expect('bloomA' in opts).toBe(false);
+    expect('bloomBlur' in opts).toBe(false);
+  });
+});
+
 describe('WindowFirstHeatStrip — the canvases', () => {
   it('hides them from the accessibility tree, because the words are the answer', async () => {
     await renderStrip();

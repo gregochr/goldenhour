@@ -131,6 +131,7 @@ export default function WindowSheetDialog({
   card, index, total, field, topicIndex, scopeNames, todayStr,
   escapeEnabled = true, peeksSuppressed = false,
   onClose, onStep, onOpenSpot, onOpenLocation, onSeeAllSpots, onOpenPick, scoreIndex,
+  colourMode = null,
 }) {
   const windowLabel = [card.kicker, card.when].filter(Boolean).join(' ');
   const treatment = VERDICT_TREATMENT[card.verdict] || VERDICT_TREATMENT.AWAITING;
@@ -532,6 +533,9 @@ export default function WindowSheetDialog({
               // Field-geography plan §5.2: the ring labels' distance-vs-duration choice reads the
               // SAME `card.reachMeasured` the header/footer/strip already do — never re-derived.
               reachMeasured={reachMeasured}
+              // A repaint key only (map-tab-v2-plan.md §3 P2) — see the map's own paint callback
+              // note for why this component needs it and never carried it before.
+              colourMode={colourMode}
             />
             )}
             <div className="wf-wsh-side">
@@ -690,4 +694,6 @@ WindowSheetDialog.propTypes = {
   onSeeAllSpots: PropTypes.func,
   onOpenPick: PropTypes.func,
   scoreIndex: PropTypes.instanceOf(Map),
+  /** The active scoreRamp mode, threaded to `WindowRowFieldMap` as its own repaint key. */
+  colourMode: PropTypes.oneOf(['temp', 'verdict']),
 };
