@@ -143,6 +143,12 @@ fi
 
 # 7.5. CHANGELOG guard, with automatic promotion
 #
+# Release notes arrive from TWO places now: one file per change under changelog.d/
+# (the convention — it exists so two open PRs never conflict on the [Unreleased]
+# line; see changelog.d/README.md) and, for stragglers or history, entries written
+# directly under [Unreleased]. The promotion folds both under the new version
+# heading via scripts/promote-changelog.sh.
+#
 # Without this, [Unreleased] silently accumulates across releases and every set of
 # release notes becomes indistinguishable from the next. That is exactly what happened
 # between v2.15.4 and v2.17.0 — 83 entries across 13 releases piled under one heading,
@@ -188,13 +194,27 @@ fi
 
 UNRELEASED_BODY=$(unreleased_body_at "$TARGET_SHA" || true)
 
-if [[ -n "$UNRELEASED_BODY" ]]; then
-    ENTRY_COUNT=$(printf '%s\n' "$UNRELEASED_BODY" | grep -c '^### ' || true)
+# Entries also arrive as one file per change under changelog.d/ (see its README) —
+# the convention that ended the every-two-PRs-conflict on the [Unreleased] line.
+# Read at the TARGET commit like the body above; the fold itself runs on the working
+# tree, which the target-is-main-HEAD and clean-tree guards make the same content.
+PENDING_AT_TARGET=$(git ls-tree -r --name-only "$TARGET_SHA" -- changelog.d 2>/dev/null | grep -v 'README\.md$' || true)
+
+if [[ -n "$UNRELEASED_BODY" || -n "$PENDING_AT_TARGET" ]]; then
+    DIRECT_COUNT=0
+    if [[ -n "$UNRELEASED_BODY" ]]; then
+        DIRECT_COUNT=$(printf '%s\n' "$UNRELEASED_BODY" | grep -c '^### ' || true)
+    fi
+    PENDING_COUNT=0
+    if [[ -n "$PENDING_AT_TARGET" ]]; then
+        PENDING_COUNT=$(printf '%s\n' "$PENDING_AT_TARGET" | grep -c '.' || true)
+    fi
+    ENTRY_COUNT=$((DIRECT_COUNT + PENDING_COUNT))
     PROMOTE_BRANCH="docs/changelog-v$VERSION"
     TODAY=$(date +%Y-%m-%d)
 
     echo ""
-    echo "CHANGELOG.md has ${ENTRY_COUNT:-0} entr(y/ies) under [Unreleased]."
+    echo "Pending release notes: $PENDING_COUNT changelog.d file(s) + $DIRECT_COUNT direct [Unreleased] entr(y/ies)."
     echo "These must be promoted to v$VERSION before tagging, or they will be"
     echo "attributed to whichever release happens to be cut next."
     echo ""
@@ -282,20 +302,21 @@ if [[ -n "$UNRELEASED_BODY" ]]; then
         else
             echo "Promote by hand instead:"
             echo "  1. git checkout -b $PROMOTE_BRANCH"
-            echo "  2. In CHANGELOG.md, change:  ## [Unreleased]"
-            echo "                          to:  ## [Unreleased]"
-            echo "                               "
-            echo "                               ## [v$VERSION] - $TODAY"
-            echo "  3. Open a PR, merge it, then re-run ./release.sh against the merged commit."
+            echo "  2. ./scripts/promote-changelog.sh $VERSION $TODAY"
+            echo "     (inserts '## [v$VERSION] - $TODAY' below [Unreleased] and folds the"
+            echo "      changelog.d entries beneath it, deleting the folded files)"
+            echo "  3. git add -A -- CHANGELOG.md changelog.d && commit"
+            echo "  4. Open a PR, merge it, then re-run ./release.sh against the merged commit."
         fi
         echo ""
         exit 1
     fi
 
-    echo "Promotion is mechanical: it inserts the single line"
+    echo "Promotion is mechanical: it inserts the line"
     echo "    ## [v$VERSION] - $TODAY"
-    echo "below [Unreleased], changing no entry text, and opens a docs-only PR"
-    echo "with auto-merge enabled."
+    echo "below [Unreleased], folds the changelog.d entries verbatim beneath it"
+    echo "(deleting the folded files), changes no entry text, and opens a"
+    echo "docs-only PR with auto-merge enabled."
     echo ""
     read -p "Promote ${ENTRY_COUNT:-0} entr(y/ies) to v$VERSION now? (y/N): " DO_PROMOTE
     if [[ "$DO_PROMOTE" != "y" && "$DO_PROMOTE" != "Y" ]]; then
@@ -303,21 +324,21 @@ if [[ -n "$UNRELEASED_BODY" ]]; then
         exit 1
     fi
 
-    # From here the script owns a branch, a checkout and a temp file. Any exit before the
-    # final cleanup must put the user back on main rather than stranding them mid-promotion.
+    # From here the script owns a branch and a checkout. Any exit before the final
+    # cleanup must put the user back on main rather than stranding them mid-promotion.
     #
     # INT and TERM as well as EXIT: the longest window here is a 15-minute poll, which is
     # exactly where a Ctrl-C is likely, and that is the worst moment to leave someone on a
     # promotion branch with a half-applied rewrite.
     #
-    # Discarding CHANGELOG.md is safe and is what makes the checkout reliable: step 2
-    # guarantees a clean tree at start-up, so any modification present here is this
-    # script's own mechanical rewrite, and it is regenerable. Unstage first — after
-    # `git add`, `git checkout --` restores from the index and would preserve it.
+    # Discarding CHANGELOG.md and changelog.d/ is safe and is what makes the checkout
+    # reliable: step 2 guarantees a clean tree at start-up, so any modification present
+    # here — the rewritten changelog, the deleted entry files — is the promotion script's
+    # own mechanical work, and it is regenerable. Unstage first — after `git add`,
+    # `git checkout --` restores from the index and would preserve it.
     restore_main() {
-        [[ -n "${PROMOTED:-}" ]] && rm -f "$PROMOTED" 2>/dev/null
-        git reset -q HEAD -- CHANGELOG.md 2>/dev/null || true
-        git checkout -- CHANGELOG.md 2>/dev/null || true
+        git reset -q HEAD -- CHANGELOG.md changelog.d 2>/dev/null || true
+        git checkout -- CHANGELOG.md changelog.d 2>/dev/null || true
         if [[ "$(git rev-parse --abbrev-ref HEAD)" != "main" ]]; then
             git checkout main --quiet 2>/dev/null || true
         fi
@@ -327,44 +348,24 @@ if [[ -n "$UNRELEASED_BODY" ]]; then
 
     git checkout -b "$PROMOTE_BRANCH" --quiet
 
-    PROMOTED=$(mktemp)
-    awk -v ver="$VERSION" -v dt="$TODAY" '
-        { print }
-        !inserted && /^## \[Unreleased\]/ {
-            print ""
-            print "## [v" ver "] - " dt
-            inserted = 1
-        }
-    ' CHANGELOG.md > "$PROMOTED"
-
-    # Prove the rewrite did exactly one thing before committing it. A heading that
-    # failed to insert, or entry text that moved, must not reach a release tag.
-    if ! grep -q "^## \[v$VERSION\] - $TODAY" "$PROMOTED"; then
-        rm -f "$PROMOTED"
-        echo "Error: heading insertion failed — is there a '## [Unreleased]' line?"
-        exit 1
-    fi
-    # `diff` exits 1 when files differ, which is the expected case here — hence `|| true`
-    # on both. grep -c must read its input to completion, so neither pipeline can take
-    # the SIGPIPE-under-pipefail failure documented at the version check below.
-    ADDED=$(diff CHANGELOG.md "$PROMOTED" | grep -c '^> ' || true)
-    REMOVED=$(diff CHANGELOG.md "$PROMOTED" | grep -c '^< ' || true)
-    if [[ "$ADDED" -ne 2 || "$REMOVED" -ne 0 ]]; then
-        rm -f "$PROMOTED"
-        echo "Error: expected exactly 2 added and 0 removed lines, got $ADDED/$REMOVED."
-        echo "Refusing to commit a promotion that changed entry text."
+    # The rewrite, its validation and its prove-it-did-exactly-what-it-built check all
+    # live in the helper (which exits non-zero having changed nothing on any failure) —
+    # separate so it can be tested against fixtures without this script's orchestration.
+    if ! ./scripts/promote-changelog.sh "$VERSION" "$TODAY"; then
+        echo "Error: promotion rewrite failed — nothing committed. See the message above."
         exit 1
     fi
 
-    mv "$PROMOTED" CHANGELOG.md
-    git add CHANGELOG.md
+    # -A: the fold DELETES the changelog.d files it consumed, and deletions need -A to
+    # stage through a pathspec.
+    git add -A -- CHANGELOG.md changelog.d
     git commit --quiet -m "docs: promote [Unreleased] to v$VERSION" \
-        -m "Mechanical: inserts the dated version heading only. No entry text is changed, reordered, or removed."
+        -m "Mechanical: inserts the dated version heading and folds the changelog.d entries verbatim beneath it, deleting the folded files. No entry text is changed."
     git push --quiet -u origin "$PROMOTE_BRANCH"
 
     PR_URL=$(gh pr create --base main --head "$PROMOTE_BRANCH" \
         --title "docs: promote [Unreleased] to v$VERSION" \
-        --body "Promotes ${ENTRY_COUNT:-0} entr(y/ies) under a dated \`## [v$VERSION]\` heading so \`release.sh\` can tag. Opened automatically by \`release.sh\`; the diff is two added lines.")
+        --body "Promotes ${ENTRY_COUNT:-0} entr(y/ies) — $PENDING_COUNT changelog.d file(s) folded verbatim + $DIRECT_COUNT direct — under a dated \`## [v$VERSION]\` heading so \`release.sh\` can tag. Opened automatically by \`release.sh\`; no entry text is changed.")
     echo "Opened $PR_URL"
 
     if ! gh pr merge "$PR_URL" --squash --auto >/dev/null 2>&1; then
@@ -415,6 +416,13 @@ if [[ -n "$UNRELEASED_BODY" ]]; then
 
     if [[ -n "$(unreleased_body_at "$TARGET_SHA" || true)" ]]; then
         echo "Error: [Unreleased] is still non-empty after promotion."
+        echo "Something landed on main mid-promotion. Nothing tagged."
+        exit 1
+    fi
+    LEFTOVER=$(git ls-tree -r --name-only "$TARGET_SHA" -- changelog.d 2>/dev/null | grep -v 'README\.md$' || true)
+    if [[ -n "$LEFTOVER" ]]; then
+        echo "Error: changelog.d/ still holds pending entries after promotion:"
+        printf '%s\n' "$LEFTOVER" | sed 's/^/  /'
         echo "Something landed on main mid-promotion. Nothing tagged."
         exit 1
     fi

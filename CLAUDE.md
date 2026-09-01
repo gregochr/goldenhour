@@ -625,7 +625,7 @@ Conventional commits: `feat:`, `fix:`, `chore:`, `test:`, `docs:`, `refactor:`
 - Never commit `application.yml` — only `application-example.yml`
 - `.gitignore`: `application.yml`, `*.env`, `node_modules/`, `target/`, `backend/data/`, `.claude/`
 - Branch naming: `feature/`, `fix/`, `chore/`
-- Update `CHANGELOG.md` on every meaningful commit
+- Every meaningful commit adds a changelog entry as its **own file**: `changelog.d/YYYYMMDD-<slug>.md`, opening with a `### Category — title` heading (see `changelog.d/README.md`). **Never write under `CHANGELOG.md`'s `[Unreleased]` directly** — that line is where every pair of open PRs used to conflict; `release.sh` folds the entry files into `CHANGELOG.md` at release time
 - **NEVER push to remote** — not even if the user has pushed before. Always wait to be explicitly asked.
 - **NEVER create or delete git tags** — tags mark tested, confirmed releases. Wait for the user to instruct this after real-world testing.
 - **NEVER change assertions in prompt regression tests** (`src/test/java/.../regression/`) — these encode ground-truth expectations against real Claude output and must only be updated by the user.
