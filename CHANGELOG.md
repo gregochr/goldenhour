@@ -28,7 +28,6 @@ shell in the first place, so the button's own reload was routed straight back th
 worker and re-served the same stale, now-crashing shell. Only a hard reload (which Chromium routes
 around the service worker) actually recovered. New `utils/serviceWorkerReset.js` unregisters every
 service worker registration and empties Cache Storage, fail-soft, before the reload.
->>>>>>> origin/main
 
 ### Fixed — the Coming up handoff row overran the panel's right edge
 
