@@ -8,6 +8,7 @@ import { bbox, drawGeo, land, load } from '../utils/heatField.js';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
+import { setMode } from '../utils/scoreRamp.js';
 
 /**
  * The open row's full-width field map.
@@ -214,6 +215,35 @@ describe('WindowRowFieldMap — what it hands the kernel', () => {
     });
   });
 
+  it('repaints when colourMode changes, because it is a REPAINT KEY — the module-global mode + memoised consumer trap (map-tab-v2-plan.md §3 P2)', async () => {
+    // Mirrors `WindowFirstHeatStrip`'s and `MapHeatLayer`'s own "repaints when the selection
+    // changes" shape, above, for the prop this component never carried until P2 added the bloom
+    // gate. Without it in the paint callback's dependency array, a settings fetch resolving after
+    // the first paint would leave this canvas on the OLD ramp (and the OLD bloom gate) while
+    // everything else on the page repaints live.
+    await withMeasuredMap(600, async () => {
+      const { rerender } = render(
+        <WindowRowFieldMap
+          windowKey={KEY} date={TODAY} confidence="high" spots={SPOTS}
+          points={POINTS} regionNames={REGIONS} selectedRegion={null} todayStr={TODAY}
+          colourMode="verdict"
+        />,
+      );
+      await act(async () => {});
+      const before = drawGeo.mock.calls.length;
+      await act(async () => {
+        rerender(
+          <WindowRowFieldMap
+            windowKey={KEY} date={TODAY} confidence="high" spots={SPOTS}
+            points={POINTS} regionNames={REGIONS} selectedRegion={null} todayStr={TODAY}
+            colourMode="temp"
+          />,
+        );
+      });
+      expect(drawGeo.mock.calls.length).toBeGreaterThan(before);
+    });
+  });
+
   it('hazes a low-confidence window more than a high-confidence one', async () => {
     let high;
     await withMeasuredMap(600, async () => {
@@ -240,6 +270,41 @@ describe('WindowRowFieldMap — what it hands the kernel', () => {
     drawGeo.mockClear();
     await withMeasuredMap(57, async () => { await renderMap(); });
     expect(drawGeo).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('WindowRowFieldMap — the heat bloom (map-tab-v2-plan.md §3 P2)', () => {
+  // MODE is scoreRamp module state, not a per-test fixture — a test that switches it and forgets
+  // to undo it leaks into every case that runs after it, in this file or another.
+  afterEach(() => {
+    setMode('verdict');
+  });
+
+  it('adds this surface\'s exact bloom dials in temperature mode (README "Plan tab popup map" row)', async () => {
+    setMode('temp');
+    await withMeasuredMap(600, async () => {
+      await renderMap();
+    });
+    const opts = drawGeo.mock.calls.at(-1)[5];
+    expect(opts.bloom).toBe(1);
+    expect(opts.bloomFrom).toBe(3);
+    expect(opts.bloomA).toBe(170);
+    expect(opts.bloomBlur).toBe(2);
+  });
+
+  it('carries NO bloom keys at all in verdict mode — absence, not a falsy value', async () => {
+    // The verdict ramp has no luminance inversion, so a bloom over it would be a false signal
+    // (plan D-1). `bloom: 0` would still be a key `field()` would read; the options object here
+    // must be identical to today's pre-P2 shape.
+    setMode('verdict');
+    await withMeasuredMap(600, async () => {
+      await renderMap();
+    });
+    const opts = drawGeo.mock.calls.at(-1)[5];
+    expect('bloom' in opts).toBe(false);
+    expect('bloomFrom' in opts).toBe(false);
+    expect('bloomA' in opts).toBe(false);
+    expect('bloomBlur' in opts).toBe(false);
   });
 });
 

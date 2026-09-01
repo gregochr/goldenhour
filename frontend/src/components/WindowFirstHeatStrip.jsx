@@ -12,7 +12,7 @@ import { badgeChannel } from '../utils/windowFirstCards.js';
 import { beyondRegions, GLANCE_MINUTES } from '../utils/planningArea.js';
 import { placeWithNudges } from '../utils/labelPlacement.js';
 import { scopeRegions, scopeSpots } from '../utils/planOrigin.js';
-import { rampGradientCss, rampRgb, rgb } from '../utils/scoreRamp.js';
+import { getMode, rampGradientCss, rampRgb, rgb } from '../utils/scoreRamp.js';
 import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { topMovers } from '../utils/movement.js';
@@ -46,6 +46,18 @@ const THUMB_RADIUS_MIN = 10;
 const THUMB_RADIUS_FACTOR = 0.155;
 const THUMB_BLUR = 2.4;
 const THUMB_LINE = 0.5;
+
+/**
+ * The bloom dials for this surface — `docs/design/map-tab-v2/README.md`, "The heat bloom
+ * (required on a dark ground)" table's "Plan tab thumbnails" row (155/0.9). `bloomFrom` must stay
+ * at 3.0 on every surface (the gate where the temperature ramp's own luminance peaks — see
+ * `field()`'s comment in `heatField.js`); to tame this small surface's glow, `bloomBlur` is cut to
+ * 0.9 — never raise the gate.
+ */
+const THUMB_BLOOM = 1;
+const THUMB_BLOOM_FROM = 3;
+const THUMB_BLOOM_A = 155;
+const THUMB_BLOOM_BLUR = 0.9;
 
 /**
  * The strip's own measurement floor, handed to {@link useHeatCanvas}.
@@ -572,6 +584,16 @@ export default function WindowFirstHeatStrip({
         // so a hatched plate and an unmarked cell can never describe the same window.
         hatch: unscored.has(card.key),
         fit: fitTo,
+        // Bloom only in TEMPERATURE mode (map-tab-v2-plan.md §3 P2, decision D-1): the bloom's
+        // whole rationale is the temp ramp's luminance inversion, and the verdict ramp has none —
+        // an ember glow over a green "go" would be a false signal. In verdict mode this spreads NO
+        // keys at all, not falsy ones, so `drawGeo` sees today's exact options object.
+        ...(getMode() === 'temp' ? {
+          bloom: THUMB_BLOOM,
+          bloomFrom: THUMB_BLOOM_FROM,
+          bloomA: THUMB_BLOOM_A,
+          bloomBlur: THUMB_BLOOM_BLUR,
+        } : null),
       });
       // No projection, no anchors — three different reasons (P0's note on `drawGeo`), none of
       // which leaves geometry worth keeping. Simply absent from `nextFrames`, which is what clears

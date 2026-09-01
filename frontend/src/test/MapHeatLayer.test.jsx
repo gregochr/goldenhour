@@ -27,6 +27,7 @@ vi.mock('../utils/heatField.js', async (importOriginal) => {
 });
 
 import MapHeatLayer, { fadeAt, markersAreInteractive } from '../components/MapHeatLayer.jsx';
+import { setMode } from '../utils/scoreRamp.js';
 
 /**
  * The Leaflet host for the heat field — the pane, the throttle and the handover.
@@ -233,6 +234,36 @@ describe('MapHeatLayer — the paint', () => {
     radiusFor.mockReturnValue(77);
     await mount();
     expect(drawTiles.mock.calls[0][4].radius).toBe(77);
+  });
+});
+
+describe('MapHeatLayer — the heat bloom (map-tab-v2-plan.md §3 P2)', () => {
+  // MODE is scoreRamp module state, not a per-test fixture — a test that switches it and forgets
+  // to undo it leaks into every case that runs after it, in this file or another.
+  afterEach(() => {
+    setMode('verdict');
+  });
+
+  it('adds the bare bloom flag in temperature mode — the kernel defaults already ARE the README\'s Map tab field row (190/2.4/3.0)', async () => {
+    setMode('temp');
+    currentMap = makeMap({ panes: markerPanes() });
+    await mount();
+    expect(drawTiles.mock.calls.at(-1)[4].bloom).toBe(1);
+    // No dial override at this call site — the kernel's own defaults carry the numbers. Key
+    // absence, not a falsy value, matching the verdict-mode test one block below.
+    expect('bloomFrom' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
+    expect('bloomA' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
+    expect('bloomBlur' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
+  });
+
+  it('carries NO bloom key at all in verdict mode — absence, not a falsy value', async () => {
+    // The verdict ramp has no luminance inversion, so a bloom over it would be a false signal
+    // (plan D-1). `bloom: 0` would still be a key `field()` would read; the options object here
+    // must be identical to today's pre-P2 shape.
+    setMode('verdict');
+    currentMap = makeMap({ panes: markerPanes() });
+    await mount();
+    expect('bloom' in drawTiles.mock.calls.at(-1)[4]).toBe(false);
   });
 });
 
