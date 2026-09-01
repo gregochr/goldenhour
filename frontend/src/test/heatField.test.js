@@ -42,7 +42,11 @@ function makeContext() {
   // Snapshot the paint state with every call. `fillStyle`/`strokeStyle`/`lineWidth` are plain
   // properties, so a recorder that stored only the method name could not tell the sea fill from
   // the land plate — and swapping those two defaults renders an inverted map that no assertion
-  // about call ORDER can see.
+  // about call ORDER can see. `globalCompositeOperation`/`filter` join them for P1: the bloom
+  // pass is distinguished from the field draw ONLY by switching to `'lighter'` and a different
+  // blur between two otherwise-identical `drawImage` calls, and a snapshot taken after the fact
+  // (as the two pre-existing `ctx.filter` assertions below do) cannot tell which of several calls
+  // it belonged to.
   const record =
     (name) =>
     (...args) => {
@@ -52,16 +56,21 @@ function makeContext() {
         fillStyle: ctx.fillStyle,
         strokeStyle: ctx.strokeStyle,
         lineWidth: ctx.lineWidth,
+        globalCompositeOperation: ctx.globalCompositeOperation,
+        filter: ctx.filter,
       });
     };
   const ctx = {
     calls,
     filter: 'none',
     globalAlpha: 1,
+    globalCompositeOperation: 'source-over',
     imageSmoothingEnabled: false,
     fillStyle: '',
     strokeStyle: '',
     lineWidth: 0,
+    lineJoin: '',
+    lineCap: '',
     createImageData: (w, h) => ({
       data: new Uint8ClampedArray(w * h * 4),
       width: w,
@@ -69,7 +78,7 @@ function makeContext() {
     }),
   };
   ['putImageData', 'clearRect', 'fillRect', 'save', 'restore', 'drawImage', 'beginPath', 'fill',
-    'stroke', 'clip', 'setTransform', ...PATH_METHODS].forEach((name) => {
+    'stroke', 'clip', 'setTransform', 'translate', ...PATH_METHODS].forEach((name) => {
     ctx[name] = record(name);
   });
   return ctx;
@@ -83,7 +92,15 @@ beforeEach(() => {
   contexts = new WeakMap();
   originalGetContext = HTMLCanvasElement.prototype.getContext;
   HTMLCanvasElement.prototype.getContext = function getContextStub() {
-    if (!contexts.has(this)) contexts.set(this, makeContext());
+    if (!contexts.has(this)) {
+      const ctx = makeContext();
+      // A real `CanvasRenderingContext2D.canvas` is a read-only back-reference to its element.
+      // The soft-mask route (`paint`'s `clipPath` + `clipSoft` branch) reads `ctx.canvas.width`
+      // to size its temp surface, exactly as the design bundle does — without this the stub
+      // context has no `.canvas` at all and that read throws before the mask is ever built.
+      ctx.canvas = this;
+      contexts.set(this, ctx);
+    }
     return contexts.get(this);
   };
   originalDpr = window.devicePixelRatio;
@@ -110,10 +127,14 @@ function contextOf(canvas) {
   return canvas.getContext('2d');
 }
 
-/** Reads one grid cell's RGBA out of a field's ImageData. */
-function cell(f, i, j) {
+/**
+ * Reads one grid cell's RGBA out of a field's ImageData — `img` by default, or `bloomImg` for
+ * the P1 emissive layer (same cell indexing; the bloom grid is sized identically to the field's).
+ */
+function cell(f, i, j, key = 'img') {
   const k = (j * f.cols + i) * 4;
-  return [f.img.data[k], f.img.data[k + 1], f.img.data[k + 2], f.img.data[k + 3]];
+  const data = f[key].data;
+  return [data[k], data[k + 1], data[k + 2], data[k + 3]];
 }
 
 /** Deterministic PRNG — a fixed seed so a failure is reproducible rather than "sometimes". */
@@ -465,6 +486,122 @@ describe('heatField — the kernel', () => {
       expect(cell(f, 50, 20)[3]).toBe(Math.round(0.5808663 * 238));
     });
   });
+
+  describe('bloom', () => {
+    // A single point at distance 0 from the sampled cell: sw = 1 always, so cov is IDENTICAL
+    // (0.5808663) whatever the score is — the only thing that changes across these fixtures is
+    // the blended score `s0`, which isolates the bloom's score-gated `t` term cleanly from the
+    // coverage term it is multiplied by.
+    const OPTS = { radius: 20, grid: 1, bloom: 1 };
+    const at = (sc) => cell(field([{ x: 50, y: 20, sc }], 100, 40, OPTS), 50, 20, 'bloomImg');
+
+    it('is absent from the return shape when opts.bloom is not set', () => {
+      const f = field([{ x: 50, y: 20, sc: 5 }], 100, 40, { radius: 20, grid: 1 });
+      expect(f.bloom).toBeNull();
+      expect(f.bloomImg).toBeNull();
+    });
+
+    it('gains a bloom canvas and a bloomImg ImageData, sized like the main field, when set', () => {
+      const f = field([{ x: 50, y: 20, sc: 5 }], 100, 40, OPTS);
+      expect(f.bloom).toBeInstanceOf(HTMLCanvasElement);
+      expect([f.bloom.width, f.bloom.height]).toEqual([f.cols, f.rows]);
+      expect(f.bloomImg.data).toBeInstanceOf(Uint8ClampedArray);
+    });
+
+    it('transfers the bloom ImageData into its OWN offscreen canvas, distinct from the field\'s', () => {
+      const f = field([{ x: 50, y: 20, sc: 5 }], 100, 40, OPTS);
+      expect(f.bloom).not.toBe(f.canvas);
+      const octx = contextOf(f.bloom);
+      const transfers = octx.calls.filter((c) => c.name === 'putImageData');
+      expect(transfers).toHaveLength(1);
+      expect(transfers[0].args[0]).toBe(f.bloomImg);
+    });
+
+    it('is fully transparent at and below the 3★ gate, at full coverage', () => {
+      expect(at(1)[3]).toBe(0);
+      expect(at(2.9)[3]).toBe(0);
+      expect(at(3)[3]).toBe(0);
+    });
+
+    it('is zero below the gate even where coverage is thin, not just where it is full', () => {
+      // sc=2 (below the gate) at two different distances from the sampled cell (50,20) — d=0
+      // (cov 0.581, the point itself) and d=15 (cov 0.391, visibly thinner but still painted).
+      // Both must be zero: the gate silences the EMBER regardless of how much of the main field
+      // paints there.
+      const near = field([{ x: 50, y: 20, sc: 2 }], 100, 40, OPTS);
+      expect(cell(near, 50, 20)[3]).toBeGreaterThan(0); // the main field DID paint here
+      expect(cell(near, 50, 20, 'bloomImg')[3]).toBe(0);
+      const far = field([{ x: 35, y: 20, sc: 2 }], 100, 40, OPTS);
+      expect(cell(far, 50, 20)[3]).toBeGreaterThan(0);
+      expect(cell(far, 50, 20)[3]).toBeLessThan(cell(near, 50, 20)[3]); // genuinely thinner
+      expect(cell(far, 50, 20, 'bloomImg')[3]).toBe(0);
+    });
+
+    it('climbs from the gate to full strength as the score rises to 5★', () => {
+      // t = ((s−3)/2)^1.2 at each stop, × cov(=0.5808663) × bloomA(=190) × conf(=1).
+      expect(at(3.5)[3]).toBe(21);
+      expect(at(4)[3]).toBe(48);
+      expect(at(4.5)[3]).toBe(78);
+      expect(at(5)[3]).toBe(110);
+      // Monotone, not just these four points — the exponent starts the climb gently.
+      const series = [3, 3.2, 3.5, 3.8, 4, 4.3, 4.6, 5].map((s) => at(s)[3]);
+      for (let i = 1; i < series.length; i += 1) {
+        expect(series[i]).toBeGreaterThanOrEqual(series[i - 1]);
+      }
+      expect(series[series.length - 1]).toBeGreaterThan(series[0]);
+    });
+
+    it('paints the ember RGB [255,138,66] wherever it paints anything, regardless of score', () => {
+      expect(at(4).slice(0, 3)).toEqual([255, 138, 66]);
+      expect(at(5).slice(0, 3)).toEqual([255, 138, 66]);
+    });
+
+    it('shifts the gate with opts.bloomFrom instead of the fixed default of 3', () => {
+      const gated = (sc) => cell(
+        field([{ x: 50, y: 20, sc }], 100, 40, { ...OPTS, bloomFrom: 4 }),
+        50, 20, 'bloomImg',
+      );
+      expect(gated(3.5)[3]).toBe(0); // below the raised gate now
+      expect(gated(4)[3]).toBe(0); // AT the gate — t is still 0
+      expect(gated(5)[3]).toBe(110); // t=1 at the top regardless of where the gate sits
+    });
+
+    it('scales linearly with opts.bloomA, the strength dial', () => {
+      const weak = cell(field([{ x: 50, y: 20, sc: 5 }], 100, 40, { ...OPTS, bloomA: 95 }), 50, 20, 'bloomImg');
+      expect(weak[3]).toBe(55); // half of 110, since bloomA halved and t=cov=1× unchanged
+    });
+
+    it('honours an explicit bloomA:0 (fully off) rather than falling back to the 190 default', () => {
+      // `opts.bloomA == null ? 190 : opts.bloomA` is the contract; regressing it to the bundle's
+      // `opts.bloomA || 190` would make 0 indistinguishable from "not given", and every other
+      // bloomA fixture in this file uses a non-zero value so only this one can catch that.
+      const off = cell(field([{ x: 50, y: 20, sc: 5 }], 100, 40, { ...OPTS, bloomA: 0 }), 50, 20, 'bloomImg');
+      expect(off[3]).toBe(0);
+    });
+
+    it('honours an explicit bloomFrom:0 (gate at the bottom of the ramp) rather than falling back to 3', () => {
+      // `opts.bloomFrom == null ? 3 : opts.bloomFrom` is the contract; `||` would treat an
+      // explicit 0 the same as "not given" and silently restore the default 3★ gate. With the
+      // gate at 0, even the coldest possible score (1★) sits above it and must glow at least a
+      // little — the fixed-gate tests above only ever raise or leave the gate, never zero it.
+      const gated = cell(field([{ x: 50, y: 20, sc: 1 }], 100, 40, { ...OPTS, bloomFrom: 0 }), 50, 20, 'bloomImg');
+      expect(gated[3]).toBeGreaterThan(0);
+    });
+
+    it('multiplies by confidence — a day-4 guess must not glow like tonight', () => {
+      const half = cell(field([{ x: 50, y: 20, sc: 5 }], 100, 40, { ...OPTS, conf: 0.5 }), 50, 20, 'bloomImg');
+      const none = cell(field([{ x: 50, y: 20, sc: 5 }], 100, 40, { ...OPTS, conf: 0 }), 50, 20, 'bloomImg');
+      expect(half[3]).toBe(55); // 110 × 0.5
+      expect(none[3]).toBe(0); // 110 × 0
+    });
+
+    it('is never allocated for an empty point set — field() returns null first', () => {
+      // This is the hatch/bloom non-interaction the plan calls out: a window with no ratings
+      // returns null before `opts.bloom` is ever inspected, so a hatched, unscored window can
+      // never carry a bloom layer either.
+      expect(field([], 100, 40, OPTS)).toBeNull();
+    });
+  });
 });
 
 describe('heatField — paint', () => {
@@ -513,6 +650,275 @@ describe('heatField — paint', () => {
     const { ctx } = canvasWithContext();
     expect(paint(ctx, 100, 40, [], { radius: 20 })).toBeNull();
     expect(ctx.calls).toEqual([]);
+  });
+});
+
+describe('heatField — paint (bloom pass)', () => {
+  it('draws the field, switches to \'lighter\' for the bloom pass, then restores — no extra clip/save', () => {
+    const { ctx } = canvasWithContext();
+    const f = paint(ctx, 100, 40, [{ x: 50, y: 20, sc: 5 }], { radius: 20, grid: 4, bloom: 1 });
+    expect(f.bloom).not.toBeNull();
+    expect(callNames(ctx)).toEqual(['save', 'drawImage', 'drawImage', 'restore']);
+    const draws = ctx.calls.filter((c) => c.name === 'drawImage');
+    expect(draws[0].globalCompositeOperation).toBe('source-over'); // the field itself
+    expect(draws[0].args[0]).toBe(f.canvas);
+    expect(draws[1].globalCompositeOperation).toBe('lighter'); // the emissive pass, second
+    expect(draws[1].args[0]).toBe(f.bloom);
+  });
+
+  it('draws only one drawImage call when opts.bloom is absent, even though field() still runs', () => {
+    const { ctx } = canvasWithContext();
+    paint(ctx, 100, 40, [{ x: 50, y: 20, sc: 5 }], { radius: 20, grid: 4 });
+    expect(ctx.calls.filter((c) => c.name === 'drawImage')).toHaveLength(1);
+  });
+
+  it('sets the bloom blur to blur × bloomBlur (default 2.4) plus 3px per unit of uncertainty', () => {
+    const { ctx } = canvasWithContext();
+    const pts = [{ x: 50, y: 20, sc: 5 }];
+    paint(ctx, 100, 40, pts, { radius: 20, grid: 4, bloom: 1 });
+    const [, bloomDraw] = ctx.calls.filter((c) => c.name === 'drawImage');
+    // 3 × 2.4, conf defaults to 1 (unc 0) — computed rather than hand-typed, since 3 × 2.4 is not
+    // exactly representable in binary floating point (7.199999999999999).
+    expect(bloomDraw.filter).toBe(`blur(${3 * 2.4}px)`);
+
+    const { ctx: ctx2 } = canvasWithContext();
+    paint(ctx2, 100, 40, pts, {
+      radius: 20, grid: 4, bloom: 1, bloomBlur: 1, conf: 0.5,
+    });
+    const [, bloomDraw2] = ctx2.calls.filter((c) => c.name === 'drawImage');
+    expect(bloomDraw2.filter).toBe('blur(4.5px)'); // 3 × 1 + 0.5 × 3
+
+    const { ctx: ctx3 } = canvasWithContext();
+    paint(ctx3, 100, 40, pts, { radius: 20, grid: 4, blur: 2, bloom: 1 });
+    const [fieldDraw3, bloomDraw3] = ctx3.calls.filter((c) => c.name === 'drawImage');
+    expect(fieldDraw3.filter).toBe('blur(2px)'); // the field's own blur is untouched by bloomBlur
+    expect(bloomDraw3.filter).toBe('blur(4.8px)'); // 2 × 2.4
+  });
+
+  it('honours an explicit bloomBlur:0 rather than falling back to the 2.4 default', () => {
+    // `opts.bloomBlur == null ? 2.4 : opts.bloomBlur` is the contract; regressing it to the
+    // bundle's `opts.bloomBlur || 2.4` would make 0 indistinguishable from "not given" and this
+    // is the only test that can tell the two apart, since every other bloomBlur fixture uses a
+    // non-zero value.
+    const { ctx } = canvasWithContext();
+    paint(ctx, 100, 40, [{ x: 50, y: 20, sc: 5 }], {
+      radius: 20, grid: 4, bloom: 1, bloomBlur: 0,
+    });
+    const [, bloomDraw] = ctx.calls.filter((c) => c.name === 'drawImage');
+    expect(bloomDraw.filter).toBe('blur(0px)'); // 3 × 0 + 0 (conf defaults to 1, unc 0)
+  });
+
+  it('leaves the field draw itself at globalCompositeOperation source-over', () => {
+    // The bloom pass switches the CONTEXT to 'lighter' after the field is already drawn — a
+    // regression that set it before the field draw would light the field additively too.
+    const { ctx } = canvasWithContext();
+    paint(ctx, 100, 40, [{ x: 50, y: 20, sc: 5 }], { radius: 20, grid: 4, bloom: 1 });
+    const [fieldDraw] = ctx.calls.filter((c) => c.name === 'drawImage');
+    expect(fieldDraw.globalCompositeOperation).toBe('source-over');
+  });
+
+  it('composes inside the same save/restore as a plain clip callback — the bloom pass is not a second layer', () => {
+    const { ctx } = canvasWithContext();
+    const clip = vi.fn();
+    paint(ctx, 100, 40, [{ x: 50, y: 20, sc: 5 }], { radius: 20, grid: 4, bloom: 1, clip });
+    expect(callNames(ctx)).toEqual(['save', 'beginPath', 'clip', 'drawImage', 'drawImage', 'restore']);
+  });
+});
+
+describe('heatField — paint (soft mask: clipPath + clipSoft)', () => {
+  const CLIP_PATH = { sentinel: 'opaque-clip-path-stub' };
+
+  function targetContext(w, h) {
+    const cv = document.createElement('canvas');
+    cv.width = w;
+    cv.height = h;
+    return cv.getContext('2d');
+  }
+
+  it('renders field+bloom to a temp surface, composes the mask on its OWN surface, and applies a SINGLE destination-in draw to the target', () => {
+    const ctx = targetContext(100, 40);
+    const f = paint(ctx, 100, 40, [{ x: 50, y: 20, sc: 5 }], {
+      radius: 20, grid: 4, bloom: 1, clipPath: CLIP_PATH, clipSoft: 4, clipGrow: 3,
+    });
+    expect(f).not.toBeNull();
+
+    // The TARGET context only ever receives the finished temp surface: one save, one drawImage,
+    // one restore — never a clip call of its own, and never the mask canvas directly.
+    expect(callNames(ctx)).toEqual(['save', 'drawImage', 'restore']);
+    const finalDraw = ctx.calls[1];
+    expect(finalDraw.globalCompositeOperation).toBe('source-over');
+    const tempCanvas = finalDraw.args[0];
+    expect(tempCanvas).toBeInstanceOf(HTMLCanvasElement);
+
+    // The temp surface: field blit (source-over), bloom blit (lighter), then the mask applied via
+    // ONE destination-in draw — never two composite draws with destination-in already active,
+    // which would intersect rather than union.
+    const tc = contextOf(tempCanvas);
+    const tcDraws = tc.calls.filter((c) => c.name === 'drawImage');
+    expect(tcDraws).toHaveLength(3);
+    expect(tcDraws[0].globalCompositeOperation).toBe('source-over'); // field
+    expect(tcDraws[1].globalCompositeOperation).toBe('lighter'); // bloom
+    expect(tcDraws[2].globalCompositeOperation).toBe('destination-in'); // the mask, once
+
+    const maskCanvas = tcDraws[2].args[0];
+    expect(maskCanvas).toBeInstanceOf(HTMLCanvasElement);
+    expect(maskCanvas).not.toBe(tempCanvas); // composed on its OWN surface, never in place
+
+    // The mask surface itself draws in plain source-over — it never sees destination-in — and
+    // hands the caller's clipPath opaquely to fill/stroke, never constructing or introspecting it
+    // (jsdom 30 has no Path2D at all, so this sentinel stands in for one).
+    const mc = contextOf(maskCanvas);
+    expect(mc.calls.map((c) => c.name)).toEqual(['setTransform', 'translate', 'stroke', 'fill']);
+    expect(mc.calls.every((c) => c.globalCompositeOperation === 'source-over')).toBe(true);
+    const strokeCall = mc.calls.find((c) => c.name === 'stroke');
+    expect(strokeCall.args[0]).toBe(CLIP_PATH);
+    // clipGrow:3 dilates by stroking a band TWICE as wide — halving this constant would erase
+    // 7 of 51 coastal locations in P4 with the suite still green, per the plan's own measurement.
+    expect(strokeCall.lineWidth).toBe(6);
+    expect(mc.lineJoin).toBe('round');
+    expect(mc.lineCap).toBe('round');
+    const fillCall = mc.calls.find((c) => c.name === 'fill');
+    expect(fillCall.args[0]).toBe(CLIP_PATH);
+    // clipSoft:4 — the mask blurs by the SAME px the field's own blur uses, so the coastline
+    // feathers at the same rate the field does; asserted here (not just in the blur-only test
+    // below) because this is the fixture that also exercises the dilation stroke.
+    expect(fillCall.filter).toBe('blur(4px)');
+  });
+
+  it('sizes off the DEVICE-PIXEL backing store, not the CSS w/h — the DPR>1 case fit() produces', () => {
+    // Every other soft-mask test in this file runs at the degenerate scale sx=1 (backing store
+    // === CSS size, via `targetContext`'s cv.width = w). At that scale, deleting the temp/mask
+    // surfaces' device-px sizing, either setTransform(sx,...) call, the identity reset before the
+    // destination-in draw, or the final downscaling drawImage all survive with the suite green —
+    // exactly the class of regression that would misalign P4's land mask on any real DPR>1
+    // display. This fixture pins the DPR-2 case fit() actually produces: a backing store twice
+    // the CSS w/h paint() is called with.
+    const cv = document.createElement('canvas');
+    cv.width = 200; // 2× the CSS width below
+    cv.height = 80; // 2× the CSS height below
+    const ctx = cv.getContext('2d');
+    const w = 100;
+    const h = 40;
+    paint(ctx, w, h, [{ x: 50, y: 20, sc: 5 }], {
+      radius: 20, grid: 4, clipPath: CLIP_PATH, clipSoft: 4,
+    });
+
+    const finalDraw = ctx.calls.find((c) => c.name === 'drawImage');
+    const tempCanvas = finalDraw.args[0];
+    // The temp surface is allocated at the BACKING-STORE size, not the CSS size — sized 100×40
+    // here would silently downsample a DPR-2 field before it was ever masked.
+    expect(tempCanvas.width).toBe(200);
+    expect(tempCanvas.height).toBe(80);
+
+    const tc = contextOf(tempCanvas);
+    const tcTransforms = tc.calls.filter((c) => c.name === 'setTransform');
+    // The FIRST setTransform on the temp surface scales it up to device pixels (sx = 200/100 = 2)
+    // before the field is blitted into it.
+    expect(tcTransforms[0].args).toEqual([2, 0, 0, 2, 0, 0]);
+    // The LAST setTransform on the temp surface, immediately before the destination-in mask
+    // draw, resets to the identity — the mask canvas is already at device-px size, so drawing it
+    // through a still-2× transform would double-scale it.
+    expect(tcTransforms[tcTransforms.length - 1].args).toEqual([1, 0, 0, 1, 0, 0]);
+
+    const maskDraw = tc.calls.find(
+      (c) => c.name === 'drawImage' && c.globalCompositeOperation === 'destination-in',
+    );
+    const maskCanvas = maskDraw.args[0];
+    // The mask surface is allocated at the SAME backing-store size as the temp surface — a
+    // mismatched size would misalign the mask against the field it is meant to clip.
+    expect(maskCanvas.width).toBe(200);
+    expect(maskCanvas.height).toBe(80);
+    const mc = contextOf(maskCanvas);
+    // The mask surface's own setTransform matches the temp surface's first — both are scaling
+    // the SAME clipPath into the SAME device-px space.
+    expect(mc.calls.find((c) => c.name === 'setTransform').args).toEqual([2, 0, 0, 2, 0, 0]);
+
+    // The final draw onto the TARGET context downscales the finished (device-px) temp surface
+    // back to CSS px — dropping this is invisible at sx=1 but would double the field's size on
+    // any real DPR>1 display.
+    expect(finalDraw.args).toEqual([tempCanvas, 0, 0, w, h]);
+  });
+
+  it('skips the dilation stroke when clipGrow is absent — fill-only mask, still a single destination-in', () => {
+    const ctx = targetContext(100, 40);
+    paint(ctx, 100, 40, [{ x: 50, y: 20, sc: 5 }], {
+      radius: 20, grid: 4, clipPath: CLIP_PATH, clipSoft: 2,
+    });
+    const tempCanvas = ctx.calls.find((c) => c.name === 'drawImage').args[0];
+    const tc = contextOf(tempCanvas);
+    const maskCanvas = tc.calls.find((c) => c.name === 'drawImage'
+      && c.globalCompositeOperation === 'destination-in').args[0];
+    const mc = contextOf(maskCanvas);
+    expect(mc.calls.map((c) => c.name)).toEqual(['setTransform', 'translate', 'fill']);
+  });
+
+  it('blurs the mask by clipSoft px, so the boundary feathers at the same rate as the field', () => {
+    const ctx = targetContext(100, 40);
+    paint(ctx, 100, 40, [{ x: 50, y: 20, sc: 5 }], {
+      radius: 20, grid: 4, clipPath: CLIP_PATH, clipSoft: 7,
+    });
+    const tempCanvas = ctx.calls.find((c) => c.name === 'drawImage').args[0];
+    const tc = contextOf(tempCanvas);
+    const maskCanvas = tc.calls.find((c) => c.name === 'drawImage'
+      && c.globalCompositeOperation === 'destination-in').args[0];
+    const mc = contextOf(maskCanvas);
+    expect(mc.calls.find((c) => c.name === 'fill').filter).toBe('blur(7px)');
+  });
+
+  it('slides the mask by clipDx/clipDy before drawing it, defaulting to no offset', () => {
+    const ctx = targetContext(100, 40);
+    paint(ctx, 100, 40, [{ x: 50, y: 20, sc: 5 }], {
+      radius: 20, grid: 4, clipPath: CLIP_PATH, clipSoft: 2, clipDx: 6, clipDy: -9,
+    });
+    const tempCanvas = ctx.calls.find((c) => c.name === 'drawImage').args[0];
+    const tc = contextOf(tempCanvas);
+    const maskCanvas = tc.calls.find((c) => c.name === 'drawImage'
+      && c.globalCompositeOperation === 'destination-in').args[0];
+    const mc = contextOf(maskCanvas);
+    expect(mc.calls.find((c) => c.name === 'translate').args).toEqual([6, -9]);
+  });
+
+  it('falls through to the hard-clip route when clipSoft is absent — clipPath alone takes the other branch', () => {
+    const ctx = targetContext(100, 40);
+    paint(ctx, 100, 40, [{ x: 50, y: 20, sc: 5 }], { radius: 20, grid: 4, clipPath: CLIP_PATH });
+    // The hard-clip route never creates a temp surface — its only drawImage is the field itself,
+    // straight onto the target context, bracketed by the translate/clip/untranslate sequence
+    // (dx/dy default to 0, but the calls still happen — see the hard-clip describe block below).
+    expect(callNames(ctx)).toEqual(['save', 'translate', 'clip', 'translate', 'drawImage', 'restore']);
+  });
+});
+
+describe('heatField — paint (hard clip: clipPath alone)', () => {
+  it('clips via ctx.clip(clipPath) inside a translate/untranslate pair, treating clipPath opaquely', () => {
+    const { ctx } = canvasWithContext();
+    const CLIP_PATH = { sentinel: true };
+    paint(ctx, 100, 40, [{ x: 50, y: 20, sc: 4 }], {
+      radius: 20, grid: 4, clipPath: CLIP_PATH, clipDx: 5, clipDy: -3,
+    });
+    expect(callNames(ctx)).toEqual(['save', 'translate', 'clip', 'translate', 'drawImage', 'restore']);
+    const [t1, clipCall, t2] = ctx.calls.filter((c) => c.name === 'translate' || c.name === 'clip');
+    expect(t1.args).toEqual([5, -3]);
+    expect(clipCall.args[0]).toBe(CLIP_PATH); // handed opaquely — never constructed or introspected
+    expect(t2.args).toEqual([-5, 3]); // untranslated back before the field draws
+  });
+
+  it('defaults clipDx/clipDy to 0 when absent', () => {
+    const { ctx } = canvasWithContext();
+    paint(ctx, 100, 40, [{ x: 50, y: 20, sc: 4 }], { radius: 20, grid: 4, clipPath: {} });
+    const translates = ctx.calls.filter((c) => c.name === 'translate');
+    // The untranslate is `-dx, -dy`, which for a 0 default is negative zero in IEEE 754 — still
+    // zero-valued, so flatten the sign before comparing rather than pin an incidental -0/+0 split.
+    expect(translates.map((c) => c.args.map((v) => v + 0))).toEqual([[0, 0], [0, 0]]);
+  });
+
+  it('takes clipPath over a plain clip callback when both are somehow given', () => {
+    const { ctx } = canvasWithContext();
+    const clip = vi.fn();
+    paint(ctx, 100, 40, [{ x: 50, y: 20, sc: 4 }], {
+      radius: 20, grid: 4, clipPath: {}, clip,
+    });
+    expect(clip).not.toHaveBeenCalled();
+    expect(callNames(ctx)).toContain('translate');
   });
 });
 
@@ -1122,5 +1528,41 @@ describe('heatField — drawTiles (host B: over a Leaflet basemap)', () => {
     const far = [{ lat: 20, lng: 40, r: [4], rid: 'north' }];
     const { cv } = canvasWithContext();
     expect(drawTiles(cv, fakeMap(300, 200), far, 0, { radius: 40, grid: 6 })).toBeNull();
+  });
+
+  describe('opts.score', () => {
+    // Same single spot the "reads each spot's score" test above already pins at cell (8, 25) —
+    // its r[0] is deliberately a LOW score so a callback that scores it differently is visible.
+    const SPOT = [{ lat: 54.5, lng: -2.5, r: [1], rid: 'north', nightRating: 5 }];
+    const at = (f, i, j) => {
+      const k = (j * f.cols + i) * 4;
+      return [f.img.data[k], f.img.data[k + 1], f.img.data[k + 2]];
+    };
+
+    it('scores through the callback instead of s.r[win] when one is given', () => {
+      const f = drawTiles(canvasWithContext().cv, fakeMap(300, 200), SPOT, 0, {
+        radius: 40, grid: 6, score: (s) => s.nightRating,
+      });
+      // r[0] is 1 (cold); the callback reads nightRating, 5 (hot) — proving the callback ran and
+      // not just that SOME score was used.
+      expect(at(f, 8, 25)).toEqual(rampRgb(5));
+    });
+
+    it('lets a host score a location not present in r[] at all — the astro/aurora night-row case', () => {
+      const nightOnly = [{ lat: 54.5, lng: -2.5, r: [], rid: 'north', nightRating: 4 }];
+      const f = drawTiles(canvasWithContext().cv, fakeMap(300, 200), nightOnly, 0, {
+        radius: 40, grid: 6, score: (s) => s.nightRating,
+      });
+      // r[0] would be undefined here — a default s.r[win] read gives NaN, which would render as
+      // the ramp's bottom clamp, not this location's actual 4★ night rating.
+      expect(at(f, 8, 25)).toEqual(rampRgb(4));
+    });
+
+    it('falls back to s.r[win] — the existing behaviour — when no score callback is given', () => {
+      const f = drawTiles(canvasWithContext().cv, fakeMap(300, 200), SPOT, 0, {
+        radius: 40, grid: 6,
+      });
+      expect(at(f, 8, 25)).toEqual(rampRgb(1));
+    });
   });
 });

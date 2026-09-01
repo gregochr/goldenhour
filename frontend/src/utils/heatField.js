@@ -1,14 +1,21 @@
 /**
  * The heat field — ONE field kernel, two hosts.
  *
- * <p>Ported from the design bundle's `docs/design/heat-map/heat-field.js`, close to as-is. The
- * algorithm is load-bearing and the deviations are enumerated in `docs/engineering/heat-field-plan.md`
- * §4.1: ES module exports instead of a `window.HeatField` IIFE, inline `mean` instead of a
- * `d3-array` import (three call sites, in `aspect` and `centroid`), real
- * `d3-geo`/`topojson-client` dependencies, a vendored
- * topology instead of a CDN fetch, `field()` additionally returning its `ImageData` so tests can
- * assert cell values, and the colour ramp living in `scoreRamp.js` so the canvas and the CSS
- * cannot drift. Nothing else changed — in particular no arithmetic did.
+ * <p>The base port is from the design bundle's `docs/design/heat-map/heat-field.js`, close to
+ * as-is. The algorithm is load-bearing and the deviations are enumerated in
+ * `docs/engineering/heat-field-plan.md` §4.1: ES module exports instead of a `window.HeatField`
+ * IIFE, inline `mean` instead of a `d3-array` import (three call sites, in `aspect` and
+ * `centroid`), real `d3-geo`/`topojson-client` dependencies, a vendored topology instead of a CDN
+ * fetch, `field()` additionally returning its `ImageData` so tests can assert cell values, and the
+ * colour ramp living in `scoreRamp.js` so the canvas and the CSS cannot drift. Nothing else
+ * changed in that base port — in particular no arithmetic did.
+ *
+ * <p>The bloom, soft-mask and `drawTiles` score-callback delta is forward-ported separately, from
+ * the Map tab v2 bundle's own `docs/design/map-tab-v2/heat-field.js`, per
+ * `docs/engineering/map-tab-v2-plan.md` §3 P1 — that plan section is this delta's own deviation
+ * ledger (notably: `field()` additionally returns `bloomImg` alongside `bloom`, the same reason
+ * the base port added `img`; and `paint()`'s `bloomBlur` honours an explicit `0` where the
+ * bundle's `opts.bloomBlur||2.4` would not).
  *
  * <p>The kernel ({@link field}, {@link paint}) knows nothing about maps: give it screen-space
  * points and it returns the blended score field. The geo host ({@link drawGeo}) projects with
@@ -64,12 +71,23 @@ export { rgb };
  * <p>`conf` 0–1 is forecast confidence: lower desaturates and thins, so a day-4 guess cannot look
  * as authoritative as tonight. `focus` fades every other region almost to nothing.
  *
+ * <p>`opts.bloom` builds a second, optional emissive layer keyed to SCORE rather than to the
+ * ramp colour's own luminance. The temperature ramp ({@link STOPS_TEMP} in `scoreRamp.js`) peaks
+ * in luminance at the gold 3★ and its hot end is its darkest colour, so on a dark basemap
+ * luminance contrast ranks the middle highest and the ordering inverts — see the design bundle's
+ * README, "The heat bloom (required on a dark ground)". No blend mode fixes that: `screen` and
+ * `lighter` are both monotonic in source luminance, so a dark red can never outrank a light gold
+ * under them. A separate layer whose alpha rises with the blended score can, and it leaves the
+ * frozen ramp stops alone.
+ *
  * @param {Array<{x: number, y: number, sc: number, rid: *}>} pts points in CSS px of the target surface
  * @param {number} w  surface width in CSS px
  * @param {number} h  surface height in CSS px
- * @param {{radius?: number, grid?: number, conf?: number, focus?: *, alpha?: number}} [opts] dials
- * @returns {{canvas: HTMLCanvasElement, cols: number, rows: number, gp: number, n: number,
- *           unc: number, img: ImageData}|null} the field, or null when nothing can contribute
+ * @param {{radius?: number, grid?: number, conf?: number, focus?: *, alpha?: number, bloom?: *,
+ *          bloomFrom?: number, bloomA?: number}} [opts] dials
+ * @returns {{canvas: HTMLCanvasElement, bloom: HTMLCanvasElement|null, cols: number, rows: number,
+ *           gp: number, n: number, unc: number, img: ImageData,
+ *           bloomImg: ImageData|null}|null} the field, or null when nothing can contribute
  */
 export function field(pts, w, h, opts) {
   opts = opts || {};
@@ -111,6 +129,10 @@ export function field(pts, w, h, opts) {
   off.height = rows;
   const octx = off.getContext('2d');
   const img = octx.createImageData(cols, rows);
+  // Optional emissive layer — see this function's own doc comment for why it exists. Allocated
+  // only on request: every non-bloom surface (still most of them, until P2 flips the call sites)
+  // must not pay for a second ImageData it never reads.
+  const bl = opts.bloom ? octx.createImageData(cols, rows) : null;
   const aMax = (opts.alpha == null ? 206 : opts.alpha) * (1 - 0.34 * unc);
   for (let j = 0; j < rows; j += 1) {
     for (let i = 0; i < cols; i += 1) {
@@ -144,7 +166,8 @@ export function field(pts, w, h, opts) {
         img.data[k + 3] = 0;
         continue;
       }
-      let c = rampRgb(sws / sw);
+      const s0 = sws / sw;
+      let c = rampRgb(s0);
       /* coverage clamp: warmth only where locations actually are, so empty ground stays empty
          instead of being coloured in by interpolation from thirty miles away */
       const cov = 1 - Math.exp(-sw / 1.15);
@@ -157,36 +180,169 @@ export function field(pts, w, h, opts) {
       img.data[k + 1] = c[1];
       img.data[k + 2] = c[2];
       img.data[k + 3] = Math.round(clamp(cov, 0, 1) * aMax);
+      if (bl) {
+        /* The gate MUST stay at 3★ on every surface — where the ramp's own luminance peaks (see
+           this function's doc comment and the design bundle README, "The heat bloom"). Any higher
+           gate leaves a DEAD BAND between 3★ and the gate in which the ramp is already darkening
+           and the bloom contributes nothing, which reintroduces the exact inversion the bloom
+           exists to remove. To stop a small surface washing out, cut `bloomBlur` in {@link paint}
+           (which keeps the glow on the hot cores) — never raise the gate or drop the strength.
+           Exponent 1.2 starts the climb gently so a 3.2★ does not glow.
+
+           The bundle disagrees with itself on the size of that dead band: this kernel's own
+           source comment (`docs/design/map-tab-v2/heat-field.js`) says a 3.7 gate put 3★ and 5★
+           "0.2 luminance apart"; the bundle's README ("The heat bloom (required on a dark
+           ground)") measures the same scenario at "0.9". Carrying the README's 0.9 here — the
+           README is the bundle's measured reference table, the kernel comment an inline aside —
+           and recording the kernel comment's variance so a reviewer doesn't flag this as a
+           transcription error. Neither number changes the gate itself, which the rule above fixes
+           at 3 regardless of which measurement is more precise. */
+        const g = opts.bloomFrom == null ? 3 : opts.bloomFrom;
+        const t = Math.pow(clamp((s0 - g) / (5 - g), 0, 1), 1.2);
+        bl.data[k] = 255;
+        bl.data[k + 1] = 138;
+        bl.data[k + 2] = 66;
+        bl.data[k + 3] = Math.round(
+          t * clamp(cov, 0, 1) * (opts.bloomA == null ? 190 : opts.bloomA) * conf,
+        );
+      }
     }
   }
   octx.putImageData(img, 0, 0);
-  return { canvas: off, cols, rows, gp, n: keep.length, unc, img };
+  let bloom = null;
+  if (bl) {
+    bloom = document.createElement('canvas');
+    bloom.width = cols;
+    bloom.height = rows;
+    bloom.getContext('2d').putImageData(bl, 0, 0);
+  }
+  return {
+    canvas: off, bloom, cols, rows, gp, n: keep.length, unc, img, bloomImg: bl,
+  };
+}
+
+/**
+ * Draws the field, then its emissive bloom pass, into {@code ctx} — shared by the hard-clip and
+ * soft-mask routes below {@link paint} so both draw the same two layers in the same order (the
+ * bundle's `_blit` split, kept private: nothing outside {@link paint} needs it).
+ *
+ * <p>The bloom pass is additive (`globalCompositeOperation:'lighter'`) and drawn INSIDE the same
+ * surface as the field it just drew, which is why it works where a blend against the basemap
+ * tiles could not: the tile host's overlay canvas is a DOM sibling of the tile pane and is
+ * cleared every frame, so a canvas-level blend against the tiles has nothing to composite
+ * against (see the design bundle README, "The heat bloom (required on a dark ground)").
+ *
+ * @param {CanvasRenderingContext2D} ctx target context
+ * @param {object} f the field returned by {@link field}
+ * @param {{blur?: number, opacity?: number, bloomBlur?: number}} opts {@link paint}'s own
+ *        blur/opacity/bloomBlur dials — not {@link field}'s, which this function never calls
+ */
+function blitField(ctx, f, opts) {
+  ctx.imageSmoothingEnabled = true;
+  ctx.filter = `blur(${(opts.blur || 3) + f.unc * 2.6}px)`;
+  ctx.globalAlpha = opts.opacity == null ? 0.92 : opts.opacity;
+  ctx.drawImage(f.canvas, 0, 0, f.cols, f.rows, 0, 0, f.cols * f.gp, f.rows * f.gp);
+  if (f.bloom) {
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.filter = `blur(${(opts.blur || 3) * (opts.bloomBlur == null ? 2.4 : opts.bloomBlur) + f.unc * 3}px)`;
+    ctx.drawImage(f.bloom, 0, 0, f.cols, f.rows, 0, 0, f.cols * f.gp, f.rows * f.gp);
+  }
 }
 
 /**
  * Paints a field into any 2d context, blurred and composited.
  *
+ * <p>Three clip routes, in order of precedence:
+ *
+ * <ul>
+ *   <li>{@code opts.clipPath} + {@code opts.clipSoft} — the SOFT mask route (P4's land clip). A
+ *   hard clip gives a crisp edge against a blurred field, which reads as an artifact the moment
+ *   the mask contains anything the eye knows should not be a sharp line — a perfect circle, or a
+ *   coastline at a zoom where 1:50m survey error is visible. This route renders the field (and
+ *   its bloom) to a temp surface, then masks it with a BLURRED fill of the same path so the
+ *   boundary feathers at the same rate the field does. The mask is composed on its OWN surface —
+ *   `mk` below — and applied to the temp surface in a SINGLE `destination-in` draw. Filling then
+ *   stroking the SAME path directly onto the field with `destination-in` already set would make
+ *   the two draws INTERSECT rather than union, which erases the land the dilation (`clipGrow`)
+ *   was meant to extend and leaves only the dilation band. `clipPath` is treated as opaque
+ *   throughout — handed only to `fill`/`stroke`/`clip`, never constructed or introspected, so it
+ *   can be a `Path2D` in a browser or any object a caller's clip abstraction produces.</li>
+ *   <li>{@code opts.clipPath} alone — the HARD clip route. `clipPath` lives in absolute pixel
+ *   space, offset by {@code clipDx}/{@code clipDy}: the tile host builds one land mask per zoom
+ *   and slides it, so the coast is a clip rather than a redraw every frame.</li>
+ *   <li>{@code opts.clip} — a callback that lays a path into {@code ctx} itself (the geo host's
+ *   usage, where d3 has already bound a `geoPath` to this exact context).</li>
+ * </ul>
+ *
  * @param {CanvasRenderingContext2D} ctx target context
  * @param {number} w surface width in CSS px
  * @param {number} h surface height in CSS px
  * @param {Array<object>} pts points, as {@link field}
- * @param {{clip?: Function, blur?: number, opacity?: number}} [opts] plus everything {@link field} takes
+ * @param {{clip?: Function, clipPath?: *, clipSoft?: number, clipGrow?: number, clipDx?: number,
+ *          clipDy?: number, blur?: number, opacity?: number, bloomBlur?: number}} [opts] plus
+ *        everything {@link field} takes
  * @returns {object|null} the field that was painted, or null when there was nothing to paint
  */
 export function paint(ctx, w, h, pts, opts) {
   opts = opts || {};
   const f = field(pts, w, h, opts);
   if (!f) return null;
+  if (opts.clipPath && opts.clipSoft) {
+    const t = document.createElement('canvas');
+    t.width = ctx.canvas.width;
+    t.height = ctx.canvas.height;
+    const tc = t.getContext('2d');
+    const sx = t.width / w;
+    tc.setTransform(sx, 0, 0, sx, 0, 0);
+    blitField(tc, f, opts);
+    // The mask is composed on its OWN surface and applied in a single destination-in — see this
+    // function's doc comment for why fill-then-stroke straight onto the field cannot do this job.
+    const mk = document.createElement('canvas');
+    mk.width = t.width;
+    mk.height = t.height;
+    const mc = mk.getContext('2d');
+    mc.setTransform(sx, 0, 0, sx, 0, 0);
+    mc.filter = `blur(${opts.clipSoft}px)`;
+    mc.translate(opts.clipDx || 0, opts.clipDy || 0);
+    mc.fillStyle = '#fff';
+    mc.strokeStyle = '#fff';
+    // clipGrow DILATES the mask by stroking the same path — a uniform band that follows the
+    // coastline, absorbing a coarse coastline's survey error without inventing a shape. Unioning
+    // discs at each location did the same job but drew visible circles offshore, because the
+    // error is geographic and the disc would have to grow with zoom.
+    if (opts.clipGrow > 0) {
+      mc.lineWidth = opts.clipGrow * 2;
+      mc.lineJoin = 'round';
+      mc.lineCap = 'round';
+      mc.stroke(opts.clipPath);
+    }
+    mc.fill(opts.clipPath);
+    tc.globalCompositeOperation = 'destination-in';
+    tc.globalAlpha = 1;
+    tc.filter = 'none';
+    tc.setTransform(1, 0, 0, 1, 0, 0);
+    tc.drawImage(mk, 0, 0);
+    ctx.save();
+    ctx.globalAlpha = 1;
+    ctx.filter = 'none';
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.drawImage(t, 0, 0, w, h);
+    ctx.restore();
+    return f;
+  }
   ctx.save();
-  if (opts.clip) {
+  if (opts.clipPath) {
+    const dx = opts.clipDx || 0;
+    const dy = opts.clipDy || 0;
+    ctx.translate(dx, dy);
+    ctx.clip(opts.clipPath);
+    ctx.translate(-dx, -dy);
+  } else if (opts.clip) {
     ctx.beginPath();
     opts.clip(ctx);
     ctx.clip();
   }
-  ctx.imageSmoothingEnabled = true;
-  ctx.filter = `blur(${(opts.blur || 3) + f.unc * 2.6}px)`;
-  ctx.globalAlpha = opts.opacity == null ? 0.92 : opts.opacity;
-  ctx.drawImage(f.canvas, 0, 0, f.cols, f.rows, 0, 0, f.cols * f.gp, f.rows * f.gp);
+  blitField(ctx, f, opts);
   ctx.restore();
   return f;
 }
@@ -433,7 +589,9 @@ export function drawGeo(cv, w, h, spots, win, opts) {
  * @param {object} map a Leaflet map
  * @param {Array<{lat: number, lng: number, r: number[], rid: *}>} spots the catalogue
  * @param {number} win index into each spot's `r` scores
- * @param {object} [opts] everything {@link field} and {@link paint} take
+ * @param {{score?: (spot: object) => number}} [opts] `score` lets a host score a location by
+ *        something other than a solar window index — the Map tab's night events (astro, aurora)
+ *        are derived, not present in `r[]` — plus everything {@link field} and {@link paint} take
  * @returns {object|null} the painted field, or null when the map is too small
  */
 export function drawTiles(cv, map, spots, win, opts) {
@@ -444,9 +602,10 @@ export function drawTiles(cv, map, spots, win, opts) {
   if (!(w > 20) || !(h > 20)) return null;
   const ctx = fit(cv, w, h);
   ctx.clearRect(0, 0, w, h);
+  const score = opts.score || ((s) => s.r[win]);
   const pts = spots.map((s) => {
     const p = map.latLngToContainerPoint([s.lat, s.lng]);
-    return { x: p.x, y: p.y, sc: s.r[win], rid: s.rid };
+    return { x: p.x, y: p.y, sc: score(s), rid: s.rid };
   });
   return paint(ctx, w, h, pts, opts);
 }
