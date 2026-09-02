@@ -27,6 +27,7 @@ import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
 import { rampHex, rampGradientCss, getMode } from '../utils/scoreRamp.js';
 import WindowControl from './map/WindowControl.jsx';
 import FiltersPopover from './map/FiltersPopover.jsx';
+import MapCallout from './map/MapCallout.jsx';
 import { buildMapEvents, findEvIndex, solarHorizonDates } from '../utils/mapEvents.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { GLANCE_MINUTES } from '../utils/planningArea.js';
@@ -81,6 +82,14 @@ const MapHeatLayer = lazy(() => import('./MapHeatLayer.jsx'));
  * mounts this layer (`heat` is never handed to it).
  */
 const MapLabels = lazy(() => import('./map/MapLabels.jsx'));
+
+/**
+ * The selection callout (map-tab-v2-plan.md §3 P9) — a plain static import, unlike the two layers
+ * above: it imports no `d3-geo`-carrying module (`utils/mapCallout.js`, `utils/locationSheet.js`,
+ * `utils/scoreRamp.js`, `utils/locationTypes.js` are all leaf modules), so there is no weight to
+ * keep off the Plan overlay's network in the first place, and a `lazy()` boundary here would only
+ * add a Suspense flash the instant a reader selects a location.
+ */
 
 /**
  * Fits the map to a bounds box, once per nonce, WITHOUT animating.
@@ -424,13 +433,35 @@ BoundsTracker.propTypes = {
  * menus". Leaflet's marker click handlers stop propagation before it reaches the map's own `click`
  * event (`L.Marker` sets `bubblingMouseEvents: false`), so this never fires for a marker tap —
  * only genuine empty-map ground.
+ *
+ * <p>⚠️ map-tab-v2-plan.md §3 P9's ordering rule ("popover, then callout — never both on one
+ * press") needs a SECOND event, `mousedown`, and it is not optional. `WindowControl`/
+ * `FiltersPopover` each close THEIR OWN menu via a `document`-level `mousedown` listener
+ * (`onDocMouseDown`), entirely independent of this controller. On a real click that listener fires
+ * — and commits its `setOpen(false)`/`onOpenChange(false)` — BEFORE the native `click` event that
+ * follows it reaches this controller's own handler (browser event order: `mousedown` → `mouseup` →
+ * `click`, and React's automatic batching flushes the `mousedown`-triggered update in between): by
+ * the time `onBackgroundClick` ran, `openMapMenu` had ALREADY gone null, so the ordering collapsed
+ * to "close everything on one click" — a live regression, caught in the browser (not by any unit
+ * test, since every one of them invoked the captured `click` handler manually, never alongside a
+ * real `mousedown`). `mousedown` fires on THIS controller too, via Leaflet's own map event of that
+ * name, and — because `.leaflet-container` is an ancestor of `document` — reaches it BEFORE the
+ * document-level listener does, so `onMouseDown` snapshots `openMapMenu`'s value into a ref at the
+ * one moment it is still trustworthy. The actual close still happens on `click`, never `mousedown`
+ * itself, because `click` is Leaflet's OWN pan-vs-tap distinction (a `mousedown` that turns into a
+ * drag never fires `click`) — reacting on `mousedown` directly would close the callout at the START
+ * of every pan gesture.
  */
-function MapBackgroundClickController({ onBackgroundClick }) {
-  useMapEvents({ click: () => onBackgroundClick() });
+function MapBackgroundClickController({ onMouseDown, onBackgroundClick }) {
+  useMapEvents({
+    mousedown: () => onMouseDown(),
+    click: () => onBackgroundClick(),
+  });
   return null;
 }
 
 MapBackgroundClickController.propTypes = {
+  onMouseDown: PropTypes.func.isRequired,
   onBackgroundClick: PropTypes.func.isRequired,
 };
 
@@ -510,10 +541,19 @@ FitBoundsController.propTypes = {
  * animation settles (so the marker has declustered). Re-fires whenever the
  * {@code nonce} changes, allowing the same location to be re-selected.
  */
-function HandoffPopupController({ locationName, nonce, markerRefs }) {
+/**
+ * ⚠️ map-tab-v2-plan.md §3 P9: the TAB branch no longer opens a Leaflet popup, because the tab no
+ * longer binds one to any marker (`MapCallout` reads {@code selectedLocationName} reactively and
+ * needs no imperative nudge — its own anchoring effect handles a marker that has not yet finished
+ * flying into place). The overlay branch is BYTE-IDENTICAL to before this phase: it still opens the
+ * marker's own bound `Popup`.
+ */
+function HandoffPopupController({
+  locationName, nonce, markerRefs, overlayMode,
+}) {
   const map = useMap();
   useEffect(() => {
-    if (!locationName || typeof map.once !== 'function') return undefined;
+    if (!overlayMode || !locationName || typeof map.once !== 'function') return undefined;
     const open = () => {
       const marker = markerRefs.current.get(locationName);
       if (marker && typeof marker.openPopup === 'function') marker.openPopup();
@@ -526,7 +566,7 @@ function HandoffPopupController({ locationName, nonce, markerRefs }) {
       map.off('moveend', open);
       clearTimeout(timer);
     };
-  }, [locationName, nonce, map, markerRefs]);
+  }, [overlayMode, locationName, nonce, map, markerRefs]);
   return null;
 }
 
@@ -534,6 +574,7 @@ HandoffPopupController.propTypes = {
   locationName: PropTypes.string,
   nonce: PropTypes.number,
   markerRefs: PropTypes.shape({ current: PropTypes.instanceOf(Map) }).isRequired,
+  overlayMode: PropTypes.bool.isRequired,
 };
 
 /**
@@ -906,7 +947,28 @@ const OVERLAY_MAP_HEIGHT_PX = 470;
 const OVERLAY_MAP_HEIGHT_FILTERS_OPEN_PX = 300;
 const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
 
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false }) {
+/**
+ * The selection callout's five new props (map-tab-v2-plan.md §3 P9), tab-only in practice — the
+ * overlay never selects a location this way, so these are simply unused on that mount rather than
+ * behind a second `overlayMode` branch:
+ *
+ * - `scoreIndex`/`scoresKnown` — from `utils/locationSheet.buildScoreIndex` over the SAME
+ *   `scoreRows` `LocationFourDaySheet` already reads (`WindowFirstBriefingContext`), so the
+ *   callout's reason prose and its "every window" strip can never disagree with the sheet one step
+ *   away in the Plan tab about what this location was rated.
+ * - `regionGlossIndex` — from `utils/mapCallout.buildRegionGlossIndex`, the reason prose's fallback
+ *   when this location's own window carries no served summary.
+ * - `reachById` — the per-user HOME reach map (`{driveMinutes, distanceMiles}`), read ONLY for the
+ *   callout's straight-line miles fact. Deliberately separate from `heat.driveOverrideById` (the
+ *   AWAY origin's drive minutes, already plumbed): an away origin's map has no `distanceMiles` at
+ *   all (`utils/planOrigin.js`'s own rule — those miles are measured from home, and printing them
+ *   under an away drive would put two journeys on one line), so this prop is never consulted once
+ *   `driveOverride` is set.
+ * - `onOpenLocationInPlan` — the real shell handoff (`App.jsx`'s `openLocationInPlan`, mirroring
+ *   `openFullMapTab`'s shape in reverse): switches to the Plan tab via `WindowFirstShell`'s
+ *   `selectTab` and opens this location's `LocationFourDaySheet` as the only dialog layer.
+ */
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, reachById = null, onOpenLocationInPlan = null }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -1006,13 +1068,41 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * on one screen, which is the one thing the shared/per-user seam exists to prevent. Absent an
    * override — the map at home, and the Plan overlay — this is byte-identical to the previous
    * expression.
+   *
+   * <p>⚠️ Pre-existing bug, fixed on owner request: the override branch returned
+   * {@code driveOverride.get(...)} — the whole {@code {driveMinutes, distanceMiles}} entry
+   * (`originReachMap`'s own shape, `utils/planOrigin.js`) — rather than its {@code driveMinutes}
+   * NUMBER, under any away origin. Every arithmetic consumer misbehaved silently: the drive-time
+   * filter's {@code mins <= driveTimeFilter} compared a number against an object (always `false`,
+   * so the filter matched nothing once away) and every duration rendering (the callout's Drive
+   * fact, the label chips' hover tooltip) would have printed `[object Object]` the moment either
+   * read a number rather than re-formatting the whole entry. It predates P9 — P9's own
+   * {@code distanceMilesFor} below was built to read `reachById` directly rather than reuse this
+   * one, which is what kept the callout's own miles fact from ever hitting it. Still an OVERWRITE,
+   * never a fallback: a location absent from the override map reads `null`, never the home figure.
    */
   const driveOverride = heat?.driveOverrideById ?? null;
   const driveMinutesFor = useCallback((locId) => (
     driveOverride
-      ? (driveOverride.get(Number(locId)) ?? null)
+      ? (driveOverride.get(Number(locId))?.driveMinutes ?? null)
       : (userDriveTimes[String(locId)] ?? null)
   ), [driveOverride, userDriveTimes]);
+  /**
+   * Straight-line miles, for the selection callout's facts row ONLY (map-tab-v2-plan.md §3 P9) —
+   * `driveMinutesFor` above never carries a mile figure at all (`userDriveTimes` is minutes-only,
+   * `GET /api/user/settings/drive-times`), so the callout's own {@code distanceMiles} fact reads
+   * this separate map instead.
+   *
+   * <p><b>Home origin only</b>, matching the reach-honesty rule the callout's own module comment
+   * states: `driveOverride` set means the reader has moved to a region base, and
+   * `originReachMap`'s own contract is that {@code distanceMiles} is ALWAYS null there — those miles
+   * are measured from home, and printing them beside an away drive would put two different journeys
+   * on one line (`utils/planOrigin.js`'s module comment). So this reads `null` outright once away,
+   * rather than looking the location up in a map that would answer with the wrong journey's number.
+   */
+  const distanceMilesFor = useCallback((locId) => (
+    driveOverride ? null : (reachById?.get(Number(locId))?.distanceMiles ?? null)
+  ), [driveOverride, reachById]);
   // Travel-day ranges — drive the "forecast not executed (away)" popup badge.
   const [travelRanges, setTravelRanges] = useState([]);
   useEffect(() => { fetchTravelDayRanges().then(setTravelRanges).catch(() => {}); }, []);
@@ -1117,6 +1207,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // Live Leaflet marker instances keyed by location name — used to open a popup
   // programmatically when the Plan tab hands off a specific location.
   const markerRefs = useRef(new Map());
+  /**
+   * `openMapMenu`'s value at the START of the CURRENT click gesture — see
+   * `MapBackgroundClickController`'s own class doc for why a bare closure read at `click` time is
+   * unreliable (map-tab-v2-plan.md §3 P9's close-ordering rule). Written on `mousedown`, read on
+   * `click`; never read anywhere else.
+   */
+  const openMapMenuAtMouseDownRef = useRef(null);
   /**
    * The raw `L.MarkerClusterGroup` instance (map-tab-v2-plan.md §3 P8 review) — `@react-leaflet/
    * core`'s `createPathComponent` forwards a `ref` straight to the underlying Leaflet layer, the
@@ -1787,6 +1884,23 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   ]);
 
   /**
+   * The selected location — resolved from `locations`, the FULL enabled catalogue, never from
+   * `visibleLocations` (PR #734 review, a confirmed finding). Filters govern the FIELD, the labels
+   * and the markers; they must never govern a DELIBERATE selection the reader already made. Two
+   * real failures fell out of reading this off `visibleLocations`: the every-window strip
+   * switching to a window where the selected location sits below the min-stars default or is
+   * unscored re-ran `getRatingForLocation` for that window through the SAME filter, dropped the
+   * location out of the pool, and unmounted the callout mid-interaction — exactly when the reader
+   * asked "how is THIS place on THAT window"; and an inbound `handoffLocationName` already resolves
+   * against `locations` (the effect above), so `setSelectedLocationName` succeeds, but the callout
+   * this variable feeds never appeared when the destination sat outside the reader's current
+   * filters. `locations` is the same "enabled" catalogue `typeFiltered`/`visibleLocations` both
+   * start from, so this loses no coverage on an ordinary selection — it only stops actively
+   * REMOVING one.
+   */
+  const selectedLoc = locations.find((l) => l.name === selectedLocationName) ?? null;
+
+  /**
    * `visibleLocations`, additionally narrowed to the scope pool — the ONE place scope is allowed
    * to narrow anything, and it is a REPORTING narrowing, not a marker one: the pins on the map stay
    * deliberately scope-independent (see `heatSpotPool` above — "the segment moves the camera; it
@@ -1812,16 +1926,30 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * show a different star than its own marker does. Tab-only (the overlay never mounts
    * {@code MapLabels} at all, so this costs it nothing to compute either way — cheap over a few
    * hundred rows, not worth a second `overlayMode` branch).
+   *
+   * <p>⚠️ Appends the SELECTED location's own row when the pool's filters have dropped it (PR #734
+   * review): {@code chipCandidates}' own "the selected location always gets its chip" guarantee
+   * (P8) can only force a chip for a spot that actually exists in the array it is handed — a
+   * selection resolved from the full roster (see {@code selectedLoc}'s own comment) but absent from
+   * this FILTERED one got a ring and a callout with no chip to anchor beside. Pushed rather than
+   * unshifted: {@code chipCandidates}' own selected-name handling already moves it to the front.
    */
-  const labelSpots = useMemo(() => scopedVisibleLocations.map((loc) => ({
-    name: loc.name,
-    lat: loc.lat,
-    lng: loc.lon,
-    rid: loc.regionName || '',
-    rating: getRatingForLocation(loc),
-    bortleClass: loc.bortleClass ?? null,
-    driveMinutes: driveMinutesFor(loc.id),
-  })), [scopedVisibleLocations, getRatingForLocation, driveMinutesFor]);
+  const labelSpots = useMemo(() => {
+    const spotOf = (loc) => ({
+      name: loc.name,
+      lat: loc.lat,
+      lng: loc.lon,
+      rid: loc.regionName || '',
+      rating: getRatingForLocation(loc),
+      bortleClass: loc.bortleClass ?? null,
+      driveMinutes: driveMinutesFor(loc.id),
+    });
+    const spots = scopedVisibleLocations.map(spotOf);
+    if (selectedLoc && !spots.some((s) => s.name === selectedLoc.name)) {
+      spots.push(spotOf(selectedLoc));
+    }
+    return spots;
+  }, [scopedVisibleLocations, getRatingForLocation, driveMinutesFor, selectedLoc]);
 
   /**
    * The ring labels' own {@code reachMeasured} — "a real drive time gated this screen's reach
@@ -1883,7 +2011,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
   const bounds = locations.map((loc) => [loc.lat, loc.lon]);
 
-  const selectedLoc = visibleLocations.find((l) => l.name === selectedLocationName) ?? null;
   const selectedDayData = selectedLoc?.forecastsByDate.get(date);
   // True when the selected date falls in a travel range — the overnight batch
   // skips Claude forecasts for those days, so the popup says so explicitly.
@@ -2084,6 +2211,25 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     return row.time ? `${row.label} ${row.time}` : row.label;
   })();
 
+  /** The row `MapCallout`'s verdict block and "every window" strip treat as "now showing" — the
+   * SAME row the pill/tooltip above already read off `activeEvIndex`, never a second lookup. */
+  const activeMapEvent = mapEvents[activeEvIndex] ?? null;
+
+  /**
+   * The Plan-tab handoff (map-tab-v2-plan.md §3 P9's "Open in Plan" action) — builds the SAME
+   * {@code {id, name, regionName}} shape `WindowFirstShell.jsx`'s `sheetSpotOf` already normalises
+   * every location-sheet entry point onto, so `App.jsx`'s `openLocationInPlan` needs no second
+   * translation for this one more caller.
+   */
+  function handleOpenLocationInPlan() {
+    if (!selectedLoc) return;
+    onOpenLocationInPlan?.({
+      id: selectedLoc.id ?? null,
+      name: selectedLoc.name,
+      regionName: selectedLoc.regionName ?? null,
+    });
+  }
+
   /**
    * Picking a row from the window control — map-tab-v2-plan.md §3 P6's EV-ownership paragraph.
    *
@@ -2134,20 +2280,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
   /**
    * A chip click (map-tab-v2-plan.md §3 P8) — wired to the EXACT SAME path a marker click already
-   * takes on this tab, never a new one: {@code setSelectedLocationName} plus, on desktop, opening
-   * that marker's own Leaflet popup. P9 replaces the popup with the anchored callout; this call
-   * site does not change when that lands, only what opens at the far end of it.
+   * takes on this tab, never a new one: {@code setSelectedLocationName} plus, on desktop, revealing
+   * that marker if it is currently folded into a cluster bubble.
    *
-   * <p>⚠️ A bare {@code marker.openPopup()} is a SILENT no-op for a marker currently folded into a
-   * cluster bubble (`marker._map` is null while clustered — nothing throws, nothing opens, and
-   * chips render across a wide enough zoom range, from the regional glance up, that clicking one
-   * on an unclustered marker is the exception rather than the rule). {@code zoomToShowLayer} is
-   * `leaflet.markercluster`'s own answer to exactly this: it zooms/pans only as far as needed to
-   * reveal ONE marker out of its cluster and defers the callback until that marker actually
-   * exists on the map — steadier than re-deriving `HandoffPopupController`'s fly-then-guess-a-
-   * timeout pattern for a case Leaflet already has a purpose-built method for. Falls back to a
-   * direct `openPopup()` when the marker is already unclustered (or the cluster ref is
-   * unavailable), which also covers every existing test's simplified cluster stub.
+   * <p>⚠️ Through P8 this also opened the marker's own Leaflet popup. P9 replaces the popup with
+   * the anchored callout on this tab (map-tab-v2-plan.md §3 P9 — "the tab stops mounting Leaflet
+   * `Popup`/`BottomSheet` for markers"), so there is no popup left to open here: `MapCallout` reads
+   * {@code selectedLocationName} reactively and positions itself off the SAME marker ref's own
+   * projected point, needing no imperative nudge from this function. {@code zoomToShowLayer} stays
+   * — a marker still worth REVEALING out of its cluster bubble before the ring and the card anchor
+   * to it, since a ring drawn around a still-clustered bubble would point at the wrong disc.
    *
    * <p>A plain function, like {@code selectEvRow} above — NOT {@code useCallback}, which would be
    * a hook called after this component's own conditional early return a few screens up and so
@@ -2160,12 +2302,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     if (!marker) return;
     const clusterGroup = clusterGroupRef.current;
     if (clusterGroup && typeof clusterGroup.zoomToShowLayer === 'function') {
-      clusterGroup.zoomToShowLayer(marker, () => {
-        if (typeof marker.openPopup === 'function') marker.openPopup();
-      });
-      return;
+      clusterGroup.zoomToShowLayer(marker);
     }
-    if (typeof marker.openPopup === 'function') marker.openPopup();
   }
 
   /**
@@ -2200,8 +2338,29 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     </button>
   );
 
+  /**
+   * `Esc` closes menus, THEN the callout (map-tab-v2-plan.md §3 P9, README "Interactions"
+   * table) — never both on one press. `WindowControl`/`FiltersPopover` each close THEIR OWN open
+   * menu locally on `Escape` (calling `onOpenChange`, which updates `openMapMenu`) without
+   * `stopPropagation`, so the bubbled keydown still reaches this wrapper on the SAME press — but
+   * `openMapMenu` here is read from the CLOSURE captured before that update commits, so it still
+   * reads the menu's PRE-press value on press 1 (skipping the callout) and its POST-press value
+   * (null) on press 2 (closing the callout). No `stopPropagation` needed on either child.
+   *
+   * <p>Tab-only: the overlay has no popover and no callout, so this is a no-op there — it is
+   * simply never wired to the overlay's return path below.
+   */
+  function handleMapPaneKeyDown(mapPaneEvent) {
+    if (mapPaneEvent.key !== 'Escape') return;
+    if (openMapMenu != null) return;
+    if (selectedLocationName != null) setSelectedLocationName(null);
+  }
+
   return (
-    <div className={overlayMode ? 'flex flex-col' : 'flex flex-col flex-1 min-h-0'}>
+    <div
+      className={overlayMode ? 'flex flex-col' : 'flex flex-col flex-1 min-h-0'}
+      onKeyDown={overlayMode ? undefined : handleMapPaneKeyDown}
+    >
       {overlayMode && (
         /* ── Context bar — the overlay's default row ──
            A receipt, not a control panel: what the map is showing, in read-only chips, because
@@ -2638,9 +2797,31 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           )}
           {overlayMode && <BoundsTracker onBounds={handleBounds} />}
           {/* Tab only — the overlay has no popover of its own to close this way (its Filters
-              disclosure is a page-flow drawer, not a menu the click-away rule applies to). */}
+              disclosure is a page-flow drawer, not a menu the click-away rule applies to).
+
+              ⚠️ map-tab-v2-plan.md §3 P9's ordering rule: a background click closes the callout
+              ONLY AFTER any open popover — i.e. one click closes the NEAREST layer, exactly the
+              two-deep-stack idiom the rest of this app already uses for Escape (never both at
+              once). `openMapMenuAtMouseDownRef` — NOT a bare closure over `openMapMenu` — is what
+              makes this reliable: `WindowControl`/`FiltersPopover` close THEIR OWN menu on a
+              `document`-level `mousedown` listener, which fires (and commits) BEFORE the `click`
+              this controller's own handler answers, so a plain closure read at click-time already
+              sees the menu as closed and the ordering collapses to "close both" — a real regression
+              caught live in the browser. Snapshotting on `mousedown` (which reaches this controller
+              BEFORE `document`, since `.leaflet-container` is `document`'s descendant) records the
+              value while it is still trustworthy; see `MapBackgroundClickController`'s own class
+              doc for the full timeline. */}
           {!overlayMode && (
-            <MapBackgroundClickController onBackgroundClick={() => setOpenMapMenu(null)} />
+            <MapBackgroundClickController
+              onMouseDown={() => { openMapMenuAtMouseDownRef.current = openMapMenu; }}
+              onBackgroundClick={() => {
+                if (openMapMenuAtMouseDownRef.current != null) {
+                  setOpenMapMenu(null);
+                  return;
+                }
+                setSelectedLocationName(null);
+              }}
+            />
           )}
           <MapSizeSync trigger={overlayMode ? advancedOpen : resizeNonce} />
           <FlyToController target={flyTarget} />
@@ -2649,6 +2830,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             locationName={handoffLocationName}
             nonce={handoffNonce}
             markerRefs={markerRefs}
+            overlayMode={overlayMode}
           />
           {/* Gated to the CURRENT NIGHT, not to today. The viewline is a nowcast of where the
               aurora is visible right now, so it belongs on the night in progress — which between
@@ -2770,7 +2952,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                     }),
                   }}
                 >
-                  {!isMobile && (
+                  {/* map-tab-v2-plan.md §3 P9: the TAB stops mounting a Leaflet `Popup` for markers
+                      at all — `MapCallout` is the tab's selection surface now. `MarkerPopupContent`
+                      remains the OVERLAY's renderer, untouched. */}
+                  {!isMobile && overlayMode && (
                     <Popup maxWidth={9999} autoPanPadding={[20, 60]}>
                       <PopupResizer deps={[date, eventType]} />
                       <div key={`${date}-${eventType}`} className="animate-popup-refresh">
@@ -2803,6 +2988,29 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               );
             })}
           </MarkerClusterGroup>
+
+          {/* The selection callout (map-tab-v2-plan.md §3 P9, README §7) — tab only. Rendered
+              regardless of `heatOn`/`heatOffered`: a marker click sets `selectedLocationName`
+              whether or not the heat kernel is currently painting anything, and the callout is the
+              tab's ONLY selection surface now (no Leaflet popup left to fall back to). */}
+          {!overlayMode && selectedLoc && activeMapEvent && (
+            <MapCallout
+              location={selectedLoc}
+              rating={getRatingForLocation(selectedLoc)}
+              event={activeMapEvent}
+              driveMinutes={driveMinutesFor(selectedLoc.id)}
+              distanceMiles={distanceMilesFor(selectedLoc.id)}
+              scoreIndex={scoreIndex}
+              scoresKnown={scoresKnown}
+              regionGlossIndex={regionGlossIndex}
+              evRows={mapEvents}
+              astroConditionsByDate={astroConditionsByDate}
+              auroraResultsByDate={auroraResultsByDate}
+              onSelectEv={selectEvRow}
+              onOpenInPlan={handleOpenLocationInPlan}
+              onClose={() => setSelectedLocationName(null)}
+            />
+          )}
         </MapContainer>
 
         {overlayMode ? (
@@ -3130,8 +3338,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         )}
       </div>
 
-      {/* Mobile bottom sheet */}
-      {isMobile && selectedLocationName && (() => {
+      {/* Mobile bottom sheet — the OVERLAY's own phone marker popup. map-tab-v2-plan.md §3 P9: the
+          TAB stops mounting this for markers too; `MapCallout` (rendered inside `MapContainer`
+          above) is its selection surface on every viewport now, the 266px collapsed-strip phone
+          treatment being P12's polish rather than a gate on whether the callout appears at all. */}
+      {overlayMode && isMobile && selectedLocationName && (() => {
         const loc = visibleLocations.find((l) => l.name === selectedLocationName);
         if (!loc) return null;
         const { forecast, hourlyData, isPureWildlife, isWaterfall } = getContentProps(loc);
@@ -3291,6 +3502,29 @@ MapView.propTypes = {
    * fetch resolves.
    */
   colourScaleDefaulted: PropTypes.bool,
+  /**
+   * From `utils/locationSheet.buildScoreIndex` over `WindowFirstBriefingContext`'s `scoreRows` —
+   * the selection callout's reason prose and "every window" strip (map-tab-v2-plan.md §3 P9). Tab
+   * only; the overlay never selects a location through the callout.
+   */
+  scoreIndex: PropTypes.object,
+  /** Whether the ratings response `scoreIndex` is built from has actually landed — an unfetched
+   * response is not evidence that nothing was rated (the same rule `scoresLoaded` states everywhere
+   * else it is read). */
+  scoresKnown: PropTypes.bool,
+  /** From `utils/mapCallout.buildRegionGlossIndex` — the callout's reason-prose fallback. */
+  regionGlossIndex: PropTypes.object,
+  /**
+   * The per-user HOME reach map (`{driveMinutes, distanceMiles}`), read ONLY for the callout's
+   * straight-line miles fact — see this component's own prop-block comment above `function MapView`
+   * for why it is separate from `heat.driveOverrideById`.
+   */
+  reachById: PropTypes.instanceOf(Map),
+  /**
+   * The callout's "Open in Plan" action — `(spot: {id, name, regionName}) => void`, the real shell
+   * handoff (`App.jsx`'s `openLocationInPlan`).
+   */
+  onOpenLocationInPlan: PropTypes.func,
 };
 
 export default React.memo(MapView);

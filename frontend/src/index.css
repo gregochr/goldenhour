@@ -3345,6 +3345,282 @@ button.wf-hc.also.on:hover {
   text-decoration: underline;
 }
 
+/* ── Selection: the ring + the callout (map-tab-v2-plan.md §3 P9, README §7) ───────────────────
+   Replaces the Leaflet popup and the mobile `BottomSheet` on this tab — "a popup covers exactly the
+   ground you just asked about". Both portal into the SAME chrome wrapper `MapLabels.jsx`'s hover
+   tooltip already uses (`map.getContainer().parentElement`), not a Leaflet pane — see
+   `MapCallout.jsx`'s own class doc for why. Positioned above the chrome (1100) rather than inside
+   the bundle's `410/415/420` ladder, which assumed a heat view with no real Leaflet markers ever
+   rendering underneath it (this app fades them back in past the zoom handover, `MapLabels.jsx`'s
+   `LABEL_PANE_Z` note). `z-index: 1500` on `.wf-win-menu`/`.wf-filters-panel` still beats the
+   callout, per the plan's own z-ladder note (a menu must win over a card behind it). */
+.wf-selmk {
+  position: absolute;
+  z-index: 1200;
+  width: 34px;
+  height: 34px;
+  margin-left: -17px;
+  margin-top: -17px;
+  border-radius: 999px;
+  pointer-events: none;
+  box-shadow: 0 0 0 1.5px rgba(201, 162, 75, 0.85), 0 0 0 7px rgba(201, 162, 75, 0.14);
+}
+.wf-selmk::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 7px;
+  height: 7px;
+  margin-left: -3.5px;
+  margin-top: -3.5px;
+  border-radius: 999px;
+  background: var(--color-home);
+}
+
+.wf-callout {
+  position: absolute;
+  z-index: 1350;
+  border-radius: 11px;
+  border: 1px solid var(--color-plex-border-light);
+  background: rgba(20, 15, 12, 0.965);
+  backdrop-filter: blur(7px);
+  box-shadow: 0 22px 50px rgba(0, 0, 0, 0.72);
+  padding: 12px 13px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--color-plex-text);
+  font-family: var(--font-sans);
+}
+/* The 11px rotated-square tail, clamped into the card (`anchorCallout`'s own `tailLeft`) — pointing
+   down when the card sits BELOW the marker, up when it flips above. */
+.wf-callout-tail {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  background: rgba(20, 15, 12, 0.965);
+  border: 1px solid var(--color-plex-border-light);
+  transform: rotate(45deg);
+}
+.wf-callout-tail.below {
+  top: -6px;
+  border-right: none;
+  border-bottom: none;
+}
+.wf-callout-tail.above {
+  bottom: -6px;
+  border-left: none;
+  border-top: none;
+}
+
+.wf-callout-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.wf-callout-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.wf-callout-title b {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--color-plex-text);
+}
+.wf-callout-sub {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  color: var(--color-plex-text-muted);
+}
+.wf-callout-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--color-plex-text-muted);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px;
+}
+.wf-callout-close:hover,
+.wf-callout-close:focus-visible {
+  color: var(--color-plex-text);
+}
+
+/* The verdict block — border/background from the ramp colour at 50%/10% alpha (README §7 item 2),
+   set inline by `MapCallout.jsx` since the colour is per-rating data, not a stylesheet constant. */
+.wf-callout-verdict {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 8px;
+}
+.wf-callout-verdict-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-plex-text);
+}
+.wf-callout-verdict-score {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+.wf-callout-verdict-score.unscored {
+  background: none;
+  color: var(--color-plex-text-muted);
+  font-weight: 500;
+}
+
+/* The reason line — Newsreader italic, the app's typographic mark for generated prose
+   (`.wf-loc-why`'s own comment), clamped to 3 lines (README §7 item 3). */
+.wf-callout-reason {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-plex-text-secondary);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.wf-callout-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-callout-facts i {
+  font-style: normal;
+  color: var(--color-plex-text-muted);
+  margin-right: 6px;
+  text-transform: uppercase;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+}
+
+.wf-callout-topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.wf-callout-topics span {
+  font-size: 10.5px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--color-plex-surface-light);
+  color: var(--color-plex-text-secondary);
+}
+
+.wf-callout-strip-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: none;
+  border: none;
+  border-top: 1px solid var(--color-plex-border);
+  padding: 6px 0 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+  cursor: pointer;
+  text-align: left;
+}
+.wf-callout-strip-toggle:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 1px;
+}
+.wf-callout-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.wf-callout-strip-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 5px 6px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 6px;
+  background: var(--color-plex-surface);
+  cursor: pointer;
+  text-align: left;
+}
+.wf-callout-strip-cell.on {
+  border-color: var(--color-home);
+  background: rgba(201, 162, 75, 0.13);
+}
+.wf-callout-strip-cell:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 1px;
+}
+.wf-callout-strip-date {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+}
+.wf-callout-strip-score {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--color-plex-text-secondary);
+}
+.wf-callout-strip-score i {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+}
+.wf-callout-strip-score.unscored { color: var(--color-plex-text-muted); }
+
+.wf-callout-actions {
+  display: flex;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid var(--color-plex-border);
+}
+.wf-callout-actions button {
+  flex: 1;
+  min-height: 30px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 999px;
+  background: var(--color-plex-surface);
+  color: var(--color-plex-text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.wf-callout-actions button:hover,
+.wf-callout-actions button:focus-visible {
+  color: var(--color-plex-text);
+  border-color: var(--color-plex-border-light);
+}
+.wf-callout-actions button:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 1px;
+}
+
 /* ⚠️ The marker handover's pointer gate, and it has to be a STYLESHEET rule rather than an inline
    `pointer-events: none` on the pane. Leaflet's own stylesheet carries
    `.leaflet-marker-icon.leaflet-interactive { pointer-events: auto }`, and a child re-enabling the

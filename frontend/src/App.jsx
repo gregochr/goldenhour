@@ -335,6 +335,32 @@ function AppInner() {
     setTabRequest({ id: 'map', nonce: tabRequestNonce.current });
   };
 
+  /**
+   * The location the PLAN tab should open a four-day sheet for, asked for from the Map tab's
+   * selection callout (map-tab-v2-plan.md §3 P9's "Open in Plan" action) — `openFullMapTab`'s shape,
+   * in reverse. Kept SEPARATE from `tabRequest` for the identical reason `mapTabHandoff` is kept
+   * separate from it in the forward direction: the Plan tab's body is `hidden` rather than
+   * unmounted while another tab is active (`WindowFirstShell.jsx`'s own sticky-pane idiom), so a
+   * handoff that arrived on some OTHER channel while it was hidden must not be mistaken for one the
+   * reader explicitly asked for by pressing "Open in Plan".
+   */
+  const [planLocationHandoff, setPlanLocationHandoff] = useState(null);
+
+  /**
+   * Switch to the Plan tab and open one location's four-day sheet — the Map tab callout's "Open in
+   * Plan" action. `WindowFirstShell.jsx`'s `tabRequest`-handling effect routes this through
+   * `selectTab('plan')` (never a bare `setActiveTab`), which clears every OTHER dialog layer first,
+   * so the sheet lands as the ONLY layer rather than stacking over a popup nobody asked to see.
+   *
+   * @param {{id: *, name: string, regionName: ?string}} spot the sheet's own identity shape
+   *        (`utils/locationSheet.sheetSpotOf`'s), already built by `MapView.jsx`'s caller
+   */
+  const openLocationInPlan = (spot) => {
+    tabRequestNonce.current += 1;
+    setPlanLocationHandoff({ ...spot, nonce: handoffNonce.current++ });
+    setTabRequest({ id: 'plan', nonce: tabRequestNonce.current });
+  };
+
   // Show banner when a run completes, auto-dismiss after 15 seconds
   useEffect(() => {
     if (!lastCompletedRun) return;
@@ -466,6 +492,7 @@ function AppInner() {
               onSeasonalFeaturesChange={handleSeasonalFeaturesChange}
               locations={visibleLocations}
               tabRequest={tabRequest}
+              planLocationHandoff={planLocationHandoff}
               // Withheld when there is nothing to map, which is the same rule the Operations tab
               // follows and §6's ban on controls that open nothing. `allDates` is empty whenever
               // `GET /api/forecast` returned no rows, and a Map tab onto no dates would be a tab
@@ -490,6 +517,7 @@ function AppInner() {
                     mapColourScale={mapColourScale}
                     colourScaleDefaulted={colourScaleDefaulted}
                     onOpenSettings={() => setSettingsFocus('postcode')}
+                    onOpenLocationInPlan={openLocationInPlan}
                   />
                 </Suspense>
               ) : null}

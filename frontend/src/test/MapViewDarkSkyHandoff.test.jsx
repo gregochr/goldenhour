@@ -37,7 +37,10 @@ vi.mock('leaflet.markercluster/dist/MarkerCluster.css', () => ({}));
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="map-container">{children}</div>,
   TileLayer: () => null,
-  Marker: ({ children }) => <div>{children}</div>,
+  // A testid on the mock itself (map-tab-v2-plan.md §3 P9) — one rendered per VISIBLE location
+  // regardless of `Popup`, which the tab no longer mounts for markers at all. `visibleCount` below
+  // counts this rather than `popup-content`, which the tab can no longer produce.
+  Marker: ({ children }) => <div data-testid="marker">{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   useMapEvents: () => null,
@@ -108,7 +111,9 @@ const LOCATIONS = [
   { name: 'Unmeasured', lat: 55.2, lon: -1.7, forecastsByDate: forecasts(4), locationType: ['LANDSCAPE'], bortleClass: null },
 ];
 
-const visibleCount = () => screen.queryAllByTestId('popup-content').length;
+// Counts rendered `Marker`s, not `popup-content` (map-tab-v2-plan.md §3 P9 — the tab no longer
+// mounts a `Popup` for markers at all, so `popup-content` can no longer answer this question here).
+const visibleCount = () => screen.queryAllByTestId('marker').length;
 
 describe('MapView — the dark-sky handoff (D8, plan §6b)', () => {
   it('with no handoff, every location is visible regardless of Bortle class', () => {
@@ -127,7 +132,7 @@ describe('MapView — the dark-sky handoff (D8, plan §6b)', () => {
       />,
     );
     expect(visibleCount()).toBe(1);
-    expect(screen.getAllByTestId('popup-content')).toHaveLength(1);
+    expect(screen.getAllByTestId('marker')).toHaveLength(1);
   });
 
   it('the handoff RE-TARGETS onto FiltersPopover — it opens the popover itself, not the retired drawer (map-tab-v2-plan.md §3 P7)', () => {

@@ -92,9 +92,21 @@ async function renderMap(props = {}) {
   return result;
 }
 
-/** Fires a synthetic map `click` on every listener registered this render. */
+/**
+ * Fires a synthetic map background click on every listener registered this render — `mousedown`
+ * THEN `click`, in that order, mirroring the two events one physical click actually fires
+ * (`MapBackgroundClickController`'s own class doc, map-tab-v2-plan.md §3 P9: the close-ordering fix
+ * snapshots `openMapMenu` on `mousedown`, before `WindowControl`/`FiltersPopover`'s own
+ * `document`-level `mousedown` listener can close the menu the `click` handler still needs to see
+ * as "was open"). Firing `click` alone — this file's own shape before P9 — skipped the snapshot
+ * entirely and read the ref's initial `null`, which happened to still close a popover today only
+ * because `openMapMenuAtMouseDownRef.current == null` takes the SAME "close it" branch a popover
+ * being open is meant to; `MapViewSelectionOrdering.test.jsx` is where that ordering itself (versus
+ * the callout) is actually pinned.
+ */
 function clickMapBackground() {
   act(() => {
+    for (const handlers of mapEventHandlers) handlers.mousedown?.({});
     for (const handlers of mapEventHandlers) handlers.click?.({});
   });
 }

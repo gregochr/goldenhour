@@ -35,7 +35,10 @@ vi.mock('leaflet.markercluster/dist/MarkerCluster.css', () => ({}));
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="map-container">{children}</div>,
   TileLayer: () => null,
-  Marker: ({ children }) => <div>{children}</div>,
+  // A testid on the mock itself (map-tab-v2-plan.md §3 P9) — one rendered per VISIBLE location
+  // regardless of `Popup`, which the tab no longer mounts for markers at all. `visibleCount` below
+  // counts this rather than `popup-content`, which the tab can no longer produce.
+  Marker: ({ children }) => <div data-testid="marker">{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   useMapEvents: () => null,
@@ -125,7 +128,9 @@ function openFilters() {
   fireEvent.click(screen.getByTestId('wf-filters-chip'));
 }
 
-const visibleCount = () => screen.queryAllByTestId('popup-content').length;
+// Counts rendered `Marker`s, not `popup-content` (map-tab-v2-plan.md §3 P9 — the tab no longer
+// mounts a `Popup` for markers at all, so `popup-content` can no longer answer this question here).
+const visibleCount = () => screen.queryAllByTestId('marker').length;
 
 describe('MapView Subject filter — WOODLAND', () => {
   it('offers Woodland as a Subject chip', () => {
