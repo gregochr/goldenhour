@@ -11,6 +11,12 @@
  *   byte-identical to before this phase.
  * - The "Open in Plan" handoff: the callout's action reaches `onOpenLocationInPlan` with the
  *   `{id, name, regionName}` shape `WindowFirstShell.jsx`'s `sheetSpotOf` already normalises onto.
+ * - PR #734 review: a DELIBERATE selection outranks the pool's own rating/subject/drive/dark-sky
+ *   filters. `selectedLoc` used to be resolved from `visibleLocations` (the FILTERED pool), so the
+ *   every-window strip switching to a window where the selection sits below the min-stars default
+ *   or is unscored dropped it out of the pool and unmounted the callout mid-interaction, and an
+ *   inbound handoff to a location the reader's current filters exclude never produced a callout at
+ *   all. Fixed by resolving `selectedLoc` from `locations` — the full enabled catalogue — instead.
  */
 import React from 'react';
 import {
@@ -76,23 +82,44 @@ vi.mock('react-leaflet-cluster', () => ({
 
 vi.mock('../components/MapHeatLayer.jsx', () => ({ default: () => <div /> }));
 
+/** Every props object `MapView` has ever handed `MapLabels`, in render order (`MapViewReach
+ * Measured.test.jsx`'s own pattern) — PR #734 review's own "verify the joined spot data exists"
+ * ask: `spots` is `labelSpots`, and `chipCandidates`' P8 "the selected location always gets its
+ * chip" guarantee can only force a chip for a spot that actually appears in this array. */
+const mapLabelsCalls = [];
 /** The probe: a button that selects the fixture spot, exactly like `MapViewChipSelect.test.jsx`'s
  * own mock. Its own placement/measurement is not this file's concern. */
 vi.mock('../components/map/MapLabels.jsx', () => ({
-  default: (props) => (
-    <button type="button" data-testid="probe-chip" onClick={() => props.onSelect('Bamburgh-0')}>
-      chip
-    </button>
-  ),
+  default: (props) => {
+    mapLabelsCalls.push(props);
+    return (
+      <button type="button" data-testid="probe-chip" onClick={() => props.onSelect('Bamburgh-0')}>
+        chip
+      </button>
+    );
+  },
 }));
 
 /** The callout, mocked to a probe that exposes exactly what this file asserts on: whether it is
- * mounted at all (the selection state MapView feeds it) and its "Open in Plan" wiring. Its own
+ * mounted at all (the selection state MapView feeds it), its own `rating` (PR #734 review — proves
+ * a strip-switch shows that window's HONEST state rather than unmounting), a button that plays the
+ * every-window strip's own `onSelectEv` action, and its "Open in Plan" wiring. Its own
  * content/anchoring is `MapCallout.test.jsx`'s job. */
 vi.mock('../components/map/MapCallout.jsx', () => ({
   default: (props) => (
     <div data-testid="probe-callout">
       <span data-testid="probe-callout-name">{props.location?.name ?? ''}</span>
+      <span data-testid="probe-callout-rating">{JSON.stringify(props.rating ?? null)}</span>
+      {(props.evRows ?? []).map((row) => (
+        <button
+          key={row.id}
+          type="button"
+          data-testid={`probe-callout-select-ev-${row.kind}`}
+          onClick={() => props.onSelectEv?.(row)}
+        >
+          {`select ${row.kind}`}
+        </button>
+      ))}
       <button type="button" data-testid="probe-callout-open-in-plan" onClick={() => props.onOpenInPlan?.()}>
         open in plan
       </button>
@@ -110,9 +137,13 @@ vi.mock('../api/auroraApi.js', () => ({
   getAuroraForecastAvailableDates: vi.fn().mockResolvedValue([]),
 }));
 vi.mock('../api/settingsApi.js', () => ({ getDriveTimes: vi.fn().mockResolvedValue({}) }));
+/** Controllable per test (PR #734 review's strip-switch case needs a real ASTRO row to switch
+ * to) — defaults to none, matching every OTHER describe block's fixture, which never mounts a
+ * night row at all. */
+let astroAvailableDatesResponse = [];
 vi.mock('../api/astroApi.js', () => ({
   getAstroConditions: vi.fn().mockResolvedValue([]),
-  getAstroAvailableDates: vi.fn().mockResolvedValue([]),
+  getAstroAvailableDates: vi.fn(() => Promise.resolve(astroAvailableDatesResponse)),
 }));
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn().mockResolvedValue([]) }));
 vi.mock('../components/BottomSheet.jsx', () => ({ default: ({ children }) => <div>{children}</div> }));
@@ -210,6 +241,8 @@ beforeEach(() => {
   fakeClusterGroup = { zoomToShowLayer: vi.fn() };
   capturedBackgroundClick = null;
   capturedBackgroundMouseDown = null;
+  astroAvailableDatesResponse = [];
+  mapLabelsCalls.length = 0;
 });
 
 afterEach(() => {
@@ -320,5 +353,70 @@ describe('MapView — inbound handoffLocationName, tab vs overlay (map-tab-v2-pl
     await renderMap({ handoffLocationName: 'Bamburgh-0', handoffNonce: 1, overlayMode: true });
     await act(async () => { vi.advanceTimersByTime(700); });
     expect(fakeMarker.openPopup).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('MapView — a deliberate selection outranks the pool\'s own filters (PR #734 review)', () => {
+  it('a strip-switch to an UNSCORED window keeps the callout mounted, showing that window\'s honest state', async () => {
+    // A real ASTRO row to switch to — `astroAvailableDatesResponse` makes `buildMapEvents` build
+    // one for TODAY; `getAstroConditions` (mocked to `[]` file-wide) means NOBODY has an astro
+    // rating, so this location's own is `null` — below-threshold in the sense that matters here:
+    // `getRatingForLocation`'s ASTRO branch returns null, and the default filter (showUnrated
+    // false) would drop a null-rated, non-wildlife location from `visibleLocations` outright.
+    astroAvailableDatesResponse = [TODAY];
+    await renderMap();
+    await selectTheSpot();
+    expect(screen.getByTestId('probe-callout-name')).toHaveTextContent('Bamburgh-0');
+    // The SUNSET window's own served rating (5★) — the premise, not incidental: proves the
+    // callout really did start on a SCORED window before the switch.
+    expect(screen.getByTestId('probe-callout-rating')).toHaveTextContent('5');
+
+    const astroButton = await screenFindProbe('probe-callout-select-ev-astro');
+    await act(async () => { fireEvent.click(astroButton); });
+
+    // The regression this test exists to catch: reading `selectedLoc` off `visibleLocations`
+    // dropped this location from the pool the instant its CURRENT window's rating went null,
+    // unmounting the callout mid-interaction — exactly when the reader asked "how is THIS place
+    // on THAT window". The fix keeps it mounted, showing the honest (unscored) state rather than
+    // vanishing or lying about a rating that does not exist for this window.
+    expect(screen.getByTestId('probe-callout')).toBeInTheDocument();
+    expect(screen.getByTestId('probe-callout-name')).toHaveTextContent('Bamburgh-0');
+    expect(screen.getByTestId('probe-callout-rating')).toHaveTextContent('null');
+  });
+
+  it('an inbound handoff to a location the current filters exclude still opens the callout', async () => {
+    // Rated 1★ — below `DEFAULT_MIN_STARS` (3), so this location never appears in
+    // `visibleLocations`/`labelSpots` under the map's own default filter. `handoffLocationName`
+    // already resolves against `locations` (the full roster) to set `selectedLocationName`
+    // correctly; the regression was `selectedLoc` — the variable the callout actually reads —
+    // still coming from the filtered pool, so the callout never appeared.
+    const FILTERED_OUT_SPOT = {
+      id: 2, name: 'Low-rated', lat: 55.7, lon: -1.8, regionName: 'North East', bortleClass: 4,
+    };
+    const filteredOutLocation = {
+      ...FILTERED_OUT_SPOT,
+      lng: FILTERED_OUT_SPOT.lon,
+      locationType: ['LANDSCAPE'],
+      forecastsByDate: new Map([[TODAY, {
+        sunset: { rating: 1, solarEventTime: `${TODAY}T16:12:00`, fierySkyPotential: 10, goldenHourPotential: 10 },
+      }]]),
+    };
+    vi.useFakeTimers();
+    await renderMap({
+      locations: [makeLocation(), filteredOutLocation],
+      handoffLocationName: 'Low-rated',
+      handoffNonce: 1,
+    });
+    await act(async () => { vi.advanceTimersByTime(700); });
+
+    expect(screen.getByTestId('probe-callout')).toBeInTheDocument();
+    expect(screen.getByTestId('probe-callout-name')).toHaveTextContent('Low-rated');
+    // The label-chip guarantee (P8's "the selected location always gets its chip", `chipCandidates`
+    // in `utils/mapLabels.js`) can only fire for a spot that exists in `labelSpots` at all — a
+    // location filtered out of `scopedVisibleLocations` never reaches it unless `MapView` appends
+    // the selected location's own row. Verified directly here rather than assumed: `spots` is the
+    // exact array `MapLabels`/`chipCandidates` see.
+    const lastSpots = mapLabelsCalls.at(-1).spots;
+    expect(lastSpots.some((s) => s.name === 'Low-rated')).toBe(true);
   });
 });

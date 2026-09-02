@@ -1068,11 +1068,23 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * on one screen, which is the one thing the shared/per-user seam exists to prevent. Absent an
    * override — the map at home, and the Plan overlay — this is byte-identical to the previous
    * expression.
+   *
+   * <p>⚠️ Pre-existing bug, fixed on owner request: the override branch returned
+   * {@code driveOverride.get(...)} — the whole {@code {driveMinutes, distanceMiles}} entry
+   * (`originReachMap`'s own shape, `utils/planOrigin.js`) — rather than its {@code driveMinutes}
+   * NUMBER, under any away origin. Every arithmetic consumer misbehaved silently: the drive-time
+   * filter's {@code mins <= driveTimeFilter} compared a number against an object (always `false`,
+   * so the filter matched nothing once away) and every duration rendering (the callout's Drive
+   * fact, the label chips' hover tooltip) would have printed `[object Object]` the moment either
+   * read a number rather than re-formatting the whole entry. It predates P9 — P9's own
+   * {@code distanceMilesFor} below was built to read `reachById` directly rather than reuse this
+   * one, which is what kept the callout's own miles fact from ever hitting it. Still an OVERWRITE,
+   * never a fallback: a location absent from the override map reads `null`, never the home figure.
    */
   const driveOverride = heat?.driveOverrideById ?? null;
   const driveMinutesFor = useCallback((locId) => (
     driveOverride
-      ? (driveOverride.get(Number(locId)) ?? null)
+      ? (driveOverride.get(Number(locId))?.driveMinutes ?? null)
       : (userDriveTimes[String(locId)] ?? null)
   ), [driveOverride, userDriveTimes]);
   /**
@@ -1872,6 +1884,23 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   ]);
 
   /**
+   * The selected location — resolved from `locations`, the FULL enabled catalogue, never from
+   * `visibleLocations` (PR #734 review, a confirmed finding). Filters govern the FIELD, the labels
+   * and the markers; they must never govern a DELIBERATE selection the reader already made. Two
+   * real failures fell out of reading this off `visibleLocations`: the every-window strip
+   * switching to a window where the selected location sits below the min-stars default or is
+   * unscored re-ran `getRatingForLocation` for that window through the SAME filter, dropped the
+   * location out of the pool, and unmounted the callout mid-interaction — exactly when the reader
+   * asked "how is THIS place on THAT window"; and an inbound `handoffLocationName` already resolves
+   * against `locations` (the effect above), so `setSelectedLocationName` succeeds, but the callout
+   * this variable feeds never appeared when the destination sat outside the reader's current
+   * filters. `locations` is the same "enabled" catalogue `typeFiltered`/`visibleLocations` both
+   * start from, so this loses no coverage on an ordinary selection — it only stops actively
+   * REMOVING one.
+   */
+  const selectedLoc = locations.find((l) => l.name === selectedLocationName) ?? null;
+
+  /**
    * `visibleLocations`, additionally narrowed to the scope pool — the ONE place scope is allowed
    * to narrow anything, and it is a REPORTING narrowing, not a marker one: the pins on the map stay
    * deliberately scope-independent (see `heatSpotPool` above — "the segment moves the camera; it
@@ -1897,16 +1926,30 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * show a different star than its own marker does. Tab-only (the overlay never mounts
    * {@code MapLabels} at all, so this costs it nothing to compute either way — cheap over a few
    * hundred rows, not worth a second `overlayMode` branch).
+   *
+   * <p>⚠️ Appends the SELECTED location's own row when the pool's filters have dropped it (PR #734
+   * review): {@code chipCandidates}' own "the selected location always gets its chip" guarantee
+   * (P8) can only force a chip for a spot that actually exists in the array it is handed — a
+   * selection resolved from the full roster (see {@code selectedLoc}'s own comment) but absent from
+   * this FILTERED one got a ring and a callout with no chip to anchor beside. Pushed rather than
+   * unshifted: {@code chipCandidates}' own selected-name handling already moves it to the front.
    */
-  const labelSpots = useMemo(() => scopedVisibleLocations.map((loc) => ({
-    name: loc.name,
-    lat: loc.lat,
-    lng: loc.lon,
-    rid: loc.regionName || '',
-    rating: getRatingForLocation(loc),
-    bortleClass: loc.bortleClass ?? null,
-    driveMinutes: driveMinutesFor(loc.id),
-  })), [scopedVisibleLocations, getRatingForLocation, driveMinutesFor]);
+  const labelSpots = useMemo(() => {
+    const spotOf = (loc) => ({
+      name: loc.name,
+      lat: loc.lat,
+      lng: loc.lon,
+      rid: loc.regionName || '',
+      rating: getRatingForLocation(loc),
+      bortleClass: loc.bortleClass ?? null,
+      driveMinutes: driveMinutesFor(loc.id),
+    });
+    const spots = scopedVisibleLocations.map(spotOf);
+    if (selectedLoc && !spots.some((s) => s.name === selectedLoc.name)) {
+      spots.push(spotOf(selectedLoc));
+    }
+    return spots;
+  }, [scopedVisibleLocations, getRatingForLocation, driveMinutesFor, selectedLoc]);
 
   /**
    * The ring labels' own {@code reachMeasured} — "a real drive time gated this screen's reach
@@ -1968,7 +2011,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
   const bounds = locations.map((loc) => [loc.lat, loc.lon]);
 
-  const selectedLoc = visibleLocations.find((l) => l.name === selectedLocationName) ?? null;
   const selectedDayData = selectedLoc?.forecastsByDate.get(date);
   // True when the selected date falls in a travel range — the overnight batch
   // skips Claude forecasts for those days, so the popup says so explicitly.
