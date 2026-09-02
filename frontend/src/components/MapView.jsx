@@ -74,6 +74,15 @@ function clearMapFilter(key) {
 const MapHeatLayer = lazy(() => import('./MapHeatLayer.jsx'));
 
 /**
+ * The label layer (map-tab-v2-plan.md §3 P8), behind the SAME kind of `lazy()` boundary as
+ * {@code MapHeatLayer} above, for the identical reason: {@code utils/mapLabels.js} imports
+ * {@code centroid} from {@code utils/heatField.js}, which statically imports {@code d3-geo}. A
+ * static import here would put that chunk on the network for the Plan overlay too, which never
+ * mounts this layer (`heat` is never handed to it).
+ */
+const MapLabels = lazy(() => import('./map/MapLabels.jsx'));
+
+/**
  * Fits the map to a bounds box, once per nonce, WITHOUT animating.
  *
  * <p>⚠️ `{animate: false}` is the bundle's own trap and it is not a preference. A heavy field
@@ -1022,6 +1031,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const [heatArea, setHeatArea] = useState(true);
   const [heatFitNonce, setHeatFitNonce] = useState(0);
   /**
+   * The reach-rings toggle (map-tab-v2-plan.md §3 P8) — read by both {@code MapHeatLayer} (the
+   * dashed canvas circles) and {@code MapLabels} (their duration/distance labels), so the two can
+   * never disagree about whether rings are on. Defaults true; the Legend panel's own switch for it
+   * is P10's job — this state exists now so that panel has something to reach when it lands, so
+   * the setter is genuinely unused UNTIL then rather than a mistake.
+   */
+  // eslint-disable-next-line no-unused-vars
+  const [ringsEnabled, setRingsEnabled] = useState(true);
+  /**
    * Which of the map tab's own overlay popovers is open — map-tab-v2-plan.md §3 P7's exclusivity
    * rule ("opening one popover closes the others"). `'window'` and `'filters'` are the two today;
    * a later phase's Regions jump list (P11) is a third value on the same switch, not a new state
@@ -1099,6 +1117,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // Live Leaflet marker instances keyed by location name — used to open a popup
   // programmatically when the Plan tab hands off a specific location.
   const markerRefs = useRef(new Map());
+  /**
+   * The raw `L.MarkerClusterGroup` instance (map-tab-v2-plan.md §3 P8 review) — `@react-leaflet/
+   * core`'s `createPathComponent` forwards a `ref` straight to the underlying Leaflet layer, the
+   * same convention `Marker`'s own ref callback below already relies on. Needed so a chip click
+   * can call `zoomToShowLayer` on a marker that is currently folded into a cluster bubble, where a
+   * bare `marker.openPopup()` is a silent no-op (`marker._map` is null while it is clustered).
+   */
+  const clusterGroupRef = useRef(null);
 
   // Aurora is available when the user is ADMIN/PRO and either the state machine is active
   // or there are stored forecast results for any date on the date strip.
@@ -1778,6 +1804,41 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     return visibleLocations.filter((loc) => allowed.has(heatSpotKey(loc)));
   }, [heatOffered, heatArea, heat, visibleLocations]);
 
+  /**
+   * The Map tab's label catalogue (map-tab-v2-plan.md §3 P8) — `MapLabels`' own "named" pool, the
+   * exact same filtered/scoped set the markers themselves draw from (`scopedVisibleLocations`),
+   * joined with the current window's rating via the SAME accessor the star-threshold filter and
+   * the marker render both already use (`getRatingForLocation`) — so a location's chip can never
+   * show a different star than its own marker does. Tab-only (the overlay never mounts
+   * {@code MapLabels} at all, so this costs it nothing to compute either way — cheap over a few
+   * hundred rows, not worth a second `overlayMode` branch).
+   */
+  const labelSpots = useMemo(() => scopedVisibleLocations.map((loc) => ({
+    name: loc.name,
+    lat: loc.lat,
+    lng: loc.lon,
+    rid: loc.regionName || '',
+    rating: getRatingForLocation(loc),
+    bortleClass: loc.bortleClass ?? null,
+    driveMinutes: driveMinutesFor(loc.id),
+  })), [scopedVisibleLocations, getRatingForLocation, driveMinutesFor]);
+
+  /**
+   * The ring labels' own {@code reachMeasured} — "a real drive time gated this screen's reach
+   * lens" (§5.2), the same honesty rule {@code WindowRowFieldMap}'s ring labels apply.
+   *
+   * <p>⚠️ Read off the FULL {@code userDriveTimes} fetch, never off {@code labelSpots} (map-tab-
+   * v2-plan.md §3 P8 review, a confirmed finding): {@code labelSpots} is built from
+   * {@code scopedVisibleLocations}, which the reader's own rating/subject/drive/dark-sky filters
+   * narrow — so filtering away every measured location would flip this flag from true to false
+   * while nothing about whether a drive time exists actually changed, and the ring label would
+   * then silently swap from a duration back to a bare distance for a reason that has nothing to do
+   * with reach honesty. "Was a drive time measured for this reader at all" is a fact about the
+   * FETCH, not about which pins the filters currently allow through.
+   */
+  const mapReachMeasured = Boolean(homeCoords)
+    && Object.values(userDriveTimes).some((mins) => Number.isFinite(mins));
+
   // The emphasis target, but only when it survived the filter pipeline — see the marker render.
   const emphasisTarget = useMemo(() => (
     emphasiseLocationName != null
@@ -2012,6 +2073,18 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const activeEvIndex = findEvIndex(mapEvents, eventType, nightDate);
 
   /**
+   * The active EV row's label+time, for {@code MapLabels}' hover tooltip "event" line
+   * (`docs/design/map-tab-v2/README.md` "Interactions & behaviour": "Tooltip: name, event, N★
+   * verdict, region · drive · Bortle"). Read straight off the row the window control itself shows
+   * as current, so the tooltip can never name a different window than the pill does.
+   */
+  const mapEventLabel = (() => {
+    const row = mapEvents[activeEvIndex];
+    if (!row) return '';
+    return row.time ? `${row.label} ${row.time}` : row.label;
+  })();
+
+  /**
    * Picking a row from the window control — map-tab-v2-plan.md §3 P6's EV-ownership paragraph.
    *
    * <p><b>`onSelectDate` is forwarded only when the row's own date is one the forecast endpoint
@@ -2057,6 +2130,42 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     } else {
       setLocalNightDate(row.date);
     }
+  }
+
+  /**
+   * A chip click (map-tab-v2-plan.md §3 P8) — wired to the EXACT SAME path a marker click already
+   * takes on this tab, never a new one: {@code setSelectedLocationName} plus, on desktop, opening
+   * that marker's own Leaflet popup. P9 replaces the popup with the anchored callout; this call
+   * site does not change when that lands, only what opens at the far end of it.
+   *
+   * <p>⚠️ A bare {@code marker.openPopup()} is a SILENT no-op for a marker currently folded into a
+   * cluster bubble (`marker._map` is null while clustered — nothing throws, nothing opens, and
+   * chips render across a wide enough zoom range, from the regional glance up, that clicking one
+   * on an unclustered marker is the exception rather than the rule). {@code zoomToShowLayer} is
+   * `leaflet.markercluster`'s own answer to exactly this: it zooms/pans only as far as needed to
+   * reveal ONE marker out of its cluster and defers the callback until that marker actually
+   * exists on the map — steadier than re-deriving `HandoffPopupController`'s fly-then-guess-a-
+   * timeout pattern for a case Leaflet already has a purpose-built method for. Falls back to a
+   * direct `openPopup()` when the marker is already unclustered (or the cluster ref is
+   * unavailable), which also covers every existing test's simplified cluster stub.
+   *
+   * <p>A plain function, like {@code selectEvRow} above — NOT {@code useCallback}, which would be
+   * a hook called after this component's own conditional early return a few screens up and so
+   * break the Rules of Hooks.
+   */
+  function selectMapLocation(name) {
+    setSelectedLocationName(name);
+    if (isMobile) return;
+    const marker = markerRefs.current.get(name);
+    if (!marker) return;
+    const clusterGroup = clusterGroupRef.current;
+    if (clusterGroup && typeof clusterGroup.zoomToShowLayer === 'function') {
+      clusterGroup.zoomToShowLayer(marker, () => {
+        if (typeof marker.openPopup === 'function') marker.openPopup();
+      });
+      return;
+    }
+    if (typeof marker.openPopup === 'function') marker.openPopup();
   }
 
   /**
@@ -2442,7 +2551,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         >
           {heatOn && (
             /* No fallback: the field is a picture, and a spinner where a picture is loading says
-               less than the map already does. */
+               less than the map already does. `MapLabels` shares the boundary — both are behind
+               the same kind of `lazy()` split for the same `d3-geo` reason (map-tab-v2-plan.md
+               §3 P8), so there is no benefit to two separate Suspense wrappers here. */
             <Suspense fallback={null}>
               <MapHeatLayer
                 colourMode={mapColourScale}
@@ -2451,6 +2562,17 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 // real #3) — `astroConfidenceScalar` is this mode's own capped-inference figure.
                 conf={isAstroMode ? astroConfidenceScalar : (heatWindow?.conf ?? null)}
                 markersLocked={selectedLocationName != null}
+                homeCoords={homeCoords}
+                rings={ringsEnabled}
+              />
+              <MapLabels
+                spots={labelSpots}
+                homeCoords={homeCoords}
+                rings={ringsEnabled}
+                reachMeasured={mapReachMeasured}
+                selectedName={selectedLocationName}
+                onSelect={selectMapLocation}
+                eventLabel={mapEventLabel}
               />
             </Suspense>
           )}
@@ -2571,6 +2693,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           )}
 
           <MarkerClusterGroup
+            ref={clusterGroupRef}
             /* No remount key here: `scoreRamp` is the only colour language now, so the Heat ↔
                Medallions toggle never changes which palette a cluster bubble paints on, and
                `iconCreateFunction` never needs to re-run for that reason. Consequence, kept

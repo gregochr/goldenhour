@@ -12,6 +12,7 @@ import { createLandMask } from '../utils/landMask.js';
 import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { getMode } from '../utils/scoreRamp.js';
+import { pxPerKmAtHome, RING_MIN_PX, RING_TIERS } from '../utils/reachRings.js';
 
 /**
  * The pane the field is painted into, and its stacking order.
@@ -125,6 +126,70 @@ export function coastAlphaAt(zoom) {
   return clamp(
     (COAST_STROKE_MAX_ZOOM - zoom) / COAST_STROKE_FADE_SPAN, 0, 1,
   ) * COAST_STROKE_MAX_ALPHA;
+}
+
+/**
+ * Reach rings (map-tab-v2-plan.md §3 P8) — dashed circles at the shared 25/50 mi tiers around
+ * home, drawn on the SAME canvas as the coastline stroke, in the same paint pass. The tiers are
+ * `utils/reachRings.js`'s one definition, shared with `WindowRowFieldMap`'s own rings on the Plan
+ * popup's field map (decision D-4) — a second set of numbers here would silently disagree with
+ * that surface's circles.
+ *
+ * <p>Gated on the SAME zoom the field/label handover treats as "still answering WHERE" (README
+ * "Reach rings": below zoom 10.6) — past it the question has become WHICH, and a ring answering a
+ * distance question has nothing left to add. Also gated on a saved home postcode and the `rings`
+ * prop (default false here; the Map tab's own state defaults it true and is where a future Legend
+ * panel toggle — P10 — will reach it).
+ */
+const RING_MAX_ZOOM = 10.6;
+const RING_DASH = [3, 4];
+const RING_STROKE = 'rgba(201,162,75,.42)';
+const RING_LINE_WIDTH = 1;
+
+/**
+ * A ring wider than this multiple of the frame's larger side is entirely off-frame — skip it.
+ * {@code WindowRowFieldMap}'s own constant of the same name and value; not exported from
+ * `utils/reachRings.js` because it is a per-host DISPLAY concern (how big a frame this host has),
+ * not a fact about the tiers themselves — see that module's own note on why only the tiers and the
+ * legibility floor are shared.
+ */
+const RING_OFFFRAME_FACTOR = 1.15;
+
+/**
+ * Draws the reach rings straight in CONTAINER coordinates via {@code latLngToContainerPoint} —
+ * exactly like {@code drawTiles}'s own points, and UNLIKE the coastline stroke just above: there
+ * is no absolute-pixel {@code Path2D} here, so the canvas already being glued to the container
+ * origin (`setPosition`, in the paint callback) is enough on its own — no `clipDx`/`clipDy`
+ * translate is needed or applied.
+ *
+ * @param {CanvasRenderingContext2D} ctx the field's own context, already sized via {@code fit}
+ * @param {object} map the Leaflet map
+ * @param {{lat: number, lon: number}} homeCoords
+ * @param {number} width the frame's width, in px — for the off-frame skip
+ * @param {number} height the frame's height, in px — for the off-frame skip
+ */
+function drawReachRings(ctx, map, homeCoords, width, height) {
+  const homePt = map.latLngToContainerPoint([homeCoords.lat, homeCoords.lon]);
+  // Measured at HOME's own latitude, never the viewport centre's (map-tab-v2-plan.md §3 P8
+  // review) — `utils/reachRings.pxPerKmAtHome`'s own doc comment has the full reasoning: Web
+  // Mercator's ground resolution varies with latitude, so a ring centred on a fixed point must be
+  // measured at THAT point to stay a stable size as the reader pans.
+  const pxPerKm = pxPerKmAtHome(map, homeCoords);
+  ctx.save();
+  ctx.setLineDash(RING_DASH);
+  ctx.lineWidth = RING_LINE_WIDTH;
+  ctx.strokeStyle = RING_STROKE;
+  for (const ring of RING_TIERS) {
+    const r = ring.km * pxPerKm;
+    // The SAME two skip rules `WindowRowFieldMap`'s own rings apply: illegibly small (the shared
+    // `RING_MIN_PX` floor), or so large the circle is entirely off-frame (a per-host ceiling —
+    // see `RING_OFFFRAME_FACTOR`'s own note on why it is not shared).
+    if (r < RING_MIN_PX || r > Math.max(width, height) * RING_OFFFRAME_FACTOR) continue;
+    ctx.beginPath();
+    ctx.arc(homePt.x, homePt.y, r, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+  ctx.restore();
 }
 
 /**
@@ -259,9 +324,15 @@ function restoreMarkerPanes(map) {
  * @param {?number}  props.conf   the window's confidence as a 0–1 scalar; the kernel desaturates
  *        and thins with it, so a day-4 guess cannot look as authoritative as tonight
  * @param {boolean}  [props.markersLocked] a location is open — see {@code fadesMarkers}
+ * @param {?{lat: number, lon: number}} [props.homeCoords] the saved home postcode's coordinates,
+ *        or null when none is saved — gates the reach rings (map-tab-v2-plan.md §3 P8) exactly as
+ *        it gates `CentreOnHomeControl`.
+ * @param {boolean}  [props.rings] whether the reach rings are switched on. Defaults false so a
+ *        caller that never passes it (every existing mount) draws none — the Map tab's own state
+ *        defaults to true and is threaded down explicitly.
  */
 export default function MapHeatLayer({
-  points, conf = null, markersLocked = false, colourMode = null,
+  points, conf = null, markersLocked = false, colourMode = null, homeCoords = null, rings = false,
 }) {
   const map = useMap();
 
@@ -414,6 +485,14 @@ export default function MapHeatLayer({
       ctx.stroke(landPath);
       ctx.restore();
     }
+
+    /* Reach rings (map-tab-v2-plan.md §3 P8) — same canvas, same paint pass, drawn last so they
+       sit over the field and the coastline rather than under them. Home-gated, toggle-gated and
+       zoom-gated; see `drawReachRings`'s own doc comment for why no clip translate is needed. */
+    if (rings && zoom < RING_MAX_ZOOM && homeCoords?.lat != null && homeCoords?.lon != null) {
+      const ctx = fit(canvas, width, height);
+      drawReachRings(ctx, map, homeCoords, width, height);
+    }
   // `colourMode` is a REPAINT KEY, not a colour source. The heat kernel paints from
   // `scoreRamp`'s live module state (`heatField.js` -> `rampRgb`), which this callback's other
   // dependencies cannot see: when the settings fetch resolves after the first paint, `MODE`
@@ -426,7 +505,7 @@ export default function MapHeatLayer({
     // that this callback's colours come from `scoreRamp`'s module state, so it reads the entry as
     // unnecessary. `void` makes the dependency honest and keeps the rule on.
     void colourMode;
-  }, [map, points, conf, fadesMarkers, colourMode, landMask]);
+  }, [map, points, conf, fadesMarkers, colourMode, landMask, rings, homeCoords]);
 
   const {
     attachFrame, canvasRef, geoFailed, repaint, repaintNow,
@@ -573,4 +652,6 @@ MapHeatLayer.propTypes = {
   })).isRequired,
   conf: PropTypes.number,
   markersLocked: PropTypes.bool,
+  homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
+  rings: PropTypes.bool,
 };
