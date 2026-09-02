@@ -119,8 +119,10 @@ function renderMap() {
   return render(<MapView locations={LOCATIONS} date={TODAY} autoEventType={null} />);
 }
 
+// map-tab-v2-plan.md §3 P7 moved the Subject chips off the tab's old always-rendered drawer and
+// into `FiltersPopover`, whose panel mounts only while open, behind this chip.
 function openFilters() {
-  fireEvent.click(screen.getByTestId('advanced-filters-toggle'));
+  fireEvent.click(screen.getByTestId('wf-filters-chip'));
 }
 
 const visibleCount = () => screen.queryAllByTestId('popup-content').length;
@@ -181,5 +183,21 @@ describe('MapView cluster averages — canopy sites are excluded', () => {
     const fell = divIconCalls.find((o) => o.rating === 3);   // Fell Top, LANDSCAPE
     expect(fell).toBeDefined();
     expect(fell.excludeFromCluster).toBe(false);
+  });
+});
+
+describe('MapView Subject filter — the standalone handoffFilterAction effect opens the popover', () => {
+  // A Hot Topic pill tap (e.g. BLUEBELL) drives `handoffFilterAction` alone, WITHOUT
+  // `handoffDarkSky` — a genuinely different effect from the combined one
+  // `MapViewDarkSkyHandoff.test.jsx` covers, so its own re-target onto `FiltersPopover`
+  // (map-tab-v2-plan.md §3 P7) needs its own proof rather than inheriting that file's.
+  it('opens the filters popover with the type filter already applied', () => {
+    render(
+      <MapView locations={LOCATIONS} date={TODAY} autoEventType={null} handoffFilterAction="SEASCAPE" />,
+    );
+    expect(screen.getByTestId('wf-filters-chip')).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
+    // Wooded Clifftop is the only SEASCAPE site — the filter took, not merely the popover opened.
+    expect(visibleCount()).toBe(1);
   });
 });

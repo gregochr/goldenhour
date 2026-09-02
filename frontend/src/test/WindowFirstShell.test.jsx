@@ -67,10 +67,22 @@ describe('WindowFirstShell', () => {
       'window-first-origin-chip', 'window-first-search']);
   });
 
-  it('renders at the design\'s 1080px frame', () => {
+  it('renders the masthead + tab bar at the design\'s 1080px frame', () => {
     // One of P4a's two deliverables, and nothing else pinned it.
+    //
+    // ⚠️ Moved off `window-first-shell` itself at map-tab-v2-plan.md §3 P7: the shell root no
+    // longer carries a width constraint of its own — only the masthead+tab-bar wrapper does, so
+    // that geometry never moves on a tab switch even though the panel region's own wrapper
+    // (further down) now releases the constraint for the Map tab. `window-first-shell`'s own
+    // width is asserted separately, below.
     renderShell();
-    expect(screen.getByTestId('window-first-shell')).toHaveStyle({ maxWidth: '1080px' });
+    const masthead = screen.getByTestId('window-first-masthead');
+    expect(masthead.parentElement).toHaveStyle({ maxWidth: '1080px' });
+  });
+
+  it('the shell root itself carries no width constraint (map-tab-v2-plan.md §3 P7)', () => {
+    renderShell();
+    expect(screen.getByTestId('window-first-shell')).not.toHaveStyle({ maxWidth: '1080px' });
   });
 
   it('greys the pane when the backend is DOWN, but never the way out', () => {

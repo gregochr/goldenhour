@@ -964,6 +964,56 @@
      has nothing to space. No `:not()` needed to say so. */
   gap: 10px;
 }
+/* ── The Map tab's full frame (map-tab-v2-plan.md §3 P7) ───────────────────────────────────────
+   The selected Map panel's own `wf-body` — released to zero padding (the map bleeds to the
+   frame's edge, per the design's layout diagram) and sized by FLEXBOX rather than by any height
+   computed here. `App.jsx`'s root recasts the whole page as a flex column on this tab
+   (`isMapTabActive`): the banner block, the masthead+tab-bar wrap and this panel are three flex
+   items stacked in a column whose own height is `100dvh`, and this class's only job is to be the
+   one that GROWS (`flex: 1; min-height: 0`) while the other two take their natural content height.
+   `<main>` and `.wf-shell`'s own panel-region wrapper carry the identical `flex: 1; min-height: 0;
+   display: flex; flex-direction: column` down to here, so the real, laid-out height reaches this
+   class rather than a guess about it.
+
+   ⚠️ THIS REPLACED A MEASURED HEIGHT CHAIN, and the reason is worth keeping: a
+   `calc(100dvh - var(--wf-mast-h) - var(--wf-tabbar-h))` version of this class shipped first,
+   each term published by its own `ResizeObserver` (`useLensReserve`, `useTabBarHeight`). It leaked
+   TWICE. First: the app-wide footer alone overflowed the page by 99px at 1280×800 with zero
+   banners showing — fixed by adding a THIRD term, `--wf-banner-h`, for the banner block. Second,
+   found immediately after by a live re-measurement: 16px of scroll still survived with every
+   banner suppressed, because the panel's actual top sat 16px below the sum of the three measured
+   terms — an inter-element MARGIN/gap between the tab bar and the panel that a `ResizeObserver` on
+   element BOXES structurally cannot see (RO measures boxes, not the space between them). Two
+   leaks from the same class of gap is not "nearly done", it is the wrong mechanism: any arithmetic
+   reconstruction of a layout the browser already knows how to compute has to enumerate every
+   contributor by hand, and a margin is exactly the kind of contributor that has no element to
+   attach a `ResizeObserver` to. Flexbox does not have this failure mode — margins between flex
+   items do not collapse but DO count in the column's own layout, so the browser absorbs them (and
+   every rule, gap and banner) with no term to add and nothing left to leak.
+
+   `overflow: hidden` is still load-bearing, now for the SAME reason a flex child needs it in
+   general: the design's own words are "fills the frame... and does not scroll" (README
+   "Screens/views") — everything on the map is an OVERLAY, never a reason to grow the panel taller
+   than the height flexbox handed it. `min-height: 0` is the usual flex-child fix so the panel can
+   actually SHRINK to that height rather than a nested flex child's intrinsic content height
+   winning instead.
+
+   ⚠️ `.wf-body.wf-body--map`, not `.wf-body--map` alone — adversarial review, real finding, and
+   unrelated to the height mechanism above (this one is about WIDTH-adjacent padding, not height).
+   Both classes are plain class selectors (specificity 0,1,0), and the phone media query's OWN
+   `.wf-body { padding: 12px … }` override (below) sits at the same specificity and LATER in
+   source order — so on a phone the padded rule won regardless of which class order the compound
+   className string used, and the "full-bleed" map carried a padded band on every real device this
+   was tried on. The compound selector's 0,2,0 beats both unconditionally, independent of source
+   order — robust against either rule being reordered later. */
+.wf-body.wf-body--map {
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
 @media (max-width: 639px) {
   /* One declaration moves every horizontal inset in the arm's chrome. */
   .wf-shell {
@@ -2717,16 +2767,83 @@ button.wf-hc.also.on:hover {
   align-items: center;
   gap: 6px;
 }
-/* ── The window control (map-tab-v2-plan.md §3 P6) ─────────────────────────────────────────────
+
+/* ── Full-frame chrome corners (map-tab-v2-plan.md §3 P7) ──────────────────────────────────────
+   The z-ladder the plan requires: heat 410 / selection ring 415 / labels 420 / CHROME 1100 /
+   callout 1350 / tooltip 1400 / MENUS 1500 (a menu must beat every sibling chip, and both live
+   `wf-win-menu`/`wf-filters-panel` already sit at 1500). Every chip here is 1100 for the same
+   reason `.wf-map-toolbar` already was.
+
+   Top-left: the window control, at the SAME `left: 60px` the old toolbar used to clear Leaflet's
+   own zoom + home control column — that geometry has not changed, only which control sits there.
+   Top-right: Heat/Medallions + Filters (Regions is P11 — `align-items: flex-end` plus the same
+   `gap` a third chip drops straight into, no restructuring needed when it lands). */
+.wf-map-chrome-tl {
+  position: absolute;
+  top: 8px;
+  left: 60px;
+  z-index: 1100;
+}
+.wf-map-chrome-tr {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  max-width: calc(100% - 68px);
+}
+/* The heat/pins segment + ramp key, nested inside `.wf-map-chrome-tr` rather than positioning
+   itself — unlike the overlay's own untouched `.wf-map-toolbar` (still absolute, still top-left,
+   never actually reachable since the overlay is never handed `heat`), this cluster's parent
+   already owns the absolute placement. */
+.wf-map-toolbar-cluster {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+/* ── The counts footer (README "§9 Count footer") ──────────────────────────────────────────────
+   Bottom-centre, matching `.wf-map-key`'s pill treatment so the new chrome reads as one family
+   with the old. `--color-plex-panel` opaque for the same reason every map-floating chip is: a
+   translucent ground puts a coastline through the words. */
+.wf-map-counts-footer {
+  position: absolute;
+  bottom: 8px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--color-plex-border);
+  background: var(--color-plex-panel);
+  color: var(--color-plex-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-align: center;
+  max-width: calc(100% - 16px);
+  pointer-events: none;
+}
+.wf-map-counts-flag {
+  color: #EBD9A8;
+}
+
+/* ── The window control (map-tab-v2-plan.md §3 P6, relocated at §3 P7) ─────────────────────────
    Replaces the native `<select>` (`.wf-map-window`, deleted) plus the date strip and the event
    pills — one pill, two steppers, a day-grouped dropdown.
 
-   As BUILT it sits in the Map tab's primary row (page flow, above the map), not inside
-   `.wf-map-toolbar-row`: gating it on `heatOffered` the way that row is would remove all date/
-   event browsing on a fresh, unscored catalogue, which the retired `DateStrip`/
-   `ForecastTypeSelector` pair never did. Moving it onto `.wf-map-toolbar-row` — the design's own
-   placement, top-left over the map — is P7's full-frame phase to do, once that phase also owns
-   working out what a heat-less catalogue's chrome looks like. */
+   Sits inside `.wf-map-chrome-tl` above, deliberately NOT gated on `heatOffered` the way the
+   `.wf-map-toolbar-cluster` beside it is: a fresh, unscored catalogue must still let a reader
+   browse dates and events, exactly as the retired `DateStrip`/`ForecastTypeSelector` pair always
+   could regardless of whether anything painted under them (`MapView.jsx`'s own comment on
+   `windowControl` records the same rule). */
 .wf-win-control {
   position: relative;
   display: flex;
@@ -2795,11 +2912,14 @@ button.wf-hc.also.on:hover {
   .wf-win-pill { min-height: 40px; }
 }
 
-/* The dropdown. `max-height` is a flat px figure rather than the bundle's `calc(100% - 88px)`:
-   the Map tab's frame is a fixed `MAP_HEIGHT_PX` (500px) until P7's full-frame phase, so a
-   percentage here would resolve against a toolbar wrapper with no explicit height of its own and
-   do nothing — 420px keeps the menu inside that frame with room to scroll, which is the same
-   visible behaviour the bundle's figure was aiming for on its own full-bleed map. */
+/* The dropdown. `max-height` is a flat px figure rather than the bundle's `calc(100% - 88px)`,
+   and that stays true after P7's full-frame phase too: a percentage `max-height` on an absolutely
+   positioned element resolves against its nearest POSITIONED ancestor's own height, which here is
+   `.wf-win-control` (`position: relative`) — an inline pill sized to its content, not the tall
+   flex-filled map frame several levels further up. Reaching the frame's real height would need a
+   different containing block, not a different unit. 420px keeps the menu inside the frame with
+   room to scroll, which is the same visible behaviour the bundle's figure was aiming for on its
+   own full-bleed map. */
 .wf-win-menu {
   position: absolute;
   top: calc(100% + 6px);
@@ -2886,10 +3006,10 @@ button.wf-hc.also.on:hover {
   text-align: right;
 }
 
-/* The ramp's key. It lives in the toolbar because every corner of this map is already spoken for —
-   the LITE viewline chip bottom-left, the scored-locations chip bottom-centre, Leaflet's
-   attribution bottom-right — and because a key belongs beside the control that turns on the thing
-   it explains. */
+/* The ramp's key. It lives in the toolbar-cluster because a key belongs beside the control that
+   turns on the thing it explains. On the TAB (map-tab-v2-plan.md §3 P7) every corner is spoken
+   for: the LITE viewline chip bottom-left, the counts footer bottom-centre, the scored-locations
+   chip bottom-right, Leaflet's attribution tucked under it. */
 .wf-map-key {
   display: flex;
   align-items: center;
@@ -2908,6 +3028,173 @@ button.wf-hc.also.on:hover {
   height: 6px;
   border-radius: 999px;
 }
+
+/* ── The filters popover (map-tab-v2-plan.md §3 P7, README §4) ─────────────────────────────────
+   Replaces the Map tab's old slide-down drawer entirely — the Plan-tab overlay keeps that drawer
+   (`advanced-filters-panel` in `MapView.jsx`), byte-identical and untouched. `.wf-filters-chip`
+   takes the SAME visual language as `.wf-win-pill` (same panel background, same border) so the two
+   read as one control family in the top-right cluster. */
+.wf-filters {
+  position: relative;
+}
+.wf-filters-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 4px 12px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 999px;
+  background: var(--color-plex-panel);
+  color: var(--color-plex-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+/* The active-chip treatment (README §4: "active chip gets `--home` border and
+   `rgba(201,162,75,.16)` background"). */
+.wf-filters-chip.active {
+  border-color: var(--color-home);
+  background: rgba(201, 162, 75, 0.16);
+  color: var(--color-plex-text);
+}
+.wf-filters-chip:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 1px;
+}
+@media (max-width: 639px) {
+  .wf-filters-chip { min-height: 40px; }
+}
+
+.wf-filters-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 1500;
+  width: 318px;
+  max-width: calc(100vw - 32px);
+  max-height: 420px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 10px;
+  background: var(--color-plex-panel);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
+  padding: 4px 0;
+}
+.wf-filters-row {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--color-plex-border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.wf-filters-row:last-of-type {
+  border-bottom: none;
+}
+.wf-filters-key {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-muted);
+}
+.wf-filters-seg,
+.wf-filters-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.wf-filters-seg-btn,
+.wf-filters-chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 999px;
+  background: var(--color-plex-surface);
+  color: var(--color-plex-text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.wf-filters-chip-btn {
+  min-height: 30px;
+  border-radius: 999px;
+}
+.wf-filters-seg-btn.on,
+.wf-filters-chip-btn.on {
+  background: rgba(201, 162, 75, 0.18);
+  border-color: var(--color-home);
+  color: var(--color-plex-text);
+}
+.wf-filters-chip-btn--dark.on {
+  background: rgba(99, 102, 241, 0.22);
+  border-color: rgba(129, 140, 248, 0.6);
+  color: #C7D2FE;
+}
+.wf-filters-seg-btn.disabled,
+.wf-filters-chip-btn.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.wf-filters-seg-btn:focus-visible,
+.wf-filters-chip-btn:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 1px;
+}
+/* Sizing/colour are set inline per dot (matching the retired drawer's own markup exactly, and
+   keeping the admin "? unknown" dot's dashed-transparent pair test-visible as inline style rather
+   than a class jsdom cannot resolve) — this class carries only the shape. */
+.wf-filters-dot {
+  display: inline-block;
+  border-radius: 999px;
+}
+.wf-filters-admin-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+.wf-filters-admin-tag {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--color-plex-text-muted);
+  border: 1px solid var(--color-plex-border);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.wf-filters-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px 4px;
+  font-size: 11.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-filters-clear {
+  color: var(--color-tide);
+  background: none;
+  border: none;
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 0;
+}
+.wf-filters-clear:hover,
+.wf-filters-clear:focus-visible {
+  text-decoration: underline;
+}
+
 /* ⚠️ The marker handover's pointer gate, and it has to be a STYLESHEET rule rather than an inline
    `pointer-events: none` on the pane. Leaflet's own stylesheet carries
    `.leaflet-marker-icon.leaflet-interactive { pointer-events: auto }`, and a child re-enabling the

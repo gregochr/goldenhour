@@ -258,6 +258,98 @@ describe('App — panes handed to WindowFirstShell', () => {
   });
 });
 
+// ── The full-frame Map tab's owner outside the shell (map-tab-v2-plan.md §3 P7) ──
+//
+// `<main>`'s own padding is one of the plan's four named full-frame owners, and it lives in
+// App.jsx — outside `WindowFirstShell` entirely — because the shell has no way to reach a sibling
+// element. `WindowFirstShellTabs.test.jsx` pins the shell's own half (the `onTabChange` callback
+// firing, the panel-region wrapper's width release, and — since the flex recast, below — the
+// shell root and panel-region wrapper's own flex classes); this is the other end of that channel.
+//
+// ⚠️ Re-pinned onto a flex column (adversarial review): a `calc(100dvh - …)` height chain shipped
+// here first and leaked twice — most recently 16px of page scroll surviving with every banner
+// suppressed, because the panel's real top sat 16px below the sum of the measured terms, an
+// inter-element margin a `ResizeObserver` on element BOXES cannot see. `App`'s root and `<main>`
+// now recast as a flex column instead: no height is computed anywhere, so what this file can pin
+// is STRUCTURE (which classes land on which elements, and only on the Map tab) rather than a
+// number — the actual "does it fill the screen" claim is the orchestrator's browser verification,
+// per CLAUDE.md's UI cadence for any CSS claim.
+
+describe('App — recasts the page as a flex column on the Map tab (map-tab-v2-plan.md §3 P7)', () => {
+  it('drops <main>\'s padding and gives it flex:1/min-height:0/flex-column, only on the Map tab', async () => {
+    renderApp();
+    // <main> has no accessible name of its own to query by name; its implicit ARIA role finds it.
+    const main = screen.getByRole('main');
+    expect(main.className).toContain('px-4');
+    expect(main.className).toContain('py-6');
+    expect(main.className).not.toContain('flex-1');
+
+    const mapTab = await screen.findByRole('tab', { name: 'Map' });
+    await act(async () => { mapTab.click(); });
+    await screen.findByTestId('window-first-panel-map');
+
+    expect(main.className).not.toContain('px-4');
+    expect(main.className).not.toContain('py-6');
+    expect(main.className).toContain('flex-1');
+    expect(main.className).toContain('min-h-0');
+    expect(main.className).toContain('flex-col');
+
+    // Back to Plan restores it — the recast is per-tab, not a one-way switch.
+    const planTab = screen.getByRole('tab', { name: 'Plan' });
+    await act(async () => { planTab.click(); });
+    expect(main.className).toContain('px-4');
+    expect(main.className).toContain('py-6');
+    expect(main.className).not.toContain('flex-1');
+  });
+
+  it('recasts the page root from min-h-screen to a fixed-height, non-scrolling flex column, only on the Map tab', async () => {
+    renderApp();
+    const main = screen.getByRole('main');
+    // The root is <main>'s own parent — the outermost element App renders, with no accessible
+    // role or testid of its own to query by; reached the same way as the banner block was before
+    // it lost its own ref, through a DOM relationship that does not change across this recast.
+    const root = main.parentElement;
+    expect(root.className).toContain('min-h-screen');
+    expect(root.className).not.toContain('overflow-hidden');
+
+    const mapTab = await screen.findByRole('tab', { name: 'Map' });
+    await act(async () => { mapTab.click(); });
+    await screen.findByTestId('window-first-panel-map');
+
+    expect(root.className).not.toContain('min-h-screen');
+    expect(root.className).toContain('flex');
+    expect(root.className).toContain('flex-col');
+    expect(root.className).toContain('overflow-hidden');
+
+    const planTab = screen.getByRole('tab', { name: 'Plan' });
+    await act(async () => { planTab.click(); });
+    expect(root.className).toContain('min-h-screen');
+    expect(root.className).not.toContain('overflow-hidden');
+  });
+});
+
+// Adversarial review, real finding #2, upgraded by a live measurement: the app-wide footer ALONE
+// overflowed the full-frame page by 99px at 1280×800 — with zero banners showing. `<main>`'s own
+// padding was never the whole story; the footer sitting below it is a second owner outside the
+// shell's reach, and it is suppressed rather than measured, because a footer under a no-scroll
+// screen whose whole point is "fills the frame" is dead space no calc term should have to reserve.
+describe('App — suppresses the app-wide footer on the Map tab (adversarial review, real finding #2)', () => {
+  it('renders the footer on Plan, and removes it once the Map tab is selected', async () => {
+    renderApp();
+    expect(screen.getByRole('contentinfo')).toBeInTheDocument();
+
+    const mapTab = await screen.findByRole('tab', { name: 'Map' });
+    await act(async () => { mapTab.click(); });
+    await screen.findByTestId('window-first-panel-map');
+    expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
+
+    // Back to Plan restores it — suppression is per-tab, not a one-way switch.
+    const planTab = screen.getByRole('tab', { name: 'Plan' });
+    await act(async () => { planTab.click(); });
+    expect(screen.getByRole('contentinfo')).toBeInTheDocument();
+  });
+});
+
 // ── The map colour preference reaches scoreRamp ──────────────────────────────
 //
 // loadHomeCoords is the one place App wires the loaded setting into scoreRamp.setMode, so Plan

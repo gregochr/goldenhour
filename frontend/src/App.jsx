@@ -102,6 +102,26 @@ function AuthGate() {
 function AppInner() {
   const { isAdmin, logout, token } = useAuth();
   const [showSettings, setShowSettings] = useState(false);
+  /**
+   * The Plan shell's own active tab (map-tab-v2-plan.md §3 P7's first full-frame owner). `App`
+   * cannot otherwise learn this — `WindowFirstShell`'s `effectiveTab` is shell-internal — and it
+   * needs to know in order to recast the page as a flex column on the Map tab (see the root
+   * `<div>` below). Defaults to `'plan'` so the very first render (before the shell's mount effect
+   * fires) matches what the shell itself defaults to, rather than briefly assuming the map tab is
+   * active.
+   *
+   * <p>⚠️ A `calc(100dvh - …)` height chain (measured masthead + tab bar + banner block, each via
+   * its own `ResizeObserver`) was tried here first and shipped, then reverted: a live measurement
+   * found 16px of page scroll surviving with every banner suppressed — the panel's measured top
+   * sat 16px below the sum of the three measured terms, an inter-element MARGIN/gap a
+   * `ResizeObserver` on element BOXES structurally cannot see (RO measures boxes, not the space
+   * between them). Every additional term found so far has been a symptom of the same class of gap,
+   * not the last one — so the fix is not a fourth term. Flexbox is: it absorbs every margin, gap,
+   * rule and banner with no arithmetic to keep in sync, because the browser lays the column out
+   * itself rather than being told the answer.
+   */
+  const [activePlanTab, setActivePlanTab] = useState('plan');
+  const isMapTabActive = activePlanTab === 'map';
   const { locations, refresh } = useForecasts();
   // Defer the two long-lived SSE streams until after first paint so they don't compete with the
   // critical forecast/briefing fetches during boot.
@@ -329,51 +349,71 @@ function AppInner() {
   const isDown = healthStatus === 'DOWN';
 
   return (
-    <div className="min-h-screen bg-plex-bg">
-      <SessionExpiryBanner />
-      <div className="max-w-4xl mx-auto px-4 mt-4">
-        <AuroraBanner onViewOnMap={handleAuroraViewOnMap} />
-        <div className="mt-2">
-          {/* Inert: the window-first Plan has no Map tab to switch to and no route to give it. */}
-          <NlcSightingBanner />
+    // Recast as a flex column on the Map tab (map-tab-v2-plan.md §3 P7's full-frame owner,
+    // rebuilt after the `calc(100dvh - …)` chain above proved to be chasing terms rather than
+    // fixing the actual shape of the problem — see that comment for the measurement that killed
+    // it). `h-[100dvh]` + `overflow-hidden` on THIS root is the outermost backstop: whatever the
+    // flex children below do, nothing can push the page taller than one screen. Every other tab
+    // keeps `min-h-screen` and today's ordinary document flow — the conditional is scoped to
+    // exactly the tab that needs it, nothing else.
+    <div className={isMapTabActive ? 'h-[100dvh] flex flex-col overflow-hidden bg-plex-bg' : 'min-h-screen bg-plex-bg'}>
+      {/* A natural-height, non-shrinking flex item on the Map tab — `flex-shrink-0` so a tight
+          column never squeezes a banner instead of the map panel, which is the one element with
+          `flex-1` and so the one meant to absorb the difference. Inert on every other tab (the
+          root above is not `display:flex` there, so these flex-only classes do nothing). */}
+      <div className={isMapTabActive ? 'flex-shrink-0' : undefined}>
+        <SessionExpiryBanner />
+        <div className="max-w-4xl mx-auto px-4 mt-4">
+          <AuroraBanner onViewOnMap={handleAuroraViewOnMap} />
+          <div className="mt-2">
+            {/* Inert: the window-first Plan has no Map tab to switch to and no route to give it. */}
+            <NlcSightingBanner />
+          </div>
         </div>
+
+        {showRunBanner && lastCompletedRun && (
+          <div
+            className="bg-green-900/40 border-b border-green-700 py-3"
+            data-testid="run-complete-banner"
+          >
+            <p className="max-w-4xl mx-auto px-4 text-sm text-green-300 text-center">
+              Forecast run completed — {lastCompletedRun.completed} location{lastCompletedRun.completed !== 1 ? 's' : ''} updated
+              {lastCompletedRun.failed > 0 && `, ${lastCompletedRun.failed} failed`}.
+              {' '}
+              <button
+                className="underline font-medium hover:text-green-100"
+                onClick={() => {
+                  refresh();
+                  setShowRunBanner(false);
+                }}
+              >
+                Refresh
+              </button>
+            </p>
+          </div>
+        )}
+
+        {isDown && (
+          <div
+            className="bg-red-900/40 border-b border-red-700 py-3"
+            data-testid="backend-down-banner"
+            style={{ width: '100%', boxSizing: 'border-box', overflow: 'hidden' }}
+          >
+            <p className="max-w-4xl mx-auto px-4 text-sm text-red-300 text-center">
+              Service is temporarily unavailable. Data shown may be stale.
+            </p>
+          </div>
+        )}
       </div>
 
-      {showRunBanner && lastCompletedRun && (
-        <div
-          className="bg-green-900/40 border-b border-green-700 py-3"
-          data-testid="run-complete-banner"
-        >
-          <p className="max-w-4xl mx-auto px-4 text-sm text-green-300 text-center">
-            Forecast run completed — {lastCompletedRun.completed} location{lastCompletedRun.completed !== 1 ? 's' : ''} updated
-            {lastCompletedRun.failed > 0 && `, ${lastCompletedRun.failed} failed`}.
-            {' '}
-            <button
-              className="underline font-medium hover:text-green-100"
-              onClick={() => {
-                refresh();
-                setShowRunBanner(false);
-              }}
-            >
-              Refresh
-            </button>
-          </p>
-        </div>
-      )}
-
-      {isDown && (
-        <div
-          className="bg-red-900/40 border-b border-red-700 py-3"
-          data-testid="backend-down-banner"
-          style={{ width: '100%', boxSizing: 'border-box', overflow: 'hidden' }}
-        >
-          <p className="max-w-4xl mx-auto px-4 text-sm text-red-300 text-center">
-            Service is temporarily unavailable. Data shown may be stale.
-          </p>
-        </div>
-      )}
-
-      <main className="px-4 py-6">
+      {/* On the Map tab: no padding (the map bleeds to the frame's edge) and `flex-1 min-h-0` so
+          this element — the one link in the chain between the flex root and `WindowFirstShell`'s
+          own `.wf-shell` (`PlanErrorBoundary` returns `children` directly when healthy, and
+          `WindowFirstBriefingProvider` is a bare context provider, so neither interposes a DOM
+          node here) — actually receives the space flexbox is distributing rather than sizing to
+          its content. `flex flex-col` so ITS single child (`.wf-shell`) can do the same one level
+          down. Every other tab keeps the usual `px-4 py-6` inset and ordinary block flow. */}
+      <main className={isMapTabActive ? 'flex-1 min-h-0 flex flex-col' : 'px-4 py-6'}>
         {/* isDown is passed DOWN rather than applied here: the shell's masthead carries the cog
             and Sign out, and greying the whole subtree would strand a user with no route out of a
             broken app. */}
@@ -392,6 +432,7 @@ function AppInner() {
           >
             <WindowFirstShell
               mapColourScale={mapColourScale}
+              onTabChange={setActivePlanTab}
               onOpenSettings={() => setShowSettings(true)}
               onSignOut={logout}
               light={todaysLight}
@@ -466,30 +507,38 @@ function AppInner() {
         </PlanErrorBoundary>
       </main>
 
-      <footer className="border-t border-plex-border px-4 py-4 mt-8">
-        <div className="max-w-4xl mx-auto text-center text-xs text-plex-text-muted">
-          <div className="flex justify-center gap-4">
-            <a
-              href="https://www.instagram.com/photocastuk"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Instagram"
-              className="text-plex-text-muted hover:text-plex-gold transition-colors"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
-            </a>
-            <a
-              href="https://www.facebook.com/photocast"
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-label="Facebook"
-              className="text-plex-text-muted hover:text-plex-gold transition-colors"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>
-            </a>
+      {/* Suppressed on the Map tab (adversarial review, real finding #2, measured live: the
+          footer alone overflowed the full-frame page by 99px at 1280×800, clipping the map's
+          bottom edge — with ZERO banners showing, before this class of gap was even in scope).
+          `100dvh`'s own accounting has no room for a footer under a screen whose whole point is
+          "fills the frame... and does not scroll" (README) — dead space under a map nobody can
+          reach without breaking that promise. Every other tab keeps it. */}
+      {!isMapTabActive && (
+        <footer className="border-t border-plex-border px-4 py-4 mt-8">
+          <div className="max-w-4xl mx-auto text-center text-xs text-plex-text-muted">
+            <div className="flex justify-center gap-4">
+              <a
+                href="https://www.instagram.com/photocastuk"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Instagram"
+                className="text-plex-text-muted hover:text-plex-gold transition-colors"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+              </a>
+              <a
+                href="https://www.facebook.com/photocast"
+                target="_blank"
+                rel="noopener noreferrer"
+                aria-label="Facebook"
+                className="text-plex-text-muted hover:text-plex-gold transition-colors"
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>
+              </a>
+            </div>
           </div>
-        </div>
-      </footer>
+        </footer>
+      )}
 
       {(showSettings || settingsFocus) && (
         <UserSettingsModal

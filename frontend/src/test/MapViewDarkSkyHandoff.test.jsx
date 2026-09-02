@@ -130,6 +130,25 @@ describe('MapView — the dark-sky handoff (D8, plan §6b)', () => {
     expect(screen.getAllByTestId('popup-content')).toHaveLength(1);
   });
 
+  it('the handoff RE-TARGETS onto FiltersPopover — it opens the popover itself, not the retired drawer (map-tab-v2-plan.md §3 P7)', () => {
+    // The old assertion here (before P7) was `setAdvancedOpen(true)` opening the tab's drawer,
+    // which no longer exists on the tab at all. The replacement channel is `openMapMenu`, shared
+    // with the window control — this is the explicit, first-class proof that a handoff lands on
+    // it; every other test in this file exercises the SAME effect but only checks its downstream
+    // filter state, which would still pass even if the popover opening silently broke.
+    render(
+      <MapView
+        locations={LOCATIONS}
+        date={TODAY}
+        autoEventType={null}
+        handoffDarkSky
+        handoffNonce={1}
+      />,
+    );
+    expect(screen.getByTestId('wf-filters-chip')).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
+  });
+
   it('the SAME nonce with no darkSky handoff never turns the filter on', () => {
     render(<MapView locations={LOCATIONS} date={TODAY} autoEventType={null} handoffNonce={1} />);
     expect(visibleCount()).toBe(3);
@@ -157,16 +176,20 @@ describe('MapView — the dark-sky handoff (D8, plan §6b)', () => {
     // No location here is SEASCAPE, so the type filter itself shows none — but the point of this
     // test is that the dark-sky filter no longer applies at all: toggling it back on manually
     // would need to show all three again, not just the (now zero) SEASCAPE-filtered set. Assert
-    // the toggle's own rendered state instead, which is unambiguous either way.
-    fireEvent.click(screen.getByTestId('advanced-filters-toggle'));
-    expect(screen.getByTestId('dark-sky-filter-toggle').className).not.toContain('bg-indigo-900/40');
+    // the toggle's own rendered state instead, which is unambiguous either way. No explicit
+    // "open the popover" step: the handoff itself re-targets onto `FiltersPopover` and opens it
+    // (map-tab-v2-plan.md §3 P7), so the panel — and this toggle — is already on screen.
+    expect(screen.getByTestId('dark-sky-filter-toggle').className).not.toContain(' on');
   });
 
   it('an UNRELATED handoff (handoffDarkSky omitted, not false) never clears a manually-set '
       + 'filter — found by adversarial review: handoffNonce is one counter shared by every map '
       + 'handoff in the app, not just coming-up ones', () => {
     const { rerender } = render(<MapView locations={LOCATIONS} date={TODAY} autoEventType={null} />);
-    fireEvent.click(screen.getByTestId('advanced-filters-toggle'));
+    // No handoff here, so nothing has opened the popover yet — open it manually before reaching
+    // its dark-sky toggle (map-tab-v2-plan.md §3 P7 moved it off the tab's old always-rendered
+    // drawer).
+    fireEvent.click(screen.getByTestId('wf-filters-chip'));
     fireEvent.click(screen.getByTestId('dark-sky-filter-toggle')); // reader manually turns it on
     expect(visibleCount()).toBe(1);
 
@@ -220,7 +243,8 @@ describe('MapView — the dark-sky handoff (D8, plan §6b)', () => {
     const { rerender } = render(
       <MapView locations={LOCATIONS} date={TODAY} autoEventType={null} handoffDarkSky handoffNonce={1} />,
     );
-    fireEvent.click(screen.getByTestId('advanced-filters-toggle'));
+    // The handoff itself already opened the popover (map-tab-v2-plan.md §3 P7's re-target) — no
+    // separate "open it" step needed before reaching the toggle.
     fireEvent.click(screen.getByTestId('dark-sky-filter-toggle')); // reader manually turns it off
     expect(visibleCount()).toBe(3);
 

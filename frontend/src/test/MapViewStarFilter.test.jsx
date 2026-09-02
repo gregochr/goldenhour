@@ -124,7 +124,14 @@ function makeLocations(ratings = [4, 3, 2]) {
   }));
 }
 
-function renderMap(overrides = {}) {
+/**
+ * Renders the Map tab and — unless {@code openFilters: false} is passed — opens the filters
+ * popover immediately (map-tab-v2-plan.md §3 P7 moved every control this file exercises off the
+ * always-rendered drawer and into `FiltersPopover`, which mounts its rows only while open). Nearly
+ * every test below wants the panel open to reach a row; the handful that test the CHIP's own
+ * open/closed state pass {@code openFilters: false} and drive it explicitly.
+ */
+function renderMap({ openFilters = true, ...overrides } = {}) {
   const props = {
     locations: makeLocations(),
     date: TODAY,
@@ -134,7 +141,9 @@ function renderMap(overrides = {}) {
     autoEventType: null,
     ...overrides,
   };
-  return render(<MapView {...props} />);
+  const result = render(<MapView {...props} />);
+  if (openFilters) fireEvent.click(screen.getByTestId('wf-filters-chip'));
+  return result;
 }
 
 /**
@@ -152,59 +161,84 @@ function switchToSunrise() {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
-describe('MapView advanced filters toggle', () => {
+// ⚠️ Rewritten in full for map-tab-v2-plan.md §3 P7, which retired the Map tab's slide-down
+// drawer (`advanced-filters-toggle`/`advanced-filters-panel`, `filter-summary`'s text) in favour
+// of `FiltersPopover` — a click-to-open chip (`wf-filters-chip`) whose panel (`wf-filters-panel`)
+// mounts its rows only while open, and whose chip shows a COUNT rather than a text summary
+// (README §4: "chip `Filters (N)`"). The overlay's own drawer is untouched — see
+// `MapViewOverlayContext.test.jsx`'s "Plan tab drill-down" suite, which still exercises it. Old
+// pins named in-line below, each replaced rather than deleted.
+describe('MapView filters popover', () => {
   beforeEach(() => { localStorage.clear(); });
   afterEach(() => { localStorage.clear(); });
 
-  // The drawer's max-height moved from a Tailwind class pair to an inline style, so the Map tab
-  // and the Plan overlay can share one easing and one open height. Asserted through
-  // `aria-expanded` — the state the disclosure actually publishes — with the height as the
-  // corroborating detail rather than the whole assertion.
-  const drawerOpen = () => screen.getByTestId('advanced-filters-toggle')
-    .getAttribute('aria-expanded') === 'true';
-  const drawerMaxHeight = () => screen.getByTestId('advanced-filters-panel').style.maxHeight;
+  const chip = () => screen.getByTestId('wf-filters-chip');
+  const chipOpen = () => chip().getAttribute('aria-expanded') === 'true';
 
-  it('advanced filters panel is collapsed on fresh load', () => {
-    renderMap();
-    expect(drawerOpen()).toBe(false);
-    expect(drawerMaxHeight()).toBe('0px');
+  // Replaces "advanced filters panel is collapsed on fresh load" + "Filters toggle button is
+  // present".
+  it('is present and collapsed on fresh load, with no active-filter count', () => {
+    renderMap({ openFilters: false });
+    expect(chip()).toBeInTheDocument();
+    expect(chipOpen()).toBe(false);
+    expect(screen.queryByTestId('wf-filters-panel')).not.toBeInTheDocument();
+    // At the default (3★+, nothing else) the chip shows no count and no active styling — the
+    // count deliberately excludes the always-a-value quality floor at ITS default, matching
+    // `hasNonDefaultFilters`'s own "3★+ is never a no-op, but it is the DEFAULT" framing.
+    expect(chip()).toHaveTextContent('Filters');
+    expect(chip().className).not.toContain('active');
   });
 
-  it('Filters toggle button is present', () => {
-    renderMap();
-    expect(screen.getByTestId('advanced-filters-toggle')).toBeInTheDocument();
-  });
-
-  it('Filters summary shows the default threshold and no highlight when no advanced filters are active', () => {
-    renderMap();
-    const btn = screen.getByTestId('advanced-filters-toggle');
-    // At default (3★+, nothing else) the summary still shows the threshold label,
-    // but the button is not highlighted (hasNonDefaultFilters === false).
-    expect(screen.getByTestId('filter-summary').textContent).toContain('3★+');
-    expect(btn.className).not.toMatch(/plex-gold/);
-  });
-
-  it('Filters summary reflects a non-default star threshold', () => {
-    renderMap();
-    // Selecting a non-default threshold updates the summary text (no numeric badge anymore).
+  // Replaces "Filters summary shows the default threshold..." + "...reflects a non-default star
+  // threshold": the chip now shows a NUMERIC COUNT, never text, and the count is what drives the
+  // active-chip styling.
+  it('shows an active count and styling once a non-default filter is chosen', () => {
+    renderMap({ openFilters: false });
+    fireEvent.click(chip());
     fireEvent.click(screen.getByTestId('star-filter-5'));
-    expect(screen.getByTestId('filter-summary').textContent).toContain('5★');
-    expect(screen.getByTestId('advanced-filters-toggle').className).toMatch(/plex-gold/);
+    expect(chip()).toHaveTextContent('Filters (1)');
+    expect(chip().className).toContain('active');
   });
 
-  it('clicking the toggle opens the advanced panel', () => {
-    renderMap();
-    fireEvent.click(screen.getByTestId('advanced-filters-toggle'));
-    expect(drawerOpen()).toBe(true);
-    expect(drawerMaxHeight()).toBe('340px');
+  // Replaces "clicking the toggle opens the advanced panel" + "...collapses the panel again".
+  it('opens the panel on chip click and closes it on a second click', () => {
+    renderMap({ openFilters: false });
+    expect(screen.queryByTestId('wf-filters-panel')).not.toBeInTheDocument();
+
+    fireEvent.click(chip());
+    expect(chipOpen()).toBe(true);
+    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
+
+    fireEvent.click(chip());
+    expect(chipOpen()).toBe(false);
+    expect(screen.queryByTestId('wf-filters-panel')).not.toBeInTheDocument();
   });
 
-  it('clicking the toggle twice collapses the panel again', () => {
-    renderMap();
-    fireEvent.click(screen.getByTestId('advanced-filters-toggle'));
-    fireEvent.click(screen.getByTestId('advanced-filters-toggle'));
-    expect(drawerOpen()).toBe(false);
-    expect(drawerMaxHeight()).toBe('0px');
+  it('closes on an outside click and on Escape', () => {
+    renderMap({ openFilters: false });
+    fireEvent.click(chip());
+    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
+
+    fireEvent.mouseDown(document.body);
+    expect(screen.queryByTestId('wf-filters-panel')).not.toBeInTheDocument();
+
+    fireEvent.click(chip());
+    fireEvent.keyDown(screen.getByTestId('wf-filters-panel'), { key: 'Escape' });
+    expect(screen.queryByTestId('wf-filters-panel')).not.toBeInTheDocument();
+  });
+
+  it('opening the window control closes an open filters panel, and vice versa — the two share one exclusivity switch', () => {
+    renderMap({ openFilters: false });
+    fireEvent.click(chip());
+    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    expect(screen.queryByTestId('wf-filters-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wf-win-menu')).toBeInTheDocument();
+
+    fireEvent.click(chip());
+    expect(screen.queryByTestId('wf-win-menu')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
   });
 });
 
@@ -227,41 +261,41 @@ describe('MapView star filter — localStorage persistence', () => {
 
     it('defaults to the 3★+ threshold when localStorage is empty (3/4/5 highlighted)', () => {
       renderMap();
-      expect(screen.getByTestId('star-filter-1').className).not.toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-2').className).not.toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-3').className).toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-4').className).toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-5').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-1').className).not.toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-2').className).not.toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-3').className).toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-4').className).toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-5').className).toMatch(/\bon\b/);
     });
 
     it('pre-selects the saved minimum from localStorage on mount — highlights that star and all above', () => {
       localStorage.setItem('mapFilterMinStars', '3');
       renderMap();
-      expect(screen.getByTestId('star-filter-1').className).not.toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-2').className).not.toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-3').className).toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-4').className).toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-5').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-1').className).not.toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-2').className).not.toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-3').className).toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-4').className).toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-5').className).toMatch(/\bon\b/);
     });
 
     it('ignores invalid localStorage values and falls back to the default 3★+ threshold', () => {
       localStorage.setItem('mapFilterMinStars', 'banana');
       renderMap();
-      expect(screen.getByTestId('star-filter-1').className).not.toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-2').className).not.toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-3').className).toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-4').className).toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-5').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-1').className).not.toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-2').className).not.toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-3').className).toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-4').className).toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-5').className).toMatch(/\bon\b/);
     });
 
     it('ignores out-of-range localStorage values and falls back to the default 3★+ threshold', () => {
       localStorage.setItem('mapFilterMinStars', '9');
       renderMap();
-      expect(screen.getByTestId('star-filter-1').className).not.toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-2').className).not.toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-3').className).toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-4').className).toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-5').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-1').className).not.toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-2').className).not.toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-3').className).toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-4').className).toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-5').className).toMatch(/\bon\b/);
     });
 
     // These three `useState` initialisers (min stars, stand-down, advanced-open) run during the
@@ -275,7 +309,7 @@ describe('MapView star filter — localStorage persistence', () => {
         throw new DOMException('The operation is insecure.', 'SecurityError');
       });
       expect(() => renderMap()).not.toThrow();
-      expect(screen.getByTestId('star-filter-3').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-3').className).toMatch(/\bon\b/);
       getItemSpy.mockRestore();
     });
 
@@ -287,8 +321,8 @@ describe('MapView star filter — localStorage persistence', () => {
       });
       renderMap();
       expect(() => fireEvent.click(screen.getByTestId('star-filter-4'))).not.toThrow();
-      expect(screen.getByTestId('star-filter-3').className).not.toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-4').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-3').className).not.toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-4').className).toMatch(/\bon\b/);
       setItemSpy.mockRestore();
     });
   });
@@ -297,11 +331,11 @@ describe('MapView star filter — localStorage persistence', () => {
     it('marks the clicked star and all stars above it as active', () => {
       renderMap();
       fireEvent.click(screen.getByTestId('star-filter-3'));
-      expect(screen.getByTestId('star-filter-1').className).not.toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-2').className).not.toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-3').className).toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-4').className).toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-5').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-1').className).not.toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-2').className).not.toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-3').className).toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-4').className).toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-5').className).toMatch(/\bon\b/);
     });
 
     it('saves the clicked star to localStorage', () => {
@@ -315,10 +349,10 @@ describe('MapView star filter — localStorage persistence', () => {
       fireEvent.click(screen.getByTestId('star-filter-2'));
       fireEvent.click(screen.getByTestId('star-filter-5'));
       expect(localStorage.getItem('mapFilterMinStars')).toBe('5');
-      expect(screen.getByTestId('star-filter-5').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-5').className).toMatch(/\bon\b/);
       // 1–4 should no longer be highlighted when minimum is 5
       for (let s = 1; s <= 4; s++) {
-        expect(screen.getByTestId(`star-filter-${s}`).className).not.toMatch(/plex-gold/);
+        expect(screen.getByTestId(`star-filter-${s}`).className).not.toMatch(/\bon\b/);
       }
     });
 
@@ -328,9 +362,9 @@ describe('MapView star filter — localStorage persistence', () => {
       fireEvent.click(screen.getByTestId('star-filter-4'));
       // Threshold stays at 4 — still persisted and still highlighted (4 and above).
       expect(localStorage.getItem('mapFilterMinStars')).toBe('4');
-      expect(screen.getByTestId('star-filter-4').className).toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-5').className).toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-3').className).not.toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-4').className).toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-5').className).toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-3').className).not.toMatch(/\bon\b/);
     });
   });
 
@@ -352,11 +386,11 @@ describe('MapView star filter — localStorage persistence', () => {
       fireEvent.click(screen.getByTestId('star-filter-5'));
       fireEvent.click(screen.getByTestId('clear-all-filters'));
       // Back to the default 3★+ threshold — 3/4/5 highlighted, 1/2 not.
-      expect(screen.getByTestId('star-filter-1').className).not.toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-2').className).not.toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-3').className).toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-4').className).toMatch(/plex-gold/);
-      expect(screen.getByTestId('star-filter-5').className).toMatch(/plex-gold/);
+      expect(screen.getByTestId('star-filter-1').className).not.toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-2').className).not.toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-3').className).toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-4').className).toMatch(/\bon\b/);
+      expect(screen.getByTestId('star-filter-5').className).toMatch(/\bon\b/);
     });
 
     it('removes mapFilterMinStars from localStorage on click', () => {
@@ -437,7 +471,7 @@ describe('MapView stand-down filter pill', () => {
   it('stand-down pill reads initial state from localStorage', () => {
     localStorage.setItem('mapFilterShowStandDown', '1');
     renderMap({ locations: [...makeLocations(), makeStandDownLocation()] });
-    expect(screen.getByTestId('star-filter-standdown').className).toMatch(/plex-gold/);
+    expect(screen.getByTestId('star-filter-standdown').className).toMatch(/\bon\b/);
   });
 
   it('event type change clears the stand-down flag', () => {
@@ -447,11 +481,18 @@ describe('MapView stand-down filter pill', () => {
     expect(localStorage.getItem('mapFilterShowStandDown')).toBeNull();
   });
 
-  it('Clear button resets the stand-down flag', () => {
+  // ⚠️ Rewritten after adversarial review: Clear all no longer touches the admin stand-down
+  // lens at all (adjudicated — it is a debug lens, not a reader filter, and gets scope's exact
+  // "present, sticky, uncounted" treatment). Clear all is also simply ABSENT here, since toggling
+  // stand-down alone raises no count for it to clear — see "MapView filters chip count" below for
+  // the direct proof. Toggling it back off is still how a reader turns it off.
+  it('stand-down survives Clear all — a genuine filter toggled alongside it is what Clear all resets', () => {
     renderMap({ locations: [...makeLocations(), makeStandDownLocation()] });
     fireEvent.click(screen.getByTestId('star-filter-standdown'));
+    fireEvent.click(screen.getByTestId('star-filter-4')); // a genuine filter, so Clear all appears
     fireEvent.click(screen.getByTestId('clear-all-filters'));
-    expect(localStorage.getItem('mapFilterShowStandDown')).toBeNull();
+    expect(localStorage.getItem('mapFilterShowStandDown')).toBe('1');
+    expect(screen.getByTestId('star-filter-standdown').className).toMatch(/\bon\b/);
   });
 });
 
@@ -787,35 +828,51 @@ describe('MapView filter behaviour — unrated (non-stand-down)', () => {
   });
 });
 
-describe('MapView filter summary text (admin stand-down + threshold)', () => {
+// ⚠️ Rewritten for map-tab-v2-plan.md §3 P7 — `filter-summary`'s text no longer exists on the tab;
+// the chip's active COUNT is the replacement (see "MapView filters popover" above). Old pins named
+// in-line.
+//
+// ⚠️ Rewritten AGAIN after adversarial review adjudicated the admin stand-down/unknown toggles:
+// they are debug LENSES that widen the pool back out, not reader filters, so they get the exact
+// same treatment as scope (present, sticky, uncounted) — never in the chip's `(N)`, never behind
+// the `filtered` flag, never touched by Clear all. The three tests immediately below replace the
+// ones that used to assert the opposite (a prior rewrite of the original "filter summary" pins).
+describe('MapView filters chip count — admin stand-down/unknown are uncounted, like scope', () => {
   beforeEach(() => { mockRole = 'ADMIN'; localStorage.clear(); });
   afterEach(() => { localStorage.clear(); });
 
-  it('showStandDown adds "+ stand-down" to the filter summary', () => {
+  it('the admin stand-down toggle never raises the chip\'s count or its active styling', () => {
     renderMap({ locations: [...makeLocations(), makeStandDownLocation()] });
-    // Fresh — default threshold label, no stand-down marker yet.
-    expect(screen.getByTestId('filter-summary').textContent).toContain('3★+');
-    expect(screen.getByTestId('filter-summary').textContent).not.toContain('stand-down');
+    expect(screen.getByTestId('wf-filters-chip')).toHaveTextContent('Filters');
+    expect(screen.getByTestId('wf-filters-chip').className).not.toContain('active');
     fireEvent.click(screen.getByTestId('star-filter-standdown'));
-    expect(screen.getByTestId('filter-summary').textContent).toContain('+ stand-down');
-    // Activating a non-default filter highlights the toggle button.
-    expect(screen.getByTestId('advanced-filters-toggle').className).toMatch(/plex-gold/);
+    expect(screen.getByTestId('wf-filters-chip')).toHaveTextContent('Filters');
+    expect(screen.getByTestId('wf-filters-chip').className).not.toContain('active');
   });
 
-  it('stand-down + a non-default threshold both appear in the summary', () => {
+  it('a genuine filter still counts alongside an already-active stand-down toggle', () => {
     renderMap({ locations: [...makeLocations(), makeStandDownLocation()] });
     fireEvent.click(screen.getByTestId('star-filter-standdown'));
     fireEvent.click(screen.getByTestId('star-filter-4'));
-    const summary = screen.getByTestId('filter-summary').textContent;
-    expect(summary).toContain('4★+');
-    expect(summary).toContain('+ stand-down');
+    expect(screen.getByTestId('wf-filters-chip')).toHaveTextContent('Filters (1)');
   });
 
-  it('Clear button appears when only stand-down is active', () => {
+  it('Clear all stays absent with only stand-down active — there is nothing for it to clear', () => {
     renderMap({ locations: [...makeLocations(), makeStandDownLocation()] });
     expect(screen.queryByTestId('clear-all-filters')).not.toBeInTheDocument();
     fireEvent.click(screen.getByTestId('star-filter-standdown'));
-    expect(screen.getByTestId('clear-all-filters')).toBeInTheDocument();
+    expect(screen.queryByTestId('clear-all-filters')).not.toBeInTheDocument();
+  });
+
+  it('Clear all, when a genuine filter makes it appear, leaves stand-down untouched', () => {
+    renderMap({ locations: [...makeLocations(), makeStandDownLocation()] });
+    fireEvent.click(screen.getByTestId('star-filter-standdown'));
+    fireEvent.click(screen.getByTestId('star-filter-4'));
+    fireEvent.click(screen.getByTestId('clear-all-filters'));
+    // The genuine filter reset; the sticky admin lens did not.
+    expect(screen.getByTestId('star-filter-3').className).toMatch(/\bon\b/);
+    expect(screen.getByTestId('star-filter-standdown').className).toMatch(/\bon\b/);
+    expect(localStorage.getItem('mapFilterShowStandDown')).toBe('1');
   });
 });
 

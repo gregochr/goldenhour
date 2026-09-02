@@ -289,7 +289,7 @@ const panelDomId = (id) => `window-first-panel-${id}`;
 export default function WindowFirstShell({
   onOpenSettings, onSignOut, contentDisabled, onShowOnMap, onEvaluationScoresChange,
   onSeasonalFeaturesChange, locations, mapPane, operationsPane, tabRequest, healthPill,
-  light, onSetPostcode, mapColourScale = null, homeCoords = null,
+  light, onSetPostcode, mapColourScale = null, homeCoords = null, onTabChange = null,
 }) {
   const {
     heatStripCards, heatPointSets, heatSpots, reachById, regionSeries,
@@ -372,6 +372,15 @@ export default function WindowFirstShell({
    * Falling back to the first tab is the only state that is always coherent.
    */
   const effectiveTab = tabs.some((t) => t.id === activeTab) ? activeTab : tabs[0].id;
+  /**
+   * The shell→App channel the full-frame Map tab needs (map-tab-v2-plan.md §3 P7's first owner).
+   * `App` recasts its whole page as a flex column on the map tab (dropping `<main>`'s own padding
+   * and giving every ancestor down to `.wf-body.wf-body--map` `flex: 1; min-height: 0` instead of
+   * a computed height) — but `effectiveTab` is shell-internal state `App` has no other way to
+   * read. Fired on mount too (not only on change), so `App` learns the OPENING tab rather than
+   * starting from a guess and correcting one render late.
+   */
+  useEffect(() => { onTabChange?.(effectiveTab); }, [effectiveTab, onTabChange]);
   /** Panes mount on first selection and stay mounted; the panel ELEMENT is always present. */
   const [openedTabs, setOpenedTabs] = useState(() => new Set([TABS[0].id]));
   /**
@@ -1092,14 +1101,29 @@ export default function WindowFirstShell({
     <div
       ref={shellRef}
       data-testid="window-first-shell"
-      // `wf-shell` hosts `--wf-gutter`, the arm's horizontal inset. Seven elements below shared the
-      // literal 18px and each would have needed its own phone override; declaring it once here
-      // makes the phone gutter a single declaration and makes a partial migration — the failure
-      // where half the chrome shifts and half does not — impossible rather than merely unlikely.
-      // The max width stays inline: it is a JS constant and no media query touches it.
-      className="wf-shell mx-auto w-full"
-      style={{ maxWidth: WRAP_MAX_WIDTH }}
+      // `wf-shell` hosts `--wf-gutter`/`--wf-mast-h`/`--wf-lens-reserve` — the arm's shared
+      // horizontal inset and the sticky-chrome measurements `useLensReserve` publishes. It carries
+      // NO width constraint of its own any more (map-tab-v2-plan.md §3 P7's second full-frame
+      // owner): the masthead and the tab bar stay wrapped at `WRAP_MAX_WIDTH` below regardless of
+      // tab, but the panel region's own wrapper releases that constraint on the Map tab, so a
+      // width change on tab switch never reaches the one thing that must never move — the
+      // masthead the tick line and the search anchor both depend on staying put.
+      //
+      // On the Map tab it is ALSO a flex column filling whatever height `App`'s own root gives it
+      // (App.jsx's `isMapTabActive` recast) — `flex-1 min-h-0` so it actually receives that space
+      // rather than sizing to its content, `flex flex-col` so its own children (the masthead+tabbar
+      // wrap below, then the panel region) stack and share it the same way. Every other tab keeps
+      // plain block flow (`w-full` alone), which is today's unchanged layout and scroll.
+      className={effectiveTab === 'map' ? 'wf-shell w-full flex-1 min-h-0 flex flex-col' : 'wf-shell w-full'}
     >
+      {/* Masthead + tab bar + tab rule — wrapped at `WRAP_MAX_WIDTH` on EVERY tab (P7's recorded
+          decision: "the wrap stays on masthead + tab bar, only the panel region releases"). On the
+          Map tab this is also the flex column's first, natural-height item — `flex-shrink-0` so a
+          tight column squeezes the panel below it, never this. */}
+      <div
+        className={effectiveTab === 'map' ? 'mx-auto w-full flex-shrink-0' : 'mx-auto w-full'}
+        style={{ maxWidth: WRAP_MAX_WIDTH }}
+      >
       {/* The lit band. Three lines in a column, not one row: the lockup and its controls, then
           today's light as a gradient, then the row that labels it. The band's own surface and its
           zero bottom padding live on `.wf-mast` in index.css — the time row supplies the bottom
@@ -1275,6 +1299,24 @@ export default function WindowFirstShell({
         })}
       </div>
       <div data-testid="window-first-tabrule" className="h-px bg-plex-border" />
+      </div>
+
+      {/* The panel region — the second half of P7's width split. Full-width on the Map tab (the
+          full-frame owner), wrapped at `WRAP_MAX_WIDTH` on every other tab exactly as the whole
+          shell always was. A width change here on tab switch is fine: nothing sticky lives in
+          this wrapper (the masthead and the tab bar, the two elements a width jump would actually
+          disturb, are both in the wrapper above, which never changes).
+
+          On the Map tab it is ALSO the flex column's second item — `flex-1 min-h-0` so it takes
+          every pixel the masthead+tab-bar item above did not, `flex flex-col` so its own visible
+          child (the Map tab's own slotted-pane wrapper, `.wf-body.wf-body--map` — every OTHER
+          child here is `hidden` while the Map tab is active, so it is the pane's only flex
+          participant) can do the same. No height is computed anywhere in this chain; flexbox
+          distributes it. */}
+      <div
+        className={effectiveTab === 'map' ? 'w-full flex-1 min-h-0 flex flex-col' : 'mx-auto w-full'}
+        style={effectiveTab === 'map' ? undefined : { maxWidth: WRAP_MAX_WIDTH }}
+      >
 
       {/* Plan only, and that is the design's own heading for it ("Lens bar (Plan only)"). The bar
           filters SPOTS; the almanac feed has none, so on Coming up it would gate nothing — §6's
@@ -1477,11 +1519,27 @@ export default function WindowFirstShell({
           // change, and ManageView's own group bar landed on the tab rule reading as one two-row
           // control. That is precisely what this class was introduced to make structurally
           // impossible, in a comment this file already carries. `gap` is inert on a block panel.
-          className={effectiveTab === tab.id ? 'wf-body' : 'wf-body hidden'}
+          //
+          // `wf-body--map` is the SELECTED Map tab's own addition (map-tab-v2-plan.md §3 P7's
+          // third + fourth full-frame owners): it releases `wf-body`'s inset padding to zero (the
+          // map is meant to bleed to the frame's edge) and makes this panel a `flex:1; min-height:0`
+          // flex child of the panel-region wrap above — no height is computed anywhere in the
+          // chain (a `calc(100dvh - …)` version of this shipped once and was reverted: a live
+          // measurement found 16px of inter-element spacing a `ResizeObserver` on element BOXES
+          // cannot see, index.css's own comment on `.wf-body.wf-body--map` has the full account).
+          // Flexbox distributing real, measured space is what lets `MapView`'s own `flex:1` map
+          // container fill "the rest of the screen" with no page scroll. Never applied to
+          // Operations, and never applied to the Map tab while it is merely mounted-but-hidden
+          // (`hidden` wins the cascade regardless either way, but there is no reason to make an
+          // invisible panel a flex child of anything).
+          className={effectiveTab === tab.id
+            ? (tab.id === 'map' ? 'wf-body wf-body--map' : 'wf-body')
+            : 'wf-body hidden'}
         >
           {openedTabs.has(tab.id) ? { mapPane, operationsPane }[tab.slot] : null}
         </div>
       ))}
+      </div>
 
       {/* The window popup — the plan's drill-down, over the plan rather than inside it.
           Mounted only while open, and lazily, for the reasons its own boundary records. */}
@@ -1756,6 +1814,13 @@ export default function WindowFirstShell({
 WindowFirstShell.propTypes = {
   /** The active scoreRamp mode, forwarded to the heat strip as its paint-repaint key. */
   mapColourScale: PropTypes.oneOf(['temp', 'verdict']),
+  /**
+   * The shell→App channel for the full-frame Map tab (map-tab-v2-plan.md §3 P7). Fired with the
+   * effective tab id on mount and on every change — `App` cannot otherwise learn which tab is
+   * active (`effectiveTab` is shell-internal), and it needs to know in order to drop `<main>`'s
+   * own padding for the Map tab.
+   */
+  onTabChange: PropTypes.func,
   onOpenSettings: PropTypes.func.isRequired,
   onSignOut: PropTypes.func.isRequired,
   contentDisabled: PropTypes.bool,
