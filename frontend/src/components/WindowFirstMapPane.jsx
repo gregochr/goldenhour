@@ -8,6 +8,7 @@ import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.js
 // tab opened, in medallion view, for arithmetic that is four `Math.min` calls.
 import { latLngBounds } from '../utils/heatGeometry.js';
 import { scopeSpots } from '../utils/planOrigin.js';
+import { beyondRegions } from '../utils/planningArea.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 
 /**
@@ -196,6 +197,16 @@ export default function WindowFirstMapPane({
       driveOverrideById: origin ? effectiveReachById : undefined,
       // "My area" is false under an away origin: the frame is the region being planned from.
       areaLabel: origin ? `Around ${origin.baseName}` : undefined,
+      /**
+       * The counts footer's "Beyond {@code N}h: …" second line (map-tab-v2-plan.md §3 P7,
+       * README §9) — `planningArea.beyondRegions`, the SAME test `scopeSpots`/`areaRegions` used
+       * to build `framed` above, so the footer can never name a region the scope itself already
+       * disagrees about. Home-only: an away origin's scope is a single named region
+       * (`scopeRegions` returns `[origin.name]` for it), and "beyond your area" has no meaning
+       * once the area IS one place — the same reasoning that keeps `regionDriveMinutes` on the
+       * per-user `reachById` rather than the away `effectiveReachById` here.
+       */
+      beyondRegionNames: origin ? [] : beyondRegions(heatSpots, reachById),
     };
   }, [heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr,
     origin, effectiveReachById]);
@@ -223,7 +234,12 @@ export default function WindowFirstMapPane({
   }, []);
 
   return (
-    <div ref={wrapRef} data-testid="window-first-map-pane" className="flex flex-col gap-2.5">
+    // `flex-1 min-h-0` (map-tab-v2-plan.md §3 P7's full-frame owner #4): this wrapper sits inside
+    // the shell's `.wf-body.wf-body--map` panel, which `App.jsx`'s flex-column recast
+    // (`isMapTabActive`) gives real, laid-out height rather than a computed one — without these
+    // two classes this wrapper would take only its content's natural height and leave that space
+    // empty below `MapView`'s own `flex:1` map container.
+    <div ref={wrapRef} data-testid="window-first-map-pane" className="flex flex-col flex-1 min-h-0 gap-2.5">
       <MapView
         // The window control's own handler now — no separate strip to keep in step with it (P6
         // deleted `DateStrip`; see that component's former mount here for the pre-P6 shape).

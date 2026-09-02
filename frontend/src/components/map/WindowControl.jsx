@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { calDow } from '../../utils/windowFirstStrip.js';
@@ -27,9 +27,34 @@ import { badgeChannel } from '../../utils/windowFirstCards.js';
  * app's existing disclosure idiom in `HealthIndicator.jsx`/`InfoTip.jsx`) is a different case and
  * does not carry the same risk: it can only ever close state that is not visible when it fires
  * from another tab, never act on anything.
+ *
+ * <h2>Optionally controlled, for menu exclusivity (map-tab-v2-plan.md §3 P7)</h2>
+ *
+ * <p>P7 adds a second popover to the same map pane (`FiltersPopover`), and "opening one closes the
+ * others" needs one caller-owned source of truth. Passing both {@code open} and
+ * {@code onOpenChange} puts this component in CONTROLLED mode — the caller's boolean becomes the
+ * only truth and every internal open/close (pill click, row selection, a stepper closing the menu,
+ * outside click, `Escape`) is reported upward instead of applied to local state. Omitting both
+ * keeps the original uncontrolled behaviour byte-for-byte, which is what every test written before
+ * P7 already exercises and what the Plan-tab overlay would fall back to if it ever mounted this
+ * control (it does not, today).
  */
-export default function WindowControl({ events, activeIndex, onSelect }) {
-  const [open, setOpen] = useState(false);
+export default function WindowControl({
+  events, activeIndex, onSelect, open: openProp, onOpenChange = null,
+}) {
+  const isControlled = openProp !== undefined;
+  const [openState, setOpenState] = useState(false);
+  const open = isControlled ? openProp : openState;
+  // `useCallback`, closing over the CURRENT `open` (controlled or not) so a functional update
+  // (`setOpen(v => !v)`, the pill's own toggle) always flips the value actually on screen rather
+  // than a possibly-stale internal `openState` the controlled caller has since overridden.
+  // Recreated whenever `open` changes, which is exactly when the outside-click effect below needs
+  // to re-subscribe anyway — listing it as a dependency costs nothing extra.
+  const setOpen = useCallback((next) => {
+    const value = typeof next === 'function' ? next(open) : next;
+    if (!isControlled) setOpenState(value);
+    onOpenChange?.(value);
+  }, [open, isControlled, onOpenChange]);
   const rootRef = useRef(null);
 
   const active = activeIndex >= 0 && activeIndex < events.length ? events[activeIndex] : null;
@@ -48,7 +73,7 @@ export default function WindowControl({ events, activeIndex, onSelect }) {
     }
     document.addEventListener('mousedown', onDocMouseDown);
     return () => document.removeEventListener('mousedown', onDocMouseDown);
-  }, [open]);
+  }, [open, setOpen]);
 
   /** Grouped by date, in the list's own order — the list is already chronological. */
   const groups = useMemo(() => {
@@ -195,6 +220,13 @@ WindowControl.propTypes = {
   activeIndex: PropTypes.number.isRequired,
   /** Called with the chosen row — never an index, so the caller never has to re-look it up. */
   onSelect: PropTypes.func.isRequired,
+  /**
+   * Controlled dropdown state (map-tab-v2-plan.md §3 P7's menu exclusivity). Omit both this and
+   * `onOpenChange` for the original uncontrolled behaviour.
+   */
+  open: PropTypes.bool,
+  /** Fired on every open/close this component would otherwise have applied to local state. */
+  onOpenChange: PropTypes.func,
 };
 
 /** "SAT 12" — the dropdown's day heading, from the app's own weekday abbreviation. */

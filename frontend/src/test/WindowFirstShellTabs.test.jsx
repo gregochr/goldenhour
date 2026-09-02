@@ -874,6 +874,106 @@ describe('WindowFirstShell — when the feed is fetched', () => {
   });
 });
 
+describe('WindowFirstShell — the full-frame Map tab (map-tab-v2-plan.md §3 P7)', () => {
+  const MAP = <p data-testid="map-pane">map pane</p>;
+
+  function renderWithMap(extra = {}) {
+    vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx());
+    const onTabChange = vi.fn();
+    const view = render(
+      <WindowFirstShell
+        onOpenSettings={vi.fn()} onSignOut={vi.fn()} onShowOnMap={vi.fn()}
+        locations={[]} mapPane={MAP} onTabChange={onTabChange} {...extra}
+      />,
+    );
+    return { ...view, onTabChange };
+  }
+
+  it('fires onTabChange with the opening tab on mount, before any click', () => {
+    const { onTabChange } = renderWithMap();
+    expect(onTabChange).toHaveBeenCalledWith('plan');
+  });
+
+  it('fires onTabChange again on every tab switch — App\'s only way to learn the active tab', () => {
+    const { onTabChange } = renderWithMap();
+    onTabChange.mockClear();
+    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
+    expect(onTabChange).toHaveBeenCalledWith('map');
+  });
+
+  it('the Map panel carries `wf-body--map` (the full-frame sizing class) only while selected — never Plan, never the Map panel before it is selected', () => {
+    renderWithMap();
+    // Plan is still the initial tab: its own panel carries plain `wf-body`.
+    expect(screen.getByTestId('window-first-pane').className).not.toContain('wf-body--map');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
+    const mapPanel = screen.getByTestId('window-first-panel-map');
+    expect(mapPanel.className).toContain('wf-body--map');
+    expect(mapPanel).not.toHaveAttribute('hidden');
+
+    // Back to Plan: the Map panel keeps its slot (never unmounted) but loses the sizing class —
+    // it is `hidden` now, and there is no computed height left to carry regardless (the flex
+    // recast, below, replaced the calc chain this comment used to describe).
+    fireEvent.click(screen.getByRole('tab', { name: 'Plan' }));
+    expect(screen.getByTestId('window-first-panel-map').className).not.toContain('wf-body--map');
+  });
+
+  it('the panel-region wrapper releases its 1080px width constraint on the Map tab, and restores it on Plan', () => {
+    renderWithMap();
+    const planPane = screen.getByTestId('window-first-pane');
+    // The wrapper immediately enclosing the Plan/Coming-up/slotted-pane region — one level above
+    // `window-first-pane`, distinct from the masthead+tab-bar wrapper checked in
+    // `WindowFirstShell.test.jsx`'s 1080px test (which never changes tab to tab).
+    const panelWrap = planPane.parentElement;
+    expect(panelWrap.style.maxWidth).toBe('1080px');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
+    expect(panelWrap.style.maxWidth).toBe('');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Plan' }));
+    expect(panelWrap.style.maxWidth).toBe('1080px');
+  });
+
+  // Re-pinned onto the flex chain (adversarial review): the `calc(100dvh - …)` height this suite
+  // used to pin leaked twice — most recently 16px of page scroll surviving with every banner
+  // suppressed, an inter-element margin a `ResizeObserver` on element boxes cannot see. Replaced
+  // with a flex column `App.jsx` recasts the whole page into on the Map tab; these two tests pin
+  // the shell's OWN half of that chain — the `.wf-shell` root and the panel-region wrapper both
+  // becoming `flex:1; min-height:0` flex-column participants — as class/structure assertions,
+  // since no height is computed here for `getComputedStyle` to resolve in jsdom's layout-free DOM.
+  it('the shell root becomes a flex:1/min-height:0 flex column on the Map tab, and plain block flow on every other tab', () => {
+    renderWithMap();
+    const shell = screen.getByTestId('window-first-shell');
+    expect(shell.className).not.toContain('flex-1');
+    expect(shell.className).not.toContain('flex-col');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
+    expect(shell.className).toContain('flex-1');
+    expect(shell.className).toContain('min-h-0');
+    expect(shell.className).toContain('flex');
+    expect(shell.className).toContain('flex-col');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Plan' }));
+    expect(shell.className).not.toContain('flex-1');
+    expect(shell.className).not.toContain('flex-col');
+  });
+
+  it('the panel-region wrapper becomes the flex column\'s growing item on the Map tab, and a plain block on every other tab', () => {
+    renderWithMap();
+    const planPane = screen.getByTestId('window-first-pane');
+    const panelWrap = planPane.parentElement;
+    expect(panelWrap.className).not.toContain('flex-1');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
+    expect(panelWrap.className).toContain('flex-1');
+    expect(panelWrap.className).toContain('min-h-0');
+    expect(panelWrap.className).toContain('flex-col');
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Plan' }));
+    expect(panelWrap.className).not.toContain('flex-1');
+  });
+});
+
 describe('WindowFirstShell — the Coming up handoff row (plan P1/D14)', () => {
   it('switches to Plan and moves focus to the Plan tab, not just selection', async () => {
     // selectTab hides the panel the row was inside immediately — without an imperative focus move

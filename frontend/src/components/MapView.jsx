@@ -26,8 +26,10 @@ import { LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel, SKY_SUBJECT_TYPES
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
 import { rampHex, rampGradientCss, getMode } from '../utils/scoreRamp.js';
 import WindowControl from './map/WindowControl.jsx';
+import FiltersPopover from './map/FiltersPopover.jsx';
 import { buildMapEvents, findEvIndex, solarHorizonDates } from '../utils/mapEvents.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
+import { GLANCE_MINUTES } from '../utils/planningArea.js';
 
 /** localStorage key for the "colours changed" notice's one-time dismissal. */
 const COLOUR_SCALE_NOTICE_DISMISSED_KEY = 'colourScaleNoticeDismissed';
@@ -349,6 +351,38 @@ ZoomTracker.propTypes = {
 };
 
 /**
+ * Moves Leaflet's OWN zoom control to a different corner after mount — the design's `+ − ⌂`
+ * bottom-right (map-tab-v2-plan.md §3 P7's chrome enumeration), stacked above the (also
+ * bottom-right) `CentreOnHomeControl`.
+ *
+ * <p>Imperative repositioning rather than react-leaflet's documented `zoomControl={false}` +
+ * `<ZoomControl position="bottomright" />` swap — deliberately, because that swap changes the
+ * COMPONENT the zoom control renders through, and every one of the eighteen test files in this
+ * suite that mocks `react-leaflet` mocks it down to the handful of exports each one actually
+ * uses; none exports `ZoomControl`. Adding it to the JSX tree would have broken all eighteen for
+ * a corner that changes on one mount. `map.zoomControl` is the real Leaflet `Map`'s own reference
+ * to the control its `zoomControl: true` construction option already created (`L.Control.Zoom`'s
+ * init hook sets it), and `.setPosition` is Leaflet's own public API for moving an existing
+ * control between corners — so this needs no new import from `react-leaflet` and touches no mock.
+ *
+ * <p>Guarded with optional chaining throughout: the JSDOM test harness's `useMap()` stubs return a
+ * plain object with only the methods each file happens to need, so `map.zoomControl` is usually
+ * `undefined` there — exactly like `CentreOnHomeControl`'s own guard on `L.Control` one component
+ * up, and for the identical reason.
+ */
+function ZoomControlPositioner({ position }) {
+  const map = useMap();
+  useEffect(() => {
+    map?.zoomControl?.setPosition?.(position);
+  }, [map, position]);
+  return null;
+}
+
+ZoomControlPositioner.propTypes = {
+  position: PropTypes.string.isRequired,
+};
+
+/**
  * Invisible component that reports the map's viewport as `[south, west, north, east]`.
  *
  * <p>Mounted only where a count is drawn from it. The overlay's context bar says "N pins in view",
@@ -373,6 +407,22 @@ function BoundsTracker({ onBounds }) {
 
 BoundsTracker.propTypes = {
   onBounds: PropTypes.func.isRequired,
+};
+
+/**
+ * Closes whichever of the map tab's own overlay popovers is open when the reader clicks empty map
+ * — map-tab-v2-plan.md §3 P7 / README "Interactions & behaviour": "Click map background → Close
+ * menus". Leaflet's marker click handlers stop propagation before it reaches the map's own `click`
+ * event (`L.Marker` sets `bubblingMouseEvents: false`), so this never fires for a marker tap —
+ * only genuine empty-map ground.
+ */
+function MapBackgroundClickController({ onBackgroundClick }) {
+  useMapEvents({ click: () => onBackgroundClick() });
+  return null;
+}
+
+MapBackgroundClickController.propTypes = {
+  onBackgroundClick: PropTypes.func.isRequired,
 };
 
 /**
@@ -681,10 +731,13 @@ function zoomForHomeRadius(map, lat, radiusMiles) {
 /**
  * "Centre on home" — a Leaflet control, because it is a map action.
  *
- * <p>It sits in the top-left corner stack directly under the zoom box, in its OWN control
- * container rather than as a third button in the zoom bar: recentring is not a zoom step, and
- * putting it in that bar would make it read as one. Leaflet's corner container handles the
- * stacking and the gap, so nothing here hardcodes an offset from the top of the map.
+ * <p>Bottom-right (map-tab-v2-plan.md §3 P7's chrome enumeration: "zoom + ⌂ bottom-right"),
+ * directly above the zoom box in that same corner stack, in its OWN control container rather than
+ * as a third button in the zoom bar: recentring is not a zoom step, and putting it in that bar
+ * would make it read as one. Leaflet's corner container handles the stacking and the gap, so
+ * nothing here hardcodes an offset. This component is mounted tab-only already (see its call
+ * site) — the Plan-tab overlay keeps Leaflet's own top-left corner untouched, so there is no
+ * position to parameterise here.
  *
  * <p>Home coordinates are NOT geocoded here. The postcode was resolved once, on the server, when
  * the user saved it — `GET /api/user/settings` returns the stored lat/lon — and the same values
@@ -719,7 +772,7 @@ function CentreOnHomeControl({ homeCoords = null, radiusMiles = null, onOpenSett
     // late — a click would recentre AND start a map drag.
     L.DomEvent.disableClickPropagation(container);
     L.DomEvent.disableScrollPropagation(container);
-    const control = new L.Control({ position: 'topleft' });
+    const control = new L.Control({ position: 'bottomright' });
     control.onAdd = () => container;
     control.addTo(map);
     return () => control.remove();
@@ -830,15 +883,16 @@ FilterRow.propTypes = {
 };
 
 /**
- * Map heights, and the easing the drawer and the map share.
+ * The overlay's own map heights, and the easing its drawer and its map share.
  *
- * <p>The Map tab's map is a fixed 500px in a page that scrolls. The overlay's is not: it lives in
- * a modal whose whole height is spoken for, so every row of chrome above it comes straight out of
- * the map. Opening the overlay from a plan card left ~165px of visible map — a strip too short to
- * show the focused pin, its neighbours and the popup without panning — because five rows of filter
- * controls were sitting where the map should be. Folding them away buys the map back.
+ * <p>The overlay lives in a modal whose whole height is spoken for, so every row of chrome above
+ * the map comes straight out of it. Opening the overlay from a plan card left ~165px of visible
+ * map — a strip too short to show the focused pin, its neighbours and the popup without panning —
+ * because five rows of filter controls were sitting where the map should be. Folding them away
+ * buys the map back. The Map TAB carries no equivalent constant (map-tab-v2-plan.md §3 P7 retired
+ * the old `MAP_HEIGHT_PX`) — its map container is `flex:1; min-height:0` inside a frame the shell
+ * already sizes to the viewport.
  */
-const MAP_HEIGHT_PX = 500;
 const OVERLAY_MAP_HEIGHT_PX = 470;
 const OVERLAY_MAP_HEIGHT_FILTERS_OPEN_PX = 300;
 const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
@@ -967,6 +1021,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const [heatView, setHeatView] = useState('heat');
   const [heatArea, setHeatArea] = useState(true);
   const [heatFitNonce, setHeatFitNonce] = useState(0);
+  /**
+   * Which of the map tab's own overlay popovers is open — map-tab-v2-plan.md §3 P7's exclusivity
+   * rule ("opening one popover closes the others"). `'window'` and `'filters'` are the two today;
+   * a later phase's Regions jump list (P11) is a third value on the same switch, not a new state
+   * variable. Tab-only in practice (the overlay never mounts either popover), but declared
+   * unconditionally rather than behind `!overlayMode` — a `useState` call must never be
+   * conditional, and an unused value on the overlay mount costs nothing.
+   */
+  const [openMapMenu, setOpenMapMenu] = useState(null);
   // Filters are collapsed by default (a quiet "tell me more" follow-up to Plan);
   // the open/closed choice persists since users rarely change filters.
   //
@@ -1092,14 +1155,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }, [handoffEventType]);
 
   // Apply a filter action handoff from a Hot Topic pill tap (e.g. BLUEBELL).
+  //
+  // Re-targeted onto the popover for the Map tab (map-tab-v2-plan.md §3 P7): the drawer this used
+  // to open (`setAdvancedOpen(true)`) no longer exists there — it is `overlayMode`-only now — so a
+  // tab-mode handoff instead opens `FiltersPopover` via the same `openMapMenu` switch the window
+  // control and the popover's own chip share. The overlay keeps its exact old behaviour.
   useEffect(() => {
     if (handoffFilterAction) {
       (async () => {
         setActiveTypeFilters(new Set([handoffFilterAction]));
-        setAdvancedOpen(true);
+        if (overlayMode) setAdvancedOpen(true);
+        else setOpenMapMenu('filters');
       })();
     }
-  }, [handoffFilterAction]);
+  }, [handoffFilterAction, overlayMode]);
 
   // Apply a Coming up chronology handoff (`coastal-spots`/`dark-sky-spots`, D8) — sets BOTH the
   // dark-sky toggle and the type filter together, because the coming-up channel always sends both
@@ -1140,9 +1209,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     (async () => {
       setDarkSkyFilter(!!handoffDarkSky);
       setActiveTypeFilters(handoffFilterAction ? new Set([handoffFilterAction]) : new Set());
-      setAdvancedOpen(true);
+      // Re-targeted onto the popover for the Map tab (map-tab-v2-plan.md §3 P7) — see the
+      // standalone `handoffFilterAction` effect above for why this branches on `overlayMode`.
+      if (overlayMode) setAdvancedOpen(true);
+      else setOpenMapMenu('filters');
     })();
-  }, [handoffDarkSky, handoffFilterAction, handoffNonce]);
+  }, [handoffDarkSky, handoffFilterAction, handoffNonce, overlayMode]);
 
   // Apply a specific-location handoff from a Plan tab drill-down: fly to the
   // location and select it. HandoffPopupController opens its popup once the fly
@@ -1688,6 +1760,24 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     darkSkyFilter, focus, isAstroMode,
   ]);
 
+  /**
+   * `visibleLocations`, additionally narrowed to the scope pool — the ONE place scope is allowed
+   * to narrow anything, and it is a REPORTING narrowing, not a marker one: the pins on the map stay
+   * deliberately scope-independent (see `heatSpotPool` above — "the segment moves the camera; it
+   * does not decide which forecasts exist"). Joined by the same id-first/name-fallback key
+   * `heatPoints` already uses, since heat spots and `locations` are two different shapes
+   * describing the same catalogue. Feeds the Map tab's `FiltersPopover` footer and counts footer
+   * (map-tab-v2-plan.md §3 P7) — declared here, alongside `visibleLocations`, rather than lower in
+   * the component: every hook must run unconditionally on every render, and the early return two
+   * screens down (`if (!date || locations.length === 0)`) would make a `useMemo` declared after it
+   * conditional.
+   */
+  const scopedVisibleLocations = useMemo(() => {
+    if (!heatOffered || !heatArea) return visibleLocations;
+    const allowed = new Set((heat?.areaSpots || []).map(heatSpotKey));
+    return visibleLocations.filter((loc) => allowed.has(heatSpotKey(loc)));
+  }, [heatOffered, heatArea, heat, visibleLocations]);
+
   // The emphasis target, but only when it survived the filter pipeline — see the marker render.
   const emphasisTarget = useMemo(() => (
     emphasiseLocationName != null
@@ -1785,7 +1875,63 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   if (darkSkyFilter) filterSummaryParts.push('Dark sky');
   if (showStandDown) filterSummaryParts.push('+ stand-down');
   if (showUnrated) filterSummaryParts.push('+ unknown');
-  const filterSummary = filterSummaryParts.join(' · ');
+
+  // ── Map tab chrome: FiltersPopover + counts footer (map-tab-v2-plan.md §3 P7) ──
+  // Distinct from `hasNonDefaultFilters`/`filterSummaryParts` above, which still drive the
+  // OVERLAY's read-only context-bar chips (the joined `filterSummary` string the tab's old drawer
+  // pill used to show is gone with it). The popover's chip shows a COUNT,
+  // never a text summary, and the count deliberately EXCLUDES scope — switching "My area" ⇄
+  // "Whole catalogue" reframes the camera rather than hiding anything the reader asked to see
+  // (README §4: "N = count of active filters, scope not counted").
+  //
+  // ⚠️ Admin stand-down/unknown toggles get the EXACT SAME treatment as scope — present, sticky,
+  // uncounted — adjudicated on review: they are debug LENSES that widen the pool back out to
+  // triaged/unrated locations a reader's own filters already excluded, not filters a reader chose
+  // to narrow anything by. Counting them would make "Filters (1)" mean "an admin is looking at
+  // triage data" as often as it means "this reader narrowed something", and Clear all resetting
+  // them would fight the exact debugging session they exist for. D-8 ("ride along" in an
+  // admin-only row) describes where they LIVE in the popover, not how the count or Clear all
+  // treat them.
+  const filterActiveCount = (minStars !== DEFAULT_MIN_STARS ? 1 : 0)
+    + activeTypeFilters.size
+    + (driveTimeFilter > 0 ? 1 : 0)
+    + (darkSkyFilter ? 1 : 0);
+
+  /**
+   * The popover's "Clear all" — every READER filter, but never scope and never the admin
+   * stand-down/unknown lenses (both excluded for the reason `filterActiveCount` states above).
+   */
+  function clearAllMapFilters() {
+    setActiveTypeFilters(new Set());
+    setMinStars(DEFAULT_MIN_STARS);
+    setDriveTimeFilter(0);
+    setDarkSkyFilter(false);
+    clearMapFilter('mapFilterMinStars');
+  }
+
+  /**
+   * The scope-only pool — "My area" or "Whole catalogue", before every OTHER filter (rating,
+   * subject, drive, dark-sky). The counts footer's "of K" and the popover's own "N of M shown"
+   * both read this, matching the design's `basePool()` (README "State"). Empty when there is no
+   * catalogue at all, so the footer reads "0 of 0" on a fresh install rather than throwing.
+   */
+  const scopeBasePool = heatOffered
+    ? ((heatArea ? heat?.areaSpots : heat?.spots) || EMPTY_POINTS)
+    : EMPTY_POINTS;
+
+  /**
+   * The counts footer's second line — "Beyond {@code N}h: …" in My area, or the whole-catalogue
+   * sentence otherwise (README §9 "Count footer"). `heat.beyondRegionNames` is `WindowFirstMapPane`
+   * `beyondRegions(heatSpots, reachById)` — the SAME test `planningArea.areaRegions` uses to build
+   * the scope itself, so the two can never name a region on both sides. `GLANCE_MINUTES` is
+   * `planningArea`'s own constant — one source for the "3h" the plan requires.
+   */
+  const countsSecondLine = !heatOffered ? null
+    : heatArea
+      ? ((heat?.beyondRegionNames?.length)
+        ? `Beyond ${GLANCE_MINUTES / 60}h: ${heat.beyondRegionNames.join(' · ')}`
+        : null)
+      : 'Whole catalogue — including regions you would not drive to tonight';
 
   // ── Overlay context bar ──
   // The inherited event, with the clock time the plan card was showing. Taken from the pin the
@@ -1806,9 +1952,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         && lon >= mapBounds[1] && lon <= mapBounds[3]).length
     : visibleLocations.length;
 
-  const mapHeight = overlayMode
-    ? (advancedOpen ? OVERLAY_MAP_HEIGHT_FILTERS_OPEN_PX : OVERLAY_MAP_HEIGHT_PX)
-    : MAP_HEIGHT_PX;
+  /**
+   * The overlay's own fixed-px height, animated open/closed with its drawer — unchanged. The Map
+   * TAB no longer uses a pixel constant at all (map-tab-v2-plan.md §3 P7 retires `MAP_HEIGHT_PX`):
+   * its map container is `flex:1; min-height:0` inside a frame `App`'s own flex-column recast
+   * (`isMapTabActive`) sizes down to real, laid-out pixels — no computed height anywhere in the
+   * chain — so the pane fills whatever space flexbox gives it rather than carrying its own opinion
+   * about how tall that is.
+   */
+  const overlayMapHeight = advancedOpen ? OVERLAY_MAP_HEIGHT_FILTERS_OPEN_PX : OVERLAY_MAP_HEIGHT_PX;
 
   const eventSelector = (
     <ForecastTypeSelector
@@ -1907,14 +2059,26 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     }
   }
 
+  /**
+   * The window control, controlled for menu exclusivity (map-tab-v2-plan.md §3 P7). `openMapMenu`
+   * is this pane's own "which popover is open" — shared with `FiltersPopover` below so a press on
+   * either closes the other, and with the map-background click controller inside `MapContainer`.
+   */
   const windowControl = !overlayMode && (
-    <WindowControl events={mapEvents} activeIndex={activeEvIndex} onSelect={selectEvRow} />
+    <WindowControl
+      events={mapEvents}
+      activeIndex={activeEvIndex}
+      onSelect={selectEvRow}
+      open={openMapMenu === 'window'}
+      onOpenChange={(next) => setOpenMapMenu(next ? 'window' : null)}
+    />
   );
 
-  // The disclosure. On the Map tab it is a filter pill that also summarises what is active; in the
-  // overlay the chips beside it already say that, so it drops to the plain weight of the modal's ✕
-  // — one button, right-aligned, with a caret that turns.
-  const filtersButton = overlayMode ? (
+  // The overlay's own disclosure. The chips beside it already summarise what is active, so this
+  // drops to the plain weight of the modal's ✕ — one button, right-aligned, with a caret that
+  // turns. The Map TAB no longer renders this at all (map-tab-v2-plan.md §3 P7): its filters live
+  // in `FiltersPopover`, mounted as chrome over the map rather than in this primary row.
+  const filtersButton = (
     <button
       type="button"
       data-testid="advanced-filters-toggle"
@@ -1925,33 +2089,17 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       Filters
       <span aria-hidden="true" className="map-ctx-caret" data-open={advancedOpen || undefined}>▾</span>
     </button>
-  ) : (
-    <button
-      data-testid="advanced-filters-toggle"
-      onClick={toggleAdvancedOpen}
-      aria-expanded={advancedOpen}
-      className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-full border transition-colors ${
-        hasNonDefaultFilters
-          ? 'bg-plex-gold/10 border-plex-gold/40 text-plex-gold'
-          : 'bg-plex-surface border-plex-border text-plex-text-secondary hover:text-plex-text'
-      }`}
-    >
-      <span aria-hidden="true">{advancedOpen ? '▴' : '▾'}</span>
-      Filters
-      {!advancedOpen && (
-        <span data-testid="filter-summary" className="text-plex-text-muted font-normal">
-          · {filterSummary}
-        </span>
-      )}
-    </button>
   );
 
   return (
-    <div className={overlayMode ? 'flex flex-col' : 'flex flex-col gap-4'}>
-      {overlayMode ? (
+    <div className={overlayMode ? 'flex flex-col' : 'flex flex-col flex-1 min-h-0'}>
+      {overlayMode && (
         /* ── Context bar — the overlay's default row ──
            A receipt, not a control panel: what the map is showing, in read-only chips, because
-           the user already answered every one of these questions on the way in. */
+           the user already answered every one of these questions on the way in.
+
+           Tab-gated: the Map TAB renders none of this (map-tab-v2-plan.md §3 P7) — its window
+           control and filters live as chrome over the full-frame map further down. */
         <div
           data-testid="map-context-bar"
           className="flex items-center flex-wrap"
@@ -1984,57 +2132,37 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           </span>
           {filtersButton}
         </div>
-      ) : (
-        /* Primary row: the window control (map-tab-v2-plan.md §3 P6 — replaces the date strip
-           and the event pills here; the overlay above keeps `eventSelector`, inherited from the
-           card that opened it) + the Filters disclosure button.
-
-           Rendered unconditionally rather than folded into the `heatOffered`-gated toolbar
-           further down (which still hosts the Heat/Medallions and My-area segments and used to
-           host the now-absorbed `wf-map-window` select): a fresh catalogue with nothing scored
-           yet must still let a reader browse dates and events, exactly as the retired
-           `DateStrip`/`ForecastTypeSelector` pair always could regardless of whether anything
-           painted under them. P7's full-frame phase is where this control's chrome POSITION
-           moves onto the map itself, per the design; its FUNCTION is fully absorbed here. */
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          {windowControl}
-          {filtersButton}
-        </div>
       )}
 
-      {/* Advanced filters — hidden by default, revealed with a slide-down transition */}
+      {/* Advanced filters — the OVERLAY's own slide-down drawer, byte-identical to before P7 and
+          tab-gated in full: the Map tab no longer renders any of this (its filters live in
+          `FiltersPopover`, mounted as chrome over the map further down). */}
+      {overlayMode && (
       <div
         className="overflow-hidden"
         data-testid="advanced-filters-panel"
         style={{
           maxHeight: advancedOpen ? '340px' : 0,
           transition: `max-height 0.24s ${DRAWER_EASING}`,
-          ...(overlayMode
-            ? { borderBottom: '1px solid var(--color-plex-border)', background: 'rgba(0,0,0,0.10)' }
-            : {}),
+          borderBottom: '1px solid var(--color-plex-border)', background: 'rgba(0,0,0,0.10)',
         }}
       >
         <div
           className="flex flex-col"
           data-testid="advanced-filters-content"
-          style={overlayMode
-            ? { gap: '11px', padding: '13px 18px 15px' }
-            : { gap: '0.75rem', paddingBottom: '0.25rem' }}
+          style={{ gap: '11px', padding: '13px 18px 15px' }}
         >
 
-          {/* ── Event — in the overlay only, where the context bar took the primary row's place.
-              It is the one control the drill-down genuinely inherited, so it is labelled as such
-              rather than presented as a fresh question. ── */}
-          {overlayMode && (
-            <FilterRow
-              compact
-              label="Event"
-              compactLabel="Event"
-              hint="inherited from the plan card"
-            >
-              {eventSelector}
-            </FilterRow>
-          )}
+          {/* ── Event — the one control the drill-down genuinely inherited, so it is labelled as
+              such rather than presented as a fresh question. ── */}
+          <FilterRow
+            compact
+            label="Event"
+            compactLabel="Event"
+            hint="inherited from the plan card"
+          >
+            {eventSelector}
+          </FilterRow>
 
           {/* ── Minimum quality — a single "this and above" threshold ── */}
           <FilterRow
@@ -2214,6 +2342,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           </FilterRow>
         </div>
       </div>
+      )}
 
       {/* Best aurora location card — visible only in aurora mode */}
       {isAuroraMode && bestAuroraLocation && (
@@ -2245,15 +2374,24 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       {/* Map.
           In the overlay it is full-bleed and its height is the reclaimed space — no rounding or
           ring, because it butts against the modal's own edges rather than sitting on a page. The
-          height transition shares the drawer's easing so the two move as one gesture. */}
+          height transition shares the drawer's easing so the two move as one gesture.
+
+          On the TAB (map-tab-v2-plan.md §3 P7) it is `flex:1; min-height:0` instead of a pixel
+          height: the pane fills whatever the shell's viewport-height chain gives it, and every
+          overlay chip below (window control, filters, legend, counts) is absolutely positioned
+          INSIDE this same `position:relative` box rather than occupying page-flow rows above it —
+          which is what lets the map own the whole frame with no page scroll. */}
       <div
         data-testid="map-container"
-        className={overlayMode ? '' : 'rounded-lg overflow-hidden ring-1 ring-gray-700'}
-        style={{
-          height: `${mapHeight}px`,
+        className={overlayMode ? '' : 'flex-1 min-h-0'}
+        style={overlayMode ? {
+          height: `${overlayMapHeight}px`,
           position: 'relative',
           zIndex: 0,
-          ...(overlayMode ? { transition: `height 0.24s ${DRAWER_EASING}` } : {}),
+          transition: `height 0.24s ${DRAWER_EASING}`,
+        } : {
+          position: 'relative',
+          zIndex: 0,
         }}
       >
         <MapContainer
@@ -2367,13 +2505,21 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               and "go home" there would throw away the framing they opened it for — worse, its
               no-postcode branch opens a settings dialog on top of a modal. */}
           {!overlayMode && (
-            <CentreOnHomeControl
-              homeCoords={homeCoords}
-              radiusMiles={homeRadiusMiles}
-              onOpenSettings={onOpenSettings}
-            />
+            <>
+              <CentreOnHomeControl
+                homeCoords={homeCoords}
+                radiusMiles={homeRadiusMiles}
+                onOpenSettings={onOpenSettings}
+              />
+              <ZoomControlPositioner position="bottomright" />
+            </>
           )}
           {overlayMode && <BoundsTracker onBounds={handleBounds} />}
+          {/* Tab only — the overlay has no popover of its own to close this way (its Filters
+              disclosure is a page-flow drawer, not a menu the click-away rule applies to). */}
+          {!overlayMode && (
+            <MapBackgroundClickController onBackgroundClick={() => setOpenMapMenu(null)} />
+          )}
           <MapSizeSync trigger={overlayMode ? advancedOpen : resizeNonce} />
           <FlyToController target={flyTarget} />
           <FitBoundsController target={fitBoundsTarget} />
@@ -2536,199 +2682,329 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           </MarkerClusterGroup>
         </MapContainer>
 
-        {/* The heat toolbar: view, framing, window and the ramp's key.
+        {overlayMode ? (
+          <>
+            {/* The heat toolbar: view, framing, window and the ramp's key. NEVER actually renders
+                in the overlay — `heatOffered` is always false there (the overlay is never handed
+                `heat`) — but the branch is kept byte-identical to before P7 rather than deleted,
+                since it is the one thing standing between the overlay and a silent behaviour
+                change if a future caller ever DID hand it a `heat` prop. */}
+            {heatOffered && (
+              <div data-testid="wf-map-toolbar" className="wf-map-toolbar">
+                <div className="wf-map-toolbar-row">
+                  <div className="wf-seg" role="group" aria-label="Map view">
+                    <button
+                      type="button"
+                      data-testid="wf-map-view-heat"
+                      aria-pressed={heatView === 'heat'}
+                      onClick={() => setHeatView('heat')}
+                      className={`wf-seg-btn${heatView === 'heat' ? ' on' : ''}`}
+                    >
+                      Heat
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="wf-map-view-medallions"
+                      aria-pressed={heatView === 'medallions'}
+                      onClick={() => setHeatView('medallions')}
+                      className={`wf-seg-btn${heatView === 'medallions' ? ' on' : ''}`}
+                    >
+                      <span aria-hidden="true">◍ </span>
+                      Medallions
+                    </button>
+                  </div>
+                  {heat.hasHome && (
+                    <div className="wf-seg" role="group" aria-label="Map area">
+                      <button
+                        type="button"
+                        data-testid="wf-map-area-home"
+                        aria-pressed={heatArea}
+                        onClick={() => { setHeatArea(true); setHeatFitNonce((n) => n + 1); }}
+                        className={`wf-seg-btn${heatArea ? ' on' : ''}`}
+                      >
+                        <span aria-hidden="true">◎ </span>
+                        {heat?.areaLabel || 'My area'}
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="wf-map-area-all"
+                        aria-pressed={!heatArea}
+                        onClick={() => { setHeatArea(false); setHeatFitNonce((n) => n + 1); }}
+                        className={`wf-seg-btn${heatArea ? '' : ' on'}`}
+                      >
+                        Whole catalogue
+                      </button>
+                    </div>
+                  )}
+                </div>
+                {windowUnscored && (
+                  <div data-testid="wf-map-heat-unscored" className="wf-map-key">
+                    This window is not scored
+                  </div>
+                )}
+                {heatOn && !windowUnscored && (
+                  <div
+                    data-testid="wf-map-heat-legend"
+                    className="wf-map-key"
+                    role="img"
+                    aria-label="Colour key: the field runs from Poor to Worth it"
+                  >
+                    <span aria-hidden="true">Poor</span>
+                    <span
+                      aria-hidden="true"
+                      data-testid="wf-map-heat-legend-ramp"
+                      className="wf-map-key-ramp"
+                      style={{ background: rampGradientCss() }}
+                    />
+                    <span aria-hidden="true">Worth it</span>
+                  </div>
+                )}
+              </div>
+            )}
 
-            Top-left at `left: 60px` because Leaflet's own zoom control owns the corner and paints
-            above anything below z-index 1100 — `CentreOnHomeControl` stacks under the zoom buttons
-            in the same stack, and this clears both. It is a SIBLING of the Leaflet container rather
-            than a Leaflet control, so a drag that starts on a button is not also a map pan.
-
-            The buttons take the arm's shared `.wf-seg` / `.wf-seg-btn` classes rather than ad-hoc
-            utilities. The first cut did not, and paid for it three ways at once: its pressed state
-            named `bg-plex-accent`, a token this project has never had, so Tailwind emitted no rule
-            and the selected segment painted nothing; there was no `:focus-visible` ring, and the
-            group's `overflow: hidden` would have clipped the UA's; and at `py-1` the buttons stood
-            21px tall, under SC 2.5.8's 24px target. The shared classes carry all three answers and
-            were written against exactly this markup. */}
-        {heatOffered && (
-          <div data-testid="wf-map-toolbar" className="wf-map-toolbar">
-            <div className="wf-map-toolbar-row">
-              <div className="wf-seg" role="group" aria-label="Map view">
+            {showColourScaleNotice && (
+              <div
+                data-testid="colour-scale-notice"
+                className="absolute top-2 right-2 z-[1200] bg-plex-surface/80 backdrop-blur-sm
+                  text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30 flex items-center gap-2"
+                style={{ fontSize: '11px' }}
+              >
+                Colours now run cold to hot.
                 <button
-                  type="button"
-                  data-testid="wf-map-view-heat"
-                  aria-pressed={heatView === 'heat'}
-                  onClick={() => setHeatView('heat')}
-                  className={`wf-seg-btn${heatView === 'heat' ? ' on' : ''}`}
+                  data-testid="colour-scale-notice-dismiss"
+                  onClick={dismissColourScaleNotice}
+                  className="text-plex-text-muted hover:text-plex-text transition-colors"
+                  aria-label="Dismiss"
                 >
-                  Heat
-                </button>
-                <button
-                  type="button"
-                  data-testid="wf-map-view-medallions"
-                  aria-pressed={heatView === 'medallions'}
-                  onClick={() => setHeatView('medallions')}
-                  className={`wf-seg-btn${heatView === 'medallions' ? ' on' : ''}`}
-                >
-                  <span aria-hidden="true">◍ </span>
-                  Medallions
+                  ✕
                 </button>
               </div>
+            )}
 
-              {/* Absent entirely without a home, and that is D6 rather than a tidy-up: with no
-                  postcode the planning area IS the whole roster, so the two states frame the same
-                  box over the same spots — a control whose every press does nothing, which §6
-                  bans. `CentreOnHomeControl` already tells a reader without a postcode where to
-                  put one. */}
-              {heat.hasHome && (
-                <div className="wf-seg" role="group" aria-label="Map area">
-                  <button
-                    type="button"
-                    data-testid="wf-map-area-home"
-                    aria-pressed={heatArea}
-                    onClick={() => { setHeatArea(true); setHeatFitNonce((n) => n + 1); }}
-                    className={`wf-seg-btn${heatArea ? ' on' : ''}`}
-                  >
-                    <span aria-hidden="true">◎ </span>
-                    {/* Named by the caller when the frame is not the reader's home area. Under an
-                        away origin "My area" would be false — the frame is the region being planned
-                        from, and a label that means something other than what it says, resolved
-                        only by a chip in different chrome, is the defect §6's "no label that does
-                        not describe its own state" rule exists to catch. */}
-                    {heat?.areaLabel || 'My area'}
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="wf-map-area-all"
-                    aria-pressed={!heatArea}
-                    onClick={() => { setHeatArea(false); setHeatFitNonce((n) => n + 1); }}
-                    className={`wf-seg-btn${heatArea ? '' : ' on'}`}
-                  >
-                    Whole catalogue
-                  </button>
-                </div>
-              )}
-              {/* The `wf-map-window` select used to live here, setting the map's own date and
-                  event. Absorbed into the primary row's window control above it
-                  (map-tab-v2-plan.md §3 P6) — `heatWindow` (the map's own window lookup by
-                  `${date}:${eventType}`) is unchanged and still drives the field/legend below. */}
+            {showViewlineUpsell && (
+              <div
+                data-testid="viewline-upsell-chip"
+                className="absolute bottom-2 left-2 z-[1000] bg-plex-surface/80 backdrop-blur-sm
+                  text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30 flex items-center gap-2"
+                style={{ fontSize: '11px' }}
+              >
+                Aurora viewline available — upgrade to Pro
+                <button
+                  data-testid="viewline-upsell-dismiss"
+                  onClick={() => setViewlineUpsellDismissed(true)}
+                  className="text-plex-text-muted hover:text-plex-text transition-colors"
+                  aria-label="Dismiss"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
+            {!isAuroraMode && !isAstroMode && briefingScores.size > 0 && (() => {
+              const suffix = `|${date}|${eventType}|`;
+              for (const key of briefingScores.keys()) {
+                if (key.includes(suffix)) {
+                  return (
+                    <div
+                      data-testid="photocast-scored-legend"
+                      className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[1000] bg-plex-surface/80 backdrop-blur-sm
+                        text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30"
+                      style={{ fontSize: '11px' }}
+                    >
+                      ★ PhotoCast-scored locations shown
+                    </div>
+                  );
+                }
+              }
+              return null;
+            })()}
+          </>
+        ) : (
+          <>
+            {/* ── Full-frame map chrome (map-tab-v2-plan.md §3 P7) ──
+                Every corner is claimed exactly once, per the plan's z-ladder (index.css): chrome
+                1100, menus 1500 (a menu must beat every other chip so its own dropdown/panel is
+                never hidden under a sibling). Window control top-left (clearing Leaflet's own
+                zoom + home control stack the same way the old toolbar did); Heat/Medallions +
+                Filters top-right (Regions is P11 — this cluster is laid out to take a third
+                child with no restructuring); colour-scale notice top-centre (the top corners are
+                now both claimed by chrome); viewline upsell bottom-left; scored-locations chip
+                bottom-right; counts footer bottom-centre. */}
+            <div className="wf-map-chrome-tl" data-testid="wf-map-chrome-tl">
+              {windowControl}
             </div>
 
-            {/* The ramp's key. Only in heat view, because in medallion view it would explain a ramp
-                nothing on screen is painted with.
-
-                `role="img"` with its own name: the gradient is `aria-hidden` and the two words alone
-                ("Poor", "Worth it") would reach a screen reader as a pair of adjectives with nothing
-                saying what they qualify. */}
-            {/* Its own state rather than a variant of the key, because it REPLACES the key: the
-                key's own rule one comment up is that it must not explain a ramp nothing on screen
-                is painted with, and an unrated window paints nothing. Leaving both would put a
-                colour key above an empty map and then deny it in the next line.
-
-                Real text with no `aria-hidden`, unlike the row map's chip: this is toolbar chrome
-                rather than an annotation on a picture that does not exist for a screen reader, and
-                it is the only thing on the tab that says why the field is missing. It names its
-                own scope — position under the window selector carries that for a sighted reader
-                and for nobody else. */}
-            {windowUnscored && (
-              <div data-testid="wf-map-heat-unscored" className="wf-map-key">
-                This window is not scored
-              </div>
-            )}
-            {heatOn && !windowUnscored && (
-              <div
-                data-testid="wf-map-heat-legend"
-                className="wf-map-key"
-                role="img"
-                aria-label="Colour key: the field runs from Poor to Worth it"
-              >
-                <span aria-hidden="true">Poor</span>
-                <span
-                  aria-hidden="true"
-                  data-testid="wf-map-heat-legend-ramp"
-                  className="wf-map-key-ramp"
-                  style={{
-                    background: rampGradientCss(),
-                  }}
-                />
-                <span aria-hidden="true">Worth it</span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Stage 7's one-time notice: the only part of the colour-scale flip that reaches a reader
-            who was misreading the old map — the preference itself does not, because they will
-            never open Settings to discover they were wrong. Top-right, the one corner of this map
-            nothing else claims: bottom-left is the viewline chip below, bottom-centre the scored
-            legend further down, bottom-right Leaflet's own attribution, and top-left the zoom
-            control (plus the heat toolbar, in heat view).
-
-            ⚠️ z-[1200], ABOVE `.wf-map-toolbar`'s 1100 (index.css), deliberately. That toolbar is
-            `left: 60px` with `max-width: calc(100% - 68px)` and can genuinely run wide enough on an
-            ordinary (non-mobile) map width to reach under this corner — the toolbar's own comment
-            explains why IT needs to clear Leaflet's zoom control the same way. Sitting below it
-            would let the toolbar paint over this chip's DISMISS button, which is the one thing this
-            notice does — a one-time message the reader cannot act on is worse than a briefly
-            crowded corner. */}
-        {showColourScaleNotice && (
-          <div
-            data-testid="colour-scale-notice"
-            className="absolute top-2 right-2 z-[1200] bg-plex-surface/80 backdrop-blur-sm
-              text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30 flex items-center gap-2"
-            style={{ fontSize: '11px' }}
-          >
-            Colours now run cold to hot.
-            <button
-              data-testid="colour-scale-notice-dismiss"
-              onClick={dismissColourScaleNotice}
-              className="text-plex-text-muted hover:text-plex-text transition-colors"
-              aria-label="Dismiss"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-
-        {/* Aurora viewline upsell chip for LITE users */}
-        {showViewlineUpsell && (
-          <div
-            data-testid="viewline-upsell-chip"
-            className="absolute bottom-2 left-2 z-[1000] bg-plex-surface/80 backdrop-blur-sm
-              text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30 flex items-center gap-2"
-            style={{ fontSize: '11px' }}
-          >
-            Aurora viewline available — upgrade to Pro
-            <button
-              data-testid="viewline-upsell-dismiss"
-              onClick={() => setViewlineUpsellDismissed(true)}
-              className="text-plex-text-muted hover:text-plex-text transition-colors"
-              aria-label="Dismiss"
-            >
-              ✕
-            </button>
-          </div>
-        )}
-
-        {/* Legend: show when PhotoCast-scored pins are visible */}
-        {!isAuroraMode && !isAstroMode && briefingScores.size > 0 && (() => {
-          const suffix = `|${date}|${eventType}|`;
-          for (const key of briefingScores.keys()) {
-            if (key.includes(suffix)) {
-              return (
-                <div
-                  data-testid="photocast-scored-legend"
-                  className="absolute bottom-2 left-1/2 -translate-x-1/2 z-[1000] bg-plex-surface/80 backdrop-blur-sm
-                    text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30"
-                  style={{ fontSize: '11px' }}
-                >
-                  ★ PhotoCast-scored locations shown
+            <div className="wf-map-chrome-tr" data-testid="wf-map-chrome-tr">
+              {heatOffered && (
+                <div data-testid="wf-map-toolbar" className="wf-map-toolbar-cluster">
+                  <div className="wf-map-toolbar-row">
+                    <div className="wf-seg" role="group" aria-label="Map view">
+                      <button
+                        type="button"
+                        data-testid="wf-map-view-heat"
+                        aria-pressed={heatView === 'heat'}
+                        onClick={() => setHeatView('heat')}
+                        className={`wf-seg-btn${heatView === 'heat' ? ' on' : ''}`}
+                      >
+                        Heat
+                      </button>
+                      <button
+                        type="button"
+                        data-testid="wf-map-view-medallions"
+                        aria-pressed={heatView === 'medallions'}
+                        onClick={() => setHeatView('medallions')}
+                        className={`wf-seg-btn${heatView === 'medallions' ? ' on' : ''}`}
+                      >
+                        <span aria-hidden="true">◍ </span>
+                        Medallions
+                      </button>
+                    </div>
+                  </div>
+                  {/* The ramp's key. Only in heat view — in medallion view it would explain a ramp
+                      nothing on screen is painted with. "This window is not scored" REPLACES the
+                      key rather than sitting beside it, for the same reason. */}
+                  {windowUnscored && (
+                    <div data-testid="wf-map-heat-unscored" className="wf-map-key">
+                      This window is not scored
+                    </div>
+                  )}
+                  {heatOn && !windowUnscored && (
+                    <div
+                      data-testid="wf-map-heat-legend"
+                      className="wf-map-key"
+                      role="img"
+                      aria-label="Colour key: the field runs from Poor to Worth it"
+                    >
+                      <span aria-hidden="true">Poor</span>
+                      <span
+                        aria-hidden="true"
+                        data-testid="wf-map-heat-legend-ramp"
+                        className="wf-map-key-ramp"
+                        style={{ background: rampGradientCss() }}
+                      />
+                      <span aria-hidden="true">Worth it</span>
+                    </div>
+                  )}
                 </div>
-              );
-            }
-          }
-          return null;
-        })()}
+              )}
+              <FiltersPopover
+                open={openMapMenu === 'filters'}
+                onOpenChange={(next) => setOpenMapMenu(next ? 'filters' : null)}
+                minStars={minStars}
+                onSelectMinStars={handleMinStarsClick}
+                activeTypeFilters={activeTypeFilters}
+                onToggleType={toggleTypeFilter}
+                subjectChips={MAP_FILTER_CHIPS}
+                seasonalFeatures={seasonalFeatures}
+                role={role}
+                driveTimeFilter={driveTimeFilter}
+                onSelectDriveTime={setDriveTimeFilter}
+                darkSkyFilter={darkSkyFilter}
+                onToggleDarkSky={() => setDarkSkyFilter((v) => !v)}
+                darkSkyThreshold={DARK_SKY_THRESHOLD}
+                hasHome={Boolean(heat?.hasHome)}
+                heatArea={heatArea}
+                onSelectScope={(next) => { setHeatArea(next); setHeatFitNonce((n) => n + 1); }}
+                areaLabel={heat?.areaLabel}
+                isAuroraMode={isAuroraMode}
+                isAstroMode={isAstroMode}
+                showAdminRow={role === 'ADMIN' && !isAuroraMode && !isAstroMode}
+                showStandDown={showStandDown}
+                onToggleStandDown={toggleShowStandDown}
+                hasStandDown={hasStandDown}
+                showUnrated={showUnrated}
+                onToggleUnrated={toggleShowUnrated}
+                hasUnrated={hasUnrated}
+                activeCount={filterActiveCount}
+                filteredCount={scopedVisibleLocations.length}
+                scopeCount={scopeBasePool.length}
+                onClearAll={clearAllMapFilters}
+              />
+            </div>
+
+            {showColourScaleNotice && (
+              <div
+                data-testid="colour-scale-notice"
+                className="absolute top-2 left-1/2 -translate-x-1/2 z-[1100] bg-plex-surface/80 backdrop-blur-sm
+                  text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30 flex items-center gap-2"
+                style={{ fontSize: '11px' }}
+              >
+                Colours now run cold to hot.
+                <button
+                  data-testid="colour-scale-notice-dismiss"
+                  onClick={dismissColourScaleNotice}
+                  className="text-plex-text-muted hover:text-plex-text transition-colors"
+                  aria-label="Dismiss"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
+            {showViewlineUpsell && (
+              <div
+                data-testid="viewline-upsell-chip"
+                className="absolute bottom-2 left-2 z-[1100] bg-plex-surface/80 backdrop-blur-sm
+                  text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30 flex items-center gap-2"
+                style={{ fontSize: '11px' }}
+              >
+                Aurora viewline available — upgrade to Pro
+                <button
+                  data-testid="viewline-upsell-dismiss"
+                  onClick={() => setViewlineUpsellDismissed(true)}
+                  className="text-plex-text-muted hover:text-plex-text transition-colors"
+                  aria-label="Dismiss"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+
+            {!isAuroraMode && !isAstroMode && briefingScores.size > 0 && (() => {
+              const suffix = `|${date}|${eventType}|`;
+              for (const key of briefingScores.keys()) {
+                if (key.includes(suffix)) {
+                  return (
+                    // `right-[54px]`, not `right-2`: Leaflet's own bottom-right corner stack now
+                    // holds the zoom control PLUS `CentreOnHomeControl` (map-tab-v2-plan.md §3 P7
+                    // moved both there from top-left), so this chip sits BESIDE that column rather
+                    // than under it — the same "clear the native stack" reasoning the old top-left
+                    // toolbar's `left: 60px` already used, mirrored to the opposite corner. The
+                    // exact clearance is a browser-verified concern like every other pixel offset
+                    // in this class (CLAUDE.md: a CSS claim is a browser claim).
+                    <div
+                      data-testid="photocast-scored-legend"
+                      className="absolute bottom-2 right-[54px] z-[1100] bg-plex-surface/80 backdrop-blur-sm
+                        text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30"
+                      style={{ fontSize: '11px' }}
+                    >
+                      ★ PhotoCast-scored locations shown
+                    </div>
+                  );
+                }
+              }
+              return null;
+            })()}
+
+            {/* Counts footer (README "§9 Count footer") — bottom-centre, the one thing on this
+                chrome that reports on the CATALOGUE rather than controlling it. Withheld entirely
+                without a catalogue at all (`heatOffered` false), so a fresh install with nothing
+                scored yet shows no footer rather than "0 named · 0 rated of 0". */}
+            {heatOffered && (
+              <div data-testid="wf-map-counts-footer" className="wf-map-counts-footer">
+                <span>
+                  <b>{scopedVisibleLocations.length}</b> named &middot; {scopedVisibleLocations.length} rated of {scopeBasePool.length}
+                  {filterActiveCount > 0 && (
+                    <span data-testid="wf-map-counts-filtered" className="wf-map-counts-flag"> filtered</span>
+                  )}
+                </span>
+                {countsSecondLine && (
+                  <span data-testid="wf-map-counts-second">{countsSecondLine}</span>
+                )}
+              </div>
+            )}
+          </>
+        )}
       </div>
 
       {/* Mobile bottom sheet */}
@@ -2863,6 +3139,13 @@ MapView.propTypes = {
     driveOverrideById: PropTypes.instanceOf(Map),
     /** What to call the framed area. Defaults to "My area"; an away origin names its base town. */
     areaLabel: PropTypes.string,
+    /**
+     * Region names beyond the {@code GLANCE_MINUTES} threshold, home-origin only (map-tab-v2-plan.md
+     * §3 P7) — the counts footer's "Beyond {@code N}h: …" second line. `[]` when there is nothing
+     * beyond, or when planning from an away origin (a single-region scope has nothing to be
+     * "beyond").
+     */
+    beyondRegionNames: PropTypes.arrayOf(PropTypes.string),
   }),
   /** `{ lat, lon }` of the user's saved home postcode, or null when none is saved. */
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),

@@ -229,6 +229,15 @@ function pickWindow(dateTargetType) {
   fireEvent.click(row);
 }
 
+/**
+ * Opens the Map tab's filters popover — map-tab-v2-plan.md §3 P7 moved the "My area" / "Whole
+ * catalogue" scope segment (and everything else the old drawer held) off the toolbar and into
+ * `FiltersPopover`, behind this chip.
+ */
+function openFilters() {
+  fireEvent.click(screen.getByTestId('wf-filters-chip'));
+}
+
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
@@ -309,12 +318,15 @@ describe('MapView heat — the toolbar', () => {
   it('opens in heat view, on the planning area, at §4.5’s padding', async () => {
     await renderMap({ heat: heatProp() });
     expect(screen.getByRole('button', { name: 'Heat' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'My area' })).toHaveAttribute('aria-pressed', 'true');
-    // The unpressed halves too: inverting `aria-pressed={!heatArea}` is the classic copy-paste slip
-    // in a segmented control, and asserting only the pressed one cannot see it.
-    expect(screen.getByRole('button', { name: 'Whole catalogue' })).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByRole('button', { name: 'Medallions' })).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByRole('group', { name: 'Map view' })).toBeInTheDocument();
+    // The "My area" / "Whole catalogue" scope now lives in the filters popover (map-tab-v2-plan.md
+    // §3 P7) rather than on the always-visible toolbar.
+    openFilters();
+    expect(screen.getByRole('button', { name: 'My area' })).toHaveAttribute('aria-pressed', 'true');
+    // The unpressed half too: inverting `aria-pressed={!heatArea}` is the classic copy-paste slip
+    // in a segmented control, and asserting only the pressed one cannot see it.
+    expect(screen.getByRole('button', { name: 'Whole catalogue' })).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByRole('group', { name: 'Map area' })).toBeInTheDocument();
     expect(mapContainerProps.last.bounds).toBe(AREA_BOUNDS);
     expect(mapContainerProps.last.boundsOptions).toEqual({ padding: [28, 28] });
@@ -364,10 +376,11 @@ describe('MapView heat — the toolbar', () => {
     expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
   });
 
-  it('drops the area segment entirely when no home is set (D6)', async () => {
+  it('drops the area segment entirely when no home is set (the "every press does nothing" coherence rule)', async () => {
     // With no postcode the planning area IS the whole roster, so both states frame the same box over
-    // the same spots. §6 bans a control whose every press does nothing; the rest of the toolbar
-    // stays, because the view toggle and the window selector still do something.
+    // the same spots. field-geography-glyphs-plan.md's coherence rule bans a control whose every
+    // press does nothing (NOT map-tab-v2-plan.md's D-6, the unrelated maxZoom-16 decision); the
+    // rest of the toolbar stays, because the view toggle and the window selector still do something.
     await renderMap({ heat: heatProp({ hasHome: false }) });
     expect(screen.queryByRole('button', { name: 'My area' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Whole catalogue' })).toBeNull();
@@ -379,6 +392,7 @@ describe('MapView heat — the toolbar', () => {
     // same frame as an animated fitBounds forces layout mid-transition and strands Leaflet at the
     // old view — the labels change and the map never moves.
     await renderMap({ heat: heatProp() });
+    openFilters();
     fitBounds.mockClear();
     fireEvent.click(screen.getByRole('button', { name: 'Whole catalogue' }));
     expect(fitBounds).toHaveBeenCalledTimes(1);
@@ -387,6 +401,7 @@ describe('MapView heat — the toolbar', () => {
 
   it('frames the area again when the other segment is pressed', async () => {
     await renderMap({ heat: heatProp() });
+    openFilters();
     fireEvent.click(screen.getByRole('button', { name: 'Whole catalogue' }));
     fitBounds.mockClear();
     fireEvent.click(screen.getByRole('button', { name: 'My area' }));
@@ -398,6 +413,7 @@ describe('MapView heat — the toolbar', () => {
     // segment you are already on takes you back. Without it the press is a no-op and the control
     // lies about what it does.
     await renderMap({ heat: heatProp() });
+    openFilters();
     fitBounds.mockClear();
     fireEvent.click(screen.getByRole('button', { name: 'My area' }));
     expect(fitBounds).toHaveBeenCalledTimes(1);
@@ -473,6 +489,7 @@ describe('MapView heat — a window nobody rated', () => {
         ]]]),
       }),
     });
+    openFilters();
     fireEvent.click(screen.getByTestId('dark-sky-filter-toggle'));
 
     expect(heatLayerProps.last.points).toEqual([]);
@@ -662,6 +679,7 @@ describe('MapView heat — which places count', () => {
     expect(heatLayerProps.last.points.map((p) => p.name)).toContain('Kelso');
 
     const before = heatLayerProps.last.points;
+    openFilters();
     fireEvent.click(screen.getByRole('button', { name: 'Whole catalogue' }));
     expect(heatLayerProps.last.points).toBe(before);
   });
@@ -675,6 +693,7 @@ describe('MapView heat — which places count', () => {
     // location with no measured class — `null <= 4` is true in JavaScript, so dropping that guard
     // admits every unmeasured spot to a dark-sky field.
     await renderMap({ heat: heatProp() });
+    openFilters();
     fireEvent.click(screen.getByTestId('dark-sky-filter-toggle'));
     expect(heatLayerProps.last.points.map((p) => p.name)).toEqual(['Bamburgh', 'Wastwater']);
   });
@@ -687,6 +706,7 @@ describe('MapView heat — which places count', () => {
     await renderMap({ heat: heatProp() });
     await screen.findByTestId('map-heat-layer');
     const before = heatLayerProps.last.points;
+    openFilters();
     fireEvent.click(screen.getByTestId('star-filter-5'));
     expect(heatLayerProps.last.points).toBe(before);
   });
@@ -812,5 +832,115 @@ describe('MapView heat — the legend follows scoreRamp\'s active mode (heat-sca
       const n = parseInt(stop.hex.slice(1), 16);
       expect(style).not.toContain(`rgb(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255})`);
     }
+  });
+});
+
+/**
+ * The counts footer — map-tab-v2-plan.md §3 P7, README "§9 Count footer": `N named · M rated of
+ * K` + a `filtered` flag + a second line ("Beyond 3h: …" in My area, or the whole-catalogue
+ * sentence otherwise). All six fixture locations carry a served rating of 4 (`makeLocations`),
+ * which clears the always-on 3★+ default, so the footer's numbers below are driven entirely by
+ * SCOPE and by the filters this suite applies on top of it — never by the quality floor.
+ */
+describe('MapView heat — the counts footer', () => {
+  it('reports the scope-only pool as "of K" — My area, no other filters active', async () => {
+    // AREA_SPOTS is 5 of the 6 fixture spots (Kelso is beyond the glance); all 6 pass the default
+    // 3★+ floor, so scoping to My area is the ONLY thing narrowing this footer's count.
+    await renderMap({ heat: heatProp() });
+    const foot = await screen.findByTestId('wf-map-counts-footer');
+    expect(foot).toHaveTextContent('5');
+    expect(foot).toHaveTextContent('named');
+    expect(foot).toHaveTextContent('rated of 5');
+    expect(screen.queryByTestId('wf-map-counts-filtered')).not.toBeInTheDocument();
+  });
+
+  it('the second line names the regions beyond the glance threshold, joined from planningArea\'s own test', async () => {
+    await renderMap({ heat: heatProp({ beyondRegionNames: ['The Borders'] }) });
+    const second = await screen.findByTestId('wf-map-counts-second');
+    expect(second).toHaveTextContent('Beyond 3h');
+    expect(second).toHaveTextContent('The Borders');
+  });
+
+  it('carries no second line when nothing lies beyond the glance', async () => {
+    await renderMap({ heat: heatProp({ beyondRegionNames: [] }) });
+    await screen.findByTestId('wf-map-counts-footer');
+    expect(screen.queryByTestId('wf-map-counts-second')).not.toBeInTheDocument();
+  });
+
+  it('switches to the whole-catalogue sentence and denominator on Whole catalogue', async () => {
+    await renderMap({ heat: heatProp({ beyondRegionNames: ['The Borders'] }) });
+    openFilters();
+    fireEvent.click(screen.getByRole('button', { name: 'Whole catalogue' }));
+
+    const foot = await screen.findByTestId('wf-map-counts-footer');
+    // All 6 fixture spots now count — the "Borders" region is IN scope once the scope is the
+    // whole catalogue, so it can no longer be "beyond" anything.
+    expect(foot).toHaveTextContent('rated of 6');
+    const second = screen.getByTestId('wf-map-counts-second');
+    expect(second).toHaveTextContent('Whole catalogue');
+    expect(second).not.toHaveTextContent('Beyond');
+  });
+
+  it('narrows with an active filter, and raises the `filtered` flag — but the flag ignores scope itself', async () => {
+    // Bortle 1–4 clears DARK_SKY_THRESHOLD: only Bamburgh (4) and Wastwater (2) pass, and both are
+    // inside AREA_SPOTS, so this isolates the dark-sky filter's own effect on the footer.
+    await renderMap({ heat: heatProp() });
+    openFilters();
+    fireEvent.click(screen.getByTestId('dark-sky-filter-toggle'));
+
+    const foot = await screen.findByTestId('wf-map-counts-footer');
+    expect(foot).toHaveTextContent('2 named');
+    expect(foot).toHaveTextContent('2 rated of 5'); // scope (5) is unaffected by the filter
+    expect(screen.getByTestId('wf-map-counts-filtered')).toBeInTheDocument();
+  });
+
+  it('is absent entirely without a catalogue at all — a fresh install with nothing scored yet', async () => {
+    await renderMap({ heat: heatProp({ enabled: false, spots: [], areaSpots: [] }) });
+    expect(screen.queryByTestId('wf-map-counts-footer')).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Scope's exclusion from the popover's own active-filter count (README §4: "N = count of active
+ * filters, scope not counted") — switching "My area" ⇄ "Whole catalogue" reframes the camera
+ * rather than hiding anything the reader asked to see, so it must never make the chip read
+ * "Filters (1)" on its own.
+ */
+describe('MapView heat — scope is excluded from the filters chip\'s own count', () => {
+  it('toggling scope alone never raises the chip\'s count or its active styling', async () => {
+    await renderMap({ heat: heatProp() });
+    openFilters();
+    const chip = screen.getByTestId('wf-filters-chip');
+    expect(chip).not.toHaveTextContent('(');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Whole catalogue' }));
+    expect(chip).not.toHaveTextContent('(');
+    expect(chip.className).not.toContain('active');
+
+    fireEvent.click(screen.getByRole('button', { name: 'My area' }));
+    expect(chip).not.toHaveTextContent('(');
+  });
+
+  it('a genuine filter still counts alongside an already-flipped scope', async () => {
+    await renderMap({ heat: heatProp() });
+    openFilters();
+    fireEvent.click(screen.getByRole('button', { name: 'Whole catalogue' }));
+    fireEvent.click(screen.getByTestId('dark-sky-filter-toggle'));
+    expect(screen.getByTestId('wf-filters-chip')).toHaveTextContent('Filters (1)');
+  });
+
+  it('Clear all resets a genuine filter but leaves a flipped scope exactly where it was — "everything but scope" (README §4)', async () => {
+    await renderMap({ heat: heatProp() });
+    openFilters();
+    fireEvent.click(screen.getByRole('button', { name: 'Whole catalogue' }));
+    fireEvent.click(screen.getByTestId('dark-sky-filter-toggle'));
+    expect(screen.getByTestId('wf-filters-chip')).toHaveTextContent('Filters (1)');
+
+    fireEvent.click(screen.getByTestId('clear-all-filters'));
+    // The genuine filter is gone...
+    expect(screen.getByTestId('wf-filters-chip')).not.toHaveTextContent('(');
+    // ...but scope is untouched: still Whole catalogue, not silently reset to My area.
+    expect(screen.getByRole('button', { name: 'Whole catalogue' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: 'My area' })).toHaveAttribute('aria-pressed', 'false');
   });
 });

@@ -221,27 +221,42 @@ describe('MapView Map tab — unchanged by the overlay work', () => {
   // ⚠️ map-tab-v2-plan.md §3 P6 removed `ForecastTypeSelector` from the TAB primary row — it
   // survives unchanged on the overlay, which is what the rest of this file's "unchanged by the
   // overlay work" suite already pins (`ForecastTypeSelector` is not mocked here, so those overlay
-  // tests exercise the real component). This one test asserted the tab's OWN primary row still
-  // carried it, which was true until P6 and is the pin this rewrite replaces: the primary row now
-  // carries `components/map/WindowControl.jsx` instead, and the Filters pill/summary this test
-  // also checks is completely unaffected by that swap.
-  it('keeps the Filters summary on the primary row, and now the window control beside it', () => {
+  // tests exercise the real component).
+  //
+  // ⚠️ Rewritten again for §3 P7, which removed the primary row itself and the old drawer/pill it
+  // held on the TAB — the two replaced here (`filter-summary`'s text and `advanced-filters-toggle`)
+  // no longer exist for the tab at all, and `map-container`'s height is no longer a pixel figure.
+  // Old pins: "keeps the Filters summary on the primary row..." (asserted `filter-summary` text and
+  // a fixed `500px` map height) and "still remembers the disclosure across mounts" (asserted
+  // `mapFiltersOpen` persistence through `advanced-filters-toggle`) — both below, replaced rather
+  // than deleted, so the tab's actual P7 behaviour has a pin of its own.
+  it('has no primary row and no fixed map height — the window control and filters are chrome over the full-frame map', () => {
     renderMap({ forecastDates: [TODAY] });
 
     expect(screen.queryByTestId('map-context-bar')).not.toBeInTheDocument();
     expect(screen.queryByTestId('forecast-type-selector')).not.toBeInTheDocument();
+    // The window control and the filters chip are both mounted, but as absolutely-positioned
+    // chrome INSIDE the map container (map-tab-v2-plan.md §3 P7), not a page-flow row above it.
     expect(screen.getByTestId('wf-win-pill')).toBeInTheDocument();
-    expect(screen.getByTestId('filter-summary')).toHaveTextContent('3★+');
-    expect(mapHeight()).toBe('500px');
+    expect(screen.getByTestId('wf-filters-chip')).toBeInTheDocument();
+    expect(screen.queryByTestId('filter-summary')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('advanced-filters-toggle')).not.toBeInTheDocument();
+    // No pixel height any more — the container is `flex:1; min-height:0`, sized by the shell's
+    // own viewport-height chain rather than by a component-local constant.
+    expect(mapHeight()).toBe('');
   });
 
-  it('still remembers the disclosure across mounts', () => {
+  it('the filters popover opens closed on every mount — its own open/closed state is not persisted', () => {
+    // Unlike the overlay's drawer (which deliberately DOES persist `mapFiltersOpen`, pinned above),
+    // the tab's popover is an ordinary click-to-open disclosure: nothing in `FiltersPopover` reads
+    // or writes that key, so a reader who leaves it open never finds it forced open on return.
     const { unmount } = renderMap();
-    fireEvent.click(screen.getByTestId('advanced-filters-toggle'));
-    expect(localStorage.getItem('mapFiltersOpen')).toBe('1');
+    fireEvent.click(screen.getByTestId('wf-filters-chip'));
+    expect(screen.getByTestId('wf-filters-chip')).toHaveAttribute('aria-expanded', 'true');
+    expect(localStorage.getItem('mapFiltersOpen')).toBeNull();
     unmount();
 
     renderMap();
-    expect(screen.getByTestId('advanced-filters-toggle')).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('wf-filters-chip')).toHaveAttribute('aria-expanded', 'false');
   });
 });

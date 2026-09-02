@@ -296,3 +296,71 @@ describe('WindowControl — keyboard, scoped to this control (never document-glo
     expect(screen.getByTestId('wf-win-menu')).toBeInTheDocument();
   });
 });
+
+/**
+ * Controlled mode (map-tab-v2-plan.md §3 P7) — passing both `open` and `onOpenChange` puts every
+ * open/close this component would otherwise apply to local state onto the caller instead, which is
+ * how `MapView` gives the window control and `FiltersPopover` one shared exclusivity switch.
+ * Nothing above this block passes either prop, so it is the uncontrolled-mode regression guard for
+ * this whole file: every test above it must keep passing unchanged.
+ */
+describe('WindowControl — controlled mode (map-tab-v2-plan.md §3 P7)', () => {
+  it('renders open/closed strictly from the `open` prop, ignoring its own click toggle for the DISPLAYED state', () => {
+    const onOpenChange = vi.fn();
+    const { rerender } = renderControl({ open: false, onOpenChange });
+    expect(screen.queryByTestId('wf-win-menu')).not.toBeInTheDocument();
+
+    // A click still fires the callback...
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    expect(onOpenChange).toHaveBeenCalledWith(true);
+    // ...but the menu does not open until the CALLER re-renders with `open: true` — the caller
+    // owns the truth in controlled mode, not this component's own click handler.
+    expect(screen.queryByTestId('wf-win-menu')).not.toBeInTheDocument();
+
+    rerender(<WindowControl events={EVENTS} activeIndex={1} onSelect={vi.fn()} open onOpenChange={onOpenChange} />);
+    expect(screen.getByTestId('wf-win-menu')).toBeInTheDocument();
+  });
+
+  it('a second pill click while controlled-open calls onOpenChange(false), never onOpenChange(true) again', () => {
+    const onOpenChange = vi.fn();
+    renderControl({ open: true, onOpenChange });
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('selecting a row calls onOpenChange(false) rather than closing local state', () => {
+    const onOpenChange = vi.fn();
+    const { onSelect } = renderControl({ open: true, onOpenChange });
+    fireEvent.click(screen.getAllByTestId('wf-win-row')[0]);
+    expect(onSelect).toHaveBeenCalled();
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('a stepper press closes a controlled-open menu via onOpenChange, not local state', () => {
+    const onOpenChange = vi.fn();
+    renderControl({ activeIndex: 1, open: true, onOpenChange });
+    fireEvent.click(screen.getByTestId('wf-win-next'));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('Escape on a controlled-open menu calls onOpenChange(false)', () => {
+    const onOpenChange = vi.fn();
+    renderControl({ open: true, onOpenChange });
+    fireEvent.keyDown(screen.getByTestId('wf-win-control'), { key: 'Escape' });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('an outside click on a controlled-open menu calls onOpenChange(false)', () => {
+    const onOpenChange = vi.fn();
+    renderControl({ open: true, onOpenChange });
+    fireEvent.mouseDown(document.body);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('omitting both `open` and `onOpenChange` keeps the original uncontrolled behaviour — the whole point of the optional pair', () => {
+    renderControl();
+    expect(screen.queryByTestId('wf-win-menu')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    expect(screen.getByTestId('wf-win-menu')).toBeInTheDocument();
+  });
+});

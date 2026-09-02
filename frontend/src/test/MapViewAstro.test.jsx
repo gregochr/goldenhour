@@ -163,6 +163,20 @@ async function enterMode(eventType) {
   });
 }
 
+/**
+ * Opens the Map tab's filters popover — map-tab-v2-plan.md §3 P7 moved the dark-sky chip (and
+ * everything else the old drawer held) off the tab's always-rendered drawer and into
+ * `FiltersPopover`, which mounts its rows only while open. ⚠️ Also the reason every "hidden in
+ * ASTRO/AURORA mode" test below re-opens it AFTER `enterMode`: the window control and the filters
+ * popover share one exclusivity switch (opening either closes the other), so `enterMode`'s own
+ * `wf-win-pill` click already closed a popover that was open — re-opening it here is what makes
+ * "the chip is gone" a real assertion about mode gating rather than an accident of it being closed
+ * for an unrelated reason.
+ */
+function openFilters() {
+  fireEvent.click(screen.getByTestId('wf-filters-chip'));
+}
+
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 describe('MapView dark sky chip', () => {
@@ -174,6 +188,7 @@ describe('MapView dark sky chip', () => {
 
   it('darkSky_chip_label_is_Dark_sky', () => {
     renderMap();
+    openFilters();
     const chip = screen.getByTestId('dark-sky-filter-toggle');
     expect(chip.textContent.trim()).toContain('Dark sky');
   });
@@ -181,15 +196,20 @@ describe('MapView dark sky chip', () => {
   it('darkSky_chip_visible_for_lite_user', () => {
     mockUseAuth.mockReturnValue({ role: 'LITE_USER' });
     renderMap();
+    openFilters();
     expect(screen.getByTestId('dark-sky-filter-toggle')).toBeInTheDocument();
   });
 
   it('dark sky chip is hidden in ASTRO mode', async () => {
     renderMap();
+    openFilters();
     // Initially in SUNRISE or SUNSET mode (whichever `getNextEventType` picks for "now"), chip
     // visible either way.
     expect(screen.getByTestId('dark-sky-filter-toggle')).toBeInTheDocument();
     await enterMode('ASTRO');
+    // `enterMode` closed the popover via the window control's own opening (the two share one
+    // exclusivity switch) — re-open it so the absence below is about mode gating, not that.
+    openFilters();
     expect(screen.queryByTestId('dark-sky-filter-toggle')).not.toBeInTheDocument();
   });
 
@@ -198,14 +218,17 @@ describe('MapView dark sky chip', () => {
     await act(async () => {
       renderMap();
     });
+    openFilters();
     expect(screen.getByTestId('dark-sky-filter-toggle')).toBeInTheDocument();
     await enterMode('AURORA');
+    openFilters();
     expect(screen.queryByTestId('dark-sky-filter-toggle')).not.toBeInTheDocument();
   });
 
   it('dark sky tooltip shows admin instruction for ADMIN', () => {
     mockUseAuth.mockReturnValue({ role: 'ADMIN' });
     renderMap();
+    openFilters();
     const tips = screen.getAllByTestId('infotip-text');
     const darkSkyTip = tips.find(t => t.textContent.includes('light pollution'));
     expect(darkSkyTip).toBeDefined();
@@ -215,6 +238,7 @@ describe('MapView dark sky chip', () => {
   it('dark sky tooltip hides admin instruction for PRO_USER', () => {
     mockUseAuth.mockReturnValue({ role: 'PRO_USER' });
     renderMap();
+    openFilters();
     const tips = screen.getAllByTestId('infotip-text');
     const darkSkyTip = tips.find(t => t.textContent.includes('light pollution'));
     expect(darkSkyTip).toBeDefined();
@@ -224,6 +248,7 @@ describe('MapView dark sky chip', () => {
   it('dark sky tooltip hides admin instruction for LITE_USER', () => {
     mockUseAuth.mockReturnValue({ role: 'LITE_USER' });
     renderMap();
+    openFilters();
     const tips = screen.getAllByTestId('infotip-text');
     const darkSkyTip = tips.find(t => t.textContent.includes('light pollution'));
     expect(darkSkyTip).toBeDefined();

@@ -368,6 +368,10 @@ describe('MapView aurora night date selection', () => {
     // dark-sky toggle's visibility gate (`!isAuroraMode && !isAstroMode`), which is a mode question
     // with no dependence on THE_CALENDAR_DAY having a night in progress.
     const rendered = await renderMap({ date: THE_CALENDAR_DAY, onSelectDate: null });
+    // The dark-sky toggle lives in `FiltersPopover` now (map-tab-v2-plan.md §3 P7), which mounts
+    // its rows only while open — `enterAuroraMode` below rerenders via `handoffEventType` rather
+    // than through the window control, so it never touches (and so never closes) this popover.
+    fireEvent.click(screen.getByTestId('wf-filters-chip'));
     expect(screen.getByTestId('dark-sky-filter-toggle')).toBeInTheDocument();
     await enterAuroraMode(rendered);
 
