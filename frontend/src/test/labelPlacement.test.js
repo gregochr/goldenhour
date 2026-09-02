@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   COLLISION_PAD_X, COLLISION_PAD_Y, EDGE_INSET, NUDGES, placeWithNudges,
+  MAP_NUDGES, MAP_DX_GAP, mapDxOffsets, seedObstacles,
 } from '../utils/labelPlacement.js';
 
 /** The dy=0 candidate box for a given anchor/size, matching the algorithm's own formula. */
@@ -198,6 +199,156 @@ describe('labelPlacement — placeWithNudges', () => {
         x: dy0.x, y: dy0.y - 10 - 2, w: 20, h: 10,
       };
       expect(placeWithNudges(anchor, SZ, [blocker], 300, 300)).toEqual(dy0);
+    });
+  });
+
+  // map-tab-v2-plan.md §3 P8: the Map tab's own dy ladder plus a dx dimension, added as an
+  // OPTIONAL 6th parameter. Every test above calls the 5-arg form and is untouched by this
+  // extension — that is the whole point, and the walk test above (which derives its expectations
+  // FROM the imported ladder) already proves the 5-arg default is exactly `NUDGES`. These tests
+  // prove the SECOND ladder and the dx dimension are real, independent behaviour, not aliases.
+  describe('the Map tab extension — MAP_NUDGES, mapDxOffsets, options.dy/options.dx', () => {
+    it('exports a longer, independent ladder for the map — not a re-export of NUDGES', () => {
+      expect(MAP_NUDGES).toEqual([0, -14, 14, -26, 26, -38, 38]);
+      expect(MAP_NUDGES).not.toEqual(NUDGES);
+    });
+
+    it('mapDxOffsets centres, then falls back left/right by half the box width plus the gap', () => {
+      expect(MAP_DX_GAP).toBe(9);
+      // w=20 → half = round(10) + 9 = 19
+      expect(mapDxOffsets(20)).toEqual([0, -19, 19]);
+      // An odd width exercises the rounding rather than assuming it away.
+      expect(mapDxOffsets(21)).toEqual([0, -20, 20]);
+    });
+
+    it('omitting options leaves the 6-arg form identical to the 5-arg one (dy=NUDGES, dx=[0] only)', () => {
+      const withOptions = placeWithNudges(ANCHOR, SIZE, [], FRAME.w, FRAME.h, {});
+      const without = placeWithNudges(ANCHOR, SIZE, [], FRAME.w, FRAME.h);
+      expect(withOptions).toEqual(without);
+    });
+
+    it('walks options.dy (MAP_NUDGES) rather than NUDGES when it is supplied', () => {
+      // Block every NUDGES-shaped box; MAP_NUDGES' rungs are all at different y offsets (only
+      // dy=0 is shared), so a NUDGES-driven walk would find nothing here while a MAP_NUDGES walk
+      // lands on dy=-14 for free.
+      const placed = NUDGES.filter((dy) => dy !== 0).map((dy) => candidateAt(ANCHOR, SIZE, dy));
+      const result = placeWithNudges(ANCHOR, SIZE, placed, FRAME.w, FRAME.h, { dy: MAP_NUDGES });
+      expect(result).toEqual(candidateAt(ANCHOR, SIZE, 0));
+    });
+
+    it('tries every dx at one dy rung before moving to the next rung', () => {
+      // ⚠️ The obstacle here has to be a small box AT THE ANCHOR (a marker glyph), not another
+      // copy of the label's own dx=0 box — `mapDxOffsets`' fallback distance (`w/2 + MAP_DX_GAP`)
+      // is deliberately LESS than the label's own width for anything wider than 18px, so a
+      // same-width neighbour at dx=-half or dx=+half still touches the dx=0 box. The offset's real
+      // job is clearing something small centred ON the anchor point (the pin itself), which this
+      // marker-shaped obstacle models: it blocks dx=0 (the label would sit right on top of it) but
+      // clears dx=-half (comfortably past the marker's own right edge).
+      const dx = mapDxOffsets(SIZE.w); // [0, -19, 19]
+      const marker = {
+        x: ANCHOR.x - 4, y: ANCHOR.y - 4, w: 8, h: 8,
+      };
+      const result = placeWithNudges(
+        ANCHOR, SIZE, [marker], FRAME.w, FRAME.h, { dy: MAP_NUDGES, dx: mapDxOffsets },
+      );
+      expect(result).toEqual({
+        x: ANCHOR.x - SIZE.w / 2 + dx[1], y: ANCHOR.y - SIZE.h / 2, w: SIZE.w, h: SIZE.h,
+      });
+    });
+
+    it('drop-not-stack still holds with both dimensions active — every dy/dx combination blocked', () => {
+      const dx = mapDxOffsets(SIZE.w);
+      const allBlocked = [];
+      for (const dy of MAP_NUDGES) {
+        for (const d of dx) {
+          allBlocked.push({
+            x: ANCHOR.x - SIZE.w / 2 + d, y: ANCHOR.y - SIZE.h / 2 + dy, w: SIZE.w, h: SIZE.h,
+          });
+        }
+      }
+      const result = placeWithNudges(
+        ANCHOR, SIZE, allBlocked, FRAME.w, FRAME.h, { dy: MAP_NUDGES, dx: mapDxOffsets },
+      );
+      expect(result).toBeNull();
+    });
+
+    it('rejects a dx-shifted box that would cross the frame edge, even though the OTHER side would fit', () => {
+      // Anchor near the LEFT edge: dx=-half would push the box off-frame (x < EDGE_INSET), and a
+      // marker-at-anchor obstacle (see the test above) blocks dx=0 — so the walk must skip the
+      // frame-rejected dx=-half and land on dx=+half, still at dy=0, rather than falling through
+      // to the next dy rung.
+      const anchor = { x: 15, y: 100 };
+      const size = { w: 20, h: 10 };
+      const dx = mapDxOffsets(size.w); // [0, -19, 19]
+      const marker = {
+        x: anchor.x - 4, y: anchor.y - 4, w: 8, h: 8,
+      };
+      const result = placeWithNudges(
+        anchor, size, [marker], 300, 300, { dy: MAP_NUDGES, dx: mapDxOffsets },
+      );
+      expect(result).toEqual({
+        x: anchor.x - size.w / 2 + dx[2], y: anchor.y - size.h / 2, w: size.w, h: size.h,
+      });
+    });
+  });
+
+  describe('seedObstacles', () => {
+    it('subtracts the container origin and pads outward on every side (default pad 5)', () => {
+      const containerRect = { left: 100, top: 50 };
+      const rects = [{
+        left: 110, top: 60, width: 40, height: 20,
+      }];
+      expect(seedObstacles(rects, containerRect)).toEqual([{
+        x: 110 - 100 - 5, y: 60 - 50 - 5, w: 40 + 10, h: 20 + 10,
+      }]);
+    });
+
+    it('honours a custom pad, including zero', () => {
+      const containerRect = { left: 0, top: 0 };
+      const rects = [{
+        left: 10, top: 20, width: 5, height: 5,
+      }];
+      expect(seedObstacles(rects, containerRect, 0)).toEqual([{
+        x: 10, y: 20, w: 5, h: 5,
+      }]);
+      expect(seedObstacles(rects, containerRect, 2)).toEqual([{
+        x: 8, y: 18, w: 9, h: 9,
+      }]);
+    });
+
+    it('maps every rect in a list independently, preserving order', () => {
+      const containerRect = { left: 0, top: 0 };
+      const rects = [
+        {
+          left: 0, top: 0, width: 10, height: 10,
+        },
+        {
+          left: 100, top: 100, width: 20, height: 20,
+        },
+      ];
+      const result = seedObstacles(rects, containerRect, 5);
+      expect(result).toHaveLength(2);
+      expect(result[0]).toEqual({
+        x: -5, y: -5, w: 20, h: 20,
+      });
+      expect(result[1]).toEqual({
+        x: 95, y: 95, w: 30, h: 30,
+      });
+    });
+
+    it('the seeded boxes actually block a candidate placement — an obstacle, not just a shape', () => {
+      // Proves the shape `seedObstacles` produces is the shape `placeWithNudges` consumes, by
+      // feeding one straight into the other rather than asserting the two independently. Sized
+      // generously (well past NUDGES' own ±36px reach) so every rung at this anchor lands inside
+      // the padded obstacle box, whatever the ladder's exact extremes are.
+      const containerRect = { left: 0, top: 0 };
+      const obstacles = seedObstacles([{
+        left: 50, top: 50, width: 100, height: 100,
+      }], containerRect, 5);
+      const anchor = { x: 100, y: 100 };
+      const size = { w: 10, h: 10 };
+      expect(placeWithNudges(anchor, size, obstacles, 300, 300)).toBeNull();
+      expect(placeWithNudges({ x: 250, y: 250 }, size, obstacles, 300, 300)).not.toBeNull();
     });
   });
 });

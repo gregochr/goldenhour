@@ -14,6 +14,7 @@ import { spotBadgeStyle } from '../utils/windowFirstSpots.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { formatDriveDuration } from '../utils/briefingDisplay.js';
 import { getMode } from '../utils/scoreRamp.js';
+import { RING_MIN_PX, RING_TIERS } from '../utils/reachRings.js';
 
 /**
  * The field's aspect clamps — portrait on desktop, nearly square on a phone.
@@ -161,16 +162,13 @@ const HINT_BOX = { width: 118, height: 24 };
 /** One frozen array, so a caller that draws no chips does not hand over a fresh prop each render. */
 const EMPTY_CHIPS = Object.freeze([]);
 
-/** 1 mile in km — the SI/international definition, exact, not an approximation. */
-const MI_TO_KM = 1.609344;
-
 /**
- * Reach ring tiers — field-geography plan §3.2, re-authored per §5.2 (owner decision, 2026-08-30):
- * distance in miles, not the earlier unlabelled 40/80 km. The km radius is derived from the mile
- * constant here, at the definition site, so the unit intent is explicit; {@code kmPerPx} and every
- * other projection calculation downstream stay in km untouched. 25 mi / 50 mi ≈ 40.2336 / 80.4672
- * km — visually indistinguishable circles from the original 40/80 km, since those km values were
- * always authored design constants rather than a measurement of anything.
+ * Reach ring tiers — {@code RING_TIERS}/{@code RING_MIN_PX} moved to {@code utils/reachRings.js}
+ * at map-tab-v2-plan.md §3 P8 (decision D-4), so {@code MapHeatLayer}'s canvas rings on the Map
+ * tab draw the exact same 25 mi / 50 mi circles this popup field map always has, from one
+ * definition. See that module's own doc comment for the mile/km/minutes derivation. Only
+ * {@code RING_OFFFRAME_FACTOR} stays here — it is this component's own display concern (an
+ * SVG-sized frame, not a fact about the tiers), not something a second host needs to agree with.
  *
  * <p>The label a ring carries depends on {@code reachMeasured} (§5.2): by default it states the
  * distance itself ({@code formatMiles}, below) — a claim true for every account, measured or not.
@@ -181,11 +179,6 @@ const MI_TO_KM = 1.609344;
  * label is a claim the reach-vocabulary rule reserves for a surface a measured drive actually
  * gated, so it must not appear for a reader `reachMeasured` says none exists for.
  */
-const RING_TIERS = [[25, 45], [50, 90]].map(([mi, minutes]) => ({
-  mi, km: mi * MI_TO_KM, minutes,
-}));
-/** A ring drawn smaller than this, in px, is illegible — skip it rather than draw a dot. */
-const RING_MIN_PX = 18;
 /** A ring wider than this multiple of the frame's larger side is entirely off-frame — skip it. */
 const RING_OFFFRAME_FACTOR = 1.15;
 

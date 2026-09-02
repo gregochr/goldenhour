@@ -2769,10 +2769,20 @@ button.wf-hc.also.on:hover {
 }
 
 /* ── Full-frame chrome corners (map-tab-v2-plan.md §3 P7) ──────────────────────────────────────
-   The z-ladder the plan requires: heat 410 / selection ring 415 / labels 420 / CHROME 1100 /
-   callout 1350 / tooltip 1400 / MENUS 1500 (a menu must beat every sibling chip, and both live
-   `wf-win-menu`/`wf-filters-panel` already sit at 1500). Every chip here is 1100 for the same
-   reason `.wf-map-toolbar` already was.
+   The z-ladder the plan requires: heat 410 / selection ring 415 / labels 420 (design bundle) /
+   CHROME 1100 / callout 1350 / tooltip 1400 / MENUS 1500 (a menu must beat every sibling chip, and
+   both live `wf-win-menu`/`wf-filters-panel` already sit at 1500). Every chip here is 1100 for the
+   same reason `.wf-map-toolbar` already was.
+
+   ⚠️ LABELS actually ships at 650, not the bundle's 420 (PR #733 review) — `MapLabels.jsx`'s own
+   `LABEL_PANE_Z` carries the full reasoning. The bundle's prototype never renders a marker
+   underneath its label layer at all; this app fades Leaflet's real markers back to full opacity
+   AND interactivity past the zoom handover, in Leaflet's own `markerPane` (a built-in z600) — so a
+   label pane at 420 would sit, and hit-test, UNDER the very marker its chip names. 650 clears the
+   marker pane while staying below Leaflet's popup pane (700) and every chip in this file (1100+).
+   That z-index is set in JS on the Leaflet pane itself, never in this stylesheet, so it has no CSS
+   rule to slice here — see `mapChromeZLadderCascade.test.jsx`'s own note on why its cascade
+   assertions cannot (and do not) cover it.
 
    Top-left: the window control, at the SAME `left: 60px` the old toolbar used to clear Leaflet's
    own zoom + home control column — that geometry has not changed, only which control sits there.
@@ -3027,6 +3037,146 @@ button.wf-hc.also.on:hover {
   width: 56px;
   height: 6px;
   border-radius: 999px;
+}
+
+/* ── The Map tab's label layer (map-tab-v2-plan.md §3 P8, README §6) ───────────────────────────
+   z-index 650 (Leaflet pane, set in JS — see `MapLabels.jsx`'s `LABEL_PANE_Z`), NOT the design
+   bundle's 420 the P7 chrome comment above records: Leaflet's real marker pane sits at a built-in
+   600 and this app fades its markers back to full opacity/interactivity past the zoom handover, so
+   the label layer has to clear that pane too, not merely the heat canvas beneath it (PR #733
+   review — the bundle's prototype never renders a marker under its own label layer at all).
+   The home marker (`.wf-hm`/`.wf-hm-mk`/`.wf-hm-lb`) and ring labels (`.wf-ringlb`) REUSE the
+   Plan popup field map's own classes (`WindowRowFieldMap`/`WindowFirstHeatStrip`) rather than
+   duplicating them — both are already absolutely-positioned, JS-styled spans with no assumption
+   about their host's coordinate system, so the SVG-projected popup and this Leaflet-projected tab
+   can share one vocabulary for "what a home marker/ring label looks like". Only the location chip
+   and the region name are new: the chip's ink rule differs from `WindowRowFieldMap`'s own
+   `.wf-mchip-r` (ramp colour as ink there, `--ink` here — see the note on `.wf-maplab-chip-r`
+   below), so it earns its own class rather than risking two ink rules on one selector. */
+.wf-maplab-layer {
+  position: absolute;
+  left: 0;
+  top: 0;
+  /* The layer is an annotation on the map; the canvas and the chrome beneath it take the click.
+     Only `.wf-maplab-chip` (a real `<button>`) re-enables it, below — the same
+     `.wf-mchips`/`button.wf-mchip` split `WindowRowFieldMap` already established, and for the
+     identical reason: a decorative span that swallowed a click would make the ground beneath the
+     region name the one place selecting it does not work. */
+  pointer-events: none;
+}
+.wf-maplab-region {
+  position: absolute;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: .09em;
+  color: rgba(242, 231, 211, .6);
+  text-transform: uppercase;
+  white-space: nowrap;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, .9), 0 0 8px rgba(0, 0, 0, .8);
+}
+.wf-maplab-region[data-hot='true'] {
+  color: #F9F1E2;
+}
+/* README §6: "Short names below 430px width" — CSS truncation of the served name for now; a
+   curated short form is decision D-11. Capped rather than left to wrap, because a wrapped region
+   name grows the label's own measured box mid-placement, which the greedy pass has already sized
+   it against. */
+.wf-maplab-region[data-tiny='true'] {
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The location chip — README §6 priority order item 4. Visually the SAME plate `WindowRowFieldMap`
+   already ships (`rgba(14,11,9,.84)` background, `--color-plex-border-light` inset ring, 5px
+   radius), kept as its own class rather than shared because the star's INK differs (below). */
+.wf-maplab-chip {
+  position: absolute;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font: inherit;
+  /* AFTER `font`, not before — the CSS-wide `font` shorthand resets every longhand it does not
+     name, `line-height` among them, to whatever this element would otherwise inherit. Inside the
+     label pane that is not an issue (no ancestor sets `line-height: 0`), but the order is kept
+     matching `.wf-mchip`'s own documented trap so the two rules never drift into looking
+     coincidentally safe for different reasons. */
+  line-height: 1.35;
+  text-align: left;
+  white-space: nowrap;
+  padding: 2px 5px;
+  border: 0;
+  border-radius: 5px;
+  background: rgba(14, 11, 9, .84);
+  box-shadow: inset 0 0 0 1px var(--color-plex-border-light);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.wf-maplab-chip:hover {
+  background: rgba(14, 11, 9, .94);
+  box-shadow: inset 0 0 0 1.5px var(--color-home);
+}
+.wf-maplab-chip[data-selected='true'] {
+  box-shadow: inset 0 0 0 1.5px var(--color-home);
+}
+.wf-maplab-chip:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
+/* The 5px ramp-coloured square — a FILL, so the ramp colour is safe here (README's own ink rule:
+   "as a fill, the ramp colour has ink placed on top of it … and it passes"). */
+.wf-maplab-chip-m {
+  width: 5px;
+  height: 5px;
+  flex: none;
+}
+.wf-maplab-chip-n {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--color-plex-text);
+}
+/* ⚠️ `--color-plex-text` (this app's `--ink`), NEVER the ramp colour — map-tab-v2-plan.md §3 P8:
+   the design bundle's own HTML wins over its README §6 ("N★ in ramp colour"), which contradicts
+   the bundle's OWN "no ramp colour as text, anywhere" rule two sections later. A star numeral is
+   TEXT, and the ramp's mid-peaked luminance makes 1★ and 5★ fail contrast from OPPOSITE ends on
+   this near-black plate — exactly the inversion the rest of the app's `readableInkOn` exists to
+   avoid. `WindowRowFieldMap`'s OWN `.wf-mchip-r` uses ramp ink instead, and that is a DELIBERATE,
+   documented exception scoped to that surface alone (its own comment: "safe only because the
+   plate behind it is near-black" — a claim never re-verified here); it is not a precedent to copy
+   onto a new chip. */
+.wf-maplab-chip-r {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  color: var(--color-plex-text);
+  padding-left: 5px;
+  border-left: 1px solid var(--color-plex-border);
+}
+/* The desktop hover tooltip — README §6/"Interactions": name, event, N★ verdict,
+   region · drive · sky Bortle. z-index 1400, the P7 chrome comment's own reserved "tooltip" slot;
+   mouse-only by construction (`onMouseEnter`/`onMouseMove`/`onMouseLeave`, which a touch tap never
+   fires), positioned off the cursor exactly like the design bundle's own `#tip`. */
+.wf-maplab-tip {
+  position: absolute;
+  z-index: 1400;
+  max-width: 240px;
+  padding: 6px 9px;
+  border-radius: 8px;
+  background: rgba(14, 11, 9, .92);
+  box-shadow: inset 0 0 0 1px var(--color-plex-border-light), 0 12px 30px rgba(0, 0, 0, .5);
+  pointer-events: none;
+}
+.wf-maplab-tip-n {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-plex-text);
+  margin-bottom: 2px;
+}
+.wf-maplab-tip-s {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
 }
 
 /* ── The filters popover (map-tab-v2-plan.md §3 P7, README §4) ─────────────────────────────────

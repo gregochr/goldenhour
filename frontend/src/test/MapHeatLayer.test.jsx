@@ -97,6 +97,10 @@ function makeMap({ zoom = 9, size = { x: 800, y: 500 }, panes = null, onScreen =
     // test that does not care about it; the land-clip describe block below overrides it per test
     // to assert the translation is actually threaded through.
     getPixelBounds: () => ({ min: { x: 0, y: 0 } }),
+    // P8's reach rings read this for the home marker's screen position. Deterministic and
+    // distinguishable from a raw lat/lng pair (unlike an identity stub), so a test can assert
+    // exactly which point the rings were centred on.
+    latLngToContainerPoint: ([lat, lng]) => ({ x: (lng + 3) * 10, y: (56 - lat) * 10 }),
     getPane: (name) => built[name] || null,
     createPane: (name) => {
       const el = document.createElement('div');
@@ -838,5 +842,190 @@ describe('MapHeatLayer — the coastline stroke (map-tab-v2-plan.md §3 P4)', ()
     currentMap = makeMap({ zoom: 9, panes: markerPanes() });
     await mount();
     expect(ctxStub.stroke).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Reach rings (map-tab-v2-plan.md §3 P8) — dashed circles at the shared 25/50 mi tiers around
+ * home. `radiusFor` is spied (see the file header), so its mocked return value stands in for a
+ * real projection; these tests assert it was ASKED for the right metres, not that the arithmetic
+ * inside it is correct (that is `heatField.test.js`'s job).
+ */
+describe('MapHeatLayer — reach rings (map-tab-v2-plan.md §3 P8)', () => {
+  const HOME = { lat: 54.9, lon: -1.4 };
+
+  function makeRingCtxStub() {
+    return {
+      setTransform: vi.fn(),
+      save: vi.fn(),
+      restore: vi.fn(),
+      translate: vi.fn(),
+      stroke: vi.fn(),
+      clearRect: vi.fn(),
+      beginPath: vi.fn(),
+      arc: vi.fn(),
+      setLineDash: vi.fn(),
+    };
+  }
+
+  /**
+   * A `latLngToContainerPoint` giving exactly 1 px per km at HOME's own latitude — chosen so a
+   * ring's radius in px is simply its km figure (40.2336 / 80.4672), comfortably clear of both
+   * skip rules (`RING_MIN_PX` 18, the off-frame ceiling on an 800×500 default map) without the
+   * test needing to reproduce real Web Mercator arithmetic. `center` is accepted but IGNORED — the
+   * whole point of the fix under test is that ring radius no longer depends on it.
+   */
+  function ringFriendlyProjection() {
+    return ([lat, lng]) => ({ x: (lng + 3) * 10, y: (56 - lat) * 111.2 });
+  }
+
+  let ctxStub;
+
+  beforeEach(() => {
+    ctxStub = makeRingCtxStub();
+    HTMLCanvasElement.prototype.getContext = () => ctxStub;
+    radiusFor.mockImplementation((_map, metres) => metres / 100);
+    // Deterministic regardless of what an earlier describe block's OWN tests last left this at —
+    // every test in this block that wants a coastline stroke sets it explicitly.
+    landMaskGet.mockReset();
+    landMaskGet.mockReturnValue(null);
+  });
+
+  it('draws nothing at all without `rings`, without `homeCoords`, or above the zoom gate', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    currentMap.latLngToContainerPoint = ringFriendlyProjection();
+    await mount({ homeCoords: HOME, rings: false });
+    expect(ctxStub.arc).not.toHaveBeenCalled();
+
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    currentMap.latLngToContainerPoint = ringFriendlyProjection();
+    await mount({ rings: true });
+    expect(ctxStub.arc).not.toHaveBeenCalled();
+
+    currentMap = makeMap({ zoom: 10.6, panes: markerPanes() });
+    currentMap.latLngToContainerPoint = ringFriendlyProjection();
+    await mount({ homeCoords: HOME, rings: true });
+    expect(ctxStub.arc).not.toHaveBeenCalled();
+  });
+
+  it('draws exactly the two shared tiers, below the gate, home-gated and toggle-gated, sized at 1 px/km', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    currentMap.latLngToContainerPoint = ringFriendlyProjection();
+    await mount({ homeCoords: HOME, rings: true });
+    // P4 RE-PIN's own "2-BY-DESIGN" count (mount paint + load-resolve repaint, see the file
+    // header's note on "hands the kernel §4.5's dials") means the WHOLE paint callback — rings
+    // included — runs twice in this harness: two rings × two paints.
+    expect(ctxStub.beginPath).toHaveBeenCalledTimes(4);
+    expect(ctxStub.arc).toHaveBeenCalledTimes(4);
+    // Radii are `ring.km * pxPerKmAtHome`, never `radiusFor` — this harness's projection makes
+    // pxPerKmAtHome exactly 1, so the radius IS the km figure from `utils/reachRings.js`.
+    const radii = ctxStub.arc.mock.calls.map((call) => call[2]);
+    expect(radii).toEqual(expect.arrayContaining([
+      expect.closeTo(25 * 1.609344, 5),
+      expect.closeTo(50 * 1.609344, 5),
+    ]));
+  });
+
+  it('centres both rings on the home point, via latLngToContainerPoint — not a raw lat/lng', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    currentMap.latLngToContainerPoint = ringFriendlyProjection();
+    await mount({ homeCoords: HOME, rings: true });
+    const expectedPoint = currentMap.latLngToContainerPoint([HOME.lat, HOME.lon]);
+    for (const call of ctxStub.arc.mock.calls) {
+      expect(call[0]).toBe(expectedPoint.x);
+      expect(call[1]).toBe(expectedPoint.y);
+      expect(call[3]).toBe(0);
+      expect(call[4]).toBe(Math.PI * 2);
+    }
+  });
+
+  it('strokes dashed, at the shared colour and width — never the coastline\'s own style', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    currentMap.latLngToContainerPoint = ringFriendlyProjection();
+    await mount({ homeCoords: HOME, rings: true });
+    expect(ctxStub.setLineDash).toHaveBeenCalledWith([3, 4]);
+    expect(ctxStub.lineWidth).toBe(1);
+    expect(ctxStub.strokeStyle).toBe('rgba(201,162,75,.42)');
+  });
+
+  it('never touches `arc` when `homeCoords` is only half-present', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    currentMap.latLngToContainerPoint = ringFriendlyProjection();
+    await mount({ homeCoords: { lat: 54.9, lon: null }, rings: true });
+    expect(ctxStub.arc).not.toHaveBeenCalled();
+  });
+
+  it('is INVARIANT under a changed map centre at fixed zoom — the bug the fix removes', async () => {
+    // Two maps, identical zoom and home, but a `getCenter()` that answers a wildly different
+    // point — the OLD implementation (`radiusFor`, which reads `map.getCenter()`) would have sized
+    // the ring off whichever one this returned; the fix reads `homeCoords` instead and must never
+    // even look at `getCenter()` for the ring radius. `mockLandLoaded` is reset before EACH mount
+    // so this harness's own "2-BY-DESIGN" double-paint quirk (mount paint + load-resolve repaint,
+    // see the sibling test above) fires identically both times — otherwise the second mount would
+    // see `land()` already resolved from the first and paint once instead of twice, which is a
+    // fact about this test's plumbing, not about ring geometry, and would make an unrelated call-
+    // count difference look like an invariance failure.
+    mockLandLoaded = false;
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    currentMap.latLngToContainerPoint = ringFriendlyProjection();
+    currentMap.centre = { lat: 54.9, lng: -1.4 }; // centred ON home
+    await mount({ homeCoords: HOME, rings: true });
+    const radiiAtHomeCentre = ctxStub.arc.mock.calls.map((call) => call[2]);
+
+    mockLandLoaded = false;
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    currentMap.latLngToContainerPoint = ringFriendlyProjection();
+    currentMap.centre = { lat: 58.5, lng: -4.5 }; // panned far north — a real Web Mercator ring
+    // measured at the OLD reference point would be a materially different size here
+    ctxStub = makeRingCtxStub();
+    HTMLCanvasElement.prototype.getContext = () => ctxStub;
+    await mount({ homeCoords: HOME, rings: true });
+    const radiiPannedAway = ctxStub.arc.mock.calls.map((call) => call[2]);
+
+    expect(radiiPannedAway).toEqual(radiiAtHomeCentre);
+  });
+
+  it('skips a ring below the shared RING_MIN_PX floor, the same rule WindowRowFieldMap applies', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    // 0.1 px/km at HOME's latitude: 25mi -> ~4.0px, 50mi -> ~8.0px — both under the 18px floor.
+    currentMap.latLngToContainerPoint = ([lat, lng]) => ({ x: (lng + 3) * 10, y: (56 - lat) * 11.12 });
+    await mount({ homeCoords: HOME, rings: true });
+    expect(ctxStub.arc).not.toHaveBeenCalled();
+  });
+
+  it('skips a ring past the off-frame ceiling (1.15× the frame\'s larger side)', async () => {
+    // A tiny 100×80 map with the SAME 1 px/km projection: 25mi (~40px) still fits inside
+    // 100*1.15=115, but 50mi (~80px) sits right at the edge, so scale the projection up instead of
+    // relying on a coincidence — 10 px/km makes 25mi ~402px (off-frame) and 50mi ~805px (off-frame)
+    // against a 100×80 canvas, proving BOTH tiers can be suppressed by the ceiling, not merely one.
+    currentMap = makeMap({ zoom: 9, size: { x: 100, y: 80 }, panes: markerPanes() });
+    currentMap.latLngToContainerPoint = ([lat, lng]) => ({ x: (lng + 3) * 10, y: (56 - lat) * 1112 });
+    await mount({ homeCoords: HOME, rings: true });
+    expect(ctxStub.arc).not.toHaveBeenCalled();
+  });
+
+  it('draws the coastline stroke BEFORE the ring arcs, in the same paint pass', async () => {
+    // Both active in one pass: a real coast path (so the stroke fires) at a zoom below both the
+    // coastline's own fade (11) and the ring gate (10.6).
+    const stubPath = { __stub: 'land' };
+    landMaskGet.mockReturnValue(stubPath);
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    currentMap.latLngToContainerPoint = ringFriendlyProjection();
+    await mount({ homeCoords: HOME, rings: true });
+    // `ctx.stroke(landPath)` (the coast) takes an argument; `ctx.stroke()` (an arc's own path,
+    // built by the preceding `beginPath`/`arc` pair) takes none — the two are told apart by that.
+    // Each PAINT strokes coast-then-ring-then-ring (one coast call, two ring calls), and this
+    // harness's own "2-BY-DESIGN" quirk (mount paint + load-resolve repaint, see the sibling test
+    // above) runs that whole sequence twice — so the calls are checked three at a time, per paint,
+    // rather than by a single global before/after split that a second paint's own coast call would
+    // trivially violate (it lands after the FIRST paint's ring calls, which is correct ordering
+    // WITHIN a paint but looks like a reordering across two flattened paints).
+    const strokeCalls = ctxStub.stroke.mock.calls;
+    expect(strokeCalls.length).toBe(6); // 2 paints × (1 coast + 2 rings)
+    for (let i = 0; i < strokeCalls.length; i += 3) {
+      expect(strokeCalls[i]).toEqual([stubPath]);
+      expect(strokeCalls[i + 1]).toEqual([]);
+      expect(strokeCalls[i + 2]).toEqual([]);
+    }
   });
 });
