@@ -1034,11 +1034,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * The reach-rings toggle (map-tab-v2-plan.md §3 P8) — read by both {@code MapHeatLayer} (the
    * dashed canvas circles) and {@code MapLabels} (their duration/distance labels), so the two can
    * never disagree about whether rings are on. Defaults true; the Legend panel's own switch for it
-   * is P10's job — this state exists now so that panel has something to reach when it lands, so
-   * the setter is genuinely unused UNTIL then rather than a mistake.
+   * is P10's job, which is what will re-introduce a setter here (CodeQL flagged the unused one
+   * this state carried before that phase existed — dropping it from the destructure rather than
+   * suppressing the alert keeps the state itself, and this note, as the documented intent).
    */
-  // eslint-disable-next-line no-unused-vars
-  const [ringsEnabled, setRingsEnabled] = useState(true);
+  const [ringsEnabled] = useState(true);
   /**
    * Which of the map tab's own overlay popovers is open — map-tab-v2-plan.md §3 P7's exclusivity
    * rule ("opening one popover closes the others"). `'window'` and `'filters'` are the two today;

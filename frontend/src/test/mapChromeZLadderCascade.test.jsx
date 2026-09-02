@@ -13,19 +13,29 @@ import {
  *
  * <h2>Scope: what the ladder can assert TODAY</h2>
  *
- * <p>The plan's full ladder is heat 410 / selection ring 415 / labels 420 / chrome 1100 / callout
- * 1350 / tooltip 1400 / menus 1500. Only two tiers are built by this phase — CHROME (the window
- * control's `.wf-map-chrome-tl`, the Heat/Pins + Filters cluster's `.wf-map-chrome-tr`, and the
- * counts footer's `.wf-map-counts-footer`) and MENUS (`.wf-win-menu`, `.wf-filters-panel`) — so
+ * <p>The design bundle's full ladder is heat 410 / selection ring 415 / labels 420 / chrome 1100 /
+ * callout 1350 / tooltip 1400 / menus 1500. Only two tiers are built by this phase — CHROME (the
+ * window control's `.wf-map-chrome-tl`, the Heat/Pins + Filters cluster's `.wf-map-chrome-tr`, and
+ * the counts footer's `.wf-map-counts-footer`) and MENUS (`.wf-win-menu`, `.wf-filters-panel`) — so
  * this file asserts the one relation both interpretations of "practical" agree exists: a menu must
- * beat every chrome chip, or its own dropdown/panel could paint under a sibling. The ring/labels/
- * callout/tooltip tiers are P8/P9's own chrome and have no selector here to assert against yet.
+ * beat every chrome chip, or its own dropdown/panel could paint under a sibling. The ring/callout/
+ * tooltip tiers are P9's own chrome and have no selector here to assert against yet.
  *
  * <p>⚠️ The heat FIELD's own pane (`MapHeatLayer.jsx`'s `HEAT_PANE_Z`) is deliberately NOT
  * renumbered to the bundle's 410 by this phase — it is pinned at 350 for a Leaflet-pane-ordering
  * reason unrelated to this ladder (between Leaflet's own tile pane at 200 and its marker pane), and
  * 350 already sits far enough below 1100 that the relation this file cares about is untouched by
  * whichever literal it carries. Re-tuning it to exactly 410 is a P8/P9 question, not P7's.
+ *
+ * <p>⚠️ LABELS shipped in P8 at 650, not the bundle's 420 (PR #733 review — the bundle's prototype
+ * assumed a heat view with no markers ever rendering below the label layer; this app fades
+ * Leaflet's real markers back to full opacity and interactivity past the zoom handover, in
+ * Leaflet's own built-in `markerPane` at z600, so labels have to clear THAT pane, not merely the
+ * heat canvas). That z-index is set directly in JS on the Leaflet pane (`MapLabels.jsx`'s
+ * `LABEL_PANE_Z`) rather than through a CSS rule on a class, so — like the heat field's own pane
+ * above — it has nothing for this file's slicer to extract and stays untested HERE by construction;
+ * `MapLabels.test.jsx` pins the numeric value and its relation to Leaflet's marker/popup panes
+ * directly against the rendered pane element instead.
  */
 
 const CSS_PATH = resolve(process.cwd(), 'src/index.css');

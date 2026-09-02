@@ -2769,10 +2769,20 @@ button.wf-hc.also.on:hover {
 }
 
 /* ── Full-frame chrome corners (map-tab-v2-plan.md §3 P7) ──────────────────────────────────────
-   The z-ladder the plan requires: heat 410 / selection ring 415 / labels 420 / CHROME 1100 /
-   callout 1350 / tooltip 1400 / MENUS 1500 (a menu must beat every sibling chip, and both live
-   `wf-win-menu`/`wf-filters-panel` already sit at 1500). Every chip here is 1100 for the same
-   reason `.wf-map-toolbar` already was.
+   The z-ladder the plan requires: heat 410 / selection ring 415 / labels 420 (design bundle) /
+   CHROME 1100 / callout 1350 / tooltip 1400 / MENUS 1500 (a menu must beat every sibling chip, and
+   both live `wf-win-menu`/`wf-filters-panel` already sit at 1500). Every chip here is 1100 for the
+   same reason `.wf-map-toolbar` already was.
+
+   ⚠️ LABELS actually ships at 650, not the bundle's 420 (PR #733 review) — `MapLabels.jsx`'s own
+   `LABEL_PANE_Z` carries the full reasoning. The bundle's prototype never renders a marker
+   underneath its label layer at all; this app fades Leaflet's real markers back to full opacity
+   AND interactivity past the zoom handover, in Leaflet's own `markerPane` (a built-in z600) — so a
+   label pane at 420 would sit, and hit-test, UNDER the very marker its chip names. 650 clears the
+   marker pane while staying below Leaflet's popup pane (700) and every chip in this file (1100+).
+   That z-index is set in JS on the Leaflet pane itself, never in this stylesheet, so it has no CSS
+   rule to slice here — see `mapChromeZLadderCascade.test.jsx`'s own note on why its cascade
+   assertions cannot (and do not) cover it.
 
    Top-left: the window control, at the SAME `left: 60px` the old toolbar used to clear Leaflet's
    own zoom + home control column — that geometry has not changed, only which control sits there.
@@ -3030,7 +3040,11 @@ button.wf-hc.also.on:hover {
 }
 
 /* ── The Map tab's label layer (map-tab-v2-plan.md §3 P8, README §6) ───────────────────────────
-   z-index 420 (Leaflet pane, set in JS) — the slot the P7 chrome comment above already reserved.
+   z-index 650 (Leaflet pane, set in JS — see `MapLabels.jsx`'s `LABEL_PANE_Z`), NOT the design
+   bundle's 420 the P7 chrome comment above records: Leaflet's real marker pane sits at a built-in
+   600 and this app fades its markers back to full opacity/interactivity past the zoom handover, so
+   the label layer has to clear that pane too, not merely the heat canvas beneath it (PR #733
+   review — the bundle's prototype never renders a marker under its own label layer at all).
    The home marker (`.wf-hm`/`.wf-hm-mk`/`.wf-hm-lb`) and ring labels (`.wf-ringlb`) REUSE the
    Plan popup field map's own classes (`WindowRowFieldMap`/`WindowFirstHeatStrip`) rather than
    duplicating them — both are already absolutely-positioned, JS-styled spans with no assumption

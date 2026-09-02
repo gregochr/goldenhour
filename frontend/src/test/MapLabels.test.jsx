@@ -158,13 +158,26 @@ describe('MapLabels — mounting', () => {
     expect(container.querySelector('[data-testid="map-labels"]')).toBeNull();
   });
 
-  it('creates its own pane at z-index 420, pointer-events none, reusing one that already exists', async () => {
+  it('creates its own pane at z-index 650, pointer-events none, reusing one that already exists', async () => {
     currentMap = makeFullMap();
     await mount();
     const pane = currentMap.panes['wf-labels'];
     expect(pane).toBeTruthy();
-    expect(pane.style.zIndex).toBe('420');
+    // 650, NOT the design bundle's own 420 (PR #733 review, a confirmed finding) — Leaflet's real
+    // `markerPane` sits at its own built-in 600 and this app fades its markers back to full
+    // opacity and interactivity past the zoom handover, so labels must clear it or a chip renders
+    // (and hit-tests) underneath the very marker it names.
+    expect(pane.style.zIndex).toBe('650');
     expect(pane.style.pointerEvents).toBe('none');
+  });
+
+  it('sits ABOVE Leaflet\'s own marker pane (600) and BELOW its popup pane (700) — PR #733 review', async () => {
+    currentMap = makeFullMap();
+    await mount();
+    const pane = currentMap.panes['wf-labels'];
+    const z = Number(pane.style.zIndex);
+    expect(z).toBeGreaterThan(600);
+    expect(z).toBeLessThan(700);
   });
 
   it('portals the label layer into that pane', async () => {
@@ -423,7 +436,7 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
   it('portals the tooltip to the CHROME wrapper, never inside the label pane (map-tab-v2-plan.md §3 P8 review)', async () => {
     // `.leaflet-map-pane` carries a CSS transform (Leaflet's own panning mechanism), which
     // establishes a stacking context — a z-index declared on a descendant of it (like this
-    // layer's own pane at 420) can never outrank real chrome outside that context regardless of
+    // layer's own pane at 650) can never outrank real chrome outside that context regardless of
     // its own number. The tooltip's z1400 is only meaningful once it lives OUTSIDE the pane, in
     // the same wrapper `MapView` renders the chrome siblings into.
     restoreMeasure = withMeasuredLabels(50, 14);
@@ -445,11 +458,12 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     currentMap = makeFullMap({ zoom: 13 });
     await mount();
     await act(async () => { runFrames(); });
-    // `positionTip` measures the label layer's OWN root (glued to the container origin, so its
-    // rect is pixel-equivalent to the container's) — not the chrome wrapper, which is a separate
-    // portal target as of the tooltip-stacking fix above.
-    const labelLayer = document.querySelector('[data-testid="map-labels"]');
-    vi.spyOn(labelLayer, 'getBoundingClientRect').mockReturnValue({
+    // `positionTip` measures `map.getContainer()`'s OWN rect (PR #733 review) — the label layer's
+    // root has no width/height of its own (every child is absolutely positioned, so nothing
+    // contributes to its box), and stubbing THAT element used to mask the exact bug this test now
+    // exists to catch. The container is glued to the same origin, so its rect is the correct
+    // (and, in a real browser, the only non-zero) source for this clamp.
+    vi.spyOn(currentMap.container, 'getBoundingClientRect').mockReturnValue({
       left: 0, top: 0, width: 800, height: 500,
     });
     const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
@@ -467,6 +481,36 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     fireEvent.mouseEnter(chip, { clientX: 100, clientY: 2 });
     const tipAgain = document.querySelector('[data-testid="map-label-tip"]');
     expect(parseFloat(tipAgain.style.top)).toBe(6);
+  });
+
+  it('reads the CONTAINER rect for the clamp, never the zero-sized label-layer root (PR #733 review, a confirmed regression)', async () => {
+    // Pins the clamp's INPUT SOURCE, not merely its output. The label layer's root
+    // (`[data-testid="map-labels"]`) is deliberately left UNSTUBBED here — jsdom answers its
+    // default zero-everywhere rect for it, exactly like a real browser would (that element has no
+    // intrinsic size: `position: absolute; left: 0; top: 0` with every child also absolutely
+    // positioned). Only the container gets a real width. If the implementation ever regresses to
+    // reading the label layer's rect instead, `wrapRect.width` would be 0, the clamp would compute
+    // `0 - tipWidth - 8` (a large negative number), and the assertion below — which requires the
+    // tooltip to land INSIDE the container's real bounds — would fail.
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    vi.spyOn(currentMap.container, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 800, height: 500,
+    });
+    await mount();
+    await act(async () => { runFrames(); });
+    const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+      .find((el) => el.textContent.includes('Bamburgh'));
+    fireEvent.mouseEnter(chip, { clientX: 400, clientY: 250 });
+    const tip = document.querySelector('[data-testid="map-label-tip"]');
+    const left = parseFloat(tip.style.left);
+    // A mid-frame hover with a real 800px-wide container: the raw offset (400 - 0 + 13 = 413) sits
+    // nowhere near either clamp, so an unregressed implementation reports it UNCHANGED. The old,
+    // zero-width bug would instead report `0 - 240 - 8 = -248` here — well outside the container
+    // and impossible to confuse with the correct answer.
+    expect(left).toBeCloseTo(413, 5);
+    expect(left).toBeGreaterThanOrEqual(0);
+    expect(left).toBeLessThanOrEqual(800);
   });
 });
 
