@@ -17,7 +17,7 @@ import React from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 vi.mock('leaflet', () => {
   const icon = () => ({});
@@ -109,6 +109,8 @@ vi.mock('../components/markerUtils.js', async (importOriginal) => {
 import MapView from '../components/MapView.jsx';
 import { STOPS_VERDICT, STOPS_TEMP, setMode } from '../utils/scoreRamp.js';
 import { markerLabelAndColour } from '../components/markerUtils.js';
+import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
+import { ukDateStrOffset } from '../utils/mapDates.js';
 
 const TODAY = '2026-01-15';
 const TOMORROW = '2026-01-16';
@@ -213,6 +215,20 @@ async function renderMap(props = {}) {
   return { ...result, locations };
 }
 
+/**
+ * Picks a window through the real window control — opens the pill and clicks the row whose id
+ * names `date:targetType`. Replaces the retired `wf-map-window` `<select>`
+ * (map-tab-v2-plan.md §3 P6 absorbed it into `components/map/WindowControl.jsx`); `dateTargetType`
+ * is the exact string the old select's `<option value>` used, e.g. `` `${TOMORROW}:SUNRISE}` ``.
+ */
+function pickWindow(dateTargetType) {
+  fireEvent.click(screen.getByTestId('wf-win-pill'));
+  const row = screen.getAllByTestId('wf-win-row')
+    .find((r) => r.getAttribute('data-ev-id') === `solar:${dateTargetType}`);
+  expect(row).toBeTruthy();
+  fireEvent.click(row);
+}
+
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
@@ -263,7 +279,10 @@ describe('MapView heat — degrade paths', () => {
     // and a payload cached before a field existed is exactly the shape §8 says to expect.
     await renderMap({ heat: { enabled: true, hasHome: true, spots: SPOTS } });
     expect(screen.getByTestId('wf-map-toolbar')).toBeInTheDocument();
-    expect(screen.getByRole('combobox', { name: 'Forecast window' })).toHaveValue('');
+    // No `heat.windows` and no `forecastDates` means the EV list itself is empty — the window
+    // control renders nothing at all (map-tab-v2-plan.md §3 P6's own degrade for a truly empty
+    // list), distinct from the "no forecast window" pill a non-empty list with no match shows.
+    expect(screen.queryByTestId('wf-win-pill')).toBeNull();
     await screen.findByTestId('map-heat-layer');
     expect(heatLayerProps.last.points).toEqual([]);
   });
@@ -469,10 +488,10 @@ describe('MapView heat — a window nobody rated', () => {
   });
 
   it('is a different state from the map being on a date the briefing does not reach', async () => {
-    // The selector already answers that one, and it is a statement about the CAMERA rather than
-    // about the forecast: there is no window to be unrated.
+    // The window control already answers that one, and it is a statement about the CAMERA rather
+    // than about the forecast: there is no window to be unrated.
     await renderMap({ heat: heatProp(), date: '2026-01-25' });
-    expect(screen.getByTestId('wf-map-window')).toHaveValue('');
+    expect(screen.getByTestId('wf-win-no-match')).toBeInTheDocument();
     expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
   });
 });
@@ -486,47 +505,41 @@ describe('MapView heat — which window the field paints', () => {
       .toEqual(['Bamburgh', 'Tynemouth', 'Wastwater', 'Kelso', 'Alnmouth', 'Coquet']);
   });
 
-  it('shows the window the map is actually on, not merely an empty value', async () => {
-    // The negative test below pins `''`; without this one, `value={heatWindow?.key ?? ''}` degrading
-    // to always-empty would be caught by nothing.
+  it('shows the window the map is actually on, not merely a no-match state', async () => {
+    // The negative test below pins the no-match pill; without this one, an always-unmatched
+    // control would be caught by nothing.
     await renderMap({ heat: heatProp() });
-    expect(screen.getByRole('combobox', { name: 'Forecast window' }))
-      .toHaveValue(`${TODAY}:SUNSET`);
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(WINDOWS[1].label); // "Tonight sunset"
   });
 
-  it('moves the map’s DATE when the selector picks a window on another day', async () => {
-    // The selector must not hold a window of its own: with three time controls on one tab, the two
-    // that disagreed would put the field on one evening and the markers on another.
+  it('moves the map’s DATE when the window control picks a window on another day', async () => {
+    // The control must not hold a window of its own: with three time controls on one tab, the two
+    // that disagreed would put the field on one evening and the markers on another. (Pre-P6 pin:
+    // "moves the map's DATE when the selector picks a window on another day", driven through the
+    // retired `wf-map-window` select.)
     const onSelectDate = vi.fn();
     await renderMap({ heat: heatProp(), onSelectDate });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Forecast window' }), {
-      target: { value: `${TOMORROW}:SUNRISE` },
-    });
+    pickWindow(`${TOMORROW}:SUNRISE`);
     expect(onSelectDate).toHaveBeenCalledWith(TOMORROW);
   });
 
   it('moves the map’s EVENT when the window is on the day already shown', async () => {
-    // Sunrise→sunset within one day is the commonest use of the control and takes the `next.date
-    // !== date` guard's false arm — so `setEventType` is the only thing that can answer it, and
-    // dropping that line leaves the date handler's test still green.
+    // Sunrise→sunset within one day is the commonest use of the control and takes the
+    // `row.date !== date` guard's false arm inside `selectEvRow` — so `setEventType` is the only
+    // thing that can answer it, and dropping that line leaves the date handler's test still green.
     const onSelectDate = vi.fn();
     await renderMap({ heat: heatProp(), onSelectDate });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Forecast window' }), {
-      target: { value: `${TODAY}:SUNRISE` },
-    });
+    pickWindow(`${TODAY}:SUNRISE`);
     expect(onSelectDate).not.toHaveBeenCalled();
-    expect(screen.getByRole('combobox', { name: 'Forecast window' }))
-      .toHaveValue(`${TODAY}:SUNRISE`);
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(WINDOWS[0].label); // "This morning sunrise"
     expect(heatLayerProps.last.points.map((p) => p.name)).toEqual(['Bamburgh']);
   });
 
   it('holds the chosen event against the auto-selection that would otherwise reclaim it', async () => {
     // `autoEventType` is re-applied by an effect unless the reader has overridden it. Without
-    // `setUserHasOverriddenEvent(true)` the selector's answer is undone on the next payload.
+    // `setUserHasOverriddenEvent(true)` the control's answer is undone on the next payload.
     const { rerender } = await renderMap({ heat: heatProp(), autoEventType: 'SUNSET' });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Forecast window' }), {
-      target: { value: `${TODAY}:SUNRISE` },
-    });
+    pickWindow(`${TODAY}:SUNRISE`);
     await act(async () => {
       rerender(
         <MapView
@@ -537,15 +550,14 @@ describe('MapView heat — which window the field paints', () => {
         />,
       );
     });
-    expect(screen.getByRole('combobox', { name: 'Forecast window' }))
-      .toHaveValue(`${TODAY}:SUNRISE`);
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(WINDOWS[0].label);
   });
 
   it('shows nothing selected, and paints nothing, on a date the briefing does not reach', async () => {
     // `GET /api/forecast` reaches further than the briefing's six windows, so this is an ordinary
     // state. The markers stay; only the field is absent.
     await renderMap({ heat: heatProp(), date: '2026-01-25' });
-    expect(screen.getByRole('combobox', { name: 'Forecast window' })).toHaveValue('');
+    expect(screen.getByTestId('wf-win-no-match')).toBeInTheDocument();
     await screen.findByTestId('map-heat-layer');
     expect(heatLayerProps.last.points).toEqual([]);
   });
@@ -564,11 +576,75 @@ describe('MapView heat — the modes it stands down for', () => {
     expect(screen.queryByTestId('map-heat-layer')).toBeNull();
   });
 
-  it('paints no field and offers no toolbar in astro mode', async () => {
-    // Same rule, different quantity: astro markers carry observing quality.
+  // ⚠️ Rewritten for map-tab-v2-plan.md §3 P6, which is a genuine behaviour change here, not a
+  // mechanical rename: astro mode now DOES paint a field, scored from that night's astro stars
+  // (`MapView`'s `astroHeatPoints`) rather than standing down like aurora. The old pin
+  // ("paints no field and offers no toolbar in astro mode") is what P6 replaced — see the two
+  // tests below for its successor, one per branch (nothing scored yet, and a real score).
+  it('offers the toolbar in astro mode, painting nothing while nothing is scored', async () => {
+    // This file's `astroApi` mock resolves no conditions for any date, so the field exists but has
+    // nothing to paint — distinct from aurora, which stands the toolbar down outright.
     await renderMap({ heat: heatProp(), handoffEventType: 'ASTRO' });
-    expect(screen.queryByTestId('wf-map-toolbar')).toBeNull();
-    expect(screen.queryByTestId('map-heat-layer')).toBeNull();
+    expect(screen.getByTestId('wf-map-toolbar')).toBeInTheDocument();
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.points).toEqual([]);
+    expect(screen.getByTestId('wf-map-heat-unscored')).toHaveTextContent('This window is not scored');
+  });
+
+  it('paints the field from that night\'s astro stars when they exist', async () => {
+    // `astroHeatPoints` joins `astroScores` (keyed by LOCATION name) against `heat.spots` (this
+    // file's `SPOTS` fixture, joined by the SAME name field) — so the mocked conditions below are
+    // keyed to `SPOTS`' own names, not the `-${markerNonce}`-suffixed ones `makeLocations()` gives
+    // the rendered `locations` array (a cache-busting device for `markerLabelAndColour`'s calls
+    // that plays no part in this join at all).
+    //
+    // Filtered to SCORED locations before the field ever sees them (P1's NaN-seam warning,
+    // map-tab-v2-plan.md §3 P6): Tynemouth carries no astro score in this fixture and must not
+    // appear, rather than poisoning the field with a placeholder.
+    getAstroConditions.mockResolvedValueOnce([
+      { locationName: SPOTS[0].name, stars: 4 }, // Bamburgh
+      { locationName: SPOTS[2].name, stars: 2 }, // Wastwater
+    ]);
+    await renderMap({ heat: heatProp(), handoffEventType: 'ASTRO' });
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.points.map((p) => p.name).sort()).toEqual(
+      [SPOTS[0].name, SPOTS[2].name].sort(),
+    );
+    expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
+  });
+
+  it('hands the astro field its own capped-inference confidence, never null/full strength (adversarial review, real #3)', async () => {
+    // `heat.windows` never carries an astro entry, so `heatWindow?.conf` — the solar path's own
+    // scalar — is always null for this mode; the field must not silently paint at full strength
+    // regardless of horizon. A T+5 night is comfortably past `HORIZON_MEDIUM_MAX_DAYS`, so the
+    // capped-inference tier is 'low' (`confidenceScalar('low')` = 0.5) — a figure that could not
+    // be mistaken for the null-default 1.0 a regression would fall back to.
+    const FAR_NIGHT = '2026-01-20';
+    await renderMap({ heat: heatProp(), date: FAR_NIGHT, handoffEventType: 'ASTRO' });
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.conf).toBe(0.5);
+  });
+
+  it('bounds the astro multi-date preview fetch to the solar horizon, not the full available-dates list (PR #731 review)', async () => {
+    // The real `getAstroConditions/getAstroAvailableDates` endpoints answer with every distinct
+    // date ever persisted — a writer replaces a rerun date's row rather than pruning it — so an
+    // unbounded fetch over 200 historical dates would fan a single Map-tab mount out to hundreds
+    // of concurrent requests. `heat.windows` (`heatProp()`'s `WINDOWS` fixture) carries TODAY and
+    // TOMORROW, so the solar horizon is exactly those two dates regardless of what the available-
+    // dates endpoint also reports for the distant past.
+    const historical = Array.from({ length: 200 }, (_, i) => ukDateStrOffset(-(i + 10), new Date(`${TODAY}T12:00:00Z`)));
+    getAstroAvailableDates.mockResolvedValueOnce([...historical, TODAY, TOMORROW]);
+    getAstroConditions.mockClear();
+
+    await renderMap({ heat: heatProp() });
+    // `findByTestId` waits for the toolbar to exist, which is unconditional — the actual proof is
+    // the `waitFor` below, which needs something async to have actually settled first.
+    await screen.findByTestId('wf-map-toolbar');
+    await waitFor(() => expect(getAstroConditions).toHaveBeenCalled());
+
+    const fetchedDates = getAstroConditions.mock.calls.map((args) => args[0]).sort();
+    expect(fetchedDates).toEqual([TODAY, TOMORROW]);
+    expect(getAstroConditions).toHaveBeenCalledTimes(2);
   });
 });
 

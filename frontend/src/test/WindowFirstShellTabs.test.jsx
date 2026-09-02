@@ -557,10 +557,11 @@ describe('WindowFirstShell — what stays put across a tab change', () => {
     // Decision D1 of `heat-field-plan.md` (owner-confirmed 2026-08-18, reasoning in §1.1) replaces
     // the rail with `WindowFirstHeatStrip`, INSIDE the Plan tabpanel and under the lens bar. The
     // rail's cross-tab job is the one thing genuinely lost, and it is acceptable now because each
-    // tab has since grown its own date context: the Map pane renders its own `DateStrip` over the
-    // full forecast horizon, and every Coming-up row carries its dates. Stacking a day summary and
-    // a window summary would be two summaries of one forecast at two grains, roughly two screens of
-    // chrome before the first window row.
+    // tab has since grown its own date context: the Map pane's window control (map-tab-v2-plan.md
+    // §3 P6's `WindowControl`/`mapEvents.js`, which retired the pane's earlier `DateStrip` mount)
+    // browses the full forecast horizon, and every Coming-up row carries its dates. Stacking a day
+    // summary and a window summary would be two summaries of one forecast at two grains, roughly
+    // two screens of chrome before the first window row.
     //
     // ⚠️ The harness is given strip data on purpose. With the file's default (`heatStripCards: []`,
     // `heatSpots: []`) the strip withdraws everywhere, so "absent from Coming up" would be true of a

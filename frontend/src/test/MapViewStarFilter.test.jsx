@@ -64,10 +64,16 @@ vi.mock('../components/BottomSheet.jsx', () => ({
 vi.mock('../components/MarkerPopupContent.jsx', () => ({
   default: () => <div data-testid="popup-content" />,
 }));
+// map-tab-v2-plan.md §3 P6 removed `ForecastTypeSelector` from the Map TAB mount (the only mount
+// this file renders — no test here uses `overlayMode`), so the event-type switch its old mocked
+// `type-sunrise` button drove now goes through the real `components/map/WindowControl.jsx`
+// instead (see `switchToSunrise` below). Left mocked to a no-op rather than deleted: `MapView`
+// still imports the real component for its overlay path, and this keeps that import inert here.
 vi.mock('../components/ForecastTypeSelector.jsx', () => ({
-  default: ({ onChange }) => (
-    <button data-testid="type-sunrise" onClick={() => onChange('SUNRISE')}>Sunrise</button>
-  ),
+  default: () => null,
+  EVENT_TYPE_LABELS: {
+    SUNRISE: '☀️ Sunrise', SUNSET: '🌇 Sunset', ASTRO: '🌙 Astro', AURORA: '🌌 Aurora',
+  },
 }));
 vi.mock('../components/InfoTip.jsx', () => ({
   default: () => null,
@@ -122,10 +128,26 @@ function renderMap(overrides = {}) {
   const props = {
     locations: makeLocations(),
     date: TODAY,
+    // A SUNRISE row needs to exist for `switchToSunrise` below to find — every test that calls it
+    // renders with the default fixture, so this is here rather than repeated per call site.
+    forecastDates: [TODAY],
     autoEventType: null,
     ...overrides,
   };
   return render(<MapView {...props} />);
+}
+
+/**
+ * Switches to SUNRISE through the real window control — opens the pill and clicks the row whose
+ * id names SUNRISE. Replaces the old mocked `ForecastTypeSelector`'s `type-sunrise` button
+ * (map-tab-v2-plan.md §3 P6 removed that selector from the Map tab entirely).
+ */
+function switchToSunrise() {
+  fireEvent.click(screen.getByTestId('wf-win-pill'));
+  const row = screen.getAllByTestId('wf-win-row')
+    .find((r) => r.getAttribute('data-ev-id')?.endsWith(':SUNRISE'));
+  expect(row).toBeTruthy();
+  fireEvent.click(row);
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -351,7 +373,7 @@ describe('MapView star filter — localStorage persistence', () => {
       localStorage.setItem('mapFilterMinStars', '4');
       renderMap();
       // ForecastTypeSelector stub calls onChange('SUNRISE') on click
-      fireEvent.click(screen.getByTestId('type-sunrise'));
+      switchToSunrise();
       expect(localStorage.getItem('mapFilterMinStars')).toBeNull();
     });
   });
@@ -421,7 +443,7 @@ describe('MapView stand-down filter pill', () => {
   it('event type change clears the stand-down flag', () => {
     localStorage.setItem('mapFilterShowStandDown', '1');
     renderMap({ locations: [...makeLocations(), makeStandDownLocation()] });
-    fireEvent.click(screen.getByTestId('type-sunrise'));
+    switchToSunrise();
     expect(localStorage.getItem('mapFilterShowStandDown')).toBeNull();
   });
 

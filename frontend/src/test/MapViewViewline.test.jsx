@@ -6,10 +6,19 @@
  * - Viewline visible when Aurora selected + aurora active
  * - Viewline disappears and reappears when toggling away and back to Aurora
  * - Upsell chip also gated to Aurora event type
+ *
+ * ⚠️ Rewritten for map-tab-v2-plan.md §3 P6, which removed `ForecastTypeSelector` from the Map TAB
+ * mount. The old mocked selector's buttons were a PURE kind switch — they never touched `date` —
+ * and this file's whole point is isolating the kind axis (the future-date test explicitly holds
+ * `date` fixed while toggling kind). The real replacement, `components/map/WindowControl.jsx`, has
+ * no such pure switch: every dropdown row NAMES a date, so picking one is a combined kind+date
+ * choice by design — exercising that coupling is `WindowControl.test.jsx`'s job, not this one's.
+ * `handoffEventType` — a real, pre-existing `MapView` prop that already sets `eventType` with no
+ * date implication (Plan-tab event-type handoffs use it the same way) — is the faithful stand-in.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 
 // ── Leaflet / react-leaflet stubs ────────────────────────────────────────────
 
@@ -95,16 +104,10 @@ vi.mock('../components/BottomSheet.jsx', () => ({
 vi.mock('../components/MarkerPopupContent.jsx', () => ({
   default: () => <div data-testid="popup-content" />,
 }));
+// Not driven any more (see the file header) — the Map tab this file renders no longer mounts it
+// at all. Kept as a harmless no-op so `MapView`'s own (unconditional) import of it stays inert.
 vi.mock('../components/ForecastTypeSelector.jsx', () => ({
-  default: ({ eventType, onChange }) => (
-    <div>
-      <button data-testid="type-sunrise" onClick={() => onChange('SUNRISE')}>Sunrise</button>
-      <button data-testid="type-sunset" onClick={() => onChange('SUNSET')}>Sunset</button>
-      <button data-testid="type-astro" onClick={() => onChange('ASTRO')}>Astro</button>
-      <button data-testid="type-aurora" onClick={() => onChange('AURORA')}>Aurora</button>
-      <span data-testid="current-event-type">{eventType}</span>
-    </div>
-  ),
+  default: () => null,
 }));
 vi.mock('../components/InfoTip.jsx', () => ({
   default: ({ text }) => <span data-testid="infotip-text">{text}</span>,
@@ -155,11 +158,28 @@ function makeLocations() {
   ];
 }
 
+/**
+ * Renders `MapView` and returns a `rerender`-with-the-same-base-props helper alongside it — see
+ * `selectEventType` below, which needs to reapply every prop the test already set, not merely the
+ * one it changes (`rerender` replaces the whole element rather than merging into it).
+ */
 async function renderMap(overrides = {}) {
   const props = { locations: makeLocations(), date: TODAY, autoEventType: null, ...overrides };
   let result;
   await act(async () => { result = render(<MapView {...props} />); });
-  return result;
+  const withProps = async (nextOverrides) => {
+    await act(async () => { result.rerender(<MapView {...props} {...nextOverrides} />); });
+  };
+  return { ...result, props, withProps };
+}
+
+/**
+ * Switches event type — a pure kind switch, exactly what the removed mocked selector's buttons
+ * did. `handoffEventType` sets `eventType` with no date implication (see the file header), which
+ * is what every test below needs isolated.
+ */
+async function selectEventType(rendered, eventType) {
+  await rendered.withProps({ handoffEventType: eventType });
 }
 
 // Applies to every test in the file: MapView asks "is this the current night?" on each render, and
@@ -188,20 +208,20 @@ describe('MapView aurora viewline event-type gating', () => {
   });
 
   it('viewline hidden when Sunrise selected', async () => {
-    await renderMap();
-    await act(async () => { fireEvent.click(screen.getByTestId('type-sunrise')); });
+    const rendered = await renderMap();
+    await selectEventType(rendered, 'SUNRISE');
     expect(screen.queryByTestId('aurora-viewline-overlay')).not.toBeInTheDocument();
   });
 
   it('viewline hidden when Astro selected', async () => {
-    await renderMap();
-    await act(async () => { fireEvent.click(screen.getByTestId('type-astro')); });
+    const rendered = await renderMap();
+    await selectEventType(rendered, 'ASTRO');
     expect(screen.queryByTestId('aurora-viewline-overlay')).not.toBeInTheDocument();
   });
 
   it('viewline visible when Aurora selected', async () => {
-    await renderMap();
-    await act(async () => { fireEvent.click(screen.getByTestId('type-aurora')); });
+    const rendered = await renderMap();
+    await selectEventType(rendered, 'AURORA');
     expect(screen.getByTestId('aurora-viewline-overlay')).toBeInTheDocument();
   });
 
@@ -213,20 +233,20 @@ describe('MapView aurora viewline event-type gating', () => {
       }],
     ]);
     const locs = [{ name: 'TestLoc', lat: 55.0, lon: -1.7, forecastsByDate: forecasts, locationType: ['LANDSCAPE'] }];
-    await renderMap({ locations: locs, date: TOMORROW });
-    await act(async () => { fireEvent.click(screen.getByTestId('type-aurora')); });
+    const rendered = await renderMap({ locations: locs, date: TOMORROW });
+    await selectEventType(rendered, 'AURORA');
     expect(screen.queryByTestId('aurora-viewline-overlay')).not.toBeInTheDocument();
   });
 
   it('viewline disappears and reappears when toggling away and back', async () => {
-    await renderMap();
-    await act(async () => { fireEvent.click(screen.getByTestId('type-aurora')); });
+    const rendered = await renderMap();
+    await selectEventType(rendered, 'AURORA');
     expect(screen.getByTestId('aurora-viewline-overlay')).toBeInTheDocument();
 
-    await act(async () => { fireEvent.click(screen.getByTestId('type-sunset')); });
+    await selectEventType(rendered, 'SUNSET');
     expect(screen.queryByTestId('aurora-viewline-overlay')).not.toBeInTheDocument();
 
-    await act(async () => { fireEvent.click(screen.getByTestId('type-aurora')); });
+    await selectEventType(rendered, 'AURORA');
     expect(screen.getByTestId('aurora-viewline-overlay')).toBeInTheDocument();
   });
 });

@@ -5,6 +5,15 @@
  *
  * Bug B: sunset toggle was disabled for dates where only cached_evaluation
  * had data, because the availability check only looked at forecastsByDate.
+ *
+ * ⚠️ Rewritten for map-tab-v2-plan.md §3 P6, which removed `ForecastTypeSelector` from the Map
+ * TAB mount — it survives unchanged on the Plan-tab overlay, which still inherits its event from
+ * the card that opened it and reads `sunriseAvailable`/`sunsetAvailable` off the exact same
+ * `MapView` computation (`hasBriefingScoreForType`) this file has always pinned. Rendering with
+ * `overlayMode` is the only change: it is now the one surface where `ForecastTypeSelector` (and
+ * so these two props) actually reaches the DOM, but the availability logic under test is neither
+ * duplicated nor different there — `WindowFirstMapPane`'s D-13 rows (the tab's own successor to
+ * this concern) are `mapEvents.test.js`'s "served-vs-client-max discipline" cases.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -74,12 +83,17 @@ vi.mock('../components/markerUtils.js', () => ({
   makeMarkerIcon: () => ({}),
 }));
 
-// Capture ForecastTypeSelector props so we can assert sunriseAvailable/sunsetAvailable
+// Capture ForecastTypeSelector props so we can assert sunriseAvailable/sunsetAvailable. The
+// overlay's own context bar reads the real `EVENT_TYPE_LABELS` alongside the component, so the
+// mock has to carry that named export too now that these tests render with `overlayMode`.
 const selectorCalls = [];
 vi.mock('../components/ForecastTypeSelector.jsx', () => ({
   default: (props) => {
     selectorCalls.push(props);
     return <div data-testid="forecast-type-selector" />;
+  },
+  EVENT_TYPE_LABELS: {
+    SUNRISE: '☀️ Sunrise', SUNSET: '🌇 Sunset', ASTRO: '🌙 Astro', AURORA: '🌌 Aurora',
   },
 }));
 
@@ -121,8 +135,12 @@ describe('MapView sunset toggle availability from briefingScores', () => {
       }],
     ]);
 
+    // `overlayMode` — the one mount `ForecastTypeSelector` still reaches since map-tab-v2-plan.md
+    // §3 P6 (see file header). The Map TAB no longer renders it at all, but the availability
+    // computation this file pins is identical on both mounts.
     render(
       <MapView
+        overlayMode
         locations={[location]}
         date={TODAY}
         autoEventType="SUNRISE"
@@ -152,6 +170,7 @@ describe('MapView sunset toggle availability from briefingScores', () => {
 
     render(
       <MapView
+        overlayMode
         locations={[location]}
         date={TODAY}
         autoEventType="SUNRISE"
@@ -161,5 +180,33 @@ describe('MapView sunset toggle availability from briefingScores', () => {
 
     const lastCall = selectorCalls[selectorCalls.length - 1];
     expect(lastCall.sunsetAvailable).toBe(false);
+  });
+
+  it('the Map TAB (not overlay) never mounts ForecastTypeSelector at all — its job is the window control now', () => {
+    // The negative space this rewrite has to state explicitly: the pre-P6 version of this file
+    // rendered the tab and read the selector's props off it. Rendering the tab today and finding
+    // no such call is the one-line proof that the absorption actually happened, not just that the
+    // overlay's own copy still works.
+    const location = {
+      name: 'Sandsend',
+      id: 1,
+      lat: 54.5,
+      lon: -0.6,
+      regionName: 'NE Yorks',
+      locationType: ['SEASCAPE'],
+      forecastsByDate: new Map([[TODAY, {
+        sunrise: { solarEventTime: `${TODAY}T06:00:00` },
+        sunset: null,
+      }]]),
+    };
+    render(
+      <MapView
+        locations={[location]}
+        date={TODAY}
+        autoEventType="SUNRISE"
+        briefingScores={new Map()}
+      />,
+    );
+    expect(selectorCalls).toHaveLength(0);
   });
 });

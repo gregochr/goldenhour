@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { render, screen, act } from '@testing-library/react';
 import WindowFirstMapPane from '../components/WindowFirstMapPane.jsx';
 
 /**
@@ -26,23 +26,20 @@ const DATES = ['2026-08-11', '2026-08-12', '2026-08-13', '2026-08-14', '2026-08-
   '2026-08-16', '2026-08-17'];
 
 /**
- * ⚠️ The clock is pinned, and this file is worthless without it. `DateStrip` labels chips relative
- * to the real date — "Today · Tue 11 Aug", "Tomorrow", "Wed 12 Aug" — so a query naming a day is a
- * query whose target moves overnight. Written unpinned, one query here matched two chips on
- * 2026-08-12 and would have failed CI the morning after it was committed, on a diff touching
- * nothing. Ten `MapView` suites already do exactly this.
+ * The clock is pinned regardless, matching every other `MapView`-adjacent suite's convention —
+ * cheap insurance against a future date-relative assertion in this file moving overnight.
+ *
+ * <p>Pre-P6 this pin was load-bearing: `DateStrip` labelled chips relative to the real date
+ * ("Today · Tue 11 Aug", "Tomorrow"), so an unpinned query here once matched two chips on
+ * 2026-08-12 and failed CI the morning after landing, on a diff touching nothing. `DateStrip` and
+ * its chips are gone (map-tab-v2-plan.md §3 P6); the pin stays as the safe default.
  */
 const NOW = new Date('2026-08-11T09:00:00Z');
 
 /**
- * jsdom implements no layout and therefore no `scrollIntoView`, and `DateStrip` calls it unguarded
- * on mount to centre the selected day. No suite has ever rendered `DateStrip` before this one, so
- * nothing has needed it.
- *
- * <p>Stubbed HERE rather than in `setup.js`, and that is deliberate: a global stub would hide the
- * absence from every other file, and this project has already been bitten once by a `scrollIntoView`
- * that threw on every keypress while the suite reported green beneath the failure. Local, named, and
- * asserted-on below only to the extent of "the strip mounted".
+ * jsdom implements no layout and therefore no `scrollIntoView`. Pre-P6 `DateStrip` called it
+ * unguarded on mount to centre the selected day; that mount is gone, but the stub is harmless to
+ * keep and removing it would be one more line of churn in a phase that did not need to touch it.
  */
 const realScrollIntoView = Element.prototype.scrollIntoView;
 beforeEach(() => {
@@ -100,72 +97,38 @@ beforeEach(() => {
 afterEach(() => { delete global.ResizeObserver; vi.restoreAllMocks(); });
 
 describe('WindowFirstMapPane', () => {
-  describe('the date strip, which is the point of the pane', () => {
-    it('offers every forecast date, past the rail\'s six briefing events', () => {
+  /**
+   * Pre-P6 this described `DateStrip`'s own rendering — chip count, the selected mark, a click
+   * forwarding a date. map-tab-v2-plan.md §3 P6 deleted that mount outright (orphaned once
+   * `MapView`'s window control absorbed its job): browsing the map's own date horizon is now
+   * `MapView`'s concern, tested in `MapViewAstro.test.jsx`/`MapViewAuroraNight.test.jsx` and in
+   * `WindowControl.test.jsx`'s own interaction suite. What is left for THIS pane to guarantee is
+   * narrower and mechanical — that it still hands `MapView` the full horizon the strip used to
+   * browse, under the new prop name, and that the map is never withheld while a date resolves.
+   */
+  describe('the map\'s own browsable domain, now handed to MapView directly', () => {
+    it('forwards every forecast date as forecastDates — the strip\'s old horizon, wider than the rail\'s six briefing events', () => {
       // Different endpoints, different horizons: the rail's domain is up to six briefing events,
-      // this strip's is every date `GET /api/forecast` returned, and the map's is the longer one.
-      //
-      // SEVEN dates in the fixture, deliberately: the threshold this guards is six, so a fixture of
-      // three could not see `dates.slice(0, 6)` — the exact regression — and a `>=` count could not
-      // see it either, since `DateStrip` contributes two arrow buttons of its own.
+      // `forecastDates`'s is every date `GET /api/forecast` returned — `utils/mapEvents.js`'s D-13
+      // beyond-briefing rows and its EV-ownership forwarding test both key off this list directly.
       renderPane();
-      const chips = screen.getAllByTestId('date-chip');
-      expect(chips).toHaveLength(7);
-      expect(chips.map((c) => c.getAttribute('data-date'))).toEqual(DATES);
+      expect(MapStub.lastProps.forecastDates).toEqual(DATES);
     });
 
-    it('marks exactly the selected date, and moves the mark when the caller changes it', () => {
-      // The strip's only state. Nothing else in the suite would notice it sticking.
-      const { rerender } = renderPane({ selectedDate: DATES[2] });
-      const selected = () => screen.getAllByTestId('date-chip')
-        .filter((c) => c.getAttribute('data-selected') === 'true')
-        .map((c) => c.getAttribute('data-date'));
-      expect(selected()).toEqual([DATES[2]]);
-      rerender(
-        <WindowFirstMapPane
-          locations={[]}
-          dates={DATES}
-          selectedDate={DATES[5]}
-          onSelectDate={vi.fn()}
-        />,
-      );
-      expect(selected()).toEqual([DATES[5]]);
+    it('renders the map, and hands it an empty list, when there are no dates at all', () => {
+      // The App-level gate is what normally prevents this; gates get edited, so the pane must
+      // still degrade rather than throw.
+      renderPane({ dates: [] });
+      expect(screen.getByTestId('stub-map')).toBeInTheDocument();
+      expect(MapStub.lastProps.forecastDates).toEqual([]);
     });
 
-    it('renders a strip with a single date, and one with none', () => {
-      // Count boundaries. `dates: []` is reachable through the PropTypes and renders two arrows and
-      // no chips; the App-level gate is what normally prevents it, and gates get edited.
-      const { rerender } = renderPane({ dates: [DATES[0]] });
-      expect(screen.getAllByTestId('date-chip')).toHaveLength(1);
-      rerender(
-        <WindowFirstMapPane
-          locations={[]}
-          dates={[]}
-          selectedDate={DATES[0]}
-          onSelectDate={vi.fn()}
-        />,
-      );
-      expect(screen.queryAllByTestId('date-chip')).toHaveLength(0);
-    });
-
-    it('hands a date change back to the caller rather than keeping its own', () => {
-      // The selection is `App`'s `selectedDate` — the single source of truth for which day the
-      // map is showing, shared with the standalone Map tab so the two can never disagree about it.
-      const onSelectDate = vi.fn();
-      renderPane({ onSelectDate });
-      // By the chip's own date, not by its label: the label is relative to the clock and moves.
-      const chip = screen.getAllByTestId('date-chip').find((c) => c.getAttribute('data-date') === '2026-08-12');
-      expect(chip.tagName).toBe('BUTTON');
-      fireEvent.click(chip);
-      expect(onSelectDate).toHaveBeenCalledWith('2026-08-12');
-    });
-
-    it('draws no strip before a date has resolved, and still draws the map', () => {
-      // `DateStrip` requires a selected date. `App` withholds the whole pane when there are no
-      // dates at all, so this covers only the gap between having dates and having resolved one —
-      // and the map must not be withheld with it.
+    it('still draws the map before a date has resolved', () => {
+      // `App` withholds the whole pane when there are no dates at all, so this covers only the gap
+      // between having dates and having resolved one — the map must not be withheld with it. (The
+      // pre-P6 version of this test also asserted `DateStrip` was absent; there is no such mount
+      // to assert the absence of any more.)
       renderPane({ selectedDate: null });
-      expect(screen.queryByTestId('date-strip')).toBeNull();
       expect(screen.getByTestId('stub-map')).toBeInTheDocument();
     });
   });
