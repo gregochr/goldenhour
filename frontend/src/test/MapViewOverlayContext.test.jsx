@@ -218,11 +218,19 @@ describe('MapView overlay mode — the Plan tab drill-down', () => {
 });
 
 describe('MapView Map tab — unchanged by the overlay work', () => {
-  it('keeps the full filter rail: event toggles in the primary row, summary on the pill', () => {
-    renderMap();
+  // ⚠️ map-tab-v2-plan.md §3 P6 removed `ForecastTypeSelector` from the TAB primary row — it
+  // survives unchanged on the overlay, which is what the rest of this file's "unchanged by the
+  // overlay work" suite already pins (`ForecastTypeSelector` is not mocked here, so those overlay
+  // tests exercise the real component). This one test asserted the tab's OWN primary row still
+  // carried it, which was true until P6 and is the pin this rewrite replaces: the primary row now
+  // carries `components/map/WindowControl.jsx` instead, and the Filters pill/summary this test
+  // also checks is completely unaffected by that swap.
+  it('keeps the Filters summary on the primary row, and now the window control beside it', () => {
+    renderMap({ forecastDates: [TODAY] });
 
     expect(screen.queryByTestId('map-context-bar')).not.toBeInTheDocument();
-    expect(screen.getByTestId('forecast-type-selector')).toBeInTheDocument();
+    expect(screen.queryByTestId('forecast-type-selector')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wf-win-pill')).toBeInTheDocument();
     expect(screen.getByTestId('filter-summary')).toHaveTextContent('3★+');
     expect(mapHeight()).toBe('500px');
   });

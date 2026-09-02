@@ -21,10 +21,13 @@ import { isTravelDate, formatEventTimeUk } from '../utils/conversions.js';
 import { fitBoundsKey } from '../utils/fitBoundsKey.js';
 import { buildBriefingScoreIndex, lookupBriefingScore } from '../utils/briefingScoreIndex.js';
 import { resolveStandDown } from '../utils/standDown.js';
-import { resolveAuroraNight, ukDateStr } from '../utils/mapDates.js';
+import { resolveAuroraNight, ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 import { LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel, SKY_SUBJECT_TYPES } from '../utils/locationTypes.js';
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
 import { rampHex, rampGradientCss, getMode } from '../utils/scoreRamp.js';
+import WindowControl from './map/WindowControl.jsx';
+import { buildMapEvents, findEvIndex } from '../utils/mapEvents.js';
+import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 
 /** localStorage key for the "colours changed" notice's one-time dismissal. */
 const COLOUR_SCALE_NOTICE_DISMISSED_KEY = 'colourScaleNoticeDismissed';
@@ -822,7 +825,7 @@ const OVERLAY_MAP_HEIGHT_PX = 470;
 const OVERLAY_MAP_HEIGHT_FILTERS_OPEN_PX = 300;
 const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
 
-function MapView({ locations, date, onSelectDate = null, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = [], autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -842,6 +845,57 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
   const isMobile = useIsMobile();
   const [userHasOverriddenEvent, setUserHasOverriddenEvent] = useState(false);
   const [eventType, setEventType] = useState(() => getNextEventType(locations, date));
+  /**
+   * The EV-ownership forwarding rule's local half (map-tab-v2-plan.md §3 P6). A night (astro or
+   * aurora) EV row whose date is not in `forecastDates` cannot be forwarded through `onSelectDate`
+   * — `App`'s `effectiveDate` guard would reject it outright (`App.jsx`'s `allDates.includes`
+   * check) — so this pane keeps it locally instead. Cleared the moment a forwardable row (any
+   * solar row, or a night row whose date IS in `forecastDates`) is picked, so a stale override
+   * cannot survive past the selection that would have superseded it.
+   */
+  const [localNightDate, setLocalNightDate] = useState(null);
+  /**
+   * The date value THIS component itself just asked the parent to adopt via `onSelectDate` —
+   * distinguishes "the `date` prop changed because we forwarded a row" from "the `date` prop
+   * changed for some other reason" in the invalidation effect below. A plain value, not state:
+   * writing it must never itself trigger a render.
+   */
+  const forwardedDateRef = useRef(null);
+  /**
+   * What the astro/aurora fetch effects and the aurora viewline gate actually mean by "the current
+   * night" — `date` everywhere except while `localNightDate` is standing in for a night the parent
+   * would not accept. Identical to `date` in every ordinary (solar, or in-domain night) case, so
+   * every OTHER reader of `date` in this file is unaffected by this override.
+   */
+  const nightDate = (eventType === 'ASTRO' || eventType === 'AURORA')
+    ? (localNightDate ?? date)
+    : date;
+  /**
+   * ⚠️ Invalidates a kept-local night the moment `date` moves for any reason OTHER than this
+   * component's own forwarding (adversarial review finding, BLOCKING). `localNightDate` is
+   * otherwise touched in exactly one place — `selectEvRow` — but `eventType`/`date` change through
+   * FOUR other paths that never cleared it: the aurora auto-jump latch (calls `onSelectDate`
+   * directly), `handoffEventType`, `autoEventType`, and any external `onSelectDate` the reader
+   * triggers from outside this component entirely (a Coming-up card, a Best Bet, another tab).
+   * Left alone, `localNightDate ?? date` always prefers the stale override over a genuinely new
+   * `date` prop, forever — a kept-local aurora night from ten minutes ago would silently keep
+   * steering the astro/aurora fetch effects and the viewline gate after the reader browsed
+   * somewhere else entirely.
+   *
+   * <p>`forwardedDateRef` is what tells the two cases apart: `selectEvRow` records the value it
+   * is about to forward immediately before calling `onSelectDate`, and this effect — which fires
+   * on every `date` change, including the one `selectEvRow` itself caused — only clears the
+   * override when the NEW `date` does not match what was just forwarded. When it matches, the
+   * marker is consumed (set back to `null`) rather than left armed, so a later EXTERNAL change to
+   * that same value is not mistaken for an echo of this one.
+   */
+  useEffect(() => {
+    if (forwardedDateRef.current !== null && forwardedDateRef.current === date) {
+      forwardedDateRef.current = null;
+      return;
+    }
+    setLocalNightDate(null);
+  }, [date]);
   const [selectedLocationName, setSelectedLocationName] = useState(null);
   const [zoom, setZoom] = useState(9);
   const [activeTypeFilters, setActiveTypeFilters] = useState(new Set());
@@ -981,6 +1035,10 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
         setEventType('SUNSET');
         setMinStars(null);
         setShowUnrated(false);
+        // A kept-local night (adversarial review, BLOCKING) has no meaning once the mode that
+        // produced it is gone — this leaves SUNSET, which never reads `nightDate`'s override at
+        // all, but a later re-entry into ASTRO/AURORA must not resume a night from a session ago.
+        setLocalNightDate(null);
       })();
       clearMapFilter('mapFilterMinStars');
     }
@@ -992,7 +1050,12 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
     if (!userHasOverriddenEvent && autoEventType) {
       // Inline async wrapper satisfies react-hooks/set-state-in-effect while the
       // setState still applies synchronously this tick (see note above).
-      (async () => setEventType(autoEventType))();
+      (async () => {
+        setEventType(autoEventType);
+        // A fresh auto-selection from a new forecast payload supersedes any night this pane was
+        // previously keeping local on its own (adversarial review, BLOCKING).
+        setLocalNightDate(null);
+      })();
     }
   }, [autoEventType, userHasOverriddenEvent]);
 
@@ -1002,6 +1065,10 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
       (async () => {
         setEventType(handoffEventType);
         setUserHasOverriddenEvent(false);
+        // A handoff is a fresh, externally-driven entry into whatever mode it names — it must
+        // not silently resume a night this pane happened to be keeping local before it arrived
+        // (adversarial review, BLOCKING).
+        setLocalNightDate(null);
       })();
     }
   }, [handoffEventType]);
@@ -1140,13 +1207,15 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
       .catch(() => {});
   }, [role]);
 
-  // Fetch stored aurora results when in Aurora mode and the selected date changes.
+  // Fetch stored aurora results when in Aurora mode and the selected NIGHT changes — `nightDate`,
+  // not `date`: they diverge only when the window control's EV-ownership rule has kept a night
+  // row local because its date is not in `forecastDates` (map-tab-v2-plan.md §3 P6).
   useEffect(() => {
-    if (eventType !== 'AURORA' || !date) {
+    if (eventType !== 'AURORA' || !nightDate) {
       (async () => setStoredAuroraResults({}))();
       return;
     }
-    getAuroraForecastResults(date)
+    getAuroraForecastResults(nightDate)
       .then((results) => {
         const byName = {};
         results.forEach((r) => { byName[r.locationName] = r; });
@@ -1155,7 +1224,7 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
       .catch(() => {
         setStoredAuroraResults({});
       });
-  }, [eventType, date]);
+  }, [eventType, nightDate]);
 
   // Fetch available dates for astro conditions (available to everyone).
   useEffect(() => {
@@ -1164,13 +1233,14 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
       .catch(() => {});
   }, []);
 
-  // Fetch astro condition scores when in Astro mode and the selected date changes.
+  // Fetch astro condition scores when in Astro mode and the selected NIGHT changes — see the
+  // aurora fetch above for why this is `nightDate` rather than `date`.
   useEffect(() => {
-    if (eventType !== 'ASTRO' || !date) {
+    if (eventType !== 'ASTRO' || !nightDate) {
       (async () => setAstroScores({}))();
       return;
     }
-    getAstroConditions(date)
+    getAstroConditions(nightDate)
       .then((results) => {
         const byName = {};
         results.forEach((r) => { byName[r.locationName] = r; });
@@ -1179,7 +1249,50 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
       .catch(() => {
         setAstroScores({});
       });
-  }, [eventType, date]);
+  }, [eventType, nightDate]);
+
+  /**
+   * The multi-date astro/aurora fetch, for the window control's dropdown — map-tab-v2-plan.md
+   * §3 P6. `utils/mapEvents.js` states each night's best achievable score ("choosing a window is
+   * then an informed act rather than a guess", README), which needs every available night's
+   * results, not just the one currently on screen. Scoped to `!overlayMode`: the overlay never
+   * mounts the window control (it inherits its event from the card that opened it), so fetching
+   * a whole horizon of astro/aurora data there would be pure waste on a surface that cannot show
+   * it — the shared-component blast-radius rule (plan §2) applied to network cost rather than
+   * markup. The single-night state above stays wired to `nightDate` regardless of mode, since the
+   * overlay can still switch into astro/aurora mode via its own inherited `ForecastTypeSelector`.
+   */
+  const [astroConditionsByDate, setAstroConditionsByDate] = useState(new Map());
+  useEffect(() => {
+    if (overlayMode || astroAvailableDates.length === 0) {
+      // Inline async wrapper satisfies react-hooks/set-state-in-effect while the setState still
+      // applies synchronously this tick — the same idiom the aurora-availability effect above uses.
+      (async () => setAstroConditionsByDate(new Map()))();
+      return undefined;
+    }
+    let cancelled = false;
+    Promise.all(astroAvailableDates.map((d) => (
+      getAstroConditions(d).then((rows) => [d, rows]).catch(() => [d, []])
+    ))).then((pairs) => {
+      if (!cancelled) setAstroConditionsByDate(new Map(pairs));
+    });
+    return () => { cancelled = true; };
+  }, [overlayMode, astroAvailableDates]);
+
+  const [auroraResultsByDate, setAuroraResultsByDate] = useState(new Map());
+  useEffect(() => {
+    if (overlayMode || auroraAvailableDates.length === 0) {
+      (async () => setAuroraResultsByDate(new Map()))();
+      return undefined;
+    }
+    let cancelled = false;
+    Promise.all(auroraAvailableDates.map((d) => (
+      getAuroraForecastResults(d).then((rows) => [d, rows]).catch(() => [d, []])
+    ))).then((pairs) => {
+      if (!cancelled) setAuroraResultsByDate(new Map(pairs));
+    });
+    return () => { cancelled = true; };
+  }, [overlayMode, auroraAvailableDates]);
 
   const lineKm = lineKmForZoom(zoom);
 
@@ -1229,11 +1342,15 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
    * the field or renders the toolbar. Deliberate, not an oversight: a field and toolbar over a
    * modal would be a second plan.
    *
-   * <p>Withheld in aurora and astro modes even when handed: the markers there carry a different
-   * quantity entirely (Kp visibility, observing quality) and a sky-colour field painted under them
-   * would be two scales on one picture with nothing saying so.
+   * <p>Withheld in AURORA mode even when handed: aurora's marker quantity (Kp visibility) is
+   * latitude-led rather than a place property, so a field over it would be a smear over a signal
+   * the field's own geography has nothing to say about.
+   *
+   * <p>ASTRO is the one exception, since map-tab-v2-plan.md §3 P6 — an astro night's observing
+   * quality IS a place property, exactly like a solar window's sky colour, so the field paints it
+   * the same way; see {@code astroHeatPoints} below for how it is scored.
    */
-  const heatOffered = Boolean(heat?.enabled) && !isAuroraMode && !isAstroMode;
+  const heatOffered = Boolean(heat?.enabled) && !isAuroraMode;
   const heatOn = heatOffered && heatView === 'heat';
 
   /**
@@ -1285,19 +1402,66 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
   }, [heatOffered, heat, darkSkyFilter]);
 
   /**
+   * The astro field's own points — map-tab-v2-plan.md §3 P6. Astro carries no served window key
+   * (it is not one of the briefing's rendered solar windows), so there is no pre-built entry in
+   * `heat.pointsByKey` to read; this builds the equivalent shape directly off `astroScores`
+   * (already fetched for `nightDate` above) joined against the catalogue's own lat/lng.
+   *
+   * <p>⚠️ <b>Filtered to scored locations BEFORE the field ever sees them.</b> P1's review
+   * established that a kernel `score` callback returning `null`/`undefined` for an unrated spot
+   * yields a NaN weight that poisons every field cell that spot touches — so this loop excludes an
+   * unrated spot outright rather than including it with a placeholder score, the same discipline
+   * `heatSpots.heatPointsFor` already applies to solar windows. The point carries its star at
+   * `r[0]` (`POINT_SCORE_INDEX`), the exact shape `drawTiles` already reads for every other
+   * window — no new callback or kernel change needed, since the "unscored" exclusion happens here,
+   * before construction, rather than inside the paint.
+   */
+  const astroHeatPoints = useMemo(() => {
+    if (!isAstroMode || !heat?.spots?.length) return EMPTY_POINTS;
+    const points = [];
+    for (const spot of heat.spots) {
+      const score = astroScores[spot.name]?.stars;
+      if (typeof score !== 'number' || !Number.isFinite(score)) continue;
+      points.push({
+        id: spot.id, name: spot.name, lat: spot.lat, lng: spot.lng, rid: spot.rid, r: [score],
+      });
+    }
+    return points;
+  }, [isAstroMode, heat, astroScores]);
+
+  /**
+   * The astro field's own confidence — adversarial review finding (real #3). Astro carries no
+   * `heat.windows` entry, so `heatWindow?.conf` (the solar path's own scalar, computed once in
+   * `WindowFirstMapPane.jsx`) is always null for it, and the field was painting at full strength
+   * regardless of horizon. Computed with the identical formula `utils/mapEvents.js`'s `nightRow`
+   * uses for the astro EV row's own `confidence` field (`resolveConfidence(null, daysOut(...))`,
+   * capped-inference since astro serves no confidence of its own) — re-derived here rather than
+   * read off the EV list so this does not depend on `findEvIndex` having found a match.
+   */
+  const astroConfidenceScalar = useMemo(() => {
+    if (!isAstroMode) return null;
+    return confidenceScalar(resolveConfidence(null, daysOut(nightDate, ukDateStr())));
+  }, [isAstroMode, nightDate]);
+
+  /**
    * This window's kernel points, narrowed to that pool.
    *
    * <p>The catalogue carries `bortleClass` and the points do not — `heatSpots.js` says so in as
    * many words ("P4's dark-sky filter wants the whole catalogue; only the kernel wants points"), so
    * the filter is decided on spots and applied to points through the join's own id-first key.
+   *
+   * <p>ASTRO takes its own point set (above) rather than this join: it has no `heat.pointsByKey`
+   * entry (no served window key), and its roster is dark-sky-enriched by construction, so the
+   * dark-sky pool this join exists to apply would be a no-op filter over an already-narrower set.
    */
   const heatPoints = useMemo(() => {
+    if (isAstroMode) return astroHeatPoints;
     if (!heatOn || !heatWindow) return EMPTY_POINTS;
     const points = heat.pointsByKey?.get(heatWindow.key) || EMPTY_POINTS;
     if (!heatSpotPool) return points;
     const allowed = new Set(heatSpotPool.map(heatSpotKey));
     return points.filter((p) => allowed.has(heatSpotKey(p)));
-  }, [heatOn, heatWindow, heat, heatSpotPool]);
+  }, [isAstroMode, astroHeatPoints, heatOn, heatWindow, heat, heatSpotPool]);
 
   /**
    * Whether the payload says nothing in the selected window is rated — the Plan tab's mark, adapted
@@ -1313,8 +1477,16 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
    * <p>It stays distinct from {@code heatWindow} being null, which is the map sitting on a date the
    * briefing does not reach: the selector already says "No forecast window" for that, and it is a
    * statement about the CAMERA rather than about the forecast.
+   *
+   * <p>ASTRO has no {@code heatWindow} at all (no served window key), so it asks the same question
+   * of its own point set directly — an empty {@code astroHeatPoints} IS "nothing here is rated",
+   * since every entry in it was already filtered to a real score.
    */
-  const windowUnscored = Boolean(heatOn && heatWindow && heatWindow.bestRating == null);
+  const windowUnscored = Boolean(
+    heatOn && (isAstroMode
+      ? astroHeatPoints.length === 0
+      : heatWindow && heatWindow.bestRating == null),
+  );
 
   /** The camera's framing for each segment state — `null` when the roster cannot supply a box. */
   const heatBounds = (heatArea ? heat?.areaBounds : heat?.catalogueBounds) || null;
@@ -1513,7 +1685,12 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
 
   /** Derive popup content props for a location. */
   function getContentProps(loc) {
-    const dayData = loc.forecastsByDate.get(date);
+    // `nightDate`, not `date`: identical in the ordinary case, and the honest "no weather context"
+    // gap rather than silently showing a stale night's data in the rare case the EV-ownership rule
+    // has kept a night row local (map-tab-v2-plan.md §3 P6) — the roster join below already returns
+    // `undefined` for a date that date-strip domain never carried anyway, so this only changes
+    // which "nothing here" a reader sees, never which real forecast they see.
+    const dayData = loc.forecastsByDate.get(nightDate);
     // Aurora/Astro mode: use sunset as background weather context (night event)
     const solarType = eventType === 'SUNRISE' ? 'sunrise' : 'sunset';
     const forecast = dayData?.[solarType];
@@ -1596,6 +1773,87 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
     />
   );
 
+  /**
+   * The Map tab's single chronological event list — map-tab-v2-plan.md §3 P6, replacing the
+   * date strip, the event pills and the in-map window select on the TAB only (the overlay keeps
+   * `eventSelector` above, inherited from the card that opened it).
+   *
+   * <p>Built fresh every render rather than `useMemo`'d: every input already recomputes on its
+   * own cadence above (the briefing poll's `heat.windows`, the two multi-date fetches), so a memo
+   * here would carry the identical dependency list for a builder over a few tens of rows at most —
+   * not a cost worth a second list to keep in sync.
+   *
+   * <p>The overlay gets the empty list outright rather than a real one nobody reads: it never
+   * mounts {@code WindowControl} below, so building one would be pure waste on a surface that
+   * cannot show it (the same reasoning that scopes the multi-date astro/aurora fetches above).
+   */
+  const mapEvents = overlayMode ? [] : buildMapEvents({
+    solarWindows: heat?.windows || [],
+    forecastDates,
+    todayStr: ukDateStr(),
+    tomorrowStr: ukDateStrOffset(1),
+    astroAvailableDates,
+    astroConditionsByDate,
+    auroraAvailableDates,
+    auroraResultsByDate,
+    isLite: role === 'LITE_USER',
+    formatTimeUk: formatEventTimeUk,
+  });
+  /** Which EV row is "now showing" — derived from `eventType`/`nightDate`, never a second store. */
+  const activeEvIndex = findEvIndex(mapEvents, eventType, nightDate);
+
+  /**
+   * Picking a row from the window control — map-tab-v2-plan.md §3 P6's EV-ownership paragraph.
+   *
+   * <p><b>`onSelectDate` is forwarded only when the row's own date is one the forecast endpoint
+   * actually returned</b> (`forecastDates`, D-13's own domain). `App`'s `effectiveDate` guard
+   * rejects any date not in its `allDates` outright, so forwarding one App will not accept would
+   * silently do nothing there while this component moved on regardless — the two would then show
+   * different nights with nothing telling either of them so. A night row whose date fails that
+   * test keeps `localNightDate` instead, which every reader above that needs "the current night"
+   * (the astro/aurora fetch effects, the aurora viewline gate, `getContentProps`) already consults
+   * through {@code nightDate} rather than the raw prop.
+   *
+   * <p>Filters reset only when the KIND actually changes — the same condition
+   * {@code ForecastTypeSelector}'s own {@code onChange} above resets unconditionally on, since
+   * every one of its presses IS a kind change. Stepping between two dates of the same kind (the
+   * old {@code DateStrip}'s entire job) must not silently clear a star floor or the stand-down/
+   * unknown toggles the reader only just set.
+   */
+  function selectEvRow(row) {
+    const typeChanged = row.eventType !== eventType;
+    setUserHasOverriddenEvent(true);
+    setEventType(row.eventType);
+    if (typeChanged) {
+      setMinStars(DEFAULT_MIN_STARS);
+      setShowUnrated(false);
+      setShowStandDown(false);
+      clearMapFilter('mapFilterMinStars');
+      clearMapFilter('mapFilterShowStandDown');
+    }
+    // `row.inForecastDomain` — the SAME fact `utils/mapEvents.js` already computed when it built
+    // this row, gated symmetrically for solar and night rows alike (adversarial review, minor #7).
+    // Every served/D-13 solar row happens to carry `inForecastDomain: true` by construction, so
+    // this reads identically to the old `row.kind === 'solar'` shortcut in practice — but it is no
+    // longer a SEPARATE claim that could silently drift from the EV list's own domain test.
+    if (row.inForecastDomain) {
+      setLocalNightDate(null);
+      if (row.date !== date) {
+        // Recorded so the `[date]` invalidation effect above can tell this forward apart from an
+        // externally-driven `date` change (adversarial review, BLOCKING) — set immediately before
+        // the call, never after, since the parent may (in a real app) re-render synchronously.
+        forwardedDateRef.current = row.date;
+        onSelectDate?.(row.date);
+      }
+    } else {
+      setLocalNightDate(row.date);
+    }
+  }
+
+  const windowControl = !overlayMode && (
+    <WindowControl events={mapEvents} activeIndex={activeEvIndex} onSelect={selectEvRow} />
+  );
+
   // The disclosure. On the Map tab it is a filter pill that also summarises what is active; in the
   // overlay the chips beside it already say that, so it drops to the plain weight of the modal's ✕
   // — one button, right-aligned, with a caret that turns.
@@ -1670,9 +1928,19 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
           {filtersButton}
         </div>
       ) : (
-        /* Primary row: event type toggles + Filters disclosure button */
+        /* Primary row: the window control (map-tab-v2-plan.md §3 P6 — replaces the date strip
+           and the event pills here; the overlay above keeps `eventSelector`, inherited from the
+           card that opened it) + the Filters disclosure button.
+
+           Rendered unconditionally rather than folded into the `heatOffered`-gated toolbar
+           further down (which still hosts the Heat/Medallions and My-area segments and used to
+           host the now-absorbed `wf-map-window` select): a fresh catalogue with nothing scored
+           yet must still let a reader browse dates and events, exactly as the retired
+           `DateStrip`/`ForecastTypeSelector` pair always could regardless of whether anything
+           painted under them. P7's full-frame phase is where this control's chrome POSITION
+           moves onto the map itself, per the design; its FUNCTION is fully absorbed here. */
         <div className="flex items-center justify-between gap-3 flex-wrap">
-          {eventSelector}
+          {windowControl}
           {filtersButton}
         </div>
       )}
@@ -1984,7 +2252,9 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
               <MapHeatLayer
                 colourMode={mapColourScale}
                 points={heatPoints}
-                conf={heatWindow?.conf ?? null}
+                // ASTRO has no `heat.windows` entry to read a scalar off (adversarial review,
+                // real #3) — `astroConfidenceScalar` is this mode's own capped-inference figure.
+                conf={isAstroMode ? astroConfidenceScalar : (heatWindow?.conf ?? null)}
                 markersLocked={selectedLocationName != null}
               />
             </Suspense>
@@ -2058,8 +2328,16 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
           {/* Gated to the CURRENT NIGHT, not to today. The viewline is a nowcast of where the
               aurora is visible right now, so it belongs on the night in progress — which between
               midnight and dawn is yesterday's date. Comparing against the calendar date hid it on
-              exactly the night the reader had come to look at. */}
-          {viewlineEnabled && eventType === 'AURORA' && date === auroraNight && (
+              exactly the night the reader had come to look at.
+
+              `nightDate`, not `date` — map-tab-v2-plan.md §3 P6's own wording: the gate is "the
+              selected EV row is that night's aurora row", not a raw date compare. The two agree
+              whenever the selected aurora row's date is in `forecastDates` (the ordinary case,
+              which forwards through `onSelectDate` and moves `date` itself); they can only diverge
+              when the EV-ownership rule kept the row local (`localNightDate`), and in exactly that
+              case a raw `date` compare would have hidden the viewline on the night the reader had
+              just picked. */}
+          {viewlineEnabled && eventType === 'AURORA' && nightDate === auroraNight && (
             <AuroraViewlineOverlay viewline={viewline} forecastKp={auroraStatus?.forecastKp} />
           )}
 
@@ -2273,28 +2551,10 @@ function MapView({ locations, date, onSelectDate = null, autoEventType, handoffE
                   </button>
                 </div>
               )}
-
-              {/* The selector sets the map's own date and event rather than holding a window of its
-                  own — see `heatWindow`. Its value is empty exactly when the map is on a date the
-                  briefing does not reach, which is a real state and not an error. */}
-              <select
-                data-testid="wf-map-window"
-                aria-label="Forecast window"
-                className="wf-map-window"
-                value={heatWindow?.key ?? ''}
-                onChange={(e) => {
-                  const next = (heat.windows || []).find((w) => w.key === e.target.value);
-                  if (!next) return;
-                  setUserHasOverriddenEvent(true);
-                  setEventType(next.targetType);
-                  if (next.date !== date) onSelectDate?.(next.date);
-                }}
-              >
-                {!heatWindow && <option value="">No forecast window</option>}
-                {(heat.windows || []).map((w) => (
-                  <option key={w.key} value={w.key}>{`${w.label} · ${w.time}`}</option>
-                ))}
-              </select>
+              {/* The `wf-map-window` select used to live here, setting the map's own date and
+                  event. Absorbed into the primary row's window control above it
+                  (map-tab-v2-plan.md §3 P6) — `heatWindow` (the map's own window lookup by
+                  `${date}:${eventType}`) is unchanged and still drives the field/legend below. */}
             </div>
 
             {/* The ramp's key. Only in heat view, because in medallion view it would explain a ramp
@@ -2470,10 +2730,20 @@ MapView.propTypes = {
   ).isRequired,
   date: PropTypes.string,
   /**
-   * Asks the parent to move the selected date. Used only to land on the aurora night when aurora
-   * mode is entered; the parent stays the owner of the date and may ignore one not on the strip.
+   * Asks the parent to move the selected date. Used to land on the aurora night when aurora mode
+   * is entered, and — since map-tab-v2-plan.md §3 P6 — by the window control whenever a picked EV
+   * row's date is in {@code forecastDates}; the parent stays the owner of the date and may ignore
+   * one not on the strip.
    */
   onSelectDate: PropTypes.func,
+  /**
+   * Every date `GET /api/forecast` returned (`WindowFirstMapPane`'s `dates`/App's `allDates`) —
+   * the map's own full browsable domain, wider than the briefing's rendered horizon. Feeds two
+   * things (map-tab-v2-plan.md §3 P6): `utils/mapEvents.js`'s D-13 beyond-briefing solar rows, and
+   * the EV-ownership rule deciding whether a picked row's date may be forwarded via
+   * `onSelectDate` at all. Empty on the overlay, which never mounts the window control.
+   */
+  forecastDates: PropTypes.arrayOf(PropTypes.string),
   autoEventType: PropTypes.string,
   handoffEventType: PropTypes.string,
   handoffFilterAction: PropTypes.string,
@@ -2521,6 +2791,10 @@ MapView.propTypes = {
       /** The window's served best rating — null means nothing in it is rated. */
       bestRating: PropTypes.number,
       conf: PropTypes.number,
+      /** map-tab-v2-plan.md §3 P6 — the resolved confidence tier `utils/mapEvents.js` reads. */
+      confidenceTier: PropTypes.oneOf(['high', 'medium', 'low']),
+      /** The window's served topic badges — the window control's dropdown reads these directly. */
+      badges: PropTypes.array,
     })),
     areaBounds: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
     catalogueBounds: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),

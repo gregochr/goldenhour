@@ -214,8 +214,10 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  * job-by-job relocation table and the two rejected alternatives.
  *
  * <p>The reason it is acceptable NOW and was not before: each tab has since grown its own date
- * context. The Map pane renders its own {@code DateStrip} over the full forecast horizon, and
- * every Coming-up row carries its dates. What replaces the rail is {@link WindowFirstHeatStrip},
+ * context. The Map pane's window control ({@code components/map/WindowControl.jsx}, fed by
+ * {@code utils/mapEvents.js}'s D-13 rows — map-tab-v2-plan.md §3 P6, which retired the pane's
+ * earlier {@code DateStrip} mount) browses the full forecast horizon, and every Coming-up row
+ * carries its dates. What replaces the rail is {@link WindowFirstHeatStrip},
  * six window thumbnails under the lens bar — the rail's job done at the window list's own grain,
  * with space shown inside each window instead of named beside it. Stacking both would be two
  * summaries of one forecast at two grains, costing roughly two screens of chrome before the first

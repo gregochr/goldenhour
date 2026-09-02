@@ -235,6 +235,15 @@
      `--color-plex-coral` (the wash and ring still mix from the base coral token). */
   --color-plex-dawn: #8FA8C4;
   --color-plex-coral-bright: #EE8064;
+
+  /* map-tab-v2-plan.md §3 P6 — the window control's night (astro/aurora) kind-chip colour, from
+     docs/design/map-tab-v2/README.md's kind-colours table (`--astro #8E86D6`). Not a fresh mint:
+     `utils/comingUpHandoff.js`'s `NIGHTGLOW_VIOLET` constant is this exact hex already, so this
+     names the app's existing "night" accent as a token rather than inventing a second one.
+     `-bright` is the chip-TEXT-safe lift, the same relationship `--color-plex-coral-bright` has to
+     `--color-plex-coral` two lines up. */
+  --color-plex-astro: #8E86D6;
+  --color-plex-astro-bright: #A79FE4;
 }
 
 @layer base {
@@ -1444,6 +1453,13 @@ button.wf-hc.on:hover {
   color: var(--color-plex-coral-bright);
   background: color-mix(in srgb, var(--color-plex-coral) 15%, var(--color-plex-panel));
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-plex-coral) 30%, transparent);
+}
+/* map-tab-v2-plan.md §3 P6 — the window control's night kind (astro AND aurora share one colour,
+   README's kind-colours table). Same idiom as `.am`/`.pm` two rules up, against the astro tokens. */
+.wf-hc-sun.night {
+  color: var(--color-plex-astro-bright);
+  background: color-mix(in srgb, var(--color-plex-astro) 18%, var(--color-plex-panel));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-plex-astro) 34%, transparent);
 }
 /* `.wf-hc.on .wf-hc-sun` used to recolor the caption gold when a card was open — deleted
    (matrix-axis plan D15): at (0,3,0) it would out-specify `.wf-hc-sun.am`/`.pm` (0,2,0) and
@@ -2701,21 +2717,175 @@ button.wf-hc.also.on:hover {
   align-items: center;
   gap: 6px;
 }
-.wf-map-window {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  padding: 5px 8px;
+/* ── The window control (map-tab-v2-plan.md §3 P6) ─────────────────────────────────────────────
+   Replaces the native `<select>` (`.wf-map-window`, deleted) plus the date strip and the event
+   pills — one pill, two steppers, a day-grouped dropdown.
+
+   As BUILT it sits in the Map tab's primary row (page flow, above the map), not inside
+   `.wf-map-toolbar-row`: gating it on `heatOffered` the way that row is would remove all date/
+   event browsing on a fresh, unscored catalogue, which the retired `DateStrip`/
+   `ForecastTypeSelector` pair never did. Moving it onto `.wf-map-toolbar-row` — the design's own
+   placement, top-left over the map — is P7's full-frame phase to do, once that phase also owns
+   working out what a heat-less catalogue's chrome looks like. */
+.wf-win-control {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.wf-win-step {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
   border: 1px solid var(--color-plex-border);
   border-radius: 8px;
   background: var(--color-plex-panel);
   color: var(--color-plex-text-secondary);
-  max-width: 190px;
   cursor: pointer;
+  flex-shrink: 0;
 }
-.wf-map-window:focus-visible {
+.wf-win-step:hover:not(:disabled) { color: var(--color-plex-text); }
+.wf-win-step:disabled { opacity: 0.35; cursor: default; }
+.wf-win-step:focus-visible {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: 1px;
 }
+.wf-win-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 10px;
+  background: var(--color-plex-panel);
+  color: var(--color-plex-text-secondary);
+  cursor: pointer;
+  max-width: 260px;
+}
+.wf-win-pill:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 1px;
+}
+.wf-win-label {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-plex-text);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-win-time {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--color-plex-text-secondary);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.wf-win-caret {
+  font-size: 9px;
+  color: var(--color-plex-text-muted);
+}
+@media (max-width: 639px) {
+  .wf-win-step { width: 36px; height: 40px; }
+  .wf-win-pill { min-height: 40px; }
+}
+
+/* The dropdown. `max-height` is a flat px figure rather than the bundle's `calc(100% - 88px)`:
+   the Map tab's frame is a fixed `MAP_HEIGHT_PX` (500px) until P7's full-frame phase, so a
+   percentage here would resolve against a toolbar wrapper with no explicit height of its own and
+   do nothing — 420px keeps the menu inside that frame with room to scroll, which is the same
+   visible behaviour the bundle's figure was aiming for on its own full-bleed map. */
+.wf-win-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 1500;
+  width: 334px;
+  max-width: calc(100vw - 32px);
+  max-height: 420px;
+  overflow-y: auto;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 10px;
+  background: var(--color-plex-panel);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
+  padding: 4px 0;
+}
+.wf-win-day {
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-muted);
+  padding: 8px 12px 4px;
+  border-top: 1px solid var(--color-plex-border);
+}
+.wf-win-day:first-child { border-top: none; }
+.wf-win-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 12px;
+  background: transparent;
+  border: none;
+  border-left: 2px solid transparent;
+  text-align: left;
+  cursor: pointer;
+  color: var(--color-plex-text-secondary);
+}
+.wf-win-row:hover { background: var(--color-plex-surface-light); }
+.wf-win-row.on {
+  background: rgba(201, 162, 75, 0.13);
+  border-left-color: var(--color-home);
+}
+.wf-win-row:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
+.wf-win-row-main {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  color: var(--color-plex-text);
+  font-size: 12px;
+}
+.wf-win-row-main b { font-weight: 600; }
+.wf-win-row-time {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-muted);
+}
+.wf-win-row-score {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-plex-text-secondary);
+  white-space: nowrap;
+}
+.wf-win-row-score i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+.wf-win-row-unscored { color: var(--color-plex-text-muted); }
+.wf-win-row-topics {
+  font-size: 11px;
+  min-width: 14px;
+  text-align: right;
+}
+
 /* The ramp's key. It lives in the toolbar because every corner of this map is already spoken for —
    the LITE viewline chip bottom-left, the scored-locations chip bottom-centre, Leaflet's
    attribution bottom-right — and because a key belongs beside the control that turns on the thing

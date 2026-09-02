@@ -12,6 +12,14 @@
  *
  * Leaflet is stubbed exactly as `MapViewTypeFilter.test.jsx` does; one popup renders per visible
  * marker, so counting popups counts visible locations.
+ *
+ * ⚠️ Touched (not substantially rewritten) for map-tab-v2-plan.md §3 P6, which removed
+ * `ForecastTypeSelector` from the Map TAB mount and replaced it with
+ * `components/map/WindowControl.jsx`. This file's own tests never drove that selector at all —
+ * `ForecastTypeSelector.jsx` is mocked to a plain, prop-less `<div/>` throughout, and every
+ * assertion here is about the dark-sky/type-filter handoff effect and the Filters drawer, neither
+ * of which the window control touches. So there is no old pin to replace; the one addition below
+ * (`the window control coexists…`) states that explicitly instead of leaving it implicit.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -221,5 +229,25 @@ describe('MapView — the dark-sky handoff (D8, plan §6b)', () => {
       <MapView locations={LOCATIONS} date={TODAY} autoEventType={null} handoffDarkSky handoffNonce={2} />,
     );
     expect(visibleCount()).toBe(1);
+  });
+
+  it('the window control coexists with the dark-sky handoff — a P6 addition, not an old pin', () => {
+    // Stated explicitly per the file header: this suite has nothing to rewrite onto the new
+    // control, since it never drove the removed `ForecastTypeSelector` in the first place. What
+    // is worth ADDING is proof the two features do not fight each other on the same render — the
+    // primary row now carries the window control instead of the old event selector, beside the
+    // same Filters toggle this file's other tests already click.
+    render(
+      <MapView
+        locations={LOCATIONS}
+        date={TODAY}
+        forecastDates={[TODAY]}
+        autoEventType={null}
+        handoffDarkSky
+        handoffNonce={1}
+      />,
+    );
+    expect(screen.getByTestId('wf-win-pill')).toBeInTheDocument();
+    expect(visibleCount()).toBe(1); // the dark-sky handoff still applies, unaffected
   });
 });

@@ -27,8 +27,6 @@ vi.mock('../components/MapView.jsx', () => ({
     return <div data-testid="stub-map" />;
   },
 }));
-vi.mock('../components/DateStrip.jsx', () => ({ default: () => <div data-testid="stub-strip" /> }));
-
 let briefingValue = null;
 vi.mock('../context/WindowFirstBriefingContext.jsx', () => ({
   useWindowFirstBriefing: () => briefingValue,

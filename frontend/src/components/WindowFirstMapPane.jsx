@@ -1,6 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
-import DateStrip from './DateStrip.jsx';
 import MapView from './MapView.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
 // From `heatGeometry`, NOT `heatField` — this is the whole reason that module exists. `heatField`
@@ -18,7 +17,7 @@ import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenc
 const FRAME_PAD_DEG = 0.12;
 
 /**
- * The window-first arm's Map tab: the date strip and the full map, in the shell's slotted panel.
+ * The window-first arm's Map tab: the full map, in the shell's slotted panel.
  *
  * <h2>The tab is the cheap half; the pane is the work</h2>
  *
@@ -28,16 +27,21 @@ const FRAME_PAD_DEG = 0.12;
  * horizon, a way to hear that its container moved, and — the one review had to find — a rule about
  * which handoffs a pane that is <em>not on screen</em> is allowed to act on.
  *
- * <h2>It keeps its own date strip, over a different horizon from the rail</h2>
+ * <h2>The horizon question now lives inside {@code MapView}'s window control</h2>
  *
- * <p>The rail's domain is up to six briefing events; this strip's is every date
- * {@code GET /api/forecast} returned. Different endpoints, different horizons, and the map's is the
- * longer one. Dropping the strip and following the rail would strand the tab on whichever date the
- * Plan pane happened to be showing, losing the ability to browse the map independently of the rail.
+ * <p>Before map-tab-v2-plan.md §3 P6, this pane mounted its own {@code DateStrip} beside
+ * {@code MapView} because the two had different domains: the rail's is up to six briefing events,
+ * while the map's is every date {@code GET /api/forecast} returned. P6 folded that browsing job
+ * into {@code MapView}'s single window control (`utils/mapEvents.js`'s D-13 rows), so this pane's
+ * only remaining job on that front is handing down the full domain as {@code forecastDates} — the
+ * same list {@code DateStrip} used to receive as {@code dates}.
  *
- * <p>The selection itself is <b>not</b> owned here. It is {@code App}'s existing
+ * <p>The selection itself is still <b>not</b> owned here. It is {@code App}'s existing
  * {@code selectedDate} — the single source of truth for which day the map is showing, shared with
- * the standalone Map tab so the two can never disagree about it.
+ * the standalone Map tab so the two can never disagree about it. {@code MapView} forwards a picked
+ * window's date back through {@code onSelectDate} only when that date is in {@code forecastDates};
+ * a night row whose date the forecast endpoint never returned selects locally instead (plan §3 P6's
+ * EV-ownership paragraph).
  *
  * <h2>Leaflet has to be told the panel came back</h2>
  *
@@ -149,23 +153,39 @@ export default function WindowFirstMapPane({
       // Every rendered window, away days included, so the selector's six are the strip's six — one
       // shape of the week. An away window simply has no points and paints nothing, which is the
       // same answer the Plan tab's thumbnail gives it.
-      windows: heatStripCards.map((card) => ({
-        key: card.key,
-        date: card.date,
-        targetType: card.targetType,
-        label: card.label,
-        time: card.time,
-        // The payload's own "is anything here rated", carried so the toolbar's unscored note asks
-        // the same question the Plan tab's thumbnail does — off the same field, from the same
-        // descriptor. Never the point set: `WindowFirstHeatStrip` records what that cost.
-        bestRating: card.bestRating,
-        // The haze and the card's own badge decay by one number (plan D3). Resolved through the
-        // fail-soft path rather than read raw, so a legacy cached payload with no tier degrades to
-        // the horizon's inferred one instead of painting at full confidence.
-        conf: confidenceScalar(
-          resolveConfidence({ confidence: card.confidence }, daysOut(card.date, todayStr)),
-        ),
-      })),
+      windows: heatStripCards.map((card) => {
+        // One resolution, two readers: the kernel's haze (`conf`, a scalar) and the window
+        // control's EV rows (`confidenceTier`, the tier string `utils/mapEvents.js` carries
+        // straight through via `resolveConfidence`'s own fail-soft precedence — see that
+        // module's `solarRow`). A second call here would risk the two silently drifting if
+        // either read a different confidence shape in future.
+        const confidenceTier = resolveConfidence(
+          { confidence: card.confidence }, daysOut(card.date, todayStr),
+        );
+        return {
+          key: card.key,
+          date: card.date,
+          targetType: card.targetType,
+          label: card.label,
+          time: card.time,
+          // The payload's own "is anything here rated", carried so the toolbar's unscored note
+          // asks the same question the Plan tab's thumbnail does — off the same field, from the
+          // same descriptor. Never the point set: `WindowFirstHeatStrip` records what that cost.
+          bestRating: card.bestRating,
+          // The haze and the card's own badge decay by one number (plan D3). Resolved through
+          // the fail-soft path rather than read raw, so a legacy cached payload with no tier
+          // degrades to the horizon's inferred one instead of painting at full confidence.
+          conf: confidenceScalar(confidenceTier),
+          // map-tab-v2-plan.md §3 P6 — the window control's EV rows read this directly rather
+          // than re-resolving it a second time from a raw `card.confidence` they would otherwise
+          // have to be handed instead.
+          confidenceTier,
+          // The payload's own topic badges for this window, unfiltered — the window control's
+          // dropdown draws its topic icons straight from these, the same list the matrix draws
+          // its own badge row from (`WindowFirstHeatStrip`).
+          badges: card.badges,
+        };
+      }),
       areaBounds: framed.length > 0 ? latLngBounds(framed, FRAME_PAD_DEG) : null,
       catalogueBounds: heatSpots.length > 0 ? latLngBounds(heatSpots, FRAME_PAD_DEG) : null,
       // ⚠️ Only while away. `MapView` fetches the per-user drive times itself and the standalone
@@ -204,18 +224,17 @@ export default function WindowFirstMapPane({
 
   return (
     <div ref={wrapRef} data-testid="window-first-map-pane" className="flex flex-col gap-2.5">
-      {/* Guarded because `DateStrip` requires a selected date and the shell mounts this pane the
-          moment the tab is first opened. `App` already withholds the whole pane when there are no
-          dates at all, so this covers only the gap between having dates and having resolved one. */}
-      {selectedDate && (
-        <DateStrip dates={dates} selectedDate={selectedDate} onSelect={onSelectDate} />
-      )}
       <MapView
-        // The same handler the strip above uses, so a jump to the aurora night moves the strip
-        // with it rather than leaving the two disagreeing about what is on screen.
+        // The window control's own handler now — no separate strip to keep in step with it (P6
+        // deleted `DateStrip`; see that component's former mount here for the pre-P6 shape).
         onSelectDate={onSelectDate}
         locations={locations}
         date={selectedDate}
+        // The map's own full browsable domain (map-tab-v2-plan.md §3 P6, decision D-13) — every
+        // date `GET /api/forecast` returned, not just the briefing's ~3-day render. `utils/
+        // mapEvents.js` uses this both to add unscored solar rows beyond the briefing horizon and
+        // to decide whether a picked EV row's date may be forwarded via `onSelectDate` at all.
+        forecastDates={dates}
         autoEventType={autoEventType}
         handoffEventType={handoff?.eventType ?? null}
         handoffFilterAction={handoff?.filterAction ?? null}
