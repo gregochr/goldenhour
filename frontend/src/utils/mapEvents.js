@@ -198,6 +198,43 @@ function formatNightTime(instant, formatTimeUk) {
 }
 
 /**
+ * The Map tab's own SOLAR horizon — briefing dates (served `heat.windows`) plus forecast dates
+ * (`forecastDates`), clipped to the UK civil today-forward (D-13's own rule; browser-pass finding
+ * against the same clipping this function now shares). Exported so a caller can bound something
+ * ELSE against the identical domain {@link buildMapEvents} derives its D-13 filler rows from,
+ * rather than defining a second, possibly-diverging notion of "the horizon".
+ *
+ * <p><b>Why this exists (PR #731 review):</b> `MapView.jsx`'s astro/aurora multi-date fetch — the
+ * dropdown's "N★ best" preview — used to fetch every date the astro/aurora available-dates
+ * endpoints returned, with no cap. Those endpoints answer with every distinct date EVER
+ * persisted (writers replace a rerun date's row rather than pruning it), so a long-lived database
+ * fans a single Map-tab mount out to hundreds of concurrent requests. The dropdown only ever
+ * states a "best" for rows the current EV list actually carries, and the astro/aurora night rows
+ * that matter for that preview are the ones sitting near the solar horizon — so intersecting the
+ * available-dates lists against THIS function's result, before fetching, bounds the fan-out to
+ * the horizon's own size (naturally ≤ about a week) with no new backend endpoint needed. A night
+ * outside the horizon still gets a real EV row (`buildMapEvents` does not consult this function at
+ * all) and, once actually SELECTED, still gets its own dedicated single-date fetch regardless of
+ * range (`MapView.jsx`'s `nightDate`-keyed effects) — only the unbounded PREVIEW fetch is capped.
+ *
+ * @param {object} args
+ * @param {Array<{date: string}>} [args.solarWindows] served solar windows (`heat.windows`)
+ * @param {string[]} [args.forecastDates] every date `GET /api/forecast` returned
+ * @param {string} args.todayStr the UK civil today — dates before it are excluded
+ * @returns {string[]} sorted, deduplicated dates, `>= todayStr`
+ */
+export function solarHorizonDates({ solarWindows = [], forecastDates = [], todayStr }) {
+  const set = new Set();
+  for (const w of solarWindows) {
+    if (w?.date && w.date >= todayStr) set.add(w.date);
+  }
+  for (const d of forecastDates) {
+    if (d >= todayStr) set.add(d);
+  }
+  return Array.from(set).sort();
+}
+
+/**
  * Builds the Map tab's single chronological EV list.
  *
  * @param {object} args

@@ -133,6 +133,7 @@ vi.mock('../components/markerUtils.js', () => ({
 
 import MapView from '../components/MapView.jsx';
 import { getAuroraForecastResults } from '../api/auroraApi.js';
+import { ukDateStrOffset } from '../utils/mapDates.js';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -375,6 +376,56 @@ describe('MapView aurora night date selection', () => {
 });
 
 /**
+ * PR #731 review: `MapView.jsx`'s astro/aurora multi-date fetch used to hand the raw available-
+ * dates list straight to `Promise.all` — and those endpoints answer with every distinct date ever
+ * persisted (writers replace a rerun date's row rather than pruning it), so a long-lived database
+ * fanned a single Map-tab mount out to hundreds of concurrent requests. `solarHorizonDates`
+ * (`utils/mapEvents.js`) is the bound: the SAME domain `buildMapEvents` derives its D-13 filler
+ * rows from — briefing dates plus `forecastDates`, UK-civil today-forward.
+ *
+ * <p>Deliberately NOT built on `THE_NIGHT`/`THE_CALENDAR_DAY`/`SMALL_HOURS`: at that frozen
+ * instant `THE_NIGHT` (yesterday's date) is itself before the UK-civil today the horizon clips to
+ * — correct for D-13's solar filler rows (yesterday's sunrise/sunset really has elapsed), but a
+ * different question from this test's own claim, which only needs a plain forward-looking horizon
+ * with no night-vs-calendar wrinkle in it.
+ */
+describe('MapView aurora night — bounding the multi-date preview fetch (PR #731 review)', () => {
+  const HORIZON_DAY = '2026-09-10';
+  const HORIZON_TOMORROW = '2026-09-11';
+
+  beforeEach(() => {
+    localStorage.clear();
+    mockUseAuth.mockReturnValue({ role: 'ADMIN' });
+    auroraStatusRef.current = { level: 'MODERATE', kpIndex: 5.0, currentNightDate: HORIZON_DAY };
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(`${HORIZON_DAY}T12:00:00Z`));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    localStorage.clear();
+  });
+
+  it('fetches only the horizon dates, not the full available-dates list', async () => {
+    const historical = Array.from({ length: 200 }, (_, i) => (
+      ukDateStrOffset(-(i + 10), new Date(`${HORIZON_DAY}T12:00:00Z`))
+    ));
+    availableDatesRef.current = [...historical, HORIZON_DAY, HORIZON_TOMORROW];
+    getAuroraForecastResults.mockClear();
+
+    await renderMap({
+      date: HORIZON_DAY,
+      forecastDates: [HORIZON_DAY, HORIZON_TOMORROW],
+      locations: makeLocations([HORIZON_DAY, HORIZON_TOMORROW]),
+    });
+    await waitFor(() => expect(getAuroraForecastResults).toHaveBeenCalled());
+
+    const fetchedDates = getAuroraForecastResults.mock.calls.map((args) => args[0]).sort();
+    expect(fetchedDates).toEqual([HORIZON_DAY, HORIZON_TOMORROW].sort());
+    expect(getAuroraForecastResults).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
  * The EV-ownership rule's KEPT-LOCAL branch, driven through the REAL `components/map/
  * WindowControl.jsx` rather than the `handoffEventType` proxy every other test in this file uses
  * (adversarial review, BLOCKING #2 — this branch had ZERO coverage). `enterAuroraMode` above is
@@ -443,5 +494,38 @@ describe('MapView aurora night — the KEPT-LOCAL branch via the real window con
       locations: makeLocations([EXTERNAL_DATE]),
     });
     await waitFor(() => expect(getAuroraForecastResults).toHaveBeenCalledWith(EXTERNAL_DATE));
+  });
+
+  it('does not let the auto-jump stomp a kept-local selection, even when the auto-jump\'s own conditions all hold (PR #731 review)', async () => {
+    // Sequence the bug used to allow: pick an out-of-domain aurora row (kept local) → the SAME
+    // render also flips `isAuroraMode` to true → the auto-jump effect, reading the RAW `date`
+    // prop (untouched by a kept-local pick), sees its own three conditions all satisfied and
+    // calls `onSelectDate(auroraNight)` regardless of what the reader just chose.
+    const AUTOJUMP_NIGHT = '2026-08-05';
+    auroraStatusRef.current = { level: 'MODERATE', kpIndex: 5.0, currentNightDate: AUTOJUMP_NIGHT };
+    // Both nights have results: AUTOJUMP_NIGHT so the latch's "nothing to land on yet" guard does
+    // NOT block it (the whole point is proving suppression happens for a DIFFERENT reason), and
+    // KEPT_LOCAL_NIGHT so there is a real dropdown row to click.
+    availableDatesRef.current = [KEPT_LOCAL_NIGHT, AUTOJUMP_NIGHT];
+    const onSelectDate = vi.fn();
+    getAuroraForecastResults.mockClear();
+
+    await renderMap({ date: START_DATE, forecastDates: [START_DATE], onSelectDate });
+
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-win-pill')); });
+    const row = screen.getAllByTestId('wf-win-row')
+      .find((r) => r.getAttribute('data-ev-id') === `aur:${KEPT_LOCAL_NIGHT}:AURORA`);
+    expect(row).toBeTruthy();
+    await act(async () => { fireEvent.click(row); });
+
+    // The auto-jump's three conditions all hold at this point — `auroraNight` (AUTOJUMP_NIGHT)
+    // has results, and `date` (START_DATE) is neither `auroraNight` nor itself a member of
+    // `auroraAvailableDates` — so without the `localNightDate` guard this calls
+    // `onSelectDate(AUTOJUMP_NIGHT)`, which is exactly the stomp PR #731 review found.
+    expect(onSelectDate).not.toHaveBeenCalled();
+    // And the reader's own pick is still what is showing, never silently replaced by the night
+    // the auto-jump would have preferred.
+    await waitFor(() => expect(getAuroraForecastResults).toHaveBeenCalledWith(KEPT_LOCAL_NIGHT));
+    expect(getAuroraForecastResults).not.toHaveBeenCalledWith(AUTOJUMP_NIGHT);
   });
 });

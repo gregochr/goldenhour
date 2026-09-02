@@ -8,7 +8,9 @@
  * empty-briefing degrade.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { buildMapEvents, findEvIndex, nightLabel, EVENT_KIND } from '../utils/mapEvents.js';
+import {
+  buildMapEvents, findEvIndex, nightLabel, EVENT_KIND, solarHorizonDates,
+} from '../utils/mapEvents.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 
 const TODAY = '2026-09-02';
@@ -462,5 +464,59 @@ describe('findEvIndex', () => {
   it('returns -1 when nothing matches', () => {
     const events = buildMapEvents({ ...baseArgs(), forecastDates: [TODAY] });
     expect(findEvIndex(events, 'AURORA', TODAY)).toBe(-1);
+  });
+});
+
+/**
+ * PR #731 review: `MapView.jsx`'s astro/aurora multi-date fetch used to hand the raw available-
+ * dates list straight to `Promise.all` — and those endpoints answer with every distinct date ever
+ * persisted (writers replace a rerun date's row rather than pruning it), so a long-lived database
+ * fanned a single Map-tab mount out to hundreds of concurrent requests. `solarHorizonDates` is
+ * the bound: the SAME domain `buildMapEvents` derives its D-13 filler rows from.
+ */
+describe('solarHorizonDates', () => {
+  it('includes forecastDates on/after today', () => {
+    expect(solarHorizonDates({ forecastDates: [TODAY, TOMORROW], todayStr: TODAY }))
+      .toEqual([TODAY, TOMORROW]);
+  });
+
+  it('excludes a forecastDates entry before today', () => {
+    const YESTERDAY = '2026-09-01';
+    expect(solarHorizonDates({ forecastDates: [YESTERDAY, TODAY], todayStr: TODAY }))
+      .toEqual([TODAY]);
+  });
+
+  it('includes a served solar window\'s date even when forecastDates omits it', () => {
+    expect(solarHorizonDates({
+      solarWindows: [{ date: TOMORROW }], forecastDates: [], todayStr: TODAY,
+    })).toEqual([TOMORROW]);
+  });
+
+  it('excludes a served solar window\'s date when it is before today', () => {
+    const YESTERDAY = '2026-09-01';
+    expect(solarHorizonDates({
+      solarWindows: [{ date: YESTERDAY }], forecastDates: [], todayStr: TODAY,
+    })).toEqual([]);
+  });
+
+  it('deduplicates a date served by both solarWindows and forecastDates', () => {
+    expect(solarHorizonDates({
+      solarWindows: [{ date: TODAY }], forecastDates: [TODAY], todayStr: TODAY,
+    })).toEqual([TODAY]);
+  });
+
+  it('caps a large forecastDates list to only the today-forward handful — the fan-out bound', () => {
+    // 200 historical dates plus a small forward horizon — the shape the real available-dates
+    // endpoints return on a long-lived database (every distinct date ever persisted).
+    const historical = Array.from({ length: 200 }, (_, i) => (
+      ukDateStrOffset(-(i + 1), new Date(`${TODAY}T12:00:00Z`))
+    ));
+    const forward = [TODAY, TOMORROW];
+    const horizon = solarHorizonDates({ forecastDates: [...historical, ...forward], todayStr: TODAY });
+    expect(horizon).toEqual(forward);
+  });
+
+  it('returns nothing when neither input is supplied', () => {
+    expect(solarHorizonDates({ todayStr: TODAY })).toEqual([]);
   });
 });

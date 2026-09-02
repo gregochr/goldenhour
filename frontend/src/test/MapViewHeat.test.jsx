@@ -17,7 +17,7 @@ import React from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
-import { act, render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
 
 vi.mock('leaflet', () => {
   const icon = () => ({});
@@ -109,7 +109,8 @@ vi.mock('../components/markerUtils.js', async (importOriginal) => {
 import MapView from '../components/MapView.jsx';
 import { STOPS_VERDICT, STOPS_TEMP, setMode } from '../utils/scoreRamp.js';
 import { markerLabelAndColour } from '../components/markerUtils.js';
-import { getAstroConditions } from '../api/astroApi.js';
+import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
+import { ukDateStrOffset } from '../utils/mapDates.js';
 
 const TODAY = '2026-01-15';
 const TOMORROW = '2026-01-16';
@@ -622,6 +623,28 @@ describe('MapView heat — the modes it stands down for', () => {
     await renderMap({ heat: heatProp(), date: FAR_NIGHT, handoffEventType: 'ASTRO' });
     await screen.findByTestId('map-heat-layer');
     expect(heatLayerProps.last.conf).toBe(0.5);
+  });
+
+  it('bounds the astro multi-date preview fetch to the solar horizon, not the full available-dates list (PR #731 review)', async () => {
+    // The real `getAstroConditions/getAstroAvailableDates` endpoints answer with every distinct
+    // date ever persisted — a writer replaces a rerun date's row rather than pruning it — so an
+    // unbounded fetch over 200 historical dates would fan a single Map-tab mount out to hundreds
+    // of concurrent requests. `heat.windows` (`heatProp()`'s `WINDOWS` fixture) carries TODAY and
+    // TOMORROW, so the solar horizon is exactly those two dates regardless of what the available-
+    // dates endpoint also reports for the distant past.
+    const historical = Array.from({ length: 200 }, (_, i) => ukDateStrOffset(-(i + 10), new Date(`${TODAY}T12:00:00Z`)));
+    getAstroAvailableDates.mockResolvedValueOnce([...historical, TODAY, TOMORROW]);
+    getAstroConditions.mockClear();
+
+    await renderMap({ heat: heatProp() });
+    // `findByTestId` waits for the toolbar to exist, which is unconditional — the actual proof is
+    // the `waitFor` below, which needs something async to have actually settled first.
+    await screen.findByTestId('wf-map-toolbar');
+    await waitFor(() => expect(getAstroConditions).toHaveBeenCalled());
+
+    const fetchedDates = getAstroConditions.mock.calls.map((args) => args[0]).sort();
+    expect(fetchedDates).toEqual([TODAY, TOMORROW]);
+    expect(getAstroConditions).toHaveBeenCalledTimes(2);
   });
 });
 

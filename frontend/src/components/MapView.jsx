@@ -26,7 +26,7 @@ import { LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel, SKY_SUBJECT_TYPES
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
 import { rampHex, rampGradientCss, getMode } from '../utils/scoreRamp.js';
 import WindowControl from './map/WindowControl.jsx';
-import { buildMapEvents, findEvIndex } from '../utils/mapEvents.js';
+import { buildMapEvents, findEvIndex, solarHorizonDates } from '../utils/mapEvents.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 
 /** localStorage key for the "colours changed" notice's one-time dismissal. */
@@ -139,6 +139,24 @@ function heatSpotKey(spot) {
  * of its paint callback — so an unscored window would repaint the same nothing on every render.
  */
 const EMPTY_POINTS = [];
+
+/**
+ * One empty date array, shared — the same reasoning as {@link EMPTY_POINTS} one level up, for the
+ * `forecastDates` prop's own default (PR #731 review).
+ *
+ * <p>`forecastDates = []` as an ordinary destructuring default builds a FRESH array literal on
+ * every call — i.e. every render — which is harmless where `forecastDates` is only ever read
+ * inline, but became a genuine infinite loop the moment `horizonDates`/`bounded*AvailableDates`
+ * below started depending on it inside a `useMemo`: a new array reference every render forces
+ * those memos to recompute every render, which produces new array references for the multi-date
+ * fetch effects' OWN dependency arrays, which re-fires `Promise.all(...).then(setState(...))` on
+ * every render, whose `setState` triggers the next render — forever. A caller that never passes
+ * `forecastDates` at all (most of this file's own test fixtures) hit this every time; production's
+ * one caller (`WindowFirstMapPane.jsx`) already forwards a `useMemo`'d `allDates`, so it likely
+ * never surfaced there — but the fix belongs at the default, not at the one caller that happens to
+ * dodge it.
+ */
+const EMPTY_DATES = [];
 
 // Override Leaflet popup width + scrolling.
 // Max-height must be less than the map container height (500px) so the popup
@@ -825,7 +843,7 @@ const OVERLAY_MAP_HEIGHT_PX = 470;
 const OVERLAY_MAP_HEIGHT_FILTERS_OPEN_PX = 300;
 const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
 
-function MapView({ locations, date, onSelectDate = null, forecastDates = [], autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -1261,38 +1279,62 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = [], aut
    * it — the shared-component blast-radius rule (plan §2) applied to network cost rather than
    * markup. The single-night state above stays wired to `nightDate` regardless of mode, since the
    * overlay can still switch into astro/aurora mode via its own inherited `ForecastTypeSelector`.
+   *
+   * <p>⚠️ <b>Bounded to the solar horizon, never the raw available-dates list (PR #731 review).</b>
+   * `getAstroAvailableDates`/`getAuroraForecastAvailableDates` answer with EVERY distinct date
+   * ever persisted — a writer replaces a rerun date's row rather than pruning it — so on a
+   * long-lived database an unbounded `Promise.all` over that list fanned a single Map-tab mount
+   * out to hundreds of concurrent requests. `solarHorizonDates` is the SAME domain
+   * `buildMapEvents` derives its D-13 filler rows from (briefing dates + forecast dates, UK-civil
+   * today-forward), so intersecting against it caps the fan-out at the horizon's own size
+   * (naturally ≤ about a week) with no new backend endpoint needed this phase. A night outside the
+   * horizon still gets a real EV row — this bound has no effect on `buildMapEvents` itself — and,
+   * once actually SELECTED, still gets its own dedicated fetch regardless of range through the
+   * `nightDate`-keyed single-night effects above; only the unbounded PREVIEW fetch is capped.
    */
+  const horizonDates = useMemo(() => solarHorizonDates({
+    solarWindows: heat?.windows || [], forecastDates, todayStr: ukDateStr(),
+  }), [heat, forecastDates]);
+  const boundedAstroAvailableDates = useMemo(
+    () => astroAvailableDates.filter((d) => horizonDates.includes(d)),
+    [astroAvailableDates, horizonDates],
+  );
+  const boundedAuroraAvailableDates = useMemo(
+    () => auroraAvailableDates.filter((d) => horizonDates.includes(d)),
+    [auroraAvailableDates, horizonDates],
+  );
+
   const [astroConditionsByDate, setAstroConditionsByDate] = useState(new Map());
   useEffect(() => {
-    if (overlayMode || astroAvailableDates.length === 0) {
+    if (overlayMode || boundedAstroAvailableDates.length === 0) {
       // Inline async wrapper satisfies react-hooks/set-state-in-effect while the setState still
       // applies synchronously this tick — the same idiom the aurora-availability effect above uses.
       (async () => setAstroConditionsByDate(new Map()))();
       return undefined;
     }
     let cancelled = false;
-    Promise.all(astroAvailableDates.map((d) => (
+    Promise.all(boundedAstroAvailableDates.map((d) => (
       getAstroConditions(d).then((rows) => [d, rows]).catch(() => [d, []])
     ))).then((pairs) => {
       if (!cancelled) setAstroConditionsByDate(new Map(pairs));
     });
     return () => { cancelled = true; };
-  }, [overlayMode, astroAvailableDates]);
+  }, [overlayMode, boundedAstroAvailableDates]);
 
   const [auroraResultsByDate, setAuroraResultsByDate] = useState(new Map());
   useEffect(() => {
-    if (overlayMode || auroraAvailableDates.length === 0) {
+    if (overlayMode || boundedAuroraAvailableDates.length === 0) {
       (async () => setAuroraResultsByDate(new Map()))();
       return undefined;
     }
     let cancelled = false;
-    Promise.all(auroraAvailableDates.map((d) => (
+    Promise.all(boundedAuroraAvailableDates.map((d) => (
       getAuroraForecastResults(d).then((rows) => [d, rows]).catch(() => [d, []])
     ))).then((pairs) => {
       if (!cancelled) setAuroraResultsByDate(new Map(pairs));
     });
     return () => { cancelled = true; };
-  }, [overlayMode, auroraAvailableDates]);
+  }, [overlayMode, boundedAuroraAvailableDates]);
 
   const lineKm = lineKmForZoom(zoom);
 
@@ -1515,6 +1557,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = [], aut
    * <p>Fails soft in both directions: with no {@code onSelectDate} it does nothing, and the parent
    * ignores a date that is not on the strip, so a night with aurora results but no colour forecast
    * row simply does not move the map.
+   *
+   * <p>⚠️ <b>Suppressed outright while a night is kept local (PR #731 review).</b> Sequence that
+   * used to reach the parent regardless: pick an out-of-domain aurora row (through the window
+   * control) → `localNightDate` is set and `isAuroraMode` becomes true in the SAME render → this
+   * effect reacts to `isAuroraMode` changing, reads the RAW `date` prop (untouched by the pick,
+   * since it was kept local rather than forwarded) and calls `onSelectDate(auroraNight)` — jumping
+   * the parent to the backend's "current night" regardless of what the reader just chose. If the
+   * parent accepted it, the `[date]`-keyed invalidation effect above then read the resulting prop
+   * change as EXTERNAL (which, from its own narrow view, it correctly was) and cleared the very
+   * selection the reader had just made. The fix is at the SOURCE rather than in the invalidation
+   * effect: a `localNightDate` already means "the reader explicitly chose a night", which is the
+   * latch's whole purpose already satisfied, so the auto-jump has nothing left to do. A fresh entry
+   * into aurora mode with NO local selection is unaffected and still auto-jumps exactly as before —
+   * this guard is additional, not a replacement for the three bullets above.
    */
   const auroraNightRequested = useRef(false);
   useEffect(() => {
@@ -1522,6 +1578,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = [], aut
       auroraNightRequested.current = false;
       return;
     }
+    if (localNightDate != null) return;
     if (auroraNightRequested.current || !onSelectDate) return;
     // Nothing to land on yet — either no run for this night, or the fetch has not returned. Do NOT
     // latch here: `auroraAvailableDates` starts empty and arrives async, so latching on an empty
@@ -1535,7 +1592,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = [], aut
     auroraNightRequested.current = true;
     if (date === auroraNight || auroraAvailableDates.includes(date)) return;
     onSelectDate(auroraNight);
-  }, [isAuroraMode, auroraAvailableDates, auroraNight, date, onSelectDate]);
+  }, [isAuroraMode, auroraAvailableDates, auroraNight, date, onSelectDate, localNightDate]);
 
   /** True when this location's forecast for the current event was triaged (stand-down). */
   const isStandDownLocation = useCallback((loc) => {
