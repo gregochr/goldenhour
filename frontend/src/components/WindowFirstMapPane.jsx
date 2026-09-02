@@ -10,6 +10,8 @@ import { latLngBounds } from '../utils/heatGeometry.js';
 import { scopeSpots } from '../utils/planOrigin.js';
 import { beyondRegions } from '../utils/planningArea.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
+import { buildScoreIndex } from '../utils/locationSheet.js';
+import { buildRegionGlossIndex } from '../utils/mapCallout.js';
 
 /**
  * The framing pad, in degrees of latitude — the bundle's own figure (`map-tab.js`), and the same
@@ -101,19 +103,36 @@ const FRAME_PAD_DEG = 0.12;
  *                                         explicitly chosen — forwarded to `MapView`'s one-time
  *                                         "colours changed" notice
  * @param {Function} [props.onOpenSettings]
+ * @param {Function} [props.onOpenLocationInPlan] the selection callout's "Open in Plan" action
+ *                                         (map-tab-v2-plan.md §3 P9) — `(spot) => void`, forwarded
+ *                                         from `App.jsx`'s `openLocationInPlan`
  */
 export default function WindowFirstMapPane({
   locations, dates, selectedDate, onSelectDate, handoff = null, autoEventType = null,
   briefingScores = new Map(),
   onForecastRun = null, seasonalFeatures = [], homeCoords = null, homeRadiusMiles = null,
   mapColourScale = null, colourScaleDefaulted = false, onOpenSettings = null,
+  onOpenLocationInPlan = null,
 }) {
   const wrapRef = useRef(null);
   const [resizeNonce, setResizeNonce] = useState(0);
   const {
     heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr,
-    origin, effectiveReachById,
+    origin, effectiveReachById, scoreRows, scoresLoaded, briefing,
   } = useWindowFirstBriefing();
+
+  /**
+   * The selection callout's per-location per-window index (map-tab-v2-plan.md §3 P9) — the SAME
+   * `scoreRows` `WindowFirstShell.jsx` already builds its own `buildScoreIndex` from for
+   * `LocationFourDaySheet`, so the callout can never disagree with the sheet one step away in the
+   * Plan tab about what a location was rated. Built unconditionally rather than gated behind "is
+   * anything selected" (the way `WindowFirstShell`'s own `detailScoreIndex` is) — this pane's own
+   * `scoreRows` already changes only on the briefing's own beat, not per render, so there is no
+   * per-keystroke cost to guard against here the way there is behind a dialog's open state.
+   */
+  const scoreIndex = useMemo(() => buildScoreIndex(scoreRows), [scoreRows]);
+  /** The reason prose's region-gloss fallback (map-tab-v2-plan.md §3 P9). */
+  const regionGlossIndex = useMemo(() => buildRegionGlossIndex(briefing?.days), [briefing?.days]);
 
   /**
    * The heat field's opt-in, built here and nowhere else.
@@ -268,6 +287,11 @@ export default function WindowFirstMapPane({
         onOpenSettings={onOpenSettings}
         resizeNonce={resizeNonce}
         heat={heat}
+        scoreIndex={scoreIndex}
+        scoresKnown={scoresLoaded}
+        regionGlossIndex={regionGlossIndex}
+        reachById={reachById}
+        onOpenLocationInPlan={onOpenLocationInPlan}
       />
     </div>
   );
@@ -297,4 +321,5 @@ WindowFirstMapPane.propTypes = {
   /** Whether the colour preference was never explicitly chosen — forwarded to `MapView`'s notice. */
   colourScaleDefaulted: PropTypes.bool,
   onOpenSettings: PropTypes.func,
+  onOpenLocationInPlan: PropTypes.func,
 };

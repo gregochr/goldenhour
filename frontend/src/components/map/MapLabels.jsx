@@ -163,6 +163,29 @@ export default function MapLabels({
   const [tipPos, setTipPos] = useState({ x: 0, y: 0 });
 
   const rootRef = useRef(null);
+  /**
+   * ⚠️ BLOCKING fix (map-tab-v2-plan.md §3 P9 browser verification): a chip click was reaching
+   * `onSelect` correctly, but the selection was wiped on the SAME click, every time — traced live,
+   * instrumented call-by-call, to this firing order within one native click: chip's `onClick` →
+   * `selectMapLocation` (sets the selection) → P7's `MapBackgroundClickController`
+   * (`MapView.jsx`) firing right after, on the SAME click, and clearing it again. A chip is a plain
+   * HTML `<button>` inside this layer's Leaflet PANE (`map.createPane`, a real descendant of
+   * `.leaflet-map-pane`/`.leaflet-container`), not a Leaflet `Marker` — real markers never trigger
+   * this because `L.Marker` stops its own click from bubbling to the map (`bubblingMouseEvents:
+   * false`); nothing did that for a bare button, so the click kept bubbling into Leaflet's own
+   * container listener and fired the MAP's background-click handler right after React's, clearing
+   * the very selection it had just set. `CentreOnHomeControl`'s identical comment already names the
+   * fix for an HTML control sitting over the map: a React `stopPropagation` fires too late (it runs
+   * during React's OWN dispatch, which happens AFTER Leaflet's native container listener in this
+   * bubble order) — `L.DomEvent.disableClickPropagation` stops the NATIVE `mousedown`/`click`/etc.
+   * before Leaflet's own container listener ever sees them. Applied to the layer ROOT once, via a
+   * callback ref (fires exactly on attach, not every render) — every current and future clickable
+   * label (today: only the location chip) is covered without a second call site to keep in step.
+   */
+  const setRootRef = useCallback((node) => {
+    rootRef.current = node;
+    if (node && L?.DomEvent?.disableClickPropagation) L.DomEvent.disableClickPropagation(node);
+  }, []);
   const homeRef = useRef(null);
   const ringRefs = useRef(new Map());
   const regionRefs = useRef(new Map());
@@ -404,7 +427,7 @@ export default function MapLabels({
   if (!pane || !frame) return null;
 
   const labelLayer = createPortal(
-    <div ref={rootRef} className="wf-maplab-layer" data-testid="map-labels">
+    <div ref={setRootRef} className="wf-maplab-layer" data-testid="map-labels">
       {frame.homeItems.map((it) => (
         <span
           key={it.key}

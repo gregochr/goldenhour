@@ -3,6 +3,11 @@
  * MarkerPopupContent at both the desktop popup and mobile bottom sheet call
  * sites. A mutation that drops the prop would silently revert stand-down
  * popovers to "no forecast yet" — exactly the bug this fix resolves.
+ *
+ * <p>Rendered with `overlayMode` (map-tab-v2-plan.md §3 P9): `MarkerPopupContent` is now the
+ * OVERLAY's own renderer only — the Map tab stops mounting a Leaflet `Popup`/`BottomSheet` for
+ * markers at all, in favour of the anchored selection callout. This file's own subject (the props
+ * `MarkerPopupContent` receives) is unaffected by which mount reaches it.
  */
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -66,8 +71,13 @@ vi.mock('../components/MarkerPopupContent.jsx', () => ({
   },
 }));
 
+// The overlay's context bar reads `EVENT_TYPE_LABELS` directly (map-tab-v2-plan.md §3 P9 pushed
+// these tests onto `overlayMode` — see the class doc); the mock needs to carry it too now.
 vi.mock('../components/ForecastTypeSelector.jsx', () => ({
   default: () => null,
+  EVENT_TYPE_LABELS: {
+    SUNRISE: '☀️ Sunrise', SUNSET: '🌇 Sunset', ASTRO: '🌙 Astro', AURORA: '🌌 Aurora',
+  },
 }));
 vi.mock('../components/InfoTip.jsx', () => ({
   default: () => null,
@@ -140,6 +150,7 @@ describe('MapView → MarkerPopupContent briefingScore wiring', () => {
         date={TODAY}
         autoEventType="SUNRISE"
         briefingScores={briefingScores}
+        overlayMode
       />,
     );
 
@@ -162,6 +173,7 @@ describe('MapView → MarkerPopupContent briefingScore wiring', () => {
         date={TODAY}
         autoEventType="SUNRISE"
         briefingScores={briefingScores}
+        overlayMode
       />,
     );
 
@@ -189,6 +201,7 @@ describe('MapView → MarkerPopupContent briefingScore wiring', () => {
         date={TODAY}
         autoEventType="SUNRISE"
         briefingScores={briefingScores}
+        overlayMode
       />,
     );
 

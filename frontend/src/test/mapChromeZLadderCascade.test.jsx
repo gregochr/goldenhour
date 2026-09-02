@@ -14,12 +14,20 @@ import {
  * <h2>Scope: what the ladder can assert TODAY</h2>
  *
  * <p>The design bundle's full ladder is heat 410 / selection ring 415 / labels 420 / chrome 1100 /
- * callout 1350 / tooltip 1400 / menus 1500. Only two tiers are built by this phase — CHROME (the
- * window control's `.wf-map-chrome-tl`, the Heat/Pins + Filters cluster's `.wf-map-chrome-tr`, and
- * the counts footer's `.wf-map-counts-footer`) and MENUS (`.wf-win-menu`, `.wf-filters-panel`) — so
- * this file asserts the one relation both interpretations of "practical" agree exists: a menu must
- * beat every chrome chip, or its own dropdown/panel could paint under a sibling. The ring/callout/
- * tooltip tiers are P9's own chrome and have no selector here to assert against yet.
+ * callout 1350 / tooltip 1400 / menus 1500. Three tiers are built as of P9 — CHROME (the window
+ * control's `.wf-map-chrome-tl`, the Heat/Pins + Filters cluster's `.wf-map-chrome-tr`, and the
+ * counts footer's `.wf-map-counts-footer`), CALLOUT (`.wf-selmk`/`.wf-callout`, map-tab-v2-plan.md
+ * §3 P9) and MENUS (`.wf-win-menu`, `.wf-filters-panel`) — so this file asserts every relation the
+ * plan states in one sentence: "menus must beat the callout", which is itself only meaningful once
+ * the callout beats chrome (the ordering it exists to sit above). The tooltip tier is the one
+ * still without a selector here.
+ *
+ * <p>⚠️ The ring/callout do NOT sit at the bundle's own 415/1350 relative to labels — they are
+ * ABOVE this app's real label pane (650, a Leaflet pane set in JS, not a class this slicer can
+ * reach) rather than below it, a documented divergence (`MapCallout.jsx`'s own class doc) from a
+ * bundle that assumed no real Leaflet marker ever painted under its label layer at all. What this
+ * file CAN and does assert is the callout's position relative to chrome and menus, both of which
+ * are real CSS classes.
  *
  * <p>⚠️ The heat FIELD's own pane (`MapHeatLayer.jsx`'s `HEAT_PANE_Z`) is deliberately NOT
  * renumbered to the bundle's 410 by this phase — it is pinned at 350 for a Leaflet-pane-ordering
@@ -72,17 +80,18 @@ function sliceRules(needle) {
 }
 
 const CHROME_CLASSES = ['wf-map-chrome-tl', 'wf-map-chrome-tr', 'wf-map-counts-footer'];
+const CALLOUT_CLASSES = ['wf-selmk', 'wf-callout'];
 const MENU_CLASSES = ['wf-win-menu', 'wf-filters-panel'];
 
 let styleEl;
 beforeAll(() => {
-  const slice = [...CHROME_CLASSES, ...MENU_CLASSES]
+  const slice = [...CHROME_CLASSES, ...CALLOUT_CLASSES, ...MENU_CLASSES]
     .map((cls) => sliceRules(`.${cls}`)).join('\n');
   // Fail loudly rather than silently injecting nothing — a no-match extraction would leave every
   // probe element's z-index as `auto` and the ">" assertions below would pass for the wrong
   // reason (`auto` compares as `NaN` against a number, and `NaN > NaN` is false — so this guard
   // is what stands between a real pass and a silently-skipped one).
-  for (const cls of [...CHROME_CLASSES, ...MENU_CLASSES]) {
+  for (const cls of [...CHROME_CLASSES, ...CALLOUT_CLASSES, ...MENU_CLASSES]) {
     expect(slice, `no rule found for .${cls} in index.css`).toContain(`.${cls} {`);
   }
   styleEl = document.createElement('style');
@@ -118,5 +127,23 @@ describe('the Map tab\'s full-frame chrome z-ladder (map-tab-v2-plan.md §3 P7)'
 
   it('the window control\'s dropdown and the filters panel share one tier, so neither wins over the other by accident', () => {
     expect(zIndexOf('wf-win-menu')).toBe(zIndexOf('wf-filters-panel'));
+  });
+
+  it.each(CALLOUT_CLASSES)('.%s (the selection ring/callout) beats every chrome chip (map-tab-v2-plan.md §3 P9)', (calloutCls) => {
+    const calloutZ = zIndexOf(calloutCls);
+    for (const chromeCls of CHROME_CLASSES) {
+      expect(calloutZ).toBeGreaterThan(zIndexOf(chromeCls));
+    }
+  });
+
+  it.each(MENU_CLASSES)('.%s (menus) beats the callout — a menu must never paint under a card behind it', (menuCls) => {
+    const menuZ = zIndexOf(menuCls);
+    for (const calloutCls of CALLOUT_CLASSES) {
+      expect(menuZ).toBeGreaterThan(zIndexOf(calloutCls));
+    }
+  });
+
+  it('the callout card sits above its own selection ring', () => {
+    expect(zIndexOf('wf-callout')).toBeGreaterThan(zIndexOf('wf-selmk'));
   });
 });

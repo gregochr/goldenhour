@@ -22,7 +22,10 @@ vi.mock('leaflet.markercluster/dist/MarkerCluster.css', () => ({}));
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="map-container">{children}</div>,
   TileLayer: () => null,
-  Marker: ({ children }) => <div>{children}</div>,
+  // A testid on the mock itself (map-tab-v2-plan.md §3 P9) — one rendered per VISIBLE location
+  // regardless of `Popup`, which the tab no longer mounts for markers at all. `visibleCount` below
+  // counts this rather than `popup-content`, which the tab can no longer produce.
+  Marker: ({ children }) => <div data-testid="marker">{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
   Polyline: () => null,
   useMapEvents: () => null,
@@ -597,8 +600,10 @@ describe('MapView admin-gated ? unknown pill', () => {
 });
 
 // ── Filter behaviour: count rendered markers to verify hide/show semantics ──
-// The MarkerPopupContent mock emits one <div data-testid="popup-content" />
-// per rendered Marker, so counting popups = counting visible locations.
+// The `Marker` mock above emits one <div data-testid="marker" /> per rendered Marker (map-tab-v2-
+// plan.md §3 P9 — the tab no longer mounts a `Popup` for markers at all, so `popup-content`, this
+// count's earlier proxy, can no longer answer "how many locations rendered" here), so counting
+// markers = counting visible locations.
 
 function makeUnratedLocation(name = 'Unknown') {
   return {
@@ -612,7 +617,7 @@ function makeUnratedLocation(name = 'Unknown') {
 }
 
 function visibleCount() {
-  return screen.queryAllByTestId('popup-content').length;
+  return screen.queryAllByTestId('marker').length;
 }
 
 describe('MapView filter behaviour — stand-down hide/show', () => {

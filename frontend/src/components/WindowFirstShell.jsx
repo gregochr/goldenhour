@@ -290,6 +290,7 @@ export default function WindowFirstShell({
   onOpenSettings, onSignOut, contentDisabled, onShowOnMap, onEvaluationScoresChange,
   onSeasonalFeaturesChange, locations, mapPane, operationsPane, tabRequest, healthPill,
   light, onSetPostcode, mapColourScale = null, homeCoords = null, onTabChange = null,
+  planLocationHandoff = null,
 }) {
   const {
     heatStripCards, heatPointSets, heatSpots, reachById, regionSeries,
@@ -652,6 +653,42 @@ export default function WindowFirstShell({
     // would re-run this on every render with the nonce guard as the only thing stopping it. The
     // nonce IS the trigger, and it is in the list.
   }, [requestedNonce, requestedId, mapPane, operationsPane]);
+
+  /**
+   * The Map tab callout's "Open in Plan" handoff (map-tab-v2-plan.md §3 P9) — `openFullMapTab`'s
+   * shape, in reverse, routed through {@code selectTab} rather than a bare {@code setActiveTab} for
+   * the SAME reason every other entry into this dialog stack is: {@code selectTab} clears
+   * {@code sheetSpot} (along with `openWindowKey`/`openPick`/`sheetKey`/`focusedRegion`) as part of
+   * its own body, so the {@code setSheetSpot} call immediately below — in the SAME synchronous
+   * effect, i.e. the SAME React batch — is the write that survives: two calls to one setter inside
+   * one commit resolve to the LAST one, never the {@code null} `selectTab` made a line earlier. The
+   * sheet therefore lands as the ONLY dialog layer, never stacked over a popup nobody asked to see.
+   *
+   * <p>Guarded by its own nonce and its own ref, mirroring the `tabRequest` effect immediately
+   * above — the identical protection against acting on a STALE handoff twice, which here is the
+   * §3 P9 test brief's own "hidden-pane" concern turned around: this shell's OWN Plan body is
+   * `hidden` rather than unmounted while another tab is active (the same sticky-pane idiom the Map
+   * pane itself relies on), so without a nonce guard a plain prop-identity check could refire on an
+   * unrelated re-render while the Plan tab sits hidden behind whatever tab the reader is actually on.
+   */
+  const planHandoffNonce = planLocationHandoff?.nonce ?? null;
+  const lastHandledPlanHandoff = useRef(planLocationHandoff?.nonce ?? null);
+  useEffect(() => {
+    if (planHandoffNonce == null || planHandoffNonce === lastHandledPlanHandoff.current) return;
+    lastHandledPlanHandoff.current = planHandoffNonce;
+    selectTab('plan');
+    setSheetSpot({
+      id: planLocationHandoff.id ?? null,
+      name: planLocationHandoff.name ?? '',
+      regionName: planLocationHandoff.regionName ?? null,
+    });
+    // Same focus rule as the `tabRequest` effect above: an external ask arrives with focus wherever
+    // the caller (a callout button that is about to be hidden along with its whole panel) left it.
+    const domId = tabDomId('plan');
+    requestAnimationFrame(() => document.getElementById(domId)?.focus());
+    // `selectTab`/`setSheetSpot` deliberately absent from the dependency list — both are rebuilt
+    // every render, and the nonce is the trigger already in it.
+  }, [planHandoffNonce, planLocationHandoff]);
 
   // ⚠️ A key whose card has gone stops rendering but is not released, and the effect that would
   // release it is a `setState` inside `useEffect` that `react-hooks/set-state-in-effect` rejects.
@@ -1838,6 +1875,14 @@ WindowFirstShell.propTypes = {
    * no pane for is ignored rather than obeyed.
    */
   tabRequest: PropTypes.shape({ id: PropTypes.string, nonce: PropTypes.number }),
+  /** The Map tab callout's "Open in Plan" handoff (map-tab-v2-plan.md §3 P9) — `App.jsx`'s
+   * `openLocationInPlan`, `openFullMapTab`'s shape in reverse. */
+  planLocationHandoff: PropTypes.shape({
+    id: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
+    name: PropTypes.string,
+    regionName: PropTypes.string,
+    nonce: PropTypes.number,
+  }),
   /**
    * The Operations pane. Absent means no Operations tab, and that is the admin gate in full: the
    * caller holds the role and withholds the pane, so nothing role-shaped reaches this component.

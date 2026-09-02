@@ -145,11 +145,15 @@ function lightWindow(label, startIso, endIso) {
  * <p>The twin is tried second so a midnight-sentinel null on one end (the backend drops those) does
  * not cost the event time, which the other end still carries.
  *
+ * <p>Exported since map-tab-v2-plan.md §3 P9: the Map tab's callout recovers the same instant for
+ * its own leave-by fact, from the same {@code buildScoreIndex} row this file already builds — a
+ * second recovery would risk disagreeing with this one about which boundary is the event.
+ *
  * @param {?object} score      the score-row entry, or null
  * @param {string}  targetType SUNRISE or SUNSET
  * @returns {?string} the event's UTC instant as served, or null
  */
-function eventInstantOf(score, targetType) {
+export function eventInstantOf(score, targetType) {
   if (!score) return null;
   return targetType === 'SUNRISE'
     ? (score.blueHourEnd ?? score.goldenHourStart ?? null)
@@ -327,8 +331,11 @@ function dayOfMonth(dateStr) {
  * noon UTC is the following day, and the departure's day word would name the wrong night on the one
  * surface that exists to name it. Covered in {@code locationSheetAbroad.test.js}, which is pinned to
  * a zone east of the UK for exactly this.
+ *
+ * <p>Exported since map-tab-v2-plan.md §3 P9: the callout's own leave-by fact marks a midnight
+ * crossing with the identical day word rather than authoring a second formatter for the same rule.
  */
-function shortDow(dateStr) {
+export function shortDow(dateStr) {
   return new Date(`${dateStr}T12:00:00Z`)
     .toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' });
 }

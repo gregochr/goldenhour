@@ -1,12 +1,18 @@
 /**
- * A Map tab chip click (map-tab-v2-plan.md §3 P8) is wired to `selectMapLocation`, which used to
- * call `marker.openPopup()` directly. That is a SILENT no-op for a marker currently folded into a
- * cluster bubble — `marker._map` is null while clustered, `openPopup()` does nothing, and nothing
- * throws — which chips hit often, since they render across a wide zoom range where most markers on
- * screen are still clustered. The fix (adversarial review finding #6) routes the click through the
- * cluster group's own `zoomToShowLayer`, which reveals the marker before opening its popup, and
- * falls back to a direct `openPopup()` only when the marker is already unclustered (or the cluster
+ * A Map tab chip click (map-tab-v2-plan.md §3 P8) is wired to `selectMapLocation`, which reveals a
+ * marker still folded into a cluster bubble before selecting it — `marker._map` is null while
+ * clustered, so a bare click on such a marker would otherwise land the selection ring and the
+ * callout on a point the reader cannot see. The fix (adversarial review finding #6, P8) routes the
+ * click through the cluster group's own `zoomToShowLayer`, which reveals the marker before the
+ * selection settles, and is simply skipped when the marker is already unclustered (or the cluster
  * ref cannot answer).
+ *
+ * <p>⚠️ map-tab-v2-plan.md §3 P9: through P8 this function ALSO opened the marker's own Leaflet
+ * popup from `zoomToShowLayer`'s callback. P9 removes the popup from the tab entirely — `MapCallout`
+ * reads `selectedLocationName` reactively and needs no imperative nudge — so `selectMapLocation` no
+ * longer calls `openPopup` at all, from any path. This file's own tests were rewritten from
+ * asserting an `openPopup` call to asserting the selection itself (`onSelect` prop / `selectedName`)
+ * and the ABSENCE of any popup call, which each test below states explicitly.
  *
  * `MapLabels.jsx` is mocked to a probe button — its own placement/measurement behaviour is
  * `MapLabels.test.jsx`'s job; this file is only about what `onSelect` does once MapView receives
@@ -16,7 +22,7 @@ import React from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
-import { act, render, fireEvent } from '@testing-library/react';
+import { act, render, fireEvent, screen } from '@testing-library/react';
 
 vi.mock('leaflet', () => {
   const icon = () => ({});
@@ -61,12 +67,17 @@ vi.mock('react-leaflet-cluster', () => ({
 
 vi.mock('../components/MapHeatLayer.jsx', () => ({ default: () => <div data-testid="map-heat-layer" /> }));
 
-/** The probe: a button that calls the exact `onSelect` MapView hands `MapLabels`. */
+/** The probe: a button that calls the exact `onSelect` MapView hands `MapLabels`, plus a readout of
+ * the `selectedName` prop so a test can prove the selection landed WITHOUT needing a popup to have
+ * opened (map-tab-v2-plan.md §3 P9 — there is no popup left on this tab to open). */
 vi.mock('../components/map/MapLabels.jsx', () => ({
   default: (props) => (
-    <button type="button" data-testid="probe-chip" onClick={() => props.onSelect('Bamburgh-0')}>
-      chip
-    </button>
+    <div>
+      <button type="button" data-testid="probe-chip" onClick={() => props.onSelect('Bamburgh-0')}>
+        chip
+      </button>
+      <span data-testid="probe-selected">{props.selectedName ?? ''}</span>
+    </div>
   ),
 }));
 
@@ -143,7 +154,7 @@ async function renderMap() {
 beforeEach(() => {
   localStorage.clear();
   fakeMarker = { openPopup: vi.fn() };
-  fakeClusterGroup = { zoomToShowLayer: vi.fn((_marker, callback) => callback()) };
+  fakeClusterGroup = { zoomToShowLayer: vi.fn() };
 });
 
 afterEach(() => {
@@ -151,30 +162,28 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('MapView — chip click on a clustered marker (map-tab-v2-plan.md §3 P8 review)', () => {
-  it('calls zoomToShowLayer on the cluster group, and opens the popup from ITS callback', async () => {
+describe('MapView — chip click on a clustered marker (map-tab-v2-plan.md §3 P8 review, P9 update)', () => {
+  it('calls zoomToShowLayer on the cluster group to reveal a clustered marker', async () => {
     await renderMap();
     fireEvent.click(await screenFindProbe());
     expect(fakeClusterGroup.zoomToShowLayer).toHaveBeenCalledTimes(1);
     expect(fakeClusterGroup.zoomToShowLayer.mock.calls[0][0]).toBe(fakeMarker);
-    // The popup opens from WITHIN the callback zoomToShowLayer invokes (this test's own fake
-    // calls it synchronously) — never as a bare, immediate call the cluster method could race.
-    expect(fakeMarker.openPopup).toHaveBeenCalledTimes(1);
   });
 
-  it('never calls openPopup directly when zoomToShowLayer is available — no silent double-open', async () => {
+  it('never calls openPopup — the tab has no Leaflet popup left to open (map-tab-v2-plan.md §3 P9)', async () => {
     await renderMap();
     fireEvent.click(await screenFindProbe());
-    // Exactly one open, sourced from the callback — not one from a direct call PLUS one from the
-    // callback, which would be the bug if the fallback path were not properly gated.
-    expect(fakeMarker.openPopup).toHaveBeenCalledTimes(1);
+    expect(fakeMarker.openPopup).not.toHaveBeenCalled();
   });
 
-  it('falls back to a direct openPopup() when the cluster ref has no zoomToShowLayer', async () => {
+  it('still selects the location when the cluster ref has no zoomToShowLayer', async () => {
     fakeClusterGroup = {}; // an unclustered marker, or a ref that has not resolved the method
     await renderMap();
     fireEvent.click(await screenFindProbe());
-    expect(fakeMarker.openPopup).toHaveBeenCalledTimes(1);
+    // The selection itself does not depend on the cluster reveal succeeding — `setSelectedLocationName`
+    // runs unconditionally at the top of `selectMapLocation`, before the reveal is even attempted.
+    expect(screen.getByTestId('probe-selected')).toHaveTextContent('Bamburgh-0');
+    expect(fakeMarker.openPopup).not.toHaveBeenCalled();
   });
 });
 
