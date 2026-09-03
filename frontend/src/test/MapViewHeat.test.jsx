@@ -194,8 +194,8 @@ const POINTS_BY_KEY = new Map([
 const WINDOWS = [
   { key: `${TODAY}:SUNRISE`, date: TODAY, targetType: 'SUNRISE', label: 'This morning sunrise', time: '08:24', bestRating: 3, conf: 1 },
   { key: `${TODAY}:SUNSET`, date: TODAY, targetType: 'SUNSET', label: 'Tonight sunset', time: '16:12', bestRating: 5, conf: 1 },
-  { key: `${TOMORROW}:SUNRISE`, date: TOMORROW, targetType: 'SUNRISE', label: 'Tomorrow sunrise', time: '08:24', bestRating: 1, conf: 0.72 },
-  { key: `${TOMORROW}:SUNSET`, date: TOMORROW, targetType: 'SUNSET', label: 'Tomorrow sunset', time: '16:14', bestRating: null, conf: 0.72 },
+  { key: `${TOMORROW}:SUNRISE`, date: TOMORROW, targetType: 'SUNRISE', label: 'Tomorrow sunrise', time: '08:24', bestRating: 1, conf: 0.82 },
+  { key: `${TOMORROW}:SUNSET`, date: TOMORROW, targetType: 'SUNSET', label: 'Tomorrow sunset', time: '16:14', bestRating: null, conf: 0.82 },
 ];
 
 /** The same windows with tonight — the one the map opens on — carrying no served rating. */

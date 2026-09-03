@@ -52,8 +52,13 @@ const MARKER_INTERACTIVE_ALPHA = 0.2;
  * {@code 8500m / 34–240px} — in the SAME commit as the land clip below, because the two were
  * co-tuned: the old radius is part of why the field swam offshore
  * (docs/design/map-tab-v2/README.md, "The heat field").
+ *
+ * <p>{@code HEAT_OPACITY} corrected 0.9 → 0.92 on 2026-09-03: the design bundle's map surface has
+ * always painted at {@code opacity:0.92*alpha} (docs/design/map-tab-v2/map-tab-v2.js:173), but 0.9
+ * was the pre-existing repo value the P4 re-tune above never listed as a deliberate change — an
+ * unledgered drift a spec-vs-shipped audit caught. See map-tab-v2-plan.md §4 for the ledger entry.
  */
-const HEAT_OPACITY = 0.9;
+const HEAT_OPACITY = 0.92;
 const RADIUS_METRES = 7200;
 const RADIUS_MIN_PX = 30;
 const RADIUS_MAX_PX = 190;

@@ -87,7 +87,7 @@ export function resolveConfidence(rated, days) {
  */
 export const CONFIDENCE_TREATMENT = {
   high: { fillScale: 1.0, provisional: false, label: 'High confidence' },
-  medium: { fillScale: 0.72, provisional: false, label: 'Medium confidence' },
+  medium: { fillScale: 0.82, provisional: false, label: 'Medium confidence' },
   low: { fillScale: 0.5, provisional: true, label: 'Low confidence · provisional' },
 };
 
@@ -109,8 +109,17 @@ export function confidenceTreatment(tier) {
  * {@code unc = 1 - conf} and desaturates toward grey and thins alpha as it falls, which is the
  * same statement the badge's fill decay and the provisional mark make about the same window;
  * deriving the haze from its own constants would let a later day look hazier than its badge
- * admits, or the reverse. It is deliberately NOT the design's {@code ◐ 88%} — this project's
- * confidence is three-tier and a percentage would invent precision the backend never claimed.
+ * admits, or the reverse.
+ *
+ * <p>The medium tier was re-tuned 0.72 → 0.82 on 2026-09-03, an owner call following a
+ * spec-vs-shipped audit of the heat-field pipeline. The design bundle's own confidence ladder
+ * runs {@code [0.95, 0.88, 0.82, 0.72, 0.65, 0.57]} per window, but production quantises to three
+ * tiers and most live cards resolve MEDIUM — so at 0.72 the typical card was rendering at the
+ * design's window-4 treatment, one step hazier than intended, and the Plan tab read muted. 0.82
+ * is the design's window-3 value instead (medium-tier arithmetic at 0.82: {@code aMax} 193.4,
+ * chroma desaturation 10.8%, ember ×0.82). LOW stays 0.5 and HIGH stays 1.0 — the "a day-4 guess
+ * cannot look as authoritative as tonight" ordering is untouched; only the gap between the top two
+ * tiers narrows.
  *
  * <p>Unknown tiers take the neutral middle, exactly as {@link confidenceTreatment} does; pass a
  * tier through {@link resolveConfidence} first if the source may be absent.

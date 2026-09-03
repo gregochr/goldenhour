@@ -541,8 +541,11 @@ labels > ring > heat) are asserted.
 2. **Luminance monotone 3★→5★** (synthetic bundle method — real kernel via Vite module graph,
    single point per score over each surface's ground, centre-sampled): strictly monotone on all
    three surfaces. Thumbnails (bloom 3/155/0.9): .0826→.1067→.1420→.1722→.2037. Popup field
-   (3/170/2): .0826→.1061→.1405→.1662→.1960. Map field (bloom 1, blur 4, opacity 0.9, ground
-   #3a332b): .1250→.1518→.1857→.2121→.2443.
+   (3/170/2): .0826→.1061→.1405→.1662→.1960. ⚠️ **Map field row SUPERSEDED by §4 item 16
+   (`HEAT_OPACITY` 0.90 → 0.92, 2026-09-03).** Old measurement, kept for the record: Map field
+   (bloom 1, blur 4, opacity 0.9, ground #3a332b): .1250→.1518→.1857→.2121→.2443. **Re-measured
+   2026-09-03 at opacity 0.92** (same synthetic method, ground #3a332b, conf 1, bloom 1, blur 4):
+   .1257→.1525→.1913→.2199→.2481 — strictly monotone.
 3. **Star-label ink contrast** (rampHex × readableInkOn, WCAG): temperature min 5.03:1 (1★ 7.13,
    2★ 6.04, 3★ 6.51, 4★ 5.03, 5★ 5.56 — the bundle's 5.56 target exactly), verdict min 4.83:1.
    Every whole-star label ≥4.5:1 in both modes; ink flips dark/light correctly per fill.
@@ -618,6 +621,33 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     all, per window or per region, for a night. Recorded as a fifth class in CLAUDE.md's
     Backend-heavy licensed-member list (members: those two functions, nothing else); its exit is
     **O-16**.
+16. **Map field opacity conformed 0.90 → 0.92 (2026-09-03), superseding heat-field-plan.md §4.5's
+    own decision.** 0.9 was not an unledgered accident to begin with — `heat-field-plan.md` §4.5
+    specified `opacity 0.9 × heatAlpha(zoom)` outright, and it matched that (earlier) heat-field
+    design bundle. The map-tab-v2 bundle that superseded it moved the map surface to
+    `opacity:0.92*alpha` (`docs/design/map-tab-v2/map-tab-v2.js:173`), but this plan's §1 item 2
+    (inventorying what P4's re-tune changes — radius, fade band, floor) never named opacity as one
+    of them, so heat-field-plan's 0.9 survived the port unnoticed rather than by decision. A
+    post-P13 spec-vs-shipped audit (2026-09-03) caught the 0.02 gap as the pipeline's one
+    unledgered drift. `HEAT_OPACITY` in `MapHeatLayer.jsx` is now 0.92 — conformance to the newer
+    bundle superseding the older one's figure, not a fresh re-tune. See heat-field-plan.md §4.5 for
+    the superseded decision, annotated there.
+17. **Plan-screen confidence medium tier re-tuned 0.72 → 0.82 (2026-09-03) — an owner move AWAY
+    from the shipped decision, unlike #16.** `CONFIDENCE_TREATMENT.medium.fillScale`
+    (`frontend/src/utils/confidenceUtils.js`) belongs to the Plan-screen confidence channel; its
+    decision of record is `docs/engineering/heat-field-plan.md` D3 (the "◐ 88% rejected" decision,
+    cross-referenced by `plan-matrix-plan.md` A2) — not this plan's own kernel, and not
+    plan-verdict-consolidation-plan.md's own D3 (a different decision entirely, about the Best/Also
+    pick pool). It is ledgered here only because it landed in the same owner-directed commit as #16
+    and moves a colour dial the same audit examined. The design bundle's confidence ladder carries
+    one value per window across six windows (`[0.95, 0.88, 0.82, 0.72, 0.65, 0.57]`); production
+    quantises to three tiers and most live cards resolve MEDIUM, so 0.72 rendered the typical card
+    at the bundle's *window-4* value — one step hazier than intended, and the audit found the Plan
+    tab reading muted for it. The owner moved the tier to the bundle's *window-3* value (0.82)
+    instead. Measured live: medium-tier thumbnail cores render ~15–16% brighter at 4–5★ than at the
+    old 0.72 (5★ centre-sampled luminance .1341 → .1559), tier ordering (low < medium < high)
+    intact. This is a deliberate departure from D3's original number, not a conformance fix: LOW
+    (0.5) and HIGH (1.0) are unchanged.
 
 ## §5 Decisions taken in this plan (challenge in review, not in code)
 

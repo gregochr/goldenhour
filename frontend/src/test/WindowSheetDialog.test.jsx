@@ -368,7 +368,7 @@ describe('WindowSheetDialog — the verdict badge', () => {
     unmount();
     renderDialog({ card: card({ confidence: 'low' }) });
 
-    expect(medium).toBeCloseTo(0.14 * 0.72, 3);
+    expect(medium).toBeCloseTo(0.14 * 0.82, 3);
     expect(alphaOf(badge().style.background)).toBeCloseTo(0.14 * 0.5, 3);
   });
 
@@ -396,7 +396,7 @@ describe('WindowSheetDialog — the verdict badge', () => {
     // on the verdict rendered that at FULL strength, which is the failure the channel exists to
     // prevent.
     renderDialog({ card: card({ confidence: null }) });
-    expect(alphaOf(badge().style.background)).toBeCloseTo(0.14 * 0.72, 3);
+    expect(alphaOf(badge().style.background)).toBeCloseTo(0.14 * 0.82, 3);
   });
 
   it.each([

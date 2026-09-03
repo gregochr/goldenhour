@@ -171,10 +171,10 @@ describe('WindowFirstMapPane — the heat prop', () => {
 
   it('resolves each window’s confidence to the SAME scalar the badge decays by (D3)', () => {
     // One language for the haze and the badge. `high` → 1.0; the away window carries no tier, so it
-    // falls through the fail-soft path to the horizon's — T+3, inferred, capped at medium → 0.72.
+    // falls through the fail-soft path to the horizon's — T+3, inferred, capped at medium → 0.82.
     renderPane();
     expect(MapStub.lastProps.heat.windows[0].conf).toBe(1);
-    expect(MapStub.lastProps.heat.windows[1].conf).toBe(0.72);
+    expect(MapStub.lastProps.heat.windows[1].conf).toBe(0.82);
   });
 
   it('keeps ONE prop identity across a re-render, because MapView is memoised', () => {
