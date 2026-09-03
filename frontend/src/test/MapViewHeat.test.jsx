@@ -17,7 +17,7 @@ import React from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
-import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 
 vi.mock('leaflet', () => {
   const icon = () => ({});
@@ -140,6 +140,7 @@ import { STOPS_VERDICT, STOPS_TEMP, setMode } from '../utils/scoreRamp.js';
 import { markerLabelAndColour } from '../components/markerUtils.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import { ukDateStrOffset } from '../utils/mapDates.js';
+import { latLngBounds } from '../utils/heatGeometry.js';
 
 const TODAY = '2026-01-15';
 const TOMORROW = '2026-01-16';
@@ -151,13 +152,28 @@ const TOMORROW = '2026-01-16';
  * class at all, which is the "absence" boundary: `null <= 4` is true in JavaScript, so dropping the
  * null guard silently admits every unmeasured location to a dark-sky field.
  */
+// `regionName` mirrors `rid` on every spot — the real shape `heatSpots.buildHeatSpots` produces
+// (both fields carry the identical string), added alongside `rid` for the Regions jump list
+// (map-tab-v2-plan.md §3 P11), which joins on `regionName` the way `planningArea.js` already does.
 const SPOTS = [
-  { id: 1, name: 'Bamburgh', lat: 55.61, lng: -1.71, rid: 'North East', bortleClass: 4 },
-  { id: 2, name: 'Tynemouth', lat: 55.02, lng: -1.42, rid: 'North East', bortleClass: 6 },
-  { id: 3, name: 'Wastwater', lat: 54.44, lng: -3.30, rid: 'The Lakes', bortleClass: 2 },
-  { id: 4, name: 'Kelso', lat: 56.20, lng: -2.43, rid: 'The Borders', bortleClass: 5 },
-  { id: 5, name: 'Alnmouth', lat: 55.39, lng: -1.61, rid: 'North East', bortleClass: 5 },
-  { id: 6, name: 'Coquet', lat: 55.33, lng: -1.53, rid: 'North East', bortleClass: null },
+  {
+    id: 1, name: 'Bamburgh', lat: 55.61, lng: -1.71, rid: 'North East', regionName: 'North East', bortleClass: 4,
+  },
+  {
+    id: 2, name: 'Tynemouth', lat: 55.02, lng: -1.42, rid: 'North East', regionName: 'North East', bortleClass: 6,
+  },
+  {
+    id: 3, name: 'Wastwater', lat: 54.44, lng: -3.30, rid: 'The Lakes', regionName: 'The Lakes', bortleClass: 2,
+  },
+  {
+    id: 4, name: 'Kelso', lat: 56.20, lng: -2.43, rid: 'The Borders', regionName: 'The Borders', bortleClass: 5,
+  },
+  {
+    id: 5, name: 'Alnmouth', lat: 55.39, lng: -1.61, rid: 'North East', regionName: 'North East', bortleClass: 5,
+  },
+  {
+    id: 6, name: 'Coquet', lat: 55.33, lng: -1.53, rid: 'North East', regionName: 'North East', bortleClass: null,
+  },
 ];
 const AREA_SPOTS = [SPOTS[0], SPOTS[1], SPOTS[2], SPOTS[4], SPOTS[5]];
 
@@ -1177,3 +1193,203 @@ describe('MapView heat — azimuth lines are overlay-only in Pins mode (decision
     expect(polylineCalls.length).toBeGreaterThan(0);
   });
 });
+
+/**
+ * The Regions jump list (map-tab-v2-plan.md §3 P11, `docs/design/map-tab-v2/README.md` §2) — the
+ * `RegionsJump`/`utils/regionsJump.js` unit suites cover the pure sort/join/anatomy in isolation;
+ * this describes the CALLER'S wiring, the way `MapViewHeat.test.jsx`'s other describes already do
+ * for the toolbar/filters/Legend. `SPOTS` carries three regions: "North East" (Bamburgh, Tynemouth,
+ * Alnmouth, Coquet), "The Lakes" (Wastwater alone) and "The Borders" (Kelso alone) — and
+ * `AREA_SPOTS` (the fixture's own "My area") excludes ONLY Kelso, so "The Borders" is the one region
+ * outside scope in every test below.
+ */
+describe('MapView heat — the Regions jump list (map-tab-v2-plan.md §3 P11)', () => {
+  /** Bamburgh/Tynemouth/Alnmouth measured; Coquet and Kelso are not — the unmeasured-last case. */
+  const REACH_BY_ID = new Map([
+    [1, { driveMinutes: 40, distanceMiles: 25 }],
+    [2, { driveMinutes: 35, distanceMiles: 20 }], // nearest in North East
+    [5, { driveMinutes: 50, distanceMiles: 30 }],
+    [3, { driveMinutes: 200, distanceMiles: 120 }], // The Lakes — clears the 3h glance (180 min)
+  ]);
+  const REGION_BEST_INDEX = new Map([
+    [`${TODAY}|SUNSET|North East`, 5],
+    [`${TODAY}|SUNSET|The Lakes`, 3],
+    // "The Borders" deliberately absent — no served best for this window.
+  ]);
+
+  function openJump() {
+    fireEvent.click(screen.getByTestId('wf-jump-chip'));
+  }
+
+  it('sorts by nearest measured drive, states the "beyond your area" suffix and the served best score, unmeasured last', async () => {
+    await renderMap({
+      heat: heatProp(), reachById: REACH_BY_ID, regionBestIndex: REGION_BEST_INDEX,
+    });
+    openJump();
+
+    const rows = screen.getAllByTestId('wf-jump-row');
+    expect(rows).toHaveLength(3);
+    expect(rows[0]).toHaveTextContent('North East');
+    expect(rows[1]).toHaveTextContent('The Lakes');
+    expect(rows[2]).toHaveTextContent('The Borders');
+
+    // North East's nearest is Tynemouth (35 min) — well under the 180 min glance threshold.
+    expect(rows[0]).toHaveTextContent('35 min');
+    expect(rows[0]).not.toHaveTextContent('beyond your area');
+    expect(rows[0]).toHaveTextContent('5★');
+    expect(rows[0].querySelector('i')).not.toBeNull();
+
+    // The Lakes clears the glance threshold (200 > 180) — the suffix fires even though (the next
+    // test proves) this region is still inside `heat.areaSpots`: "beyond the glance" and "outside
+    // My area" are different axes that happen to agree less often than they disagree.
+    expect(rows[1]).toHaveTextContent('3h 20min');
+    expect(rows[1]).toHaveTextContent('beyond your area');
+    expect(rows[1]).toHaveTextContent('3★');
+
+    // The Borders (Kelso) has no reach entry at all — no duration, no "beyond" claim, sorts last —
+    // and no served best for this window either.
+    expect(within(rows[2]).getByTestId('wf-jump-drive')).toHaveTextContent('');
+    expect(rows[2]).not.toHaveTextContent('beyond your area');
+    expect(rows[2].querySelector('i')).toBeNull();
+  });
+
+  it('shows an em dash, never a number, for a region the served rollup carries no best for', async () => {
+    await renderMap({ heat: heatProp(), reachById: REACH_BY_ID, regionBestIndex: REGION_BEST_INDEX });
+    openJump();
+    const rows = screen.getAllByTestId('wf-jump-row');
+    const borders = rows.find((r) => r.textContent.includes('The Borders'));
+    expect(borders).toHaveTextContent('—'); // — em dash
+  });
+
+  /**
+   * A night (astro/aurora) window's rows carry a real score too — the adjudicated ruling
+   * (map-tab-v2-plan.md §3 P11): `mapEvents.bestOfNight`'s ALREADY-licensed client max, grouped by
+   * region (`utils/regionsJump.buildNightRegionBest`) over the SAME served rows
+   * `astroConditionsByDate` feeds the window dropdown's own "N★ best" column with — never a second
+   * re-derivation. `getAstroConditions` is queued TWICE with the identical rows because this mode
+   * calls it from two independent effects (the bounded multi-date preview `astroConditionsByDate`
+   * this test actually needs, and the single active-night `astroScores` the field paints from) —
+   * order between the two is not guaranteed, so both queued responses must agree.
+   */
+  it('a night window carries the grouped max per region, and the honest dash for a region with no served night rows', async () => {
+    const nightRows = [
+      { locationName: SPOTS[0].name, stars: 3 }, // Bamburgh, North East
+      { locationName: SPOTS[1].name, stars: 5 }, // Tynemouth, North East — the region's max
+    ];
+    getAstroAvailableDates.mockResolvedValueOnce([TODAY]);
+    getAstroConditions.mockResolvedValueOnce(nightRows);
+    getAstroConditions.mockResolvedValueOnce(nightRows);
+
+    await renderMap({ heat: heatProp(), handoffEventType: 'ASTRO' });
+    openJump();
+
+    const rows = screen.getAllByTestId('wf-jump-row');
+    const northEast = rows.find((r) => r.textContent.includes('North East'));
+    expect(northEast).toHaveTextContent('5★');
+    expect(northEast.querySelector('i')).not.toBeNull();
+
+    // "The Borders" (Kelso) had no served night rows at all — the honest dash, not a zero.
+    const borders = rows.find((r) => r.textContent.includes('The Borders'));
+    expect(borders).toHaveTextContent('—');
+    expect(borders.querySelector('i')).toBeNull();
+  });
+
+  it('selecting a region already inside "My area" fits ITS OWN bounds, animate:false, and does not flip scope', async () => {
+    await renderMap({ heat: heatProp(), reachById: REACH_BY_ID, regionBestIndex: REGION_BEST_INDEX });
+    openJump();
+    fitBounds.mockClear();
+
+    fireEvent.click(screen.getAllByTestId('wf-jump-row').find((r) => r.textContent.includes('North East')));
+
+    const neSpots = SPOTS.filter((s) => s.regionName === 'North East');
+    expect(fitBounds).toHaveBeenCalledTimes(1);
+    expect(fitBounds).toHaveBeenCalledWith(latLngBounds(neSpots, 0.06), { padding: [40, 40], animate: false });
+    // The menu closes on selection — see the dedicated test below for why this diverges from
+    // `FiltersPopover`'s own rows, which deliberately stay open.
+    expect(screen.queryByTestId('wf-jump-menu')).not.toBeInTheDocument();
+
+    // Scope did not move — "My area" is still the pressed segment.
+    openFilters();
+    expect(screen.getByRole('button', { name: 'My area' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  /**
+   * A dedicated, named check for the panel-closes-on-select rule — adversarial review + a live
+   * browser finding (map-tab-v2-plan.md §3 P11). The design bundle is silent on this (its own
+   * `jumpTo` closes every menu unconditionally on ANY interaction, including a filter change, so it
+   * never had to decide this on its own terms); the reasoning is stated once, in code, on
+   * `MapView.jsx`'s `jumpToRegion`: a jump is a COMPLETED navigation — the camera has already moved
+   * — where `FiltersPopover`'s rows are a STANDING choice still being composed one control at a
+   * time, and closing on the first press there would make every later one a fresh re-open.
+   */
+  it('closes the jump panel on row selection — a jump is a completed navigation, unlike a filter row', async () => {
+    await renderMap({ heat: heatProp() });
+    openJump();
+    expect(screen.getByTestId('wf-jump-menu')).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByTestId('wf-jump-row').find((r) => r.textContent.includes('North East')));
+
+    expect(screen.queryByTestId('wf-jump-menu')).not.toBeInTheDocument();
+  });
+
+  it('jumping outside "My area" flips scope to Whole catalogue AND still fits the REGION\'s own bounds — never the newly-widened catalogue box (the override-vs-race guard)', async () => {
+    await renderMap({ heat: heatProp(), reachById: REACH_BY_ID, regionBestIndex: REGION_BEST_INDEX });
+    openJump();
+    fitBounds.mockClear();
+
+    fireEvent.click(screen.getAllByTestId('wf-jump-row').find((r) => r.textContent.includes('The Borders')));
+
+    const borderSpots = SPOTS.filter((s) => s.regionName === 'The Borders');
+    const expectedBounds = latLngBounds(borderSpots, 0.06);
+    // ⚠️ The assertion that actually matters: flipping `heatArea` changes the ORDINARY
+    // `heatArea ? areaBounds : catalogueBounds` value in the very same commit, which would also
+    // re-arm a naive `HeatBoundsController` onto `CATALOGUE_BOUNDS` — the race `jumpFitOverride`
+    // exists to prevent. Only ONE fitBounds call may happen, and it must name Kelso's own box.
+    expect(fitBounds).toHaveBeenCalledTimes(1);
+    expect(fitBounds).toHaveBeenCalledWith(expectedBounds, { padding: [40, 40], animate: false });
+    expect(expectedBounds).not.toEqual(CATALOGUE_BOUNDS);
+    expect(expectedBounds).not.toEqual(AREA_BOUNDS);
+
+    openFilters();
+    expect(screen.getByRole('button', { name: 'Whole catalogue' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('a later "My area" press still wins over a stale jump override', async () => {
+    // The reset path (`resetToMyArea`, also `⌂`'s own) clears `jumpFitOverride` on every press —
+    // without that clear this would still show Kelso's box, ignoring the reader's own later choice.
+    await renderMap({ heat: heatProp(), reachById: REACH_BY_ID, regionBestIndex: REGION_BEST_INDEX });
+    openJump();
+    fireEvent.click(screen.getAllByTestId('wf-jump-row').find((r) => r.textContent.includes('The Borders')));
+
+    openFilters();
+    fitBounds.mockClear();
+    fireEvent.click(screen.getByRole('button', { name: 'My area' }));
+
+    expect(fitBounds).toHaveBeenCalledTimes(1);
+    expect(fitBounds).toHaveBeenCalledWith(AREA_BOUNDS, { padding: [28, 28], animate: false });
+  });
+
+  it('joins the exclusivity group — opening Filters closes an open jump menu, and vice versa', async () => {
+    await renderMap({ heat: heatProp() });
+    openJump();
+    expect(screen.getByTestId('wf-jump-menu')).toBeInTheDocument();
+
+    openFilters();
+    expect(screen.queryByTestId('wf-jump-menu')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
+
+    openJump();
+    expect(screen.queryByTestId('wf-filters-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wf-jump-menu')).toBeInTheDocument();
+  });
+});
+
+// ⚠️ `⌂`'s own new "resets scope to My area and refits" behaviour (map-tab-v2-plan.md §3 P11) is
+// NOT tested in this file. `CentreOnHomeControl` is a real Leaflet `L.Control`, and this file's own
+// `leaflet`/`useMap` mocks (built for the field/toolbar/callout surfaces the rest of this file
+// covers) carry neither an `L.Control` stub nor a stable per-test `map` reference for one to attach
+// to — under this file's `useMap()`, which returns a FRESH object literal on every call, the
+// control's own `[container, map]`-keyed effect would tear down and rebuild on every render, which
+// is exactly the kind of instability `MapViewCentreOnHome.test.jsx`'s dedicated Leaflet-`Control`
+// stub exists to avoid. `⌂`'s new behaviour is pinned there instead, alongside its own
+// mount/position/no-postcode-fallback tests, using that file's own `heatProp()`-style fixture.

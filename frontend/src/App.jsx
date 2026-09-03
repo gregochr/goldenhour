@@ -155,9 +155,6 @@ function AppInner() {
    * postcode takes effect without a page reload.
    */
   const [homeCoords, setHomeCoords] = useState(null);
-  // The Close-to-home radius, from the same settings read. It frames the map's "centre on home"
-  // camera move, so that control shows the area this user calls local rather than a fixed 30.
-  const [homeRadiusMiles, setHomeRadiusMiles] = useState(null);
   // The active scoreRamp mode, mirrored into state and handed to the Map pane as a genuine prop.
   // `MapView` is `React.memo`'d and this pane's mount is never unmounted, so a mode switch made
   // in Settings needs a real prop change to reach an already-alive instance — `setMode` alone only
@@ -193,7 +190,6 @@ function AppInner() {
             ? { lat: s.homeLatitude, lon: s.homeLongitude }
             : null,
         );
-        setHomeRadiusMiles(s?.localRadiusMiles ?? null);
         // The one place the loaded preference reaches the ramp, so Plan and Map can never
         // disagree about what a colour means (heat-scale-unification-plan.md, rule 1).
         // `resolveMode` — not a raw pass to `setMode` — is what makes a never-chosen `null`
@@ -513,7 +509,6 @@ function AppInner() {
                     onForecastRun={refresh}
                     seasonalFeatures={seasonalFeatures}
                     homeCoords={homeCoords}
-                    homeRadiusMiles={homeRadiusMiles}
                     mapColourScale={mapColourScale}
                     colourScaleDefaulted={colourScaleDefaulted}
                     onOpenSettings={() => setSettingsFocus('postcode')}

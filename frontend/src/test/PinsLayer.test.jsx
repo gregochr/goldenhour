@@ -422,6 +422,29 @@ describe('PinsLayer — the home marker', () => {
     expect(home.style.display).toBe('none');
   });
 
+  // map-tab-v2-plan.md §3 P11 — parity with `MapLabels.test.jsx`'s own case: the Regions jump
+  // list's open dropdown is duplicated onto THIS file's own `OBSTACLE_SELECTOR` too (the two lists
+  // never mount together, so the entry is repeated rather than imported — see that constant's own
+  // class doc), and needs its own obstacle test for the identical reason `wf-win-menu`/
+  // `wf-filters-panel` do: it overflows its trigger chip's own layout box.
+  it('seeds the Regions jump menu as an obstacle too (P11)', async () => {
+    restoreMeasure = withMeasuredLabels(30, 14);
+    currentMap = makeFullMap({ zoom: 9 });
+    const chrome = document.createElement('div');
+    chrome.setAttribute('data-testid', 'wf-jump-menu');
+    currentMap.wrap.appendChild(chrome);
+    vi.spyOn(currentMap.container, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, width: 800, height: 500,
+    });
+    vi.spyOn(chrome, 'getBoundingClientRect').mockReturnValue({
+      left: -1000, top: -1000, width: 5000, height: 5000,
+    });
+    await mount({ homeCoords: HOME });
+    await act(async () => { runFrames(); });
+    const home = document.querySelector('[data-testid="map-label-home"]');
+    expect(home.style.display).toBe('none');
+  });
+
   it('seeds Leaflet\'s OWN bottom-right corner (zoom + ⌂) — a CHILD of the container, not a sibling', async () => {
     restoreMeasure = withMeasuredLabels(30, 14);
     currentMap = makeFullMap({ zoom: 9 });

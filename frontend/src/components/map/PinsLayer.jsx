@@ -36,6 +36,7 @@ const OBSTACLE_SELECTOR = [
   '[data-testid="wf-map-chrome-bl"]',
   '[data-testid="wf-map-counts-footer"]',
   '[data-testid="wf-win-menu"]',
+  '[data-testid="wf-jump-menu"]',
   '[data-testid="wf-filters-panel"]',
   '[data-testid="wf-legend-panel"]',
   '[data-testid="colour-scale-notice"]',

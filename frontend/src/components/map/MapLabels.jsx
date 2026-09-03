@@ -35,12 +35,15 @@ const LABEL_PANE_Z = 650;
 /**
  * Live chrome to seed as obstacles (README §6: "the window bar, Regions/Heat/Pins/Filters bar,
  * Legend chip, count footer, zoom group, the open callout and any open menu") — every piece of
- * chrome P7 actually shipped, live TODAY, not merely a future phase's. Queried each placement pass
- * from `map.getContainer().parentElement` — the wrapper `MapView` renders both the Leaflet
- * container and these React-rendered siblings into.
+ * chrome this tab actually ships, live TODAY. Queried each placement pass from
+ * `map.getContainer().parentElement` — the wrapper `MapView` renders both the Leaflet container and
+ * these React-rendered siblings into.
  *
- * <p>Only the Regions jump list (P11) is genuinely still pending — everything else here (including
- * the bottom-right zoom + ⌂ stack and P10's own Legend chip/panel) is chrome already on screen.
+ * <p>`wf-jump-menu` (P11) is the Regions jump list's own open dropdown, and needs its OWN entry for
+ * the same reason `wf-win-menu`/`wf-filters-panel` already do despite nesting inside
+ * `wf-map-chrome-tl`/`wf-map-chrome-tr`: an absolutely-positioned dropdown overflows its trigger
+ * chip's own layout box, so the chrome wrapper's `getBoundingClientRect()` does not cover it — only
+ * the panel's own rect does. The closed chip needs no entry of its own; the wrapper already covers it.
  */
 const OBSTACLE_SELECTOR = [
   '[data-testid="wf-map-chrome-tl"]',
@@ -48,6 +51,7 @@ const OBSTACLE_SELECTOR = [
   '[data-testid="wf-map-chrome-bl"]',
   '[data-testid="wf-map-counts-footer"]',
   '[data-testid="wf-win-menu"]',
+  '[data-testid="wf-jump-menu"]',
   '[data-testid="wf-filters-panel"]',
   '[data-testid="wf-legend-panel"]',
   '[data-testid="colour-scale-notice"]',

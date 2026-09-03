@@ -137,6 +137,18 @@ describe('MapView — clicking the map background closes an open popover (tab on
     expect(screen.queryByTestId('wf-win-menu')).not.toBeInTheDocument();
   });
 
+  // map-tab-v2-plan.md §3 P11 — the Regions jump list is a fourth value on the SAME `openMapMenu`
+  // switch (`MapView.jsx`'s own class doc), so it closes through this identical controller with no
+  // wiring of its own; renders with no `heat` prop at all, which is enough to open an empty panel.
+  it('closes an open Regions jump menu', async () => {
+    await renderMap();
+    fireEvent.click(screen.getByTestId('wf-jump-chip'));
+    expect(screen.getByTestId('wf-jump-menu')).toBeInTheDocument();
+
+    clickMapBackground();
+    expect(screen.queryByTestId('wf-jump-menu')).not.toBeInTheDocument();
+  });
+
   it('is a no-op with nothing open — it must not throw or otherwise disturb the pane', async () => {
     await renderMap();
     expect(() => clickMapBackground()).not.toThrow();

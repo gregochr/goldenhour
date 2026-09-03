@@ -841,6 +841,28 @@
   border-radius: 8px;
 }
 
+/* ── The map tab's origin STATEMENT (map-tab-v2-plan.md §3 P11, README "Masthead change") ──────
+   `.wf-tick-origin`'s own typography (9.5px mono, `.13em`, uppercase) carries over unchanged — this
+   is a `<span>`, not a `<button>`, so it needs none of that rule's interactive affordances, only its
+   look. `data-statement='true'` on the SHARED `.wf-tick-group` wrapper neutralises that wrapper's own
+   hover brightening (`:hover`/`[data-away='true']:hover`): a bordered pill that visibly reacts to the
+   pointer reads as a control, and this one does nothing on click. */
+.wf-tick-group[data-statement='true']:hover {
+  border-color: rgba(242, 231, 211, 0.4);
+  background: transparent;
+}
+.wf-tick-group[data-statement='true'][data-away='true']:hover {
+  border-color: rgba(143, 182, 217, 0.7);
+  background: rgba(143, 182, 217, 0.07);
+}
+/* The caption — `--ink-3`, never the place's own `--ink` weight, so "drive times from here" reads
+   as an aside rather than competing with the place name six pixels to its left. */
+.wf-tick-caption {
+  margin-left: 2px;
+  color: var(--color-plex-text-muted);
+}
+.wf-tick-group[data-away='true'] .wf-tick-caption { color: rgba(143, 182, 217, 0.66); }
+
 /* Right-aligned by `margin-left: auto` rather than by a spacer, so a wrapped row drops the whole
    group to the next line instead of leaving a stranded gap. */
 .wf-tick-times {
@@ -3544,6 +3566,111 @@ button.wf-hc.also.on:hover {
   color: var(--color-plex-text-muted);
   margin-top: 2px;
 }
+
+/* ── The Regions jump list (map-tab-v2-plan.md §3 P11, README §2) ──────────────────────────────
+   "Search, without a text field" — `◎ Regions ▾` takes the SAME visual language as
+   `.wf-filters-chip`/`.wf-legend-chip` (same panel background, same border) so the top-right
+   cluster reads as one control family, and sits ABOVE them in the DOM (README's own layout: Regions,
+   then Heat/Pins, then Filters). */
+.wf-jump {
+  position: relative;
+}
+.wf-jump-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 4px 12px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 999px;
+  background: var(--color-plex-panel);
+  color: var(--color-plex-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.wf-jump-chip:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 1px;
+}
+@media (max-width: 639px) {
+  .wf-jump-chip { min-height: 40px; }
+}
+.wf-jump-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 1500;
+  width: 300px;
+  max-width: calc(100vw - 32px);
+  max-height: 420px;
+  overflow-y: auto;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 10px;
+  background: var(--color-plex-panel);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
+  padding: 4px 0;
+}
+.wf-jump-empty {
+  padding: 10px 12px;
+  font-size: 11.5px;
+  color: var(--color-plex-text-muted);
+}
+/* One row: name · drive (+ beyond-area suffix) · best score — the SAME 3-column grid rhythm
+   `.wf-win-row` already uses for its own kind-chip/label/score triple, so the two menus read as one
+   family even though this one has no kind chip. */
+.wf-jump-row {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 12px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--color-plex-text-secondary);
+}
+.wf-jump-row:hover { background: var(--color-plex-surface-light); }
+.wf-jump-row:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
+.wf-jump-name {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--color-plex-text);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-jump-drive {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-muted);
+  white-space: nowrap;
+}
+.wf-jump-score {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-plex-text-secondary);
+  white-space: nowrap;
+}
+.wf-jump-score i {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+.wf-jump-unscored { color: var(--color-plex-text-muted); }
 
 /* ── Selection: the ring + the callout (map-tab-v2-plan.md §3 P9, README §7) ───────────────────
    Replaces the Leaflet popup and the mobile `BottomSheet` on this tab — "a popup covers exactly the

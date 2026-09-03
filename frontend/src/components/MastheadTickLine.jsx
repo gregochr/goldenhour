@@ -141,12 +141,21 @@ Pin.propTypes = { away: PropTypes.bool.isRequired };
  */
 export default function MastheadTickLine({
   light, origin, homePlace, onOpenSearch, onGoHome, onSetPostcode, searchOpen = false,
+  isMapTab = false,
 }) {
   const away = Boolean(origin);
   // See the class comment: either positive answer, never an absent one, and never while away —
   // a reader planning from a region is not planning from a postcode, and the prompt would be
   // about nothing they can see. (The rail footer's "Home not set" line withheld it identically.)
   const noHome = !away && (homePlace === null || (homePlace === undefined && light === null));
+  // The map tab's own statement, drawn INSTEAD of the interactive origin button — never instead of
+  // the empty-state nudge, which stays exactly as it is on every tab (CLAUDE.md's do-not-re-gate-
+  // the-postcode rule: the band's empty state nudges the reader to this field, and a dead statement
+  // there would make the nudge a dead end).
+  const statement = isMapTab && !noHome;
+  const originLabel = away
+    ? `${origin.name} · from ${origin.baseName}`
+    : (homePlace ? `Home · ${homePlace}` : 'Home');
 
   return (
     <div data-testid="window-first-tickline" className="wf-tick">
@@ -157,7 +166,11 @@ export default function MastheadTickLine({
           detached from the origin it undoes. `PlanOriginChip` held the same pair inside one
           `inline-flex` for the same reason; the port flattened it and the guarantee went with it. */}
       <span className="wf-tick-origin-set">
-        <span className="wf-tick-group" data-away={away ? 'true' : 'false'}>
+        <span
+          className="wf-tick-group"
+          data-away={away ? 'true' : 'false'}
+          data-statement={statement ? 'true' : 'false'}
+        >
           {noHome ? (
             <button
               type="button"
@@ -178,6 +191,20 @@ export default function MastheadTickLine({
                 <span className="sm:hidden">Set a postcode</span>
               </span>
             </button>
+          ) : statement ? (
+            // The map tab's own statement (map-tab-v2-plan.md §3 P11, README "Masthead change"):
+            // "on a map, panning IS the search" — so this is a `<span>`, never a `<button>`, and
+            // needs none of WCAG 2.5.3's accname machinery the interactive arm below carries: a
+            // non-interactive element's accessible name is just its rendered text, which is already
+            // exactly what a reader sees. The caption is real content, not decoration, so it is a
+            // plain visible text node rather than `aria-hidden` — only the SVG pin glyph is hidden.
+            <span data-testid="window-first-origin-statement" className="wf-tick-origin">
+              <Pin away={away} />
+              <span className="wf-tick-place">{originLabel}</span>
+              <span data-testid="masthead-origin-caption" className="wf-tick-caption">
+                drive times from here
+              </span>
+            </span>
           ) : (
             <button
               type="button"
@@ -203,32 +230,34 @@ export default function MastheadTickLine({
               {/* `.wf-tick-place` carries the truncation, not the button: `text-overflow` applies to
                   block containers and the button is a flex container — the span blockifies as a flex
                   item, which is what makes the idiom work here and not one level up. */}
-              <span aria-hidden="true" className="wf-tick-place">
-                {away
-                  ? `${origin.name} · from ${origin.baseName}`
-                  : (homePlace ? `Home · ${homePlace}` : 'Home')}
-              </span>
+              <span aria-hidden="true" className="wf-tick-place">{originLabel}</span>
             </button>
           )}
           {/* Full-height hairline between the two controls, exactly as the bundle draws it. Purely
-              visual: the two buttons are already separate tab stops with separate names. */}
-          <span aria-hidden="true" className="wf-tick-sep" />
-          <button
-            type="button"
-            onClick={onOpenSearch}
-            data-testid="window-first-search"
-            className="wf-tick-search"
-            tabIndex={searchOpen ? -1 : undefined}
-            // Named for what it searches, matching the dialog's own accessible name, so a reader who
-            // opens it hears the same words the button promised.
-            aria-label="Search windows, regions and locations"
-          >
-            <span aria-hidden="true" className="wf-tick-glyph">⌕</span>
-            {/* Hidden on a phone, which has no keyboard to press it with. `aria-hidden` because the
-                shortcut is an affordance for sighted pointer users; a screen-reader user is told
-                nothing useful by hearing "slash". */}
-            <kbd aria-hidden="true" className="wf-tick-kbd">/</kbd>
-          </button>
+              visual: the two buttons are already separate tab stops with separate names.
+              ⚠️ Map tab only omits — README "Masthead change": "the ⌕ search button is absent" —
+              because panning IS the search there; every other tab keeps both untouched. */}
+          {!isMapTab && (
+            <>
+              <span aria-hidden="true" className="wf-tick-sep" />
+              <button
+                type="button"
+                onClick={onOpenSearch}
+                data-testid="window-first-search"
+                className="wf-tick-search"
+                tabIndex={searchOpen ? -1 : undefined}
+                // Named for what it searches, matching the dialog's own accessible name, so a reader
+                // who opens it hears the same words the button promised.
+                aria-label="Search windows, regions and locations"
+              >
+                <span aria-hidden="true" className="wf-tick-glyph">⌕</span>
+                {/* Hidden on a phone, which has no keyboard to press it with. `aria-hidden` because
+                    the shortcut is an affordance for sighted pointer users; a screen-reader user is
+                    told nothing useful by hearing "slash". */}
+                <kbd aria-hidden="true" className="wf-tick-kbd">/</kbd>
+              </button>
+            </>
+          )}
         </span>
 
         {away && (
@@ -302,4 +331,11 @@ MastheadTickLine.propTypes = {
    * `useDialogFocus`), so it would fail as a silent no-op.
    */
   searchOpen: PropTypes.bool,
+  /**
+   * Whether the Map tab is the active tab (map-tab-v2-plan.md §3 P11) — a per-tab STATE of this
+   * component, not a fork: the origin control renders as a non-interactive statement (pin, place,
+   * caption) and the `⌕` search button is withheld, because on a map panning IS the search. The
+   * empty-state nudge (`noHome`) is unaffected on every tab — see `statement`'s own derivation.
+   */
+  isMapTab: PropTypes.bool,
 };

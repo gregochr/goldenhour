@@ -383,6 +383,80 @@ describe('MastheadTickLine — while the search panel covers it', () => {
   });
 });
 
+/**
+ * The Map tab's per-tab STATEMENT variant (map-tab-v2-plan.md §3 P11, README "Masthead change") —
+ * "on a map, panning IS the search". `isMapTab` is a per-tab STATE of this one component, never a
+ * fork: every describe block above (unchanged, `isMapTab` defaulting to {@code false} throughout)
+ * is the "byte-identical on the other tabs" proof by construction — this block adds only what
+ * changes when the prop flips.
+ */
+describe('MastheadTickLine — the Map tab statement (map-tab-v2-plan.md §3 P11)', () => {
+  it('renders a non-interactive statement instead of the origin button, and withholds the ⌕ search button', () => {
+    renderTick({ isMapTab: true });
+
+    expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
+    expect(screen.queryByTestId('window-first-search')).toBeNull();
+    const statement = screen.getByTestId('window-first-origin-statement');
+    expect(statement.tagName).toBe('SPAN');
+    expect(statement).toHaveTextContent('Home · Durham');
+  });
+
+  it('draws the caption, and only in the statement — never on the interactive arm', () => {
+    const { rerender } = renderTick({ isMapTab: true });
+    expect(screen.getByTestId('masthead-origin-caption')).toHaveTextContent('drive times from here');
+
+    rerender(
+      <MastheadTickLine
+        light={LIGHT} origin={null} homePlace="Durham"
+        onOpenSearch={vi.fn()} onGoHome={vi.fn()} onSetPostcode={vi.fn()}
+        isMapTab={false}
+      />,
+    );
+    expect(screen.queryByTestId('masthead-origin-caption')).toBeNull();
+  });
+
+  it('drops the hairline separator along with the search button — nothing left for it to separate', () => {
+    const { container } = renderTick({ isMapTab: true });
+    expect(container.querySelector('.wf-tick-sep')).toBeNull();
+  });
+
+  it('still names the away origin correctly — the map tab does not stop being honest about where drive times come from', () => {
+    renderTick({ isMapTab: true, origin: LAKES });
+
+    expect(screen.queryByTestId('window-first-origin-chip')).toBeNull();
+    const statement = screen.getByTestId('window-first-origin-statement');
+    expect(statement).toHaveTextContent('The Lake District · from Keswick');
+    expect(statement).toHaveTextContent('drive times from here');
+    // The way-home pin is a DIFFERENT control from the ⌕ search button withheld above — it is not a
+    // text field, and leaving the origin remains reachable from every tab.
+    expect(screen.getByTestId('window-first-origin-home')).toBeInTheDocument();
+  });
+
+  it('⚠️ the empty-state nudge survives untouched — CLAUDE.md\'s do-not-re-gate-the-postcode rule', () => {
+    const onSetPostcode = vi.fn();
+    renderTick({
+      isMapTab: true, homePlace: null, light: LIGHT, onSetPostcode,
+    });
+
+    expect(screen.getByTestId('masthead-set-postcode')).toBeInTheDocument();
+    // Still no caption and no search button on the map tab, but the nudge itself is the SAME
+    // button (`onSetPostcode`, not a dead statement) every other tab already renders.
+    expect(screen.queryByTestId('masthead-origin-caption')).toBeNull();
+    expect(screen.queryByTestId('window-first-search')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('masthead-set-postcode'));
+    expect(onSetPostcode).toHaveBeenCalledTimes(1);
+  });
+
+  it('other tabs are unaffected — the origin button and the ⌕ search button both still render', () => {
+    renderTick({ isMapTab: false });
+
+    expect(screen.queryByTestId('window-first-origin-statement')).toBeNull();
+    expect(screen.getByTestId('window-first-origin-chip')).toBeInTheDocument();
+    expect(screen.getByTestId('window-first-search')).toBeInTheDocument();
+  });
+});
+
 describe('MastheadTickLine — theme tokens it cites', () => {
   /**
    * Every `var(--…)` this component's stylesheet block emits must be a token `index.css` declares.

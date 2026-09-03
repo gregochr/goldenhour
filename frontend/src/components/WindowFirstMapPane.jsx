@@ -12,6 +12,7 @@ import { beyondRegions } from '../utils/planningArea.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { buildScoreIndex } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/mapCallout.js';
+import { buildRegionBestIndex } from '../utils/regionsJump.js';
 
 /**
  * The framing pad, in degrees of latitude — the bundle's own figure (`map-tab.js`), and the same
@@ -95,7 +96,6 @@ const FRAME_PAD_DEG = 0.12;
  * @param {Function} [props.onForecastRun]
  * @param {Array}    [props.seasonalFeatures]
  * @param {object}   [props.homeCoords]
- * @param {number}   [props.homeRadiusMiles]
  * @param {'temp'|'verdict'} [props.mapColourScale] the active scoreRamp mode, forwarded to
  *                                         `MapView` so a live switch reaches this pane's
  *                                         never-unmounted instance
@@ -110,7 +110,7 @@ const FRAME_PAD_DEG = 0.12;
 export default function WindowFirstMapPane({
   locations, dates, selectedDate, onSelectDate, handoff = null, autoEventType = null,
   briefingScores = new Map(),
-  onForecastRun = null, seasonalFeatures = [], homeCoords = null, homeRadiusMiles = null,
+  onForecastRun = null, seasonalFeatures = [], homeCoords = null,
   mapColourScale = null, colourScaleDefaulted = false, onOpenSettings = null,
   onOpenLocationInPlan = null,
 }) {
@@ -133,6 +133,13 @@ export default function WindowFirstMapPane({
   const scoreIndex = useMemo(() => buildScoreIndex(scoreRows), [scoreRows]);
   /** The reason prose's region-gloss fallback (map-tab-v2-plan.md §3 P9). */
   const regionGlossIndex = useMemo(() => buildRegionGlossIndex(briefing?.days), [briefing?.days]);
+  /**
+   * The Regions jump list's per-window "best score" join (map-tab-v2-plan.md §3 P11) — the served
+   * {@code BriefingRegion.bestRating}, name-keyed exactly like {@code regionGlossIndex} above, built
+   * from the SAME {@code briefing.days} so a jump row's swatch can never disagree with the region
+   * gloss or the grid cell about which briefing build it is reading.
+   */
+  const regionBestIndex = useMemo(() => buildRegionBestIndex(briefing?.days), [briefing?.days]);
 
   /**
    * The heat field's opt-in, built here and nowhere else.
@@ -281,7 +288,6 @@ export default function WindowFirstMapPane({
         onForecastRun={onForecastRun}
         seasonalFeatures={seasonalFeatures}
         homeCoords={homeCoords}
-        homeRadiusMiles={homeRadiusMiles}
         mapColourScale={mapColourScale}
         colourScaleDefaulted={colourScaleDefaulted}
         onOpenSettings={onOpenSettings}
@@ -290,6 +296,7 @@ export default function WindowFirstMapPane({
         scoreIndex={scoreIndex}
         scoresKnown={scoresLoaded}
         regionGlossIndex={regionGlossIndex}
+        regionBestIndex={regionBestIndex}
         reachById={reachById}
         onOpenLocationInPlan={onOpenLocationInPlan}
       />
@@ -315,7 +322,6 @@ WindowFirstMapPane.propTypes = {
   onForecastRun: PropTypes.func,
   seasonalFeatures: PropTypes.array,
   homeCoords: PropTypes.object,
-  homeRadiusMiles: PropTypes.number,
   /** The active `scoreRamp` mode — forwarded to `MapView` so its `React.memo` sees a live switch. */
   mapColourScale: PropTypes.oneOf(['temp', 'verdict']),
   /** Whether the colour preference was never explicitly chosen — forwarded to `MapView`'s notice. */
