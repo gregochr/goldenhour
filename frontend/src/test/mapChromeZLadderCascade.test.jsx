@@ -14,10 +14,11 @@ import {
  * <h2>Scope: what the ladder can assert TODAY</h2>
  *
  * <p>The design bundle's full ladder is heat 410 / selection ring 415 / labels 420 / chrome 1100 /
- * callout 1350 / tooltip 1400 / menus 1500. Three tiers are built as of P9 — CHROME (the window
- * control's `.wf-map-chrome-tl`, the Heat/Pins + Filters cluster's `.wf-map-chrome-tr`, and the
- * counts footer's `.wf-map-counts-footer`), CALLOUT (`.wf-selmk`/`.wf-callout`, map-tab-v2-plan.md
- * §3 P9) and MENUS (`.wf-win-menu`, `.wf-filters-panel`) — so this file asserts every relation the
+ * callout 1350 / tooltip 1400 / menus 1500. Three tiers are built as of P10 — CHROME (the window
+ * control's `.wf-map-chrome-tl`, the Heat/Pins + Filters cluster's `.wf-map-chrome-tr`, the counts
+ * footer's `.wf-map-counts-footer`, and P10's own Legend chip wrapper `.wf-map-chrome-bl`), CALLOUT
+ * (`.wf-selmk`/`.wf-callout`, map-tab-v2-plan.md §3 P9) and MENUS (`.wf-win-menu`,
+ * `.wf-filters-panel`, and P10's `.wf-legend-panel`) — so this file asserts every relation the
  * plan states in one sentence: "menus must beat the callout", which is itself only meaningful once
  * the callout beats chrome (the ordering it exists to sit above). The tooltip tier is the one
  * still without a selector here.
@@ -79,9 +80,12 @@ function sliceRules(needle) {
   return rules.join('\n');
 }
 
-const CHROME_CLASSES = ['wf-map-chrome-tl', 'wf-map-chrome-tr', 'wf-map-counts-footer'];
+const CHROME_CLASSES = ['wf-map-chrome-tl', 'wf-map-chrome-tr', 'wf-map-chrome-bl', 'wf-map-counts-footer'];
 const CALLOUT_CLASSES = ['wf-selmk', 'wf-callout'];
-const MENU_CLASSES = ['wf-win-menu', 'wf-filters-panel'];
+// `wf-legend-panel` joined at P10 (map-tab-v2-plan.md §3 P10) — the Legend popover must beat chrome
+// and the callout exactly like the window/filters menus do; it is the same popover-exclusivity
+// group (`openMapMenu`), just opening from the bottom-left chip rather than the top row.
+const MENU_CLASSES = ['wf-win-menu', 'wf-filters-panel', 'wf-legend-panel'];
 
 let styleEl;
 beforeAll(() => {

@@ -1029,3 +1029,102 @@ describe('MapHeatLayer — reach rings (map-tab-v2-plan.md §3 P8)', () => {
     }
   });
 });
+
+/**
+ * Pins mode's contract on this host (map-tab-v2-plan.md §3 P10) — `fieldEnabled={false}`. The tab's
+ * Heat/Pins segment withholds the score field (and, with it, the bloom and the reach rings) while
+ * keeping the coastline stroke drawing, because that stroke is furniture, not a claim about the
+ * data (the SAME reasoning P4's "still strokes the coast with an empty point set" test already
+ * pins for the field-has-nothing-to-paint case). The medallion markers are held fully hidden
+ * regardless of zoom — `PinsLayer` draws the dots now, so there is one place a location renders,
+ * not two.
+ */
+describe('MapHeatLayer — Pins mode (map-tab-v2-plan.md §3 P10, `fieldEnabled`)', () => {
+  // Same reset every sibling describe block in this file applies (`the land clip`/`the coastline
+  // stroke`/`reach rings`): `landMaskGet`'s `mockReturnValue` is NOT cleared by the file's own
+  // `afterEach` (`vi.clearAllMocks()` resets calls, not implementations), so without this a
+  // truthy path left behind by whichever block runs immediately before this one — in file order,
+  // "reach rings"'s own final test sets one — would leak in here.
+  beforeEach(() => {
+    landMaskGet.mockReset();
+    landMaskGet.mockReturnValue(null);
+    landMaskInvalidate.mockReset();
+    // The richer stub, not the file's own minimal `{}` default: `fieldEnabled: false` now calls
+    // `fit()` directly (to clear the canvas — see `MapHeatLayer.jsx`'s own comment on that branch),
+    // the same way the coastline stroke/reach-rings code already did, so every test in this block
+    // needs `setTransform` etc. to exist, whether or not that particular test cares about drawing.
+    HTMLCanvasElement.prototype.getContext = () => makeCanvasCtxStub();
+  });
+
+  it('defaults to true — every pre-P10 caller paints the field exactly as before', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount();
+    expect(drawTiles).toHaveBeenCalled();
+  });
+
+  it('never calls drawTiles when fieldEnabled is false', async () => {
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount({ fieldEnabled: false });
+    expect(drawTiles).not.toHaveBeenCalled();
+  });
+
+  it('still strokes the coastline from the same Path2D, with the field withheld', async () => {
+    const stubPath = { __stub: 'land' };
+    landMaskGet.mockReset();
+    landMaskGet.mockReturnValue(stubPath);
+    const ctxStub = makeCanvasCtxStub();
+    HTMLCanvasElement.prototype.getContext = () => ctxStub;
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount({ fieldEnabled: false });
+    expect(drawTiles).not.toHaveBeenCalled();
+    expect(ctxStub.stroke).toHaveBeenCalledWith(stubPath);
+    expect(ctxStub.strokeStyle).toMatch(/^rgba\(242,231,211,/);
+  });
+
+  it('clears the canvas even with no field paint to do it, so a prior Heat-mode frame cannot linger', async () => {
+    landMaskGet.mockReset();
+    landMaskGet.mockReturnValue(null);
+    const ctxStub = makeCanvasCtxStub();
+    HTMLCanvasElement.prototype.getContext = () => ctxStub;
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount({ fieldEnabled: false });
+    expect(ctxStub.clearRect).toHaveBeenCalled();
+  });
+
+  it('never draws the reach rings, even with `rings` true, a saved home and a qualifying zoom', async () => {
+    const ctxStub = makeCanvasCtxStub();
+    ctxStub.beginPath = vi.fn();
+    ctxStub.arc = vi.fn();
+    ctxStub.setLineDash = vi.fn();
+    HTMLCanvasElement.prototype.getContext = () => ctxStub;
+    landMaskGet.mockReset();
+    landMaskGet.mockReturnValue(null);
+    currentMap = makeMap({ zoom: 9, panes: markerPanes() });
+    await mount({
+      fieldEnabled: false, rings: true, homeCoords: { lat: 54.9, lon: -1.4 },
+    });
+    expect(ctxStub.arc).not.toHaveBeenCalled();
+  });
+
+  it('holds the medallions fully hidden regardless of zoom — even past the ordinary handover, where Heat mode hands them back in full', async () => {
+    // Zoom 13 is comfortably past `fadeAt`'s own band (10.4→12.0): in HEAT mode this is the "the
+    // question has become WHICH" zoom where markers return to full opacity. Pins mode must not let
+    // that zoom-keyed rule override its own "no medallions, ever" contract.
+    currentMap = makeMap({ zoom: 13, panes: markerPanes() });
+    await mount({ fieldEnabled: false });
+    expect(currentMap.panes.markerPane.style.opacity).toBe('0');
+    expect(currentMap.panes.markerPane.style.pointerEvents).toBe('none');
+    expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(true);
+  });
+
+  it('hands the marker panes back once fieldEnabled returns to true, at the same zoom', async () => {
+    currentMap = makeMap({ zoom: 13, panes: markerPanes() });
+    const { rerender } = await mount({ fieldEnabled: false });
+    expect(currentMap.panes.markerPane.style.opacity).toBe('0');
+    await act(async () => {
+      rerender(<MapHeatLayer points={POINTS} conf={1} fieldEnabled />);
+    });
+    expect(currentMap.panes.markerPane.style.opacity).toBe('1');
+    expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(false);
+  });
+});

@@ -2816,6 +2816,25 @@ button.wf-hc.also.on:hover {
   gap: 6px;
 }
 
+/* Bottom-left: the LITE viewline-upsell chip and the Legend chip (map-tab-v2-plan.md §3 P10).
+   ⚠️ These CAN render together — a LITE reader sees the upsell whenever `auroraStatus`'s ALERT
+   LEVEL is worthy, regardless of which event type is on screen, and the Legend chip only excludes
+   AURORA MODE, which a LITE reader can never enter anyway (adversarial review C1/C3: an earlier
+   revision of this comment conflated the alert-level axis with the event-type axis and claimed
+   the two chips never coexist — a live browser pass proved otherwise). So this wrapper is a real
+   flex column, not merely a positioning convenience: both chips are its plain children with no
+   `absolute` placement of their own, and stack top-to-bottom with a gap instead of overlapping. */
+.wf-map-chrome-bl {
+  position: absolute;
+  bottom: 8px;
+  left: 8px;
+  z-index: 1100;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
 /* ── The counts footer (README "§9 Count footer") ──────────────────────────────────────────────
    Bottom-centre, matching `.wf-map-key`'s pill treatment so the new chrome reads as one family
    with the old. `--color-plex-panel` opaque for the same reason every map-floating chip is: a
@@ -3343,6 +3362,187 @@ button.wf-hc.also.on:hover {
 .wf-filters-clear:hover,
 .wf-filters-clear:focus-visible {
   text-decoration: underline;
+}
+
+/* ── The Pins layer (map-tab-v2-plan.md §3 P10, README §3) ─────────────────────────────────────
+   One dot per location, no field — "the honest comparison". Same shape as the design bundle's own
+   `.pin` (`docs/design/map-tab-v2/Map Tab v2.html`): a circle, a 2px dark ring, mono numeral. Size
+   (26px named / 13px unnamed) and every colour (fill, ink, drop-shadow rim) are DATA-DRIVEN — set
+   inline per pin in `PinsLayer.jsx`, the same convention `.wf-filters-dot`/`.wf-maplab-chip-m`
+   already use for a per-item ramp colour a static class cannot express. This rule carries only the
+   shape and position. Positioned absolutely inside `.wf-maplab-layer` (reused verbatim — the pins
+   and label layers never mount together, so one pane-filling wrapper class serves both). */
+.wf-pin {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 11px;
+  border: 2px solid rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  pointer-events: auto;
+  padding: 0;
+}
+.wf-pin[data-selected='true'] {
+  box-shadow: 0 0 0 1.5px var(--color-home);
+}
+.wf-pin:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 1px;
+}
+.wf-pin-star {
+  font-size: 0.62em;
+  margin-left: 1px;
+  opacity: 0.85;
+}
+
+/* ── The Legend panel (map-tab-v2-plan.md §3 P10, README §8) ───────────────────────────────────
+   Bottom-left, opening UPWARD (`bottom: calc(100% + 6px)`, not the window/filters chips' downward
+   `top`) because the chip itself sits at the bottom of the frame. `.wf-legend-chip` takes the same
+   visual language as `.wf-filters-chip`/`.wf-win-pill` so the four top-row/bottom-row chips read as
+   one control family. Hidden entirely in Pins mode — `MapView` simply does not mount this
+   component there, the same way the ramp key beside the Heat/Pins segment is withheld. */
+.wf-legend {
+  position: relative;
+}
+.wf-legend-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 4px 12px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 999px;
+  background: var(--color-plex-panel);
+  color: var(--color-plex-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.wf-legend-chip:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 1px;
+}
+.wf-legend-panel {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 1500;
+  width: 262px;
+  max-width: calc(100vw - 32px);
+  max-height: 420px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 10px;
+  background: var(--color-plex-panel);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
+  padding: 11px 12px 12px;
+}
+/* The ramp bar — `rampGradientCss()`, NEVER the design bundle's own `.legbar` gradient (map-tab-
+   v2-plan.md §4.5): the bundle's is the stale red-amber-green ramp from before the temperature
+   scale shipped, and would invert what the field's colours mean on this tab. */
+.wf-legend-ramp {
+  height: 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+}
+.wf-legend-ramp-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-secondary);
+  margin-top: 4px;
+}
+.wf-legend-hand {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: var(--color-plex-surface);
+  border: 1px solid var(--color-plex-border);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin: 7px 0;
+}
+.wf-legend-hand-bar {
+  flex: none;
+  width: 42px;
+  height: 7px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  position: relative;
+  overflow: hidden;
+}
+/* A flat accent, not a ramp gradient — this bar tracks a ZOOM position, not a score, so painting it
+   from `rampGradientCss()` would claim a meaning ("this colour is a rating") the indicator does not
+   have; the app's own progress/active accent (`--color-home`) makes no such claim. */
+.wf-legend-hand-bar i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: var(--color-home);
+  border-radius: 999px;
+  transition: width 0.18s;
+}
+.wf-legend-hand-txt {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-secondary);
+  line-height: 1.35;
+}
+.wf-legend-hand-txt b {
+  display: block;
+  color: var(--color-plex-text);
+  font-weight: 600;
+  font-size: 10.5px;
+}
+.wf-legend-ring-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 32px;
+  padding: 7px 9px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 8px;
+  background: var(--color-plex-surface);
+  color: var(--color-plex-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  cursor: pointer;
+}
+.wf-legend-ring-box {
+  width: 11px;
+  height: 11px;
+  border-radius: 3px;
+  border: 1px solid var(--color-plex-border-light);
+  flex: none;
+}
+.wf-legend-ring-toggle.on {
+  color: #EBD9A8;
+  border-color: rgba(201, 162, 75, 0.45);
+}
+.wf-legend-ring-toggle.on .wf-legend-ring-box {
+  background: var(--color-home);
+  border-color: var(--color-home);
+}
+.wf-legend-ring-toggle:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 1px;
+}
+.wf-legend-note {
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--color-plex-text-muted);
+  margin-top: 2px;
 }
 
 /* ── Selection: the ring + the callout (map-tab-v2-plan.md §3 P9, README §7) ───────────────────

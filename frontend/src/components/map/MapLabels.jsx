@@ -39,16 +39,17 @@ const LABEL_PANE_Z = 650;
  * from `map.getContainer().parentElement` — the wrapper `MapView` renders both the Leaflet
  * container and these React-rendered siblings into.
  *
- * <p>Only the Regions jump list and the Legend panel (P10/P11) are genuinely still pending —
- * everything else here (including the bottom-right zoom + ⌂ stack) is P7 chrome already on
- * screen.
+ * <p>Only the Regions jump list (P11) is genuinely still pending — everything else here (including
+ * the bottom-right zoom + ⌂ stack and P10's own Legend chip/panel) is chrome already on screen.
  */
 const OBSTACLE_SELECTOR = [
   '[data-testid="wf-map-chrome-tl"]',
   '[data-testid="wf-map-chrome-tr"]',
+  '[data-testid="wf-map-chrome-bl"]',
   '[data-testid="wf-map-counts-footer"]',
   '[data-testid="wf-win-menu"]',
   '[data-testid="wf-filters-panel"]',
+  '[data-testid="wf-legend-panel"]',
   '[data-testid="colour-scale-notice"]',
   '[data-testid="viewline-upsell-chip"]',
   '[data-testid="photocast-scored-legend"]',
