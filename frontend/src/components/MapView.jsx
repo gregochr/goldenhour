@@ -2543,7 +2543,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
   return (
     <div
-      className={overlayMode ? 'flex flex-col' : 'flex flex-col flex-1 min-h-0'}
+      // `wf-map-tab` is a pure CSS scoping hook (map-tab-v2-plan.md §3 P12) — the phone media
+      // query needs to hide Leaflet's OWN zoom control (a real `.leaflet-control-zoom` DOM node
+      // this component never renders itself, so there is no React-owned element to gate) on the
+      // TAB only, never the overlay, whose own mount never carries this class.
+      className={overlayMode ? 'flex flex-col' : 'flex flex-col flex-1 min-h-0 wf-map-tab'}
       onKeyDown={overlayMode ? undefined : handleMapPaneKeyDown}
     >
       {overlayMode && (
@@ -3547,7 +3551,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 Both chips are plain flex children of ONE positioned wrapper now — neither carries
                 its own `absolute` placement any more — so they can only ever stack with a gap,
                 never overlap. */}
-            {(showViewlineUpsell || (heatOffered && heatView === 'heat')) && (
+            {(showViewlineUpsell || (heatOffered && heatView === 'heat' && !isMobile)) && (
               <div className="wf-map-chrome-bl" data-testid="wf-map-chrome-bl">
                 {showViewlineUpsell && (
                   <div
@@ -3567,7 +3571,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                     </button>
                   </div>
                 )}
-                {heatOffered && heatView === 'heat' && (
+                {heatOffered && heatView === 'heat' && !isMobile && (
                   <MapLegendPanel
                     open={openMapMenu === 'legend'}
                     onOpenChange={(next) => setOpenMapMenu(next ? 'legend' : null)}
@@ -3620,7 +3624,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                   )}
                 </span>
                 {countsSecondLine && (
-                  <span data-testid="wf-map-counts-second">{countsSecondLine}</span>
+                  <span data-testid="wf-map-counts-second" className="wf-map-counts-second">{countsSecondLine}</span>
                 )}
               </div>
             )}

@@ -13,11 +13,18 @@ import { rampHex, rampRgb, rgb } from '../../utils/scoreRamp.js';
 import { eventInstantOf, lookupForWindow } from '../../utils/locationSheet.js';
 import { DISPLAY_TYPES, locationTypeLabel } from '../../utils/locationTypes.js';
 import { readableInkOn } from '../../utils/windowFirstSpots.js';
+import { useIsMobile } from '../../hooks/useIsMobile.js';
 
-/** The desktop card width (README §7: "286px (266px mobile)"). The 266px collapsed-strip phone
- * variant is P12's polish (map-tab-v2-plan.md §3 P9) — not built here, but nothing here precludes
- * it: the card's width is this one constant, not hardcoded per rule. */
+/** The desktop/tablet card width (README §7: "286px (266px mobile)"). */
 const CALLOUT_WIDTH = 286;
+
+/** The phone width (map-tab-v2-plan.md §3 P12) — narrower because the strip, when opened, is a
+ * 3-column grid, and 266px is the point the bundle measured it staying legible at. The strip
+ * itself defaults collapsed on EVERY viewport (`stripOpen`'s own `useState(false)` below) — the
+ * ~427px expanded height README §7 records is the reason it stays that way rather than a runtime
+ * gate this component enforces; the generic band/anchor maths already re-clamp around whatever
+ * height the card measures at, on any width. */
+const CALLOUT_WIDTH_MOBILE = 266;
 
 /** "Zoom to it" floors the zoom rather than merely flying to the point (README §7 actions). */
 const ZOOM_TO_FLOOR = 12.6;
@@ -148,6 +155,8 @@ export default function MapCallout({
   onSelectEv = null, onOpenInPlan = null, onClose = null,
 }) {
   const map = useMap();
+  const isMobile = useIsMobile();
+  const calloutWidth = isMobile ? CALLOUT_WIDTH_MOBILE : CALLOUT_WIDTH;
   const [stripOpen, setStripOpen] = useState(false);
   /** The candidate anchor point + band for the CURRENT paint — no DOM measurement yet. */
   const [frame, setFrame] = useState(null);
@@ -354,7 +363,7 @@ export default function MapCallout({
         aria-label={`${location.name}, selected`}
         data-testid="map-callout"
         style={{
-          width: `${CALLOUT_WIDTH}px`,
+          width: `${calloutWidth}px`,
           ...(box
             ? { left: `${box.left}px`, top: `${box.top}px` }
             : { left: '-9999px', top: '0px', visibility: 'hidden' }),

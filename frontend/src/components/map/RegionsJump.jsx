@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
+import BottomSheet from '../BottomSheet.jsx';
+import { useIsMobile } from '../../hooks/useIsMobile.js';
 
 /**
  * The Map tab's Regions jump list (map-tab-v2-plan.md §3 P11,
@@ -16,6 +18,14 @@ import { formatDriveDuration } from '../../utils/briefingDisplay.js';
  * SAME data every other chrome on this tab reads, so a second implementation cannot disagree with
  * the first about where a region sits.
  *
+ * <h2>Phone: the same rows, in a {@code BottomSheet} (map-tab-v2-plan.md §3 P12)</h2>
+ *
+ * <p>README "Responsive" table: the 300px popover becomes a bottom sheet under the app's own
+ * {@code useIsMobile} breakpoint, the exact same treatment `FiltersPopover` takes and for the same
+ * reasons — see that component's class doc for the full reasoning (shared row markup, `modal={false}`
+ * because this is a disclosure widget rather than a dialog, and the outside-click listener gated off
+ * on the phone because `BottomSheet` owns its own backdrop dismissal there).
+ *
  * @param {object} props
  * @param {boolean} props.open
  * @param {Function} props.onOpenChange
@@ -27,16 +37,18 @@ export default function RegionsJump({
   open, onOpenChange, rows, onSelectRegion,
 }) {
   const rootRef = useRef(null);
+  const isMobile = useIsMobile();
 
   useEffect(() => {
-    if (!open) return undefined;
+    // Desktop/tablet only — `FiltersPopover`'s identical guard, for the identical reason.
+    if (!open || isMobile) return undefined;
     function onDocMouseDown(e) {
       if (rootRef.current && !rootRef.current.contains(e.target)) onOpenChange(false);
     }
     document.addEventListener('mousedown', onDocMouseDown);
     return () => document.removeEventListener('mousedown', onDocMouseDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  }, [open, isMobile]);
 
   function onKeyDown(e) {
     if (e.key === 'Escape' && open) {
@@ -44,6 +56,37 @@ export default function RegionsJump({
       onOpenChange(false);
     }
   }
+
+  // The rows themselves — identical on every viewport. Only the wrapper differs (popover on
+  // desktop/tablet, `BottomSheet` on the phone), `FiltersPopover`'s own pattern.
+  const panelBody = rows.length === 0 ? (
+    <div data-testid="wf-jump-empty" className="wf-jump-empty">No regions yet</div>
+  ) : rows.map((row) => (
+    <button
+      key={row.name}
+      type="button"
+      data-testid="wf-jump-row"
+      className="wf-jump-row"
+      onClick={() => onSelectRegion(row.name)}
+    >
+      <span className="wf-jump-name">{row.name}</span>
+      <span data-testid="wf-jump-drive" className="wf-jump-drive">
+        {row.driveMinutes != null
+          ? `${formatDriveDuration(row.driveMinutes)}${row.beyondArea ? ' · beyond your area' : ''}`
+          : ''}
+      </span>
+      <span className="wf-jump-score">
+        {row.bestRating != null ? (
+          <>
+            <i aria-hidden="true" style={{ background: rampHex(row.bestRating) }} />
+            {row.bestRating}&#9733;
+          </>
+        ) : (
+          <span className="wf-jump-unscored">&mdash;</span>
+        )}
+      </span>
+    </button>
+  ));
 
   return (
     // eslint-disable-next-line jsx-a11y/no-static-element-interactions
@@ -54,6 +97,7 @@ export default function RegionsJump({
         className="wf-jump-chip"
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-controls="wf-jump-menu"
         onClick={() => onOpenChange(!open)}
       >
         <span aria-hidden="true">&#9678; </span>
@@ -61,37 +105,18 @@ export default function RegionsJump({
         <span aria-hidden="true" className="wf-win-caret">&#9662;</span>
       </button>
 
-      {open && (
-        <div data-testid="wf-jump-menu" className="wf-jump-menu" role="dialog" aria-label="Jump to a region">
-          {rows.length === 0 ? (
-            <div data-testid="wf-jump-empty" className="wf-jump-empty">No regions yet</div>
-          ) : rows.map((row) => (
-            <button
-              key={row.name}
-              type="button"
-              data-testid="wf-jump-row"
-              className="wf-jump-row"
-              onClick={() => onSelectRegion(row.name)}
-            >
-              <span className="wf-jump-name">{row.name}</span>
-              <span data-testid="wf-jump-drive" className="wf-jump-drive">
-                {row.driveMinutes != null
-                  ? `${formatDriveDuration(row.driveMinutes)}${row.beyondArea ? ' · beyond your area' : ''}`
-                  : ''}
-              </span>
-              <span className="wf-jump-score">
-                {row.bestRating != null ? (
-                  <>
-                    <i aria-hidden="true" style={{ background: rampHex(row.bestRating) }} />
-                    {row.bestRating}&#9733;
-                  </>
-                ) : (
-                  <span className="wf-jump-unscored">&mdash;</span>
-                )}
-              </span>
-            </button>
-          ))}
-        </div>
+      {isMobile ? (
+        <BottomSheet open={open} onClose={() => onOpenChange(false)} label="Jump to a region" modal={false}>
+          <div id="wf-jump-menu" data-testid="wf-jump-menu" className="wf-jump-sheet">
+            {panelBody}
+          </div>
+        </BottomSheet>
+      ) : (
+        open && (
+          <div id="wf-jump-menu" data-testid="wf-jump-menu" className="wf-jump-menu" role="dialog" aria-label="Jump to a region">
+            {panelBody}
+          </div>
+        )
       )}
     </div>
   );

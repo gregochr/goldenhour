@@ -14,14 +14,14 @@ import {
  * <h2>Scope: what the ladder can assert TODAY</h2>
  *
  * <p>The design bundle's full ladder is heat 410 / selection ring 415 / labels 420 / chrome 1100 /
- * callout 1350 / tooltip 1400 / menus 1500. Three tiers are built as of P10 — CHROME (the window
+ * callout 1350 / tooltip 1400 / menus 1500. Four tiers are built as of P12 — CHROME (the window
  * control's `.wf-map-chrome-tl`, the Heat/Pins + Filters cluster's `.wf-map-chrome-tr`, the counts
  * footer's `.wf-map-counts-footer`, and P10's own Legend chip wrapper `.wf-map-chrome-bl`), CALLOUT
- * (`.wf-selmk`/`.wf-callout`, map-tab-v2-plan.md §3 P9) and MENUS (`.wf-win-menu`,
- * `.wf-filters-panel`, and P10's `.wf-legend-panel`) — so this file asserts every relation the
- * plan states in one sentence: "menus must beat the callout", which is itself only meaningful once
- * the callout beats chrome (the ordering it exists to sit above). The tooltip tier is the one
- * still without a selector here.
+ * (`.wf-selmk`/`.wf-callout`, map-tab-v2-plan.md §3 P9), TOOLTIP (`.wf-maplab-tip`, P8's desktop
+ * hover card, joined at P12) and MENUS (`.wf-win-menu`, `.wf-filters-panel`, and P10's
+ * `.wf-legend-panel`) — so this file asserts every relation the plan states in one sentence: "menus
+ * must beat the callout" and "menus > tooltip > callout > chrome" (P12's own restatement), the
+ * latter only meaningful once the callout beats chrome (the ordering it exists to sit above).
  *
  * <p>⚠️ The ring/callout do NOT sit at the bundle's own 415/1350 relative to labels — they are
  * ABOVE this app's real label pane (650, a Leaflet pane set in JS, not a class this slicer can
@@ -86,16 +86,20 @@ const CALLOUT_CLASSES = ['wf-selmk', 'wf-callout'];
 // and the callout exactly like the window/filters menus do; it is the same popover-exclusivity
 // group (`openMapMenu`), just opening from the bottom-left chip rather than the top row.
 const MENU_CLASSES = ['wf-win-menu', 'wf-filters-panel', 'wf-legend-panel'];
+// `wf-maplab-tip` joined at P12 (map-tab-v2-plan.md §3 P12) — `MapLabels.jsx`'s desktop hover
+// tooltip, shipped at P8 with the ladder's reserved 1400 but never asserted here until P12's own
+// z-relation sweep asked for the full "menus > tooltip > callout > chrome" chain.
+const TOOLTIP_CLASSES = ['wf-maplab-tip'];
 
 let styleEl;
 beforeAll(() => {
-  const slice = [...CHROME_CLASSES, ...CALLOUT_CLASSES, ...MENU_CLASSES]
+  const slice = [...CHROME_CLASSES, ...CALLOUT_CLASSES, ...TOOLTIP_CLASSES, ...MENU_CLASSES]
     .map((cls) => sliceRules(`.${cls}`)).join('\n');
   // Fail loudly rather than silently injecting nothing — a no-match extraction would leave every
   // probe element's z-index as `auto` and the ">" assertions below would pass for the wrong
   // reason (`auto` compares as `NaN` against a number, and `NaN > NaN` is false — so this guard
   // is what stands between a real pass and a silently-skipped one).
-  for (const cls of [...CHROME_CLASSES, ...CALLOUT_CLASSES, ...MENU_CLASSES]) {
+  for (const cls of [...CHROME_CLASSES, ...CALLOUT_CLASSES, ...TOOLTIP_CLASSES, ...MENU_CLASSES]) {
     expect(slice, `no rule found for .${cls} in index.css`).toContain(`.${cls} {`);
   }
   styleEl = document.createElement('style');
@@ -149,5 +153,33 @@ describe('the Map tab\'s full-frame chrome z-ladder (map-tab-v2-plan.md §3 P7)'
 
   it('the callout card sits above its own selection ring', () => {
     expect(zIndexOf('wf-callout')).toBeGreaterThan(zIndexOf('wf-selmk'));
+  });
+
+  // ── The tooltip tier, joined at P12 (map-tab-v2-plan.md §3 P12's "menus > tooltip > callout >
+  // chrome" sweep) — the one tier the class doc above used to record as "still without a selector
+  // here".
+  it.each(TOOLTIP_CLASSES)('.%s (the desktop hover tooltip) sits at the tooltip tier (1400)', (cls) => {
+    expect(zIndexOf(cls)).toBe(1400);
+  });
+
+  it.each(TOOLTIP_CLASSES)('.%s (tooltip) beats every chrome chip', (tipCls) => {
+    const tipZ = zIndexOf(tipCls);
+    for (const chromeCls of CHROME_CLASSES) {
+      expect(tipZ).toBeGreaterThan(zIndexOf(chromeCls));
+    }
+  });
+
+  it.each(TOOLTIP_CLASSES)('.%s (tooltip) beats the callout — "menus > tooltip > callout > chrome"', (tipCls) => {
+    const tipZ = zIndexOf(tipCls);
+    for (const calloutCls of CALLOUT_CLASSES) {
+      expect(tipZ).toBeGreaterThan(zIndexOf(calloutCls));
+    }
+  });
+
+  it.each(MENU_CLASSES)('.%s (menus) beats the tooltip — a menu must never paint under a hover card', (menuCls) => {
+    const menuZ = zIndexOf(menuCls);
+    for (const tipCls of TOOLTIP_CLASSES) {
+      expect(menuZ).toBeGreaterThan(zIndexOf(tipCls));
+    }
   });
 });

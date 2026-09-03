@@ -21,6 +21,12 @@ import { buildRegionGlossIndex } from '../utils/mapCallout.js';
 let currentMap = null;
 vi.mock('react-leaflet', () => ({ useMap: () => currentMap }));
 
+// Mutable per-test, `FiltersPopover.test.jsx`'s own pattern — defaults to desktop/tablet (286px),
+// so every EXISTING test in this file (none of which mention width) is unaffected; only the phone
+// describe block below (map-tab-v2-plan.md §3 P12) flips it to exercise the 266px card.
+let mockIsMobile = false;
+vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => mockIsMobile }));
+
 import MapCallout from '../components/map/MapCallout.jsx';
 
 /** Measures every element the same fixed size — the component's own two-pass measure-then-place
@@ -124,6 +130,7 @@ function scoreRow(overrides = {}) {
 let frames = [];
 beforeEach(() => {
   frames = [];
+  mockIsMobile = false;
   global.requestAnimationFrame = (cb) => { frames.push(cb); return frames.length; };
   global.cancelAnimationFrame = (id) => { frames[id - 1] = null; };
 });
@@ -522,5 +529,40 @@ describe('MapCallout — anchoring lifecycle', () => {
   it('renders nothing with no location selected', async () => {
     const { container } = await mount({ location: null });
     expect(container.textContent).toBe('');
+  });
+});
+
+describe('MapCallout — phone width (map-tab-v2-plan.md §3 P12, README §7: "286px (266px mobile)")', () => {
+  let restore;
+  beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
+  afterEach(() => restore());
+
+  it('renders at 286px on desktop/tablet', async () => {
+    mockIsMobile = false;
+    await mount();
+    expect(screen.getByTestId('map-callout').style.width).toBe('286px');
+  });
+
+  it('renders at 266px on the phone — the same card, narrower, not a second component', async () => {
+    mockIsMobile = true;
+    await mount();
+    expect(screen.getByTestId('map-callout').style.width).toBe('266px');
+  });
+
+  it('the every-window strip still defaults collapsed on the phone, exactly as it does everywhere else', async () => {
+    // README §7: collapsed by default because the expanded strip's ~427px height is why it
+    // collapses on a phone at all — but the default itself is universal (`stripOpen`'s own
+    // `useState(false)`), not a phone-specific gate this component adds.
+    mockIsMobile = true;
+    await mount();
+    expect(screen.queryByTestId('map-callout-strip')).not.toBeInTheDocument();
+    expect(screen.getByTestId('map-callout-strip-toggle')).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('the strip still expands on tap on the phone — collapsed by default, not fixed shut', async () => {
+    mockIsMobile = true;
+    await mount();
+    fireEvent.click(screen.getByTestId('map-callout-strip-toggle'));
+    expect(screen.getByTestId('map-callout-strip')).toBeInTheDocument();
   });
 });

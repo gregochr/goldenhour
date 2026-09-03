@@ -7,13 +7,33 @@ import useDialogFocus from '../hooks/useDialogFocus.js';
  * Mobile bottom sheet overlay. Slides up from the bottom of the viewport
  * with a semi-transparent backdrop. Tap the backdrop or close button to dismiss.
  *
+ * <p>Full-bleed (`left-0 right-0`), not the design bundle's own `left/right: 10px` inset —
+ * map-tab-v2-plan.md §3 P12's Filters/Regions phone sheets keep this component exactly as every
+ * other caller already has it, trading the bundle's literal pixel spec for one shared layout every
+ * `BottomSheet` in the app already agrees on, rather than growing a second, inset-only variant.
+ *
  * @param {object} props
  * @param {boolean} props.open - Whether the sheet is visible.
  * @param {function} props.onClose - Called when the user dismisses the sheet.
  * @param {string} [props.label] - The sheet's accessible name.
+ * @param {boolean} [props.modal] - ARIA SEMANTICS ONLY — whether this sheet claims modality
+ *        (`aria-modal="true"`). Defaults to `true`, unchanged for every existing caller. Pass
+ *        `false` for a sheet that is standing in for a DISCLOSURE widget rather than a dialog —
+ *        map-tab-v2-plan.md §3 P12's phone Filters/Regions menus, which are `FiltersPopover`/
+ *        `RegionsJump`'s own popovers on desktop (no `aria-modal` there either). Focus is never
+ *        trapped either way — `useDialogFocus` below is focus-in-and-restore, not containment, the
+ *        app-wide rule `useDialogFocus`'s own class doc records. ⚠️ Every OTHER behaviour of this
+ *        component is unaffected by `modal` and stays sheet-standard regardless: the full-viewport
+ *        backdrop still catches every pointer event behind it and still dismisses on tap, and body
+ *        scroll still locks while the sheet is open. That is a deliberate choice for a phone sheet
+ *        standing over a pannable map — a `false` disclosure widget that let the map underneath pan
+ *        or scroll through its own backdrop would be new behaviour, not a straight `aria-modal`
+ *        swap, and is out of this prop's scope entirely.
  * @param {React.ReactNode} props.children - Content rendered inside the sheet.
  */
-export default function BottomSheet({ open, onClose, label = 'Details', children }) {
+export default function BottomSheet({
+  open, onClose, label = 'Details', modal = true, children,
+}) {
   // Prevent body scroll while open
   useEffect(() => {
     if (!open) return;
@@ -47,7 +67,7 @@ export default function BottomSheet({ open, onClose, label = 'Details', children
         ref={dialogRef}
         tabIndex={-1}
         role="dialog"
-        aria-modal="true"
+        aria-modal={modal ? 'true' : undefined}
         // Named at last. A role="dialog" with no accessible name announces as "dialog" and nothing
         // else, so a screen-reader user was told something had opened but not what.
         aria-label={label}
@@ -84,5 +104,6 @@ BottomSheet.propTypes = {
   open: PropTypes.bool.isRequired,
   onClose: PropTypes.func.isRequired,
   label: PropTypes.string,
+  modal: PropTypes.bool,
   children: PropTypes.node,
 };

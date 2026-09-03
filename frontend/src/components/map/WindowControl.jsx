@@ -150,6 +150,7 @@ export default function WindowControl({
         className="wf-win-pill"
         aria-haspopup="listbox"
         aria-expanded={open}
+        aria-controls="wf-win-menu"
         title={active?.rosterNote || undefined}
         onClick={() => setOpen((v) => !v)}
       >
@@ -181,7 +182,7 @@ export default function WindowControl({
       </button>
 
       {open && (
-        <div data-testid="wf-win-menu" className="wf-win-menu" role="listbox" aria-label="Choose an event">
+        <div id="wf-win-menu" data-testid="wf-win-menu" className="wf-win-menu" role="listbox" aria-label="Choose an event">
           {groups.map((group) => (
             <div key={group.date}>
               <div data-testid="wf-win-day" className="wf-win-day">
