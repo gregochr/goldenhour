@@ -2951,7 +2951,24 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               />
             </Suspense>
           )}
-          {heatOffered && (
+          {/* ⚠️ Gated on `!overlayMode`, NOT `heatOffered` (PR #740 review — a confirmed Codex
+              finding). `heatOffered` is `Boolean(heat?.enabled) && !isAuroraMode` — false for the
+              whole time an aurora window is active — but `RegionsJump`/`⌂` are mounted regardless
+              of aurora mode and write ONLY `jumpFitOverride`/`heatArea`/`heatFitNonce`, which this
+              controller is the SOLE reader of. Gating the controller itself on `heatOffered` meant
+              a jump or a `⌂` press during an aurora window silently moved nothing (the state changed,
+              nothing was mounted to act on it) — and switching back to a solar window did not
+              recover it either: `HeatBoundsController`'s own `applied` ref starts `null` on every
+              fresh mount, and its effect's FIRST run always records the current key as the baseline
+              WITHOUT firing (by design, for the "MapContainer already opened here" race) — so a
+              pending fit from while it was unmounted is adopted as "already applied" and silently
+              dropped, not replayed. Every input here is already aurora-safe: `heat.spots`/
+              `heat.areaSpots`/`heat.areaBounds`/`heat.catalogueBounds` come from the briefing-wide
+              `heat` prop, which does not vary with the active event type, so a region jump made
+              during an aurora window still resolves and fits that region's own location bounds
+              exactly as it does for a solar one. The overlay keeps its own untouched machinery
+              (`overlayMode` true here means this whole controller is simply absent, as before). */}
+          {!overlayMode && (
             <HeatBoundsController bounds={heatBounds} nonce={heatBoundsNonce} padding={heatBoundsPadding} />
           )}
           {/* CARTO's basemaps.cartocdn.com dark_all tiles now require a registered API key

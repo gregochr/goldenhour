@@ -80,7 +80,11 @@ vi.mock('../components/MapHeatLayer.jsx', () => ({
 
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'PRO_USER' }) }));
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => false }));
-vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: null }) }));
+// A mutable outer binding rather than a fixed `{ status: null }` — `MapViewHeat.test.jsx`'s own
+// idiom — so a test can enter aurora mode (`auroraStatus = { active: true, level: 'QUIET' }`) for
+// the PR #740 review's aurora-mode `⌂` case below, without touching every other test's default.
+let auroraStatus = null;
+vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: auroraStatus }) }));
 vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
 vi.mock('../api/auroraApi.js', () => ({
   getAuroraLocations: vi.fn().mockResolvedValue([]),
@@ -106,6 +110,7 @@ vi.mock('../components/markerUtils.js', () => ({
 }));
 
 import MapView from '../components/MapView.jsx';
+import { latLngBounds } from '../utils/heatGeometry.js';
 
 const TODAY = '2026-01-15';
 const HOME = { lat: 54.97, lon: -1.61 };
@@ -147,6 +152,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
   localStorage.clear();
   flyTo.mockClear();
+  auroraStatus = null;
   removedControls.length = 0;
   corner = document.createElement('div');
   corner.className = 'leaflet-top leaflet-left';
@@ -333,6 +339,103 @@ describe('centre on home — ⌂ resets scope to My area and refits (map-tab-v2-
     fireEvent.click(screen.getByTestId('centre-on-home'));
 
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(mapStub.fitBounds).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * PR #740 review (a confirmed Codex finding): `HeatBoundsController` — the SOLE reader of
+ * `jumpFitOverride`/`heatArea`/`heatFitNonce` — used to be gated on `heatOffered`
+ * (`Boolean(heat?.enabled) && !isAuroraMode`), which is false for the whole time an aurora window is
+ * active. `RegionsJump` and `⌂` are mounted regardless of aurora mode, so a jump or a `⌂` press
+ * during one wrote state nothing was mounted to act on — a completed-looking press (the menu closed,
+ * or Settings did not open) that silently moved nothing. Fixed by mounting the controller on
+ * `!overlayMode` instead, matching `⌂`'s own gate exactly (`MapView.jsx`'s `HeatBoundsController`
+ * mount comment carries the full reasoning, including why every input it reads stays valid in aurora
+ * mode: `heat.spots`/`heat.areaSpots`/`heat.areaBounds`/`heat.catalogueBounds` come from the
+ * briefing-wide `heat` prop, which does not vary with the active event type).
+ */
+describe('centre on home — the camera controller stays mounted through aurora mode (PR #740 review)', () => {
+  it('⌂ still resets scope and refits during an aurora window', async () => {
+    auroraStatus = { active: true, level: 'QUIET' };
+    await renderHeatMap({ homeCoords: HOME, heat: heatProp(), handoffEventType: 'AURORA' });
+    // Sanity: genuinely in aurora mode, not merely passing the prop.
+    expect(screen.queryByTestId('wf-map-toolbar')).toBeNull();
+    openFilters();
+    fireEvent.click(screen.getByRole('button', { name: 'Whole catalogue' }));
+    mapStub.fitBounds.mockClear();
+
+    fireEvent.click(screen.getByTestId('centre-on-home'));
+
+    expect(mapStub.fitBounds).toHaveBeenCalledTimes(1);
+    expect(mapStub.fitBounds).toHaveBeenCalledWith(AREA_BOUNDS, { padding: [28, 28], animate: false });
+  });
+
+  it('selecting a jump row still fits the map during an aurora window', async () => {
+    auroraStatus = { active: true, level: 'QUIET' };
+    await renderHeatMap({ homeCoords: HOME, heat: heatProp(), handoffEventType: 'AURORA' });
+    expect(screen.queryByTestId('wf-map-toolbar')).toBeNull();
+    mapStub.fitBounds.mockClear();
+
+    fireEvent.click(screen.getByTestId('wf-jump-chip'));
+    fireEvent.click(screen.getAllByTestId('wf-jump-row').find((r) => r.textContent.includes('The Borders')));
+
+    const borderSpots = SPOTS.filter((s) => s.regionName === 'The Borders');
+    expect(mapStub.fitBounds).toHaveBeenCalledTimes(1);
+    expect(mapStub.fitBounds).toHaveBeenCalledWith(latLngBounds(borderSpots, 0.06), { padding: [40, 40], animate: false });
+  });
+
+  it('a pending fit made in aurora mode is not silently dropped when switching back to a solar window', async () => {
+    // ⚠️ This is what the OLD `heatOffered` gate broke a second way: unmounting/remounting
+    // `HeatBoundsController` resets its own `applied` ref to `null`, and that ref's documented rule
+    // is that the FIRST effect run after a fresh mount always adopts the current key as the baseline
+    // WITHOUT firing (the "MapContainer already opened here" race it exists to avoid) — so a jump
+    // made while the controller did not exist would have been silently adopted as "already applied"
+    // the moment it reappeared, rather than replayed. With the controller mounted throughout
+    // (`!overlayMode`, never `heatOffered`), it never unmounts on an aurora↔solar switch, so there is
+    // no remount to lose the pending fit to — asserted here by proving the fit actually happens.
+    //
+    // The switch itself goes through a fresh `handoffEventType` rather than `WindowControl` — this
+    // file's `heatProp()` carries no served windows (`windows: []`), so `WindowControl` itself
+    // renders nothing at all here (`events.length === 0` → `null`); the handoff is MapView's own,
+    // independent route into a solar event type and exercises the exact same `eventType`/
+    // `isAuroraMode`/`heatOffered` transition.
+    auroraStatus = { active: true, level: 'QUIET' };
+    const { rerender } = await renderHeatMap({ homeCoords: HOME, heat: heatProp(), handoffEventType: 'AURORA' });
+    expect(screen.queryByTestId('wf-map-toolbar')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('wf-jump-chip'));
+    fireEvent.click(screen.getAllByTestId('wf-jump-row').find((r) => r.textContent.includes('The Borders')));
+    const borderSpots = SPOTS.filter((s) => s.regionName === 'The Borders');
+    expect(mapStub.fitBounds).toHaveBeenCalledWith(latLngBounds(borderSpots, 0.06), { padding: [40, 40], animate: false });
+    mapStub.fitBounds.mockClear();
+
+    // Switch back to a solar window — `heatOffered` becomes true again, but the controller was never
+    // unmounted, so this must NOT re-fire the SAME fit a second time (no stale double-fit) and must
+    // not have silently discarded it either (the assertion above already proved it landed).
+    await act(async () => {
+      rerender(
+        <MapView
+          locations={[{
+            name: 'Loc0',
+            lat: 55,
+            lon: -1.7,
+            locationType: ['LANDSCAPE'],
+            forecastsByDate: new Map([[TODAY, {
+              sunset: { rating: 4, solarEventTime: `${TODAY}T16:12:00` },
+              sunrise: { rating: 4, solarEventTime: `${TODAY}T08:24:00` },
+            }]]),
+          }]}
+          date={TODAY}
+          autoEventType={null}
+          homeCoords={HOME}
+          heat={heatProp()}
+          handoffEventType="SUNSET"
+        />,
+      );
+    });
+    expect(screen.getByTestId('wf-map-toolbar')).toBeInTheDocument(); // sanity: back in a live mode
+
     expect(mapStub.fitBounds).not.toHaveBeenCalled();
   });
 });
