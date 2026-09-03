@@ -48,6 +48,16 @@ describe('MapLegendPanel — the chip', () => {
     rerender(<MapLegendPanel {...baseProps({ open: true })} />);
     expect(screen.getByTestId('wf-legend-chip')).toHaveAttribute('aria-expanded', 'true');
   });
+
+  it('names the panel it controls via aria-controls, matching the panel\'s own id (map-tab-v2-plan.md §3 P12)', () => {
+    const { rerender } = render(<MapLegendPanel {...baseProps({ open: false })} />);
+    expect(screen.getByTestId('wf-legend-chip')).toHaveAttribute('aria-controls', 'wf-legend-panel');
+    rerender(<MapLegendPanel {...baseProps({ open: true })} />);
+    expect(screen.getByTestId('wf-legend-panel')).toHaveAttribute('id', 'wf-legend-panel');
+    // A disclosure widget, not a dialog — no aria-modal, and this component never calls
+    // `useDialogFocus`, so there is no focus trap to disable.
+    expect(screen.getByTestId('wf-legend-panel')).not.toHaveAttribute('aria-modal');
+  });
 });
 
 describe('MapLegendPanel — close semantics (the exclusivity group)', () => {

@@ -102,6 +102,26 @@ describe('WindowControl — the pill', () => {
   });
 });
 
+describe('WindowControl — disclosure semantics (map-tab-v2-plan.md §3 P12 a11y sweep)', () => {
+  it('the pill names the dropdown it controls via aria-controls, matching the dropdown\'s own id', () => {
+    renderControl();
+    const pill = screen.getByTestId('wf-win-pill');
+    expect(pill).toHaveAttribute('aria-controls', 'wf-win-menu');
+    fireEvent.click(pill);
+    expect(screen.getByTestId('wf-win-menu')).toHaveAttribute('id', 'wf-win-menu');
+  });
+
+  it('carries no aria-modal and no focus trap — a disclosure widget, not a dialog', () => {
+    renderControl();
+    const pill = screen.getByTestId('wf-win-pill');
+    fireEvent.click(pill);
+    const menu = screen.getByTestId('wf-win-menu');
+    expect(menu).not.toHaveAttribute('aria-modal');
+    // Tab still reaches the rest of the page — no `tabindex`-manipulating containment here at all,
+    // the app-wide rule `useDialogFocus`'s own class doc records (this component never calls it).
+  });
+});
+
 describe('WindowControl — steppers', () => {
   it('steps forward, calling onSelect with the NEXT row (never an index)', () => {
     const { onSelect } = renderControl({ activeIndex: 1 });

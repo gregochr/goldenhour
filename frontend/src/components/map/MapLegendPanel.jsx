@@ -105,6 +105,7 @@ export default function MapLegendPanel({
         className="wf-legend-chip"
         aria-haspopup="dialog"
         aria-expanded={open}
+        aria-controls="wf-legend-panel"
         onClick={() => onOpenChange(!open)}
       >
         <span aria-hidden="true">&#9636; </span>
@@ -113,7 +114,7 @@ export default function MapLegendPanel({
       </button>
 
       {open && (
-        <div data-testid="wf-legend-panel" className="wf-legend-panel" role="dialog" aria-label="Map legend">
+        <div id="wf-legend-panel" data-testid="wf-legend-panel" className="wf-legend-panel" role="dialog" aria-label="Map legend">
           <div
             data-testid="wf-legend-ramp"
             className="wf-legend-ramp"

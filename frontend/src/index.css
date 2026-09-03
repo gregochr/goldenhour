@@ -2886,6 +2886,176 @@ button.wf-hc.also.on:hover {
   color: #EBD9A8;
 }
 
+/* ── Phone chrome re-arrangement (map-tab-v2-plan.md §3 P12, README "Responsive" table) ─────────
+   Everything in this block is scoped to `.wf-map-tab` — the TAB's own root wrapper
+   (`MapView.jsx`), never present on the Plan-tab overlay's mount — so none of it can reach the
+   overlay, which the plan requires stay untouched at every viewport.
+
+   Window control: full-width across the top (the pill itself grows via `.wf-win-pill`'s own
+   media query above; this box only needs to stop clearing Leaflet's top-left corner and span the
+   frame instead). Regions / Heat-Pins / Filters: a thumb-reachable BOTTOM BAR, the prototype's
+   `#gnav{bottom:12px;justify-content:space-between} .seg{flex:1}` — the THREE direct children
+   (`RegionsJump`'s own root, the Heat/Pins toolbar cluster, `FiltersPopover`'s own root) share the
+   bar equally. Counts footer: lifted above the bottom bar, second line (the "Beyond 3h" area note)
+   hidden — the first line's "N named · M rated of K" stays, matching the design table's own footer
+   row. Leaflet's native zoom control AND `CentreOnHomeControl`'s `⌂` (`.map-home-control`): both
+   hidden, pinch taking over for zoom.
+
+   ⚠️ `⌂` joined the hidden group at adversarial review — a BLOCKING finding the first cut of this
+   phase missed entirely, having only ever probed `.leaflet-control-zoom`. `.map-home-control`
+   stacks directly under the zoom box in Leaflet's own top-left... no — bottom-right corner
+   container (`ZoomControlPositioner`'s `bottomright`), which the new bottom bar's `bottom: 8px`
+   footprint now covers completely: its rect sat INSIDE the Filters chip's own clickable rect, at
+   Leaflet's built-in corner z-index (1000) under the bar's z-1100 — invisible AND untappable, not
+   merely visually crowded. The bundle's own mobile CSS hid its `⌂` in the SAME `.zoomg` group as
+   its zoom buttons for exactly this reason. Its two affordances survive on the phone through other
+   doors: resetting scope to My area is `FiltersPopover`'s own scope segment (already in the phone
+   sheet, README §4 "Scope" row), and the "set your postcode" nudge is the masthead's own empty
+   state, unrelated to a corner control the bar has claimed. */
+@media (max-width: 639px) {
+  .wf-map-tab .wf-map-chrome-tl {
+    left: 8px;
+    right: 8px;
+  }
+  .wf-map-tab .wf-win-control {
+    width: 100%;
+  }
+
+  .wf-map-tab .wf-map-chrome-tr {
+    top: auto;
+    bottom: 8px;
+    left: 8px;
+    right: 8px;
+    flex-direction: row;
+    align-items: stretch;
+    justify-content: space-between;
+    max-width: none;
+  }
+  .wf-map-tab .wf-map-chrome-tr > * {
+    flex: 1;
+    min-width: 0;
+  }
+  /* `.wf-jump`/`.wf-filters` are plain `position: relative` boxes on every other viewport — giving
+     them `display: flex` here is what lets their own chip child stretch to the bar's full height
+     under the row above's `align-items: stretch`, rather than sitting at its own `min-height` with
+     dead space around it. */
+  .wf-map-tab .wf-jump,
+  .wf-map-tab .wf-filters {
+    display: flex;
+  }
+  /* The cluster keeps its DESKTOP stacking direction (column: Heat/Pins row above the ramp key
+     row) — review finding: an earlier cut switched this to `row`, which meant fitting the
+     segmented toggle AND the key row side by side in one ~125px-wide bar column instead of
+     stacking them, the opposite of what a cramped column needs. Only the cross-axis alignment
+     changes, from the desktop's corner-hugging `flex-end` to a centred column now that this sits
+     in the middle of a full-width bar rather than a top-right corner. */
+  .wf-map-tab .wf-map-toolbar-cluster {
+    align-items: center;
+    justify-content: center;
+  }
+  .wf-map-tab .wf-map-toolbar-row {
+    justify-content: center;
+  }
+  /* The ramp key STAYS on the phone (review finding: the first cut hid it here, which — with the
+     Legend panel ALSO hidden below — left no colour key anywhere on the phone at all). The
+     bundle's own real-estate concern was the SEGMENTED row's width, not this narrow mono line, so
+     it shrinks rather than disappears: smaller type, a shorter swatch, tighter padding, and
+     `flex-wrap: wrap` so the rare long "This window is not scored" variant can break onto a
+     second line instead of overflowing its ~125px column (three equal bar segments over a 390px
+     frame, minus the frame's own 16px margin). */
+  .wf-map-tab .wf-map-key {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 4px;
+    padding: 3px 6px;
+    font-size: 8px;
+  }
+  .wf-map-tab .wf-map-key-ramp {
+    width: 26px;
+  }
+  .wf-map-tab .wf-jump-chip,
+  .wf-map-tab .wf-filters-chip {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* ── The lifted stack, staggered into DISTINCT rows (live-measurement review) ─────────────────
+     A live 390×780 pass proved the bar-clearance formula (below) correct for every element
+     against the BAR, but caught a SECOND collision class the formula never considered: two lifted
+     elements sharing the same row can collide with EACH OTHER. Measured: the scored-locations
+     chip (rect x:125–336, y:678–704) and Leaflet's attribution control (rect x:0–390, y:677–704)
+     both landed on the identical `bottom: 76px` row and overlapped outright — the attribution's
+     own rect spans the FULL frame width, so ANYTHING sharing its row collides with it regardless
+     of that thing's own horizontal position or width. That single fact is what shapes everything
+     below: attribution gets a row to itself, and every other lifted element stacks in its own row
+     above it, never sharing a row with any of the other three (the viewline-upsell chip's own
+     text — "Aurora viewline available — upgrade to Pro" — is long enough at 11px to approach the
+     frame's own width, so even the counts footer and the scored-legend chip, on opposite sides of
+     the frame from it, cannot be assumed clear without their own measured rects).
+
+     Rows, bottom-to-top, each `>= ` the row below's own top edge (bottom + height) plus an 8px
+     clearance gap — `mapPhoneChromeCascade.test.jsx`'s "THE SWEEP" describe pins the full pairwise
+     matrix on this same arithmetic, not these literal numbers, so a future re-tune only has to
+     keep every inequality true:
+       Bar                        bottom  8px, height  48px (assumed) → top  56px
+       Attribution (full width)   bottom 76px, height  27px (measured)→ top 103px  (clears bar by 20px)
+       Counts footer (centred)    bottom 112px, height  28px (assumed)→ top 140px  (clears attribution by 9px)
+       Scored-locations chip      bottom 152px, height  26px (measured)→ top 178px (clears footer by 12px)
+       LITE viewline-upsell chip  bottom 192px, height  28px (assumed)→ top 220px  (clears the chip by 14px)
+     Total stack reaches 220px up from the frame's bottom edge on a 780px-tall frame — comfortably
+     clear of the window control at the TOP (well under the frame's own mid-line), so this does not
+     reopen the "no page scroll" contract: every element here is `position: absolute` and was
+     already removed from flow before this phase, so a taller stack changes nothing about the
+     frame's own box, only where within it these five chips paint. */
+  .wf-map-tab .wf-map-counts-footer {
+    bottom: 112px;
+  }
+  .wf-map-tab .wf-map-counts-second {
+    display: none;
+  }
+
+  /* Bottom-left chrome (the LITE viewline-upsell chip, `MapView.jsx`'s `.wf-map-chrome-bl`) — the
+     WIDEST of the lifted set (its own text can approach the frame's full width, see the stack
+     comment above), so it takes the TOPMOST row rather than sharing one with anything else. */
+  .wf-map-tab .wf-map-chrome-bl {
+    bottom: 192px;
+  }
+
+  /* The scored-locations chip (`photocast-scored-legend`) — PR #741 review found it colliding
+     with the bar; the live-measurement review above then found it colliding with the ATTRIBUTION
+     control once both were lifted to the same row. Given its own row instead — not hidden or
+     folded into the counts footer, since its text ("★ PhotoCast-scored locations shown") is not
+     duplicated anywhere else on the phone. */
+  .wf-map-tab .wf-map-scored-legend {
+    bottom: 152px;
+  }
+
+  /* Leaflet's own attribution control (PR #741 review, then the live-measurement review above) —
+     a licensing requirement, not decoration, so it lifts rather than hides. It shares
+     `ZoomControlPositioner`'s `bottomright` corner with the zoom control and `⌂`, both hidden
+     above; Leaflet stacks controls within one corner via `float` + `margin-bottom` on the
+     CONTROL itself (`leaflet/dist/leaflet.css`), not on the corner container, so with its two
+     former neighbours gone the attribution now sits flush at the corner's own `bottom: 0` unless
+     something claims the space back. `padding-bottom` on the corner container
+     (`.leaflet-bottom.leaflet-right`, the same selector `MapCallout.jsx`'s own
+     `LEAFLET_CORNER_SELECTOR` already reads) pushes it up — the LOWEST of the lifted rows, right
+     above the bar, since it is full-width and therefore cannot share a row with anything. The P3
+     quieting styles on `.leaflet-control-attribution` itself (background/colour/font-size/padding)
+     are a DIFFERENT selector entirely and are untouched by this rule. */
+  .wf-map-tab .leaflet-bottom.leaflet-right {
+    padding-bottom: 76px;
+  }
+
+  /* Pinch instead (README "Responsive" table: "Zoom buttons | hidden (pinch instead)"). Real
+     Leaflet markup this component never renders itself, so a CSS scope on the shared ancestor
+     class is the only hook available — see `.wf-map-tab`'s own doc comment on the root wrapper.
+     `.map-home-control` (⌂) joins it — see this block's own opening comment for why. */
+  .wf-map-tab .leaflet-control-zoom,
+  .wf-map-tab .map-home-control {
+    display: none;
+  }
+}
+
 /* ── The window control (map-tab-v2-plan.md §3 P6, relocated at §3 P7) ─────────────────────────
    Replaces the native `<select>` (`.wf-map-window`, deleted) plus the date strip and the event
    pills — one pill, two steppers, a day-grouped dropdown.
@@ -2960,7 +3130,13 @@ button.wf-hc.also.on:hover {
 }
 @media (max-width: 639px) {
   .wf-win-step { width: 36px; height: 40px; }
-  .wf-win-pill { min-height: 40px; }
+  /* map-tab-v2-plan.md §3 P12, README "Responsive": the window control goes full-width across the
+     top. `.wf-map-chrome-tl` (below) supplies the full-width BOX (`left`/`right` both set on an
+     absolutely positioned block, so its width stretches to fill the gap); `.wf-win-control` — a
+     block-level flex row with no width of its own — already fills that box by default, so only the
+     PILL needs to grow to take the space the (fixed-width) steppers don't: the bundle's own
+     `#wnow{flex:1;justify-content:center}`. */
+  .wf-win-pill { min-height: 40px; flex: 1; justify-content: center; max-width: none; }
 }
 
 /* The dropdown. `max-height` is a flat px figure rather than the bundle's `calc(100% - 88px)`,
@@ -2985,6 +3161,18 @@ button.wf-hc.also.on:hover {
   background: var(--color-plex-panel);
   box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
   padding: 4px 0;
+}
+/* Phone (map-tab-v2-plan.md §3 P12): the dropdown spans the SAME full width as the now-full-width
+   pill above it (`right: 0` against `.wf-win-control`'s own full-width box, `width: auto` dropping
+   the fixed 334px) — the prototype's `#wmenu{left:10px;right:10px}` re-expressed against this
+   control's own edges rather than the frame's, since `.wf-win-control` is already inset from the
+   frame by `.wf-map-chrome-tl`'s own margin. This is a repositioned DROPDOWN, not a `BottomSheet`
+   — the README table lists only the Filters panel and the Regions menu as bottom sheets.
+   ⚠️ `max-width: none` is load-bearing, not decoration — review finding: the base rule's own
+   `max-width: calc(100vw - 32px)` survives `width: auto` untouched (a different property) and
+   still capped the dropdown short of the full-width pill above it. */
+@media (max-width: 639px) {
+  .wf-win-menu { right: 0; width: auto; max-width: none; }
 }
 .wf-win-day {
   font-family: var(--font-mono);

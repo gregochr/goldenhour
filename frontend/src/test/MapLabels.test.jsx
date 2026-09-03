@@ -363,6 +363,32 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     expect(square.style.background).toBe(probe.style.background);
   });
 
+  it('carries a real accessible name — the text equivalent for the aria-hidden canvas beneath it (map-tab-v2-plan.md §3 P12)', async () => {
+    // The heat/pins canvas is `aria-hidden` (`MapHeatLayer.test.jsx`'s own pin); a location chip is
+    // this layer's own interactive surface, and its `aria-label` — not merely visible text inside
+    // an `aria-hidden` ancestor — is what a screen reader actually announces for it.
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    await mount();
+    await act(async () => { runFrames(); });
+    const chip = [...document.querySelectorAll('[data-testid="map-label-chip"]')]
+      .find((el) => el.textContent.includes('Bamburgh'));
+    expect(chip).toHaveAttribute('aria-label', 'Bamburgh, 5 star');
+  });
+
+  it('names an unrated chip by its bare name — no false star claim in the accessible name', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    await mount({
+      spots: [{
+        name: 'Unrated', lat: 55, lng: -2, rid: 'X', rating: null,
+      }],
+    });
+    await act(async () => { runFrames(); });
+    const chip = document.querySelector('[data-testid="map-label-chip"]');
+    expect(chip).toHaveAttribute('aria-label', 'Unrated');
+  });
+
   it('clicking a chip calls onSelect with the location name', async () => {
     restoreMeasure = withMeasuredLabels(50, 14);
     currentMap = makeFullMap({ zoom: 13 });

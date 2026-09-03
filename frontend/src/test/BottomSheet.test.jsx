@@ -56,6 +56,17 @@ describe('BottomSheet', () => {
     expect(sheet).toHaveAttribute('aria-modal', 'true');
   });
 
+  it('drops aria-modal when modal={false} — a disclosure widget standing in for a dialog (map-tab-v2-plan.md §3 P12)', () => {
+    render(
+      <BottomSheet open onClose={() => {}} modal={false}>
+        <p>Content</p>
+      </BottomSheet>,
+    );
+    const sheet = screen.getByTestId('bottom-sheet');
+    expect(sheet).toHaveAttribute('role', 'dialog');
+    expect(sheet).not.toHaveAttribute('aria-modal');
+  });
+
   it('names itself, so a screen reader says more than "dialog"', () => {
     // It carried role="dialog" with no accessible name at all: a user was told something had
     // opened but not what it was.

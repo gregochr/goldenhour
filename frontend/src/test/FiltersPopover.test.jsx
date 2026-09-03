@@ -6,9 +6,21 @@
  * fully-controlled component instead, so a prop-wiring mistake shows up here without a whole map
  * to render around it.
  */
-import { describe, it, expect, vi } from 'vitest';
+import {
+  describe, it, expect, vi, beforeEach,
+} from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import FiltersPopover, { DRIVE_TIME_TIERS } from '../components/map/FiltersPopover.jsx';
+
+// Mutable per-test, `MapViewBriefingScoreWiring.test.jsx`'s own pattern — every EXISTING test in
+// this file never touches it, so it stays at the default `false` (desktop/tablet) throughout, and
+// only the phone describe block below flips it. Without a mock at all, the global `matchMedia`
+// stub (`src/test/setup.js`) already answers "no match" (desktop), which is why this file worked
+// unmocked before map-tab-v2-plan.md §3 P12 — this mock exists to let ONE describe block ask for
+// the other branch, not to change any existing test's behaviour.
+let mockIsMobile = false;
+vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => mockIsMobile }));
+beforeEach(() => { mockIsMobile = false; });
 
 const SUBJECT_CHIPS = [
   ['LANDSCAPE', { label: 'Landscape', emoji: '🏔️' }],
@@ -86,6 +98,13 @@ describe('FiltersPopover — the chip', () => {
     expect(screen.queryByTestId('wf-filters-panel')).not.toBeInTheDocument();
     rerender(<FiltersPopover {...baseProps({ open: true })} />);
     expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
+  });
+
+  it('names the panel it controls via aria-controls, matching the panel\'s own id (map-tab-v2-plan.md §3 P12)', () => {
+    const { rerender } = render(<FiltersPopover {...baseProps({ open: false })} />);
+    expect(screen.getByTestId('wf-filters-chip')).toHaveAttribute('aria-controls', 'wf-filters-panel');
+    rerender(<FiltersPopover {...baseProps({ open: true })} />);
+    expect(screen.getByTestId('wf-filters-panel')).toHaveAttribute('id', 'wf-filters-panel');
   });
 });
 
@@ -225,5 +244,70 @@ describe('FiltersPopover — footer (README §4: "N of M shown" + Clear all)', (
     rerender(<FiltersPopover {...baseProps({ open: true, activeCount: 1, onClearAll })} />);
     fireEvent.click(screen.getByTestId('clear-all-filters'));
     expect(onClearAll).toHaveBeenCalled();
+  });
+});
+
+describe('FiltersPopover — phone: the same rows in a BottomSheet (map-tab-v2-plan.md §3 P12)', () => {
+  beforeEach(() => { mockIsMobile = true; });
+
+  it('renders the panel inside a BottomSheet rather than the desktop popover', () => {
+    render(<FiltersPopover {...baseProps({ open: true })} />);
+    // The real `BottomSheet` component (not mocked here) — its own wrapper testids, plus the
+    // SAME `wf-filters-panel` id/testid the desktop branch uses, so `aria-controls` never has to
+    // know which viewport it is on.
+    expect(screen.getByTestId('bottom-sheet')).toBeInTheDocument();
+    const panel = screen.getByTestId('wf-filters-panel');
+    expect(panel).toHaveAttribute('id', 'wf-filters-panel');
+    // The desktop-only positioned popover must not ALSO be present.
+    expect(document.querySelector('.wf-filters-panel')).not.toBeInTheDocument();
+  });
+
+  it('carries every row the desktop popover carries — the same rows, not a second implementation', () => {
+    render(<FiltersPopover {...baseProps({ open: true, showAdminRow: true, activeCount: 1 })} />);
+    expect(screen.getByTestId('star-filter-3')).toBeInTheDocument();
+    expect(screen.getByTestId('location-type-filter-LANDSCAPE')).toBeInTheDocument();
+    expect(screen.getByTestId('drive-time-filter-90')).toBeInTheDocument();
+    expect(screen.getByTestId('dark-sky-filter-toggle')).toBeInTheDocument();
+    expect(screen.getByTestId('star-filter-standdown')).toBeInTheDocument();
+    expect(screen.getByTestId('clear-all-filters')).toBeInTheDocument();
+  });
+
+  it('is a disclosure widget, not a modal dialog — no aria-modal on the sheet', () => {
+    render(<FiltersPopover {...baseProps({ open: true })} />);
+    expect(screen.getByTestId('bottom-sheet')).not.toHaveAttribute('aria-modal');
+  });
+
+  it('renders nothing at all while closed, exactly like the desktop popover', () => {
+    render(<FiltersPopover {...baseProps({ open: false })} />);
+    expect(screen.queryByTestId('wf-filters-panel')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('bottom-sheet')).not.toBeInTheDocument();
+  });
+
+  it('dismisses via the sheet\'s own backdrop, calling onOpenChange(false)', () => {
+    const onOpenChange = vi.fn();
+    render(<FiltersPopover {...baseProps({ open: true, onOpenChange })} />);
+    fireEvent.click(screen.getByTestId('bottom-sheet-overlay'));
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it('does NOT attach the desktop outside-click listener — a tap inside the sheet must not close it', () => {
+    const onOpenChange = vi.fn();
+    render(<FiltersPopover {...baseProps({ open: true, onOpenChange })} />);
+    // A `mousedown` anywhere inside the sheet's own content is what the desktop listener would
+    // treat as "outside" (the sheet is portalled OUTSIDE `wf-filters`'s DOM subtree) — this is
+    // exactly the tap-to-close-on-first-touch bug the mobile guard exists to prevent.
+    fireEvent.mouseDown(screen.getByTestId('star-filter-3'));
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it('Escape still closes the sheet — the desktop `onKeyDown` handler reaches it through the React tree, not the DOM one', () => {
+    const onOpenChange = vi.fn();
+    render(<FiltersPopover {...baseProps({ open: true, onOpenChange })} />);
+    // `createPortal` moves the sheet's DOM location to `document.body`, but a `keyDown` fired
+    // inside it still bubbles through the REACT component tree to `wf-filters`'s own `onKeyDown` —
+    // the same reasoning the outside-click guard above relies on in reverse (portals bubble
+    // synthetic events through React ownership, not DOM position).
+    fireEvent.keyDown(screen.getByTestId('star-filter-3'), { key: 'Escape' });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 });
