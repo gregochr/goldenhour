@@ -301,7 +301,8 @@ pills, and the in-map select — on the tab only.
   `bestRating` — never a client max** (client aggregation is not licensed; the served figure
   exists and a client max risks disagreeing with it). Only astro/aurora night rows, where no
   roster best is served, take a client max over served stars — a named member of the licensed
-  per-payload map/filter class, recorded in P13's CLAUDE.md update. The swatch samples the ramp
+  aggregation class this plan's §4 #15 records (CLAUDE.md's Backend-heavy fifth class, added at
+  P13). The swatch samples the ramp
   **at whole stars** of the labelled best (labelled-fill rule; a deliberate change from the
   prototype's interpolated pool-mean swatch — §4.13).
 - `components/map/WindowControl.jsx`: pill (kind chip, label, time, ▾) + `‹ ›` steppers
@@ -530,6 +531,25 @@ labels > ring > heat) are asserted.
 - Re-run the P4 alpha check and P2 luminance table one final time (they are cheap and they are
   the two that regress silently).
 
+**Measured verify results — all four pass.** Measured 2026-09-03 against the P13 worktree build
+(seeded local stack, admin, temperature mode):
+
+1. **Alpha at every location** (1280×900, zoom 8.24, land clip active): all 21 enabled locations
+   paint — α 87–165, except Wallington Woods α=3, which is the WOODLAND canopy-exclusion working
+   as designed (neighbour spill only, its own rating excluded from the sky field). Sea α=0 exactly
+   at all three in-view offshore points (North Sea E, NE, off Tyne).
+2. **Luminance monotone 3★→5★** (synthetic bundle method — real kernel via Vite module graph,
+   single point per score over each surface's ground, centre-sampled): strictly monotone on all
+   three surfaces. Thumbnails (bloom 3/155/0.9): .0826→.1067→.1420→.1722→.2037. Popup field
+   (3/170/2): .0826→.1061→.1405→.1662→.1960. Map field (bloom 1, blur 4, opacity 0.9, ground
+   #3a332b): .1250→.1518→.1857→.2121→.2443.
+3. **Star-label ink contrast** (rampHex × readableInkOn, WCAG): temperature min 5.03:1 (1★ 7.13,
+   2★ 6.04, 3★ 6.51, 4★ 5.03, 5★ 5.56 — the bundle's 5.56 target exactly), verdict min 4.83:1.
+   Every whole-star label ≥4.5:1 in both modes; ink flips dark/light correctly per fill.
+4. **Phone callout clearance** (390×780, three locations, collapsed + expanded): Bamburgh Beach
+   113/21px, Ashness Bridge 108/21px, Robin Hood's Bay 108/21px above the bottom bar. Zero overlap
+   in all six states.
+
 ---
 
 ## §4 Disagreements with the bundle, on purpose
@@ -579,7 +599,25 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
 14. **The window menu's `N★ best` follows the active filters' scope honestly** where the
     prototype computed it over `basePool()` (ignoring every filter but scope) — whichever way
     the implementing session lands this, it states the population in a code comment; the
-    prototype's split is not silently copied.
+    prototype's split is not silently copied. ⚠️ **Settled by what shipped, the opposite of this
+    entry's hedge — see #15.** `N★ best` is the served figure verbatim (solar: `BriefingWindow`/
+    `BriefingRegion.bestRating`; night: `bestOfNight` over the FULL served roster), held to one
+    unfiltered rule on every row rather than following scope or any other active filter. This
+    entry is kept for the history — the population had to be settled in code, and now is.
+15. **A night window's best score is a licensed client max, adjudicated at P11 and ledgered
+    here at P13.** `mapEvents.bestOfNight` (P6) is the window control's `N★ best` for an
+    astro/aurora night row — the max over that night's FULL served roster, held to the same
+    unfiltered rule as a solar row's served `BriefingWindow.bestRating` rather than independently
+    scope-narrowed. `regionsJump.buildNightRegionBest` (P11) groups the identical served rows by
+    region (via the location→region join `heat.spots` already carries) and calls `bestOfNight`
+    once per group — the per-region counterpart of a solar row's served `BriefingRegion.bestRating`
+    — so the window dropdown and the Regions jump list can never disagree about a night's best per
+    region. Licensed because astro/aurora carries no *rated* per-window or per-region rollup
+    comparable to those two solar figures: a star-free per-region aurora summary IS served
+    (`AuroraRegionSummary`'s GO/STANDDOWN `verdict`), but nothing on the wire aggregates stars at
+    all, per window or per region, for a night. Recorded as a fifth class in CLAUDE.md's
+    Backend-heavy licensed-member list (members: those two functions, nothing else); its exit is
+    **O-16**.
 
 ## §5 Decisions taken in this plan (challenge in review, not in code)
 
@@ -627,6 +665,27 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   `frontend/scripts/generate-uk-land.mjs` is the generation path).
 - **O-13** Esri terms/rate-limit confirmation for production (provider unchanged; usage grows).
 - **O-14** Whether to retire T+3..T+5 map browsing instead of D-13's unscored later-day rows.
+- **O-15** Two legend surfaces coexist on the tab's Heat view: the plain always-visible
+  `wf-map-heat-legend` ramp key (top-right, beside the Heat/Pins segment — pre-dates this plan,
+  from the original heat-field work, #564) and `MapLegendPanel` (P10, bottom-left, `▤ Legend ▾`),
+  which contains the same ramp plus whole-star labels, the handover indicator, the rings toggle
+  and the confidence note. **Deliberate, not an oversight** — P10's squash-merge commit message
+  (`195ed993`, #736) states it explicitly: "A new MapLegendPanel is added ALONGSIDE the existing
+  in-map heat legend key (not a replacement)." P13 leaves this alone; **retiring the plain key is
+  NOT a free mechanical dedup either** — `MapLegendPanel` is desktop-only (`!isMobile`,
+  `MapView.jsx:3574`), and `index.css:2959–2961` records, as a P12 review finding, that the plain
+  key deliberately STAYS on the phone because the panel is also hidden there: removing the plain
+  key without first giving the phone its own legend surface would strand it with none at all. If
+  the owner wants one surface, the exit is either (a) retire the plain key on desktop only, where
+  the panel is a strict superset, and leave the phone's shrunk key as its sole legend, or (b) give
+  the phone a legend surface first (a `BottomSheet` variant of the panel, matching P12's Filters/
+  Regions treatment) and only then retire the plain key everywhere.
+- **O-16** The exit for §4 #15 / CLAUDE.md's Backend-heavy fifth class: a served, RATED
+  per-window or per-region night rollup for astro/aurora (comparable to a solar row's
+  `BriefingWindow.bestRating`/`BriefingRegion.bestRating`) would retire `mapEvents.bestOfNight`
+  and `regionsJump.buildNightRegionBest`'s licensed client aggregation outright. No such rollup
+  exists today — `AuroraRegionSummary` carries a GO/STANDDOWN `verdict` but no stars, and astro
+  has no per-region rollup at all — so until one ships, this pair is the licensed stand-in.
 
 ## §7 Phase → session map
 
