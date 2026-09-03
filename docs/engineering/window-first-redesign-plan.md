@@ -346,7 +346,9 @@ existing `ConfidenceDeriver` from the window's **Best Bet region** — the regio
 so badge and narrative describe the same thing. Render it as **fill decay on the window card's verdict
 badge**: `.bdg.good` / `.bdg.verd` are already `rgba()` literals, which is exactly what
 `scaleRgbaAlpha` consumes, so `scaleRgbaAlpha(fill, confidenceTreatment(tier).fillScale)` gives the
-1.0 / 0.72 / 0.5 gradient with no new glyph. Leave the hex text colour unscaled, as `HeatmapGrid` does.
+1.0 / 0.72 / 0.5 gradient with no new glyph (⚠️ medium raised to 0.82, 2026-09-03 owner re-tune —
+see `map-tab-v2-plan.md` §4 item 17; the mechanism described here is unchanged). Leave the hex text
+colour unscaled, as `HeatmapGrid` does.
 
 No marker glyph — the badge already carries `◎`, and a second hollow circle is noise §6 bans. No second
 render site: not the rail, not the drilldown header. Marking the same fact twice breaks "one uniform

@@ -493,16 +493,17 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
     expect(mid.heat).toBeCloseTo(1 - 0.88 * 0.5, 5);
   });
 
-  it('multiplies the field’s own 0.9 by the zoom fade rather than replacing it', async () => {
+  it('multiplies the field’s own 0.92 by the zoom fade rather than replacing it', async () => {
     currentMap = makeMap({ zoom: 9, panes: markerPanes() });
     await mount();
-    expect(drawTiles.mock.calls[0][4].opacity).toBeCloseTo(0.9, 5);
+    expect(drawTiles.mock.calls[0][4].opacity).toBeCloseTo(0.92, 5);
 
     currentMap = makeMap({ zoom: 13, panes: markerPanes() });
     drawTiles.mockClear();
     await mount();
     // P4 RE-PIN: floor 0.17 → 0.12 (map-tab-v2-plan.md §3 P4).
-    expect(drawTiles.mock.calls[0][4].opacity).toBeCloseTo(0.9 * 0.12, 5);
+    // 2026-09-03: base opacity corrected 0.9 → 0.92 (drift repair, map-tab-v2-plan.md §4).
+    expect(drawTiles.mock.calls[0][4].opacity).toBeCloseTo(0.92 * 0.12, 5);
   });
 
   it('hides the marker panes wholesale at the zoom the tab opens at', async () => {
@@ -578,7 +579,8 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
     currentMap = makeMap({ zoom: 11.4, panes: markerPanes() });
     await mount();
     expect(Number(currentMap.panes.markerPane.style.opacity)).toBeCloseTo(0.625, 5);
-    expect(drawTiles.mock.calls[0][4].opacity).toBeCloseTo(0.9 * 0.45, 5);
+    // 2026-09-03: base opacity corrected 0.9 → 0.92 (drift repair, map-tab-v2-plan.md §4).
+    expect(drawTiles.mock.calls[0][4].opacity).toBeCloseTo(0.92 * 0.45, 5);
   });
 
   it('pins the markers at full strength while a location is OPEN', async () => {
