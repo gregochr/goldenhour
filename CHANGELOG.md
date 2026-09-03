@@ -5,6 +5,416 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.19.11] - 2026-09-03
+
+### Added — the Regions jump list, the masthead statement, and ⌂'s new meaning (map-v2 P11)
+
+**Regions jump list.** A new `components/map/RegionsJump.jsx` — `◎ Regions ▾` joins the top-right
+chrome cluster above Heat/Pins and Filters, matching the design's own layout order, and its open
+dropdown joins the popover-exclusivity group and the label layer's obstacle list (`wf-jump-menu`,
+seeded in `MapLabels.jsx`/`PinsLayer.jsx` alongside the window control's and the Filters popover's
+own menus). One row per region in the whole catalogue — never the current scope, so the list can
+always answer "where else could I go" — sorted by the nearest measured drive from whichever origin
+is active: the per-user home reach at home, the shared region-base matrix while planning away,
+never mixed (the new `utils/regionsJump.js` reuses `planningArea.regionDriveMinutes` unchanged for
+both, since the two maps share one shape and that function only ever reads `driveMinutes`).
+Unmeasured regions sort last and carry no duration text, and a drive past the shared 3h "glance"
+threshold (`planningArea.GLANCE_MINUTES`) gets the `· beyond your area` suffix.
+
+Each row's best score is the served `BriefingRegion.bestRating` for a SOLAR active window,
+name-keyed exactly like `heatSpots.js`'s own join (`utils/regionsJump.buildRegionBestIndex`, built
+in `WindowFirstMapPane.jsx` from the same `briefing.days` `regionGlossIndex` already reads, and
+handed down as a new `regionBestIndex` prop). **A night (astro/aurora) window carries a score too —
+an adjudicated ruling during review.** The window dropdown's own "N★ best" column already takes a
+licensed client max over that night's served per-location stars (`mapEvents.bestOfNight` — exported
+by this phase — licensed because no server-owned per-region figure exists for a night at all). The
+jump list's `utils/regionsJump.buildNightRegionBest` groups those SAME served rows by region, via
+`heat.spots`' own location-name→region-name pairing, and calls `bestOfNight` once per group: a
+finer key on an already-licensed operation, not a second re-derivation, so the dropdown and the
+jump list can never disagree about a night's best per region. Only a region with no served night
+rows at all still renders the honest em dash.
+
+Selecting a row fits the map to that region's own bounds (`heatGeometry.latLngBounds`, pad 0.06,
+Leaflet `fitBounds` padding `[40, 40]`, `animate: false`) — a THIRD box neither "My area" nor "Whole
+catalogue" already holds — and **closes the jump panel**, stated as a deliberate choice in code
+since the design bundle is silent on it: a jump is a COMPLETED navigation (the camera has already
+moved), unlike a `FiltersPopover` row, which rightly stays open because a filter is a standing
+choice still being composed one control at a time. Jumping to a region outside "My area" flips
+scope to Whole catalogue automatically ("a jump is honest; a no-op is not"), and the two effects
+land in the same commit without racing each other: `MapView`'s `HeatBoundsController` now takes an
+override (`jumpFitOverride`) rather than gaining a second sibling instance, because a second
+controller would have raced the ordinary "My area ⇄ Whole catalogue" one over a single frame the
+moment scope also flipped. The override wins outright while set and is cleared by the one thing
+that should supersede it — a later, deliberate press of either scope segment button
+(`FiltersPopover`'s own "My area"/"Whole catalogue" pair) or of `⌂` itself.
+
+**`⌂` now resets scope, not the camera to a fixed point.** `CentreOnHomeControl`'s pre-P11 behaviour
+— fly to the home coordinate at a zoom derived from the reader's Close-to-home radius — predates the
+Filters popover's "My area/Whole catalogue" segment (P7) and the design bundle never drew it that
+way either: its own `zhome` resets scope and refits to the scoped spot set's bounds. The two are not
+additive (refitting to a fixed-radius disc AND to the area bounds in one click would leave the
+second fit as the only one ever seen), so the radius-framed fly is retired rather than layered under
+the new behaviour — `⌂` and the Filters popover's "My area" button now share one function
+(`resetToMyArea`), so the two can never disagree about what "reset scope" means, and both inherit
+`animate: false` from the same Leaflet-strand reasoning as every other scope change on this tab.
+Filters are untouched by either route. With no home postcode saved, `⌂` keeps its pre-P11 fallback
+exactly as it was — opening Settings on the postcode field — since "My area" and "Whole catalogue"
+read the same box there anyway and a reset would be a genuine no-op. Its `aria-label` is
+state-truthful (`Reset to My area` / `Set your home postcode in Settings`, mirroring `title`
+exactly) rather than the stale "Centre on home" the button's old click behaviour left behind — the
+identical accname-drift bug class this phase already fixed once on `MastheadTickLine`'s own origin
+control, caught here by review before it could ship pinned by a green test. `zoomForHomeRadius` and
+the `homeRadiusMiles` prop it alone fed are removed end to end — `MapView.jsx`, `WindowFirstMapPane`
+(declare/destructure/forward/PropTypes/jsdoc) and `App.jsx` (state, settings-fetch write, and the
+prop pass to the pane).
+
+**The masthead's origin control is a non-interactive STATEMENT on the Map tab.** `MastheadTickLine`
+gains a per-tab `isMapTab` prop (threaded from `WindowFirstShell`'s own `effectiveTab === 'map'`) —
+a state of the existing component, not a fork: on the map tab the origin button is replaced by a
+plain, non-interactive statement (pin glyph, `Home · <place>` or `<Region> · from <base>` while
+planning away, plus a caption reading "drive times from here"), and the `⌕` search button and its
+hairline separator are withheld outright, because on a map panning IS the search. The empty-state
+"Set a postcode" nudge is unaffected on every tab — the map tab's statement never becomes a dead end
+in place of it. Every other tab is unchanged: `isMapTab` defaults to `false`, and the existing
+interactive origin button, the search button, and the away "plan from home again" pin are all
+byte-identical to before.
+
+**Pre-existing P9 bug found and fixed: `mapCallout.buildRegionGlossIndex` read the wrong field.**
+Adversarial review against this phase's own diff turned up a defect that predates it —
+`utils/mapCallout.js`'s region-gloss join (the Map tab callout's reason-prose fallback, shipped at
+P9) has read `region?.name`/`region.name` since it was written, but the served `BriefingRegion`
+record carries no `name` field at all; its own field is `regionName` (every sibling join on this
+arm — `heatSpots.js`, `windowFirstRegions.js`, and now `utils/regionsJump.js` — has always used it
+correctly). So the index has been silently EMPTY against real data since P9: the callout's "fallback:
+region gloss" line never actually supplied one. The bug was invisible because `mapCallout.test.js`'s
+own fixture used the identical wrong field, so the suite stayed green while the feature was dead —
+a fixture pre-satisfying its own wrong predicate, the exact pattern this project's `docs/engineering`
+history already has a name for. Fixed both call sites in `buildRegionGlossIndex`, the fixtures in
+`mapCallout.test.js` and `MapCallout.test.jsx`, and added a dedicated test in each asserting the
+index is (and is not) built from the two field names specifically, so a fixture can no longer
+pre-satisfy its own predicate a second time.
+
+Tests: `utils/regionsJump.test.js` (the sort/join logic in isolation, incl. `buildNightRegionBest`'s
+grouping and the never-mixed drive-map rule), `RegionsJump.test.jsx` (the component, fully
+controlled), new describes in `MapViewHeat.test.jsx` (the sort/threshold/best-score wiring incl. the
+night-window grouped-max case, the fitBounds-on-select behaviour incl. the override-vs-race guard
+and the panel closing on select, the no-flip-when-already-in-scope case, and popover exclusivity), a
+new describe in `MapViewCentreOnHome.test.jsx` (`⌂`'s reset-scope-and-refit behaviour, the cleared
+jump override, the untouched filter, the no-home fallback, and the corrected state-truthful
+accessible name in both states), extended cases in `MapViewBackgroundClick.test.jsx` (closing the
+jump menu), `MapLabels.test.jsx` and `PinsLayer.test.jsx` (seeding `wf-jump-menu` as an obstacle in
+both, matching the two files' existing duplicated `OBSTACLE_SELECTOR` lists), a new describe in
+`MastheadTickLine.test.jsx` for the `isMapTab` statement variant (non-interactive rendering, the
+withheld search button and separator, the away origin still named correctly, and the empty-state
+nudge surviving untouched), and new/extended cases in `mapCallout.test.js` and `MapCallout.test.jsx`
+pinning the `regionName` fix.
+
+### Docs — Map tab v2 sweep: CLAUDE.md, the plan's ledger, and the closing verify pass (map-v2 P13)
+
+Phase **P13** of `docs/engineering/map-tab-v2-plan.md` (§3 P13), closing the series (P1–P12,
+#726–#734, #736, #740, #741 all merged).
+
+**All four bundle verify checks re-measured and pass.** Live browser pass against the seeded local
+stack (admin, temperature mode): (1) alpha at every location — all 21 enabled locations paint
+(α 87–165), Wallington Woods' α=3 is the WOODLAND canopy exclusion working as designed, sea α=0
+exactly at every in-view offshore point; (2) luminance climbs strictly monotone 3★→5★ on all three
+surfaces (thumbnails, popup field, map field); (3) every whole-star label clears 4.5:1 in both
+colour modes (temperature min 5.03:1, verdict min 4.83:1); (4) the phone callout clears the bottom
+bar by 108–113px collapsed/21px expanded at three locations, zero overlap. Numbers recorded in the
+plan's P13 section.
+
+**Orphan audit: nothing left to delete.** Every candidate the plan named at P13 kick-off had
+already been retired by the phase that made it dead, each with its own comment trail: `DateStrip`
+(deleted at P6, #731), the old in-map `wf-map-window` `<select>` (deleted at P6, #731). The tab's
+old slide-down filter drawer (`advancedOpen`/`advanced-filters-panel`) and `ForecastTypeSelector`
+are **not** orphans — both are correctly `overlayMode`-gated and are the frozen Plan-tab overlay's
+own controls (plan §4.9); deleting either would break the overlay the plan deliberately leaves
+alone. A name-reference sweep of every file under `components/` and `utils/` (zero external
+mentions of the file's own export name, across code, tests and comments) found no further
+candidates, and no test file exercises only a deleted component.
+
+**CLAUDE.md updated** — the "map view (Leaflet)" project-overview line and the "Locations" bullet
+still described the pre-v2 tab and didn't distinguish the tab from the Plan-tab overlay. Added a
+`Map tab (v2)` bullet naming the shipped surface (`WindowControl`'s chronological solar-first EV
+list, the heat field default with a Pins mode toggle, `FiltersPopover`, `MapLabels`/`MapCallout`
+selection, `RegionsJump`, `MapLegendPanel`, the phone bottom-bar layout) and stating that the
+Plan-tab overlay is a deliberately frozen, separate pre-v2 surface on the same `MapView` component
+(plan §4.9, O-6). ⚠️ **A first cut of this bullet over-claimed azimuth lines and marker clustering
+as overlay-only — an adversarial review caught it against the live gates** (`!heatPinsOn` still
+draws azimuth lines on the tab's Heat view; `MarkerClusterGroup` mounts on the tab unconditionally
+and is visibly on-screen there during the zoom handover, any selection, an unscored window, and
+all of aurora mode — only Pins mode hides either). Both the Locations bullet and the new Map tab
+bullet now state the real, narrower Pins-mode-only gate.
+
+**Plan §4 ledger entry #15** records P11's adjudicated ruling (recorded here as the plan itself
+asked, §3 P6): `mapEvents.bestOfNight` (P6) and `regionsJump.buildNightRegionBest` (P11) are a
+licensed client max over a night's served per-location stars, grouped no more than one key finer
+than the window dropdown's own already-licensed figure — never a second re-derivation — because
+astro/aurora carries no *rated* per-window or per-region rollup comparable to a solar row's served
+`BriefingWindow.bestRating`/`BriefingRegion.bestRating` (a star-free `AuroraRegionSummary` verdict
+does exist on the wire; nothing served aggregates stars for a night). Added as a **fifth class** to
+CLAUDE.md's Backend-heavy licensed-member list, named explicitly with "those two, nothing else"
+matching the bullet's existing members, with its own recorded exit (**O-16**: a served, rated
+per-window/per-region night rollup). §4 #14, whose hedge this settles the opposite way, gets a
+one-line note pointing at #15 rather than a rewrite.
+
+**New owner item O-15**: the tab's Heat view carries two legend surfaces at once — the plain
+always-visible ramp key beside the Heat/Pins segment (pre-dates this plan) and P10's `▤ Legend ▾`
+panel (`MapLegendPanel`), which is a strict superset of it on desktop. P10's own squash-merge
+commit message (`195ed993`, #736) states the duplication was deliberate ("added ALONGSIDE the
+existing … key, not a replacement"), so P13 leaves the code alone. Retiring the plain key is not a
+free mechanical dedup either: `MapLegendPanel` is desktop-only, and the plain key deliberately
+stays on the phone (a P12 review finding — the panel is hidden there too, so removing the plain
+key without a phone-legend replacement would strand the phone with no colour key at all). O-15
+records both real exits: retire desktop-only, or give the phone its own legend surface first.
+
+No production code changed. Gates: lint 0, test 4894/4894 passed (205 files), audit
+`--audit-level=high` 0, build 0.
+
+### Changed — the Map tab gets its own phone layout, and a full a11y sweep (map-v2 P12)
+
+**Phone chrome re-arrangement**, scoped entirely to a new `.wf-map-tab` class on the tab's own root
+wrapper (`MapView.jsx`) — never present on the Plan-tab overlay's mount, so every rule below is a
+descendant selector under it and cannot reach the overlay at any viewport. Under the app's own
+`useIsMobile` breakpoint (≤639px — carried rather than the design bundle's literal 390px iPhone
+figure, per the plan's own reconciliation note):
+
+- The window control (`WindowControl.jsx`) goes full-width across the top — `.wf-map-chrome-tl`
+  spans edge-to-edge, the pill grows to fill the space its fixed-width steppers don't
+  (`flex: 1; justify-content: center`), and its dropdown widens to match rather than staying pinned
+  to its desktop 334px (`right: 0; width: auto` — plus `max-width: none`, below).
+- The Regions / Heat-Pins / Filters cluster (`.wf-map-chrome-tr`) becomes a thumb-reachable
+  **bottom bar** — row direction, `justify-content: space-between`, the three top-level children
+  (`RegionsJump`, the Heat/Pins toggle, `FiltersPopover`) sharing it equally via `flex: 1`. The
+  Heat/Pins cluster keeps its desktop COLUMN stacking (segmented toggle above the ramp key), just
+  re-centred for its new position mid-bar rather than a top-right corner.
+- **`FiltersPopover.jsx` and `RegionsJump.jsx` now render their panel as a `BottomSheet` on the
+  phone** instead of the desktop's positioned popover — the exact same row markup in both shapes
+  (extracted into a shared `panelBody`/fragment so a row can never drift between viewports), wrapped
+  differently. Both pass the shared `BottomSheet` a new `modal={false}` prop (below) since these are
+  disclosure widgets standing in for a dialog, not dialogs themselves, and both drop their
+  desktop-only outside-click listener on the phone — `BottomSheet` already dismisses on its own
+  backdrop, and its content is portalled outside the trigger's own DOM subtree, so leaving that
+  listener live would close the sheet on the very first tap inside it. `Escape` still closes either
+  sheet: the desktop `onKeyDown` handler is unmoved, and a key event fired inside a portalled sheet
+  still bubbles through the REACT component tree to it regardless of where the DOM put the node.
+- `BottomSheet.jsx` gains a `modal` prop, defaulting to `true` (byte-identical for every existing
+  caller) — `false` omits `aria-modal` only. **This is an ARIA-semantics change, not a behavioural
+  one**: the full-viewport backdrop still catches every pointer event and still dismisses on tap,
+  and body scroll still locks while the sheet is open, regardless of `modal` — deliberate, since a
+  disclosure-widget sheet standing over a pannable map letting the map pan through its own backdrop
+  would be new behaviour, not a straight `aria-modal` swap, and stayed out of this prop's scope.
+  Full-bleed (`left-0 right-0`), not the design bundle's own `left/right: 10px` inset — one shared
+  layout every `BottomSheet` caller already agrees on, over a second inset-only variant.
+- The Legend chip/panel (`MapLegendPanel.jsx`) is withheld entirely on the phone — `MapView.jsx`
+  simply does not mount it, rather than hiding it with CSS. **The ramp key row survives** next to it
+  being gone, though (below) — hiding both left no colour key anywhere on the phone.
+- Leaflet's native zoom control **and** `CentreOnHomeControl`'s `⌂` (`.map-home-control`) are both
+  hidden, pinch taking over for zoom (see the adversarial-review section below for why `⌂` joined).
+- The counts footer lifts above the bottom bar and drops its second line (the "Beyond 3h…" area
+  note) — the first line's "N named · M rated of K" stays.
+- `MapCallout.jsx` renders at 266px on the phone instead of 286px (README §7) — the every-window
+  strip's default-collapsed state (`stripOpen`'s own `useState(false)`) was already universal, not a
+  new phone-specific gate; the generic anchor/band maths (unchanged) already keep the card clear of
+  the new bottom bar, since a bar spanning ≥50% of the frame's width already counted as a floor/
+  ceiling before this phase (`utils/mapCallout.calloutBand`) — verified rather than reworked, and
+  confirmed live (below).
+- Region-name truncation below 430px frame width and the touch-target minima (30px chips / 32px
+  segments / 36px desktop / 40px mobile pills) were already shipped in earlier phases; this phase
+  verifies both, adding the touch-target cascade pins and an explicit region-truncation regression
+  check that were missing rather than rebuilding either.
+
+**A11y sweep.** Every popover trigger (`WindowControl`, `FiltersPopover`, `RegionsJump`,
+`MapLegendPanel`) now carries `aria-controls` naming its own panel/menu's `id`, alongside the
+`aria-expanded` each already had — a genuine, consistent gap across all four, closed the same way
+on all four. None carry `aria-modal` and none call `useDialogFocus`, so all four were already
+disclosure widgets rather than dialogs; this phase only adds the missing half of that contract. The
+Map tab's z-ladder cascade test (`mapChromeZLadderCascade.test.jsx`) gains the TOOLTIP tier
+(`.wf-maplab-tip`, shipped at P8 but never asserted) and the full "menus > tooltip > callout >
+chrome" chain the plan's own restatement asks for. The canvas layers' `aria-hidden` treatment and
+their location chips'/pins' real `aria-label` text equivalents were already correct (P8/P10); this
+phase adds the missing chip-level `aria-label` regression tests (`MapLabels.test.jsx`) alongside the
+existing canvas/pin ones.
+
+**The double-BottomSheet hazard, re-checked now the tab opens sheets itself.** The tab's new sheets
+are driven purely by `MapView`'s own `openMapMenu` state — the SAME exclusivity mechanism that
+already governed the four popovers (opening one closes the others) — so a swap is structural, not a
+new rule: `FiltersPopover`/`RegionsJump` each unmount their own sheet the instant their `open` prop
+goes false, and since both flip off the one `openMapMenu` state variable, the two portals can never
+both be mounted in the same commit. Unlike the pre-existing overlay-vs-tab hazard (a PROP-driven
+bug: the tab's never-unmounted `MapView` instance answering an App-level handoff meant for the
+overlay), nothing here is reachable from outside this tab's own chrome — `FiltersPopover`/
+`RegionsJump`/`WindowControl`/`MapLegendPanel` are all gated `!overlayMode`, so the overlay's own
+mount cannot raise a sheet on any viewport, structurally. Proven live: opening Filters while Regions
+was open swapped the sheet's content in place with no second portal ever mounted, in both
+directions.
+
+**Adversarial review round — 7 confirmed findings fixed, 1 refuted.** The live 390px pass verified
+no-scroll (`780/780` — the frame's own height matched the viewport with nothing to scroll), the
+bottom bar's layout, the callout's clearance of it (≥37px at three locations, collapsed and
+expanded), and the sheet swap — but the pass itself initially probed only `.leaflet-control-zoom`
+and missed a second control sharing that corner:
+
+1. **BLOCKING** — `CentreOnHomeControl`'s `⌂` (`.map-home-control`) sits in the SAME Leaflet
+   bottom-right corner as the zoom control (`ZoomControlPositioner`'s own `bottomright`), which the
+   new bottom bar's footprint now covers entirely: at Leaflet's built-in corner z-index (1000),
+   UNDER the bar's z-1100, its rect sat inside the Filters chip's own clickable rect — invisible
+   AND untappable, not merely crowded. Fixed by hiding it alongside the zoom control, the bundle's
+   own `.zoomg` treatment (its `⌂` lived in that same hidden group). Its two affordances survive on
+   the phone elsewhere: resetting scope to My area is the Filters sheet's own scope segment
+   (README §4), and the postcode nudge is the masthead's own empty state.
+2. Both ramp legends vanished on phone (the mini "Poor … Worth it" key newly hidden alongside the
+   Legend panel already being gone) — no colour key anywhere. Fixed by keeping the mini key row: it
+   shrinks (8px type, a 26px swatch, tighter padding, `flex-wrap: wrap` for the rare long "not
+   scored" text) rather than disappearing — the bundle's own real-estate concern was the SEGMENTED
+   row's width, not this narrow mono line.
+3. The bottom-left chrome (`.wf-map-chrome-bl`, the LITE viewline-upsell host) overlapped the new
+   bottom bar. Fixed by lifting its `bottom` offset to clear the bar's own documented height
+   estimate plus a gap, rather than hiding a monetisation surface.
+4. `BottomSheet`'s `modal={false}` doc comment overclaimed "never any behaviour" — the backdrop and
+   scroll-lock were never conditional on it and were never meant to be. Fixed the CLAIM, not the
+   behaviour: the prop's jsdoc (and this entry, above) now states plainly that it is ARIA-semantics
+   only.
+5. Recorded, not changed: full-bleed sheets vs. the bundle's `left/right: 10px` inset is a
+   deliberate shared-component-consistency trade-off, now a one-line note in `BottomSheet`'s class
+   doc.
+6. The phone `.wf-win-menu` rule set `right: 0; width: auto` but the base rule's own
+   `max-width: calc(100vw - 32px)` — a different property `width: auto` never touches — still
+   capped it short of the full-width pill above. Fixed with an explicit `max-width: none`.
+7. Added the `Escape`-closes-the-sheet case to both phone describes (`FiltersPopover.test.jsx`,
+   `RegionsJump.test.jsx`).
+
+Tests: a new `mapPhoneChromeCascade.test.jsx` (the phone chrome rules against the real `index.css`,
+extending the jsdom-cascade technique to reach one level inside `@media` blocks — its own class doc
+records a real bug the file's first draft caught in itself, where concatenating two overlapping
+single-needle extractions silently reordered a shared base rule ahead of its own override — plus
+the review round's own new cases: `.map-home-control` hidden/visible, the ramp key's shrink-not-hide,
+the bottom-left chrome's clearance arithmetic, and the dropdown's `max-width: none`); extended
+`mapChromeZLadderCascade.test.jsx` (the tooltip tier); a new `MapViewResponsivePhone.test.jsx` (the
+`.wf-map-tab` scoping class present on the tab and absent on the overlay, Legend withheld on the
+phone, the counts-footer CSS hook, and — with the real `BottomSheet`, not mocked — the
+swap-not-stack exclusivity in both directions plus backdrop dismissal); new phone/BottomSheet
+describes in `FiltersPopover.test.jsx` and `RegionsJump.test.jsx` (sheet vs. popover, `modal={false}`,
+the disabled outside-click listener, `Escape`); a new `modal={false}` case in `BottomSheet.test.jsx`;
+new `aria-controls` cases in `WindowControl.test.jsx`, `MapLegendPanel.test.jsx`,
+`FiltersPopover.test.jsx` and `RegionsJump.test.jsx`; new `aria-label` regression cases in
+`MapLabels.test.jsx`; and a new phone-width describe in `MapCallout.test.jsx`. No existing assertion
+changed except where a testid gained an `id` sibling attribute (additive) — every desktop/tablet
+suite still mocks `useIsMobile` to `false` (or never mocks it at all, relying on the same default),
+and stays green unmodified.
+
+**PR #741 review round — two more instances of the SAME collision class, plus a sweep to end it.**
+CI was green, but Codex flagged two elements this phase's own review had not yet reached, both
+things sitting at the bottom of the map frame that the new bar's full width now covers:
+
+1. The scored-locations chip (`photocast-scored-legend`, desktop `bottom: 8px; right: 54px` —
+   clearing the OLD corner column, not the new full-width bar) painted over and intercepted taps on
+   the Heat/Pins and Filters segments beneath it. Lifted to the same `76px` clearance
+   `.wf-map-chrome-bl` already uses (`.wf-map-scored-legend`, a new pure-CSS hook class), not hidden
+   or folded into the counts footer — its text is not duplicated anywhere else on the phone.
+2. Leaflet's own attribution control had its upper half buried under the bar. It shares
+   `ZoomControlPositioner`'s `bottomright` corner with the now-hidden zoom control and `⌂`; Leaflet
+   stacks controls within a corner via `float` + `margin-bottom` on each CONTROL rather than the
+   corner container, so with its two neighbours gone the attribution collapsed to sit flush at the
+   corner's own `bottom: 0`. Fixed with `padding-bottom: 76px` on `.leaflet-bottom.leaflet-right`
+   (the same selector `MapCallout.jsx`'s own `LEAFLET_CORNER_SELECTOR` already reads) — a licensing
+   requirement, so it lifts rather than hides, and the P3 quieting styles on
+   `.leaflet-control-attribution` itself (a different selector) are untouched.
+3. **The sweep.** Every `bottom-*`/`bottom:` rule reachable from the map tab was enumerated
+   (`.wf-map-chrome-bl`, `.wf-map-counts-footer`, the two fixes above, plus everything ruled OUT:
+   the now-hidden zoom/`⌂`, the phone-absent Legend, the mouse-only hover tooltip, the callout's own
+   dynamic band already proven against a ≥50%-width bar, and the WindowControl dropdown/BottomSheets
+   which are top-anchored or cover the whole frame rather than being passive bottom-band residents —
+   recorded in full in `mapPhoneChromeCascade.test.jsx`'s own class doc). The counts footer's
+   existing `60px` lift was 4px short of the same clearance formula every OTHER lifted element uses
+   once the bar's assumed height grew to account for the restored ramp key — revised to `64px` for
+   consistency. One new geometry test renders every candidate "active at once" (a scored solar
+   window, a LITE reader mid aurora alert, an active filter) and asserts each clears the bar's own
+   rect, arithmetically (jsdom computes no real layout, so this pins the declared CSS values plus
+   documented height estimates against a fixed, live-measured 780px frame height) — the test meant
+   to make a third Codex round have to find something genuinely new.
+
+Tests (this round): 6 new cases in `mapPhoneChromeCascade.test.jsx` (the scored-legend and
+attribution lift/no-lift pairs, the attribution's P3 styling staying untouched, and the sweep's own
+consolidated geometry check) plus the counts-footer assertion's revised `64px`. Full suite:
+205 files / 4894 tests, green.
+
+**Live-measurement review — each-vs-bar was not each-vs-each.** A live 390×780 pass confirmed every
+lifted element clears the bar, but caught the class this phase's own sweep test had not yet
+covered: two lifted elements sharing a row can collide with EACH OTHER. Measured: the
+scored-locations chip (rect x:125–336, y:678–704) and Leaflet's attribution control (rect x:0–390,
+y:677–704) both landed on the identical `bottom: 76px` row and overlapped outright — the
+attribution's own rect spans the FULL frame width, so anything sharing its row collides with it
+regardless of that thing's own width or position.
+
+Fixed by staggering every lifted element into its own row rather than trying to prove any two
+share one safely by width (the viewline-upsell chip's text — "Aurora viewline available — upgrade
+to Pro" — is long enough at 11px to approach the frame's own width, so even the centred counts
+footer and the right-anchored scored-legend chip could not be assumed clear of it without their
+own measured rects). Bottom-to-top, each row `≥` the one below's own top edge plus an 8px
+clearance gap:
+
+| Row | `bottom` | Height | Basis |
+|---|---|---|---|
+| Bar | 8px | 48px | assumed (documented) |
+| Attribution (`.leaflet-bottom.leaflet-right`, full width) | 76px | 27px | **measured** |
+| Counts footer (centred) | 112px | 28px | assumed |
+| Scored-locations chip | 152px | 26px | **measured** |
+| LITE viewline-upsell chip (`.wf-map-chrome-bl`) | 192px | 28px | assumed |
+
+The attribution keeps the lowest lifted row (full-width, so it can never share one) and the
+viewline-upsell chip takes the topmost (the widest text of the set). Total stack reaches 220px up
+from the frame's bottom edge on a 780px-tall frame — every element here is `position: absolute` and
+was already out of flow before this phase, so a taller stack changes nothing about the frame's own
+box or the "no page scroll" contract; it stays well clear of the window control at the top.
+
+`mapPhoneChromeCascade.test.jsx`'s "THE SWEEP" describe is now a full PAIRWISE matrix — all 10
+pairs among {bar, attribution, counts footer, scored legend, chrome-bl}, not merely each vs the
+bar — built from the same declared-CSS-plus-documented-height method, checking vertical
+disjointness only (deliberate: the fix's whole point is that no pair needs its horizontal footprint
+estimated at all once every row is exclusive). A failure names the actual colliding pair rather
+than a bare boolean, the exact shape that would have caught "scored_legend vs attribution" without
+a live pass. Full suite: 205 files / 4894 tests, green.
+
+### Fixed — the Map callout's region-gloss fallback never fired against real briefing data
+
+`buildRegionGlossIndex` read `region.name` where the served `BriefingRegion` field is
+`regionName`, so against a real `/api/briefing` payload the index was always empty and the
+callout's reason prose could never fall back to the region gloss when a location's own window
+carried no summary (map-v2 §3 P9). The bug was masked by its own tests: both `mapCallout.test.js`
+and `MapCallout.test.jsx` built their region fixtures with the same wrong `name` field, so the
+suite stayed green while the feature was dead in production. The index now reads and keys on
+`regionName` — matching every other region join (`windowFirstRegions.js`, `heatSpots.js`) — and
+the fixtures now use the served field name, so they would catch a regression to `name`.
+
+### Changed — @humanfs/node 0.16.7 → 0.16.8 (Dependabot alert #29)
+
+Clears the moderate advisory GHSA-p498-v437-472g (recursive copy follows symlinked files outside
+the source tree) on ESLint's transitive `@humanfs/node`. Dev-scope only — nothing shipped to the
+browser changes. Done as a surgical lockfile edit rather than `npm audit fix`, because the local
+npm 11 would strip the `libc` fields CI's Node 22 npm wrote for rollup's platform binaries; the
+bump cascades to `@humanfs/core` 0.19.2 and introduces `@humanfs/types` 0.15.0, both of which
+0.16.8 newly requires. Proven the way CI will see it: `rm -rf node_modules && npm ci` exits 0,
+reports 0 vulnerabilities, and leaves the lockfile unchanged.
+
+### Changed — Anthropic Java SDK 2.57.0 → 2.59.0
+
+Dependabot's bump (#720) went red on every WireMock-routed integration test, and the failure was
+real rather than flaky: SDK 2.58.0 moved base-URL resolution out of the OkHttp transport and into
+`ClientOptions` (anthropic-sdk-java #241/#242). The transport used to fall back to the backend's
+base URL when the client options carried none, which is exactly what the hand-assembled
+`WireMockAnthropicClientTestConfiguration` relied on — after the bump its "WireMock" client was
+silently sending every request, fake key and all, to `api.anthropic.com`, and the
+`IntegrationTestBaseSmokeTest` routing check caught it. The test configuration now sets the base
+URL on the `ClientOptions` as well as the backend (the SDK's own `AnthropicOkHttpClient.builder()`
+copies it across; a hand-built client must do so itself), `AppConfig`'s production bean does the
+same so the two never depend on two defaults agreeing, and a Docker-free
+`AnthropicClientWireMockRoutingTest` pins the routing in the ordinary local gate, where the
+integration classes never run. No feature of 2.58/2.59 is adopted: the release's additions (a
+beta `updates` thinking display for Fable 5.1, Organization admin endpoints, GA shapes for the beta
+Files/Skills namespaces, a tool-runner `pause_turn` fix, Bedrock fixes) touch nothing this backend
+calls.
+
 ## [v2.19.10] - 2026-09-03
 
 ### Added — Pins mode and the Legend panel on the Map tab (map-v2 P10)
