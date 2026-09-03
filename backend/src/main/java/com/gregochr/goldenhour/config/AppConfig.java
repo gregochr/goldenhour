@@ -131,6 +131,10 @@ public class AppConfig {
 
         ClientOptions clientOptions = ClientOptions.builder()
                 .httpClient(httpClient)
+                // Since SDK 2.58.0 the transport no longer falls back to the backend's base URL;
+                // ClientOptions owns it and defaults to production. Mirror what
+                // AnthropicOkHttpClient.builder() does so the two never disagree.
+                .baseUrl(backend.baseUrl())
                 .build();
 
         return new AnthropicClientImpl(clientOptions);

@@ -28,6 +28,16 @@ import java.util.concurrent.TimeUnit;
  * <p>The OkHttp client mirrors {@code AppConfig.createOkHttpClient()} (HTTP/1.1,
  * connection pool, 90 s call timeout) so request behaviour is otherwise
  * identical to production.
+ *
+ * <p>⚠️ The base URL must be set on <em>both</em> the {@link AnthropicBackend}
+ * and the {@link ClientOptions}. Up to SDK 2.57.0 the OkHttp transport fell back
+ * to the backend's base URL when the client options carried none; 2.58.0 moved
+ * that resolution into {@code ClientOptions}, whose default is the production
+ * URL, so a backend-only base URL is silently ignored and every "WireMock" call
+ * goes to {@code api.anthropic.com}. {@code AnthropicOkHttpClient.builder()}
+ * copies the backend's URL across for you; this hand-assembled client must do
+ * it itself. {@code AnthropicClientWireMockRoutingTest} pins the routing
+ * without Docker.
  */
 @TestConfiguration
 public class WireMockAnthropicClientTestConfiguration {
@@ -67,6 +77,7 @@ public class WireMockAnthropicClientTestConfiguration {
 
         ClientOptions clientOptions = ClientOptions.builder()
                 .httpClient(httpClient)
+                .baseUrl(baseUrl)
                 .build();
 
         return new AnthropicClientImpl(clientOptions);
