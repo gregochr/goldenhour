@@ -320,6 +320,11 @@ describe('filterCalloutTopics', () => {
 });
 
 describe('buildRegionGlossIndex / regionGlossFor', () => {
+  // ⚠️ `regionName`, never `name` — the served `BriefingRegion` field is `regionName`. This fixture
+  // used `name` until an adversarial review pass caught it (map-tab-v2-plan.md §3 P11): the
+  // implementation read the identical wrong field, so the suite stayed green while the index was
+  // silently empty against real data. The dedicated test below pins the served shape specifically,
+  // so a fixture cannot pre-satisfy its own wrong predicate a second time.
   function daysFixture() {
     return [
       {
@@ -328,8 +333,8 @@ describe('buildRegionGlossIndex / regionGlossFor', () => {
           {
             targetType: 'SUNSET',
             regions: [
-              { name: 'Northumberland', glossHeadline: 'Clear skies inland', glossDetail: 'A calm evening with light cloud burning off by dusk.' },
-              { name: 'The Lakes', glossHeadline: null, glossDetail: null },
+              { regionName: 'Northumberland', glossHeadline: 'Clear skies inland', glossDetail: 'A calm evening with light cloud burning off by dusk.' },
+              { regionName: 'The Lakes', glossHeadline: null, glossDetail: null },
             ],
           },
         ],
@@ -348,7 +353,7 @@ describe('buildRegionGlossIndex / regionGlossFor', () => {
       date: '2026-06-15',
       eventSummaries: [{
         targetType: 'SUNSET',
-        regions: [{ name: 'Northumberland', glossHeadline: 'Clear skies inland', glossDetail: null }],
+        regions: [{ regionName: 'Northumberland', glossHeadline: 'Clear skies inland', glossDetail: null }],
       }],
     }];
     const index = buildRegionGlossIndex(days);
@@ -372,5 +377,27 @@ describe('buildRegionGlossIndex / regionGlossFor', () => {
     expect(regionGlossFor(null, '2026-06-15', 'SUNSET', 'Northumberland')).toBeNull();
     expect(buildRegionGlossIndex(undefined).size).toBe(0);
     expect(buildRegionGlossIndex([{ date: null }]).size).toBe(0);
+  });
+
+  it('⚠️ builds from region.regionName specifically — a region.name fixture must index nothing (pre-existing P9 bug, fixed at map-tab-v2-plan.md §3 P11)', () => {
+    const wrongFieldDays = [{
+      date: '2026-06-15',
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{ name: 'Northumberland', glossHeadline: 'Clear skies inland', glossDetail: 'Detail' }],
+      }],
+    }];
+    expect(buildRegionGlossIndex(wrongFieldDays).size).toBe(0);
+
+    const rightFieldDays = [{
+      date: '2026-06-15',
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{ regionName: 'Northumberland', glossHeadline: 'Clear skies inland', glossDetail: 'Detail' }],
+      }],
+    }];
+    const index = buildRegionGlossIndex(rightFieldDays);
+    expect(index.size).toBe(1);
+    expect(regionGlossFor(index, '2026-06-15', 'SUNSET', 'Northumberland')).toBe('Detail');
   });
 });

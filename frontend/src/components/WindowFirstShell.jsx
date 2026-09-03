@@ -1242,6 +1242,11 @@ export default function WindowFirstShell({
           // layer stacked over the popup makes the search button refuse, so leaving it tabbable
           // would be a control with no visible effect, which plan §3 rule 14 bans outright.
           searchOpen={searchSeed != null || stackedOverPopup}
+          // map-tab-v2-plan.md §3 P11: a per-tab STATE of the tick line, read off the SAME
+          // `effectiveTab` every other map-only branch in this file already keys on (the full-frame
+          // recast at `:1154`/`:1355`, the search/sheet gates below) — never a second "which tab"
+          // test that could disagree with them.
+          isMapTab={effectiveTab === 'map'}
         />
       </div>
 

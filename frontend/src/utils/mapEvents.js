@@ -60,10 +60,18 @@ function numOrNull(v) {
  * would be mixing two different populations under one "N★ best" heading with nothing telling the
  * reader so.
  *
+ * <p><b>Exported so the Regions jump list (map-tab-v2-plan.md §3 P11) can reuse the SAME licence
+ * at a finer key.</b> `utils/regionsJump.js`'s `buildNightRegionBest` groups these identical served
+ * rows by region (via the location-name→region-name join `heat.spots` already carries) and calls
+ * this function once per group — no server-owned per-region figure exists for a night window, so
+ * grouping the served rows more finely is the same licensed client max, not a new re-derivation.
+ * The window dropdown and the jump list must therefore never disagree about a night's best per
+ * region, since both ultimately reduce to this one function over the same rows.
+ *
  * @param {Array<{stars: ?number}>} rows
  * @returns {?number} the highest star value, or null when nothing is scored
  */
-function bestOfNight(rows) {
+export function bestOfNight(rows) {
   let best = null;
   for (const row of Array.isArray(rows) ? rows : []) {
     const s = numOrNull(row?.stars);

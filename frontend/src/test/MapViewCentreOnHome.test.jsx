@@ -10,7 +10,7 @@ import React from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { act, render, screen, fireEvent } from '@testing-library/react';
 
 // ── Leaflet stub, with just enough Control machinery to mount a real one ─────
 
@@ -70,6 +70,12 @@ vi.mock('react-leaflet', () => ({
 
 vi.mock('react-leaflet-cluster', () => ({ default: ({ children }) => <div>{children}</div> }));
 
+// `heatOffered` (map-tab-v2-plan.md §3 P11's own ⌂ tests below) lazily loads this — mocked the same
+// way `MapViewHeat.test.jsx` mocks it, so the field itself never has to actually paint here.
+vi.mock('../components/MapHeatLayer.jsx', () => ({
+  default: () => <div data-testid="map-heat-layer" />,
+}));
+
 // ── App dependencies ─────────────────────────────────────────────────────────
 
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'PRO_USER' }) }));
@@ -104,6 +110,38 @@ import MapView from '../components/MapView.jsx';
 const TODAY = '2026-01-15';
 const HOME = { lat: 54.97, lon: -1.61 };
 
+/**
+ * Two regions for `⌂`'s own tests below (map-tab-v2-plan.md §3 P11) — "The Borders" sits outside
+ * `AREA_SPOTS`, the fixture's "My area", which is what a standing region-jump override needs.
+ * ⚠️ The two boxes must carry DIFFERENT numbers (`MapViewHeat.test.jsx`'s own warning): a deep-equal
+ * assertion would pass even with the ternary's arms swapped.
+ */
+const SPOTS = [
+  {
+    id: 1, name: 'Bamburgh', lat: 55.61, lng: -1.71, regionName: 'North East', rid: 'North East',
+  },
+  {
+    id: 2, name: 'Kelso', lat: 56.20, lng: -2.43, regionName: 'The Borders', rid: 'The Borders',
+  },
+];
+const AREA_SPOTS = [SPOTS[0]];
+const AREA_BOUNDS = [[54.3, -3.4], [55.7, -1.3]];
+const CATALOGUE_BOUNDS = [[54.3, -3.4], [56.4, -1.3]];
+
+function heatProp(overrides = {}) {
+  return {
+    enabled: true,
+    hasHome: true,
+    spots: SPOTS,
+    areaSpots: AREA_SPOTS,
+    pointsByKey: new Map(),
+    windows: [],
+    areaBounds: AREA_BOUNDS,
+    catalogueBounds: CATALOGUE_BOUNDS,
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
@@ -122,6 +160,7 @@ beforeEach(() => {
     getMinZoom: () => 3,
     getMaxZoom: () => 19,
     flyTo,
+    fitBounds: vi.fn(),
     _corner: corner,
   };
 });
@@ -132,6 +171,7 @@ afterEach(() => {
   localStorage.clear();
 });
 
+/** Synchronous — no `heat` prop, nothing lazy to await. Used by every test that predates P11. */
 function renderMap(overrides = {}) {
   return render(
     <MapView
@@ -152,12 +192,33 @@ function renderMap(overrides = {}) {
   );
 }
 
+/**
+ * Async — for `⌂`'s own tests below, which pass a `heat` prop and so make `heatOffered` true: that
+ * lazily loads `MapHeatLayer` (mocked above) via `Suspense`, and the resolution needs an `act`
+ * boundary the same way `MapViewHeat.test.jsx`'s own `renderMap` provides one.
+ */
+async function renderHeatMap(overrides = {}) {
+  let result;
+  await act(async () => {
+    result = renderMap(overrides);
+  });
+  return result;
+}
+
+/** Opens the Map tab's filters popover — `FiltersPopover`'s own scope segment lives behind it. */
+function openFilters() {
+  fireEvent.click(screen.getByTestId('wf-filters-chip'));
+}
+
 describe('centre on home', () => {
   it('mounts as its own control in the top-left stack, not inside the zoom bar', () => {
     renderMap({ homeCoords: HOME });
 
     const button = screen.getByTestId('centre-on-home');
-    expect(button).toHaveAccessibleName('Centre on home');
+    // ⚠️ State-truthful, not "Centre on home" — the accname-drift bug class this phase already
+    // fixed once on `MastheadTickLine`'s origin control (adversarial review + live browser finding):
+    // the name must describe what a click NOW does (reset scope to My area and refit).
+    expect(button).toHaveAccessibleName('Reset to My area');
     // Its own container, in the corner Leaflet stacks controls into.
     const container = button.closest('.map-home-control');
     expect(container).not.toBeNull();
@@ -165,32 +226,16 @@ describe('centre on home', () => {
     expect(container.parentElement).toBe(corner);
   });
 
-  it('recentres on home, framed to the radius the user calls local', () => {
-    // 30 miles = 48,280 m, fitting into 250px → 193 m/px. At 55°N the zoom-0 scale is
-    // 156543 * cos(55°) = 89,796 m/px, so the zoom is floor(log2(89796 / 193)) = 8.
-    renderMap({ homeCoords: HOME, homeRadiusMiles: 30 });
-
-    fireEvent.click(screen.getByTestId('centre-on-home'));
-
-    expect(flyTo).toHaveBeenCalledWith([HOME.lat, HOME.lon], 8, { duration: 0.6 });
-  });
-
-  it('zooms in further for a tighter radius — the frame follows the setting, not a constant', () => {
-    // A user who calls 8 miles local should not be shown 30. Halving the radius twice buys two
-    // zoom levels, which is exactly what a fixed HOME_ZOOM would have thrown away.
-    renderMap({ homeCoords: HOME, homeRadiusMiles: 8 });
-
-    fireEvent.click(screen.getByTestId('centre-on-home'));
-
-    expect(flyTo).toHaveBeenCalledWith([HOME.lat, HOME.lon], 10, { duration: 0.6 });
-  });
-
-  it('falls back to 30 miles when no radius has been chosen', () => {
+  // ⚠️ map-tab-v2-plan.md §3 P11 retired the radius-framed `flyTo` this control used to perform on
+  // click (see `CentreOnHomeControl`'s own class doc for the reconciliation) — it now resets scope
+  // to My area and refits `HeatBoundsController`'s own box, `animate:false`. This test only proves
+  // the OLD path is gone; the new one (below, "⌂ resets scope to My area") needs the `heat` fixture.
+  it('does not call flyTo any more — clicking with a home coordinate is a scope reset now, not a camera fly', () => {
     renderMap({ homeCoords: HOME });
 
     fireEvent.click(screen.getByTestId('centre-on-home'));
 
-    expect(flyTo).toHaveBeenCalledWith([HOME.lat, HOME.lon], 8, { duration: 0.6 });
+    expect(flyTo).not.toHaveBeenCalled();
   });
 
   it('stays visible with no postcode, and points at where to set one', () => {
@@ -201,6 +246,9 @@ describe('centre on home', () => {
 
     const button = screen.getByTestId('centre-on-home');
     expect(button).toHaveAttribute('title', 'Set your home postcode in Settings');
+    // Both channels state the SAME thing a click actually does in this state — opens Settings,
+    // never a scope reset that would be a no-op with no home to have measured anything from.
+    expect(button).toHaveAccessibleName('Set your home postcode in Settings');
     expect(button).toHaveAttribute('data-disabled', 'true');
     expect(button).not.toBeDisabled();
 
@@ -224,5 +272,67 @@ describe('centre on home', () => {
 
     expect(removedControls.length).toBe(1);
     expect(corner.children.length).toBe(0);
+  });
+});
+
+/**
+ * `⌂` resets scope to My area and refits (map-tab-v2-plan.md §3 P11) — the reconciliation between
+ * the design's own `zhome` and this control's pre-P11 radius-framed `flyTo` (see
+ * `CentreOnHomeControl`'s class doc). Needs the `heat`/`fitBounds` wiring the describe block above
+ * has no use for, hence `renderHeatMap`/`heatProp` rather than the plain `renderMap`.
+ */
+describe('centre on home — ⌂ resets scope to My area and refits (map-tab-v2-plan.md §3 P11)', () => {
+  it('resets an already-flipped "Whole catalogue" scope back to My area, animate:false', async () => {
+    await renderHeatMap({ homeCoords: HOME, heat: heatProp() });
+    openFilters();
+    fireEvent.click(screen.getByRole('button', { name: 'Whole catalogue' }));
+    mapStub.fitBounds.mockClear();
+
+    fireEvent.click(screen.getByTestId('centre-on-home'));
+
+    expect(mapStub.fitBounds).toHaveBeenCalledTimes(1);
+    expect(mapStub.fitBounds).toHaveBeenCalledWith(AREA_BOUNDS, { padding: [28, 28], animate: false });
+    expect(screen.getByRole('button', { name: 'My area' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('clears a standing region-jump override too — never leaves the camera on a stale region box', async () => {
+    await renderHeatMap({ homeCoords: HOME, heat: heatProp() });
+    fireEvent.click(screen.getByTestId('wf-jump-chip'));
+    fireEvent.click(screen.getAllByTestId('wf-jump-row').find((r) => r.textContent.includes('The Borders')));
+    mapStub.fitBounds.mockClear();
+
+    fireEvent.click(screen.getByTestId('centre-on-home'));
+
+    // Had the jump's override survived, this would still name Kelso's own box (a THIRD box, never
+    // equal to AREA_BOUNDS) instead of resetting to the area.
+    expect(mapStub.fitBounds).toHaveBeenCalledTimes(1);
+    expect(mapStub.fitBounds).toHaveBeenCalledWith(AREA_BOUNDS, { padding: [28, 28], animate: false });
+  });
+
+  it('does not touch an active filter — README/plan: "does not clear filters"', async () => {
+    await renderHeatMap({ homeCoords: HOME, heat: heatProp() });
+    openFilters();
+    fireEvent.click(screen.getByTestId('dark-sky-filter-toggle'));
+    expect(screen.getByTestId('wf-filters-chip')).toHaveTextContent('Filters (1)');
+
+    fireEvent.click(screen.getByTestId('centre-on-home'));
+
+    // `resetToMyArea` never touches `openMapMenu` (unlike a jump-row selection, which closes its own
+    // menu), so the panel is still open and the toggle's own node is still on screen to check
+    // directly — no second `openFilters()` press that could instead close what is already open.
+    expect(screen.getByTestId('wf-filters-chip')).toHaveTextContent('Filters (1)');
+    expect(screen.getByTestId('dark-sky-filter-toggle')).toHaveClass('on');
+  });
+
+  it('with no home postcode, keeps opening Settings — resetting would be a genuine no-op', async () => {
+    // `heatArea` reads the same box either way with no postcode (`FiltersPopover`'s own scope row is
+    // withheld for the identical reason), so `⌂`'s pre-P11 fallback survives untouched here.
+    const onOpenSettings = vi.fn();
+    await renderHeatMap({ homeCoords: null, heat: heatProp({ hasHome: false }), onOpenSettings });
+
+    fireEvent.click(screen.getByTestId('centre-on-home'));
+
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+    expect(mapStub.fitBounds).not.toHaveBeenCalled();
   });
 });

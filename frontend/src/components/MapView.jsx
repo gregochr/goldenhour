@@ -29,10 +29,13 @@ import WindowControl from './map/WindowControl.jsx';
 import FiltersPopover from './map/FiltersPopover.jsx';
 import MapCallout from './map/MapCallout.jsx';
 import MapLegendPanel from './map/MapLegendPanel.jsx';
+import RegionsJump from './map/RegionsJump.jsx';
 import { fadeAt } from '../utils/heatHandover.js';
-import { buildMapEvents, findEvIndex, solarHorizonDates } from '../utils/mapEvents.js';
+import { buildMapEvents, findEvIndex, solarHorizonDates, EVENT_KIND } from '../utils/mapEvents.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { GLANCE_MINUTES } from '../utils/planningArea.js';
+import { latLngBounds } from '../utils/heatGeometry.js';
+import { buildJumpRows, regionBestRatingFor, buildNightRegionBest } from '../utils/regionsJump.js';
 
 /** localStorage key for the "colours changed" notice's one-time dismissal. */
 const COLOUR_SCALE_NOTICE_DISMISSED_KEY = 'colourScaleNoticeDismissed';
@@ -115,8 +118,13 @@ const PinsLayer = lazy(() => import('./map/PinsLayer.jsx'));
  * handoff, animates deliberately, and caps the zoom at 12 so a one-location region does not slam to
  * street level. This one answers a framing control, where an animation is the defect and a cap
  * would stop "My area" actually showing your area.
+ *
+ * <p>`padding` defaults to the area/whole-catalogue segment's own `[28, 28]` — unchanged from
+ * before this prop existed. The Regions jump list (map-tab-v2-plan.md §3 P11) passes `[40, 40]`
+ * instead, matching the design bundle's own `jumpTo` (`docs/design/map-tab-v2/map-tab-v2.js`), which
+ * pads a region's own, generally tighter box more generously than the wider area/catalogue box needs.
  */
-function HeatBoundsController({ bounds, nonce }) {
+function HeatBoundsController({ bounds, nonce, padding = [28, 28] }) {
   const map = useMap();
   /**
    * The framing already applied, as a value rather than a "have I run yet" boolean.
@@ -141,8 +149,11 @@ function HeatBoundsController({ bounds, nonce }) {
     if (applied.current === key) return;
     applied.current = key;
     if (!bounds || typeof map?.fitBounds !== 'function') return;
-    map.fitBounds(bounds, { padding: [28, 28], animate: false });
+    map.fitBounds(bounds, { padding, animate: false });
     // Keyed on the composed value, not on the bounds ARRAY identity, which is rebuilt on every poll.
+    // `padding` is deliberately NOT a dependency either: it always changes in lockstep with `bounds`
+    // (both are derived from the SAME `jumpFitOverride` presence one level up), so the closure read
+    // here is never stale at the moment `key` actually changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key]);
   return null;
@@ -151,6 +162,7 @@ function HeatBoundsController({ bounds, nonce }) {
 HeatBoundsController.propTypes = {
   bounds: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
   nonce: PropTypes.number,
+  padding: PropTypes.arrayOf(PropTypes.number),
 };
 
 /**
@@ -753,57 +765,46 @@ const ALERT_WORTHY_LEVELS = new Set(['MODERATE', 'STRONG']);
 const COMPACT_LABEL_WIDTH = '78px';
 
 /**
- * Framing constants for "centre on home".
- *
- * <p>The zoom is DERIVED rather than fixed, from the user's own Close-to-home radius and the map's
- * live pixel size: "show me home" means "show me the area I said was local", and that radius is a
- * per-user setting. A hardcoded zoom would frame 30 miles for someone who set 15 and crop someone
- * who set 45. The fallbacks below cover the two things that can be missing — a radius that was
- * never chosen, and a map that cannot report its size yet.
- */
-const DEFAULT_HOME_RADIUS_MILES = 30;
-const FALLBACK_HOME_ZOOM = 9;
-const METRES_PER_MILE = 1609.34;
-/** Web-Mercator ground resolution at zoom 0, in metres per pixel at the equator. */
-const EQUATOR_M_PER_PX_Z0 = 156543.03392;
-
-/**
- * The zoom at which `radiusMiles` around `lat` fits inside the map's shorter axis.
- *
- * <p>Floored, not rounded: rounding up would frame slightly less than the radius asked for, which
- * is the one direction that makes the control lie about what it is showing.
- *
- * @param {Object}  map         the Leaflet map
- * @param {number}  lat         latitude of the centre, for the Mercator scale factor
- * @param {?number} radiusMiles the user's local radius, or null for the default
- * @returns {number} a Leaflet zoom level, clamped to what the map allows
- */
-function zoomForHomeRadius(map, lat, radiusMiles) {
-  const size = map?.getSize?.();
-  const halfPx = size ? Math.min(size.x, size.y) / 2 : 0;
-  if (!halfPx) return FALLBACK_HOME_ZOOM;
-  const metres = (radiusMiles ?? DEFAULT_HOME_RADIUS_MILES) * METRES_PER_MILE;
-  const scale = EQUATOR_M_PER_PX_Z0 * Math.cos((lat * Math.PI) / 180);
-  const zoom = Math.floor(Math.log2(scale / (metres / halfPx)));
-  const min = map.getMinZoom?.() ?? 0;
-  const max = map.getMaxZoom?.() ?? 19;
-  return Math.max(min, Math.min(max, zoom));
-}
-
-/**
- * "Centre on home" — a Leaflet control, because it is a map action.
+ * "⌂" — a Leaflet control, because it is a map action.
  *
  * <p>Bottom-right (map-tab-v2-plan.md §3 P7's chrome enumeration: "zoom + ⌂ bottom-right"),
  * directly above the zoom box in that same corner stack, in its OWN control container rather than
- * as a third button in the zoom bar: recentring is not a zoom step, and putting it in that bar
- * would make it read as one. Leaflet's corner container handles the stacking and the gap, so
- * nothing here hardcodes an offset. This component is mounted tab-only already (see its call
- * site) — the Plan-tab overlay keeps Leaflet's own top-left corner untouched, so there is no
- * position to parameterise here.
+ * as a third button in the zoom bar: this is not a zoom step, and putting it in that bar would make
+ * it read as one. Leaflet's corner container handles the stacking and the gap, so nothing here
+ * hardcodes an offset. This component is mounted tab-only already (see its call site) — the
+ * Plan-tab overlay keeps Leaflet's own top-left corner untouched, so there is no position to
+ * parameterise here.
+ *
+ * <h2>Reconciled with map-tab-v2-plan.md §3 P11's own line: "resets scope to My area and refits"</h2>
+ *
+ * <p>Before P11 this button flew to the home COORDINATE at a zoom derived from the reader's
+ * Close-to-home radius (`homeRadiusMiles`) — a narrower, single-purpose gesture from before the
+ * Filters popover's "My area / Whole catalogue" scope segment (P7) existed at all. The design
+ * bundle's own `zhome` never centred on a point: it reset {@code S.area} and refit to the scoped
+ * spot set's bounds, and P11 states the same for this control in as many words. The two are not
+ * additive — refitting to a fixed-radius disc around the coordinate AND to the (generally larger,
+ * differently-shaped) planning-area bounds in one click would leave the SECOND fit as the only one
+ * the reader ever sees, making the radius-framing dead weight — so the old behaviour is retired
+ * rather than layered under the new one. What survives is the button's OTHER identity, which this
+ * phase treats as the more general form of "take me home": resetting to My area already centres
+ * near home, because My area is itself drive-time-scoped from it. The old {@code zoomForHomeRadius}
+ * maths (and the {@code homeRadiusMiles} prop that fed it) are retired with it — nothing else in
+ * this component read either.
+ *
+ * <p><b>Only when a home coordinate exists.</b> With no postcode, {@code heatArea} already reads
+ * the same box either way (`FiltersPopover`'s own scope row is withheld entirely for the identical
+ * reason: "a control whose every press does nothing is banned outright"), so a reset would be a
+ * genuine no-op — the pre-P11 "open Settings on the postcode field" fallback stays exactly as it
+ * was, because THAT still does something.
+ *
+ * <p>The refit goes through the SAME `onResetScope` path `FiltersPopover`'s own "My area" segment
+ * button uses (`MapView`'s `resetToMyArea`), so the two controls can never disagree about what
+ * resetting scope means, and both inherit {@code animate: false} from the identical reasoning: a
+ * heavy field repaint in the same frame as an animated `fitBounds` strands Leaflet at the old view
+ * (`HeatBoundsController`'s own class doc; map-tab-v2-plan.md §3 P7's recorded Leaflet-strand trap).
  *
  * <p>Home coordinates are NOT geocoded here. The postcode was resolved once, on the server, when
- * the user saved it — `GET /api/user/settings` returns the stored lat/lon — and the same values
- * already drive the Close-to-home radius. A click is a camera move and nothing else.
+ * the user saved it — `GET /api/user/settings` returns the stored lat/lon.
  *
  * <p>With no postcode saved the button stays visible and disabled rather than disappearing: a
  * control that is absent explains nothing, and this one's whole job when unset is to say where
@@ -811,10 +812,11 @@ function zoomForHomeRadius(map, lat, radiusMiles) {
  *
  * @param {Object}    props
  * @param {?Object}   props.homeCoords  `{ lat, lon }`, or null when no postcode is saved
- * @param {?number}   props.radiusMiles the user's Close-to-home radius, in miles
+ * @param {?Function} props.onResetScope resets scope to My area and refits (animate:false) — only
+ *        ever called while {@code homeCoords} is set
  * @param {?Function} props.onOpenSettings opens the settings dialog focused on the postcode field
  */
-function CentreOnHomeControl({ homeCoords = null, radiusMiles = null, onOpenSettings = null }) {
+function CentreOnHomeControl({ homeCoords = null, onResetScope = null, onOpenSettings = null }) {
   const map = useMap();
   // The container is made once, in a state initialiser rather than in the effect, so it exists on
   // the first render and the portal has somewhere to go without a second render pass. Leaflet's
@@ -847,18 +849,19 @@ function CentreOnHomeControl({ homeCoords = null, radiusMiles = null, onOpenSett
     <button
       type="button"
       data-testid="centre-on-home"
-      aria-label="Centre on home"
-      title={hasHome ? 'Centre on home' : 'Set your home postcode in Settings'}
+      // ⚠️ State-truthful, mirroring `title` exactly — the same accname-drift bug class this phase
+      // fixed on `MastheadTickLine`'s own origin control (adversarial review finding, live browser
+      // pass): the name must describe what a click NOW does (reset scope to My area and refit, or
+      // open Settings), not what the pre-P11 `flyTo` used to do. A stale "Centre on home" here would
+      // have been pinned by a green test forever, exactly like the masthead's own near-miss.
+      aria-label={hasHome ? 'Reset to My area' : 'Set your home postcode in Settings'}
+      title={hasHome ? 'Reset to My area' : 'Set your home postcode in Settings'}
       onClick={() => {
         if (!hasHome) {
           onOpenSettings?.();
           return;
         }
-        map.flyTo(
-          [homeCoords.lat, homeCoords.lon],
-          zoomForHomeRadius(map, homeCoords.lat, radiusMiles),
-          { duration: 0.6 },
-        );
+        onResetScope?.();
       }}
       data-disabled={hasHome ? undefined : 'true'}
     >
@@ -870,7 +873,7 @@ function CentreOnHomeControl({ homeCoords = null, radiusMiles = null, onOpenSett
 
 CentreOnHomeControl.propTypes = {
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
-  radiusMiles: PropTypes.number,
+  onResetScope: PropTypes.func,
   onOpenSettings: PropTypes.func,
 };
 
@@ -980,7 +983,7 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  *   `openFullMapTab`'s shape in reverse): switches to the Plan tab via `WindowFirstShell`'s
  *   `selectTab` and opens this location's `LocationFourDaySheet` as the only dialog layer.
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, homeRadiusMiles = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, reachById = null, onOpenLocationInPlan = null }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, reachById = null, onOpenLocationInPlan = null }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -1138,6 +1141,25 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const [heatArea, setHeatArea] = useState(true);
   const [heatFitNonce, setHeatFitNonce] = useState(0);
   /**
+   * The Regions jump list's own camera target (map-tab-v2-plan.md §3 P11) — an OVERRIDE of the
+   * ordinary `heatArea`-derived bounds below, not a second `HeatBoundsController`.
+   *
+   * <p>Selecting a jump row fits a THIRD box `HeatBoundsController` was never built to hold: neither
+   * `heat.areaBounds` nor `heat.catalogueBounds`, but one region's own. Feeding it a second,
+   * independently-nonce'd controller instance risked a genuine race — jumping outside "My area" ALSO
+   * flips `heatArea`, which changes the ORDINARY `heatBounds` value below and would re-arm THAT
+   * controller in the very same commit, so two `fitBounds` calls would compete over one frame with
+   * nothing but React's internal effect order deciding which one the reader actually sees. An
+   * override sidesteps the race outright: the one controller is handed one `bounds` prop, and while
+   * this is non-null it wins unconditionally. `FiltersPopover`'s own "My area"/"Whole catalogue"
+   * segment (`onSelectScope` below) clears it on every press of its own — the sole place that does —
+   * so a stale jump can never survive the reader's own later choice to reframe by scope.
+   */
+  const [jumpFitOverride, setJumpFitOverride] = useState(null);
+  /** Monotonic source for {@code jumpFitOverride.nonce} — a ref, not state, since bumping it is
+   *  always paired with a `setJumpFitOverride` call that already triggers the re-render. */
+  const jumpFitSeq = useRef(0);
+  /**
    * The reach-rings toggle (map-tab-v2-plan.md §3 P8) — read by both {@code MapHeatLayer} (the
    * dashed canvas circles) and {@code MapLabels} (their duration/distance labels), so the two can
    * never disagree about whether rings are on. Defaults true; {@code MapLegendPanel} (P10) is the
@@ -1146,9 +1168,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const [ringsEnabled, setRingsEnabled] = useState(true);
   /**
    * Which of the map tab's own overlay popovers is open — map-tab-v2-plan.md §3 P7's exclusivity
-   * rule ("opening one popover closes the others"). `'window'`, `'filters'` and `'legend'` (P10)
-   * are the three today; a later phase's Regions jump list (P11) is a fourth value on the same
-   * switch, not a new state variable. Tab-only in practice (the overlay never mounts any of these
+   * rule ("opening one popover closes the others"). `'window'`, `'filters'`, `'legend'` (P10) and
+   * `'jump'` (P11, the Regions jump list) are the four today, all on this ONE switch rather than a
+   * separate state variable each. Tab-only in practice (the overlay never mounts any of these
    * popovers), but declared unconditionally rather than behind `!overlayMode` — a `useState` call
    * must never be conditional, and an unused value on the overlay mount costs nothing.
    */
@@ -1757,8 +1779,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       : heatWindow && heatWindow.bestRating == null),
   );
 
-  /** The camera's framing for each segment state — `null` when the roster cannot supply a box. */
-  const heatBounds = (heatArea ? heat?.areaBounds : heat?.catalogueBounds) || null;
+  /**
+   * The camera's framing for each segment state — `null` when the roster cannot supply a box.
+   *
+   * <p>`jumpFitOverride` (map-tab-v2-plan.md §3 P11) wins outright while set — see its own
+   * declaration for why an override, not a second controller, is what keeps a region jump and an
+   * ordinary scope press from racing each other's `fitBounds` call in the same commit.
+   */
+  const heatBounds = jumpFitOverride
+    ? jumpFitOverride.bounds
+    : (heatArea ? heat?.areaBounds : heat?.catalogueBounds) || null;
+  const heatBoundsNonce = jumpFitOverride ? jumpFitOverride.nonce : heatFitNonce;
+  /** `[40, 40]` for a region jump (the design bundle's own `jumpTo`), `[28, 28]` otherwise. */
+  const heatBoundsPadding = jumpFitOverride ? [40, 40] : [28, 28];
   /** The box the map OPENS on, which is the area one whenever a field exists at all. */
   const openingBounds = (heat?.enabled ? heat.areaBounds : null) || null;
 
@@ -2264,6 +2297,108 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /** The row `MapCallout`'s verdict block and "every window" strip treat as "now showing" — the
    * SAME row the pill/tooltip above already read off `activeEvIndex`, never a second lookup. */
   const activeMapEvent = mapEvents[activeEvIndex] ?? null;
+
+  /**
+   * The Regions jump list (map-tab-v2-plan.md §3 P11, `docs/design/map-tab-v2/README.md` §2).
+   *
+   * <p><b>The drive map is EITHER the away region-base matrix OR the per-user home reach, never
+   * both</b> — the exact precedence `driveMinutesFor` above already applies for every other drive
+   * figure on this tab, reused rather than re-decided: `driveOverride` is only ever set while away,
+   * so a home reader's rows are never touched by it.
+   *
+   * <p><b>Rows are built over the WHOLE catalogue</b> (`heat.spots`, never `heat.areaSpots`) — see
+   * `utils/regionsJump.js`'s own module doc for why a jump scoped to where you already are could
+   * never answer "where else could I go".
+   *
+   * <p><b>The best-score join is served for a SOLAR active event, and the SAME licence at a finer
+   * key for a night one</b> (adjudicated ruling, map-tab-v2-plan.md §3 P11). Solar reads the served
+   * `BriefingRegion.bestRating`, name-keyed. Astro/aurora carry no per-region rollup on the wire at
+   * all, but the window dropdown's own "N★ best" column ALREADY takes a licensed client max over
+   * that night's served per-location stars (`mapEvents.bestOfNight` — no server-owned figure exists
+   * for a night, which is precisely why that max is licensed there). `utils/regionsJump.
+   * buildNightRegionBest` groups those SAME served rows by region — via `heat.spots`' own
+   * location-name→region-name pairing — and calls `bestOfNight` once per group: a finer key on an
+   * already-licensed operation, not a second re-derivation, so the dropdown and this list can never
+   * disagree about a night's best per region. Only a region with no served night rows at all still
+   * renders with no score, the same em-dash `WindowControl`'s own unscored rows use.
+   *
+   * <p>Built fresh every render rather than `useMemo`'d/`useCallback`'d — the SAME choice
+   * `mapEvents` above makes, and for the identical reason: every input already recomputes on its own
+   * cadence, so a memo here would carry an equally long dependency list for a builder over a few
+   * rows at most. (It also could not be a hook at all in this exact spot: this component's own
+   * conditional early return sits between `mapEvents`/`activeMapEvent` above and this block, so a
+   * `useCallback`/`useMemo` placed after it would violate the Rules of Hooks on every render that
+   * takes that return — the same trap `selectMapLocation`'s own comment records a few screens down.)
+   */
+  const activeNightRows = (() => {
+    if (!activeMapEvent || activeMapEvent.kind === EVENT_KIND.SOLAR) return null;
+    return activeMapEvent.kind === EVENT_KIND.ASTRO
+      ? astroConditionsByDate.get(activeMapEvent.date)
+      : auroraResultsByDate.get(activeMapEvent.date);
+  })();
+  const nightRegionBest = activeNightRows
+    ? buildNightRegionBest(activeNightRows, heat?.spots || EMPTY_POINTS)
+    : null;
+  function jumpBestRatingFor(regionName) {
+    if (!activeMapEvent) return null;
+    if (activeMapEvent.kind === EVENT_KIND.SOLAR) {
+      return regionBestRatingFor(regionBestIndex, activeMapEvent.date, activeMapEvent.eventType, regionName);
+    }
+    return nightRegionBest?.get(regionName) ?? null;
+  }
+  const jumpDriveMap = driveOverride || reachById || null;
+  const jumpRows = buildJumpRows({
+    spots: heat?.spots || EMPTY_POINTS,
+    driveMap: jumpDriveMap,
+    bestRatingFor: jumpBestRatingFor,
+  });
+  /**
+   * Resets scope to My area and refits — `FiltersPopover`'s own "My area" segment button AND
+   * `CentreOnHomeControl`'s `⌂` (map-tab-v2-plan.md §3 P11's reconciliation, see that component's
+   * own doc) both go through this ONE function, so the two can never disagree about what "reset
+   * scope" means. Clears any standing jump override first: a stale region fit must not survive a
+   * reader's own, later choice to reframe by scope.
+   */
+  function resetToMyArea() {
+    setJumpFitOverride(null);
+    setHeatArea(true);
+    setHeatFitNonce((n) => n + 1);
+  }
+  /**
+   * Selecting a jump row (README §2: "Selecting a row fits the map to that region's bounds.
+   * If the region lies outside 'My area', it switches scope to Whole catalogue automatically" —
+   * "a jump is honest; a no-op is not"). `heat.areaSpots` is read directly for the "is this region
+   * in scope" test rather than re-derived from `planningArea.areaRegions`: it already reflects
+   * whichever scope is actually in force — the home planning area, or a single away region — so a
+   * second computation could only ever disagree with the one the camera and the filters already
+   * agree on.
+   *
+   * <p><b>The panel closes on selection — the bundle is silent on this, so the choice is stated
+   * here rather than left to look accidental.</b> A jump is a COMPLETED navigation: the reader named
+   * a destination and the camera has already moved there, so a panel left open afterward would sit
+   * directly over the very ground they just asked to see. That is a different question from
+   * `FiltersPopover`'s own rows, which rightly stay open on every press — a filter is a STANDING
+   * choice the reader is still composing, one control at a time, and closing it on the first press
+   * would make every subsequent one a fresh re-open (adversarial review + live browser finding,
+   * map-tab-v2-plan.md §3 P11).
+   */
+  function jumpToRegion(regionName) {
+    const spots = heat?.spots || EMPTY_POINTS;
+    const regionSpots = spots.filter((s) => s?.regionName === regionName);
+    if (regionSpots.length === 0) return;
+    if (heatArea) {
+      const inArea = (heat?.areaSpots || EMPTY_POINTS).some((s) => s?.regionName === regionName);
+      if (!inArea) setHeatArea(false);
+    }
+    jumpFitSeq.current += 1;
+    setJumpFitOverride({
+      bounds: latLngBounds(regionSpots, 0.06),
+      nonce: jumpFitSeq.current,
+    });
+    // Closes the jump menu — see this function's own doc for why a jump closes where a filter row
+    // would not.
+    setOpenMapMenu(null);
+  }
 
   /**
    * The Plan-tab handoff (map-tab-v2-plan.md §3 P9's "Open in Plan" action) — builds the SAME
@@ -2816,7 +2951,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               />
             </Suspense>
           )}
-          {heatOffered && <HeatBoundsController bounds={heatBounds} nonce={heatFitNonce} />}
+          {heatOffered && (
+            <HeatBoundsController bounds={heatBounds} nonce={heatBoundsNonce} padding={heatBoundsPadding} />
+          )}
           {/* CARTO's basemaps.cartocdn.com dark_all tiles now require a registered API key
               (https://carto.com/basemaps/apikey) — anonymous requests render an
               "API KEY REQUIRED" watermark instead of the tile. Esri's Canvas basemaps stay
@@ -2870,7 +3007,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             <>
               <CentreOnHomeControl
                 homeCoords={homeCoords}
-                radiusMiles={homeRadiusMiles}
+                onResetScope={resetToMyArea}
                 onOpenSettings={onOpenSettings}
               />
               <ZoomControlPositioner position="bottomright" />
@@ -3241,21 +3378,27 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           </>
         ) : (
           <>
-            {/* ── Full-frame map chrome (map-tab-v2-plan.md §3 P7/P10) ──
+            {/* ── Full-frame map chrome (map-tab-v2-plan.md §3 P7/P10/P11) ──
                 Every corner is claimed exactly once, per the plan's z-ladder (index.css): chrome
                 1100, menus 1500 (a menu must beat every other chip so its own dropdown/panel is
                 never hidden under a sibling). Window control top-left (clearing Leaflet's own
-                zoom + home control stack the same way the old toolbar did); Heat/Pins +
-                Filters top-right (Regions is P11 — this cluster is laid out to take a third
-                child with no restructuring); colour-scale notice top-centre (the top corners are
-                now both claimed by chrome); the Legend chip bottom-left (P10 — hidden in Pins
-                mode, shares its corner with the LITE viewline-upsell chip, which never coexists
-                with it); scored-locations chip bottom-right; counts footer bottom-centre. */}
+                zoom + home control stack the same way the old toolbar did); Regions + Heat/Pins +
+                Filters top-right, in the README's own top-to-bottom order; colour-scale notice
+                top-centre (the top corners are now both claimed by chrome); the Legend chip
+                bottom-left (P10 — hidden in Pins mode, shares its corner with the LITE
+                viewline-upsell chip, which never coexists with it); scored-locations chip
+                bottom-right; counts footer bottom-centre. */}
             <div className="wf-map-chrome-tl" data-testid="wf-map-chrome-tl">
               {windowControl}
             </div>
 
             <div className="wf-map-chrome-tr" data-testid="wf-map-chrome-tr">
+              <RegionsJump
+                open={openMapMenu === 'jump'}
+                onOpenChange={(next) => setOpenMapMenu(next ? 'jump' : null)}
+                rows={jumpRows}
+                onSelectRegion={jumpToRegion}
+              />
               {heatOffered && (
                 <div data-testid="wf-map-toolbar" className="wf-map-toolbar-cluster">
                   <div className="wf-map-toolbar-row">
@@ -3327,7 +3470,17 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 darkSkyThreshold={DARK_SKY_THRESHOLD}
                 hasHome={Boolean(heat?.hasHome)}
                 heatArea={heatArea}
-                onSelectScope={(next) => { setHeatArea(next); setHeatFitNonce((n) => n + 1); }}
+                // `next === true` ("My area") is `resetToMyArea` itself — the SAME function `⌂`
+                // calls (map-tab-v2-plan.md §3 P11's reconciliation) — so the two controls can never
+                // disagree about what resetting scope means. `next === false` ("Whole catalogue")
+                // clears any standing jump override for the identical reason: a stale region fit
+                // must not survive the reader's own later choice to widen scope.
+                onSelectScope={(next) => {
+                  if (next) { resetToMyArea(); return; }
+                  setJumpFitOverride(null);
+                  setHeatArea(false);
+                  setHeatFitNonce((n) => n + 1);
+                }}
                 areaLabel={heat?.areaLabel}
                 isAuroraMode={isAuroraMode}
                 isAstroMode={isAstroMode}
@@ -3603,8 +3756,6 @@ MapView.propTypes = {
   }),
   /** `{ lat, lon }` of the user's saved home postcode, or null when none is saved. */
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
-  /** The user's Close-to-home radius in miles — frames the "centre on home" camera move. */
-  homeRadiusMiles: PropTypes.number,
   /** Opens the settings dialog on the postcode field. */
   onOpenSettings: PropTypes.func,
   /**
@@ -3634,6 +3785,12 @@ MapView.propTypes = {
   scoresKnown: PropTypes.bool,
   /** From `utils/mapCallout.buildRegionGlossIndex` — the callout's reason-prose fallback. */
   regionGlossIndex: PropTypes.object,
+  /**
+   * From `utils/regionsJump.buildRegionBestIndex` — the Regions jump list's per-window "best score"
+   * join (map-tab-v2-plan.md §3 P11), the served `BriefingRegion.bestRating` keyed by
+   * `date|targetType|regionName`.
+   */
+  regionBestIndex: PropTypes.instanceOf(Map),
   /**
    * The per-user HOME reach map (`{driveMinutes, distanceMiles}`), read ONLY for the callout's
    * straight-line miles fact — see this component's own prop-block comment above `function MapView`

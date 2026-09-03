@@ -191,6 +191,18 @@ export function filterCalloutTopics(badges, coastalTidal) {
  * REGION's gloss (plan §3 P9: "fallback: region gloss"), never a location's, and a region can carry
  * a different gloss on every window it appears in.
  *
+ * <p>⚠️ <b>Pre-existing bug, found by adversarial review against #737 (map-tab-v2-plan.md §3 P11)
+ * and fixed here.</b> This read {@code region?.name}/{@code region.name} since P9 — but the served
+ * {@code BriefingRegion} record has no {@code name} field at all; its own field is
+ * {@code regionName} (confirmed against every sibling join on this arm — `heatSpots.js`,
+ * `windowFirstRegions.js` — which have always used the correct field). So every region read here was
+ * {@code undefined}, the {@code !region?.name} guard skipped every region on every call, and this
+ * index has been silently EMPTY against real data since it shipped: the callout's reason-prose
+ * fallback ("fallback: region gloss") never actually supplied one. The bug was masked because
+ * `mapCallout.test.js`'s own fixture used the identical wrong field (`{ name: … }`), so the suite
+ * stayed green while the feature was dead — the fixture pre-satisfied its own (wrong) predicate
+ * rather than exercising the served shape.
+ *
  * @param {Array} days {@code briefing.days}
  * @returns {Map<string, {headline: ?string, detail: ?string}>}
  */
@@ -201,11 +213,11 @@ export function buildRegionGlossIndex(days) {
     for (const summary of day.eventSummaries ?? []) {
       if (!summary?.targetType) continue;
       for (const region of summary.regions ?? []) {
-        if (!region?.name) continue;
+        if (!region?.regionName) continue;
         const headline = region.glossHeadline || null;
         const detail = region.glossDetail || null;
         if (!headline && !detail) continue;
-        const key = `${day.date}|${summary.targetType}|${region.name}`;
+        const key = `${day.date}|${summary.targetType}|${region.regionName}`;
         if (!index.has(key)) index.set(key, { headline, detail });
       }
     }

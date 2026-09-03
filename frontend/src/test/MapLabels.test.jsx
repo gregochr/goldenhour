@@ -554,6 +554,10 @@ describe('MapLabels — obstacle seeding from the live chrome', () => {
     ['colour-scale-notice', 'colour-scale-notice'],
     ['the LITE viewline upsell chip', 'viewline-upsell-chip'],
     ['the scored-locations legend', 'photocast-scored-legend'],
+    // map-tab-v2-plan.md §3 P11 — the Regions jump list's own open dropdown, added to
+    // `OBSTACLE_SELECTOR` alongside `wf-win-menu`/`wf-filters-panel` for the identical reason: it
+    // overflows its trigger chip's own layout box, so `wf-map-chrome-tr`'s rect does not cover it.
+    ['the Regions jump menu', 'wf-jump-menu'],
   ])('seeds %s as an obstacle', async (_label, testid) => {
     restoreMeasure = withMeasuredLabels(30, 14);
     currentMap = makeFullMap({ zoom: 9 });
