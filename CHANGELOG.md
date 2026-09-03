@@ -5,6 +5,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.19.12] - 2026-09-03
+
+### Changed — conform the map field's opacity to the design bundle
+
+- The Map tab's heat field now paints at the design bundle's own opacity. A pre-existing repo
+  value had drifted 0.02 below the bundle's figure without ever being a deliberate call; this
+  closes that gap.
+
+### Changed — brighten medium Plan-screen confidence
+
+- The Plan screen's medium-confidence tier now renders noticeably less hazy: cells, verdict
+  badges and the heat field's own haze for T+2/T+3-ish windows (and any region the backend could
+  not fully qualify) brighten from the design bundle's window-4 treatment to its window-3 one.
+  Same channel, same ordering (a far-horizon "Worth it" still reads more provisional than
+  tonight's) — only the medium tier moved.
+
 ## [v2.19.11] - 2026-09-03
 
 ### Added — the Regions jump list, the masthead statement, and ⌂'s new meaning (map-v2 P11)
