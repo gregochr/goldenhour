@@ -2979,61 +2979,69 @@ button.wf-hc.also.on:hover {
     justify-content: center;
   }
 
-  /* `64px` = `8px` (bar's own bottom offset) + `48px` (assumed bar height, documented below at
-     `.wf-map-chrome-bl`) + `8px` (clearance gap) — the SAME formula every lifted element in this
-     block uses, so `mapPhoneChromeCascade.test.jsx` can pin one inequality per element rather than
-     one magic number each. Was `60px` (PR #741 review): 4px short of the formula's own clearance
-     gap against the bar's REVISED 48px height (the ramp key's restoration grew the bar after this
-     value was first chosen), close enough to read as intentional headroom on a screenshot but not
-     what the formula actually promises. */
+  /* ── The lifted stack, staggered into DISTINCT rows (live-measurement review) ─────────────────
+     A live 390×780 pass proved the bar-clearance formula (below) correct for every element
+     against the BAR, but caught a SECOND collision class the formula never considered: two lifted
+     elements sharing the same row can collide with EACH OTHER. Measured: the scored-locations
+     chip (rect x:125–336, y:678–704) and Leaflet's attribution control (rect x:0–390, y:677–704)
+     both landed on the identical `bottom: 76px` row and overlapped outright — the attribution's
+     own rect spans the FULL frame width, so ANYTHING sharing its row collides with it regardless
+     of that thing's own horizontal position or width. That single fact is what shapes everything
+     below: attribution gets a row to itself, and every other lifted element stacks in its own row
+     above it, never sharing a row with any of the other three (the viewline-upsell chip's own
+     text — "Aurora viewline available — upgrade to Pro" — is long enough at 11px to approach the
+     frame's own width, so even the counts footer and the scored-legend chip, on opposite sides of
+     the frame from it, cannot be assumed clear without their own measured rects).
+
+     Rows, bottom-to-top, each `>= ` the row below's own top edge (bottom + height) plus an 8px
+     clearance gap — `mapPhoneChromeCascade.test.jsx`'s "THE SWEEP" describe pins the full pairwise
+     matrix on this same arithmetic, not these literal numbers, so a future re-tune only has to
+     keep every inequality true:
+       Bar                        bottom  8px, height  48px (assumed) → top  56px
+       Attribution (full width)   bottom 76px, height  27px (measured)→ top 103px  (clears bar by 20px)
+       Counts footer (centred)    bottom 112px, height  28px (assumed)→ top 140px  (clears attribution by 9px)
+       Scored-locations chip      bottom 152px, height  26px (measured)→ top 178px (clears footer by 12px)
+       LITE viewline-upsell chip  bottom 192px, height  28px (assumed)→ top 220px  (clears the chip by 14px)
+     Total stack reaches 220px up from the frame's bottom edge on a 780px-tall frame — comfortably
+     clear of the window control at the TOP (well under the frame's own mid-line), so this does not
+     reopen the "no page scroll" contract: every element here is `position: absolute` and was
+     already removed from flow before this phase, so a taller stack changes nothing about the
+     frame's own box, only where within it these five chips paint. */
   .wf-map-tab .wf-map-counts-footer {
-    bottom: 64px;
+    bottom: 112px;
   }
   .wf-map-tab .wf-map-counts-second {
     display: none;
   }
 
-  /* Bottom-left chrome (the LITE viewline-upsell chip, `MapView.jsx`'s `.wf-map-chrome-bl`) lifts
-     clear of the new bottom bar rather than being hidden — review finding: at its desktop `bottom:
-     8px` it sat directly under the bar and was neither visible nor tappable, and this chip is a
-     monetisation surface, not decoration. The bar's own rendered height is not something this
-     stylesheet can read back (no live layout in a stylesheet), so this is a DOCUMENTED estimate,
-     not a measurement: the bar's tallest column is the Heat/Pins cluster stacked two rows high
-     (`.wf-seg-btn`'s ~26px button + 6px gap + the ramp key's own shrunk ~16px row ≈ 48px), under
-     `align-items: stretch` on `.wf-map-chrome-tr` every column (including the two chips) matches
-     that height. `8px` (bar's own bottom offset) + `48px` (assumed bar height) + `8px` (clearance
-     gap) = `64px`; `76px` below carries a 12px margin over that estimate. Re-measure on a real
-     device and tighten if this proves too generous — `mapPhoneChromeCascade.test.jsx` pins the
-     ARITHMETIC relationship (this value must stay `≥` the bar's own `bottom` plus the documented
-     estimate), not the literal 76px, so a future re-tune only has to keep that inequality true. */
+  /* Bottom-left chrome (the LITE viewline-upsell chip, `MapView.jsx`'s `.wf-map-chrome-bl`) — the
+     WIDEST of the lifted set (its own text can approach the frame's full width, see the stack
+     comment above), so it takes the TOPMOST row rather than sharing one with anything else. */
   .wf-map-tab .wf-map-chrome-bl {
-    bottom: 76px;
+    bottom: 192px;
   }
 
-  /* The scored-locations chip (`photocast-scored-legend`) — PR #741 review, the same collision
-     class as `⌂` and `.wf-map-chrome-bl` above: at its desktop `bottom: 8px; right: 54px` it sat
-     directly under the new bar (which now claims the WHOLE width, not merely the corner column
-     `right: 54px` was clearing on desktop), painting over AND intercepting taps on the Heat/Pins
-     and Filters segments beneath it. Lifted, not hidden or folded into the counts footer — its
-     text ("★ PhotoCast-scored locations shown") is not duplicated anywhere else on the phone, and
-     hiding it would be a silent information loss the design never asked for. Same clearance
-     formula as `.wf-map-chrome-bl` above. */
+  /* The scored-locations chip (`photocast-scored-legend`) — PR #741 review found it colliding
+     with the bar; the live-measurement review above then found it colliding with the ATTRIBUTION
+     control once both were lifted to the same row. Given its own row instead — not hidden or
+     folded into the counts footer, since its text ("★ PhotoCast-scored locations shown") is not
+     duplicated anywhere else on the phone. */
   .wf-map-tab .wf-map-scored-legend {
-    bottom: 76px;
+    bottom: 152px;
   }
 
-  /* Leaflet's own attribution control (PR #741 review, the same collision class again) — a
-     licensing requirement, not decoration, so it lifts rather than hides. It shares
+  /* Leaflet's own attribution control (PR #741 review, then the live-measurement review above) —
+     a licensing requirement, not decoration, so it lifts rather than hides. It shares
      `ZoomControlPositioner`'s `bottomright` corner with the zoom control and `⌂`, both hidden
      above; Leaflet stacks controls within one corner via `float` + `margin-bottom` on the
      CONTROL itself (`leaflet/dist/leaflet.css`), not on the corner container, so with its two
      former neighbours gone the attribution now sits flush at the corner's own `bottom: 0` unless
      something claims the space back. `padding-bottom` on the corner container
      (`.leaflet-bottom.leaflet-right`, the same selector `MapCallout.jsx`'s own
-     `LEAFLET_CORNER_SELECTOR` already reads) pushes every control still inside it up by the same
-     margin the other lifted chrome uses — the P3 quieting styles on `.leaflet-control-attribution`
-     itself (background/colour/font-size/padding) are a DIFFERENT selector entirely and are
-     untouched by this rule. */
+     `LEAFLET_CORNER_SELECTOR` already reads) pushes it up — the LOWEST of the lifted rows, right
+     above the bar, since it is full-width and therefore cannot share a row with anything. The P3
+     quieting styles on `.leaflet-control-attribution` itself (background/colour/font-size/padding)
+     are a DIFFERENT selector entirely and are untouched by this rule. */
   .wf-map-tab .leaflet-bottom.leaflet-right {
     padding-bottom: 76px;
   }

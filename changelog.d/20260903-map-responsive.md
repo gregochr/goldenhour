@@ -165,3 +165,40 @@ Tests (this round): 6 new cases in `mapPhoneChromeCascade.test.jsx` (the scored-
 attribution lift/no-lift pairs, the attribution's P3 styling staying untouched, and the sweep's own
 consolidated geometry check) plus the counts-footer assertion's revised `64px`. Full suite:
 205 files / 4894 tests, green.
+
+**Live-measurement review — each-vs-bar was not each-vs-each.** A live 390×780 pass confirmed every
+lifted element clears the bar, but caught the class this phase's own sweep test had not yet
+covered: two lifted elements sharing a row can collide with EACH OTHER. Measured: the
+scored-locations chip (rect x:125–336, y:678–704) and Leaflet's attribution control (rect x:0–390,
+y:677–704) both landed on the identical `bottom: 76px` row and overlapped outright — the
+attribution's own rect spans the FULL frame width, so anything sharing its row collides with it
+regardless of that thing's own width or position.
+
+Fixed by staggering every lifted element into its own row rather than trying to prove any two
+share one safely by width (the viewline-upsell chip's text — "Aurora viewline available — upgrade
+to Pro" — is long enough at 11px to approach the frame's own width, so even the centred counts
+footer and the right-anchored scored-legend chip could not be assumed clear of it without their
+own measured rects). Bottom-to-top, each row `≥` the one below's own top edge plus an 8px
+clearance gap:
+
+| Row | `bottom` | Height | Basis |
+|---|---|---|---|
+| Bar | 8px | 48px | assumed (documented) |
+| Attribution (`.leaflet-bottom.leaflet-right`, full width) | 76px | 27px | **measured** |
+| Counts footer (centred) | 112px | 28px | assumed |
+| Scored-locations chip | 152px | 26px | **measured** |
+| LITE viewline-upsell chip (`.wf-map-chrome-bl`) | 192px | 28px | assumed |
+
+The attribution keeps the lowest lifted row (full-width, so it can never share one) and the
+viewline-upsell chip takes the topmost (the widest text of the set). Total stack reaches 220px up
+from the frame's bottom edge on a 780px-tall frame — every element here is `position: absolute` and
+was already out of flow before this phase, so a taller stack changes nothing about the frame's own
+box or the "no page scroll" contract; it stays well clear of the window control at the top.
+
+`mapPhoneChromeCascade.test.jsx`'s "THE SWEEP" describe is now a full PAIRWISE matrix — all 10
+pairs among {bar, attribution, counts footer, scored legend, chrome-bl}, not merely each vs the
+bar — built from the same declared-CSS-plus-documented-height method, checking vertical
+disjointness only (deliberate: the fix's whole point is that no pair needs its horizontal footprint
+estimated at all once every row is exclusive). A failure names the actual colliding pair rather
+than a bare boolean, the exact shape that would have caught "scored_legend vs attribution" without
+a live pass. Full suite: 205 files / 4894 tests, green.

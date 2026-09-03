@@ -257,10 +257,12 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
     expect(slice).toContain('.wf-map-tab .wf-map-counts-second');
     const cleanup = inject(slice);
     try {
-      // 64px, not a rounder-looking number chosen by eye — PR #741 review: it must satisfy the
-      // SAME clearance formula every lifted element in this file does (see the sweep describe
-      // block below), and `60px` fell 4px short of it once the bar's own assumed height grew.
-      expect(computedStyleFor('wf-map-counts-footer', ['wf-map-tab']).bottom).toBe('64px');
+      // 112px, not a rounder-looking number chosen by eye — a live-measurement review found the
+      // footer's PR #741 value (`64px`, itself a correction of an earlier `60px`) sharing a row
+      // with Leaflet's full-width attribution control once both were lifted; `112px` is its own
+      // row in the staggered stack (see index.css's own comment above this rule, and the sweep
+      // describe block below, which pins the full pairwise arithmetic rather than this literal).
+      expect(computedStyleFor('wf-map-counts-footer', ['wf-map-tab']).bottom).toBe('112px');
       expect(computedStyleFor('wf-map-counts-second', ['wf-map-tab']).display).toBe('none');
     } finally {
       cleanup();
@@ -478,16 +480,32 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
   });
 
   /**
-   * THE SWEEP (PR #741 review): "enumerate everything absolutely positioned within the map frame
-   * that can occupy the bottom ~90px at ≤639px" — recorded here so a third Codex round has to find
-   * something genuinely NEW rather than rediscover this inventory.
+   * THE SWEEP (PR #741 review, extended by a live-measurement review): "enumerate everything
+   * absolutely positioned within the map frame that can occupy the bottom ~90px at ≤639px" —
+   * recorded here so a third Codex round (or a fourth review) has to find something genuinely NEW
+   * rather than rediscover this inventory.
    *
-   * Considered and a CANDIDATE (all tested against the bar's rect below, "everything active" —
-   * a scored solar window, a LITE reader mid aurora alert, and an active filter, simultaneously):
+   * ⚠️ Each-vs-BAR is not enough. The PR #741 round proved every lifted element clears the bar,
+   * and shipped exactly that check — but a live 390×780 pass then measured the scored-locations
+   * chip (rect x:125–336, y:678–704) and Leaflet's attribution control (rect x:0–390, y:677–704)
+   * sharing the identical `bottom: 76px` row and overlapping EACH OTHER: the credits were obscured
+   * again, by a neighbour instead of the bar. The fix (`index.css`'s own stack comment above
+   * `.wf-map-counts-footer`) staggers every lifted element into its own row rather than trying to
+   * prove any two share a row safely by width — the attribution's measured rect spans the FULL
+   * frame width, so anything sharing its row collides with it regardless of the other element's
+   * own width, and the viewline-upsell chip's text is long enough to make the same true of ANY
+   * row it joins. This describe block is the PAIRWISE matrix that fix demands: every one of the 10
+   * pairs among {bar, attribution, counts footer, scored legend, chrome-bl/upsell}, not merely each
+   * vs the bar.
+   *
+   * Considered and a CANDIDATE (all pairwise-checked below, "everything active" — a scored solar
+   * window, a LITE reader mid aurora alert, and an active filter, simultaneously):
+   *   - `.wf-map-chrome-tr` (the bar itself) — the original reference rect.
    *   - `.wf-map-chrome-bl` (LITE viewline-upsell chip) — lifted, PR #741 review round 1.
-   *   - `.wf-map-counts-footer` — lifted (and re-tuned to the shared formula this round).
-   *   - `.wf-map-scored-legend` (`photocast-scored-legend`) — lifted THIS round.
-   *   - `.leaflet-bottom.leaflet-right` (Leaflet's attribution corner) — lifted THIS round.
+   *   - `.wf-map-counts-footer` — lifted, re-tuned twice (PR #741, then this stagger).
+   *   - `.wf-map-scored-legend` (`photocast-scored-legend`) — lifted, PR #741; re-staggered here.
+   *   - `.leaflet-bottom.leaflet-right` (Leaflet's attribution corner) — lifted, PR #741; kept at
+   *     the lowest lifted row here, since it is full-width and cannot share one with anything.
    *
    * Considered and RULED OUT (not a candidate, with the reason, so the next reviewer does not
    * have to re-derive it):
@@ -509,16 +527,20 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
    *
    * The check itself is ARITHMETIC, not real layout (jsdom computes none): each candidate's own
    * declared `bottom`/`padding-bottom` (real, extracted from `index.css`) plus a documented assumed
-   * height is converted into a `{top, bottom}` rect against a fixed frame height (780px — the
-   * live-measured no-scroll figure from this phase's own browser pass), then checked disjoint
-   * against the bar's identically-built rect. Re-tuning any offset only has to keep every
-   * inequality below true, not hit these exact numbers.
+   * or measured height is converted into a `{top, bottom}` rect against a fixed frame height (780px
+   * — the live-measured no-scroll figure), then every PAIR of rects is checked for vertical
+   * disjointness. Vertical alone is deliberate and sufficient here — the fix stacks every element
+   * into its own row precisely so no pair's horizontal footprint (unmeasured for three of these
+   * five, and provably close to the full frame width for the widest) ever needs estimating at all.
+   * Re-tuning any offset only has to keep every pairwise inequality true, not hit these exact
+   * numbers.
    */
-  describe('THE SWEEP — every candidate clears the bar, all of them active at once', () => {
+  describe('THE SWEEP — full pairwise disjointness across the whole lifted stack, everything active at once', () => {
     const FRAME_HEIGHT = 780;
     const ASSUMED_BAR_HEIGHT = 48;
-    const ASSUMED_CHIP_HEIGHT = 28; // a single-line pill/text chip — bl, footer, scored-legend
-    const ASSUMED_ATTRIBUTION_HEIGHT = 15; // the review's own reported figure
+    const ASSUMED_CHIP_HEIGHT = 28; // a single-line pill/text chip — chrome-bl, counts footer
+    const MEASURED_SCORED_LEGEND_HEIGHT = 26; // live 390×780 pass: y 678–704
+    const MEASURED_ATTRIBUTION_HEIGHT = 27; // live 390×780 pass: y 677–704
 
     /** `{top, bottom}` of an element anchored `bottomPx` from the frame's own bottom edge,
      * `heightPx` tall — both measured downward from the frame's TOP, matching
@@ -527,7 +549,14 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
       return { top: FRAME_HEIGHT - bottomPx - heightPx, bottom: FRAME_HEIGHT - bottomPx };
     }
 
-    it('every candidate is entirely ABOVE the bar\'s own rect — no shared pixel row', () => {
+    /** Two rects share no pixel row — the ONLY claim this file can make without real layout
+     * (see the class doc: horizontal footprints are not all measured, so the fix avoids needing
+     * them at all by keeping every row exclusive). */
+    function verticallyDisjoint(a, b) {
+      return a.bottom <= b.top || b.bottom <= a.top;
+    }
+
+    it('every one of the 10 pairs among {bar, attribution, counts footer, scored legend, chrome-bl} is vertically disjoint', () => {
       const slice = extractRulesIncludingMedia([
         '.wf-map-chrome-tr', '.wf-map-chrome-bl', '.wf-map-counts-footer',
         '.wf-map-scored-legend', '.leaflet-bottom.leaflet-right',
@@ -535,24 +564,45 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
       const cleanup = inject(slice);
       try {
         const barBottom = parseFloat(computedStyleFor('wf-map-chrome-tr', ['wf-map-tab']).bottom);
-        const barRect = rectFromBottom(barBottom, ASSUMED_BAR_HEIGHT);
-        expect(barRect.top).toBeGreaterThanOrEqual(0); // the assumed geometry itself must fit the frame
+        const attributionBottom = parseFloat(
+          computedStyleFor('leaflet-bottom leaflet-right', ['wf-map-tab']).paddingBottom,
+        );
 
-        const candidates = [
-          { name: 'wf-map-chrome-bl', height: ASSUMED_CHIP_HEIGHT },
-          { name: 'wf-map-counts-footer', height: ASSUMED_CHIP_HEIGHT },
-          { name: 'wf-map-scored-legend', height: ASSUMED_CHIP_HEIGHT },
-          { name: 'leaflet-bottom leaflet-right', height: ASSUMED_ATTRIBUTION_HEIGHT, prop: 'paddingBottom' },
-        ];
-        for (const { name, height, prop = 'bottom' } of candidates) {
-          const style = computedStyleFor(name, ['wf-map-tab']);
-          const offset = parseFloat(style[prop]);
-          const rect = rectFromBottom(offset, height);
-          // Disjoint means the candidate's OWN bottom edge (closer to the frame's bottom, i.e. a
-          // LARGER "bottom-from-frame-bottom" `top`/`bottom` pixel row number here since both are
-          // measured downward from the frame's top) sits at or above the bar's top edge.
-          expect(rect.bottom).toBeLessThanOrEqual(barRect.top);
+        const rects = {
+          bar: rectFromBottom(barBottom, ASSUMED_BAR_HEIGHT),
+          attribution: rectFromBottom(attributionBottom, MEASURED_ATTRIBUTION_HEIGHT),
+          counts_footer: rectFromBottom(
+            parseFloat(computedStyleFor('wf-map-counts-footer', ['wf-map-tab']).bottom),
+            ASSUMED_CHIP_HEIGHT,
+          ),
+          scored_legend: rectFromBottom(
+            parseFloat(computedStyleFor('wf-map-scored-legend', ['wf-map-tab']).bottom),
+            MEASURED_SCORED_LEGEND_HEIGHT,
+          ),
+          chrome_bl: rectFromBottom(
+            parseFloat(computedStyleFor('wf-map-chrome-bl', ['wf-map-tab']).bottom),
+            ASSUMED_CHIP_HEIGHT,
+          ),
+        };
+
+        // The geometry itself must fit the frame — a passing pairwise matrix built from rects
+        // that overflow the top of the frame would prove nothing real.
+        for (const [name, rect] of Object.entries(rects)) {
+          expect(rect.top, `${name}'s rect overflows the frame`).toBeGreaterThanOrEqual(0);
         }
+
+        const names = Object.keys(rects);
+        const collisions = [];
+        for (let i = 0; i < names.length; i += 1) {
+          for (let j = i + 1; j < names.length; j += 1) {
+            if (!verticallyDisjoint(rects[names[i]], rects[names[j]])) {
+              collisions.push(`${names[i]} vs ${names[j]}`);
+            }
+          }
+        }
+        // A named list on failure, not a bare boolean — exactly the shape that would have named
+        // "scored_legend vs attribution" directly instead of needing a live pass to find it.
+        expect(collisions, `overlapping pairs: ${collisions.join(', ')}`).toEqual([]);
       } finally {
         cleanup();
       }
