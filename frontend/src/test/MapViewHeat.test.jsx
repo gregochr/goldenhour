@@ -32,6 +32,25 @@ vi.mock('leaflet.markercluster/dist/MarkerCluster.css', () => ({}));
 
 const fitBounds = vi.fn();
 const mapContainerProps = { last: null };
+/**
+ * Every handlers object any `useMapEvents` caller registered this render — `ZoomTracker`'s
+ * `{zoomend}` and (tab-only) `MapBackgroundClickController`'s `{mousedown, click}` both go through
+ * this one hook. `fireZoomend` (below) drives every registered `zoomend`, matching
+ * `MapViewBasemapDress.test.jsx`'s own idiom for the identical need (map-tab-v2-plan.md §3 P10
+ * adversarial review C4/C7's Legend/rings integration tests are the first thing in this file that
+ * needs a REAL zoom to reach the toolbar, rather than the `useState(9)` mount default every earlier
+ * test in this file was content with).
+ */
+let mapEventHandlers = [];
+/** What `ZoomTracker`'s mount effect reads via `map.getZoom()` — see `mockMapInstance` below. */
+let mockMapZoomAtMount = 9;
+const mockMapInstance = { getZoom: () => mockMapZoomAtMount };
+/**
+ * Every `<Polyline>` this render produced, in render order — the azimuth lines' recording mock
+ * (map-tab-v2-plan.md §3 P10 adversarial review C5: decision D-9 had zero test coverage until
+ * this file's own "azimuth lines" describe block below).
+ */
+let polylineCalls = [];
 vi.mock('react-leaflet', () => ({
   MapContainer: (props) => {
     mapContainerProps.last = props;
@@ -40,12 +59,22 @@ vi.mock('react-leaflet', () => ({
   TileLayer: () => null,
   Marker: ({ children }) => <div>{children}</div>,
   Popup: ({ children }) => <div>{children}</div>,
-  Polyline: () => null,
-  useMapEvents: () => null,
+  Polyline: (props) => { polylineCalls.push(props); return null; },
+  useMapEvents: (handlers) => {
+    mapEventHandlers.push(handlers);
+    return mockMapInstance;
+  },
   useMap: () => ({
     eachLayer: () => {},
     getContainer: () => ({ clientHeight: 500 }),
     fitBounds,
+    // `getZoom`/`flyTo`: `FlyToController`'s effect calls both once a fly target is set — reached
+    // for the first time in this file by the azimuth-line tests' `handoffLocationName` prop, which
+    // sets one as a side effect of selecting a location. No-ops; this file has no assertion on
+    // camera movement.
+    getZoom: () => mockMapZoomAtMount,
+    flyTo: () => {},
+    panInside: () => {},
   }),
 }));
 
@@ -204,6 +233,29 @@ const makeLocations = () => SPOTS.map((s) => ({
   }]]),
 }));
 
+/**
+ * A single location carrying a sunset `azimuthDeg` — the one field `makeLocations()`'s fixture
+ * omits and the azimuth-line describe block below needs, since `MapView` only draws a line once
+ * `selectedDayData?.sunset?.azimuthDeg` (or `.sunrise`) resolves to a number.
+ */
+function makeAzimuthLocation() {
+  return [{
+    id: 99,
+    name: 'AzimuthSpot',
+    lat: 55.6,
+    lon: -1.7,
+    regionName: 'North East',
+    bortleClass: 4,
+    locationType: ['LANDSCAPE'],
+    forecastsByDate: new Map([[TODAY, {
+      sunset: {
+        rating: 4, solarEventTime: `${TODAY}T16:12:00`, fierySkyPotential: 70, goldenHourPotential: 60, azimuthDeg: 240,
+      },
+      sunrise: { rating: 4, solarEventTime: `${TODAY}T08:24:00`, fierySkyPotential: 70, goldenHourPotential: 60 },
+    }]]),
+  }];
+}
+
 async function renderMap(props = {}) {
   let result;
   const locations = makeLocations();
@@ -238,6 +290,28 @@ function openFilters() {
   fireEvent.click(screen.getByTestId('wf-filters-chip'));
 }
 
+/**
+ * Opens the Map tab's Legend popover (map-tab-v2-plan.md §3 P10) — mirrors `openFilters` above.
+ */
+function openLegend() {
+  fireEvent.click(screen.getByTestId('wf-legend-chip'));
+}
+
+/**
+ * Fires `zoomend` on every registered `useMapEvents` caller — `MapViewBasemapDress.test.jsx`'s own
+ * idiom, needed here for the first time by the Legend handover indicator's integration tests
+ * (adversarial review C7), which must drive a REAL zoom rather than rely on the `useState(9)` mount
+ * default every earlier test in this file was content with.
+ */
+function fireZoomend(zoom) {
+  act(() => {
+    const target = { getZoom: () => zoom };
+    for (const handlers of mapEventHandlers) {
+      handlers.zoomend?.({ target });
+    }
+  });
+}
+
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
@@ -251,6 +325,9 @@ beforeEach(() => {
   markerNonce += 1;
   auroraStatus = null;
   role = 'PRO_USER';
+  mapEventHandlers = [];
+  mockMapZoomAtMount = 9;
+  polylineCalls.length = 0;
 });
 afterEach(() => { vi.useRealTimers(); localStorage.clear(); });
 
@@ -318,7 +395,7 @@ describe('MapView heat — the toolbar', () => {
   it('opens in heat view, on the planning area, at §4.5’s padding', async () => {
     await renderMap({ heat: heatProp() });
     expect(screen.getByRole('button', { name: 'Heat' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByRole('button', { name: 'Medallions' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Pins' })).toHaveAttribute('aria-pressed', 'false');
     expect(screen.getByRole('group', { name: 'Map view' })).toBeInTheDocument();
     // The "My area" / "Whole catalogue" scope now lives in the filters popover (map-tab-v2-plan.md
     // §3 P7) rather than on the always-visible toolbar.
@@ -332,32 +409,46 @@ describe('MapView heat — the toolbar', () => {
     expect(mapContainerProps.last.boundsOptions).toEqual({ padding: [28, 28] });
   });
 
-  it('withdraws the field on Medallions and brings it back on Heat', async () => {
+  it('withdraws the FIELD on Pins (map-tab-v2-plan.md §3 P10) but keeps the coastline-stroke host mounted, and brings the field back on Heat', async () => {
+    // Pre-P10, switching to the medallion view unmounted `MapHeatLayer` entirely. P10 changes the
+    // CONTRACT: the coastline stroke now lives on this same host and keeps drawing in Pins mode
+    // ("MapHeatLayer's pins-mode contract"), so the host itself must stay mounted — only its
+    // `fieldEnabled` prop toggles the field/bloom/rings off.
     await renderMap({ heat: heatProp() });
     expect(await screen.findByTestId('map-heat-layer')).toBeInTheDocument();
+    expect(heatLayerProps.last.fieldEnabled).toBe(true);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Medallions' }));
-    expect(screen.queryByTestId('map-heat-layer')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Medallions' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
+    // Still in the document with NO further `await`/`findBy` needed: `MapHeatLayer` has its own
+    // Suspense boundary now (separate from `MapLabels`/`PinsLayer`'s), so switching views never
+    // re-suspends it — an already-resolved `lazy()` component re-renders synchronously on a prop
+    // change, it does not remount.
+    expect(screen.getByTestId('map-heat-layer')).toBeInTheDocument();
+    expect(heatLayerProps.last.fieldEnabled).toBe(false);
+    expect(screen.getByRole('button', { name: 'Pins' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'Heat' })).toHaveAttribute('aria-pressed', 'false');
 
     fireEvent.click(screen.getByRole('button', { name: 'Heat' }));
-    expect(await screen.findByTestId('map-heat-layer')).toBeInTheDocument();
+    expect(screen.getByTestId('map-heat-layer')).toBeInTheDocument();
+    expect(heatLayerProps.last.fieldEnabled).toBe(true);
   });
 
-  it('does not remount the marker/cluster layer on the Heat↔Medallions toggle, so an open popup survives it', async () => {
+  it('does not remount the marker/cluster layer on the Heat↔Pins toggle, so an open popup survives it', async () => {
     // With one colour language, the toggle no longer changes which palette a cluster bubble paints
     // on — so the `key` that used to force a remount on every view switch is gone. Its only
     // remaining effect would have been tearing down (and losing) an open popup, a spiderfied
     // cluster and the selected marker on every press. Pinned here via mount count, since the
     // `Marker`/`Popup` mocks in this file are too shallow to assert an actual open popup surviving.
+    // P10 changes HOW Pins mode hides the medallions (`MapHeatLayer`'s `fieldEnabled={false}`
+    // forces the marker panes to 0% opacity/inert rather than unmounting this group), but the
+    // invariant under test — this group is never torn down by the toggle — is unchanged.
     clusterGroupMounts.count = 0;
     await renderMap({ heat: heatProp() });
     expect(clusterGroupMounts.count).toBe(1);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Medallions' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
     fireEvent.click(screen.getByRole('button', { name: 'Heat' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Medallions' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
 
     // Exactly 1, not merely "still &gt;= 1": a monotonic counter alone can't tell "never remounted"
     // apart from "unmounted and never came back". The re-render check below rules out the latter —
@@ -366,14 +457,23 @@ describe('MapView heat — the toolbar', () => {
     expect(clusterIconCalls.length).toBeGreaterThan(1);
   });
 
-  it('hides the ramp key in medallion view, where nothing is painted with it', async () => {
+  it('hides the ramp key in Pins view, where nothing is painted with it', async () => {
     await renderMap({ heat: heatProp() });
     // Named through its role: the gradient it explains is `aria-hidden`, so without a name of its
     // own a screen reader meets two loose adjectives with nothing saying what they qualify.
     expect(screen.getByRole('img', { name: /Poor to Worth it/ })).toBeInTheDocument();
     expect(screen.getByTestId('wf-map-heat-legend')).toHaveTextContent('Poor');
-    fireEvent.click(screen.getByRole('button', { name: 'Medallions' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
     expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+  });
+
+  it('hides the Legend chip entirely in Pins view (README §3: "In Pins mode the Legend chip hides")', async () => {
+    await renderMap({ heat: heatProp() });
+    expect(screen.getByTestId('wf-legend-chip')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
+    expect(screen.queryByTestId('wf-legend-chip')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Heat' }));
+    expect(screen.getByTestId('wf-legend-chip')).toBeInTheDocument();
   });
 
   it('drops the area segment entirely when no home is set (the "every press does nothing" coherence rule)', async () => {
@@ -497,9 +597,9 @@ describe('MapView heat — a window nobody rated', () => {
     expect(screen.getByTestId('wf-map-heat-legend')).toBeInTheDocument();
   });
 
-  it('says nothing in medallion view, where no field is claimed either way', async () => {
+  it('says nothing in Pins view, where no field is claimed either way', async () => {
     await renderMap({ heat: unrated() });
-    fireEvent.click(screen.getByRole('button', { name: 'Medallions' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
     expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
     expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
   });
@@ -739,13 +839,14 @@ describe('MapView heat — role gating (§9.6, ungated for the pilot)', () => {
 });
 
 describe('MapView heat — the marker swap (D2/D8)', () => {
-  it('paints markers with the same ramp colour in Heat and Medallions view, because the ramp is now the map\'s only SCORE colour language', async () => {
+  it('paints markers with the same ramp colour in Heat and Pins view, because the ramp is now the map\'s only SCORE colour language', async () => {
     // D8's end state, not a mid-migration one: `makeMarkerIcon`'s cache key no longer carries a
     // per-view flag, so switching views is a cache HIT on the same icon rather than a second call
     // to `markerLabelAndColour` with a different answer — there is no code path left that could
-    // recolour a marker on the way into medallion view. The zero further calls below is therefore
-    // the proof, not a weaker substitute for one: the identical cached DivIcon is reused, so its
-    // colour is provably identical, not merely re-derived to match.
+    // recolour a marker on the way into Pins view (P10 hides them via opacity, never a remount).
+    // The zero further calls below is therefore the proof, not a weaker substitute for one: the
+    // identical cached DivIcon is reused, so its colour is provably identical, not merely
+    // re-derived to match.
     await renderMap({ heat: heatProp() });
     expect(markerCalls.length).toBeGreaterThan(0);
     // Every call `MapView` actually made resolves to the same ramp stop — asserted on the CALLS
@@ -761,15 +862,17 @@ describe('MapView heat — the marker swap (D2/D8)', () => {
     }
 
     markerCalls.length = 0;
-    fireEvent.click(screen.getByRole('button', { name: 'Medallions' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
     expect(markerCalls).toEqual([]);
   });
 
-  it('paints cluster medallions on the ramp stop, in both Heat and Medallions view', async () => {
+  it('paints cluster medallions on the ramp stop, in both Heat and Pins view', async () => {
     // The cluster icon is built by a callback rather than at render, so this is driven through the
     // real `createClusterIcon`, which no longer takes a view/ramp argument at all — so checking
     // both views is a belt-and-braces re-run of the same assertion rather than a distinct claim:
-    // there is no code path left that could paint the two views differently.
+    // there is no code path left that could paint the two views differently. (P10: the medallions
+    // are still THERE in Pins view, just opacity-hidden by `MapHeatLayer` — this file's shallow
+    // mocks cannot see the CSS opacity, only that the icon itself is unchanged.)
     await renderMap({ heat: heatProp() });
     const cluster = {
       getChildCount: () => 3,
@@ -780,9 +883,9 @@ describe('MapView heat — the marker swap (D2/D8)', () => {
     const inHeat = clusterIconCalls.at(-1)(cluster).options.html;
     expect(inHeat).toContain(STOPS_VERDICT[4].hex);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Medallions' }));
-    const inMedallions = clusterIconCalls.at(-1)(cluster).options.html;
-    expect(inMedallions).toContain(STOPS_VERDICT[4].hex);
+    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
+    const inPins = clusterIconCalls.at(-1)(cluster).options.html;
+    expect(inPins).toContain(STOPS_VERDICT[4].hex);
   });
 
   it('draws the ramp key from the ramp itself, so the picture and its legend cannot drift', async () => {
@@ -942,5 +1045,135 @@ describe('MapView heat — scope is excluded from the filters chip\'s own count'
     // ...but scope is untouched: still Whole catalogue, not silently reset to My area.
     expect(screen.getByRole('button', { name: 'Whole catalogue' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('button', { name: 'My area' })).toHaveAttribute('aria-pressed', 'false');
+  });
+});
+
+/**
+ * The Legend panel (map-tab-v2-plan.md §3 P10) as wired into the real `MapView` — the popover
+ * itself is `MapLegendPanel.test.jsx`'s job in isolation; this describes the CALLER'S wiring the
+ * way `MapViewHeat.test.jsx`'s other describes already test the toolbar/filters wiring. Fixes 8
+ * confirmed findings from an adversarial review round (C1/C3, C4, C6, C7 below; C2/C5/C8/C9 landed
+ * in the changelog, `MapView.jsx`'s azimuth-lines suite and `PinsLayer.test.jsx` respectively).
+ */
+describe('MapView heat — the Legend panel (map-tab-v2-plan.md §3 P10)', () => {
+  it('stacks with the LITE viewline-upsell chip rather than one suppressing the other (adversarial review C1/C3)', async () => {
+    // The two are independent axes: the upsell keys on `auroraStatus`'s ALERT LEVEL, live
+    // regardless of which event type is on screen; the Legend chip keys on `heatView`/
+    // `heatOffered`, which excludes AURORA MODE specifically — and a LITE reader can never enter
+    // aurora mode at all (`viewlineEnabled` is PRO/ADMIN-only), so an alert can fire while they sit
+    // on an ordinary Heat-view sunset. A prior revision wrongly assumed these were the same axis.
+    role = 'LITE_USER';
+    auroraStatus = { level: 'MODERATE' };
+    await renderMap({ heat: heatProp() });
+    const upsell = screen.getByTestId('viewline-upsell-chip');
+    const legendChip = screen.getByTestId('wf-legend-chip');
+    expect(upsell).toBeInTheDocument();
+    expect(legendChip).toBeInTheDocument();
+    // Both are plain flex children of ONE positioned wrapper, not two independently `absolute`
+    // chips claiming the same coordinates — jsdom computes no real layout, so this structural
+    // check (one shared wrapper, neither child self-positioning) is the provable proxy for
+    // "disjoint" here; the live browser pass (adversarial review) measured the rendered rects and
+    // confirmed they do not overlap.
+    const wrapper = screen.getByTestId('wf-map-chrome-bl');
+    expect(wrapper).toContainElement(upsell);
+    expect(wrapper).toContainElement(legendChip);
+    expect(upsell.className).not.toMatch(/\babsolute\b/);
+    expect(legendChip.className).not.toMatch(/\babsolute\b/);
+  });
+
+  it('withholds the rings toggle with no home COORDINATE, even though heatProp()\'s hasHome is true (adversarial review C4)', async () => {
+    // `heatProp()` sets `hasHome: true` (the roster-level signal `FiltersPopover`'s scope segment
+    // reads) but this test passes no `homeCoords` — the toggle must gate on the LATTER, the same
+    // test `mapReachMeasured`/the ring paint/the ring labels use, or it is a control whose every
+    // press does nothing.
+    await renderMap({ heat: heatProp() });
+    openLegend();
+    expect(screen.getByTestId('wf-legend-panel')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-legend-rings-toggle')).toBeNull();
+  });
+
+  it('offers the rings toggle once a real home coordinate exists', async () => {
+    await renderMap({ heat: heatProp(), homeCoords: { lat: 54.9, lon: -1.4 } });
+    openLegend();
+    expect(screen.getByTestId('wf-legend-rings-toggle')).toBeInTheDocument();
+  });
+
+  it('flips MapHeatLayer\'s own rings prop off and back on through the real chip and toggle (adversarial review C6)', async () => {
+    await renderMap({ heat: heatProp(), homeCoords: { lat: 54.9, lon: -1.4 } });
+    await screen.findByTestId('map-heat-layer');
+    expect(heatLayerProps.last.rings).toBe(true);
+
+    openLegend();
+    fireEvent.click(screen.getByTestId('wf-legend-rings-toggle'));
+    expect(heatLayerProps.last.rings).toBe(false);
+
+    fireEvent.click(screen.getByTestId('wf-legend-rings-toggle'));
+    expect(heatLayerProps.last.rings).toBe(true);
+  });
+
+  it('reads Field / Handing over / Locations off a REAL zoom, at three points across the handover band (adversarial review C7)', async () => {
+    await renderMap({ heat: heatProp() });
+    openLegend();
+    // Below FADE_FROM (10.4) — the mount default of 9 is already there.
+    expect(screen.getByTestId('wf-legend-hand')).toHaveTextContent('Field');
+
+    fireZoomend(11.2); // the midpoint of the 10.4→12.0 band
+    expect(screen.getByTestId('wf-legend-hand')).toHaveTextContent('Handing over');
+
+    fireZoomend(12); // at FADE_TO
+    expect(screen.getByTestId('wf-legend-hand')).toHaveTextContent('Locations');
+  });
+});
+
+/**
+ * Azimuth lines are overlay-only in the tab's Pins mode (decision D-9, map-tab-v2-plan.md §3 P10)
+ * — they were marker-layer furniture with no host in the new pin vocabulary. Zero coverage existed
+ * for this before adversarial review C5; the `handoffLocationName` prop drives the selection this
+ * needs (a real click needs a marker mock this file's own `Marker` stub discards `eventHandlers`
+ * from), and `polylineCalls` (the recording mock above) is what proves a line was actually asked
+ * for, not merely that nothing crashed.
+ */
+describe('MapView heat — azimuth lines are overlay-only in Pins mode (decision D-9, adversarial review C5)', () => {
+  it('draws the sunset azimuth line in Heat view, for a selected location', async () => {
+    const azLoc = makeAzimuthLocation();
+    await renderMap({
+      heat: heatProp(), locations: azLoc, handoffLocationName: azLoc[0].name,
+    });
+    expect(polylineCalls.length).toBeGreaterThan(0);
+  });
+
+  it('drops the azimuth line the moment the tab switches to Pins', async () => {
+    const azLoc = makeAzimuthLocation();
+    await renderMap({
+      heat: heatProp(), locations: azLoc, handoffLocationName: azLoc[0].name,
+    });
+    expect(polylineCalls.length).toBeGreaterThan(0);
+
+    polylineCalls.length = 0;
+    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
+    expect(polylineCalls.length).toBe(0);
+  });
+
+  it('brings the azimuth line straight back on switching back to Heat', async () => {
+    const azLoc = makeAzimuthLocation();
+    await renderMap({
+      heat: heatProp(), locations: azLoc, handoffLocationName: azLoc[0].name,
+    });
+    expect(polylineCalls.length).toBeGreaterThan(0);
+
+    polylineCalls.length = 0;
+    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
+    expect(polylineCalls.length).toBe(0);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Heat' }));
+    expect(polylineCalls.length).toBeGreaterThan(0);
+  });
+
+  it('keeps the azimuth line on the Plan-tab overlay, which never enters Pins mode at all', async () => {
+    const azLoc = makeAzimuthLocation();
+    await renderMap({
+      overlayMode: true, locations: azLoc, handoffLocationName: azLoc[0].name,
+    });
+    expect(polylineCalls.length).toBeGreaterThan(0);
   });
 });

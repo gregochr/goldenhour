@@ -13,6 +13,7 @@ import { POINT_SCORE_INDEX } from '../utils/heatSpots.js';
 import { useHeatCanvas } from '../hooks/useHeatCanvas.js';
 import { getMode } from '../utils/scoreRamp.js';
 import { pxPerKmAtHome, RING_MIN_PX, RING_TIERS } from '../utils/reachRings.js';
+import { fadeAt } from '../utils/heatHandover.js';
 
 /**
  * The pane the field is painted into, and its stacking order.
@@ -29,22 +30,13 @@ const HEAT_PANE_Z = 350;
 const CANVAS_KEY = 'field';
 
 /**
- * The handover band (D8): the zoom range across which the field gives way to the markers.
- *
- * <p>Below {@link FADE_FROM} the question is WHERE — a county at a time, which is what a blended
- * field answers and what a wall of medallions cannot. Above {@link FADE_TO} the question has become
- * WHICH, and a smear cannot answer which. The field does not vanish at the top: it settles to
- * {@link HEAT_FLOOR}, a faint wash, because the regional answer is still true at street level and
- * removing it entirely would make the two views feel like different maps.
- *
- * <p>Re-tuned at map-tab-v2-plan.md §3 P4 — {@code 10.4 → 12.0} and floor {@code 0.12}, from
- * {@code 10.6 → 12.2}/{@code 0.17} — co-tuned in the same commit as the radius re-tune and the
- * land clip below (docs/design/map-tab-v2/README.md, "Field / label handover"): the old band was
- * part of why the field swam offshore.
+ * The handover band (D8): the zoom range across which the field gives way to the markers — moved
+ * to `utils/heatHandover.js` at map-tab-v2-plan.md §3 P10 (its own doc comment carries the full
+ * "why 10.4→12.0/0.12" reasoning) so the Legend panel's handover indicator can read the same
+ * fraction without eagerly pulling this module's own `heatField.js` import into every mount's
+ * bundle. Re-exported below so this file's own existing imports/tests are unaffected.
  */
-const FADE_FROM = 10.4;
-const FADE_TO = 12.0;
-const HEAT_FLOOR = 0.12;
+export { fadeAt };
 
 /**
  * The opacity below which the marker panes stop being click targets.
@@ -81,7 +73,7 @@ const FIELD_BLOOM = 1;
 /**
  * The land clip (map-tab-v2-plan.md §3 P4) — dropped at/above this zoom, where a 1:50m
  * coastline's own survey error would show as a visibly false coast. By then the field is already
- * close to {@link FADE_TO}'s floor opacity, so an unclipped wash over water reads less wrong than a
+ * close to `heatHandover.js`'s {@code FADE_TO} floor opacity, so an unclipped wash over water reads less wrong than a
  * hard edge in the wrong place (docs/design/map-tab-v2/README.md, "The heat field").
  */
 const LAND_CLIP_MAX_ZOOM = 11.5;
@@ -203,18 +195,6 @@ function drawReachRings(ctx, map, homeCoords, width, height) {
 const FADED_PANES = ['markerPane', 'shadowPane'];
 
 /**
- * Where the map is in the handover, from its zoom.
- *
- * @param {number} zoom the map's current zoom
- * @returns {{markers: number, heat: number}} the marker opacity (0 → 1) and the heat opacity
- *          multiplier (1 → {@link HEAT_FLOOR}), which move in opposite directions across one band
- */
-export function fadeAt(zoom) {
-  const t = clamp((zoom - FADE_FROM) / (FADE_TO - FADE_FROM), 0, 1);
-  return { markers: t, heat: 1 - (1 - HEAT_FLOOR) * t };
-}
-
-/**
  * The class that actually removes the hit target below {@link MARKER_INTERACTIVE_ALPHA}.
  *
  * <p>Its rule is in {@code index.css}; see {@link markersAreInteractive} for why an inline
@@ -330,9 +310,17 @@ function restoreMarkerPanes(map) {
  * @param {boolean}  [props.rings] whether the reach rings are switched on. Defaults false so a
  *        caller that never passes it (every existing mount) draws none — the Map tab's own state
  *        defaults to true and is threaded down explicitly.
+ * @param {boolean}  [props.fieldEnabled] whether the score field itself paints — default true, so
+ *        every existing caller is unaffected. The Map tab's Pins mode (map-tab-v2-plan.md §3 P10)
+ *        passes false: this host still mounts (the coastline stroke is furniture that draws in
+ *        BOTH modes, "MapHeatLayer's pins-mode contract"), but `drawTiles` — and with it the bloom
+ *        and the reach rings, both of which read the field's own score data — is skipped entirely,
+ *        and the medallion markers are held fully hidden regardless of zoom (Pins mode replaces
+ *        them with `PinsLayer`'s own dots, so there is one place a location renders, not two).
  */
 export default function MapHeatLayer({
   points, conf = null, markersLocked = false, colourMode = null, homeCoords = null, rings = false,
+  fieldEnabled = true,
 }) {
   const map = useMap();
 
@@ -427,7 +415,12 @@ export default function MapHeatLayer({
     L.DomUtil?.setPosition?.(canvas, map.containerPointToLayerPoint([0, 0]));
     const zoom = map.getZoom();
     const fade = fadeAt(zoom);
-    if (fadesMarkers) applyMarkerFade(map, fade.markers);
+    // Pins mode (map-tab-v2-plan.md §3 P10) holds the medallions fully hidden regardless of zoom —
+    // `PinsLayer` draws the dots now, so there is one place a location renders, not two. Checked
+    // BEFORE `fadesMarkers`, which is a HEAT-mode-only question (whether there is a field to hand
+    // over to): the ordinary zoom-keyed fade below never applies while the field itself is off.
+    if (!fieldEnabled) applyMarkerFade(map, 0);
+    else if (fadesMarkers) applyMarkerFade(map, fade.markers);
     else restoreMarkerPanes(map);
 
     /* The land clip (map-tab-v2-plan.md §3 P4) — dropped at/above LAND_CLIP_MAX_ZOOM. `landPath`
@@ -448,24 +441,32 @@ export default function MapHeatLayer({
       };
     }
 
-    drawTiles(canvas, map, points, POINT_SCORE_INDEX, {
-      radius: radiusFor(map, RADIUS_METRES, RADIUS_MIN_PX, RADIUS_MAX_PX),
-      grid: GRID,
-      blur: BLUR,
-      // Null rather than 1 when the window carries no tier: `field` reads `conf == null` as full
-      // confidence, which is the honest default for a window the backend declined to qualify —
-      // the haze is a qualifier on a claim, not a claim of its own.
-      conf,
-      opacity: HEAT_OPACITY * fade.heat,
-      // Bloom only in TEMPERATURE mode (map-tab-v2-plan.md §3 P2, decision D-1): the bloom's whole
-      // rationale is the temp ramp's luminance inversion, and the verdict ramp has none — an ember
-      // glow over a green "go" would be a false signal. In verdict mode this spreads NO keys at
-      // all, not a falsy one, so `drawTiles` sees today's exact options object.
-      ...(getMode() === 'temp' ? { bloom: FIELD_BLOOM } : null),
-      // Same rule as the bloom above: below LAND_CLIP_MAX_ZOOM this spreads all five clip keys
-      // (clipPath may still be null); at/above it, none at all — absence, not a falsy value.
-      ...(clipOpts || null),
-    });
+    if (fieldEnabled) {
+      drawTiles(canvas, map, points, POINT_SCORE_INDEX, {
+        radius: radiusFor(map, RADIUS_METRES, RADIUS_MIN_PX, RADIUS_MAX_PX),
+        grid: GRID,
+        blur: BLUR,
+        // Null rather than 1 when the window carries no tier: `field` reads `conf == null` as full
+        // confidence, which is the honest default for a window the backend declined to qualify —
+        // the haze is a qualifier on a claim, not a claim of its own.
+        conf,
+        opacity: HEAT_OPACITY * fade.heat,
+        // Bloom only in TEMPERATURE mode (map-tab-v2-plan.md §3 P2, decision D-1): the bloom's whole
+        // rationale is the temp ramp's luminance inversion, and the verdict ramp has none — an ember
+        // glow over a green "go" would be a false signal. In verdict mode this spreads NO keys at
+        // all, not a falsy one, so `drawTiles` sees today's exact options object.
+        ...(getMode() === 'temp' ? { bloom: FIELD_BLOOM } : null),
+        // Same rule as the bloom above: below LAND_CLIP_MAX_ZOOM this spreads all five clip keys
+        // (clipPath may still be null); at/above it, none at all — absence, not a falsy value.
+        ...(clipOpts || null),
+      });
+    } else {
+      // Pins mode: no field paint, but the canvas still needs a fresh frame — `drawTiles` is what
+      // clears it on every other path, so skipping it entirely would leave a heat-mode frame
+      // lingering under the coastline stroke below whenever the reader switches views mid-session.
+      const ctx = fit(canvas, width, height);
+      ctx.clearRect(0, 0, width, height);
+    }
 
     /* Coastline stroke, from the SAME Path2D the clip uses (never a second geometry) — drawn on
        the same canvas, after the field, whenever the fade alpha is above zero: even an empty
@@ -488,8 +489,12 @@ export default function MapHeatLayer({
 
     /* Reach rings (map-tab-v2-plan.md §3 P8) — same canvas, same paint pass, drawn last so they
        sit over the field and the coastline rather than under them. Home-gated, toggle-gated and
-       zoom-gated; see `drawReachRings`'s own doc comment for why no clip translate is needed. */
-    if (rings && zoom < RING_MAX_ZOOM && homeCoords?.lat != null && homeCoords?.lon != null) {
+       zoom-gated; see `drawReachRings`'s own doc comment for why no clip translate is needed.
+       Also field-gated (map-tab-v2-plan.md §3 P10): rings answer "is tonight's warmth reachable",
+       a question with nothing to say once the field itself is off — Pins mode is heat-only for
+       rings, ring labels and region names alike. */
+    if (fieldEnabled && rings && zoom < RING_MAX_ZOOM
+      && homeCoords?.lat != null && homeCoords?.lon != null) {
       const ctx = fit(canvas, width, height);
       drawReachRings(ctx, map, homeCoords, width, height);
     }
@@ -505,7 +510,7 @@ export default function MapHeatLayer({
     // that this callback's colours come from `scoreRamp`'s module state, so it reads the entry as
     // unnecessary. `void` makes the dependency honest and keeps the rule on.
     void colourMode;
-  }, [map, points, conf, fadesMarkers, colourMode, landMask, rings, homeCoords]);
+  }, [map, points, conf, fadesMarkers, colourMode, landMask, rings, homeCoords, fieldEnabled]);
 
   const {
     attachFrame, canvasRef, geoFailed, repaint, repaintNow,
@@ -654,4 +659,8 @@ MapHeatLayer.propTypes = {
   markersLocked: PropTypes.bool,
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
   rings: PropTypes.bool,
+  /** Whether the score field itself paints — default true. Pins mode (map-tab-v2-plan.md §3 P10)
+   * passes false: the coastline stroke still draws, but `drawTiles`/bloom/rings do not, and the
+   * medallion markers are held fully hidden regardless of zoom. */
+  fieldEnabled: PropTypes.bool,
 };

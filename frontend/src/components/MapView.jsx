@@ -28,6 +28,8 @@ import { rampHex, rampGradientCss, getMode } from '../utils/scoreRamp.js';
 import WindowControl from './map/WindowControl.jsx';
 import FiltersPopover from './map/FiltersPopover.jsx';
 import MapCallout from './map/MapCallout.jsx';
+import MapLegendPanel from './map/MapLegendPanel.jsx';
+import { fadeAt } from '../utils/heatHandover.js';
 import { buildMapEvents, findEvIndex, solarHorizonDates } from '../utils/mapEvents.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { GLANCE_MINUTES } from '../utils/planningArea.js';
@@ -84,7 +86,17 @@ const MapHeatLayer = lazy(() => import('./MapHeatLayer.jsx'));
 const MapLabels = lazy(() => import('./map/MapLabels.jsx'));
 
 /**
- * The selection callout (map-tab-v2-plan.md §3 P9) — a plain static import, unlike the two layers
+ * Pins mode (map-tab-v2-plan.md §3 P10), behind the SAME kind of `lazy()` boundary as
+ * {@code MapLabels} above and for the identical reason: it imports {@code homeLabelItems}/
+ * {@code placeLabelPass} from {@code utils/mapLabels.js}, which is the module that carries the
+ * `d3-geo` chain via {@code centroid}/`heatField.js`. Never mounted alongside {@code MapLabels} —
+ * the tab's Heat/Pins segment is one view or the other — but both still need their OWN `lazy()`
+ * entry, since Pins-only sessions must not pay for a `MapLabels` chunk they never render either.
+ */
+const PinsLayer = lazy(() => import('./map/PinsLayer.jsx'));
+
+/**
+ * The selection callout (map-tab-v2-plan.md §3 P9) — a plain static import, unlike the layers
  * above: it imports no `d3-geo`-carrying module (`utils/mapCallout.js`, `utils/locationSheet.js`,
  * `utils/scoreRamp.js`, `utils/locationTypes.js` are all leaf modules), so there is no weight to
  * keep off the Plan overlay's network in the first place, and a `lazy()` boundary here would only
@@ -1113,9 +1125,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * <p>Both are local to this mount, so the Plan tab's open row and this tab cannot pull each other
    * around: plan §4.5 keeps the two tabs' questions separate — time there, space here.
    *
-   * <p>`heat` is the default view in v2 (that is the feature); `medallions` is today's cluster map,
-   * kept as the honest "before". `heatArea` frames and filters to the planning area, which is the
-   * state a reader arrives in — you do not open on the whole of Britain.
+   * <p>`heat` is the default view in v2 (that is the feature). `heatView`'s other value is
+   * `'pins'` on the TAB (map-tab-v2-plan.md §3 P10, `PinsLayer.jsx` — "the honest comparison": one
+   * dot per location, no field) and stays the pre-P10 literal `'medallions'` in the OVERLAY's own
+   * dead render branch below, which never actually runs (`heatOffered` is always false there) and
+   * is kept byte-identical rather than renamed along with the tab (§2's shared-component blast-
+   * radius rule: treat any overlay diff as a review finding). `heatArea` frames and filters to the
+   * planning area, which is the state a reader arrives in — you do not open on the whole of
+   * Britain.
    */
   const [heatView, setHeatView] = useState('heat');
   const [heatArea, setHeatArea] = useState(true);
@@ -1123,19 +1140,17 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /**
    * The reach-rings toggle (map-tab-v2-plan.md §3 P8) — read by both {@code MapHeatLayer} (the
    * dashed canvas circles) and {@code MapLabels} (their duration/distance labels), so the two can
-   * never disagree about whether rings are on. Defaults true; the Legend panel's own switch for it
-   * is P10's job, which is what will re-introduce a setter here (CodeQL flagged the unused one
-   * this state carried before that phase existed — dropping it from the destructure rather than
-   * suppressing the alert keeps the state itself, and this note, as the documented intent).
+   * never disagree about whether rings are on. Defaults true; {@code MapLegendPanel} (P10) is the
+   * first and only writer.
    */
-  const [ringsEnabled] = useState(true);
+  const [ringsEnabled, setRingsEnabled] = useState(true);
   /**
    * Which of the map tab's own overlay popovers is open — map-tab-v2-plan.md §3 P7's exclusivity
-   * rule ("opening one popover closes the others"). `'window'` and `'filters'` are the two today;
-   * a later phase's Regions jump list (P11) is a third value on the same switch, not a new state
-   * variable. Tab-only in practice (the overlay never mounts either popover), but declared
-   * unconditionally rather than behind `!overlayMode` — a `useState` call must never be
-   * conditional, and an unused value on the overlay mount costs nothing.
+   * rule ("opening one popover closes the others"). `'window'`, `'filters'` and `'legend'` (P10)
+   * are the three today; a later phase's Regions jump list (P11) is a fourth value on the same
+   * switch, not a new state variable. Tab-only in practice (the overlay never mounts any of these
+   * popovers), but declared unconditionally rather than behind `!overlayMode` — a `useState` call
+   * must never be conditional, and an unused value on the overlay mount costs nothing.
    */
   const [openMapMenu, setOpenMapMenu] = useState(null);
   // Filters are collapsed by default (a quiet "tell me more" follow-up to Plan);
@@ -1589,6 +1604,23 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const heatOffered = Boolean(heat?.enabled) && !isAuroraMode;
   const heatOn = heatOffered && heatView === 'heat';
+  /**
+   * Pins mode, tab-only (map-tab-v2-plan.md §3 P10) — `heatView === 'pins'` can only be reached
+   * through the tab's own segment button (the overlay's dead render branch still writes/reads the
+   * pre-P10 literal `'medallions'`, and never runs at all since `heatOffered` is always false
+   * there), so this is equivalent to "the tab, in Pins view" without an explicit `!overlayMode`
+   * check.
+   */
+  const heatPinsOn = heatOffered && heatView === 'pins';
+
+  /**
+   * The Legend panel's own handover fraction (map-tab-v2-plan.md §3 P10) — `MapHeatLayer.fadeAt`
+   * re-exported via `utils/heatHandover.js` so this READS the same number the canvas fade paints
+   * from without eagerly importing `MapHeatLayer.jsx`'s own `d3-geo` chain (see that module's own
+   * class doc for why it is lazy). Zero while there is no field to hand over at all — the panel is
+   * withheld entirely in that case (below), but the prop stays a plain number either way.
+   */
+  const legendHandoverFraction = heatOffered ? fadeAt(zoom).markers : 0;
 
   /**
    * The window the field paints — the map's OWN date and event, never a third time control.
@@ -1943,13 +1975,18 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       rating: getRatingForLocation(loc),
       bortleClass: loc.bortleClass ?? null,
       driveMinutes: driveMinutesFor(loc.id),
+      // `PinsLayer`'s own stand-down/no-data distinction (adversarial review C8) — a triaged
+      // location is not merely "nothing scored yet", the same distinction the medallion markers
+      // already draw via `resolveStandDown`/`STAND_DOWN_COLOUR`, so a pin should not collapse the
+      // two into one grey.
+      isStandDown: isStandDownLocation(loc),
     });
     const spots = scopedVisibleLocations.map(spotOf);
     if (selectedLoc && !spots.some((s) => s.name === selectedLoc.name)) {
       spots.push(spotOf(selectedLoc));
     }
     return spots;
-  }, [scopedVisibleLocations, getRatingForLocation, driveMinutesFor, selectedLoc]);
+  }, [scopedVisibleLocations, getRatingForLocation, driveMinutesFor, selectedLoc, isStandDownLocation]);
 
   /**
    * The ring labels' own {@code reachMeasured} — "a real drive time gated this screen's reach
@@ -1966,6 +2003,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const mapReachMeasured = Boolean(homeCoords)
     && Object.values(userDriveTimes).some((mins) => Number.isFinite(mins));
+
+  /**
+   * Whether a real home COORDINATE exists — the exact test `MapHeatLayer`'s reach-ring paint and
+   * `MapLabels`' ring-label candidates both gate on (`homeCoords?.lat != null && homeCoords?.lon
+   * != null`), and what the Legend panel's rings toggle must gate its own PRESENCE on too
+   * (adversarial review C4). ⚠️ Deliberately NOT `heat?.hasHome` — that field answers a different
+   * question (the roster/reach-matrix's own "is there a home for planning-area purposes" signal,
+   * which is what `FiltersPopover`'s scope segment and the overlay's area segment key on) and can
+   * diverge from whether `homeCoords` itself has resolved — a toggle gated on the wrong one is
+   * exactly the "control whose every press does nothing" the coherence rule elsewhere in this file
+   * already bans, just for a different control.
+   */
+  const hasHomeCoords = homeCoords?.lat != null && homeCoords?.lon != null;
 
   // The emphasis target, but only when it survived the filter pipeline — see the marker render.
   const emphasisTarget = useMemo(() => (
@@ -2708,11 +2758,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
              overlay into fractional zoom too, silently. */
           zoomSnap={overlayMode ? 1 : 0}
         >
-          {heatOn && (
+          {heatOffered && (
             /* No fallback: the field is a picture, and a spinner where a picture is loading says
-               less than the map already does. `MapLabels` shares the boundary — both are behind
-               the same kind of `lazy()` split for the same `d3-geo` reason (map-tab-v2-plan.md
-               §3 P8), so there is no benefit to two separate Suspense wrappers here. */
+               less than the map already does.
+
+               Mounted on `heatOffered` alone (not `heatOn`) since map-tab-v2-plan.md §3 P10:
+               `MapHeatLayer` is now the coastline stroke's own host too, and the stroke keeps
+               drawing in BOTH the Heat and Pins views ("MapHeatLayer's pins-mode contract") — only
+               the field ITSELF (and the reach rings, which read the field's own home-gated canvas)
+               are withheld via `fieldEnabled={heatOn}`. Its OWN `Suspense` boundary, separate from
+               `MapLabels`/`PinsLayer` below: a shared boundary would re-suspend this ALREADY
+               PAINTED layer — and blank the coastline stroke it now hosts — for however long it
+               takes the OTHER lazy layer's chunk to resolve on the reader's very first switch
+               between Heat and Pins, which is exactly the flash-of-nothing this component's own
+               `fallback={null}` choice exists to avoid. */
             <Suspense fallback={null}>
               <MapHeatLayer
                 colourMode={mapColourScale}
@@ -2723,12 +2782,34 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 markersLocked={selectedLocationName != null}
                 homeCoords={homeCoords}
                 rings={ringsEnabled}
+                fieldEnabled={heatOn}
               />
+            </Suspense>
+          )}
+          {/* `MapLabels` (ring labels, region names, location chips) and `PinsLayer` (the honest
+              one-dot-per-location comparison) are mutually exclusive on `heatOn`/`heatPinsOn` — the
+              tab's Heat/Pins segment is one view or the other — and share the SAME kind of `lazy()`
+              split as `MapHeatLayer` above for the identical `d3-geo` reason (map-tab-v2-plan.md
+              §3 P8/P10), but their OWN boundary: see the comment on `MapHeatLayer`'s boundary above
+              for why the two must not share one. */}
+          {heatOn && (
+            <Suspense fallback={null}>
               <MapLabels
                 spots={labelSpots}
                 homeCoords={homeCoords}
                 rings={ringsEnabled}
                 reachMeasured={mapReachMeasured}
+                selectedName={selectedLocationName}
+                onSelect={selectMapLocation}
+                eventLabel={mapEventLabel}
+              />
+            </Suspense>
+          )}
+          {heatPinsOn && (
+            <Suspense fallback={null}>
+              <PinsLayer
+                spots={labelSpots}
+                homeCoords={homeCoords}
                 selectedName={selectedLocationName}
                 onSelect={selectMapLocation}
                 eventLabel={mapEventLabel}
@@ -2848,8 +2929,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             <AuroraViewlineOverlay viewline={viewline} forecastKp={auroraStatus?.forecastKp} />
           )}
 
-          {/* Azimuth lines for the selected location */}
-          {selectedLoc && sunriseAzimuth != null && eventType === 'SUNRISE' && (
+          {/* Azimuth lines for the selected location. Overlay-only in Pins mode (map-tab-v2-
+              plan.md §3 P10, decision D-9): they were marker-layer furniture, and the tab's new
+              chip/pin vocabulary has no host for them there — the overlay (which never enters
+              Pins mode at all) keeps them exactly as before. `!heatPinsOn` alone is equivalent to
+              "not the tab's Pins view" here: `heatPinsOn` can only be true on the tab. */}
+          {!heatPinsOn && selectedLoc && sunriseAzimuth != null && eventType === 'SUNRISE' && (
             <Polyline
               positions={[
                 [selectedLoc.lat, selectedLoc.lon],
@@ -2861,7 +2946,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               dashArray="10 6"
             />
           )}
-          {selectedLoc && sunsetAzimuth != null && eventType === 'SUNSET' && (
+          {!heatPinsOn && selectedLoc && sunsetAzimuth != null && eventType === 'SUNSET' && (
             <Polyline
               positions={[
                 [selectedLoc.lat, selectedLoc.lon],
@@ -2876,11 +2961,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
           <MarkerClusterGroup
             ref={clusterGroupRef}
-            /* No remount key here: `scoreRamp` is the only colour language now, so the Heat ↔
-               Medallions toggle never changes which palette a cluster bubble paints on, and
-               `iconCreateFunction` never needs to re-run for that reason. Consequence, kept
-               deliberately: an open popup, a spiderfied cluster and the selected marker now
-               survive the toggle (pinned below) rather than being torn down and rebuilt. */
+            /* No remount key here: `scoreRamp` is the only colour language now, so switching the
+               view (Heat ↔ Pins on the tab, Heat ↔ Medallions on the overlay) never changes which
+               palette a cluster bubble paints on, and `iconCreateFunction` never needs to re-run
+               for that reason. Consequence, kept deliberately: an open popup, a spiderfied cluster
+               and the selected marker now survive the toggle (pinned below) rather than being torn
+               down and rebuilt. This group itself stays mounted through the tab's Pins mode too
+               (map-tab-v2-plan.md §3 P10) — `MapHeatLayer`'s `fieldEnabled={false}` contract holds
+               the marker panes fully hidden there instead of unmounting this component, which is
+               what keeps that same "never torn down" property. */
             chunkedLoading
             iconCreateFunction={(cluster) => createClusterIcon(cluster, role)}
             // Dense corridors (e.g. Hadrian's Wall — 7 spots in a few km) must
@@ -3152,15 +3241,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           </>
         ) : (
           <>
-            {/* ── Full-frame map chrome (map-tab-v2-plan.md §3 P7) ──
+            {/* ── Full-frame map chrome (map-tab-v2-plan.md §3 P7/P10) ──
                 Every corner is claimed exactly once, per the plan's z-ladder (index.css): chrome
                 1100, menus 1500 (a menu must beat every other chip so its own dropdown/panel is
                 never hidden under a sibling). Window control top-left (clearing Leaflet's own
-                zoom + home control stack the same way the old toolbar did); Heat/Medallions +
+                zoom + home control stack the same way the old toolbar did); Heat/Pins +
                 Filters top-right (Regions is P11 — this cluster is laid out to take a third
                 child with no restructuring); colour-scale notice top-centre (the top corners are
-                now both claimed by chrome); viewline upsell bottom-left; scored-locations chip
-                bottom-right; counts footer bottom-centre. */}
+                now both claimed by chrome); the Legend chip bottom-left (P10 — hidden in Pins
+                mode, shares its corner with the LITE viewline-upsell chip, which never coexists
+                with it); scored-locations chip bottom-right; counts footer bottom-centre. */}
             <div className="wf-map-chrome-tl" data-testid="wf-map-chrome-tl">
               {windowControl}
             </div>
@@ -3181,19 +3271,21 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                       </button>
                       <button
                         type="button"
-                        data-testid="wf-map-view-medallions"
-                        aria-pressed={heatView === 'medallions'}
-                        onClick={() => setHeatView('medallions')}
-                        className={`wf-seg-btn${heatView === 'medallions' ? ' on' : ''}`}
+                        data-testid="wf-map-view-pins"
+                        aria-pressed={heatView === 'pins'}
+                        onClick={() => setHeatView('pins')}
+                        className={`wf-seg-btn${heatView === 'pins' ? ' on' : ''}`}
                       >
                         <span aria-hidden="true">◍ </span>
-                        Medallions
+                        Pins
                       </button>
                     </div>
                   </div>
-                  {/* The ramp's key. Only in heat view — in medallion view it would explain a ramp
-                      nothing on screen is painted with. "This window is not scored" REPLACES the
-                      key rather than sitting beside it, for the same reason. */}
+                  {/* The ramp's key. Only in heat view — in Pins view it would explain a ramp
+                      nothing on screen is painted with (the field itself is withheld there, though
+                      `MapHeatLayer` stays mounted for the coastline stroke — see the mount comment
+                      above). "This window is not scored" REPLACES the key rather than sitting
+                      beside it, for the same reason. */}
                   {windowUnscored && (
                     <div data-testid="wf-map-heat-unscored" className="wf-map-key">
                       This window is not scored
@@ -3272,22 +3364,50 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               </div>
             )}
 
-            {showViewlineUpsell && (
-              <div
-                data-testid="viewline-upsell-chip"
-                className="absolute bottom-2 left-2 z-[1100] bg-plex-surface/80 backdrop-blur-sm
-                  text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30 flex items-center gap-2"
-                style={{ fontSize: '11px' }}
-              >
-                Aurora viewline available — upgrade to Pro
-                <button
-                  data-testid="viewline-upsell-dismiss"
-                  onClick={() => setViewlineUpsellDismissed(true)}
-                  className="text-plex-text-muted hover:text-plex-text transition-colors"
-                  aria-label="Dismiss"
-                >
-                  ✕
-                </button>
+            {/* Bottom-left chrome (map-tab-v2-plan.md §3 P10) — the LITE viewline-upsell chip and
+                the Legend chip STACK here rather than one suppressing the other. ⚠️ They are NOT
+                mutually exclusive: `showViewlineUpsell` is keyed on `auroraStatus`'s ALERT LEVEL
+                (a background poll, live regardless of which event type is on screen), while the
+                Legend chip is keyed on `heatView`/`heatOffered`, which excludes AURORA MODE
+                (`eventType === 'AURORA'`) specifically — and a LITE reader can never enter aurora
+                mode in the first place (`viewlineEnabled` above is PRO/ADMIN-only), so an alert can
+                fire while a LITE reader sits on an ordinary Heat-view sunset. An earlier revision
+                of this comment conflated those two different "aurora" axes and claimed the chips
+                never coexist; a live browser pass proved otherwise (adversarial review C1/C3).
+                Both chips are plain flex children of ONE positioned wrapper now — neither carries
+                its own `absolute` placement any more — so they can only ever stack with a gap,
+                never overlap. */}
+            {(showViewlineUpsell || (heatOffered && heatView === 'heat')) && (
+              <div className="wf-map-chrome-bl" data-testid="wf-map-chrome-bl">
+                {showViewlineUpsell && (
+                  <div
+                    data-testid="viewline-upsell-chip"
+                    className="bg-plex-surface/80 backdrop-blur-sm
+                      text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30 flex items-center gap-2"
+                    style={{ fontSize: '11px' }}
+                  >
+                    Aurora viewline available — upgrade to Pro
+                    <button
+                      data-testid="viewline-upsell-dismiss"
+                      onClick={() => setViewlineUpsellDismissed(true)}
+                      className="text-plex-text-muted hover:text-plex-text transition-colors"
+                      aria-label="Dismiss"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+                {heatOffered && heatView === 'heat' && (
+                  <MapLegendPanel
+                    open={openMapMenu === 'legend'}
+                    onOpenChange={(next) => setOpenMapMenu(next ? 'legend' : null)}
+                    handoverFraction={legendHandoverFraction}
+                    ringsEnabled={ringsEnabled}
+                    onToggleRings={() => setRingsEnabled((v) => !v)}
+                    hasHome={hasHomeCoords}
+                    reachMeasured={mapReachMeasured}
+                  />
+                )}
               </div>
             )}
 

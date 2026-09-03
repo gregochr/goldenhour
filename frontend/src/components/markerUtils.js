@@ -25,8 +25,12 @@ export const STAND_DOWN_COLOUR = '#501313';
  * The no-data fill. It is not a score, so the ramp has nothing to say about it and {@code rampRgb}
  * would answer with its bottom stop — which reads as "1 star", the one claim an unscored marker
  * must not make.
+ *
+ * <p>Exported so `PinsLayer.jsx` (map-tab-v2-plan.md §3 P10) can paint an unrated/stand-down pin
+ * the SAME neutral grey a medallion marker would, rather than authoring a second "not a score"
+ * colour that could drift from this one.
  */
-const NO_DATA_COLOUR = '#3A3D45';
+export const NO_DATA_COLOUR = '#3A3D45';
 
 /**
  * The 1-5 rating a 0-100 average stands for, which is the only sound way to hand an average to a
