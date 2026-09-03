@@ -192,8 +192,9 @@ export function filterCalloutTopics(badges, coastalTidal) {
  * a different gloss on every window it appears in.
  *
  * <p>⚠️ <b>Pre-existing bug, found by adversarial review against #737 (map-tab-v2-plan.md §3 P11)
- * and fixed here.</b> This read {@code region?.name}/{@code region.name} since P9 — but the served
- * {@code BriefingRegion} record has no {@code name} field at all; its own field is
+ * and fixed in #739</b> (this note landed via #740, whose independent copy of the same fix
+ * deduplicated away on rebase). This read {@code region?.name}/{@code region.name} since P9 — but
+ * the served {@code BriefingRegion} record has no {@code name} field at all; its own field is
  * {@code regionName} (confirmed against every sibling join on this arm — `heatSpots.js`,
  * `windowFirstRegions.js` — which have always used the correct field). So every region read here was
  * {@code undefined}, the {@code !region?.name} guard skipped every region on every call, and this
