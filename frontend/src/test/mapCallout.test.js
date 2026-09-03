@@ -328,8 +328,8 @@ describe('buildRegionGlossIndex / regionGlossFor', () => {
           {
             targetType: 'SUNSET',
             regions: [
-              { name: 'Northumberland', glossHeadline: 'Clear skies inland', glossDetail: 'A calm evening with light cloud burning off by dusk.' },
-              { name: 'The Lakes', glossHeadline: null, glossDetail: null },
+              { regionName: 'Northumberland', glossHeadline: 'Clear skies inland', glossDetail: 'A calm evening with light cloud burning off by dusk.' },
+              { regionName: 'The Lakes', glossHeadline: null, glossDetail: null },
             ],
           },
         ],
@@ -348,7 +348,7 @@ describe('buildRegionGlossIndex / regionGlossFor', () => {
       date: '2026-06-15',
       eventSummaries: [{
         targetType: 'SUNSET',
-        regions: [{ name: 'Northumberland', glossHeadline: 'Clear skies inland', glossDetail: null }],
+        regions: [{ regionName: 'Northumberland', glossHeadline: 'Clear skies inland', glossDetail: null }],
       }],
     }];
     const index = buildRegionGlossIndex(days);
