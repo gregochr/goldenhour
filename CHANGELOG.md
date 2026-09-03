@@ -5,6 +5,456 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.19.10] - 2026-09-03
+
+### Added — Pins mode and the Legend panel on the Map tab (map-v2 P10)
+
+The Map tab's Heat/Medallions segment becomes **Heat/Pins**. A new `components/map/PinsLayer.jsx`
+draws the "honest comparison" the design bundle keeps deliberately alongside the field: one dot per
+location in the filtered pool, drawn weakest-first so the best sit on top, with no density ramp and
+no dropped names — every spot in the pool gets a pin, unlike the chip layer's zoom-budgeted set.
+Named locations (every one in this catalogue today) are 26px with the rating and a star glyph
+inside, ink chosen per fill via `readableInkOn` — never a fixed colour pair; the 13px unnamed class
+exists for a catalogue that has no such rows yet. An unrated or stand-down pin paints the app's
+shared no-data grey rather than the ramp's bottom stop, which would otherwise read as an
+unsubstantiated "1★". Clicking a pin opens the P9 callout through the exact same handler the
+label chips already call; hovering (desktop) shows the identical tooltip card the chip layer
+built at P8, reused class-for-class since the two layers never mount together. The home marker
+still places itself through the shared greedy pass, seeded from the full live-chrome obstacle
+list — the design bundle's own prototype places its home label against an empty obstacle list,
+which this port treats as a shortcut, not a design choice.
+
+`MapHeatLayer.jsx` gains a `fieldEnabled` prop (default `true`, so every existing caller is
+unaffected). Pins mode passes `false`: the score field, its bloom and the reach rings are
+withheld, but the coastline stroke keeps drawing from the same land `Path2D` the clip uses — the
+coast is furniture, not a claim about the data, so it survives the toggle. The medallion markers
+are held fully hidden (0% opacity, inert, out of the click path) regardless of zoom, overriding the
+ordinary zoom-keyed handover that would otherwise hand them back in full past the county scale —
+`PinsLayer` is now the one place a location renders in this mode. `MarkerClusterGroup` itself stays
+mounted through the toggle exactly as before (an existing, deliberate invariant: an open popup, a
+spiderfied cluster and the selected marker must survive a view switch); only the pane's opacity
+changes, never the component tree. Azimuth lines are dropped in Pins mode on the tab (decision D-9)
+— they were marker-layer furniture with no host in the new pin vocabulary — while the overlay,
+which never enters Pins mode, keeps them untouched.
+
+A new `components/map/MapLegendPanel.jsx` is **added alongside** the existing in-map heat legend
+key (`wf-map-heat-legend`, unchanged, still rendered) as a `▤ Legend ▾` chip (desktop, bottom-left)
+opening a 262px panel: the ramp bar painted from `rampGradientCss()` — never the design bundle's
+own stale red-amber-green gradient, which would invert what the field's colours mean since the
+temperature scale shipped — with whole-star labels `1★ poor / 3★ / 5★ go`; a `Field → Handing
+over → Locations` indicator reading the same handover fraction the canvas fade itself paints from;
+the reach-rings toggle, which is `ringsEnabled`'s first writer (the state has existed since P8,
+defaulting on, with no way to turn it off until now — gated on a real home COORDINATE, the same
+test the ring paint and the ring labels use, never the roster-level `heat.hasHome` signal a first
+cut wired it to); and the confidence note. Consolidating the two legend surfaces into one is an
+owner call for a later phase, not this one's. The panel joins the tab's popover-exclusivity group
+and hides entirely in Pins mode, matching the design's own rule. The handover fraction's underlying
+maths (`fadeAt`) moved from `MapHeatLayer.jsx` into a new dependency-free `utils/heatHandover.js`
+so the Legend panel can read it without pulling that module's own `d3-geo` chain into the Plan-tab
+overlay's bundle — `MapHeatLayer.jsx` re-exports the function so its own imports and tests are
+unaffected. Its own Suspense boundary is also now separate from `MapLabels`/`PinsLayer`'s: sharing
+one would have re-suspended the field's already-painted picture (and the coastline stroke it now
+hosts) for however long the OTHER mode's chunk takes to resolve on the reader's first switch
+between views.
+
+The Legend chip shares the bottom-left corner with the LITE viewline-upsell chip in one shared
+flex-column wrapper (`.wf-map-chrome-bl`), stacked with a gap rather than one suppressing the
+other — they are NOT mutually exclusive: the upsell keys on `auroraStatus`'s alert level (live
+regardless of event type), the Legend chip keys on `heatView`/`heatOffered` (which excludes aurora
+MODE only), and a LITE reader can never enter aurora mode at all, so an alert can fire while they
+sit on an ordinary Heat-view sunset — both must render.
+
+The overlay is untouched: it never receives the `heat` prop, so `heatOffered` stays false there
+and none of this — the Pins segment, the coastline-in-Pins-mode contract, the Legend chip — is
+reachable from it. Azimuth lines are dropped in Pins mode on the tab (decision D-9) — they were
+marker-layer furniture with no host in the new pin vocabulary — while the overlay, which never
+enters Pins mode, keeps them, pinned by a recording-`Polyline`-mock test.
+
+An adversarial review round found 9 confirmed issues against the first cut (the bottom-left corner
+collision above; the rings toggle's wrong gate above; two missing integration tests for the rings-
+toggle chain and the handover indicator; a stale changelog claim; no D-9 azimuth coverage; stand-
+down pins losing their dark-red distinction from a plain unrated grey — now threaded through and
+painted with the medallions' own `STAND_DOWN_COLOUR`; and a misattributed doc citation in
+`PinsLayer.test.jsx`) — all fixed here.
+
+### Changed — one window control replaces the date strip and event pills (map-v2 P6)
+
+The Map tab's date strip, its Sunrise/Sunset/Astro/Aurora pills, and the in-map forecast-window
+select are replaced by a single chronological window control: a pill (kind chip · label · time ·
+▾) with `‹ ›` steppers, opening a day-grouped dropdown that states each event's best achievable
+score — choosing a window is now an informed act rather than a guess.
+
+`utils/mapEvents.js` (new) builds the event list from the briefing's served solar windows, astro
+and aurora night results, and the forecast endpoint's own date range for dates beyond the
+briefing's rendered horizon (unscored, dim rows rather than a shrunken browsable domain). A solar
+row's best score is always the server's own figure; only astro/aurora night rows — which carry no
+served roster best — take a client max over that night's stars, the one licensed re-derivation
+here. LITE accounts see no aurora rows at all (the aurora API cannot serve presence metadata a
+LITE client could grey out honestly).
+
+`components/map/WindowControl.jsx` (new) is the control itself. `‹`/`→` step and `Esc` closes the
+dropdown, scoped to the control's own subtree rather than the document — the Map pane is never
+unmounted, only hidden, so a global key listener would keep firing off-screen.
+
+Astro mode now paints the heat field too, scored from that night's stars and filtered to rated
+locations before the field ever sees them (an unrated spot would otherwise poison the field with a
+NaN weight). Aurora's viewline gate moves from a raw date compare to "the selected event is that
+night's aurora row", which also fixes the gate for a night picked but not yet forwarded to the
+parent (see below).
+
+Selection is pane-local: a picked row's date is forwarded to the parent only when the forecast
+endpoint actually returned that date. A night row outside that range (an astro/aurora date with no
+colour forecast at all) selects locally instead, so the tab still shows it correctly.
+
+`DateStrip.jsx` is deleted (orphaned — its only mount was the Map pane). `ForecastTypeSelector`
+survives unchanged on the Plan-tab map overlay, which keeps its own inherited event selector.
+
+Hardened against adversarial review before landing: a kept-local night is now invalidated the
+moment the map's date moves for any reason other than the pane's own forwarding (previously it
+could survive stale across an aurora auto-jump, a handoff, or an external date change); the astro
+field carries its own horizon-based confidence instead of always painting at full strength; a
+served solar window forwards even when the separate `forecastDates` list omits its date; and D-13's
+filler rows clip to the UK civil today, rather than a leftover key briefly leading the list with an
+already-elapsed morning right after midnight.
+
+### Added — night events carry a served window (map-v2 P5)
+
+`AstroConditionsDto` and `AuroraForecastResultDto` both gain `nightStart`/`nightEnd`, the first
+served night times in the app — the minimum backend the map's future event list (P6) needs to
+render honest astro/aurora rows instead of inventing a time.
+
+Astro serves the **stored** `nauticalDuskUtc`/`nauticalDawnUtc` a row was actually scored over
+(persisted since V64 by `AstroConditionsService.evaluateAndPersist`), via a new
+`AstroConditionsService.resolveNightWindow` that only recomputes — as an explicit, documented
+fallback — for a legacy row whose columns are null. Aurora derives the window per result date at
+serve time via the existing `AuroraForecastRunService.computeWindowForDate(date)`, never the
+clock-based `AuroraPollingJob.calculateTonightWindow()`, so a stored result for a past or future
+night carries that night's own window rather than tonight's.
+
+No migration, no new endpoints — both fields ride the existing `GET /api/astro/conditions` and
+`GET /api/aurora/forecast/results` payloads.
+
+### Added — location chips, region names, the home marker and reach rings on the Map tab (map-v2 P8)
+
+The Map tab's heat field gets names. A new `components/map/MapLabels.jsx` runs one greedy
+placement pass, in priority order, every time the field repaints: the home marker (below zoom 13),
+reach-ring labels ("45 min"/"1h 30min" once a real drive time gates this screen's reach lens,
+otherwise a plain "25 mi"/"50 mi"), region names (below zoom 11.2, centred on each region's own
+projected centroid, the highest-rated region lifted to a brighter ink), then location chips — a
+5px ramp-coloured square, the name, and its star (`--ink`, never ramp ink), sorted
+best-first-then-nearest with a density-ramped budget (`clamp(6 + (zoom-8.6)*11, 6, 60)`) so the
+middle zoom range never collapses to the two-or-three-names "hole" an earlier build hit — measured
+live at 8 chips + 4 region names at county zoom, 11 names at the regional glance. The best-rated
+location in every region is always offered, and the selected location always gets its chip. A
+label with nowhere left to go on the ladder is dropped rather than stacked or shrunk.
+
+Clicking a chip selects that location through the same path a marker click takes — including a
+marker currently folded into a cluster bubble, via the cluster group's own `zoomToShowLayer` rather
+than a bare `openPopup()` (which is a silent no-op on a clustered marker). Hovering a chip
+(desktop only) shows a tooltip with the name, the active window's label, the star and its verdict
+word, and the region, drive time and sky Bortle class — clamped to the frame's own edges, and
+portalled to the same chrome wrapper the rest of the tab's overlay chips live in (a descendant of
+Leaflet's own transformed pane cannot out-rank chrome outside it on z-index alone, whatever number
+it declares).
+
+`utils/labelPlacement.js`'s `placeWithNudges` gained a horizontal dimension (`MAP_NUDGES`/
+`mapDxOffsets`) behind a new optional options parameter — the Plan tab's own callers pass none and
+see byte-identical behaviour, only the map's own greedy pass opts into the wider ladder and the
+left/right fallback. A new `seedObstacles` helper turns the live chrome's DOM rects — the window
+control, the filters/heat-view cluster, the counts footer, either open menu, the colour-scale
+notice, the LITE viewline upsell chip, the scored-locations legend, and Leaflet's own bottom-right
+zoom+⌂ stack — into obstacle boxes the placer avoids, padded 5px on every side.
+
+Reach rings — dashed circles at the same 25 mi / 50 mi tiers the Plan popup's own field map draws
+— now paint on the Map tab's heat canvas too, below zoom 10.6 and only with a saved home postcode,
+sharing that field map's own legibility floor and off-frame ceiling. The two tiers were extracted
+from `WindowRowFieldMap.jsx` into a new `utils/reachRings.js` so neither surface can silently drift
+to a different pair of circles; `WindowRowFieldMap`'s own rendering is unchanged (its full test
+suite passes unedited against the extraction). Ring size is measured at HOME's own latitude
+(`pxPerKmAtHome`), never the map's current viewport centre — Web Mercator's ground resolution
+varies with latitude, so a ring fixed on home would otherwise visibly grow or shrink as the reader
+pans north or south while home stays put. A new `rings` toggle state defaults to on; the Legend
+panel switch for it is a later phase's work.
+
+An adversarial review round found 13 confirmed issues against the first cut (obstacle coverage
+missing four live chrome pieces, the ring-radius/viewport-centre bug above, the missing floor/
+ceiling, tooltip edge clamping and stacking, the clustered-marker click, a filtered-pool
+`reachMeasured` derivation, and two documentation citations) — all fixed here, with 107 net new
+tests across the module (`labelPlacement.test.js` +11, `MapHeatLayer.test.jsx` +9, plus five new
+files: `mapLabels.test.js` 39, `reachRings.test.js` 9, `MapLabels.test.jsx` 32,
+`MapViewChipSelect.test.jsx` 3, `MapViewReachMeasured.test.jsx` 4).
+
+### Changed — selection on the Map tab moves off the Leaflet popup, onto an anchored callout (map-v2 P9)
+
+Clicking a marker, a location chip or a pin on the Map tab no longer opens a Leaflet `Popup` (desktop)
+or a `BottomSheet` (mobile) — both are gone from the tab, replaced by a 34px selection ring plus a
+286px anchored card (`components/map/MapCallout.jsx`), portalled beside `MapLabels`' own hover
+tooltip so it clears every chip and chrome piece on the frame. "A popup covers exactly the ground you
+just asked about" was the design's own complaint; the ring stays on the point and the card sits beside
+it instead.
+
+The card's anchoring (`utils/mapCallout.js`) is recomputed on the same rAF-guarded cadence the field
+and the labels already repaint on, so it travels through pan and zoom rather than only updating on
+open: it prefers 22px below the marker, flips above when that would run under a chrome bar spanning
+at least half the frame's width, clamps horizontally to an 8px margin, and clamps its own tail to stay
+inside the card. Opening a selection calls `map.panInside` once, with the same `[70, 150]` padding the
+design specifies, so the point and the card both land in view without recentring the whole map.
+
+Contents: the location's name, region and subject tags (as WORDS — "Northumberland & Tyneside ·
+Seascape" — never the compact-row icon glyphs `locationTypeIcons` is reserved for); a verdict block
+whose `N★ Worth it/Maybe/Poor` reuses `utils/mapLabels.js`'s own `verdictWord` and thresholds rather
+than a second copy, filled with the ramp colour at that rating and inked with `readableInkOn`
+(`utils/windowFirstSpots.js`) so a dark-red "1★ Poor" badge gets light text instead of the same fixed
+dark ink every other rating got — the temperature ramp's hot end is nearly as dark as its cold end is
+light, and a hardcoded ink failed contrast at exactly that end; a reason line drawn from that
+location's own served summary (`GET /api/briefing/evaluate/scores`, the same feed the Plan tab's
+four-day sheet reads) and falling back to the window's region gloss when the location itself carries
+none — never invented for a night row, which has neither; a facts row (Drive, Leave by, Dark sky) that
+omits any fact an unmeasured drive would have to derive, and that shows straight-line miles only at a
+home origin, never alongside an away base's drive minutes; the window's topic tags, with a tide topic
+(`KING_TIDE`/`SPRING_TIDE`) shown only on a location that actually carries a tide preference; and a
+collapsed "This location, every window" strip whose solar cells read the same per-location score index
+as the reason line and whose astro/aurora cells read this location's own served star straight off
+`astroConditionsByDate`/`auroraResultsByDate` (`MapView.jsx`'s existing state, the same source
+`utils/mapEvents.bestOfNight` already reads) — a cell reads "unscored" only when this location
+genuinely has no row in that night's results, never merely because night rows are a different kind of
+window. Every null-score surface distinguishes "the ratings response has not landed yet" (`Loading…`/
+`…`) from "landed, and this is genuinely unscored" (`Not yet scored`/`—`) via a `scoresKnown` flag
+threaded down from the briefing context. The strip's own kind badge no longer collapses Sunrise and
+Sunset to the same "SUN" (the design bundle's own recorded ambiguity) — `RISE`/`SET`/`AST`/`AUR`, none
+colliding. Two actions close the card out: *Zoom to it* (`flyTo`, floored at zoom 12.6) and *Open in
+Plan*, a real cross-tab handoff (`App.jsx`'s new `openLocationInPlan`, mirroring the existing map-tab
+hatch in reverse) that switches to the Plan tab through `WindowFirstShell`'s own `selectTab` and opens
+that location's four-day sheet as the only dialog layer.
+
+**A live regression, root-caused and fixed before merge**: a chip click reached `onSelect` and set the
+selection correctly, but the selection was wiped on the very same click, every time — nothing ever
+appeared. Traced to event order: a location chip is a plain HTML `<button>` inside `MapLabels`' own
+Leaflet PANE (a real descendant of `.leaflet-map-pane`/`.leaflet-container`), not a Leaflet `Marker` —
+so, unlike a real marker (which stops its own click bubbling via `bubblingMouseEvents: false`), the
+click kept bubbling into Leaflet's own container listener and fired the map's background-click
+handler (P7's `MapBackgroundClickController`) immediately after React's, clearing the very selection
+it had just set. Fixed the same way `CentreOnHomeControl` already fixes it for an HTML control sitting
+over the map: `L.DomEvent.disableClickPropagation` on the label layer's root, applied once via a
+callback ref. A second, related race surfaced during the SAME fix: `WindowControl`/`FiltersPopover`
+each close their own menu via a `document`-level `mousedown` listener, independent of and earlier than
+this controller's `click` handler, so a background click while a popover was open collapsed the
+intended "close the popover first, the callout second" ordering into "close both at once." Fixed by
+snapshotting `openMapMenu` on the map's own `mousedown` (which — because `.leaflet-container` is an
+ancestor of `document` — reaches this controller before the document-level listener does) rather than
+reading it from a `click`-time closure.
+
+A background click and an `Esc` press both close the *nearest* open layer first — a popover, if one
+is open — and only take the callout on a second press, matching the two-deep-stack convention the
+rest of the app's dialogs already follow rather than the design bundle's own "close everything on one
+click/press". Recorded as a deliberate divergence, not an oversight: the bundle had no other
+focusable chrome to protect from a stray Escape, and this app does. The inbound `handoffLocationName`
+channel now branches on `overlayMode`: the Map tab selects the location and lets the callout pick it
+up reactively, with no popup left to open; the Plan-tab overlay keeps its exact previous behaviour,
+opening the marker's own bound popup once its fly-to animation settles.
+
+The callout is deliberately not a modal — no focus trap, no `aria-modal`, consistent with this arm's
+existing stance that only one stacked dialog is ever the modal layer.
+
+### Fixed — the heat field no longer sits in the sea
+
+The Map tab's heat field is now clipped to UK land, fixing the founding "heat is in the sea"
+complaint: a gaussian centred on a coastal location spreads inland and out to sea equally, and with
+no land mask the visible half was the half over dark water, which read as "the data is offshore".
+
+`utils/landMask.js` (new) streams the vendored UK topology (`heatField.js`'s own `load()`/`land()`
+latch — no second fetch) through `map.project` into one `Path2D` per zoom level, in absolute
+Leaflet pixel coordinates, so panning costs a translate rather than a re-projection of the whole
+coastline. The cache is keyed on zoom and invalidated explicitly on `zoomend`, on a container
+resize, and when the topology itself arrives — the last of these repaints the clip into place with
+no user interaction needed, rather than waiting for the next pan.
+
+The mask is grown seaward by ~4km (`clipGrow`) before use: a raw 1:50m coastline clip erased 7 of
+51 coastal locations (including a 5★) by cutting straight through their own gaussian core — a rated
+location painting as empty ground is worse than the bug the clip fixes. It is applied as a blurred
+alpha mask (`clipSoft`), never a hard `ctx.clip()`, so the boundary feathers at the same rate the
+field's own blur does; a crisp edge through a blurred field reads as an artefact. The clip drops
+above zoom 11.5, where a 1:50m coastline's own survey error would start showing as a visibly false
+coast — by then the field is already close to its floor opacity, so an unclipped wash is less wrong
+than a hard edge in the wrong place.
+
+A coastline stroke — `rgba(242,231,211,a)`, fading out by zoom 11 — is drawn from the exact same
+`Path2D` the clip uses, straight onto the field's own canvas, so the two can never disagree. It
+draws even when the field itself has no points to paint or is already at its floor opacity: the
+coast is furniture, not a claim about the data.
+
+The field's own dials are re-tuned in the same commit, since the old radius was part of why the
+field swam offshore in the first place: radius 8500m/34–240px → **7200m/30–190px**, the
+field/marker handover band 10.6→12.2 → **10.4→12.0**, floor 0.17 → **0.12**.
+
+`MapHeatLayer` now kicks off the vendored topology load on mount rather than waiting for the Plan
+tab to have fetched it first; a failed fetch is logged and the field simply stays unclipped rather
+than going permanently blank.
+
+### Changed — the Map tab owns the whole frame, filters move into a popover (map-v2 P7)
+
+The Map tab's filter drawer — the ~380px block that used to sit above a 500px map — is gone. A new
+`components/map/FiltersPopover.jsx` puts every one of its rows (minimum rating, subject chips, a
+drive-from-origin segment now offering the design's named tiers, dark-sky-only, and — new — a
+"My area" / "Whole catalogue" scope segment moved out of the old toolbar) behind a single chip
+(`Filters (N) ▾`) that opens a 318px panel over the map. `N` counts active filters only; switching
+scope never counts, because it reframes the camera rather than hiding anything. The panel's own
+footer states "N of M shown" and offers "Clear all" (everything but scope). Opening the popover
+closes the window control's own dropdown and vice versa — the two now share one exclusivity
+switch — and clicking empty map closes whichever is open. Inbound handoffs that used to open the
+old drawer (a Hot Topic pill tap, a Coming-up chronology card) now open this popover instead.
+
+The map itself now fills the whole frame below the masthead and tab bar, with no page scroll. Four
+things had to move together: `App.jsx` learns which Plan tab is active (a new `onTabChange` from
+the shell) and recasts its whole page as a flex column on the Map tab (root: `height:100dvh;
+overflow:hidden`; `<main>`: `flex:1; min-height:0`), suppressing its own outer padding on that tab;
+`WindowFirstShell`'s 1080px width constraint now wraps only the masthead and tab bar — the panel
+region below it releases to full width on the Map tab alone, so the masthead and tab bar never
+shift on a tab switch, and both the shell root and that panel region become `flex:1; min-height:0`
+links in the same flex column; the Map tab's own panel (`.wf-body.wf-body--map`) is the column's
+last growing item, computing no height of its own; and `MapView`'s old fixed `MAP_HEIGHT_PX` is
+gone in favour of `flex:1; min-height:0` the rest of the way down. The Plan-tab overlay keeps its
+exact old drawer, fixed heights and toolbar, and every other Plan tab keeps today's ordinary
+document flow and page scroll — none of this reaches either.
+
+With the frame now full-bleed, the window control moves onto the map itself as top-left chrome; the
+Heat/Medallions segment and the new filters chip form a top-right cluster (a Regions jump list has
+a ready-made third slot there, for a later phase); the colour-scale notice, the LITE
+aurora-viewline upsell chip and the scored-locations chip are re-homed to the corners the new
+chrome leaves free; and a new counts footer (bottom-centre) reads "N named · M rated of K", a
+`filtered` flag, and either the regions beyond a 3-hour drive (My area) or a whole-catalogue
+caveat. Every new chip adopts the design's z-ladder: chrome at 1100, the two dropdown/panel menus
+at 1500 so neither is ever hidden under a sibling chip. The zoom control and "centre on home" both
+move to bottom-right, per the design's own layout — moved imperatively (`map.zoomControl.
+setPosition`), not via `react-leaflet`'s `<ZoomControl>` swap, because every one of the eighteen
+test files that mocks `react-leaflet` mocks it down to a handful of exports and none carries
+`ZoomControl`.
+
+Three adversarial review rounds surfaced nine confirmed findings (four real after
+de-duplication; one refuted), one upgraded by the orchestrator's own live measurement, and one
+more from a second live re-measurement after the first fix:
+
+- **The mobile cascade catch.** `.wf-body--map { padding: 0 }` and the phone media query's own
+  `.wf-body { padding: 12px … }` are both plain class selectors — equal specificity, later source
+  wins — so every phone carried a padded band around the "full-bleed" map, invisible on desktop
+  where no media query competes. Fixed with the specificity bump `.wf-body.wf-body--map`, robust
+  against either rule being reordered later, and pinned by a sliced-stylesheet test that reproduces
+  the selector contest directly (jsdom resolves specificity but not the `@media` condition itself).
+- **The live footer proof, and the 16px it didn't fix.** Measured at 1280×800 with zero banners
+  showing, the app-wide footer alone overflowed the full-frame page by 99px and clipped the map's
+  bottom edge. The first fix suppressed the footer and added a THIRD measured term
+  (`--wf-banner-h`, alongside `--wf-mast-h`/`--wf-tabbar-h`) to a `calc(100dvh - …)` height chain —
+  and a second live re-measurement found 16px of scroll still surviving with every banner gone: an
+  inter-element margin between the tab bar and the panel that a `ResizeObserver` on element BOXES
+  structurally cannot see. Two leaks from the same class of gap retired the whole mechanism rather
+  than adding a fourth term: the height chain (and the `useTabBarHeight`/`useElementHeightVar`
+  hooks that measured it — both deleted, dead code with no remaining consumer) is replaced by the
+  flex-column recast described above, which asks the browser to lay the column out rather than
+  reconstructing its answer by hand.
+- The admin stand-down/unknown toggles get scope's exact treatment on adjudication — present,
+  sticky, uncounted — since they are debug lenses that widen the pool back out, not reader filters:
+  excluded from the filters chip's count, the counts footer's `filtered` flag, and Clear all alike.
+
+### Changed — the heat field glows ember above 3★, in temperature mode
+
+The bloom kernel P1 ported inert is now switched on at all three heat surfaces — the Plan tab's
+window thumbnails, the Plan popup's field map, and the Map tab's field — so a warm evening now
+climbs steadily brighter from 3★ to 5★ instead of visibly dimming, which is what the temperature
+ramp's own colours do on a dark ground without it (`docs/design/map-tab-v2/README.md`, "The heat
+bloom (required on a dark ground)"; plan §3 P2). Each surface carries its own measured dials —
+thumbnails 155/0.9, the popup map 170/2.0, the Map tab field the kernel's own 190/2.4 defaults —
+and the gate stays fixed at 3★ everywhere, where the ramp's own luminance peaks.
+
+The bloom is gated on the **temperature** colour mode only (decision D-1): the verdict ramp has no
+such inversion, so nothing changes there, and switching modes now correctly repaints the Plan
+popup's field map — a `colourMode` repaint key it never carried before, the same one the
+thumbnails and the Map tab field already had.
+
+### Changed — heat field kernel gains bloom, soft mask and a score callback (inert)
+
+`utils/heatField.js` is ported forward from the Map tab v2 design bundle's reference kernel
+(`docs/design/map-tab-v2/heat-field.js`, plan §3 P1): `field()` can build a second, optional
+emissive ("bloom") layer whose alpha rises with score above a fixed 3★ gate — the fix for the
+temperature ramp's luminance inversion on a dark ground, where 5★ is currently the ramp's darkest
+colour; `paint()` gains a soft, blurred land-mask clip route (mask composed on its own surface,
+applied in a single `destination-in` draw) alongside a new hard-clip route, both built for the
+land clip P4 will add; and `drawTiles()` takes an optional `score` callback so a host can score a
+location by something other than a solar-window index (the Map tab's future astro/aurora night
+rows, which carry no `r[]` entry). No call site passes any of the new options yet, so no surface
+renders any differently — this is the shared kernel contract, ahead of the surfaces that will use
+it in P2 (bloom on) and P4 (land clip).
+
+### Fixed — cross-vendor review catches on the map-v2 plan and the changelog fold
+
+Codex's review of #723/#724 landed four findings, three confirmed against the code and folded
+into `docs/engineering/map-tab-v2-plan.md`: P5 now serves the astro night window from the
+entity's **stored** `nauticalDuskUtc`/`nauticalDawnUtc` (persisted since V64 — an earlier
+revision wrongly claimed they existed only on the write path, and would have had the serve path
+recompute a window that could diverge from the one the score was computed over); P5's aurora
+window now names `computeWindowForDate(date)` and forbids the clock-based
+`calculateTonightWindow()`, which would pin tonight's window on other dates' rows; and P6's LITE
+treatment is corrected to "no aurora rows" — the promised greyed-row ProPill is unimplementable
+while the role-gated aurora API folds 403s to empty, so a LITE client cannot learn an aurora
+night exists (now recorded under the O-9 owner decision). The fourth finding (BSD `find` in
+`scripts/promote-changelog.sh`) overstated the mechanism — macOS `find` supports `-maxdepth`,
+proven by the fixture runs — but the suppressed error path was real: a failing `find` would have
+silently promoted a version heading with nothing folded beneath it, a half-promoted state the
+duplicate-heading guard then blocks from retry. The collection is now a pure shell glob with no
+error path at all. A follow-up Codex catch on this PR closed the same wedge from another angle:
+a tracked file the fold's glob cannot see (dot-prefixed, undated, or a subdirectory) was visible
+to `release.sh`'s accounting, so promotion would have left it behind and wedged at the leftover
+check. The fold set is now exactly the documented `YYYYMMDD-<slug>.md` convention, and both the
+helper and `release.sh` (before any branch is created) loudly refuse anything else in the
+directory.
+
+### Changed — changelog entries are per-PR files now
+
+Every open PR used to append under `CHANGELOG.md`'s `[Unreleased]` heading — the same line of the
+same file — which guaranteed a merge conflict between any two in-flight PRs regardless of what
+code they touched. Meaningful commits now add a `changelog.d/YYYYMMDD-<slug>.md` file instead
+(convention in `changelog.d/README.md`), and `release.sh`'s promotion step folds the pending
+files verbatim under the new version heading via the new `scripts/promote-changelog.sh` — which
+validates each entry opens with a `### ` heading, proves the rewrite added exactly the block it
+built and removed nothing (the same discipline the old two-line insertion carried), and deletes
+the folded files in the same auto-merged promotion PR. Entries still written directly under
+`[Unreleased]` keep working and fold under the same heading — the convention change is what ends
+the conflicts; the script change is what makes the fold safe.
+
+### Changed — the map's basemap is warmer, quieter, and loses its town labels at a glance
+
+The Esri dark basemap (already shipped) is now dressed rather than swapped: the base tile carries
+a warm CSS filter (`saturate(.5) sepia(.32) brightness(.9) contrast(1.08)`) and the place-name
+reference tile a softer one (`saturate(.35) sepia(.3) brightness(1.02)`, opacity 0.6), both ported
+verbatim from `docs/design/map-tab-v2/README.md`'s "The basemap" section (plan §3 P3). The tile
+CLASSES are pure dress and reach the Map tab and the Plan overlay's map alike, with no behavioural
+change either way.
+
+The reference layer's zoom gate also reaches both mounts, and unlike the classes it **is** a
+behavioural change: the reference (place-name) layer used to be unconditionally on everywhere,
+including the Plan overlay, and is now unmounted below zoom 11.8 there too — the overlay's own
+flyTo lands around zoom 11, below the threshold, so a reader opening it on one location may now see
+no town labels where it always showed them before. This is deliberate and plan-sanctioned (§3 P3's
+"MapView.jsx tab+overlay both benefit"), not an oversight; town names stop competing with our own
+location chips at the glance scale, and come back once the chips have thinned out enough to need
+the context. The Leaflet attribution control is quieted further to match.
+
+The Map tab's own `MapContainer` separately gains `zoomSnap: 0` (fractional zoom) — the one Leaflet
+map OPTION that deliberately does **not** reach the overlay, which keeps Leaflet's ordinary integer
+snap (1). So this and every later zoom threshold the redesign adds is a gradient on the tab only.
+`maxZoom` stays 16 everywhere (decision D-6).
+
+One side effect of fractional zoom, recorded so it reads as known rather than accidental:
+`react-leaflet-cluster`'s `disableClusteringAtZoom={13}` is evaluated against `Math.round`, so on
+the tab unclustering now effectively begins from actual zoom ~12.5 rather than exactly 13 —
+acceptable for this phase, since P10 retires clustering on the tab entirely.
+
+PR #728 review caught one more gap our own review had wrongly refuted: the reference-layer gate
+was reading the zoom state's hard-coded `useState(9)` seed, not the map's own zoom, for the whole
+window between mount and the first real `zoomend` — reachable in particular on the Plan overlay,
+whose construction `bounds` can fit tight on one focused location well past 11.8. `ZoomTracker` now
+seeds that state from the live map at mount (`useMapEvents`'s own return value), closing the gap
+for the gate and for every other consumer of the same state that had it silently too.
+
 ### Docs — Map tab v2 + heat bloom implementation plan
 
 Vendored the Map-tab redesign handoff at `docs/design/map-tab-v2/` (one chronological window
