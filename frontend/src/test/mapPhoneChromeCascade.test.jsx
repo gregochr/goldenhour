@@ -257,7 +257,10 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
     expect(slice).toContain('.wf-map-tab .wf-map-counts-second');
     const cleanup = inject(slice);
     try {
-      expect(computedStyleFor('wf-map-counts-footer', ['wf-map-tab']).bottom).toBe('60px');
+      // 64px, not a rounder-looking number chosen by eye — PR #741 review: it must satisfy the
+      // SAME clearance formula every lifted element in this file does (see the sweep describe
+      // block below), and `60px` fell 4px short of it once the bar's own assumed height grew.
+      expect(computedStyleFor('wf-map-counts-footer', ['wf-map-tab']).bottom).toBe('64px');
       expect(computedStyleFor('wf-map-counts-second', ['wf-map-tab']).display).toBe('none');
     } finally {
       cleanup();
@@ -396,5 +399,163 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
     } finally {
       cleanup();
     }
+  });
+
+  it('⚠️ PR #741: the scored-locations chip lifts clear of the bar — it painted over AND intercepted taps on it', () => {
+    const slice = extractRulesIncludingMedia(['.wf-map-scored-legend', '.wf-map-chrome-tr']);
+    expect(slice).toContain('.wf-map-tab .wf-map-scored-legend');
+    const cleanup = inject(slice);
+    try {
+      const barBottom = parseFloat(computedStyleFor('wf-map-chrome-tr', ['wf-map-tab']).bottom);
+      const scoredBottom = parseFloat(computedStyleFor('wf-map-scored-legend', ['wf-map-tab']).bottom);
+      const ASSUMED_BAR_HEIGHT = 48;
+      const CLEARANCE_GAP = 8;
+      expect(scoredBottom).toBeGreaterThanOrEqual(barBottom + ASSUMED_BAR_HEIGHT + CLEARANCE_GAP);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('touches nothing without `.wf-map-tab` — the desktop offset is Tailwind\'s own `bottom-2` utility, not an index.css rule', () => {
+    // Unlike `.wf-map-chrome-bl`/`.leaflet-control-zoom` above, this element has NO base rule in
+    // `index.css` at all — `wf-map-scored-legend` exists purely as this phone media query's own
+    // hook; its desktop position is entirely Tailwind's compiled `bottom-2` class (invisible to
+    // this slicer, and to `vite.config.js`'s `css: false` test environment generally — a browser
+    // claim). So the honest claim here is narrower: without the ancestor, this slice touches
+    // `bottom` not at all, leaving Tailwind's own utility in sole, uncontested control.
+    const slice = extractRulesIncludingMedia('.wf-map-scored-legend');
+    const cleanup = inject(slice);
+    try {
+      expect(computedStyleFor('wf-map-scored-legend').bottom).toBe('auto');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('⚠️ PR #741: Leaflet\'s attribution control lifts clear of the bar via its corner container\'s padding — a licensing requirement, not chrome', () => {
+    const slice = extractRulesIncludingMedia(['.leaflet-bottom.leaflet-right', '.wf-map-chrome-tr']);
+    expect(slice).toContain('.wf-map-tab .leaflet-bottom.leaflet-right');
+    const cleanup = inject(slice);
+    try {
+      const barBottom = parseFloat(computedStyleFor('wf-map-chrome-tr', ['wf-map-tab']).bottom);
+      const corner = computedStyleFor('leaflet-bottom leaflet-right', ['wf-map-tab']);
+      const ASSUMED_BAR_HEIGHT = 48;
+      const CLEARANCE_GAP = 8;
+      expect(parseFloat(corner.paddingBottom)).toBeGreaterThanOrEqual(barBottom + ASSUMED_BAR_HEIGHT + CLEARANCE_GAP);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('the P3 quieting styles on `.leaflet-control-attribution` itself are untouched by the corner\'s padding fix', () => {
+    // A DIFFERENT selector (the control, not its corner container) — this pins that the two
+    // remain independent, so a legibility regression could never hide behind this file's own
+    // green geometry assertions above.
+    const slice = extractRulesIncludingMedia('.leaflet-control-attribution');
+    const cleanup = inject(slice);
+    try {
+      const style = computedStyleFor('leaflet-control-attribution');
+      expect(style.fontSize).toBe('9px');
+      expect(style.color).toBe('rgba(242, 231, 211, 0.3)');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('the attribution corner keeps its desktop padding (none) without `.wf-map-tab` — the overlay is untouched', () => {
+    // `.leaflet-bottom.leaflet-right`'s OWN base geometry (`position: absolute; bottom: 0;`) lives
+    // in the vendored `leaflet/dist/leaflet.css`, never injected here — this slice, drawn only
+    // from `index.css`, touches `padding-bottom` not at all without the ancestor, so jsdom's
+    // initial value stands. `parseFloat`, not a literal string match: jsdom represents "nothing
+    // set" as the bare `'0'` rather than a real browser's normalised `'0px'`.
+    const slice = extractRulesIncludingMedia('.leaflet-bottom.leaflet-right');
+    const cleanup = inject(slice);
+    try {
+      expect(parseFloat(computedStyleFor('leaflet-bottom leaflet-right').paddingBottom)).toBe(0);
+    } finally {
+      cleanup();
+    }
+  });
+
+  /**
+   * THE SWEEP (PR #741 review): "enumerate everything absolutely positioned within the map frame
+   * that can occupy the bottom ~90px at ≤639px" — recorded here so a third Codex round has to find
+   * something genuinely NEW rather than rediscover this inventory.
+   *
+   * Considered and a CANDIDATE (all tested against the bar's rect below, "everything active" —
+   * a scored solar window, a LITE reader mid aurora alert, and an active filter, simultaneously):
+   *   - `.wf-map-chrome-bl` (LITE viewline-upsell chip) — lifted, PR #741 review round 1.
+   *   - `.wf-map-counts-footer` — lifted (and re-tuned to the shared formula this round).
+   *   - `.wf-map-scored-legend` (`photocast-scored-legend`) — lifted THIS round.
+   *   - `.leaflet-bottom.leaflet-right` (Leaflet's attribution corner) — lifted THIS round.
+   *
+   * Considered and RULED OUT (not a candidate, with the reason, so the next reviewer does not
+   * have to re-derive it):
+   *   - `.leaflet-control-zoom` / `.map-home-control` — HIDDEN outright on the phone, not merely
+   *     repositioned; nothing to be disjoint FROM.
+   *   - `.wf-legend-chip` / `.wf-legend-panel` — `MapView.jsx` does not mount `MapLegendPanel` at
+   *     all under `isMobile`; there is no element to collide.
+   *   - `.wf-maplab-tip` (the desktop hover tooltip) — mouse-only by construction
+   *     (`onMouseEnter`/`onMouseMove`), which a touch tap never fires; it cannot appear on a phone.
+   *   - `.wf-selmk` / `.wf-callout` (the selection ring/card) — not a static `bottom:` rule at all;
+   *     `utils/mapCallout.calloutBand`'s own ≥50%-width-bar rule already treats the (now full-width)
+   *     bottom bar as a floor, proven live in the P12 review round.
+   *   - `WindowControl`'s dropdown — top-anchored, under the (now full-width) pill, never near the
+   *     bottom band.
+   *   - `FiltersPopover`/`RegionsJump`'s phone panels — `BottomSheet`s that cover the whole frame
+   *     while open (their own backdrop), not passive residents of a fixed bottom band; they are
+   *     also mutually exclusive with the bar being usable at all (deliberately: you cannot tap the
+   *     bar behind an open sheet, the same as any other modal-shaped disclosure).
+   *
+   * The check itself is ARITHMETIC, not real layout (jsdom computes none): each candidate's own
+   * declared `bottom`/`padding-bottom` (real, extracted from `index.css`) plus a documented assumed
+   * height is converted into a `{top, bottom}` rect against a fixed frame height (780px — the
+   * live-measured no-scroll figure from this phase's own browser pass), then checked disjoint
+   * against the bar's identically-built rect. Re-tuning any offset only has to keep every
+   * inequality below true, not hit these exact numbers.
+   */
+  describe('THE SWEEP — every candidate clears the bar, all of them active at once', () => {
+    const FRAME_HEIGHT = 780;
+    const ASSUMED_BAR_HEIGHT = 48;
+    const ASSUMED_CHIP_HEIGHT = 28; // a single-line pill/text chip — bl, footer, scored-legend
+    const ASSUMED_ATTRIBUTION_HEIGHT = 15; // the review's own reported figure
+
+    /** `{top, bottom}` of an element anchored `bottomPx` from the frame's own bottom edge,
+     * `heightPx` tall — both measured downward from the frame's TOP, matching
+     * `getBoundingClientRect`'s own axis. */
+    function rectFromBottom(bottomPx, heightPx) {
+      return { top: FRAME_HEIGHT - bottomPx - heightPx, bottom: FRAME_HEIGHT - bottomPx };
+    }
+
+    it('every candidate is entirely ABOVE the bar\'s own rect — no shared pixel row', () => {
+      const slice = extractRulesIncludingMedia([
+        '.wf-map-chrome-tr', '.wf-map-chrome-bl', '.wf-map-counts-footer',
+        '.wf-map-scored-legend', '.leaflet-bottom.leaflet-right',
+      ]);
+      const cleanup = inject(slice);
+      try {
+        const barBottom = parseFloat(computedStyleFor('wf-map-chrome-tr', ['wf-map-tab']).bottom);
+        const barRect = rectFromBottom(barBottom, ASSUMED_BAR_HEIGHT);
+        expect(barRect.top).toBeGreaterThanOrEqual(0); // the assumed geometry itself must fit the frame
+
+        const candidates = [
+          { name: 'wf-map-chrome-bl', height: ASSUMED_CHIP_HEIGHT },
+          { name: 'wf-map-counts-footer', height: ASSUMED_CHIP_HEIGHT },
+          { name: 'wf-map-scored-legend', height: ASSUMED_CHIP_HEIGHT },
+          { name: 'leaflet-bottom leaflet-right', height: ASSUMED_ATTRIBUTION_HEIGHT, prop: 'paddingBottom' },
+        ];
+        for (const { name, height, prop = 'bottom' } of candidates) {
+          const style = computedStyleFor(name, ['wf-map-tab']);
+          const offset = parseFloat(style[prop]);
+          const rect = rectFromBottom(offset, height);
+          // Disjoint means the candidate's OWN bottom edge (closer to the frame's bottom, i.e. a
+          // LARGER "bottom-from-frame-bottom" `top`/`bottom` pixel row number here since both are
+          // measured downward from the frame's top) sits at or above the bar's top edge.
+          expect(rect.bottom).toBeLessThanOrEqual(barRect.top);
+        }
+      } finally {
+        cleanup();
+      }
+    });
   });
 });

@@ -3599,8 +3599,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                     // in this class (CLAUDE.md: a CSS claim is a browser claim).
                     <div
                       data-testid="photocast-scored-legend"
+                      // `wf-map-scored-legend` is a pure CSS hook (PR #741 review) — the phone
+                      // media query lifts this clear of the new bottom bar the same way it lifts
+                      // `.wf-map-chrome-bl`; every Tailwind class above it is unmodified.
                       className="absolute bottom-2 right-[54px] z-[1100] bg-plex-surface/80 backdrop-blur-sm
-                        text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30"
+                        text-plex-text-secondary rounded-full px-3 py-1 border border-plex-border/30 wf-map-scored-legend"
                       style={{ fontSize: '11px' }}
                     >
                       ★ PhotoCast-scored locations shown

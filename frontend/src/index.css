@@ -2979,8 +2979,15 @@ button.wf-hc.also.on:hover {
     justify-content: center;
   }
 
+  /* `64px` = `8px` (bar's own bottom offset) + `48px` (assumed bar height, documented below at
+     `.wf-map-chrome-bl`) + `8px` (clearance gap) — the SAME formula every lifted element in this
+     block uses, so `mapPhoneChromeCascade.test.jsx` can pin one inequality per element rather than
+     one magic number each. Was `60px` (PR #741 review): 4px short of the formula's own clearance
+     gap against the bar's REVISED 48px height (the ramp key's restoration grew the bar after this
+     value was first chosen), close enough to read as intentional headroom on a screenshot but not
+     what the formula actually promises. */
   .wf-map-tab .wf-map-counts-footer {
-    bottom: 60px;
+    bottom: 64px;
   }
   .wf-map-tab .wf-map-counts-second {
     display: none;
@@ -3001,6 +3008,34 @@ button.wf-hc.also.on:hover {
      estimate), not the literal 76px, so a future re-tune only has to keep that inequality true. */
   .wf-map-tab .wf-map-chrome-bl {
     bottom: 76px;
+  }
+
+  /* The scored-locations chip (`photocast-scored-legend`) — PR #741 review, the same collision
+     class as `⌂` and `.wf-map-chrome-bl` above: at its desktop `bottom: 8px; right: 54px` it sat
+     directly under the new bar (which now claims the WHOLE width, not merely the corner column
+     `right: 54px` was clearing on desktop), painting over AND intercepting taps on the Heat/Pins
+     and Filters segments beneath it. Lifted, not hidden or folded into the counts footer — its
+     text ("★ PhotoCast-scored locations shown") is not duplicated anywhere else on the phone, and
+     hiding it would be a silent information loss the design never asked for. Same clearance
+     formula as `.wf-map-chrome-bl` above. */
+  .wf-map-tab .wf-map-scored-legend {
+    bottom: 76px;
+  }
+
+  /* Leaflet's own attribution control (PR #741 review, the same collision class again) — a
+     licensing requirement, not decoration, so it lifts rather than hides. It shares
+     `ZoomControlPositioner`'s `bottomright` corner with the zoom control and `⌂`, both hidden
+     above; Leaflet stacks controls within one corner via `float` + `margin-bottom` on the
+     CONTROL itself (`leaflet/dist/leaflet.css`), not on the corner container, so with its two
+     former neighbours gone the attribution now sits flush at the corner's own `bottom: 0` unless
+     something claims the space back. `padding-bottom` on the corner container
+     (`.leaflet-bottom.leaflet-right`, the same selector `MapCallout.jsx`'s own
+     `LEAFLET_CORNER_SELECTOR` already reads) pushes every control still inside it up by the same
+     margin the other lifted chrome uses — the P3 quieting styles on `.leaflet-control-attribution`
+     itself (background/colour/font-size/padding) are a DIFFERENT selector entirely and are
+     untouched by this rule. */
+  .wf-map-tab .leaflet-bottom.leaflet-right {
+    padding-bottom: 76px;
   }
 
   /* Pinch instead (README "Responsive" table: "Zoom buttons | hidden (pinch instead)"). Real

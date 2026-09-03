@@ -129,3 +129,39 @@ new `aria-controls` cases in `WindowControl.test.jsx`, `MapLegendPanel.test.jsx`
 changed except where a testid gained an `id` sibling attribute (additive) — every desktop/tablet
 suite still mocks `useIsMobile` to `false` (or never mocks it at all, relying on the same default),
 and stays green unmodified.
+
+**PR #741 review round — two more instances of the SAME collision class, plus a sweep to end it.**
+CI was green, but Codex flagged two elements this phase's own review had not yet reached, both
+things sitting at the bottom of the map frame that the new bar's full width now covers:
+
+1. The scored-locations chip (`photocast-scored-legend`, desktop `bottom: 8px; right: 54px` —
+   clearing the OLD corner column, not the new full-width bar) painted over and intercepted taps on
+   the Heat/Pins and Filters segments beneath it. Lifted to the same `76px` clearance
+   `.wf-map-chrome-bl` already uses (`.wf-map-scored-legend`, a new pure-CSS hook class), not hidden
+   or folded into the counts footer — its text is not duplicated anywhere else on the phone.
+2. Leaflet's own attribution control had its upper half buried under the bar. It shares
+   `ZoomControlPositioner`'s `bottomright` corner with the now-hidden zoom control and `⌂`; Leaflet
+   stacks controls within a corner via `float` + `margin-bottom` on each CONTROL rather than the
+   corner container, so with its two neighbours gone the attribution collapsed to sit flush at the
+   corner's own `bottom: 0`. Fixed with `padding-bottom: 76px` on `.leaflet-bottom.leaflet-right`
+   (the same selector `MapCallout.jsx`'s own `LEAFLET_CORNER_SELECTOR` already reads) — a licensing
+   requirement, so it lifts rather than hides, and the P3 quieting styles on
+   `.leaflet-control-attribution` itself (a different selector) are untouched.
+3. **The sweep.** Every `bottom-*`/`bottom:` rule reachable from the map tab was enumerated
+   (`.wf-map-chrome-bl`, `.wf-map-counts-footer`, the two fixes above, plus everything ruled OUT:
+   the now-hidden zoom/`⌂`, the phone-absent Legend, the mouse-only hover tooltip, the callout's own
+   dynamic band already proven against a ≥50%-width bar, and the WindowControl dropdown/BottomSheets
+   which are top-anchored or cover the whole frame rather than being passive bottom-band residents —
+   recorded in full in `mapPhoneChromeCascade.test.jsx`'s own class doc). The counts footer's
+   existing `60px` lift was 4px short of the same clearance formula every OTHER lifted element uses
+   once the bar's assumed height grew to account for the restored ramp key — revised to `64px` for
+   consistency. One new geometry test renders every candidate "active at once" (a scored solar
+   window, a LITE reader mid aurora alert, an active filter) and asserts each clears the bar's own
+   rect, arithmetically (jsdom computes no real layout, so this pins the declared CSS values plus
+   documented height estimates against a fixed, live-measured 780px frame height) — the test meant
+   to make a third Codex round have to find something genuinely new.
+
+Tests (this round): 6 new cases in `mapPhoneChromeCascade.test.jsx` (the scored-legend and
+attribution lift/no-lift pairs, the attribution's P3 styling staying untouched, and the sweep's own
+consolidated geometry check) plus the counts-footer assertion's revised `64px`. Full suite:
+205 files / 4894 tests, green.
