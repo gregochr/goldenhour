@@ -201,11 +201,11 @@ export function buildRegionGlossIndex(days) {
     for (const summary of day.eventSummaries ?? []) {
       if (!summary?.targetType) continue;
       for (const region of summary.regions ?? []) {
-        if (!region?.name) continue;
+        if (!region?.regionName) continue;
         const headline = region.glossHeadline || null;
         const detail = region.glossDetail || null;
         if (!headline && !detail) continue;
-        const key = `${day.date}|${summary.targetType}|${region.name}`;
+        const key = `${day.date}|${summary.targetType}|${region.regionName}`;
         if (!index.has(key)) index.set(key, { headline, detail });
       }
     }

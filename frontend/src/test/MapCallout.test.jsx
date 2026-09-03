@@ -250,7 +250,7 @@ describe('MapCallout — reason prose', () => {
       date: TODAY,
       eventSummaries: [{
         targetType: 'SUNSET',
-        regions: [{ name: 'North East', glossHeadline: null, glossDetail: 'A settled coastal evening across the region.' }],
+        regions: [{ regionName: 'North East', glossHeadline: null, glossDetail: 'A settled coastal evening across the region.' }],
       }],
     }]);
     await mount({ scoreIndex, regionGlossIndex });
@@ -269,7 +269,7 @@ describe('MapCallout — reason prose', () => {
       date: TODAY,
       eventSummaries: [{
         targetType: 'SUNSET',
-        regions: [{ name: 'North East', glossHeadline: 'Clear', glossDetail: 'Clear all evening.' }],
+        regions: [{ regionName: 'North East', glossHeadline: 'Clear', glossDetail: 'Clear all evening.' }],
       }],
     }]);
     await mount({ event: ASTRO_EVENT, scoreIndex, regionGlossIndex });
