@@ -532,6 +532,34 @@ describe('findEvIndex', () => {
     const events = buildMapEvents({ ...baseArgs(), forecastDates: [TODAY] });
     expect(findEvIndex(events, 'AURORA', TODAY)).toBe(-1);
   });
+
+  /**
+   * Doors D2 (`plan-to-map-doors-plan.md` §7 #1) — the app's own form of the increment's check 1
+   * ("each door lands on the correct window, one whose EV index differs from its Plan index").
+   * The app has no Plan index to compare against at all (`§4 #2` — a door crosses the seam as
+   * `{date, targetType}`, never an index), so the equivalent proof is that `findEvIndex` still
+   * resolves the right ROW when an interleaved astro row has pushed it off the position a plain
+   * date+kind walk would expect. With `ordering`'s own "places the NEXT day's sunrise immediately
+   * after tonight's astro row" test as the layout: TODAY's astro row sits between TODAY's sunset
+   * (index 2) and TOMORROW's sunrise (index 3), so tomorrow's SUNSET — the row this test resolves
+   * — sits at index 4, not the index 3 a caller counting solar rows alone would land on.
+   */
+  it('resolves tomorrow\'s sunset to the row with id solar:<date>:SUNSET even with an astro row interleaved before it', () => {
+    const events = buildMapEvents({
+      ...baseArgs(),
+      solarWindows: [
+        solarWindow(TODAY, 'SUNRISE'), solarWindow(TODAY, 'SUNSET'),
+        solarWindow(TOMORROW, 'SUNRISE'), solarWindow(TOMORROW, 'SUNSET'),
+      ],
+      forecastDates: [TODAY, TOMORROW],
+      astroAvailableDates: [TODAY],
+      astroConditionsByDate: new Map([[TODAY, [{ locationName: 'A', stars: 4, nightStart: `${TODAY}T21:45:00` }]]]),
+    });
+    // The interleave really did move it — the premise, not incidental.
+    const index = findEvIndex(events, 'SUNSET', TOMORROW);
+    expect(index).toBe(4);
+    expect(events[index].id).toBe(`solar:${TOMORROW}:SUNSET`);
+  });
 });
 
 /**

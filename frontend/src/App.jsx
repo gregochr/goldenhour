@@ -357,6 +357,49 @@ function AppInner() {
     setTabRequest({ id: 'plan', nonce: tabRequestNonce.current });
   };
 
+  /**
+   * A door from the Plan tab onto the Map tab (doors D2, `plan-to-map-doors-plan.md` §3 D2 task 1)
+   * — `door = {date, targetType, region: ?string, minRating: ?number, limitMinutes: ?number,
+   * locationName: ?string}`, already carrying the Plan's own lens values (read at the moment of the
+   * tap by `WindowFirstShell`'s internal `openMapTab`, never re-read here).
+   *
+   * <p>Reuses the SAME `mapTabHandoff`/`tabRequest` channel `openFullMapTab` uses, not a second
+   * one — `App.jsx:307–318`'s own ⚠️ about that channel applies unchanged: the Map pane is never
+   * unmounted, so a handoff on it must only ever arrive when the reader explicitly asked to be
+   * taken there, which a door tap is. The two are told apart downstream by `source: 'plan'`, which
+   * `openFullMapTab`'s own handoff never carries.
+   *
+   * <p><b>Origin is deliberately NOT in the payload</b> (plan §2, §4 #1) — it is shared state the
+   * Map tab already reads from the SAME `WindowFirstBriefingContext` the Plan tab does, so sending
+   * it here would be the increment's own `org`-in-the-URL mistake in reverse: a parameter the map
+   * never reads because it already has a truer answer to the same question.
+   */
+  const openMapTabFromPlan = (door) => {
+    setSelectedDate(door.date);
+    tabRequestNonce.current += 1;
+    setMapTabHandoff({
+      source: 'plan',
+      eventType: door.targetType,
+      date: door.date,
+      region: door.region ?? null,
+      minRating: door.minRating ?? null,
+      limitMinutes: door.limitMinutes ?? null,
+      locationName: door.locationName ?? null,
+      nonce: handoffNonce.current++,
+    });
+    setTabRequest({ id: 'map', nonce: tabRequestNonce.current });
+  };
+
+  /**
+   * The breadcrumb's `← Plan` (doors D2) — lands on the plan itself, no dialog reopened, no window
+   * key carried (plan §6 Q2, decided). The shell's existing `tabRequest` effect already selects the
+   * tab and moves focus there; this needs no new channel of its own.
+   */
+  const returnToPlan = () => {
+    tabRequestNonce.current += 1;
+    setTabRequest({ id: 'plan', nonce: tabRequestNonce.current });
+  };
+
   // Show banner when a run completes, auto-dismiss after 15 seconds
   useEffect(() => {
     if (!lastCompletedRun) return;
@@ -489,6 +532,11 @@ function AppInner() {
               onSetPostcode={() => setSettingsFocus('postcode')}
               contentDisabled={isDown}
               onShowOnMap={handleShowOnMap}
+              // The map doors (D2) — withheld under the identical rule that withholds `mapPane`
+              // and `onOpenFullMap` below: a door onto no map is what §6 of the matrix plan bans.
+              // No door UI ships in this phase (D3/D4 add the buttons), but the shell's own
+              // `openMapTab` reads this prop already, so the wiring is live from here on.
+              onOpenMapTab={allDates.length === 0 ? undefined : openMapTabFromPlan}
               // The same admin gate the Operations pane uses, and for the same reason: the role
               // stays here, and the shell renders whatever node it is handed. Withheld for a
               // pilot user, who has no use for a build id or a WorldTides latency. The pill is
@@ -535,6 +583,8 @@ function AppInner() {
                     colourScaleDefaulted={colourScaleDefaulted}
                     onOpenSettings={() => setSettingsFocus('postcode')}
                     onOpenLocationInPlan={openLocationInPlan}
+                    // The breadcrumb's `← Plan` (D2) — a `tabRequest` for `'plan'`, no window key.
+                    onReturnToPlan={returnToPlan}
                   />
                 </Suspense>
               ) : null}

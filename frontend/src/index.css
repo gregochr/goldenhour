@@ -2935,6 +2935,96 @@ button.wf-hc.also.on:hover {
   color: #EBD9A8;
 }
 
+/* ── The door landing strip (doors D2, plan-to-map-doors-plan.md §3 D2 task 3, §4 #3) ────────────
+   Mounted by `MapView` ABOVE the map frame, in normal document FLOW — not `position: absolute`
+   like every other chip in this file, and deliberately so: nothing here is drawn OVER the field, so
+   the increment's "anything drawn over a field must be seeded as an obstacle" rule is honoured by
+   never needing the mechanism at all (plan §1 #12). The flex-column ancestor chain
+   (`WindowFirstMapPane`'s own wrapper, `.wf-map-tab` below) already gives the map frame
+   `flex: 1; min-height: 0`, so a normal-flow sibling row above it shrinks the frame by exactly this
+   row's own height with no further accounting. `min-height: 34px` matches BOTH the design bundle's
+   own `#crumb` figure (`Map Tab v2.html:248`) and plan §4 #3's independent "~34px shorter"
+   estimate — the same number arrived at twice. */
+.wf-map-breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  min-height: 34px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--color-plex-border);
+  background: rgba(0, 0, 0, 0.16);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-map-breadcrumb-back {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--color-plex-gold);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.wf-map-breadcrumb-back:hover {
+  text-decoration: underline;
+}
+.wf-map-breadcrumb-back:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+/* SECONDARY, not muted — this file has made this exact correction repeatedly (the masthead's own
+   `.wf-tick-caption`, the map counts footer). Measured the same way those corrections were:
+   `--color-plex-text-muted` (rgba(242,231,211,.42)) composited over this bar's own
+   `rgba(0,0,0,.16)` over `--color-plex-bg` lands under 4.5:1 for 10.5px text; secondary
+   (rgba(242,231,211,.66)) clears it with room. */
+.wf-map-breadcrumb-sep {
+  color: var(--color-plex-text-secondary);
+}
+.wf-map-breadcrumb-window b {
+  color: var(--color-plex-text);
+  font-weight: 600;
+}
+/* The prototype's `.cf{margin-left:auto}` — pushed to the row's far end on desktop; the phone
+   media query below cancels that and wraps it onto its own line instead. */
+.wf-map-breadcrumb-carrying {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-map-breadcrumb-clear {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-tide);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+.wf-map-breadcrumb-clear:hover {
+  color: #8FC4CC;
+}
+.wf-map-breadcrumb-clear:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+@media (max-width: 639px) {
+  .wf-map-breadcrumb {
+    font-size: 10px;
+  }
+  .wf-map-breadcrumb-carrying {
+    margin-left: 0;
+    width: 100%;
+  }
+}
+
 /* ── Phone chrome re-arrangement (map-tab-v2-plan.md §3 P12, README "Responsive" table) ─────────
    Everything in this block is scoped to `.wf-map-tab` — the TAB's own root wrapper
    (`MapView.jsx`), never present on the Plan-tab overlay's mount — so none of it can reach the
