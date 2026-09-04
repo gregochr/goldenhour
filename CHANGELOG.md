@@ -5,6 +5,281 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.20.0] - 2026-09-04
+
+### Removed — marker clustering, everywhere on the map
+
+Locations no longer collapse into numbered bubbles as you zoom out. Every spot draws as itself, on
+both the Map tab and the map that opens from a plan card.
+
+Clustering was the thing the heat field was built to replace. A bubble reading `12` cannot tell you
+whether tonight is worth driving for — it averages the good evenings in with the bad ones, which is
+why the warmth map became the default view in the first place. Keeping it alongside meant the Pins
+view, which exists as the honest side-by-side comparison, was quietly doing the same averaging: you
+could never see the pile the heat map is there to solve.
+
+Pins already handles a crowded map on purpose — the best-scoring dots draw on top, and named spots
+draw larger than unnamed ones. Clustering was undoing both.
+
+One smaller thing goes with it: clicking a location's name label no longer jerks the map to a new
+zoom level. That camera jump existed only to break a cluster open.
+
+### Changed — the app says sunrises and drives, not windows and origins
+
+A full copy pass over every customer-facing surface outside the Operations tab: Plan, Coming up,
+Map and its popovers, the masthead, search, settings, the banners, and every empty, loading, error
+and upgrade state. Sixty-four strings across thirty-two files; no behaviour, contract or routing
+change.
+
+The vocabulary that leaked from plan documents and schema fields is gone. Coming up no longer
+offers *dated events beyond Plan's four days*, a legend reading *still firming*, *standing
+conditions*, *no gated peak right now*, or occurrence rows marked *held back* / *in the list* /
+*inside Plan's four days* — they are now the four-day forecast boundary stated plainly, *could
+still move*, *recurring conditions*, *no peak forecast right now*, and *not listed* / *see it
+below* / *on Plan*. The map's legend no longer explains a *handover* from *Field* to *Locations*,
+its filters no longer ask about *drive from origin* or a *whole catalogue*, and its counts footer
+no longer prints one figure twice as *N named · N rated of K* — it says *N of K shown*. The Plan
+matrix stopped describing its own rendering (*later days render hazier*, *the field shows the
+forecast, not your reach*).
+
+**Two forecast distinctions got sharper rather than blurrier.** The verdict for a window nothing
+has looked at was *Awaiting* — a word that never said what was awaited, and the app's only
+collision between "nobody scored this" and "this scored badly". It now reads **Not scored**, the
+phrase the location sheet, map callout and field map already used, on the same neutral badge; the
+column was measured in Chromium at 375, 820 and 1100px first, and nothing clips. `VerdictPill`'s
+fallback for a stood-down region said *Stand down* where every other surface said *Poor*; one word
+for one state now.
+
+**The rarity scores lost their raw figures.** The Coming up feed printed `◆ 8.2 bits`, `rare
+(6.3)` and `very rare (8.1)` — log2 surprisal on an unbounded scale, with no denominator a reader
+could reason about. The plain word `bitsWord` already computes beside them carries the whole claim,
+so the numbers are gone from the since-line, the occurrence rows and the condition peaks. One
+figure survives in `ComingUpConditionsBuilder`'s server-composed `quantLabel` and is untouched here.
+
+Also: `Not forecast — you are away this day` dropped the "you" that the rest of the arm is
+scrupulously impersonal about; nine `...` became `…`; three Title Case settings headings and the
+aurora banner's state line became sentence case; *Extra Extra High* became *exceptionally high*;
+*Less details* became *Hide details*; and the sign-in page stopped telling readers their
+credentials are *verified server-side*.
+
+### Fixed — the frontend dependency audit no longer reds a build on registry weather
+
+CI's audit step failed on a pull request that touched no dependency file, reporting a `400` from
+npm's `/-/npm/v1/security/audits/quick` endpoint and a notice that the endpoint is being retired.
+The same commit passed on re-run, so the tree was never at fault.
+
+The message pointed at the wrong fix. npm does not choose that endpoint: the Arborist version
+bundled with npm 10 — which is what Node 22 ships — asks the **bulk** advisory endpoint first and
+quietly falls back to the quick one when that throws, logging the real reason at a verbosity CI
+never prints. So the failure on screen came from a fallback nobody selected, about an endpoint
+nobody asked for, while the actual cause — the bulk endpoint being briefly unavailable — stayed
+invisible. Switching to the bulk endpoint was already the behaviour.
+
+The audit now runs through `scripts/npm-audit.sh`, which does two things. It runs the audit under
+npm 11, which removed the quick fallback outright, so a registry problem names the endpoint that
+actually failed. And it retries **only** on transport errors — a real advisory still fails on the
+first attempt, because a gate that gets quieter the more it is asked is not a gate. A registry that
+stays unreachable across every attempt still fails the build rather than reporting a pass it never
+obtained.
+
+The rest of the job keeps using the runner's own npm, so nothing changes about how dependencies are
+installed.
+
+### Added — tide-alignment glyph on the Map tab (bundle rev 2)
+
+A coastal location's label chip now carries a small wave glyph when THIS window's tide actually
+lands on the light there — a glyph, not a second number, so the star rating stays the only score
+on the chip. The same fact breaks the label-placement tiebreaker (among equal stars, the location
+whose tide is on the light keeps its label when the budget runs out), extends the tooltip with a
+third, teal-inked line ("Tide lands on the light — HW 19:52 · 36m before sunset"), and adds a
+bordered tide row to the selection callout, styled on the existing `.wf-frow` tide-row look and
+omitted entirely when the window's water is not on the light.
+
+**Served, not parsed.** The design bundle's own demo code (`tideOf`/`tideFit`) derives the fact by
+regexing the already-formatted tide sentence and gates it on a fixed ±45 minutes. The port instead
+serves the fact structurally: `BriefingSlot.TideInfo` gains four nullable fields
+(`nearestSolarOffsetMinutes`, `nearestExtremeKind`, `tideOnTheLight`, `nearestSolarOffsetPhrase`),
+computed in `BriefingSlotBuilder.calculateTideData` from the nearest tide extreme of *either* kind
+(high or low, type-blind — never `tideAligned`, which tests the location's configured `TideType`
+preference, a different question) against `TideFactDeriver`'s own dynamic tight-alignment
+half-width — the same rule the Plan tab's tide row already gates on, so the two surfaces can never
+disagree about what "on the light" means. The one phrase string is built once, server-side, from
+the shared `TideWording` vocabulary.
+
+Frontend: `utils/locationSheet.buildTideAlignmentIndex` joins the fact per location per window
+(mirroring `buildSlotIndex`/`buildScoreIndex`'s own shape), read through the shared
+`lookupForWindow`; `utils/mapLabels.chipCandidates` sorts rating DESC → tide-on-the-light DESC →
+drive ASC; `MapLabels.jsx` renders the glyph, a `data-tide` ring, and extends the chip's
+aria-label (which otherwise replaces the rendered text outright) with "tide on the light";
+`MapCallout.jsx` adds the `.wf-callout-tide` row.
+
+Tests: seven new backend `BriefingSlotBuilderTest` cases (either-kind selection both ways, the sign
+convention, inside/outside the dynamic half-width, the earlier-water tie-break, and both
+no-extreme-found and no-stored-extremes null paths); new/extended describes in
+`locationSheet.test.js`, `mapLabels.test.js`, `MapLabels.test.jsx`, and `MapCallout.test.jsx`
+covering the index build, the sort tiebreaker under a real budget-of-one, the glyph/aria-label/
+tooltip line, and the callout row's presence and omission rules.
+
+### Fixed — map panels no longer use recessive ink that fails contrast
+
+Measured on the running app, bone at 0.42 composites to 3.53:1 on the window menu's plate and
+3.56:1 on the callout's — under AA's 4.5:1 for the 9.5–11px type those panels are set in. Two live
+surfaces sat at that value, both meaningful words rather than decoration: the window dropdown's
+unscored marker and the callout strip cell's. Every panel inside the map frame now defaults to the
+passing ink through one rule on the Map tab's own wrapper — and one on the bottom-sheet host, since
+the phone's Filters and Regions panels portal out of that subtree and would otherwise have kept the
+failing ink on the one screen where the type is smallest. The three "unscored" markers that took
+their meaning from being quieter than the text around them now name their own colour, since
+recessiveness inside a panel is opt-in once the default passes. Swept afterwards across every text node in every panel with each opened in turn:
+window picker 5.34 · regions 6.88 · filters 6.75 · legend 6.75 · callout 6.29 · sheet 5.03 · counts
+footer 6.88 · chips 11.24. Zero failing.
+
+### Fixed — keyboard users no longer tab through invisible map markers
+
+The Map tab hides its old location markers behind the heat field and the name labels, but they were
+still reachable by keyboard: tabbing across the map stepped through one invisible control per
+location in view, each doing nothing when activated, before reaching the name labels that actually
+work. Screen readers announced them too, so every location was read out twice.
+
+They are now properly out of the way — off the tab order and out of the accessibility tree — for as
+long as they are hidden. Where the markers are still the real thing on screen, nothing changes: the
+map that opens from a plan card is untouched, and on an aurora night, where there are no name labels
+to fall back on, the markers stay fully reachable.
+
+### Changed — Map tab window text no longer repeats the kind chip's word
+
+Every EV row `utils/mapEvents.js` builds now carries a `dayLabel` sibling alongside its existing
+`label` — the same string with a trailing "sunrise"/"sunset" stripped for a solar row (a night row's
+`dayLabel` is identical to `label`, since a night has no event word to strip). The four places that
+render text immediately beside a kind chip (which already reads SUNRISE/SUNSET) now read
+`dayLabel` instead: `WindowControl`'s collapsed pill and its menu rows, and `MapCallout`'s verdict
+line and every-window strip cells. This removes a standing repetition — a pill or row used to read
+"SUNSET · Tonight Sunset 19:50", stating the same fact twice.
+
+`label` itself is untouched everywhere it has no adjacent kind chip to make the word redundant —
+the map's pin tooltip and the callout strip cell's own `title` attribute both keep the full form,
+by design. `beyondBriefingLabel`'s D-13 filler-row text is also normalised to lower case ("Thursday
+sunset", not "Thursday Sunset"), matching the served label's own non-lead casing so a filler row
+is not the only place on the tab that capitalises the event word.
+
+Tests: new `mapEvents.test.js` describe covering `dayLabel` across a lead served label, a non-lead
+served label, a D-13 filler row, a night row (identical to `label`), and the stays-untouched
+fallback when stripping would leave nothing; updated existing `mapEvents.test.js`,
+`WindowControl.test.jsx`, `MapCallout.test.jsx` and `MapViewHeat.test.jsx` cases for the new casing
+and field.
+
+### Fixed — the Map tab's colour key no longer explains a gradient that isn't there
+
+Stepping the window control past the days the forecast has scored lands on a real, selectable event
+that simply has no ratings behind it yet. The map painted nothing there — correctly — but still
+showed the `Poor → Worth it` colour key above the empty ground, and withheld the line that would
+have said why. The same happened on any date the event list does not reach.
+
+Both now do the honest thing: the key appears only when there is something for it to be a key to,
+and "This event is not scored yet" says so on any event you can actually select. A date with no
+event at all stays quiet, because the window control already says "No forecast window" and does not
+need answering twice.
+
+This was masked until now by the old location medallions, which used to reappear as you zoomed in
+and made an empty map look merely sparse.
+
+### Added — the map callout's clamped prose now opens the location sheet
+
+The Map tab's selection callout clamps a Claude narrative to three lines. With a real ~90-word
+summary that left three dots and no way to reach the rest. The clamped prose is now a button
+captioned `Four days here ›`, opening the **existing** location sheet — the one the Plan tab
+already has — rather than a second panel that would drift from it.
+
+The sheet gains one row, directly under its header: subject tags, dark sky, coastal/tide and the
+week's topics. Those facts previously existed only on the callout, so without them the route would
+have lost information; with them the callout is a strict subset of the sheet. The row is derived
+from the roster record the sheet already has access to, so every way in gets it — search, a popup
+field chip, a spot card, the map callout — not just the map's.
+
+The sheet also opens **on the window whose prose was clicked**, and its `Show on map` action points
+back at that window rather than at whichever one scored best — the promise is "the rest of *this*
+narrative", so the row carrying it is the one that opens. And its prose now falls back to the
+region's gloss exactly as the callout's does, so the deeper surface can never show less than the
+card that routed into it.
+
+(The tide-alignment glyph the same increment specifies is not here: it ships in #749, which serves
+the answer per location rather than folding one coastline's geometry onto every coastal chip.) The alignment is also stated in words on the callout and on each
+sheet row, naming the coastline the figures were measured at: `BriefingWindowTide` describes one
+representative location and alignment differs by 20–30 minutes along a coast, so an unattributed
+high-water time is a claim this project does not make.
+
+### Fixed — the callout covered the counts footer on a phone
+
+`calloutBand` only treats a bar spanning at least half the frame width as a floor. Measured at
+375×633, the counts footer is 184px — **48.9%** — just under the threshold, so the band ran straight
+through it and the callout painted over `16 named · 16 rated of 18` both collapsed and expanded.
+The footer now opts out of the width test by name rather than the threshold being lowered, which
+would have started counting Leaflet's own zoom+home corner. The card also takes a `max-height` from
+the same band that positions it, so no length of narrative can push it over a control.
+
+### Fixed — the location sheet's new meta row could clip the footer at high zoom
+
+The card is `overflow: hidden` with exactly one shrinkable child, and the new subject/dark-sky/tide
+row wraps — so as a fourth pinned band it re-created a clipping defect the card's own comment
+records from an earlier band: at 320×256 (400% browser zoom) the head, the bands and the footer
+together exceeded the budget and the footer's two actions clipped with nothing able to scroll. The
+row now scrolls with the timeline instead, which costs it nothing: it is a property of the place,
+read once, not a control.
+
+### Fixed — the Map tab's old medallions no longer come back on the Heat view
+
+Past zoom 12 the Heat view faded the pre-v2 cluster bubbles and coloured location discs back in
+underneath the labels, so a street-level Heat map carried two vocabularies for the same places at
+once: a chip naming a location and giving its star, and a medallion under it saying the same thing
+in the language the tab replaced. Dense corridors got a `3` and a `2` cluster bubble on top.
+
+Three other routes to the same doubling turned up while fixing it, all of them from a rule that
+handed the medallions back whenever the field had no points to paint: a forecast day beyond the
+briefing's scored window (one click away in the window control), a well-rated window narrowed to
+nothing by the dark-sky filter, and a scored window whose points failed to join. None of these
+means "nothing is scored" — and even when nothing is, the map was never blank, because the labels
+draw for unrated locations too.
+
+So the medallions are now simply hidden the whole time the Heat and Pins views are on screen,
+whatever the zoom and whatever the window. Selecting a location no longer flashes them in either;
+the callout draws its own anchor ring. They still appear where they are the only thing there is:
+an aurora window, and a catalogue with nothing scored at all.
+
+### Changed — the Map tab keeps the masthead's column instead of going full-bleed (O-17)
+
+Reverses one half of map-v2 P7: the Map tab's panel region no longer releases its width
+constraint. It now shares the exact same `WRAP_MAX_WIDTH` (1080px) column the masthead and tab bar
+use, on every tab including Map — one `style` object in `WindowFirstShell.jsx`'s panel-region
+wrapper, not two copies of the constant, so the two can never drift apart again.
+
+Bundle rev 2's case for the reversal is structural, not a taste call: full-bleed made the tab strip
+look like it was floating above an unrelated surface, since the strip stopped at the content column
+while the panel it belonged to carried on to the window edge. Full width also added sea and empty
+moor rather than information — at 2400px one screen spans roughly 150 miles, labels crowd the right
+third, and the window control and Filters end up a head-turn apart.
+
+WIDTH ONLY. P7's full-frame HEIGHT behaviour is untouched — the `100dvh` flex recast, the
+zero-padding `.wf-body.wf-body--map`, and the no-page-scroll contract all stand exactly as before.
+Every overlay chip (window control, filters, legend, counts footer, the selection callout) is
+absolutely positioned inside the map's own `position: relative` container rather than the viewport,
+so all of it narrows with the column automatically — no changes needed in `MapView.jsx`,
+`MapCallout.jsx` or any of the overlay components.
+
+**`App.jsx`'s `<main>` gets `sm:px-4` on the Map tab, not zero padding** — an adversarial-review
+finding. Below `sm` (640px) the column cap never binds anyway (390px is nowhere near 1080px), and
+`<main>` stays padding-free there so P12's full-bleed phone chrome keeps the genuine edge it was
+tuned against — so a real, deliberate residue survives only on the phone: the masthead still
+shifts by `<main>`'s own 32px of horizontal padding on a Plan⇄Map switch below 640px, exactly as it
+did before this change. At `sm` and up, `<main>` now matches every other tab's `px-4` inset instead
+of dropping it — tablets and desktop get the SAME horizontal padding as Plan/Coming up, which is
+what makes O-17's "the masthead's column never moves" claim true in that range; an earlier cut of
+this change left `<main>` padding-free unconditionally, which put the masthead 32px narrower on Map
+than on every other tab between 640px and ~1112px — the exact disagreement O-17 exists to close.
+
+Two stale comments citing the old full-bleed rationale (`WindowFirstShell.jsx`'s panel-region
+wrapper, and `index.css`'s `.wf-body.wf-body--map` block) are rewritten to record the reversal
+rather than left contradicting the code.
+
 ## [v2.19.12] - 2026-09-03
 
 ### Changed — conform the map field's opacity to the design bundle
