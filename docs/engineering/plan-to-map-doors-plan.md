@@ -8,8 +8,9 @@
 what the codebase already has, what is genuinely new, where the increment and the code disagree on
 purpose, and how the work cuts into single-session phases for **Sonnet** sessions.
 
-**The one-sentence version.** The Plan tab already looks like the map and had no route into it. Three
-doors open the Map tab at the window you tapped from, carrying the window, the region focus, the rating
+**The one-sentence version.** The Plan tab already looks like the map and had no route into it. Two
+doors (the increment's third, the thumbnail glyph, was dropped by the owner at plan time — §6 Q1)
+open the Map tab at the window you tapped from, carrying the window, the region focus, the rating
 floor, the reach tier and — above all — the origin; a breadcrumb on the map names every carried fact
 and offers to clear them. The increment's own two lessons are the plan's two hard rules: **never send a
 parameter nothing reads**, and **never draw over a field without seeding the label placer's obstacle
@@ -32,7 +33,8 @@ overlap (only #753, a Coming up label fix).
 
 ## §0 Status
 
-**Status: PLANNED, no phase started.** Phase log (D1 creates the first row; every phase appends its own
+**Status: PLANNED, no phase started. All three owner decisions recorded 2026-09-04 (§6): Q1 drop
+door 3, Q2 land on the plan, Q3 re-point the sheet footer.** Phase log (D1 creates the first row; every phase appends its own
 in the same commit as its code):
 
 | phase | branch | commit | date | notes |
@@ -209,8 +211,8 @@ was written 2026-09-04 and code moves.
 - **Nonce-guarded, one effect.** The door payload is applied by ONE nonce-keyed effect in `MapView`,
   not by adding fields to the four existing per-field effects — those effects' own doc comments record
   the staleness defects of applying fields independently (`MapView.jsx:1331–1360`).
-- **Door 3 ships as its own PR so "build it, then judge it" is mechanical**: keep = merge, drop =
-  close. Nothing later depends on it.
+- **Door 3 is not built.** The owner dropped it at plan time (§6 Q1); the D5 phase below is retained
+  as a record of how it would have been built, not as work.
 - **Sonnet sessions, one phase each, review before commit.** The builder stops before committing;
   the adversarial review runs on the working tree (read-only agents); surviving findings are fixed;
   then the commit. §8 is the session map, `plan-to-map-doors-prompts.md` the kickoff prompts.
@@ -272,7 +274,7 @@ labels read the origin's matrix.
 ### D2 — The handover payload, the breadcrumb, `clear` and the return trip — M/L
 
 **Increment steps 3 and 4, plus the return trip under §6 Q2's default.** Nothing user-visible until D3
-opens the first door, but everything D3–D5 needs lands here, testable through a test-only caller.
+opens the first door, but everything D3 and D4 need lands here, testable through a test-only caller.
 
 1. **The payload.** `App.jsx` gains `openMapTabFromPlan(door)` beside `openFullMapTab`:
    ```js
@@ -331,8 +333,9 @@ opens the first door, but everything D3–D5 needs lands here, testable through 
    origin resets it for the Plan tab too, because there is one origin (§4 #4). The crumb stays after
    `clear` (it is the way back); only its carrying clause empties.
 5. **`← Plan`** → App `returnToPlan()` = `setTabRequest({id:'plan', nonce})`. **Default: the plan
-   itself, no dialog reopened** (§6 Q2 pending) — so the payload carries no window key, per the
-   increment's own "do not send a parameter nothing reads". If the owner chooses "reopen", D3+ adds
+   itself, no dialog reopened** (§6 Q2 — DECIDED, the default stands) — so the payload carries no
+   window key, per the increment's own "do not send a parameter nothing reads". Should that ever be
+   reopened, the change is: add
    `windowKey` to a `planWindowHandoff` channel modelled on `planLocationHandoff`, and the shell's
    effect calls `openWindow(key)` after `selectTab('plan')`. Focus follows the request the way the
    two existing effects do (`requestAnimationFrame(() => tab.focus())`).
@@ -355,7 +358,7 @@ opens the first door, but everything D3–D5 needs lands here, testable through 
 ### D3 — Door 2: re-point the location sheet's `◍ Show on map →` — S
 
 **Increment step 5.** The button, its copy and its accname stay byte-identical; only its destination
-moves. Under §6 Q3's default.
+moves. §6 Q3 — DECIDED yes, 2026-09-04.
 
 1. `WindowFirstShell.jsx:1899–1903`: the sheet's `onShowOnMap` becomes
    `openMapTab({ date, targetType, locationName: name, region: null })`. The popup and the sheet
@@ -415,9 +418,12 @@ moves. Under §6 Q3's default.
    the phase log (the defect appeared in 4 of 6, so one window proves nothing). This needs a seeded
    DB with ratings on ≥ 6 windows (§9).
 
-### D5 — Door 3: the thumbnail glyph, built to be judged — M
+### D5 — Door 3: the thumbnail glyph — DROPPED, not built
 
-**Increment step 7. Its own PR; keep = merge, drop = close (§6 Q1).**
+**Owner decision 2026-09-04 (§6 Q1): drop.** No session runs this phase and there is no D5 prompt.
+The design below is kept only so the reasoning is not rediscovered if the glyph is ever revisited;
+its structural finding (§1 #10 — a control cannot nest inside the card's `<button>`) is the part
+worth keeping.
 
 1. **Structure.** A sibling grid item, not a nested control (§1 #10). After each non-away card,
    render `<button type="button" data-testid="wf-heat-tomap" className="wf-hc-tomap" style={place}>`
@@ -432,8 +438,7 @@ moves. Under §6 Q3's default.
    `.wf-hc-tomap:hover`, `.wf-hc-tomap:focus-visible`; the card's `translateY(-2px)` lift applied to
    the glyph on the same hover so the two move together; phone (`≤639px`) always visible at 40px.
    Sizes per the prototype: 34px desktop, 40px phone (`Plan Tab with Heat v5.html:376–379`). Both are
-   under 44px and above WCAG 2.5.8's 24px; that is the fact §6 Q1 turns on — state both in the phase
-   log, do not round either up.
+   under 44px and above WCAG 2.5.8's 24px; that is the fact §6 Q1 turned on.
 3. **Wiring.** `WindowFirstHeatStrip` gains `onOpenInMap(cardKey)`; the shell passes
    `(key) => openMapTab({ date, targetType, region: null })` from the card's descriptor. No
    `stopPropagation` is needed — the glyph is not inside the card — but the check stays as a test.
@@ -442,8 +447,7 @@ moves. Under §6 Q3's default.
    sr-only name; Enter/Space work because it is a real button. A CSS-slicer test (the
    `mapChipFlipCascade.test.jsx` pattern) pinning that the reveal rule exists for hover, sibling-hover
    and focus-visible, and that the phone rule sets `opacity: 1`.
-5. **Judge it.** Screenshots at 1280 and 390 (resting, hover, focus) attached to the PR; a one-line
-   finding in the PR body on discoverability. The owner decides; the plan records the outcome in §6.
+5. **Judge it.** This was to be a keep-or-drop PR with screenshots; the owner dropped it unbuilt.
 
 ### D6 — Sweep and docs — S
 
@@ -493,8 +497,9 @@ Numbered so a phase log can cite them. Each phase appends; D6 reconciles.
    the map's own default (§5 rule 2).
 7. **Door 2 is a re-pointing, not a wiring** (§1 #3). The overlay loses the sheet footer as an entry
    point and keeps every other one; that is a step towards O-6, not its completion.
-8. **Door 3 is a sibling grid item, not a control nested inside the card button** (§1 #10). Same
-   pixels, valid HTML, no `stopPropagation`.
+8. **Door 3 would have been a sibling grid item, not a control nested inside the card button**
+   (§1 #10) — moot since the owner dropped the door (§6 Q1), recorded because the increment's own
+   markup is invalid HTML in this app and the next thumbnail control will hit the same wall.
 9. **The increment's `elementFromPoint` check is a Playwright script, not a Vitest test** (§1 #9),
    and the jsdom pin is structural (a stubbed rect and a chip anchored under it).
 10. **The overlay's hatch does not raise the breadcrumb.** It is also a Plan→Map route, but its
@@ -510,9 +515,9 @@ Numbered so a phase log can cite them. Each phase appends; D6 reconciles.
 
 ## §5 Decisions taken in this plan (challenge in review, not in code)
 
-1. **Every door carries the lens.** Doors 1, 2 and 3 all carry `minRating` and `limitMinutes`
+1. **Every door carries the lens.** Doors 1 and 2 both carry `minRating` and `limitMinutes`
    (increment "What travels" #3). Door 1 additionally carries the popup's region focus; Door 2 the
-   location; Door 3 nothing else.
+   location.
 2. **Carry *Any* as 1★+.** A Plan lens at Any writes `minStars = 1` (loosening a persisted 3★ if
    there was one) so the two sets agree — the map has no Any state and must not grow one for this
    (P7's "always a value" decision stands), and 1★+ with `showUnrated` untouched is exactly what the
@@ -531,39 +536,38 @@ Numbered so a phase log can cite them. Each phase appends; D6 reconciles.
 5. **Copy is the increment's** (`◍ Open in map →`, `carrying …`, `clear`, `← Plan`), with one
    flag for review: the map's own callout says `Open in Plan` with the tab's capital; `Open in map`
    follows the increment. Either is defensible; the plan does not change the spec's string.
-6. **Door 3 is one PR, merged or closed on the owner's call.** No feature flag, no `hidden` attribute,
-   no half-state.
+6. **Door 3 is not built** (§6 Q1). No feature flag, no `hidden` attribute, no half-state — and no
+   dead code either: nothing of D5 lands.
 
 ---
 
 ## §6 Owner decisions / OPEN items
 
-**Ask before deciding — from the increment:**
+**All three decided by the owner, 2026-09-04, before any phase started.**
 
-- **Q1 — Door 3, keep or drop?** Built at D5 exactly as specified (34px desktop hover-revealed, 40px
-  phone always-on), then judged from screenshots. Both sizes are under the 44px guidance and above
-  WCAG 2.5.8's 24px minimum. Recommendation: **drop unless the phone screenshot argues otherwise** —
-  doors 1 and 2 are where the question "where in this window?" is actually asked, and a
-  hover-revealed control on a card that already opens a dialog is a second meaning on the surface the
-  increment itself warns against elsewhere. The PR makes either answer one click.
-- **Q2 — the return trip: reopen the window sheet, or land on the plan?** D2 defaults to **the plan
-  itself**: the increment's own argument (a round trip through the map leaves a modal over the answer
-  you went to check) and the "do not send a parameter nothing reads" rule both point there, and the
-  Map→Plan door already lands the *location* sheet as the only layer — but that sheet is the
-  destination of that door, where here the destination is the plan. If the owner chooses "reopen", the
-  change is a `planWindowHandoff` channel and an `openWindow(key)` in the shell's effect (D2 task 5).
+- **Q1 — Door 3, keep or drop? DECIDED: drop, unbuilt.** The increment asked for it to be built and
+  judged (34px desktop hover-revealed, 40px phone always-on — under the 44px guidance, above WCAG
+  2.5.8's 24px). The recommendation was to drop: doors 1 and 2 are where the question "where in this
+  window?" is actually asked, and a hover-revealed control on a card that already opens a dialog is a
+  second meaning on the surface the increment itself warns against elsewhere. The owner agreed without
+  needing the build. D5 is retained as a record only.
+- **Q2 — the return trip: reopen the window sheet, or land on the plan? DECIDED: the plan itself.**
+  The increment's own argument (a round trip through the map leaves a modal over the answer you went
+  to check) and the "do not send a parameter nothing reads" rule both point there. The Map→Plan door
+  lands the *location* sheet as the only layer, but that sheet is the destination of that door, where
+  here the destination is the plan. The payload carries no window key.
+- **Q3 — Door 2 re-points the sheet footer from the frozen overlay to the Map tab. DECIDED: yes.**
+  The increment's entire purpose is a route into the tab, the overlay's own hatch already reads "Open
+  the full Map tab →" (i.e. the overlay is a waypoint), and O-6 names convergence as the overlay's
+  destination. Consequence accepted: two buttons reading "Show on map" go to different surfaces until
+  O-6 (the sheet footer → tab; `WindowPickDialog`'s → overlay).
 
-**New, from the codebase:**
+**Open items:**
 
-- **Q3 — Door 2 re-points the sheet footer from the frozen overlay to the Map tab.** Recommendation:
-  **yes** — the increment's entire purpose is a route into the tab, the overlay's own hatch already
-  reads "Open the full Map tab →" (i.e. the overlay is a waypoint), and O-6 names convergence as the
-  overlay's destination. Consequence to accept: two buttons reading "Show on map" go to different
-  surfaces until O-6 (the sheet footer → tab; `WindowPickDialog`'s → overlay).
 - **O-D1** End the crumb when the reader leaves the map by the tab bar (needs a shell→App
   `onTabSelected`).
-- **O-D2** If the owner chooses Q2 "reopen": whether Door 2's return should reopen the *location*
-  sheet over the window sheet (a two-deep stack, within the shell's limit) or the window sheet alone.
+- **O-D2** Closed with Q2: no dialog is reopened on the return trip, so the location-over-window
+  stacking question never arises.
 - **O-D3** Raise the breadcrumb for the overlay hatch's handoffs too (needs crumb vocabulary for
   `filterAction`/`darkSky`; §4 #10).
 - **O-D4** Base coordinates for regions (`regions.base_lat/base_lon` already exist, V145) would let
@@ -579,12 +583,12 @@ Numbered so a phase log can cite them. Each phase appends; D6 reconciles.
 
 | # | Increment check | How | Phase |
 |---|---|---|---|
-| 1 | Each door lands on the correct window, one whose EV index differs from its Plan index | `mapEvents.test.js`: fixture with astro rows interleaved, tomorrow's sunset resolves to `solar:<date>:SUNSET`; browser: tomorrow's sunset from each door, the window control reads it | D2 (unit), D3/D4/D5 (browser) |
+| 1 | Each door lands on the correct window, one whose EV index differs from its Plan index | `mapEvents.test.js`: fixture with astro rows interleaved, tomorrow's sunset resolves to `solar:<date>:SUNSET`; browser: tomorrow's sunset from each door, the window control reads it | D2 (unit), D3/D4 (browser) |
 | 2 | Region, rate, reach and origin arrive applied; the crumb names each; `clear` resets all | `MapViewPlanHandoff.test.jsx` + `MapBreadcrumb.test.jsx`; browser: Filters chip count, jump list order, crumb text before/after `clear` | D2 |
 | 3 | From a Lake District plan every number measures from Keswick; no marker, no rings | `MapViewDriveOverride.test.jsx` (away → jump rows, callout drive, no HOME/rings); browser with a filled region matrix (§9) | D1 |
 | 4 | `clear` resets filters *and* origin to home | `MapBreadcrumb.test.jsx` order-of-calls; browser: masthead statement returns to `Home · <postcode>` on BOTH tabs | D2 |
 | 5 | No overlay control covers a field label — `elementFromPoint` across each chip's width, every window | Playwright `door1-obstacles.spec.js`, six windows × two widths, table in the phase log; jsdom pin with a stubbed rect | D4 |
-| 6 | Door 3 does not trigger the card's own open | `WindowFirstHeatStrip.test.jsx`: `onOpenInMap` called, `onOpenWindow` not | D5 |
+| 6 | Door 3 does not trigger the card's own open | Not applicable — door 3 dropped unbuilt (§6 Q1) | — |
 
 Plus, for every phase: `npm run lint && npm test && npm audit --audit-level=high && npm run build`
 green on exit codes; the adversarial review's surviving findings fixed; "seen" versus "tested" stated
@@ -597,15 +601,14 @@ in the phase log.
 | Phase | Size | Depends on | Ships user-visible | Owner decision needed first |
 |---|---|---|---|---|
 | D1 accessor + home geography | S/M | — | away-origin map no longer draws home geography; jump/filters read the base | — |
-| D2 payload + crumb + clear + return | M/L | D1 | nothing (no door yet) | Q2 (default: plan itself) |
-| D3 Door 2 | S | D2 | the sheet footer opens the Map tab | Q3 (default: yes) |
+| D2 payload + crumb + clear + return | M/L | D1 | nothing (no door yet) | Q2 decided: plan itself |
+| D3 Door 2 | S | D2 | the sheet footer opens the Map tab | Q3 decided: yes |
 | D4 Door 1 + obstacle seed + sweep | M | D2 | `◍ Open in map →` on the popup field | — |
-| D5 Door 3 | M | D2 | the thumbnail glyph, for judging | Q1 (after build) |
+| ~~D5 Door 3~~ | — | — | dropped unbuilt | Q1 decided: drop |
 | D6 sweep + docs | S | all | docs | — |
 
 One Sonnet session per phase; kickoff prompts in `docs/engineering/plan-to-map-doors-prompts.md`.
-D3 and D4 are independent of each other and may run in parallel worktrees after D2 merges; D5 after
-D2 as well. Expect a `changelog.d` file per phase and no `CHANGELOG.md` conflicts.
+D3 and D4 are independent of each other and may run in parallel worktrees after D2 merges. Expect a `changelog.d` file per phase and no `CHANGELOG.md` conflicts.
 
 ---
 
