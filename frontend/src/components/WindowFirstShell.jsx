@@ -618,27 +618,21 @@ export default function WindowFirstShell({
     setOpenPick(next?.pick ?? null);
   }, []);
   /**
-   * The shared close-then-move-and-merge entry every map door will call (doors D2,
+   * The shared close-then-move-and-merge entry every map door calls (doors D2,
    * `plan-to-map-doors-plan.md` §3 D2 task 1; D3 the sheet footer, D4 the popup field) — a thin
    * wrapper over {@link openMapDoor} (`utils/mapDoors.js`), supplying this shell's own closures.
    * The logic itself — close-then-move, and the live lens-value merge — lives in that PURE
    * function precisely so it is directly unit-tested (`test/mapDoors.test.js`) without a rendered
-   * caller: no door UI ships in THIS phase (plan §3 D2 task 1's own text: "No door UI is built in
-   * this phase — D3/D4 add the buttons"), so this wrapper itself has no caller yet — D3 (one line:
-   * the sheet's `onShowOnMap` becomes this) and D4 (the popup field's new button) are its first
-   * callers, in their own later phases.
+   * caller. D3 is its first caller (the location sheet's own `onShowOnMap` prop, below); D4 (the
+   * popup field's new button) is the second, in its own later phase.
    *
-   * <p>⚠️ Close-then-move matches the sheet's own `onShowOnMap` wrapper a few hundred lines down —
-   * but NOT `WindowPickDialog`'s `onShowRegion`/`onShowLocation`, which call `onShowOnMap` FIRST
-   * and close SECOND (an earlier draft of this comment claimed all three routes agreed; they do
-   * not — those two routes are untouched by this plan and their own ordering is unaffected either
-   * way, since React batches the state updates regardless of source order, but the claim itself
-   * was wrong and is corrected here rather than left to mislead the next reader).
-   *
-   * <p>Left in with the unused-var rule suppressed for the wrapper's own gap, rather than
-   * reordered ahead of the plan that names it, or dropped and rebuilt twice.
+   * <p>⚠️ Close-then-move matches the sheet's own `onShowOnMap` wiring below — but NOT
+   * `WindowPickDialog`'s `onShowRegion`/`onShowLocation`, which call `onShowOnMap` FIRST and close
+   * SECOND (an earlier draft of this comment claimed all three routes agreed; they do not — those
+   * two routes are untouched by this plan and their own ordering is unaffected either way, since
+   * React batches the state updates regardless of source order, but the claim itself was wrong and
+   * is corrected here rather than left to mislead the next reader).
    */
-  // eslint-disable-next-line no-unused-vars
   const openMapTab = useCallback((door) => openMapDoor({
     openOverPopup, openWindow, onOpenMapTab, ratingLens, reachLens, door,
   }), [openOverPopup, openWindow, onOpenMapTab, ratingLens, reachLens]);
@@ -1913,20 +1907,28 @@ export default function WindowFirstShell({
               }
               : undefined}
             onClose={() => openOverPopup(null)}
-            // Closes FIRST, the rule the spot sheet already states: the map overlay is itself an
-            // `aria-modal` dialog, and leaving this one mounted underneath puts two on the page
-            // with two Escape listeners between them.
-            // ⚠️ THE POPUP GOES TOO, and M4 is what made that necessary. Until this phase the sheet
-            // could only be reached from search, which had already closed the popup; now it stacks
-            // on a live one. `MapOverlay` is itself `aria-modal` with an unconditional document
-            // Escape listener, and `stackedOverPopup` goes false the instant the sheet unmounts —
-            // so a sheet-only close leaves the popup's own listener re-armed under the overlay and
-            // one press closes two layers. Same rule, same line, as the drill-down sheet above.
-            onShowOnMap={(date, targetType, name) => {
-              openOverPopup(null);
-              openWindow(null);
-              onShowOnMap?.(date, targetType, name);
-            }}
+            // Door 2 (doors D3, `plan-to-map-doors-plan.md` §3 D3 task 1) — re-pointed from the
+            // frozen overlay to the Map tab. `openMapTab` (the `openMapDoor` wrapper above) does its
+            // OWN close-then-move: `openOverPopup(null)` then `openWindow(null)` before it reads the
+            // live lens and hands the door to `onOpenMapTab`, so nothing here repeats that ordering —
+            // repeating it would just be two callers racing to close the same two pieces of state.
+            // `region: null` because this door names a LOCATION, never a region (the popup's own
+            // region routes — `WindowPickDialog`'s two actions below — are untouched: they stay on
+            // the overlay, D3 re-points only the sheet footer, O-6 is not this phase).
+            //
+            // ⚠️ WITHHELD, not just unwired, when there is no map door: `App` hands this shell
+            // `undefined` for `onOpenMapTab` whenever there is nothing to map
+            // (`allDates.length === 0`; this component's own default parameter is `null`, but no
+            // production caller ever omits the prop, so `App`'s value is the one that reaches here),
+            // and passing a function regardless would leave the sheet's `handoff && onShowOnMap`
+            // gate rendering a button that calls nothing — the dead-control ban the sheet's own
+            // footer comment names for `onPlanFrom`. `undefined`, never a no-op arrow, so
+            // `LocationFourDaySheet` renders `location-sheet-nomap`'s sentence in its place.
+            onShowOnMap={onOpenMapTab
+              ? (date, targetType, name) => openMapTab({
+                date, targetType, locationName: name, region: null,
+              })
+              : undefined}
           />
         </Suspense>
       )}

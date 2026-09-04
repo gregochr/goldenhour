@@ -215,7 +215,17 @@ describe('WindowFirstShell — the four-day location sheet', () => {
   });
 
   const shellProps = (over = {}) => ({
-    onOpenSettings: vi.fn(), onSignOut: vi.fn(), onShowOnMap: vi.fn(), ...over,
+    onOpenSettings: vi.fn(),
+    onSignOut: vi.fn(),
+    onShowOnMap: vi.fn(),
+    // Doors D3 (`plan-to-map-doors-plan.md` §3 D3 task 1): the sheet footer's map action now goes
+    // through this, not `onShowOnMap`. A default here — rather than leaving it `null` as
+    // `WindowFirstShell`'s own default is — keeps every existing test in this file describing a
+    // reader who HAS a map door, which is the ordinary case; the withholding rule itself (no door →
+    // the footer's `location-sheet-nomap` note, not a dead button) is `LocationFourDaySheet`'s own
+    // to pin, and does not need re-proving through this shell.
+    onOpenMapTab: vi.fn(),
+    ...over,
   });
 
   const renderShell = (extra = {}, props = {}) => {
@@ -451,13 +461,29 @@ describe('WindowFirstShell — the four-day location sheet', () => {
     expect(screen.queryByTestId('location-sheet-outside')).toBeNull();
   });
 
-  it('hands the map the window it names, and closes first', async () => {
+  it('⚠️ hands the map tab the window it names, and closes first (doors D3)', async () => {
+    // Re-pointed from the frozen overlay to the Map tab (plan §3 D3 task 1, §6 Q3 decided yes) —
+    // `onOpenMapTab`, never `onShowOnMap`, and carrying the full door shape: the location, `region:
+    // null` (this door names a PLACE, not a region), and the Plan's live lens values read through
+    // at the moment of the tap (`RATING_LENS.minRating` is null — Any; `LENS.tier.limitMinutes` is
+    // 45 — the fixtures' own defaults, not the increment's 4★+/2h30 example, per §4 #6).
     const view = renderShell();
     await openSheetFor('Bamburgh');
     fireEvent.click(screen.getByRole('button', { name: /Show on map/ }));
-    expect(view.props.onShowOnMap).toHaveBeenCalledWith('2026-08-14', 'SUNSET', 'Bamburgh Beach');
+    expect(view.props.onOpenMapTab).toHaveBeenCalledWith({
+      date: '2026-08-14', targetType: 'SUNSET', locationName: 'Bamburgh Beach', region: null,
+      minRating: null, limitMinutes: 45,
+    });
+    // Never the retired route — a re-pointing must not also ring the old bell, or the overlay would
+    // open silently behind the Map tab.
+    expect(view.props.onShowOnMap).not.toHaveBeenCalled();
     // Closed BEFORE the handoff: the map overlay is itself an `aria-modal` dialog, and leaving
-    // this one mounted underneath puts two on the page at once.
+    // this one mounted underneath puts two on the page at once. The literal call ORDER
+    // (`openOverPopup`, then `openWindow`, then `onOpenMapTab`) is pinned one level down, in
+    // `mapDoors.test.js`'s `openMapDoor` suite — unchanged by this phase, since D3 only changes
+    // WHICH callback the shell hands to that pure function's `door` slot, never the close-then-move
+    // logic itself. What is observable HERE, at the rendered shell, is the single-commit OUTCOME
+    // the ordering produces: no dialog survives the tap that opened the door.
     expect(screen.queryByTestId('location-sheet')).toBeNull();
   });
 
@@ -618,16 +644,23 @@ describe('WindowFirstShell — the four-day location sheet', () => {
       expect(screen.getAllByRole('dialog').length).toBe(2);
     });
 
-    it('⚠️ closes the POPUP too when the sheet hands off to the map', async () => {
-      // `MapOverlay` is itself an `aria-modal` dialog with its own unconditional document Escape
-      // listener, and `stackedOverPopup` goes false the instant the sheet unmounts — so a
-      // sheet-only close leaves the popup's listener re-armed under the overlay and one press takes
-      // two layers. Before M4 this route did not exist: the sheet could only be reached from
-      // search, which had already closed the popup.
+    it('⚠️ closes the POPUP too when the sheet hands off to the map (doors D3)', async () => {
+      // Pre-D3 this was `MapOverlay`, itself an `aria-modal` dialog with its own unconditional
+      // document Escape listener, and `stackedOverPopup` going false the instant the sheet unmounts
+      // meant a sheet-only close would leave the popup's listener re-armed under the overlay and
+      // one press taking two layers. The destination has moved (the Map tab, not the overlay), but
+      // the invariant has not: `openMapTab`'s own `openMapDoor` closes the popup and the sheet
+      // FIRST, before it ever reads `onOpenMapTab` — this is the outcome half of that rule; the
+      // literal call order is `mapDoors.test.js`'s ("hands the map the window it names" above
+      // states why that pin lives there and not here).
       const view = renderShell();
       await openStackedSheet();
       fireEvent.click(screen.getByTestId('location-sheet-map'));
-      expect(view.props.onShowOnMap).toHaveBeenCalledWith('2026-08-14', 'SUNSET', 'Derwentwater');
+      expect(view.props.onOpenMapTab).toHaveBeenCalledWith({
+        date: '2026-08-14', targetType: 'SUNSET', locationName: 'Derwentwater', region: null,
+        minRating: null, limitMinutes: 45,
+      });
+      expect(view.props.onShowOnMap).not.toHaveBeenCalled();
       expect(screen.queryByTestId('location-sheet')).toBeNull();
       expect(screen.queryByTestId('window-sheet')).toBeNull();
     });
@@ -756,6 +789,19 @@ describe('WindowFirstShell — the four-day location sheet', () => {
       // The map action is untouched by any of it — the footer never empties.
       expect(screen.getByTestId('location-sheet-map')).toBeInTheDocument();
     });
+  });
+
+  it('⚠️ withholds the map action when the shell itself has no map door (doors D3 task 2)', async () => {
+    // `App` withholds `onOpenMapTab` entirely when there is nothing to map — the same rule the
+    // overlay hatch already lives by. The sheet must not paper over that with a button whose
+    // `onClick` calls nothing (the dead-control ban `onPlanFrom`'s footer note already states);
+    // it shows the "opens once the forecast loads" sentence instead, and that sentence now covers
+    // TWO absences — no window (pre-existing) and no door (this phase) — with the same words.
+    renderShell({}, { onOpenMapTab: undefined });
+    const sheet = await openStackedSheet();
+    expect(within(sheet).queryByRole('button', { name: /Show on map/ })).toBeNull();
+    expect(within(sheet).getByTestId('location-sheet-nomap'))
+      .toHaveTextContent('The map opens once the forecast loads.');
   });
 
   it('closes on Escape and can be reopened for a different place', async () => {
