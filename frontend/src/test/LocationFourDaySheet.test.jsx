@@ -362,6 +362,19 @@ describe('LocationFourDaySheet', () => {
     expect(screen.getByRole('button', { name: /Show on map/ })).toHaveTextContent('Tonight Sunset');
   });
 
+  it('⚠️ withholds the button, not just its handler, when the shell has no map door', () => {
+    // doors D3 (`plan-to-map-doors-plan.md` §3 D3 task 2): the shell passes `onShowOnMap` only
+    // while `onOpenMapTab` exists, so an `undefined` prop here is exactly what a reader with no
+    // door sees — a live window to hand off (`handoff` is truthy, same fixture as the test above)
+    // but nothing to hand it to. A button gated on `handoff` alone would render one whose `onClick`
+    // calls nothing, the dead-control shape `onPlanFrom` is already written to avoid; this pins the
+    // OTHER half of that same rule.
+    setup({ onShowOnMap: undefined });
+    expect(screen.queryByRole('button', { name: /Show on map/ })).toBeNull();
+    expect(screen.getByTestId('location-sheet-nomap'))
+      .toHaveTextContent('The map opens once the forecast loads.');
+  });
+
   it('⚠️ says why there is no map action when there are no windows at all', () => {
     // Reachable: the roster and the briefing arrive over two independent fetches and search reads
     // the roster, so a sheet can open before there are windows. The first cut rendered a title over

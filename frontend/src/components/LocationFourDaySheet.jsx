@@ -89,7 +89,10 @@ const DIM_AT_OR_BELOW = 2;
  * @param {string}   [props.originLabel] the place the drive is measured from
  * @param {string}   [props.todayStr]   today's UK date
  * @param {Function} props.onClose     dismisses the sheet
- * @param {Function} [props.onShowOnMap] opens the map on (date, targetType, location name)
+ * @param {Function} [props.onShowOnMap] opens the map on (date, targetType, location name).
+ *        Absent whenever the shell has no map door (doors D3, `plan-to-map-doors-plan.md` §3 D3
+ *        task 2) — withheld rather than a no-op, so the footer renders {@code location-sheet-nomap}
+ *        instead of a button that calls nothing
  * @param {?object}  [props.planFrom]   {@code {name, reason}} for this place's own region — the
  *        footer's origin action. Null where the place has no region, or none the shell holds a
  *        record for, in which case the action is absent entirely
@@ -496,17 +499,26 @@ export default function LocationFourDaySheet({
           ) : (
             <span data-testid="location-sheet-plan-note">{planFrom.reason}</span>
           ))}
-          {/* Never withheld while there is a window to open — "the map is one tap further, never
-              lost". It names the window in the STRIP's own vocabulary (`card.label` is
-              `[kicker, when]`, so "Tonight Sunset" rather than a bare weekday), because a sheet
-              showing several of them cannot leave the reader to guess which one a single button
-              means, and a second vocabulary for the same window would make them translate. */}
-          {handoff ? (
+          {/* Never withheld while there is a window to open AND a door to open it through — "the
+              map is one tap further, never lost". It names the window in the STRIP's own
+              vocabulary (`card.label` is `[kicker, when]`, so "Tonight Sunset" rather than a bare
+              weekday), because a sheet showing several of them cannot leave the reader to guess
+              which one a single button means, and a second vocabulary for the same window would
+              make them translate.
+
+              ⚠️ `onShowOnMap` is the SECOND clause, not folded into `handoff` — the shell withholds
+              the prop entirely when it has no map door (doors D3, plan §3 D3 task 2), and a button
+              gated on `handoff` alone would render with an `onClick` that calls nothing: the same
+              dead-control shape `onPlanFrom` above is written to avoid. Both clauses false or true
+              together in practice today (there is always a window once the sheet has rows), but the
+              rule this button honours is "a door exists", not "a window exists" — the note below is
+              the answer to EITHER being absent, not a special case for one of them. */}
+          {(handoff && onShowOnMap) ? (
             <button
               type="button"
               data-testid="location-sheet-map"
               className="wf-loc-map"
-              onClick={() => onShowOnMap?.(handoff.date, handoff.targetType, sheet.name)}
+              onClick={() => onShowOnMap(handoff.date, handoff.targetType, sheet.name)}
             >
               {/* ⚠️ ONE text node, with only the `◍` hidden — the separator stays inside it. Hiding
                   the arrow as well split the label into two ADJACENT text nodes with no element
