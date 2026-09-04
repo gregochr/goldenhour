@@ -2007,6 +2007,32 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }, [heatOffered, heatArea, heat, visibleLocations]);
 
   /**
+   * How many of the DRAWN locations actually carry a rating for the window on screen.
+   *
+   * <p>⚠️ <b>This is a real count, and it replaces a figure that was never computed.</b> The counts
+   * footer used to read {@code N named · M rated of K} with {@code scopedVisibleLocations.length}
+   * rendered as BOTH {@code N} and {@code M} — one expression, printed twice, so the line could
+   * only ever say that the named and the rated totals were equal. Neither was right: "named" is
+   * how many chips {@code MapLabels} actually places, which is a zoom-derived budget
+   * ({@code clamp(6 + (zoom - 8.6) * 11, 6, 60)}) far below this pool at county scale, and "rated"
+   * was never asked of the ratings at all.
+   *
+   * <p>{@link getRatingForLocation} is the right source because it already answers for all four
+   * event types — solar via the briefing/forecast precedence, and the stored/live star counts for
+   * ASTRO and AURORA — so this figure cannot disagree with the medallion a reader is looking at.
+   *
+   * <p>⚠️ Declared HERE, beside {@code scopedVisibleLocations}, and not beside the
+   * {@code scopeBasePool} it is rendered with: that one is a plain {@code const} below the
+   * {@code if (!date || locations.length === 0)} early return, and a {@code useMemo} there is a
+   * conditional hook. Putting it there first cost a lint error and a "rendered fewer hooks"
+   * failure — the trap the comment above this block already names.
+   */
+  const scopedRatedCount = useMemo(
+    () => scopedVisibleLocations.filter((loc) => getRatingForLocation(loc) != null).length,
+    [scopedVisibleLocations, getRatingForLocation],
+  );
+
+  /**
    * The Map tab's label catalogue (map-tab-v2-plan.md §3 P8) — `MapLabels`' own "named" pool,
    * `scopedVisibleLocations`, ⚠️ which is NOT the set the medallion markers draw from: those render
    * the un-scoped `visibleLocations` below, so with scope = "My area" the two pools genuinely
@@ -2228,6 +2254,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const scopeBasePool = heatOffered
     ? ((heatArea ? heat?.areaSpots : heat?.spots) || EMPTY_POINTS)
     : EMPTY_POINTS;
+
 
   /**
    * The counts footer's second line — "Beyond {@code N}h: …" in My area, or the whole-catalogue
@@ -3667,11 +3694,25 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             {/* Counts footer (README "§9 Count footer") — bottom-centre, the one thing on this
                 chrome that reports on the CATALOGUE rather than controlling it. Withheld entirely
                 without a catalogue at all (`heatOffered` false), so a fresh install with nothing
-                scored yet shows no footer rather than "0 of 0 shown". */}
+                scored yet shows no footer rather than "0 of 0 shown". The rated clause beside it
+                is conditional — see its own note. */}
             {heatOffered && (
               <div data-testid="wf-map-counts-footer" className="wf-map-counts-footer">
                 <span>
                   <b>{scopedVisibleLocations.length}</b> of {scopeBasePool.length} shown
+                  {/* ⚠️ Only when it DIFFERS, which is this codebase's own rule for a second
+                      number: `reachLens.formatLensCount` states it as "with nothing trimmed,
+                      `138 of 138` is a count dressed as a comparison". In the default map every
+                      drawn location is rated by construction — the rating filter hides the
+                      unrated — so an unconditional figure would repeat the one beside it on
+                      almost every view. It earns its place exactly where something drawn has no
+                      rating: pure wildlife (no sky rating by design) and, for an admin, the
+                      unrated and stand-down locations the two debug toggles reveal. */}
+                  {scopedRatedCount < scopedVisibleLocations.length && (
+                    <span data-testid="wf-map-counts-rated">
+                      {` · ${scopedRatedCount} rated`}
+                    </span>
+                  )}
                   {filterActiveCount > 0 && (
                     <span data-testid="wf-map-counts-filtered" className="wf-map-counts-flag"> filtered</span>
                   )}

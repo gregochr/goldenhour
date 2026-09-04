@@ -1068,6 +1068,43 @@ describe('MapView heat — the counts footer', () => {
     expect(screen.queryByTestId('wf-map-counts-filtered')).not.toBeInTheDocument();
   });
 
+  it('⚠️ states a rated count only where it DIFFERS from the drawn count — a wildlife spot has '
+      + 'no sky rating by design, so it is drawn and unrated', async () => {
+    // The old footer rendered `scopedVisibleLocations.length` as BOTH the "named" and the "rated"
+    // figure, so it could only ever claim the two were equal. `scopedRatedCount` is now asked of
+    // `getRatingForLocation`, and a pure-wildlife location is the honest case where the two part:
+    // the rating filter lets it through unrated (wildlife has no sky rating), so it is on screen
+    // and uncounted.
+    const locations = makeLocations();
+    locations[0] = {
+      ...locations[0],
+      locationType: ['WILDLIFE'],
+      forecastsByDate: new Map([[TODAY, {
+        sunset: { solarEventTime: `${TODAY}T16:12:00` },
+        sunrise: { solarEventTime: `${TODAY}T08:24:00` },
+      }]]),
+    };
+
+    await act(async () => {
+      render(
+        <MapView locations={locations} date={TODAY} autoEventType={null} heat={heatProp()} />,
+      );
+    });
+
+    const foot = await screen.findByTestId('wf-map-counts-footer');
+    // Five drawn in My area, four of them rated — the wildlife spot is the fifth.
+    expect(foot).toHaveTextContent('5 of 5 shown');
+    expect(screen.getByTestId('wf-map-counts-rated')).toHaveTextContent('4 rated');
+  });
+
+  it('withholds the rated count when every drawn location is rated — never `5 of 5 · 5 rated`', async () => {
+    // The codebase's own rule for a second number (`reachLens.formatLensCount`): with nothing
+    // trimmed, a count equal to the one beside it is "a count dressed as a comparison".
+    await renderMap({ heat: heatProp() });
+    await screen.findByTestId('wf-map-counts-footer');
+    expect(screen.queryByTestId('wf-map-counts-rated')).not.toBeInTheDocument();
+  });
+
   it('the second line names the regions beyond the glance threshold, joined from planningArea\'s own test', async () => {
     await renderMap({ heat: heatProp({ beyondRegionNames: ['The Borders'] }) });
     const second = await screen.findByTestId('wf-map-counts-second');
