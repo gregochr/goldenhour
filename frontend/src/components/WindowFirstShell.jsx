@@ -18,6 +18,7 @@ import { buildTopicIndex, windowTopics } from '../utils/windowFirstTopics.js';
 import { buildPlanConflict } from '../utils/planConflicts.js';
 import { buildScoreIndex, buildSlotIndex, sheetSpotOf } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/regionGloss.js';
+import { openMapDoor } from '../utils/mapDoors.js';
 import { deriveBadge } from '../utils/comingUpArrivals.js';
 import { markComingUpSeen } from '../api/settingsApi.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
@@ -291,7 +292,7 @@ export default function WindowFirstShell({
   onOpenSettings, onSignOut, contentDisabled, onShowOnMap, onEvaluationScoresChange,
   onSeasonalFeaturesChange, locations, mapPane, operationsPane, tabRequest, healthPill,
   light, onSetPostcode, mapColourScale = null, homeCoords = null, onTabChange = null,
-  planLocationHandoff = null,
+  planLocationHandoff = null, onOpenMapTab = null,
 }) {
   const {
     heatStripCards, heatPointSets, heatSpots, reachById, regionSeries,
@@ -616,6 +617,31 @@ export default function WindowFirstShell({
     setSheetKey(next?.sheetKey ?? null);
     setOpenPick(next?.pick ?? null);
   }, []);
+  /**
+   * The shared close-then-move-and-merge entry every map door will call (doors D2,
+   * `plan-to-map-doors-plan.md` §3 D2 task 1; D3 the sheet footer, D4 the popup field) — a thin
+   * wrapper over {@link openMapDoor} (`utils/mapDoors.js`), supplying this shell's own closures.
+   * The logic itself — close-then-move, and the live lens-value merge — lives in that PURE
+   * function precisely so it is directly unit-tested (`test/mapDoors.test.js`) without a rendered
+   * caller: no door UI ships in THIS phase (plan §3 D2 task 1's own text: "No door UI is built in
+   * this phase — D3/D4 add the buttons"), so this wrapper itself has no caller yet — D3 (one line:
+   * the sheet's `onShowOnMap` becomes this) and D4 (the popup field's new button) are its first
+   * callers, in their own later phases.
+   *
+   * <p>⚠️ Close-then-move matches the sheet's own `onShowOnMap` wrapper a few hundred lines down —
+   * but NOT `WindowPickDialog`'s `onShowRegion`/`onShowLocation`, which call `onShowOnMap` FIRST
+   * and close SECOND (an earlier draft of this comment claimed all three routes agreed; they do
+   * not — those two routes are untouched by this plan and their own ordering is unaffected either
+   * way, since React batches the state updates regardless of source order, but the claim itself
+   * was wrong and is corrected here rather than left to mislead the next reader).
+   *
+   * <p>Left in with the unused-var rule suppressed for the wrapper's own gap, rather than
+   * reordered ahead of the plan that names it, or dropped and rebuilt twice.
+   */
+  // eslint-disable-next-line no-unused-vars
+  const openMapTab = useCallback((door) => openMapDoor({
+    openOverPopup, openWindow, onOpenMapTab, ratingLens, reachLens, door,
+  }), [openOverPopup, openWindow, onOpenMapTab, ratingLens, reachLens]);
   /**
    * A tab asked for from OUTSIDE the bar — currently the map overlay's "open the full map" hatch.
    *
@@ -1974,6 +2000,14 @@ WindowFirstShell.propTypes = {
     regionName: PropTypes.string,
     nonce: PropTypes.number,
   }),
+  /**
+   * The map doors' shared entry (doors D2, `plan-to-map-doors-plan.md` §3) — `App.jsx`'s
+   * `openMapTabFromPlan`, called by the shell's own `openMapTab(door)` wrapper (which closes the
+   * popup/window sheet first and merges in the live lens values). Absent whenever there is nothing
+   * to map (`App`'s own `allDates.length === 0` gate) — no door renders without it, mirroring
+   * `onOpenFullMap`'s identical withholding rule on the overlay's own hatch.
+   */
+  onOpenMapTab: PropTypes.func,
   /**
    * The Operations pane. Absent means no Operations tab, and that is the admin gate in full: the
    * caller holds the role and withholds the pane, so nothing role-shaped reaches this component.

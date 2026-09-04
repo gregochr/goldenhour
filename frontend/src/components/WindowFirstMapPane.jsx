@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import MapView from './MapView.jsx';
 import { useWindowFirstBriefing } from '../context/WindowFirstBriefingContext.jsx';
@@ -106,20 +106,49 @@ const FRAME_PAD_DEG = 0.12;
  * @param {Function} [props.onOpenLocationInPlan] the selection callout's "Open in Plan" action
  *                                         (map-tab-v2-plan.md §3 P9) — `(spot) => void`, forwarded
  *                                         from `App.jsx`'s `openLocationInPlan`
+ * @param {Function} [props.onReturnToPlan] the breadcrumb's `← Plan` (doors D2,
+ *                                         `plan-to-map-doors-plan.md` §3 D2 task 5) — `App.jsx`'s
+ *                                         `returnToPlan`, forwarded straight through to `MapView`;
+ *                                         this pane needs no `tabRequest`/`selectTab` plumbing of
+ *                                         its own, since App already owns that channel
  */
 export default function WindowFirstMapPane({
   locations, dates, selectedDate, onSelectDate, handoff = null, autoEventType = null,
   briefingScores = new Map(),
   onForecastRun = null, seasonalFeatures = [], homeCoords = null,
   mapColourScale = null, colourScaleDefaulted = false, onOpenSettings = null,
-  onOpenLocationInPlan = null,
+  onOpenLocationInPlan = null, onReturnToPlan = null,
 }) {
   const wrapRef = useRef(null);
   const [resizeNonce, setResizeNonce] = useState(0);
   const {
     heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr,
-    origin, effectiveReachById, scoreRows, scoresLoaded, briefing,
+    origin, setOrigin, effectiveReachById, scoreRows, scoresLoaded, briefing,
   } = useWindowFirstBriefing();
+  /**
+   * A door handoff, distinguished from the overlay hatch's handoff on the SAME `handoff` channel
+   * (doors D2, `plan-to-map-doors-plan.md` §3 D2 task 2) — both arrive as `App.jsx`'s
+   * `mapTabHandoff`, but a door's payload carries `source: 'plan'` and the hatch's never has a
+   * `source` field at all, so the two are told apart by that one field rather than by a second
+   * channel. Forwarded to `MapView` as ONE `planHandoff` prop; the hatch's own five `handoff*`
+   * props below are withheld whenever a door handoff is the one in flight, so the OLD per-field
+   * effects (`handoffRegion`'s `FitBoundsController` fit, in particular) can never double-apply a
+   * door's own region alongside the new nonce-keyed effect's `jumpToRegion`/`resetToMyArea`.
+   */
+  const isPlanHandoff = handoff?.source === 'plan';
+  const planHandoff = isPlanHandoff ? handoff : null;
+
+  /**
+   * The breadcrumb's `clear` origin reset (D2) — `useCallback`'d, not a fresh arrow literal at the
+   * `<MapView>` call site below. `MapView` is `React.memo`'d and this pane re-renders on every
+   * provider tick (the `heat` `useMemo`'s own doc block a few screens down states the same
+   * pressure for the same reason) — an inline `() => setOrigin?.(null)` would hand it a new
+   * function identity every render, which is exactly the kind of prop `React.memo` cannot see past
+   * and defeats the memo for every one of MapView's other unchanged props too. `[setOrigin]` is
+   * the only real dependency; `setOrigin` itself is a `useState` setter (or the context's stable
+   * default no-op), so this identity is effectively permanent for the life of the provider.
+   */
+  const onClearOrigin = useCallback(() => setOrigin?.(null), [setOrigin]);
 
   /**
    * The selection callout's per-location per-window index (map-tab-v2-plan.md §3 P9) — the SAME
@@ -287,12 +316,20 @@ export default function WindowFirstMapPane({
         // to decide whether a picked EV row's date may be forwarded via `onSelectDate` at all.
         forecastDates={dates}
         autoEventType={autoEventType}
-        handoffEventType={handoff?.eventType ?? null}
-        handoffFilterAction={handoff?.filterAction ?? null}
-        handoffDarkSky={handoff?.darkSky ?? null}
-        handoffLocationName={handoff?.locationName ?? null}
-        handoffRegion={handoff?.region ?? null}
-        handoffNonce={handoff?.nonce ?? null}
+        // Withheld outright for a door handoff (`isPlanHandoff`) — see this component's own
+        // `planHandoff` doc note just above: a door's region/location/event ride the ONE
+        // `planHandoff` prop below and must never ALSO reach these older per-field effects, which
+        // apply a region via `FitBoundsController` rather than the door's own `jumpToRegion`/
+        // `resetToMyArea` scope-flip semantics.
+        handoffEventType={isPlanHandoff ? null : (handoff?.eventType ?? null)}
+        handoffFilterAction={isPlanHandoff ? null : (handoff?.filterAction ?? null)}
+        handoffDarkSky={isPlanHandoff ? null : (handoff?.darkSky ?? null)}
+        handoffLocationName={isPlanHandoff ? null : (handoff?.locationName ?? null)}
+        handoffRegion={isPlanHandoff ? null : (handoff?.region ?? null)}
+        handoffNonce={isPlanHandoff ? null : (handoff?.nonce ?? null)}
+        // A door handoff (D2) — the ONE prop a `source: 'plan'` handoff reaches `MapView` through;
+        // null whenever `handoff` is the overlay hatch's own (or there is no handoff at all).
+        planHandoff={planHandoff}
         briefingScores={briefingScores}
         onForecastRun={onForecastRun}
         seasonalFeatures={seasonalFeatures}
@@ -316,6 +353,12 @@ export default function WindowFirstMapPane({
         tideAlignmentIndex={tideAlignmentIndex}
         reachById={reachById}
         onOpenLocationInPlan={onOpenLocationInPlan}
+        // The breadcrumb's `clear` origin reset (D2) — the SAME `setOrigin` the masthead's ⌂ and
+        // every plan-from-a-region action already call, so the crumb can never disagree with them
+        // about what "clear the origin" means. Resets the whole app's shared origin (plan §4 #4).
+        // `useCallback`'d above, not an inline literal — see that declaration's own doc note.
+        onClearOrigin={onClearOrigin}
+        onReturnToPlan={onReturnToPlan}
       />
     </div>
   );
@@ -327,11 +370,17 @@ WindowFirstMapPane.propTypes = {
   selectedDate: PropTypes.string,
   onSelectDate: PropTypes.func.isRequired,
   handoff: PropTypes.shape({
+    // 'plan' for a door handoff (D2); absent/undefined for the overlay hatch's own — see
+    // `isPlanHandoff`'s own doc note above for how the two are told apart on one channel.
+    source: PropTypes.string,
     eventType: PropTypes.string,
     filterAction: PropTypes.string,
     darkSky: PropTypes.bool,
     locationName: PropTypes.string,
     region: PropTypes.string,
+    minRating: PropTypes.number,
+    limitMinutes: PropTypes.number,
+    date: PropTypes.string,
     nonce: PropTypes.number,
   }),
   autoEventType: PropTypes.string,
@@ -345,4 +394,5 @@ WindowFirstMapPane.propTypes = {
   colourScaleDefaulted: PropTypes.bool,
   onOpenSettings: PropTypes.func,
   onOpenLocationInPlan: PropTypes.func,
+  onReturnToPlan: PropTypes.func,
 };

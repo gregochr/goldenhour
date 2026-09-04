@@ -29,6 +29,7 @@ import FiltersPopover from './map/FiltersPopover.jsx';
 import MapCallout from './map/MapCallout.jsx';
 import MapLegendPanel from './map/MapLegendPanel.jsx';
 import RegionsJump from './map/RegionsJump.jsx';
+import MapBreadcrumb from './map/MapBreadcrumb.jsx';
 import { fadeAt } from '../utils/heatHandover.js';
 import { buildMapEvents, findEvIndex, solarHorizonDates, EVENT_KIND } from '../utils/mapEvents.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
@@ -1024,7 +1025,7 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  * overlay never passes one (it is frozen and has no origin concept). Gates home geography — see
  * `homeGeo` below.
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, origin = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, tideAlignmentIndex = null, reachById = null, onOpenLocationInPlan = null }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, origin = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, tideAlignmentIndex = null, reachById = null, onOpenLocationInPlan = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -1464,6 +1465,78 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // locations intentionally omitted (see the location handoff above).
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [handoffRegion, handoffNonce]);
+
+  /**
+   * A door landing (D2, `plan-to-map-doors-plan.md` §3 D2 task 2) — ONE nonce-keyed effect applying
+   * the WHOLE payload, not four more fields folded onto the handoff effects above. Those effects'
+   * own doc comments record the staleness defects of applying fields independently (plan §2), so a
+   * door's payload is applied as one atomic write instead.
+   *
+   * <ul>
+   *   <li><b>Event</b> — {@code setEventType} and {@code setLocalNightDate(null)} match the
+   *       {@code handoffEventType} effect above, but {@code setUserHasOverriddenEvent(TRUE)} is
+   *       the OPPOSITE of that effect's {@code false} — deliberately, not a copy-paste slip. The
+   *       auto-event effect a few screens up re-applies {@code autoEventType} whenever the flag is
+   *       false and EITHER of its two deps changes; the hatch's effect sets it false because a
+   *       hatch handoff is inheriting the card's own event, which auto-follow should still be free
+   *       to override later. A door is the opposite: the reader NAMED this window, so it must read
+   *       as their own explicit choice, exactly like a manual press of the window control
+   *       ({@code selectEvRow}, which also sets this true). Found by review: with the flag copied
+   *       as {@code false}, a reader who had EVER touched the window control before opening a door
+   *       (flag already true) saw that press flip the flag true→false, and since the flag itself
+   *       is one of the auto-effect's two dependencies, the CHANGE re-ran it on the very next
+   *       commit and silently moved the door back onto {@code autoEventType} — the door landed on
+   *       today's default window, not the one the reader tapped through from. A reader who had
+   *       never touched the control (flag already false) saw no change and therefore no re-run,
+   *       which is why this shipped past review and browser verification once already.</li>
+   *   <li><b>Floor</b> — {@code minRating ?? 1}, NEVER {@code null}: the map has no Any state and
+   *       must not grow one for this (plan §1 #6, §5 decision 2). A Plan lens at Any (rated spots
+   *       only, {@code showUnrated} untouched) is exactly the map's 1★+ with {@code showUnrated}
+   *       left alone — so this effect never touches {@code showUnrated}/{@code showStandDown}.</li>
+   *   <li><b>Tier</b> — {@code limitMinutes ?? 0} (Any).</li>
+   *   <li><b>Region</b> — {@code jumpToRegion}/{@code resetToMyArea}, the tab's own scope-flip
+   *       semantics, NEVER {@code FitBoundsController} (the overlay-era {@code handoffRegion}
+   *       effect above, which only fits bounds and never touches scope).</li>
+   *   <li><b>Location</b> — resolved off the FULL roster, exactly like the {@code handoffLocationName}
+   *       effect above: a location the carried floor would filter out of the visible pool still
+   *       gets its callout, because this is a direct state write, not a filtered lookup.</li>
+   * </ul>
+   *
+   * <p>The date needs no write here — {@code selectedDate} arrived through {@code App} before this
+   * component ever saw the door, and {@code findEvIndex} derives the active row from it below.
+   *
+   * <p>{@code jumpToRegion}/{@code resetToMyArea} are plain {@code function} declarations later in
+   * this component's body, not {@code useCallback}s — hoisted to the top of the component's scope
+   * like every function declaration, so referencing them here (textually above their declaration,
+   * on the near side of this component's own conditional early return) is safe: by the time this
+   * effect actually RUNS, the render that registered it has already executed in full.
+   */
+  useEffect(() => {
+    if (!planHandoff) return;
+    (async () => {
+      setEventType(planHandoff.eventType);
+      setUserHasOverriddenEvent(true);
+      setLocalNightDate(null);
+      const nextMinStars = planHandoff.minRating ?? 1;
+      setMinStars(nextMinStars);
+      writeMapFilter('mapFilterMinStars', String(nextMinStars));
+      setDriveTimeFilter(planHandoff.limitMinutes ?? 0);
+      if (planHandoff.region) jumpToRegion(planHandoff.region);
+      else resetToMyArea();
+      if (planHandoff.locationName) {
+        const loc = locations.find(
+          (l) => l.name === planHandoff.locationName && l.enabled !== false,
+        );
+        if (loc) {
+          setSelectedLocationName(loc.name);
+          setFlyTarget({ lat: loc.lat, lon: loc.lon });
+        }
+      }
+    })();
+    // locations/jumpToRegion/resetToMyArea intentionally omitted — the nonce IS the trigger
+    // (see the location/region handoffs above for the identical reasoning).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planHandoff?.nonce]);
 
   // Map-overlay focus: fit the map to an arbitrary set of pins (a multi-region event or a hot
   // topic's flagged locations). Re-fits when the focus nonce changes; a no-op on the Map tab.
@@ -2595,6 +2668,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     setJumpFitOverride({
       bounds: latLngBounds(regionSpots, 0.06),
       nonce: jumpFitSeq.current,
+      // The door breadcrumb's region clause (D2, plan-to-map-doors-plan.md §3 D2 task 3, §5
+      // rule 3) reads THIS field to answer "is the carried region's jump still the scope in
+      // force" — `jumpFitOverride` otherwise carries only bounds and a fit nonce, neither of
+      // which names WHICH region is framed, so a stale carried-region clause could not tell a
+      // fresh jump to a DIFFERENT region apart from the one a door actually landed on.
+      regionName,
     });
     // Closes the jump menu — see this function's own doc for why a jump closes where a filter row
     // would not.
@@ -3044,6 +3123,30 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         </div>
       )}
       {/* All-overcast message now shown inside AuroraBanner */}
+
+      {/* The door landing strip (D2, plan-to-map-doors-plan.md §3 D2 task 3) — ABOVE the map
+          frame, outside the Leaflet container entirely (§4 #3), tab-only. `planHandoff` is never
+          set on the overlay mount (`App.jsx` never passes it there), so `!overlayMode` is a
+          defence-in-depth restatement of a fact that already holds, not a second gate doing real
+          work — kept explicit because it is what the plan itself states. */}
+      {!overlayMode && planHandoff && (
+        <MapBreadcrumb
+          carried={planHandoff}
+          activeRow={activeMapEvent}
+          origin={origin}
+          minStars={minStars}
+          driveTimeFilter={driveTimeFilter}
+          regionInForce={jumpFitOverride?.regionName ?? null}
+          onBack={() => onReturnToPlan?.()}
+          onClearRating={() => {
+            setMinStars(DEFAULT_MIN_STARS);
+            clearMapFilter('mapFilterMinStars');
+          }}
+          onClearReach={() => setDriveTimeFilter(0)}
+          onClearScope={resetToMyArea}
+          onClearOrigin={() => onClearOrigin?.()}
+        />
+      )}
 
       {/* Map.
           In the overlay it is full-bleed and its height is the reclaimed space — no rounding or
@@ -4060,6 +4163,35 @@ MapView.propTypes = {
    * handoff (`App.jsx`'s `openLocationInPlan`).
    */
   onOpenLocationInPlan: PropTypes.func,
+  /**
+   * A door's landing payload (D2, `plan-to-map-doors-plan.md` §3 D2 task 1) —
+   * `{source: 'plan', eventType, date, region: ?string, minRating: ?number, limitMinutes: ?number,
+   * locationName: ?string, nonce}`, forwarded by `WindowFirstMapPane` ONLY when `handoff?.source
+   * === 'plan'` (never on the overlay, which is never handed this prop at all). Applied by ONE
+   * nonce-keyed effect and mounts `MapBreadcrumb` above the map frame while set — see that
+   * component's own doc for the derived-truth carrying clause.
+   */
+  planHandoff: PropTypes.shape({
+    source: PropTypes.string,
+    eventType: PropTypes.string,
+    date: PropTypes.string,
+    region: PropTypes.string,
+    minRating: PropTypes.number,
+    limitMinutes: PropTypes.number,
+    locationName: PropTypes.string,
+    nonce: PropTypes.number,
+  }),
+  /**
+   * The breadcrumb's `clear` — resets the shared origin to home (`WindowFirstMapPane`'s
+   * `() => setOrigin(null)` from `WindowFirstBriefingContext`). Resets the whole app's origin, not
+   * just this tab's — there is one origin (plan §4 #4).
+   */
+  onClearOrigin: PropTypes.func,
+  /**
+   * The breadcrumb's `← Plan` (D2) — `App.jsx`'s `returnToPlan`, a `tabRequest` for `'plan'`. Lands
+   * on the plan itself with no dialog reopened and no window key carried (plan §6 Q2, decided).
+   */
+  onReturnToPlan: PropTypes.func,
 };
 
 export default React.memo(MapView);

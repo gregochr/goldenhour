@@ -2,6 +2,7 @@ import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, act } from '@testing-library/react';
 import WindowFirstMapPane from '../components/WindowFirstMapPane.jsx';
+import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 
 /**
  * The window-first Map tab's pane.
@@ -173,6 +174,90 @@ describe('WindowFirstMapPane', () => {
       renderPane({ handoff: { darkSky: true, nonce: 3 } });
       expect(MapStub.lastProps.handoffDarkSky).toBe(true);
       expect(MapStub.lastProps.handoffNonce).toBe(3);
+    });
+  });
+
+  describe('the door handoff (D2, plan-to-map-doors-plan.md §3 D2 task 2)', () => {
+    const PLAN_HANDOFF = {
+      source: 'plan', eventType: 'SUNSET', date: DATES[0], region: 'Lake District',
+      minRating: 4, limitMinutes: 150, locationName: 'Keswick View', nonce: 9,
+    };
+
+    it('a source:\'plan\' handoff reaches MapView as ONE planHandoff prop, verbatim', () => {
+      renderPane({ handoff: PLAN_HANDOFF });
+      expect(MapStub.lastProps.planHandoff).toEqual(PLAN_HANDOFF);
+    });
+
+    it('a source:\'plan\' handoff nulls out every OLD per-field handoff* prop — a door\'s region '
+        + 'must never ALSO reach the FitBoundsController-driven handoffRegion effect', () => {
+      renderPane({ handoff: PLAN_HANDOFF });
+      expect(MapStub.lastProps.handoffEventType).toBeNull();
+      expect(MapStub.lastProps.handoffFilterAction).toBeNull();
+      expect(MapStub.lastProps.handoffDarkSky).toBeNull();
+      expect(MapStub.lastProps.handoffLocationName).toBeNull();
+      expect(MapStub.lastProps.handoffRegion).toBeNull();
+      expect(MapStub.lastProps.handoffNonce).toBeNull();
+    });
+
+    it('a hatch handoff (no source field) reaches MapView through the OLD per-field props, exactly '
+        + 'as before — and planHandoff stays null', () => {
+      // Every one of the six OLD fields, not just three of them — proving the `isPlanHandoff`
+      // ternary genuinely FORWARDS a truthy/real value per field for a non-plan handoff, not just
+      // that it happens to null a plan one. A mutation collapsing any single field's ternary to
+      // an unconditional `null` (permanently disabling that field, doors or not) is caught here.
+      const hatch = {
+        eventType: 'AURORA', filterAction: 'BLUEBELL', darkSky: true,
+        locationName: 'Bamburgh Beach', region: 'Northumberland & Tyneside', nonce: 7,
+      };
+      renderPane({ handoff: hatch });
+      expect(MapStub.lastProps.planHandoff).toBeNull();
+      expect(MapStub.lastProps.handoffEventType).toBe('AURORA');
+      expect(MapStub.lastProps.handoffFilterAction).toBe('BLUEBELL');
+      expect(MapStub.lastProps.handoffDarkSky).toBe(true);
+      expect(MapStub.lastProps.handoffLocationName).toBe('Bamburgh Beach');
+      expect(MapStub.lastProps.handoffRegion).toBe('Northumberland & Tyneside');
+      expect(MapStub.lastProps.handoffNonce).toBe(7);
+    });
+
+    it('planHandoff is null when there is no handoff at all', () => {
+      renderPane();
+      expect(MapStub.lastProps.planHandoff).toBeNull();
+    });
+
+    it('forwards onReturnToPlan straight through, by identity', () => {
+      const onReturnToPlan = vi.fn();
+      renderPane({ onReturnToPlan });
+      expect(MapStub.lastProps.onReturnToPlan).toBe(onReturnToPlan);
+    });
+
+    it('onClearOrigin calls the SAME setOrigin the masthead\'s ⌂ and every "plan from a region" '
+        + 'action already call — resetting the whole app\'s shared origin, not a copy of it', () => {
+      const setOrigin = vi.fn();
+      vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue({
+        heatSpots: [], heatPointSets: new Map(), heatStripCards: [], reachById: new Map(),
+        homePlace: null, todayStr: DATES[0], origin: null, setOrigin,
+        effectiveReachById: new Map(), scoreRows: [], scoresLoaded: true, briefing: null,
+      });
+      renderPane();
+      MapStub.lastProps.onClearOrigin();
+      expect(setOrigin).toHaveBeenCalledTimes(1);
+      expect(setOrigin).toHaveBeenCalledWith(null);
+    });
+
+    it('onClearOrigin keeps the SAME function identity across a re-render — a fresh arrow every '
+        + 'render would defeat MapView\'s React.memo, which this pane\'s own re-render cadence '
+        + '(every provider tick) makes a real cost, not a theoretical one', () => {
+      const { rerender } = renderPane();
+      const first = MapStub.lastProps.onClearOrigin;
+      rerender(
+        <WindowFirstMapPane
+          locations={[]}
+          dates={DATES}
+          selectedDate={DATES[0]}
+          onSelectDate={vi.fn()}
+        />,
+      );
+      expect(MapStub.lastProps.onClearOrigin).toBe(first);
     });
   });
 
