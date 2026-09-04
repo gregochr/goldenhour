@@ -84,9 +84,11 @@ merged; `changelog.d/` files never conflict.
 > dark-sky) through the context's `setOrigin(null)`; `← Plan` → a `tabRequest` for `plan`. The two
 > rules that decide the review: **the payload does not carry the origin** (it is shared state — §2, §4
 > #1) and **nothing is sent that nothing reads**. Rating and reach carry the Plan's actual lens values
-> (Any / day-derived — §1 #6, §5 rule 2), not the increment's example.
+> (Any / day-derived — §1 #6, §5 rule 2), not the increment's example. ⚠️ The map has NO Any rating
+> state and must not grow one: a Plan `minRating` of null lands as `minStars = 1` with `showUnrated`
+> untouched, which is exactly what the Plan's Any admits (§4 #11, a Codex finding on the plan PR).
 >
-> Tests per D2 task 6 — the nonce replay guard, the hidden-pane case, `null → Any` and `null → 0`, the
+> Tests per D2 task 6 — the nonce replay guard, the hidden-pane case, `null → 1` (never null) and `null → 0`, the
 > filtered-out location still getting its callout, every crumb clause present AND absent, `clear`'s
 > calls in order, and the `mapEvents` interleave check (§7 #1). Gate on exit codes: `npm run lint &&
 > npm test && npm audit --audit-level=high && npm run build`. Adversarial review per CLAUDE.md (read-only

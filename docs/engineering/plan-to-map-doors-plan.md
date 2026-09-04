@@ -127,10 +127,19 @@ was written 2026-09-04 and code moves.
    `DEFAULT_MIN_STARS`, persisted under `mapFilterMinStars`) and its drive filter to *Any* (`0`). The
    two tier vocabularies coincide — `FiltersPopover.jsx:298` `DRIVE_TIME_TIERS` `[0,45,90,150]` and
    `REACH_TIERS` `[45,90,150]+any` both label through `formatDriveDuration` — so `limitMinutes` maps
-   to `driveTimeFilter` directly (`null → 0`). The consequence the increment did not have to face: a
+   to `driveTimeFilter` directly (`null → 0`). **The rating vocabularies do not coincide.** The map's
+   floor is a true "this and above" control that always holds a value in 1–5 — **no Any state**, a
+   deliberate P7 decision (`FiltersPopover.jsx:20–26`, `MapView.jsx:1062–1070`), with
+   `STAR_THRESHOLD_LABELS` (`:2170`) keyed 1–5 only — and unrated locations are gated separately behind
+   the admin-only `showUnrated` toggle (`:1941`), never by the floor. So `minRating: null` cannot be
+   written into `minStars`: it would index an undefined summary label and leave the filter in a state
+   the popover cannot draw. The exact equivalent exists, though: the Plan's Any admits every **rated**
+   spot and drops unrated ones (`gateSpotsByRating`, `ratingLens.js:158–161`), which is precisely the
+   map's **1★+** with `showUnrated` untouched. The consequence the increment did not have to face: a
    Plan carrying *Any rating* arrives at a map whose persisted floor is 3★, and honouring the carry
-   **loosens** the map. §5 records the rule (carry it, name only the narrowings, `clear` restores the
-   map's own default).
+   **loosens** it to 1★+. §5 records the rule (carry it as 1★+, name only the narrowings, `clear`
+   restores the map's own default). Found by the Codex review of the plan PR (#758), which caught the
+   plan referring to a map value that does not exist.
 
 7. **Region focus is a home-origin concept on the Plan tab.** `WindowFirstShell.jsx:857`
    `selectedRegion: origin ? null : focusedRegion` and `singleRegionScope: Boolean(origin)` — away, the
@@ -290,8 +299,10 @@ opens the first door, but everything D3–D5 needs lands here, testable through 
    `MapView`, ONE `useEffect` keyed on `planHandoff?.nonce`:
    - event: `setEventType`, `setUserHasOverriddenEvent(false)`, `setLocalNightDate(null)` — the same
      three writes `:1296–1308` makes, for the same reasons;
-   - filters: `setMinStars(minRating ?? <the map's Any value>)` with the matching
-     `writeMapFilter`/`clearMapFilter`; `setDriveTimeFilter(limitMinutes ?? 0)`;
+   - filters: `setMinStars(minRating ?? 1)` with the matching `writeMapFilter` — **1, never null**:
+     the map has no Any state (§1 #6), 1★+ is its loosest floor and the exact equivalent of the
+     Plan's Any (every rated spot); `showUnrated` and `showStandDown` are NOT touched, because the
+     Plan's Any does not admit unrated spots either; `setDriveTimeFilter(limitMinutes ?? 0)`;
    - region: `region ? jumpToRegion(region) : resetToMyArea()` — the tab's own semantics (scope
      flip, `animate:false` refit, menu closed), never `FitBoundsController`;
    - location: `setSelectedLocationName(name)` + `setFlyTarget({lat, lon})` as `:1375–1386` does
@@ -327,7 +338,7 @@ opens the first door, but everything D3–D5 needs lands here, testable through 
    two existing effects do (`requestAnimationFrame(() => tab.focus())`).
 6. **Tests.** `WindowFirstMapPane.test.jsx`: a `source:'plan'` handoff reaches `MapView` as
    `planHandoff` and a hatch handoff does not. A new `MapViewPlanHandoff.test.jsx`: each field applied
-   (event, floor incl. `null → Any`, tier incl. `null → 0`, region jump incl. the scope flip, location
+   (event, floor incl. `null → 1` with `showUnrated` still false, tier incl. `null → 0`, region jump incl. the scope flip, location
    selection with a filtered-out location); the nonce replay guard (same payload twice → applied
    twice; same nonce → once); a hidden pane (render, hand a handoff, assert nothing when
    `source !== 'plan'`). `MapBreadcrumb.test.jsx`: every clause present/absent by fixture; the
@@ -476,8 +487,10 @@ Numbered so a phase log can cite them. Each phase appends; D6 reconciles.
    in force.
 6. **Rating and reach carry the Plan's actual lens values, which default to Any / a day-derived tier,
    not to 4★+ / 2h30.** The increment's example is a snapshot of the prototype's fixture; the app
-   carries whatever the reader had. A carried *Any* rating loosens a map whose persisted floor is 3★;
-   the crumb names only narrowings, and `clear` restores the map's own default (§5 rule 2).
+   carries whatever the reader had. A carried *Any* rating lands as the map's **1★+** (the map has no
+   Any state and the Plan's Any admits only rated spots, so the two are equivalent — §1 #6), which
+   loosens a map whose persisted floor is 3★; the crumb names only narrowings, and `clear` restores
+   the map's own default (§5 rule 2).
 7. **Door 2 is a re-pointing, not a wiring** (§1 #3). The overlay loses the sheet footer as an entry
    point and keeps every other one; that is a step towards O-6, not its completion.
 8. **Door 3 is a sibling grid item, not a control nested inside the card button** (§1 #10). Same
@@ -487,6 +500,11 @@ Numbered so a phase log can cite them. Each phase appends; D6 reconciles.
 10. **The overlay's hatch does not raise the breadcrumb.** It is also a Plan→Map route, but its
     payload carries `filterAction`/`darkSky` facts this crumb has no vocabulary for, and the overlay is
     frozen. Recorded as **O-D3** in §6 rather than half-done.
+11. **The map keeps its no-Any rating floor; the Plan's Any lands as 1★+ (2026-09-04, Codex review
+    of #758).** The first cut of this plan wrote "the map's own Any value", which does not exist —
+    the floor is always 1–5 by a P7 decision and unrated locations are admin-gated separately. Adding
+    an Any state would reopen that decision for one handoff; 1★+ is semantically identical to the
+    Plan's Any (rated spots only) and already has a label, a chip, and a persisted form.
 
 ---
 
@@ -495,11 +513,13 @@ Numbered so a phase log can cite them. Each phase appends; D6 reconciles.
 1. **Every door carries the lens.** Doors 1, 2 and 3 all carry `minRating` and `limitMinutes`
    (increment "What travels" #3). Door 1 additionally carries the popup's region focus; Door 2 the
    location; Door 3 nothing else.
-2. **Carry *Any* as Any.** A Plan lens at Any writes the map's own Any value (loosening a persisted 3★
-   if there was one) so the two sets agree; the crumb does not name it (there is nothing to act on);
-   `clear` restores `DEFAULT_MIN_STARS`. The alternative — leave the map's floor alone when the Plan
-   carries Any — would show a thinner set than the one tapped through from, which is the failure the
-   crumb exists to prevent.
+2. **Carry *Any* as 1★+.** A Plan lens at Any writes `minStars = 1` (loosening a persisted 3★ if
+   there was one) so the two sets agree — the map has no Any state and must not grow one for this
+   (P7's "always a value" decision stands), and 1★+ with `showUnrated` untouched is exactly what the
+   Plan's Any admits (§1 #6). The crumb does not name it (there is nothing to act on); the Filters
+   chip states `1★+` as it always states the floor; `clear` restores `DEFAULT_MIN_STARS`. The
+   alternative — leave the map's floor alone when the Plan carries Any — would show a thinner set
+   than the one tapped through from, which is the failure the crumb exists to prevent.
 3. **A carried axis is shown while it still holds.** `origin` clause ⇔ `origin != null`; `★` clause ⇔
    `minStars === carried.minRating` and carried is non-null; `within` clause ⇔ `driveTimeFilter ===
    carried.limitMinutes` and carried is non-null; region clause ⇔ the carried region's jump is the
