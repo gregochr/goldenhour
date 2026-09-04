@@ -64,6 +64,22 @@ describe('WindowControl — the pill', () => {
     expect(pill).toHaveTextContent('19:45');
   });
 
+  it('prefers dayLabel over label when a row carries the day-only stripped form (kind-chip dedup)', () => {
+    // The fixture's own `label` values above are already day-only strings with nothing to strip —
+    // this is the primary path `utils/mapEvents.js` actually produces: a served label that STILL
+    // carries the kind word, deduped down to `dayLabel`.
+    const events = [{
+      id: 'solar:2026-09-02:SUNSET', kind: 'solar', eventType: 'SUNSET', date: '2026-09-02',
+      label: 'Tonight Sunset', dayLabel: 'Tonight', time: '19:45', badges: [],
+    }];
+    render(<WindowControl events={events} activeIndex={0} onSelect={vi.fn()} />);
+    // The label span specifically, not the whole pill — the kind chip is a SEPARATE element that
+    // legitimately says "Sunset", so asserting on the flattened pill text could pass by accident.
+    const label = screen.getByTestId('wf-win-pill').querySelector('.wf-win-label');
+    expect(label).toHaveTextContent('Tonight');
+    expect(label).not.toHaveTextContent('Sunset');
+  });
+
   it('shows "No forecast" — not nothing — when nothing matches but rows exist', () => {
     // The map's own domain can reach further than the briefing (or than any night on record), so
     // this is an ordinary state (map-tab-v2-plan.md §3 P6) — matching the retired `<select>`'s

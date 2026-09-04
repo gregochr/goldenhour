@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
-  buildLocationSheet, buildScoreIndex, buildSlotIndex, lookupForWindow, sheetSpotOf,
+  buildLocationSheet, buildScoreIndex, buildSlotIndex, buildTideAlignmentIndex, lookupForWindow,
+  sheetSpotOf,
 } from '../utils/locationSheet.js';
 
 /**
@@ -167,6 +168,96 @@ describe('buildSlotIndex', () => {
   it('answers null for a window, or an index, it has nothing for', () => {
     expect(lookupForWindow(SLOTS, 7, 'Bamburgh', '2026-08-17', 'SUNRISE')).toBeNull();
     expect(lookupForWindow(null, 7, 'Bamburgh', '2026-08-14', 'SUNSET')).toBeNull();
+  });
+});
+
+/**
+ * The map tab's tide-alignment glyph/tiebreaker/tooltip/callout-row source (bundle rev 2's
+ * tide-chip tweak). Keyed exactly like {@link buildSlotIndex} — same {@code days} shape, same
+ * {@link lookupForWindow} reader — so these tests reuse that suite's fixture idiom rather than a
+ * new one.
+ */
+describe('buildTideAlignmentIndex', () => {
+  const daysWithTide = (slotOverrides) => [{
+    date: '2026-08-14',
+    eventSummaries: [{
+      targetType: 'SUNSET',
+      regions: [{
+        regionName: 'Northumberland',
+        slots: [{ locationId: 7, locationName: 'Bamburgh', ...slotOverrides }],
+      }],
+    }],
+  }];
+
+  it('reads the two read fields off a slot, id-first — offsetMinutes/kind have no reader and are not indexed', () => {
+    const idx = buildTideAlignmentIndex(daysWithTide({
+      tideOnTheLight: true,
+      nearestSolarOffsetMinutes: 36,
+      nearestExtremeKind: 'HW',
+      nearestSolarOffsetPhrase: 'HW 19:52 · 36m before sunset',
+    }));
+    expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET')).toEqual({
+      onTheLight: true,
+      phrase: 'HW 19:52 · 36m before sunset',
+    });
+  });
+
+  it('indexes a definite "not aligned" slot too — false is an answer, not an absence', () => {
+    const idx = buildTideAlignmentIndex(daysWithTide({
+      tideOnTheLight: false,
+      nearestSolarOffsetMinutes: 180,
+      nearestExtremeKind: 'LW',
+      nearestSolarOffsetPhrase: 'LW 16:52 · 3h before sunset',
+    }));
+    const entry = lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET');
+    expect(entry.onTheLight).toBe(false);
+    expect(entry.phrase).toBe('LW 16:52 · 3h before sunset');
+  });
+
+  it('SKIPS a slot whose tideOnTheLight is null — inland, or no stored extremes, is not "false"', () => {
+    const idx = buildTideAlignmentIndex(daysWithTide({ tideOnTheLight: null }));
+    expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET')).toBeNull();
+    expect(idx.byId.size).toBe(0);
+  });
+
+  it('SKIPS a slot with no tideOnTheLight field at all (an inland location\'s slot shape)', () => {
+    const idx = buildTideAlignmentIndex(daysWithTide({}));
+    expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET')).toBeNull();
+  });
+
+  it('falls back to a null phrase when it is absent', () => {
+    // Defensive: the deriver always sets all four wire fields together, but the index must not
+    // crash or fabricate a phrase if a future payload ever separates them.
+    const idx = buildTideAlignmentIndex(daysWithTide({ tideOnTheLight: true }));
+    expect(lookupForWindow(idx, 7, 'Bamburgh', '2026-08-14', 'SUNSET')).toEqual({
+      onTheLight: true, phrase: null,
+    });
+  });
+
+  it('name-keyed fallback works the same way buildSlotIndex\'s does', () => {
+    const idx = buildTideAlignmentIndex([{
+      date: '2026-08-14',
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        unregioned: [{
+          locationName: 'Bamburgh', tideOnTheLight: true, nearestExtremeKind: 'LW',
+          nearestSolarOffsetMinutes: -12, nearestSolarOffsetPhrase: 'LW 19:40 · 12m before sunset',
+        }],
+      }],
+    }]);
+    expect(lookupForWindow(idx, null, 'Bamburgh', '2026-08-14', 'SUNSET').phrase)
+      .toBe('LW 19:40 · 12m before sunset');
+  });
+
+  it('skips a day with no date and a summary with no event type, rather than keying on undefined', () => {
+    expect(buildTideAlignmentIndex(null).byId.size).toBe(0);
+    expect(buildTideAlignmentIndex([{ eventSummaries: [{ targetType: 'SUNSET' }] }]).byName.size)
+      .toBe(0);
+    const noType = buildTideAlignmentIndex([{
+      date: '2026-08-14',
+      eventSummaries: [{ regions: [{ slots: [{ locationId: 7, tideOnTheLight: true }] }] }],
+    }]);
+    expect(noType.byId.size).toBe(0);
   });
 });
 

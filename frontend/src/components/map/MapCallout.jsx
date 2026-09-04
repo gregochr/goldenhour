@@ -127,6 +127,12 @@ function subjectWords(types) {
  * @param {?number} [props.driveMinutes] measured drive time, or null when unmeasured
  * @param {?number} [props.distanceMiles] straight-line miles — HOME origin only; the caller passes
  *        null under an away origin (§1.12's `reachMeasured` discipline, `utils/planOrigin.js`)
+ * @param {?{onTheLight: boolean, phrase: ?string}} [props.tideOnLight] this window's tide-alignment
+ *        fact for THIS location (bundle rev 2's tide-chip tweak), from
+ *        `utils/locationSheet.buildTideAlignmentIndex` via `lookupForWindow` — never
+ *        {@code tideAligned}, a different question (see that function's own doc). The row is
+ *        omitted entirely unless `onTheLight` is true AND a `phrase` exists, matching this
+ *        component's own unmeasured-facts discipline
  * @param {?object} [props.scoreIndex] from `utils/locationSheet.buildScoreIndex` — the per-location
  *        per-window rating/summary join, reused rather than re-derived (plan §3 P9)
  * @param {boolean} [props.scoresKnown] whether the `scoreIndex` response has actually landed — a
@@ -150,6 +156,7 @@ function subjectWords(types) {
  */
 export default function MapCallout({
   location, rating = null, event = null, driveMinutes = null, distanceMiles = null,
+  tideOnLight = null,
   scoreIndex = null, scoresKnown = false, regionGlossIndex = null, evRows = [],
   astroConditionsByDate = null, auroraResultsByDate = null,
   onSelectEv = null, onOpenInPlan = null, onClose = null,
@@ -230,9 +237,25 @@ export default function MapCallout({
 
   // Repaint on anything that is not a map event but can change the anchor point or the card's own
   // size: a new selection, a different active window (content/height changes), or the strip's own
-  // disclosure toggling. `paint`'s identity already moves with `location`; `stripOpen` is listed
-  // explicitly since the card it measures is the ONLY thing that changes.
-  useEffect(() => { repaintNow(); }, [paint, stripOpen, repaintNow]);
+  // disclosure toggling. `paint`'s identity already moves with `location`; `stripOpen` and
+  // `event?.id` are listed explicitly since the card they measure is the ONLY thing that changes.
+  //
+  // ⚠️ `event?.id` was MISSING here until a review on the tide-chip PR caught it as a P1: this
+  // comment already named "a different active window (content/height changes)" as a repaint
+  // trigger, but nothing in the dependency list actually was one, so switching the active window
+  // with the card open kept the anchor box sized for whichever window was active when the card
+  // last measured — worst on the phone, where the card can end up with its bottom under the map's
+  // own bottom controls until an unrelated pan/zoom forces a re-measure. The tide row
+  // (`tideOnLight?.onTheLight`/`.phrase`) is the newest content that mounts/unmounts per window,
+  // but it was not the only one already living here: `reason` (served summary, per-window,
+  // falling back to a region gloss or to nothing) and `topics` (`event.badges`, a different set
+  // per window) can ALSO appear or disappear switching windows, and `calloutFacts`'s "Leave by"
+  // fact depends on `eventInstantOf(scoreEntry, …)`, which is null for every night window and for
+  // an unscored solar one — so the facts row is not reliably the same height across windows
+  // either. Keying on the event's own identity, rather than a narrower boolean naming just the
+  // tide row, catches all four at once and needs no second dependency the next time a
+  // window-scoped block is added to this card.
+  useEffect(() => { repaintNow(); }, [paint, stripOpen, event?.id, repaintNow]);
 
   // "On open": bring the point into view — ONCE per new selection, never on every paint (README §7
   // reserves `panInside` for the open action; the anchoring above is what tracks it afterwards).
@@ -304,6 +327,10 @@ export default function MapCallout({
   // rating never reaches this catalogue in practice (`utils/mapLabels.js`'s own note), but rounding
   // before classifying is what keeps "4★ Maybe" from ever being printable if one ever did.
   const word = verdictWord(ratingRounded);
+  // The kind chip beside this already reads SUNRISE/SUNSET — `dayLabel`, never `event.label`
+  // (kind-chip dedup). Falls back to `label` for a caller that predates the field (e.g. a fixture
+  // built before `utils/mapEvents.js` started emitting it).
+  const eventDayLabel = event.dayLabel ?? event.label;
 
   const scoreEntry = event.kind === 'solar'
     ? lookupForWindow(scoreIndex, location.id, location.name, event.date, event.eventType)
@@ -404,7 +431,7 @@ export default function MapCallout({
         >
           <span className={`wf-hc-sun ${kindClass(event)}`}>{kindWord(event)}</span>
           <span className="wf-callout-verdict-label">
-            {event.time ? `${event.label} · ${event.time}` : event.label}
+            {event.time ? `${eventDayLabel} · ${event.time}` : eventDayLabel}
           </span>
           {ratingRounded != null ? (
             <span
@@ -433,6 +460,28 @@ export default function MapCallout({
                 {fact.value}
               </span>
             ))}
+          </div>
+        )}
+
+        {tideOnLight?.onTheLight && tideOnLight?.phrase && (
+          // Omitted entirely when not aligned — this component's own unmeasured-facts discipline
+          // (`utils/mapCallout.js`), never a "no tide alignment" line. Styled on the repo's
+          // existing bordered-tide-row look (`.wf-frow`'s border/background/kicker-ink), not the
+          // design bundle's `.ctide` values verbatim (bundle rev 2's tide-chip tweak).
+          <div className="wf-callout-tide" data-testid="map-callout-tide">
+            <svg viewBox="0 0 14 8" aria-hidden="true">
+              <path
+                d="M0.6 5.6C3 5.6 3 2.4 5.4 2.4S7.8 5.6 10.2 5.6 12.6 2.4 13.4 2.4"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            </svg>
+            <span className="wf-callout-tide-text">
+              <b>Tide lands on the light</b>
+              {tideOnLight.phrase}
+            </span>
           </div>
         )}
 
@@ -465,11 +514,13 @@ export default function MapCallout({
                   type="button"
                   className={`wf-callout-strip-cell${row.id === event.id ? ' on' : ''}`}
                   data-testid="map-callout-strip-cell"
+                  // The title carries NO kind chip, so it keeps `label`'s full form — only the
+                  // visible text beside the kind-short badge below switches to `dayLabel`.
                   title={row.time ? `${row.label} · ${row.time}` : row.label}
                   onClick={() => onSelectEv?.(row)}
                 >
                   <span className={`wf-hc-sun ${kindClass(row)}`}>{kindShort(row)}</span>
-                  <span className="wf-callout-strip-date">{row.label}</span>
+                  <span className="wf-callout-strip-date">{row.dayLabel ?? row.label}</span>
                   {rowRatingRounded != null ? (
                     <span className="wf-callout-strip-score">
                       <i style={{ background: rgb(rampRgb(rowRatingRounded)) }} />
@@ -529,11 +580,18 @@ MapCallout.propTypes = {
     eventType: PropTypes.string,
     date: PropTypes.string,
     label: PropTypes.string,
+    /** Day-only form of `label` with the trailing SUNRISE/SUNSET word stripped — see
+     * `eventDayLabel`. Optional: falls back to `label` for a caller that predates the field. */
+    dayLabel: PropTypes.string,
     time: PropTypes.string,
     badges: PropTypes.array,
   }),
   driveMinutes: PropTypes.number,
   distanceMiles: PropTypes.number,
+  tideOnLight: PropTypes.shape({
+    onTheLight: PropTypes.bool,
+    phrase: PropTypes.string,
+  }),
   scoreIndex: PropTypes.object,
   scoresKnown: PropTypes.bool,
   regionGlossIndex: PropTypes.object,

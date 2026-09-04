@@ -100,6 +100,23 @@ vi.mock('../components/MapHeatLayer.jsx', () => ({
   },
 }));
 
+/**
+ * The lazy label layer, replaced by the same probe pattern as `MapHeatLayer` above. This file's
+ * `useMap()` mock (below) is deliberately minimal — no `createPane`/`getBounds`/
+ * `latLngToContainerPoint` — so the REAL `MapLabels` cannot mount a pane or place a single chip
+ * here; every existing test in this file has always exercised it as a silent no-op. Stubbing it
+ * explicitly, rather than leaving that accidental, lets `labelSpots` (the date+targetType join
+ * `MapView` hands it) be asserted on directly — the seam the tide-alignment join test below needs
+ * — without taking on `MapLabels.test.jsx`'s own Leaflet-pane/placement fixture machinery here.
+ */
+const labelSpotsProps = { last: null };
+vi.mock('../components/map/MapLabels.jsx', () => ({
+  default: (props) => {
+    labelSpotsProps.last = props;
+    return <div data-testid="map-labels-stub" />;
+  },
+}));
+
 let role = 'PRO_USER';
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role }) }));
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => false }));
@@ -141,6 +158,7 @@ import { markerLabelAndColour } from '../components/markerUtils.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import { ukDateStrOffset } from '../utils/mapDates.js';
 import { latLngBounds } from '../utils/heatGeometry.js';
+import { buildTideAlignmentIndex } from '../utils/locationSheet.js';
 
 const TODAY = '2026-01-15';
 const TOMORROW = '2026-01-16';
@@ -679,7 +697,15 @@ describe('MapView heat — which window the field paints', () => {
     // The negative test below pins the no-match pill; without this one, an always-unmatched
     // control would be caught by nothing.
     await renderMap({ heat: heatProp() });
-    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(WINDOWS[1].label); // "Tonight sunset"
+    const pill = screen.getByTestId('wf-win-pill');
+    expect(pill).toHaveTextContent('Tonight');
+    // Tightened: `toHaveTextContent('Tonight')` alone passes whether the label is the day-only
+    // "Tonight" or the pre-dedup "Tonight sunset" (WINDOWS[1].label), since both CONTAIN
+    // "Tonight" — it cannot tell the deduped pill from the old one. Pin the day-only form
+    // specifically: the label span excludes the word the separate kind chip states.
+    expect(pill.querySelector('.wf-win-label')).toHaveTextContent('Tonight');
+    expect(pill.querySelector('.wf-win-label')).not.toHaveTextContent(/sunset/i);
+    expect(pill).toHaveTextContent('Sunset'); // the kind chip states it, just not in the label span
   });
 
   it('moves the map’s DATE when the window control picks a window on another day', async () => {
@@ -701,7 +727,9 @@ describe('MapView heat — which window the field paints', () => {
     await renderMap({ heat: heatProp(), onSelectDate });
     pickWindow(`${TODAY}:SUNRISE`);
     expect(onSelectDate).not.toHaveBeenCalled();
-    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(WINDOWS[0].label); // "This morning sunrise"
+    // Day-only form again — `WINDOWS[0].label` is "This morning sunrise", kind-chip dedup strips
+    // the trailing "sunrise".
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent('This morning');
     expect(heatLayerProps.last.points.map((p) => p.name)).toEqual(['Bamburgh']);
   });
 
@@ -720,7 +748,8 @@ describe('MapView heat — which window the field paints', () => {
         />,
       );
     });
-    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(WINDOWS[0].label);
+    // Day-only form, matching the pill's kind-chip dedup (see the test two above).
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent('This morning');
   });
 
   it('shows nothing selected, and paints nothing, on a date the briefing does not reach', async () => {
@@ -730,6 +759,74 @@ describe('MapView heat — which window the field paints', () => {
     expect(screen.getByTestId('wf-win-no-match')).toBeInTheDocument();
     await screen.findByTestId('map-heat-layer');
     expect(heatLayerProps.last.points).toEqual([]);
+  });
+});
+
+/**
+ * The full join seam, end to end: a `briefing.days` fixture → `utils/locationSheet
+ * .buildTideAlignmentIndex` (the pane's own index build, `WindowFirstMapPane.jsx`) →
+ * `MapView`'s `tideAlignmentIndex` prop → `getTideOnLightForLocation`'s date+targetType join →
+ * `labelSpots`, the array `MapView` hands `MapLabels` as `spots` (never previously exercised past
+ * the unit level — `locationSheet.test.js` proves the index build in isolation, `MapLabels.test.jsx`
+ * proves chip rendering from a hand-built spot, but nothing threaded a real briefing fixture
+ * through both). Reads `labelSpotsProps.last` from the `MapLabels` stub above — the same
+ * capture-the-props pattern this file already uses for `MapHeatLayer`.
+ */
+describe('MapView heat — the tide-alignment index join (bundle rev 2)', () => {
+  // Location id 1 is Bamburgh (`SPOTS[0]`/`makeLocations()[0]`) — the join is id-first, so the
+  // per-render name suffix `makeLocations()` adds (`markerNonce`) cannot break it.
+  const briefingWithTide = (tideOnTheLight) => ({
+    days: [{
+      date: TODAY,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [{
+          regionName: 'North East',
+          slots: [{
+            locationId: 1,
+            locationName: 'Bamburgh',
+            tideOnTheLight,
+            nearestSolarOffsetMinutes: 25,
+            nearestExtremeKind: 'HW',
+            nearestSolarOffsetPhrase: 'HW 20:20 · 25m after sunset',
+          }],
+        }],
+      }],
+    }],
+  });
+
+  function bamburghSpot() {
+    return labelSpotsProps.last.spots.find((s) => s.name.startsWith('Bamburgh'));
+  }
+
+  it('an aligned slot\'s onTheLight/phrase arrive on the Bamburgh entry in labelSpots', async () => {
+    const tideAlignmentIndex = buildTideAlignmentIndex(briefingWithTide(true).days);
+    await renderMap({ heat: heatProp(), tideAlignmentIndex });
+
+    const spot = bamburghSpot();
+    expect(spot.onTheLight).toBe(true);
+    expect(spot.nearestSolarOffsetPhrase).toBe('HW 20:20 · 25m after sunset');
+  });
+
+  it('a not-aligned slot reaches labelSpots too, as onTheLight: false with no phrase', async () => {
+    const tideAlignmentIndex = buildTideAlignmentIndex(briefingWithTide(false).days);
+    await renderMap({ heat: heatProp(), tideAlignmentIndex });
+
+    const spot = bamburghSpot();
+    expect(spot.onTheLight).toBe(false);
+    // `MapView.jsx`'s `spotOf` only carries the phrase alongside `onTheLight: true` — a phrase
+    // beside a false flag would be a fact about the wrong extreme dressed as the useful one.
+    expect(spot.nearestSolarOffsetPhrase).toBeNull();
+  });
+
+  it('with no tideAlignmentIndex at all, every spot in labelSpots is unaligned — the prop is optional', async () => {
+    await renderMap({ heat: heatProp() });
+
+    expect(labelSpotsProps.last.spots.length).toBeGreaterThan(0);
+    labelSpotsProps.last.spots.forEach((spot) => {
+      expect(spot.onTheLight).toBe(false);
+      expect(spot.nearestSolarOffsetPhrase).toBeNull();
+    });
   });
 });
 

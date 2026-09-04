@@ -209,6 +209,31 @@ describe('mapLabels — chipCandidates', () => {
     expect(chipCandidates({ spots, zoom: 13 }).map((s) => s.name)).toEqual(['rated', 'unrated']);
   });
 
+  it('among equal stars, tide alignment is the tiebreaker — the aligned one survives a budget of one (bundle rev 2)', () => {
+    // Two SAME-region spots, both out of view: the only slot either can reach is the region's own
+    // single guaranteed "best" pick, so whichever the sort puts first is the ONLY one that survives
+    // — a real budget-of-one, not merely a position within a longer list. Without the tiebreaker
+    // the closer, unaligned spot (drive 5) would win on the sort's OLD final key.
+    const notAligned = { ...spot('not-aligned', 'A', 4, 5), onTheLight: false };
+    const aligned = { ...spot('aligned', 'A', 4, 50), onTheLight: true };
+    const result = chipCandidates({
+      spots: [notAligned, aligned], zoom: 13, inViewNames: new Set(),
+    });
+    expect(result.map((s) => s.name)).toEqual(['aligned']);
+  });
+
+  it('tide alignment never overrides a HIGHER star rating — score is still the first sort key', () => {
+    const higherNotAligned = { ...spot('higher', 'A', 5, 5), onTheLight: false };
+    const lowerAligned = { ...spot('lower', 'A', 4, 5), onTheLight: true };
+    const result = chipCandidates({ spots: [lowerAligned, higherNotAligned], zoom: 13 });
+    expect(result.map((s) => s.name)).toEqual(['higher', 'lower']);
+  });
+
+  it('drive time still breaks a tie when neither spot is tide-aligned', () => {
+    const spots = [spot('far', 'A', 3, 100), spot('near', 'A', 3, 10)];
+    expect(chipCandidates({ spots, zoom: 13 }).map((s) => s.name)).toEqual(['near', 'far']);
+  });
+
   it('always includes the best-in-region candidate, even when it is out of view', () => {
     const spots = [
       spot('best-of-region', 'Remote', 5, 5),

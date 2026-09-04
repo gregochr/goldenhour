@@ -26,6 +26,9 @@ a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
 .wrap{max-width:1240px;margin:0 auto;transition:max-width .22s ease}
 .wrap.pad{max-width:834px}
 .wrap.mob{max-width:390px}
+/* the full-bleed comparison: what the live app does today */
+.wrap.full{max-width:none}
+.wrap.full .frame{height:760px}
 
 .frame{position:relative;display:flex;flex-direction:column;height:880px;overflow:hidden;background:var(--bg);border:1px solid var(--border);border-radius:12px}
 .wrap.pad .frame{height:1000px;border-radius:18px;box-shadow:0 0 0 7px #241c17,0 22px 50px rgba(0,0,0,.55)}
@@ -100,6 +103,15 @@ a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
 .loc i{width:5px;height:5px;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.85)}
 .loc b{font-weight:600;color:var(--ink);letter-spacing:.01em}
 .loc em{font-style:normal;font-weight:600;color:var(--ink);padding-left:4px;border-left:1px solid var(--border-light)}
+/* tide alignment: a glyph, not a second number — the rating stays the only score on the chip */
+.loc .tw{width:13px;height:7px;display:block;flex:none;color:var(--tide)}
+.loc.td{box-shadow:inset 0 0 0 1px rgba(111,168,176,.45),0 2px 6px rgba(0,0,0,.5)}
+.loc.td.on,.loc.on{box-shadow:inset 0 0 0 1.5px var(--home),0 2px 10px rgba(0,0,0,.65)}
+#tip .tt{color:#8FC0C7}
+.ctide{display:flex;align-items:flex-start;gap:7px;border:1px solid rgba(111,168,176,.32);background:rgba(111,168,176,.09);border-radius:8px;padding:5px 8px}
+.ctide .tw{width:16px;height:9px;flex:none;color:var(--tide);margin-top:3px}
+.ctide span{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);line-height:1.45}
+.ctide span b{display:block;color:#8FC0C7;font-size:10px;font-weight:600}
 .wrap.mob .loc{font-size:10px;padding:3px 6px}
 .pin{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;border-radius:50%;font-family:var(--mono);font-weight:700;font-size:11px;cursor:pointer;border:2px solid rgba(0,0,0,.35)}
 .pin .st{font-size:.62em;margin-left:1px;opacity:.85}
@@ -276,7 +288,7 @@ a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
 </div>
 
 <div class="demobar"><span class="sp">One document, three viewports · arrow keys step the window.</span>
-<button id="bD" class="on">▭ Desktop</button><button id="bP">▭ iPad</button><button id="bM">▭ iPhone</button></div>
+<button id="bD" class="on">▭ Desktop 1240</button><button id="bF">▭ Full-bleed</button><button id="bP">▭ iPad</button><button id="bM">▭ iPhone</button></div>
 
 <div class="wrap" id="wrap">
 <div class="frame">
@@ -352,6 +364,8 @@ a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
 <div class="nt"><b>Names, from the Plan tab</b><span>Location chips are the same component as the Plan popup's: a square in the ramp colour, the name, and this window's rating, placed greedily best-first and dropped rather than overlapped. Region names claim space first while the field is the subject, then hand over as you zoom — past a county the question stops being <em>where</em> and becomes <em>which</em>, and a smear cannot answer which.</span></div>
 <div class="nt"><b>The home marker and the rings</b><span>Every drive time and leave-by on this screen is measured from DH3 4NG, so the map states it: a marker, and dashed rings at 45 minutes and 1h 30 while you are zoomed out. That is what turns a warm blob into <em>an hour north of me</em>. The masthead postcode is a statement of that fact, not a control.</span></div>
 <div class="nt"><b>The ground it sits on</b><span>Basemap changed after comparing six on the same field (<code>Map Basemap Options.html</code>). Now Esri Dark Gray, warmed into the palette by a CSS filter. It is <em>not</em> label-free: the base tile still sets country and water-body names — SCOTLAND, Solway Firth, Firth of Clyde — but no <em>towns</em>, which is the class that was competing with our location chips for the same pixels, and ours carry a rating theirs cannot. Town names come back as a reference layer we control past zoom 11.8, where our chips thin out and the village you are driving through starts being useful. The coast is stroked from the same geometry the field is clipped to, so the ground keeps its shape on a basemap quiet enough to let the field lead. CARTO also now watermarks its no-label styles without a key, and the shipped app already credits Esri.</span></div>
+<div class="nt"><b>Tide alignment on the chip</b><span>A wave glyph appears on a location's chip when <em>this window's</em> tide lands on the light and the location is coastal — parsed from the tide copy the app already writes, and gated at 45 minutes either side, so it marks alignment rather than merely marking the coast. Three of the six windows qualify; the sunrise with low water 2h11 early does not. It is a <em>glyph, not a second number</em>: the rating stays the only score on the chip. It also acts as the tiebreaker in the label budget — among equal stars, the location whose tide lands on the light keeps its label when space runs out, so a 4★ with the tide beats a 4★ without it rather than losing to it on drive time.</span></div>
+<div class="nt"><b>Width: the map should keep the masthead's column</b><span>Full-bleed reads as broken for a structural reason, not a taste one: the tab strip stops at the content column while the panel it belongs to carries on to the window edge, so the tabs look like they are floating above an unrelated surface. Full width also adds sea and empty moor rather than information — at 2400px one screen spans roughly 150 miles, every label crowds the right third, and the window control and Filters end up a head-turn apart. The <code>▭ Full-bleed</code> button in the toolbar above switches between the two so it can be judged at your own screen width.</span></div>
 <div class="nt"><b>No ramp colour as text</b><span>Star numerals are <em>never</em> drawn in the ramp colour. As a fill the ramp colour has ink placed on top of it and the ink can be chosen per fill to pass; as text the ramp colour <em>is</em> the ink and cannot. The mid-peaked luminance makes it unfixable by a lightness floor, because 1★ and 5★ fail from opposite ends of the ramp — measured, ramp-as-text gave 1★ 2.37 and 5★ 3.04 against their own chip grounds. So the swatch or the badge fill carries the colour and the numeral takes <code>#FFFFFF</code> or <code>#0F172A</code>, picked per fill by <code>HeatField.ink()</code>. Every star label on this screen now measures ≥ 5.56:1. Rule from <code>design_temp_scale</code>, Change 5a.</span></div>
 <div class="nt"><b>The scale, and the bloom</b><span>The field is coloured by the shipped <em>temperature</em> scale — cold slate blue at 1★ through gold to deep red at 5★ — not the old red/amber/green verdict ramp. That change inverts the basemap polarity: the hot end is now the ramp's <em>darkest</em> colour by design, so under plain compositing on a dark ground the gold middle is the brightest thing on screen and the map is loudest where the night is merely average. A blend mode cannot fix it (screen and lighter are monotonic in source luminance). What does is a second emissive layer whose alpha follows the <em>score</em>, gated from 3★ up and composited additively inside the overlay canvas — so hot glows because it is hot. Measured at the blob core over this basemap, brightness now climbs 3★ 88 · 4★ 101 · 4.5★ 107 · 5★ 117 where it used to fall. The gate stays at 3★ on every surface: 3★ is where the ramp's own luminance peaks, so a higher gate leaves a dead band in which the ramp darkens and the bloom has not started. See <code>Light or Dark Map.html</code>.</span></div>
 <div class="nt"><b>Pins kept as the honest comparison</b><span>One dot per location, no field. It is why heat became the default: at anything wider than a county, clusters average their own gems away. It stays one tap away rather than being argued about.</span></div>

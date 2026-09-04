@@ -10,7 +10,7 @@ import { latLngBounds } from '../utils/heatGeometry.js';
 import { scopeSpots } from '../utils/planOrigin.js';
 import { beyondRegions } from '../utils/planningArea.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
-import { buildScoreIndex } from '../utils/locationSheet.js';
+import { buildScoreIndex, buildTideAlignmentIndex } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/mapCallout.js';
 import { buildRegionBestIndex } from '../utils/regionsJump.js';
 
@@ -140,6 +140,15 @@ export default function WindowFirstMapPane({
    * gloss or the grid cell about which briefing build it is reading.
    */
   const regionBestIndex = useMemo(() => buildRegionBestIndex(briefing?.days), [briefing?.days]);
+  /**
+   * The map tab's tide-alignment glyph/tiebreaker/tooltip/callout-row source (bundle rev 2) —
+   * built from the SAME {@code briefing.days} the two indexes above read, so a chip's glyph can
+   * never disagree with the selection callout's own row about whether this window's water lands
+   * on the light.
+   */
+  const tideAlignmentIndex = useMemo(
+    () => buildTideAlignmentIndex(briefing?.days), [briefing?.days],
+  );
 
   /**
    * The heat field's opt-in, built here and nowhere else.
@@ -297,6 +306,7 @@ export default function WindowFirstMapPane({
         scoresKnown={scoresLoaded}
         regionGlossIndex={regionGlossIndex}
         regionBestIndex={regionBestIndex}
+        tideAlignmentIndex={tideAlignmentIndex}
         reachById={reachById}
         onOpenLocationInPlan={onOpenLocationInPlan}
       />

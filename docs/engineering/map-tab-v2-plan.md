@@ -712,6 +712,36 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     from `astroHeatPoints` directly, i.e. a statement about the forecast, not the camera; gating it
     silenced the one mode whose message is always earned, and a test caught it. Both new pins fail
     against the old logic (verified by reverting the predicate).
+20. **The tide-alignment gate is `TideFactDeriver`'s dynamic half-width, never bundle rev 2's fixed
+    ±45 minutes.** `map-tab-v2.js`'s `tideOf`/`tideFit` demo (`TIDE_TIGHT=45`) parses the window out
+    of already-formatted tide copy; the port instead serves the fact structurally.
+    `BriefingSlotBuilder.calculateTideData` computes four new `BriefingSlot.TideInfo` fields
+    (`nearestSolarOffsetMinutes`, `nearestExtremeKind`, `tideOnTheLight`,
+    `nearestSolarOffsetPhrase`) from the nearest tide extreme of *either* kind against
+    `TideFactDeriver.tightAlignmentWindowMinutes` — the same per-location, per-date, per-event
+    half-width the Plan tab's own tide row already gates on, so the map's glyph and the Plan tab's
+    tide row can never disagree about what counts as "on the light"
+    (`WindowTideRollupBuilder.java:308-314`'s own warning against a second alignment rule). CLAUDE.md's
+    backend-heavy rule applies unchanged: the offset, kind and gate are structured fields on the
+    wire, and the one phrase string is built once server-side from the shared `TideWording`
+    vocabulary — no client parses formatted tide copy the way the bundle's demo code does. ⚠️ The
+    gate matches the Plan tab's tide row exactly, but the two can still name different *water* in a
+    fringe case: the row's water is that day's chosen *representative* extreme
+    (`TideRunBuilder`'s own selection for a multi-day run), while the chip's is the nearest extreme
+    of *either* kind to THIS event, full stop. That is deliberate, not an inconsistency to fix — the
+    chip is answering "does the water land on the light here", not "which extreme is this run's
+    representative one", and the two questions can disagree on which tide they are about while
+    agreeing on the answer that matters (whether it is tight).
+21. **`dayLabel` ships as a sibling field, not a rewrite of `label`.** The bundle's `dayOnly()`
+    mutates the string a window is keyed and displayed by; the port instead has
+    `utils/mapEvents.js` emit `dayLabel` alongside the untouched `label` on every EV row (solar:
+    `label` with its trailing sunrise/sunset word stripped; night: identical to `label`, since a
+    night row carries no event word to strip). Only the four chip-adjacent consumers that sit
+    beside a kind chip switch readers — `WindowControl`'s collapsed pill and menu rows,
+    `MapCallout`'s verdict line and every-window strip cells — because the chip already states
+    SUNRISE/SUNSET and repeating it in the label text beside it would say the same fact twice. The
+    pin tooltip (`MapView`) and the callout strip cell's own `title` attribute keep reading `label`
+    unchanged, since neither sits beside a kind chip that would make the event word redundant.
 
 ## §5 Decisions taken in this plan (challenge in review, not in code)
 
@@ -780,6 +810,9 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   and `regionsJump.buildNightRegionBest`'s licensed client aggregation outright. No such rollup
   exists today — `AuroraRegionSummary` carries a GO/STANDDOWN `verdict` but no stars, and astro
   has no per-region rollup at all — so until one ships, this pair is the licensed stand-in.
+- **O-17** — bundle rev 2's width note (the map keeps the masthead's 1080px column rather than
+  full-bleed): **DECIDED 2026-09-03**, owner chose the column; implemented as its own change (see
+  the width PR), not in this PR.
 
 ## §7 Phase → session map
 

@@ -157,7 +157,11 @@ export default function WindowControl({
         {active ? (
           <>
             <KindChip row={active} />
-            <span className="wf-win-label">{active.label}</span>
+            {/* The kind chip already reads SUNRISE/SUNSET, so the pill text is the day-only
+                form — `dayLabel`, never `label` (map-tab-v2-plan.md's kind-chip dedup). Falls
+                back to `label` for a caller that predates the field, rather than rendering
+                nothing. */}
+            <span className="wf-win-label">{active.dayLabel ?? active.label}</span>
             {active.time && <span className="wf-win-time">{active.time}</span>}
           </>
         ) : (
@@ -211,6 +215,12 @@ WindowControl.propTypes = {
     eventType: PropTypes.string.isRequired,
     date: PropTypes.string.isRequired,
     label: PropTypes.string.isRequired,
+    /**
+     * Day-only form of `label` with the trailing SUNRISE/SUNSET word stripped (kind-chip dedup).
+     * Optional rather than required: every row `utils/mapEvents.js` builds carries it, but the
+     * component falls back to `label` for a caller that predates the field.
+     */
+    dayLabel: PropTypes.string,
     time: PropTypes.string,
     bestRating: PropTypes.number,
     scored: PropTypes.bool,
@@ -302,7 +312,9 @@ function WindowRow({ row, active, onSelect }) {
     >
       <KindChip row={row} />
       <span className="wf-win-row-main">
-        <b>{row.label}</b>
+        {/* Day-only form beside the kind chip — see the collapsed pill above, including the
+            same back-compat fallback. */}
+        <b>{row.dayLabel ?? row.label}</b>
         {row.time && <span className="wf-win-row-time">{row.time}</span>}
       </span>
       <span className="wf-win-row-score">
@@ -326,6 +338,8 @@ WindowRow.propTypes = {
   row: PropTypes.shape({
     id: PropTypes.string.isRequired,
     label: PropTypes.string.isRequired,
+    /** See `events[].dayLabel` above — same optional-with-fallback contract. */
+    dayLabel: PropTypes.string,
     time: PropTypes.string,
     bestRating: PropTypes.number,
     scored: PropTypes.bool,

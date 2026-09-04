@@ -238,6 +238,49 @@ export function buildSlotIndex(days) {
 }
 
 /**
+ * Each coastal location's map-tab tide-alignment facts per window (the tide-chip bundle rev 2) —
+ * whether THIS window's water actually lands on the light, keyed exactly like {@link buildSlotIndex}
+ * so `MapView`/`MapCallout` read it through the same {@link lookupForWindow}.
+ *
+ * <p>Reads two of {@code BriefingSlot.TideInfo}'s four sibling fields off each slot flat
+ * ({@code tideOnTheLight}, {@code nearestSolarOffsetPhrase} — {@code @JsonUnwrapped} puts them
+ * directly on the slot, the same way {@code slot.tideAligned} already reaches this file's other
+ * readers) — never {@code tideAligned}, which tests the location's configured {@code TideType}
+ * PREFERENCE, a different question the map's glyph and tiebreaker must not answer (CLAUDE.md's
+ * tide-axis rule against conflating the two). The other two wire fields
+ * ({@code nearestSolarOffsetMinutes}, {@code nearestExtremeKind}) have no reader on this arm — the
+ * chip, tooltip and callout only ever need the boolean and the already-formatted phrase — so this
+ * INDEX carries only what is read; the wire keeps serving all four regardless.
+ *
+ * <p>A slot with no derivable tide-alignment fact ({@code tideOnTheLight === null} — inland, or no
+ * stored extremes near this event) is SKIPPED rather than indexed as "not aligned": a missing entry
+ * and a {@code false} one are different claims, and only the deriver knows which is true.
+ *
+ * @param {Array} days {@code briefing.days}
+ * @returns {{byId: Map<string, object>, byName: Map<string, object>}} the two indexes, each valued
+ *          {@code {onTheLight, phrase}}
+ */
+export function buildTideAlignmentIndex(days) {
+  const byId = new Map();
+  const byName = new Map();
+  for (const day of Array.isArray(days) ? days : []) {
+    if (!day?.date) continue;
+    for (const summary of day.eventSummaries ?? []) {
+      if (!summary?.targetType) continue;
+      const tail = tailOf(day.date, summary.targetType);
+      for (const { slot } of slotsOf(summary)) {
+        if (slot?.tideOnTheLight == null) continue;
+        index(byId, byName, slot.locationId, slot.locationName, tail, {
+          onTheLight: Boolean(slot.tideOnTheLight),
+          phrase: slot.nearestSolarOffsetPhrase ?? null,
+        });
+      }
+    }
+  }
+  return { byId, byName };
+}
+
+/**
  * Each location's rating and "why" per window, from the RAW score rows.
  *
  * <p>Not the provider's {@code scoreIndex} — see the module comment for the defect that cost.

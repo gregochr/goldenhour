@@ -356,9 +356,9 @@ public class TideRunBuilder {
      * @return the geometry every field of the row is derived from
      */
     private DayGeometry geometryOf(LocationEntity location, LocalDate date, DayTides day) {
-        int sunriseMinutes = localMinutes(
+        int sunriseMinutes = TideWording.londonMinutesOfDay(
                 solarService.sunriseUtc(location.getLat(), location.getLon(), date));
-        int sunsetMinutes = localMinutes(
+        int sunsetMinutes = TideWording.londonMinutesOfDay(
                 solarService.sunsetUtc(location.getLat(), location.getLon(), date));
         Point nearest = nearestSolar(day.points(), sunriseMinutes, sunsetMinutes);
         return new DayGeometry(sunriseMinutes, sunsetMinutes, nearest,
@@ -447,9 +447,9 @@ public class TideRunBuilder {
                     continue;
                 }
                 measured++;
-                int sunriseMinutes = localMinutes(
+                int sunriseMinutes = TideWording.londonMinutesOfDay(
                         solarService.sunriseUtc(location.getLat(), location.getLon(), date));
-                int sunsetMinutes = localMinutes(
+                int sunsetMinutes = TideWording.londonMinutesOfDay(
                         solarService.sunsetUtc(location.getLat(), location.getLon(), date));
                 Point named = waterInTheLight(day, sunriseMinutes, sunsetMinutes);
                 if (named == null) {
@@ -848,10 +848,5 @@ public class TideRunBuilder {
             return null;
         }
         return String.format(Locale.UK, "%+.1f", anomaly);
-    }
-
-    private static int localMinutes(LocalDateTime utc) {
-        return utc.atOffset(ZoneOffset.UTC).atZoneSameInstant(LONDON)
-                .toLocalTime().toSecondOfDay() / 60;
     }
 }

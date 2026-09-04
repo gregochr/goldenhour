@@ -268,6 +268,25 @@ public record BriefingSlot(
      * @param lunarTideType       astronomical tide classification, or null for inland
      * @param lunarPhase          human-readable moon phase name, or null for inland
      * @param moonAtPerigee       true if the moon is near perigee, or null for inland
+     * @param nearestSolarOffsetMinutes signed minutes from this slot's solar event to whichever
+     *                                  tide extreme — high or low, type-blind — lands nearest it;
+     *                                  positive when the water comes after the sun. Null for
+     *                                  inland locations or when no extreme was found nearby.
+     *                                  Deliberately not derived from {@code tideAligned}, which
+     *                                  tests this location's configured {@code TideType}
+     *                                  preference, a different question
+     * @param nearestExtremeKind        {@code "HW"} or {@code "LW"} for whichever extreme
+     *                                  {@code nearestSolarOffsetMinutes} names, or null
+     * @param tideOnTheLight            true when that nearest extreme falls inside
+     *                                  {@code TideFactDeriver}'s dynamic tight alignment window for
+     *                                  this location, date and event — the map tab's tide-alignment
+     *                                  glyph and label-budget tiebreaker. Null alongside the two
+     *                                  fields above
+     * @param nearestSolarOffsetPhrase  the same fact already formatted, e.g.
+     *                                  {@code "HW 19:52 · 36m before sunset"}, built from the
+     *                                  shared {@code TideWording} vocabulary so no client ever
+     *                                  formats a tide clock time itself; null alongside the three
+     *                                  fields above
      */
     public record TideInfo(
             String tideState,
@@ -278,11 +297,40 @@ public record BriefingSlot(
             boolean heightAboveSpringThreshold,
             LunarTideType lunarTideType,
             String lunarPhase,
-            Boolean moonAtPerigee) {
+            Boolean moonAtPerigee,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Integer nearestSolarOffsetMinutes,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String nearestExtremeKind,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Boolean tideOnTheLight,
+            @JsonInclude(JsonInclude.Include.NON_NULL) String nearestSolarOffsetPhrase) {
 
         /** Tide info for inland locations with no tide data. */
         public static final TideInfo NONE =
                 new TideInfo(null, false, null, null, false, false, null, null, null);
+
+        /**
+         * Legacy 9-field constructor, retained so the many existing call sites (mostly tests)
+         * that predate the map-tab tide-alignment fields keep compiling unchanged. Defaults the
+         * four new fields to null — "unknown", not "not aligned" — the same convention
+         * {@link #NONE} already uses for the fields it predates.
+         *
+         * @param tideState           HIGH, MID, LOW, or null for inland
+         * @param tideAligned         true if tide matches location preference
+         * @param nearestHighTideTime UTC time of nearest high tide, or null
+         * @param nearestHighTideHeight height of nearest high tide in metres, or null
+         * @param heightAboveP95          true if the nearest high tide exceeds P95 (statistical)
+         * @param heightAboveSpringThreshold  true if the nearest high tide exceeds 125% avg
+         * @param lunarTideType       astronomical tide classification, or null for inland
+         * @param lunarPhase          human-readable moon phase name, or null for inland
+         * @param moonAtPerigee       true if the moon is near perigee, or null for inland
+         */
+        public TideInfo(String tideState, boolean tideAligned, LocalDateTime nearestHighTideTime,
+                BigDecimal nearestHighTideHeight, boolean heightAboveP95,
+                boolean heightAboveSpringThreshold, LunarTideType lunarTideType,
+                String lunarPhase, Boolean moonAtPerigee) {
+            this(tideState, tideAligned, nearestHighTideTime, nearestHighTideHeight,
+                    heightAboveP95, heightAboveSpringThreshold, lunarTideType, lunarPhase,
+                    moonAtPerigee, null, null, null, null);
+        }
 
         /**
          * Derives the statistical size classification from the existing boolean flags.

@@ -660,10 +660,9 @@ public class WindowTideRollupBuilder {
      * number a reader acts on inherits this axis's fiction.
      */
     private static int clockMinutesFrom(LocalDateTime utc, LocalDate date) {
-        LocalDateTime local = utc.atOffset(ZoneOffset.UTC).atZoneSameInstant(LONDON)
-                .toLocalDateTime();
-        long dayOffset = ChronoUnit.DAYS.between(date, local.toLocalDate());
-        return (int) (dayOffset * MINUTES_PER_DAY + local.toLocalTime().toSecondOfDay() / 60);
+        LocalDate localDate = utc.atOffset(ZoneOffset.UTC).atZoneSameInstant(LONDON).toLocalDate();
+        long dayOffset = ChronoUnit.DAYS.between(date, localDate);
+        return (int) (dayOffset * MINUTES_PER_DAY) + TideWording.londonMinutesOfDay(utc);
     }
 
     private static double round(double value) {

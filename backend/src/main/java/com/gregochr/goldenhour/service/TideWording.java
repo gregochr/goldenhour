@@ -1,6 +1,9 @@
 package com.gregochr.goldenhour.service;
 
+import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.Locale;
 
@@ -20,6 +23,12 @@ import java.util.Locale;
  * a local day: converting on the client would put the timezone rule in two places.
  */
 final class TideWording {
+
+    /**
+     * Every tide clock time this vocabulary states is Europe/London local — the single zone every
+     * caller of {@link #londonMinutesOfDay} converts through.
+     */
+    private static final ZoneId LONDON = ZoneId.of("Europe/London");
 
     private static final DateTimeFormatter CLOCK = DateTimeFormatter.ofPattern("HH:mm");
 
@@ -57,6 +66,20 @@ final class TideWording {
      */
     static String clock(int minutes) {
         return LocalTime.ofSecondOfDay(Math.floorMod(minutes, MINUTES_PER_DAY) * 60L).format(CLOCK);
+    }
+
+    /**
+     * Minutes past Europe/London local midnight for a UTC instant — the one UTC→London conversion
+     * every clock-time caller needs, previously duplicated three ways
+     * ({@code BriefingSlotBuilder}, {@code TideRunBuilder.localMinutes},
+     * {@code WindowTideRollupBuilder.clockMinutesFrom}).
+     *
+     * @param utc the instant, UTC
+     * @return minutes past local midnight, ready for {@link #clock}
+     */
+    static int londonMinutesOfDay(LocalDateTime utc) {
+        return utc.atOffset(ZoneOffset.UTC).atZoneSameInstant(LONDON)
+                .toLocalTime().toSecondOfDay() / 60;
     }
 
     /**

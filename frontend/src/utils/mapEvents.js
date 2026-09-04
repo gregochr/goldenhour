@@ -94,11 +94,31 @@ export function nightLabel(date, todayStr, tomorrowStr) {
  * A beyond-briefing (D-13) solar row's label, built the same way {@code buildWindowCards} builds
  * an ordinary non-lead window's label ({@code "${day} ${event}"}) — never a fresh phrasing, so a
  * date that later enters the briefing horizon does not read differently the day before it does.
+ *
+ * <p>The event word is lower case, matching the served label's own non-lead form
+ * ({@code windowFirstStrip.js}'s {@code `${day} ${eventWord}`}) — a filler row must not be the
+ * only place on the map tab that capitalises it.
  */
 function beyondBriefingLabel(date, targetType, todayStr, tomorrowStr) {
   const day = dayLabelFor(date, todayStr, tomorrowStr);
   const word = eventWord(targetType);
-  return `${day} ${word.charAt(0).toUpperCase()}${word.slice(1)}`;
+  return `${day} ${word}`;
+}
+
+/**
+ * Strips a trailing "sunrise"/"sunset" word from a solar row's label, so the kind chip (which
+ * already reads SUNRISE/SUNSET) is not repeated in the day text beside it — "Sunset · Tonight
+ * Sunset 19:50" states the same fact twice in one pill. Mirrors the design bundle's `dayOnly`
+ * rule (map-tab-v2.js ~:104) verbatim, including its fallback: a label that would strip to
+ * nothing (one reading only "Sunset", no day at all) keeps its untouched form rather than going
+ * blank.
+ *
+ * @param {string} label
+ * @returns {string}
+ */
+function dayOnly(label) {
+  const stripped = String(label).replace(/\s*\b(sunrise|sunset)\b\s*$/i, '').trim();
+  return stripped || label;
 }
 
 /**
@@ -118,12 +138,16 @@ function beyondBriefingLabel(date, targetType, todayStr, tomorrowStr) {
 function solarRow(date, targetType, served, todayStr, tomorrowStr, inForecastDomain) {
   const eventType = targetType;
   if (served) {
+    const label = served.label;
     return {
       id: `solar:${date}:${eventType}`,
       kind: EVENT_KIND.SOLAR,
       eventType,
       date,
-      label: served.label,
+      label,
+      // The kind chip already says SUNRISE/SUNSET (`label` stays the full form for the pin
+      // tooltip and the callout strip cell's `title`, neither of which carries a kind chip).
+      dayLabel: dayOnly(label),
       time: served.time || '',
       confidence: resolveConfidence(
         { confidence: served.confidenceTier }, daysOut(date, todayStr),
@@ -134,12 +158,14 @@ function solarRow(date, targetType, served, todayStr, tomorrowStr, inForecastDom
       inForecastDomain,
     };
   }
+  const label = beyondBriefingLabel(date, targetType, todayStr, tomorrowStr);
   return {
     id: `solar:${date}:${eventType}`,
     kind: EVENT_KIND.SOLAR,
     eventType,
     date,
-    label: beyondBriefingLabel(date, targetType, todayStr, tomorrowStr),
+    label,
+    dayLabel: dayOnly(label),
     time: '',
     confidence: resolveConfidence(null, daysOut(date, todayStr)),
     bestRating: null,
@@ -165,12 +191,16 @@ function nightRow(kind, date, rows, todayStr, tomorrowStr, inForecastDomain) {
   const eventType = kind === EVENT_KIND.ASTRO ? 'ASTRO' : 'AURORA';
   const first = (Array.isArray(rows) ? rows : []).find((r) => r?.nightStart);
   const best = bestOfNight(rows);
+  const label = nightLabel(date, todayStr, tomorrowStr);
   return {
     id: `${kind}:${date}:${eventType}`,
     kind,
     eventType,
     date,
-    label: nightLabel(date, todayStr, tomorrowStr),
+    label,
+    // A night row carries no event word to repeat ("Tonight", "Saturday night") — the two fields
+    // are always the same string, unlike a solar row's day-only stripped form.
+    dayLabel: label,
     // P5's served night window — never re-derived client-side (map-tab-v2-plan.md §3 P5's own
     // warning against recomputing a solar instant the score was not actually taken over). Left
     // blank rather than guessed when no row carries one.
