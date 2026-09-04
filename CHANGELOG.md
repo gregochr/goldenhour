@@ -5,6 +5,200 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.20.1] - 2026-09-04
+
+### Changed — the recurring-conditions rows drop the last raw surprisal figure
+
+`ComingUpConditionsBuilder` composed all three condition quant labels as
+`rarityWord(bits) + " (" + fmt1(bits) + ")"`, so a Coming up row read
+`occasional (3.9) · 7 runs in 90 days`. The bracketed number is log2 surprisal on an
+unbounded scale — `SurpriseScore` sums `log2(meanGapDays)` and `−log2(P(X ≥ x))` — so it
+carries no denominator a reader could reason about, and `rarityWord`'s own javadoc already
+said it existed to give "a sense of scale **without the raw log2 unit**". The three callers
+were putting the unit straight back.
+
+The word now ships alone. This finishes the frontend copy pass that had already dropped the
+same figure from the since-line, the occurrence rows and the condition peaks — that pass
+could not reach these three, because they are composed server-side.
+
+Nothing is lost from the wire: `ComingUpConditionPeak.bits` and
+`ComingUpConditionOccurrence.bits` still carry the number for any consumer that wants it.
+
+**The tests moved rather than weakened.** Four assertions pinned the rarity *value* by
+matching the figure inside the label, and the rarity word alone cannot replace them —
+`log2(7)` and `log2(12)` are both "occasional", so a naive simplification would have left
+the dust fallback and observed-rate tests asserting an identical string and pinning nothing.
+They now assert the computed `bits` on the occurrence itself, which is the value the label
+only ever summarised. Verified by mutation: pointing the dust fallback branch at the observed
+gap fails the new assertion while the label assertion passes.
+
+### Docs — doors from Plan to Map: implementation plan, with the design increment vendored
+
+`docs/engineering/plan-to-map-doors-plan.md` is the port plan for the design bundle's
+`INCREMENT_plan_to_map_doors.md` (three doors from the Plan tab into the Map tab, the handover
+payload, the breadcrumb, and the origin rule), cut into six single-session phases with kickoff
+prompts in `plan-to-map-doors-prompts.md`. Its §1 records where the codebase has already moved past
+the increment: the Map tab already receives the shared origin and reads drive times through one
+accessor (so step one is closing four reads that bypass it, not writing `driveOf`), the home marker
+and reach rings still draw round home under an away origin, the location sheet's `◍ Show on map →`
+is wired to the frozen overlay rather than unwired, the nonce-guarded `mapTabHandoff` channel
+already exists, and a window's identity is `date:targetType` with `findEvIndex` on the map's side.
+The increment's two open questions and one new one (re-pointing the sheet footer) are recorded as
+owner decisions with defaults. Bundle rev 3 (`plan-tab-v5.js`, `map-tab-v2.js`, both HTML pages, the
+README's panel-ink section and the two new files) is vendored verbatim under `docs/design/map-tab-v2/`.
+
+### Docs — doors from Plan to Map: the three owner decisions recorded
+
+The plan's §6 questions are answered before any phase starts: door 3 (the thumbnail glyph) is
+dropped unbuilt, the breadcrumb's `← Plan` lands on the plan itself rather than reopening the window
+sheet, and the location sheet's `◍ Show on map →` is re-pointed from the frozen overlay to the Map
+tab. D5 stays in the plan as a record only, its session prompt is withdrawn, and the verify matrix and
+session map say so.
+
+### Fixed — the map's counts footer states a rated figure it actually counted
+
+The counts footer was specified as `N named · M rated of K` (README §9) and rendered
+`scopedVisibleLocations.length` as **both** `N` and `M` — one expression, printed twice, so
+the line could only ever claim the named and the rated totals were equal. Neither figure was
+right. "Named" is how many chips `MapLabels` places, a zoom-derived budget
+(`clamp(6 + (zoom − 8.6) × 11, 6, 60)`) far below that pool at county scale; "rated" was never
+asked of the ratings at all.
+
+The copy pass had already replaced the line with a single honest `N of K shown`, which removed
+the false claim but lost the coverage signal with it. That signal is now restored as a real
+count: `scopedRatedCount` asks `getRatingForLocation`, which already answers for all four event
+types — solar through the briefing/forecast precedence, and the stored or live star counts for
+astro and aurora — so the figure cannot disagree with the medallion a reader is looking at.
+
+**It appears only when it differs from the drawn count**, which is this codebase's own rule for
+a second number: `reachLens.formatLensCount` puts it as "with nothing trimmed, `138 of 138` is
+a count dressed as a comparison". In the default map every drawn location is rated by
+construction, because the rating filter hides the unrated — so an unconditional figure would
+repeat the number beside it on almost every view. It earns its place exactly where something
+drawn carries no rating: pure wildlife, which has no sky rating by design, and the unrated and
+stand-down locations an admin reveals with the two debug toggles.
+
+Pinned by a test that draws a wildlife location and asserts `5 of 5 shown · 4 rated`, and by a
+second that asserts the clause stays absent when everything drawn is rated. Verified by
+mutation: restoring the duplicated expression fails the first.
+
+### Added — Door 1, the popup field's `◍ Open in map →`, seeded so it never covers a chip
+
+Phase D4 of `docs/engineering/plan-to-map-doors-plan.md`. The window popup's field map
+(`WindowRowFieldMap.jsx`) gains a top-right button, rendered only when the shell has somewhere to
+send it — a separate affordance from the field's own click gesture (region pick) and its
+bottom-left hint, so two meanings never land on one tap. `WindowSheetDialog` passes the prop
+straight through; the shell builds the door from the open window's own date/type and the popup's
+own focused region (`field.selectedRegion`, already forced null under an away origin by D2's
+`openField`), and hands it to D2's `openMapTab` — its first real caller.
+
+The increment's own recorded defect (`INCREMENT_plan_to_map_doors.md`, "The defect worth knowing
+about") was drawing this exact button without seeding it into the field's greedy label-placement
+obstacle array, which covered a chip's rating in 4 of 6 prototype windows. Fixed here by measuring
+the button from the LIVE mounted element (`openRef.current.offsetLeft/Top/Width/Height`, never a
+guessed constant — `HINT_BOX` stays a constant on purpose, for the one fixed 9px string that cannot
+change) and seeding it as a `target: true` obstacle, so the same 24px centre-separation rule that
+already keeps two chips apart also keeps this control apart from every chip.
+
+Verified in the browser with a Playwright sweep (`src/test/e2e/door1-obstacles.spec.js`, new):
+`document.elementFromPoint` sampled every 2px across every chip's width, at both 1280×800 and
+390×844, across all six matrix windows on a seeded local stack — zero overlaps in either
+viewport. Pressing the button closes the popup and lands the Map tab on that window, framed to the
+carried region, with the breadcrumb naming what it carried.
+
+### Changed — the location sheet's `◍ Show on map →` now opens the Map tab, not the frozen overlay
+
+Phase D3 of `docs/engineering/plan-to-map-doors-plan.md` (§6 Q3, decided yes). The four-day location
+sheet's footer button — reached from search, from a spot card, or from a field chip — used to hand
+its window straight to `onShowOnMap`, which routes to the pre-v2 Plan-tab overlay. It now calls the
+shell's existing `openMapTab({date, targetType, locationName, region: null})` (D2's close-then-move-
+and-merge wrapper), landing on the Map tab framed on that window with the location's own callout up,
+the Plan's live rating and reach lens carried across, and D2's breadcrumb naming what travelled. The
+popup and the sheet close first, same as before — `openMapTab` does that closing itself, so the
+shell no longer hand-rolls it. Every other `onShowOnMap` producer (the popup's ranked spot cards,
+`WindowPickDialog`'s region and location actions) is untouched and still opens the overlay;
+converging those is map-tab-v2-plan.md's O-6, not this phase.
+
+The button is withheld — not left wired to nothing — whenever the shell has no map door at all
+(`onOpenMapTab` absent, `App`'s own "nothing to map" case): the sheet falls back to its existing
+`location-sheet-nomap` sentence rather than rendering a control whose tap does nothing, the same
+dead-control rule its `Plan from …` action already lives by. The button's copy, its accessible name
+(one text node, only the `◍` hidden) and its styling are unchanged — only its destination and its
+withholding condition moved.
+
+### Added — a Map tab breadcrumb that names what a Plan door carried, and a way to clear it
+
+Phase D2 of `docs/engineering/plan-to-map-doors-plan.md`. Nothing user-visible yet — no door button
+ships in this phase — but the whole handover payload the doors need lands here, on the SAME
+`mapTabHandoff`/`tabRequest` nonce channel the Map overlay's own "open the full map" hatch already
+uses, distinguished downstream by a new `source: 'plan'` field. `App.jsx` gains
+`openMapTabFromPlan(door)`; `WindowFirstShell.jsx` gains one internal `openMapTab(door)` that
+closes the popup and the window sheet first and merges in the Plan's own rating/reach lens values
+at the moment of the tap (unused until D3/D4 wire real buttons to it). `WindowFirstMapPane.jsx`
+tells a door handoff apart from the hatch's own on the one shared channel and forwards it to
+`MapView` as a single `planHandoff` prop, never touching the five older per-field `handoff*` props
+a door must not also trigger. One nonce-keyed effect in `MapView.jsx` applies the whole payload
+atomically — event, floor (a Plan "Any" rating lands as the map's loosest real floor, 1★+, never a
+`null` state the map has never had), reach tier, region (via the tab's own `jumpToRegion`/
+`resetToMyArea` scope-flip semantics, never a bounds-only fit), and the carried location, resolved
+off the full roster so a location the carried floor would otherwise filter out of the visible pool
+still gets its selection callout.
+
+A new `components/map/MapBreadcrumb.jsx` mounts above the map frame, outside the Leaflet container
+entirely, whenever a door handoff is live on the tab: `← Plan`, the active window's day and kind,
+and — only while each fact still genuinely holds on the map's own live state, never a stored
+snapshot of what was carried — a `carrying …` clause naming the origin, the rating floor, the reach
+tier and the region, each derived fresh on every render. `clear` resets all four in one press
+(rating, reach, scope, then the shared origin) without touching subjects or dark-sky, which were
+never carried. `← Plan` lands back on the Plan tab itself, reopening no dialog and carrying no
+window key.
+
+Origin is deliberately never part of the payload — it is shared state the Map tab already reads
+from the same context the Plan tab does, so carrying it would be the increment's own `org`-in-the-
+URL mistake in reverse.
+
+### Changed — the Map tab reads one drive accessor, and draws home geography only at home
+
+Phase D1 of `docs/engineering/plan-to-map-doors-plan.md`. Four leaks closed: the Regions jump
+list ran its own second precedence expression for "which drive map is in force"
+(`driveOverride || reachById`) beside `driveMinutesFor`'s own; `mapReachMeasured` (which gates the
+ring labels' duration-vs-distance wording and the Legend panel's rings-segment offer) tested
+`homeCoords` alone, so an away origin with a fully measured region-base matrix still read
+"unmeasured"; and `driveMinutesFor` itself read a separately-fetched `userDriveTimes` at home
+while the Plan cards and the jump list already read the shared `reachById` map, so the tab and the
+Plan tab could disagree about a drive time after a refresh until the tab's own fetch caught up.
+
+Verified in the backend first: `GET /api/user/settings/drive-times` (`DriveTimeResolver.
+getAllMinutes`) and `GET /api/user/settings/reach` (`ReachService.getReach`, which calls the SAME
+`getAllMinutes`) both read `UserDriveTimeRepository.findByUserId` — one query, one
+`user_drive_time` table — so the Map tab's `driveMinutesFor` now reads `reachById`, the prop the
+pane already passes from the same provider that feeds the Plan cards, and no longer fetches drive
+times itself. The frozen Plan-tab overlay, mounted outside that provider and handed no `reachById`
+at all, keeps its own fetch — two sources split by *surface* is fine; two sources on *one* surface
+was the defect.
+
+`MapView` also gains an `origin` prop (the pane's live value; the overlay never passes one) and
+derives `homeGeo = origin ? null : homeCoords`, fed to the HOME marker, the reach rings, their
+labels and the Legend panel's rings toggle instead of the raw postcode coordinate — so planning
+from a region base no longer draws a HOME dot and rings around the reader's actual house beside
+that base's drive times. The `⌂` control stays present while away (it already refits to whichever
+area is framed, home or origin-scoped) and `heat.beyondRegionNames` stays the one deliberately
+home-only read, recorded in the accessor's own doc block rather than left for the next audit to
+refile as a leak.
+
+Adversarial review caught the `⌂` control prompting for a postcode while away: it read the raw
+`homeCoords` prop alone for its own enabled/label state, so a reader planning from an away origin
+who had never saved a home postcode still saw "Set your home postcode in Settings" and a click
+opened Settings, for a reset action that needs no postcode once an origin is in force. It now also
+takes `origin` and is actionable whenever a home coordinate or an origin exists.
+
+19 new or rewritten tests across `MapViewReachMeasured.test.jsx` and
+`MapViewDriveOverride.test.jsx`: the away/home pairs for the jump list, the HOME marker/rings/ring
+labels/legend toggle, `mapReachMeasured`'s own away case (measured matrix with no home postcode
+at all → true; empty matrix → false), a negative test pinning that the overlay still renders a
+drive figure from its own fetch with no `reachById` prop, and the `⌂` control's four home×origin
+state-and-behaviour cases.
+
 ## [v2.20.0] - 2026-09-04
 
 ### Removed — marker clustering, everywhere on the map
