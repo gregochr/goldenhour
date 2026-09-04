@@ -48,7 +48,6 @@ vi.mock('leaflet', () => {
 });
 
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
-vi.mock('leaflet.markercluster/dist/MarkerCluster.css', () => ({}));
 
 // The corner container the stubbed Control appends into. Attached to the document so the portal's
 // button is findable by the usual queries.
@@ -68,7 +67,6 @@ vi.mock('react-leaflet', () => ({
   useMap: () => mapStub,
 }));
 
-vi.mock('react-leaflet-cluster', () => ({ default: ({ children }) => <div>{children}</div> }));
 
 // `heatOffered` (map-tab-v2-plan.md §3 P11's own ⌂ tests below) lazily loads this — mocked the same
 // way `MapViewHeat.test.jsx` mocks it, so the field itself never has to actually paint here.
@@ -105,7 +103,6 @@ vi.mock('../components/markerUtils.js', () => ({
   buildMarkerSvg: () => '<svg></svg>',
   buildStandDownSvg: () => '<svg></svg>',
   markerLabelAndColour: () => ({ label: '4★', colour: '#E5A00D' }),
-  createClusterIcon: () => ({ options: { html: '', iconSize: { x: 40, y: 40 }, className: '' } }),
   STAND_DOWN_COLOUR: '#501313',
 }));
 

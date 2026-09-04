@@ -24,7 +24,6 @@ vi.mock('leaflet', () => {
   return { default: { icon, divIcon }, icon, divIcon };
 });
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
-vi.mock('leaflet.markercluster/dist/MarkerCluster.css', () => ({}));
 
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="leaflet-map">{children}</div>,
@@ -40,7 +39,6 @@ vi.mock('react-leaflet', () => ({
     invalidateSize,
   }),
 }));
-vi.mock('react-leaflet-cluster', () => ({ default: ({ children }) => <div>{children}</div> }));
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'PRO_USER' }) }));
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => false }));
 vi.mock('../hooks/useAuroraStatus.js', () => ({ useAuroraStatus: () => ({ status: null }) }));
@@ -64,7 +62,6 @@ vi.mock('../components/markerUtils.js', () => ({
   buildMarkerSvg: () => '<svg></svg>',
   buildStandDownSvg: () => '<svg></svg>',
   markerLabelAndColour: () => ({ label: '4★', colour: '#E5A00D' }),
-  createClusterIcon: () => ({ options: { html: '', iconSize: { x: 40, y: 40 }, className: '' } }),
   STAND_DOWN_COLOUR: '#501313',
 }));
 

@@ -369,7 +369,9 @@ pills, and the in-map select — on the tab only.
   callback from the shell or an in-shell width restructure; (2) the shell root's inline
   `WRAP_MAX_WIDTH = 1080px` with the **masthead rendered inside it** — releasing it per-tab
   changes the masthead's width on tab switch, which needs an explicit decision (recommend: the
-  wrap stays on the masthead + tab bar, only the panel region releases); (3) the `wf-body`
+  wrap stays on the masthead + tab bar, only the panel region releases). ⚠️ **Superseded — the
+  panel region's release is reversed, 2026-09-03.** Bundle rev 2 argued the opposite of this
+  recommendation; §4 item 29 records the reversal (O-17) and its rationale. (3) the `wf-body`
   padding; (4) `MapView`'s `MAP_HEIGHT_PX = 500` tab constant. "No page scroll" needs a viewport
   height chain (`100dvh` minus measured masthead + tab bar — the sticky `--wf-mast-h` machinery
   is the precedent) that nothing currently provides. The pane becomes a flex column
@@ -585,9 +587,10 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
 8. **Subject tags come from `LocationType`** (six values incl. WOODLAND + seasonal BLUEBELL), not
    the prototype's five-chip derivation; no lake flag; canopy polarity rules (woodland ratings
    never blend into the sky field) are inherited invariants, not new work.
-9. **The Plan-tab overlay keeps the old map wholesale** — popup, medallions, clustering,
+9. **The Plan-tab overlay keeps the old map wholesale** — popup, medallions,
    ForecastTypeSelector. The bundle redesigns "the Map tab"; the overlay is a different surface
-   with a different job. Convergence is O-6.
+   with a different job. Convergence is O-6. ⚠️ **Clustering was struck from this list on
+   2026-09-04 (item 20) — the one place the overlay's freeze has been deliberately broken.**
 10. **Keyboard shortcuts are pane-scoped**, not document-global — the prototype had no other
     focusable surfaces; the app does.
 11. **The callout carries a reduced fact set by design**; the full forecast detail (tide
@@ -687,16 +690,10 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     comment. `MARKER_INTERACTIVE_ALPHA` and `markersAreInteractive` are now vestigial (the only
     argument is `0`) and are deliberately **kept**: they are the regression net for any future
     middle ground, and deleting them as dead code is what would make this hard to reverse.
-    ⚠️ **Two pre-existing defects this exposed.** The first is now FIXED (see item 19): on a D-13
-    filler row the colour ramp key rendered above a field that paints nothing (the medallions were
-    masking it). Still open:
-    Leaflet still gives every hidden marker `tabIndex=0`/`role="button"`, so the tab carries
-    focusable no-op markers ahead of the chips — the recorded `visibility`-vs-tree decision in
-    `applyMarkerFade`/`index.css` rests on "the markers are the only route to a location's popup",
-    false since P9 (#734). It needs its own phase, and the review measured it as overwhelmingly
-    pre-existing (`fadeAt` already returned 0 at every zoom the tab opens at); the deeper question
-    underneath it is whether `MarkerClusterGroup` should mount on the tab at all, which would
-    subsume the a11y fix — an owner call, not a patch.
+    ⚠️ **Two pre-existing defects this exposed, BOTH now fixed** — item 19 (the colour ramp key
+    rendering above a field that paints nothing on a D-13 filler row, which the medallions were
+    masking) and item 21 (Leaflet's focusable no-op markers). Neither was smuggled into this change;
+    each got its own phase, which is why they are separately ledgered.
 19. **The colour key no longer renders above an empty field (2026-09-04) — the first of item 18's
     two exposed defects, closed.** `windowUnscored` required a non-null `heatWindow`, excused in its
     own javadoc by "the selector already says 'No forecast window' for that". That excuse was false:
@@ -810,6 +807,83 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     strings are kept verbatim: `Dark sky N · dark` already matches `calloutFacts`' own wording (which
     the pass did not touch), and `Four days here ›` is plain already. Easily reverted if the owner
     prefers the literal spec.
+29. **P7's width release is reversed (O-17, bundle rev 2, owner decision 2026-09-03) — the Map
+    tab keeps the masthead's 1080px column instead of going full-bleed.** Bundle rev 2's own case
+    is structural, not a taste call: full-bleed made the tab strip look like it floated above an
+    unrelated surface, since the strip stops at the content column while a full-width panel
+    carries on to the window edge, and at wide viewports it added sea and empty moor rather than
+    information. P7's HEIGHT half — the `100dvh` flex recast, zero-padding `.wf-body.wf-body--map`,
+    no page scroll — is untouched; only the panel region's own width constraint changed, from
+    releasing `WRAP_MAX_WIDTH` on the Map tab to sharing it with every other tab off the same
+    constant. O-17 is registered in §6 and bundle rev 2 vendored by the tide/label PR of the same
+    date, merge-ordered ahead of this change. The 1080px figure is the app's OWN `WRAP_MAX_WIDTH`
+    (the masthead's column, which is what bundle rev 2's note names) and deliberately not the
+    design bundle's own `.wrap{max-width:1240px}` — that figure belongs to the demo harness's
+    comparison rig (it also drives `.wrap.pad`'s 834px and `.wrap.mob`'s 390px device frames) and
+    was never the app's own width; and the no-border/no-radius call on the map panel was judged
+    the same way — the harness's `.frame` wraps masthead+tabs+map together with bezel-style box
+    shadows that scale up per device width, which reads as the comparison rig's own device chrome,
+    not a treatment the shipped panel is meant to carry.
+
+20. **Marker clustering deleted outright, on both surfaces (2026-09-04) — an owner decision, and
+    the only deliberate break of the frozen-overlay rule to date.** Asked whether
+    `MarkerClusterGroup` should stay mounted on the tab, the owner's answer was to delete it rather
+    than gate it, and the reasoning is the record: **clustering is the precise defect the heat field
+    exists to fix.** A bubble reading "12" cannot tell you whether tonight is worth driving for —
+    it averages the gems away, which is this bundle's own argument for why heat became the default.
+    A Pins mode that clusters stops being the honest comparison and becomes a third representation,
+    at which point the case for heat is unfalsifiable because the reader never sees the pile it is
+    solving. Pins already answers density deliberately (weakest-first paint order so the best draws
+    on top, 26px named over 13px unnamed); clustering destroys that z-order and swaps the
+    best-visible pin for a count. ⚠️ **Scale does not reopen it**: at ~51 locations it is
+    unnecessary, and if the catalogue ever reaches thousands the answer is canvas rendering
+    (`preferCanvas` is already set), because clustering re-introduces the averaging problem at any
+    size.
+    **The overlay.** `MarkerClusterGroup` was ungated — one component, two mounts — so this reaches
+    the deliberately frozen Plan-tab overlay, which §4.9 above listed clustering among its keeps.
+    Confirmed with the owner before executing rather than inferred: the overlay keeps its medallions
+    and popup (its actual distinctives) and now renders them unclustered. It opens focused on one
+    spot from a card, and O-6 convergence is its stated destination, so keeping a dependency alive
+    solely for it was the debt this deletion clears.
+    **What went with it**, all verified dead rather than assumed: `react-leaflet-cluster` off
+    `package.json` (`leaflet.markercluster` was transitive; `npm ci` re-verified, and the lockfile
+    diff is pure deletion — no metadata churn), `markerUtils.createClusterIcon`, `markerUtils`'
+    now-unused `leaflet` import, `clusterGroupRef`, and the chip click's `zoomToShowLayer` — whose
+    real effect was jumping the camera on EVERY chip click below zoom 13 to reveal a marker the tab
+    does not paint, and whose ring-anchoring justification had been false since P9. Also
+    `excludeFromCluster` / `excludeFromSkyCluster`, write-only once their sole reader went; the
+    subject rule they encoded survives in `heatSpots.js`, which is what the field reads. 21 test
+    files dropped a `react-leaflet-cluster` mock and 22 a `MarkerCluster.css` mock; 20 tests were
+    deleted as testing absent behaviour, each noted where it stood. Measured: the lazy `leaflet`
+    chunk builds at 165 kB where `vite.config.js` recorded ~196 kB, and that comment is corrected.
+
+21. **The hidden markers leave the tab order and the accessibility tree, via `inert` (2026-09-04)
+    — item 18's second exposed defect, closed.** Leaflet gives every marker icon
+    `tabIndex=0`/`role="button"` (`keyboard: true` is its default), and `applyMarkerFade` hid the
+    panes with opacity plus a `pointer-events` class only, on a recorded rule that neither should
+    "touch the tree" — justified by "the markers are the only route to a location's popup". That
+    justification died with P9 (#734), which stopped mounting a Leaflet `Popup` on the tab. What was
+    left was a catalogue of invisible controls that do nothing, reached BEFORE `MapLabels`' chips,
+    which are the route that works.
+    **`inert` on the pane**, not `visibility: hidden` and not a `tabindex` sweep. `visibility`
+    fights the opacity fade the same function exists to apply; a sweep is one-shot, and Leaflet
+    creates and destroys marker icons as filters, windows and the roster change, so anything added
+    afterwards would be focusable again. `inert` is set on the pane, covers whatever it later
+    contains, and removes the subtree from the tab order and the a11y tree together — the pair the
+    old rule wanted kept apart and now wants joined. `wf-markers-inert` stays as defence in depth
+    (`inert` blocks pointer events too, so the class is redundant where the attribute is honoured,
+    but it is the older and better-supported half).
+    ⚠️ **Scoped by construction, twice over, with no mode test of its own.** The layer only mounts
+    on the tab, so the Plan-tab overlay — where markers DO carry popups and ARE a real keyboard
+    route — never sees `inert`. And an AURORA window unmounts the layer, at which point
+    `restoreMarkerPanes` clears the attribute: aurora has no chips and no pins, so the medallions
+    are the whole location vocabulary there and must stay reachable. Both fall out of "set while
+    hiding, clear while restoring".
+    ⚠️ **jsdom implements no `inert` behaviour**, so the tests assert the ATTRIBUTE; a test there
+    trying to prove non-focusability would pass against a no-op. Both new pins were verified to fail
+    without the fix. The `visibility`-vs-`display` half of the original decision is still pinned, and
+    the review that surfaced this measured it as overwhelmingly pre-existing rather than caused by
+    item 18 — `fadeAt` already returned 0 at every zoom the tab opens at.
 
 ## §5 Decisions taken in this plan (challenge in review, not in code)
 

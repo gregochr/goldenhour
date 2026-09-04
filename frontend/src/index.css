@@ -991,10 +991,18 @@
      has nothing to space. No `:not()` needed to say so. */
   gap: 10px;
 }
-/* ── The Map tab's full frame (map-tab-v2-plan.md §3 P7) ───────────────────────────────────────
-   The selected Map panel's own `wf-body` — released to zero padding (the map bleeds to the
-   frame's edge, per the design's layout diagram) and sized by FLEXBOX rather than by any height
-   computed here. `App.jsx`'s root recasts the whole page as a flex column on this tab
+/* ── The Map tab's full frame (map-tab-v2-plan.md §3 P7; width reversed by O-17) ────────────────
+   The selected Map panel's own `wf-body` — released to zero padding (the map bleeds to the edge
+   of ITS OWN panel) and sized by FLEXBOX rather than by any height computed here.
+
+   ⚠️ "The frame's edge" no longer means the browser window. P7 originally cited the design's
+   full-bleed layout diagram for this padding rule, but bundle rev 2 reverses that diagram (O-17,
+   owner decision 2026-09-03): the Map tab's panel region is now width-capped to the same
+   `WRAP_MAX_WIDTH` (1080px) column the masthead uses (`WindowFirstShell.jsx`'s panel-region
+   wrapper), rather than stretching to the viewport. Zero padding here is a SEPARATE, surviving
+   question — the map still fills 100% of whatever box it is given, it is just given a narrower
+   box now — so this rule needed no change, only this citation did. `App.jsx`'s root recasts the
+   whole page as a flex column on this tab
    (`isMapTabActive`): the banner block, the masthead+tab-bar wrap and this panel are three flex
    items stacked in a column whose own height is `100dvh`, and this class's only job is to be the
    one that GROWS (`flex: 1; min-height: 0`) while the other two take their natural content height.
@@ -4344,15 +4352,17 @@ button.wf-hc.also.on:hover {
    property beats an ancestor disabling it — so the pane rule §4.5 specifies is necessary and not
    sufficient, and an 8%-opaque medallion would still swallow the tap meant for the map.
 
-   Deliberately NOT `visibility: hidden`, which was the first cut and which does close the pointer
-   hole: it also takes every marker out of the accessibility tree and the tab order. ⚠️ The reason
-   that mattered — "the markers are the ONLY route to a location's popup" — has been false since P9
-   (#734) stopped mounting a Leaflet `Popup` on this tab; `MapLabels`' chips are the working
-   keyboard route, and these markers are focusable no-ops that Leaflet still gives `tabIndex=0`.
-   Revisiting it (adding `inert` where the panes are hidden) is a recorded follow-up with its own
-   test inversions — see `MapHeatLayer.jsx`'s `applyMarkerFade` note — not something to change from
-   this rule alone. Opacity hides the picture; this rule removes the target; neither touches the
-   tree. */
+   Deliberately NOT `visibility: hidden`, which was the first cut: it would fight the opacity fade
+   `applyMarkerFade` exists to apply. ⚠️ The a11y half is now the `inert` ATTRIBUTE, set on the pane
+   beside this class. The old rule here was "neither touches the tree", justified by "the markers
+   are the ONLY route to a location's popup" — false since P9 (#734) stopped mounting a Leaflet
+   `Popup` on this tab, which left Leaflet's still-`tabIndex=0` markers as invisible no-op controls
+   ahead of `MapLabels`' chips, the route that works. `inert` covers the tab order and the
+   accessibility tree together, and covers icons Leaflet creates later, which a `tabindex` sweep
+   would not. This class stays as defence in depth: `inert` blocks pointer events too, so the rule
+   below is redundant wherever the attribute is honoured, but it is the older and more widely
+   supported half. See `MapHeatLayer.jsx`'s `applyMarkerFade` for why the overlay and aurora are
+   unaffected. */
 .wf-markers-inert .leaflet-marker-icon,
 .wf-markers-inert .leaflet-marker-shadow,
 /* ⚠️ The `.leaflet-interactive` pair is not belt-and-braces — it is the rule that works. Leaflet's

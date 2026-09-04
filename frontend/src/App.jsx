@@ -428,14 +428,36 @@ function AppInner() {
         )}
       </div>
 
-      {/* On the Map tab: no padding (the map bleeds to the frame's edge) and `flex-1 min-h-0` so
-          this element — the one link in the chain between the flex root and `WindowFirstShell`'s
-          own `.wf-shell` (`PlanErrorBoundary` returns `children` directly when healthy, and
+      {/* On the Map tab: zero VERTICAL padding and `flex-1 min-h-0` so this element — the one link
+          in the chain between the flex root and `WindowFirstShell`'s own `.wf-shell`
+          (`PlanErrorBoundary` returns `children` directly when healthy, and
           `WindowFirstBriefingProvider` is a bare context provider, so neither interposes a DOM
           node here) — actually receives the space flexbox is distributing rather than sizing to
           its content. `flex flex-col` so ITS single child (`.wf-shell`) can do the same one level
-          down. Every other tab keeps the usual `px-4 py-6` inset and ordinary block flow. */}
-      <main className={isMapTabActive ? 'flex-1 min-h-0 flex flex-col' : 'px-4 py-6'}>
+          down. Every other tab keeps the usual `px-4 py-6` inset and ordinary block flow.
+
+          Zero vertical padding is unconditional (it would eat into the flex-distributed vertical
+          space `<main>` hands down, reopening page scroll, and O-17 is WIDTH ONLY — the height
+          chain is untouched). HORIZONTAL padding is `sm:px-4` — present at `sm` (640px) and up,
+          absent below it — and that split is load-bearing, not cosmetic:
+
+          · At `sm` and up, `WindowFirstShell`'s own panel-region wrapper already caps the visible
+            width to `WRAP_MAX_WIDTH` (1080px, centred) since O-17, so `<main>`'s own inset is
+            free to match every other tab's `px-4` with no visual cost — and matching it is what
+            makes tab switches NOT reflow the masthead/tab-strip's horizontal position between
+            640px and (1080px + 2×16px) — the width the column would otherwise seem to jump by.
+            Adversarial review caught this: dropping `<main>`'s horizontal padding entirely, as an
+            earlier cut of O-17 did, left the masthead 32px narrower on the Map tab than on every
+            other tab in that range, silently contradicting O-17's whole point.
+          · BELOW `sm` the map stays genuinely full-bleed by design — P12's phone chrome (the
+            top/bottom bars' edge-hugging insets, `index.css` ~:2916-2933) was measured and tuned
+            against a full-width frame, and `WindowFirstShell`'s own width cap does not bind at
+            phone widths anyway (390px is nowhere near 1080px). So a real, narrower residue
+            survives ONLY below `sm`: the masthead reflows by `<main>`'s own `px-4` (16px each
+            side, 32px total) on a Plan⇄Map switch on a phone. That is P12's existing, deliberate
+            full-bleed phone treatment continuing to apply — not a gap this change introduces —
+            and is called out here rather than left for a reader to rediscover. */}
+      <main className={isMapTabActive ? 'sm:px-4 flex-1 min-h-0 flex flex-col' : 'px-4 py-6'}>
         {/* isDown is passed DOWN rather than applied here: the shell's masthead carries the cog
             and Sign out, and greying the whole subtree would strand a user with no route out of a
             broken app. */}

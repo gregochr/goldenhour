@@ -17,8 +17,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 
 // ── Leaflet / react-leaflet stubs ────────────────────────────────────────────
 
-// Capture the options of every DivIcon MapView builds — excludeFromCluster is only observable
-// there, and it is what markerUtils.createClusterIcon filters on.
+// Capture the options of every DivIcon MapView builds.
 const divIconCalls = [];
 vi.mock('leaflet', () => {
   const icon = () => ({});
@@ -30,7 +29,6 @@ vi.mock('leaflet', () => {
 });
 
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
-vi.mock('leaflet.markercluster/dist/MarkerCluster.css', () => ({}));
 
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="map-container">{children}</div>,
@@ -48,9 +46,6 @@ vi.mock('react-leaflet', () => ({
   }),
 }));
 
-vi.mock('react-leaflet-cluster', () => ({
-  default: ({ children }) => <div>{children}</div>,
-}));
 
 // ── App dependencies ─────────────────────────────────────────────────────────
 
@@ -78,7 +73,6 @@ vi.mock('../components/markerUtils.js', () => ({
   buildMarkerSvg: () => '<svg></svg>',
   buildStandDownSvg: () => '<svg></svg>',
   markerLabelAndColour: () => ({ label: '4★', colour: '#E5A00D' }),
-  createClusterIcon: () => ({ options: { html: '', iconSize: { x: 40, y: 40 }, className: '' } }),
   STAND_DOWN_COLOUR: '#501313',
 }));
 
@@ -170,24 +164,6 @@ describe('MapView Subject filter — WOODLAND', () => {
     fireEvent.click(screen.getByRole('button', { name: /Seascape/ }));
     fireEvent.click(screen.getByRole('button', { name: /Woodland/ }));
     expect(visibleCount()).toBe(2);
-  });
-});
-
-describe('MapView cluster averages — canopy sites are excluded', () => {
-  it('a woodland-only site is excluded from the sky cluster average', () => {
-    // Same rule WATERFALL already has. A wood rated 5 on a flat overcast misty evening would drag
-    // its cluster's grey->gold ramp toward gold on exactly the nights the sky is at its worst.
-    renderMap();
-    const wood = divIconCalls.find((o) => o.rating === 5);   // Bluebell Wood, WOODLAND only
-    expect(wood).toBeDefined();
-    expect(wood.excludeFromCluster).toBe(true);
-  });
-
-  it('a sky-typed site is still included', () => {
-    renderMap();
-    const fell = divIconCalls.find((o) => o.rating === 3);   // Fell Top, LANDSCAPE
-    expect(fell).toBeDefined();
-    expect(fell.excludeFromCluster).toBe(false);
   });
 });
 
