@@ -120,22 +120,30 @@ a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
 #tip .s{color:var(--ink-2);margin-top:3px;line-height:1.5}
 #tip .s b{color:#EBD9A8}
 
+/* Inside the map frame the recessive token is OPT-IN, not the default. On an opaque panel
+   rgba(...,.42) measures ~3.5:1 and fails AA, and enumerating the panels that need fixing
+   (#cal, #drill, then .menu, then #tip…) kept missing one. So every panel in the frame
+   inherits the passing value, and the map-overlay labels that genuinely want to recede state
+   it themselves — over tile imagery they must not compete with the field, which is the data.
+   Recessiveness is now a declared exception rather than something a new panel inherits. */
+#mapwrap{--ink-3:rgba(242,231,211,.66)}
+
 /* ── the selected location, rendered ON the map ─────────────────────────────
    Not a panel over the map and not a Leaflet popup: an anchored callout with a tail into the
    marker, so the thing you selected stays the thing you are looking at. */
 .selmk{position:absolute;z-index:415;transform:translate(-50%,-50%);width:34px;height:34px;border-radius:50%;pointer-events:none;display:none;box-shadow:0 0 0 1.5px rgba(201,162,75,.85),0 0 0 7px rgba(201,162,75,.14)}
 .selmk.on{display:block}
 .selmk::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:7px;height:7px;border-radius:50%;background:var(--home);box-shadow:0 0 10px rgba(201,162,75,.9)}
-#cal{position:absolute;z-index:1350;width:286px;display:none;background:rgba(20,15,12,.965);border:1px solid var(--border-light);border-radius:11px;box-shadow:0 22px 50px rgba(0,0,0,.72);backdrop-filter:blur(7px)}
+#cal{position:absolute;z-index:1350;width:286px;display:none;overflow:hidden;background:rgba(20,15,12,.965);border:1px solid var(--border-light);border-radius:11px;box-shadow:0 22px 50px rgba(0,0,0,.72);backdrop-filter:blur(7px)}
 #cal.on{display:block}
 .wrap.mob #cal{width:266px}
 #cal .tail{position:absolute;width:11px;height:11px;background:rgba(20,15,12,.965);border-right:1px solid var(--border-light);border-bottom:1px solid var(--border-light);transform:rotate(45deg)}
 .ch{display:flex;align-items:flex-start;gap:8px;padding:9px 10px 8px;border-bottom:1px solid var(--border)}
 .ch .cn b{display:block;font-size:13.5px;font-weight:700;letter-spacing:-.01em;line-height:1.25}
-.ch .cn span{display:block;font-family:var(--mono);font-size:9px;letter-spacing:.05em;color:var(--ink-3);margin-top:3px}
-.cx{margin-left:auto;flex:none;font-family:var(--mono);font-size:11px;color:var(--ink-3);background:none;border:1px solid var(--border);border-radius:6px;width:24px;height:24px;cursor:pointer}
+.ch .cn span{display:block;font-family:var(--mono);font-size:9px;letter-spacing:.05em;color:var(--ink-2);margin-top:3px}
+.cx{margin-left:auto;flex:none;font-family:var(--mono);font-size:11px;color:var(--ink-2);background:none;border:1px solid var(--border);border-radius:6px;width:24px;height:24px;cursor:pointer}
 .cx:hover{color:var(--ink);border-color:var(--border-light)}
-.cb{padding:9px 10px 10px;display:flex;flex-direction:column;gap:7px}
+.cb{padding:9px 10px 10px;display:flex;flex-direction:column;gap:7px;min-height:0;overflow:hidden}
 .cv2{display:flex;align-items:center;gap:7px;border:1px solid;border-radius:8px;padding:6px 8px;flex-wrap:wrap}
 .cvk{font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;padding:2px 5px;border-radius:4px}
 .cvk.am{color:var(--dawn);background:color-mix(in srgb,var(--dawn) 16%,transparent)}
@@ -143,14 +151,18 @@ a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
 .cvk.astro,.cvk.aur{color:#A79FE4;background:color-mix(in srgb,var(--astro) 18%,transparent)}
 .cvl{font-family:var(--mono);font-size:9.5px;color:var(--ink-2)}
 .cvs{margin-left:auto;font-family:var(--mono);font-size:12px;font-weight:600;white-space:nowrap;padding:2px 7px;border-radius:5px}
-.cw{font-family:var(--serif);font-size:12.5px;line-height:1.45;color:var(--ink-2);text-wrap:pretty;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.cw{font-family:var(--serif);font-size:12.5px;line-height:1.45;color:var(--ink-2);text-wrap:pretty}
+/* the clamp lives on the TEXT, not on the button: -webkit-line-clamp needs display:-webkit-box,
+   and putting it on the button would clamp the "Full forecast" label away with it */
+.cwtext{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .cfacts{display:flex;flex-wrap:wrap;gap:4px 14px;font-family:var(--mono);font-size:10px;color:var(--ink)}
-.cfacts i{display:block;font-style:normal;font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:1px}
+.cfacts i{display:block;font-style:normal;font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);margin-bottom:1px}
 .ctp{display:flex;flex-wrap:wrap;gap:3px 10px}
 .ctp span{font-family:var(--mono);font-size:10px;font-weight:600;color:var(--tc);white-space:nowrap;cursor:help}
 .ck{display:flex;align-items:center;gap:6px;width:100%;font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);border:none;border-top:1px solid var(--border);background:none;padding:7px 0 0;cursor:pointer;text-align:left}
 .ck:hover{color:var(--ink-2)}
 .ck .cv{margin-left:auto}
+.cb .cv,.ck .cv{color:var(--ink-2)}
 .cstrip[hidden]{display:none}
 .cstrip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
 .sr{display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:6px;background:var(--panel);padding:4px 6px;cursor:pointer;font:inherit;color:inherit;text-align:left;min-height:26px}
@@ -158,15 +170,95 @@ a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
 .sr.on{border-color:rgba(201,162,75,.6);background:rgba(201,162,75,.11)}
 .sr .sk{font-family:var(--mono);font-size:7.5px;font-weight:700;letter-spacing:.08em}
 .sr .sk.am{color:var(--dawn)}.sr .sk.pm{color:#EE8064}.sr .sk.astro,.sr .sk.aur{color:#A79FE4}
-.sr .sd{font-family:var(--mono);font-size:8.5px;color:var(--ink-3)}
+.sr .sd{font-family:var(--mono);font-size:8.5px;color:var(--ink-2)}
 .sr .sv{display:flex;align-items:center;gap:4px;font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--ink);margin-left:auto}
 .sr .sv i{width:6px;height:6px;border-radius:2px;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.6)}
 .cacts{display:flex;gap:7px}
 .cacts button{flex:1;font-family:var(--mono);font-size:10px;color:var(--tide);background:rgba(111,168,176,.09);border:1px solid rgba(111,168,176,.32);border-radius:7px;padding:6px 8px;cursor:pointer;min-height:32px}
 .cacts button:hover{background:rgba(111,168,176,.18)}
+.cacts button.pri{color:#EBD9A8;background:rgba(201,162,75,.14);border-color:rgba(201,162,75,.42);font-weight:600}
+.cacts button.pri:hover{background:rgba(201,162,75,.24)}
+/* the clamp is fine; clamping into three dots with no way out is not. The prose IS the button. */
+.cw{display:block;width:100%;text-align:left;background:none;border:none;padding:0;cursor:pointer}
+.cw:hover .cwmore{color:#EBD9A8}
+.cwmore{display:block;font-family:var(--mono);font-size:9.5px;color:var(--tide);margin-top:3px}
+
+/* ── the location sheet: four days here ──────────────────────────────────────
+   NOT a new component. This is the sheet specified in design_handoff_plan_matrix README §3
+   and implemented in plan-tab-v5.js renderSpot() — same classes, geometry, lead-at-top,
+   best-marked-in-place, weak-row opacity and footer actions. It is reused rather than
+   reinvented so a location opened from the map and the same location opened from the Plan tab
+   are one view. The only addition is .smeta, the superset row that carries what previously
+   existed only on the map callout: subject tags, dark sky, tide, topics. */
+.sheet{position:absolute;inset:0;z-index:60;display:none}
+.sheet.on{display:block}
+#sheet{z-index:1700}
+.scrim{position:absolute;inset:0;background:rgba(8,6,5,.74)}
+.card{position:absolute;left:50%;top:20px;transform:translateX(-50%);width:min(680px,calc(100% - 36px));max-height:calc(100% - 40px);display:flex;flex-direction:column;background:var(--bg);border:1px solid var(--border-light);border-radius:13px;box-shadow:0 30px 80px rgba(0,0,0,.72);overflow:hidden}
+.wrap.mob .card{left:0;top:0;transform:none;width:100%;height:100%;max-height:100%;border:none;border-radius:0}
+.sh{display:flex;align-items:flex-start;gap:11px;padding:13px 16px 11px;border-bottom:1px solid var(--border);background:var(--surface)}
+.sh .bk{font-family:var(--mono);font-size:15px;color:var(--ink-2);background:none;border:none;cursor:pointer;padding:0 2px}
+.sh h3{font-size:16.5px;font-weight:700;letter-spacing:-.02em}
+.sh .meta{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:4px;display:flex;gap:9px;flex-wrap:wrap}
+.bdg{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:999px;border:1px solid var(--border-light);background:rgba(255,255,255,.04);color:var(--ink-2);white-space:nowrap}
+.bdg.out{border-color:rgba(224,165,66,.45);background:rgba(224,165,66,.11);color:#EFC377}
+.sh .x2{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink-3);border:1px solid var(--border);background:none;border-radius:7px;padding:5px 9px;cursor:pointer;flex:none}
+.wrap.mob .sh .x2{display:none}
+/* the superset row — the only thing this sheet gains for the map */
+.smeta{display:flex;flex-wrap:wrap;gap:5px 7px;padding:9px 16px;border-bottom:1px solid var(--border)}
+.smeta span{font-family:var(--mono);font-size:9.5px;color:var(--ink-2);background:var(--panel);border:1px solid var(--border);border-radius:999px;padding:3px 8px}
+.smeta .stp{width:100%;border-radius:7px;color:#EBD9A8;border-color:rgba(201,162,75,.32);background:rgba(201,162,75,.1)}
+.lead2{padding:11px 16px 12px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(201,162,75,.06),transparent)}
+.lead2 .kk{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);display:block;margin-bottom:5px}
+.lead2 p{font-family:var(--serif);font-size:14px;line-height:1.55;color:var(--ink);text-wrap:pretty}
+.tl{overflow-y:auto;padding:11px 16px 14px;display:flex;flex-direction:column;gap:6px;scrollbar-color:var(--border-light) transparent;scrollbar-width:thin}
+.tl::-webkit-scrollbar{width:10px}
+.tl::-webkit-scrollbar-thumb{background:var(--border-light);border-radius:99px;border:3px solid var(--bg)}
+.ev{display:grid;grid-template-columns:52px 1fr;gap:11px;align-items:start;padding:8px 11px;border:1px solid var(--border);border-radius:10px;background:var(--panel);cursor:pointer}
+.ev.top{border-color:rgba(201,162,75,.45);background:linear-gradient(180deg,rgba(201,162,75,.07),transparent 62%),var(--panel)}
+.ev.weak{opacity:.62}
+.ev>div{min-width:0}
+.ev .dbox{border:1px solid var(--border-light);border-radius:7px;text-align:center;padding:3px 0 4px;background:rgba(0,0,0,.2)}
+.ev .dow2{display:block;font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;color:var(--ink-3)}
+.ev .dn{display:block;font-size:15px;font-weight:700;line-height:1.15}
+.ev .ttl{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.ev .ttl .w{font-size:14px;font-weight:700;letter-spacing:-.01em}
+.ev .ttl .t2{font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--ink-2)}
+.ev .ttl .tag{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:#EBD9A8}
+.ev .ttl .tw{width:14px;height:8px;color:var(--tide);align-self:center}
+.ev .ttl .st{margin-left:auto;font-family:var(--mono);font-size:11px;font-weight:600;padding:2px 6px;border-radius:5px}
+.ev .car{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.ev .lv2{font-family:var(--mono);font-size:10.5px;color:rgba(235,217,168,.72);margin-top:4px;display:block}
+.ev .lv2 b{color:#EBD9A8;font-weight:600}
+.ev .why{font-family:var(--serif);font-size:12.5px;line-height:1.5;color:var(--ink-2);margin-top:6px;text-wrap:pretty}
+.ev .bars{display:flex;flex-direction:column;gap:5px;margin-top:7px}
+.dbar{display:grid;grid-template-columns:1fr auto;gap:3px 8px;font-family:var(--mono);font-size:10.5px;color:var(--ink-2)}
+.dbar em{font-style:normal;font-weight:600;color:var(--ink)}
+.dbar i{grid-column:1/3;height:6px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
+.dbar i u{display:block;height:100%;background:linear-gradient(90deg,#8E7A5A,#C9A24B);border-radius:99px}
+.dlt{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);margin-top:6px}
+.ft{padding:9px 16px;border-top:1px solid var(--border);background:rgba(0,0,0,.22);display:flex;align-items:center;gap:13px;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);flex-wrap:wrap}
+.ft button{font-family:var(--mono);font-size:10.5px;color:var(--tide);background:none;border:none;cursor:pointer;padding:0}
+.ft button:hover{color:#8fc4cc}
 
 /* ── overlay chrome ───────────────────────────────────────────────────────── */
 .bar{position:absolute;z-index:1100;display:flex;gap:8px;align-items:flex-start}
+/* the breadcrumb only exists on a handover, so it pushes the window control down rather than
+   competing with it for the corner — and the whole overlay stack shifts with one variable. */
+#crumb{top:12px;left:12px;right:12px;display:none;align-items:center;gap:8px;background:rgba(24,18,15,.92);border:1px solid rgba(201,162,75,.34);border-radius:9px;padding:6px 10px;font-family:var(--mono);font-size:10.5px;color:var(--ink-2);backdrop-filter:blur(7px);flex-wrap:wrap;min-height:34px}
+#crumb.on{display:flex}
+#mapwrap:has(#crumb.on) #gwin{top:56px}
+#mapwrap:has(#crumb.on) #gnav{top:56px}
+#mapwrap:has(#crumb.on) #wmenu,#mapwrap:has(#crumb.on) #fpanel{top:100px}
+.cb2{font-family:var(--mono);font-size:10.5px;font-weight:600;color:#EBD9A8;background:none;border:none;padding:0;cursor:pointer}
+.cb2:hover{text-decoration:underline}
+#crumb .cd{color:var(--ink-3)}
+#crumb .cw2 b{color:var(--ink);font-weight:600}
+#crumb .cf{margin-left:auto;display:flex;align-items:center;gap:7px;color:var(--ink-2);white-space:nowrap}
+#crumb .cf button{font-family:var(--mono);font-size:10px;color:var(--tide);background:none;border:none;padding:0;cursor:pointer}
+#crumb .cf button:hover{color:#8fc4cc}
+.wrap.mob #crumb{left:10px;right:10px;font-size:10px}
+.wrap.mob #crumb .cf{margin-left:0;width:100%}
 #gwin{top:12px;left:12px;flex-wrap:wrap}
 #gnav{top:12px;right:12px;justify-content:flex-end;flex-wrap:wrap}
 .wrap.mob #gwin{top:10px;left:10px;right:10px}
@@ -260,7 +352,7 @@ a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
 .foot{position:absolute;left:50%;transform:translateX(-50%);bottom:13px;z-index:1090;text-align:center;font-family:var(--mono);font-size:9.5px;color:var(--ink-3);background:rgba(20,15,12,.8);border:1px solid var(--border);border-radius:8px;padding:5px 11px;backdrop-filter:blur(6px);max-width:calc(100% - 130px)}
 .foot b{color:var(--ink-2);font-weight:600}
 .foot .fx{color:#EBD9A8}
-.foot .an{display:block;margin-top:2px;color:rgba(242,231,211,.3)}
+.foot .an{display:block;margin-top:2px;color:rgba(242,231,211,.55)}
 .foot .an:empty{display:none}
 .wrap.mob .foot{bottom:60px;left:10px;right:10px;transform:none;max-width:none;font-size:9px}
 .wrap.mob .foot .an{display:none}
@@ -297,7 +389,7 @@ a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
 <div class="c-top"><span class="spine"><span class="c-w">PhotoCast</span><span class="c-k">Field guide to light</span></span>
 <span class="mright"><span class="up"><span class="dot"></span>UP <span class="vv">v2.19.9</span></span><span class="cog"></span><span class="signout">Sign out</span></span></div>
 <div class="c-rule"></div>
-<div class="c-ticks"><span class="oloc"><svg class="pinsvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11z"></path><circle cx="12" cy="10" r="2.4"></circle></svg><span class="nm">Home · DH3 4NG</span><span class="frm">drive times from here</span></span><span class="c-times" id="ctimes"></span></div>
+<div class="c-ticks"><span class="oloc"><svg class="pinsvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11z"></path><circle cx="12" cy="10" r="2.4"></circle></svg><span class="nm" id="oname">Home · DH3 4NG</span><span class="frm">drive times from here</span></span><span class="c-times" id="ctimes"></span></div>
 </div>
 <div class="tabs"><button class="tab">◉ Plan</button><button class="tab">Coming up</button><button class="tab on">◍ Map</button><button class="tab gate">Operations</button></div>
 <div class="tabrule"></div>
@@ -308,8 +400,10 @@ a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
 <div class="selmk" id="selmk"></div>
 <div id="labs"></div>
 <div id="cal"><div class="tail"></div></div>
+<div class="sheet" id="sheet"><div class="scrim" data-act="closespot"></div><div class="card" id="drillcard" role="dialog" aria-modal="true" aria-label="Four days here"></div></div>
 <div id="tip"></div>
 
+<div class="bar" id="crumb"></div>
 <div class="bar" id="gwin">
 <button class="step" id="wprev" aria-label="Previous window">‹</button>
 <button class="pill" id="wnow"></button>
@@ -362,8 +456,13 @@ a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
 <div class="nt"><b>Selection happens on the map</b><span>A Leaflet popup takes the thing you just selected and covers it. Now the point gets a ring and the callout tails into it, so the answer stays in the place you asked about — and the field, the region names and the neighbouring locations stay readable around it. The callout carries the verdict for this window, the reason, drive and leave-by, the night's topics, and every window for that one location, so you can compare Bamburgh across the week without leaving the map.</span></div>
 <div class="nt"><b>No search box here</b><span>The Plan tab's field is for choosing an origin, which is a Plan question. On a map, panning <em>is</em> the search, and a text box in the masthead invites you to type a place you can already see. What the map needs is a jump list, and there are only ever a handful of regions — so <code>◎ Regions</code> names each one with its drive time and this window's best score, and jumping to one outside your area switches scope for you rather than refusing.</span></div>
 <div class="nt"><b>Names, from the Plan tab</b><span>Location chips are the same component as the Plan popup's: a square in the ramp colour, the name, and this window's rating, placed greedily best-first and dropped rather than overlapped. Region names claim space first while the field is the subject, then hand over as you zoom — past a county the question stops being <em>where</em> and becomes <em>which</em>, and a smear cannot answer which.</span></div>
-<div class="nt"><b>The home marker and the rings</b><span>Every drive time and leave-by on this screen is measured from DH3 4NG, so the map states it: a marker, and dashed rings at 45 minutes and 1h 30 while you are zoomed out. That is what turns a warm blob into <em>an hour north of me</em>. The masthead postcode is a statement of that fact, not a control.</span></div>
+<div class="nt"><b>The home marker and the rings</b><span>Every drive time and leave-by on this screen is measured from one point, so the map states it: a marker, and dashed rings at 45 minutes and 1h 30 while you are zoomed out. That is what turns a warm blob into <em>an hour north of me</em>. The masthead line is a statement of that fact, not a control.</span></div>
+<div class="nt"><b>Origin is carried, and it is the one that matters</b><span>Arriving from a plan based in the Lake District, every drive time, leave-by and reach filter here now measures from Keswick — the catalogue already holds both distances per location, so this needed no new data. Carrying the rate/reach filters but silently reverting the origin would have been the bigger version of exactly the lie that carry-over was written to prevent: filters change the size of the set, origin changes every number in it. What it deliberately does <em>not</em> do is invent a coordinate for Keswick: the Plan tab plots no marker for an away origin either, so the marker and the rings stay a home-origin feature and their absence is honest rather than a gap.</span></div>
 <div class="nt"><b>The ground it sits on</b><span>Basemap changed after comparing six on the same field (<code>Map Basemap Options.html</code>). Now Esri Dark Gray, warmed into the palette by a CSS filter. It is <em>not</em> label-free: the base tile still sets country and water-body names — SCOTLAND, Solway Firth, Firth of Clyde — but no <em>towns</em>, which is the class that was competing with our location chips for the same pixels, and ours carry a rating theirs cannot. Town names come back as a reference layer we control past zoom 11.8, where our chips thin out and the village you are driving through starts being useful. The coast is stroked from the same geometry the field is clipped to, so the ground keeps its shape on a basemap quiet enough to let the field lead. CARTO also now watermarks its no-label styles without a key, and the shipped app already credits Esri.</span></div>
+<div class="nt"><b>The callout clamps; it never dead-ends</b><span>Three lines is right for a card that sits on the map — it has to stay small enough not to cover the ground you asked about. Three silent dots are not. The prose <em>is</em> a button now, captioned <code>Full forecast ›</code>, and it opens the location drilldown, which is where long text belongs. Two implementation notes worth keeping: the clamp lives on an inner <code>span</code>, because <code>-webkit-line-clamp</code> needs <code>display:-webkit-box</code> and putting it on the button would clamp the caption away with the prose; and the card takes a <code>max-height</code> from the same chrome-clear band that positions it, so no length of narrative can push it over the controls. Verified with a real 90-word Claude narrative: clamp holds at 3 lines, card 402px in a 739px frame, 426px in the 664px phone frame, no overlap either way.</span></div>
+<div class="nt"><b>It opens the sheet that already exists</b><span>Not a new panel. This is the <em>location sheet</em> specified in <code>design_handoff_plan_matrix</code> §3 and implemented in <code>plan-tab-v5.js renderSpot()</code> — same classes, same 680px card at <code>top:20px</code>, same lead paragraph at the top as the largest type in the view, the best window tagged <code>◎ BEST</code> in place and starting expanded, rows at 2★ or below at <code>.62</code> opacity, and the same two footer actions. A location opened from the map and the same location opened from the Plan tab are now one view rather than two that resemble each other. The first attempt at this was built from a screenshot instead of from the spec, which produced a parallel component with its own class vocabulary — the kind of drift that turns one control into two to maintain.</span></div>
+<div class="nt"><b>What the map adds to it</b><span>One row, <code>.smeta</code>: subject tags, dark-sky value, coastal/tide status and the week's topics — the facts that previously existed only on the map callout. That is what makes the callout a strict <em>subset</em> of the sheet, so routing to it can never lose information. Per-window it also carries the tide-alignment block and glyph. Exactly one scroll region (the row list); a row is as tall as its content and its narrative is never clamped, because a clamp inside an already-expanded row is the same dead end one level deeper.</span></div>
+<div class="nt"><b>The footer's two actions are not duplicates</b><span>I removed the callout's <em>Open in Plan</em> as “a second route to the same place”, which was wrong: in the spec <code>◎ Plan from &lt;region&gt; →</code> <em>sets the origin</em> — it re-points the whole plan and every drive time — while <code>◍ Show on map →</code> returns to the map at the current window. Different verbs, both restored.</span></div>
 <div class="nt"><b>Tide alignment on the chip</b><span>A wave glyph appears on a location's chip when <em>this window's</em> tide lands on the light and the location is coastal — parsed from the tide copy the app already writes, and gated at 45 minutes either side, so it marks alignment rather than merely marking the coast. Three of the six windows qualify; the sunrise with low water 2h11 early does not. It is a <em>glyph, not a second number</em>: the rating stays the only score on the chip. It also acts as the tiebreaker in the label budget — among equal stars, the location whose tide lands on the light keeps its label when space runs out, so a 4★ with the tide beats a 4★ without it rather than losing to it on drive time.</span></div>
 <div class="nt"><b>Width: the map should keep the masthead's column</b><span>Full-bleed reads as broken for a structural reason, not a taste one: the tab strip stops at the content column while the panel it belongs to carries on to the window edge, so the tabs look like they are floating above an unrelated surface. Full width also adds sea and empty moor rather than information — at 2400px one screen spans roughly 150 miles, every label crowds the right third, and the window control and Filters end up a head-turn apart. The <code>▭ Full-bleed</code> button in the toolbar above switches between the two so it can be judged at your own screen width.</span></div>
 <div class="nt"><b>No ramp colour as text</b><span>Star numerals are <em>never</em> drawn in the ramp colour. As a fill the ramp colour has ink placed on top of it and the ink can be chosen per fill to pass; as text the ramp colour <em>is</em> the ink and cannot. The mid-peaked luminance makes it unfixable by a lightness floor, because 1★ and 5★ fail from opposite ends of the ramp — measured, ramp-as-text gave 1★ 2.37 and 5★ 3.04 against their own chip grounds. So the swatch or the badge fill carries the colour and the numeral takes <code>#FFFFFF</code> or <code>#0F172A</code>, picked per fill by <code>HeatField.ink()</code>. Every star label on this screen now measures ≥ 5.56:1. Rule from <code>design_temp_scale</code>, Change 5a.</span></div>

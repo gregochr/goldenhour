@@ -366,6 +366,17 @@ a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
 .mlab>.loc em{font-style:normal;font-weight:600;padding-left:4px;border-left:1px solid var(--border-light)}
 .mlab>.loc.flip em{padding:0 4px 0 0;border-left:none;border-right:1px solid var(--border-light)}
 .wrap.mob .mlab>.loc{font-size:10px;padding:3px 6px}
+/* the door on the field. Top-right, because the field's own click gesture (region filter) and
+   its hint both live along the bottom — a door placed there would read as part of that. */
+.mopen{position:absolute;right:7px;top:7px;font-family:var(--mono);font-size:9.5px;color:#EBD9A8;background:rgba(20,15,12,.86);border:1px solid rgba(201,162,75,.42);border-radius:6px;padding:5px 8px;cursor:pointer;line-height:1.2;backdrop-filter:blur(4px)}
+.mopen:hover{background:rgba(201,162,75,.22);border-color:rgba(201,162,75,.7)}
+.wrap.mob .mopen{padding:7px 10px;font-size:10px}
+/* door 3 — the thumbnail glyph. 34px on desktop, 40px on the phone; still under the 44px hit
+   guidance, which is the open question about this door rather than a defect to hide. */
+.tomap{position:absolute;right:5px;top:5px;z-index:3;display:flex;align-items:center;justify-content:center;width:34px;height:34px;border-radius:8px;font-size:14px;color:#EBD9A8;background:rgba(20,15,12,.8);box-shadow:inset 0 0 0 1px rgba(201,162,75,.4);cursor:pointer;opacity:0;transition:opacity .13s}
+.tmap:hover .tomap,.tomap:focus-visible{opacity:1}
+.tomap:hover{background:rgba(201,162,75,.26);box-shadow:inset 0 0 0 1px rgba(201,162,75,.75)}
+.wrap.mob .tomap{width:40px;height:40px;opacity:1;background:rgba(20,15,12,.72)}
 .mhint{position:absolute;left:8px;bottom:7px;font-family:var(--mono);font-size:9px;color:var(--ink-3);background:rgba(20,15,12,.8);padding:3px 6px;border-radius:5px}
 
 .rlab{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin:0 15px 6px}
@@ -526,6 +537,12 @@ a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
 </div>
 
 <div class="notes">
+<div class="nt"><b>The thumbnails promised a map</b><span>Same field kernel, same ramp, same label placement as the Map tab — so every card already looks like a map, and tapping one opened a window sheet instead. The location sheet even shipped a <code>◍ Show on map →</code> button with nothing behind it. Three doors now, at three depths: the window sheet's field, that footer button (wired), and a glyph on the thumbnail itself.</span></div>
+<div class="nt"><b>What travels is the design work</b><span>The window, the region filter, <em>and</em> the rate/reach filters. Arriving at an unfiltered map from a filtered plan would misrepresent the set you tapped through from — this plan defaults to 4★+ within 2h30, which is narrower than the map's own default. Because that makes the map look thinner than usual, the breadcrumb there states what it carried and offers to clear it, rather than leaving you to work out why half the locations vanished. The window is passed as an <em>index</em> and mapped on the map's side, because its event list interleaves each night's astro and aurora: Plan window 3 is not <code>EV[3]</code>.</span></div>
+<div class="nt"><b>The field's click gesture was already taken</b><span>On the window sheet the canvas click filters by region, and the hint that says so sits bottom-left. So the door is its own affordance top-right rather than a second meaning for the same gesture — two things on one tap is how you lose the one people had learned.</span></div>
+<div class="nt q"><b>Open question · door 3</b><span>The thumbnail glyph skips the window sheet entirely. It is 34px on desktop and 40px on the phone, both under the 44px hit guidance, and it is hover-revealed on desktop so it does not sit permanently on top of the field. Both of those are the reason to look at it rather than defects to hide: it may be too small and too quiet to be found, in which case doors 1 and 2 are enough and this one should go. It is here to be judged.</span></div>
+<div class="nt q"><b>Open question · the return trip</b><span>The map's breadcrumb goes back to this tab, but not to the window sheet you left — it returns to the plan itself. Whether the sheet should reopen is a real call: it preserves your place, but it also means a round trip through the map leaves a modal open over the answer you went to check.</span></div>
+
 <div class="nt"><b>The verdict belongs on the picture</b><span>A thumbnail carries the day, the arrow, the field, the time, its verdict, whether it is the pick, and any hot topic on that night. That is the whole judgement, so the row underneath had nothing left to say — it was restating the pill in four different ways. Six pictures, six verdicts, no list.</span></div>
 <div class="nt cut"><b>The per-card delta earned nothing</b><span>A <code>▲0.3</code> chip on every card was a third statement of movement: the line under the strip already names the two windows that actually moved, in words, with the region that moved them, and the popup header states it with the run age beside it. Nobody drives somewhere over three tenths of a star, so the card is quieter without it. If that top-right slot wants filling later, the honest candidate is the window's best spot — <em>Bamburgh 5★</em> — not a trend arrow.</span></div>
 <div class="nt"><b>The drill-down is a popup, not a storey</b><span>Region pills, narrative, tide and ranked locations open over the plan rather than pushing it down the page. You come back to exactly the view you left, which the accordion could never promise: opening row four used to move rows five and six.</span></div>

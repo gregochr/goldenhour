@@ -49,7 +49,13 @@ final and intended to be matched. This prompt is the working order, not a substi
    drive time.
 7. **Selection**: anchored callout with a tail into a ringed marker, re-anchored every paint.
    Not a Leaflet popup. Clamp it to the band left clear by the overlay chrome, not to the map
-   box.
+   box. Its clamped prose and its primary action both open the **existing location sheet** —
+   `design_handoff_plan_matrix/README.md` §3, implemented in `plan-tab-v5.js renderSpot()`.
+   **Extend that sheet; do not build a second one.** The only addition is one meta row carrying
+   subject tags, dark sky, coastal/tide and topics, so the callout stays a strict subset of it.
+   Keep its documented behaviours: lead at top, `◎ BEST` tagged in place and expanded by
+   default, ≤2★ rows at `.62`, and both footer actions — `◎ Plan from <region> →` **sets the
+   origin**, which is not the same as `◍ Show on map →`.
 8. **Regions jump list**; remove the search field from this tab's masthead (panning is the
    search here — the postcode becomes a statement of what drive times are measured from).
 9. **Tide alignment glyph** on location chips, per the README.
@@ -81,6 +87,19 @@ Each of these was got wrong at least once while designing it. Screenshots will n
 - Do not clip the field with a hard path, and do not union per-location discs into the mask.
   Both are explained in the README with what they looked like.
 - Do not add a text search field to this tab.
+- **Do not keep `MarkerClusterGroup`.** Remove it, do not gate it behind Pins mode. Clustering
+  is the defect heat exists to fix: a bubble reading "12" cannot say whether tonight is worth
+  driving for, and it averages the good locations away. Pins mode is the honest comparison and
+  must show the raw pile, with dots sorted ascending by score so the best draws on top (26px
+  rated over 13px unrated) — an ordering clustering would destroy. Density at scale is a
+  rendering problem, not a clustering one; the map already sets `preferCanvas`. Drop
+  `react-leaflet-cluster` and `leaflet.markercluster` from `package.json`, delete
+  `createClusterIcon` from `markerUtils.js`, and remove the `MarkerCluster.css` mocks from
+  `MapViewViewline`, `MapViewAstro` and `MapViewStarFilter`.
+- Do not build a new location sheet. One already exists, is specified, and is shipped — check
+  `design_handoff_plan_matrix/README.md` §3 before writing any panel that shows a location
+  across the week. (I built one from a screenshot before reading the spec; it had to be thrown
+  away.)
 
 ## Three open questions — ask before implementing
 
