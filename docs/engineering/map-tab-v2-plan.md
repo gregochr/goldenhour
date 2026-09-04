@@ -687,13 +687,31 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     comment. `MARKER_INTERACTIVE_ALPHA` and `markersAreInteractive` are now vestigial (the only
     argument is `0`) and are deliberately **kept**: they are the regression net for any future
     middle ground, and deleting them as dead code is what would make this hard to reverse.
-    ⚠️ **Two pre-existing defects this exposed, neither fixed here**: on a D-13 filler row the
-    colour ramp key renders above a field that paints nothing (the medallions were masking it), and
+    ⚠️ **Two pre-existing defects this exposed.** The first is now FIXED (see item 19): on a D-13
+    filler row the colour ramp key rendered above a field that paints nothing (the medallions were
+    masking it). Still open:
     Leaflet still gives every hidden marker `tabIndex=0`/`role="button"`, so the tab carries
     focusable no-op markers ahead of the chips — the recorded `visibility`-vs-tree decision in
     `applyMarkerFade`/`index.css` rests on "the markers are the only route to a location's popup",
-    false since P9 (#734). Both need their own phase; the review measured the second as
-    overwhelmingly pre-existing (`fadeAt` already returned 0 at every zoom the tab opens at).
+    false since P9 (#734). It needs its own phase, and the review measured it as overwhelmingly
+    pre-existing (`fadeAt` already returned 0 at every zoom the tab opens at); the deeper question
+    underneath it is whether `MarkerClusterGroup` should mount on the tab at all, which would
+    subsume the a11y fix — an owner call, not a patch.
+19. **The colour key no longer renders above an empty field (2026-09-04) — the first of item 18's
+    two exposed defects, closed.** `windowUnscored` required a non-null `heatWindow`, excused in its
+    own javadoc by "the selector already says 'No forecast window' for that". That excuse was false:
+    `WindowControl` says it only when NO EV row matches, and a **D-13 filler row** matches perfectly
+    well — it is an ordinary enabled row the `›` stepper walks into. So on a filler row the reader
+    got no "not scored yet" line AND a colour key to a gradient that was not there. The same held
+    for any date the EV list has no row for, where the key also rendered.
+    `heatWindow?.bestRating == null` now covers both "no served window" and "served, nothing rated",
+    which are one answer to the only question the key asks. The camera-vs-forecast distinction the
+    old comment reached for is kept, but moved onto the MESSAGE (`unscoredLineShown`), which stays
+    quiet on a date with no row so the selector is not answered twice. ⚠️ **ASTRO is exempt from
+    that gate** — it carries no EV row when nothing is scored, but its unscored state is derived
+    from `astroHeatPoints` directly, i.e. a statement about the forecast, not the camera; gating it
+    silenced the one mode whose message is always earned, and a test caught it. Both new pins fail
+    against the old logic (verified by reverting the predicate).
 
 ## §5 Decisions taken in this plan (challenge in review, not in code)
 

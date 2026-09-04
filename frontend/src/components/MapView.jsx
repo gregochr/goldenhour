@@ -1766,9 +1766,26 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * a subtler reason the strip's class comment records: an empty point set is a fact about the
    * join behind the picture, and in production three windows the payload was rating had one.
    *
-   * <p>It stays distinct from {@code heatWindow} being null, which is the map sitting on a date the
-   * briefing does not reach: the selector already says "No forecast window" for that, and it is a
-   * statement about the CAMERA rather than about the forecast.
+   * <p>⚠️ <b>A null {@code heatWindow} counts as unscored too, and used to not.</b> This read
+   * {@code heatWindow && heatWindow.bestRating == null}, excused by "the selector already says
+   * 'No forecast window' for that, and it is a statement about the CAMERA rather than about the
+   * forecast". The second half is a fair distinction; the first half was **false**, and it is what
+   * made the bug. `WindowControl` says "No forecast window" only when NO EV row matches the map's
+   * date/event — and a **D-13 filler row** (a forecast date past the briefing's served windows)
+   * matches perfectly well, being an ordinary enabled row the `›` stepper walks straight into. So
+   * on a filler row the reader got no message AND, because this flag was false, the colour key
+   * rendered above a field painting nothing: a key to a gradient that was not there.
+   *
+   * <p>It went unnoticed because the medallions used to fill that screen — the tab's Heat view
+   * faded them back in past the handover band, so "empty" read as "sparse". Hiding them
+   * unconditionally (#747) is what exposed it. `heatWindow?.bestRating == null` now covers both
+   * "no served window for this date/event" and "served, nothing rated", which are the same answer
+   * to the only question the key asks: is there a rating behind this picture.
+   *
+   * <p>The camera-vs-forecast distinction the old comment reached for is kept, but where it
+   * belongs — on the MESSAGE, not on the key. See {@code unscoredLineShown}: the key is withheld
+   * whenever nothing is rated, while the line additionally stays quiet on a date the EV list has no
+   * row for, so the selector's own "No forecast window" is not answered twice.
    *
    * <p>ASTRO has no {@code heatWindow} at all (no served window key), so it asks the same question
    * of its own point set directly — an empty {@code astroHeatPoints} IS "nothing here is rated",
@@ -1777,7 +1794,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const windowUnscored = Boolean(
     heatOn && (isAstroMode
       ? astroHeatPoints.length === 0
-      : heatWindow && heatWindow.bestRating == null),
+      : heatWindow?.bestRating == null),
   );
 
   /**
@@ -2303,6 +2320,24 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /** The row `MapCallout`'s verdict block and "every window" strip treat as "now showing" — the
    * SAME row the pill/tooltip above already read off `activeEvIndex`, never a second lookup. */
   const activeMapEvent = mapEvents[activeEvIndex] ?? null;
+
+  /**
+   * Whether the "This event is not scored yet" line is drawn — {@code windowUnscored} plus the
+   * camera-vs-forecast distinction that flag deliberately no longer makes on its own.
+   *
+   * <p>The line answers "the forecast rated nothing here". It is withheld in exactly one state: a
+   * SOLAR window the EV list has no row for at all, where `WindowControl` already says "No forecast
+   * window" and this would be a second voice on the same point (pinned by its own test). A D-13
+   * filler row is NOT that state — a row does match, so this surface has to speak, which is the bug
+   * this whole derivation exists to fix.
+   *
+   * <p>⚠️ ASTRO is exempt from the gate, and finding that out cost a test failure worth recording:
+   * astro carries no EV row in a catalogue with no astro conditions, so {@code activeMapEvent} is
+   * null there — but its {@code windowUnscored} is derived from {@code astroHeatPoints} directly,
+   * which IS a statement about the forecast rather than the camera. Gating it would have silenced
+   * the one mode whose message is always earned.
+   */
+  const unscoredLineShown = windowUnscored && (isAstroMode || activeMapEvent != null);
 
   /**
    * The Regions jump list (map-tab-v2-plan.md §3 P11, `docs/design/map-tab-v2/README.md` §2).
@@ -3329,7 +3364,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                     </div>
                   )}
                 </div>
-                {windowUnscored && (
+                {unscoredLineShown && (
                   <div data-testid="wf-map-heat-unscored" className="wf-map-key">
                     This event is not scored yet
                   </div>
@@ -3464,7 +3499,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                       `MapHeatLayer` stays mounted for the coastline stroke — see the mount comment
                       above). "This event is not scored yet" REPLACES the key rather than sitting
                       beside it, for the same reason. */}
-                  {windowUnscored && (
+                  {unscoredLineShown && (
                     <div data-testid="wf-map-heat-unscored" className="wf-map-key">
                       This event is not scored yet
                     </div>
