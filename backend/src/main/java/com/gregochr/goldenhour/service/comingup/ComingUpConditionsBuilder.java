@@ -375,8 +375,7 @@ public class ComingUpConditionsBuilder {
     }
 
     private static String coastalTideQuantLabel(double rarityBits, int runCount, List<Double> rangeValues) {
-        StringBuilder label = new StringBuilder(rarityWord(rarityBits)).append(" (").append(fmt1(rarityBits))
-                .append(")");
+        StringBuilder label = new StringBuilder(rarityWord(rarityBits));
         label.append(" · ").append(runCount).append(runCount == 1 ? " run in 90 days" : " runs in 90 days");
         if (!rangeValues.isEmpty()) {
             List<Double> sorted = rangeValues.stream().sorted().toList();
@@ -392,6 +391,14 @@ public class ComingUpConditionsBuilder {
      * without the raw log2 unit. The boundaries are chosen so the shipped rows land where they read
      * naturally (14.8-day tide gap → "occasional"; 4-day inversion fallback → "occasional"), not
      * derived from any external distribution.
+     *
+     * <p>⚠️ <b>The word ships alone — never {@code word (3.9)}.</b> All three quant labels used to
+     * append the raw figure in brackets, which put back exactly the log2 unit this method exists to
+     * replace: {@code bits} is unbounded surprisal ({@link SurpriseScore}: {@code log2(meanGapDays)}
+     * plus {@code -log2(P(X >= x))}), so a bracketed {@code 3.9} offers a reader no denominator to
+     * reason about — there is no "out of". The number stays on the wire where a consumer can use it
+     * ({@code ComingUpConditionPeak.bits}, {@code ComingUpConditionOccurrence.bits}); it simply does
+     * not belong in a sentence a photographer reads.
      */
     private static String rarityWord(double bits) {
         if (bits < 2.0) {
@@ -506,8 +513,8 @@ public class ComingUpConditionsBuilder {
                     "AOD " + fmt2(aod), null, round1(bits), null, STATUS_INSIDE_PLAN, null));
         }
 
-        String quantLabel = rarityWord(rarityBits) + " (" + fmt1(rarityBits)
-                + ") · counts as a plume above a haze reading of "
+        String quantLabel = rarityWord(rarityBits)
+                + " · counts as a plume above a haze reading of "
                 + fmt2(BigDecimal.valueOf(dustConfig.getMagnitudeThresholdAod())) + " (early threshold)";
         return new ComingUpCondition("DUST", "Saharan dust", scoringProperties.getCadence().getDust(), true,
                 rateLabel, quantLabel, peak, occurrences);
@@ -582,7 +589,7 @@ public class ComingUpConditionsBuilder {
                     score + "/10", null, round1(bits), null, STATUS_INSIDE_PLAN, null));
         }
 
-        String quantLabel = rarityWord(rarityBits) + " (" + fmt1(rarityBits) + ") · counts as strong above "
+        String quantLabel = rarityWord(rarityBits) + " · counts as strong above "
                 + fmt0(inversionConfig.getMagnitudeThresholdScore()) + "/10 (early threshold)";
         return new ComingUpCondition("VALLEY_INVERSIONS", "Valley inversions",
                 scoringProperties.getCadence().getInversion(), true, rateLabel, quantLabel, peak, occurrences);

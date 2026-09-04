@@ -320,7 +320,13 @@ class ComingUpConditionsBuilderTest {
 
         double expectedFallback = SurpriseScore.rarity(new ComingUpScoringProperties().getRecurrent()
                 .getDust().getFallbackMeanGapDays());
-        assertThat(dust.quantLabel()).startsWith(rarityWord(expectedFallback) + " (" + fmt1(expectedFallback) + ")");
+        assertThat(dust.quantLabel()).startsWith(rarityWord(expectedFallback));
+        // ⚠️ The RARITY VALUE is asserted on the occurrence's own `bits`, not on a figure inside the
+        // label — the label carries the word alone now, and the word cannot separate the fallback
+        // from the observed rate (log2(7) and log2(12) are both "occasional"). The occurrence
+        // carries `rarity + magnitude`, so this pins the number the word only summarises.
+        assertThat(dust.occurrences().getFirst().bits())
+                .isEqualTo(round1(expectedFallback + SurpriseScore.DEFAULT_MAGNITUDE_BITS));
         assertThat(dust.rateLabel()).doesNotContain("about");
         assertThat(dust.interim()).isTrue();
     }
@@ -338,7 +344,11 @@ class ComingUpConditionsBuilderTest {
         ComingUpCondition dust = builder.build(TODAY, List.of(), List.of()).get(1);
 
         double expectedObserved = SurpriseScore.rarity(60.0 / 5);
-        assertThat(dust.quantLabel()).startsWith(rarityWord(expectedObserved) + " (" + fmt1(expectedObserved) + ")");
+        assertThat(dust.quantLabel()).startsWith(rarityWord(expectedObserved));
+        // The observed rate, pinned as a number — see the fallback test for why the word alone
+        // cannot carry this assertion.
+        assertThat(dust.occurrences().getFirst().bits())
+                .isEqualTo(round1(expectedObserved + SurpriseScore.DEFAULT_MAGNITUDE_BITS));
         assertThat(dust.rateLabel()).contains("about");
     }
 
@@ -373,7 +383,12 @@ class ComingUpConditionsBuilderTest {
         // All 5 arrivals counted (clears the evidentiary bar) — the null-AOD row is neither lost
         // nor does it abort processing of the rows around it.
         double expectedObserved = SurpriseScore.rarity(60.0 / 5);
-        assertThat(dust.quantLabel()).startsWith(rarityWord(expectedObserved) + " (" + fmt1(expectedObserved) + ")");
+        assertThat(dust.quantLabel()).startsWith(rarityWord(expectedObserved));
+        // The count is what this test is about, and `bits` is where it shows: five arrivals give
+        // log2(60/5), four would give log2(60/4) — 4.6 against 4.9 once magnitude is added. The
+        // rarity WORD is "occasional" either way, so only the number can fail this test.
+        assertThat(dust.occurrences().getFirst().bits())
+                .isEqualTo(round1(expectedObserved + SurpriseScore.DEFAULT_MAGNITUDE_BITS));
     }
 
     @Test
@@ -478,10 +493,23 @@ class ComingUpConditionsBuilderTest {
 
         double expectedFallback = SurpriseScore.rarity(new ComingUpScoringProperties().getRecurrent()
                 .getInversion().getFallbackMeanGapDays());
-        assertThat(inversion.quantLabel())
-                .startsWith(rarityWord(expectedFallback) + " (" + fmt1(expectedFallback) + ")");
+        assertThat(inversion.quantLabel()).startsWith(rarityWord(expectedFallback));
+        // ⚠️ The RARITY TERM is what this test is about, and `bits` is the only place it survives
+        // now that the label carries the word alone — a word that cannot fail here, since the
+        // fallback and any upgraded rate would both read "occasional". Every row scores 9, which
+        // clears the magnitude threshold, so the expected total is the fallback rarity plus
+        // `magnitudeAboveBits`; an upgraded rarity term would move it.
+        double aboveBits = new ComingUpScoringProperties().getRecurrent().getInversion()
+                .getMagnitudeAboveBits();
+        assertThat(inversion.occurrences().getFirst().bits())
+                .isEqualTo(round1(expectedFallback + aboveBits));
         assertThat(inversion.occurrences()).hasSize(6);
         assertThat(inversion.interim()).isTrue();
+    }
+
+    /** Mirrors {@code ComingUpConditionsBuilder}'s own 1dp rounding of a surprise score. */
+    private static double round1(double value) {
+        return Math.round(value * 10.0) / 10.0;
     }
 
     private static String fmt1(double value) {
