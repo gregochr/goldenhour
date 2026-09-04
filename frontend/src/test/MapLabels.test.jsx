@@ -164,9 +164,12 @@ describe('MapLabels — mounting', () => {
     const pane = currentMap.panes['wf-labels'];
     expect(pane).toBeTruthy();
     // 650, NOT the design bundle's own 420 (PR #733 review, a confirmed finding) — Leaflet's real
-    // `markerPane` sits at its own built-in 600 and this app fades its markers back to full
-    // opacity and interactivity past the zoom handover, so labels must clear it or a chip renders
-    // (and hit-tests) underneath the very marker it names.
+    // `markerPane` sits at its own built-in 600, on the exact same projected points as the chips.
+    // ⚠️ The original reason given here ("this app fades its markers back to full opacity and
+    // interactivity past the zoom handover") is gone: `MapHeatLayer` now holds those panes at zero
+    // unconditionally. 650 stays because the markers are still THERE — restored on unmount, and
+    // fully painted in aurora mode, where this layer never mounts at all — and a chip must not
+    // render, or hit-test, under the very marker it names.
     expect(pane.style.zIndex).toBe('650');
     expect(pane.style.pointerEvents).toBe('none');
   });

@@ -10,9 +10,17 @@ const HANDOVER_FIELD_MAX = 0.05;
 const HANDOVER_LOCATIONS_MIN = 0.92;
 
 /**
- * The Legend panel's three-state handover copy, from the SAME `t` `MapHeatLayer.fadeAt(zoom).markers`
- * already computes for the canvas fade — one number, one place it is turned into words, so the
- * indicator can never disagree with what is actually painting.
+ * The Legend panel's three-state handover copy, from the same `t` `MapHeatLayer.fadeAt(zoom).markers`
+ * computes — one number, one place it is turned into words.
+ *
+ * <p>⚠️ It used to add "so the indicator can never disagree with what is actually painting", and
+ * that safety property is gone: `markers` was the medallion opacity, and nothing paints at it now
+ * (`MapHeatLayer` hides those panes unconditionally). The indicator is still HONEST — `fadeAt`'s
+ * other half, `heat`, ramps the field 1 → 0.12 across the identical band, so `Field` / `Handing
+ * over` / `Locations` does track a real, visible change, and what it hands over TO is `MapLabels`'
+ * chips, exactly as the bundle intends. But the two halves are now separate numbers from one
+ * function rather than one number with two consumers: a future change to the field's own ramp can
+ * move the picture without moving this text.
  *
  * <p>Exported (pure, no DOM) so the three bands can be pinned directly on the number rather than by
  * reverse-engineering a zoom that happens to land in each one.

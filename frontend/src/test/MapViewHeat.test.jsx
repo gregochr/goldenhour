@@ -559,10 +559,13 @@ describe('MapView heat — the toolbar', () => {
 
 describe('MapView heat — a window nobody rated', () => {
   /**
-   * The Plan tab's unscored mark, adapted to a host that has no plate to hatch. On the Leaflet
-   * side the field simply paints nothing and the markers keep full opacity (`MapHeatLayer`'s own
-   * `fadesMarkers` rule), which is a reasonable fallback — but the ramp key stays up, explaining a
-   * gradient nothing on screen carries, which is the exact thing that key's own rule forbids.
+   * The Plan tab's unscored mark, adapted to a host that has no plate to hatch. On the Leaflet side
+   * the field simply paints nothing — and ⚠️ the markers no longer come back with it: the
+   * `fadesMarkers`/`points.length > 0` rule this comment used to name is gone (an adversarial
+   * review established an empty point set is not "nothing is scored"), so `MapHeatLayer` holds the
+   * medallions hidden here as everywhere else. What this block is really about is the ramp key
+   * staying up, explaining a gradient nothing on screen carries, which is the exact thing that
+   * key's own rule forbids.
    */
   const unrated = (overrides = {}) => heatProp({ windows: WINDOWS_TONIGHT_UNRATED, ...overrides });
 

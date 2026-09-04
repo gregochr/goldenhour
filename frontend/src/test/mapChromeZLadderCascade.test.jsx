@@ -37,10 +37,12 @@ import {
  * whichever literal it carries. Re-tuning it to exactly 410 is a P8/P9 question, not P7's.
  *
  * <p>⚠️ LABELS shipped in P8 at 650, not the bundle's 420 (PR #733 review — the bundle's prototype
- * assumed a heat view with no markers ever rendering below the label layer; this app fades
- * Leaflet's real markers back to full opacity and interactivity past the zoom handover, in
- * Leaflet's own built-in `markerPane` at z600, so labels have to clear THAT pane, not merely the
- * heat canvas). That z-index is set directly in JS on the Leaflet pane (`MapLabels.jsx`'s
+ * assumed a heat view with no markers ever rendering below the label layer, and this app keeps
+ * Leaflet's real markers mounted in its built-in `markerPane` at z600, on the same projected points
+ * as the chips, so labels have to clear THAT pane and not merely the heat canvas. The reason
+ * originally given here — that the app "fades them back to full opacity and interactivity past the
+ * zoom handover" — no longer holds: `MapHeatLayer` hides those panes unconditionally now. They are
+ * still restored on unmount and fully painted in aurora mode, which is why 650 stays). That z-index is set directly in JS on the Leaflet pane (`MapLabels.jsx`'s
  * `LABEL_PANE_Z`) rather than through a CSS rule on a class, so — like the heat field's own pane
  * above — it has nothing for this file's slicer to extract and stays untested HERE by construction;
  * `MapLabels.test.jsx` pins the numeric value and its relation to Leaflet's marker/popup panes

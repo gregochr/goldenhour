@@ -20,14 +20,15 @@ import { rampHex } from '../../utils/scoreRamp.js';
  * <p>⚠️ 650, NOT the bundle's own 420 (PR #733 review — a confirmed finding, not a typo). The
  * design bundle's z-ladder ("heat 410 / selection ring 415 / labels 420 / CHROME 1100 / callout
  * 1350 / tooltip 1400 / MENUS 1500") assumed a heat view with NO markers ever rendering below the
- * label layer — its prototype simply has none once the field is on. This app instead FADES
- * Leaflet's real markers back in across the zoom handover (`MapHeatLayer.jsx`'s {@code fadeAt}):
- * past it they are fully opaque AND interactive again, in Leaflet's own {@code markerPane} at its
- * built-in z600 — sitting on the exact same projected points as the chips, since a chip and its
- * marker name the same location. At 420 a chip would render, and hit-test, UNDER its own marker
- * past the handover, which is exactly backwards for the surface the design makes primary. 650
- * clears Leaflet's marker pane (600) while staying below its popup pane (700) and every chrome
- * chip (1100+) — the P7 chrome comment in index.css records the ladder with this correction.
+ * label layer. Heat mode no longer fades Leaflet's real markers back in across the zoom handover
+ * either (`MapHeatLayer.jsx`'s {@code hidesMarkers} — the chips ARE what the field hands over to),
+ * so the bundle's assumption now HOLDS for the ordinary case — but not for all of it: a window with
+ * nothing scored still keeps the medallions at full opacity, in Leaflet's own {@code markerPane} at
+ * its built-in z600, sitting on the exact same projected points as the chips, since a chip and its
+ * marker name the same location. At 420 a chip would render, and hit-test, UNDER its own marker on
+ * exactly the windows where the chip is the only thing carrying a name. 650 clears Leaflet's marker
+ * pane (600) while staying below its popup pane (700) and every chrome chip (1100+) — the P7 chrome
+ * comment in index.css records the ladder with this correction.
  */
 const LABEL_PANE = 'wf-labels';
 const LABEL_PANE_Z = 650;
