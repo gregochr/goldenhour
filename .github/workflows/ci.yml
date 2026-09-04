@@ -185,9 +185,20 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         run: cd frontend && npm test
 
+      # ⚠️ NOT a bare `npm audit`, and the reason is not the obvious one. This job went red on
+      # 2026-09-04 on a PR touching no dependency file, with a 400 from
+      # `/-/npm/v1/security/audits/quick` and a notice that the endpoint is being retired — and it
+      # passed on re-run with an identical tree.
+      #
+      # npm does not CHOOSE that endpoint. Arborist 8.x (npm 10, which Node 22 ships) tries the
+      # bulk advisory endpoint first and falls back to the quick one when it throws, logging the
+      # real failure at `silly` — which CI never prints. So the error on screen came from a
+      # fallback nobody picked, while the actual bulk outage stayed invisible. `scripts/npm-audit.sh`
+      # carries the full account; in short it runs the audit under npm 11 (which deleted the quick
+      # fallback entirely) and retries ONLY on transport errors, never on a finding.
       - name: OWASP Dependency Audit (frontend)
         if: needs.changes.outputs.docs_only != 'true'
-        run: cd frontend && npm audit --audit-level=high
+        run: ./scripts/npm-audit.sh frontend high
 
       - name: Build
         if: needs.changes.outputs.docs_only != 'true'
