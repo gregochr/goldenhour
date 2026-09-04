@@ -22,7 +22,6 @@ vi.mock('leaflet', () => {
   return { default: { icon, divIcon, point }, icon, divIcon, point };
 });
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
-vi.mock('leaflet.markercluster/dist/MarkerCluster.css', () => ({}));
 
 /**
  * Every handlers object any `useMapEvents` caller registered this render — `ZoomTracker`'s
@@ -47,7 +46,6 @@ vi.mock('react-leaflet', () => ({
     fitBounds: () => {},
   }),
 }));
-vi.mock('react-leaflet-cluster', () => ({ default: ({ children }) => <div>{children}</div> }));
 vi.mock('../components/MapHeatLayer.jsx', () => ({ default: () => <div data-testid="map-heat-layer" /> }));
 
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'PRO_USER' }) }));

@@ -4,7 +4,6 @@ import {
   buildStandDownSvg,
   scoreColour,
   markerLabelAndColour,
-  createClusterIcon,
   STAND_DOWN_COLOUR,
 } from '../components/markerUtils.js';
 import { STOPS_VERDICT, rampHex, starFromScore, setMode } from '../utils/scoreRamp.js';
@@ -17,26 +16,6 @@ function parseSvg(svgString) {
   const div = document.createElement('div');
   div.innerHTML = svgString;
   return div.querySelector('svg');
-}
-
-/**
- * Helper to create a mock cluster with child markers carrying optional data.
- * Each entry in `data` can be a number (rating only) or { rating, fierySky, goldenHour }.
- */
-function mockCluster(count, data = []) {
-  const markers = data.map((d) => {
-    const opts = typeof d === 'number'
-      ? { rating: d }
-      : { rating: d.rating, fierySky: d.fierySky, goldenHour: d.goldenHour };
-    return { options: { icon: { options: opts } } };
-  });
-  while (markers.length < count) {
-    markers.push({ options: { icon: { options: {} } } });
-  }
-  return {
-    getChildCount: () => count,
-    getAllChildMarkers: () => markers,
-  };
 }
 
 describe('scoreColour', () => {
@@ -66,10 +45,11 @@ describe('scoreColour', () => {
     expect(scoreColour(100)).toBe(STOPS_VERDICT[4].hex);
   });
 
-  it('maps a 0–100 average onto stars by dividing by 20, which inverts the cluster’s own mean', () => {
-    // `createClusterIcon` builds its average as `mean(ratings) × 20`, so a cluster of straight 4★
-    // spots must land exactly on the 4★ stop rather than somewhere inside a bucket. Round-trip, not
-    // a magic number: change either half alone and this fails.
+  it('maps a 0–100 average onto stars by dividing by 20', () => {
+    // `starsFromAverage`'s inverse. Its original producer was `createClusterIcon`'s
+    // `mean(ratings) × 20`, deleted with clustering; `markerLabelAndColour`'s
+    // `(fierySky + goldenHour) / 2` is the producer left, and lands on the same line. A straight 4★
+    // average must sit exactly on the 4★ stop rather than somewhere inside a bucket.
     expect(scoreColour(4 * 20)).toBe(STOPS_VERDICT[3].hex);
     expect(scoreColour(3 * 20)).toBe(STOPS_VERDICT[2].hex);
   });
@@ -109,13 +89,6 @@ describe('scoreColour never produces a labelled fill from a fractional star (§2
     for (let avg = 0; avg <= 100; avg += 1) {
       expect(wholeStarColours.has(scoreColour(avg))).toBe(true);
     }
-  });
-
-  it('a cluster whose ratings average to a fractional star still paints a whole-star colour', () => {
-    // mean([3, 4]) = 3.5 → avg 70 → 3.5★ → rounds to 4★, not the interpolated colour at 3.5.
-    const icon = createClusterIcon(mockCluster(2, [3, 4]));
-    expect(icon.options.html).toContain(rampHex(4));
-    expect(icon.options.html).not.toContain(rampHex(3.5));
   });
 
   it('a marker built from a fiery/golden pair averaging to a non-multiple of 20 still paints a whole-star colour', () => {
@@ -350,116 +323,6 @@ describe('buildMarkerSvg', () => {
       const track = Array.from(svg.querySelectorAll('circle'))
         .find((c) => c.getAttribute('stroke') === 'rgba(255,255,255,0.1)');
       expect(track).toBeUndefined();
-    });
-  });
-});
-
-describe('createClusterIcon', () => {
-  /** Parse the SVG HTML to a DOM element for querying. */
-  function parseHtml(icon) {
-    const div = document.createElement('div');
-    div.innerHTML = icon.options.html;
-    return div.querySelector('svg');
-  }
-
-  it('returns a DivIcon containing the child count', () => {
-    const icon = createClusterIcon(mockCluster(7));
-    expect(icon.options.html).toContain('7');
-  });
-
-  it('uses small size (40px) for fewer than 10 markers', () => {
-    const icon = createClusterIcon(mockCluster(5));
-    expect(icon.options.iconSize.x).toBe(40);
-    expect(icon.options.iconSize.y).toBe(40);
-  });
-
-  it('uses medium size (48px) for 10-19 markers', () => {
-    const icon = createClusterIcon(mockCluster(15));
-    expect(icon.options.iconSize.x).toBe(48);
-    expect(icon.options.iconSize.y).toBe(48);
-  });
-
-  it('uses large size (56px) for 20+ markers', () => {
-    const icon = createClusterIcon(mockCluster(25));
-    expect(icon.options.iconSize.x).toBe(56);
-    expect(icon.options.iconSize.y).toBe(56);
-  });
-
-  it('has empty className to prevent default Leaflet styles', () => {
-    const icon = createClusterIcon(mockCluster(3));
-    expect(icon.options.className).toBe('');
-  });
-
-  it('derives the count ink from the bubble fill, like the markers', () => {
-    // No ratings -> the no-data grey, where the old hard-coded dark ink measured under 2:1.
-    const svg = parseHtml(createClusterIcon(mockCluster(3)));
-    expect(svg.querySelector('text').getAttribute('fill')).toBe('#FFFFFF');
-    // A 5-star cluster sits on the ramp's lightest stop, where dark ink is the readable one.
-    const gold = parseHtml(createClusterIcon(mockCluster(3, [5, 5, 5])));
-    expect(gold.querySelector('text').getAttribute('fill')).toBe('#0F172A');
-  });
-
-  it('uses gold background for high average ratings', () => {
-    const icon = createClusterIcon(mockCluster(3, [5, 5, 5]));
-    expect(icon.options.html).toContain(scoreColour(100));
-  });
-
-  it('uses grey background for low average ratings', () => {
-    const icon = createClusterIcon(mockCluster(3, [1, 1, 1]));
-    expect(icon.options.html).toContain(scoreColour(20));
-  });
-
-  it('uses no-data colour when no markers have ratings', () => {
-    const icon = createClusterIcon(mockCluster(4));
-    expect(icon.options.html).toContain(scoreColour(null));
-  });
-
-  it('averages only rated markers, ignoring unrated', () => {
-    const icon = createClusterIcon(mockCluster(4, [5, 5]));
-    expect(icon.options.html).toContain(scoreColour(100));
-  });
-
-  describe('arc rendering for PRO/ADMIN', () => {
-    const scored = [
-      { rating: 4, fierySky: 80, goldenHour: 50 },
-      { rating: 3, fierySky: 60, goldenHour: 40 },
-    ];
-
-    it('derives the arc stroke colours from the ramp, over the average of the cluster\'s children', () => {
-      const svg = parseHtml(createClusterIcon(mockCluster(2, scored), 'ADMIN'));
-      const paths = svg.querySelectorAll('path');
-      expect(paths).toHaveLength(2);
-      const avgFiery = (80 + 60) / 2;
-      const avgGolden = (50 + 40) / 2;
-      expect(paths[0].getAttribute('stroke')).toBe(rampHex(starFromScore(avgFiery, 'fiery')));
-      expect(paths[1].getAttribute('stroke')).toBe(rampHex(starFromScore(avgGolden, 'golden')));
-    });
-
-    it('shows two arc paths for PRO_USER with scored markers', () => {
-      const svg = parseHtml(createClusterIcon(mockCluster(2, scored), 'PRO_USER'));
-      expect(svg.querySelectorAll('path')).toHaveLength(2);
-    });
-
-    it('hides arcs for LITE_USER even with scored markers', () => {
-      const svg = parseHtml(createClusterIcon(mockCluster(2, scored), 'LITE_USER'));
-      expect(svg.querySelectorAll('path')).toHaveLength(0);
-    });
-
-    it('hides arcs when no markers have scores', () => {
-      const svg = parseHtml(createClusterIcon(mockCluster(3, [4, 3, 5]), 'ADMIN'));
-      expect(svg.querySelectorAll('path')).toHaveLength(0);
-    });
-
-    it('computes correct average dasharray from child scores', () => {
-      const svg = parseHtml(createClusterIcon(mockCluster(2, scored), 'ADMIN'));
-      const paths = svg.querySelectorAll('path');
-      const halfCirc = Math.PI * 19;
-      const avgFiery = (80 + 60) / 2;
-      const avgGolden = (50 + 40) / 2;
-      expect(paths[0].getAttribute('stroke-dasharray'))
-        .toBe(`${(halfCirc * avgFiery / 100).toFixed(2)} ${halfCirc.toFixed(2)}`);
-      expect(paths[1].getAttribute('stroke-dasharray'))
-        .toBe(`${(halfCirc * avgGolden / 100).toFixed(2)} ${halfCirc.toFixed(2)}`);
     });
   });
 });

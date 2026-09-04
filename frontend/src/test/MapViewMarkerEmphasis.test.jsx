@@ -24,7 +24,6 @@ vi.mock('leaflet', () => {
   return { default: { icon, divIcon, point: (x, y) => ({ x, y }) }, icon, divIcon };
 });
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
-vi.mock('leaflet.markercluster/dist/MarkerCluster.css', () => ({}));
 
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div>{children}</div>,
@@ -41,7 +40,6 @@ vi.mock('react-leaflet', () => ({
     fitBounds: () => {},
   }),
 }));
-vi.mock('react-leaflet-cluster', () => ({ default: ({ children }) => <div>{children}</div> }));
 
 vi.mock('../context/AuthContext.jsx', () => ({ useAuth: () => ({ role: 'ADMIN' }) }));
 vi.mock('../hooks/useIsMobile.js', () => ({ useIsMobile: () => false }));

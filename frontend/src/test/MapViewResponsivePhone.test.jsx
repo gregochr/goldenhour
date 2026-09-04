@@ -23,7 +23,6 @@ vi.mock('leaflet', () => {
   return { default: { icon, divIcon, point }, icon, divIcon, point };
 });
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
-vi.mock('leaflet.markercluster/dist/MarkerCluster.css', () => ({}));
 
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div>{children}</div>,
@@ -49,9 +48,6 @@ vi.mock('react-leaflet', () => ({
   }),
 }));
 
-vi.mock('react-leaflet-cluster', () => ({
-  default: ({ children }) => <div>{children}</div>,
-}));
 
 // The heavier canvas/label/callout layers are irrelevant to this file's own claims (the chrome
 // re-arrangement and the sheet exclusivity) — stubbed to inert probes, `MapViewSelectionOrdering.
