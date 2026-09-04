@@ -9,8 +9,9 @@ prompt: step one of every prompt is reading the current state from the repo.
 The plan: `docs/engineering/plan-to-map-doors-plan.md`. The spec: `docs/design/map-tab-v2/
 INCREMENT_plan_to_map_doors.md` and `CLAUDE_CODE_PROMPT_doors.md` (vendored verbatim — do not edit
 them; the plan's §1 corrections, §4 ledger and §5 decisions **win** wherever the increment and the code
-disagree, and the increment's two "ask before deciding" questions plus the plan's Q3 are resolved by
-the owner in §6, not by a session).
+disagree). The increment's two "ask before deciding" questions and the plan's Q3 are **all decided**
+in §6 (Q1 door 3 dropped unbuilt, Q2 land on the plan, Q3 re-point the sheet footer) — sessions build
+those answers and do not reopen them.
 
 **Multi-agent note.** These sessions need no special mode. The one multi-agent step is the pre-commit
 adversarial review, which each prompt instructs explicitly — plain parallel subagents (the Agent tool)
@@ -68,9 +69,8 @@ merged; `changelog.d/` files never conflict.
 > plan **in full** and its Phase log (D1 has merged; read D1's row and any §4 entries it added), then
 > the increment, then `gh pr list --state open` for overlap, then re-verify every file and symbol D2
 > names against the tree. Never push, never tag. Create `feature/doors-d2-handover-breadcrumb` off
-> up-to-date `main`, in a worktree. Check §6 first: if the owner has recorded an answer to **Q2** (the
-> return trip) other than the default, build that; otherwise the default (land on the plan itself,
-> reopen nothing, carry no window key).
+> up-to-date `main`, in a worktree. §6 **Q2** is decided: the return trip lands on the plan itself,
+> reopens nothing, and carries no window key.
 >
 > Scope is §3 D2's seven tasks: `App.openMapTabFromPlan` on the EXISTING `mapTabHandoff` +
 > `tabRequest` nonce channel (read `App.jsx:307–318`'s ⚠️ before touching it — the pane is never
@@ -105,8 +105,8 @@ merged; `changelog.d/` files never conflict.
 > You are implementing **Phase D3** of `docs/engineering/plan-to-map-doors-plan.md`. Read the plan in
 > full and its Phase log (D1 and D2 have merged), the increment, `gh pr list --state open`, then
 > re-verify every symbol against the tree. Never push, never tag. Create `feature/doors-d3-door2-sheet`
-> off up-to-date `main`, in a worktree. Check §6 **Q3** first: this phase re-points the button from the
-> frozen overlay to the Map tab; if the owner has recorded "no", stop and report.
+> off up-to-date `main`, in a worktree. §6 **Q3** is decided (yes): this phase re-points the button
+> from the frozen overlay to the Map tab.
 >
 > Scope is §3 D3's four tasks and nothing else: the shell's `onShowOnMap` wiring for
 > `LocationFourDaySheet` becomes D2's `openMapTab({ date, targetType, locationName, region: null })`;
@@ -157,37 +157,17 @@ merged; `changelog.d/` files never conflict.
 
 ---
 
-## D5 · Door 3 — the thumbnail glyph, built to be judged
+## D5 · Door 3 — dropped, no session
 
-> You are implementing **Phase D5** of `docs/engineering/plan-to-map-doors-plan.md`. Read the plan in
-> full and its Phase log (D1 and D2 have merged), the increment's Door 3 row and its open question,
-> `gh pr list --state open`, then re-verify every symbol against the tree. Never push, never tag.
-> Create `feature/doors-d5-door3-glyph` off up-to-date `main`, in a worktree. This phase exists to be
-> **judged**: build it exactly as specified so the owner can keep or drop it (§6 Q1); do not round the
-> 34px/40px targets up, and do not hide it behind a flag.
->
-> Scope is §3 D5's five tasks: a **sibling grid item** in the card's cell (§1 #10 — the card is a
-> `<button>`, so a nested control is invalid HTML), `data-testid="wf-heat-tomap"`, glyph hidden and a
-> real sr-only name, placed on the thumbnail's top-right by `justify-self`/`align-self` and a margin;
-> hover-revealed on desktop through `button.wf-hc:hover + .wf-hc-tomap` (lifted with the card),
-> always visible at 40px on the phone; none on away cells, none without the door;
-> `WindowFirstHeatStrip` gains `onOpenInMap(cardKey)` and the shell carries the window with
-> `region: null`. No `stopPropagation` is needed as a sibling, but the "does not also open the window
-> sheet" test stays. Tests per D5 task 4, including the CSS-slicer pin on the reveal rules.
->
-> Gate on exit codes: `npm run lint && npm test && npm audit --audit-level=high && npm run build`.
-> Adversarial review per CLAUDE.md (read-only; paste D5, §1 #10, §4 #8, §6 Q1 and the increment).
-> Fix survivors, re-gate, then produce the judging material: screenshots at 1280 (rest, hover, focus)
-> and 390, and one honest paragraph on discoverability and hit size. Commit with
-> `changelog.d/YYYYMMDD-doors-d5-door3-glyph.md`, the Phase-log row and any §4 additions. Do not push.
-> Report that the PR is a keep-or-drop decision, not a merge-by-default.
+The owner dropped door 3 unbuilt at plan time (plan §6 Q1). There is no D5 prompt; the plan's D5
+section stands as a record only. Go straight from D3/D4 to D6.
 
 ---
 
 ## D6 · Sweep and docs
 
 > You are implementing **Phase D6** of `docs/engineering/plan-to-map-doors-plan.md`. Read the plan in
-> full and its Phase log (every phase's outcome, including whether D5 merged or was closed), then
+> full and its Phase log (every phase's outcome; D5 was dropped unbuilt), then
 > re-verify every cross-reference against `origin/main`'s tail. Never push, never tag. Create
 > `docs/doors-d6-sweep` off up-to-date `main`.
 >
