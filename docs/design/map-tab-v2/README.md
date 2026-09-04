@@ -395,6 +395,51 @@ per fill — `#FFFFFF` or `#0F172A` via `HeatField.ink(rgb)`. Same colours, comp
 white 5.56, 3★ on `#0F172A` 6.51. Measured across both deliverables, every star label now
 sits at or above **5.56:1** (24 labels on the Plan tab, 15 on the Map tab, 0 failing).
 
+### Panel text uses `--ink-2`; only map-overlay labels use `--ink-3`
+
+The split is by **background**, not by importance:
+
+- **Solid panels** — the callout, the drilldown, menus — use `--ink-2` for captions, day labels
+  and chevrons. `--ink-3` measures ~3.5:1 on these grounds and fails AA. Both panels show the
+  same content, so they must not differ: all 38 text nodes in the callout measure ≥ 5.56:1, the
+  drilldown's small text 6.7–7.1:1.
+- **Over map tiles** — `.rg2`, `.loc`, `.foot`, `.ringlb` — keep `--ink-3` with text-shadows.
+  Recessive weight is deliberate there: those labels sit over variable imagery and must not
+  compete with the field, which is the data.
+
+Implement it by making the recessive token **opt-in inside the map frame**, so a panel cannot
+inherit a failing value:
+
+```css
+#mapwrap { --ink-3: rgba(242,231,211,.66) }   /* = --ink-2: the default for anything in the frame */
+.rg2, .ringlb { color: /* explicit recessive rgba + text-shadow */ }
+```
+
+Enumerating the panels that need fixing does not converge — `#cal, #drill`, then the four
+`.menu` panels, then `#tip`; each pass missed the next one (`.dday i` sat at 3.54:1 beside a
+6.72:1 label in the same row; the window picker's event times at 3.42:1). Defaulting the frame
+to the passing value covers every panel including ones added later, and **recessiveness becomes
+a declared exception** on the two bare overlay labels that genuinely want it.
+
+The dividing line is *panel or not*, not *important or not*. `.foot` looks like an overlay label
+but has its own background, so it follows the panel rule (7.15:1; its secondary line 5.26:1).
+Only `.rg2` and `.ringlb` — bare text over tiles, with text-shadows, which must not compete
+with the field — stay recessive.
+
+Measured after the change: window picker 6.19:1 min, regions 7.09, filters 6.87, legend 7.09,
+callout 5.56, drilldown 5.03. Zero failing across every panel in the frame.
+
+Two verification notes, both learned the hard way:
+
+- **Sweep every text node** in the panel, not a list of selectors — a selector list can only
+  find what you already thought of. Ours: 38 nodes in the callout (min 5.56:1), 93 in the
+  drilldown (min 5.03:1), zero failing.
+- **Composite the text's own alpha** before measuring. A `.66`-alpha token measures as if it
+  were opaque otherwise, and a failing row reads as passing — which is how the first pass
+  reported 14:1 for rows that were actually at 6.7:1.
+- Expand a drilldown row before sweeping: open rows composite against `--surface`, which is
+  lighter than the closed row's `--panel`.
+
 ### The heat bloom (required on a dark ground)
 
 The temperature ramp peaks in luminance at the gold 3★ (152) and its hot end is its darkest

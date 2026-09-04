@@ -56,6 +56,33 @@ const REACH={'45':45,'90':90,'150':150,'any':1e9};
 const RLBL={'45':'45 min','90':'1h 30min','150':'2h 30min','any':'Any'};
 const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
 
+/* ── doors to the map ────────────────────────────────────────────────────────
+   The six thumbnails already LOOK like the map — same field kernel, same ramp, same label
+   placement — so the design writes the promise of a map on every card. Tapping one opened a
+   window sheet and nothing else, which is a promise it did not honour. The location sheet even
+   shipped a "◍ Show on map →" button with no handler behind it.
+
+   Three doors, deliberately at three depths: the window sheet's field (where the question turns
+   into "where in this window?"), the location sheet's footer (the deepest verdict), and a glyph
+   on the card thumbnail (skips the sheet entirely — the debatable one, see the design notes).
+
+   What travels matters more than the doors. The window, the region filter AND the rate/reach
+   filters all carry: arriving at an unfiltered map from a filtered plan would misrepresent what
+   you tapped through from. The window index is passed raw and mapped map-side, because the map's
+   event list interleaves astro and aurora rows — Plan window 3 is not EV[3]. */
+const MAPHREF='Map%20Tab%20v2.html';
+function toMap(o){
+ o=o||{};
+ const q=new URLSearchParams({from:'plan',pw:String(o.win!=null?o.win:(S.win!=null?S.win:bestWin()))});
+ const reg=o.reg!==undefined?o.reg:S.reg;
+ if(reg)q.set('reg',reg);
+ if(S.rate!=='any')q.set('rate',S.rate);
+ if(S.reach!=='any')q.set('reach',S.reach);
+ if(o.spot)q.set('spot',o.spot);
+ if(!isHome(S.origin))q.set('org',S.origin.id);   // honoured map-side: drive times, scope, label
+ location.href=MAPHREF+'#'+q.toString();
+}
+
 /* win: which window's popup is open (null = closed). No `open` row state any more. */
 const S={win:null,reg:null,reach:'150',rate:'4',origin:HOME,spot:null,
  searching:false,q:'',sel:0,exp:new Set()};
@@ -325,12 +352,15 @@ function card(i){
   const bsHtml=bs?`<span class="rt" style="background:${bsc};color:${HeatField.ink(ramp(bs.r[i]))}">${bs.r[i]}★</span><span class="pv2"><span class="st1" title="${esc(bs.n)} · ${esc(RNAME[bs.rid])} · ${fmtDrive(driveOf(bs))} · leave ${leaveBy(w,bs)}">${esc(bs.n)}</span></span>`
    :`<span class="k2">Best</span><span class="pv2"><span class="st1 none">nothing in reach</span></span>`;
   b.innerHTML=`<div class="top">${sunMark(w)}</div>
-  <div class="tmap"><canvas></canvas><div class="tlab"></div></div>
+  <div class="tmap"><canvas></canvas><div class="tlab"></div><span class="tomap" role="button" tabindex="0" data-tomap-win="${i}" title="Open this window on the map">◍</span></div>
   <div class="pls"><span class="tt">${w.time}</span><span class="pv"><span class="vw v${cl}">${vWord(t)}</span></span>
   <span class="k2">Spread</span><span class="pv"><span class="hist" title="${esc(hs.title)}">${hs.html}</span></span>
   ${bsHtml}
   <span class="tps2">${twords}</span></div>${legend}`;
   b.onclick=()=>openWin(i);
+  b.querySelectorAll('[data-tomap-win]').forEach(g=>{
+   g.onclick=e=>{e.stopPropagation();toMap({win:+g.dataset.tomapWin,reg:null})};
+   g.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();g.onclick(e)}}});
   b.querySelector('canvas').dataset.w=i;
   return b;
 }
@@ -442,13 +472,14 @@ function renderWinSheet(){
   <div class="l2">${l2}</div></div>
  <div class="wnav"><button data-step="-1" aria-label="Previous window">‹</button><span class="of">${i+1}/${WINS.length}</span><button data-step="1" aria-label="Next window">›</button><button class="x2" data-act="closewin">esc</button></div></div>
  <div class="wsb">
-  <div class="wgrid"><div class="mapbox"><canvas id="wcv"></canvas><div class="mlab" id="wml"></div><span class="mhint">${rids.length<2?'one region in scope':S.reg?'tap the region again to clear':'tap a region'}</span></div>
+  <div class="wgrid"><div class="mapbox"><canvas id="wcv"></canvas><div class="mlab" id="wml"></div><button class="mopen" data-tomap-sheet>◍ Open in map →</button><span class="mhint">${rids.length<2?'one region in scope':S.reg?'tap the region again to clear':'tap a region'}</span></div>
   <div class="wside">${regionRail(i)}${narrSlot(i)}</div></div>
   ${tprows}${tideRow(w)}${spotCards(w,i)}
  </div>
  <div class="wsf"><span>Ranked by rating, then drive time.</span><span class="fx">${activeFilters().join(' · ')}</span><span class="go">See all ${poolFor(i).length} →</span></div>`;
  const c=document.getElementById('wcard');
  c.querySelectorAll('[data-step]').forEach(b=>b.onclick=()=>openWin((S.win+ +b.dataset.step+WINS.length)%WINS.length));
+ c.querySelectorAll('[data-tomap-sheet]').forEach(b2=>b2.onclick=()=>toMap({win:S.win}));
  c.querySelectorAll('[data-reg]').forEach(b=>b.onclick=()=>{S.reg=S.reg===b.dataset.reg?null:b.dataset.reg;renderWinSheet()});
  c.querySelectorAll('[data-reg-all]').forEach(b=>b.onclick=()=>{S.reg=null;renderWinSheet()});
  drawBig();
@@ -470,7 +501,13 @@ function drawBig(tries){
  /* one greedy placement pass over both label layers: regions claim their space first, then
     the strongest locations take whatever is left. A label that cannot fit is dropped rather
     than overlapped \u2014 an unreadable name is worse than a missing one. */
+ /* Everything drawn OVER the field is an obstacle, not just the hint. Measured from the live
+    element rather than from its CSS, so a copy change to the button cannot desync the seed —
+    the door was added over this label layer without being seeded, and it landed on a 5★
+    rating. Moving the button would only have changed which label it covered. */
  const boxes=[{x:0,y:bh-24,w:118,h:24}];   // the tap hint owns the bottom-left corner
+ const ob=document.querySelector('#wcard .mopen');
+ if(ob&&ob.offsetWidth)boxes.push({x:ob.offsetLeft,y:ob.offsetTop,w:ob.offsetWidth,h:ob.offsetHeight});
  const fits=b=>b.x>=2&&b.y>=2&&b.x+b.w<=bw-2&&b.y+b.h<=bh-2&&
   !boxes.some(o=>b.x+b.w>o.x-3&&b.x<o.x+o.w+3&&b.y+b.h>o.y-3&&b.y<o.y+o.h+3);
  const measure=el=>{el.style.left='-9999px';el.style.top='0';gl.appendChild(el);
@@ -545,7 +582,9 @@ function renderSpot(){
   <div class="lead2"><span class="kk">The next four days here · ${sp.r.filter(v=>v>=4).length} of 6 windows at 4★+</span>
   <p>${WHY[sp.n]&&WHY[sp.n][bi]?WHY[sp.n][bi]:WINS[bi].lead}</p></div>
   <div class="tl">${evs}</div>
-  <div class="ft">${reg&&reg.id!==S.origin.id?`<button data-rpick="${reg.id}">◎ Plan from ${esc(reg.n)} →</button>`:'<span>Planning from here</span>'}<button>◍ Show on map →</button></div>`;
+  <div class="ft">${reg&&reg.id!==S.origin.id?`<button data-rpick="${reg.id}">◎ Plan from ${esc(reg.n)} →</button>`:'<span>Planning from here</span>'}<button data-tomap-spot="${esc(sp.n)}">◍ Show on map →</button></div>`;
+ document.querySelectorAll('#card [data-tomap-spot]').forEach(b2=>
+  b2.onclick=()=>toMap({win:S.win!=null?S.win:bi,reg:null,spot:sp.n}));
 }
 
 /* ── state transitions ────────────────────────────────────────────────────── */

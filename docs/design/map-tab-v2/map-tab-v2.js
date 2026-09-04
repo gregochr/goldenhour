@@ -23,6 +23,21 @@ const clamp=HeatField.clamp,ramp=HeatField.ramp,rgb=HeatField.rgb;
 const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
 const lum=c=>0.2126*c[0]+0.7152*c[1]+0.0722*c[2];
 const HOMEPT=[54.855,-1.573];                       // DH3 4NG
+
+/* ── origin ─────────────────────────────────────────────────────────────────
+   Origin changes every number on this screen — drive time, leave-by, which regions are in
+   reach — so a handover that carried the filters but silently reverted the origin would be a
+   bigger lie than the one carrying the filters was written to prevent.
+
+   The catalogue already holds both distances per location (s.min from DH3 4NG, s.lmin from an
+   away base), so honouring it needs no new data. What it deliberately does NOT do is invent a
+   coordinate for "Keswick": the Plan tab draws no home marker for an away origin either,
+   because it has no point for one. Same behaviour here — the marker and the reach rings are a
+   home-origin feature, and their absence is honest rather than a gap. */
+const ORG=rid=>REGIONS.find(r=>r.id===rid)||null;
+const atHome=()=>!S.org;
+const driveOf=s=>atHome()?s.min:s.lmin;
+const orgName=()=>atHome()?'DH3 4NG':(ORG(S.org)||{}).base||'your base';
 const SHORT={ntw:'NORTHUMBERLAND',penn:'NORTH PENNINES',nymc:'NORTH YORK MOORS',lakes:'LAKE DISTRICT',dales:'YORKSHIRE DALES',borders:'BORDERS',peak:'PEAK DISTRICT',highlands:'HIGHLANDS & SKYE'};
 const TINY={ntw:'NORTHUMB.',penn:'PENNINES',nymc:'N Y MOORS',lakes:'LAKES',dales:'DALES',borders:'BORDERS',peak:'PEAK',highlands:'HIGHLANDS'};
 const $=id=>document.getElementById(id);
@@ -117,17 +132,40 @@ function scoreOf(s,e){
 }
 const vWord=v=>v>=3.7?'Worth it':v>=2.8?'Maybe':'Poor';
 
+/* ── arriving from the Plan tab ──────────────────────────────────────────────
+   The Plan tab hands over the window, the region and its rate/reach filters. Carrying the
+   filters is the honest part: the Plan's defaults are 4★+ within 2h30, so a map that arrived
+   unfiltered would show a different set from the one you tapped through from. Because that
+   makes the map look thinner than its own default, the breadcrumb states what it is carrying
+   rather than leaving it to be discovered.
+
+   The window arrives as a Plan window INDEX and is mapped here, because the event list
+   interleaves each night's astro and aurora — Plan window 3 is not EV[3]. One source of truth
+   for the mapping, on the side that owns the list. */
+const FROM=(()=>{
+ const q=new URLSearchParams(location.hash.replace(/^#/,''));
+ return q.get('from')==='plan'?q:null;
+})();
+const evForWin=w=>{const i=EV.findIndex(e=>e.k==='solar'&&e.wi===+w);return i<0?0:i};
+
 /* ── state. No `q` and no search state: this tab has no text entry. ────────── */
-const S={ei:0,view:'heat',area:true,rate:'any',reach:'any',subj:new Set(),dark:false,
- rings:true,spot:null,menu:null,strip:false};
+const S={ei:0,org:null,view:'heat',area:true,rate:'any',reach:'any',subj:new Set(),dark:false,
+ rings:true,spot:null,menu:null,strip:false,drill:null,drillOpen:new Set()};
 const ev=()=>EV[S.ei];
+if(FROM){
+ if(FROM.has('pw'))S.ei=evForWin(FROM.get('pw'));
+ if(FROM.has('org')&&ORG(FROM.get('org')))S.org=FROM.get('org');
+ if(FROM.has('rate'))S.rate=FROM.get('rate');
+ if(FROM.has('reach'))S.reach=FROM.get('reach');
+ if(FROM.has('reg')&&!PLAN.areaRids().includes(FROM.get('reg')))S.area=false;
+}
 const areaRids=()=>PLAN.areaRids();
 const basePool=()=>S.area?PLAN.spotsIn(areaRids()):SPOTS;
 function pool(){
  const e=ev();let sp=basePool();
  if(S.dark)sp=sp.filter(s=>s.dark);
  if(S.subj.size)sp=sp.filter(s=>s.tags.some(t=>S.subj.has(t)));
- if(S.reach!=='any')sp=sp.filter(s=>s.min<=+S.reach);
+ if(S.reach!=='any')sp=sp.filter(s=>driveOf(s)<=+S.reach);
  if(S.rate!=='any')sp=sp.filter(s=>scoreOf(s,e)>=+S.rate);
  return sp;
 }
@@ -210,7 +248,7 @@ function drawHeat(alpha){
   clipPath:map.getZoom()<11.5?landPath():null,clipSoft:4,
   clipGrow:HeatField.radiusFor(map,COAST_ERR,3,120),clipDx:-o.x,clipDy:-o.y});
  drawCoast(ctx);
- if(S.rings&&map.getZoom()<10.6)drawRings(ctx);
+ if(atHome()&&S.rings&&map.getZoom()<10.6)drawRings(ctx);
 }
 /* The coast, stroked from the same geometry the field is clipped to — so the two can never
    disagree, and the ground keeps its shape on a basemap quiet enough to let the field lead.
@@ -263,7 +301,7 @@ function place(items,w,h,boxes){
    callout has been dropped, it just took the pixels with it */
 function chromeBoxes(){
  const r0=$('mapwrap').getBoundingClientRect(),out=[];
- document.querySelectorAll('#gwin,#gnav,#lchip,#mapwrap .foot,#mapwrap .zoomg,#cal.on,.menu.on')
+ document.querySelectorAll('#crumb.on,#gwin,#gnav,#lchip,#mapwrap .foot,#mapwrap .zoomg,#cal.on,.menu.on')
   .forEach(el=>{const r=el.getBoundingClientRect();if(!r.width)return;
    out.push({x:r.left-r0.left-5,y:r.top-r0.top-5,w:r.width+10,h:r.height+10})});
  return out;
@@ -273,9 +311,9 @@ function drawLabels(){
  labs.innerHTML='';
  const sz=map.getSize(),w=sz.x,h=sz.y,z=map.getZoom(),e=ev(),sp=pool(),boxes=chromeBoxes();
  /* home first: every drive time and leave-by on this screen is measured from it */
- if(z<13){const p=map.latLngToContainerPoint(HOMEPT);
+ if(atHome()&&z<13){const p=map.latLngToContainerPoint(HOMEPT);
   place([{el:mk('hm','<i class="mk"></i><span class="lb">HOME</span>'),x:p.x,y:p.y}],w,h,boxes)}
- if(S.rings&&z<10.6){
+ if(atHome()&&S.rings&&z<10.6){
   const k=pxPerKm(),hp=map.latLngToContainerPoint(HOMEPT);
   /* ring labels go through the same pass as everything else: a "45 min" sitting on top of
      NORTHUMBERLAND is two unreadable labels, so one of them has to lose */
@@ -302,7 +340,7 @@ function drawLabels(){
     on the light is the one worth the drive, so it is also the one that keeps its label when
     space runs out. */
  const named=sp.filter(s=>s.named).sort((a,b)=>
-  scoreOf(b,e)-scoreOf(a,e)||(tideFit(b,e)?1:0)-(tideFit(a,e)?1:0)||a.min-b.min);
+  scoreOf(b,e)-scoreOf(a,e)||(tideFit(b,e)?1:0)-(tideFit(a,e)?1:0)||driveOf(a)-driveOf(b));
  /* Density ramps with zoom over what is actually in view, rather than stepping from "one per
     region" straight to "all of them": thirty names over a field is a legend, but two names
     across a county is a map that has stopped answering. The best location in each region is
@@ -324,7 +362,7 @@ function drawLabels(){
   el.addEventListener('click',ee=>{ee.stopPropagation();openSpot(s)});
   bindTip(el,s.n,`${esc(evLabel(e))} · <b>${v}★</b> ${vWord(v)}`
    +(tf?`<br><span class="tt">Tide lands on the light — ${esc(tf.txt)}</span>`:'')
-   +`<br>${esc(PLAN.name[s.rid])} · ${fmtDrive(s.min)} · sky ${s.bortle.toFixed(1)}`);
+   +`<br>${esc(PLAN.name[s.rid])} · ${fmtDrive(driveOf(s))} · sky ${s.bortle.toFixed(1)}`);
   return{el,x:p.x,y:p.y-1};
  }),w,h,boxes);
 }
@@ -343,12 +381,12 @@ function drawPins(){
   if(s.named){
    d.innerHTML=`${v}<span class="st">★</span>`;
    d.addEventListener('click',ee=>{ee.stopPropagation();openSpot(s)});
-   bindTip(d,s.n,`${esc(evLabel(e))} · <b>${v}★</b><br>${esc(PLAN.name[s.rid])} · ${fmtDrive(s.min)}`);
+   bindTip(d,s.n,`${esc(evLabel(e))} · <b>${v}★</b><br>${esc(PLAN.name[s.rid])} · ${fmtDrive(driveOf(s))}`);
   }
   labs.appendChild(d);
  }
- const p=map.latLngToContainerPoint(HOMEPT);
- place([{el:mk('hm','<i class="mk"></i><span class="lb">HOME</span>'),x:p.x,y:p.y}],sz.x,sz.y,[]);
+ if(atHome()){const p=map.latLngToContainerPoint(HOMEPT);
+  place([{el:mk('hm','<i class="mk"></i><span class="lb">HOME</span>'),x:p.x,y:p.y}],sz.x,sz.y,[])}
 }
 
 function bindTip(el,name,sub){
@@ -367,7 +405,7 @@ function paint(){
  else{const sz=map.getSize(),ctx=HeatField.fit(canvas,sz.x,sz.y);ctx.clearRect(0,0,sz.x,sz.y);
   drawCoast(ctx);drawPins()}
  anchorCal();
- syncFoot();
+ syncCrumb();syncFoot();
 }
 let raf=0;
 const render=()=>{if(!raf)raf=requestAnimationFrame(()=>{raf=0;paint()})};
@@ -390,7 +428,7 @@ function buildCal(s){
  s=s||SPOTS.find(x=>x.n===S.spot);if(!s)return;
  const e=ev(),v=scoreOf(s,e),c=ramp(v),tf=tideFit(s,e);
  const why=e.k==='solar'?(PLAN.WHY[s.n]||{})[e.wi]||e.lead:e.lead;
- const leave=m2hm(hm2m(e.time)-s.min-PLAN.SETUP);
+ const leave=m2hm(hm2m(e.time)-driveOf(s)-PLAN.SETUP);
  const tps=(e.k==='solar'?(WTOPICS[WINS[e.wi].id]||[]):[])
   .map(x=>({...TOPICS[x.t],...x})).filter(x=>!x.needs||s[x.needs]);
  const strip=EV.map((x,i)=>{const vv=scoreOf(s,x),cc=ramp(vv);
@@ -407,20 +445,23 @@ function buildCal(s){
   +`<span class="cvk ${evKind(e)}">${e.name}</span><span class="cvl">${esc(evLabel(e))} · ${e.time}</span>`
   +`<span class="cvs" style="background:${rgb(c)};color:${HeatField.ink(c)}">${v}★ ${vWord(v)}</span></div>`
   +(tf?`<div class="ctide">${TIDEGLYPH}<span><b>Tide lands on the light</b>${esc(tf.state)} · ${esc(tf.txt)}</span></div>`:'')
-  +(why?`<p class="cw">${why}</p>`:'')
-  +`<div class="cfacts"><span><i>Drive</i>${fmtDrive(s.min)} · ${s.mi} mi</span>`
+  +(why?`<button class="cw" data-act="drill" title="Open the full forecast">`
+   +`<span class="cwtext">${why}</span>`
+   +`<span class="cwmore">Four days here ›</span></button>`:'')
+  +`<div class="cfacts"><span><i>Drive</i>${fmtDrive(driveOf(s))}${atHome()?' · '+s.mi+' mi':''}</span>`
   +`<span><i>Leave by</i>${leave}</span><span><i>Dark sky</i>${s.bortle.toFixed(1)}${s.dark?' · dark':''}</span></div>`
   +(tps.length?`<div class="ctp">${tps.map(t=>`<span style="--tc:${t.c}" title="${esc(t.d)}">${t.ic} ${t.n}</span>`).join('')}</div>`:'')
   +`<button class="ck" id="calmore" aria-expanded="${S.strip}">This location, every window <span class="cv">${S.strip?'▴':'▾'}</span></button>`
   +`<div class="cstrip"${S.strip?'':' hidden'}>${strip}</div>`
-  +`<div class="cacts"><button data-act="zoom">Zoom to it</button><button data-act="plan">Open in Plan</button></div>`
+  +`<div class="cacts"><button class="pri" data-act="drill">Four days here</button>`
+  +`<button data-act="zoom">Zoom to it</button></div>`
   +`</div>`;
  cal.classList.add('on');
  cal.querySelector('#calmore').onclick=()=>{S.strip=!S.strip;buildCal(s);anchorCal()};
  cal.querySelectorAll('[data-ei]').forEach(b=>b.onclick=()=>setEv(+b.dataset.ei));
  cal.querySelector('[data-act="close"]').onclick=clearSpot;
  cal.querySelector('[data-act="zoom"]').onclick=()=>map.flyTo([s.lat,s.lng],Math.max(map.getZoom(),12.6));
- cal.querySelector('[data-act="plan"]').onclick=()=>{};
+ cal.querySelectorAll('[data-act="drill"]').forEach(b=>b.onclick=()=>openDrill(s));
 }
 /* re-anchored every paint, so the callout travels with its point through pan and zoom.
    It is clamped to the band left clear by the overlay chrome, NOT to the map box — clamping
@@ -446,7 +487,9 @@ function anchorCal(){
  const p=map.latLngToContainerPoint([s.lat,s.lng]),sz=map.getSize();
  selmk.style.left=p.x+'px';selmk.style.top=p.y+'px';selmk.classList.add('on');
  cal.classList.add('on');
- const cw=cal.offsetWidth,chh=cal.offsetHeight,gap=22,band=calBand();
+ const band=calBand();
+ cal.style.maxHeight=Math.max(140,band.bot-band.top)+'px';
+ const cw=cal.offsetWidth,chh=cal.offsetHeight,gap=22;
  let below=p.y+gap+chh<=band.bot;
  let top=below?p.y+gap:p.y-gap-chh;
  if(!below&&top<band.top){below=true;top=p.y+gap}
@@ -464,6 +507,25 @@ function setHand(m){
  $('handbar').style.width=Math.round(100-m.t*80)+'%';
  $('handtxt').innerHTML=m.t<0.05?'<b>Field</b>the regional glance'
   :m.t>0.92?'<b>Locations</b>field kept as a faint wash':'<b>Handing over</b>field → locations';
+}
+function syncCrumb(){
+ const el=$('crumb');
+ if(!FROM){el.classList.remove('on');return}
+ const e=ev(),carried=[];
+ if(S.org)carried.push('drive times from '+esc(orgName()));
+ if(FROM.has('rate'))carried.push(FROM.get('rate')+'★+');
+ if(FROM.has('reach'))carried.push('within '+(REACHL[FROM.get('reach')]||FROM.get('reach')).toLowerCase());
+ if(FROM.has('reg'))carried.push(esc(PLAN.name[FROM.get('reg')]));
+ el.innerHTML='<button class="cb2" id="crumbback">← Plan</button>'
+  +'<span class="cd">/</span>'
+  +`<span class="cw2"><b>${esc(evLabel(e))}</b> ${e.name.toLowerCase()}</span>`
+  +(carried.length?`<span class="cf">carrying ${carried.join(' · ')}<button id="crumbclr">clear</button></span>`:'');
+ el.classList.add('on');
+ $('crumbback').onclick=()=>{location.href='Plan%20Tab%20with%20Heat%20v5.html'};
+ const c=$('crumbclr');
+ if(c)c.onclick=()=>{S.rate='any';S.reach='any';S.area=true;S.org=null;
+  FROM.delete('rate');FROM.delete('reach');FROM.delete('reg');FROM.delete('org');
+  buildFilters();buildJump();fitArea(true);renderNow()};
 }
 function syncFoot(){
  const sp=pool(),base=basePool(),bey=PLAN.beyondRids();
@@ -511,7 +573,7 @@ function buildJump(){
   const set=sp.filter(s=>s.rid===rid),all=SPOTS.filter(s=>s.rid===rid);
   const vs=(set.length?set:all).map(s=>scoreOf(s,e));
   return{rid,best:d3.max(vs)||0,c:ramp(d3.mean(vs)||0),
-   near:d3.min(all.filter(s=>s.named),s=>s.min),out:!set.length};
+   near:d3.min(all.filter(s=>s.named),s=>driveOf(s)),out:!set.length};
  }).sort((a,b)=>a.near-b.near);
  $('jmenu').innerHTML=rows.map(r=>`<button class="jr${r.out?' out':''}" data-rid="${r.rid}">`
   +`<span class="jn">${esc(PLAN.name[r.rid])}</span>`
@@ -534,7 +596,7 @@ function buildFilters(){
   +rate.map(([v,l])=>`<button data-v="${v}"${S.rate===v?' class="on"':''}>${l}</button>`).join('')+`</div></div>`
   +`<div class="frow"><span class="fk">Subject</span><div class="fchips" data-g="subj">`
   +SUBJ.map(([k,l,ic])=>`<button data-v="${k}"${S.subj.has(k)?' class="on"':''}>${ic} ${l}</button>`).join('')+`</div></div>`
-  +`<div class="frow"><span class="fk">Drive from DH3 4NG</span><div class="fseg" data-g="reach">`
+  +`<div class="frow"><span class="fk">Drive from ${esc(orgName())}</span><div class="fseg" data-g="reach">`
   +reach.map(([v,l])=>`<button data-v="${v}"${S.reach===v?' class="on"':''}>${l}</button>`).join('')+`</div></div>`
   +`<div class="frow"><span class="fk">Sky</span><div class="fchips" data-g="dark">`
   +`<button data-v="1"${S.dark?' class="on"':''}>🔭 Dark sky only</button></div></div>`
@@ -544,6 +606,89 @@ function buildFilters(){
   +`<div class="ffoot"><span><b>${pool().length}</b> of ${basePool().length} shown</span>`
   +`<button class="fclr" data-g="clear">Clear all</button></div>`;
 }
+
+/* ── the location sheet: four days here ──────────────────────────────────────
+   NOT a new control. This is the sheet specified in design_handoff_plan_matrix README §3 and
+   implemented in plan-tab-v5.js renderSpot() — reused here so that a location opened from the
+   map and the same location opened from the Plan tab are ONE view, not two that resemble each
+   other. Same classes (.sh/.lead2/.kk/.tl/.ev/.ft), same geometry, same rules: the lead
+   paragraph at the top is the largest type in the view, the best window is tagged in place and
+   starts expanded, rows at 2★ or below sit at .62 opacity, and the footer both sets the origin
+   and returns to the map.
+
+   The map contributes ONE addition, .smeta: subject tags, dark sky, coastal/tide and the
+   week's topics — the facts that previously existed only on the map callout. That makes the
+   callout a strict subset of this sheet, which is the point of routing to it.
+
+   OPEN: the sub-score bars and the long narrative are derived in this prototype. In the app
+   they come from the scoring model and Claude. */
+const SUBSC=(s,v)=>[
+ ['Fiery Sky',clamp(Math.round(v*11+s.j*24),4,96)],
+ ['Golden Hour',clamp(Math.round(v*13+(1-s.j)*18),4,96)]];
+function lightTimes(e){
+ const t=hm2m(e.time);
+ return e.k!=='solar'?null
+  :e.am?`blue ${m2hm(t-37)}–${m2hm(t)} · golden ${m2hm(t)}–${m2hm(t+49)}`
+   :`golden ${m2hm(t-49)}–${m2hm(t)} · blue ${m2hm(t)}–${m2hm(t+37)}`;
+}
+const bestEv=s=>EV.reduce((a,e,i)=>scoreOf(s,e)>scoreOf(s,EV[a])?i:a,0);
+function openDrill(s){S.drill=s.n;S.drillOpen=new Set([bestEv(s)]);buildDrill()}
+function closeDrill(){S.drill=null;$('sheet').classList.remove('on')}
+function buildDrill(){
+ const s=SPOTS.find(x=>x.n===S.drill);if(!s)return;
+ const bi=bestEv(s),good=EV.filter(e=>scoreOf(s,e)>=4).length;
+ const evs=EV.map((e,i)=>{
+  const v=scoreOf(s,e),c=ramp(v),op=S.drillOpen.has(i),tf=tideFit(s,e);
+  const why=e.k==='solar'?(PLAN.WHY[s.n]||{})[e.wi]:null;
+  return `<div class="ev ${i===bi?'top':''} ${v<=2?'weak':''}" data-row="${i}">`
+   +`<div class="dbox"><span class="dow2">${esc(e.dow)}</span><span class="dn">${e.dn}</span></div>`
+   +`<div><div class="ttl"><span class="w">${e.name}</span><span class="t2">${e.time}</span>`
+   +(i===bi?'<span class="tag">◎ best</span>':'')
+   +(tf?TIDEGLYPH:'')
+   +`<span class="st" style="background:${rgb(c)};color:${HeatField.ink(c)};box-shadow:inset 0 0 0 1px ${rgb(c,.4)}">${v}★</span>`
+   +`<span class="car">${op?'▲':'▾'}</span></div>`
+   +`<span class="lv2">↰ leave <b>${m2hm(hm2m(e.time)-driveOf(s)-PLAN.SETUP)}</b> · ${fmtDrive(driveOf(s))} · ◐ ${Math.round(e.conf*100)}%</span>`
+   +(op?`<div class="bars">${SUBSC(s,v).map(([n,p])=>`<div class="dbar"><span>${n}</span><em>${p}</em><i><u style="width:${p}%"></u></i></div>`).join('')}</div>`
+    +(lightTimes(e)?`<div class="dlt">${lightTimes(e)}</div>`:'')
+    +(tf?`<div class="ctide">${TIDEGLYPH}<span><b>Tide lands on the light</b>${esc(tf.state)} · ${esc(tf.txt)}</span></div>`:'')
+    +`<div class="why">${[why,e.lead].filter(Boolean).join(' ')}</div>`:'')
+   +`</div></div>`;
+ }).join('');
+ const topics=[...new Set(EV.filter(e=>e.k==='solar')
+  .flatMap(e=>(WTOPICS[WINS[e.wi].id]||[]).map(x=>x.t)))]
+  .map(t=>TOPICS[t]).filter(t=>!t.needs||s[t.needs]);
+ const days=new Set(EV.map(e=>e.day)).size;
+ const leadWhy=(e=>{const w=e.k==='solar'?(PLAN.WHY[s.n]||{})[e.wi]:null;return w||e.lead})(EV[bi]);
+ const out=!PLAN.areaRids().includes(s.rid);
+ $('drillcard').innerHTML=`<div class="sh"><button class="bk" data-act="closespot">←</button>`
+  +`<div><h3>${esc(s.n)}</h3><div class="meta"><span>${esc(PLAN.name[s.rid])}</span>`
+  +`<span>${fmtDrive(driveOf(s))} from ${esc(orgName())}${atHome()?' · '+s.mi+' mi':''}</span>`
+  +(out?'<span class="bdg out">outside your plan</span>':'')+`</div></div>`
+  +`<button class="x2" data-act="closespot">esc</button></div>`
+  +`<div class="smeta">${s.tags.map(t=>`<span>${SUBJN[t]}</span>`).join('')}`
+  +`<span>Dark sky ${s.bortle.toFixed(1)}${s.dark?' · dark':''}</span>`
+  +(s.coast?'<span>Coastal · tide applies</span>':'')
+  +(topics.length?`<span class="stp">${topics.map(t=>t.ic+' '+t.sh).join(' · ')}</span>`:'')+`</div>`
+  +`<div class="lead2"><span class="kk">The next ${days} days here · ${good} of ${EV.length} windows at 4★+</span>`
+  +`<p>${leadWhy}</p></div>`
+  +`<div class="tl">${evs}</div>`
+  +`<div class="ft"><button data-act="origin">◎ Plan from ${esc(PLAN.name[s.rid])} →</button>`
+  +`<button data-act="showmap">◍ Show on map → ${esc(evLabel(EV[S.ei]))} ${EV[S.ei].name.toLowerCase()}</button></div>`;
+ $('sheet').classList.add('on');
+ $('drillcard').querySelectorAll('[data-row]').forEach(el=>el.onclick=()=>{
+  const i=+el.dataset.row;S.drillOpen.has(i)?S.drillOpen.delete(i):S.drillOpen.add(i);buildDrill()});
+ $('drillcard').querySelectorAll('[data-act="closespot"]').forEach(b=>b.onclick=closeDrill);
+ /* the footer's two actions are different things: one re-points the plan, the other returns
+    to the map. Collapsing them into "one route to the same place" loses the origin change. */
+ $('drillcard').querySelector('[data-act="origin"]').onclick=()=>{
+  S.area=false;buildFilters();buildJump();closeDrill();
+  map.fitBounds(HeatField.latLngBounds(SPOTS.filter(x=>x.rid===s.rid),0.06),{padding:[40,40]});
+  renderNow()};
+ $('drillcard').querySelector('[data-act="showmap"]').onclick=()=>{closeDrill();openSpot(s)};
+}
+document.querySelectorAll('#sheet .scrim').forEach(el=>el.onclick=closeDrill);
+
+
 
 /* ── menus ───────────────────────────────────────────────────────────────────── */
 function closeMenus(){
@@ -593,7 +738,7 @@ $('zhome').onclick=()=>{S.area=true;buildFilters();buildJump();fitArea(true)};
 document.addEventListener('keydown',e=>{
  if(e.key==='ArrowLeft'){setEv(S.ei-1);closeMenus()}
  else if(e.key==='ArrowRight'){setEv(S.ei+1);closeMenus()}
- else if(e.key==='Escape'){closeMenus();if(S.spot)clearSpot()}
+ else if(e.key==='Escape'){if(S.drill){closeDrill();return}closeMenus();if(S.spot)clearSpot()}
 });
 
 /* ── viewport switch ─────────────────────────────────────────────────────────── */
@@ -614,7 +759,13 @@ new ResizeObserver(()=>{
  if(!el.clientWidth||!el.clientHeight)return;
  map.invalidateSize({animate:false});
  LC={z:null,p:null};
- if(!started){started=true;fitArea(false)}
+ if(!started){started=true;
+  const reg=FROM&&FROM.get('reg');
+  if(reg)map.fitBounds(HeatField.latLngBounds(SPOTS.filter(s=>s.rid===reg),0.06),{padding:[40,40]});
+  else fitArea(false);
+  const sn=FROM&&FROM.get('spot'),sp=sn&&SPOTS.find(s=>s.n===sn);
+  if(sp){S.spot=sp.n;buildCal(sp);map.setView([sp.lat,sp.lng],Math.max(map.getZoom(),11.4))}
+ }
  renderNow();
 }).observe($('mapwrap'));
 
@@ -630,6 +781,7 @@ document.querySelectorAll('[data-do]').forEach(b=>b.onclick=()=>{
 });
 
 /* the light rule's times, stated once */
+$('oname').textContent=atHome()?'Home · DH3 4NG':'Planning from '+orgName();
 $('ctimes').innerHTML=['05:30 blue','<b>06:08 golden</b>','<b>20:05 golden</b>','20:43 blue']
  .map(t=>`<span>${t}</span>`).join('');
 
