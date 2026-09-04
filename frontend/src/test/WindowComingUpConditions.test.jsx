@@ -78,7 +78,7 @@ describe('WindowComingUpConditions — the strip', () => {
       <WindowComingUpConditions conditions={[condition({ peak: null })]} onGoToPlan={vi.fn()} />,
     );
 
-    expect(screen.getByTestId('condition-peak')).toHaveTextContent('no peak forecast right now');
+    expect(screen.getByTestId('condition-peak')).toHaveTextContent('no peak right now');
   });
 
   it('the panel is collapsed by default and carries BOTH `hidden` and a display class', () => {

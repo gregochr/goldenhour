@@ -121,7 +121,38 @@ describe('WindowFirstComingUp — the four states', () => {
   it('says nothing is coming up only once the feed has actually answered with nothing', () => {
     renderPane({ status: 'ready', events: { entries: [], counts: { fixed: 0, forecast: 0, byFamily: {} } } });
     expect(screen.getByTestId('coming-up-empty'))
-      .toHaveTextContent('Nothing coming up in the next 90 days beyond the four-day forecast.');
+      .toHaveTextContent('No dates coming up in the next 90 days beyond the four-day forecast.');
+  });
+
+  it('⚠️ scopes the empty note to the DATED list, so it never denies the recurring conditions '
+      + 'rendering right below it', () => {
+    // `totalEntries` counts `events.entries` alone, and the conditions strip is gated on `ready`
+    // rather than on that count — so an empty chronology beside live conditions is reachable, and
+    // a broader sentence would print a denial directly above rows the reader can see and open.
+    // Caught by a Codex review of #748, where the copy pass had dropped the scoping word.
+    renderPane({
+      status: 'ready',
+      events: {
+        entries: [],
+        counts: { fixed: 0, forecast: 0, byFamily: {} },
+        conditions: [{
+          type: 'COASTAL_TIDES',
+          name: 'Coastal tides',
+          cadence: 'deterministic',
+          interim: false,
+          rateLabel: 'a run every 14.8 days',
+          quantLabel: 'occasional · 6 runs in 90 days',
+          peak: null,
+          occurrences: [],
+        }],
+      },
+    });
+
+    expect(screen.getByTestId('coming-up-conditions')).toBeInTheDocument();
+    const empty = screen.getByTestId('coming-up-empty');
+    expect(empty).toHaveTextContent('No dates coming up');
+    // The claim is about dates in the list, never about the pane as a whole.
+    expect(empty.textContent).not.toMatch(/^Nothing coming up/);
   });
 
   it('renders nothing but its frame before the tab has ever been opened', () => {

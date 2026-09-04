@@ -97,6 +97,13 @@ export default function WindowComingUpConditions({ conditions, onGoToPlan }) {
               {' '}
               <span className="wf-cond-rate" data-testid="condition-rate">{condition.rateLabel}</span>
               {' '}
+              {/* ⚠️ The absent-peak wording carries NO "forecast", and the omission is the
+                  point. A null `peak` is TWO states the wire cannot tell apart: nothing cleared
+                  the gate, or the forward-peak read threw (`ComingUpConditionsBuilder` logs "the
+                  peak cell will say so" on that path, then returns the same null). "No peak
+                  forecast" denies the peak exists, which is false in the second state; "no peak
+                  right now" is true in both. Separating them needs a wire field, not new
+                  wording — recorded here rather than invented (Codex review of #748). */}
               <span className="wf-cond-peak" data-testid="condition-peak">
                 {condition.peak ? (
                   <>
@@ -107,7 +114,7 @@ export default function WindowComingUpConditions({ conditions, onGoToPlan }) {
                     <b>{condition.peak.valueLabel} — {bitsWord(condition.peak.bits)}</b>
                   </>
                 ) : (
-                  <span className="wf-cond-peak-label">no peak forecast right now</span>
+                  <span className="wf-cond-peak-label">no peak right now</span>
                 )}
                 <span className="wf-cond-caret" aria-hidden="true">▾</span>
               </span>

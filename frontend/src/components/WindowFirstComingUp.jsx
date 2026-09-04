@@ -209,9 +209,15 @@ export default function WindowFirstComingUp({
             </p>
           )}
 
+          {/* ⚠️ SCOPED TO THE DATED LIST — "No dates", never a bare "Nothing coming up".
+              `totalEntries` counts `events.entries` alone, and the recurring-conditions strip
+              below (gated on `ready`, not on this count) routinely has rows when the chronology
+              has none. A broader sentence here therefore prints a denial directly above live
+              content — which is what the pre-copy-pass wording avoided with the word "dated", and
+              what a Codex review of #748 caught when the copy pass dropped it. */}
           {status === 'ready' && totalEntries === 0 && (
             <p className="wf-cu-note" data-testid="coming-up-empty">
-              {`Nothing coming up in the next ${ALMANAC_DAYS} days beyond the four-day forecast.`}
+              {`No dates coming up in the next ${ALMANAC_DAYS} days beyond the four-day forecast.`}
             </p>
           )}
 
