@@ -623,12 +623,46 @@ describe('MapView heat — a window nobody rated', () => {
     expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
   });
 
-  it('is a different state from the map being on a date the briefing does not reach', async () => {
+  it('says nothing extra when the map is on a date the EV list has no row for — but still withholds the key', async () => {
     // The window control already answers that one, and it is a statement about the CAMERA rather
-    // than about the forecast: there is no window to be unrated.
+    // than about the forecast: there is no window to be unrated, so the "not scored yet" line would
+    // be a second voice saying the same thing. That half is unchanged.
+    //
+    // ⚠️ The KEY assertion is new, and it is a bug fix. `windowUnscored` used to require a non-null
+    // `heatWindow`, so on this very fixture it was false and `heatOn && !windowUnscored` rendered
+    // the colour key — a key to a gradient nothing on screen carries, which is the exact thing that
+    // key's own rule forbids. Now the key is withheld whenever there is no rating behind it, and
+    // the MESSAGE is what carries the camera-vs-forecast distinction (gated on `activeMapEvent`).
     await renderMap({ heat: heatProp(), date: '2026-01-25' });
     expect(screen.getByTestId('wf-win-no-match')).toBeInTheDocument();
     expect(screen.queryByTestId('wf-map-heat-unscored')).toBeNull();
+    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
+  });
+
+  it('names a D-13 FILLER row as unscored, and takes the key down with it', async () => {
+    // ⚠️ THE REGRESSION TEST FOR THE BUG #747's REVIEW SURFACED, and the case nothing covered.
+    //
+    // D-13 keeps the map's full T..T+5 browsable horizon: `buildMapEvents` emits solar rows for any
+    // forecast date past the briefing's served windows (`mapEvents.js`'s FILLER branch), and they
+    // are ordinary enabled rows the `›` stepper walks straight into. On such a row `heatWindow`
+    // resolves null — so the field paints nothing, and BOTH of the old rules got it wrong: the
+    // "not scored yet" line was suppressed (it required a non-null `heatWindow`) and the colour key
+    // rendered above the empty field.
+    //
+    // It hid for months behind the medallions, which the Heat view used to fade back in past the
+    // handover band — "empty" read as "sparse". #747 hid them unconditionally and exposed this.
+    //
+    // Distinguished from the sibling above by `wf-win-no-match`: there a row does NOT match and the
+    // selector speaks; here one DOES, so this surface has to.
+    const DAY_AFTER = '2026-01-17';
+    await renderMap({
+      heat: heatProp(),
+      date: DAY_AFTER,
+      forecastDates: [TODAY, TOMORROW, DAY_AFTER],
+    });
+    expect(screen.queryByTestId('wf-win-no-match')).toBeNull();
+    expect(screen.getByTestId('wf-map-heat-unscored')).toHaveTextContent('This event is not scored yet');
+    expect(screen.queryByTestId('wf-map-heat-legend')).toBeNull();
   });
 });
 
