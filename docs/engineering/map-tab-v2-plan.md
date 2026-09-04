@@ -369,7 +369,9 @@ pills, and the in-map select — on the tab only.
   callback from the shell or an in-shell width restructure; (2) the shell root's inline
   `WRAP_MAX_WIDTH = 1080px` with the **masthead rendered inside it** — releasing it per-tab
   changes the masthead's width on tab switch, which needs an explicit decision (recommend: the
-  wrap stays on the masthead + tab bar, only the panel region releases); (3) the `wf-body`
+  wrap stays on the masthead + tab bar, only the panel region releases). ⚠️ **Superseded — the
+  panel region's release is reversed, 2026-09-03.** Bundle rev 2 argued the opposite of this
+  recommendation; §4 item 29 records the reversal (O-17) and its rationale. (3) the `wf-body`
   padding; (4) `MapView`'s `MAP_HEIGHT_PX = 500` tab constant. "No page scroll" needs a viewport
   height chain (`100dvh` minus measured masthead + tab bar — the sticky `--wf-mast-h` machinery
   is the precedent) that nothing currently provides. The pane becomes a flex column
@@ -810,6 +812,23 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     strings are kept verbatim: `Dark sky N · dark` already matches `calloutFacts`' own wording (which
     the pass did not touch), and `Four days here ›` is plain already. Easily reverted if the owner
     prefers the literal spec.
+29. **P7's width release is reversed (O-17, bundle rev 2, owner decision 2026-09-03) — the Map
+    tab keeps the masthead's 1080px column instead of going full-bleed.** Bundle rev 2's own case
+    is structural, not a taste call: full-bleed made the tab strip look like it floated above an
+    unrelated surface, since the strip stops at the content column while a full-width panel
+    carries on to the window edge, and at wide viewports it added sea and empty moor rather than
+    information. P7's HEIGHT half — the `100dvh` flex recast, zero-padding `.wf-body.wf-body--map`,
+    no page scroll — is untouched; only the panel region's own width constraint changed, from
+    releasing `WRAP_MAX_WIDTH` on the Map tab to sharing it with every other tab off the same
+    constant. O-17 is registered in §6 and bundle rev 2 vendored by the tide/label PR of the same
+    date, merge-ordered ahead of this change. The 1080px figure is the app's OWN `WRAP_MAX_WIDTH`
+    (the masthead's column, which is what bundle rev 2's note names) and deliberately not the
+    design bundle's own `.wrap{max-width:1240px}` — that figure belongs to the demo harness's
+    comparison rig (it also drives `.wrap.pad`'s 834px and `.wrap.mob`'s 390px device frames) and
+    was never the app's own width; and the no-border/no-radius call on the map panel was judged
+    the same way — the harness's `.frame` wraps masthead+tabs+map together with bezel-style box
+    shadows that scale up per device width, which reads as the comparison rig's own device chrome,
+    not a treatment the shipped panel is meant to carry.
 
 ## §5 Decisions taken in this plan (challenge in review, not in code)
 

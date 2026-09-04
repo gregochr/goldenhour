@@ -1186,23 +1186,36 @@ export default function WindowFirstShell({
       data-testid="window-first-shell"
       // `wf-shell` hosts `--wf-gutter`/`--wf-mast-h`/`--wf-lens-reserve` — the arm's shared
       // horizontal inset and the sticky-chrome measurements `useLensReserve` publishes. It carries
-      // NO width constraint of its own any more (map-tab-v2-plan.md §3 P7's second full-frame
-      // owner): the masthead and the tab bar stay wrapped at `WRAP_MAX_WIDTH` below regardless of
-      // tab, but the panel region's own wrapper releases that constraint on the Map tab, so a
-      // width change on tab switch never reaches the one thing that must never move — the
-      // masthead the tick line and the search anchor both depend on staying put.
+      // NO width constraint of its own (map-tab-v2-plan.md §3 P7's second full-frame owner): the
+      // masthead and the tab bar stay wrapped at `WRAP_MAX_WIDTH` below on every tab, and — since
+      // O-17 (bundle rev 2, owner decision 2026-09-03, reversing P7's width release) — the panel
+      // region's own wrapper further down now applies that SAME `WRAP_MAX_WIDTH` on the Map tab
+      // too, rather than releasing it.
+      //
+      // ⚠️ That closes the gap at `sm` (640px) and up, but NOT below it. `App.jsx`'s `<main>`
+      // carries `sm:px-4` on the Map tab — present at `sm`+, absent on the phone — because P12's
+      // full-bleed phone chrome needs the genuine edge (adversarial review, real finding: an
+      // earlier cut dropped `<main>`'s horizontal padding unconditionally, which left the masthead
+      // 32px narrower on Map than on every other tab between 640px and ~1112px, the exact
+      // disagreement O-17 exists to close). So below `sm` a real, deliberate residue survives: the
+      // masthead/tick line/search anchor DO still shift by `<main>`'s own 32px of horizontal
+      // padding on a Plan⇄Map switch on a phone. See `App.jsx`'s own comment on `<main>` for the
+      // full account — this file's width story is complete only at `sm` and up.
       //
       // On the Map tab it is ALSO a flex column filling whatever height `App`'s own root gives it
       // (App.jsx's `isMapTabActive` recast) — `flex-1 min-h-0` so it actually receives that space
       // rather than sizing to its content, `flex flex-col` so its own children (the masthead+tabbar
       // wrap below, then the panel region) stack and share it the same way. Every other tab keeps
-      // plain block flow (`w-full` alone), which is today's unchanged layout and scroll.
+      // plain block flow (`w-full` alone), which is today's unchanged layout and scroll. O-17 is
+      // WIDTH ONLY — this vertical/height chain is untouched.
       className={effectiveTab === 'map' ? 'wf-shell w-full flex-1 min-h-0 flex flex-col' : 'wf-shell w-full'}
     >
-      {/* Masthead + tab bar + tab rule — wrapped at `WRAP_MAX_WIDTH` on EVERY tab (P7's recorded
-          decision: "the wrap stays on masthead + tab bar, only the panel region releases"). On the
-          Map tab this is also the flex column's first, natural-height item — `flex-shrink-0` so a
-          tight column squeezes the panel below it, never this. */}
+      {/* Masthead + tab bar + tab rule — wrapped at `WRAP_MAX_WIDTH` on EVERY tab, and since O-17
+          the panel region below shares that same width on every tab too (there is no longer a tab
+          whose wrap "releases"), at `sm` (640px) and up — below it `<main>`'s own padding still
+          differs per tab; see the shell root's own comment above. On the Map tab this is also the
+          flex column's first, natural-height item — `flex-shrink-0` so a tight column squeezes
+          the panel below it, never this. */}
       <div
         className={effectiveTab === 'map' ? 'mx-auto w-full flex-shrink-0' : 'mx-auto w-full'}
         style={{ maxWidth: WRAP_MAX_WIDTH }}
@@ -1392,21 +1405,34 @@ export default function WindowFirstShell({
       <div data-testid="window-first-tabrule" className="h-px bg-plex-border" />
       </div>
 
-      {/* The panel region — the second half of P7's width split. Full-width on the Map tab (the
-          full-frame owner), wrapped at `WRAP_MAX_WIDTH` on every other tab exactly as the whole
-          shell always was. A width change here on tab switch is fine: nothing sticky lives in
-          this wrapper (the masthead and the tab bar, the two elements a width jump would actually
-          disturb, are both in the wrapper above, which never changes).
+      {/* The panel region — P7's width split, REVERSED (O-17, bundle rev 2, owner decision
+          2026-09-03): the Map tab no longer goes full-width. Bundle rev 2's own case is
+          structural, not a taste call — full-bleed reads as broken because the tab strip stops at
+          the content column while a full-width panel carries on to the window edge, so the tabs
+          look like they float above an unrelated surface, and full width adds sea and empty moor
+          rather than information (at 2400px one screen spans ~150 miles and the window control and
+          Filters end up a head-turn apart). So this wrapper now applies the SAME `WRAP_MAX_WIDTH`
+          + centering on EVERY tab, Map included — one `style` object below, shared rather than two
+          copies of the constant, so the masthead's column and the map panel's column can never
+          drift apart the way the design's complaint describes. A width change here on tab switch
+          was never actually a hazard either way (nothing sticky lives in this wrapper — the
+          masthead and the tab bar, the two elements a width jump would actually disturb, are both
+          in the wrapper above, which never changes) — but now THIS wrapper's own `maxWidth` never
+          changes either, at any viewport. That is not quite the whole width story, though: below
+          `sm` (640px) `<main>`'s own padding (`App.jsx`, outside this component) still differs
+          per tab for P12's full-bleed phone chrome, so the masthead still shifts by 32px on a
+          phone-width tab switch — see the shell root's own comment above for the full account.
 
-          On the Map tab it is ALSO the flex column's second item — `flex-1 min-h-0` so it takes
-          every pixel the masthead+tab-bar item above did not, `flex flex-col` so its own visible
-          child (the Map tab's own slotted-pane wrapper, `.wf-body.wf-body--map` — every OTHER
-          child here is `hidden` while the Map tab is active, so it is the pane's only flex
-          participant) can do the same. No height is computed anywhere in this chain; flexbox
-          distributes it. */}
+          The vertical behaviour is UNTOUCHED by O-17. On the Map tab this is still the flex
+          column's second item — `flex-1 min-h-0` so it takes every pixel the masthead+tab-bar item
+          above did not, `flex flex-col` so its own visible child (the Map tab's own slotted-pane
+          wrapper, `.wf-body.wf-body--map` — every OTHER child here is `hidden` while the Map tab
+          is active, so it is the pane's only flex participant) can do the same. No height is
+          computed anywhere in this chain; flexbox distributes it. `mx-auto` costs nothing on that
+          chain — a horizontally centred flex column is still a flex column. */}
       <div
-        className={effectiveTab === 'map' ? 'w-full flex-1 min-h-0 flex flex-col' : 'mx-auto w-full'}
-        style={effectiveTab === 'map' ? undefined : { maxWidth: WRAP_MAX_WIDTH }}
+        className={effectiveTab === 'map' ? 'mx-auto w-full flex-1 min-h-0 flex flex-col' : 'mx-auto w-full'}
+        style={{ maxWidth: WRAP_MAX_WIDTH }}
       >
 
       {/* Plan only, and that is the design's own heading for it ("Lens bar (Plan only)"). The bar
@@ -1613,7 +1639,9 @@ export default function WindowFirstShell({
           //
           // `wf-body--map` is the SELECTED Map tab's own addition (map-tab-v2-plan.md §3 P7's
           // third + fourth full-frame owners): it releases `wf-body`'s inset padding to zero (the
-          // map is meant to bleed to the frame's edge) and makes this panel a `flex:1; min-height:0`
+          // map is meant to bleed to the frame's edge — since O-17 that "frame" is this panel's own
+          // width-capped column, not the browser window; see the panel-region wrapper's comment
+          // above) and makes this panel a `flex:1; min-height:0`
           // flex child of the panel-region wrap above — no height is computed anywhere in the
           // chain (a `calc(100dvh - …)` version of this shipped once and was reverted: a live
           // measurement found 16px of inter-element spacing a `ResizeObserver` on element BOXES

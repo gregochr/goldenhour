@@ -71,10 +71,14 @@ describe('WindowFirstShell', () => {
     // One of P4a's two deliverables, and nothing else pinned it.
     //
     // ⚠️ Moved off `window-first-shell` itself at map-tab-v2-plan.md §3 P7: the shell root no
-    // longer carries a width constraint of its own — only the masthead+tab-bar wrapper does, so
-    // that geometry never moves on a tab switch even though the panel region's own wrapper
-    // (further down) now releases the constraint for the Map tab. `window-first-shell`'s own
-    // width is asserted separately, below.
+    // longer carries a width constraint of its own — only the masthead+tab-bar wrapper does. Since
+    // O-17 (bundle rev 2, 2026-09-03) the panel region's own wrapper (further down) applies the
+    // SAME constraint on every tab including Map, so within THIS component neither wrapper's own
+    // `maxWidth` ever moves on a tab switch. That is not the app's whole width story, though: this
+    // file renders the shell in isolation, and `App.jsx`'s `<main>` — outside the shell entirely —
+    // still carries a different padding class per tab below `sm` (640px), for P12's full-bleed
+    // phone chrome (`App.test.jsx`'s own full-frame describe block covers that half).
+    // `window-first-shell`'s own width is asserted separately, below.
     renderShell();
     const masthead = screen.getByTestId('window-first-masthead');
     expect(masthead.parentElement).toHaveStyle({ maxWidth: '1080px' });
