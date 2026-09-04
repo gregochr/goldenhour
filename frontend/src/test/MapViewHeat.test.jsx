@@ -21,14 +21,11 @@ import { act, render, screen, fireEvent, waitFor, within } from '@testing-librar
 
 vi.mock('leaflet', () => {
   const icon = () => ({});
-  // The real `createClusterIcon` runs in this file, and its answer IS the html — so the stub has to
-  // hand it back rather than swallowing it.
   const divIcon = (options) => ({ options });
   const point = (x, y) => ({ x, y });
   return { default: { icon, divIcon, point }, icon, divIcon, point };
 });
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
-vi.mock('leaflet.markercluster/dist/MarkerCluster.css', () => ({}));
 
 const fitBounds = vi.fn();
 const mapContainerProps = { last: null };
@@ -78,17 +75,6 @@ vi.mock('react-leaflet', () => ({
   }),
 }));
 
-const clusterIconCalls = [];
-/** Mount count for the cluster group — a `key` change on the real component would remount it. */
-const clusterGroupMounts = { count: 0 };
-function MockMarkerClusterGroup({ children, iconCreateFunction }) {
-  clusterIconCalls.push(iconCreateFunction);
-  React.useEffect(() => { clusterGroupMounts.count += 1; }, []);
-  return <div>{children}</div>;
-}
-vi.mock('react-leaflet-cluster', () => ({
-  default: (props) => MockMarkerClusterGroup(props),
-}));
 
 /** The lazy heat layer, replaced by a probe that records exactly what it was handed. */
 const heatLayerProps = { last: null, mounts: 0 };
@@ -335,7 +321,6 @@ beforeEach(() => {
   heatLayerProps.last = null;
   heatLayerProps.mounts = 0;
   mapContainerProps.last = null;
-  clusterIconCalls.length = 0;
   markerCalls.length = 0;
   fitBounds.mockClear();
   markerNonce += 1;
@@ -449,28 +434,27 @@ describe('MapView heat — the toolbar', () => {
     expect(heatLayerProps.last.fieldEnabled).toBe(true);
   });
 
-  it('does not remount the marker/cluster layer on the Heat↔Pins toggle, so an open popup survives it', async () => {
-    // With one colour language, the toggle no longer changes which palette a cluster bubble paints
-    // on — so the `key` that used to force a remount on every view switch is gone. Its only
-    // remaining effect would have been tearing down (and losing) an open popup, a spiderfied
-    // cluster and the selected marker on every press. Pinned here via mount count, since the
-    // `Marker`/`Popup` mocks in this file are too shallow to assert an actual open popup surviving.
-    // P10 changes HOW Pins mode hides the medallions (`MapHeatLayer`'s `fieldEnabled={false}`
-    // forces the marker panes to 0% opacity/inert rather than unmounting this group), but the
-    // invariant under test — this group is never torn down by the toggle — is unchanged.
-    clusterGroupMounts.count = 0;
+  it('does not remount the marker layer on the Heat↔Pins toggle', async () => {
+    // With one colour language, the toggle no longer changes which palette a marker paints on — so
+    // the `key` that used to force a remount on every view switch is gone. Its only remaining
+    // effect would have been tearing down the selected marker on every press.
+    //
+    // ⚠️ Rewritten when clustering was deleted. It used to count mounts of the `MarkerClusterGroup`
+    // mock, which no longer exists; the invariant it protected — the toggle does not tear the
+    // marker layer down — is now asserted through the marker mock instead. P10's own note still
+    // applies: Pins mode hides the medallions via `MapHeatLayer`'s `fieldEnabled={false}` (0%
+    // opacity, inert) rather than by unmounting anything.
     await renderMap({ heat: heatProp() });
-    expect(clusterGroupMounts.count).toBe(1);
+    const afterMount = markerCalls.length;
+    expect(afterMount).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
     fireEvent.click(screen.getByRole('button', { name: 'Heat' }));
     fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
 
-    // Exactly 1, not merely "still &gt;= 1": a monotonic counter alone can't tell "never remounted"
-    // apart from "unmounted and never came back". The re-render check below rules out the latter —
-    // the mock is still live and still being asked to build a cluster icon after the toggles.
-    expect(clusterGroupMounts.count).toBe(1);
-    expect(clusterIconCalls.length).toBeGreaterThan(1);
+    // Still rendering markers after three toggles — the layer survived rather than being torn down
+    // and left absent, which a bare "> 0" at mount time alone could not distinguish.
+    expect(markerCalls.length).toBeGreaterThan(0);
   });
 
   it('hides the ramp key in Pins view, where nothing is painted with it', async () => {
@@ -917,28 +901,6 @@ describe('MapView heat — the marker swap (D2/D8)', () => {
     markerCalls.length = 0;
     fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
     expect(markerCalls).toEqual([]);
-  });
-
-  it('paints cluster medallions on the ramp stop, in both Heat and Pins view', async () => {
-    // The cluster icon is built by a callback rather than at render, so this is driven through the
-    // real `createClusterIcon`, which no longer takes a view/ramp argument at all — so checking
-    // both views is a belt-and-braces re-run of the same assertion rather than a distinct claim:
-    // there is no code path left that could paint the two views differently. (P10: the medallions
-    // are still THERE in Pins view, just opacity-hidden by `MapHeatLayer` — this file's shallow
-    // mocks cannot see the CSS opacity, only that the icon itself is unchanged.)
-    await renderMap({ heat: heatProp() });
-    const cluster = {
-      getChildCount: () => 3,
-      getAllChildMarkers: () => [5, 5, 5].map((rating) => ({
-        options: { icon: { options: { rating, fierySky: null, goldenHour: null } } },
-      })),
-    };
-    const inHeat = clusterIconCalls.at(-1)(cluster).options.html;
-    expect(inHeat).toContain(STOPS_VERDICT[4].hex);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Pins' }));
-    const inPins = clusterIconCalls.at(-1)(cluster).options.html;
-    expect(inPins).toContain(STOPS_VERDICT[4].hex);
   });
 
   it('draws the ramp key from the ramp itself, so the picture and its legend cannot drift', async () => {

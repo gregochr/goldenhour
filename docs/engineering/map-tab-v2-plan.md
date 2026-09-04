@@ -585,9 +585,10 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
 8. **Subject tags come from `LocationType`** (six values incl. WOODLAND + seasonal BLUEBELL), not
    the prototype's five-chip derivation; no lake flag; canopy polarity rules (woodland ratings
    never blend into the sky field) are inherited invariants, not new work.
-9. **The Plan-tab overlay keeps the old map wholesale** — popup, medallions, clustering,
+9. **The Plan-tab overlay keeps the old map wholesale** — popup, medallions,
    ForecastTypeSelector. The bundle redesigns "the Map tab"; the overlay is a different surface
-   with a different job. Convergence is O-6.
+   with a different job. Convergence is O-6. ⚠️ **Clustering was struck from this list on
+   2026-09-04 (item 20) — the one place the overlay's freeze has been deliberately broken.**
 10. **Keyboard shortcuts are pane-scoped**, not document-global — the prototype had no other
     focusable surfaces; the app does.
 11. **The callout carries a reduced fact set by design**; the full forecast detail (tide
@@ -712,6 +713,38 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     from `astroHeatPoints` directly, i.e. a statement about the forecast, not the camera; gating it
     silenced the one mode whose message is always earned, and a test caught it. Both new pins fail
     against the old logic (verified by reverting the predicate).
+
+20. **Marker clustering deleted outright, on both surfaces (2026-09-04) — an owner decision, and
+    the only deliberate break of the frozen-overlay rule to date.** Asked whether
+    `MarkerClusterGroup` should stay mounted on the tab, the owner's answer was to delete it rather
+    than gate it, and the reasoning is the record: **clustering is the precise defect the heat field
+    exists to fix.** A bubble reading "12" cannot tell you whether tonight is worth driving for —
+    it averages the gems away, which is this bundle's own argument for why heat became the default.
+    A Pins mode that clusters stops being the honest comparison and becomes a third representation,
+    at which point the case for heat is unfalsifiable because the reader never sees the pile it is
+    solving. Pins already answers density deliberately (weakest-first paint order so the best draws
+    on top, 26px named over 13px unnamed); clustering destroys that z-order and swaps the
+    best-visible pin for a count. ⚠️ **Scale does not reopen it**: at ~51 locations it is
+    unnecessary, and if the catalogue ever reaches thousands the answer is canvas rendering
+    (`preferCanvas` is already set), because clustering re-introduces the averaging problem at any
+    size.
+    **The overlay.** `MarkerClusterGroup` was ungated — one component, two mounts — so this reaches
+    the deliberately frozen Plan-tab overlay, which §4.9 above listed clustering among its keeps.
+    Confirmed with the owner before executing rather than inferred: the overlay keeps its medallions
+    and popup (its actual distinctives) and now renders them unclustered. It opens focused on one
+    spot from a card, and O-6 convergence is its stated destination, so keeping a dependency alive
+    solely for it was the debt this deletion clears.
+    **What went with it**, all verified dead rather than assumed: `react-leaflet-cluster` off
+    `package.json` (`leaflet.markercluster` was transitive; `npm ci` re-verified, and the lockfile
+    diff is pure deletion — no metadata churn), `markerUtils.createClusterIcon`, `markerUtils`'
+    now-unused `leaflet` import, `clusterGroupRef`, and the chip click's `zoomToShowLayer` — whose
+    real effect was jumping the camera on EVERY chip click below zoom 13 to reveal a marker the tab
+    does not paint, and whose ring-anchoring justification had been false since P9. Also
+    `excludeFromCluster` / `excludeFromSkyCluster`, write-only once their sole reader went; the
+    subject rule they encoded survives in `heatSpots.js`, which is what the field reads. 21 test
+    files dropped a `react-leaflet-cluster` mock and 22 a `MarkerCluster.css` mock; 20 tests were
+    deleted as testing absent behaviour, each noted where it stood. Measured: the lazy `leaflet`
+    chunk builds at 165 kB where `vite.config.js` recorded ~196 kB, and that comment is corrected.
 
 ## §5 Decisions taken in this plan (challenge in review, not in code)
 

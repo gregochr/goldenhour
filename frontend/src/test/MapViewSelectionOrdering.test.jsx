@@ -31,10 +31,8 @@ vi.mock('leaflet', () => {
   return { default: { icon, divIcon, point }, icon, divIcon, point };
 });
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
-vi.mock('leaflet.markercluster/dist/MarkerCluster.css', () => ({}));
 
 let fakeMarker;
-let fakeClusterGroup;
 /** Captured from whichever `useMapEvents({ click: ... })` call registers it — only
  * `MapBackgroundClickController` uses the `click` key on this tab (`BoundsTracker`'s `moveend`/
  * `zoomend` pair and `ZoomTracker`'s bare `zoomend` never collide with it). */
@@ -73,12 +71,6 @@ vi.mock('react-leaflet', () => ({
   }),
 }));
 
-vi.mock('react-leaflet-cluster', () => ({
-  default: React.forwardRef(function MockClusterGroup({ children }, ref) {
-    React.useImperativeHandle(ref, () => fakeClusterGroup);
-    return <div>{children}</div>;
-  }),
-}));
 
 vi.mock('../components/MapHeatLayer.jsx', () => ({ default: () => <div /> }));
 
@@ -238,7 +230,6 @@ function clickBackground() {
 beforeEach(() => {
   localStorage.clear();
   fakeMarker = { openPopup: vi.fn() };
-  fakeClusterGroup = { zoomToShowLayer: vi.fn() };
   capturedBackgroundClick = null;
   capturedBackgroundMouseDown = null;
   astroAvailableDatesResponse = [];
