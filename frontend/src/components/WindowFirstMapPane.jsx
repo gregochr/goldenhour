@@ -297,6 +297,13 @@ export default function WindowFirstMapPane({
         onForecastRun={onForecastRun}
         seasonalFeatures={seasonalFeatures}
         homeCoords={homeCoords}
+        // The origin in force (D1, plan-to-map-doors-plan.md §3) — the context's live value, so
+        // this mount can never disagree with the Plan cards about where the reader is planning
+        // from. Gates the tab's home geography (HOME marker, reach rings, ring labels, the legend's
+        // rings toggle) onto home-only inside `MapView`; the overlay mount in `App.jsx` never
+        // passes this prop at all (it is frozen and has no origin concept, so it keeps drawing
+        // whatever `homeCoords` it is handed — which is nothing, today).
+        origin={origin}
         mapColourScale={mapColourScale}
         colourScaleDefaulted={colourScaleDefaulted}
         onOpenSettings={onOpenSettings}
