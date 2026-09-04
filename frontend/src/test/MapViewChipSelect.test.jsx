@@ -1,18 +1,20 @@
 /**
- * A Map tab chip click (map-tab-v2-plan.md §3 P8) is wired to `selectMapLocation`, which reveals a
- * marker still folded into a cluster bubble before selecting it — `marker._map` is null while
- * clustered, so a bare click on such a marker would otherwise land the selection ring and the
- * callout on a point the reader cannot see. The fix (adversarial review finding #6, P8) routes the
- * click through the cluster group's own `zoomToShowLayer`, which reveals the marker before the
- * selection settles, and is simply skipped when the marker is already unclustered (or the cluster
- * ref cannot answer).
+ * A Map tab chip click (map-tab-v2-plan.md §3 P8) is wired to `selectMapLocation`, and this file
+ * pins what that function does — which is now exactly one thing: set `selectedLocationName`.
  *
- * <p>⚠️ map-tab-v2-plan.md §3 P9: through P8 this function ALSO opened the marker's own Leaflet
- * popup from `zoomToShowLayer`'s callback. P9 removes the popup from the tab entirely — `MapCallout`
- * reads `selectedLocationName` reactively and needs no imperative nudge — so `selectMapLocation` no
- * longer calls `openPopup` at all, from any path. This file's own tests were rewritten from
- * asserting an `openPopup` call to asserting the selection itself (`onSelect` prop / `selectedName`)
- * and the ABSENCE of any popup call, which each test below states explicitly.
+ * <p>⚠️ It used to do two more, and both are gone. Through P8 it opened the marker's own Leaflet
+ * popup; P9 removed the popup from the tab entirely (`MapCallout` reads `selectedLocationName`
+ * reactively and needs no imperative nudge). And until clustering was deleted it called the cluster
+ * group's `zoomToShowLayer` to reveal a marker folded into a bubble — justified here, and in the
+ * source, as a prerequisite for the selection ring landing on a visible point. That justification
+ * was false from P9 onward: `MapCallout` anchors off the location's own coordinates
+ * (`latLngToContainerPoint`), never a marker ref. With `disableClusteringAtZoom` at 13, its real
+ * effect was to jump the camera on EVERY chip click below street level, to reveal a marker the tab
+ * does not paint.
+ *
+ * <p>So the two tests that pinned the reveal are deleted rather than inverted — there is no
+ * behaviour left to assert, only its absence, which the surviving tests cover: the selection lands,
+ * and no popup is opened from any path.
  *
  * `MapLabels.jsx` is mocked to a probe button — its own placement/measurement behaviour is
  * `MapLabels.test.jsx`'s job; this file is only about what `onSelect` does once MapView receives
@@ -31,14 +33,9 @@ vi.mock('leaflet', () => {
   return { default: { icon, divIcon, point }, icon, divIcon, point };
 });
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
-vi.mock('leaflet.markercluster/dist/MarkerCluster.css', () => ({}));
 
 /** The one marker instance MapView will register into its `markerRefs` map. */
 let fakeMarker;
-/** The one cluster-group instance `clusterGroupRef` will resolve to. `undefined` methods on it
- *  model "no zoomToShowLayer available" (an older cluster lib, or the ref not yet attached). */
-let fakeClusterGroup;
-
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div>{children}</div>,
   TileLayer: () => null,
@@ -58,12 +55,6 @@ vi.mock('react-leaflet', () => ({
   }),
 }));
 
-vi.mock('react-leaflet-cluster', () => ({
-  default: React.forwardRef(function MockClusterGroup({ children }, ref) {
-    React.useImperativeHandle(ref, () => fakeClusterGroup);
-    return <div>{children}</div>;
-  }),
-}));
 
 vi.mock('../components/MapHeatLayer.jsx', () => ({ default: () => <div data-testid="map-heat-layer" /> }));
 
@@ -154,7 +145,6 @@ async function renderMap() {
 beforeEach(() => {
   localStorage.clear();
   fakeMarker = { openPopup: vi.fn() };
-  fakeClusterGroup = { zoomToShowLayer: vi.fn() };
 });
 
 afterEach(() => {
@@ -162,27 +152,16 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('MapView — chip click on a clustered marker (map-tab-v2-plan.md §3 P8 review, P9 update)', () => {
-  it('calls zoomToShowLayer on the cluster group to reveal a clustered marker', async () => {
+describe('MapView — what a chip click does (map-tab-v2-plan.md §3 P8 review, P9 update)', () => {
+  it('selects the location, and that is the whole of it', async () => {
     await renderMap();
     fireEvent.click(await screenFindProbe());
-    expect(fakeClusterGroup.zoomToShowLayer).toHaveBeenCalledTimes(1);
-    expect(fakeClusterGroup.zoomToShowLayer.mock.calls[0][0]).toBe(fakeMarker);
+    expect(screen.getByTestId('probe-selected')).toHaveTextContent('Bamburgh-0');
   });
 
   it('never calls openPopup — the tab has no Leaflet popup left to open (map-tab-v2-plan.md §3 P9)', async () => {
     await renderMap();
     fireEvent.click(await screenFindProbe());
-    expect(fakeMarker.openPopup).not.toHaveBeenCalled();
-  });
-
-  it('still selects the location when the cluster ref has no zoomToShowLayer', async () => {
-    fakeClusterGroup = {}; // an unclustered marker, or a ref that has not resolved the method
-    await renderMap();
-    fireEvent.click(await screenFindProbe());
-    // The selection itself does not depend on the cluster reveal succeeding — `setSelectedLocationName`
-    // runs unconditionally at the top of `selectMapLocation`, before the reveal is even attempted.
-    expect(screen.getByTestId('probe-selected')).toHaveTextContent('Bamburgh-0');
     expect(fakeMarker.openPopup).not.toHaveBeenCalled();
   });
 });

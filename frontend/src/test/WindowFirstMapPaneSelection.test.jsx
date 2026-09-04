@@ -73,11 +73,9 @@ vi.mock('leaflet', () => {
   };
 });
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
-vi.mock('leaflet.markercluster/dist/MarkerCluster.css', () => ({}));
 
 let fakeMap;
 let fakeMarker;
-let fakeClusterGroup;
 
 /**
  * A Leaflet map stubbed to what the WHOLE tab-mode chain touches — `MapLabels`' own projection/
@@ -210,12 +208,6 @@ vi.mock('react-leaflet', () => ({
   useMap: () => fakeMap,
 }));
 
-vi.mock('react-leaflet-cluster', () => ({
-  default: React.forwardRef(function MockClusterGroup({ children }, ref) {
-    React.useImperativeHandle(ref, () => fakeClusterGroup);
-    return <div>{children}</div>;
-  }),
-}));
 
 // Heavy/irrelevant-to-this-file children, stubbed exactly as the other MapView suites stub them —
 // none of these are what this file is about, and the real ones (`MapHeatLayer` in particular) pull
@@ -343,7 +335,6 @@ beforeEach(() => {
   // that function's own note on why the ordering matters.
   fakeMap = null;
   fakeMarker = { openPopup: vi.fn() };
-  fakeClusterGroup = { zoomToShowLayer: vi.fn() };
   restoreLayout = withMeasuredLayout(90, 22);
   localStorage.clear();
 });

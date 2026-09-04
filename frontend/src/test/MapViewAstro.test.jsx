@@ -26,7 +26,6 @@ vi.mock('leaflet', () => {
 });
 
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
-vi.mock('leaflet.markercluster/dist/MarkerCluster.css', () => ({}));
 
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="map-container">{children}</div>,
@@ -41,9 +40,6 @@ vi.mock('react-leaflet', () => ({
   }),
 }));
 
-vi.mock('react-leaflet-cluster', () => ({
-  default: ({ children }) => <div>{children}</div>,
-}));
 
 // ── App dependencies ─────────────────────────────────────────────────────────
 
@@ -106,7 +102,6 @@ vi.mock('../components/markerUtils.js', () => ({
   buildMarkerSvg: () => '<svg></svg>',
   buildStandDownSvg: () => '<svg></svg>',
   markerLabelAndColour: () => ({ label: '4★', colour: '#E5A00D' }),
-  createClusterIcon: () => ({ options: { html: '', iconSize: { x: 40, y: 40 }, className: '' } }),
   STAND_DOWN_COLOUR: '#501313',
 }));
 

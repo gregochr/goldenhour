@@ -35,7 +35,6 @@ vi.mock('leaflet', () => {
   return { default: { icon, divIcon, point }, icon, divIcon, point };
 });
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
-vi.mock('leaflet.markercluster/dist/MarkerCluster.css', () => ({}));
 
 const mapContainerProps = { last: null };
 /** Every `TileLayer` mount this render produced, in render order — cleared each test. */
@@ -92,9 +91,6 @@ vi.mock('react-leaflet', () => ({
   }),
 }));
 
-vi.mock('react-leaflet-cluster', () => ({
-  default: ({ children }) => <div>{children}</div>,
-}));
 
 vi.mock('../components/MapHeatLayer.jsx', () => ({
   default: () => <div data-testid="map-heat-layer" />,

@@ -17,7 +17,7 @@ export default defineConfig(({ mode }) => {
     // Service worker that precaches the app shell so a refresh paints from disk instead of
     // waiting on the network. Deliberately scoped:
     //  - PRECACHE only the critical shell (html, css, fonts, entry + react chunks). The heavy
-    //    optional chunks (recharts ~360K, ManageView ~251K, leaflet ~196K) are lazy-loaded by
+    //    optional chunks (recharts ~360K, ManageView ~251K, leaflet ~165K) are lazy-loaded by
     //    design, so precaching them would download ~800K on every deploy for a user who may
     //    never open the Map or Manage views. They are runtime-cached on first actual use.
     //  - NEVER cache /api. The stale-while-revalidate cache and ETags (#22/#23) already own
@@ -86,7 +86,7 @@ export default defineConfig(({ mode }) => {
         // are only fetched when the Map / Manage views actually open.
         manualChunks(id) {
           if (!id.includes('node_modules')) return undefined;
-          if (id.includes('leaflet')) return 'leaflet'; // leaflet, react-leaflet(-cluster), markercluster
+          if (id.includes('leaflet')) return 'leaflet'; // leaflet + react-leaflet
           // BEFORE the `d3-` catch below, and that order is the whole rule — appended after it this
           // never fires at all (measured at P0, which is why the plan calls it out).
           //

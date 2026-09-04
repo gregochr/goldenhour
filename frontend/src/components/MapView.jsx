@@ -2,10 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense, laz
 import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
 import { MapContainer, TileLayer, Marker, Popup, Polyline, useMapEvents, useMap } from 'react-leaflet';
-import MarkerClusterGroup from 'react-leaflet-cluster';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import 'leaflet.markercluster/dist/MarkerCluster.css';
 import { useAuth } from '../context/AuthContext.jsx';
 import { useIsMobile } from '../hooks/useIsMobile.js';
 import BottomSheet from './BottomSheet.jsx';
@@ -23,7 +21,7 @@ import { buildBriefingScoreIndex, lookupBriefingScore } from '../utils/briefingS
 import { lookupForWindow } from '../utils/locationSheet.js';
 import { resolveStandDown } from '../utils/standDown.js';
 import { resolveAuroraNight, ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
-import { LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel, SKY_SUBJECT_TYPES } from '../utils/locationTypes.js';
+import { LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel } from '../utils/locationTypes.js';
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
 import { rampHex, rampGradientCss, getMode } from '../utils/scoreRamp.js';
 import WindowControl from './map/WindowControl.jsx';
@@ -311,7 +309,7 @@ PopupResizer.propTypes = {
 };
 
 import InfoTip from './InfoTip.jsx';
-import { buildMarkerSvg, buildStandDownSvg, markerLabelAndColour, createClusterIcon, STAND_DOWN_COLOUR } from './markerUtils.js';
+import { buildMarkerSvg, buildStandDownSvg, markerLabelAndColour, STAND_DOWN_COLOUR } from './markerUtils.js';
 import { DARK_SKY_THRESHOLD } from '../utils/mapOverlay.js';
 
 const SUNRISE_LINE_COLOUR = '#f97316';
@@ -641,7 +639,6 @@ function destinationPoint(lat, lon, bearingDeg, distanceKm) {
  * @param {number|null} goldenHour - Golden hour score 0–100, or null.
  * @param {string} locationName - Display name shown beneath the marker.
  * @param {boolean} [isPureWildlife=false] - If true, renders a green wildlife marker.
- * @param {boolean} [excludeFromCluster=false] - If true, scores are excluded from cluster averages (e.g. WATERFALL).
  * @param {boolean} [isStandDown=false] - If true, renders a muted stand-down marker (triaged forecast).
  * @returns {L.DivIcon}
  */
@@ -650,13 +647,13 @@ function destinationPoint(lat, lon, bearingDeg, distanceKm) {
 // the SVG/DOM rebuild) across re-renders — a zoom, hover or filter change no longer rebuilds every
 // marker's icon. A DivIcon is safely shareable: Leaflet's createIcon() builds fresh DOM from
 // options.html on each use, and the per-marker options embedded here (rating/scores/exclude flag,
-// read by createClusterIcon) are part of the cache key, so identical-content markers share safely.
+// are part of the cache key, so identical-content markers share safely.
 const markerIconCache = new Map();
 
 /** Soft cap so a long-lived tab whose scores change daily can't grow the icon cache without bound. */
 const MARKER_ICON_CACHE_LIMIT = 2000;
 
-function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildlife = false, excludeFromCluster = false, isStandDown = false, emphasis = null) {
+function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildlife = false, isStandDown = false, emphasis = null) {
   // `emphasis` is part of the key: a DivIcon is cached by everything that determines it, and
   // the className carries the focus/muted modifier. Omitting it would serve the Map tab's
   // plain icon to the overlay (or worse, leak the overlay's muted icon back to the Map tab).
@@ -671,7 +668,7 @@ function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildli
   // `markerLabelAndColour` below) already read this exact module state to choose the colour, so
   // calling it again here for the key can never disagree with what actually got painted — a
   // parameter sourced from a caller's own prop could, if that prop ever lagged the real mode.
-  const cacheKey = `${locationName}|${rating}|${fierySky}|${goldenHour}|${isPureWildlife ? 1 : 0}|${excludeFromCluster ? 1 : 0}|${isStandDown ? 1 : 0}|${emphasis ?? '-'}|${getMode()}`;
+  const cacheKey = `${locationName}|${rating}|${fierySky}|${goldenHour}|${isPureWildlife ? 1 : 0}|${isStandDown ? 1 : 0}|${emphasis ?? '-'}|${getMode()}`;
   const cached = markerIconCache.get(cacheKey);
   if (cached) return cached;
 
@@ -711,7 +708,6 @@ function makeMarkerIcon(rating, fierySky, goldenHour, locationName, isPureWildli
     rating: rating,
     fierySky: fierySky,
     goldenHour: goldenHour,
-    excludeFromCluster: excludeFromCluster,
     popupAnchor: [0, -24],
   });
 
@@ -1257,15 +1253,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * `click`; never read anywhere else.
    */
   const openMapMenuAtMouseDownRef = useRef(null);
-  /**
-   * The raw `L.MarkerClusterGroup` instance (map-tab-v2-plan.md §3 P8 review) — `@react-leaflet/
-   * core`'s `createPathComponent` forwards a `ref` straight to the underlying Leaflet layer, the
-   * same convention `Marker`'s own ref callback below already relies on. Needed so a chip click
-   * can call `zoomToShowLayer` on a marker that is currently folded into a cluster bubble, where a
-   * bare `marker.openPopup()` is a silent no-op (`marker._map` is null while it is clustered).
-   */
-  const clusterGroupRef = useRef(null);
-
   // Aurora is available when the user is ADMIN/PRO and either the state machine is active
   // or there are stored forecast results for any date on the date strip.
   const hasStoredAuroraResults = auroraAvailableDates.length > 0;
@@ -2174,8 +2161,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // evening would drag its cluster's grey→gold ramp toward gold on precisely the nights the sky
     // is at its worst. The two are ORed into one flag because the cluster only asks "does this
     // score mean sky colour", and for both the answer is no.
-    const excludeFromSkyCluster = isWaterfall || !types.some((t) => SKY_SUBJECT_TYPES.includes(t));
-    return { forecast, hourlyData, isPureWildlife, isWaterfall, excludeFromSkyCluster };
+    return { forecast, hourlyData, isPureWildlife, isWaterfall };
   }
 
   // Active (non-default) filters drive the collapsed pill summary and its highlight — and, in the
@@ -2560,16 +2546,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * the anchored callout on this tab (map-tab-v2-plan.md §3 P9 — "the tab stops mounting Leaflet
    * `Popup`/`BottomSheet` for markers"), so there is no popup left to open here.
    *
-   * <p>⚠️ <b>{@code zoomToShowLayer} is a CAMERA convenience, not a ring-anchoring prerequisite</b>
-   * — this paragraph claimed the latter and was wrong from P9 onward. {@code MapCallout} anchors
-   * off {@code map.latLngToContainerPoint([location.lat, location.lon])}, the location's own
-   * coordinates, never a marker ref, so a still-clustered bubble could never have put the ring on
-   * the wrong disc. What the call actually does is pan or zoom to a target that is off-screen or
-   * folded into a cluster — which is what a reader means by clicking its chip, and which also
-   * raises `chipBudget` and the pixels-per-km that decide whether that chip can be placed. It has
-   * no dependency on the markers being visible (it branches on `_icon`, map bounds and
-   * `__parent._zoom`), so the medallion hide leaves its behaviour byte-identical. Whether to keep
-   * it at all is a separate decision from that hide, and is not taken here.
+   * <p>⚠️ It also used to call {@code zoomToShowLayer} on the clicked marker, to pan or zoom to a
+   * target that was off-screen or folded into a cluster bubble. Clustering is gone, so that is gone
+   * with it — and good riddance: {@code disableClusteringAtZoom} was 13, so below street level
+   * EVERY marker was clustered and every chip click jumped the camera, to reveal a marker the tab
+   * does not even paint. It was never a ring-anchoring prerequisite either, whatever the comment
+   * here used to claim: {@code MapCallout} anchors off the location's own coordinates
+   * ({@code latLngToContainerPoint}), never a marker ref. Selecting now selects, and the camera
+   * stays where the reader put it. Both callers (`MapLabels`' chips, `PinsLayer`'s dots) only offer
+   * in-view locations anyway, so there is nothing off-screen left to chase.
    *
    * <p>A plain function, like {@code selectEvRow} above — NOT {@code useCallback}, which would be
    * a hook called after this component's own conditional early return a few screens up and so
@@ -2577,13 +2562,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   function selectMapLocation(name) {
     setSelectedLocationName(name);
-    if (isMobile) return;
-    const marker = markerRefs.current.get(name);
-    if (!marker) return;
-    const clusterGroup = clusterGroupRef.current;
-    if (clusterGroup && typeof clusterGroup.zoomToShowLayer === 'function') {
-      clusterGroup.zoomToShowLayer(marker);
-    }
   }
 
   /**
@@ -3211,33 +3189,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             />
           )}
 
-          <MarkerClusterGroup
-            ref={clusterGroupRef}
-            /* No remount key here: `scoreRamp` is the only colour language now, so switching the
-               view (Heat ↔ Pins on the tab, Heat ↔ Medallions on the overlay) never changes which
-               palette a cluster bubble paints on, and `iconCreateFunction` never needs to re-run
-               for that reason. Consequence, kept deliberately: an open popup, a spiderfied cluster
-               and the selected marker now survive the toggle (pinned below) rather than being torn
-               down and rebuilt. This group itself stays mounted through the tab's Pins mode too
-               (map-tab-v2-plan.md §3 P10) — `MapHeatLayer`'s `fieldEnabled={false}` contract holds
-               the marker panes fully hidden there instead of unmounting this component, which is
-               what keeps that same "never torn down" property. */
-            chunkedLoading
-            iconCreateFunction={(cluster) => createClusterIcon(cluster, role)}
-            // Dense corridors (e.g. Hadrian's Wall — 7 spots in a few km) must
-            // collapse to one count-only bubble until zoomed in far enough that the
-            // discs no longer collide. A wider radius merges co-located spots; a
-            // higher disable-zoom keeps them clustered until street-level.
-            maxClusterRadius={80}
-            disableClusteringAtZoom={13}
-            showCoverageOnHover={false}
-            spiderfyOnMaxZoom
-            zoomToBoundsOnClick
-            animate
-          >
+          <>
             {visibleLocations.map((loc) => {
-              const { forecast, hourlyData, isPureWildlife, isWaterfall, excludeFromSkyCluster }
-                = getContentProps(loc);
+              const { forecast, hourlyData, isPureWildlife, isWaterfall } = getContentProps(loc);
               const locAuroraScore = isAuroraMode ? (auroraScores[loc.name] ?? null) : null;
               // Look up briefing evaluation score for this location (if any)
               const briefingScore = !isAuroraMode ? lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType) : null;
@@ -3269,7 +3223,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 markerGolden,
                 loc.name,
                 isPureWildlife,
-                excludeFromSkyCluster,
                 isStandDown,
                 emphasis,
               );
@@ -3328,7 +3281,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 </Marker>
               );
             })}
-          </MarkerClusterGroup>
+          </>
 
           {/* The selection callout (map-tab-v2-plan.md §3 P9, README §7) — tab only. Rendered
               regardless of `heatOn`/`heatOffered`: a chip or pin click sets `selectedLocationName`

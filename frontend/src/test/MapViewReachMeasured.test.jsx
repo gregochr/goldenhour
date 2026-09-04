@@ -22,7 +22,6 @@ vi.mock('leaflet', () => {
   return { default: { icon, divIcon, point }, icon, divIcon, point };
 });
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
-vi.mock('leaflet.markercluster/dist/MarkerCluster.css', () => ({}));
 
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div>{children}</div>,
@@ -39,7 +38,6 @@ vi.mock('react-leaflet', () => ({
     fitBounds: () => {},
   }),
 }));
-vi.mock('react-leaflet-cluster', () => ({ default: ({ children }) => <div>{children}</div> }));
 
 vi.mock('../components/MapHeatLayer.jsx', () => ({ default: () => <div data-testid="map-heat-layer" /> }));
 

@@ -32,10 +32,8 @@ vi.mock('leaflet', () => {
   return { default: { icon, divIcon, point }, icon, divIcon, point };
 });
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
-vi.mock('leaflet.markercluster/dist/MarkerCluster.css', () => ({}));
 
 let fakeMarker;
-let fakeClusterGroup;
 
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div data-testid="map-container">{children}</div>,
@@ -58,12 +56,6 @@ vi.mock('react-leaflet', () => ({
   }),
 }));
 
-vi.mock('react-leaflet-cluster', () => ({
-  default: React.forwardRef(function MockClusterGroup({ children }, ref) {
-    React.useImperativeHandle(ref, () => fakeClusterGroup);
-    return <div>{children}</div>;
-  }),
-}));
 
 vi.mock('../components/MapHeatLayer.jsx', () => ({ default: () => <div data-testid="map-heat-layer" /> }));
 
@@ -190,7 +182,6 @@ async function renderTab(props = {}) {
 beforeEach(() => {
   localStorage.clear();
   fakeMarker = { openPopup: vi.fn() };
-  fakeClusterGroup = { zoomToShowLayer: vi.fn() };
   driveTimesResponse = {};
 });
 
