@@ -240,25 +240,37 @@ export function markersAreInteractive(opacity) {
  * §4.5 specifies is necessary and not sufficient. The class is what closes it, through a stylesheet
  * rule that reaches the children.
  *
- * <p>⚠️ And the thing that closes it is deliberately NOT {@code visibility: hidden}, which was the
- * first cut. That does remove the hit target — and it also removes every marker from the
- * accessibility tree and the tab order.
+ * <p>⚠️ <b>And the a11y half, which is the {@code inert} attribute and NOT
+ * {@code visibility: hidden}.</b> The rule here was "never take the markers out of the
+ * accessibility tree", because they were the only route to a location's popup — true when written,
+ * false since P9 (#734) stopped mounting a Leaflet {@code Popup} on the tab. Leaflet gives every
+ * icon {@code tabIndex=0} and {@code role="button"} ({@code keyboard: true} by default), so hiding
+ * them by opacity alone left a keyboard reader tabbing through a catalogue of invisible controls
+ * that do nothing, reached BEFORE {@code MapLabels}' chips — the route that actually works.
  *
- * <p>⚠️ <b>That rationale has rotted, and the leftover is a known, RECORDED debt rather than a
- * standing defence.</b> It read "the markers are the only route to a location's popup on desktop
- * and to its sheet on a phone" — true when written, false since P9 (#734) stopped mounting a
- * Leaflet {@code Popup} on the tab at all. Leaflet still gives every icon {@code tabIndex=0} and
- * {@code role="button"} ({@code keyboard: true} by default), so the tab now carries focusable
- * no-op markers ahead of {@code MapLabels}' chips, which ARE the working keyboard route.
+ * <p>{@code inert} rather than {@code visibility: hidden} or a {@code tabindex} sweep, for one
+ * reason each. {@code visibility: hidden} fights the opacity fade this function exists to apply. A
+ * {@code tabindex} sweep over the pane's children is a ONE-SHOT, and Leaflet creates and destroys
+ * marker icons as filters, windows and the roster change — every icon added after the sweep would
+ * be focusable again. {@code inert} is set on the PANE and covers whatever it later contains, and
+ * it removes the subtree from the accessibility tree as well as the tab order: the pair the old
+ * rule wanted kept apart, and now wants together.
  *
- * <p>Left alone here on purpose: an adversarial review measured the delta and found it almost
- * entirely pre-existing — {@code fadeAt} already returned {@code markers: 0} at every zoom the tab
- * opens at, so this was the default state for most of a session before the hide became
- * unconditional, and below {@code disableClusteringAtZoom} the clustered members are not in the DOM
- * to be focused. Closing it properly means adding {@code inert} where this writes zero, inverting
- * the "never hides the markers from the accessibility tree" test with its own inversion note, and
- * rewriting the two stale comments that still cite the popup route ({@code index.css}'s own rule,
- * and that test). That is its own phase, not a rider on this one.
+ * <p>{@link MARKERS_INERT_CLASS} stays alongside it as defence in depth. {@code inert} blocks
+ * pointer events too, so the class is strictly redundant wherever the attribute is honoured — but
+ * it is the older, more widely supported half, and its three-selector specificity fight is
+ * separately pinned.
+ *
+ * <p>⚠️ <b>Scoped by construction, which matters twice.</b> This layer only ever mounts on the MAP
+ * TAB (`heat` is passed by `WindowFirstMapPane` alone), so the Plan-tab overlay — where the markers
+ * DO carry popups and ARE a real keyboard route — never has {@code inert} applied. And on the tab,
+ * an AURORA window unmounts this layer entirely, at which point {@link restoreMarkerPanes} removes
+ * the attribute: aurora has no chips and no pins, so the medallions are the location vocabulary
+ * there and must stay reachable. Both fall out of "set it while hiding, clear it while restoring"
+ * rather than needing a mode test of their own.
+ *
+ * <p>⚠️ {@code inert} is a silent no-op in jsdom, so the tests assert the ATTRIBUTE rather than
+ * focus behaviour. A test trying to prove non-focusability there proves nothing.
  *
  * @param {object} map the Leaflet map
  * @param {number} opacity 0–1
@@ -271,6 +283,7 @@ function applyMarkerFade(map, opacity) {
     pane.style.opacity = String(opacity);
     pane.style.pointerEvents = interactive ? '' : 'none';
     pane.classList?.toggle(MARKERS_INERT_CLASS, !interactive);
+    pane.toggleAttribute?.('inert', !interactive);
   }
 }
 
@@ -291,6 +304,7 @@ function restoreMarkerPanes(map) {
     pane.style.opacity = '';
     pane.style.pointerEvents = '';
     pane.classList?.remove(MARKERS_INERT_CLASS);
+    pane.removeAttribute?.('inert');
   }
 }
 

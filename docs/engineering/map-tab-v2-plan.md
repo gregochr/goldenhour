@@ -688,16 +688,10 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     comment. `MARKER_INTERACTIVE_ALPHA` and `markersAreInteractive` are now vestigial (the only
     argument is `0`) and are deliberately **kept**: they are the regression net for any future
     middle ground, and deleting them as dead code is what would make this hard to reverse.
-    ⚠️ **Two pre-existing defects this exposed.** The first is now FIXED (see item 19): on a D-13
-    filler row the colour ramp key rendered above a field that paints nothing (the medallions were
-    masking it). Still open:
-    Leaflet still gives every hidden marker `tabIndex=0`/`role="button"`, so the tab carries
-    focusable no-op markers ahead of the chips — the recorded `visibility`-vs-tree decision in
-    `applyMarkerFade`/`index.css` rests on "the markers are the only route to a location's popup",
-    false since P9 (#734). It needs its own phase, and the review measured it as overwhelmingly
-    pre-existing (`fadeAt` already returned 0 at every zoom the tab opens at); the deeper question
-    underneath it is whether `MarkerClusterGroup` should mount on the tab at all, which would
-    subsume the a11y fix — an owner call, not a patch.
+    ⚠️ **Two pre-existing defects this exposed, BOTH now fixed** — item 19 (the colour ramp key
+    rendering above a field that paints nothing on a D-13 filler row, which the medallions were
+    masking) and item 21 (Leaflet's focusable no-op markers). Neither was smuggled into this change;
+    each got its own phase, which is why they are separately ledgered.
 19. **The colour key no longer renders above an empty field (2026-09-04) — the first of item 18's
     two exposed defects, closed.** `windowUnscored` required a non-null `heatWindow`, excused in its
     own javadoc by "the selector already says 'No forecast window' for that". That excuse was false:
@@ -843,6 +837,34 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     files dropped a `react-leaflet-cluster` mock and 22 a `MarkerCluster.css` mock; 20 tests were
     deleted as testing absent behaviour, each noted where it stood. Measured: the lazy `leaflet`
     chunk builds at 165 kB where `vite.config.js` recorded ~196 kB, and that comment is corrected.
+
+21. **The hidden markers leave the tab order and the accessibility tree, via `inert` (2026-09-04)
+    — item 18's second exposed defect, closed.** Leaflet gives every marker icon
+    `tabIndex=0`/`role="button"` (`keyboard: true` is its default), and `applyMarkerFade` hid the
+    panes with opacity plus a `pointer-events` class only, on a recorded rule that neither should
+    "touch the tree" — justified by "the markers are the only route to a location's popup". That
+    justification died with P9 (#734), which stopped mounting a Leaflet `Popup` on the tab. What was
+    left was a catalogue of invisible controls that do nothing, reached BEFORE `MapLabels`' chips,
+    which are the route that works.
+    **`inert` on the pane**, not `visibility: hidden` and not a `tabindex` sweep. `visibility`
+    fights the opacity fade the same function exists to apply; a sweep is one-shot, and Leaflet
+    creates and destroys marker icons as filters, windows and the roster change, so anything added
+    afterwards would be focusable again. `inert` is set on the pane, covers whatever it later
+    contains, and removes the subtree from the tab order and the a11y tree together — the pair the
+    old rule wanted kept apart and now wants joined. `wf-markers-inert` stays as defence in depth
+    (`inert` blocks pointer events too, so the class is redundant where the attribute is honoured,
+    but it is the older and better-supported half).
+    ⚠️ **Scoped by construction, twice over, with no mode test of its own.** The layer only mounts
+    on the tab, so the Plan-tab overlay — where markers DO carry popups and ARE a real keyboard
+    route — never sees `inert`. And an AURORA window unmounts the layer, at which point
+    `restoreMarkerPanes` clears the attribute: aurora has no chips and no pins, so the medallions
+    are the whole location vocabulary there and must stay reachable. Both fall out of "set while
+    hiding, clear while restoring".
+    ⚠️ **jsdom implements no `inert` behaviour**, so the tests assert the ATTRIBUTE; a test there
+    trying to prove non-focusability would pass against a no-op. Both new pins were verified to fail
+    without the fix. The `visibility`-vs-`display` half of the original decision is still pinned, and
+    the review that surfaced this measured it as overwhelmingly pre-existing rather than caused by
+    item 18 — `fadeAt` already returned 0 at every zoom the tab opens at.
 
 ## §5 Decisions taken in this plan (challenge in review, not in code)
 

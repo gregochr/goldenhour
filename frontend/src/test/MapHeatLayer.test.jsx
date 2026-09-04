@@ -585,17 +585,42 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
     expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(true);
   });
 
-  it('never hides the markers from the accessibility tree, at any zoom', async () => {
-    // The rule the class exists to keep — ⚠️ but NOT for the reason originally written here, which
-    // was "the only route a keyboard or screen-reader user has to a location on this tab". That has
-    // been false since P9 (#734) stopped mounting a Leaflet `Popup` on the tab: `MapLabels`' chips
-    // are the working keyboard route, and these markers are focusable no-ops. The pin stays because
-    // flipping to `visibility: hidden` is a real a11y change that needs its own phase (see
-    // `applyMarkerFade`'s own note) — not because the old justification still holds.
+  it('takes the hidden markers OUT of the tab order and the accessibility tree', async () => {
+    // ⚠️ THE FOURTH INVERTED PIN, and the one that took longest to earn. This read "never hides the
+    // markers from the accessibility tree, at any zoom", and its stated reason was that
+    // `visibility: hidden` "would close the only route a keyboard or screen-reader user has to a
+    // location on this tab". That was true when written and false from P9 (#734), which stopped
+    // mounting a Leaflet `Popup` on the tab: `MapLabels`' chips are the working route, and Leaflet's
+    // markers — still `tabIndex=0` / `role="button"` by its `keyboard: true` default — were left as
+    // a catalogue of invisible controls that do nothing, reached BEFORE the chips.
+    //
+    // The old rule is kept in one respect: the fix is NOT `visibility: hidden`, which would fight
+    // the opacity fade. `inert` covers the tab order and the a11y tree together, and covers marker
+    // icons Leaflet creates later — a `tabindex` sweep would not.
+    //
+    // ⚠️ jsdom implements no `inert` BEHAVIOUR, so this asserts the attribute. A test here that
+    // tried to prove non-focusability would pass against a no-op and prove nothing; the property it
+    // stands for is browser-only.
     currentMap = makeMap({ zoom: 4, panes: markerPanes() });
     await mount();
+    expect(currentMap.panes.markerPane.hasAttribute('inert')).toBe(true);
+    expect(currentMap.panes.shadowPane.hasAttribute('inert')).toBe(true);
+    // Still opacity, never `visibility`/`display` — the half of the original decision that stands.
     expect(currentMap.panes.markerPane.style.visibility).toBe('');
     expect(currentMap.panes.markerPane.style.display).toBe('');
+  });
+
+  it('hands the markers back to the keyboard when it lets go of them', async () => {
+    // The other half, and what keeps AURORA honest: `heatOffered` is false for an aurora window, so
+    // this layer unmounts and the medallions become the tab's ONLY location vocabulary — no chips,
+    // no pins. If `inert` outlived the unmount they would be unreachable by keyboard exactly where
+    // they are the whole answer. Same path covers a tab change and a logout.
+    currentMap = makeMap({ zoom: 4, panes: markerPanes() });
+    const { unmount } = await mount();
+    expect(currentMap.panes.markerPane.hasAttribute('inert')).toBe(true);
+    await act(async () => { unmount(); });
+    expect(currentMap.panes.markerPane.hasAttribute('inert')).toBe(false);
+    expect(currentMap.panes.shadowPane.hasAttribute('inert')).toBe(false);
   });
 
   it('cross-fades rather than stepping — a fractional zoom gives a fractional FIELD opacity', async () => {
