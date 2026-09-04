@@ -125,7 +125,7 @@ function LocationSlotList({ slots, driveMap, typeMap, scores = new Map(), evalua
       return (
         <div className="mt-1 px-2 text-plex-text-muted italic" style={{ fontSize: '12px' }}
           data-testid="standdown-hint">
-          No viable locations for this event. Toggle &ldquo;Include poor locations&rdquo; to see why.
+          Nothing worth a trip here. Tick &ldquo;Include poor locations&rdquo; to see why.
         </div>
       );
     }
@@ -347,7 +347,7 @@ function HeatmapDrillDown({ date, regionName, targetType, briefingDays, driveMap
         <button
           onClick={onClose}
           className={`text-plex-text-muted hover:text-plex-text px-1 text-sm ${onShowAllLocationsChange ? '' : 'ml-auto'}`}
-          aria-label="Close drill-down"
+          aria-label="Close region detail"
         >
           ✕
         </button>
@@ -506,7 +506,7 @@ function HeatmapCell({ date, regionName, targetType, briefingDays, isActive, onT
 
   const eventLabel = targetType === 'SUNRISE' ? 'sunrise' : 'sunset';
   const verdictLabel = displaySignal === 'STAND_DOWN' ? 'Poor'
-    : displaySignal === 'AWAITING' ? 'Awaiting'
+    : displaySignal === 'AWAITING' ? 'Not scored'
       : displaySignal === 'WORTH_IT' ? `Worth it ${eventLabel}`
         : `Maybe ${eventLabel}`;
 

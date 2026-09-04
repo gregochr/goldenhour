@@ -184,7 +184,7 @@ const POPUP_PILL = {
 const POPUP_SOLAR_EVENT_META = {
   SUNRISE: { emoji: '🌅', label: 'Sunrise' },
   SUNSET:  { emoji: '🌇', label: 'Sunset' },
-  ALLDAY:  { emoji: '☀️',  label: 'All Day' },
+  ALLDAY:  { emoji: '☀️',  label: 'All day' },
 };
 
 const POPUP_TIDE_META = {
@@ -726,10 +726,10 @@ export default function MarkerPopupContent({
             // When lunar data is present, use new naming; otherwise fall back to legacy labels
             let label;
             if (hasLunarData) {
-              const lunarLabel = lunar === 'KING_TIDE' ? 'King Tide'
-                : lunar === 'SPRING_TIDE' ? 'Spring Tide' : null;
-              const statLabel = isKing ? 'Extra Extra High'
-                : tc.isSpring ? 'Extra High' : null;
+              const lunarLabel = lunar === 'KING_TIDE' ? 'King tide'
+                : lunar === 'SPRING_TIDE' ? 'Spring tide' : null;
+              const statLabel = isKing ? 'exceptionally high'
+                : tc.isSpring ? 'unusually high' : null;
               label = lunarLabel && statLabel ? `${lunarLabel}, ${statLabel}`
                 : lunarLabel || statLabel || (isKing ? 'King tide' : 'Spring tide');
             } else {
@@ -808,7 +808,7 @@ export default function MarkerPopupContent({
               display: 'flex', alignItems: 'center', gap: '4px', marginBottom: '6px',
             }}
           >
-            {isExpanded ? 'Less details ▴' : 'More details ▾'}
+            {isExpanded ? 'Hide details ▴' : 'More details ▾'}
           </button>
 
           {isExpanded && (

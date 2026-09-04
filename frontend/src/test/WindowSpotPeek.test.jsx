@@ -205,7 +205,7 @@ describe('WindowSpotPeek', () => {
       // gain — the whole generated paragraph rather than one clause.
       renderPeek({ fierySky: 41 });
       expect(screen.getByTestId('wf-peek-prompt'))
-        .toHaveTextContent('Click for the full read + map →');
+        .toHaveTextContent('Open the full forecast →');
     });
 
     it('states neither a forecast age nor a region, both of which are already on the page', () => {

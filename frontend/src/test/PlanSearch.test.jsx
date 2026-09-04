@@ -61,11 +61,11 @@ describe('PlanSearch', () => {
     target: { value },
   });
 
-  it('opens on the windows list and focuses the box, so typing needs no click', () => {
+  it('opens on the sunrises and sunsets list and focuses the box, so typing needs no click', () => {
     setup();
     expect(document.activeElement).toBe(screen.getByTestId('plan-search-input'));
     expect(screen.getAllByTestId('plan-search-row')).toHaveLength(2);
-    expect(screen.getByTestId('plan-search-group')).toHaveTextContent('Windows');
+    expect(screen.getByTestId('plan-search-group')).toHaveTextContent('Sunrises & sunsets');
   });
 
   it('opens pre-filled when a seed is handed in — the strip\'s beyond line', () => {
@@ -334,7 +334,7 @@ describe('PlanSearch', () => {
 
     it('names the action each row performs, and withholds it where Enter does nothing', () => {
       setup({ windows: RATED, originId: LAKES.id });
-      expect(within(screen.getAllByTestId('plan-search-row')[0]).getByText('Open window'))
+      expect(within(screen.getAllByTestId('plan-search-row')[0]).getByText('Open'))
         .toBeInTheDocument();
 
       type('lake');
@@ -349,7 +349,7 @@ describe('PlanSearch', () => {
       // ⚠️ NOT the bundle's `4 DAYS`. The sheet this opens derives its own span and prints it
       // ("The next 3 days here" whenever today still has both its windows ahead), so a fixed 4 up
       // here would be a number nobody measured beside the same number measured.
-      expect(within(screen.getAllByTestId('plan-search-row')[0]).getByText('Windows here'))
+      expect(within(screen.getAllByTestId('plan-search-row')[0]).getByText('Next few days'))
         .toBeInTheDocument();
     });
 

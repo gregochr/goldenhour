@@ -1,9 +1,9 @@
 /**
- * The standing-conditions strip's presentation layer (design README §2/§2.1, plan §7 P4) —
+ * The recurring-conditions strip's presentation layer (design README §2/§2.1, plan §7 P4) —
  * {@code ComingUpCondition[]} from {@code GET /api/almanac} into the small pieces of derived state
  * the component needs. Every fact, label and score already arrived server-computed
  * ({@code ComingUpConditionsBuilder}); what is left here is genuinely client-only: which family
- * token a condition's swatch uses, and the expansion panel's own held-back/in-the-list/inside-Plan
+ * token a condition's swatch uses, and the expansion panel's own not-listed/below/on-Plan
  * counts (computed from the served occurrence list, never re-derived server-side because it is pure
  * arithmetic over data already on the wire — the same "filter/map" class {@code comingUpFeed.js}'s
  * header comment already licenses).
@@ -35,9 +35,12 @@ export function familyOf(type) {
 }
 
 /**
- * The expansion panel's header line (design §2.1): "every occurrence in the window · N held back,
- * M in the list[, K inside Plan]" — the "inside Plan" clause only appears when at least one
- * occurrence carries that status, matching the design's own conditional clause.
+ * The expansion panel's header line (design §2.1): "every date · N not listed, M below[, K on
+ * Plan]" — the "on Plan" clause only appears when at least one occurrence carries that status,
+ * matching the design's own conditional clause.
+ *
+ * <p>The three status words are the same three the occurrence rows below print, so the header and
+ * its rows can never describe one status two ways.
  *
  * @param {Array<{status: string}>} occurrences a condition's served occurrences
  * @returns {string} the header line
@@ -47,12 +50,12 @@ export function occurrenceCountsLine(occurrences) {
   const heldBack = list.filter((o) => o.status === 'heldBack').length;
   const promoted = list.filter((o) => o.status === 'promoted').length;
   const insidePlan = list.filter((o) => o.status === 'insidePlan').length;
-  const tail = insidePlan > 0 ? `, ${insidePlan} inside Plan` : '';
-  return `every occurrence in the window · ${heldBack} held back, ${promoted} in the list${tail}`;
+  const tail = insidePlan > 0 ? `, ${insidePlan} on Plan` : '';
+  return `every date · ${heldBack} not listed, ${promoted} below${tail}`;
 }
 
 /**
- * Whether the strip should show its quiet "scores provisional" marker (README's "say so in the UI"
+ * Whether the strip should show its quiet "scores are provisional" marker (README's "say so in the UI"
  * clause, §11.8) — true while ANY served condition's scoring is interim.
  *
  * @param {?Array<{interim: boolean}>} conditions the served conditions, or null/undefined

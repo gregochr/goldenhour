@@ -277,14 +277,14 @@ describe('LocationFourDaySheet', () => {
     expect(away.queryByTestId('location-sheet-leave')).toBeNull();
   });
 
-  it('says an unscored forecast window is something different — nothing has looked YET', () => {
+  it('says an unscored sunrise or sunset is something different — nothing has looked YET', () => {
     // Collapsing the two onto one word would make a travel day read like a pipeline gap, and a
     // pipeline gap read like a holiday.
     setup({ scoreIndex: null });
     const unscored = within(row('2026-08-14:SUNSET'));
     expect(unscored.getByTestId('location-sheet-state')).toHaveTextContent('Not scored yet');
     expect(unscored.getByTestId('location-sheet-nowhy'))
-      .toHaveTextContent('No read for this window yet.');
+      .toHaveTextContent('Nothing written about this one yet.');
   });
 
   it('⚠️ claims NOTHING about the pipeline while the ratings are unknown', () => {
@@ -368,10 +368,10 @@ describe('LocationFourDaySheet', () => {
     // an empty card with no footer content and no explanation.
     setup({ windows: [] });
     expect(screen.getByTestId('location-sheet-empty'))
-      .toHaveTextContent('No forecast windows are loaded yet.');
+      .toHaveTextContent('No forecast loaded yet.');
     expect(screen.queryByRole('button', { name: /Show on map/ })).toBeNull();
     expect(screen.getByTestId('location-sheet-nomap'))
-      .toHaveTextContent('The map opens once a forecast window loads.');
+      .toHaveTextContent('The map opens once the forecast loads.');
   });
 
   it('closes on the button and on Escape', () => {

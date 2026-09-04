@@ -115,7 +115,7 @@ function solarTimeFor(loc, date, eventType) {
 function toneFromRating(rating) {
   if (rating != null && rating >= 4) return { tone: 'go', label: '◎ Worth it' };
   if (rating != null && rating >= 3) return { tone: 'marginal', label: 'Maybe' };
-  return { tone: 'standdown', label: 'Stand down' };
+  return { tone: 'standdown', label: 'Poor' };
 }
 
 const MULTI_PROMPT = "Tap a pin to read PhotoCast's take on that region.";
@@ -200,7 +200,7 @@ export function buildMapOverlay(trigger, ctx) {
       narrativeHead: null,
       narrativeTone: 'standdown',
       caption: matches.length > 0
-        ? `◍ ${matches.length} ${matches.length === 1 ? 'location' : 'locations'} — tap a pin to open it`
+        ? `◍ ${matches.length} ${matches.length === 1 ? 'location' : 'locations'} — tap a pin to open one`
         : null,
       focus: points.length > 0 ? { points, names: matches.map((l) => l.name), nonce } : null,
       handoff: { filterAction: trigger.darkSky ? null : trigger.filterAction, darkSky: !!trigger.darkSky, date },
@@ -271,7 +271,7 @@ export function buildMapOverlay(trigger, ctx) {
       narrative: MULTI_PROMPT,
       narrativeHead: null,
       narrativeTone: 'standdown',
-      caption: `◍ ${pool.length} spots — tap a pin to open it`,
+      caption: `◍ ${pool.length} spots — tap a pin to open one`,
       focus: { points, names: qualifyingNames, nonce },
       handoff: { eventType, date, filterAction },
     };

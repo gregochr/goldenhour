@@ -779,7 +779,7 @@ const COMPACT_LABEL_WIDTH = '78px';
  *
  * <p>Before P11 this button flew to the home COORDINATE at a zoom derived from the reader's
  * Close-to-home radius (`homeRadiusMiles`) — a narrower, single-purpose gesture from before the
- * Filters popover's "My area / Whole catalogue" scope segment (P7) existed at all. The design
+ * Filters popover's "My area / Everywhere" scope segment (P7) existed at all. The design
  * bundle's own `zhome` never centred on a point: it reset {@code S.area} and refit to the scoped
  * spot set's bounds, and P11 states the same for this control in as many words. The two are not
  * additive — refitting to a fixed-radius disc around the coordinate AND to the (generally larger,
@@ -1151,7 +1151,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * controller in the very same commit, so two `fitBounds` calls would compete over one frame with
    * nothing but React's internal effect order deciding which one the reader actually sees. An
    * override sidesteps the race outright: the one controller is handed one `bounds` prop, and while
-   * this is non-null it wins unconditionally. `FiltersPopover`'s own "My area"/"Whole catalogue"
+   * this is non-null it wins unconditionally. `FiltersPopover`'s own "My area"/"Everywhere"
    * segment (`onSelectScope` below) clears it on every press of its own — the sole place that does —
    * so a stale jump can never survive the reader's own later choice to reframe by scope.
    */
@@ -2152,7 +2152,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // OVERLAY's read-only context-bar chips (the joined `filterSummary` string the tab's old drawer
   // pill used to show is gone with it). The popover's chip shows a COUNT,
   // never a text summary, and the count deliberately EXCLUDES scope — switching "My area" ⇄
-  // "Whole catalogue" reframes the camera rather than hiding anything the reader asked to see
+  // "Everywhere" reframes the camera rather than hiding anything the reader asked to see
   // (README §4: "N = count of active filters, scope not counted").
   //
   // ⚠️ Admin stand-down/unknown toggles get the EXACT SAME treatment as scope — present, sticky,
@@ -2202,7 +2202,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       ? ((heat?.beyondRegionNames?.length)
         ? `Beyond ${GLANCE_MINUTES / 60}h: ${heat.beyondRegionNames.join(' · ')}`
         : null)
-      : 'Whole catalogue — including regions you would not drive to tonight';
+      : 'Everywhere — including regions beyond your usual drive';
 
   // ── Overlay context bar ──
   // The inherited event, with the clock time the plan card was showing. Taken from the pin the
@@ -2751,7 +2751,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 onChange={(e) => setDriveTimeFilter(parseInt(e.target.value, 10))}
                 className="text-xs px-2 py-1 bg-plex-surface border border-plex-border rounded-full text-plex-text-secondary focus:outline-none focus:ring-1 focus:ring-plex-gold"
                 data-testid="drive-time-filter-select"
-                title="Filter by drive time from last-refreshed position"
+                title="Filter by drive time from home"
               >
                 <option value={0}>🚗 Any drive time</option>
                 <option value={30}>🚗 ≤30 min</option>
@@ -3310,14 +3310,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                         onClick={() => { setHeatArea(false); setHeatFitNonce((n) => n + 1); }}
                         className={`wf-seg-btn${heatArea ? '' : ' on'}`}
                       >
-                        Whole catalogue
+                        Everywhere
                       </button>
                     </div>
                   )}
                 </div>
                 {windowUnscored && (
                   <div data-testid="wf-map-heat-unscored" className="wf-map-key">
-                    This window is not scored
+                    This event is not scored yet
                   </div>
                 )}
                 {heatOn && !windowUnscored && (
@@ -3448,11 +3448,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                   {/* The ramp's key. Only in heat view — in Pins view it would explain a ramp
                       nothing on screen is painted with (the field itself is withheld there, though
                       `MapHeatLayer` stays mounted for the coastline stroke — see the mount comment
-                      above). "This window is not scored" REPLACES the key rather than sitting
+                      above). "This event is not scored yet" REPLACES the key rather than sitting
                       beside it, for the same reason. */}
                   {windowUnscored && (
                     <div data-testid="wf-map-heat-unscored" className="wf-map-key">
-                      This window is not scored
+                      This event is not scored yet
                     </div>
                   )}
                   {heatOn && !windowUnscored && (
@@ -3493,7 +3493,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 heatArea={heatArea}
                 // `next === true` ("My area") is `resetToMyArea` itself — the SAME function `⌂`
                 // calls (map-tab-v2-plan.md §3 P11's reconciliation) — so the two controls can never
-                // disagree about what resetting scope means. `next === false` ("Whole catalogue")
+                // disagree about what resetting scope means. `next === false` ("Everywhere")
                 // clears any standing jump override for the identical reason: a stale region fit
                 // must not survive the reader's own later choice to widen scope.
                 onSelectScope={(next) => {
@@ -3617,11 +3617,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             {/* Counts footer (README "§9 Count footer") — bottom-centre, the one thing on this
                 chrome that reports on the CATALOGUE rather than controlling it. Withheld entirely
                 without a catalogue at all (`heatOffered` false), so a fresh install with nothing
-                scored yet shows no footer rather than "0 named · 0 rated of 0". */}
+                scored yet shows no footer rather than "0 of 0 shown". */}
             {heatOffered && (
               <div data-testid="wf-map-counts-footer" className="wf-map-counts-footer">
                 <span>
-                  <b>{scopedVisibleLocations.length}</b> named &middot; {scopedVisibleLocations.length} rated of {scopeBasePool.length}
+                  <b>{scopedVisibleLocations.length}</b> of {scopeBasePool.length} shown
                   {filterActiveCount > 0 && (
                     <span data-testid="wf-map-counts-filtered" className="wf-map-counts-flag"> filtered</span>
                   )}

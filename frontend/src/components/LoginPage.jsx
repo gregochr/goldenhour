@@ -109,7 +109,7 @@ export default function LoginPage({ onRegister = null }) {
           )}
           {turnstileLoadFailed && (
             <p className="text-xs text-amber-400" data-testid="turnstile-unavailable">
-              Security check unavailable — sign-in will be verified server-side.
+              Security check unavailable — we&apos;ll verify your sign-in another way.
             </p>
           )}
 

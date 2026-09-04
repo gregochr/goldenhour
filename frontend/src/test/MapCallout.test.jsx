@@ -183,12 +183,12 @@ describe('MapCallout — header and verdict', () => {
     expect(screen.getByTestId('map-callout-score')).toHaveTextContent('2★ Poor');
   });
 
-  it('shows an honest "Not yet scored" badge once the scores response has actually landed', async () => {
+  it('shows an honest "Not scored yet" badge once the scores response has actually landed', async () => {
     await mount({ rating: null, scoresKnown: true });
-    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not yet scored');
+    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not scored yet');
   });
 
-  it('shows "Loading…" instead — never the definitive "Not yet scored" — while scoresKnown is false', async () => {
+  it('shows "Loading…" instead — never the definitive "Not scored yet" — while scoresKnown is false', async () => {
     // A failed or in-flight fetch is not evidence that nothing was rated (map-tab-v2-plan.md §3 P9
     // review — `scoresKnown` was threaded to this component and never read at all).
     await mount({ rating: null, scoresKnown: false });

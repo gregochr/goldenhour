@@ -343,13 +343,13 @@ describe('footerCopy', () => {
 
   it('states both counts, singular, when there is exactly one of each type possible', () => {
     const text = footerCopy({ fixed: 1, forecast: 1 });
-    expect(text).toContain('1 here is fixed');
+    expect(text).toContain('1 of these dates is fixed');
     expect(text).toContain('1 is a forecast peak');
   });
 
   it('states both counts, plural, for more than one', () => {
     const text = footerCopy({ fixed: 8, forecast: 2 });
-    expect(text).toContain('8 here are fixed');
+    expect(text).toContain('8 of these dates are fixed');
     expect(text).toContain('2 are forecast peaks');
   });
 

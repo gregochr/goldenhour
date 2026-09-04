@@ -98,7 +98,7 @@ export function buildHeatStripCards(
       // colour. A live window with no card cannot happen — `buildWindowCards` builds one for every
       // non-travel event — so the fallback is defensive rather than a branch the payload reaches.
       verdict: away ? null : (card?.verdict ?? 'AWAITING'),
-      verdictLabel: away ? AWAY_STATE_LABEL : (card?.verdictLabel ?? 'Awaiting'),
+      verdictLabel: away ? AWAY_STATE_LABEL : (card?.verdictLabel ?? 'Not scored'),
       // The payload's own answer to "is anything in this window rated" — null means nothing is,
       // which is why the card header omits its star rather than printing a placeholder. Carried
       // here because the thumbnail's unscored mark asks exactly that question, and this fold's

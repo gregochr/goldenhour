@@ -5178,7 +5178,6 @@ button.wf-hc.also.on:hover {
    ≈3.48:1, under AA's 4.5:1 floor at 10.5px — the exact mistake this file has already made and
    corrected at `.wf-search-glyph` and `.wf-cu-chip-count` (both now on `text-secondary`, ≈6.5:1+).
    Same fix here rather than repeating it a third time. */
-.wf-cu-since-bits { color: var(--color-plex-text-secondary); }
 .wf-cu-since-seen {
   margin-left: auto;
   color: var(--color-plex-text-secondary);

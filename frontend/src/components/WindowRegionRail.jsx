@@ -61,7 +61,7 @@ export default function WindowRegionRail({
   return (
     <>
       <p data-testid="wf-region-rail-label" className="wf-rlab">
-        This window by region · ranked
+        By region · best first
         {/* Dropped on a phone by media query: the instruction is the widest clause here and the
             cells are self-evidently buttons on a surface where everything is tapped. */}
         <span className="wf-rlab-tail"> · select one to filter the spots below</span>

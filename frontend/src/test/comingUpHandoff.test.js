@@ -39,7 +39,7 @@ describe('buildHandoff — degraded states', () => {
 describe('buildHandoff — an arrived, empty topic list', () => {
   it('says so explicitly rather than looking the same as "not arrived yet"', () => {
     const result = buildHandoff(TODAY, []);
-    expect(result.summary).toBe('No topics live on those four days');
+    expect(result.summary).toBe('Nothing on those four days');
     expect(result.topics).toEqual([]);
   });
 });
@@ -49,7 +49,7 @@ describe('buildHandoff — topic filtering, de-duping and naming', () => {
     const result = buildHandoff(TODAY, [
       { type: 'DUST', label: 'Saharan dust', date: '2026-08-09' },
     ]);
-    expect(result.summary).toBe('One topic lives on those four days');
+    expect(result.summary).toBe('One topic on those four days');
     expect(result.topics).toEqual([
       { type: 'DUST', name: 'Saharan dust', color: '#f97316' },
     ]);
@@ -61,7 +61,7 @@ describe('buildHandoff — topic filtering, de-duping and naming', () => {
       { type: 'AURORA', label: 'Aurora possible', date: '2026-08-10' },
       { type: 'KING_TIDE', label: 'King tide', date: '2026-08-11' },
     ]);
-    expect(result.summary).toBe('Three topics live on those four days');
+    expect(result.summary).toBe('Three topics on those four days');
     expect(result.topics).toHaveLength(3);
   });
 
@@ -71,7 +71,7 @@ describe('buildHandoff — topic filtering, de-duping and naming', () => {
       { type: 'DUST', label: 'Saharan dust', date: '2026-08-10' },
     ]);
     expect(result.topics).toHaveLength(1);
-    expect(result.summary).toBe('One topic lives on those four days');
+    expect(result.summary).toBe('One topic on those four days');
   });
 
   it('excludes a topic dated before today', () => {
@@ -79,7 +79,7 @@ describe('buildHandoff — topic filtering, de-duping and naming', () => {
       { type: 'DUST', label: 'Saharan dust', date: '2026-08-07' },
     ]);
     expect(result.topics).toEqual([]);
-    expect(result.summary).toBe('No topics live on those four days');
+    expect(result.summary).toBe('Nothing on those four days');
   });
 
   it('excludes a topic dated beyond Plan\'s last day', () => {

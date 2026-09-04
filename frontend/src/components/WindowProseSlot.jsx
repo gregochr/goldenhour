@@ -102,7 +102,7 @@ export default function WindowProseSlot({
         </p>
       ) : (
         <p data-testid="wf-prose-none" className="wf-prose-p wf-prose-quiet">
-          No narrative generated for this window.
+          Nothing written about this one yet.
           {/* Only when the best window is a DIFFERENT one: on the window already open, "its own
               best is tonight" would be a sentence pointing at itself. */}
           {bestWindow && !isCurrentWindow && (

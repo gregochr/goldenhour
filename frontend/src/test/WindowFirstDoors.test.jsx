@@ -63,7 +63,7 @@ describe('WindowFirstDoors', () => {
     it('names the door and what is behind it', () => {
       renderDoors();
       expect(screen.getByTestId('window-first-door-regional')).toHaveTextContent('Regional planner');
-      expect(screen.getByTestId('window-first-door-regional')).toHaveTextContent('every region, every window');
+      expect(screen.getByTestId('window-first-door-regional')).toHaveTextContent('every region, morning and evening');
     });
 
     it('counts no regions, because the roster is not a fact about tonight', () => {

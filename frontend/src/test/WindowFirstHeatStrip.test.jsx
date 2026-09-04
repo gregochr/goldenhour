@@ -419,7 +419,7 @@ describe('WindowFirstHeatStrip — what a card says', () => {
     it('says it the same way in the histogram tooltip', async () => {
       await renderStrip({ cards: [stripCard({ pool: [], reachMeasured: false })] });
       expect(screen.getByTestId('wf-heat-spread'))
-        .toHaveAttribute('title', 'Nothing to show for this window.');
+        .toHaveAttribute('title', 'Nothing to show for this one.');
     });
 
     it('still says "in reach" where a drive time exists, which is the ordinary case', async () => {
@@ -427,7 +427,7 @@ describe('WindowFirstHeatStrip — what a card says', () => {
       await renderStrip({ cards: [stripCard({ pool: [], reachMeasured: true })] });
       expect(screen.getByTestId('wf-heat-best')).toHaveTextContent('nothing in reach');
       expect(screen.getByTestId('wf-heat-spread'))
-        .toHaveAttribute('title', 'Nothing within reach for this window.');
+        .toHaveAttribute('title', 'Nothing within reach for this one.');
     });
   });
 
@@ -486,11 +486,11 @@ describe('WindowFirstHeatStrip — what a card says', () => {
     expect(await tint('STAND_DOWN', 'Poor')).toContain('vp');
   });
 
-  it('renders an Awaiting window as Awaiting, and takes no tint at all', async () => {
+  it('renders an AWAITING window as Not scored, and takes no tint at all', async () => {
     // Neither AWAITING nor an away cell is a judgement about the sky, so a coloured card would read
     // as a fourth grade.
-    await renderStrip({ cards: [stripCard({ verdict: 'AWAITING', verdictLabel: 'Awaiting' })] });
-    expect(screen.getByTestId('wf-heat-verdict')).toHaveTextContent('Awaiting');
+    await renderStrip({ cards: [stripCard({ verdict: 'AWAITING', verdictLabel: 'Not scored' })] });
+    expect(screen.getByTestId('wf-heat-verdict')).toHaveTextContent('Not scored');
     const card = screen.getByTestId('wf-heat-card');
     expect(card.className).not.toMatch(/\bv[gmp]\b/);
   });
@@ -587,7 +587,7 @@ describe('WindowFirstHeatStrip — the spread histogram', () => {
   it('says nothing is within reach for an empty pool', async () => {
     await renderStrip({ cards: [stripCard()] });
     expect(screen.getByTestId('wf-heat-spread'))
-      .toHaveAttribute('title', 'Nothing within reach for this window.');
+      .toHaveAttribute('title', 'Nothing within reach for this one.');
   });
 
   it('draws no histogram at all on an away cell', async () => {
@@ -961,7 +961,7 @@ describe('WindowFirstHeatStrip — the movement channel', () => {
     });
 
     const line = screen.getByTestId('wf-heat-change');
-    expect(line).toHaveTextContent('Moved at the last forecast run, 52m ago');
+    expect(line).toHaveTextContent('Changed at the last forecast run, 52m ago');
     // Two, not three — and biggest first. Asserted per item rather than as one string, because the
     // visually-hidden spoken form sits between the glyph and the region: a whole-line match would
     // be pinning the concatenation of the visible and hidden halves, which is a string no reader
@@ -1024,7 +1024,7 @@ describe('WindowFirstHeatStrip — the movement channel', () => {
    *
    * <p>⚠️ The two forms are MUTUALLY EXCLUSIVE by construction, and that is the whole point: the
    * page states one age (Rule 7), where before M3 the footer and the change line each printed the
-   * same `generatedAt`. The no-movement form also drops the verb — "Moved at the last forecast run"
+   * same `generatedAt`. The no-movement form also drops the verb — "Changed at the last forecast run"
    * over an empty list would assert a movement the same element has just declined to name.
    */
   it('states the run age on its own when nothing moved, rather than losing it with the line', async () => {
@@ -1057,7 +1057,7 @@ describe('WindowFirstHeatStrip — the movement channel', () => {
     await renderStrip({ cards: [moved(0.6)] });
 
     const line = screen.getByTestId('wf-heat-change');
-    expect(line).toHaveTextContent('Moved at the last forecast run ·');
+    expect(line).toHaveTextContent('Changed at the last forecast run ·');
     const item = within(line).getByTestId('wf-heat-change-item');
     expect(item).toHaveTextContent('▲0.6');
     expect(item).toHaveTextContent('in Northumberland & Tyneside');
@@ -1248,11 +1248,11 @@ describe('WindowFirstHeatStrip — the header, footer and beyond line', () => {
     const foot = screen.getByTestId('wf-heat-foot');
 
     expect(foot).toHaveTextContent('poor → worth it');
-    expect(foot).toHaveTextContent('later days render hazier — lower confidence');
+    expect(foot).toHaveTextContent('later days look hazier — lower confidence');
     // The one clause that says what the field is NOT — the lens filters the cards, never the field
     // (plan §3). Dropping it would leave a picture a reader could reasonably read as their own
     // reachable options.
-    expect(foot).toHaveTextContent('The field shows the forecast, not your reach');
+    expect(foot).toHaveTextContent('Colour shows the whole forecast — the cards allow for your drive');
   });
 
   it('names the regions beyond the planning area, and only the measured ones', async () => {
@@ -1327,7 +1327,7 @@ describe('WindowFirstHeatStrip — the header, footer and beyond line', () => {
     });
 
     const link = screen.getByTestId('wf-heat-beyond-search');
-    expect(link).toHaveTextContent('search to plan from Snowdonia');
+    expect(link).toHaveTextContent('Plan from Snowdonia');
     fireEvent.click(link);
     expect(onSearchRegion).toHaveBeenCalledWith('Snowdonia');
   });
@@ -1367,7 +1367,7 @@ describe('WindowFirstHeatStrip — the origin re-frames it', () => {
   });
 
   it('⚠️ leaves the POINT SET whole — framing must never become the filter §3 forbids', async () => {
-    // The footer promises "the field shows the forecast, not your reach". An origin narrows what is
+    // The footer promises "colour shows the whole forecast". An origin narrows what is
     // in shot; it must not remove a point from the blend, or a spot just outside the frame would
     // stop lighting the edge of it.
     const points = [
@@ -1458,7 +1458,7 @@ describe('WindowFirstHeatStrip — the confidence channel', () => {
     // word, no percentage (D3 rejects the design's `◐ 88%` outright), no glyph.
     await renderStrip({ cards: [stripCard({ confidence: 'low' })] });
 
-    // The footer's honest caption ("later days render hazier — lower confidence") is required by
+    // The footer's honest caption ("later days look hazier — lower confidence") is required by
     // D3 and is excluded: it explains the channel rather than marking one window's tier.
     const cardText = screen.getByTestId('wf-heat-card').textContent;
     expect(cardText).not.toMatch(/\b(low|medium|high|provisional)\b|%|◐/i);

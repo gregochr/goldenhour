@@ -121,20 +121,21 @@ describe('buildWindowCards', () => {
       ['WORTH_IT', 'Worth it'],
       ['MAYBE', 'Maybe'],
       ['STAND_DOWN', 'Poor'],
-      ['AWAITING', 'Awaiting'],
+      ['AWAITING', 'Not scored'],
     ])('labels %s as "%s"', (verdict, label) => {
       const [card] = build(oneWindow({ verdict }));
       expect(card.verdictLabel).toBe(label);
     });
 
-    it('falls back to Awaiting when the window is missing entirely', () => {
-      // A legacy payload cached before windows existed. Awaiting is the honest reading — no rating
-      // and no triage signal — and it must never be shown as a poor forecast.
+    it('falls back to AWAITING when the window is missing entirely', () => {
+      // A legacy payload cached before windows existed. AWAITING is the honest reading — no rating
+      // and no triage signal — and it must never be shown as a poor forecast, which is why the
+      // label reads "Not scored" rather than sharing a word with STAND_DOWN.
       const days = [day(TODAY, [{ targetType: 'SUNSET', regions: [], unregioned: [] }])];
       const [card] = build({ events: events([TODAY, 'SUNSET']), days });
 
       expect(card.verdict).toBe('AWAITING');
-      expect(card.verdictLabel).toBe('Awaiting');
+      expect(card.verdictLabel).toBe('Not scored');
     });
   });
 

@@ -93,7 +93,7 @@ describe('AuroraBanner', () => {
     expect(screen.getByText(/Amber alert: possible aurora/i)).toBeInTheDocument();
   });
 
-  it('shows "N dark sky locations clear" when triage has run', () => {
+  it('shows "N dark-sky locations clear" when triage has run', () => {
     renderBanner({
       level: 'MODERATE',
       hexColour: '#ff9900',
@@ -103,7 +103,7 @@ describe('AuroraBanner', () => {
       darkSkyLocationCount: 45,
       clearLocationCount: 12,
     });
-    expect(screen.getByText(/12 dark sky locations clear/i)).toBeInTheDocument();
+    expect(screen.getByText(/12 dark-sky locations clear/i)).toBeInTheDocument();
   });
 
   it('shows singular "location" when clearLocationCount is 1', () => {
@@ -116,7 +116,7 @@ describe('AuroraBanner', () => {
       darkSkyLocationCount: 10,
       clearLocationCount: 1,
     });
-    expect(screen.getByText(/1 dark sky location clear/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 dark-sky location clear/i)).toBeInTheDocument();
   });
 
   it('suppresses a MODERATE banner when all locations are overcast', () => {
@@ -175,7 +175,7 @@ describe('AuroraBanner', () => {
       darkSkyLocationCount: 45,
       clearLocationCount: null,
     });
-    expect(screen.getByText(/45 dark sky locations/i)).toBeInTheDocument();
+    expect(screen.getByText(/45 dark-sky locations/i)).toBeInTheDocument();
     expect(screen.queryByText(/clear/i)).not.toBeInTheDocument();
   });
 
@@ -452,18 +452,18 @@ describe('AuroraBanner', () => {
   // ---------------------------------------------------------------------------
 
   describe('bzStatus()', () => {
-    it('returns ✅ and "coupling active" for Bz < −1', () => {
+    it('returns ✅ and "favourable for aurora" for Bz < −1', () => {
       const result = bzStatus(-9.2);
       expect(result.emoji).toBe('✅');
       expect(result.label).toBe('Bz south (-9.2 nT)');
-      expect(result.explanation).toBe('solar wind coupling active');
+      expect(result.explanation).toBe('favourable for aurora');
     });
 
     it('returns ✅ for moderate negative Bz (−3.1)', () => {
       const result = bzStatus(-3.1);
       expect(result.emoji).toBe('✅');
       expect(result.label).toBe('Bz south (-3.1 nT)');
-      expect(result.explanation).toBe('solar wind coupling active');
+      expect(result.explanation).toBe('favourable for aurora');
     });
 
     it('returns ➖ and "neutral" for Bz near zero (−0.5)', () => {
@@ -473,18 +473,18 @@ describe('AuroraBanner', () => {
       expect(result.explanation).toBe('neutral');
     });
 
-    it('returns ⚠️ and "not coupling" for Bz north (+3.2)', () => {
+    it('returns ⚠️ and "poor for aurora" for Bz north (+3.2)', () => {
       const result = bzStatus(3.2);
       expect(result.emoji).toBe('⚠️');
       expect(result.label).toBe('Bz north (+3.2 nT)');
-      expect(result.explanation).toBe('solar wind not coupling');
+      expect(result.explanation).toBe('poor for aurora');
     });
 
-    it('returns ⚠️ and "not coupling" for Bz firmly north (+7.8)', () => {
+    it('returns ⚠️ and "poor for aurora" for Bz firmly north (+7.8)', () => {
       const result = bzStatus(7.8);
       expect(result.emoji).toBe('⚠️');
       expect(result.label).toBe('Bz north (+7.8 nT)');
-      expect(result.explanation).toBe('solar wind not coupling');
+      expect(result.explanation).toBe('poor for aurora');
     });
 
     it('contains no interpretive severity language', () => {
@@ -710,7 +710,7 @@ describe('AuroraBanner', () => {
   // Forecast vs active headline
   // ---------------------------------------------------------------------------
 
-  it('shows "Aurora Forecast" headline when triggerType is forecast', () => {
+  it('shows "Aurora forecast" headline when triggerType is forecast', () => {
     renderBanner({
       level: 'MODERATE',
       hexColour: '#ff9900',
@@ -720,11 +720,11 @@ describe('AuroraBanner', () => {
       forecastKp: 6.0,
       triggerType: 'forecast',
     });
-    expect(screen.getByText(/Aurora Forecast/)).toBeInTheDocument();
-    expect(screen.queryByText(/Aurora Active Now/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Aurora forecast/)).toBeInTheDocument();
+    expect(screen.queryByText(/Aurora active now/)).not.toBeInTheDocument();
   });
 
-  it('shows "Aurora Active Now" headline when triggerType is realtime', () => {
+  it('shows "Aurora active now" headline when triggerType is realtime', () => {
     renderBanner({
       level: 'STRONG',
       hexColour: '#ff0000',
@@ -734,8 +734,8 @@ describe('AuroraBanner', () => {
       forecastKp: 7.0,
       triggerType: 'realtime',
     });
-    expect(screen.getByText(/Aurora Active Now/)).toBeInTheDocument();
-    expect(screen.queryByText(/Aurora Forecast/)).not.toBeInTheDocument();
+    expect(screen.getByText(/Aurora active now/)).toBeInTheDocument();
+    expect(screen.queryByText(/Aurora forecast/)).not.toBeInTheDocument();
   });
 
   it('does not show detected timestamp when triggerType is forecast', () => {

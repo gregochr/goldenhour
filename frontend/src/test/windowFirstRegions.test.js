@@ -146,12 +146,12 @@ describe('buildRegionRows — the ranking', () => {
     // applies to whole windows.
     const es = {
       regions: [
-        region({ regionName: 'Unscored', meanRating: null }),
+        region({ regionName: 'Not scored', meanRating: null }),
         region({ regionName: 'Poor', meanRating: 1.2 }),
       ],
     };
     const rows = buildRegionRows(es, [], [], {});
-    expect(rows.map((r) => r.name)).toEqual(['Poor', 'Unscored']);
+    expect(rows.map((r) => r.name)).toEqual(['Poor', 'Not scored']);
     expect(rows[1].meanRating).toBeNull();
   });
 });
@@ -204,7 +204,7 @@ describe('buildRegionRows — the served figures', () => {
     };
     const rows = buildRegionRows(es, [], [], {});
     expect(rows[0].verdictLabel).toBe('Poor');
-    expect(rows[1].verdictLabel).toBe('Awaiting');
+    expect(rows[1].verdictLabel).toBe('Not scored');
     expect(rows[1].verdict).toBe('AWAITING');
   });
 });

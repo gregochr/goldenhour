@@ -232,7 +232,7 @@ export default function LocationFourDaySheet({
             // lead class is now a gold-washed uppercase kicker; sharing it dressed "nothing has
             // loaded" as the design's headline — emphasis on the one line that is an admission.
             <p data-testid="location-sheet-empty" className="wf-loc-note font-mono">
-              No forecast windows are loaded yet.
+              No forecast loaded yet.
             </p>
           )}
 
@@ -425,7 +425,7 @@ export default function LocationFourDaySheet({
                       {row.away
                         ? 'Nothing was forecast for this day — away.'
                         : (row.scoresKnown
-                          ? 'No read for this window yet.'
+                          ? 'Nothing written about this one yet.'
                           : 'Ratings are still loading.')}
                     </p>
                   )}
@@ -488,7 +488,7 @@ export default function LocationFourDaySheet({
               {`Show on map → ${handoff.label}`}
             </button>
           ) : (
-            <span data-testid="location-sheet-nomap">The map opens once a forecast window loads.</span>
+            <span data-testid="location-sheet-nomap">The map opens once the forecast loads.</span>
           )}
         </div>
       </div>

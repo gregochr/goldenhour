@@ -13,7 +13,7 @@ import {
   activeFilterClauses, buildRegionRows, gateSpotsByRegion,
 } from '../utils/windowFirstRegions.js';
 import { windowTopics } from '../utils/windowFirstTopics.js';
-import { badgeChannel, CONFIDENCE_VERDICTS } from '../utils/windowFirstCards.js';
+import { badgeChannel, CONFIDENCE_VERDICTS, eventWord } from '../utils/windowFirstCards.js';
 import {
   confidenceTreatment, daysOut, resolveConfidence, scaleRgbaAlpha,
 } from '../utils/confidenceUtils.js';
@@ -278,7 +278,7 @@ export default function WindowSheetDialog({
    * how many of its places are now listed. The star is spelled out for the reason the header's is.
    */
   const liveMessage = useMemo(() => {
-    const where = `${windowLabel}, window ${index + 1} of ${total}`;
+    const where = `${windowLabel}, ${index + 1} of ${total}`;
     const verdict = card.verdictLabel ? `, ${card.verdictLabel}` : '';
     if (!field.selectedRegion) return `${where}${verdict}`;
     const shown = shownSpots.length;
@@ -307,10 +307,14 @@ export default function WindowSheetDialog({
     // Named filters where there are any, and the bare statement where there are none — a window can
     // be empty because a region focus emptied it with both lens axes wide open, and "Nothing at any
     // rating" would credit a control the reader has left alone.
+    // The event word, not "this window": the dialog's own heading names the day and the event
+    // eight pixels above, so the sentence can end on the thing a reader recognises.
+    const event = eventWord(card.targetType);
     return clauses
-      ? `Nothing ${clauses}${where} for this window.`
-      : `Nothing${where} for this window.`;
-  }, [shownSpots.length, card.spots.length, field.lens, field.selectedRegion, reachMeasured]);
+      ? `Nothing ${clauses}${where} for this ${event}.`
+      : `Nothing${where} for this ${event}.`;
+  }, [shownSpots.length, card.spots.length, card.targetType, field.lens, field.selectedRegion,
+    reachMeasured]);
 
   const bestReach = card.bestReach ?? null;
   /** Whether there is a catalogue to draw a field from — see the grid's own note. */
@@ -323,7 +327,7 @@ export default function WindowSheetDialog({
     <Modal
       // Counted rather than asserted: the nav's own denominator is the openable window count, and a
       // payload that renders four windows must not have its dialog announce six.
-      label={`${windowLabel} — window ${index + 1} of ${total}`}
+      label={`${windowLabel} — ${index + 1} of ${total}`}
       onClose={onClose}
       bare
       // ⚠️ Conditional, and that is the whole of the Escape ORDER (plan-matrix §6 M2.5). `Modal`
@@ -446,7 +450,7 @@ export default function WindowSheetDialog({
             <button
               type="button"
               data-testid="window-sheet-prev"
-              aria-label="Previous window"
+              aria-label="Earlier"
               className="wf-wsh-navb font-mono"
               onClick={() => onStep?.(-1)}
             >
@@ -479,7 +483,7 @@ export default function WindowSheetDialog({
             <button
               type="button"
               data-testid="window-sheet-next"
-              aria-label="Next window"
+              aria-label="Later"
               className="wf-wsh-navb font-mono"
               onClick={() => onStep?.(1)}
             >
@@ -585,7 +589,7 @@ export default function WindowSheetDialog({
               // still open the map — so the wording is the caller's, and a card that promised a map
               // and delivered a sheet would be lying inside its own accessible name.
               openLabel="◇ The next few days here →"
-              openPrompt="Click for the next few days here →"
+              openPrompt="The next few days here →"
 
               onSeeAll={onSeeAllSpots ? () => onSeeAllSpots(card) : undefined}
               // ⚠️ Suppressed only while something is stacked OVER this dialog. `.wf-peek` is

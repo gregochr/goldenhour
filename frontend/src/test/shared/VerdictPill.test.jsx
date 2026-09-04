@@ -7,7 +7,7 @@ describe('VerdictPill', () => {
   it.each([
     ['GO', 'Worth it'],
     ['MARGINAL', 'Maybe'],
-    ['STANDDOWN', 'Stand down'],
+    ['STANDDOWN', 'Poor'],
   ])('maps legacy verdict %s to "%s"', (verdict, text) => {
     render(<VerdictPill verdict={verdict} />);
     expect(screen.getByTestId('verdict-pill')).toHaveTextContent(text);
@@ -19,9 +19,9 @@ describe('VerdictPill', () => {
     expect(screen.getByTestId('verdict-pill').className).toContain('bg-green-600');
   });
 
-  it('falls back to Awaiting when neither signal is recognisable', () => {
+  it('falls back to Not scored when neither signal is recognisable', () => {
     render(<VerdictPill />);
-    expect(screen.getByTestId('verdict-pill')).toHaveTextContent('Awaiting');
+    expect(screen.getByTestId('verdict-pill')).toHaveTextContent('Not scored');
   });
 
   it('label prop overrides the default text without changing the colour', () => {

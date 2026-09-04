@@ -81,14 +81,24 @@ function eventTitle(targetType) {
  * <p><b>{@code AWAITING} is not a poor forecast and must not read as one.</b> The payload is
  * explicit about it — "AWAITING is reachable and means the window has neither a rating nor a triage
  * signal" — and the design's badge builder knows only three states, so the fourth needs a word the
- * product already speaks. {@code HeatmapGrid} renders "Awaiting", so that is the word, on the
- * neutral badge rather than the red one.
+ * product already speaks. That phrase is <b>"Not scored"</b>, on the neutral badge rather than
+ * the red one — the same claim the matrix footer, the location sheet, the map callout and the
+ * field map's own overlay already make ("unshaded — not scored", "Not scored yet"), where
+ * "Awaiting" (this label until the copy pass) never said what was awaited. Every surface that
+ * renders this enum now prints one phrase.
+ *
+ * <p>⚠️ <b>The width was measured, not assumed.</b> {@code .wf-hc-vd} is {@code nowrap} +
+ * {@code text-overflow: ellipsis} in a {@code 1fr} grid column, so a longer word here can only
+ * ellipsise, never wrap. Measured in Chromium against the running app: "Not scored" is 66px at
+ * 11px IBM Plex Mono, and the slot resolves to 252px or wider at every layout the strip
+ * produces — 375px phone (day-major, 315px cards), 820px (182px), 1100px (four columns, 252px).
+ * Nothing clips. A future card face that narrows that column has to re-check this word.
  */
 export const VERDICT_LABEL = {
   WORTH_IT: 'Worth it',
   MAYBE: 'Maybe',
   STAND_DOWN: 'Poor',
-  AWAITING: 'Awaiting',
+  AWAITING: 'Not scored',
 };
 
 /**

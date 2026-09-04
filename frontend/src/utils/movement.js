@@ -59,8 +59,8 @@ export const TONE_FLAT = 'flat';
  * reason. "stars" rather than {@code ★}, because the glyph is what the spoken form exists to
  * replace.
  *
- * <p>⚠️ The verb is <b>at</b>, never <b>since</b>. The delta is measured from the build BEFORE the
- * last one, so "since the last forecast run" names the one interval in which almost none of the
+ * <p>⚠️ The preposition is <b>at</b>, never <b>since</b>. The delta is measured from the build
+ * BEFORE the last one, so "since the last forecast run" names the one interval in which almost none of the
  * movement happened — see the change line's own note in {@code WindowFirstHeatStrip}.
  *
  * @param {?number} delta the served {@code meanRatingDelta}

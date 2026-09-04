@@ -958,7 +958,7 @@ export default function WindowFirstShell({
     // off, baseless and current at once, and this order is the one `originAction` documents.
     let reason = null;
     if (off) reason = `${name} is switched off`;
-    else if (!based) reason = `${name} has no base town, so it cannot be an origin`;
+    else if (!based) reason = `${name} has no base town to plan from`;
     else if (current) reason = `Already planning from ${name}`;
     return { name, reason, region: can ? record : null };
   }, [sheetSpot, regions, origin]);
@@ -1288,10 +1288,13 @@ export default function WindowFirstShell({
           // screen reader (design §6's two shapes, put into words: "1 new announced event" / "new
           // interrupt event" — the interrupt shape carries no number to read back, matching the
           // visual).
+          // The two band names — `interrupt` and `announce` — are the surprise model's, not the
+          // reader's. A screen-reader user hears only this string, so it carries the difference the
+          // bands encode (one exceptional arrival versus several ordinary ones) without naming them.
           const badgeAriaLabel = badge
             ? `${tab.label}, ${badge.band === 'interrupt'
-              ? 'new interrupt event'
-              : `${badge.count} new announced event${badge.count === 1 ? '' : 's'}`}`
+              ? 'one rare event added'
+              : `${badge.count} new event${badge.count === 1 ? '' : 's'}`}`
             : undefined;
           return (
             <button
@@ -1522,7 +1525,7 @@ export default function WindowFirstShell({
             className="font-mono text-plex-text-muted"
             style={{ fontSize: '10.5px' }}
           >
-            No windows to show.
+            No forecast to show.
           </p>
         )}
 

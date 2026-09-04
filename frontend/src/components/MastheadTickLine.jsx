@@ -248,7 +248,7 @@ export default function MastheadTickLine({
                 tabIndex={searchOpen ? -1 : undefined}
                 // Named for what it searches, matching the dialog's own accessible name, so a reader
                 // who opens it hears the same words the button promised.
-                aria-label="Search windows, regions and locations"
+                aria-label="Search days, regions and places"
               >
                 <span aria-hidden="true" className="wf-tick-glyph">⌕</span>
                 {/* Hidden on a phone, which has no keyboard to press it with. `aria-hidden` because

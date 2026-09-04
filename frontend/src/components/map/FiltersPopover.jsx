@@ -14,7 +14,7 @@ import { useIsMobile } from '../../hooks/useIsMobile.js';
  * pair still used, unchanged, by the Plan-tab overlay — see `MapView.jsx`'s `overlayMode` branch,
  * which this component never touches). A single chip (`Filters (N) ▾`) opens a 318px panel over
  * the map; the count excludes scope on purpose (§4: "N = count of active filters, scope not
- * counted") because switching "My area" ⇄ "Whole catalogue" reframes the camera rather than hiding
+ * counted") because switching "My area" ⇄ "Everywhere" reframes the camera rather than hiding
  * anything the reader asked to see.
  *
  * <p>Every row ports the OLD drawer's own semantics rather than the design mock's literal shape —
@@ -89,7 +89,7 @@ export default function FiltersPopover({
           segment (plan §3 P7: "keep the persisted mapFilterMinStars default"). ── */}
       <div className="wf-filters-row">
         <span className="wf-filters-key">Minimum rating</span>
-        <div className="wf-filters-seg" role="group" aria-label="Minimum quality threshold">
+        <div className="wf-filters-seg" role="group" aria-label="Minimum rating">
           {[1, 2, 3, 4, 5].map((star) => (
             <button
               key={`star-${star}`}
@@ -173,9 +173,9 @@ export default function FiltersPopover({
         </div>
       )}
 
-      {/* ── Drive from origin — the mock's three named tiers, segmented (plan §3 P7). ── */}
+      {/* ── Drive time — the mock's three named tiers, segmented (plan §3 P7). ── */}
       <div className="wf-filters-row">
-        <span className="wf-filters-key">Drive from origin</span>
+        <span className="wf-filters-key">Drive time</span>
         <div className="wf-filters-seg" role="group" aria-label="Maximum drive time">
           {DRIVE_TIME_TIERS.map(([value, label]) => (
             <button
@@ -215,7 +215,7 @@ export default function FiltersPopover({
       {/* ── Scope — absent entirely without a home (heat.hasHome), matching the old toolbar's
           own rule (field-geography-glyphs-plan.md's coherence rule, NOT map-tab-v2-plan.md's
           D-6, which is the unrelated maxZoom-16 decision): with no postcode "My area" and
-          "Whole catalogue" frame the same box over the same spots, and a control whose every
+          "Everywhere" frame the same box over the same spots, and a control whose every
           press does nothing is banned outright. ── */}
       {hasHome && (
         <div className="wf-filters-row">
@@ -238,7 +238,7 @@ export default function FiltersPopover({
               className={`wf-filters-seg-btn${heatArea ? '' : ' on'}`}
               onClick={() => onSelectScope(false)}
             >
-              Whole catalogue
+              Everywhere
             </button>
           </div>
         </div>

@@ -680,27 +680,27 @@ describe('MarkerPopupContent', () => {
     const LUNAR_SPRING_FORECAST = { ...BASE_FORECAST, lunarTideType: 'SPRING_TIDE', lunarPhase: 'Full Moon' };
     const LUNAR_KING_FORECAST = { ...BASE_FORECAST, lunarTideType: 'KING_TIDE', lunarPhase: 'New Moon' };
 
-    it('shows combined "King Tide, Extra Extra High" when lunar=KING + stat=king', () => {
+    it('shows combined "King tide, exceptionally high" when lunar=KING + stat=king', () => {
       renderPopup({
         role: 'PRO_USER',
         forecast: LUNAR_KING_FORECAST,
         tideClassification: STAT_KING_CLASSIFICATION,
       });
       expect(screen.getByTestId('king-tide-badge')).toBeInTheDocument();
-      expect(screen.getByText(/King Tide, Extra Extra High/)).toBeInTheDocument();
+      expect(screen.getByText(/King tide, exceptionally high/)).toBeInTheDocument();
     });
 
-    it('shows combined "Spring Tide, Extra High" when lunar=SPRING + stat=spring', () => {
+    it('shows combined "Spring tide, unusually high" when lunar=SPRING + stat=spring', () => {
       renderPopup({
         role: 'PRO_USER',
         forecast: LUNAR_SPRING_FORECAST,
         tideClassification: STAT_SPRING_CLASSIFICATION,
       });
       expect(screen.getByTestId('spring-tide-badge')).toBeInTheDocument();
-      expect(screen.getByText(/Spring Tide, Extra High/)).toBeInTheDocument();
+      expect(screen.getByText(/Spring tide, unusually high/)).toBeInTheDocument();
     });
 
-    it('shows "Spring Tide" when lunar=SPRING but stat neither king nor spring', () => {
+    it('shows "Spring tide" when lunar=SPRING but stat neither king nor spring', () => {
       const regularStatClassification = [
         { time: '2026-03-03T18:00:00', height: 4.0, isSpring: false, isKing: false, nearSolarEvent: true },
       ];
@@ -710,7 +710,7 @@ describe('MarkerPopupContent', () => {
         tideClassification: regularStatClassification,
       });
       expect(screen.getByTestId('spring-tide-badge')).toBeInTheDocument();
-      expect(screen.getByText(/Spring Tide/)).toBeInTheDocument();
+      expect(screen.getByText(/Spring tide/)).toBeInTheDocument();
     });
 
     it('shows king-tide-badge when lunar=KING even if stat is not king', () => {
@@ -723,7 +723,7 @@ describe('MarkerPopupContent', () => {
         tideClassification: regularStatClassification,
       });
       expect(screen.getByTestId('king-tide-badge')).toBeInTheDocument();
-      expect(screen.getByText(/King Tide/)).toBeInTheDocument();
+      expect(screen.getByText(/King tide/)).toBeInTheDocument();
     });
 
     it('shows moon phase info in badge when lunar tide is present', () => {
@@ -732,7 +732,7 @@ describe('MarkerPopupContent', () => {
         forecast: LUNAR_KING_FORECAST,
         tideClassification: STAT_KING_CLASSIFICATION,
       });
-      expect(screen.getByText(/King Tide, Extra Extra High/)).toBeInTheDocument();
+      expect(screen.getByText(/King tide, exceptionally high/)).toBeInTheDocument();
     });
   });
 

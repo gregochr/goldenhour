@@ -163,7 +163,7 @@ describe('spreadTitle — what the tooltip may claim', () => {
   });
 
   it('says nothing is within reach when the pool is empty', () => {
-    expect(spreadTitle(buildSpread([]), true)).toBe('Nothing within reach for this window.');
+    expect(spreadTitle(buildSpread([]), true)).toBe('Nothing within reach for this one.');
   });
 
   it('⚠️ drops the reach word for an empty pool when the caller says reach did not act', () => {
@@ -174,7 +174,7 @@ describe('spreadTitle — what the tooltip may claim', () => {
     // means this window has no sky-gated slots and "within reach" blames a control that did nothing.
     // §6 clause 7. The caller now answers from the card's own `reachMeasured`, which is the same
     // field `bestReachLine` reads for its own empty word.
-    expect(spreadTitle(buildSpread([]), false)).toBe('Nothing to show for this window.');
+    expect(spreadTitle(buildSpread([]), false)).toBe('Nothing to show for this one.');
   });
 
   it('singularises a pool of one', () => {

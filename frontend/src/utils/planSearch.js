@@ -306,7 +306,7 @@ export function buildSearchGroups(query, {
           caption: reachMeasured ? 'in reach' : null,
         }
         : null,
-      action: card.away ? null : 'Open window',
+      action: card.away ? null : 'Open',
       subParts: clauses([card.time, card.away ? 'Not forecast' : card.verdictLabel]),
       sub: [card.time, card.away ? 'Not forecast' : card.verdictLabel].filter(Boolean).join(' · '),
       // ⚠️ An away window is SHOWN and not choosable, the same treatment a baseless region gets.
@@ -315,9 +315,11 @@ export function buildSearchGroups(query, {
       // silently done nothing. The strip already draws it as a non-interactive cell; hiding it here
       // instead would make the search's six windows a different six from the strip's.
       disabled: Boolean(card.away),
-      reason: card.away ? 'Not forecast — you are away this day' : null,
+      reason: card.away ? 'Not forecast — away this day' : null,
     }));
-  if (windowRows.length > 0) groups.push({ id: 'windows', title: 'Windows', rows: windowRows });
+  if (windowRows.length > 0) {
+    groups.push({ id: 'windows', title: 'Sunrises & sunsets', rows: windowRows });
+  }
 
   // Regions — never at rest. An empty query returns none, which is the whole of that rule.
   const regionRows = q === '' ? [] : (regions || [])
@@ -334,8 +336,8 @@ export function buildSearchGroups(query, {
       const { based, current, off, can } = originAction(region, originId);
       let reason = null;
       if (off) reason = 'This region is switched off';
-      else if (!based) reason = 'This region has no base town, so it cannot be an origin';
-      else if (current) reason = 'You are already planning from here';
+      else if (!based) reason = 'This region has no base town to plan from';
+      else if (current) reason = "You're already planning from here";
       return {
         kind: 'region',
         key: `region:${region.id}`,
@@ -387,7 +389,7 @@ export function buildSearchGroups(query, {
         // prints it ("The next 3 days here"), so a fixed 4 in the chip above it would be a number
         // we never measured sitting beside the same number measured. The chip names the surface
         // instead, which is true at every span.
-        action: 'Windows here',
+        action: 'Next few days',
         // Region, then the drive, then the out-of-plan note — the bundle's own order, and each
         // clause is omitted rather than filled when its source is unknown (Rule 6). The third one
         // carries a tone: it is the clause that changes what the row means, and the bundle colours

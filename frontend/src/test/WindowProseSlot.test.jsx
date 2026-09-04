@@ -105,7 +105,7 @@ describe('WindowProseSlot — the null path is a named state, never blankness', 
     renderSlot({ row: row({ summary: null }) });
     expect(screen.queryByTestId('wf-prose-body')).toBeNull();
     expect(screen.getByTestId('wf-prose-none'))
-      .toHaveTextContent('No narrative generated for this window.');
+      .toHaveTextContent('Nothing written about this one yet.');
   });
 
   it('points at the region’s own best window when a different one is better', () => {

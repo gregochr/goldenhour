@@ -58,7 +58,7 @@ describe('WindowComingUpConditions — the strip', () => {
     expect(screen.getByTestId('condition-rate')).toHaveTextContent('a run every 14.8 days');
     expect(screen.getByTestId('condition-peak')).toHaveTextContent('26 Nov');
     expect(screen.getByTestId('condition-peak')).toHaveTextContent('5.2 m');
-    expect(screen.getByTestId('condition-peak')).toHaveTextContent('very rare (9.0)');
+    expect(screen.getByTestId('condition-peak')).toHaveTextContent('very rare');
     expect(screen.getByTestId('condition-quant')).toHaveTextContent('typical run 4.7 m, top 10% reach 5.0 m');
   });
 
@@ -67,7 +67,7 @@ describe('WindowComingUpConditions — the strip', () => {
     const { rerender } = render(
       <WindowComingUpConditions conditions={[condition({ interim: true })]} onGoToPlan={vi.fn()} />,
     );
-    expect(screen.getByTestId('coming-up-provisional')).toHaveTextContent('scores provisional');
+    expect(screen.getByTestId('coming-up-provisional')).toHaveTextContent('scores are provisional');
 
     rerender(<WindowComingUpConditions conditions={[condition({ interim: false })]} onGoToPlan={vi.fn()} />);
     expect(screen.queryByTestId('coming-up-provisional')).toBeNull();
@@ -78,7 +78,7 @@ describe('WindowComingUpConditions — the strip', () => {
       <WindowComingUpConditions conditions={[condition({ peak: null })]} onGoToPlan={vi.fn()} />,
     );
 
-    expect(screen.getByTestId('condition-peak')).toHaveTextContent('no gated peak right now');
+    expect(screen.getByTestId('condition-peak')).toHaveTextContent('no peak forecast right now');
   });
 
   it('the panel is collapsed by default and carries BOTH `hidden` and a display class', () => {
@@ -137,11 +137,11 @@ describe('WindowComingUpConditions — the strip', () => {
     fireEvent.click(screen.getByTestId('condition-row'));
 
     expect(screen.getByTestId('condition-occurrence-header')).toHaveTextContent(
-      '1 held back, 2 in the list, 1 inside Plan',
+      '1 not listed, 2 below, 1 on Plan',
     );
   });
 
-  it('the "inside Plan" clause is omitted when nothing has that status', () => {
+  it('the "on Plan" clause is omitted when nothing has that status', () => {
     render(
       <WindowComingUpConditions
         conditions={[condition({ occurrences: [occ({ status: 'heldBack' })] })]}
@@ -152,8 +152,8 @@ describe('WindowComingUpConditions — the strip', () => {
     fireEvent.click(screen.getByTestId('condition-row'));
 
     const header = screen.getByTestId('condition-occurrence-header');
-    expect(header).toHaveTextContent('1 held back, 0 in the list');
-    expect(header).not.toHaveTextContent('inside Plan');
+    expect(header).toHaveTextContent('1 not listed, 0 below');
+    expect(header).not.toHaveTextContent('on Plan');
   });
 
   it('a held-back occurrence is a plain, non-interactive row', () => {
@@ -167,7 +167,7 @@ describe('WindowComingUpConditions — the strip', () => {
 
     const row = screen.getByTestId('condition-occurrence');
     expect(row.tagName).toBe('DIV');
-    expect(screen.getByTestId('condition-occurrence-status')).toHaveTextContent('held back');
+    expect(screen.getByTestId('condition-occurrence-status')).toHaveTextContent('not listed');
   });
 
   it('a reason tag renders only when the server sent one (the max rule applied)', () => {
@@ -235,7 +235,7 @@ describe('WindowComingUpConditions — the strip', () => {
 
     const row = screen.getByRole('button', {
       name: 'Coastal tides deterministic a run every 14.8 days · fixed by the ephemeris '
-        + 'peak 26 Nov · 5.2 m — very rare (9.0) occasional (3.9) · 7 runs in 90 days · '
+        + 'peak 26 Nov · 5.2 m — very rare occasional (3.9) · 7 runs in 90 days · '
         + 'typical run 4.7 m, top 10% reach 5.0 m',
     });
     expect(row).toBeInTheDocument();
@@ -255,7 +255,7 @@ describe('WindowComingUpConditions — the strip', () => {
     fireEvent.click(screen.getByTestId('condition-row'));
 
     expect(screen.getByRole('button', {
-      name: '30 Aug 4.8 m uncommon (5.4) max w/ supermoon in the list →',
+      name: '30 Aug 4.8 m uncommon max w/ supermoon see it below →',
     })).toBeInTheDocument();
   });
 

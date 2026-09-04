@@ -231,10 +231,10 @@ describe('WindowFirstShell — the tab badge', () => {
     renderShell({ comingUpLastSeenDate: '2026-08-01' });
     await act(async () => { await Promise.resolve(); });
 
-    expect(screen.getByRole('tab', { name: 'Coming up, 1 new announced event' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Coming up, 1 new event' })).toBeInTheDocument();
     // The badge span itself is aria-hidden — the aria-label above is the only place a screen
     // reader hears about it, so the accessible name must not ALSO run the badge text into the
-    // label by accident (which would read "Coming up, 1 new announced event1").
+    // label by accident (which would read "Coming up, 1 new event1").
     expect(screen.getByTestId('coming-up-tab-badge')).toHaveAttribute('aria-hidden', 'true');
   });
 

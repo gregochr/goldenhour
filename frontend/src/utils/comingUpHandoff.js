@@ -39,7 +39,7 @@ function weekdayAndDay(dateStr) {
   });
 }
 
-/** Small counts spelled out, matching the design's `Three topics live…` / `One topic lives…`. */
+/** Small counts spelled out, matching the design's `Three topics…` / `One topic…`. */
 const COUNT_WORDS = ['No', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine'];
 
 /** `Three` for 3, `10` beyond the spelled-out range — there are never more than a handful. */
@@ -87,7 +87,7 @@ export function lastPlanDateStr(todayStr) {
  *
  * <p>Degrades to the label-only shape (a window label and the "On Plan" link, no topic list) when
  * {@code hotTopics} has not arrived yet — {@code null}/{@code undefined}, distinct from an arrived
- * empty list, which renders the "No topics live" sentence instead.
+ * empty list, which renders the "Nothing on those four days" sentence instead.
  *
  * @param {string}      todayStr  the reader's UK today, `YYYY-MM-DD`
  * @param {?Array}      hotTopics the live `briefing.hotTopics`, or null/undefined before it arrives
@@ -122,9 +122,8 @@ export function buildHandoff(todayStr, hotTopics) {
   }
 
   const summary = topics.length === 0
-    ? 'No topics live on those four days'
-    : `${countWord(topics.length)} topic${topics.length === 1 ? '' : 's'} live${
-      topics.length === 1 ? 's' : ''} on those four days`;
+    ? 'Nothing on those four days'
+    : `${countWord(topics.length)} topic${topics.length === 1 ? '' : 's'} on those four days`;
 
   return { windowLabel, summary, topics };
 }
