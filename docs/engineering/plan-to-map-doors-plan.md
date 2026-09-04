@@ -33,12 +33,13 @@ overlap (only #753, a Coming up label fix).
 
 ## §0 Status
 
-**Status: PLANNED, no phase started. All three owner decisions recorded 2026-09-04 (§6): Q1 drop
+**Status: IN PROGRESS — D1 built. All three owner decisions recorded 2026-09-04 (§6): Q1 drop
 door 3, Q2 land on the plan, Q3 re-point the sheet footer.** Phase log (D1 creates the first row; every phase appends its own
 in the same commit as its code):
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
+| D1 | `feature/doors-d1-drive-accessor` | (pending commit) | 2026-09-04 | Accessor unified (`driveMinutesFor` reads `reachById` on the tab, `userDriveTimes` overlay-only); home geography (HOME marker, reach rings, ring labels, legend rings toggle) gated on a new `origin` prop via derived `homeGeo`; `⌂` left present and un-gated (O-D5); `heat.beyondRegionNames` recorded as the one deliberate home-only read. Backend verified first: `/drive-times` and `/reach` both read `UserDriveTimeRepository.findByUserId` through the shared `DriveTimeResolver.getAllMinutes`. ⚠️ Adversarial review (5 lenses + refutation) found one real defect, fixed pre-commit: `CentreOnHomeControl` read raw `homeCoords` alone for its OWN enabled/label state, so a reader planning from an away origin who had never saved a home postcode still saw the disabled "Set your home postcode in Settings" prompt and a click opened Settings — for a reset action (`resetToMyArea`) that needs no home coordinate at all once an origin is in force. This is exactly the failure task 2 names ("do not surface a 'set your postcode' prompt … while away"). Fixed by giving the control its own `origin` prop and an `actionable = hasHome \|\| Boolean(origin)` gate; O-D5's doc block updated to state both the with- and without-postcode away cases. Test quality review independently found the same gap (presence-only assertions); rewritten as four state+behaviour tests (accessible name, `data-disabled`, click routing) covering all four home×origin combinations. Two lower-severity notes from the "harder for D2-D4" lens were reviewed and not actioned: `activeDriveMap`'s standalone expression is what task 1's own conditional recommends once the accessor moves onto `reachById` (refuted with the plan's own text); the three "is home known" reads (`Boolean(homeCoords)`, `homeGeo`, `hasHomeCoords`) answer genuinely different questions and now carry one added cross-referencing doc sentence rather than a merge. Accessibility and project-conventions lenses raised no charges. 19 new or rewritten tests total (away/home jump-row pairs, HOME/rings/legend-toggle present-and-absent pairs, `mapReachMeasured`'s away case both directions, the overlay negative test, and the ⌂ control's four home×origin state/behaviour cases). Gate green (lint, 4963 vitest, audit 0 vulnerabilities, build). |
 
 ---
 

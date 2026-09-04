@@ -1,13 +1,21 @@
 /**
  * `mapReachMeasured` (map-tab-v2-plan.md §3 P8) answers one question — "was a real drive time ever
- * measured for this reader at all" — and it must answer that question from the FETCH
- * (`userDriveTimes`), never from whichever locations the reader's own rating/subject/drive/dark-sky
- * filters currently let through (`scopedVisibleLocations`/`labelSpots`). Deriving it from the
- * filtered pool was a confirmed adversarial-review finding: filtering away every location that
- * happens to carry a measured drive time would flip the flag from true to false while nothing
- * about whether a drive time exists actually changed, silently swapping the Map tab's reach rings
- * from a duration ("45 min") back to a bare distance ("25 mi") for a reason that has nothing to do
- * with reach honesty.
+ * measured for this reader/origin at all" — and it must answer that question from the MAP IN FORCE
+ * (`reachById` at home, `heat.driveOverrideById` away — D1, plan-to-map-doors-plan.md §3), never
+ * from whichever locations the reader's own rating/subject/drive/dark-sky filters currently let
+ * through (`scopedVisibleLocations`/`labelSpots`). Deriving it from the filtered pool was a
+ * confirmed adversarial-review finding: filtering away every location that happens to carry a
+ * measured drive time would flip the flag from true to false while nothing about whether a drive
+ * time exists actually changed, silently swapping the Map tab's reach rings from a duration
+ * ("45 min") back to a bare distance ("25 mi") for a reason that has nothing to do with reach
+ * honesty.
+ *
+ * Before D1 the home path read a separate `userDriveTimes` fetch (`getDriveTimes()`); it now reads
+ * the SAME `reachById` prop the Plan cards read, so this file's home-path fixtures pass `reachById`
+ * directly rather than mocking the fetch. D1 also added the away case: under an origin, the flag
+ * must read true from a measured `heat.driveOverrideById` matrix EVEN WITH NO HOME COORDINATE SET —
+ * the reader is planning from a base, not from home, so a missing HOME coordinate must not gate a
+ * screen whose drives are measured from somewhere else entirely.
  */
 import React from 'react';
 import {
@@ -56,9 +64,8 @@ vi.mock('../api/auroraApi.js', () => ({
   getAuroraForecastResults: vi.fn().mockResolvedValue([]),
   getAuroraForecastAvailableDates: vi.fn().mockResolvedValue([]),
 }));
-/** Controllable per test — the one input `mapReachMeasured` is supposed to answer from. */
-let driveTimesResponse = {};
-vi.mock('../api/settingsApi.js', () => ({ getDriveTimes: vi.fn(() => Promise.resolve(driveTimesResponse)) }));
+// Overlay-only since D1 — unused by this file's tab-mode renders, but MapView still imports it.
+vi.mock('../api/settingsApi.js', () => ({ getDriveTimes: vi.fn(() => Promise.resolve({})) }));
 vi.mock('../api/astroApi.js', () => ({
   getAstroConditions: vi.fn().mockResolvedValue([]),
   getAstroAvailableDates: vi.fn().mockResolvedValue([]),
@@ -73,15 +80,16 @@ import MapView from '../components/MapView.jsx';
 
 const TODAY = '2026-01-15';
 const HOME_COORDS = { lat: 55.0, lon: -1.5 };
+const AWAY_ORIGIN = { id: 'lakes', name: 'Lake District', baseName: 'Keswick' };
 
 /** Rated 1★ — below `DEFAULT_MIN_STARS` (3), so the default filter drops it from every pool that
- *  reads `scopedVisibleLocations`/`labelSpots` — but NOT from `userDriveTimes`, which is a flat
- *  fetch keyed by id and knows nothing about ratings. */
+ *  reads `scopedVisibleLocations`/`labelSpots` — but NOT from the reach map, which is a flat map
+ *  keyed by id and knows nothing about ratings. */
 const LOW_RATED_SPOT = {
   id: 1, name: 'Filtered-out spot', lat: 55.61, lng: -1.71, rid: 'North East', bortleClass: 4,
 };
 
-function heatProp() {
+function heatProp(driveOverrideById) {
   return {
     enabled: true,
     hasHome: true,
@@ -100,6 +108,7 @@ function heatProp() {
     }],
     areaBounds: [[54.3, -3.4], [55.7, -1.3]],
     catalogueBounds: [[54.3, -3.4], [55.7, -1.3]],
+    ...(driveOverrideById !== undefined ? { driveOverrideById } : {}),
   };
 }
 
@@ -118,7 +127,7 @@ function makeLocation() {
   };
 }
 
-async function renderMap() {
+async function renderMap(props = {}) {
   let result;
   await act(async () => {
     result = render(
@@ -127,13 +136,9 @@ async function renderMap() {
         date={TODAY}
         autoEventType={null}
         heat={heatProp()}
-        homeCoords={HOME_COORDS}
+        {...props}
       />,
     );
-  });
-  // Let the async `getDriveTimes()` fetch resolve and its state update flush.
-  await act(async () => {
-    await new Promise((resolve) => { setTimeout(resolve, 0); });
   });
   return result;
 }
@@ -141,7 +146,6 @@ async function renderMap() {
 beforeEach(() => {
   localStorage.clear();
   mapLabelsCalls.length = 0;
-  driveTimesResponse = {};
 });
 
 afterEach(() => {
@@ -149,10 +153,11 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-describe('MapView — mapReachMeasured reads the FETCH, never the filtered pool', () => {
+describe('MapView — mapReachMeasured (home) reads the reachById MAP IN FORCE, never the filtered pool', () => {
   it('is true once a measured drive time exists, EVEN THOUGH the only location carrying one is filtered out by default', async () => {
-    driveTimesResponse = { 1: 45 }; // LOW_RATED_SPOT's own id — filtered out of every scoped pool
-    await renderMap();
+    // LOW_RATED_SPOT's own id — filtered out of every scoped pool by the default 3★ floor.
+    const reachById = new Map([[1, { driveMinutes: 45, distanceMiles: 20 }]]);
+    await renderMap({ homeCoords: HOME_COORDS, reachById });
     const last = mapLabelsCalls.at(-1);
     expect(last.reachMeasured).toBe(true);
     // The filter really did drop it — this is the premise, not incidental: without it, the fix
@@ -160,12 +165,24 @@ describe('MapView — mapReachMeasured reads the FETCH, never the filtered pool'
     expect(last.spots).toEqual([]);
   });
 
-  it('a SUBSEQUENT re-render with the SAME fetch cannot flip it — filtering is not a dependency', async () => {
-    driveTimesResponse = { 1: 45 };
-    const { rerender } = await renderMap();
+  it('a SUBSEQUENT re-render with the SAME reachById cannot flip it — filtering is not a dependency', async () => {
+    const reachById = new Map([[1, { driveMinutes: 45, distanceMiles: 20 }]]);
+    let rerender;
+    await act(async () => {
+      ({ rerender } = render(
+        <MapView
+          locations={[makeLocation()]}
+          date={TODAY}
+          autoEventType={null}
+          heat={heatProp()}
+          homeCoords={HOME_COORDS}
+          reachById={reachById}
+        />,
+      ));
+    });
     expect(mapLabelsCalls.at(-1).reachMeasured).toBe(true);
     // Re-render with an even narrower catalogue (no locations at all) — still the SAME
-    // `userDriveTimes` fetch result, since nothing re-fetched it.
+    // `reachById` map reference, since nothing re-fetched it.
     await act(async () => {
       rerender(
         <MapView
@@ -174,6 +191,7 @@ describe('MapView — mapReachMeasured reads the FETCH, never the filtered pool'
           autoEventType={null}
           heat={{ ...heatProp(), spots: [], areaSpots: [] }}
           homeCoords={HOME_COORDS}
+          reachById={reachById}
         />,
       );
     });
@@ -181,21 +199,28 @@ describe('MapView — mapReachMeasured reads the FETCH, never the filtered pool'
   });
 
   it('is false with no home coordinates, even with a measured drive time on file', async () => {
-    driveTimesResponse = { 1: 45 };
-    let result;
-    await act(async () => {
-      result = render(
-        <MapView locations={[makeLocation()]} date={TODAY} autoEventType={null} heat={heatProp()} />,
-      );
-    });
-    await act(async () => { await new Promise((resolve) => { setTimeout(resolve, 0); }); });
-    void result;
+    const reachById = new Map([[1, { driveMinutes: 45, distanceMiles: 20 }]]);
+    await renderMap({ reachById }); // no homeCoords, no origin
     expect(mapLabelsCalls.at(-1).reachMeasured).toBe(false);
   });
 
-  it('is false when nothing in the fetch is a finite number', async () => {
-    driveTimesResponse = { 1: null };
-    await renderMap();
+  it('is false when nothing in the map is a finite number', async () => {
+    const reachById = new Map([[1, { driveMinutes: null, distanceMiles: 20 }]]);
+    await renderMap({ homeCoords: HOME_COORDS, reachById });
+    expect(mapLabelsCalls.at(-1).reachMeasured).toBe(false);
+  });
+});
+
+describe('MapView — mapReachMeasured (away) reads heat.driveOverrideById, and needs no home coordinate at all (D1)', () => {
+  it('is true under an origin with a measured region-base matrix, even with NO home postcode saved', async () => {
+    const driveOverrideById = new Map([[1, { driveMinutes: 30, distanceMiles: null }]]);
+    await renderMap({ origin: AWAY_ORIGIN, heat: heatProp(driveOverrideById) }); // no homeCoords
+    expect(mapLabelsCalls.at(-1).reachMeasured).toBe(true);
+  });
+
+  it('is false under an origin whose region-base matrix has no finite entry (empty matrix)', async () => {
+    const driveOverrideById = new Map();
+    await renderMap({ origin: AWAY_ORIGIN, heat: heatProp(driveOverrideById) });
     expect(mapLabelsCalls.at(-1).reachMeasured).toBe(false);
   });
 });

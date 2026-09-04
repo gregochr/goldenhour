@@ -803,17 +803,38 @@ const COMPACT_LABEL_WIDTH = '78px';
  * <p>Home coordinates are NOT geocoded here. The postcode was resolved once, on the server, when
  * the user saved it — `GET /api/user/settings` returns the stored lat/lon.
  *
- * <p>With no postcode saved the button stays visible and disabled rather than disappearing: a
- * control that is absent explains nothing, and this one's whole job when unset is to say where
- * the missing setting lives. Clicking it opens Settings on the postcode field.
+ * <p>With no postcode saved AND no origin in force, the button stays visible and disabled rather
+ * than disappearing: a control that is absent explains nothing, and this one's whole job when unset
+ * is to say where the missing setting lives. Clicking it opens Settings on the postcode field.
+ *
+ * <p><b>O-D5 (D1, plan-to-map-doors-plan.md §3/§6):</b> unlike the HOME marker and the reach rings,
+ * this control deliberately keeps reading the RAW {@code homeCoords} prop, never the origin-gated
+ * {@code homeGeo} `MapView` derives for the drawn geography — but it also takes `origin` directly,
+ * because {@code onResetScope} (`resetToMyArea`) needs no home coordinate at ALL: it refits to
+ * whichever area is currently framed, and `heat.areaBounds` is already ORIGIN-scoped whenever an
+ * origin is set (never home-framed while away). So the button is {@code actionable} — enabled,
+ * labelled "Reset to My area", `onClick` calling {@code onResetScope} — whenever EITHER a home
+ * coordinate exists OR an origin is in force, regardless of which. ⚠️ The first cut of this gate
+ * read `homeCoords` alone even here, so a reader planning from a base who had NEVER saved a home
+ * postcode saw the disabled "Set your home postcode in Settings" prompt and a click opened Settings
+ * — for a control whose actual action (refit to the origin's own region) needed no postcode at all.
+ * That is precisely the failure the plan's own task 2 names ("do not surface a 'set your postcode'
+ * prompt from it while away") — caught by adversarial review before this phase's commit, fixed here
+ * rather than left as a known gap.
  *
  * @param {Object}    props
- * @param {?Object}   props.homeCoords  `{ lat, lon }`, or null when no postcode is saved
- * @param {?Function} props.onResetScope resets scope to My area and refits (animate:false) — only
- *        ever called while {@code homeCoords} is set
+ * @param {?Object}   props.homeCoords  `{ lat, lon }`, or null when no postcode is saved — the RAW
+ *        value, not gated on origin (see O-D5 above)
+ * @param {?Object}   props.origin `{id, name, baseName}` of the origin in force, or null at home —
+ *        makes the control actionable while away even with no home coordinate (see O-D5 above)
+ * @param {?Function} props.onResetScope resets scope to My area and refits (animate:false) — called
+ *        whenever the control is {@code actionable} (a home coordinate exists, OR an origin is in
+ *        force — never only the former, since D1)
  * @param {?Function} props.onOpenSettings opens the settings dialog focused on the postcode field
  */
-function CentreOnHomeControl({ homeCoords = null, onResetScope = null, onOpenSettings = null }) {
+function CentreOnHomeControl({
+  homeCoords = null, origin = null, onResetScope = null, onOpenSettings = null,
+}) {
   const map = useMap();
   // The container is made once, in a state initialiser rather than in the effect, so it exists on
   // the first render and the portal has somewhere to go without a second render pass. Leaflet's
@@ -842,6 +863,11 @@ function CentreOnHomeControl({ homeCoords = null, onResetScope = null, onOpenSet
   if (!container) return null;
 
   const hasHome = homeCoords?.lat != null && homeCoords?.lon != null;
+  // O-D5 (D1): actionable while EITHER a home coordinate exists OR an origin is in force — never
+  // `hasHome` alone, which would show "Set your home postcode in Settings" (and open Settings on
+  // click) to a reader who is away and has simply never saved a postcode, for a reset action that
+  // needs no postcode at all. See this component's own doc block for the finding.
+  const actionable = hasHome || Boolean(origin);
   return createPortal(
     <button
       type="button"
@@ -851,16 +877,16 @@ function CentreOnHomeControl({ homeCoords = null, onResetScope = null, onOpenSet
       // pass): the name must describe what a click NOW does (reset scope to My area and refit, or
       // open Settings), not what the pre-P11 `flyTo` used to do. A stale "Centre on home" here would
       // have been pinned by a green test forever, exactly like the masthead's own near-miss.
-      aria-label={hasHome ? 'Reset to My area' : 'Set your home postcode in Settings'}
-      title={hasHome ? 'Reset to My area' : 'Set your home postcode in Settings'}
+      aria-label={actionable ? 'Reset to My area' : 'Set your home postcode in Settings'}
+      title={actionable ? 'Reset to My area' : 'Set your home postcode in Settings'}
       onClick={() => {
-        if (!hasHome) {
+        if (!actionable) {
           onOpenSettings?.();
           return;
         }
         onResetScope?.();
       }}
-      data-disabled={hasHome ? undefined : 'true'}
+      data-disabled={actionable ? undefined : 'true'}
     >
       <span aria-hidden="true">⌂</span>
     </button>,
@@ -870,6 +896,11 @@ function CentreOnHomeControl({ homeCoords = null, onResetScope = null, onOpenSet
 
 CentreOnHomeControl.propTypes = {
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
+  origin: PropTypes.shape({
+    id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+    name: PropTypes.string,
+    baseName: PropTypes.string,
+  }),
   onResetScope: PropTypes.func,
   onOpenSettings: PropTypes.func,
 };
@@ -970,12 +1001,15 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  *   away in the Plan tab about what this location was rated.
  * - `regionGlossIndex` — from `utils/mapCallout.buildRegionGlossIndex`, the reason prose's fallback
  *   when this location's own window carries no served summary.
- * - `reachById` — the per-user HOME reach map (`{driveMinutes, distanceMiles}`), read ONLY for the
- *   callout's straight-line miles fact. Deliberately separate from `heat.driveOverrideById` (the
- *   AWAY origin's drive minutes, already plumbed): an away origin's map has no `distanceMiles` at
- *   all (`utils/planOrigin.js`'s own rule — those miles are measured from home, and printing them
- *   under an away drive would put two journeys on one line), so this prop is never consulted once
- *   `driveOverride` is set.
+ * - `reachById` — the per-user HOME reach map (`{driveMinutes, distanceMiles}`). Originally read
+ *   ONLY for the callout's straight-line miles fact; since D1 (plan-to-map-doors-plan.md) it is
+ *   ALSO the tab's home-path source for `driveMinutesFor`, the Regions jump list and
+ *   `mapReachMeasured` — see `driveMinutesFor`'s own doc block for the full unification. Deliberately
+ *   separate from `heat.driveOverrideById` (the AWAY origin's drive minutes, already plumbed): an
+ *   away origin's map has no `distanceMiles` at all (`utils/planOrigin.js`'s own rule — those miles
+ *   are measured from home, and printing them under an away drive would put two journeys on one
+ *   line), so this prop is never consulted for MINUTES once `driveOverride` is set (it stays the
+ *   miles source regardless, since `driveOverride` never carries miles either).
  * - `onOpenLocationInPlan` — the real shell handoff (`App.jsx`'s `openLocationInPlan`, mirroring
  *   `openFullMapTab`'s shape in reverse): switches to the Plan tab via `WindowFirstShell`'s
  *   `selectTab` and opens this location's `LocationFourDaySheet` as the only dialog layer.
@@ -984,8 +1018,13 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  *   tweak): whether THIS window's water lands on the light for a location, read through
  *   {@link lookupForWindow} exactly like `scoreIndex` — never {@code tideAligned}, a different
  *   question (see that function's own doc).
+ *
+ * `origin` (doors D1, plan-to-map-doors-plan.md §3) — `{id, name, baseName}` from
+ * `WindowFirstBriefingContext`, or null at home; the pane passes the context's live value, the
+ * overlay never passes one (it is frozen and has no origin concept). Gates home geography — see
+ * `homeGeo` below.
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, tideAlignmentIndex = null, reachById = null, onOpenLocationInPlan = null }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, origin = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, tideAlignmentIndex = null, reachById = null, onOpenLocationInPlan = null }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -1075,7 +1114,23 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   });
   const [driveTimeFilter, setDriveTimeFilter] = useState(0); // 0 = All; positive = max minutes
   const [userDriveTimes, setUserDriveTimes] = useState({});
-  useEffect(() => { getDriveTimes().then(setUserDriveTimes).catch(() => {}); }, []);
+  /**
+   * ⚠️ Overlay-only, since D1 (plan-to-map-doors-plan.md §3). The overlay mount (`App.jsx`) sits
+   * OUTSIDE `WindowFirstBriefingProvider` and is handed no `reachById` prop — it is the frozen
+   * pre-v2 surface, so it keeps fetching its own per-user drive times exactly as it always has. The
+   * Map TAB no longer fetches this at all: it reads `reachById`, the prop `WindowFirstMapPane`
+   * already passes from the SAME provider that feeds the Plan cards, so the tab and the Plan cards
+   * cannot disagree about a drive after a refresh (§1 #1 leak 3 — "the same home journey from two
+   * fetches"). Verified in the backend that the two endpoints agree before making this the tab's
+   * only home source: `GET /api/user/settings/drive-times` (`DriveTimeResolver.getAllMinutes`) and
+   * `GET /api/user/settings/reach` (`ReachService.getReach`, which calls the SAME
+   * `driveTimeResolver.getAllMinutes`) both read `UserDriveTimeRepository.findByUserId` — one query,
+   * one `user_drive_time` table.
+   */
+  useEffect(() => {
+    if (!overlayMode) return;
+    getDriveTimes().then(setUserDriveTimes).catch(() => {});
+  }, [overlayMode]);
   /**
    * How far a location is, from wherever the caller is planning from.
    *
@@ -1097,13 +1152,24 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * {@code distanceMilesFor} below was built to read `reachById` directly rather than reuse this
    * one, which is what kept the callout's own miles fact from ever hitting it. Still an OVERWRITE,
    * never a fallback: a location absent from the override map reads `null`, never the home figure.
+   *
+   * <p><b>The HOME path is surface-split, on purpose (D1).</b> The Map tab reads {@code reachById};
+   * the frozen Plan-tab overlay, mounted outside the provider, reads {@code userDriveTimes} — see
+   * that state's own doc block just above for why the two sources agree. Two sources split by
+   * SURFACE is fine; two sources on ONE surface (the leak this closed) was the defect.
+   *
+   * <p>⚠️ {@code heat.beyondRegionNames} (`WindowFirstMapPane`'s own `heat` builder) is the ONE
+   * read on this tab that stays deliberately HOME-ONLY and does NOT route through this accessor —
+   * an away origin's scope is a single region, so "beyond your area" has nothing left to name.
+   * Recorded here, per D1, so the next audit does not refile it as a leak.
    */
   const driveOverride = heat?.driveOverrideById ?? null;
-  const driveMinutesFor = useCallback((locId) => (
-    driveOverride
-      ? (driveOverride.get(Number(locId))?.driveMinutes ?? null)
-      : (userDriveTimes[String(locId)] ?? null)
-  ), [driveOverride, userDriveTimes]);
+  const driveMinutesFor = useCallback((locId) => {
+    if (driveOverride) return driveOverride.get(Number(locId))?.driveMinutes ?? null;
+    return overlayMode
+      ? (userDriveTimes[String(locId)] ?? null)
+      : (reachById?.get(Number(locId))?.driveMinutes ?? null);
+  }, [driveOverride, overlayMode, userDriveTimes, reachById]);
   /**
    * Straight-line miles, for the selection callout's facts row ONLY (map-tab-v2-plan.md §3 P9) —
    * `driveMinutesFor` above never carries a mile figure at all (`userDriveTimes` is minutes-only,
@@ -2088,10 +2154,21 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   ]);
 
   /**
+   * The map "in force" for reach-MEASUREMENT purposes (D1, plan-to-map-doors-plan.md §3) — the
+   * SAME precedence {@code driveMinutesFor}'s non-overlay path applies (`driveOverride` away,
+   * `reachById` at home), computed once here and reused by `mapReachMeasured` below and by the
+   * Regions jump list's own `buildJumpRows` call further down, so there is exactly one place that
+   * answers "which map is in force" (§1 #1 leak 1 — the jump list used to run its own second
+   * precedence expression). Both `RegionsJump` and the ring labels are tab-only (`!overlayMode`),
+   * so this is never consulted on the overlay mount.
+   */
+  const activeDriveMap = driveOverride ?? reachById ?? null;
+
+  /**
    * The ring labels' own {@code reachMeasured} — "a real drive time gated this screen's reach
    * lens" (§5.2), the same honesty rule {@code WindowRowFieldMap}'s ring labels apply.
    *
-   * <p>⚠️ Read off the FULL {@code userDriveTimes} fetch, never off {@code labelSpots} (map-tab-
+   * <p>⚠️ Read off the FULL {@code activeDriveMap} in force, never off {@code labelSpots} (map-tab-
    * v2-plan.md §3 P8 review, a confirmed finding): {@code labelSpots} is built from
    * {@code scopedVisibleLocations}, which the reader's own rating/subject/drive/dark-sky filters
    * narrow — so filtering away every measured location would flip this flag from true to false
@@ -2099,22 +2176,62 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * then silently swap from a duration back to a bare distance for a reason that has nothing to do
    * with reach honesty. "Was a drive time measured for this reader at all" is a fact about the
    * FETCH, not about which pins the filters currently allow through.
+   *
+   * <p><b>D1:</b> "the map in force has at least one finite `driveMinutes`", additionally gated on
+   * `homeCoords` ONLY at home (the ring labels' own reason for the coordinate check — see
+   * `hasHomeCoords` below). Under an away origin with a measured region-base matrix this must read
+   * true even with no home postcode saved at all: the reader is planning from a base, not from
+   * home, so a missing HOME coordinate says nothing about whether THIS screen's drives are
+   * measured — the Filters popover's drive segment and the callout's duration wording must still
+   * be offered.
+   *
+   * <p>Three "is home known" reads live within a few lines of each other and answer three DIFFERENT
+   * questions on purpose — a future edit should reach for the right one rather than assume they are
+   * interchangeable: the bare {@code Boolean(homeCoords)} here asks "is a postcode saved at all"
+   * (short-circuited by `origin != null` first, so it only matters at home); `homeGeo` below is the
+   * origin-GATED coordinate fed to the drawn geography; `hasHomeCoords` further down is a
+   * shape-validity check on `homeGeo` specifically (`lat`/`lon` both present), for the Legend
+   * toggle's presence and `CentreOnHomeControl`'s `actionable` reasoning it doc-mirrors.
    */
-  const mapReachMeasured = Boolean(homeCoords)
-    && Object.values(userDriveTimes).some((mins) => Number.isFinite(mins));
+  const mapReachMeasured = Boolean(activeDriveMap)
+    && Array.from(activeDriveMap.values()).some((entry) => Number.isFinite(entry?.driveMinutes))
+    && (origin != null || Boolean(homeCoords));
 
   /**
-   * Whether a real home COORDINATE exists — the exact test `MapHeatLayer`'s reach-ring paint and
-   * `MapLabels`' ring-label candidates both gate on (`homeCoords?.lat != null && homeCoords?.lon
-   * != null`), and what the Legend panel's rings toggle must gate its own PRESENCE on too
-   * (adversarial review C4). ⚠️ Deliberately NOT `heat?.hasHome` — that field answers a different
-   * question (the roster/reach-matrix's own "is there a home for planning-area purposes" signal,
-   * which is what `FiltersPopover`'s scope segment and the overlay's area segment key on) and can
-   * diverge from whether `homeCoords` itself has resolved — a toggle gated on the wrong one is
-   * exactly the "control whose every press does nothing" the coherence rule elsewhere in this file
-   * already bans, just for a different control.
+   * The home-geography gate (D1, plan-to-map-doors-plan.md §3) — the HOME marker, the reach rings,
+   * their labels and the legend's rings toggle draw ONLY at home. An away origin measures every
+   * drive from its own base town, so a HOME dot and rings drawn round the reader's actual house
+   * beside Keswick's drive times would be two origins' journeys on one screen — precisely what the
+   * increment's origin rule forbids
+   * (`docs/design/map-tab-v2/INCREMENT_plan_to_map_doors.md`: "origin changes every number").
+   * The app has no coordinate to draw for an away base at all — `toOrigin` carries only
+   * `{id, name, baseName}` (`utils/planOrigin.js`) — so "no marker" is the honest answer while
+   * away, not a gap; O-D4 tracks adding one, for both tabs together, if base coordinates are ever
+   * wired up.
+   *
+   * <p>{@code CentreOnHomeControl} deliberately keeps reading the RAW {@code homeCoords} prop, not
+   * this — see its own doc block (O-D5): it ALSO takes `origin` directly (not `homeGeo`) so its ⌂
+   * reads "Reset to My area" while away REGARDLESS of whether a postcode is saved, because its
+   * action (`resetToMyArea`) already refits to the origin's own region rather than to literal home
+   * and needs no home coordinate to do so.
    */
-  const hasHomeCoords = homeCoords?.lat != null && homeCoords?.lon != null;
+  const homeGeo = origin ? null : homeCoords;
+
+  /**
+   * Whether a real home COORDINATE exists FOR THIS SCREEN — the exact test `MapHeatLayer`'s
+   * reach-ring paint and `MapLabels`' ring-label candidates both gate on (`homeGeo?.lat != null &&
+   * homeGeo?.lon != null`), and what the Legend panel's rings toggle must gate its own PRESENCE on
+   * too (adversarial review C4). Reads {@code homeGeo}, never the raw {@code homeCoords} prop
+   * (D1) — so this is false under an away origin even when the reader HAS a saved postcode: the
+   * marker and the rings are a home-ONLY feature, not a "postcode exists" one.
+   * ⚠️ Deliberately NOT `heat?.hasHome` — that field answers a different question (the
+   * roster/reach-matrix's own "is there a home for planning-area purposes" signal, which is what
+   * `FiltersPopover`'s scope segment and the overlay's area segment key on) and can diverge from
+   * whether a home COORDINATE itself has resolved — a toggle gated on the wrong one is exactly the
+   * "control whose every press does nothing" the coherence rule elsewhere in this file already
+   * bans, just for a different control.
+   */
+  const hasHomeCoords = homeGeo?.lat != null && homeGeo?.lon != null;
 
   // The emphasis target, but only when it survived the filter pipeline — see the marker render.
   const emphasisTarget = useMemo(() => (
@@ -2386,9 +2503,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * The Regions jump list (map-tab-v2-plan.md §3 P11, `docs/design/map-tab-v2/README.md` §2).
    *
    * <p><b>The drive map is EITHER the away region-base matrix OR the per-user home reach, never
-   * both</b> — the exact precedence `driveMinutesFor` above already applies for every other drive
-   * figure on this tab, reused rather than re-decided: `driveOverride` is only ever set while away,
-   * so a home reader's rows are never touched by it.
+   * both</b> — `activeDriveMap` above, the SAME precedence `driveMinutesFor`'s non-overlay path
+   * applies for every other drive figure on this tab, reused rather than re-decided (D1 — this used
+   * to be a SECOND precedence expression here, §1 #1 leak 1): `driveOverride` is only ever set
+   * while away, so a home reader's rows are never touched by it.
    *
    * <p><b>Rows are built over the WHOLE catalogue</b> (`heat.spots`, never `heat.areaSpots`) — see
    * `utils/regionsJump.js`'s own module doc for why a jump scoped to where you already are could
@@ -2430,10 +2548,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     }
     return nightRegionBest?.get(regionName) ?? null;
   }
-  const jumpDriveMap = driveOverride || reachById || null;
   const jumpRows = buildJumpRows({
     spots: heat?.spots || EMPTY_POINTS,
-    driveMap: jumpDriveMap,
+    driveMap: activeDriveMap,
     bestRatingFor: jumpBestRatingFor,
   });
   /**
@@ -3018,7 +3135,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 // ASTRO has no `heat.windows` entry to read a scalar off (adversarial review,
                 // real #3) — `astroConfidenceScalar` is this mode's own capped-inference figure.
                 conf={isAstroMode ? astroConfidenceScalar : (heatWindow?.conf ?? null)}
-                homeCoords={homeCoords}
+                homeCoords={homeGeo}
                 rings={ringsEnabled}
                 fieldEnabled={heatOn}
               />
@@ -3034,7 +3151,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             <Suspense fallback={null}>
               <MapLabels
                 spots={labelSpots}
-                homeCoords={homeCoords}
+                homeCoords={homeGeo}
                 rings={ringsEnabled}
                 reachMeasured={mapReachMeasured}
                 selectedName={selectedLocationName}
@@ -3047,7 +3164,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             <Suspense fallback={null}>
               <PinsLayer
                 spots={labelSpots}
-                homeCoords={homeCoords}
+                homeCoords={homeGeo}
                 selectedName={selectedLocationName}
                 onSelect={selectMapLocation}
                 eventLabel={mapEventLabel}
@@ -3127,6 +3244,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             <>
               <CentreOnHomeControl
                 homeCoords={homeCoords}
+                origin={origin}
                 onResetScope={resetToMyArea}
                 onOpenSettings={onOpenSettings}
               />
@@ -3869,8 +3987,25 @@ MapView.propTypes = {
      */
     beyondRegionNames: PropTypes.arrayOf(PropTypes.string),
   }),
-  /** `{ lat, lon }` of the user's saved home postcode, or null when none is saved. */
+  /**
+   * `{ lat, lon }` of the user's saved home postcode, or null when none is saved. The RAW value —
+   * `MapView` derives its own origin-gated `homeGeo` from this for the drawn home geography (D1);
+   * this prop itself is untouched by origin, and `CentreOnHomeControl` deliberately keeps reading
+   * it directly (see that component's own O-D5 doc note).
+   */
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
+  /**
+   * `{id, name, baseName}` of the origin in force, or null at home (D1, plan-to-map-doors-plan.md
+   * §3). The pane passes the shared `WindowFirstBriefingContext`'s live value; the overlay never
+   * passes one — it is frozen and has no origin concept. Gates the HOME marker, the reach rings,
+   * their labels and the legend's rings toggle onto home-only via the derived `homeGeo`; the ⌂
+   * control stays present and reads raw `homeCoords` regardless (O-D5).
+   */
+  origin: PropTypes.shape({
+    id: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+    name: PropTypes.string,
+    baseName: PropTypes.string,
+  }),
   /** Opens the settings dialog on the postcode field. */
   onOpenSettings: PropTypes.func,
   /**
@@ -3913,9 +4048,11 @@ MapView.propTypes = {
    */
   tideAlignmentIndex: PropTypes.object,
   /**
-   * The per-user HOME reach map (`{driveMinutes, distanceMiles}`), read ONLY for the callout's
-   * straight-line miles fact — see this component's own prop-block comment above `function MapView`
-   * for why it is separate from `heat.driveOverrideById`.
+   * The per-user HOME reach map (`{driveMinutes, distanceMiles}`). Originally read ONLY for the
+   * callout's straight-line miles fact; since D1 (plan-to-map-doors-plan.md) also the tab's home
+   * source for `driveMinutesFor`'s minutes, the Regions jump list and `mapReachMeasured` — see this
+   * component's own prop-block comment above `function MapView` for why it stays a separate map
+   * from `heat.driveOverrideById` rather than being folded into it.
    */
   reachById: PropTypes.instanceOf(Map),
   /**
