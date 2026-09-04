@@ -22,6 +22,30 @@ describe('calloutBand', () => {
     expect(band).toEqual({ top: 8, bot: 592 });
   });
 
+  it('lets a bar OPT OUT of the width test — increment §1’s phone finding', () => {
+    // ⚠️ Measured on the running app at 375×633: the counts footer was 184px, **48.9%** of the
+    // frame — just under the ≥50% rule — so the band ran straight through it and the callout
+    // painted over the counts line on the phone, collapsed and expanded alike. The increment's
+    // check 1 says the callout never covers a control; this is the control it covered.
+    //
+    // Fixtures are the MEASURED numbers, so a later threshold tweak that re-breaks this fails here.
+    // ⚠️ And the footer's own copy has ALREADY changed since (#748 shortened it), which is exactly
+    // why the fix is an opt-out and not a lower threshold: a percentage rule is one that copy can
+    // break. This test passes at any footer width, by construction.
+    const footer = {
+      top: 494, bottom: 521, width: 184, height: 27, always: true,
+    };
+    const band = calloutBand({ frameWidth: 375, frameHeight: 633, bars: [footer] });
+    expect(band.bot).toBe(486); // footer.top (494) - 8px pad
+
+    // Without the flag the SAME bar is skipped — which is the behaviour that shipped the defect, and
+    // is still correct for every other narrow box (Leaflet's zoom+home corner especially).
+    const unflagged = calloutBand({
+      frameWidth: 375, frameHeight: 633, bars: [{ ...footer, always: false }],
+    });
+    expect(unflagged.bot).toBe(625);
+  });
+
   it('ignores a bar narrower than half the frame width, regardless of position', () => {
     const bars = [{ top: 0, bottom: 40, width: 199, height: 40 }];
     const band = calloutBand({ frameWidth: 400, frameHeight: 600, bars });

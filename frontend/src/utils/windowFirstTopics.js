@@ -267,3 +267,27 @@ export function windowTopics(key, badges, topicIndex, scopeNames) {
   return rows.sort((a, b) => (a.badge.rarityRank ?? Number.MAX_SAFE_INTEGER)
     - (b.badge.rarityRank ?? Number.MAX_SAFE_INTEGER));
 }
+
+/**
+ * Topic tags filtered to a LOCATION (plan §3 P9: "tide topics only where {@code coastalTidal}").
+ *
+ * <p>Reads {@link DAY_SCOPED_TOPIC_TYPES} rather than authoring a second "which types are tide
+ * types" list — this module's own warning against a fork applies here as much as it does to the
+ * window-scoped filter it was written for.
+ *
+ * <p>Lives here rather than in `mapCallout.js`, where it was written: the map callout and the
+ * location sheet's meta row both apply it (increment §2), and `locationSheet.js` importing
+ * `mapCallout.js` would close a cycle. `mapCallout` re-exports it under its original name.
+ *
+ * @param {Array<{type: ?string}>} badges the window's served badges
+ * @param {boolean} coastalTidal whether the location is coastal-and-tidal
+ *        ({@code mapCallout.isCoastalTidalLocation}, or the sheet's own local copy)
+ * @returns {Array<object>} the badges to show
+ */
+export function filterCalloutTopics(badges, coastalTidal) {
+  return (Array.isArray(badges) ? badges : []).filter((badge) => {
+    const type = String(badge?.type || '').toUpperCase();
+    if (!DAY_SCOPED_TOPIC_TYPES.has(type)) return true;
+    return coastalTidal;
+  });
+}

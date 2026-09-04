@@ -3,6 +3,7 @@ import {
   buildLocationSheet, buildScoreIndex, buildSlotIndex, buildTideAlignmentIndex, lookupForWindow,
   sheetSpotOf,
 } from '../utils/locationSheet.js';
+import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 
 /**
  * The four-day location sheet's derivation (plan D10, P8).
@@ -845,5 +846,181 @@ describe('sheetSpotOf', () => {
   it('answers null for nothing at all', () => {
     expect(sheetSpotOf(null)).toBeNull();
     expect(sheetSpotOf(undefined)).toBeNull();
+  });
+});
+
+/**
+ * Increment §2's meta row (`docs/design/map-tab-v2/INCREMENT_sheet_and_tide.md`).
+ *
+ * <p><b>What breaks if these fail:</b> the map callout stops being a strict SUBSET of the sheet it
+ * routes into, which is the whole reason routing the callout's clamped prose here is safe rather
+ * than lossy. A missing meta row is not a cosmetic gap — it is the information the callout carried
+ * and the sheet then did not.
+ */
+describe('buildLocationSheet — the map’s one added row (increment §2)', () => {
+  const COASTAL = {
+    id: 7,
+    name: 'Bamburgh',
+    locationType: ['SEASCAPE', 'LANDSCAPE'],
+    bortleClass: 4,
+    tideType: ['HIGH'],
+  };
+
+  const build = (location, windows = WINDOWS) => buildLocationSheet(SPOT, windows, {
+    scoreIndex: SCORES, scoresKnown: true, todayStr: TODAY, location,
+  });
+
+  it('states subject tags, dark sky and coastal — the facts that lived only on the callout', () => {
+    const meta = build(COASTAL).meta.map((m) => m.text);
+    expect(meta).toContain('Landscape · Seascape');
+    expect(meta).toContain('Dark sky 4 · dark');
+    expect(meta).toContain('Coastal · the tide matters here');
+  });
+
+  it('drops the "· dark" qualifier above the dark-sky threshold, matching the callout’s wording', () => {
+    const meta = build({ ...COASTAL, bortleClass: 7 }).meta.map((m) => m.text);
+    expect(meta).toContain('Dark sky 7');
+    expect(meta).not.toContain('Dark sky 7 · dark');
+  });
+
+  it('omits a fact rather than half-stating it — an unenriched sky is not a bright one', () => {
+    const meta = build({ ...COASTAL, bortleClass: null }).meta.map((m) => m.text);
+    expect(meta.some((t) => t.startsWith('Dark sky'))).toBe(false);
+  });
+
+  it('says nothing about the coast for an inland place', () => {
+    const meta = build({ ...COASTAL, tideType: [] }).meta.map((m) => m.text);
+    expect(meta).not.toContain('Coastal · the tide matters here');
+  });
+
+  it('is ABSENT, not blank, when no roster record was joined', () => {
+    // Reachable: the roster and the briefing arrive over two independent fetches.
+    expect(build(null).meta).toEqual([]);
+    expect(buildLocationSheet(SPOT, WINDOWS, { todayStr: TODAY }).meta).toEqual([]);
+  });
+
+  it('carries the week’s topics once each, de-duplicated across windows', () => {
+    const withTopics = WINDOWS.map((w, i) => ({
+      ...w,
+      badges: i < 2
+        ? [{ type: 'METEOR', label: 'Perseids' }, { type: 'NLC', label: 'NLC season' }]
+        : [{ type: 'METEOR', label: 'Perseids' }],
+    }));
+    const meta = buildLocationSheet(SPOT, withTopics, {
+      scoreIndex: SCORES, scoresKnown: true, todayStr: TODAY, location: COASTAL,
+    }).meta.map((m) => m.text);
+    expect(meta.filter((t) => t === 'Perseids')).toHaveLength(1);
+    expect(meta).toContain('NLC season');
+  });
+
+  it('withholds a day-scoped TIDE topic from an inland place — the callout’s own filter', () => {
+    const withTide = WINDOWS.map((w) => ({
+      ...w, badges: [{ type: 'KING_TIDE', label: 'King tide' }],
+    }));
+    const coastal = buildLocationSheet(SPOT, withTide, {
+      scoresKnown: true, todayStr: TODAY, location: COASTAL,
+    }).meta.map((m) => m.text);
+    const inland = buildLocationSheet(SPOT, withTide, {
+      scoresKnown: true, todayStr: TODAY, location: { ...COASTAL, tideType: [] },
+    }).meta.map((m) => m.text);
+    expect(coastal).toContain('King tide');
+    expect(inland).not.toContain('King tide');
+  });
+});
+
+
+/**
+ * The window the reader ARRIVED on — increment §1's "the rest of THIS narrative", and §2's
+ * "`◍ Show on map →` returns to the map at the current window".
+ *
+ * <p><b>What breaks if these fail:</b> a reader clicks the clamped prose for Tonight Sunset,
+ * arrives, and finds Tonight Sunset's prose behind a closed disclosure while another window's sits
+ * open — the three dots still leading nowhere without a second, unprompted click. Found by two
+ * independent review lenses against the first cut, which carried no window through the handoff at
+ * all.
+ */
+describe('buildLocationSheet — the focused window (increment §1/§2)', () => {
+  const build = (focusWindowKey) => buildLocationSheet(SPOT, WINDOWS, {
+    scoreIndex: SCORES, scoresKnown: true, todayStr: TODAY, focusWindowKey,
+  });
+
+  it('names the arrived-on window as the one to open', () => {
+    expect(build('2026-08-14:SUNSET').focusKey).toBe('2026-08-14:SUNSET');
+  });
+
+  it('points the map action BACK at it, not at the best-rated window', () => {
+    // Without this the sheet handed back its best-rated row: a reader who came from Tonight Sunset
+    // was offered a different window entirely. `bestKey` is deliberately a DIFFERENT row here, so
+    // the assertion cannot pass by coincidence.
+    const sheet = build('2026-08-14:SUNSET');
+    expect(sheet.handoffKey).toBe('2026-08-14:SUNSET');
+    expect(sheet.bestKey).not.toBe('2026-08-14:SUNSET');
+  });
+
+  it('falls back to the ordinary rules when no window was named', () => {
+    const sheet = build(null);
+    expect(sheet.focusKey).toBeNull();
+    // The pre-increment behaviour, unchanged: best-rated wins the handoff.
+    expect(sheet.handoffKey).toBe(sheet.bestKey);
+  });
+
+  it('ignores a window this sheet does not contain', () => {
+    // Reachable: the map browses further than the briefing renders (plan D-13), so a callout can
+    // name a date with no row here. Degrading to the ordinary seeding beats opening nothing.
+    const sheet = build('2027-01-01:SUNSET');
+    expect(sheet.focusKey).toBeNull();
+    expect(sheet.handoffKey).toBe(sheet.bestKey);
+  });
+
+  it('does not hand off to an AWAY window, even when it is the one named', () => {
+    // `handoffRow`'s own rule: a travel day's slots are collected and never evaluated, so opening
+    // the map there lands on a date the pipeline skipped.
+    const away = WINDOWS.find((w) => w.key === '2026-08-17:SUNRISE');
+    expect(away).toBeTruthy();
+    expect(build(away.key).handoffKey).not.toBe(away.key);
+  });
+});
+
+/**
+ * The prose fallback — increment §2's "strict subset" property, on the one field §1 turned into a
+ * hyperlink.
+ */
+describe('buildLocationSheet — the region-gloss fallback (increment §2)', () => {
+  const GLOSS = buildRegionGlossIndex([{
+    date: '2026-08-14',
+    eventSummaries: [{
+      targetType: 'SUNSET',
+      regions: [{ regionName: 'Northumberland', glossHeadline: null, glossDetail: 'A settled coastal evening.' }],
+    }],
+  }]);
+
+  const rowFor = (key, opts) => buildLocationSheet(SPOT, WINDOWS, {
+    scoreIndex: SCORES, scoresKnown: true, todayStr: TODAY, ...opts,
+  }).rows.find((r) => r.key === key);
+
+  it('falls back to the region gloss where the location has no summary of its own', () => {
+    // ⚠️ Without this the callout could show prose the sheet it opens cannot — the exact
+    // information loss the meta row was added to prevent, on the one thing the reader clicked.
+    const noSummary = buildScoreIndex(rows([
+      { date: '2026-08-14', targetType: 'SUNSET', rating: 3, summary: null },
+    ]));
+    expect(rowFor('2026-08-14:SUNSET', { scoreIndex: noSummary, regionGlossIndex: GLOSS }).summary)
+      .toBe('A settled coastal evening.');
+  });
+
+  it('prefers the location’s OWN summary over the region gloss', () => {
+    expect(rowFor('2026-08-14:SUNSET', { regionGlossIndex: GLOSS }).summary)
+      .toBe('High cloud thins after eight.');
+  });
+
+  it('stays null on an away day — nothing was forecast, so there is nothing to gloss', () => {
+    expect(rowFor('2026-08-17:SUNRISE', { regionGlossIndex: GLOSS }).summary).toBeNull();
+  });
+
+  it('stays null when no gloss index was supplied at all', () => {
+    const noSummary = buildScoreIndex(rows([
+      { date: '2026-08-14', targetType: 'SUNSET', rating: 3, summary: null },
+    ]));
+    expect(rowFor('2026-08-14:SUNSET', { scoreIndex: noSummary }).summary).toBeNull();
   });
 });

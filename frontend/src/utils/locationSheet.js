@@ -2,6 +2,25 @@ import { daysOut, resolveConfidence } from './confidenceUtils.js';
 import { formatDriveDuration, formatTime } from './briefingDisplay.js';
 import { GLANCE_MINUTES } from './planningArea.js';
 import { leaveByParts } from './leaveBy.js';
+import { DARK_SKY_THRESHOLD } from './mapOverlay.js';
+import { subjectWordsOf } from './locationTypes.js';
+import { filterCalloutTopics } from './windowFirstTopics.js';
+
+/**
+ * Whether a location is coastal — it has at least one {@code TideType} preference.
+ *
+ * <p>⚠️ <b>A second copy of `mapCallout.isCoastalTidalLocation`, deliberately and temporarily.</b>
+ * `mapCallout.js` imports {@code shortDow} from THIS module, so importing it back would close a
+ * cycle, and the predicate is one line. PR #749 introduces a served per-location tide answer and is
+ * the natural home for a shared one — this stays local until that lands rather than minting a third
+ * module the same week. It asks an ASTRONOMICAL question (is this place on the coast at all), never
+ * a preference-weighted one: nothing here compares an extreme's kind to the configured
+ * {@code TideType}, which is the conflation CLAUDE.md's two-tide-axes rule forbids.
+ */
+function isCoastalTidal(location) {
+  return Array.isArray(location?.tideType) && location.tideType.length > 0;
+}
+import { regionGlossFor } from './regionGloss.js';
 
 /**
  * The four-day location sheet — one place, its six windows, and what each of them costs to reach
@@ -399,8 +418,16 @@ export function shortDow(dateStr) {
  * @param {Array} rows the built rows
  * @returns {?object} the row to hand off, or null when there are no rows at all
  */
-function handoffRow(rows) {
+function handoffRow(rows, focusKey = null) {
   if (rows.length === 0) return null;
+  // ⚠️ The window the reader ARRIVED on wins, when there is one and it was forecast. Adversarial
+  // review, confirmed: increment §2 says `◍ Show on map →` "returns to the map at the current
+  // window", and before this the sheet had no idea what the current window was — so it handed back
+  // its best-RATED one, i.e. a reader who came from Tonight Sunset was offered Saturday Sunrise.
+  // An AWAY focus window falls through: opening the map on a date the pipeline skipped is the very
+  // thing this function's own javadoc refuses.
+  const focused = focusKey ? rows.find((row) => row.key === focusKey && !row.away) : null;
+  if (focused) return focused;
   const forecast = rows.filter((row) => !row.away);
   const rated = forecast.filter((row) => row.rating != null);
   if (rated.length > 0) {
@@ -492,6 +519,72 @@ export function sheetSpotOf(spot) {
 }
 
 /**
+ * The one row the map adds to this sheet (increment §2, "What the map adds: one row").
+ *
+ * <h2>Why it is here rather than on a second panel</h2>
+ *
+ * <p>These facts — subject tags, dark sky, coastal/tide, the week's topics — previously existed
+ * ONLY on the map callout. That is what made routing the callout's prose into this sheet safe to
+ * begin with: with them, the callout is a strict SUBSET of the sheet, and clicking through to the
+ * deeper surface can never show less than the shallower one did. Without them the route would lose
+ * information, which is what a second parallel panel was built to avoid and then thrown away for.
+ *
+ * <h2>It is not map-only</h2>
+ *
+ * <p>Derived from the location record and the windows the sheet already holds, so EVERY entry point
+ * gets it — search, a popup field chip, a spot card, the map callout. A row that appeared only on
+ * the map's route would make one dialog two dialogs again, one screen down.
+ *
+ * <p>Each fact is omitted rather than half-stated when its input is missing, the silence rule this
+ * whole module follows: {@code null} {@code bortleClass} is "not enriched", not "bright".
+ *
+ * @param {?object} location the roster record — {@code locationType}, {@code bortleClass},
+ *        {@code tideType}. Null (no record joined) yields an empty list, never a placeholder row
+ * @param {Array} windows {@code buildHeatStripCards}' descriptors, for the week's topics
+ * @returns {Array<{key: string, text: string}>} the facts, in the increment's own reading order
+ */
+function sheetMetaFacts(location, windows) {
+  const facts = [];
+  if (!location) return facts;
+
+  const subjects = subjectWordsOf(location.locationType);
+  if (subjects.length > 0) facts.push({ key: 'subjects', text: subjects.join(' · ') });
+
+  // The SAME threshold and the SAME wording the callout's own fact list uses
+  // (`mapCallout.calloutFacts`) — two spellings of one number is how a reader concludes the two
+  // surfaces are measuring different things.
+  if (Number.isFinite(location.bortleClass)) {
+    facts.push({
+      key: 'darksky',
+      text: location.bortleClass <= DARK_SKY_THRESHOLD
+        ? `Dark sky ${location.bortleClass} · dark`
+        : `Dark sky ${location.bortleClass}`,
+    });
+  }
+
+  // ⚠️ "the tide matters here", not the increment's literal "tide applies". The increment predates
+  // #748's plain-English copy pass, whose whole thesis was removing exactly this register from
+  // customer-facing surfaces ("held back" -> "not listed", "drive from origin" -> "drive time").
+  // "Applies" is the legalistic form that pass was written to delete, so the string is reconciled
+  // to the house style rather than shipped against it. Recorded in map-tab-v2-plan.md §4.
+  if (isCoastalTidal(location)) facts.push({ key: 'coastal', text: 'Coastal · the tide matters here' });
+
+  // The week's topics, de-duplicated by label across every window the sheet shows, and filtered to
+  // this location exactly the way the callout filters its own — a day-scoped tide topic is not
+  // about an inland place, and `filterCalloutTopics` is the one implementation of that rule.
+  const seen = new Set();
+  for (const card of Array.isArray(windows) ? windows : []) {
+    for (const badge of filterCalloutTopics(card?.badges, isCoastalTidal(location))) {
+      const label = typeof badge?.label === 'string' ? badge.label.trim() : '';
+      if (!label || seen.has(label)) continue;
+      seen.add(label);
+      facts.push({ key: `topic:${label}`, text: label });
+    }
+  }
+  return facts;
+}
+
+/**
  * Everything the sheet renders for one location.
  *
  * <p>Only the location's <em>identity</em> is held by the caller; every figure here is looked up
@@ -512,11 +605,21 @@ export function sheetSpotOf(spot) {
  *        {@code planOrigin.scopeRegions}. Absent OR EMPTY means "not known", which marks nothing
  * @param {?object} [sources.origin]  the origin descriptor, for the badge's wording
  * @param {string}  sources.todayStr  today's UK date, for the confidence fallback
+ * @param {?string} [sources.focusWindowKey] {@code date:targetType} of the window the reader
+ *        arrived on (the map callout's route only). Seeds the expansion and the footer's map action;
+ *        null everywhere else, which keeps those two on their existing rules
+ * @param {?Map} [sources.regionGlossIndex] from {@code regionGloss.buildRegionGlossIndex} — the
+ *        prose fallback, so this sheet can never show less than the callout that routes into it
+ * @param {?object} [sources.location] this place's roster record ({@code locationType},
+ *        {@code bortleClass}, {@code tideType}), for the meta row and the per-row tide sentence.
+ *        Null is an ordinary state — the roster and the briefing arrive over two fetches — and
+ *        yields no meta row rather than a row of blanks
  * @returns {object} the sheet's content
  */
 export function buildLocationSheet(spot, windows, {
   scoreIndex = null, slotIndex = null, scoresKnown = false, reachById = null,
-  scopeRegionNames = null, origin = null, todayStr = '',
+  scopeRegionNames = null, origin = null, todayStr = '', location = null, focusWindowKey = null,
+  regionGlossIndex = null,
 } = {}) {
   const name = spot?.name ?? '';
   const locationId = spot?.id ?? null;
@@ -560,7 +663,22 @@ export function buildLocationSheet(spot, windows, {
       away: Boolean(card.away),
       stateLabel: card.verdictLabel,
       rating,
-      summary: card.away ? null : (score?.summary ?? null),
+      /**
+       * This window's prose — this location's own served summary first, its REGION's gloss second.
+       *
+       * <p>⚠️ The fallback is not decoration; it is what makes increment §2's "strict subset" claim
+       * true. The map callout has always had it ({@code MapCallout}'s own {@code reason}), and since
+       * §1 the callout's clamped prose is a BUTTON into this sheet — so without the same fallback a
+       * reader could click a sentence and arrive at "No read for this window yet.", losing the one
+       * thing they clicked for. Found by adversarial review against the first cut.
+       *
+       * <p>Same order and same index as the callout's, so the two can never show different prose for
+       * one window. Null on an away day, like every sibling here.
+       */
+      summary: card.away
+        ? null
+        : (score?.summary
+          ?? regionGlossFor(regionGlossIndex, card.date, card.targetType, spot?.regionName)),
       // Location-sheet superset plan, Phase 1: the SAME score row rating and summary come from —
       // never a second lookup, which is P8's load-bearing rule restated for two more fields.
       fierySky: card.away ? null : (score?.fierySky ?? null),
@@ -593,7 +711,7 @@ export function buildLocationSheet(spot, windows, {
   const best = rated.length > 1
     ? rated.reduce((top, row) => (row.rating > top.rating ? row : top))
     : null;
-  const handoff = handoffRow(rows);
+  const handoff = handoffRow(rows, focusWindowKey);
   const scopeKnown = Array.isArray(scopeRegionNames) && scopeRegionNames.length > 0;
 
   return {
@@ -613,5 +731,20 @@ export function buildLocationSheet(spot, windows, {
     bestKey: best?.key ?? null,
     handoffKey: handoff?.key ?? null,
     lead: leadLine(rows, new Set(rows.map((row) => row.date)).size, scoresKnown),
+    meta: sheetMetaFacts(location, windows),
+    /**
+     * The window the reader ARRIVED on, when one was named and this sheet actually has it.
+     *
+     * <p>Increment §1's promise is "the rest of THIS narrative", so the row carrying the prose the
+     * reader clicked must be the one that opens. Distinct from {@link #bestKey}, which is a max over
+     * this location's own windows and is what seeds every OTHER entry point.
+     *
+     * <p>Resolved against the built rows rather than passed through, so a key naming a window this
+     * sheet does not contain (the map browses further than the briefing — plan D-13) degrades to the
+     * ordinary seeding instead of opening nothing.
+     */
+    focusKey: focusWindowKey && rows.some((row) => row.key === focusWindowKey)
+      ? focusWindowKey
+      : null,
   };
 }

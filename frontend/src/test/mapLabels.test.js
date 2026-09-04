@@ -285,6 +285,7 @@ describe('mapLabels — chipCandidates', () => {
     const result = chipCandidates({ spots, zoom: 13 });
     expect(result).toHaveLength(3);
   });
+
 });
 
 describe('mapLabels — placeLabelPass (the whole greedy priority pass)', () => {

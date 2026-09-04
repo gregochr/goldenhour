@@ -788,3 +788,56 @@ function sheetElement(props = {}) {
 function renderSheet(props = {}) {
   return render(sheetElement(props));
 }
+
+/**
+ * Increment §2's meta row and §3's per-row tide sentence, rendered.
+ *
+ * <p><b>What breaks if these fail:</b> the map callout stops being a strict subset of this sheet,
+ * so clicking through from the map loses the subject tags, the dark-sky reading and the coastal
+ * fact that existed only on the callout. That is what makes the routing safe rather than lossy —
+ * and it is exactly the gap a second parallel panel was built, and then thrown away, to fill.
+ */
+describe('LocationFourDaySheet — the map’s one added row (increment §2)', () => {
+  const COASTAL = {
+    id: 7,
+    name: 'Bamburgh',
+    locationType: ['SEASCAPE'],
+    bortleClass: 3,
+    tideType: ['HIGH'],
+  };
+
+  it('renders the meta row under the header, with the callout’s own facts', () => {
+    setup({ location: COASTAL });
+    const meta = screen.getByTestId('location-sheet-meta-row');
+    expect(meta).toHaveTextContent('Seascape');
+    expect(meta).toHaveTextContent('Dark sky 3 · dark');
+    expect(meta).toHaveTextContent('Coastal · the tide matters here');
+  });
+
+  it('renders no row at all when no roster record was joined — never a row of blanks', () => {
+    setup();
+    expect(screen.queryByTestId('location-sheet-meta-row')).toBeNull();
+  });
+
+  it('sits INSIDE the one scroll container, not as a fourth pinned band', () => {
+    // ⚠️ REVERSED from the first cut, which asserted the opposite. Two review lenses pointed out
+    // that `.wf-sheet-card` is `max-height: calc(100dvh - 32px); overflow: hidden` with exactly one
+    // shrinkable child, and that this row WRAPS — so as a fourth band it re-created the clipping
+    // defect `LocationFourDaySheet`'s own comment records from the lead line's first cut (at 400%
+    // zoom the head, the bands and the footer exceeded the budget and the map action clipped with
+    // nothing able to scroll). It scrolls with the rows instead, which costs it nothing: it is a
+    // property of the place, read once.
+    setup({ location: COASTAL });
+    const rows = screen.getByTestId('location-sheet-rows');
+    expect(rows.contains(screen.getByTestId('location-sheet-meta-row'))).toBe(true);
+  });
+
+  it('is the FIRST thing in the scroll container — above the lead, under the header', () => {
+    // Position is the increment's own ("directly under the header"), and a test that only asserted
+    // presence would pass with the row at the bottom of the card.
+    setup({ location: COASTAL });
+    const rows = screen.getByTestId('location-sheet-rows');
+    expect(rows.firstElementChild).toBe(screen.getByTestId('location-sheet-meta-row'));
+  });
+});
+

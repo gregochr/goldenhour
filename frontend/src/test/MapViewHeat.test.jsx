@@ -1525,3 +1525,4 @@ describe('MapView heat — the Regions jump list (map-tab-v2-plan.md §3 P11)', 
 // is exactly the kind of instability `MapViewCentreOnHome.test.jsx`'s dedicated Leaflet-`Control`
 // stub exists to avoid. `⌂`'s new behaviour is pinned there instead, alongside its own
 // mount/position/no-postcode-fallback tests, using that file's own `heatProp()`-style fixture.
+

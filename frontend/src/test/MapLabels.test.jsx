@@ -770,3 +770,4 @@ describe('MapLabels — re-paints on the same rAF-guarded cadence as the field',
     expect(() => currentMap.fire('moveend')).not.toThrow();
   });
 });
+

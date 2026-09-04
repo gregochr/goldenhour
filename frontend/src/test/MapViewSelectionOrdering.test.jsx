@@ -327,15 +327,20 @@ describe('MapView — Esc closes menus, THEN the callout', () => {
 });
 
 describe('MapView — "Open in Plan" reaches the shell handoff', () => {
-  it('calls onOpenLocationInPlan with the sheet-spot shape', async () => {
+  it('calls onOpenLocationInPlan with the sheet-spot shape AND the window on screen', async () => {
     const onOpenLocationInPlan = vi.fn();
     await renderMap({ onOpenLocationInPlan });
     await selectTheSpot();
     fireEvent.click(screen.getByTestId('probe-callout-open-in-plan'));
     expect(onOpenLocationInPlan).toHaveBeenCalledTimes(1);
-    expect(onOpenLocationInPlan).toHaveBeenCalledWith({
-      id: SPOT.id, name: SPOT.name, regionName: SPOT.rid,
-    });
+    const [handoff] = onOpenLocationInPlan.mock.calls[0];
+    expect(handoff).toMatchObject({ id: SPOT.id, name: SPOT.name, regionName: SPOT.rid });
+    // ⚠️ The window is load-bearing, not decoration (increment §1). Without it the sheet seeds its
+    // expansion on its own BEST window and its footer hands back the best-RATED one — so a reader
+    // who clicked a narrative on Tonight Sunset arrived to find it behind a closed disclosure.
+    // Two review lenses found that independently against the first cut of this handoff.
+    expect(handoff.date).toBeTruthy();
+    expect(handoff.targetType).toBeTruthy();
   });
 });
 
