@@ -991,10 +991,18 @@
      has nothing to space. No `:not()` needed to say so. */
   gap: 10px;
 }
-/* ── The Map tab's full frame (map-tab-v2-plan.md §3 P7) ───────────────────────────────────────
-   The selected Map panel's own `wf-body` — released to zero padding (the map bleeds to the
-   frame's edge, per the design's layout diagram) and sized by FLEXBOX rather than by any height
-   computed here. `App.jsx`'s root recasts the whole page as a flex column on this tab
+/* ── The Map tab's full frame (map-tab-v2-plan.md §3 P7; width reversed by O-17) ────────────────
+   The selected Map panel's own `wf-body` — released to zero padding (the map bleeds to the edge
+   of ITS OWN panel) and sized by FLEXBOX rather than by any height computed here.
+
+   ⚠️ "The frame's edge" no longer means the browser window. P7 originally cited the design's
+   full-bleed layout diagram for this padding rule, but bundle rev 2 reverses that diagram (O-17,
+   owner decision 2026-09-03): the Map tab's panel region is now width-capped to the same
+   `WRAP_MAX_WIDTH` (1080px) column the masthead uses (`WindowFirstShell.jsx`'s panel-region
+   wrapper), rather than stretching to the viewport. Zero padding here is a SEPARATE, surviving
+   question — the map still fills 100% of whatever box it is given, it is just given a narrower
+   box now — so this rule needed no change, only this citation did. `App.jsx`'s root recasts the
+   whole page as a flex column on this tab
    (`isMapTabActive`): the banner block, the masthead+tab-bar wrap and this panel are three flex
    items stacked in a column whose own height is `100dvh`, and this class's only job is to be the
    one that GROWS (`flex: 1; min-height: 0`) while the other two take their natural content height.

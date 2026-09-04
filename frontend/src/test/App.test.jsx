@@ -263,8 +263,10 @@ describe('App — panes handed to WindowFirstShell', () => {
 // `<main>`'s own padding is one of the plan's four named full-frame owners, and it lives in
 // App.jsx — outside `WindowFirstShell` entirely — because the shell has no way to reach a sibling
 // element. `WindowFirstShellTabs.test.jsx` pins the shell's own half (the `onTabChange` callback
-// firing, the panel-region wrapper's width release, and — since the flex recast, below — the
-// shell root and panel-region wrapper's own flex classes); this is the other end of that channel.
+// firing, the panel-region wrapper KEEPING its 1080px width constraint on the Map tab rather than
+// releasing it — O-17, bundle rev 2, 2026-09-03, reversing what this comment used to describe as a
+// release — and — since the flex recast, below — the shell root and panel-region wrapper's own
+// flex classes); this is the other end of that channel.
 //
 // ⚠️ Re-pinned onto a flex column (adversarial review): a `calc(100dvh - …)` height chain shipped
 // here first and leaked twice — most recently 16px of page scroll surviving with every banner
@@ -276,31 +278,61 @@ describe('App — panes handed to WindowFirstShell', () => {
 // per CLAUDE.md's UI cadence for any CSS claim.
 
 describe('App — recasts the page as a flex column on the Map tab (map-tab-v2-plan.md §3 P7)', () => {
-  it('drops <main>\'s padding and gives it flex:1/min-height:0/flex-column, only on the Map tab', async () => {
+  // Exact-token helper, not `className.toContain` — since O-17 (bundle rev 2) the Map tab's own
+  // horizontal-padding utility is `sm:px-4`, which itself CONTAINS the substring `'px-4'`. A plain
+  // `.toContain('px-4')` can no longer tell "unprefixed px-4" from "sm:px-4" apart, so it would
+  // pass whichever one was actually present — exactly the false-pass this suite exists to rule
+  // out. Comparing tokens is the fix.
+  const classTokens = (el) => el.className.split(/\s+/).filter(Boolean);
+
+  it('drops <main>\'s VERTICAL padding unconditionally, keeps horizontal padding at sm+ (adversarial review), and gives it flex:1/min-height:0/flex-column — only on the Map tab', async () => {
     renderApp();
     // <main> has no accessible name of its own to query by name; its implicit ARIA role finds it.
     const main = screen.getByRole('main');
-    expect(main.className).toContain('px-4');
-    expect(main.className).toContain('py-6');
-    expect(main.className).not.toContain('flex-1');
+    expect(classTokens(main)).toContain('px-4');
+    expect(classTokens(main)).not.toContain('sm:px-4');
+    expect(classTokens(main)).toContain('py-6');
+    expect(classTokens(main)).not.toContain('flex-1');
 
     const mapTab = await screen.findByRole('tab', { name: 'Map' });
     await act(async () => { mapTab.click(); });
     await screen.findByTestId('window-first-panel-map');
 
-    expect(main.className).not.toContain('px-4');
-    expect(main.className).not.toContain('py-6');
-    expect(main.className).toContain('flex-1');
-    expect(main.className).toContain('min-h-0');
-    expect(main.className).toContain('flex-col');
+    // O-17 (bundle rev 2, 2026-09-03): the Map tab keeps a horizontal inset at `sm` and up — it
+    // is what makes the masthead's column line up with every other tab's in that range, since
+    // `WindowFirstShell`'s own panel-region wrapper caps the visible width to the SAME 1080px
+    // column from `sm` up too. Only VERTICAL padding is dropped unconditionally (it would eat
+    // into the flex-distributed height and reopen page scroll).
+    expect(classTokens(main)).not.toContain('px-4');
+    expect(classTokens(main)).toContain('sm:px-4');
+    expect(classTokens(main)).not.toContain('py-6');
+    expect(classTokens(main)).toContain('flex-1');
+    expect(classTokens(main)).toContain('min-h-0');
+    expect(classTokens(main)).toContain('flex-col');
 
     // Back to Plan restores it — the recast is per-tab, not a one-way switch.
     const planTab = screen.getByRole('tab', { name: 'Plan' });
     await act(async () => { planTab.click(); });
-    expect(main.className).toContain('px-4');
-    expect(main.className).toContain('py-6');
-    expect(main.className).not.toContain('flex-1');
+    expect(classTokens(main)).toContain('px-4');
+    expect(classTokens(main)).not.toContain('sm:px-4');
+    expect(classTokens(main)).toContain('py-6');
+    expect(classTokens(main)).not.toContain('flex-1');
   });
+
+  // ⚠️ Below `sm` (640px) O-17 does NOT close the residue: `sm:px-4` is a RESPONSIVE utility, so
+  // the token itself is present in the markup unconditionally (Tailwind ships it as a static class
+  // string; a media query in the generated CSS decides whether it paints, not JS, and jsdom
+  // evaluates no media query at all — every `window.matchMedia` call in this suite is a dumb
+  // polyfill, per `test/setup.js`). So there is no class-token assertion that could distinguish
+  // "present but inert below 640px" from "present and active" — that is a rendered-CSS claim, and
+  // CLAUDE.md's UI cadence already puts rendered-CSS claims on the browser, not on this file. What
+  // is left to state in prose rather than pin in code: below `sm`, `<main>` still carries no
+  // horizontal padding class that actually PAINTS (`sm:px-4` needs `sm` to apply), so the masthead
+  // genuinely shifts by 32px on a Plan⇄Map switch on a phone — P12's full-bleed phone chrome
+  // (index.css's edge-hugging bar insets) was measured and tuned against that genuine edge, and
+  // `WindowFirstShell`'s own 1080px column cap does not bind at phone widths regardless (390px is
+  // nowhere near 1080px). See this describe block's own header comment and `App.jsx`'s comment on
+  // `<main>` for the full account.
 
   it('recasts the page root from min-h-screen to a fixed-height, non-scrolling flex column, only on the Map tab', async () => {
     renderApp();

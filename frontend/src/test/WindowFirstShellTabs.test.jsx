@@ -918,7 +918,11 @@ describe('WindowFirstShell — the full-frame Map tab (map-tab-v2-plan.md §3 P7
     expect(screen.getByTestId('window-first-panel-map').className).not.toContain('wf-body--map');
   });
 
-  it('the panel-region wrapper releases its 1080px width constraint on the Map tab, and restores it on Plan', () => {
+  it('the panel-region wrapper keeps the SAME 1080px width constraint on the Map tab as on every other tab (O-17 — reverses the width release, height untouched)', () => {
+    // Bundle rev 2 (owner decision 2026-09-03): full-bleed read as broken because the tab strip
+    // stopped at the content column while the panel carried on to the window edge. The fix pins
+    // the panel region to the SAME `WRAP_MAX_WIDTH` on every tab, so there is nothing left to
+    // release or restore on a tab switch.
     renderWithMap();
     const planPane = screen.getByTestId('window-first-pane');
     // The wrapper immediately enclosing the Plan/Coming-up/slotted-pane region — one level above
@@ -928,10 +932,29 @@ describe('WindowFirstShell — the full-frame Map tab (map-tab-v2-plan.md §3 P7
     expect(panelWrap.style.maxWidth).toBe('1080px');
 
     fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
-    expect(panelWrap.style.maxWidth).toBe('');
+    expect(panelWrap.style.maxWidth).toBe('1080px');
 
     fireEvent.click(screen.getByRole('tab', { name: 'Plan' }));
     expect(panelWrap.style.maxWidth).toBe('1080px');
+  });
+
+  it('the masthead\'s wrap and the Map panel region\'s wrap resolve to the SAME maxWidth value, while the Map tab is actually selected (O-17)', () => {
+    // Two DISTINCT wrappers — `mastheadWrap` never changes tab to tab; the panel-region wrapper
+    // (reached here through the Map panel specifically, since that is the tab whose value this
+    // pins) is the one O-17 stopped releasing. The design's structural complaint was exactly these
+    // two disagreeing about width, so this checks their VALUES agree once Map is selected — it
+    // does not, and cannot, prove they read off one shared JS constant rather than two literals
+    // that happen to match; that is a source-level fact, not something a rendered `style` can
+    // distinguish. (`window-first-pane`'s own parent is NOT queried here — it is the identical DOM
+    // node as the Map panel's parent, so comparing both would just restate this same comparison
+    // twice under two names, not add a second one.)
+    renderWithMap();
+    const mastheadWrap = screen.getByTestId('window-first-masthead').parentElement;
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Map' }));
+    const mapPanelWrap = screen.getByTestId('window-first-panel-map').parentElement;
+
+    expect(mapPanelWrap.style.maxWidth).toBe(mastheadWrap.style.maxWidth);
   });
 
   // Re-pinned onto the flex chain (adversarial review): the `calc(100dvh - …)` height this suite
