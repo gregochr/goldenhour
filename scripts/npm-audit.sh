@@ -79,13 +79,25 @@ is_transport_error() {
     esac
 }
 
+# ⚠️ STATE WHICH npm ACTUALLY RAN, rather than trusting that `npx npm@11` did what it looks like.
+# The first CI run of this script still printed the registry's "this endpoint is being retired"
+# notice, which npm 11 should never provoke — so either npx resolved something else, or the notice
+# rides a response npm 11 does ask for. Either way the log has to answer it without a re-run.
+audit_npm_version=$(npx --yes "$NPM_SPEC" --version 2>/dev/null || echo "unknown")
+echo "npm-audit: auditing with npm ${audit_npm_version} (runner default: $(npm --version 2>/dev/null || echo unknown))"
+
 attempt=1
 while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
     # `--yes` so a cold npx cache does not sit waiting on a prompt no one can
     # answer. stderr is folded into stdout because npm puts the interesting
     # part (the endpoint, the status code) on stderr and the finding summary on
     # stdout, and the classifier below has to see both.
-    if output=$(npx --yes "$NPM_SPEC" audit --audit-level="$AUDIT_LEVEL" 2>&1); then
+    # `--fetch-timeout` because npm's default is five minutes, and the failure mode here is a
+    # HANG rather than a refusal — the 2026-09-04 red build spent 5m05s waiting before erroring.
+    # Three attempts at that default would be a sixteen-minute step. Ninety seconds is well beyond
+    # a healthy bulk request (measured in single-digit seconds) and turns the bad path from
+    # sixteen minutes into about five.
+    if output=$(npx --yes "$NPM_SPEC" audit --audit-level="$AUDIT_LEVEL" --fetch-timeout=90000 2>&1); then
         printf '%s\n' "$output"
         exit 0
     fi
