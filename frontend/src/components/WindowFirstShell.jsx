@@ -17,6 +17,7 @@ import { originAction, scopeRegions } from '../utils/planOrigin.js';
 import { buildTopicIndex, windowTopics } from '../utils/windowFirstTopics.js';
 import { buildPlanConflict } from '../utils/planConflicts.js';
 import { buildScoreIndex, buildSlotIndex, sheetSpotOf } from '../utils/locationSheet.js';
+import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 import { deriveBadge } from '../utils/comingUpArrivals.js';
 import { markComingUpSeen } from '../api/settingsApi.js';
 import useComingUpFeed from '../hooks/useComingUpFeed.js';
@@ -317,6 +318,18 @@ export default function WindowFirstShell({
    * sheet here instead would be the same freeze, one level up.
    */
   const [sheetSpot, setSheetSpot] = useState(null);
+  /**
+   * The window the open sheet should FOCUS — `date:targetType`, or null.
+   *
+   * <p>Only the map's callout route sets it (increment §1): that route promises "the rest of THIS
+   * narrative", so the sheet must open on the window whose prose was clicked, not on its own best.
+   * Every other entry point leaves it null and keeps `buildLocationSheet`'s own seeding.
+   *
+   * <p>Held beside {@code sheetSpot} rather than on it, because it is not part of the location's
+   * identity — the sheet is keyed on `sheetSpot.id ?? sheetSpot.name`, and folding a window into
+   * that key would remount the whole dialog whenever the map's window changed underneath it.
+   */
+  const [sheetWindowKey, setSheetWindowKey] = useState(null);
 
   /**
    * The window whose popup is open, held by KEY — or null.
@@ -486,6 +499,7 @@ export default function WindowFirstShell({
     setOpenWindowKey(null);
     setFocusedRegion(null);
     setSheetSpot(null);
+    setSheetWindowKey(null);
   };
   /**
    * The Coming up tab's handoff row, going the other way (plan P1/D14).
@@ -596,6 +610,9 @@ export default function WindowFirstShell({
    */
   const openOverPopup = useCallback((next) => {
     setSheetSpot(next?.spot ?? null);
+    // Every caller here is a PLAN surface, which carries no map window — and clearing rather than
+    // leaving it is what stops one route's focused window riding onto another's sheet.
+    setSheetWindowKey(null);
     setSheetKey(next?.sheetKey ?? null);
     setOpenPick(next?.pick ?? null);
   }, []);
@@ -682,6 +699,12 @@ export default function WindowFirstShell({
       name: planLocationHandoff.name ?? '',
       regionName: planLocationHandoff.regionName ?? null,
     });
+    // The window the map was on, so the sheet opens ON it rather than on its own best — see
+    // `MapView.handleOpenLocationInPlan`'s note for the defect this closes. Null for every other
+    // entry point (search, a field chip, a spot card), which keeps their seeding exactly as it was.
+    setSheetWindowKey(planLocationHandoff.date && planLocationHandoff.targetType
+      ? `${planLocationHandoff.date}:${planLocationHandoff.targetType}`
+      : null);
     // Same focus rule as the `tabRequest` effect above: an external ask arrives with focus wherever
     // the caller (a callout button that is about to be hidden along with its whole panel) left it.
     const domId = tabDomId('plan');
@@ -710,6 +733,29 @@ export default function WindowFirstShell({
    * is how the five copies that module replaced started.
    */
   const typesByName = useMemo(() => buildLocationTypeMap(locations), [locations]);
+
+  /**
+   * The roster record behind the open sheet — its subject tags, its Bortle class and its tide
+   * preferences (increment §2's meta row, §3's per-row tide sentence).
+   *
+   * <p>Joined ID-first and NAME-second, the same rule {@code heatSpots}/{@code lookupForWindow}
+   * apply throughout, and for the same reason: a location the briefing rates but
+   * {@code GET /api/locations} has not published yet (a fresh entry, a poll landing between the two
+   * fetches) resolves to nothing — and null is the honest answer there, since the sheet omits the
+   * row rather than rendering blanks.
+   */
+  /** The callout's own prose fallback, built only while a sheet is open. */
+  const sheetGlossIndex = useMemo(
+    () => (sheetSpot ? buildRegionGlossIndex(briefing?.days) : null),
+    [sheetSpot, briefing?.days],
+  );
+
+  const sheetLocation = useMemo(() => {
+    if (!sheetSpot || !Array.isArray(locations)) return null;
+    return locations.find((l) => (sheetSpot.id != null && l?.id === sheetSpot.id))
+      || locations.find((l) => l?.name === sheetSpot.name)
+      || null;
+  }, [sheetSpot, locations]);
   const openCard = openWindowKey == null
     ? null
     : windowCards.find((card) => card.key === openWindowKey) || null;
@@ -1775,6 +1821,15 @@ export default function WindowFirstShell({
             // figure needs an origin on it to be placeable, and "from home" is true either way.
             originLabel={origin ? origin.baseName : (homePlace || 'home')}
             todayStr={todayStr}
+            // The roster record behind the open sheet, for its meta row (increment §2) and its
+            // per-window tide sentence (§3).
+            location={sheetLocation}
+            // The window the map's callout was on — see `sheetWindowKey`. Null from every other
+            // entry point, which keeps their seeding unchanged.
+            focusWindowKey={sheetWindowKey}
+            // The prose FALLBACK, so this sheet can never show less than the callout that routes
+            // into it — the callout has had a region gloss behind its summary since P9.
+            regionGlossIndex={sheetGlossIndex}
             escapeEnabled={searchSeed == null}
             // The footer's origin action (M4.3, D-4). `planFrom` is null when the shell holds no
             // record for the place's region, which is the honest answer rather than a guessed

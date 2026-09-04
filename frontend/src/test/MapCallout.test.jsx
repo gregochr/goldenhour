@@ -675,3 +675,60 @@ describe('MapCallout — phone width (map-tab-v2-plan.md §3 P12, README §7: "2
     expect(screen.getByTestId('map-callout-strip')).toBeInTheDocument();
   });
 });
+
+/**
+ * Increment §1 — the clamped prose is the ROUTE, not a dead end.
+ *
+ * <p><b>What breaks if these fail:</b> a real ~90-word Claude narrative clamps to three lines and
+ * ends in three dots with nothing to click. The clamp itself is right (the card must not cover the
+ * ground it is describing); clamping into nothing is not.
+ */
+describe('MapCallout — the reason routes into the location sheet (increment §1)', () => {
+  let restore;
+  beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
+  afterEach(() => restore());
+
+  const LONG = 'A deep bank of altocumulus is drifting east off the Cheviots through the '
+    + 'afternoon, thinning as it goes, and the tail of it should be sitting right over the '
+    + 'western horizon as the sun drops. The sea horizon itself is clean, which is the half that '
+    + 'matters most here, and there is enough mid-level canvas overhead to take colour once the '
+    + 'light starts coming in underneath it.';
+
+  it('is a BUTTON, and opens the sheet — the same destination the primary action reaches', async () => {
+    const onOpenInPlan = vi.fn();
+    const scoreIndex = buildScoreIndex([scoreRow({ summary: LONG })]);
+    await mount({ scoreIndex, onOpenInPlan });
+    const reason = screen.getByTestId('map-callout-reason');
+    expect(reason.tagName).toBe('BUTTON');
+    fireEvent.click(reason);
+    expect(onOpenInPlan).toHaveBeenCalledTimes(1);
+  });
+
+  it('captions the route, and the caption is NOT inside the clamped box', async () => {
+    // ⚠️ The increment's load-bearing implementation note. `-webkit-line-clamp` needs
+    // `display: -webkit-box`; putting it on the BUTTON would clamp the caption away with the prose
+    // (and be silently killed by any later `display: block` rule). The structural assertion is what
+    // survives a stylesheet edit — jsdom does not implement `-webkit-line-clamp` at all.
+    const scoreIndex = buildScoreIndex([scoreRow({ summary: LONG })]);
+    await mount({ scoreIndex });
+    const reason = screen.getByTestId('map-callout-reason');
+    const clamped = reason.querySelector('.wf-callout-reason-text');
+    expect(clamped).not.toBeNull();
+    expect(clamped.textContent).toBe(LONG);
+    // The caption is a SIBLING of the clamped box, never a descendant of it.
+    const caption = reason.querySelector('.wf-callout-reason-more');
+    expect(caption.textContent).toContain('Four days here');
+    expect(clamped.contains(caption)).toBe(false);
+  });
+
+  it('names its destination accessibly — the caption alone names nothing', async () => {
+    const scoreIndex = buildScoreIndex([scoreRow({ summary: LONG })]);
+    await mount({ scoreIndex });
+    // The visible caption is `aria-hidden`; the accessible name opens with the place, which is what
+    // a speech-input user says (2.5.3).
+    expect(screen.getByRole('button', { name: /Bamburgh — four days here/ }))
+      .toBe(screen.getByTestId('map-callout-reason'));
+  });
+});
+
+

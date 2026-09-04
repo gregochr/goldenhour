@@ -11,7 +11,7 @@ import {
 import { verdictWord } from '../../utils/mapLabels.js';
 import { rampHex, rampRgb, rgb } from '../../utils/scoreRamp.js';
 import { eventInstantOf, lookupForWindow } from '../../utils/locationSheet.js';
-import { DISPLAY_TYPES, locationTypeLabel } from '../../utils/locationTypes.js';
+import { subjectWordsOf } from '../../utils/locationTypes.js';
 import { readableInkOn } from '../../utils/windowFirstSpots.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 
@@ -34,6 +34,17 @@ const ZOOM_TO_FLOOR = 12.6;
 const PAN_PADDING = [70, 150];
 
 /**
+ * The counts footer, named on its own because it is the one bar that opts OUT of
+ * {@link calloutBand}'s ≥50%-frame-width test.
+ *
+ * <p>Measured on the running app at 375×633: it is 184px, <b>48.9%</b> of the frame — just under
+ * the threshold — so the band ran straight through it and the callout painted over it on the phone,
+ * collapsed and expanded alike. `calloutBand`'s own doc carries why the fix is an opt-out rather
+ * than a lower threshold.
+ */
+const COUNTS_FOOTER_SELECTOR = '[data-testid="wf-map-counts-footer"]';
+
+/**
  * The chrome bars {@link calloutBand} treats as a floor/ceiling — the app's own equivalents of the
  * bundle's {@code #gwin,#gnav,#lchip,#mapwrap .zoomg,#mapwrap .foot}: the window control (top-left),
  * the Heat/Pins+Filters cluster (top-right) and the counts footer (bottom-centre). The Legend chip
@@ -44,7 +55,7 @@ const PAN_PADDING = [70, 150];
 const BAND_BAR_SELECTOR = [
   '[data-testid="wf-map-chrome-tl"]',
   '[data-testid="wf-map-chrome-tr"]',
-  '[data-testid="wf-map-counts-footer"]',
+  COUNTS_FOOTER_SELECTOR,
 ].join(', ');
 
 /** Leaflet's own bottom-right corner (zoom control + `CentreOnHomeControl`) — see `MapLabels.jsx`'s
@@ -79,17 +90,6 @@ function kindShort(event) {
   return event.eventType === 'ASTRO' ? 'AST' : 'AUR';
 }
 
-/**
- * Subject-tag WORDS for the header subtitle (map-tab-v2-plan.md §3 P9 review) — NOT
- * `locationTypeIcons`, whose own doc comment reserves it for "compact grid rows that have no room
- * for a label"; the header's subtitle line is prose ("Northumberland & Tyneside · Seascape"), the
- * exact form the design bundle's own subject-tag line takes (README §7 item 1: "region · subject
- * tags"), not a row of icons with nothing to read them by.
- */
-function subjectWords(types) {
-  const list = Array.isArray(types) ? types : (types == null ? [] : [types]);
-  return DISPLAY_TYPES.filter((t) => list.includes(t)).map((t) => locationTypeLabel(t));
-}
 
 /**
  * The Map tab's selection callout (map-tab-v2-plan.md §3 P9,
@@ -151,7 +151,9 @@ function subjectWords(types) {
  * @param {?Function} [props.onSelectEv] `(row) => void` — switches the active window (the P6
  *        selection path, `MapView.jsx`'s `selectEvRow`)
  * @param {?Function} [props.onOpenInPlan] `() => void` — the real shell handoff (opens this
- *        location's `LocationFourDaySheet` as the only dialog layer on the Plan tab)
+ *        location's `LocationFourDaySheet` as the only dialog layer on the Plan tab). Called with
+ *        no arguments: the CALLER reads the active window off its own state, because it already
+ *        holds the one the map is on and a second copy passed from here could disagree with it
  * @param {?Function} [props.onClose] `() => void` — the ✕ button and the map-background click rule
  */
 export default function MapCallout({
@@ -197,6 +199,9 @@ export default function MapCallout({
         bottom: r.bottom - containerRect.top,
         width: r.width,
         height: r.height,
+        // The one opt-out — see `COUNTS_FOOTER_SELECTOR`. `matches` rather than a index/order test,
+        // because `barEls` is built from two separate queries whose order is not a contract.
+        always: typeof el.matches === 'function' && el.matches(COUNTS_FOOTER_SELECTOR),
       };
     });
     const band = calloutBand({ frameWidth: size.x, frameHeight: size.y, bars });
@@ -373,7 +378,7 @@ export default function MapCallout({
     return { row, rowRating: Number.isFinite(entry?.stars) ? entry.stars : null };
   });
 
-  const subjectLabels = subjectWords(location.locationType);
+  const subjectLabels = subjectWordsOf(location.locationType);
 
   return createPortal(
     <>
@@ -391,6 +396,17 @@ export default function MapCallout({
         data-testid="map-callout"
         style={{
           width: `${calloutWidth}px`,
+          // Increment §1's second implementation note: the card takes its ceiling from the SAME
+          // chrome-clear band that positions it, so no length of narrative can push it over a
+          // control. The clamp above caps the prose; this caps everything — facts, topics, an open
+          // strip — together. `.wf-callout` scrolls its own overflow (index.css), so a card that
+          // does hit the ceiling stays readable rather than clipping.
+          //
+          // ⚠️ Applied from `frame`, not from `placement`: the ceiling has to be in force during the
+          // MEASURE pass, or `anchorCallout` is handed a height the card will never actually take
+          // and places it against a phantom. The measure pass renders off-screen with the same
+          // style object, so the two agree by construction.
+          ...(frame ? { maxHeight: `${Math.max(frame.band.bot - frame.band.top, 0)}px` } : null),
           ...(box
             ? { left: `${box.left}px`, top: `${box.top}px` }
             : { left: '-9999px', top: '0px', visibility: 'hidden' }),
@@ -403,6 +419,12 @@ export default function MapCallout({
             style={{ left: `${box.tailLeft}px` }}
           />
         )}
+        {/* ⚠️ ALWAYS rendered, even when it holds one line. It is what absorbs the card's
+            `max-height`; a conditionally-rendered scroller (the strip, in the first cut) leaves the
+            collapsed card with nothing able to shrink, so the content paints past the plate while
+            `offsetHeight` reports the clamped height `anchorCallout` places by. index.css carries
+            the full account. */}
+        <div className="wf-callout-body">
         <div className="wf-callout-head">
           <div className="wf-callout-title">
             <b>{location.name}</b>
@@ -448,10 +470,34 @@ export default function MapCallout({
           )}
         </div>
 
+        {/* Increment §1 — the clamped prose IS the route, not a dead end.
+            ⚠️ THE CLAMP LIVES ON THE INNER SPAN, never on the button. `-webkit-line-clamp` requires
+            `display: -webkit-box`, so putting it on the button would (a) be silently killed by any
+            later `display: block` rule in this stylesheet — which is how the clamp died once during
+            the design — and (b) clamp the `Four days here ›` caption away along with the prose. The
+            button stays `display: block` and unclamped; only `.wf-callout-reason-text` is a box.
+            The `⋯` the clamp leaves is now a promise the caption keeps. */}
         {reason && (
-          <p className="wf-callout-reason" data-testid="map-callout-reason">{reason}</p>
+          <button
+            type="button"
+            className="wf-callout-reason"
+            data-testid="map-callout-reason"
+            // The convention every other dialog-opener on this tab follows (`FiltersPopover`,
+            // `RegionsJump`, `MapLegendPanel`, `WindowFirstHeatStrip` — the last carries the comment
+            // "`aria-haspopup="dialog"` is the pattern for a control that opens one"). It matters
+            // more here than there: this control also takes the reader off the Map tab, and nothing
+            // in its name says so.
+            aria-haspopup="dialog"
+            onClick={() => onOpenInPlan?.()}
+          >
+            <span className="wf-callout-reason-text">{reason}</span>
+            <span className="wf-callout-reason-more" aria-hidden="true">Four days here ›</span>
+            {/* The caption is decorative to a screen reader — the accessible name below states the
+                destination in full, and "Four days here ›" read after a 90-word narrative names
+                nothing. The name opens with the place, which is what a speech-input user says. */}
+            <span className="sr-only">{`${location.name} — four days here`}</span>
+          </button>
         )}
-
         {facts.length > 0 && (
           <div className="wf-callout-facts" data-testid="map-callout-facts">
             {facts.map((fact) => (
@@ -540,6 +586,8 @@ export default function MapCallout({
           </div>
         )}
 
+        </div>
+
         <div className="wf-callout-actions">
           <button
             type="button"
@@ -551,6 +599,7 @@ export default function MapCallout({
           <button
             type="button"
             data-testid="map-callout-open-in-plan"
+            aria-haspopup="dialog"
             onClick={() => onOpenInPlan?.()}
           >
             Open in Plan

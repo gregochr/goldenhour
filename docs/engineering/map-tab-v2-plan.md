@@ -742,6 +742,74 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     SUNRISE/SUNSET and repeating it in the label text beside it would say the same fact twice. The
     pin tooltip (`MapView`) and the callout strip cell's own `title` attribute keep reading `label`
     unchanged, since neither sits beside a kind chip that would make the event word redundant.
+22. **§4 of the increment — the full-bleed width question — is NOT implemented, and that is the
+    increment's own answer.** It argues the map should keep the masthead's content column and then
+    says outright: "Product decision, not settled here." The shipped tab releases that constraint on
+    the Map tab alone (P7's recorded decision, `WindowFirstShell`'s own comment: "the wrap stays on
+    masthead + tab bar, only the panel region releases"), so implementing §4 would reverse a merged,
+    ledgered phase decision on a hint rather than a call. Left as an owner decision; the toolbar
+    toggle the bundle ships for comparing the two at real width lives in `Map Tab v2.html`, not here.
+23. **The increment's amber `outside your plan` badge is NOT adopted — this arm already fixed that
+    bug differently, and better-argued.** §2 of the increment prescribes
+    `border-color:rgba(224,165,66,.45); background:rgba(224,165,66,.11); color:#EFC377`, because in
+    the parallel panel it built the badge inherited no rule at all and "rendered as a third neutral
+    meta fact instead of a warning". Here the badge is `.wf-loc-out`, which has always had its own
+    rule, and that rule's own comment refuses amber on purpose: `--color-verdict-marginal` "would
+    read as a judgement on the forecast, which is the one thing this badge says nothing about". It
+    takes the arm's away/elsewhere ink instead (`#6FA8B0`, measured 5.26:1 on the composited head).
+    Verified live on a Scottish Borders location: it renders as a bordered, tinted pill reading
+    `outside your 3h area`, not a neutral fact. The increment's *defect* does not exist here; its
+    *fix* would reintroduce a semantic this arm deliberately rejected.
+24. **§2's "reused verbatim from the spec" list is 2 of 7 here, and the other five are refusals
+    this arm made before the increment existed (2026-09-04).** The increment lists seven things its
+    sheet takes from `design_handoff_plan_matrix` §3. Two hold ({@code ◎ BEST} tagged in place and
+    expanded by default; the 52px row grid). The rest were each decided against, in code, with
+    reasons: the kicker's **denominator** (`5 of 10 windows at 4★+`) is refused outright by
+    `locationSheet.leadLine` — plan-matrix M4's rule is `2 windows at 4★+` / `none at 4★+`, never
+    `1 OF 6`; the **lead paragraph as the largest type** is inverted here (`.wf-loc-lead` is a 9.5px
+    mono kicker under a 15.5px title) because the design's second lead line is the best window's
+    prose and the best row arrives expanded eight pixels below it; **≤2★ rows** are at `.8` not
+    `.62`, with four documented exclusions; the **card sizing** is a centred `Modal` at 880px rather
+    than `min(680px, 100% − 36px)` at `top: 20px`, so the two dialogs on this tab read as one shape;
+    and the **class vocabulary** is `.wf-sheet-*`/`.wf-loc-*`. None is a defect and none was
+    introduced by this increment — but the increment asks for them by name, so the divergence is
+    recorded here rather than left to be rediscovered.
+25. **The route LEAVES the Map tab, where the increment's z-index note implies a layer over it
+    (2026-09-04).** §2's one recorded adaptation is `z-index: 1700` "over everything, **without
+    closing what is underneath**". Here `Four days here ›` reuses `Open in Plan`, which requests a
+    tab change, so the map goes. Kept, for two reasons. The sheet's own footer carries
+    `◍ Show on map → …`, an action that only makes sense from somewhere the map is not — the sheet
+    was designed off-map. And mounting it over the map would give one dialog two hosts and force the
+    two-deep dialog-stack invariant (plan-matrix §6 M5) onto a third route. Revisit as **O-18** if
+    the owner wants the map kept underneath.
+26. **The reason button's accessible name is the whole narrative, and that is the spec's structure
+    (2026-09-04).** §1 is explicit that "the clamped prose *is* a button", with an HTML sketch
+    wrapping both prose and caption. Measured on the increment's own long fixture the resulting
+    accessible name is 399 characters / 72 words. An accessibility lens confirmed **2.5.3 passes**
+    (the visible caption is contained, in order) but flagged the ergonomics: VoiceOver treats a
+    button as atomic, so the prose can no longer be read in chunks; NVDA's element list carries a
+    400-character entry; Dragon cannot match it by label. The alternative — caption-as-button, prose
+    as a sibling `<p>` — has a four-word name and keeps the clamp, but abandons the spec's large
+    click target. Kept as specified, `aria-haspopup="dialog"` added (this tab's convention for a
+    control that opens one), and recorded as **O-19**.
+27. **The meta row's topics are not scope-intersected, where `windowFirstTopics.windowTopics` is
+    (2026-09-04).** A8's rule intersects a topic's served `regions` with the origin scope "because
+    `regions` means something different per strategy". `sheetMetaFacts` applies only the coastal
+    day-scoped filter, so the row can list a topic whose `regions` never contain this location's.
+    The map callout has always done the same, so the two agree — but the callout states topics
+    beside a window where this row sits under the place's name and reads as a property of it.
+    Low severity, no live report; recorded rather than fixed because the honest fix (intersecting)
+    would make the callout and the sheet disagree, which §2 forbids more strongly.
+
+28. **One increment string is reconciled to #748's house style rather than shipped verbatim
+    (2026-09-04).** §2's meta row specifies `Coastal · tide applies`. The plain-English copy pass
+    (#748) landed while this branch was open and its entire thesis is deleting that register from
+    customer-facing surfaces — *held back* → *not listed*, *drive from origin* → *drive time*,
+    *Field*/*Locations* → *Regions*/*Places*. "Applies" is the legalistic form that pass was written
+    to remove, so the row reads **`Coastal · the tide matters here`**. The increment's other two
+    strings are kept verbatim: `Dark sky N · dark` already matches `calloutFacts`' own wording (which
+    the pass did not touch), and `Four days here ›` is plain already. Easily reverted if the owner
+    prefers the literal spec.
 
 ## §5 Decisions taken in this plan (challenge in review, not in code)
 
@@ -804,6 +872,16 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   the panel is a strict superset, and leave the phone's shrunk key as its sole legend, or (b) give
   the phone a legend surface first (a `BottomSheet` variant of the panel, matching P12's Filters/
   Regions treatment) and only then retire the plain key everywhere.
+- **O-17** ✅ **CLOSED by #749 (2026-09-04).** It asked for a served per-location tide answer, so
+  the glyph would stop being one representative coastline's geometry asserted on every coastal chip.
+  #749 ships exactly that: `BriefingSlot.TideInfo` gains `tideOnTheLight` (plus the signed offset,
+  the extreme's kind and a formatted phrase), computed per slot at that location's own solar time
+  against `TideFactDeriver`'s dynamic half-width. The limitation this item existed to name no longer
+  exists.
+- **O-18** Whether `Four days here ›` should open the sheet OVER the map rather than switching to
+  the Plan tab (§4 #25).
+- **O-19** Whether the reason button should keep the spec's whole-prose target (a 399-character
+  accessible name) or move to caption-as-button with a four-word one (§4 #26).
 - **O-16** The exit for §4 #15 / CLAUDE.md's Backend-heavy fifth class: a served, RATED
   per-window or per-region night rollup for astro/aurora (comparable to a solar row's
   `BriefingWindow.bestRating`/`BriefingRegion.bestRating`) would retire `mapEvents.bestOfNight`

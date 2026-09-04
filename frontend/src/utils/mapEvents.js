@@ -80,6 +80,7 @@ export function bestOfNight(rows) {
   return best;
 }
 
+
 /**
  * A night row's pill/dropdown label — "Tonight", "Tomorrow night", "Thursday night" — mirroring
  * the design bundle's {@code evLabel} night branch, built from the app's own day-label vocabulary

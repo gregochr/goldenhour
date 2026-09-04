@@ -2,7 +2,6 @@ import { clamp } from './heatGeometry.js';
 import { leaveByParts } from './leaveBy.js';
 import { shortDow } from './locationSheet.js';
 import { formatDriveDuration } from './briefingDisplay.js';
-import { DAY_SCOPED_TOPIC_TYPES } from './windowFirstTopics.js';
 import { DARK_SKY_THRESHOLD } from './mapOverlay.js';
 
 /**
@@ -35,11 +34,34 @@ const BAND_EDGE_PAD = 8;
  * ceiling — a narrow chip beside the callout must never squeeze the band meant for actual bars like
  * the window control or the bottom sheet-rail.
  *
+ * <h2>⚠️ A bar may opt OUT of the width test, and one does</h2>
+ *
+ * <p>The width rule is a proxy for "is this real chrome or an incidental box", and it gets the
+ * counts footer wrong. <b>Measured on the running app at 375×633</b> (increment §1's own phone
+ * check): the footer measured <b>184px — 48.9% of the frame</b>, just under the threshold, so it
+ * was skipped, the band ran straight through it, and the callout painted over the counts line both
+ * collapsed and expanded. The increment's check 1 and the bundle's check 4 both say the callout
+ * never covers a control, and this is the control it covered.
+ *
+ * <p>⚠️ That 48.9% is a measurement of the string the footer printed at the time
+ * ({@code "16 named · 16 rated of 18"}, since shortened to {@code "16 of 18 shown"} by the
+ * plain-English copy pass, #748). The exact figure has therefore already moved — which is the
+ * strongest argument for the opt-out over a lower threshold: a rule tuned to a percentage is a rule
+ * that COPY can break, and this one cannot.
+ *
+ * <p>Lowering the threshold is the wrong fix — it would start counting Leaflet's own zoom+home
+ * corner, which is small chrome in a corner the card rarely reaches and which SHOULD be skipped, and
+ * the number would then be tuned against two opposing cases at once. So the footer opts out by name
+ * instead ({@code always: true}, set at its one call site in `MapCallout`), which states the fact
+ * the width test was standing in for: bottom-centred chrome the card must clear at any width. Every
+ * other bar keeps the width rule unchanged.
+ *
  * @param {object} args
  * @param {number} args.frameWidth  the map container's width, px
  * @param {number} args.frameHeight the map container's height, px
- * @param {Array<{top: number, bottom: number, width: number, height: number}>} args.bars live chrome
- *        rects, already relative to the container's own top-left corner
+ * @param {Array<{top: number, bottom: number, width: number, height: number, always: ?boolean}>}
+ *        args.bars live chrome rects, already relative to the container's own top-left corner.
+ *        {@code always} skips the width test for that bar alone
  * @returns {{top: number, bot: number}} the band, in the same container-relative px space
  */
 export function calloutBand({ frameWidth, frameHeight, bars }) {
@@ -47,7 +69,7 @@ export function calloutBand({ frameWidth, frameHeight, bars }) {
   let bot = frameHeight - BAND_EDGE_PAD;
   for (const bar of Array.isArray(bars) ? bars : []) {
     if (!bar || !(bar.width > 0) || !(bar.height > 0)) continue;
-    if (bar.width < frameWidth * 0.5) continue;
+    if (!bar.always && bar.width < frameWidth * 0.5) continue;
     if (bar.bottom < frameHeight * 0.5) {
       top = Math.max(top, bar.bottom + BAND_EDGE_PAD);
     } else {
@@ -167,77 +189,23 @@ export function isCoastalTidalLocation(location) {
 }
 
 /**
- * Topic tags filtered to the location (plan §3 P9: "tide topics only where {@code coastalTidal}
- * — reuse {@code windowFirstTopics}' type-map idiom"). Reuses {@link DAY_SCOPED_TOPIC_TYPES}
- * verbatim rather than authoring a second "which types are tide types" list — that module's own
- * warning against a fork applies here as much as it does to the window-scoped filter it was written
- * for.
+ * Topic tags filtered to the location.
  *
- * @param {Array<{type: ?string}>} badges the current window's served badges
- * @param {boolean} coastalTidal whether {@link isCoastalTidalLocation} holds for this location
- * @returns {Array<object>} the badges to show
+ * <p>⚠️ <b>Moved, not copied.</b> The location sheet's meta row needs the identical rule (increment
+ * §2), and `locationSheet.js` importing THIS module would close a cycle — `mapCallout` already
+ * imports `shortDow` from it. The implementation moved to `windowFirstTopics.js`, beside the
+ * {@code DAY_SCOPED_TOPIC_TYPES} set it has always read, which is where it belonged anyway. This
+ * re-export keeps the callout arm's own vocabulary and its existing importers intact.
  */
-export function filterCalloutTopics(badges, coastalTidal) {
-  return (Array.isArray(badges) ? badges : []).filter((badge) => {
-    const type = String(badge?.type || '').toUpperCase();
-    if (!DAY_SCOPED_TOPIC_TYPES.has(type)) return true;
-    return coastalTidal;
-  });
-}
+export { filterCalloutTopics } from './windowFirstTopics.js';
 
 /**
- * Each window's region gloss, keyed the way {@code locationSheet.buildSlotIndex} keys its own
- * per-window join — {@code date|targetType|regionName} — because the reason prose's fallback is a
- * REGION's gloss (plan §3 P9: "fallback: region gloss"), never a location's, and a region can carry
- * a different gloss on every window it appears in.
+ * The briefing's per-window region glosses.
  *
- * <p>⚠️ <b>Pre-existing bug, found by adversarial review against #737 (map-tab-v2-plan.md §3 P11)
- * and fixed in #739</b> (this note landed via #740, whose independent copy of the same fix
- * deduplicated away on rebase). This read {@code region?.name}/{@code region.name} since P9 — but
- * the served {@code BriefingRegion} record has no {@code name} field at all; its own field is
- * {@code regionName} (confirmed against every sibling join on this arm — `heatSpots.js`,
- * `windowFirstRegions.js` — which have always used the correct field). So every region read here was
- * {@code undefined}, the {@code !region?.name} guard skipped every region on every call, and this
- * index has been silently EMPTY against real data since it shipped: the callout's reason-prose
- * fallback ("fallback: region gloss") never actually supplied one. The bug was masked because
- * `mapCallout.test.js`'s own fixture used the identical wrong field (`{ name: … }`), so the suite
- * stayed green while the feature was dead — the fixture pre-satisfied its own (wrong) predicate
- * rather than exercising the served shape.
- *
- * @param {Array} days {@code briefing.days}
- * @returns {Map<string, {headline: ?string, detail: ?string}>}
+ * <p>⚠️ <b>Moved, not copied</b> — the third such move in this file, and for the third time the same
+ * reason: the location sheet needs this index too (it is the callout's prose FALLBACK, and without
+ * it the sheet can show less prose than the callout that routes into it), and `locationSheet.js`
+ * importing THIS module would close a cycle. The implementation lives in `utils/regionGloss.js`;
+ * these re-exports keep the callout arm's own vocabulary and its existing importers intact.
  */
-export function buildRegionGlossIndex(days) {
-  const index = new Map();
-  for (const day of Array.isArray(days) ? days : []) {
-    if (!day?.date) continue;
-    for (const summary of day.eventSummaries ?? []) {
-      if (!summary?.targetType) continue;
-      for (const region of summary.regions ?? []) {
-        if (!region?.regionName) continue;
-        const headline = region.glossHeadline || null;
-        const detail = region.glossDetail || null;
-        if (!headline && !detail) continue;
-        const key = `${day.date}|${summary.targetType}|${region.regionName}`;
-        if (!index.has(key)) index.set(key, { headline, detail });
-      }
-    }
-  }
-  return index;
-}
-
-/**
- * One region's gloss for one window, or null — the detail line preferred over the headline, since
- * the callout's reason prose is a sentence, not a heading.
- *
- * @param {?Map} index    from {@link buildRegionGlossIndex}
- * @param {string} date
- * @param {string} eventType SUNRISE or SUNSET — a night window has no region gloss to fall back to
- * @param {?string} regionName
- * @returns {?string} the gloss prose, or null
- */
-export function regionGlossFor(index, date, eventType, regionName) {
-  if (!index || !regionName) return null;
-  const entry = index.get(`${date}|${eventType}|${regionName}`);
-  return entry ? (entry.detail || entry.headline || null) : null;
-}
+export { buildRegionGlossIndex, regionGlossFor } from './regionGloss.js';

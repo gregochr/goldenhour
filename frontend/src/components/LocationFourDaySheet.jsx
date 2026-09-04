@@ -95,18 +95,23 @@ const DIM_AT_OR_BELOW = 2;
  *        record for, in which case the action is absent entirely
  * @param {Function} [props.onPlanFrom] moves the origin to that region. Its ABSENCE is what turns
  *        the action into a stated reason instead of a control
+ * @param {?object}  [props.location] this place's roster record, for the meta row the map's route
+ *        needs this sheet to carry (increment §2) and the per-row tide sentence (§3). Optional:
+ *        with no record the row is absent rather than blank
  */
 export default function LocationFourDaySheet({
   spot, windows, scoreIndex = null, slotIndex = null, scoresKnown = false, reachById = null,
   scopeRegionNames = null, origin = null, originLabel = null, todayStr = '', onClose, onShowOnMap,
-  planFrom = null, onPlanFrom = null, escapeEnabled = true,
+  planFrom = null, onPlanFrom = null, escapeEnabled = true, location = null,
+  focusWindowKey = null, regionGlossIndex = null,
 }) {
   const sheet = useMemo(
     () => buildLocationSheet(spot, windows, {
-      scoreIndex, slotIndex, scoresKnown, reachById, scopeRegionNames, origin, todayStr,
+      scoreIndex, slotIndex, scoresKnown, reachById, scopeRegionNames, origin, todayStr, location,
+      focusWindowKey, regionGlossIndex,
     }),
     [spot, windows, scoreIndex, slotIndex, scoresKnown, reachById, scopeRegionNames, origin,
-      todayStr],
+      todayStr, location, focusWindowKey, regionGlossIndex],
   );
 
   /**
@@ -127,7 +132,14 @@ export default function LocationFourDaySheet({
    */
   const [open, setOpen] = useState(() => new Set());
   const [seeded, setSeeded] = useState(false);
-  const seed = sheet.bestKey ?? sheet.rows.find((row) => row.rating != null)?.key ?? null;
+  // ⚠️ The window the reader ARRIVED on comes FIRST (increment §1). Coming from the map callout's
+  // clamped prose, the promise is "the rest of THIS narrative" — so the row carrying it must be the
+  // one that opens, not this location's own best. Null from every other entry point, which leaves
+  // the original best-then-first-rated seeding exactly as it was.
+  const seed = sheet.focusKey
+    ?? sheet.bestKey
+    ?? sheet.rows.find((row) => row.rating != null)?.key
+    ?? null;
   // Adjusted DURING the render — React's own "adjusting state when a prop changes" pattern, the
   // same one `PlanSearch` uses for its cursor. In an effect there would be one commit showing the
   // unseeded sheet.
@@ -220,6 +232,26 @@ export default function LocationFourDaySheet({
               expanded, so that paragraph would be the same sentence twice, 200px apart, on a card
               whose whole complaint about the old design was quality-said-four-times. Uppercasing is
               a `text-transform`, so the DOM text and the accessible reading stay sentence case. */}
+          {/* Increment §2's one addition: the facts that used to live ONLY on the map callout, so
+              the callout is a strict subset of this sheet and clicking through never shows less.
+
+              ⚠️ INSIDE the scroll container, not a fourth pinned band — two review lenses caught
+              the first cut, which put it between the head and `.wf-loc-rows`. `.wf-sheet-card` is
+              `max-height: calc(100dvh - 32px); overflow: hidden` with exactly one shrinkable child,
+              and this row wraps (so its min-content height grows with the number of facts). The
+              comment below records the identical defect from the lead line's own first cut: at
+              320x256 (400% zoom) head + band + footer exceeded the budget and the footer's map
+              action clipped with nothing able to scroll. It scrolls with the rows instead, which
+              costs it nothing — it is a property of the place, read once.
+
+              Absent, never blank, when no roster record was joined — the roster and the briefing
+              arrive over two fetches, so a sheet can legitimately open before the record does. */}
+          {sheet.meta.length > 0 && (
+            <div data-testid="location-sheet-meta-row" className="wf-loc-smeta font-mono">
+              {sheet.meta.map((m) => <span key={m.key}>{m.text}</span>)}
+            </div>
+          )}
+
           {sheet.lead && (
             <p data-testid="location-sheet-lead" className="wf-loc-lead font-mono">{sheet.lead}</p>
           )}
@@ -527,4 +559,22 @@ LocationFourDaySheet.propTypes = {
     reason: PropTypes.string,
   }),
   onPlanFrom: PropTypes.func,
+  /**
+   * This place's roster record — {@code locationType}, {@code bortleClass}, {@code tideType} — for
+   * the meta row and the per-row tide sentence (increment §2/§3). Optional and null-safe: a caller
+   * that has no roster to hand simply gets no meta row, which is the honest degrade rather than a
+   * row of blanks.
+   */
+  location: PropTypes.shape({
+    locationType: PropTypes.oneOfType([PropTypes.string, PropTypes.arrayOf(PropTypes.string)]),
+    bortleClass: PropTypes.number,
+    tideType: PropTypes.arrayOf(PropTypes.string),
+  }),
+  /**
+   * {@code date:targetType} of the window the reader arrived on — the map callout's route only.
+   * Opens that row and points the footer's map action back at it. Null everywhere else.
+   */
+  focusWindowKey: PropTypes.string,
+  /** From {@code regionGloss.buildRegionGlossIndex} — this sheet's prose fallback. */
+  regionGlossIndex: PropTypes.instanceOf(Map),
 };

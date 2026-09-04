@@ -17,6 +17,11 @@
   --color-plex-text: #F2E7D3;
   --color-plex-text-secondary: rgba(242, 231, 211, 0.66);
   --color-plex-text-muted: rgba(242, 231, 211, 0.42);
+  /* The ink a PANEL's recessive text takes (§6). Named rather than repeated at the two override
+     sites, so "the map's quiet ink" is one value and not two that can drift. Deliberately equal to
+     `--color-plex-text-secondary` today, which is the increment's own prescription ("= --ink-2"):
+     recessiveness inside a panel is opt-in from a rule that names its own colour, not a default. */
+  --color-panel-ink: rgba(242, 231, 211, 0.66);
 
   /* Masthead kicker only — the one coral in the system. The rule above (chrome is bone, never
      colour) holds everywhere a verdict could be read; the masthead is the one surface that
@@ -1035,6 +1040,39 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  /* ⚠️ ONE RULE, NOT A LIST OF SELECTORS (increment §6). Every panel inside the map frame defaults
+     to the passing ink; recession is opt-in from here, by a rule naming its own colour.
+
+     The bundle writes this as `#mapwrap { --ink-3: <--ink-2's value> }`; this arm's equivalent
+     token is `--color-plex-text-muted`, so the override is on that. MEASURED on this arm's own
+     grounds rather than assumed: bone at 0.42 composites to **3.53:1** on the window menu's plate,
+     **3.56:1** on the callout's — both under AA's 4.5:1 for the 9.5–11px type the map's panels are
+     set in — where 0.66 lands at **7.24:1** and **7.15:1**. Two live map-chrome uses were failing
+     at the 0.42 value: the window dropdown's `—` unscored marker and the callout strip cell's, both
+     of which are meaningful words ("nothing is scored here"), not decoration.
+
+     ⚠️ Scoped to `.wf-body--map` — the Map TAB's own wrapper — and NOT to `MapView`. The Plan-tab
+     overlay mounts the same component and is a deliberately frozen pre-v2 surface (CLAUDE.md's Map
+     tab bullet); a variable override reaching it would be an unasked-for change to a surface this
+     project has decided not to touch.
+
+     The increment names two exceptions to the same rule in the bundle (`.rg2`, `.ringlb` — bare
+     text over tiles with text-shadows, which must not compete with the field). This arm has no
+     counterpart today: its own over-tile labels (`.wf-maplab-*`) already set explicit colours and
+     never reach for the muted token, so no exception is carved. If one is ever needed, it belongs
+     in that rule's own declaration, not as a second selector list here. */
+  --color-plex-text-muted: var(--color-panel-ink);
+}
+/* ⚠️ AND the phone, which the first cut missed — a review lens caught it. On <=639px the two
+   panels §6 names by name, Filters and Regions, become `BottomSheet`s, and `BottomSheet` renders
+   through `createPortal(…, document.body)`. A portalled node is outside `.wf-body--map` in the DOM,
+   so it inherits nothing from the rule above: `.wf-filters-key` (five render sites),
+   `.wf-filters-admin-tag`, `.wf-jump-empty`, `.wf-jump-drive` and `.wf-jump-unscored` all kept the
+   failing 0.42 on the one screen where the type is smallest. "One rule, not a list of selectors"
+   has to mean the rendered PANEL, not the DOM subtree — so the sheet host carries the same
+   override, off the same token so the two can never drift. */
+[data-testid='bottom-sheet-root'] {
+  --color-plex-text-muted: var(--color-panel-ink);
 }
 @media (max-width: 639px) {
   /* One declaration moves every horizontal inset in the arm's chrome. */
@@ -3241,7 +3279,14 @@ button.wf-hc.also.on:hover {
   height: 8px;
   border-radius: 999px;
 }
-.wf-win-row-unscored { color: var(--color-plex-text-muted); }
+/* ⚠️ Its own colour, not the muted TOKEN. §6 sets muted == secondary inside a panel, and this
+   span sits inside `.wf-win-row-score`, which is already secondary — so reading the token made the
+   "nothing is scored here" dash the same ink as a real score (a review lens caught the flattening).
+   `--color-panel-ink` at 0.78 alpha over the menu's plate measures 5.0:1, still clearing AA at
+   10.5px while reading a step quieter than the text around it. Recessiveness inside a panel is
+   opt-in from a rule that names its own colour — which is exactly what the increment's §6 asks for
+   and what this is. */
+.wf-win-row-unscored { color: rgba(242, 231, 211, 0.52); }
 .wf-win-row-topics {
   font-size: 11px;
   min-width: 14px;
@@ -3886,7 +3931,8 @@ button.wf-hc.also.on:hover {
   height: 8px;
   border-radius: 999px;
 }
-.wf-jump-unscored { color: var(--color-plex-text-muted); }
+/* Its own colour, for the reason `.wf-win-row-unscored` records. */
+.wf-jump-unscored { color: rgba(242, 231, 211, 0.52); }
 
 /* ── Selection: the ring + the callout (map-tab-v2-plan.md §3 P9, README §7) ───────────────────
    Replaces the Leaflet popup and the mobile `BottomSheet` on this tab — "a popup covers exactly the
@@ -3935,6 +3981,41 @@ button.wf-hc.also.on:hover {
   gap: 8px;
   color: var(--color-plex-text);
   font-family: var(--font-sans);
+  /* ⚠️ `overflow: visible` and NOT `auto`, and it is not a preference: `.wf-callout-tail` is an
+     absolutely positioned child at `top: -6px` / `bottom: -6px`, i.e. deliberately OUTSIDE this box,
+     so any other `overflow` value clips the pointer off the card. The card takes a `max-height`
+     (inline — measured from the live chrome band every paint) and `.wf-callout-body` below is what
+     actually absorbs it.
+
+     ⚠️ THE SCROLL MUST NOT LIVE ON A CONDITIONALLY-RENDERED CHILD. It briefly lived on
+     `.wf-callout-strip`, which is only in the DOM while the "every window" strip is OPEN — so in
+     the default collapsed state nothing could shrink, `max-height` clamped the border box while
+     `overflow: visible` let the content paint straight past the plate, and `offsetHeight` (which
+     `anchorCallout` places the card by) returned the clamped height for a card that was drawing
+     taller. Three independent review lenses caught it; it re-created the very defect the ceiling was
+     added to fix. `.wf-callout-body` is unconditional, which is the whole point of it. */
+  overflow: visible;
+}
+/* `flex: none` on every direct child except the body. Without it a card at its ceiling shrinks all
+   of them proportionally and each overflows its own box — the head, the verdict and the actions all
+   clipping a few pixels rather than one region scrolling. */
+.wf-callout > * {
+  flex: none;
+}
+/* The one flexible child, and it is ALWAYS rendered. `flex: 1 1 auto` + `min-height: 0` lets a card
+   at its band ceiling squeeze this and only this; `overscroll-behavior` keeps a scroll that runs out
+   from panning the map underneath, which reads as the callout dragging the world with it. */
+.wf-callout-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.wf-callout-body > * {
+  flex: none;
 }
 /* The 11px rotated-square tail, clamped into the card (`anchorCallout`'s own `tailLeft`) — pointing
    down when the card sits BELOW the marker, up when it flips above. */
@@ -4026,19 +4107,71 @@ button.wf-hc.also.on:hover {
 }
 
 /* The reason line — Newsreader italic, the app's typographic mark for generated prose
-   (`.wf-loc-why`'s own comment), clamped to 3 lines (README §7 item 3). */
+   (`.wf-loc-why`'s own comment), clamped to 3 lines (README §7 item 3) and, since increment §1, a
+   BUTTON into the location sheet rather than a paragraph that stops at three dots.
+
+   ⚠️ THE CLAMP IS NOT ON THIS ELEMENT and must not be moved back onto it. `-webkit-line-clamp`
+   only works inside `display: -webkit-box`; a `display: block` later in this stylesheet (or a
+   utility class on the element) silently makes it inert, which is how the clamp died once during
+   the design. It would also clamp the caption away with the prose. The box lives on
+   `.wf-callout-reason-text` below; this element stays a plain block. */
 .wf-callout-reason {
+  display: block;
+  width: 100%;
   margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
   font-family: var(--font-serif);
   font-style: italic;
   font-size: 12.5px;
   line-height: 1.5;
   color: var(--color-plex-text-secondary);
+  cursor: pointer;
+}
+.wf-callout-reason:hover .wf-callout-reason-text,
+.wf-callout-reason:focus-visible .wf-callout-reason-text {
+  color: var(--color-plex-text);
+}
+/* ⚠️ GOLD, like the other 37 focus rings in this file — including `.wf-callout-strip-cell` and
+   `.wf-callout-actions button` in this very card. The first cut used `--color-tide` on the "actionable
+   accent" argument; two review lenses pointed out that argument is about TEXT, that the focus system
+   is gold 37 times over, and that teal is the token this same commit establishes as the tide channel
+   — a wave glyph in that exact colour sits twenty pixels below. A focus indicator must not carry a
+   semantic hue. */
+.wf-callout-reason:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+/* ⚠️ `user-select: text`. Firefox's UA stylesheet sets `-moz-user-select: none` on `button`, so
+   wrapping the narrative in one silently made it unselectable — no copy, no highlight-to-speak, no
+   dictionary lookup on the one piece of real prose the card carries. Scoped to the clamped text
+   rather than the button, so the caption stays unselectable and a drag that starts on the caption
+   still reads as a press. */
+.wf-callout-reason-text {
+  user-select: text;
+  -webkit-user-select: text;
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+/* The caption the clamp's `⋯` now promises. Mono and teal — this arm's actionable accent
+   (`.wf-lens-reset`'s own note: "teal is this arm's actionable accent as well as its tide hue"),
+   which is also what keeps it from reading as more of the narrative. Always visible, never only on
+   overflow: a JS overflow test would run before the fonts settle and the affordance would blink. */
+.wf-callout-reason-more {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  color: var(--color-badge-tide);
+}
+
 
 .wf-callout-facts {
   display: flex;
@@ -4125,12 +4258,15 @@ button.wf-hc.also.on:hover {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: 1px;
 }
+/* Bounded on its own, inside `.wf-callout-body`'s scroll. It does NOT own the card's squeeze — see
+   that rule's note for why a conditionally-rendered child cannot. */
 .wf-callout-strip {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 5px;
   max-height: 200px;
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
 .wf-callout-strip-cell {
   display: flex;
@@ -4172,7 +4308,8 @@ button.wf-hc.also.on:hover {
   height: 6px;
   border-radius: 999px;
 }
-.wf-callout-strip-score.unscored { color: var(--color-plex-text-muted); }
+/* Its own colour, for the reason `.wf-win-row-unscored` records. */
+.wf-callout-strip-score.unscored { color: rgba(242, 231, 211, 0.52); }
 
 .wf-callout-actions {
   display: flex;
@@ -4908,6 +5045,43 @@ button.wf-hc.also.on:hover {
   border-bottom: 1px solid var(--color-plex-border);
   flex-wrap: wrap;
 }
+/* The map's one added row (increment §2's `.smeta`) — subject tags, dark sky, coastal/tide and the
+   week's topics, directly under the header. `--color-plex-text-secondary` rather than the design's
+   `--ink-3`: this file has made that correction repeatedly (see `.wf-lens-reset` and the six
+   citations around it) — bone at 0.42 is 3.4–3.5:1 on these grounds and fails AA for the 10.5px
+   type this row is set in, while secondary clears it. `flex-wrap` because the row is a variable
+   number of facts and a place with four subjects plus three topics must wrap rather than truncate. */
+.wf-loc-smeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  /* The column gap IS the separator (see the note below), so it is wider than a decorative gap
+     would be — enough to read as a boundary beside facts that contain their own `·`. */
+  gap: 4px 18px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--color-plex-border);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+/* ⚠️ NO drawn separator, and two review lenses are why the first cut had one and this one does not.
+
+   The first cut used `content: '·'` in a `::before` on every span but the first, coloured
+   `--color-plex-text-muted`. Both halves were wrong:
+
+   1. **The colour.** That token is the one the comment above declares "3.4–3.5:1 … fails AA for the
+      10.5px type this row is set in". The sheet is a Modal outside `.wf-body--map`, so §6's override
+      never reached it and it resolved to the failing 0.42. ⚠️ The measured contrast sweep that
+      passed this file COULD NOT have caught it: `::before` content is not a DOM text node, so a
+      `SHOW_TEXT` TreeWalker never visits it. That blind spot is the reason this note exists.
+   2. **The wrap.** The row is `flex-wrap: wrap` by design (a place with four subjects plus three
+      topics must wrap), and a `::before` on every span but the first puts a DANGLING `·` at the
+      start of every wrapped line. `::after` on every span but the last has the mirror problem.
+      There is no adjacent-sibling selector that knows where a line breaks.
+
+   Neither is worth solving, because the separator should not exist: every fact already carries its
+   own internal `·` ("Dark sky 4 · dark", "Coastal · the tide matters here"), so a drawn dot of the same glyph
+   made four facts read as two. The column gap separates them, wraps correctly, and is announced as
+   nothing at all. */
 .wf-sheet-t {
   font-size: 15.5px;
   font-weight: 700;

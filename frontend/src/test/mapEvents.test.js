@@ -587,3 +587,4 @@ describe('solarHorizonDates', () => {
     expect(solarHorizonDates({ todayStr: TODAY })).toEqual([]);
   });
 });
+

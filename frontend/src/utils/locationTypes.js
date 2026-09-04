@@ -141,3 +141,23 @@ export function isSkyPromptCandidate(types) {
   if (list.length === 0) return true;
   return list.some((t) => SKY_SUBJECT_TYPES.includes(t));
 }
+
+/**
+ * A location's subject tags as display WORDS, in the catalogue's own declared order.
+ *
+ * <p>Deliberately not {@code locationTypeIcons}, whose own doc reserves it for "compact grid rows
+ * that have no room for a label": every caller here is prose — the map callout's subtitle
+ * ("Northumberland & Tyneside · Seascape") and the location sheet's meta row (increment §2) — where
+ * a row of icons has nothing to read them by.
+ *
+ * <p>Shared rather than duplicated because those two surfaces are one click apart and the sheet is
+ * required to be a strict superset of the callout: two orderings, or two label tables, would show
+ * the same place's subjects two ways across that click.
+ *
+ * @param {?string|?Array<string>} types the record's {@code locationType}
+ * @returns {string[]} the display words, or empty
+ */
+export function subjectWordsOf(types) {
+  const list = Array.isArray(types) ? types : (types == null ? [] : [types]);
+  return DISPLAY_TYPES.filter((t) => list.includes(t)).map((t) => locationTypeLabel(t));
+}

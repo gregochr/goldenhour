@@ -2483,6 +2483,23 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       id: selectedLoc.id ?? null,
       name: selectedLoc.name,
       regionName: selectedLoc.regionName ?? null,
+      /**
+       * ⚠️ The WINDOW the map is on, and it is load-bearing rather than a convenience.
+       *
+       * <p>Adversarial review, confirmed: without it the sheet seeds its expansion on its own
+       * BEST window (`buildLocationSheet`'s `bestKey`) and its footer's map action hands back the
+       * best-RATED one. So a reader on Tonight Sunset clicked a clamped narrative captioned
+       * `Four days here ›`, arrived, and found Tonight Sunset's prose behind a closed disclosure
+       * while Saturday's sat open — the three dots still leading nowhere without a second,
+       * unprompted click. That is the whole defect increment §1 exists to close, surviving the fix
+       * for it.
+       *
+       * <p>Solar only, deliberately: the sheet's rows ARE the solar windows, so an astro/aurora
+       * selection has no row to focus and falls back to today's seeding rather than naming a
+       * window the sheet does not contain.
+       */
+      date: activeMapEvent?.kind === EVENT_KIND.SOLAR ? activeMapEvent.date : null,
+      targetType: activeMapEvent?.kind === EVENT_KIND.SOLAR ? activeMapEvent.eventType : null,
     });
   }
 
