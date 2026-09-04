@@ -348,6 +348,12 @@ function fits(box, placed, frameWidth, frameHeight) {
  * @param {Function} [props.onOpenLocation] called with the clicked chip. Its ABSENCE is what keeps
  *   the chips inert annotations inside the `aria-hidden` layer; its presence turns every one of
  *   them into a named button. See the chip block's comment for why the two cannot be split.
+ * @param {Function} [props.onOpenInMap] Door 1 (`plan-to-map-doors-plan.md` §3 D4) — renders the
+ *   `◍ Open in map →` button top-right of the field when present, withheld otherwise. A SEPARATE
+ *   affordance from the field's own click gesture (region pick) and the bottom-left hint: two
+ *   meanings on one tap is how a reader loses the one they already learned. Seeded into the
+ *   placement pass as a `target: true` obstacle, measured from the live element — see the
+ *   placement effect's own note for the increment's defect this prevents.
  * @param {?number[]} [props.homePoint] {@code [lng, lat]}, or null with no postcode saved — the
  *   reach rings and home marker (field-geography plan §3). Rendered only on a home-origin view
  *   (see {@code hasHomeGeo}); an away origin frames a single region and home sits off-picture.
@@ -360,7 +366,7 @@ function fits(box, placed, frameWidth, frameHeight) {
 export default function WindowRowFieldMap({
   windowKey, date, confidence, spots, points, bestRating = null, regionNames, selectedRegion,
   origin = null, chips = EMPTY_CHIPS,
-  reachById, todayStr, onSelectRegion, onOpenLocation = null, homePoint = null,
+  reachById, todayStr, onSelectRegion, onOpenLocation = null, onOpenInMap = null, homePoint = null,
   reachMeasured = false, colourMode = null,
 }) {
   const isMobile = useIsMobile();
@@ -431,6 +437,8 @@ export default function WindowRowFieldMap({
   /** Candidate DOM nodes for the ring labels' and home marker's own two-pass measurement. */
   const ringLabelRefs = useRef(new Map());
   const homeLabelRef = useRef(null);
+  /** Door 1's own button — measured live and seeded as a placement obstacle, below. */
+  const openRef = useRef(null);
 
   /**
    * Whether the payload says nothing in this window is rated — the strip's mark, one level down.
@@ -661,6 +669,16 @@ export default function WindowRowFieldMap({
         HINT_BOX.width, HINT_BOX.height,
       ));
     }
+    // Door 1's own button — measured from the LIVE element, never a constant, so a copy change to
+    // the button cannot desync the seed (the increment's own defect: its prototype measured the
+    // CSS and drifted; here `HINT_BOX` above is the deliberate exception to that rule, for a fixed
+    // 9px string that cannot change — see its own doc block for why a control is different).
+    // `target: true` because this is a CONTROL, not a decoration: the 24px centre-separation test
+    // in `fits` must hold between this button and every chip, the same as it does between chips.
+    const ob = openRef.current;
+    if (ob && ob.offsetWidth > 0) {
+      boxes.push({ ...mkBox(ob.offsetLeft, ob.offsetTop, ob.offsetWidth, ob.offsetHeight), target: true });
+    }
 
     const ringBoxes = new Map();
     let homeBox = null;
@@ -745,7 +763,7 @@ export default function WindowRowFieldMap({
     // `placed` is read only as the guard on its own write; listing it would re-run this on that
     // write. `frame` is the identity that actually decides, and it is in the list.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [frame, chipCap, selectable, notScored, hasHomeGeo]);
+  }, [frame, chipCap, selectable, notScored, hasHomeGeo, Boolean(onOpenInMap)]);
 
   /**
    * The placements that belong to the frame currently on screen, or null while the placer has not
@@ -992,6 +1010,29 @@ export default function WindowRowFieldMap({
               })}
           </span>
         )}
+        {/* Door 1 (plan-to-map-doors-plan.md §3 D4) — a SEPARATE affordance from the click gesture
+            above and the hint below, top-right rather than bottom-left for exactly that reason.
+            Rendered only when the shell has somewhere to send it, the same withholding rule
+            `onOpenLocation`'s absence gives the chips. Seeded into the placement pass above as a
+            `target: true` obstacle — the increment's own defect was drawing this button without
+            seeding it, which covered a chip's rating in 4 of 6 windows; moving the button would
+            only have changed which one. */}
+        {typeof onOpenInMap === 'function' && (
+          <button
+            type="button"
+            data-testid="wf-row-map-open"
+            className="wf-mopen"
+            ref={openRef}
+            onClick={onOpenInMap}
+          >
+            {/* ⚠️ ONE text node, with only the `◍` hidden — `LocationFourDaySheet`'s own map button
+                records the accname trap: hiding the arrow too splits the label into two adjacent
+                text nodes with no element boundary between them, and name-from-contents trims and
+                joins them with nothing. */}
+            <span aria-hidden="true">◍ </span>
+            Open in map →
+          </button>
+        )}
         {selectable && (
           <span data-testid="wf-row-map-hint" className="wf-mhint" aria-hidden="true">
             {selectedRegion ? 'Select it again to clear' : 'Select a region'}
@@ -1046,6 +1087,8 @@ WindowRowFieldMap.propTypes = {
   todayStr: PropTypes.string.isRequired,
   onSelectRegion: PropTypes.func,
   onOpenLocation: PropTypes.func,
+  /** Door 1's `◍ Open in map →` button — absent renders no button. See the class doc's own note. */
+  onOpenInMap: PropTypes.func,
   /** {@code [lng, lat]}, or null with no postcode saved — see {@code hasHomeGeo}. */
   homePoint: PropTypes.arrayOf(PropTypes.number),
   /** Whether a real drive time gated the reach lens — {@code card.reachMeasured}, never re-derived. */

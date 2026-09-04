@@ -1727,6 +1727,18 @@ export default function WindowFirstShell({
             // beneath it can never open two different pages for one place.
             onOpenSpot={(card, spot) => openOverPopup({ spot: sheetSpotOf(spot) })}
             onOpenLocation={(chip) => openOverPopup({ spot: sheetSpotOf(chip) })}
+            // Door 1 (doors plan §3 D4) — withheld (undefined, not a no-op closure) exactly when
+            // there is no map door at all, so `WindowRowFieldMap` never renders the button rather
+            // than rendering one that closes the popup and lands nowhere. The region carried is the
+            // popup's OWN focus (`openField.selectedRegion`, already forced null under an away
+            // origin — see `openField`'s own note), never re-derived here.
+            onOpenInMap={onOpenMapTab
+              ? () => openMapTab({
+                date: openCard.date,
+                targetType: openCard.targetType,
+                region: openField.selectedRegion ?? null,
+              })
+              : undefined}
             onSeeAllSpots={sheetOffersMore(openCard, typesByName)
               ? (card) => openOverPopup({ sheetKey: card.key })
               : undefined}

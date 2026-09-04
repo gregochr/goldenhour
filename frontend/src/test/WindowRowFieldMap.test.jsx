@@ -1081,6 +1081,173 @@ describe('WindowRowFieldMap — the location chips', () => {
 });
 
 /**
+ * Door 1 — `◍ Open in map →` (`plan-to-map-doors-plan.md` §3 D4), the increment's own defect
+ * (`INCREMENT_plan_to_map_doors.md`, "The defect worth knowing about"): its prototype drew this
+ * button over the field's label layer without seeding it into the placer's obstacle array, and it
+ * covered a chip's rating in 4 of 6 windows. What is asserted here is the seed itself — that the
+ * button is measured from the LIVE element and blocks a chip exactly the way any other obstacle
+ * does — never the button's own CSS (browser-verified) or the placement arithmetic generally
+ * (covered above, for chips against chips and chips against labels).
+ */
+describe('WindowRowFieldMap — Door 1, seeded as a placement obstacle', () => {
+  /**
+   * Stubs the door button's own box to a SPECIFIC rect (`offsetLeft`/`offsetTop` included, not just
+   * width/height) — distinct from `withChipBoxes`, which stubs a uniform width/height for every
+   * `HTMLElement` and cannot place the button anywhere but the origin. Composed by testid rather
+   * than nesting two independent `Object.defineProperty` stacks on the same four properties, which
+   * would need the inner stub to delegate to the outer for every non-button element — one function
+   * that already knows both shapes is the simpler, less fragile version.
+   */
+  async function withDoorAndChipBoxes(doorRect, chipSize, run) {
+    const props = ['offsetLeft', 'offsetTop', 'offsetWidth', 'offsetHeight'];
+    const originals = {};
+    props.forEach((p) => { originals[p] = Object.getOwnPropertyDescriptor(HTMLElement.prototype, p); });
+    const isDoor = (el) => el?.dataset?.testid === 'wf-row-map-open';
+    Object.defineProperty(HTMLElement.prototype, 'offsetLeft', {
+      configurable: true, get() { return isDoor(this) ? doorRect.left : 0; },
+    });
+    Object.defineProperty(HTMLElement.prototype, 'offsetTop', {
+      configurable: true, get() { return isDoor(this) ? doorRect.top : 0; },
+    });
+    Object.defineProperty(HTMLElement.prototype, 'offsetWidth', {
+      configurable: true, get() { return isDoor(this) ? doorRect.width : chipSize.width; },
+    });
+    Object.defineProperty(HTMLElement.prototype, 'offsetHeight', {
+      configurable: true, get() { return isDoor(this) ? doorRect.height : chipSize.height; },
+    });
+    try {
+      return await run();
+    } finally {
+      props.forEach((p) => {
+        if (originals[p]) Object.defineProperty(HTMLElement.prototype, p, originals[p]);
+        else delete HTMLElement.prototype[p];
+      });
+    }
+  }
+
+  /**
+   * Two regions so the field stays `selectable` (the ordinary case), with each region's OTHER spot
+   * far enough away that its centroid cannot land anywhere near the chip under test — the same
+   * ballast idiom `CHIP_SPOTS`/`capSpots` use above. Under the stub projection
+   * ({@code [lng*10, lat*10]}) `DoorChip` lands at (340, 30).
+   */
+  const DOOR_SPOTS = [
+    spot({
+      id: 500, name: 'DoorChip', lng: 34, lat: 3, regionName: 'North', rid: 'North',
+    }),
+    spot({
+      id: 501, name: 'NorthBallast', lng: 4, lat: 40, regionName: 'North', rid: 'North',
+    }),
+    spot({
+      id: 502, name: 'South', lng: 4, lat: 3, regionName: 'South', rid: 'South',
+    }),
+  ];
+  const DOOR_CHIP = CHIP({ key: '500', locationId: 500, locationName: 'DoorChip' });
+
+  it('no prop → no button, and the chip lands exactly where it always has', async () => {
+    await withMeasuredMap(600, async () => {
+      await withChipBoxes(40, 14, async () => {
+        await renderMap({
+          spots: DOOR_SPOTS, regionNames: ['North', 'South'], chips: [DOOR_CHIP],
+        });
+      });
+    });
+    expect(screen.queryByTestId('wf-row-map-open')).toBeNull();
+    // DoorChip projects to (340, 30); the unflipped candidate is offset by CHIP_OFFSET (5.5) and
+    // centred vertically on the chip's own 14px-tall stub box.
+    expect(screen.getByTestId('wf-row-map-chip')).toHaveStyle({ left: '334.5px', top: '23px' });
+  });
+
+  it('with the prop, a button seeded over BOTH of a chip’s candidate positions drops it — never overlapping', async () => {
+    const onOpenInMap = vi.fn();
+    // Spans x[290,400] / y[10,50] — wide and tall enough to cover the chip's unflipped box
+    // (x[334.5,374.5], y[23,37]) AND its flipped one (x[305.5,345.5], same y), so the placer cannot
+    // rescue the chip by trying the other side.
+    await withMeasuredMap(600, async () => {
+      await withDoorAndChipBoxes(
+        { left: 290, top: 10, width: 110, height: 40 },
+        { width: 40, height: 14 },
+        async () => {
+          await renderMap({
+            spots: DOOR_SPOTS, regionNames: ['North', 'South'], chips: [DOOR_CHIP], onOpenInMap,
+          });
+        },
+      );
+    });
+    expect(screen.getByTestId('wf-row-map-open')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-row-map-chip')).toBeNull();
+  });
+
+  it('⚠️ drops a chip within 24px of the button’s CENTRE even where the two boxes do not overlap — the target flag', async () => {
+    // A second fixture, positioned so BOX_GAP's overlap test never fires (edges ≥3px apart on both
+    // candidates) and only MIN_TARGET_SEPARATION_PX can be what drops it — the same distinction
+    // `⚠️ measures the 24px separation against CHIPS only, never a region label` draws above, run
+    // against the door instead of a second chip.
+    const TARGET_SPOTS = [
+      spot({
+        id: 600, name: 'TargetChip', lng: 40, lat: 5, regionName: 'North', rid: 'North',
+      }),
+      spot({
+        id: 601, name: 'NorthBallast', lng: 4, lat: 60, regionName: 'North', rid: 'North',
+      }),
+      spot({
+        id: 602, name: 'South', lng: 4, lat: 5, regionName: 'South', rid: 'South',
+      }),
+    ];
+    const targetChip = CHIP({ key: '600', locationId: 600, locationName: 'TargetChip' });
+    // TargetChip projects to (400, 50); its unflipped 6×6 box is x[394.5,400.5] / y[47,53], centre
+    // (397.5, 50). The door's own 6×6 box sits at x[404,410] / y[47,53], centre (407, 50) — 3.5px
+    // clear of the chip's right edge (past BOX_GAP) but only 9.5px between centres (under 24).
+    const doorRect = {
+      left: 404, top: 47, width: 6, height: 6,
+    };
+
+    // Contrast case: the identical geometry with NO door at all — proves the drop below is the
+    // target rule's doing, not some other collision (frame edge, a region label) this fixture
+    // happens to trigger.
+    await withMeasuredMap(600, async () => {
+      await withChipBoxes(6, 6, async () => {
+        await renderMap({
+          spots: TARGET_SPOTS, regionNames: ['North', 'South'], chips: [targetChip],
+        });
+      });
+    });
+    expect(screen.getByTestId('wf-row-map-chip')).toHaveStyle({ left: '394.5px', top: '47px' });
+    cleanup();
+
+    const onOpenInMap = vi.fn();
+    await withMeasuredMap(600, async () => {
+      await withDoorAndChipBoxes(doorRect, { width: 6, height: 6 }, async () => {
+        await renderMap({
+          spots: TARGET_SPOTS, regionNames: ['North', 'South'], chips: [targetChip], onOpenInMap,
+        });
+      });
+    });
+    expect(screen.getByTestId('wf-row-map-open')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-row-map-chip')).toBeNull();
+  });
+
+  it('has the exact accessible name "Open in map →", with ◍ hidden', async () => {
+    const onOpenInMap = vi.fn();
+    await withMeasuredMap(600, async () => {
+      await renderMap({ onOpenInMap });
+    });
+    const button = screen.getByTestId('wf-row-map-open');
+    expect(button).toHaveAccessibleName('Open in map →');
+    expect(button.querySelector('[aria-hidden="true"]')).toHaveTextContent('◍');
+  });
+
+  it('calls onOpenInMap on click', async () => {
+    const onOpenInMap = vi.fn();
+    await withMeasuredMap(600, async () => {
+      await renderMap({ onOpenInMap });
+    });
+    fireEvent.click(screen.getByTestId('wf-row-map-open'));
+    expect(onOpenInMap).toHaveBeenCalledTimes(1);
+  });
+});
+
+/**
  * Reach rings + home marker (field-geography plan §3, radii re-authored to miles at §5.2).
  *
  * <h2>⚠️ The suite's default ×10 stub cannot exercise ring geometry</h2>

@@ -126,11 +126,14 @@ function chipTitle(spot) {
  * @param {Function} [props.onOpenSpot]     a ranked spot card was chosen
  * @param {Function} [props.onOpenLocation] a field chip was chosen. Absent leaves the chips as
  *                   inert, `aria-hidden` annotations — see {@code WindowRowFieldMap}
+ * @param {Function} [props.onOpenInMap] Door 1 (`plan-to-map-doors-plan.md` §3 D4) — passed
+ *                   straight through to {@code WindowRowFieldMap}'s own prop of the same name.
+ *                   Absent renders no button, the same withholding rule {@code onOpenLocation} has.
  */
 export default function WindowSheetDialog({
   card, index, total, field, topicIndex, scopeNames, todayStr,
   escapeEnabled = true, peeksSuppressed = false,
-  onClose, onStep, onOpenSpot, onOpenLocation, onSeeAllSpots, onOpenPick, scoreIndex,
+  onClose, onStep, onOpenSpot, onOpenLocation, onOpenInMap, onSeeAllSpots, onOpenPick, scoreIndex,
   colourMode = null,
 }) {
   const windowLabel = [card.kicker, card.when].filter(Boolean).join(' ');
@@ -533,6 +536,7 @@ export default function WindowSheetDialog({
               // annotation or a control. Undefined when the shell offers no sheet, which keeps the
               // layer inert rather than shipping eight names that do nothing.
               onOpenLocation={onOpenLocation}
+              onOpenInMap={onOpenInMap}
               homePoint={homePoint}
               // Field-geography plan §5.2: the ring labels' distance-vs-duration choice reads the
               // SAME `card.reachMeasured` the header/footer/strip already do — never re-derived.
@@ -695,6 +699,7 @@ WindowSheetDialog.propTypes = {
   onStep: PropTypes.func,
   onOpenSpot: PropTypes.func,
   onOpenLocation: PropTypes.func,
+  onOpenInMap: PropTypes.func,
   onSeeAllSpots: PropTypes.func,
   onOpenPick: PropTypes.func,
   scoreIndex: PropTypes.instanceOf(Map),

@@ -842,6 +842,30 @@ describe('WindowSheetDialog — the field can never name a spot the list has exc
 });
 
 /**
+ * Door 1 (`plan-to-map-doors-plan.md` §3 D4) — `onOpenInMap` is a straight pass-through to
+ * {@code WindowRowFieldMap}, so what only THIS file can be wrong about is that the prop actually
+ * REACHES the field rather than being dropped by the dialog somewhere on the way. The button's own
+ * CSS, its seed and its accessible name are `WindowRowFieldMap.test.jsx`'s own suite.
+ */
+describe('WindowSheetDialog — Door 1 (onOpenInMap passthrough)', () => {
+  it('reaches the field map, which renders the button', () => {
+    const onOpenInMap = vi.fn();
+    withMeasured(() => {
+      renderDialog({ onOpenInMap });
+      fireEvent.click(screen.getByTestId('wf-row-map-open'));
+    });
+    expect(onOpenInMap).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders no button when onOpenInMap is absent — the same withholding rule onOpenLocation has', () => {
+    withMeasured(() => {
+      renderDialog();
+      expect(screen.queryByTestId('wf-row-map-open')).toBeNull();
+    });
+  });
+});
+
+/**
  * The field's own home point (field-geography plan §3.1) — `WindowRowFieldMap` owns the actual
  * ring/marker rendering and its arithmetic ({@code WindowRowFieldMap.test.jsx}); what only THIS
  * file can be wrong about is the shape conversion and the gating this dialog is responsible for.

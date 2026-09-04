@@ -2170,6 +2170,50 @@ button.wf-hc.also.on:hover {
   padding: 3px 6px;
   border-radius: 5px;
 }
+/* Door 1 — `◍ Open in map →`, top-right of the field (doors plan §3 D4, `Plan Tab with Heat
+   v5.html:371–373`). Top-right rather than alongside `.wf-mhint`'s bottom-left corner, because the
+   field's own click gesture (region pick) and its hint both live along the bottom — a door placed
+   there would read as part of that.
+
+   ⚠️ `line-height: 1.2` is explicit against `.wf-mapbox`'s inherited `0` — the same pairing
+   `.wf-mlab span`/`button.wf-mchip` document from the same cause; without it the plate paints a few
+   pixels tall behind the button's own text.
+
+   Seeded into the placement pass as a `target: true` obstacle, measured from the LIVE element —
+   see `WindowRowFieldMap.jsx`'s placement effect. The increment's own defect: its prototype drew
+   this button without seeding it, and it covered a chip's rating in 4 of 6 windows. */
+.wf-mopen {
+  position: absolute;
+  right: 7px;
+  top: 7px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  line-height: 1.2;
+  color: #EBD9A8;
+  background: rgba(20, 15, 12, 0.86);
+  border: 1px solid color-mix(in srgb, var(--color-home) 42%, transparent);
+  border-radius: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+  backdrop-filter: blur(4px);
+}
+.wf-mopen:hover {
+  background: color-mix(in srgb, var(--color-home) 22%, transparent);
+  border-color: color-mix(in srgb, var(--color-home) 70%, transparent);
+}
+/* Inset, not offset — the same reasoning `button.wf-mchip:focus-visible` states for the identical
+   shape: `.wf-mapbox` clips overflow (`overflow: hidden`, a 9px radius), and an outward ring here
+   would lose its outer stroke against the frame's top-right corner. */
+.wf-mopen:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
+@media (max-width: 639px) {
+  .wf-mopen {
+    padding: 7px 10px;
+    font-size: 10px;
+  }
+}
 
 .wf-rlab {
   font-family: var(--font-mono);
