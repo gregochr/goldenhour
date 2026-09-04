@@ -494,7 +494,7 @@ describe('WindowFirstComingUp — recurring conditions strip (plan §7 P4)', () 
     cadence: 'deterministic',
     interim: false,
     rateLabel: 'a run every 14.8 days · fixed by the ephemeris',
-    quantLabel: 'rarity 3.9 · 7 runs in 90 days',
+    quantLabel: 'occasional · 7 runs in 90 days',
     peak: null,
     occurrences: [],
   };

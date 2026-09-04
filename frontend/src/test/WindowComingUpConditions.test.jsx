@@ -10,7 +10,7 @@ const condition = (over = {}) => ({
   cadence: 'deterministic',
   interim: false,
   rateLabel: 'a run every 14.8 days · fixed by the ephemeris',
-  quantLabel: 'occasional (3.9) · 7 runs in 90 days · typical run 4.7 m, top 10% reach 5.0 m',
+  quantLabel: 'occasional · 7 runs in 90 days · typical run 4.7 m, top 10% reach 5.0 m',
   peak: { dateLabel: '26 Nov', valueLabel: '5.2 m', bits: 9.0 },
   occurrences: [],
   ...over,
@@ -235,7 +235,7 @@ describe('WindowComingUpConditions — the strip', () => {
 
     const row = screen.getByRole('button', {
       name: 'Coastal tides deterministic a run every 14.8 days · fixed by the ephemeris '
-        + 'peak 26 Nov · 5.2 m — very rare occasional (3.9) · 7 runs in 90 days · '
+        + 'peak 26 Nov · 5.2 m — very rare occasional · 7 runs in 90 days · '
         + 'typical run 4.7 m, top 10% reach 5.0 m',
     });
     expect(row).toBeInTheDocument();
