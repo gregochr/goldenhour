@@ -212,6 +212,22 @@ describe('MapCallout — header and verdict', () => {
     expect(worthItInk).not.toBe('');
   });
 
+  it('the verdict line reads the day-only dayLabel, not the raw label the kind chip would repeat', async () => {
+    await mount({ event: { ...SUNSET_EVENT, label: 'Tonight sunset', dayLabel: 'Tonight' } });
+    const verdict = screen.getByTestId('map-callout-verdict');
+    expect(verdict).toHaveTextContent('Tonight · 21:10');
+    // The kind chip's own "Sunset" word is a SEPARATE element (`.wf-hc-sun`), so this asserts on
+    // the label span specifically rather than the whole row's flattened text.
+    expect(verdict.querySelector('.wf-callout-verdict-label')).toHaveTextContent('Tonight · 21:10');
+  });
+
+  it('falls back to label when an event predates dayLabel', async () => {
+    // eslint-disable-next-line no-unused-vars -- destructured only to omit it from `noDayLabel`
+    const { dayLabel, ...noDayLabel } = SUNSET_EVENT;
+    await mount({ event: noDayLabel });
+    expect(screen.getByTestId('map-callout-verdict')).toHaveTextContent('Tonight sunset · 21:10');
+  });
+
   it('renders subject tags as WORDS in the header subtitle, never the compact-row icon glyphs', async () => {
     await mount({ location: { ...LOCATION, locationType: ['SEASCAPE', 'WILDLIFE'] } });
     const sub = screen.getByTestId('map-callout').querySelector('.wf-callout-sub');
@@ -323,6 +339,37 @@ describe('MapCallout — facts row (reachMeasured discipline)', () => {
   it('shows dark-sky with the "· dark" suffix at or below the threshold', async () => {
     await mount({ driveMinutes: null });
     expect(screen.getByTestId('map-callout-facts')).toHaveTextContent('3 · dark');
+  });
+});
+
+describe('MapCallout — the tide-alignment row (bundle rev 2\'s tide-chip tweak)', () => {
+  let restore;
+  beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
+  afterEach(() => restore());
+
+  const ALIGNED = { onTheLight: true, phrase: 'HW 19:52 · 36m before sunset' };
+
+  it('renders the row — glyph, bold heading, and the phrase — only when onTheLight is true', async () => {
+    await mount({ tideOnLight: ALIGNED });
+    const row = screen.getByTestId('map-callout-tide');
+    expect(row).toHaveTextContent('Tide lands on the light');
+    expect(row).toHaveTextContent('HW 19:52 · 36m before sunset');
+    expect(row.querySelector('svg')).toBeTruthy();
+  });
+
+  it('omits the row entirely when the tide is not on the light — never a "no alignment" line', async () => {
+    await mount({ tideOnLight: { onTheLight: false, phrase: 'LW 22:10 · 3h18 after sunset' } });
+    expect(screen.queryByTestId('map-callout-tide')).toBeNull();
+  });
+
+  it('omits the row when no tideOnLight fact is supplied at all (an inland location)', async () => {
+    await mount({ tideOnLight: null });
+    expect(screen.queryByTestId('map-callout-tide')).toBeNull();
+  });
+
+  it('omits the row when onTheLight is true but no phrase exists — never a heading with nothing under it', async () => {
+    await mount({ tideOnLight: { onTheLight: true, phrase: null } });
+    expect(screen.queryByTestId('map-callout-tide')).toBeNull();
   });
 });
 
@@ -442,6 +489,38 @@ describe('MapCallout — the every-window strip', () => {
     expect(cells[2]).toHaveTextContent('RISE');
   });
 
+  it('a strip cell\'s visible text is dayLabel, but its title keeps the FULL label (no kind chip on the title)', async () => {
+    const rowsWithDayLabel = [
+      { ...SUNSET_EVENT, dayLabel: 'Tonight' },
+      { ...ASTRO_EVENT },
+      {
+        id: 'solar:2026-06-16:SUNRISE',
+        kind: 'solar',
+        eventType: 'SUNRISE',
+        date: '2026-06-16',
+        label: 'Tomorrow sunrise',
+        dayLabel: 'Tomorrow',
+        time: '04:40',
+        badges: [],
+      },
+    ];
+    await mount({ evRows: rowsWithDayLabel });
+    fireEvent.click(screen.getByTestId('map-callout-strip-toggle'));
+    const cells = screen.getAllByTestId('map-callout-strip-cell');
+    expect(cells[0].querySelector('.wf-callout-strip-date')).toHaveTextContent('Tonight');
+    expect(cells[0]).not.toHaveTextContent('Tonight sunset');
+    expect(cells[0]).toHaveAttribute('title', 'Tonight sunset · 21:10');
+    expect(cells[2].querySelector('.wf-callout-strip-date')).toHaveTextContent('Tomorrow');
+    expect(cells[2]).toHaveAttribute('title', 'Tomorrow sunrise · 04:40');
+  });
+
+  it('a strip cell falls back to label when its row predates dayLabel', async () => {
+    await mount({ evRows });
+    fireEvent.click(screen.getByTestId('map-callout-strip-toggle'));
+    const cells = screen.getAllByTestId('map-callout-strip-cell');
+    expect(cells[0].querySelector('.wf-callout-strip-date')).toHaveTextContent('Tonight sunset');
+  });
+
   it('selecting a cell calls onSelectEv with that row, switching the window', async () => {
     const onSelectEv = vi.fn();
     await mount({ evRows, onSelectEv });
@@ -529,6 +608,36 @@ describe('MapCallout — anchoring lifecycle', () => {
   it('renders nothing with no location selected', async () => {
     const { container } = await mount({ location: null });
     expect(container.textContent).toBe('');
+  });
+
+  it('re-measures the anchor when the ACTIVE EVENT changes, even though location/map do not (regression: adversarial review on the tide-chip PR)', async () => {
+    // The bug this pins: switching between an unaligned and an aligned window toggles the tide
+    // row's presence, changing the card's own rendered height — but `location` and `map` are
+    // unchanged, so neither `paint`'s identity nor `stripOpen` moved, and the anchor box stayed
+    // sized for the PREVIOUS window until an unrelated pan/zoom forced a re-measure. The fix keys
+    // the repaint effect on `event?.id` too, the same way it already keys on `stripOpen` — proven
+    // here by counting calls to the one `map.*` read `paint()` always makes,
+    // `latLngToContainerPoint`, since jsdom's faked `offsetHeight` (from `withMeasuredCard`) is a
+    // constant and cannot itself show the resulting box move.
+    const OTHER_EVENT = { ...SUNSET_EVENT, id: 'solar:2026-06-16:SUNSET', date: '2026-06-16' };
+    const { rerender } = await mount({
+      event: SUNSET_EVENT, tideOnLight: { onTheLight: false, phrase: null },
+    });
+    const paintSpy = vi.spyOn(currentMap, 'latLngToContainerPoint');
+    const callsBeforeSwitch = paintSpy.mock.calls.length;
+
+    await act(async () => {
+      rerender(
+        <MapCallout
+          location={LOCATION}
+          event={OTHER_EVENT}
+          rating={4}
+          tideOnLight={{ onTheLight: true, phrase: 'HW 19:52 · 36m before sunset' }}
+        />,
+      );
+    });
+
+    expect(paintSpy.mock.calls.length).toBeGreaterThan(callsBeforeSwitch);
   });
 });
 

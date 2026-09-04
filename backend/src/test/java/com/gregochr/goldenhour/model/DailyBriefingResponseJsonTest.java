@@ -4,9 +4,11 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import com.gregochr.goldenhour.entity.LunarTideType;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -312,6 +314,95 @@ class DailyBriefingResponseJsonTest {
         assertThat(node.get("differsBy")).hasSize(2);
         assertThat(node.get("differsBy").get(0).asText()).isEqualTo("DATE");
         assertThat(node.get("differsBy").get(1).asText()).isEqualTo("EVENT");
+    }
+
+    // ── map-tab tide-on-the-light fields (bundle rev 2) ─────────────────────────
+    //
+    // The wire shape these four fields ride on was bet on but unpinned by any serialisation
+    // test: @JsonUnwrapped puts them flat on the slot (never nested under "tide"), @JsonInclude
+    // NON_NULL omits them for an inland location, and a payload cached before they existed must
+    // still deserialise. All three are load-bearing for the map tab's tide-alignment glyph.
+
+    @Test
+    @DisplayName("populated tide-on-the-light fields land FLAT on the slot JSON, never nested under \"tide\"")
+    void serialize_populatedTideOnTheLight_fieldsFlatOnSlot() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        BriefingSlot.TideInfo tide = new BriefingSlot.TideInfo(
+                "HIGH", true, LocalDateTime.of(2026, 4, 22, 19, 45), new BigDecimal("4.8"),
+                false, false, LunarTideType.REGULAR_TIDE, "Waxing gibbous", false,
+                25, "HW", true, "HW 20:20 · 25m after sunset");
+        BriefingSlot slot = new BriefingSlot(7L, "Bamburgh",
+                LocalDateTime.of(2026, 4, 22, 19, 55), Verdict.GO,
+                null, tide, List.of("Clear"), null);
+
+        String json = mapper.writeValueAsString(slot);
+        JsonNode node = mapper.readTree(json);
+
+        assertThat(node.has("tide"))
+                .as("TideInfo is @JsonUnwrapped — it must never appear as a nested object")
+                .isFalse();
+        assertThat(node.get("nearestSolarOffsetMinutes").asInt()).isEqualTo(25);
+        assertThat(node.get("nearestExtremeKind").asText()).isEqualTo("HW");
+        assertThat(node.get("tideOnTheLight").asBoolean()).isTrue();
+        assertThat(node.get("nearestSolarOffsetPhrase").asText())
+                .isEqualTo("HW 20:20 · 25m after sunset");
+
+        BriefingSlot restored = mapper.readValue(json, BriefingSlot.class);
+        assertThat(restored.tide().nearestSolarOffsetMinutes()).isEqualTo(25);
+        assertThat(restored.tide().nearestExtremeKind()).isEqualTo("HW");
+        assertThat(restored.tide().tideOnTheLight()).isTrue();
+        assertThat(restored.tide().nearestSolarOffsetPhrase())
+                .isEqualTo("HW 20:20 · 25m after sunset");
+    }
+
+    @Test
+    @DisplayName("inland slot: the four tide-on-the-light fields are OMITTED via NON_NULL, not written null")
+    void serialize_inlandSlot_tideOnTheLightFieldsOmitted() throws Exception {
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        BriefingSlot slot = new BriefingSlot("Derwent Valley",
+                LocalDateTime.of(2026, 4, 22, 19, 55), Verdict.GO,
+                null, BriefingSlot.TideInfo.NONE, List.of(), null);
+
+        JsonNode node = mapper.readTree(mapper.writeValueAsString(slot));
+
+        assertThat(node.has("nearestSolarOffsetMinutes")).isFalse();
+        assertThat(node.has("nearestExtremeKind")).isFalse();
+        assertThat(node.has("tideOnTheLight")).isFalse();
+        assertThat(node.has("nearestSolarOffsetPhrase")).isFalse();
+    }
+
+    @Test
+    @DisplayName("a legacy cached slot (nine tide fields, no tide-on-the-light fields) deserialises to nulls")
+    void deserialize_legacyTidePayload_tideOnTheLightFieldsNull() throws Exception {
+        // daily_briefing_cache holds payloads written before this phase shipped — nine tide
+        // fields present, the four new ones absent entirely (not null-valued: ABSENT).
+        ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
+        String legacy = """
+                {
+                  "locationName": "Bamburgh",
+                  "solarEventTime": "2026-04-22T19:55:00",
+                  "verdict": "GO",
+                  "flags": [],
+                  "tideState": "HIGH",
+                  "tideAligned": true,
+                  "nearestHighTideTime": "2026-04-22T19:45:00",
+                  "nearestHighTideHeight": 4.8,
+                  "heightAboveP95": false,
+                  "heightAboveSpringThreshold": false,
+                  "lunarTideType": "REGULAR_TIDE",
+                  "lunarPhase": "Waxing gibbous",
+                  "moonAtPerigee": false
+                }
+                """;
+
+        BriefingSlot slot = mapper.readValue(legacy, BriefingSlot.class);
+
+        assertThat(slot.tide().tideState()).isEqualTo("HIGH");
+        assertThat(slot.tide().tideAligned()).isTrue();
+        assertThat(slot.tide().nearestSolarOffsetMinutes()).isNull();
+        assertThat(slot.tide().nearestExtremeKind()).isNull();
+        assertThat(slot.tide().tideOnTheLight()).isNull();
+        assertThat(slot.tide().nearestSolarOffsetPhrase()).isNull();
     }
 
     // ── helpers ───────────────────────────────────────────────────────────────

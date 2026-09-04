@@ -429,6 +429,53 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     expect(chip.querySelector('.wf-maplab-chip-r')).toBeNull();
   });
 
+  describe('the tide-alignment glyph (bundle rev 2)', () => {
+    it('renders the glyph, the data-tide ring attribute, and extends the aria-label when this window\'s water is on the light', async () => {
+      restoreMeasure = withMeasuredLabels(50, 14);
+      currentMap = makeFullMap({ zoom: 13 });
+      await mount({
+        spots: [{
+          name: 'Bamburgh', lat: 55.6, lng: -1.7, rid: 'North East', rating: 5, onTheLight: true,
+        }],
+      });
+      await act(async () => { runFrames(); });
+      const chip = document.querySelector('[data-testid="map-label-chip"]');
+      expect(chip).toHaveAttribute('data-tide', 'true');
+      expect(chip.querySelector('[data-testid="map-label-chip-tide"]')).toBeTruthy();
+      // Extends the star announcement rather than replacing it (aria-label REPLACES rendered
+      // content, so the glyph's meaning has to be spelled out here for a screen-reader user).
+      expect(chip).toHaveAttribute('aria-label', 'Bamburgh, 5 star, tide on the light');
+    });
+
+    it('renders no glyph, no data-tide attribute, when this window\'s water is not on the light', async () => {
+      restoreMeasure = withMeasuredLabels(50, 14);
+      currentMap = makeFullMap({ zoom: 13 });
+      await mount({
+        spots: [{
+          name: 'Bamburgh', lat: 55.6, lng: -1.7, rid: 'North East', rating: 5, onTheLight: false,
+        }],
+      });
+      await act(async () => { runFrames(); });
+      const chip = document.querySelector('[data-testid="map-label-chip"]');
+      expect(chip).not.toHaveAttribute('data-tide');
+      expect(chip.querySelector('[data-testid="map-label-chip-tide"]')).toBeNull();
+      expect(chip).toHaveAttribute('aria-label', 'Bamburgh, 5 star');
+    });
+
+    it('extends an UNRATED chip\'s aria-label with tide-on-the-light too — the two clauses are independent', async () => {
+      restoreMeasure = withMeasuredLabels(50, 14);
+      currentMap = makeFullMap({ zoom: 13 });
+      await mount({
+        spots: [{
+          name: 'Alnmouth', lat: 55.4, lng: -1.6, rid: 'North East', rating: null, onTheLight: true,
+        }],
+      });
+      await act(async () => { runFrames(); });
+      const chip = document.querySelector('[data-testid="map-label-chip"]');
+      expect(chip).toHaveAttribute('aria-label', 'Alnmouth, tide on the light');
+    });
+  });
+
   it('hover shows the tooltip with name, event, rating+verdict, and region · drive · sky Bortle', async () => {
     restoreMeasure = withMeasuredLabels(50, 14);
     currentMap = makeFullMap({ zoom: 13 });
@@ -447,6 +494,51 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     expect(tip).toHaveTextContent('sky 4');
     fireEvent.mouseLeave(chip);
     expect(document.querySelector('[data-testid="map-label-tip"]')).toBeNull();
+  });
+
+  it('adds a third, teal-inked line — "Tide lands on the light — <phrase>" — only when this window\'s water is on the light', async () => {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    await mount({
+      spots: [{
+        name: 'Bamburgh',
+        lat: 55.6,
+        lng: -1.7,
+        rid: 'North East',
+        rating: 5,
+        onTheLight: true,
+        nearestSolarOffsetPhrase: 'HW 19:52 · 36m before sunset',
+      }],
+    });
+    await act(async () => { runFrames(); });
+    const chip = document.querySelector('[data-testid="map-label-chip"]');
+    fireEvent.mouseEnter(chip);
+    const tideLine = document.querySelector('[data-testid="map-label-tip-tide"]');
+    expect(tideLine).not.toBeNull();
+    expect(tideLine).toHaveTextContent('Tide lands on the light — HW 19:52 · 36m before sunset');
+    expect(tideLine).toHaveClass('wf-maplab-tip-t');
+  });
+
+  it('adds no tide line when this window\'s water is NOT on the light, even with a phrase carried', async () => {
+    // Defensive: the gate is `onTheLight`, never mere phrase presence — the raw index carries a
+    // phrase whenever any extreme was found nearby, regardless of alignment.
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeFullMap({ zoom: 13 });
+    await mount({
+      spots: [{
+        name: 'Bamburgh',
+        lat: 55.6,
+        lng: -1.7,
+        rid: 'North East',
+        rating: 5,
+        onTheLight: false,
+        nearestSolarOffsetPhrase: 'LW 22:10 · 3h18 after sunset',
+      }],
+    });
+    await act(async () => { runFrames(); });
+    const chip = document.querySelector('[data-testid="map-label-chip"]');
+    fireEvent.mouseEnter(chip);
+    expect(document.querySelector('[data-testid="map-label-tip-tide"]')).toBeNull();
   });
 
   it('omits the drive segment from the tooltip when this location has no measured drive time', async () => {

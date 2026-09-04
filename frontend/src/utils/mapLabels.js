@@ -234,16 +234,20 @@ export function ringLabelItems({
  * "Density ramps with zoom"; the selected location's own guarantee is folded in here too, per the
  * priority-order paragraph: "the selected location always gets its chip").
  *
- * <p>Sorted best score first, then nearest (missing values sort last in both — README: "so when
- * space runs out it is always the weakest names that go"). The best-in-region candidate for EVERY
- * region is always included, from the FULL {@code spots} list, not the in-view subset — "a named
- * region always contains a named destination." The in-view subset is then capped at
- * {@link chipBudget}. Identity is the location NAME (this catalogue's stable join key —
- * {@code utils/heatSpots.js}'s own convention), so a duplicate spot object can never appear twice.
+ * <p>Sorted best score first, then TIDE ALIGNMENT, then nearest (missing values sort last in every
+ * tier — README: "so when space runs out it is always the weakest names that go"). Among equal
+ * stars, the location whose tide lands on the light for THIS window is the one worth the drive, so
+ * it is also the one that keeps its label when space runs out (bundle rev 2's tide-chip tweak,
+ * mirroring {@code map-tab-v2.js}'s own {@code tideFit(b,e)?1:0)-(tideFit(a,e)?1:0)} rule). The
+ * best-in-region candidate for EVERY region is always included, from the FULL {@code spots} list,
+ * not the in-view subset — "a named region always contains a named destination." The in-view
+ * subset is then capped at {@link chipBudget}. Identity is the location NAME (this catalogue's
+ * stable join key — {@code utils/heatSpots.js}'s own convention), so a duplicate spot object can
+ * never appear twice.
  *
  * @param {object} args
  * @param {Array<object>} args.spots the filtered pool (every field {@code chipCandidates} reads:
- *        {@code name, rid, rating, driveMinutes})
+ *        {@code name, rid, rating, onTheLight, driveMinutes})
  * @param {?Set<string>} [args.inViewNames] names currently inside the map's bounds. Null/undefined
  *        treats every spot as in view (a caller with no bounds yet, e.g. before the first
  *        {@code moveend}) — the safe direction is to offer more candidates, never fewer, since the
@@ -261,6 +265,9 @@ export function chipCandidates({
     const ra = Number.isFinite(a.rating) ? a.rating : -Infinity;
     const rb = Number.isFinite(b.rating) ? b.rating : -Infinity;
     if (rb !== ra) return rb - ra;
+    const ta = a.onTheLight ? 1 : 0;
+    const tb = b.onTheLight ? 1 : 0;
+    if (tb !== ta) return tb - ta;
     const da = Number.isFinite(a.driveMinutes) ? a.driveMinutes : Infinity;
     const db = Number.isFinite(b.driveMinutes) ? b.driveMinutes : Infinity;
     return da - db;

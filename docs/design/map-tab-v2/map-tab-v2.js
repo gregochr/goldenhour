@@ -66,7 +66,43 @@ WINS.forEach((w,i)=>{
   nightN++;
  }
 });
-const evLabel=e=>e.k==='solar'?(WINS[e.wi].lbl||WINS[e.wi].when)
+/* ── tide alignment ──────────────────────────────────────────────────────────
+   The tide is a fact about the WINDOW, uniform along this coast — but it only pays off at a
+   coastal location, and only when high or low water actually lands near the light. So the
+   offset is parsed out of the tide copy the app already writes ("HW 19:52 · 36m before
+   sunset") and a location is "aligned" only if it is coastal AND that offset is tight.
+
+   That makes it the tiebreaker the map was missing: two 4★ locations are not equal when one
+   of them has low water on the light and the other is a wall on a hill. */
+const TIDE_TIGHT=45;                                 // minutes either side of the light
+function tideOf(w){
+ if(!w||!w.tide)return null;
+ const f=w.tide.f||'';
+ const st=f.match(/<b>(?:(\d+)h)?(\d+)m?\s*(before|after)/);
+ if(!st)return null;
+ const mins=(+(st[1]||0))*60+(+(st[2]||0));
+ const kind=/\bLW\b/.test(f)?'LW':'HW';
+ const seg=f.split('|')[1]||'';
+ return{mins,kind,rel:st[3],tight:mins<=TIDE_TIGHT,
+  txt:seg.replace(/<[^>]+>/g,'').trim(),
+  state:(f.split('|')[0]||'').replace(/<[^>]+>/g,'').trim()};
+}
+/* aligned for a LOCATION under an EVENT: coastal, solar, and a tight window */
+function tideFit(s,e){
+ if(!s.coast||e.k!=='solar')return null;
+ const t=tideOf(WINS[e.wi]);
+ return t&&t.tight?t:null;
+}
+const TIDEGLYPH='<svg class="tw" viewBox="0 0 14 8" aria-hidden="true">'
+ +'<path d="M0.6 5.6C3 5.6 3 2.4 5.4 2.4S7.8 5.6 10.2 5.6 12.6 2.4 13.4 2.4" '
+ +'fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+
+/* The kind chip already says SUNRISE or SUNSET, so the label must not say it again —
+   "SUNSET Sunday sunset 19:46" states the same fact twice in one pill. Strip a trailing
+   sunrise/sunset from the day label and let the chip carry the kind. Falls back to the full
+   label if stripping would leave nothing (a window labelled only "Sunset"). */
+const dayOnly=s=>{const t=String(s).replace(/\s*\b(sunrise|sunset)\b\s*$/i,'').trim();return t||s};
+const evLabel=e=>e.k==='solar'?dayOnly(WINS[e.wi].lbl||WINS[e.wi].when)
  :(e.dn===WINS[0].dn?'Tonight':e.dow.charAt(0)+e.dow.slice(1).toLowerCase()+' night');
 const evKind=e=>e.k==='solar'?(e.am?'am':'pm'):e.k;
 
@@ -262,7 +298,11 @@ function drawLabels(){
  /* then the locations themselves — a square on the point, the name, and this event's rating.
     Best first, so when space runs out it is the weak ones that go. The selected location
     always gets its chip, because it is the thing being answered. */
- const named=sp.filter(s=>s.named).sort((a,b)=>scoreOf(b,e)-scoreOf(a,e)||a.min-b.min);
+ /* score first, then TIDE ALIGNMENT, then drive: among equal stars the one whose tide lands
+    on the light is the one worth the drive, so it is also the one that keeps its label when
+    space runs out. */
+ const named=sp.filter(s=>s.named).sort((a,b)=>
+  scoreOf(b,e)-scoreOf(a,e)||(tideFit(b,e)?1:0)-(tideFit(a,e)?1:0)||a.min-b.min);
  /* Density ramps with zoom over what is actually in view, rather than stepping from "one per
     region" straight to "all of them": thirty names over a field is a legend, but two names
     across a county is a map that has stopped answering. The best location in each region is
@@ -278,10 +318,13 @@ function drawLabels(){
  else if(sel)shown.splice(shown.indexOf(sel),1),shown.unshift(sel);
  place(shown.map(s=>{
   const p=map.latLngToContainerPoint([s.lat,s.lng]),v=scoreOf(s,e),c=ramp(v);
-  const el=mk('loc'+(S.spot===s.n?' on':''),
-   `<i style="background:${rgb(c)}"></i><b>${esc(s.n)}</b><em>${v}★</em>`);
+  const tf=tideFit(s,e);
+  const el=mk('loc'+(S.spot===s.n?' on':'')+(tf?' td':''),
+   `<i style="background:${rgb(c)}"></i><b>${esc(s.n)}</b>${tf?TIDEGLYPH:''}<em>${v}★</em>`);
   el.addEventListener('click',ee=>{ee.stopPropagation();openSpot(s)});
-  bindTip(el,s.n,`${esc(evLabel(e))} · <b>${v}★</b> ${vWord(v)}<br>${esc(PLAN.name[s.rid])} · ${fmtDrive(s.min)} · sky ${s.bortle.toFixed(1)}`);
+  bindTip(el,s.n,`${esc(evLabel(e))} · <b>${v}★</b> ${vWord(v)}`
+   +(tf?`<br><span class="tt">Tide lands on the light — ${esc(tf.txt)}</span>`:'')
+   +`<br>${esc(PLAN.name[s.rid])} · ${fmtDrive(s.min)} · sky ${s.bortle.toFixed(1)}`);
   return{el,x:p.x,y:p.y-1};
  }),w,h,boxes);
 }
@@ -345,7 +388,7 @@ function openSpot(s){
 function clearSpot(){S.spot=null;S.strip=false;cal.classList.remove('on');selmk.classList.remove('on');renderNow()}
 function buildCal(s){
  s=s||SPOTS.find(x=>x.n===S.spot);if(!s)return;
- const e=ev(),v=scoreOf(s,e),c=ramp(v);
+ const e=ev(),v=scoreOf(s,e),c=ramp(v),tf=tideFit(s,e);
  const why=e.k==='solar'?(PLAN.WHY[s.n]||{})[e.wi]||e.lead:e.lead;
  const leave=m2hm(hm2m(e.time)-s.min-PLAN.SETUP);
  const tps=(e.k==='solar'?(WTOPICS[WINS[e.wi].id]||[]):[])
@@ -363,6 +406,7 @@ function buildCal(s){
   +`<div class="cv2" style="border-color:${rgb(c,.5)};background:${rgb(c,.1)}">`
   +`<span class="cvk ${evKind(e)}">${e.name}</span><span class="cvl">${esc(evLabel(e))} · ${e.time}</span>`
   +`<span class="cvs" style="background:${rgb(c)};color:${HeatField.ink(c)}">${v}★ ${vWord(v)}</span></div>`
+  +(tf?`<div class="ctide">${TIDEGLYPH}<span><b>Tide lands on the light</b>${esc(tf.state)} · ${esc(tf.txt)}</span></div>`:'')
   +(why?`<p class="cw">${why}</p>`:'')
   +`<div class="cfacts"><span><i>Drive</i>${fmtDrive(s.min)} · ${s.mi} mi</span>`
   +`<span><i>Leave by</i>${leave}</span><span><i>Dark sky</i>${s.bortle.toFixed(1)}${s.dark?' · dark':''}</span></div>`
@@ -553,7 +597,7 @@ document.addEventListener('keydown',e=>{
 });
 
 /* ── viewport switch ─────────────────────────────────────────────────────────── */
-[['bD',''],['bP','pad'],['bM','mob']].forEach(([id,cls])=>{
+[['bD',''],['bF','full'],['bP','pad'],['bM','mob']].forEach(([id,cls])=>{
  $(id).onclick=()=>{
   $('wrap').className='wrap'+(cls?' '+cls:'');
   document.querySelectorAll('.demobar button').forEach(b=>b.classList.toggle('on',b.id===id));

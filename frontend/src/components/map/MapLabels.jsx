@@ -485,6 +485,14 @@ export default function MapLabels({
       {frame.chips.map(({ spot }) => {
         const key = `chip:${spot.name}`;
         const hasRating = Number.isFinite(spot.rating);
+        const onTheLight = Boolean(spot.onTheLight);
+        // Extends the rating announcement rather than replacing it — an aria-label REPLACES the
+        // rendered text entirely, so the glyph's own meaning has to be spelled out here or a
+        // screen-reader user never hears it at all.
+        const ariaLabel = [
+          hasRating ? `${spot.name}, ${spot.rating} star` : spot.name,
+          onTheLight ? 'tide on the light' : null,
+        ].filter(Boolean).join(', ');
         return (
           <button
             key={spot.name}
@@ -496,8 +504,9 @@ export default function MapLabels({
             className="wf-maplab-chip"
             data-testid="map-label-chip"
             data-selected={selectedName === spot.name ? 'true' : undefined}
+            data-tide={onTheLight ? 'true' : undefined}
             style={styleFor(key)}
-            aria-label={hasRating ? `${spot.name}, ${spot.rating} star` : spot.name}
+            aria-label={ariaLabel}
             onClick={() => onSelect?.(spot.name)}
             onMouseEnter={(e) => showTip(spot, e)}
             onMouseMove={positionTip}
@@ -508,6 +517,24 @@ export default function MapLabels({
               style={{ background: hasRating ? rampHex(spot.rating) : 'var(--color-plex-border-light)' }}
             />
             <b className="wf-maplab-chip-n">{spot.name}</b>
+            {onTheLight && (
+              // A glyph, not a second number (bundle rev 2's tide-chip tweak) — this window's
+              // tide lands on the light here. The path is the design bundle's TIDEGLYPH verbatim.
+              <svg
+                className="wf-maplab-chip-tw"
+                viewBox="0 0 14 8"
+                aria-hidden="true"
+                data-testid="map-label-chip-tide"
+              >
+                <path
+                  d="M0.6 5.6C3 5.6 3 2.4 5.4 2.4S7.8 5.6 10.2 5.6 12.6 2.4 13.4 2.4"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                />
+              </svg>
+            )}
             {hasRating && <em className="wf-maplab-chip-r">{spot.rating}★</em>}
           </button>
         );
@@ -548,6 +575,14 @@ export default function MapLabels({
           hover.bortleClass != null ? `sky ${hover.bortleClass}` : null,
         ].filter(Boolean).join(' · ')}
       </div>
+      {hover.onTheLight && hover.nearestSolarOffsetPhrase && (
+        // A third line, teal-inked (`.wf-maplab-tip-t`, `--color-badge-tide` — measured 9.68:1,
+        // never the raw bundle hex nor `--color-tide`, which is for borders/accents) — only when
+        // this window's water actually lands on the light (bundle rev 2's tide-chip tweak).
+        <div className="wf-maplab-tip-s wf-maplab-tip-t" data-testid="map-label-tip-tide">
+          {`Tide lands on the light — ${hover.nearestSolarOffsetPhrase}`}
+        </div>
+      )}
     </div>,
     chromeRoot,
   );
@@ -569,6 +604,15 @@ MapLabels.propTypes = {
     rating: PropTypes.number,
     bortleClass: PropTypes.number,
     driveMinutes: PropTypes.number,
+    /** `PinsLayer`'s stand-down/no-data distinction — carried on every spot but read only by a
+     * caller that draws pins alongside chips; untyped until now (`MapView.jsx`'s `spotOf` always
+     * sets it). */
+    isStandDown: PropTypes.bool,
+    /** Bundle rev 2's tide-chip tweak — true when THIS window's water lands on the light here. */
+    onTheLight: PropTypes.bool,
+    /** The formatted "HW 19:52 · 36m before sunset" phrase, or null — only meaningful (and only
+     * rendered) alongside `onTheLight: true`. */
+    nearestSolarOffsetPhrase: PropTypes.string,
   })).isRequired,
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
   rings: PropTypes.bool,

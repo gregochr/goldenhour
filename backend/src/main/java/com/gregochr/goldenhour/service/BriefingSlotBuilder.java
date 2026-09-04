@@ -199,7 +199,9 @@ public class BriefingSlotBuilder {
                 tideResult.nearestHighTime(), tideResult.nearestHighHeight(),
                 tideResult.heightAboveP95(), tideResult.heightAboveSpringThreshold(),
                 tideResult.lunarTideType(), tideResult.lunarPhase(),
-                tideResult.moonAtPerigee());
+                tideResult.moonAtPerigee(), tideResult.nearestSolarOffsetMinutes(),
+                tideResult.nearestExtremeKind(), tideResult.tideOnTheLight(),
+                tideResult.nearestSolarOffsetPhrase());
 
         return new BriefingSlot(loc.getId(), loc.getName(), solarTime, verdict, weather,
                 tideInfo, flags,
@@ -238,14 +240,46 @@ public class BriefingSlotBuilder {
 
     /**
      * Intermediate result of tide data calculation for a coastal location.
+     *
+     * @param nearestSolarOffsetMinutes signed minutes from the solar event to whichever tide
+     *                                  extreme (high or low) lands nearest it — tide minus light,
+     *                                  positive when the water comes after the sun — or null when
+     *                                  no extreme of either kind was found near this event. See
+     *                                  {@link #nearestTideEitherKind}
+     * @param nearestExtremeKind        {@code "HW"} or {@code "LW"} for whichever extreme
+     *                                  {@code nearestSolarOffsetMinutes} names, or null
+     * @param tideOnTheLight            true when that nearest extreme falls inside
+     *                                  {@link TideFactDeriver}'s dynamic tight alignment window for
+     *                                  this location, date and event; null when no extreme was
+     *                                  found. Deliberately not {@code tideAligned}, which tests the
+     *                                  location's configured {@code TideType} preference — a
+     *                                  different question (CLAUDE.md's tide-axis rule)
+     * @param nearestSolarOffsetPhrase  the same fact in words, e.g. {@code "HW 19:52 · 36m before
+     *                                  sunset"}, built from {@link TideWording} so the map tab never
+     *                                  formats a tide clock time itself; null alongside the three
+     *                                  fields above
      */
     record TideResult(String tideState, boolean tideAligned,
             LocalDateTime nearestHighTime, BigDecimal nearestHighHeight,
             boolean heightAboveP95, boolean heightAboveSpringThreshold,
-            LunarTideType lunarTideType, String lunarPhase, Boolean moonAtPerigee) {
+            LunarTideType lunarTideType, String lunarPhase, Boolean moonAtPerigee,
+            Integer nearestSolarOffsetMinutes, String nearestExtremeKind, Boolean tideOnTheLight,
+            String nearestSolarOffsetPhrase) {
 
         static final TideResult NONE =
-                new TideResult(null, false, null, null, false, false, null, null, null);
+                new TideResult(null, false, null, null, false, false, null, null, null,
+                        null, null, null, null);
+    }
+
+    /**
+     * The tide extreme (of either kind) sitting closest to a solar event, paired with its signed
+     * offset in minutes.
+     *
+     * @param kind           {@code "HW"} or {@code "LW"}
+     * @param offsetMinutes  signed minutes from the event to this extreme (positive = after)
+     * @param time           the extreme's own UTC time, kept for the earlier-wins tie-break
+     */
+    private record NearestTide(String kind, int offsetMinutes, LocalDateTime time) {
     }
 
     /**
@@ -280,9 +314,68 @@ public class BriefingSlotBuilder {
             heightAboveSpringThreshold = d.heightAboveSpringThreshold();
         }
 
+        // Map tab tide-alignment glyph/tiebreaker: the nearest extreme of EITHER kind vs the
+        // light, type-blind on purpose — matching TideRunBuilder.waterInTheLight's shape. Never
+        // tideAligned above, which is gated on this location's configured TideType PREFERENCE, a
+        // different question (CLAUDE.md's tide-axis rule: "never OR the height test / preference
+        // test into an astronomical one").
+        Integer nearestOffsetMinutes = null;
+        String nearestKind = null;
+        Boolean tideOnTheLight = null;
+        String nearestOffsetPhrase = null;
+        NearestTide nearest = nearestTideEitherKind(
+                d.nearestHighTideTime(), d.nearestLowTideTime(), solarTime);
+        if (nearest != null) {
+            nearestOffsetMinutes = nearest.offsetMinutes();
+            nearestKind = nearest.kind();
+            long tightWindowMinutes = tideFactDeriver.tightAlignmentWindowMinutes(
+                    loc.getLat(), loc.getLon(), solarTime, eventType);
+            tideOnTheLight = Math.abs(nearest.offsetMinutes()) <= tightWindowMinutes;
+            String solarWord = eventType == TargetType.SUNRISE ? "sunrise" : "sunset";
+            nearestOffsetPhrase = nearestKind + " "
+                    + TideWording.clock(TideWording.londonMinutesOfDay(nearest.time()))
+                    + " · " + TideWording.offsetPhrase(nearestOffsetMinutes, solarWord);
+        }
+
         return new TideResult(d.tideState().name(), d.tideAligned(), d.nearestHighTideTime(),
                 d.nextHighTideHeightMetres(), heightAboveP95, heightAboveSpringThreshold,
-                d.lunarTideType(), d.lunarPhase(), d.moonAtPerigee());
+                d.lunarTideType(), d.lunarPhase(), d.moonAtPerigee(),
+                nearestOffsetMinutes, nearestKind, tideOnTheLight, nearestOffsetPhrase);
+    }
+
+    /**
+     * The extreme of EITHER kind sitting closest to a solar event.
+     *
+     * <p>Ties break toward the earlier water, not toward a type — the same rule
+     * {@code TideRunBuilder.nearestSolar} uses, so two surfaces asking "which water is nearest"
+     * cannot disagree on a tie.
+     *
+     * @param highTime  the nearest HIGH extreme to the event (within the ±12h search window
+     *                  {@link TideService#buildTideData} already applied), or null if none found
+     * @param lowTime   the nearest LOW extreme to the event, or null if none found
+     * @param eventTime the solar event, UTC
+     * @return the nearer of the two, or null when neither a high nor a low extreme was found
+     */
+    private static NearestTide nearestTideEitherKind(LocalDateTime highTime, LocalDateTime lowTime,
+            LocalDateTime eventTime) {
+        NearestTide high = highTime == null ? null
+                : new NearestTide("HW",
+                        (int) ChronoUnit.MINUTES.between(eventTime, highTime), highTime);
+        NearestTide low = lowTime == null ? null
+                : new NearestTide("LW",
+                        (int) ChronoUnit.MINUTES.between(eventTime, lowTime), lowTime);
+        if (high == null) {
+            return low;
+        }
+        if (low == null) {
+            return high;
+        }
+        long highAbs = Math.abs(high.offsetMinutes());
+        long lowAbs = Math.abs(low.offsetMinutes());
+        if (highAbs != lowAbs) {
+            return highAbs < lowAbs ? high : low;
+        }
+        return high.time().isBefore(low.time()) ? high : low;
     }
 
     /**

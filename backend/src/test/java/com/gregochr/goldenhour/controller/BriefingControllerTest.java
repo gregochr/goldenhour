@@ -50,7 +50,16 @@ class BriefingControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.days[0].eventSummaries[0].targetType").value("SUNSET"))
                 .andExpect(jsonPath("$.days[0].eventSummaries[0].regions[0].regionName")
                         .value("Lake District"))
-                .andExpect(jsonPath("$.days[0].eventSummaries[0].regions[0].verdict").value("GO"));
+                .andExpect(jsonPath("$.days[0].eventSummaries[0].regions[0].verdict").value("GO"))
+                // The map-tab tide-on-the-light fields land FLAT on the slot through the REAL
+                // Jackson 3 response chain (@JsonUnwrapped survives the Jackson 2 -> 3 boundary;
+                // DailyBriefingResponseJsonTest only proves the hand-built Jackson 2 mapper).
+                .andExpect(jsonPath(
+                        "$.days[0].eventSummaries[0].regions[0].slots[0].tideOnTheLight")
+                        .value(true))
+                .andExpect(jsonPath(
+                        "$.days[0].eventSummaries[0].regions[0].slots[0].nearestSolarOffsetPhrase")
+                        .value("HW 19:00 · 30m after sunset"));
     }
 
     @Test
@@ -231,9 +240,15 @@ class BriefingControllerTest extends AbstractControllerTest {
                 LocalDateTime.of(2026, 3, 25, 18, 30), Verdict.GO,
                 new BriefingSlot.WeatherConditions(15, BigDecimal.ZERO, 20000, 65,
                         10.5, 8.0, 1, new BigDecimal("3.2"), 0, 0),
+                // 13-arg constructor (not the 9-arg legacy overload) — this fixture must exercise
+                // the map-tab tide-on-the-light fields through the REAL Spring MVC / Jackson 3
+                // response chain, which the model-level DailyBriefingResponseJsonTest (a hand-built
+                // Jackson 2 ObjectMapper) cannot prove on its own (CLAUDE.md's two-object-graphs
+                // warning). HW 19:00 is 30 minutes after the 18:30 sunset.
                 new BriefingSlot.TideInfo("HIGH", true,
                         LocalDateTime.of(2026, 3, 25, 19, 0), new BigDecimal("1.5"),
-                        false, false, null, null, null),
+                        false, false, null, null, null,
+                        30, "HW", true, "HW 19:00 · 30m after sunset"),
                 List.of("Tide aligned"), null);
 
         // Use the 13-arg convenience constructor with scoredLocationCount=1 so

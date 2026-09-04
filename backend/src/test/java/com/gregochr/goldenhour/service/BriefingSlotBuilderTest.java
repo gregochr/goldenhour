@@ -346,6 +346,180 @@ class BriefingSlotBuilderTest {
         }
     }
 
+    /**
+     * The map tab's tide-alignment glyph and label-budget tiebreaker: {@code TideInfo}'s
+     * type-blind "nearest extreme of either kind" fields, kept deliberately separate from
+     * {@code tideAligned} (which tests this location's configured {@code TideType} preference —
+     * a different question the map tab must never conflate with "does the water land on the
+     * light").
+     *
+     * <p>{@code stubSolarWindow()} yields a golden/blue span of blueHourStart=18:00,
+     * blueHourEnd=18:30, goldenHourStart=17:30, goldenHourEnd=18:00, so for SUNSET the tight
+     * alignment half-width ({@code TideFactDeriver.tightAlignmentWindowMinutes}) is
+     * {@code Duration.between(17:30, 18:30) / 2 = 30 minutes} — the fixed number every test below
+     * is measured against. 2026-03-25 is chosen deliberately: it is before that year's BST start
+     * (29 March), so Europe/London reads the same clock time as UTC and the expected phrase
+     * strings need no timezone arithmetic of their own.
+     */
+    @Nested
+    @DisplayName("Map-tab tide-on-the-light fields in buildSlot")
+    class TideOnTheLightTests {
+
+        private static final LocalDateTime SOLAR_TIME = LocalDateTime.of(2026, 3, 25, 18, 0);
+
+        private LocationEntity coastalLoc() {
+            return LocationEntity.builder()
+                    .id(10L).name("Bamburgh").lat(55.6).lon(-1.7)
+                    .locationType(Set.of(LocationType.SEASCAPE))
+                    .tideType(Set.of(TideType.HIGH))
+                    .solarEventType(Set.of())
+                    .enabled(true)
+                    .createdAt(LocalDateTime.now())
+                    .build();
+        }
+
+        private TideData tideDataWithNearest(TideState state, LocalDateTime nearestHigh,
+                LocalDateTime nearestLow) {
+            return new TideData(state, false, null, null, null, null, nearestHigh, nearestLow);
+        }
+
+        private BriefingSlot buildAgainst(LocationEntity loc, TideData tideData) {
+            stubSolarWindow();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            when(tideService.deriveDualWindowTideData(
+                    eq(loc.getId()), eq(SOLAR_TIME), anyLong(), anyLong()))
+                    .thenReturn(Optional.of(dual(tideData)));
+            when(tideService.calculateTideAligned(any(), any())).thenReturn(true);
+
+            BriefingSlotBuilder.LocationWeather lw =
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse());
+            return slotBuilder.buildSlot(lw, SOLAR_TIME.toLocalDate(), TargetType.SUNSET);
+        }
+
+        @Test
+        @DisplayName("A low water nearer than a far high water wins — type-blind selection")
+        void nearerLowWater_winsOverFartherHighWater() {
+            LocationEntity loc = coastalLoc();
+            // High water 3h before sunset (far); low water 20 min after sunset (near).
+            TideData td = tideDataWithNearest(TideState.LOW,
+                    LocalDateTime.of(2026, 3, 25, 15, 0),
+                    LocalDateTime.of(2026, 3, 25, 18, 20));
+
+            BriefingSlot slot = buildAgainst(loc, td);
+
+            assertThat(slot.tide().nearestExtremeKind()).isEqualTo("LW");
+            assertThat(slot.tide().nearestSolarOffsetMinutes()).isEqualTo(20);
+            assertThat(slot.tide().tideOnTheLight()).as("20m <= the 30-minute stub window").isTrue();
+            assertThat(slot.tide().nearestSolarOffsetPhrase())
+                    .isEqualTo("LW 18:20 · 20m after sunset");
+        }
+
+        @Test
+        @DisplayName("A high water nearer than a far low water wins — type-blind the other way")
+        void nearerHighWater_winsOverFartherLowWater() {
+            LocationEntity loc = coastalLoc();
+            TideData td = tideDataWithNearest(TideState.HIGH,
+                    LocalDateTime.of(2026, 3, 25, 18, 10),
+                    LocalDateTime.of(2026, 3, 25, 21, 20));
+
+            BriefingSlot slot = buildAgainst(loc, td);
+
+            assertThat(slot.tide().nearestExtremeKind()).isEqualTo("HW");
+            assertThat(slot.tide().nearestSolarOffsetMinutes()).isEqualTo(10);
+        }
+
+        @Test
+        @DisplayName("Sign convention: a tide before the light is negative, not just 'before'")
+        void tideBeforeLight_isNegativeOffset() {
+            LocationEntity loc = coastalLoc();
+            // High water 15 min before sunset; no low water found nearby at all.
+            TideData td = tideDataWithNearest(TideState.HIGH,
+                    LocalDateTime.of(2026, 3, 25, 17, 45), null);
+
+            BriefingSlot slot = buildAgainst(loc, td);
+
+            assertThat(slot.tide().nearestExtremeKind()).isEqualTo("HW");
+            assertThat(slot.tide().nearestSolarOffsetMinutes()).isEqualTo(-15);
+            assertThat(slot.tide().tideOnTheLight()).isTrue();
+            assertThat(slot.tide().nearestSolarOffsetPhrase())
+                    .isEqualTo("HW 17:45 · 15m before sunset");
+        }
+
+        @Test
+        @DisplayName("Outside the dynamic tight window: offset still reported, tideOnTheLight false")
+        void outsideTightWindow_tideOnTheLightFalse() {
+            LocationEntity loc = coastalLoc();
+            // 45 minutes after sunset — outside the 30-minute half-width stubSolarWindow() yields
+            // for SUNSET, so this must read false rather than the fixed +/-45min the design bundle
+            // used (TideFactDeriver's dynamic half-width is the canonical rule; see CLAUDE.md).
+            TideData td = tideDataWithNearest(TideState.LOW, null,
+                    LocalDateTime.of(2026, 3, 25, 18, 45));
+
+            BriefingSlot slot = buildAgainst(loc, td);
+
+            assertThat(slot.tide().nearestExtremeKind()).isEqualTo("LW");
+            assertThat(slot.tide().nearestSolarOffsetMinutes()).isEqualTo(45);
+            assertThat(slot.tide().tideOnTheLight()).isFalse();
+            assertThat(slot.tide().nearestSolarOffsetPhrase())
+                    .isEqualTo("LW 18:45 · 45m after sunset");
+        }
+
+        @Test
+        @DisplayName("A tie breaks toward the earlier water, not toward a type")
+        void tiedOffsets_earlierWaterWins() {
+            LocationEntity loc = coastalLoc();
+            // Both 30 minutes from the light in magnitude; the low water is the earlier one.
+            TideData td = tideDataWithNearest(TideState.MID,
+                    LocalDateTime.of(2026, 3, 25, 18, 30),
+                    LocalDateTime.of(2026, 3, 25, 17, 30));
+
+            BriefingSlot slot = buildAgainst(loc, td);
+
+            assertThat(slot.tide().nearestExtremeKind()).isEqualTo("LW");
+            assertThat(slot.tide().nearestSolarOffsetMinutes()).isEqualTo(-30);
+        }
+
+        @Test
+        @DisplayName("Neither extreme found nearby: all four tide-alignment fields are null")
+        void noExtremeEitherKind_fieldsNull() {
+            LocationEntity loc = coastalLoc();
+            TideData td = tideDataWithNearest(TideState.MID, null, null);
+
+            BriefingSlot slot = buildAgainst(loc, td);
+
+            assertThat(slot.tide().nearestExtremeKind()).isNull();
+            assertThat(slot.tide().nearestSolarOffsetMinutes()).isNull();
+            assertThat(slot.tide().tideOnTheLight()).isNull();
+            assertThat(slot.tide().nearestSolarOffsetPhrase()).isNull();
+        }
+
+        @Test
+        @DisplayName("No stored extremes at all: tide-alignment fields fail-soft to null")
+        void noExtremesInDb_fieldsNull() {
+            LocationEntity loc = coastalLoc();
+            stubSolarWindow();
+            when(solarService.sunsetUtc(eq(loc.getLat()), eq(loc.getLon()), any()))
+                    .thenReturn(SOLAR_TIME);
+            when(locationService.isCoastal(loc)).thenReturn(true);
+            when(tideService.deriveDualWindowTideData(
+                    eq(loc.getId()), eq(SOLAR_TIME), anyLong(), anyLong()))
+                    .thenReturn(Optional.empty());
+
+            BriefingSlotBuilder.LocationWeather lw =
+                    new BriefingSlotBuilder.LocationWeather(loc, buildForecastResponse());
+            BriefingSlot slot = slotBuilder.buildSlot(lw, SOLAR_TIME.toLocalDate(),
+                    TargetType.SUNSET);
+
+            assertThat(slot.tide()).isEqualTo(BriefingSlot.TideInfo.NONE);
+            assertThat(slot.tide().nearestExtremeKind()).isNull();
+            assertThat(slot.tide().nearestSolarOffsetMinutes()).isNull();
+            assertThat(slot.tide().tideOnTheLight()).isNull();
+            assertThat(slot.tide().nearestSolarOffsetPhrase()).isNull();
+        }
+    }
+
     @Test
     @DisplayName("Sunrise event type uses sunriseUtc")
     void sunrise_usesSunriseService() {

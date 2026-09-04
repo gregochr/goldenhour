@@ -379,6 +379,70 @@ describe('buildMapEvents — night labels', () => {
 });
 
 /**
+ * `dayLabel` — the design bundle's `dayOnly` rule (map-tab-v2.js ~:104): the kind chip already
+ * reads SUNRISE/SUNSET, so the day text beside it must not repeat the word. `label` itself is
+ * untouched, because the pin tooltip and the callout strip cell's `title` have no kind chip and
+ * still need the full form.
+ */
+describe('buildMapEvents — dayLabel strips the trailing kind word (kind-chip dedup)', () => {
+  it('strips a lead served label\'s trailing capitalised event word: "Tonight Sunset" -> "Tonight"', () => {
+    const events = buildMapEvents({
+      ...baseArgs(),
+      solarWindows: [solarWindow(TODAY, 'SUNSET', { label: 'Tonight Sunset' })],
+      forecastDates: [TODAY],
+    });
+    const sunset = events.find((e) => e.eventType === 'SUNSET');
+    expect(sunset.label).toBe('Tonight Sunset');
+    expect(sunset.dayLabel).toBe('Tonight');
+  });
+
+  it('strips a non-lead served label\'s trailing lower-case event word: "Today sunrise" -> "Today"', () => {
+    const events = buildMapEvents({
+      ...baseArgs(),
+      solarWindows: [solarWindow(TODAY, 'SUNRISE', { label: 'Today sunrise' })],
+      forecastDates: [TODAY],
+    });
+    const sunrise = events.find((e) => e.eventType === 'SUNRISE');
+    expect(sunrise.label).toBe('Today sunrise');
+    expect(sunrise.dayLabel).toBe('Today');
+  });
+
+  it('strips a D-13 filler row\'s own label the same way: "Thursday sunset" -> "Thursday"', () => {
+    const FAR = '2026-09-10'; // a Thursday
+    const events = buildMapEvents({
+      ...baseArgs(),
+      forecastDates: [TODAY, FAR],
+    });
+    const far = events.find((e) => e.date === FAR && e.eventType === 'SUNSET');
+    expect(far.label).toBe('Thursday sunset');
+    expect(far.dayLabel).toBe('Thursday');
+  });
+
+  it('a night row\'s dayLabel is identical to its label — no event word to strip', () => {
+    const events = buildMapEvents({
+      ...baseArgs(),
+      forecastDates: [TODAY],
+      astroAvailableDates: [TODAY],
+      astroConditionsByDate: new Map([[TODAY, [{ locationName: 'A', stars: 4, nightStart: `${TODAY}T21:45:00` }]]]),
+    });
+    const astro = events.find((e) => e.kind === EVENT_KIND.ASTRO);
+    expect(astro.label).toBe('Tonight');
+    expect(astro.dayLabel).toBe('Tonight');
+  });
+
+  it('falls back to the untouched label when stripping would leave nothing', () => {
+    const events = buildMapEvents({
+      ...baseArgs(),
+      solarWindows: [solarWindow(TODAY, 'SUNSET', { label: 'Sunset' })],
+      forecastDates: [TODAY],
+    });
+    const sunset = events.find((e) => e.eventType === 'SUNSET');
+    expect(sunset.label).toBe('Sunset');
+    expect(sunset.dayLabel).toBe('Sunset');
+  });
+});
+
+/**
  * The successor to the deleted `DateStripToday.test.jsx` (adversarial review, browser-pass #15),
  * which pinned "Today"/"Tomorrow" chip labelling through the UK-civil small-hours window under
  * BST. `DateStrip` is gone; this module — specifically {@link nightLabel} and `buildMapEvents`'s
@@ -410,22 +474,25 @@ describe('buildMapEvents — "Today"/"Tomorrow" follow the UK civil date through
     expect(nightLabel(tomorrow, today, tomorrow)).toBe('Tomorrow night');
   });
 
-  it('a D-13 filler row for the UK-civil today reads "Today Sunrise"/"Today Sunset", not the UTC date\'s label', () => {
+  it('a D-13 filler row for the UK-civil today reads "Today sunrise"/"Today sunset", not the UTC date\'s label', () => {
+    // Lower-case event word — matches `windowFirstStrip.js`'s own non-lead served form
+    // (`${day} ${eventWord}`), so a filler row is not the only place on the map tab that
+    // capitalises it.
     const today = ukDateStr();
     const tomorrow = ukDateStrOffset(1);
     const events = buildMapEvents({
       ...baseArgs(), todayStr: today, tomorrowStr: tomorrow, forecastDates: [today],
     });
-    expect(events.map((e) => e.label)).toEqual(['Today Sunrise', 'Today Sunset']);
+    expect(events.map((e) => e.label)).toEqual(['Today sunrise', 'Today sunset']);
   });
 
-  it('a D-13 filler row for the UK-civil tomorrow reads "Tomorrow Sunrise"/"Tomorrow Sunset"', () => {
+  it('a D-13 filler row for the UK-civil tomorrow reads "Tomorrow sunrise"/"Tomorrow sunset"', () => {
     const today = ukDateStr();
     const tomorrow = ukDateStrOffset(1);
     const events = buildMapEvents({
       ...baseArgs(), todayStr: today, tomorrowStr: tomorrow, forecastDates: [tomorrow],
     });
-    expect(events.map((e) => e.label)).toEqual(['Tomorrow Sunrise', 'Tomorrow Sunset']);
+    expect(events.map((e) => e.label)).toEqual(['Tomorrow sunrise', 'Tomorrow sunset']);
   });
 });
 

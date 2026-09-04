@@ -3345,6 +3345,13 @@ button.wf-hc.also.on:hover {
   pointer-events: auto;
   cursor: pointer;
 }
+/* The tide-alignment ring (bundle rev 2's tide-chip tweak) — inset teal at the bundle's own
+   strength (rgba(111,168,176,.45)), placed BEFORE `:hover`/`[data-selected]` below so the cascade's
+   own last-rule-wins tie-break (all three share one specificity) gives hover and selection their
+   existing precedence over this static ring unchanged. */
+.wf-maplab-chip[data-tide='true'] {
+  box-shadow: inset 0 0 0 1px rgba(111, 168, 176, .45);
+}
 .wf-maplab-chip:hover {
   background: rgba(14, 11, 9, .94);
   box-shadow: inset 0 0 0 1.5px var(--color-home);
@@ -3362,6 +3369,16 @@ button.wf-hc.also.on:hover {
   width: 5px;
   height: 5px;
   flex: none;
+}
+/* The wave glyph (bundle rev 2) — a glyph, not a second number, sitting between the name and the
+   star exactly like the design bundle's own chip markup. `currentColor` + `--color-tide` rather
+   than the badge ink: this is a small vector stroke on a near-black plate, not text needing the
+   lifted contrast `--color-badge-tide` exists for. */
+.wf-maplab-chip-tw {
+  width: 13px;
+  height: 7px;
+  flex: none;
+  color: var(--color-tide);
 }
 .wf-maplab-chip-n {
   font-family: var(--font-mono);
@@ -3410,6 +3427,13 @@ button.wf-hc.also.on:hover {
   font-family: var(--font-mono);
   font-size: 10px;
   color: var(--color-plex-text-secondary);
+}
+/* The tide-alignment line's ink (bundle rev 2) — `--color-badge-tide` (#9CCBD1, measured 9.68:1 on
+   this tooltip's own near-black plate), NOT the design bundle's raw `#8FC0C7` and NOT
+   `--color-tide`, which is reserved for borders/accents rather than small text (see that token's
+   own note further down this file). Combined with `.wf-maplab-tip-s` for the shared font/size. */
+.wf-maplab-tip-t {
+  color: var(--color-badge-tide);
 }
 
 /* ── The filters popover (map-tab-v2-plan.md §3 P7, README §4) ─────────────────────────────────
@@ -4031,6 +4055,43 @@ button.wf-hc.also.on:hover {
   text-transform: uppercase;
   font-size: 9px;
   letter-spacing: 0.06em;
+}
+
+/* The tide-alignment row (bundle rev 2's tide-chip tweak) — the callout's own instance of the
+   repo's bordered-tide-row look, lifted from `.wf-frow` (border/background/kicker-ink triple)
+   rather than the design bundle's `.ctide` values verbatim — no `.ctide` rule exists anywhere in
+   this file, and this follows the callout's own flat `wf-callout-<part>` naming instead. Omitted
+   entirely when this window's water does not land on the light (`MapCallout.jsx`'s own
+   unmeasured-facts discipline) — never a "no tide alignment" line. */
+.wf-callout-tide {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 7px 9px;
+  border-radius: 8px;
+  border: 1px solid rgba(111, 168, 176, 0.28);
+  border-left: 2px solid var(--color-tide);
+  background: rgba(111, 168, 176, 0.055);
+}
+.wf-callout-tide svg {
+  flex: none;
+  width: 15px;
+  height: 8px;
+  margin-top: 2px;
+  color: var(--color-tide);
+}
+.wf-callout-tide-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+}
+.wf-callout-tide-text b {
+  color: var(--color-badge-tide);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .wf-callout-topics {

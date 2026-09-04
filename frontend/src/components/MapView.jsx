@@ -20,6 +20,7 @@ import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { isTravelDate, formatEventTimeUk } from '../utils/conversions.js';
 import { fitBoundsKey } from '../utils/fitBoundsKey.js';
 import { buildBriefingScoreIndex, lookupBriefingScore } from '../utils/briefingScoreIndex.js';
+import { lookupForWindow } from '../utils/locationSheet.js';
 import { resolveStandDown } from '../utils/standDown.js';
 import { resolveAuroraNight, ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 import { LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel, SKY_SUBJECT_TYPES } from '../utils/locationTypes.js';
@@ -982,8 +983,13 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  * - `onOpenLocationInPlan` — the real shell handoff (`App.jsx`'s `openLocationInPlan`, mirroring
  *   `openFullMapTab`'s shape in reverse): switches to the Plan tab via `WindowFirstShell`'s
  *   `selectTab` and opens this location's `LocationFourDaySheet` as the only dialog layer.
+ * - `tideAlignmentIndex` — from `utils/locationSheet.buildTideAlignmentIndex` over the SAME
+ *   `briefing.days` `regionGlossIndex`/`regionBestIndex` already read (bundle rev 2's tide-chip
+ *   tweak): whether THIS window's water lands on the light for a location, read through
+ *   {@link lookupForWindow} exactly like `scoreIndex` — never {@code tideAligned}, a different
+ *   question (see that function's own doc).
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, reachById = null, onOpenLocationInPlan = null }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, tideAlignmentIndex = null, reachById = null, onOpenLocationInPlan = null }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -1905,6 +1911,18 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     return briefingScore?.rating ?? forecast?.rating ?? null;
   }, [eventType, date, briefingScoreIndex, storedAuroraResults, auroraScores, astroScores]);
 
+  /**
+   * This window's tide-alignment fact for a location (bundle rev 2's tide-chip tweak) — null
+   * outside a solar event, since "does the water land on the light" is a question about a sunrise
+   * or sunset, never a night. Reads `date`/`eventType` exactly like `getRatingForLocation` above
+   * (not `activeMapEvent`, computed further down this component), so the two can never disagree
+   * about which window they are both answering for.
+   */
+  const getTideOnLightForLocation = useCallback((loc) => {
+    if (eventType !== 'SUNRISE' && eventType !== 'SUNSET') return null;
+    return lookupForWindow(tideAlignmentIndex, loc.id, loc.name, date, eventType);
+  }, [eventType, date, tideAlignmentIndex]);
+
   // Filter logic: type filters and rating filters are both AND-ed.
   // Within each filter group, any match passes (OR).
   const typeFiltered = useMemo(() => (
@@ -2023,26 +2041,38 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * unshifted: {@code chipCandidates}' own selected-name handling already moves it to the front.
    */
   const labelSpots = useMemo(() => {
-    const spotOf = (loc) => ({
-      name: loc.name,
-      lat: loc.lat,
-      lng: loc.lon,
-      rid: loc.regionName || '',
-      rating: getRatingForLocation(loc),
-      bortleClass: loc.bortleClass ?? null,
-      driveMinutes: driveMinutesFor(loc.id),
-      // `PinsLayer`'s own stand-down/no-data distinction (adversarial review C8) — a triaged
-      // location is not merely "nothing scored yet", the same distinction the medallion markers
-      // already draw via `resolveStandDown`/`STAND_DOWN_COLOUR`, so a pin should not collapse the
-      // two into one grey.
-      isStandDown: isStandDownLocation(loc),
-    });
+    const spotOf = (loc) => {
+      const tide = getTideOnLightForLocation(loc);
+      return {
+        name: loc.name,
+        lat: loc.lat,
+        lng: loc.lon,
+        rid: loc.regionName || '',
+        rating: getRatingForLocation(loc),
+        bortleClass: loc.bortleClass ?? null,
+        driveMinutes: driveMinutesFor(loc.id),
+        // `PinsLayer`'s own stand-down/no-data distinction (adversarial review C8) — a triaged
+        // location is not merely "nothing scored yet", the same distinction the medallion markers
+        // already draw via `resolveStandDown`/`STAND_DOWN_COLOUR`, so a pin should not collapse the
+        // two into one grey.
+        isStandDown: isStandDownLocation(loc),
+        // Bundle rev 2's tide-chip tweak — the glyph, the label-budget tiebreaker
+        // (`chipCandidates`) and the tooltip's third line all read `onTheLight`; the phrase is
+        // carried alongside rather than re-derived so the tooltip never formats a tide clock time
+        // itself (CLAUDE.md: backend formats all clock/offset prose).
+        onTheLight: Boolean(tide?.onTheLight),
+        nearestSolarOffsetPhrase: tide?.onTheLight ? (tide.phrase ?? null) : null,
+      };
+    };
     const spots = scopedVisibleLocations.map(spotOf);
     if (selectedLoc && !spots.some((s) => s.name === selectedLoc.name)) {
       spots.push(spotOf(selectedLoc));
     }
     return spots;
-  }, [scopedVisibleLocations, getRatingForLocation, driveMinutesFor, selectedLoc, isStandDownLocation]);
+  }, [
+    scopedVisibleLocations, getRatingForLocation, getTideOnLightForLocation, driveMinutesFor,
+    selectedLoc, isStandDownLocation,
+  ]);
 
   /**
    * The ring labels' own {@code reachMeasured} — "a real drive time gated this screen's reach
@@ -3296,6 +3326,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               event={activeMapEvent}
               driveMinutes={driveMinutesFor(selectedLoc.id)}
               distanceMiles={distanceMilesFor(selectedLoc.id)}
+              tideOnLight={getTideOnLightForLocation(selectedLoc)}
               scoreIndex={scoreIndex}
               scoresKnown={scoresKnown}
               regionGlossIndex={regionGlossIndex}
@@ -3864,6 +3895,12 @@ MapView.propTypes = {
    * `date|targetType|regionName`.
    */
   regionBestIndex: PropTypes.instanceOf(Map),
+  /**
+   * From `utils/locationSheet.buildTideAlignmentIndex` (bundle rev 2's tide-chip tweak) — whether
+   * this window's water lands on the light per location, read through `lookupForWindow` exactly
+   * like `scoreIndex`.
+   */
+  tideAlignmentIndex: PropTypes.object,
   /**
    * The per-user HOME reach map (`{driveMinutes, distanceMiles}`), read ONLY for the callout's
    * straight-line miles fact — see this component's own prop-block comment above `function MapView`
