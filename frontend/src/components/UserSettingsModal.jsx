@@ -241,7 +241,7 @@ export default function UserSettingsModal({
       <Modal label="Calculating drive times" data-testid="settings-modal">
         <div className="flex flex-col items-center gap-3 py-6">
           <div className="w-8 h-8 border-2 border-plex-gold border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-plex-text">Calculating drive times...</p>
+          <p className="text-sm text-plex-text">Calculating drive times…</p>
           <p className="text-xs text-plex-text-muted">Please wait — this takes a few seconds</p>
         </div>
       </Modal>
@@ -275,7 +275,7 @@ export default function UserSettingsModal({
       </div>
 
       {loading ? (
-        <p className="text-sm text-plex-text-muted py-4">Loading...</p>
+        <p className="text-sm text-plex-text-muted py-4">Loading…</p>
       ) : settings ? (
         <div className="flex flex-col gap-5">
           {/* Profile */}
@@ -294,7 +294,7 @@ export default function UserSettingsModal({
             </div>
           </section>
 
-          {/* Home Location — deliberately ungated.
+          {/* Home location — deliberately ungated.
 
               The postcode used to sit behind the same Pro gate as the drive times it feeds, on the
               reasoning that it exists FOR those drive times. It no longer does: the masthead's
@@ -308,7 +308,7 @@ export default function UserSettingsModal({
               carried `@PreAuthorize("isAuthenticated()")`, so `PUT /home` was already open to any
               account. The gate was frontend-only. */}
           <section>
-            <h3 className="text-xs font-medium text-plex-text-muted uppercase tracking-wide mb-2">Home Location</h3>
+            <h3 className="text-xs font-medium text-plex-text-muted uppercase tracking-wide mb-2">Home location</h3>
             <div>
               {hasHome && !lookupResult && (
                 <p className="text-sm text-plex-text mb-2" data-testid="settings-home-current">
@@ -333,7 +333,7 @@ export default function UserSettingsModal({
                   disabled={lookingUp || !postcode.trim()}
                   data-testid="settings-lookup-btn"
                 >
-                  {lookingUp ? 'Looking up...' : 'Look up'}
+                  {lookingUp ? 'Looking up…' : 'Look up'}
                 </button>
               </div>
               {lookupError && (
@@ -356,7 +356,7 @@ export default function UserSettingsModal({
                     disabled={saving}
                     data-testid="settings-save-home-btn"
                   >
-                    {saving ? 'Saving...' : 'Save'}
+                    {saving ? 'Saving…' : 'Save'}
                   </button>
                 </div>
               )}
@@ -430,7 +430,7 @@ export default function UserSettingsModal({
 
           {/* Drive Times */}
           <section>
-            <h3 className="text-xs font-medium text-plex-text-muted uppercase tracking-wide mb-2">Drive Times</h3>
+            <h3 className="text-xs font-medium text-plex-text-muted uppercase tracking-wide mb-2">Drive times</h3>
             <div className={!isPro ? 'opacity-45 pointer-events-none' : undefined}>
               <button
                 className="btn-primary text-sm w-full"
@@ -441,7 +441,7 @@ export default function UserSettingsModal({
                 Refresh drive times
               </button>
               {!hasHome && (
-                <p className="text-xs text-plex-text-muted mt-1">Set a home location first</p>
+                <p className="text-xs text-plex-text-muted mt-1">Set a home location first.</p>
               )}
               {settings.driveTimesCalculatedAt && (
                 <p className="text-xs text-plex-text-muted mt-1" data-testid="settings-drive-calc-time">
@@ -457,7 +457,7 @@ export default function UserSettingsModal({
           {/* Map Colours — deliberately ungated. Reading the map is not a Pro feature, unlike the
               drive times and local radius above; every account should be able to try the scale. */}
           <section>
-            <h3 className="text-xs font-medium text-plex-text-muted uppercase tracking-wide mb-2">Map Colours</h3>
+            <h3 className="text-xs font-medium text-plex-text-muted uppercase tracking-wide mb-2">Map colours</h3>
             <div className="flex flex-col gap-2">
               <fieldset className="flex flex-col gap-1.5" disabled={colourSaving}>
                 <legend className="text-sm text-plex-text mb-1">Colour scale</legend>

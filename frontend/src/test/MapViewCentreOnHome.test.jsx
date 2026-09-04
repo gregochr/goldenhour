@@ -288,10 +288,10 @@ describe('centre on home', () => {
  * has no use for, hence `renderHeatMap`/`heatProp` rather than the plain `renderMap`.
  */
 describe('centre on home — ⌂ resets scope to My area and refits (map-tab-v2-plan.md §3 P11)', () => {
-  it('resets an already-flipped "Whole catalogue" scope back to My area, animate:false', async () => {
+  it('resets an already-flipped "Everywhere" scope back to My area, animate:false', async () => {
     await renderHeatMap({ homeCoords: HOME, heat: heatProp() });
     openFilters();
-    fireEvent.click(screen.getByRole('button', { name: 'Whole catalogue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Everywhere' }));
     mapStub.fitBounds.mockClear();
 
     fireEvent.click(screen.getByTestId('centre-on-home'));
@@ -362,7 +362,7 @@ describe('centre on home — the camera controller stays mounted through aurora 
     // Sanity: genuinely in aurora mode, not merely passing the prop.
     expect(screen.queryByTestId('wf-map-toolbar')).toBeNull();
     openFilters();
-    fireEvent.click(screen.getByRole('button', { name: 'Whole catalogue' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Everywhere' }));
     mapStub.fitBounds.mockClear();
 
     fireEvent.click(screen.getByTestId('centre-on-home'));

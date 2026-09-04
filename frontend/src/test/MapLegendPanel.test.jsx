@@ -119,34 +119,34 @@ describe('MapLegendPanel — the ramp bar (map-tab-v2-plan.md §4.5: never the b
     }
   });
 
-  it('states the whole-star labels: 1★ poor / 3★ / 5★ go', () => {
+  it('states the whole-star labels: 1★ poor / 3★ / 5★ worth it', () => {
     render(<MapLegendPanel {...baseProps({ open: true })} />);
     const panel = screen.getByTestId('wf-legend-panel');
     expect(panel).toHaveTextContent('1★ poor');
     expect(panel).toHaveTextContent('3★');
-    expect(panel).toHaveTextContent('5★ go');
+    expect(panel).toHaveTextContent('5★ worth it');
   });
 });
 
-describe('MapLegendPanel — the handover indicator (Field → Handing over → Locations)', () => {
-  it('handoverPhase reads Field below 0.05, Locations above 0.92, and Handing over between', () => {
-    expect(handoverPhase(0)).toEqual({ label: 'Field', detail: 'the regional glance' });
-    expect(handoverPhase(0.049)).toEqual({ label: 'Field', detail: 'the regional glance' });
-    expect(handoverPhase(0.5)).toEqual({ label: 'Handing over', detail: 'field → locations' });
-    expect(handoverPhase(0.921)).toEqual({ label: 'Locations', detail: 'field kept as a faint wash' });
-    expect(handoverPhase(1)).toEqual({ label: 'Locations', detail: 'field kept as a faint wash' });
+describe('MapLegendPanel — the handover indicator (Regions → Zooming in → Places)', () => {
+  it('handoverPhase reads Regions below 0.05, Places above 0.92, and Zooming in between', () => {
+    expect(handoverPhase(0)).toEqual({ label: 'Regions', detail: 'the broad picture' });
+    expect(handoverPhase(0.049)).toEqual({ label: 'Regions', detail: 'the broad picture' });
+    expect(handoverPhase(0.5)).toEqual({ label: 'Zooming in', detail: 'regions giving way to places' });
+    expect(handoverPhase(0.921)).toEqual({ label: 'Places', detail: 'individual spots, region colour behind' });
+    expect(handoverPhase(1)).toEqual({ label: 'Places', detail: 'individual spots, region colour behind' });
   });
 
   it('renders the SAME phase the pure function reports, at three zoom-derived fractions', () => {
     const { rerender } = render(<MapLegendPanel {...baseProps({ open: true, handoverFraction: 0 })} />);
-    expect(screen.getByTestId('wf-legend-hand')).toHaveTextContent('Field');
-    expect(screen.getByTestId('wf-legend-hand')).toHaveTextContent('the regional glance');
+    expect(screen.getByTestId('wf-legend-hand')).toHaveTextContent('Regions');
+    expect(screen.getByTestId('wf-legend-hand')).toHaveTextContent('the broad picture');
 
     rerender(<MapLegendPanel {...baseProps({ open: true, handoverFraction: 0.5 })} />);
-    expect(screen.getByTestId('wf-legend-hand')).toHaveTextContent('Handing over');
+    expect(screen.getByTestId('wf-legend-hand')).toHaveTextContent('Zooming in');
 
     rerender(<MapLegendPanel {...baseProps({ open: true, handoverFraction: 1 })} />);
-    expect(screen.getByTestId('wf-legend-hand')).toHaveTextContent('Locations');
+    expect(screen.getByTestId('wf-legend-hand')).toHaveTextContent('Places');
   });
 
   it('shrinks the fill bar as the fraction climbs — 100−t×80, matching the prototype\'s own formula', () => {
@@ -206,7 +206,7 @@ describe('MapLegendPanel — the confidence note', () => {
   it('states the exact copy, verbatim', () => {
     render(<MapLegendPanel {...baseProps({ open: true })} />);
     expect(screen.getByTestId('wf-legend-note')).toHaveTextContent(
-      'Warmth only where rated locations are, clipped to land. Later windows render hazier — lower confidence.',
+      'Colour appears only near rated locations, and only over land. Later days look hazier — lower confidence.',
     );
   });
 });

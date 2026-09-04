@@ -22,7 +22,7 @@ describe('occurrenceCountsLine', () => {
     ];
 
     expect(occurrenceCountsLine(occurrences)).toBe(
-      'every occurrence in the window · 2 held back, 1 in the list, 1 inside Plan',
+      'every date · 2 not listed, 1 below, 1 on Plan',
     );
   });
 
@@ -30,13 +30,13 @@ describe('occurrenceCountsLine', () => {
     const occurrences = [{ status: 'heldBack' }, { status: 'promoted' }];
 
     expect(occurrenceCountsLine(occurrences)).toBe(
-      'every occurrence in the window · 1 held back, 1 in the list',
+      'every date · 1 not listed, 1 below',
     );
   });
 
   it('degrades to zero counts for a missing or non-array occurrence list', () => {
-    expect(occurrenceCountsLine(undefined)).toBe('every occurrence in the window · 0 held back, 0 in the list');
-    expect(occurrenceCountsLine(null)).toBe('every occurrence in the window · 0 held back, 0 in the list');
+    expect(occurrenceCountsLine(undefined)).toBe('every date · 0 not listed, 0 below');
+    expect(occurrenceCountsLine(null)).toBe('every date · 0 not listed, 0 below');
   });
 });
 

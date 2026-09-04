@@ -99,7 +99,7 @@ export default function WindowSpotPeek({
   placement = 'below',
   arrowLeft = 24,
   onOpen,
-  openPrompt = 'Click for the full read + map →',
+  openPrompt = 'Open the full forecast →',
   onPointerEnter,
   onPointerLeave,
 }) {

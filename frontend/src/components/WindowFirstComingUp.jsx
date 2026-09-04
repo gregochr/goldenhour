@@ -35,14 +35,14 @@ const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
  * "Forecast · peak"), so the card now carries its own word and the footer's old job — see plan §6:
  * "the old vocabulary job now lives on the per-card kind tag, so delete it rather than ship both".
  *
- * <h2>Standing conditions strip (plan §7 P4)</h2>
+ * <h2>Recurring conditions strip (plan §7 P4)</h2>
  *
  * <p>{@code WindowComingUpConditions} renders {@code events.conditions} between the filter chips
  * and the handoff row — the design of record's own DOM order ({@code Coming Up.html}: header →
  * since-line → chips → conditions → handoff → chronology). It degrades to nothing for an empty or
  * absent list rather than an omission. Its own header sub-line — not this pane's — grows the quiet
- * "scores provisional" suffix while any visible condition is {@code interim} (plan §7: the strip's
- * header, "frequent · never announced · always one click away · scores provisional"; README's
+ * "scores are provisional" suffix while any visible condition is {@code interim} (plan §7: the
+ * strip's header, "too frequent to list · open one to see every date"; README's
  * "say so in the UI" clause): the marker is about the STRIP's scoring, not the chronology dates
  * this pane's own sub-line describes.
  *
@@ -52,7 +52,7 @@ const EMPTY_COUNTS = { fixed: 0, forecast: 0, byFamily: {} };
  * <p>The fetch that used to justify this refusal is gone: {@code useComingUpFeed} now fires eagerly
  * for every reader (plan D13), so the tab's badge no longer waits for a reader to have already
  * looked. But a row count and the badge are different claims, and only one of them earned the
- * eager fetch's cost. A row count restates how much is already in the feed — eleven dated events
+ * eager fetch's cost. A row count restates how much is already in the feed — eleven entries
  * and eight are the same answer to "is there anything coming up" — which is not a decision-changing
  * signal no matter how fresh the number is. The badge counts something else entirely: NEW arrivals
  * since the reader last looked that clear a rarity band (plan D3/D4), which is exactly the kind of
@@ -158,7 +158,7 @@ export default function WindowFirstComingUp({
         <div className="wf-cu-head">
           <span className="wf-cu-h">Coming up</span>
           <span className="wf-cu-d" data-testid="coming-up-subtitle">
-            {`· dated events beyond Plan's four days, next ${ALMANAC_DAYS} days`}
+            {`· the next ${ALMANAC_DAYS} days, past the four-day forecast`}
           </span>
           {/* Rendered unconditionally (plan §6) — not gated on any entry actually using a dashed
               rule. Without it a reader who happens to filter down to an all-solid subset would see
@@ -174,7 +174,7 @@ export default function WindowFirstComingUp({
                 className="wf-cu-legend-swatch wf-cu-legend-swatch-forecast"
                 aria-hidden="true"
               />
-              still firming
+              could still move
             </span>
           </span>
         </div>
@@ -209,9 +209,15 @@ export default function WindowFirstComingUp({
             </p>
           )}
 
+          {/* ⚠️ SCOPED TO THE DATED LIST — "No dates", never a bare "Nothing coming up".
+              `totalEntries` counts `events.entries` alone, and the recurring-conditions strip
+              below (gated on `ready`, not on this count) routinely has rows when the chronology
+              has none. A broader sentence here therefore prints a denial directly above live
+              content — which is what the pre-copy-pass wording avoided with the word "dated", and
+              what a Codex review of #748 caught when the copy pass dropped it. */}
           {status === 'ready' && totalEntries === 0 && (
             <p className="wf-cu-note" data-testid="coming-up-empty">
-              {`Nothing dated beyond Plan's four days in the next ${ALMANAC_DAYS} days.`}
+              {`No dates coming up in the next ${ALMANAC_DAYS} days beyond the four-day forecast.`}
             </p>
           )}
 
@@ -223,7 +229,7 @@ export default function WindowFirstComingUp({
               chip rather than assume the feed broke. */}
           {status === 'ready' && totalEntries > 0 && monthGroups.length === 0 && (
             <p className="wf-cu-note" data-testid="coming-up-filter-empty">
-              {`Nothing dated matches the ${activeChipLabel} filter.`}
+              {`Nothing matches the ${activeChipLabel} filter.`}
             </p>
           )}
         </div>
@@ -274,7 +280,7 @@ export default function WindowFirstComingUp({
           </div>
         )}
 
-        {/* Standing conditions, in the design of record's own DOM order (its `#chips` → `#conds`
+        {/* Recurring conditions, in the design of record's own DOM order (its `#chips` → `#conds`
             sequence, `docs/design/coming-up/Coming Up.html`) — gated on `ready` alongside the
             chips, since its rows read `events.conditions`, which does not exist before then. */}
         {status === 'ready' && (

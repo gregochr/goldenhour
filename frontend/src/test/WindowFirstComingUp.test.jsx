@@ -84,7 +84,7 @@ describe('WindowFirstComingUp — the panel contract', () => {
     ]) {
       const { unmount } = renderPane({ status, events });
       expect(screen.getByTestId('coming-up-legend')).toHaveTextContent('fixed');
-      expect(screen.getByTestId('coming-up-legend')).toHaveTextContent('still firming');
+      expect(screen.getByTestId('coming-up-legend')).toHaveTextContent('could still move');
       unmount();
     }
   });
@@ -121,7 +121,38 @@ describe('WindowFirstComingUp — the four states', () => {
   it('says nothing is coming up only once the feed has actually answered with nothing', () => {
     renderPane({ status: 'ready', events: { entries: [], counts: { fixed: 0, forecast: 0, byFamily: {} } } });
     expect(screen.getByTestId('coming-up-empty'))
-      .toHaveTextContent("Nothing dated beyond Plan's four days in the next 90 days.");
+      .toHaveTextContent('No dates coming up in the next 90 days beyond the four-day forecast.');
+  });
+
+  it('⚠️ scopes the empty note to the DATED list, so it never denies the recurring conditions '
+      + 'rendering right below it', () => {
+    // `totalEntries` counts `events.entries` alone, and the conditions strip is gated on `ready`
+    // rather than on that count — so an empty chronology beside live conditions is reachable, and
+    // a broader sentence would print a denial directly above rows the reader can see and open.
+    // Caught by a Codex review of #748, where the copy pass had dropped the scoping word.
+    renderPane({
+      status: 'ready',
+      events: {
+        entries: [],
+        counts: { fixed: 0, forecast: 0, byFamily: {} },
+        conditions: [{
+          type: 'COASTAL_TIDES',
+          name: 'Coastal tides',
+          cadence: 'deterministic',
+          interim: false,
+          rateLabel: 'a run every 14.8 days',
+          quantLabel: 'occasional · 6 runs in 90 days',
+          peak: null,
+          occurrences: [],
+        }],
+      },
+    });
+
+    expect(screen.getByTestId('coming-up-conditions')).toBeInTheDocument();
+    const empty = screen.getByTestId('coming-up-empty');
+    expect(empty).toHaveTextContent('No dates coming up');
+    // The claim is about dates in the list, never about the pane as a whole.
+    expect(empty.textContent).not.toMatch(/^Nothing coming up/);
   });
 
   it('renders nothing but its frame before the tab has ever been opened', () => {
@@ -301,7 +332,7 @@ describe('WindowFirstComingUp — filter chips (plan D6)', () => {
     expect(screen.queryByRole('list')).toBeNull();
     expect(screen.queryByTestId('coming-up-empty')).toBeNull();
     expect(screen.getByTestId('coming-up-filter-empty'))
-      .toHaveTextContent('Nothing dated matches the Air & dust filter.');
+      .toHaveTextContent('Nothing matches the Air & dust filter.');
   });
 });
 
@@ -372,11 +403,11 @@ describe('WindowFirstComingUp — the footer never states a count it does not ha
       const { unmount } = renderPane({ status, events });
       const footer = screen.getByTestId('coming-up-footer');
       expect(footer).toHaveTextContent(
-        'This list starts where Plan stops. Two things earn a row: a date fixed in advance, and '
-        + 'the forecast peak of a standing condition.',
+        'This list starts where the four-day forecast stops. It shows two things: dates fixed '
+        + 'in advance, and the forecast peak of a recurring condition.',
       );
       expect(footer.textContent).not.toContain('Every date here is fixed in advance');
-      expect(footer.textContent).not.toMatch(/here (is|are) fixed/);
+      expect(footer.textContent).not.toMatch(/of these dates (is|are) fixed/);
       unmount();
     }
   });
@@ -392,7 +423,7 @@ describe('WindowFirstComingUp — the handoff row (plan D14)', () => {
     renderPane({ hotTopics: [{ type: 'DUST', label: 'Saharan dust', date: TODAY }] });
     const handoff = screen.getByTestId('coming-up-handoff');
     expect(handoff).toHaveTextContent('Now —');
-    expect(handoff).toHaveTextContent('One topic lives on those four days');
+    expect(handoff).toHaveTextContent('One topic on those four days');
     expect(handoff).toHaveTextContent('Saharan dust');
     expect(handoff).toHaveTextContent('On Plan →');
   });
@@ -412,7 +443,7 @@ describe('WindowFirstComingUp — the handoff row (plan D14)', () => {
     });
 
     const handoff = screen.getByRole('button', {
-      name: 'Now — Wed 12 Two topics live on those four days Saharan dust Aurora possible '
+      name: 'Now — Wed 12 Two topics on those four days Saharan dust Aurora possible '
         + 'On Plan →',
     });
     expect(handoff).toBeInTheDocument();
@@ -435,7 +466,7 @@ describe('WindowFirstComingUp — the handoff row (plan D14)', () => {
   it('says explicitly that nothing is live once hotTopics has arrived empty', () => {
     renderPane({ hotTopics: [] });
     expect(screen.getByTestId('coming-up-handoff-summary'))
-      .toHaveTextContent('No topics live on those four days');
+      .toHaveTextContent('Nothing on those four days');
   });
 });
 
@@ -456,7 +487,7 @@ describe('WindowFirstComingUp — card-click fires the entry’s action', () => 
   });
 });
 
-describe('WindowFirstComingUp — standing conditions strip (plan §7 P4)', () => {
+describe('WindowFirstComingUp — recurring conditions strip (plan §7 P4)', () => {
   const CONDITION = {
     type: 'COASTAL_TIDES',
     name: 'Coastal tides',
@@ -495,13 +526,13 @@ describe('WindowFirstComingUp — standing conditions strip (plan §7 P4)', () =
     expect(screen.queryByTestId('coming-up-conditions')).toBeNull();
   });
 
-  it('the STRIP\'s own header sub-line gains a quiet "scores provisional" suffix while any visible '
+  it('the STRIP\'s own header sub-line gains a quiet "scores are provisional" suffix while any visible '
       + 'condition is interim — never the chronology pane\'s own sub-line (plan §7)', () => {
     renderPane({
       events: { entries: ENTRIES, counts: COUNTS, conditions: [{ ...CONDITION, interim: true }] },
     });
     const marker = screen.getByTestId('coming-up-provisional');
-    expect(marker).toHaveTextContent('scores provisional');
+    expect(marker).toHaveTextContent('scores are provisional');
     expect(screen.getByTestId('coming-up-conditions')).toContainElement(marker);
     expect(screen.getByTestId('coming-up-subtitle')).not.toContainElement(marker);
   });

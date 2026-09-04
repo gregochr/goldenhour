@@ -326,7 +326,7 @@ describe('WindowFirstShell — the origin', () => {
         reachById: new Map([[1, { driveMinutes: 400 }], [2, { driveMinutes: 40 }]]),
       });
       const link = await screen.findByTestId('wf-heat-beyond-search');
-      expect(link).toHaveTextContent('search to plan from Lake District');
+      expect(link).toHaveTextContent('Plan from Lake District');
       fireEvent.click(link);
       expect(await screen.findByTestId('plan-search-input')).toHaveValue('Lake District');
     });
@@ -351,7 +351,7 @@ describe('WindowFirstShell — the origin', () => {
       // them ("nothing within 45 min in Northumberland"), and naming only the region would credit
       // one control with three controls' work, which is the rule the strip footer already follows.
       expect(screen.getByTestId('window-sheet-empty'))
-        .toHaveTextContent('Nothing within 45 min in Northumberland for this window.');
+        .toHaveTextContent('Nothing within 45 min in Northumberland for this sunset.');
 
       value.moveOrigin({ origin: ORIGIN });
 

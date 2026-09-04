@@ -50,7 +50,7 @@ Door.propTypes = {
  * The one door at the foot of the Plan pane, and what it opens.
  *
  * <p>Coming-up redesign plan §9 (P6) removed the Hot topics door and its panel — the strip's
- * standing conditions and the "Coming up" chronology now cover the topics it used to hold
+ * recurring conditions and the "Coming up" chronology now cover the topics it used to hold
  * (`docs/engineering/coming-up-plan.md` D7). This leaves the Regional planner as the pane's only
  * door; `.wf-doors` is a flex row and `.wf-door` is `flex: 1`, so a single child already goes
  * full-width with no CSS change.
@@ -146,7 +146,7 @@ export default function WindowFirstDoors({ locations, onShowOnMap }) {
         <Door
           testId="window-first-door-regional"
           title="Regional planner"
-          description="every region, every window"
+          description="every region, morning and evening"
           panelId="window-first-panel-regional"
           open={regionalOpen}
           onToggle={() => toggle('regional')}

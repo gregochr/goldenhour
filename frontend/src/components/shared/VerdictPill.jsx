@@ -34,8 +34,8 @@ export default function VerdictPill({ displayVerdict = null, verdict = null, lab
   const labels = {
     WORTH_IT: 'Worth it',
     MAYBE: 'Maybe',
-    STAND_DOWN: 'Stand down',
-    AWAITING: 'Awaiting',
+    STAND_DOWN: 'Poor',
+    AWAITING: 'Not scored',
   };
   const pill = (
     <span

@@ -172,7 +172,7 @@ export function spreadTitle(spread, withinReach) {
   // the card's own `allSpots`, which is the same question `bestReachLine` asks eight lines away, so
   // the tooltip and the visible line agree by construction rather than by review.
   if (total === 0) {
-    return withinReach ? 'Nothing within reach for this window.' : 'Nothing to show for this window.';
+    return withinReach ? 'Nothing within reach for this one.' : 'Nothing to show for this one.';
   }
   const lead = poolPhrase(total, withinReach);
   // Nothing rated at all is the ORDINARY state on a far-horizon window — T+4 is never evaluated —

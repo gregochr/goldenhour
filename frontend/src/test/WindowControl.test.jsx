@@ -64,13 +64,13 @@ describe('WindowControl — the pill', () => {
     expect(pill).toHaveTextContent('19:45');
   });
 
-  it('shows "No forecast window" — not nothing — when nothing matches but rows exist', () => {
+  it('shows "No forecast" — not nothing — when nothing matches but rows exist', () => {
     // The map's own domain can reach further than the briefing (or than any night on record), so
     // this is an ordinary state (map-tab-v2-plan.md §3 P6) — matching the retired `<select>`'s
     // own `No forecast window` option, and still opening the dropdown rather than stranding the
     // reader (see the two tests below).
     renderControl({ activeIndex: -1 });
-    expect(screen.getByTestId('wf-win-no-match')).toHaveTextContent('No forecast window');
+    expect(screen.getByTestId('wf-win-no-match')).toHaveTextContent('No forecast');
   });
 
   it('still opens the dropdown from the no-match pill', () => {

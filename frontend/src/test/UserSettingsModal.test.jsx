@@ -62,7 +62,7 @@ describe('UserSettingsModal', () => {
   it('shows loading text while fetching settings', () => {
     getSettings.mockReturnValue(new Promise(() => {})); // never resolves
     renderModal();
-    expect(screen.getByText('Loading...')).toBeInTheDocument();
+    expect(screen.getByText('Loading…')).toBeInTheDocument();
   });
 
   it('shows error message when settings fetch fails', async () => {
@@ -255,10 +255,10 @@ describe('UserSettingsModal', () => {
   it('section headers remain visible (not inside greyed wrapper) for LITE user', async () => {
     getSettings.mockResolvedValue(LITE_SETTINGS);
     renderModal();
-    await waitFor(() => expect(screen.getByText('Home Location')).toBeInTheDocument());
-    const homeHeader = screen.getByText('Home Location');
+    await waitFor(() => expect(screen.getByText('Home location')).toBeInTheDocument());
+    const homeHeader = screen.getByText('Home location');
     expect(homeHeader.closest('.opacity-45')).toBeNull();
-    const driveHeader = screen.getByText('Drive Times');
+    const driveHeader = screen.getByText('Drive times');
     expect(driveHeader.closest('.opacity-45')).toBeNull();
   });
 
@@ -328,7 +328,7 @@ describe('UserSettingsModal', () => {
     renderModal();
     await waitFor(() => expect(screen.getByTestId('settings-refresh-drive-btn')).toBeInTheDocument());
     fireEvent.click(screen.getByTestId('settings-refresh-drive-btn'));
-    await waitFor(() => expect(screen.getByText('Calculating drive times...')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Calculating drive times…')).toBeInTheDocument());
   });
 
   it('shows success screen after drive time refresh', async () => {
@@ -456,10 +456,10 @@ describe('UserSettingsModal', () => {
     expect(screen.getByTestId('settings-refresh-drive-btn')).not.toBeDisabled();
   });
 
-  it('shows "Set a home location first" when no home set', async () => {
+  it('shows "Set a home location first." when no home set', async () => {
     getSettings.mockResolvedValue({ ...PRO_SETTINGS, homePostcode: null });
     renderModal();
-    await waitFor(() => expect(screen.getByText('Set a home location first')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Set a home location first.')).toBeInTheDocument());
     expect(screen.getByTestId('settings-refresh-drive-btn')).toBeDisabled();
   });
 
@@ -467,14 +467,14 @@ describe('UserSettingsModal', () => {
   // Map Colours (Stage 6) — ungated, new toggle/checkbox pattern
   // ---------------------------------------------------------------------------
 
-  it('renders the Map Colours section for a LITE user — reading the map is not a Pro feature', async () => {
+  it('renders the Map colours section for a LITE user — reading the map is not a Pro feature', async () => {
     getSettings.mockResolvedValue(LITE_SETTINGS);
     renderModal();
-    await waitFor(() => expect(screen.getByText('Map Colours')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('Map colours')).toBeInTheDocument());
     expect(screen.getByTestId('settings-map-colour-verdict')).not.toBeDisabled();
     expect(screen.getByTestId('settings-map-colour-temp')).not.toBeDisabled();
     // Not inside any greyed-out wrapper — this section has no Pro gate at all.
-    expect(screen.getByText('Map Colours').closest('.opacity-45')).toBeNull();
+    expect(screen.getByText('Map colours').closest('.opacity-45')).toBeNull();
   });
 
   // Stage 7 flipped the default: was 'defaults to the verdict scale when never chosen'.
@@ -510,7 +510,7 @@ describe('UserSettingsModal', () => {
   it('loading gates the colour scale section — no radio renders before settings resolve', async () => {
     getSettings.mockReturnValue(new Promise(() => {})); // never resolves
     renderModal();
-    expect(await screen.findByText('Loading...')).toBeInTheDocument();
+    expect(await screen.findByText('Loading…')).toBeInTheDocument();
     expect(screen.queryByTestId('settings-map-colour-temp')).toBeNull();
     expect(screen.queryByTestId('settings-map-colour-verdict')).toBeNull();
   });

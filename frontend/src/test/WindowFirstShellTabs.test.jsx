@@ -632,7 +632,7 @@ describe('WindowFirstShell — what stays put across a tab change', () => {
       });
 
       const line = await screen.findByTestId('wf-heat-change');
-      expect(line).toHaveTextContent('Moved at the last forecast run, 52m ago');
+      expect(line).toHaveTextContent('Changed at the last forecast run, 52m ago');
     }
   });
 

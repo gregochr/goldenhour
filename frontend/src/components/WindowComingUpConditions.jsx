@@ -4,7 +4,7 @@ import { familyOf, occurrenceCountsLine, anyConditionInterim, bitsWord } from '.
 import { FAMILY_GLYPHS } from '../utils/comingUpGlyphs.js';
 
 /**
- * The standing-conditions strip (design README §2/§2.1, plan §7 P4) — one row per frequent topic
+ * The recurring-conditions strip (design README §2/§2.1, plan §7 P4) — one row per frequent topic
  * (Coastal tides, Saharan dust, Valley inversions at first ship, D11), each expandable to every
  * occurrence the surprise model scored in the window, with the score it got. Sits between the
  * filter chips and the handoff row — the design of record's own DOM order
@@ -15,12 +15,12 @@ import { FAMILY_GLYPHS } from '../utils/comingUpGlyphs.js';
  * <p>{@code ComingUpConditionsBuilder} computed every rate, quant line, peak and occurrence status
  * this component shows. The only client-side work is which colour token a row's swatch uses
  * ({@code familyOf} — a condition has no served {@code family} field, unlike a chronology entry)
- * and the panel's own held-back/in-the-list/inside-Plan counts, both pure arithmetic over served
+ * and the panel's own not-listed/below/on-Plan counts, both pure arithmetic over served
  * data ({@code utils/comingUpConditions.js}).
  *
  * <h2>Scroll-to-entry does not thread through React state</h2>
  *
- * <p>A promoted occurrence's {@code in the list →} link finds its chronology card by querying
+ * <p>A promoted occurrence's {@code see it below →} link finds its chronology card by querying
  * {@code [data-entry-id]} directly — the chronology list and this strip are siblings in the same
  * pane, always mounted together, so there is nothing to prop-drill. `scroll-margin-top` on the
  * target (`index.css`) uses `--wf-mast-h`, not `--wf-lens-reserve`: the lens bar is Plan-only and
@@ -29,7 +29,7 @@ import { FAMILY_GLYPHS } from '../utils/comingUpGlyphs.js';
  *
  * <h2>The provisional marker is scoped to this header, not the pane's (plan §7)</h2>
  *
- * <p>The strip's own sub-line grows a quiet "scores provisional" suffix while any visible
+ * <p>The strip's own sub-line grows a quiet "scores are provisional" suffix while any visible
  * condition is {@code interim} (README's "say so in the UI" clause) — it does not live on
  * {@code WindowFirstComingUp}'s pane-level sub-line, which describes the chronology dates, not
  * this strip's scoring.
@@ -58,12 +58,12 @@ export default function WindowComingUpConditions({ conditions, onGoToPlan }) {
   return (
     <div className="wf-cond" data-testid="coming-up-conditions">
       <div className="wf-cond-head">
-        <span className="wf-cond-t">Standing conditions</span>
+        <span className="wf-cond-t">Recurring conditions</span>
         <span className="wf-cond-d">
-          frequent · never announced · always one click away
+          too frequent to list · open one to see every date
           {provisional && (
             <span className="wf-cond-provisional" data-testid="coming-up-provisional">
-              {' '}· scores provisional
+              {' '}· scores are provisional
             </span>
           )}
         </span>
@@ -97,6 +97,13 @@ export default function WindowComingUpConditions({ conditions, onGoToPlan }) {
               {' '}
               <span className="wf-cond-rate" data-testid="condition-rate">{condition.rateLabel}</span>
               {' '}
+              {/* ⚠️ The absent-peak wording carries NO "forecast", and the omission is the
+                  point. A null `peak` is TWO states the wire cannot tell apart: nothing cleared
+                  the gate, or the forward-peak read threw (`ComingUpConditionsBuilder` logs "the
+                  peak cell will say so" on that path, then returns the same null). "No peak
+                  forecast" denies the peak exists, which is false in the second state; "no peak
+                  right now" is true in both. Separating them needs a wire field, not new
+                  wording — recorded here rather than invented (Codex review of #748). */}
               <span className="wf-cond-peak" data-testid="condition-peak">
                 {condition.peak ? (
                   <>
@@ -104,10 +111,10 @@ export default function WindowComingUpConditions({ conditions, onGoToPlan }) {
                     {' '}
                     {condition.peak.dateLabel}
                     {' · '}
-                    <b>{condition.peak.valueLabel} — {bitsWord(condition.peak.bits)} ({condition.peak.bits.toFixed(1)})</b>
+                    <b>{condition.peak.valueLabel} — {bitsWord(condition.peak.bits)}</b>
                   </>
                 ) : (
-                  <span className="wf-cond-peak-label">no gated peak right now</span>
+                  <span className="wf-cond-peak-label">no peak right now</span>
                 )}
                 <span className="wf-cond-caret" aria-hidden="true">▾</span>
               </span>
@@ -187,20 +194,20 @@ function OccurrenceRow({ occurrence, onGoToPlan }) {
       {' '}
       <span className="wf-cond-ov">{occurrence.valueLabel}</span>
       {' '}
-      <span className="wf-cond-ob">{bitsWord(occurrence.bits)} ({occurrence.bits.toFixed(1)})</span>
+      <span className="wf-cond-ob">{bitsWord(occurrence.bits)}</span>
       {' '}
       <span className="wf-cond-om">{occurrence.reason ?? ''}</span>
       {' '}
       {occurrence.status === 'promoted' && (
-        <span className="wf-cond-os" data-testid="condition-occurrence-status">in the list →</span>
+        <span className="wf-cond-os" data-testid="condition-occurrence-status">see it below →</span>
       )}
       {occurrence.status === 'insidePlan' && (
         <span className="wf-cond-os" data-testid="condition-occurrence-status">
-          inside Plan&rsquo;s four days →
+          on Plan →
         </span>
       )}
       {occurrence.status === 'heldBack' && (
-        <span className="wf-cond-os" data-testid="condition-occurrence-status">held back</span>
+        <span className="wf-cond-os" data-testid="condition-occurrence-status">not listed</span>
       )}
     </>
   );

@@ -228,7 +228,7 @@ export default function PlanSearch({
   const anchor = useTickLineBox();
 
   return (
-    <Modal label="Search windows, regions and locations" onClose={onClose} bare closeOnEscape
+    <Modal label="Search days, regions and places" onClose={onClose} bare closeOnEscape
       data-testid="plan-search">
       <div
         className={`wf-search-panel${anchor ? ' wf-search-anchored' : ''}`}
@@ -265,7 +265,7 @@ export default function PlanSearch({
             aria-controls="plan-search-list"
             aria-activedescendant={activeId}
             aria-autocomplete="list"
-            aria-label="Search windows, regions and locations"
+            aria-label="Search days, regions and places"
             data-testid="plan-search-input"
             className="wf-search-input"
             placeholder="Search a day, a region or a place…"

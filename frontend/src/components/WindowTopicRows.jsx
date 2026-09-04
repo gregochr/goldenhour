@@ -133,7 +133,7 @@ export default function WindowTopicRows({ rows }) {
                 // just excluded.
                 title={(scopedRegions || []).join(' · ') || undefined}
               >
-                {`${regionsInScope} region${regionsInScope === 1 ? '' : 's'} in scope`}
+                {`in ${regionsInScope} region${regionsInScope === 1 ? '' : 's'}`}
               </span>
             )}
             {badge.safetyNote && (

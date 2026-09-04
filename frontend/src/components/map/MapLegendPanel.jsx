@@ -4,7 +4,7 @@ import { rampGradientCss } from '../../utils/scoreRamp.js';
 import { RING_TIERS } from '../../utils/reachRings.js';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
 
-/** Below this handover fraction the field is still whole — README §8: "Field" / "the regional glance". */
+/** Below this handover fraction the field is still whole — README §8's first zoom state. */
 const HANDOVER_FIELD_MAX = 0.05;
 /** Above this fraction the field has settled to its floor wash — README §8: "Locations". */
 const HANDOVER_LOCATIONS_MIN = 0.92;
@@ -29,9 +29,11 @@ const HANDOVER_LOCATIONS_MIN = 0.92;
  * @returns {{label: string, detail: string}}
  */
 export function handoverPhase(t) {
-  if (t < HANDOVER_FIELD_MAX) return { label: 'Field', detail: 'the regional glance' };
-  if (t > HANDOVER_LOCATIONS_MIN) return { label: 'Locations', detail: 'field kept as a faint wash' };
-  return { label: 'Handing over', detail: 'field → locations' };
+  if (t < HANDOVER_FIELD_MAX) return { label: 'Regions', detail: 'the broad picture' };
+  if (t > HANDOVER_LOCATIONS_MIN) {
+    return { label: 'Places', detail: 'individual spots, region colour behind' };
+  }
+  return { label: 'Zooming in', detail: 'regions giving way to places' };
 }
 
 /**
@@ -131,7 +133,7 @@ export default function MapLegendPanel({
           <div className="wf-legend-ramp-row">
             <span>1&#9733; poor</span>
             <span>3&#9733;</span>
-            <span>5&#9733; go</span>
+            <span>5&#9733; worth it</span>
           </div>
 
           <div data-testid="wf-legend-hand" className="wf-legend-hand">
@@ -158,8 +160,8 @@ export default function MapLegendPanel({
           )}
 
           <div data-testid="wf-legend-note" className="wf-legend-note">
-            Warmth only where rated locations are, clipped to land. Later windows render hazier
-            &mdash; lower confidence.
+            Colour appears only near rated locations, and only over land. Later days look
+            hazier &mdash; lower confidence.
           </div>
         </div>
       )}

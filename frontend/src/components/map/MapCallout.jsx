@@ -132,7 +132,7 @@ function subjectWords(types) {
  * @param {boolean} [props.scoresKnown] whether the `scoreIndex` response has actually landed — a
  *        failed or in-flight fetch is not evidence that nothing was rated (the same rule
  *        `LocationFourDaySheet`'s `scoresKnown` states), so a null rating renders "Loading…"
- *        rather than the definitive-sounding "Not yet scored" while this is false
+ *        rather than the definitive-sounding "Not scored yet" while this is false
  * @param {?object} [props.regionGlossIndex] from `utils/mapCallout.buildRegionGlossIndex` — the
  *        reason prose's fallback when this location's own window carries no summary
  * @param {Array<object>} [props.evRows] the full EV list, for the "every window" strip
@@ -416,7 +416,7 @@ export default function MapCallout({
             </span>
           ) : (
             <span className="wf-callout-verdict-score unscored" data-testid="map-callout-score">
-              {scoresKnown ? 'Not yet scored' : 'Loading…'}
+              {scoresKnown ? 'Not scored yet' : 'Loading…'}
             </span>
           )}
         </div>
@@ -452,7 +452,7 @@ export default function MapCallout({
           aria-controls="map-callout-strip"
           onClick={() => setStripOpen((v) => !v)}
         >
-          This location, every window
+          Every event here
           <span aria-hidden="true">{stripOpen ? '▴' : '▾'}</span>
         </button>
         {stripOpen && (

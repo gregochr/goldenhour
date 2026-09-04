@@ -302,8 +302,8 @@ export function buildChronology(entries, todayStr, filterId, lastSeenDate) {
  * equinox/solstice dates are fixed `MonthDay` anchors, not a solved instant — a distinction the
  * current pane already recorded and this rewrite keeps (plan §11.14).
  */
-export const FOOTER_LEAD = 'This list starts where Plan stops. Two things earn a row: a date '
-  + 'fixed in advance, and the forecast peak of a standing condition.';
+export const FOOTER_LEAD = 'This list starts where the four-day forecast stops. It shows two '
+  + 'things: dates fixed in advance, and the forecast peak of a recurring condition.';
 
 /**
  * The footer's full paragraph (design README §5, plan §6) — {@link FOOTER_LEAD} plus the served
@@ -317,14 +317,14 @@ export const FOOTER_LEAD = 'This list starts where Plan stops. Two things earn a
  */
 export function footerCopy(counts) {
   const { fixed, forecast } = counts;
-  const tail = 'Routine occurrences of the conditions above are never listed, only opened.';
+  const tail = 'The recurring conditions above are not listed date by date — open one to see '
+    + 'them all.';
   if (forecast === 0) {
     return `${FOOTER_LEAD} Every date here is fixed in advance — as certain three months out as `
       + `it is tonight, because none of it depends on the weather. ${tail}`;
   }
-  return `${FOOTER_LEAD} ${fixed} here ${fixed === 1 ? 'is' : 'are'} fixed — as certain three `
-    + `months out as ${fixed === 1 ? 'it is' : 'they are'} tonight — and carry a solid left rule. `
-    + `${forecast} ${forecast === 1 ? 'is a forecast peak' : 'are forecast peaks'} on a dashed `
-    + `rule and can still move; horizons differ by topic, from three days for cloud to about five `
-    + `for dust transport. ${tail}`;
+  return `${FOOTER_LEAD} ${fixed} of these dates ${fixed === 1 ? 'is' : 'are'} fixed — as certain `
+    + `three months out as ${fixed === 1 ? 'it is' : 'they are'} tonight. `
+    + `${forecast} ${forecast === 1 ? 'is a forecast peak' : 'are forecast peaks'} and can still `
+    + `move: about three days ahead for cloud, five for dust. ${tail}`;
 }

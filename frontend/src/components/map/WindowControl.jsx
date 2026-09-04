@@ -165,7 +165,7 @@ export default function WindowControl({
           // own domain can reach further than the briefing, or further than any night on record),
           // not an error. Still opens the dropdown, exactly like the retired `<select>`'s own
           // `No forecast window` option did, so the reader is never stuck with no way back.
-          <span className="wf-win-label" data-testid="wf-win-no-match">No forecast window</span>
+          <span className="wf-win-label" data-testid="wf-win-no-match">No forecast</span>
         )}
         <span aria-hidden="true" className="wf-win-caret">&#9662;</span>
       </button>

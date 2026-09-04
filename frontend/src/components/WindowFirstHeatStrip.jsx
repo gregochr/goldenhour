@@ -1258,7 +1258,7 @@ export default function WindowFirstHeatStrip({
           style={{ background: rampGradientCss() }}
         />
         <span>poor → worth it</span>
-        <span>later days render hazier — lower confidence</span>
+        <span>later days look hazier — lower confidence</span>
         {/* Named in words because a texture is not vocabulary, and named HERE rather than on each
             card because a card's own rows are already full — the same call the haze clause beside
             it makes about the same picture.
@@ -1275,7 +1275,7 @@ export default function WindowFirstHeatStrip({
         {/* Desktop only, as the design has it — the phone bar has no room for a third clause and
             the first two are the ones that decode the picture. */}
         <span className="wf-hstrip-sp">
-          The field shows the forecast, not your reach — the cards apply it
+          Colour shows the whole forecast — the cards allow for your drive
         </span>
       </div>
 
@@ -1283,14 +1283,16 @@ export default function WindowFirstHeatStrip({
           it sits with the legend that decodes it rather than among the cards — and the beyond line
           stays last, because that one is the tail about what is NOT drawn.
 
-          ⚠️ THE VERB IS "MOVED AT", NEVER "SINCE", and the two are not interchangeable here.
+          ⚠️ THE PREPOSITION IS "AT", NEVER "SINCE", and the two are not interchangeable here.
           The delta's basis is the build BEFORE the one whose age this line prints — the interval
           measured is [previous build, now], while `generatedAt` names the LAST build. "Since the
           last forecast run 52m ago" (the design's own sample copy) therefore claims the one
           interval in which almost none of the movement happened: with builds ~11h apart, a reader
-          at 14:52 would be told a ten-hour change occurred in fifty-two minutes. "Moved at"
+          at 14:52 would be told a ten-hour change occurred in fifty-two minutes. "Changed at"
           attributes the change to the run rather than to the period after it, which is true of the
-          run-to-run component and honest about the rest.
+          run-to-run component and honest about the rest. The VERB is free — this line read "Moved
+          at" until the copy pass, which is the same claim in clumsier English — the PREPOSITION is
+          not.
 
           ⚠️ It is now the ONLY movement channel on this surface — the per-card chip died with the
           old card face (deletion ledger, M1) — so the region names and the age it carries are the
@@ -1309,7 +1311,7 @@ export default function WindowFirstHeatStrip({
           withholding the AGE with it would lose a fact that is not about movement at all. The two
           forms are mutually exclusive by construction and a test pins that they are, because two
           age lines is the defect this consolidation removes. The no-movement wording drops the
-          verb entirely — "Moved at the last forecast run" over an empty list would assert a
+          verb entirely — "Changed at the last forecast run" over an empty list would assert a
           movement the same element has just declined to name. */}
       {movers.length === 0 && runAge && (
         <p data-testid="wf-heat-runage" className="wf-hstrip-change">
@@ -1319,8 +1321,8 @@ export default function WindowFirstHeatStrip({
       {movers.length > 0 && (
         <p data-testid="wf-heat-change" className="wf-hstrip-change">
           {runAge
-            ? `Moved at the last forecast run, ${runAge}`
-            : 'Moved at the last forecast run'}
+            ? `Changed at the last forecast run, ${runAge}`
+            : 'Changed at the last forecast run'}
           {movers.map((mover) => (
             <span key={mover.key} data-testid="wf-heat-change-item">
               {/* ⚠️ THE SEPARATOR AND THE REGION SIT OUTSIDE THE `nowrap` ATOM, and that is a
@@ -1385,7 +1387,7 @@ export default function WindowFirstHeatStrip({
                 className="wf-hstrip-beyond-act"
                 onClick={() => onSearchRegion(beyond[0])}
               >
-                {`search to plan from ${beyond[0]}`}
+                {`Plan from ${beyond[0]}`}
                 <span aria-hidden="true"> →</span>
               </button>
             </>

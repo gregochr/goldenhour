@@ -222,7 +222,7 @@ describe('HeatmapGrid — cells are named for a screen reader', () => {
   it('names an unevaluated cell by the word it displays, not by its internal signal', () => {
     // A region with no recognised verdict resolves to AWAITING, but the collapsed cell renders the
     // literal "Poor" for that state too. The accessible name has to say "Poor" to match — a name of
-    // "Awaiting" over a cell reading "Poor" is a label-in-name mismatch (WCAG 2.5.3) and breaks
+    // "Not scored" over a cell reading "Poor" is a label-in-name mismatch (WCAG 2.5.3) and breaks
     // speech input, where the user says what they can see.
     renderGrid({
       briefingDays: [{
@@ -243,7 +243,7 @@ describe('HeatmapGrid — cells are named for a screen reader', () => {
     const cell = screen.getByTestId('heatmap-cell');
     expect(cell).toHaveTextContent('Poor');
     expect(cell.getAttribute('aria-label')).toContain('Poor');
-    expect(cell.getAttribute('aria-label')).not.toContain('Awaiting');
+    expect(cell.getAttribute('aria-label')).not.toContain('Not scored');
   });
 
   it('distinguishes two cells that differ only by date', () => {
@@ -1000,7 +1000,7 @@ describe('HeatmapGrid — verdictLabel override on the drill-down event row', ()
     const drillDown = screen.getByTestId('drill-down-panel');
     const pill = drillDown.querySelector('[data-testid="verdict-pill"]');
     expect(pill.textContent).toBe('Too unsettled to forecast');
-    expect(drillDown.textContent).not.toContain('Stand down');
+    expect(drillDown.textContent).not.toContain('Poor');
   });
 
   it('without verdictLabel, falls back to default "Stand down" label', () => {
@@ -1029,7 +1029,7 @@ describe('HeatmapGrid — verdictLabel override on the drill-down event row', ()
 
     const drillDown = screen.getByTestId('drill-down-panel');
     const pill = drillDown.querySelector('[data-testid="verdict-pill"]');
-    expect(pill.textContent).toBe('Stand down');
+    expect(pill.textContent).toBe('Poor');
   });
 });
 

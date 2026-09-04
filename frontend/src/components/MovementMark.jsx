@@ -13,7 +13,7 @@ import PropTypes from 'prop-types';
  * the visible value and is hidden, so the words beside it are what a non-visual reader gets, and
  * M5's copy sweep over the movement vocabulary would otherwise have had two sites to keep in step.
  *
- * <p>⚠️ <b>The verb is "at last run", never "since".</b> The delta is measured from the build BEFORE
+ * <p>⚠️ <b>The preposition is "at", never "since".</b> The delta is measured from the build BEFORE
  * the last one, so "since the last forecast run" names the one interval in which almost none of the
  * movement happened — {@code movement.js} records the reasoning, and the change line under the
  * matrix carries the age separately (one age per screen, plan §3 rule 7).

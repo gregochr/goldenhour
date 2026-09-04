@@ -231,7 +231,7 @@ describe('WindowSheetDialog — dialog semantics', () => {
       renderDialog({ index: 2, total: 6 });
       const live = screen.getByTestId('window-sheet-live');
       expect(live).toHaveAttribute('role', 'status');
-      expect(live).toHaveTextContent('Tonight Sunset, window 3 of 6, Worth it');
+      expect(live).toHaveTextContent('Tonight Sunset, 3 of 6, Worth it');
     });
 
     it('names the region and how many places are listed, so a pick is heard', () => {
@@ -270,7 +270,7 @@ describe('WindowSheetDialog — dialog semantics', () => {
     // that renders four windows must not have its dialog announce six. The same trap
     // `LocationFourDaySheet` records against its own `label`.
     renderDialog({ index: 4, total: 6 });
-    expect(screen.getByRole('dialog', { name: 'Tonight Sunset — window 5 of 6' }))
+    expect(screen.getByRole('dialog', { name: 'Tonight Sunset — 5 of 6' }))
       .toHaveAttribute('aria-modal', 'true');
     expect(screen.getByTestId('window-sheet-of')).toHaveTextContent('5/6');
   });
@@ -931,7 +931,7 @@ describe('WindowSheetDialog — the per-window quiet sentence', () => {
       field: field({ lens: { limitMinutes: 45, tierLabel: '45 min', minRating: 4, ratingLabel: '4★+' } }),
     });
     expect(screen.getByTestId('window-sheet-empty'))
-      .toHaveTextContent('Nothing at 4★+ within 45 min for this window.');
+      .toHaveTextContent('Nothing at 4★+ within 45 min for this sunset.');
   });
 
   it('⚠️ drops the tier clause when no drive time exists for it to have used', () => {
@@ -944,7 +944,7 @@ describe('WindowSheetDialog — the per-window quiet sentence', () => {
       field: field({ lens: { limitMinutes: 45, tierLabel: '45 min', minRating: 4, ratingLabel: '4★+' } }),
     });
     expect(screen.getByTestId('window-sheet-empty'))
-      .toHaveTextContent('Nothing at 4★+ for this window.');
+      .toHaveTextContent('Nothing at 4★+ for this sunset.');
   });
 
   it('⚠️ names the REGION as well when a region focus did the emptying', () => {
@@ -955,7 +955,7 @@ describe('WindowSheetDialog — the per-window quiet sentence', () => {
       field: field({ selectedRegion: 'Dales' }),
     });
     expect(screen.getByTestId('window-sheet-empty'))
-      .toHaveTextContent('Nothing within 45 min in Dales for this window.');
+      .toHaveTextContent('Nothing within 45 min in Dales for this sunset.');
   });
 
   it('states the bare fact when neither lens axis is gating anything', () => {
@@ -963,7 +963,7 @@ describe('WindowSheetDialog — the per-window quiet sentence', () => {
       card: card({ spots: [] }),
       field: field({ lens: { limitMinutes: null, tierLabel: 'Any', minRating: null, ratingLabel: 'Any rating' } }),
     });
-    expect(screen.getByTestId('window-sheet-empty')).toHaveTextContent('Nothing for this window.');
+    expect(screen.getByTestId('window-sheet-empty')).toHaveTextContent('Nothing for this sunset.');
   });
 
   it('offers the route to the full list beside it, where the count is otherwise unactionable', () => {

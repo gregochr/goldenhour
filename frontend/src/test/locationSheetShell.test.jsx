@@ -532,7 +532,7 @@ describe('WindowFirstShell — the four-day location sheet', () => {
       expect(screen.getAllByRole('dialog').length).toBe(2);
 
       const beyondSearch = await screen.findByTestId('wf-heat-beyond-search');
-      expect(beyondSearch).toHaveTextContent('search to plan from Lake District');
+      expect(beyondSearch).toHaveTextContent('Plan from Lake District');
       fireEvent.click(beyondSearch);
 
       expect(screen.queryByTestId('plan-search')).toBeNull();

@@ -193,7 +193,7 @@ describe('WindowTopicRows — the scope note', () => {
       topics: [topic({ regions: ['Northumberland & Tyneside', 'N. York Moors & Coast'] })],
       scope: ['Northumberland & Tyneside', 'N. York Moors & Coast', 'The Lake District'],
     });
-    expect(screen.getByTestId('wf-topic-row-scope')).toHaveTextContent('2 regions in scope');
+    expect(screen.getByTestId('wf-topic-row-scope')).toHaveTextContent('2 regions');
   });
 
   it('agrees with itself for one region', () => {
@@ -203,7 +203,7 @@ describe('WindowTopicRows — the scope note', () => {
       topics: [topic({ regions: ['Northumberland & Tyneside'] })],
       scope: ['Northumberland & Tyneside', 'The Lake District'],
     });
-    expect(screen.getByTestId('wf-topic-row-scope')).toHaveTextContent('1 region in scope');
+    expect(screen.getByTestId('wf-topic-row-scope')).toHaveTextContent('1 region');
   });
 
   it('⚠️ gives a whole-sky topic no scope note at all', () => {
@@ -219,7 +219,7 @@ describe('WindowTopicRows — the scope note', () => {
   });
 
   it('says nothing rather than zero when the scope is not known yet', () => {
-    // An empty scope means the locations payload has not landed. A "0 regions in scope" there would
+    // An empty scope means the locations payload has not landed. A "0 regions" there would
     // claim the topic is about nowhere — and the filter would already have acted on that.
     renderJoined({
       key: windowKey(D, 'SUNSET'),

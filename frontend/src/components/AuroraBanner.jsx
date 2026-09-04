@@ -53,7 +53,7 @@ export function bzStatus(bz) {
     return {
       emoji: '✅',
       label: `Bz south (${bz.toFixed(1)} nT)`,
-      explanation: 'solar wind coupling active',
+      explanation: 'favourable for aurora',
     };
   }
   if (bz < 0) {
@@ -67,13 +67,13 @@ export function bzStatus(bz) {
     return {
       emoji: '⚠️',
       label: `Bz north (+${bz.toFixed(1)} nT)`,
-      explanation: 'solar wind not coupling',
+      explanation: 'poor for aurora',
     };
   }
   return {
     emoji: '⚠️',
     label: `Bz north (+${bz.toFixed(1)} nT)`,
-    explanation: 'solar wind not coupling',
+    explanation: 'poor for aurora',
   };
 }
 
@@ -210,10 +210,10 @@ export default function AuroraBanner({ onViewOnMap = null }) {
   if (!allOvercast && status.darkSkyLocationCount > 0) {
     if (status.clearLocationCount != null) {
       const c = status.clearLocationCount;
-      locationText = `${c} dark sky location${c !== 1 ? 's' : ''} clear`;
+      locationText = `${c} dark-sky location${c !== 1 ? 's' : ''} clear`;
     } else {
       const c = status.darkSkyLocationCount;
-      locationText = `${c} dark sky location${c !== 1 ? 's' : ''}`;
+      locationText = `${c} dark-sky location${c !== 1 ? 's' : ''}`;
     }
   }
 
@@ -304,8 +304,8 @@ export default function AuroraBanner({ onViewOnMap = null }) {
                 {isSimulated
                   ? 'Simulated'
                   : isForecastTrigger
-                    ? 'Aurora Forecast'
-                    : 'Aurora Active Now'}
+                    ? 'Aurora forecast'
+                    : 'Aurora active now'}
                 {!isSimulated && !isForecastTrigger && detectedLabel && (
                   <>
                     {' · '}

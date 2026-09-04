@@ -1,6 +1,7 @@
 import React from 'react';
 import PropTypes from 'prop-types';
 import { formatArrivalDate } from '../utils/comingUpFeed.js';
+import { bitsWord } from '../utils/comingUpConditions.js';
 
 /**
  * "The badge must land somewhere" (design §6): the line above the filter chips that gives a count
@@ -16,9 +17,17 @@ import { formatArrivalDate } from '../utils/comingUpFeed.js';
  * {@code {bits, title, dates, scoreNote}} — plan §13's own annotation for this field — never
  * composing a sentence out of them.
  *
+ * <h2>The score is spoken as a word, never as bits</h2>
+ *
+ * <p>{@code bits} is log2 surprisal on an unbounded scale ({@code SurpriseScore}: rarity
+ * {@code log2(meanGapDays)} plus magnitude {@code -log2(P(X >= x))}), so a bare {@code 8.2} has no
+ * denominator a reader could reason about — there is no "out of". {@code bitsWord} buckets it into
+ * the vocabulary the occurrence rows already print, and that word is the whole of what this line
+ * says about rarity.
+ *
  * <h2>The arrival date is {@code enteredWindow}, not the entry's own date</h2>
  *
- * <p>The design bundle's demo copy prints a shower's OWN peak date next to "entered the window",
+ * <p>The design bundle's demo copy prints a shower's OWN peak date next to "joined the list",
  * which cannot be literal: a peak 90 days out enters the window roughly 90 days before it peaks,
  * not on the peak itself. The demo is illustrative static text, not derived from the model's own
  * arithmetic (the same kind of bundle inconsistency plan §11 already catalogues elsewhere). This
@@ -32,6 +41,11 @@ import { formatArrivalDate } from '../utils/comingUpFeed.js';
  *                                    or null — must be non-null whenever {@code badge} is non-null
  * @param {function} props.onMarkSeen clears the badge and every NEW flag
  */
+/** `very rare` → `Very rare`. The interrupt line opens a sentence; the word is authored lower. */
+function sentenceCase(word) {
+  return word.charAt(0).toUpperCase() + word.slice(1);
+}
+
 export default function WindowComingUpSinceLine({ badge = null, entry = null, onMarkSeen }) {
   if (!badge || !entry) return null;
 
@@ -46,17 +60,15 @@ export default function WindowComingUpSinceLine({ badge = null, entry = null, on
     >
       {isInterrupt ? (
         <span>
-          <b data-testid="coming-up-since-headline">{'◆ '}{entry.bits}{' bits'}</b>
-          {` — the ${entry.title} entered the window, ${dateLabel}.`}
+          <b data-testid="coming-up-since-headline">{'◆ '}{sentenceCase(bitsWord(entry.bits))}</b>
+          {` — the ${entry.title} joined the list, ${dateLabel}.`}
           {note && ` ${note}`}
         </span>
       ) : (
         <span>
-          <b data-testid="coming-up-since-headline">{badge.count}{' announced'}</b>
-          {` — the ${entry.title} entered the window, ${dateLabel}.`}
+          <b data-testid="coming-up-since-headline">{badge.count}{' new'}</b>
+          {` — the ${entry.title} joined the list, ${dateLabel}.`}
           {note && ` ${note}`}
-          {' '}
-          <span className="wf-cu-since-bits">{entry.bits}{' bits'}</span>
         </span>
       )}
       <button
@@ -65,7 +77,7 @@ export default function WindowComingUpSinceLine({ badge = null, entry = null, on
         data-testid="coming-up-since-mark-seen"
         onClick={onMarkSeen}
       >
-        Mark seen
+        Mark as seen
       </button>
     </div>
   );

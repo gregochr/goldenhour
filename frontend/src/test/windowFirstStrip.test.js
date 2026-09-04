@@ -6,7 +6,7 @@ import { AWAY_STATE_LABEL, buildHeatStripCards } from '../utils/windowFirstStrip
  *
  * <p>The rule this file exists to protect is that a thumbnail says what its own window's CARD says.
  * The day rail it replaced rolled its own day peak up from a different field, and a payload where
- * the two disagreed put "Awaiting" above cards reading "Worth it" — one screen, two answers. So
+ * the two disagreed put "Not scored" above cards reading "Worth it" — one screen, two answers. So
  * every verdict assertion below is really an assertion that nothing was re-derived.
  *
  * <p>The other half is the away day, which has no card at all: it keeps its slot in the six because
@@ -293,6 +293,6 @@ describe('buildHeatStripCards — absence', () => {
     const [only] = build([{ date: TODAY, targetType: 'SUNSET' }], []);
 
     expect(only.verdict).toBe('AWAITING');
-    expect(only.verdictLabel).toBe('Awaiting');
+    expect(only.verdictLabel).toBe('Not scored');
   });
 });

@@ -304,7 +304,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
             )}
 
             <button type="submit" data-testid="reg-submit" className="btn-primary" disabled={loading || !turnstileToken || !termsAccepted}>
-              {loading ? 'Creating account...' : 'Create account'}
+              {loading ? 'Creating account…' : 'Create account'}
             </button>
 
             <div className="text-center">
@@ -360,7 +360,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
         {step === STEPS.VERIFY && (
           <div className="card flex flex-col gap-4 text-center" data-testid="verify-step">
             {loading && (
-              <p className="text-sm text-plex-text-secondary animate-pulse">Verifying your email...</p>
+              <p className="text-sm text-plex-text-secondary animate-pulse">Verifying your email…</p>
             )}
             {!loading && error && (
               <>
@@ -464,7 +464,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
               className="btn-primary"
               disabled={loading || !allPassed || !spTurnstileToken}
             >
-              {loading ? 'Setting up...' : 'Complete registration'}
+              {loading ? 'Setting up…' : 'Complete registration'}
             </button>
           </form>
         )}
@@ -492,7 +492,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
                   <p className="text-xs text-red-400" role="alert" data-testid="waitlist-error">{error}</p>
                 )}
                 <button type="submit" className="btn-primary" data-testid="waitlist-submit" disabled={loading}>
-                  {loading ? 'Submitting...' : 'Notify me'}
+                  {loading ? 'Submitting…' : 'Notify me'}
                 </button>
               </form>
             ) : (
@@ -517,7 +517,7 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
         {step === STEPS.SUCCESS && (
           <div className="card flex flex-col gap-4 text-center" data-testid="success-step">
             <p className="text-sm font-semibold text-plex-text">Welcome to PhotoCast!</p>
-            <p className="text-xs text-plex-text-secondary animate-pulse">Redirecting...</p>
+            <p className="text-xs text-plex-text-secondary animate-pulse">Redirecting…</p>
           </div>
         )}
 
