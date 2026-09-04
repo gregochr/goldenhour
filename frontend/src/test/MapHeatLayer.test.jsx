@@ -422,7 +422,10 @@ describe('MapHeatLayer — throttle, never debounce', () => {
       currentMap.fire('zoomend');
     });
     expect(drawTiles).toHaveBeenCalledTimes(2);
-    expect(currentMap.panes.markerPane.style.opacity).toBe('1');
+    // The FIELD's own opacity is what tracks the last zoom now (the markers are simply off at
+    // both) — 13 is past `fadeAt`'s band, so the field is at its 0.12 floor. A repaint that kept
+    // zoom 11's frame would show 1 − 0.88×0.375 = 0.67 here.
+    expect(drawTiles.mock.calls.at(-1)[4].opacity).toBeCloseTo(0.92 * 0.12, 5);
   });
 
   it('keeps ONE Leaflet subscription across a window change', async () => {
@@ -480,7 +483,10 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
     // the NEW band's own edges and midpoint (11.2, not the old band's 11.4), not copied from any
     // implementation output.
     //
-    // Below the band the field is whole and the markers are gone; above it the markers are whole
+    // ⚠️ Pure-number pin on `fadeAt` itself, NOT a statement about what paints. Its `markers` half
+    // is the Legend indicator's progress fraction now and nothing renders at it; the field's own
+    // `heat` half is the one the canvas still reads. (It used to read "above it the markers are
+    // whole" — the sentence this change falsified.) Below the band the field is whole;
     // and the field settles to a 12% wash rather than vanishing — the regional answer is still
     // true at street level.
     expect(fadeAt(9)).toEqual({ markers: 0, heat: 1 });
@@ -507,20 +513,32 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
   });
 
   it('hides the marker panes wholesale at the zoom the tab opens at', async () => {
-    // Without this, today's fully opaque cluster medallions paint over the field at every zoom and
-    // recreate exactly the overload the feature removes.
+    // Without this, today's fully opaque cluster medallions paint over the field and recreate
+    // exactly the overload the feature removes. Now true at EVERY zoom — see "never hands the
+    // medallions back" below for why the handover no longer un-does this one.
     currentMap = makeMap({ zoom: 9, panes: markerPanes() });
     await mount();
     expect(currentMap.panes.markerPane.style.opacity).toBe('0');
     expect(currentMap.panes.shadowPane.style.opacity).toBe('0');
   });
 
-  it('hands the markers back in full once the question has become WHICH', async () => {
-    currentMap = makeMap({ zoom: 13, panes: markerPanes() });
-    await mount();
-    expect(currentMap.panes.markerPane.style.opacity).toBe('1');
-    expect(currentMap.panes.markerPane.style.pointerEvents).toBe('');
-    expect(currentMap.panes.markerPane.style.visibility).toBe('');
+  it('never hands the medallions back, however far the reader zooms in', async () => {
+    // ⚠️ THIS IS THE INVERSION OF AN EARLIER PIN, and deliberately so. The handover used to fade
+    // the pre-v2 medallions back in past the band, so a Heat-mode map at street level carried a
+    // cluster bubble and a coloured disc under every chip that already named the same location and
+    // its own star — the exact vocabulary P10's "replaces the medallion+cluster view ON THE TAB"
+    // retired, reachable by zooming. The design bundle's Heat view has no markers at any zoom
+    // (`map-tab-v2.js`'s `paint()` draws the field and the labels, nothing else), and since P8
+    // Heat mode has had its own chips to hand over TO. So the panes stay hidden at 13, at 19, and
+    // at every zoom in between.
+    for (const zoom of [12, 13, 19]) {
+      currentMap = makeMap({ zoom, panes: markerPanes() });
+      await mount();
+      expect(currentMap.panes.markerPane.style.opacity).toBe('0');
+      expect(currentMap.panes.shadowPane.style.opacity).toBe('0');
+      expect(currentMap.panes.markerPane.style.pointerEvents).toBe('none');
+      expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(true);
+    }
   });
 
   it('marks the threshold on the value, at 0.19 / 0.20 / 0.21', () => {
@@ -542,57 +560,77 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
     // tab opens at, and the markers are the only route to a location's popup. Restore `visibility`
     // here and this test still passes — which is why the accessibility half is asserted below.
     //
-    // P4 RE-PIN (map-tab-v2-plan.md §3 P4): the band retune (10.6→12.2 to 10.4→12.0) moved where
-    // t crosses 0.2 from zoom 10.92 to zoom 10.4 + 0.2×1.6 = 10.72 — the PROPERTY under test (no
-    // sub-20%-opacity click target) is unchanged, only the zoom that straddles it. 10.7 is below
-    // the new crossing (t≈0.1875) and 10.8 is above it (t≈0.25).
+    // ⚠️ The zoom half of this pin is GONE: no zoom produces a partial marker opacity any more
+    // (see "never hands the medallions back"), so the two-sides-of-10.72 fixtures that used to
+    // straddle the crossing would now both read 0 and prove nothing about the threshold. What
+    // survives is the property itself — whenever the panes are dimmed, BOTH rules fire — asserted
+    // on the one opacity the layer still writes, and on `markersAreInteractive`'s own boundary in
+    // the sibling test above.
     currentMap = makeMap({ zoom: 10.7, panes: markerPanes() });
     await mount();
+    expect(currentMap.panes.markerPane.style.opacity).toBe('0');
     expect(currentMap.panes.markerPane.style.pointerEvents).toBe('none');
     expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(true);
 
-    currentMap = makeMap({ zoom: 10.8, panes: markerPanes() });
-    await mount();
-    expect(currentMap.panes.markerPane.style.pointerEvents).toBe('');
-    expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(false);
+    // ⚠️ No negative control is possible from a PROP any more, and that is the point: the review
+    // that killed the old `points.length > 0` exception established there is no data state left in
+    // which this layer hands the panes back. An empty point set was never "nothing is scored" — it
+    // is also a D-13 filler row, a dark-sky-filtered window and a served window with an empty
+    // `pointsByKey` entry, and all three put the medallions back under the chips. The one genuine
+    // route back is the UNMOUNT, pinned by "hands the marker panes back exactly as it found them".
+    currentMap = makeMap({ zoom: 10.7, panes: markerPanes() });
+    await mount({ points: [] });
+    expect(currentMap.panes.markerPane.style.opacity).toBe('0');
+    expect(currentMap.panes.markerPane.style.pointerEvents).toBe('none');
+    expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(true);
   });
 
   it('never hides the markers from the accessibility tree, at any zoom', async () => {
-    // The rule the class exists to keep. `visibility: hidden` (or `display: none`) would close the
-    // only route a keyboard or screen-reader user has to a location on this tab, and would drop
-    // focus to `<body>` whenever a focused marker faded. Opacity hides the picture and nothing else.
+    // The rule the class exists to keep — ⚠️ but NOT for the reason originally written here, which
+    // was "the only route a keyboard or screen-reader user has to a location on this tab". That has
+    // been false since P9 (#734) stopped mounting a Leaflet `Popup` on the tab: `MapLabels`' chips
+    // are the working keyboard route, and these markers are focusable no-ops. The pin stays because
+    // flipping to `visibility: hidden` is a real a11y change that needs its own phase (see
+    // `applyMarkerFade`'s own note) — not because the old justification still holds.
     currentMap = makeMap({ zoom: 4, panes: markerPanes() });
     await mount();
     expect(currentMap.panes.markerPane.style.visibility).toBe('');
     expect(currentMap.panes.markerPane.style.display).toBe('');
   });
 
-  it('cross-fades rather than stepping — a fractional zoom gives a fractional opacity', async () => {
-    // Endpoint-only assertions cannot tell a ramp from a step: `String(Math.round(opacity))` in the
-    // fade, or a `heat < 1 ? FLOOR : 1` in the paint, passes every 0-and-1 test in this file.
+  it('cross-fades rather than stepping — a fractional zoom gives a fractional FIELD opacity', async () => {
+    // Endpoint-only assertions cannot tell a ramp from a step: a `heat < 1 ? FLOOR : 1` in the
+    // paint passes every 0-and-1 test in this file.
     //
     // P4 RE-PIN (map-tab-v2-plan.md §3 P4): zoom 11.4 is no longer the band's exact midpoint under
     // the new 10.4→12.0 band (that's 11.2 — see "computes the two opacities" above), so the
-    // expected values here are recomputed from the formula at this same zoom rather than copied
-    // from the old band's coincidentally-round 0.5/0.585: t = (11.4−10.4)/1.6 = 0.625,
+    // expected value here is recomputed from the formula at this same zoom rather than copied
+    // from the old band's coincidentally-round 0.585: t = (11.4−10.4)/1.6 = 0.625,
     // heat = 1 − 0.88×0.625 = 0.45.
+    //
+    // ⚠️ The MARKER half of this pin is gone with the medallion fade — the markers are simply off
+    // mid-band now, which is what the assertion below says. `fadeAt`'s own `markers` component is
+    // still a ramp and is still pinned as one, on pure numbers, in "computes the two opacities".
     currentMap = makeMap({ zoom: 11.4, panes: markerPanes() });
     await mount();
-    expect(Number(currentMap.panes.markerPane.style.opacity)).toBeCloseTo(0.625, 5);
+    expect(currentMap.panes.markerPane.style.opacity).toBe('0');
     // 2026-09-03: base opacity corrected 0.9 → 0.92 (drift repair, map-tab-v2-plan.md §4).
     expect(drawTiles.mock.calls[0][4].opacity).toBeCloseTo(0.92 * 0.45, 5);
   });
 
-  it('pins the markers at full strength while a location is OPEN', async () => {
-    // A popup lives in `popupPane` and the azimuth lines in `overlayPane`; neither fades, and
-    // neither should. Fading the marker they are anchored to leaves a popup with its leader tip on
-    // bare ground — reachable without trying, because the tab's own handoff fits a region at
-    // `maxZoom: 12` and then opens that location's popup.
+  it('keeps the medallions hidden even while a location is OPEN', async () => {
+    // ⚠️ ALSO AN INVERTED PIN. A selection used to restore the panes wholesale, because the
+    // overlay's Leaflet popup and the azimuth lines are anchored to the marker and a faded marker
+    // left a leader tip on bare ground. That premise does not hold on the TAB, which is the only
+    // surface this layer ever mounts on (`heat` is passed by `WindowFirstMapPane` alone): selection
+    // there is `MapCallout`, which draws its OWN anchor ring at the location, and no Leaflet popup
+    // is mounted at all. Restoring the panes on click would have flashed a medallion in under every
+    // chip the moment the reader picked one — the reported bug, on a different trigger.
     currentMap = makeMap({ zoom: 9, panes: markerPanes() });
-    await mount({ markersLocked: true });
-    expect(currentMap.panes.markerPane.style.opacity).toBe('');
-    expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(false);
-    // The field itself is unaffected — only the handover is suspended.
+    await mount();
+    expect(currentMap.panes.markerPane.style.opacity).toBe('0');
+    expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(true);
+    // The field itself is unaffected — this was never a claim about the field.
     // P4 RE-PIN (map-tab-v2-plan.md §3 P4): the count is 2-BY-DESIGN in this harness (mount paint +
     // load-resolve repaint), deterministic, and worth pinning exactly — an adversarial review's
     // refuter injected a duplicated `repaintNow()` into a scratch copy and only an exact count
@@ -604,26 +642,42 @@ describe('MapHeatLayer — the zoom handover (D8)', () => {
     expect(drawTiles).toHaveBeenCalledTimes(2);
   });
 
-  it('does NOT fade the markers when the window has no field to hand over to', async () => {
-    // An Awaiting window — a T+3 the nightly policy did not evaluate — paints an empty canvas.
-    // Fading the markers out under it would leave a blank map at the zoom the tab opens at, with
-    // nothing on screen saying why.
+  it('hides the markers on an EMPTY window too — an empty point set is not "nothing is scored"', async () => {
+    // ⚠️ THE THIRD INVERTED PIN, and the one an adversarial review turned around. It used to read
+    // "does NOT hide the markers when the window has no field to hand over to", protecting a
+    // `points.length > 0` exception whose rationale was that an Awaiting T+3 "would leave a blank
+    // map with nothing on screen saying why". Every clause of that was false:
+    //
+    //   • the map is never blank — `MapLabels` mounts on `heatOn` with no scoring gate and draws a
+    //     grey-swatch chip for an unrated spot;
+    //   • the restored pane is often EMPTIER than the chips, because `visibleLocations` drops
+    //     unrated non-wildlife locations unless `showUnrated` (default false);
+    //   • and `points: []` is reached by three states that are NOT unscored windows — a D-13 filler
+    //     row (`heatWindow` null, one click away in the window control), the dark-sky filter
+    //     narrowing a well-rated window, and a served window with an empty `pointsByKey` entry (a
+    //     real production join gap, pinned in `MapViewHeat.test.jsx`). All three put the whole
+    //     medallion set back under the chips — the reported bug, on triggers the zoom fix missed.
+    //
+    // `MapView`'s `windowUnscored` javadoc already says it: the served `bestRating`, NEVER a point
+    // count. Re-keying to it was considered and rejected — the chips carry those same stars from
+    // the same accessor, so it would restore a duplicate vocabulary to no one's benefit.
     currentMap = makeMap({ zoom: 9, panes: markerPanes() });
     await mount({ points: [] });
-    // The positive control: `''` is also jsdom's default, so without proving the paint RAN this
-    // assertion passes for a layer that never did anything at all.
-    // P4 RE-PIN: 2-BY-DESIGN for the same reason as the sibling test above (mount paint +
-    // load-resolve repaint, deterministic in this harness; production can legitimately exceed 2 on
-    // a zoomend/moveend landing mid-`load()`, so only the unit-level invariant is pinned here).
+    // The positive control the old assertion needed and this one keeps: `'0'` is NOT a jsdom
+    // default, so it already proves the paint ran — the count is kept because it also pins the
+    // 2-BY-DESIGN mount+load-resolve pair (production can exceed 2 on a zoomend landing mid-
+    // `load()`, so only the unit-level invariant is asserted).
     expect(drawTiles).toHaveBeenCalledTimes(2);
-    expect(currentMap.panes.markerPane.style.opacity).toBe('');
-    expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(false);
+    expect(currentMap.panes.markerPane.style.opacity).toBe('0');
+    expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(true);
   });
 
   it('hands the marker panes back exactly as it found them when it unmounts', async () => {
-    // This is what makes the medallion view byte-identical to today (D8). Restoring to '' rather
-    // than to '1'/'auto'/'visible' matters: an inline declaration would keep overriding the
-    // stylesheet on a map this layer no longer owns.
+    // ⚠️ Since the hide became unconditional this is the ONLY route back to a visible medallion,
+    // so it carries the whole "this host does not latch the panes off forever" property on its own
+    // — it is what keeps aurora (where `heatOffered` is false and this layer never mounts), a tab
+    // change and a logout honest. Restoring to '' rather than to '1'/'auto'/'visible' matters: an
+    // inline declaration would keep overriding the stylesheet on a map this layer no longer owns.
     currentMap = makeMap({ zoom: 9, panes: markerPanes() });
     const { unmount } = await mount();
     expect(currentMap.panes.markerPane.style.opacity).toBe('0');
@@ -1039,7 +1093,8 @@ describe('MapHeatLayer — reach rings (map-tab-v2-plan.md §3 P8)', () => {
  * data (the SAME reasoning P4's "still strokes the coast with an empty point set" test already
  * pins for the field-has-nothing-to-paint case). The medallion markers are held fully hidden
  * regardless of zoom — `PinsLayer` draws the dots now, so there is one place a location renders,
- * not two.
+ * not two. Heat mode holds them hidden as well (its chips are ITS one place); what stays specific
+ * to Pins mode is that the field, bloom and rings are withheld with them.
  */
 describe('MapHeatLayer — Pins mode (map-tab-v2-plan.md §3 P10, `fieldEnabled`)', () => {
   // Same reset every sibling describe block in this file applies (`the land clip`/`the coastline
@@ -1108,10 +1163,11 @@ describe('MapHeatLayer — Pins mode (map-tab-v2-plan.md §3 P10, `fieldEnabled`
     expect(ctxStub.arc).not.toHaveBeenCalled();
   });
 
-  it('holds the medallions fully hidden regardless of zoom — even past the ordinary handover, where Heat mode hands them back in full', async () => {
-    // Zoom 13 is comfortably past `fadeAt`'s own band (10.4→12.0): in HEAT mode this is the "the
-    // question has become WHICH" zoom where markers return to full opacity. Pins mode must not let
-    // that zoom-keyed rule override its own "no medallions, ever" contract.
+  it('holds the medallions fully hidden regardless of zoom — including past the handover band', async () => {
+    // Zoom 13 is comfortably past `fadeAt`'s own band (10.4→12.0), the zoom that used to hand the
+    // markers back in Heat mode. Pins mode never let that zoom-keyed rule override its own "no
+    // medallions, ever" contract; Heat mode no longer HAS such a rule (see "never hands the
+    // medallions back"), so this now pins the shared property rather than an exception to one.
     currentMap = makeMap({ zoom: 13, panes: markerPanes() });
     await mount({ fieldEnabled: false });
     expect(currentMap.panes.markerPane.style.opacity).toBe('0');
@@ -1119,14 +1175,23 @@ describe('MapHeatLayer — Pins mode (map-tab-v2-plan.md §3 P10, `fieldEnabled`
     expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(true);
   });
 
-  it('hands the marker panes back once fieldEnabled returns to true, at the same zoom', async () => {
+  it('keeps the panes hidden across a Pins → Heat switch, at the same zoom and on an empty window', async () => {
+    // ⚠️ INVERTED with the exception it used to prove. Switching back out of Pins mode no longer
+    // puts a medallion on screen at all — Heat hides them too — and neither does emptying the point
+    // set, which is what the old version of this test asserted. Both transitions are pinned here
+    // precisely because they are the two the previous code DID hand the panes back on: this is the
+    // regression test for the `points.length > 0` exception coming back by either door.
     currentMap = makeMap({ zoom: 13, panes: markerPanes() });
     const { rerender } = await mount({ fieldEnabled: false });
     expect(currentMap.panes.markerPane.style.opacity).toBe('0');
     await act(async () => {
       rerender(<MapHeatLayer points={POINTS} conf={1} fieldEnabled />);
     });
-    expect(currentMap.panes.markerPane.style.opacity).toBe('1');
-    expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(false);
+    expect(currentMap.panes.markerPane.style.opacity).toBe('0');
+    await act(async () => {
+      rerender(<MapHeatLayer points={[]} conf={1} fieldEnabled />);
+    });
+    expect(currentMap.panes.markerPane.style.opacity).toBe('0');
+    expect(currentMap.panes.markerPane.classList.contains('wf-markers-inert')).toBe(true);
   });
 });

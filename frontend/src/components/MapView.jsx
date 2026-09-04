@@ -1637,9 +1637,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
   /**
    * The Legend panel's own handover fraction (map-tab-v2-plan.md §3 P10) — `MapHeatLayer.fadeAt`
-   * re-exported via `utils/heatHandover.js` so this READS the same number the canvas fade paints
-   * from without eagerly importing `MapHeatLayer.jsx`'s own `d3-geo` chain (see that module's own
-   * class doc for why it is lazy). Zero while there is no field to hand over at all — the panel is
+   * re-exported via `utils/heatHandover.js` so this reads it without eagerly importing
+   * `MapHeatLayer.jsx`'s own `d3-geo` chain (see that module's own class doc for why it is lazy).
+   * ⚠️ Said "the same number the canvas fade paints from"; it is the same FUNCTION, but the
+   * `markers` half no longer paints anything — see `MapLegendPanel`'s own note. Zero while there is no field to hand over at all — the panel is
    * withheld entirely in that case (below), but the prop stays a plain number either way.
    */
   const legendHandoverFraction = heatOffered ? fadeAt(zoom).markers : 0;
@@ -1984,9 +1985,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }, [heatOffered, heatArea, heat, visibleLocations]);
 
   /**
-   * The Map tab's label catalogue (map-tab-v2-plan.md §3 P8) — `MapLabels`' own "named" pool, the
-   * exact same filtered/scoped set the markers themselves draw from (`scopedVisibleLocations`),
-   * joined with the current window's rating via the SAME accessor the star-threshold filter and
+   * The Map tab's label catalogue (map-tab-v2-plan.md §3 P8) — `MapLabels`' own "named" pool,
+   * `scopedVisibleLocations`, ⚠️ which is NOT the set the medallion markers draw from: those render
+   * the un-scoped `visibleLocations` below, so with scope = "My area" the two pools genuinely
+   * diverge (an adversarial-review finding — this sentence used to claim they were "the exact same
+   * filtered/scoped set"). It matters less than it reads: `PinsLayer` shares this same scoped pool,
+   * so the divergence is between the tab's two views and the hidden marker layer, not between two
+   * things a reader can see at once. Joined with the current window's rating via
+   * the SAME accessor the star-threshold filter and
    * the marker render both already use (`getRatingForLocation`) — so a location's chip can never
    * show a different star than its own marker does. Tab-only (the overlay never mounts
    * {@code MapLabels} at all, so this costs it nothing to compute either way — cheap over a few
@@ -2470,11 +2476,18 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    *
    * <p>⚠️ Through P8 this also opened the marker's own Leaflet popup. P9 replaces the popup with
    * the anchored callout on this tab (map-tab-v2-plan.md §3 P9 — "the tab stops mounting Leaflet
-   * `Popup`/`BottomSheet` for markers"), so there is no popup left to open here: `MapCallout` reads
-   * {@code selectedLocationName} reactively and positions itself off the SAME marker ref's own
-   * projected point, needing no imperative nudge from this function. {@code zoomToShowLayer} stays
-   * — a marker still worth REVEALING out of its cluster bubble before the ring and the card anchor
-   * to it, since a ring drawn around a still-clustered bubble would point at the wrong disc.
+   * `Popup`/`BottomSheet` for markers"), so there is no popup left to open here.
+   *
+   * <p>⚠️ <b>{@code zoomToShowLayer} is a CAMERA convenience, not a ring-anchoring prerequisite</b>
+   * — this paragraph claimed the latter and was wrong from P9 onward. {@code MapCallout} anchors
+   * off {@code map.latLngToContainerPoint([location.lat, location.lon])}, the location's own
+   * coordinates, never a marker ref, so a still-clustered bubble could never have put the ring on
+   * the wrong disc. What the call actually does is pan or zoom to a target that is off-screen or
+   * folded into a cluster — which is what a reader means by clicking its chip, and which also
+   * raises `chipBudget` and the pixels-per-km that decide whether that chip can be placed. It has
+   * no dependency on the markers being visible (it branches on `_icon`, map bounds and
+   * `__parent._zoom`), so the medallion hide leaves its behaviour byte-identical. Whether to keep
+   * it at all is a separate decision from that hide, and is not taken here.
    *
    * <p>A plain function, like {@code selectEvRow} above — NOT {@code useCallback}, which would be
    * a hook called after this component's own conditional early return a few screens up and so
@@ -2918,7 +2931,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 // ASTRO has no `heat.windows` entry to read a scalar off (adversarial review,
                 // real #3) — `astroConfidenceScalar` is this mode's own capped-inference figure.
                 conf={isAstroMode ? astroConfidenceScalar : (heatWindow?.conf ?? null)}
-                markersLocked={selectedLocationName != null}
                 homeCoords={homeCoords}
                 rings={ringsEnabled}
                 fieldEnabled={heatOn}
@@ -3237,9 +3249,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           </MarkerClusterGroup>
 
           {/* The selection callout (map-tab-v2-plan.md §3 P9, README §7) — tab only. Rendered
-              regardless of `heatOn`/`heatOffered`: a marker click sets `selectedLocationName`
+              regardless of `heatOn`/`heatOffered`: a chip or pin click sets `selectedLocationName`
               whether or not the heat kernel is currently painting anything, and the callout is the
-              tab's ONLY selection surface now (no Leaflet popup left to fall back to). */}
+              tab's ONLY selection surface now (no Leaflet popup left to fall back to). ⚠️ Said "a
+              marker click" until the medallions stopped being visible on the tab at all — their
+              `click` handler is still bound but unreachable through `pointer-events: none`. */}
           {!overlayMode && selectedLoc && activeMapEvent && (
             <MapCallout
               location={selectedLoc}

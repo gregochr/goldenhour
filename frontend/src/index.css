@@ -2798,9 +2798,12 @@ button.wf-hc.also.on:hover {
 
    ⚠️ LABELS actually ships at 650, not the bundle's 420 (PR #733 review) — `MapLabels.jsx`'s own
    `LABEL_PANE_Z` carries the full reasoning. The bundle's prototype never renders a marker
-   underneath its label layer at all; this app fades Leaflet's real markers back to full opacity
-   AND interactivity past the zoom handover, in Leaflet's own `markerPane` (a built-in z600) — so a
-   label pane at 420 would sit, and hit-test, UNDER the very marker its chip names. 650 clears the
+   underneath its label layer at all; this app keeps Leaflet's real markers mounted in its
+   `markerPane` (a built-in z600) on the same projected points as the chips — so a label pane at 420
+   would sit, and hit-test, UNDER the very marker its chip names. (⚠️ The reason this used to give —
+   that the app "fades them back to full opacity AND interactivity past the zoom handover" — no
+   longer holds: `MapHeatLayer` hides those panes unconditionally. They are still restored on
+   unmount and painted in full in aurora mode, so 650 stands.) 650 clears the
    marker pane while staying below Leaflet's popup pane (700) and every chip in this file (1100+).
    That z-index is set in JS on the Leaflet pane itself, never in this stylesheet, so it has no CSS
    rule to slice here — see `mapChromeZLadderCascade.test.jsx`'s own note on why its cascade
@@ -3271,9 +3274,10 @@ button.wf-hc.also.on:hover {
 /* ── The Map tab's label layer (map-tab-v2-plan.md §3 P8, README §6) ───────────────────────────
    z-index 650 (Leaflet pane, set in JS — see `MapLabels.jsx`'s `LABEL_PANE_Z`), NOT the design
    bundle's 420 the P7 chrome comment above records: Leaflet's real marker pane sits at a built-in
-   600 and this app fades its markers back to full opacity/interactivity past the zoom handover, so
-   the label layer has to clear that pane too, not merely the heat canvas beneath it (PR #733
-   review — the bundle's prototype never renders a marker under its own label layer at all).
+   600 and this app keeps its markers mounted there (hidden by `MapHeatLayer` on the tab, restored
+   on unmount and painted in full in aurora mode — they no longer fade back by zoom), so the label
+   layer has to clear that pane too, not merely the heat canvas beneath it (PR #733 review — the
+   bundle's prototype never renders a marker under its own label layer at all).
    The home marker (`.wf-hm`/`.wf-hm-mk`/`.wf-hm-lb`) and ring labels (`.wf-ringlb`) REUSE the
    Plan popup field map's own classes (`WindowRowFieldMap`/`WindowFirstHeatStrip`) rather than
    duplicating them — both are already absolutely-positioned, JS-styled spans with no assumption
@@ -3866,7 +3870,7 @@ button.wf-hc.also.on:hover {
    tooltip already uses (`map.getContainer().parentElement`), not a Leaflet pane — see
    `MapCallout.jsx`'s own class doc for why. Positioned above the chrome (1100) rather than inside
    the bundle's `410/415/420` ladder, which assumed a heat view with no real Leaflet markers ever
-   rendering underneath it (this app fades them back in past the zoom handover, `MapLabels.jsx`'s
+   rendering underneath it (this app keeps them mounted at z600 regardless — `MapLabels.jsx`'s
    `LABEL_PANE_Z` note). `z-index: 1500` on `.wf-win-menu`/`.wf-filters-panel` still beats the
    callout, per the plan's own z-ladder note (a menu must win over a card behind it). */
 .wf-selmk {
@@ -4143,11 +4147,14 @@ button.wf-hc.also.on:hover {
    sufficient, and an 8%-opaque medallion would still swallow the tap meant for the map.
 
    Deliberately NOT `visibility: hidden`, which was the first cut and which does close the pointer
-   hole: it also takes every marker out of the accessibility tree and the tab order, and the markers
-   are the ONLY route to a location's popup. At the zoom this tab opens at that left a screen-reader
-   or keyboard user with nothing on the Map tab but four buttons and an `aria-hidden` canvas — and
-   dropped focus to `<body>` whenever a focused marker faded. Opacity hides the picture; this rule
-   removes the target; neither touches the tree. */
+   hole: it also takes every marker out of the accessibility tree and the tab order. ⚠️ The reason
+   that mattered — "the markers are the ONLY route to a location's popup" — has been false since P9
+   (#734) stopped mounting a Leaflet `Popup` on this tab; `MapLabels`' chips are the working
+   keyboard route, and these markers are focusable no-ops that Leaflet still gives `tabIndex=0`.
+   Revisiting it (adding `inert` where the panes are hidden) is a recorded follow-up with its own
+   test inversions — see `MapHeatLayer.jsx`'s `applyMarkerFade` note — not something to change from
+   this rule alone. Opacity hides the picture; this rule removes the target; neither touches the
+   tree. */
 .wf-markers-inert .leaflet-marker-icon,
 .wf-markers-inert .leaflet-marker-shadow,
 /* ⚠️ The `.leaflet-interactive` pair is not belt-and-braces — it is the rule that works. Leaflet's

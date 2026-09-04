@@ -648,6 +648,52 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     old 0.72 (5★ centre-sampled luminance .1341 → .1559), tier ordering (low < medium < high)
     intact. This is a deliberate departure from D3's original number, not a conformance fix: LOW
     (0.5) and HIGH (1.0) are unchanged.
+18. **The tab's medallions are hidden unconditionally while `MapHeatLayer` is mounted (2026-09-03)
+    — a conformance fix that REMOVES an unledgered disagreement, the opposite direction to #16.**
+    Two conditions were tried on that hide and an adversarial review killed both; they are recorded
+    together because the second was introduced *by the fix for the first*.
+    **(a) The zoom condition.** `fadeAt`'s `markers` half faded the pre-v2 cluster medallions and
+    per-location discs back in across the 10.4→12.0 band, so past zoom 12 a Heat-mode map carried a
+    cluster bubble and a coloured disc under every chip that already named the same location and its
+    own star. The bundle's Heat view has no markers **at any zoom** — `map-tab-v2.js`'s `paint()`
+    draws the field and the labels and nothing else, and `handover()`'s `t` reaches only the
+    Legend's own indicator (`setHand`; the field reads the separate `heat` component). §3 P10 says
+    the same in its own words ("Replaces the medallion+cluster view **on the tab**"), and
+    `MapLabels.jsx`'s `LABEL_PANE_Z = 650` comment already recorded the mismatch as a fact. The fade
+    predates P8 by two weeks (#564 → #733): the medallions genuinely were the only vocabulary the
+    tab had past the band when it was written, and it was never revisited once the chips arrived.
+    **(b) The point-count condition.** `points.length > 0` — inherited from that same pre-P8 code
+    and kept in the first cut of this change — was defended as "an unscored window has nothing but
+    the markers to say where the locations are". Every clause was false. `MapLabels` mounts on
+    `heatOn` with no scoring gate and renders an unrated spot as a grey-swatch chip, so the map is
+    never blank; the restored pane is frequently *emptier* than the chips, because
+    `visibleLocations` drops unrated non-wildlife locations unless `showUnrated` (default false);
+    and an empty `points` array is not "nothing is scored" at all. It is also a **D-13 filler row**
+    (`heatWindow` null — one click away in the window control, and `windowUnscored` is false there,
+    so nothing on screen says why), the **dark-sky filter** narrowing a well-rated window to
+    nothing, and a **served window with an empty `pointsByKey` entry** (a real production join gap
+    already pinned in `MapViewHeat.test.jsx`). All three restored the full medallion set under the
+    chips — the reported bug, on triggers (a) never touched. Re-keying to `windowUnscored` (which
+    `MapView` derives correctly and whose javadoc already says "the served `bestRating`, **never a
+    point count**") was considered and rejected: the chips carry those same stars from the same
+    accessor, so it would restore a duplicate vocabulary to no one's benefit.
+    **What ships**: `applyMarkerFade(map, 0)` on every paint while the layer is mounted;
+    `restoreMarkerPanes` is reached only by the unmount cleanup, which is what keeps aurora (where
+    `heatOffered` is false and the layer never mounts), an unscored *catalogue*, a tab change and a
+    logout honest. `fadeAt().markers` survives as the Legend indicator's progress fraction, painting
+    nothing. `markersLocked` is gone — its premise was the overlay's Leaflet popup leader tip, and
+    the tab's selection is `MapCallout`, which anchors on the location's own coordinates and draws
+    its own ring. Four test pins were **inverted** rather than deleted and each says so in its own
+    comment. `MARKER_INTERACTIVE_ALPHA` and `markersAreInteractive` are now vestigial (the only
+    argument is `0`) and are deliberately **kept**: they are the regression net for any future
+    middle ground, and deleting them as dead code is what would make this hard to reverse.
+    ⚠️ **Two pre-existing defects this exposed, neither fixed here**: on a D-13 filler row the
+    colour ramp key renders above a field that paints nothing (the medallions were masking it), and
+    Leaflet still gives every hidden marker `tabIndex=0`/`role="button"`, so the tab carries
+    focusable no-op markers ahead of the chips — the recorded `visibility`-vs-tree decision in
+    `applyMarkerFade`/`index.css` rests on "the markers are the only route to a location's popup",
+    false since P9 (#734). Both need their own phase; the review measured the second as
+    overwhelmingly pre-existing (`fadeAt` already returned 0 at every zoom the tab opens at).
 
 ## §5 Decisions taken in this plan (challenge in review, not in code)
 
