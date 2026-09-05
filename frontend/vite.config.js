@@ -141,9 +141,33 @@ export default defineConfig(({ mode }) => {
     // `React.lazy`'s own payload resolution: it happens on first RENDER, so no amount of module
     // warming can pay it ahead of time, and it lands in whichever test runs first.
     //
-    // It is a CEILING, not a delay: nothing waits longer than it needs to, and a test that hangs
-    // still fails — it now takes 20 s to say so rather than 5. That is the whole cost.
+    // ⚠️ **The cost is not just "a hang takes 20 s to report".** A tight per-test budget is also the
+    // only performance-regression detector this suite has, and THIS COMMIT IS THE PROOF: a per-file
+    // cost hiding inside a per-test budget was discoverable only because the budget was tight
+    // enough to fail on it. After this raise, a shell test that regresses to 6 s or 12 s passes
+    // silently. That is a real loss, accepted deliberately and written down here rather than
+    // discovered later. Two things blunt it: Testing Library's own 4000 ms ceiling still caps the
+    // ordinary "element never appears" case, so most failure latencies are unchanged; and the CI
+    // job carries a `timeout-minutes` so a genuine hang cannot run up the runner's clock.
+    //
+    // **Why 20000 and not 8000.** Derived, not picked. Under the reproduction load the worst
+    // post-fix first test measured 4903 / 5065 / 4939 ms across three concurrent suites
+    // (`locationSheetShell`) — one of them already OVER the old budget, which is why the warm-up
+    // alone was not enough. 20 s is ~4x the worst observed, and the load a laptop or a shared
+    // runner can produce has no ceiling that measurement establishes.
+    //
+    // **Why global and not `vi.setConfig` in the 13 warmed files.** Because the exposure is not
+    // confined to them: in the same runs `MapViewTypeFilter` and `WindowFirstMapPaneSelection` —
+    // neither of which mounts the Plan shell — took 3392-3625 ms and 3463-3516 ms on their own
+    // first tests, against a 5000 ms budget. Scoping the relaxation to the files that happened to
+    // fail first would have left the next two waiting their turn.
     testTimeout: 20000,
+    // Raised WITH `testTimeout`, because this change moved the load-sensitive work into a hook
+    // (`src/test/warmPlanChunks.js`) and left it on the default 10 000 ms. The asymmetry is what
+    // makes it worth a line: a blown test budget fails ONE test, a blown hook budget fails EVERY
+    // test in the file. Budgeting the residue generously while leaving the relocated bulk on a
+    // default would have swapped a single-test flake for a whole-file one.
+    hookTimeout: 20000,
   },
   };
 });

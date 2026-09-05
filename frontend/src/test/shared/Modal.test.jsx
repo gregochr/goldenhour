@@ -332,6 +332,21 @@ describe('Modal', () => {
       // The guard on the restore. A keyboard reader can Tab out of the topmost dialog into the page
       // — that is the app's settled, unchanged behaviour — and a dialog underneath that grabbed
       // focus the moment it was uncovered would fight them for it.
+      //
+      // ⚠️ **This test is load-sensitive and has NOT been fixed.** Measured 2026-09-05: it failed
+      // once in ten runs of this file ALONE under a 24-process CPU load on 8 cores, and turned up in
+      // 2 of 6 concurrent full-suite runs. Those samples pin the rate down no further than that. `document.activeElement` is then the
+      // dialog ROOT rather than `outside`. `useDialogFocus` moves focus on a `requestAnimationFrame`
+      // and the `await act(async () => {})` below drains microtasks without ever awaiting that
+      // frame — so on an idle machine the assertion wins the race and under starvation the frame
+      // does.
+      //
+      // ⚠️ **Do not "fix" it by awaiting the frame.** The shape is INVERTED against the usual flake:
+      // this test passes only while the frame has yet to fire, so settling it would likely make the
+      // failure deterministic rather than removing it. That points at a product question rather
+      // than a test one — when a stacked dialog is UNCOVERED, should `useDialogFocus` treat that as
+      // an open and take the root at all? Neither this test nor its sibling at the top of this
+      // block expects the root. Answer that before touching either.
       const Host = ({ stacked }) => (
         <div>
           <button type="button" data-testid="outside">Outside</button>

@@ -274,4 +274,38 @@ Two traps specific to this codebase:
   gives every test *file* its own process — nothing leaks between files — so a suspected flake is
   either inside one file or is not a flake at all. `--sequence.shuffle.tests --sequence.seed=N`
   reproduces an intra-file order dependency deterministically; use it before reaching for anything
-  cleverer.
+  cleverer. ⚠️ **But shuffling cannot find the flake below**, and reading it as an order dependency
+  is the wrong turning — see the next section.
+
+---
+
+## The first test in a file is not like the others
+
+A file that renders a component behind `React.lazy` pays for those chunks in whichever of its tests
+runs first. That cost is per-**file**; the budget it is charged against is per-**test**. On an idle
+machine it is invisible; under load it is seconds.
+
+**It does not present as a slow test — it presents as `Test timed out in 5000ms` naming only the
+`it(` line.** Testing Library's ceiling here is `asyncUtilTimeout: 4000` (`src/test/setup.js`), so a
+test crossing two boundaries in sequence can exhaust the whole budget before either `findBy*`
+reports which wait was stuck.
+
+- **Do not reach for `--sequence.shuffle.tests` first.** It relocates this cost onto whichever test
+  lands first, so every seed fails somewhere different and it reads as an order dependency that does
+  not exist. **The reproduction that works is concurrency plus CPU starvation**: run the full suite
+  N times at once (3 is enough) with ~16 busy-loop processes running. It failed 3 of 3 runs where a
+  single file, and even the 13 shell files together, stayed green under the same load.
+- **Warm the boundaries in a `beforeAll`.** `src/test/warmPlanChunks.js` does this for the Plan
+  shell; a file that renders the shell calls it, and `warmPlanChunks.test.js` pins the warmed list
+  to the shell's own `lazy()` calls so a fifth boundary cannot be added silently. The membership
+  rule is *renders the real shell* — a file that `vi.mock`s it crosses no boundary and must not
+  call the hook.
+- **Warming is not the whole fix and should not be sold as one.** `React.lazy` caches its payload on
+  the lazy object rather than in the module registry and calls the factory from render, so a warm
+  module still suspends once; and whatever the component does on its own first render — the heat
+  field's asset load, decode and projection, in this case — is untouched. `testTimeout` and
+  `hookTimeout` carry that residue.
+- **Report `findBy*` figures as wall times.** Such a wait covers module resolution, the lazy
+  suspend, the component's first render and up to a 50 ms poll tick. Calling one "the lazy boundary"
+  and then adding a separate line for "the first render" double-books the render, which is exactly
+  how the first cut of this reached a wrong conclusion about its own residue.

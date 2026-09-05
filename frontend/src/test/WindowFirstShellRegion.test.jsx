@@ -151,7 +151,6 @@ async function renderShell(overrides = {}) {
   originalGetContext = HTMLCanvasElement.prototype.getContext;
   HTMLCanvasElement.prototype.getContext = () => ({});
   vi.spyOn(briefingContext, 'useWindowFirstBriefing').mockReturnValue(ctx(overrides));
-  await import('../components/WindowSheetDialog.jsx');
   await act(async () => {
     render(
       <WindowFirstShell
@@ -200,9 +199,9 @@ function railCells() {
   return within(screen.getByTestId('window-sheet')).queryAllByTestId('wf-region-cell');
 }
 
-// Pays the shell's four `lazy()` boundaries once per FILE, in a hook with its own budget, rather
-// than inside whichever test happens to run first. See `warmPlanChunks.js` for the measurements
-// and for the full-suite reproduction that made this necessary.
+// Pays the shell's `lazy()` boundaries once per FILE, in a hook with its own budget, rather than
+// inside whichever test happens to run first. See `warmPlanChunks.js` for the measurements, the
+// membership rule and the full-suite reproduction that made this necessary.
 beforeAll(warmPlanChunks);
 
 describe('WindowFirstShell — building the region layer', () => {

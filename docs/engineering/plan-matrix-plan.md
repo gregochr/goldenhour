@@ -640,6 +640,15 @@ a ceiling rather than a delay (a resolved boundary still returns immediately). I
 because there is nothing to gate on: the module either has loaded or has not. The cost is that a
 genuinely never-appearing element fails after four seconds instead of one.
 
+> **Superseded 2026-09-05.** The measurement above stands; the conclusion beside it — *"it is
+> the honest fix because there is nothing to gate on"* — does not. There is: a test can load
+> the module itself, which `frontend/src/test/warmPlanChunks.js` now does in a `beforeAll` for
+> every file that renders the shell. The 4000 ms ceiling also turned out to be 80% of Vitest's
+> then-5000 ms per-test budget, so a test crossing two of these boundaries died as a bare
+> `Test timed out in 5000ms` before either wait could reach it; `testTimeout` and `hookTimeout`
+> moved to 20 000 ms with it. Left standing above rather than rewritten, because §11 is the
+> record of what was known at M5.
+
 ### 11a. Claims by how they were established
 
 Three registers, and they are not interchangeable:

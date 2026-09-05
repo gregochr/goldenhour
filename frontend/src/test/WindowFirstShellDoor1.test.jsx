@@ -208,9 +208,9 @@ function doorButton() {
   return within(screen.getByTestId('window-sheet')).getByTestId('wf-row-map-open');
 }
 
-// Pays the shell's four `lazy()` boundaries once per FILE, in a hook with its own budget, rather
-// than inside whichever test happens to run first. See `warmPlanChunks.js` for the measurements
-// and for the full-suite reproduction that made this necessary.
+// Pays the shell's `lazy()` boundaries once per FILE, in a hook with its own budget, rather than
+// inside whichever test happens to run first. See `warmPlanChunks.js` for the measurements, the
+// membership rule and the full-suite reproduction that made this necessary.
 beforeAll(warmPlanChunks);
 
 describe('WindowFirstShell — Door 1 (the popup field’s "Open in map")', () => {

@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import App from '../App.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
@@ -71,6 +71,7 @@ import { getAstroConditions } from '../api/astroApi.js';
 import { getAlmanac } from '../api/almanacApi.js';
 import { subscribeToRunNotifications } from '../api/runProgressApi.js';
 import { getTodaysLight } from '../api/lightApi.js';
+import warmPlanChunks from './warmPlanChunks.js';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -118,6 +119,14 @@ const renderApp = ({ role = 'PRO_USER' } = {}) => {
   render(<App />);
   return { providerSpy };
 };
+
+// Pays the shell's `lazy()` boundaries once per FILE, in a hook with its own budget, rather than
+// inside whichever test happens to run first. See `warmPlanChunks.js` for the measurements, the
+// membership rule and the full-suite reproduction that made this necessary. This file qualifies
+// through `App.jsx`'s STATIC import of the shell rather than by mounting it directly, which is
+// why an idle run hides it: 172 ms here, against 2580-2777 ms under the reproduction load with a
+// 683-752 ms median for the rest of the file.
+beforeAll(warmPlanChunks);
 
 beforeEach(() => {
   localStorage.clear();

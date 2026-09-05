@@ -75,7 +75,7 @@ if (typeof globalThis.localStorage === 'undefined' || typeof globalThis.localSto
  * ⚠️ Testing Library's async timeout, raised from its 1000 ms default.
  *
  * <p>The Plan shell mounts its matrix, its window popup, its search panel and its location sheet
- * behind {@code React.lazy} boundaries, and roughly twenty-five tests across six files begin with
+ * behind {@code React.lazy} boundaries, and tests across the shell files open with
  * {@code await screen.findByTestId('wf-heat-strip')} — a wait on a real dynamic {@code import()},
  * not on a fetch a test could gate. Isolated they resolve in single-digit milliseconds; under a full
  * parallel run on a loaded machine three of them were measured timing out at 1000 ms while the same
@@ -87,8 +87,8 @@ if (typeof globalThis.localStorage === 'undefined' || typeof globalThis.localSto
  * slower. What it costs is that a genuinely never-appearing element now fails after four seconds
  * instead of one.
  *
- * <p>⚠️ <b>It is also 80% of Vitest's 5000 ms per-test budget, and that is not enough on its own.</b>
- * The measurement above stands; the conclusion drawn beside it — that "there is nothing to gate on"
+ * <p>⚠️ <b>It WAS also 80% of Vitest's then-5000 ms per-test budget, and that was not enough on
+ * its own.</b> The measurement above stands; the conclusion drawn beside it — that "there is nothing to gate on"
  * — does not, and the shell files no longer rely on this line alone. A test that crosses two of
  * those boundaries in sequence can spend the whole budget before either {@code findBy*} reaches its
  * own ceiling, so it dies as {@code Test timed out in 5000ms} without naming the wait that was
