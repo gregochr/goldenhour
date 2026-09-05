@@ -431,10 +431,17 @@ describe('WindowFirstComingUp — the handoff row (plan D14)', () => {
   it('gives each phrase its own word boundary in the accessible name, rather than gluing them '
       + 'into one run-on string', () => {
     // JSX drops whitespace-only text between sibling tags — it does not collapse it to a space —
-    // so without an explicit `{' '}` between every span the accessible name (the button's whole
-    // text content) reads "...four daysSaharan dustAurora possibleOn Plan" with no boundaries.
-    // This pins `WindowFirstComingUpHandoff` itself (unchanged by this phase) through the ROLE
-    // this pane renders it with, so a future edit to either file cannot silently reintroduce it.
+    // so without an explicit `{' '}` between every span the name this assertion computes reads
+    // "...four daysSaharan dustAurora possibleOn Plan" with no boundaries. This pins
+    // `WindowFirstComingUpHandoff` itself through the ROLE this pane renders it with, so a future
+    // edit to either file cannot silently drop the separators.
+    //
+    // ⚠️ Name the instrument: that glued reading is what jsdom's `dom-accessibility-api` computes,
+    // NOT what a browser announces. Chromium, WebKit and Firefox all space block-level
+    // contributions, and `.wf-cu-handoff` is `display: flex`, so removing these text nodes changes
+    // nothing a real screen reader is handed (measured 2026-09-05 — see the component's class
+    // doc). This test therefore guards the DOM's stated intent, not a user-facing regression;
+    // treat a failure here as "the separators went away", not as "a11y broke in production".
     renderPane({
       hotTopics: [
         { type: 'DUST', label: 'Saharan dust', date: TODAY },

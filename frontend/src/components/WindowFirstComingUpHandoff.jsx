@@ -10,14 +10,27 @@ import { buildHandoff } from '../utils/comingUpHandoff.js';
  * navigates to Plan, and a native button gives that for free — keyboard focus, activation on
  * Enter/Space, and a role a screen reader announces without an ARIA attribute standing in for it.
  *
- * <p><b>Every sibling span is separated by a literal {@code {' '}} text node.</b> JSX drops
- * whitespace-only text between tags rather than collapsing it to a space, so without this the
- * accessible name — the button's whole text content, since nothing here overrides it with
- * {@code aria-label} — runs every phrase together with no boundary: visual spacing comes from
- * flex {@code gap} in CSS, which the accessible-name algorithm cannot see. This is the same
- * defect this project has hit before (the plan-matrix handoff notes record it for a separator
- * that has to be a bare text node); it bit this row for real until a screen-reader-name test
- * caught it.
+ * <p><b>Every sibling span is separated by a literal {@code {' '}} text node — defensively, and
+ * today inertly.</b> JSX drops whitespace-only text between tags rather than collapsing it to a
+ * space, and this button's accessible name is its own text content (nothing overrides it with
+ * {@code aria-label}), so the separators exist to keep the phrases apart in that name.
+ *
+ * <p><b>⚠️ As this row is currently styled they change nothing, and the earlier claim here that
+ * the defect "bit this row for real" was not supported by any browser measurement.</b> Every
+ * engine inserts a space between BLOCK-LEVEL name contributions, and a flex or grid item is
+ * blockified — {@code .wf-cu-handoff} is {@code display: flex} and
+ * {@code .wf-cu-handoff-summary} likewise, so every phrase here is already a block-level
+ * contribution. Measured 2026-09-05: each of the five text nodes was removed one at a time from
+ * this component's real rendered DOM, against the real stylesheet, and the computed name was
+ * unchanged in Chromium, WebKit and Firefox — with a planted inline pair in the same DOM proving
+ * the measurement could still detect gluing.
+ *
+ * <p>The run-together defect is real, but only for <b>genuinely inline</b> siblings — an inline
+ * box with inline content. It is what {@code jsdom}'s {@code dom-accessibility-api} reports for
+ * <i>any</i> adjacent elements, which is why a test asserting a spaced name here passes or fails
+ * on the polyfill's rule rather than a browser's. Keep the text nodes: they cost nothing, they
+ * make the intent explicit, and they become load-bearing the moment one of these containers stops
+ * being flex.
  *
  * @param {object}   props
  * @param {string}   props.todayStr   the reader's UK today, `YYYY-MM-DD`

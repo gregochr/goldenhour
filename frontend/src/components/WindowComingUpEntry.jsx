@@ -46,9 +46,26 @@ import { entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
  * the entries that are NOT clickable. Leaving the name to compute from content is the fix (the same
  * approach {@code WindowFirstComingUpHandoff} already uses for its own button), which is why the
  * title-row spans below are interleaved with bare {@code {' '}} text-node siblings: JSX drops
- * whitespace-only text between tags rather than collapsing it to a space, so without an explicit
- * one the computed name runs every phrase together with no word boundary — the exact defect the
- * handoff row's own fix already records.
+ * whitespace-only text between tags rather than collapsing it to a space, so they are what keeps
+ * the phrases apart in that one computed name.
+ *
+ * <p><b>⚠️ As this card is currently styled those separators change nothing in a browser</b> —
+ * this doc used to assert the name "runs every phrase together", and no browser measurement
+ * supports that. Every engine spaces BLOCK-LEVEL name contributions, and a flex or grid item is
+ * blockified; this card's CSS blockifies everything that carries text ({@code .wf-cu-ttl} and
+ * {@code .wf-facts} are {@code flex}, {@code .wf-facts > span} and {@code .wf-cu-coin-line} are
+ * {@code inline-flex}, {@code .wf-cu-prose} is {@code block}). Measured 2026-09-05: all
+ * seventeen text nodes were removed one at a time from this component's real rendered DOM,
+ * against the real stylesheet, and the computed name was unchanged in Chromium, WebKit and
+ * Firefox — a planted inline pair in the same DOM confirmed the measurement could still detect
+ * gluing, and Chromium's native accessibility tree agreed with the cross-engine result.
+ *
+ * <p>Note {@code inline-flex} is <b>not</b> the exception it looks like: it is inline-LEVEL, but
+ * its contents are blockified, and the engines space it like a block. The run-together defect
+ * needs a genuinely inline box with inline content. {@code jsdom}'s
+ * {@code dom-accessibility-api} glues <i>any</i> adjacent elements regardless, so a test here
+ * asserting a spaced name is asserting the polyfill's rule, not a browser's. Keep the separators:
+ * they cost nothing and become load-bearing the moment one of these containers stops being flex.
  *
  * <h2>The coincidence card renders alongside prose, not instead of it — a corrected first attempt
  * (D10, plan §6b)</h2>
@@ -121,13 +138,13 @@ export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) 
     }
   };
 
-  // Every top-level section is separated by a bare `{' '}` text-node sibling, not by relying on
-  // `display: block`/flex `gap` to imply one — the accessible-name algorithm reads the DOM, not
-  // rendered layout, and JSX drops whitespace-only text between tags rather than collapsing it to
-  // a space. Two adjacent sections with nothing rendered between them (e.g. the kind tag directly
-  // followed by the action link, on an entry with no superlative, metric, prose or facts) would
-  // otherwise glue into one word in the computed name — the same defect the handoff row's own fix
-  // already records, here at the scale of a whole card rather than one row.
+  // Every top-level section is separated by a bare `{' '}` text-node sibling rather than relying
+  // on flex `gap` to imply one, since the accessible-name algorithm reads the DOM and not rendered
+  // layout, and JSX drops whitespace-only text between tags rather than collapsing it to a space.
+  // ⚠️ Defensive, not load-bearing as this card is styled: the engines already space block-level
+  // contributions and this card's CSS blockifies every text-carrying element, so removing any of
+  // these changes nothing in Chromium, WebKit or Firefox (measured — see the class doc). They earn
+  // their keep only if one of those containers stops being flex.
   const cardBody = (
     <>
       <div className="wf-cu-ttl">
