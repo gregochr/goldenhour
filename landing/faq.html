@@ -40,7 +40,7 @@
 </div>
 <div class="qa">
 <h2>How often do forecasts update?</h2>
-<p>The planner updates three times a day (early morning, afternoon, and evening). Aurora data polls every 5 minutes during dark hours. Weather warnings update in near real-time.</p>
+<p>The planner updates three times a day (early morning, afternoon, and evening). Aurora data polls every 5 minutes during dark hours.</p>
 </div>
 <div class="qa">
 <h2>How far ahead can I plan?</h2>
@@ -48,13 +48,12 @@
 </div>
 <div class="qa">
 <h2>Where does the data come from?</h2>
-<p>PhotoCast pulls together data from nine different sources into a single view. No other photography tool combines all of this:</p>
+<p>PhotoCast pulls together data from eight different sources into a single view. No other photography tool combines all of this:</p>
 <div class="tw"><table><thead><tr><th>Source</th><th>What it provides</th><th>What PhotoCast does with it</th></tr></thead><tbody>
 <tr><td>Open-Meteo Forecast</td><td>Cloud cover (low, mid, high), humidity, wind, temperature, precipitation, visibility, pressure</td><td>Directional cloud sampling at the solar horizon. Building trend detection. Weather triage (GO / MARGINAL / STANDDOWN)</td></tr>
 <tr><td>Open-Meteo / CAMS</td><td>Aerosol optical depth, PM2.5, dust concentration</td><td>Saharan dust detection — distinguishes warm dust (fiery skies) from grey smoke (haze)</td></tr>
 <tr><td>WorldTides</td><td>Tide heights and times for UK coastal stations</td><td>Spring tide, king tide, and tide-aligned sunrise/sunset flagging</td></tr>
 <tr><td>NOAA SWPC</td><td>Kp index, 3-day Kp forecast, OVATION aurora probability, solar wind Bz, G-scale alerts</td><td>Aurora forecasting with daytime lookahead and visibility viewline</td></tr>
-<tr><td>WeatherAPI.com</td><td>Met Office weather warnings (yellow, amber, red)</td><td>Safety-relevant warnings surfaced per location</td></tr>
 <tr><td>lightpollutionmap.info</td><td>Bortle class, sky brightness (SQM)</td><td>Dark sky filtering for aurora and astrophotography locations</td></tr>
 <tr><td>Postcodes.io</td><td>UK postcode geocoding</td><td>Home location for personalised drive times</td></tr>
 <tr><td>solar-utils</td><td>Sunrise, sunset, civil dawn/dusk, solar noon, azimuths</td><td>Precise event timing and azimuth lines on map</td></tr>
