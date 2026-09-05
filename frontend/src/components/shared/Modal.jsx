@@ -44,10 +44,15 @@ const MAX_WIDTH = { sm: 'max-w-sm', md: 'max-w-md', lg: 'max-w-lg' };
  *
  * <h2>⚠️ Stacking blurs, and the layer underneath has to remember for itself</h2>
  *
- * <p>{@code inert} takes focus off whatever inside it had it, and because {@code stacked} is a PROP
- * that lands in React's mutation phase, the blur happens before any effect in the commit — including
- * {@link useDialogFocus}'s, which is where the arriving dialog reads {@code document.activeElement}
- * to learn where to send focus back. So the naive version broke the thing the hook exists for: open
+ * <p>{@code inert} takes focus off whatever inside it had it, racing {@link useDialogFocus}'s read
+ * of {@code document.activeElement} — which is where the arriving dialog learns where to send focus
+ * back. ⚠️ <b>This paragraph used to say the blur "happens before any effect in the commit", and
+ * that is measurably false</b>: driven through Playwright against both Chromium and WebKit, setting
+ * {@code inert} does NOT blur synchronously — the fix-up lands two to four animation frames later,
+ * in both engines, whether the attribute sits on the focused element or an ancestor. So the blur
+ * usually arrives AFTER the covering layer has already captured, and the sentence had the race the
+ * wrong way round while being right that there is one. The recorder below is what makes the outcome
+ * not matter. So the naive version broke the thing the hook exists for: open
  * the location sheet from a field chip on the popup's map, press Escape, and focus landed on
  * {@code <body>} rather than on the chip. Measured in a real browser, both before and after — and
  * intermittently, since it is a race with how fast React flushes passive effects, which is exactly
@@ -110,27 +115,129 @@ export default function Modal({
   const lastInside = useRef(null);
 
   /**
+   * Whether anything has ever stacked over this dialog.
+   *
+   * <p>⚠️ Load-bearing, and it replaces a guard that used to be implicit. The restore below once
+   * read "{@code lastInside} is null" as its proof that this was a MOUNT rather than an uncover —
+   * true only while a null recorded control meant "do nothing", which stopped being true when the
+   * root fallback landed. Without this ref an unstacked dialog that mounts while focus happens to
+   * sit on {@code <body>} would take the root in a passive effect, beating {@link useDialogFocus}'s
+   * deliberate frame and the consumer-autofocus yield that rides on it.
+   */
+  const wasStacked = useRef(false);
+
+  /**
    * Puts focus back where it was when something stacked over this dialog.
    *
    * <p>Only on the stacked → not-stacked transition, and only when focus has actually been ORPHANED
    * — which here means {@code document.body} or nothing, and nothing else. A reader who Tabbed out
    * into the page while the top layer was up has chosen where they are, and yanking them back is
-   * worse than leaving them. On mount {@code lastInside} is null, so a dialog that is never
-   * stacked runs this to a no-op and behaves exactly as it did before.
+   * worse than leaving them.
    *
    * <p>⚠️ The guard was written as two branches ("inside this dialog" and "outside it") and an
    * adversarial review pointed out that their union is simply "focus is somewhere real": the
    * containment test decided nothing, and a maintainer editing one branch would have believed they
    * had changed behaviour the other already covered. One condition now, saying what it means.
+   *
+   * <h3>⚠️ The root is a RESTORE here, not a consolation prize</h3>
+   *
+   * <p>{@code lastInside} records a CONTROL, never this dialog's own root — deliberately, so that an
+   * uncovered dialog returns a reader to the chip they were on rather than to its container. The
+   * consequence went unnoticed: a reader who opens a dialog and touches nothing inside it leaves
+   * {@code lastInside} null, so the uncover restored nothing and left them on {@code <body>}
+   * beneath a layer that is once again claiming {@code aria-modal="true"} — an AT hiding the rest
+   * of the page while focus sits outside the dialog, and the next Tab walking the page behind the
+   * backdrop. Reachable by keyboard: open the popup, press {@code /} for search, then Escape.
+   *
+   * <p>⚠️ <b>Not every-time on every engine, and the first draft of this said otherwise.</b> Paired
+   * old-vs-new runs through Playwright: on WebKit the reader is stranded on every attempt; on
+   * Chromium only when the covering layer mounts a frame or more after the press, because a cover
+   * that mounts in the same frame captures this root as its own return address and hands it back on
+   * unmount. That delay is the normal case on first use — {@code PlanSearch},
+   * {@code WindowSheetDialog} and {@code LocationFourDaySheet} are all {@code lazy()} behind a
+   * {@code Suspense} boundary — and the rare one afterwards, when the chunk is warm.
+   *
+   * <p>⚠️ <b>Keyboard-only in practice, and an earlier draft of this comment claimed otherwise.</b>
+   * It argued the tap-a-chip route reached this too, because macOS and iOS Safari do not focus a
+   * {@code <button>} on click — which reads the {@code onPointerDown} recorder below exactly
+   * backwards. That handler exists <em>precisely</em> to cover those engines, {@code pointerdown}
+   * fires there, and every control that stacks a layer over this one is a real button inside it. So
+   * on a pointer route {@code lastInside} IS populated and this fallback is never reached. Caught by
+   * an adversarial review; recorded because the mistake is an easy one to make twice.
+   *
+   * <p><b>Why the root is the right target is narrower than it first looks, and the obvious
+   * argument for it is wrong.</b> It is tempting to say "this is just what an OPEN does", and
+   * borrow {@link useDialogFocus}'s three reasons for preferring the container. All three fail
+   * here: its "nothing focusable inside" case cites the settings modal's spinner, and
+   * {@code UserSettingsModal} never passes {@code stacked} at all (only four Plan-shell dialogs do —
+   * and only two of those can reach this branch in production, since {@code WindowSpotSheet} and
+   * {@code WindowPickDialog} are stacked only while search is open, which the shell refuses to open
+   * over them — every one of which has a close button); its "content still loading" case cannot apply to a
+   * dialog that has been mounted for the whole life of the layer that covered it; and its "do not
+   * fight a consumer autofocus" case has nothing to fight, because an uncover re-runs no consumer
+   * effect. An adversarial review caught that borrowing — worth keeping, because a maintainer who
+   * notices the spinner never stacks would otherwise have been handed a reason to delete this.
+   *
+   * <p>The real reason is stronger and specific to this path: the precondition for reaching the
+   * fallback is that <em>nothing inside was ever touched</em>, which means the root is <b>the exact
+   * node {@code inert} blurred them off</b>. Returning them to it is a true restore. Focusing the
+   * first control instead would drop the reader into content they have never read — and they have
+   * never read it; that is the precondition — on a control they did not choose.
+   *
+   * <p>⚠️ <b>The ordering this depends on is a browser fact no test here can check.</b> {@code inert}
+   * makes {@code focus()} a silent no-op, so the fallback only works because React clears the
+   * attribute in the MUTATION phase and this passive effect runs after it. jsdom implements no
+   * {@code inert} at all, so the suite would stay green either way. Measured directly in Chrome 148:
+   * {@code focus()} on an inert root leaves {@code document.activeElement} on {@code <body>}, and
+   * the same call after clearing {@code inert} lands on the root — both in the same task and across
+   * a microtask. The pre-existing {@code node.focus()} branch has always relied on the identical
+   * ordering; this only gives it a measurement.
+   *
+   * <p>So a recording that is null, detached, or <em>refuses the focus</em> now lands on the root
+   * rather than doing nothing. That last case is the one an early {@code return} hid: {@code focus()}
+   * is a silent no-op on an attached but unfocusable node — a disabled control, or one under an
+   * {@code inert} ancestor — so the old code could believe it had restored a reader it had in fact
+   * left on {@code <body>}, reaching this same defect one step later. Verified rather than assumed
+   * now, which costs one comparison. "Do nothing" was never a decision; it was the shape of the
+   * {@code !node} early return.
+   *
+   * <p>⚠️ <b>Not measured:</b> that a screen reader ANNOUNCES the dialog on landing. The role and
+   * the accessible name are both present and pinned, and focusing a {@code tabindex="-1"} dialog
+   * container is the APG's own sanctioned alternative to the first control — but no AT was driven
+   * here, and iOS VoiceOver in particular does not always move its cursor on a programmatic
+   * {@code focus()} of a non-input. Worth an actual VoiceOver pass before anyone leans harder on
+   * the announcement than "focus is inside the dialog again, where Tab works".
    */
   useEffect(() => {
-    if (stacked) return;
-    const node = lastInside.current;
-    if (!node || !document.contains(node)) return;
+    if (stacked) {
+      wasStacked.current = true;
+      return;
+    }
+    if (!wasStacked.current) return;
     const active = document.activeElement;
-    if (active && active !== document.body) return;
-    node.focus();
-  }, [stacked]);
+    // ⚠️ `documentElement` as well as `<body>`. Both mean "nowhere", and this app has MEASURED the
+    // second: `WindowFirstShell`'s tab-select records `activeElement` landing on the document root
+    // after the overlay's map hatch. Whether an `inert`-driven blur can also land there is
+    // unverified — jsdom always yields `<body>`, and a focus experiment needs a browser pane that
+    // actually holds focus — so the guard covers both rather than betting on one. Nothing focuses
+    // `<html>` deliberately, so widening it cannot swallow a reader's own choice.
+    if (active && active !== document.body && active !== document.documentElement) return;
+    const node = lastInside.current;
+    if (node && document.contains(node)) {
+      node.focus();
+      // Confirmed, not assumed: a disabled control takes no focus and reports no failure.
+      if (document.activeElement === node) return;
+    }
+    // Nothing usable was recorded inside. The root is where an OPEN would have put them.
+    const dialog = dialogRef.current;
+    if (dialog) dialog.focus();
+    // ⚠️ `dialogRef` must be a STABLE `useRef` object, and that is a correctness precondition, not
+    // the lint concession it looks like. `wasStacked` never resets, so "has stacked before" is
+    // permanently true after the first cover — which is safe only because this effect then re-runs
+    // solely when `stacked` flips. Measured: make `dialogRef` unstable and the effect fires on
+    // every render, yanking a reader who has since moved away back into the dialog root, twenty
+    // times over twenty re-renders. `useDialogFocus` returns a `useRef`, so this holds today.
+  }, [stacked, dialogRef]);
 
   useEffect(() => {
     if (!closeOnEscape || !onClose) return undefined;
