@@ -951,6 +951,45 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     `.wf-callout`'s `overflow: visible` **stays**: the tail was one of two reasons for it, and the
     other — the inline `max-height` whose squeeze must land on `.wf-callout-body` alone — is still
     pinned by `mapCalloutClampCascade`, which now also pins that the tail rule has not come back.
+31. **The window pill is a FIXED 262px and ellipses; the bundle's hugs its content and never
+    truncates (2026-09-05).** The prototype gives this control no width at all —
+    `#wnow{gap:9px;padding:6px 10px;min-height:36px}` over a `.pill` with `white-space:nowrap`, no
+    cap, no `overflow` and no ellipsis (`Map Tab v2.html`) — so the pill grows and shrinks with
+    whatever the event says. The port already diverged once at P6, which added a `max-width: 260px`
+    app-side with no counterpart in the bundle and no entry here; this item records both halves,
+    because the second one is the reason the first stopped being invisible.
+    **Why.** Content-sizing puts the `‹ ›` steppers somewhere new on every step, and stepping is
+    the entire use those buttons have. Measured in Chromium against the app's own loaded fonts
+    across every combination the component can emit, the pill ran 115.41px ("No forecast") to
+    227.52px ("Aurora · Wednesday night · 21:04"), moving `›` by up to 112px between one click and
+    the next. An owner report, not a theory.
+    **Why 262 and not the measured maximum.** The one width the design does declare for this
+    control is the dropdown's — `#wmenu`, 334px (README "The window control", §3 P6) — so the
+    control is sized to the menu it opens and the two share both edges; 262px is simply what is
+    left of 334 after two 32px steppers and two 4px gaps. Deriving it from the bundle's own figure
+    is the point: the retired 260px had no provenance to appeal to, and at 260px the menu overhung
+    its trigger by exactly 2px at every viewport, which reads as a misalignment on a control that
+    is otherwise pixel-constant.
+    ⚠️ **Truncation is not newly introduced.** `overflow: hidden`, `text-overflow: ellipsis` and
+    the 260px cap all pre-date this change, so the clip threshold moved by 2px in the safe
+    direction. The widest REACHABLE content is that 227.52px case (~14% headroom);
+    `WindowControl.jsx`'s `dayLabel ?? label` fallback would reach 247px but is unreachable from
+    `mapEvents.js`, which sets `dayLabel` on all three row shapes it builds. The headroom is
+    measured at 100% text scale with the bundled face — a minimum-font-size setting, Firefox's
+    text-only zoom or a webfont failure can still eat it, and the clipped text stays in the pill's
+    accessible name (computed from its subtree; `title` carries `rosterNote`, never the label).
+    ⚠️ **`.wf-map-chrome-tl` is a label-placement obstacle** (`MapLabels.jsx`/`PinsLayer.jsx`
+    `OBSTACLE_SELECTOR`, padded 5px, and a label with no non-colliding candidate is **dropped**,
+    not nudged), so the control's width is not purely its own business. The obstacle goes from a
+    variable 187–300px to a constant 334px. Measured at two views on the live tab, the rendered
+    label set and every label's position were **identical** before and after — the band is only
+    36px tall, so widening it rarely exhausts a location's candidates. The stability cuts the other
+    way too, and in the same direction as the fix: a variable obstacle made labels appear and
+    disappear as the reader stepped, which is the flicker the steppers were doing.
+    Adversarial review also removed a `min-width: 0` from `.wf-win-label` that the first cut added
+    with a stated mechanism that was not the one at work — `overflow: hidden` already makes the
+    label a scroll container, so its automatic minimum was zero before the change (CSS Sizing 3
+    §5.1). Verified identical both ways in Chromium and at 320px.
 
 ## §5 Decisions taken in this plan (challenge in review, not in code)
 
