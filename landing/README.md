@@ -21,31 +21,50 @@ fires on a `v*` tag and builds exactly two images, backend and frontend — it n
 looks at this directory. So cutting a version tag does not publish a landing change,
 and publishing a landing change does not need a version tag. The two are independent.
 
-There is no CI for it either. The container is built **on the production host** from
-the files in this directory, which means the release is a manual step:
+There is no CI for it either. The container is built **on the production host** from the
+files in this directory, which means the release is a manual step.
+
+⚠️ **Do not run a full `git pull` on the host, and be careful with `~/goldenhour/deploy-landing.sh`,
+which does.** Verified on the host 2026-09-05: `~/goldenhour` sits on `main` roughly **1,235
+commits behind** `origin/main`, and carries four *hand-edited, uncommitted* production config
+files — `docker-compose.yml`, `nginx.conf`, `backend/src/main/resources/application-prod.yml`
+and `scripts/backup-postgres.sh`. A `git pull origin main` would try to merge 1,235 commits
+across exactly those paths, and `deploy-landing.sh` runs under `set -e`, so a conflict aborts
+it part-way. Production config is the last thing that should be in a half-finished merge. This
+is the same staleness `.github/workflows/deploy.yml` works around by reading files out of the
+tag (`git show "$TAG":nginx.conf`) rather than trusting the checkout.
+
+Check out **only this directory**, which needs no merge and cannot touch those files:
 
 ```bash
 ssh gregochr@100.76.73.16
 cd ~/goldenhour
-git pull                       # deploy.yml never pulls, so this checkout can be stale
+
+# tag the running image first — `--no-cache` below orphans it, and it is the only rollback
+docker tag "$(docker inspect -f '{{.Image}}' photocast-landing)" photocast-landing:rollback-$(date +%Y%m%d)
+
+git fetch origin main                  # or a branch, to deploy before merge
+git checkout FETCH_HEAD -- landing/    # ONLY landing/; HEAD does not move
+
 cd landing
-docker compose up -d --build   # --build is required; without it Compose reuses the old image
+docker compose build --no-cache
+docker compose up -d
 ```
 
-`--build` is not optional. `docker-compose.yml` here uses `build: .` rather than a
-registry image, so a plain `docker compose up -d` will happily restart the *previous*
-build and report success.
-
-Then confirm it actually changed:
+Then confirm — the stylesheet is the thing worth checking, for the reason in the next section:
 
 ```bash
-docker compose ps                        # photocast-landing, port 8085->80
-curl -sI http://localhost:8085/photocast.css | head -1   # expect 200
+for p in / faq.html privacy.html terms.html acknowledgements.html photocast.css; do
+  printf "%-24s %s\n" "$p" "$(curl -s -o /dev/null -w '%{http_code}' http://localhost:8085/$p)"
+done
 ```
 
-The container listens on **8085**; Cloudflare Tunnel maps `photocast.online` to it. The
-tunnel's routing config lives on the host (`~/.cloudflared/`), not in this repo — if the
-public URL does not update after a successful local `curl`, that is where to look.
+All 200. `photocast.css` returning 404 means the `COPY` line is missing again.
+
+To roll back, retag that saved image as `landing-landing:latest` and `docker compose up -d`.
+
+The container listens on **8085**; Cloudflare Tunnel maps `photocast.online` to it. The tunnel's
+routing config lives on the host (`~/.cloudflared/`), not in this repo.
 
 ## Adding a file
 
