@@ -1051,7 +1051,11 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   Filters/Regions/Legend chips and the callout's own buttons, all behind a 60%-black backdrop; and
   from a map popover opened that way, one `Escape` answers **two** layers (the popover closes
   itself locally without `stopPropagation`, and the sheet's document listener fires on the same
-  press). Neither is reachable without first Tabbing out of a modal. The fix is the follow-on, not
+  press) — and on a phone that popover is a `BottomSheet`, portalled to `document.body` at
+  `z-index: 10000`, so it paints straight over the `z-50` sheet rather than under it. (The map's own
+  in-frame chrome does not: it lives inside `map-container`'s `position: relative; z-index: 0`
+  stacking context, measured with `elementFromPoint` at every corner.) None of the three is
+  reachable without first Tabbing out of a modal. The fix is the follow-on, not
   a fourth per-route guard: `inert` on the map panel needs `Modal`'s own `lastInside` machinery
   mirrored onto the pane, or the peek's return address (the callout button, blurred by `inert`
   before `useDialogFocus` can capture it) is destroyed by the fix.
