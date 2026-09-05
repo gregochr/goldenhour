@@ -336,7 +336,11 @@ export default function WindowSheetDialog({
       // ⚠️ Conditional, and that is the whole of the Escape ORDER (plan-matrix §6 M2.5). `Modal`
       // installs a document-level listener per instance, so two open dialogs both close on one
       // press. The shell withholds this from whichever layer is not on top, so Escape takes exactly
-      // one layer per press: search → a stacked sheet → this.
+      // one layer per press: the layer above this one, then this.
+      // ⚠️ TWO deep, never three. The rung above is search OR a stacked sheet, and since M5 never
+      // both — every route into search is refused while anything is stacked over this dialog
+      // (plan-matrix §4 A22). The two are alternatives rather than a sequence to walk down, so
+      // `escapeEnabled` is false for whichever ONE of them is up, and there is no third press.
       closeOnEscape={escapeEnabled}
       /* ⚠️ ONE predicate, two consequences, and they must never come apart: the layer that
          answers Escape is the layer that is not `inert`. M5 measured the alternative in a browser —
