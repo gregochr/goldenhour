@@ -48,7 +48,7 @@ section{padding:96px 0 0}
 /* ── platforms ── */
 .plats{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:40px}
 .plat{border:1px solid var(--rule);border-radius:var(--r-lg);background:var(--card);padding:22px 22px 24px;display:flex;flex-direction:column;gap:10px}
-.plat.live{background:linear-gradient(to bottom,color-mix(in oklab,var(--brand) 7%,transparent),var(--card));border-color:color-mix(in oklab,var(--brand) 28%,transparent)}
+.plat.live{background:linear-gradient(to bottom,color-mix(in oklab,var(--brand) 7%,transparent),var(--card)),var(--card);border-color:color-mix(in oklab,var(--brand) 28%,transparent)}
 .status{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;display:inline-flex;align-items:center;gap:7px;color:var(--ink-dim)}
 .status::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--ink-dim)}
 .plat.live .status{color:var(--brand)}
@@ -72,7 +72,7 @@ section{padding:96px 0 0}
 /* ── pricing ── */
 .prices{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:40px}
 .price{border:1px solid var(--rule);border-radius:var(--r-lg);background:var(--card);padding:26px}
-.price.hi{border-color:color-mix(in oklab,var(--brand) 30%,transparent);background:linear-gradient(to bottom,color-mix(in oklab,var(--brand) 6%,transparent),var(--card))}
+.price.hi{border-color:color-mix(in oklab,var(--brand) 30%,transparent);background:linear-gradient(to bottom,color-mix(in oklab,var(--brand) 6%,transparent),var(--card)),var(--card)}
 .price .tier{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft)}
 .price .amt{font-family:var(--disp);font-size:42px;font-weight:600;letter-spacing:-.035em;margin:8px 0 2px}
 .price .amt small{font-family:var(--body);font-size:15px;font-weight:400;color:var(--ink-dim);letter-spacing:0}
@@ -101,7 +101,7 @@ section{padding:96px 0 0}
 
 <header class="mast">
 <div class="wrap">
-<a class="mark" href="index.html"><span class="wm">PhotoCast</span><span class="kicker">Field guide to light</span></a>
+<a class="mark" href="index.html"><span class="wm">PhotoCast</span> <span class="kicker">Field guide to light</span></a>
 <nav>
 <a href="#platforms">Apps</a>
 <a href="#features">Features</a>
@@ -112,6 +112,7 @@ section{padding:96px 0 0}
 </div>
 </header>
 
+<main>
 <div class="hero">
 <div class="wrap">
 <div class="eyebrow">For landscape photographers · Northern England</div>
@@ -280,15 +281,15 @@ section{padding:96px 0 0}
 </div>
 <div class="qs">
 <div class="qa">
-<h2>How accurate is it?</h2>
+<h3>How accurate is it?</h3>
 <p>Forecasts are based on third-party weather data and AI interpretation. They're most reliable for tomorrow and the day after. We never claim to predict the sky perfectly — we just give you much better odds than checking a generic weather app.</p>
 </div>
 <div class="qa">
-<h2>What areas do you cover?</h2>
+<h3>What areas do you cover?</h3>
 <p>Northumberland, the Lake District, North Yorkshire Coast, Yorkshire Dales, North York Moors, Tyne and Wear, and Teesdale. Over 200 named locations.</p>
 </div>
 <div class="qa">
-<h2>What's the difference between Lite and Pro?</h2>
+<h3>What's the difference between Lite and Pro?</h3>
 <p>Lite is free and gives you the planner heatmap, weather triage verdicts, and star ratings. Pro adds AI-powered best-bet picks, AI-powered per-location scoring with written explanations, aurora forecasting, and personalised drive times. There are more features in the pipeline.</p>
 </div>
 <p style="margin-top:22px"><a href="faq.html">See all questions →</a></p>
@@ -306,6 +307,8 @@ section{padding:96px 0 0}
 </div>
 </div>
 </div>
+
+</main>
 
 <footer class="foot">
 <div class="wrap">
