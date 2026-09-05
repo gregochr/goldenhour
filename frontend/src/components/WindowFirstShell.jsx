@@ -951,17 +951,21 @@ export default function WindowFirstShell({
    *
    * <p>{@code Modal} installs one document-level Escape listener per instance, so two open dialogs
    * both close on a single press. The remedy is not a shared stack but a guard per layer: whichever
-   * layer is not on top declines the key, so Escape takes exactly one layer per press — search, then
-   * a sheet stacked over the popup, then the popup itself (plan-matrix §6 M2.5, and the bundle
-   * README's own ordering).
+   * layer is not on top declines the key, so Escape takes exactly one layer per press — the layer
+   * over the popup, then the popup itself (plan-matrix §6 M2.5).
    *
    * <p><b>SEARCH's rung went live at M3, and it is the reason this whole ordering exists.</b> It
    * was dormant through M2 — {@code /} was refused while <em>any</em> dialog was open, so search
    * could never sit over anything and the three {@code escapeEnabled} props below guarded a case
    * that could not arise. M3 anchors search to the masthead, which the popup is drawn over rather
    * than in, so {@code /} is now permitted while the window popup is open and refused over
-   * everything else. Escape then takes exactly one layer per press: search, then a sheet stacked
-   * over the popup, then the popup itself.
+   * everything else.
+   *
+   * <p>⚠️ <b>The stack is TWO deep, never the bundle README's three.</b> The rung over the popup is
+   * search <em>or</em> a stacked sheet, and since M5 never both — every route into search is
+   * refused while this flag stands (plan-matrix §4 A22). So read the order as "the layer above,
+   * then the popup", not as a three-rung sequence to walk down: the two upper rungs are
+   * alternatives, and each {@code escapeEnabled} prop below is written for whichever one is up.
    */
   const stackedOverPopup = sheetCard != null || sheetSpot != null || openPick != null;
   /**
