@@ -13,6 +13,7 @@ import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenc
 import { buildScoreIndex, buildTideAlignmentIndex } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/mapCallout.js';
 import { buildRegionBestIndex } from '../utils/regionsJump.js';
+import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
 
 /**
  * The framing pad, in degrees of latitude — the bundle's own figure (`map-tab.js`), and the same
@@ -203,6 +204,20 @@ export default function WindowFirstMapPane({
    */
   const regionBestIndex = useMemo(() => buildRegionBestIndex(briefing?.days), [briefing?.days]);
   /**
+   * The window verdict's per-region source (map-landing-plan.md §3 L1) — each eligible region's
+   * served record, name-keyed exactly like the two indexes above and built from the SAME
+   * {@code briefing.days}, so the pill's verdict, the jump row's swatch and the region gloss can
+   * never disagree about which briefing build they are reading.
+   *
+   * <p>It is the whole record rather than a projection, and it is folded over
+   * {@code eligibleRegions} — see {@code utils/mapVerdict.js} for both reasons. The SCOPE is not
+   * applied here: {@code MapView} owns the "My area / Everywhere" segment, so it narrows this index
+   * against its own {@code scopeBasePool} at read time.
+   */
+  const regionVerdictIndex = useMemo(
+    () => buildRegionVerdictIndex(briefing?.days), [briefing?.days],
+  );
+  /**
    * The map tab's tide-alignment glyph/tiebreaker/tooltip/callout-row source (bundle rev 2) —
    * built from the SAME {@code briefing.days} the two indexes above read, so a chip's glyph can
    * never disagree with the selection callout's own row about whether this window's water lands
@@ -282,6 +297,29 @@ export default function WindowFirstMapPane({
           // dropdown draws its topic icons straight from these, the same list the matrix draws
           // its own badge row from (`WindowFirstHeatStrip`).
           badges: card.badges,
+          // ── map-landing-plan.md §3 L1: the served pick ───────────────────────────────────
+          // The forecast's own Best bet / Also good for this window: `'best'`, `'also'`, or null.
+          // Server-owned — the design bundle's client rank formula is deliberately not built
+          // (map-landing-plan.md §4 #2) — and already withheld by `buildWindowCards` when the pick
+          // names a region an away origin has scoped away.
+          //
+          // ⚠️ `pickKind`, not `pick`. This mapper folds `heatStripCards`, and
+          // `windowFirstStrip.buildHeatStripCards` deliberately narrows the served `Pick` record to
+          // its kind alone. Reading `card.pick` here compiles, lints, passes a suite and is
+          // `undefined` on every window forever — the first cut of this phase did exactly that, and
+          // an adversarial review caught it. The kind is all the medallion needs: L2's chip reads
+          // BEST BET / ALSO GOOD, and L4's line takes its region from the window's own verdict.
+          pickKind: card.pickKind,
+          // ⚠️ **The verdict is NOT forwarded, and that is the phase's central decision.**
+          // `card.verdict` is the Plan tab's answer: the whole roster's top region (or the origin's
+          // region when planning from one). The MAP's verdict has to move with the map's own scope
+          // segment — "My area" versus "Everywhere" — because the design's first rule is that scope
+          // moves the verdict and reader filters do not. Forwarding the card's word as well would
+          // put two answers for one window on one pill, disagreeing by default (`heatArea` starts
+          // true), and three later phases would each pick one. So there is exactly one verdict
+          // channel on this tab: `utils/mapVerdict.js`, read in `MapView` off the scope pool.
+          // Agreement with the Plan tab is proven by test at whole-catalogue scope
+          // (map-landing-plan.md check 8), not by shipping the same value twice.
         };
       }),
       areaBounds: framed.length > 0 ? latLngBounds(framed, FRAME_PAD_DEG) : null,
@@ -384,6 +422,7 @@ export default function WindowFirstMapPane({
         scoresKnown={scoresLoaded}
         regionGlossIndex={regionGlossIndex}
         regionBestIndex={regionBestIndex}
+        regionVerdictIndex={regionVerdictIndex}
         tideAlignmentIndex={tideAlignmentIndex}
         reachById={reachById}
         onOpenLocationSheet={onOpenLocationSheet}

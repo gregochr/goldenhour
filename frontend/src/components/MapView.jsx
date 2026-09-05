@@ -32,6 +32,7 @@ import RegionsJump from './map/RegionsJump.jsx';
 import MapBreadcrumb from './map/MapBreadcrumb.jsx';
 import { fadeAt } from '../utils/heatHandover.js';
 import { buildMapEvents, findEvIndex, solarHorizonDates, EVENT_KIND } from '../utils/mapEvents.js';
+import { buildEvVerdicts, regionNamesOf } from '../utils/mapVerdict.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { GLANCE_MINUTES } from '../utils/planningArea.js';
 import { latLngBounds } from '../utils/heatGeometry.js';
@@ -1027,7 +1028,7 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  * overlay never passes one (it is frozen and has no origin concept). Gates home geography — see
  * `homeGeo` below.
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, origin = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, tideAlignmentIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, origin = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, tideAlignmentIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -2564,6 +2565,55 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     isLite: role === 'LITE_USER',
     formatTimeUk: formatEventTimeUk,
   });
+  /**
+   * The region names in scope — "My area" or "Everywhere", before every OTHER filter
+   * (map-landing-plan.md §3 L1, `docs/design/map-landing/README.md` §1).
+   *
+   * <p><b>Read off the scope pool, which is the point.</b> The design's first check is that
+   * minimum rating, reach, subject and dark-sky must never move the verdict while the scope segment
+   * must — so the tally's population is taken from the one pool that is already scope-only, the same
+   * pool the counts footer reports as "of K". A reader hiding 3★ locations cannot turn a Maybe into
+   * a Worth it, because no reader filter reaches this list at all.
+   *
+   * <p>⚠️ <b>Built from {@code heat?.enabled}, NOT from {@code heatOffered}</b>, and the difference
+   * is a real defect this phase's review caught. {@code heatOffered} folds in {@code !isAuroraMode}
+   * because it gates whether the FIELD is drawable — and selecting any aurora night row sets
+   * {@code eventType} to `AURORA`, so routing the verdict through it emptied the scope and silently
+   * deleted the verdict from every SOLAR window in the list. Which regions are in the reader's scope
+   * is a fact about geography and has nothing to do with which layer is currently painted. L2's
+   * stepper ticks are exactly the case that would have exposed it: standing on an aurora row is when
+   * both neighbours are solar and both ticks must be coloured.
+   *
+   * <p>⚠️ A plain {@code const}, <b>not</b> a {@code useMemo} — it is declared below the
+   * {@code if (!date || locations.length === 0)} early return, where a hook would be a conditional
+   * hook. That is the trap {@code scopedRatedCount}'s own doc block records having already paid for
+   * once, in a lint error and a "rendered fewer hooks" failure. The work is a `Set` over ~50 spots.
+   */
+  const verdictScopePool = heat?.enabled
+    ? ((heatArea ? heat?.areaSpots : heat?.spots) || EMPTY_POINTS)
+    : EMPTY_POINTS;
+  const regionsInScope = regionNamesOf(verdictScopePool);
+
+  /**
+   * Each solar EV row's verdict, the region it names, and how many other in-scope regions share its
+   * tier — keyed by row id (map-landing-plan.md §3 L1).
+   *
+   * <p>A thin wrapper over {@code utils/mapVerdict.buildEvVerdicts}, which holds the guards, the
+   * night-row rule and the keying so a test can reach them without a component — the correction the
+   * doors series' own no-caller-yet phase was given at review.
+   *
+   * <p>Built fresh every render, for the same reason {@code mapEvents} above is, and not merely by
+   * analogy: {@code mapEvents} is a new array on every render, so a {@code useMemo} listing it as a
+   * dependency could never hit.
+   *
+   * <p><b>No reader yet — L2 is the pill that draws it</b>, which is why the disable below is here
+   * rather than the value being deferred to that phase.
+   */
+  // eslint-disable-next-line no-unused-vars -- read by L2's window pill (map-landing-plan.md §3 L2)
+  const evVerdicts = buildEvVerdicts({
+    events: mapEvents, index: regionVerdictIndex, regionsInScope, overlayMode,
+  });
+
   /** Which EV row is "now showing" — derived from `eventType`/`nightDate`, never a second store. */
   const activeEvIndex = findEvIndex(mapEvents, eventType, nightDate);
 
@@ -4293,6 +4343,12 @@ MapView.propTypes = {
    * `date|targetType|regionName`.
    */
   regionBestIndex: PropTypes.instanceOf(Map),
+  /**
+   * The window verdict's per-region source (map-landing-plan.md §3 L1) — `date|targetType|
+   * regionName` to that region's served record, from `utils/mapVerdict.buildRegionVerdictIndex`.
+   * Tab-only: the frozen overlay never mounts the window control and is never handed one.
+   */
+  regionVerdictIndex: PropTypes.instanceOf(Map),
   /**
    * From `utils/locationSheet.buildTideAlignmentIndex` (bundle rev 2's tide-chip tweak) — whether
    * this window's water lands on the light per location, read through `lookupForWindow` exactly

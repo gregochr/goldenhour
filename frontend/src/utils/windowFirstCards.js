@@ -200,8 +200,44 @@ export function eligibleRegions(es) {
  * @returns {?object} the leading eligible region record, or null when none carries a finite mean
  */
 function topRegion(es) {
+  return pickTopEligibleRegion(eligibleRegions(es));
+}
+
+/**
+ * The argmax itself, over an ALREADY-eligible region list — the single comparator behind every
+ * "which region leads this window" answer in the app.
+ *
+ * <p><b>The name carries the constraint the signature cannot.</b> It was `pickTopRegion` in the
+ * first cut of this phase, and an adversarial review charged that a later phase would grep for "top
+ * region", find a newly public export, and hand it a raw {@code summary.regions} — silently
+ * re-admitting the canopy defect the filter exists to prevent. The parameter cannot enforce it, so
+ * the name says it.
+ *
+ * <p><b>Extracted because a second caller arrived, and the doc above predicted exactly this.</b>
+ * {@link topRegion}'s own note ends "Keep them identical, or reconverge both on one helper"; the
+ * Map tab's window verdict (`utils/mapVerdict.js`, map-landing-plan.md §3 L1) is the third surface
+ * that has to name the same region, and it cannot call {@link topRegion} because its candidate set
+ * is scope-limited rather than the whole event summary. So the loop moved here and both callers
+ * share it — which is the reconvergence, not a new rule.
+ *
+ * <p><b>The eligibility filter is the CALLER's job, deliberately.</b> {@link eligibleRegions} takes
+ * an event summary, because the all-canopy fallback is a property of the whole window; a
+ * scope-limited caller must still apply it against the FULL summary and narrow afterwards, or a
+ * window that is all-canopy outside your area but mixed inside it would answer the canopy question
+ * differently on the two tabs. `mapVerdict.buildRegionVerdictIndex` does exactly that — it folds
+ * over `eligibleRegions(summary)` at index-build time, before any scope is known.
+ *
+ * <p>Ties break on the region NAME (`localeCompare`), matching `buildRegionRows`' own
+ * `mb === ma ? a.name.localeCompare(b.name) : mb - ma` — see {@link topRegion}'s note for the
+ * defect that rule exists to prevent.
+ *
+ * @param {Array<object>} regions eligible region records; anything without a finite `meanRating`
+ *        is skipped rather than ranked, so an unscored region can never win
+ * @returns {?object} the leading region record, or null when none carries a finite mean
+ */
+export function pickTopEligibleRegion(regions) {
   let best = null;
-  for (const region of eligibleRegions(es)) {
+  for (const region of Array.isArray(regions) ? regions : []) {
     const mean = region?.meanRating;
     if (typeof mean !== 'number' || !Number.isFinite(mean)) continue;
     if (best === null

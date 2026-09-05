@@ -45,9 +45,12 @@ const SPOTS = [
 /** North East 40 min, The Lakes 120 min, The Borders 400 min — the last is beyond GLANCE (180). */
 const REACH = new Map([[1, { driveMinutes: 40 }], [2, { driveMinutes: 120 }], [3, { driveMinutes: 400 }]]);
 
+// `pickKind` is what `buildHeatStripCards` publishes — it narrows the served `Pick` record to its
+// kind alone — so the fixture carries that and never a `pick` object. The map's forwarding is
+// asserted against this shape below.
 const STRIP_CARDS = [
-  { key: `${TODAY}:SUNSET`, date: TODAY, targetType: 'SUNSET', label: 'Tonight sunset', time: '20:41', bestRating: 4, confidence: 'high', away: false },
-  { key: '2026-08-14:SUNRISE', date: '2026-08-14', targetType: 'SUNRISE', label: 'Fri sunrise', time: '05:31', bestRating: null, confidence: null, away: true },
+  { key: `${TODAY}:SUNSET`, date: TODAY, targetType: 'SUNSET', label: 'Tonight sunset', time: '20:41', bestRating: 4, confidence: 'high', away: false, pickKind: 'best' },
+  { key: '2026-08-14:SUNRISE', date: '2026-08-14', targetType: 'SUNRISE', label: 'Fri sunrise', time: '05:31', bestRating: null, confidence: null, away: true, pickKind: null },
 ];
 
 function context(overrides = {}) {
@@ -175,6 +178,35 @@ describe('WindowFirstMapPane — the heat prop', () => {
     renderPane();
     expect(MapStub.lastProps.heat.windows[0].conf).toBe(1);
     expect(MapStub.lastProps.heat.windows[1].conf).toBe(0.82);
+  });
+
+  it('forwards each window\'s served pick kind, and only that', () => {
+    // ⚠️ This is the join nothing crossed in the first cut of the phase: the pure builder was
+    // tested, the EV row was tested, and the FOLD between them read `card.pick` — a field
+    // `buildHeatStripCards` does not publish — so every window's pick was `undefined` forever with
+    // a fully green suite. Asserting against the real card shape is what catches a re-key.
+    renderPane();
+
+    expect(MapStub.lastProps.heat.windows[0].pickKind).toBe('best');
+    expect(MapStub.lastProps.heat.windows[1].pickKind).toBeNull();
+  });
+
+  it('forwards NO verdict — the map derives its own from the reader\'s scope', () => {
+    // The served word is the Plan tab's answer over the whole roster; the map's has to move with
+    // the scope segment. Two channels for one window is the defect this absence prevents.
+    renderPane();
+
+    for (const window of MapStub.lastProps.heat.windows) {
+      expect(window.verdict).toBeUndefined();
+      expect(window.verdictLabel).toBeUndefined();
+      expect(window.regionName).toBeUndefined();
+    }
+  });
+
+  it('hands MapView a region-verdict index built from the same briefing days', () => {
+    renderPane();
+
+    expect(MapStub.lastProps.regionVerdictIndex).toBeInstanceOf(Map);
   });
 
   it('keeps ONE prop identity across a re-render, because MapView is memoised', () => {

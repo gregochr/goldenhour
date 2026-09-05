@@ -50,7 +50,7 @@ night cell renders empty, Q2 once per forecast run, Q3 name the highest-mean reg
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
-| — | — | — | — | — |
+| L1 | `feature/map-landing-l1-verdict-data` | (pending commit) | 2026-09-05 | New pure `utils/mapVerdict.js` (`buildRegionVerdictIndex` over `eligibleRegions`, `windowVerdict`, `regionNamesOf`, `buildEvVerdicts`); `pickTopEligibleRegion` extracted from `windowFirstCards.topRegion` as a behaviour-identical refactor and shared with the map, finishing the reconvergence that function's own doc had asked for; the pane forwards `pickKind` and builds `regionVerdictIndex`; `MapView` gains the prop, `verdictScopePool`/`regionsInScope` and a thin `buildEvVerdicts` call. **No visual change** — proven by `git diff --stat -- frontend/src/components/map/` being empty, so the pill, callout, filters, legend and regions list are byte-identical. ⚠️ **Two plan steps were changed in code, deliberately** (§5's "challenge in review, not in code" cuts both ways, so they are recorded here): step 3's `areaRegionNames`/`catalogueRegionNames` pane props were not built — `MapView` already holds the scope pool, so reading it directly makes the tally's population *identical* to the counts footer's rather than merely consistent with it; and step 5's memo was dropped because `mapEvents` is a fresh array every render, so a `useMemo` keyed on it could never hit (the O(catalogue) half is a plain const for the same conditional-hook reason `scopedRatedCount` records). ⚠️ **Adversarial review (4 read-only lenses: runtime, test quality, project conventions, forward-compat) found five real defects, all fixed pre-commit.** (1) The pane folds `heatStripCards`, which publishes `pickKind` and never `pick` — so `card.pick` was `undefined` on every window forever, with a green suite. (2) **Two verdict channels with no precedence**: the forwarded served word (whole-roster/origin-scoped) and the computed one (area-scoped) disagree by default, and two comments in the same commit claimed opposite things about which the pill reads; resolved by forwarding no verdict at all (§4 #9). (3) `regionsInScope` was routed through `heatOffered`, which folds in `!isAuroraMode` — so selecting any aurora night row silently deleted the verdict from every solar window, exactly the case L2's stepper ticks would have exposed; now built from `heat?.enabled`. (4) The tally was not pinned to the *scoped* records: `records` → `index.values()` was a one-word mutation the whole suite survived. (5) `evVerdicts`' glue was untested and the comment defending that misread the doors precedent — D2 was corrected by *extracting the glue*, so `buildEvVerdicts` is now pure and directly tested. Four comment claims were also factually wrong and were fixed: a licence CLAUDE.md has not granted yet (L7's job), "folds over verdicts and never ratings" (it argmaxes on `meanRating`), "`scopeBasePool` is itself a `useMemo`" (it is a plain const), and "the same payload over the same keys" (the three region indexes share a shape, not a key set). Every previously-surviving mutation now dies (5 re-run, 1–2 failures each); ⚠️ one earlier mutation had **silently no-op'd** because its anchor moved in this phase's own refactor — re-run with an asserted anchor. Gate green: lint 0, vitest **5168** passing (215 files), audit 0 vulnerabilities, build clean. |
 
 ---
 
@@ -378,9 +378,12 @@ pass/fail cells, not prose.
    `top: 60px; left: 12px`. **z-index 1300 in this app's ladder** (§4 #6): above the callout (1200)
    and the selection ring, below the map tooltip (1400) and below the menus/panels (1500) — a menu
    must win over a card behind it.
-2. **Rows**: the next two **solar** windows from now — the first two solar EV rows, which the served
-   payload has already withdrawn elapsed events from (`PlanWindowProjector.hasPassed`; do not write a
-   second pastness rule). Each row: kind chip, day, time, medallion when that window is a pick,
+2. **Rows**: the next two **solar** windows from now. ⚠️ **Not simply the first two rows of the EV
+   list** — L1's review established that a D-13 *filler* row is only gated on `date >= todayStr`, so
+   after this morning's sunrise the list still leads with a SUNRISE row for a window hours in the
+   past. The served rows are properly withdrawn (`PlanWindowProjector.hasPassed`; do not write a
+   second pastness rule), so gate on `scored`/"has a verdict" rather than on list position. Check 6's
+   "no pick line names a window index below the first row" rests on this. Each row: kind chip, day, time, medallion when that window is a pick,
    verdict word with region stacked. Selecting a row sets that window **and** closes the card.
 3. **Header derived from the rows it is showing** — same day → `Tomorrow — sunrise or sunset?`;
    different days → `Tonight, or tomorrow?`. **Never hard-coded**; a header naming windows not on
@@ -444,6 +447,19 @@ the landing card, a pick chip).
    true** — an unknown drive passes every tier. Reuse the existing `card.reachMeasured` producer;
    do not mint a second.
 5. Opens as a panel governed by L3's rule; closes on its own chip, its ✕, or `Escape`.
+6. ⚠️ **Two convergences L1's review identified and deliberately left to this phase**, because both
+   are about surfaces L5 renders: (a) the region rows need the full mean *ranking* over the
+   scope-limited set, and `windowFirstRegions.buildRegionRows` already ranks by mean with an
+   identical `localeCompare` tie-break but applies no scope — export the comparator and share it
+   rather than writing a third one, finishing the reconvergence L1 began with
+   `pickTopEligibleRegion`; (b) `mapVerdict` reads its tier through `tierUtils.resolveRegionDisplay`
+   (which maps a legacy payload's triage `verdict`) while `windowFirstCards` and
+   `windowFirstRegions` read `displayVerdict` raw — on such a payload the pill would say `Worth it`
+   above a row saying `Awaiting`. Converge both onto the helper here.
+7. ⚠️ **Do not join this phase's ceiling onto `buildRegionVerdictIndex` by key.** The three per-window
+   region indexes share a key *shape* and not a key *set*: the verdict index is canopy-filtered and
+   the other two are not, so a canopy-only region has a `bestRating` and no verdict. Look each up
+   separately; a miss in the verdict index means "no sky answer", never "no data".
 
 **Tests.** Each of the four note variants renders for its state and only for its state; rows are
 ordered by mean and not by ceiling (a fixture where the two orders differ); a night window's rows
@@ -533,15 +549,28 @@ should challenge these **in review**, not silently "fix" them in code.
    correctly between this app's callout (1200) and tooltip (1400); it is adopted because it is right
    here, not because the spec said it. The prototype's `410/415/420` ladder assumed no real Leaflet
    markers underneath — this app keeps them at 600.
-7. **"everywhere in your area" is three strings, not one.** The scope segment reads `My area` /
-   `Everywhere` / `Around <base>`. Use: *everywhere in your area* (My area, home), *everywhere*
-   (Everywhere), *everywhere around <base>* (away origin). One string across all three states is
-   wrong in two of them.
+7. **"everywhere in your area" is (at most) two strings, not one — and not three.** The scope
+   segment reads `My area` / `Everywhere` / `Around <base>`. Use *everywhere in your area* (My area,
+   home) and *everywhere* (Everywhere). ⚠️ The third form this entry used to specify — *everywhere
+   around `<base>`* — **can never render**, and L1's review is what established it: under an away
+   origin `planOrigin.scopeRegions` returns a single region, so `scopedRegionCount` is 1, and the
+   `> 1` guard makes `allInScope` permanently false. That is correct behaviour (with one region in
+   scope the word *is* the region, named), so the copy list was wrong, not the guard.
 8. **Region names are the full served names, truncated.** The spec's short-name table has no
    producer; O-4 is open. `Northumberland & Tyneside` will ellipsis in a 9px line. Acceptable and
    honest; the exit is O-4, not a client-side name map (which would be a second source of truth for
    a region's name).
-9. **Night rows.** The spec wants them to state their own model's word (`Clear` / `Cloudy` / `Kp 5`).
+9. **One verdict channel, not two — the map does NOT forward the Plan tab's word.** L1's first cut
+   forwarded `BriefingWindow.verdict` onto every EV row *and* computed a scope-limited one, and the
+   two disagree by default (`heatArea` starts true). Three later phases would each have picked one.
+   The design's first rule settles it: scope moves the verdict, so the only channel is
+   `mapVerdict`'s. Agreement with the Plan tab is proven by **test** at whole-catalogue scope, not by
+   shipping the same value twice — which is also why §7's check 8 is worded as it now is.
+10. **The pane forwards `pickKind`, not `pick`.** `windowFirstStrip.buildHeatStripCards` deliberately
+   narrows the served `Pick` record to its kind, and the map's mapper folds *that*, not the window
+   card. Reading `card.pick` there compiles, lints, passes a suite, and is `undefined` on every
+   window forever. The kind is all the medallion needs.
+11. **Night rows.** The spec wants them to state their own model's word (`Clear` / `Cloudy` / `Kp 5`).
    No served per-window night *verdict* exists (`map-tab-v2-plan.md` **O-16**), so L2 either sources
    one honestly or renders the cell empty. It must not borrow a solar word, and it must not
    synthesise from `bestRating` — that is the rated/unrated conflation O-16 exists to name.
@@ -560,11 +589,17 @@ should challenge these **in review**, not silently "fix" them in code.
   #773 did. Rejected: letting the pill hug its content (undoes #773's travelling stepper fix);
   putting the verdict cell outside the pill (a second control on a surface whose whole argument is
   that one control replaced three).
-- **D-4 — The tier tally is a client computation, licensed and named.** `heatArea` is per-user, so
+- **D-4 — The tier tally is a client computation, to be named at L7.** `heatArea` is per-user, so
   "how many regions *in your area* are Worth it" has no servable answer on the shared, ETag'd
-  `GET /api/briefing` — the same reasoning that put reach on its own never-cached contract. It joins
-  CLAUDE.md's Backend-heavy licensed class as a **named** member with a recorded exit (§6 Q4), not as
-  a precedent for client aggregation. It aggregates *served verdicts*, never ratings.
+  `GET /api/briefing` — the same reasoning that put reach on its own never-cached contract. It should
+  join CLAUDE.md's Backend-heavy licensed class as a **named** member with a recorded exit (§6 Q4),
+  and **L7 is the phase that adds it to that list** — no earlier phase may write a comment claiming
+  the licence already exists, because that bullet closes each of its sub-lists with "Members: those
+  N, nothing else" and self-authorising past it is the move its own ⚠️ exists to stop.
+  ⚠️ **It is not "verdicts, never ratings"** — an earlier draft of this line said so and the code
+  copied it. The tier and the tally are served `displayVerdict`s, but the region whose tier is taken
+  is chosen by an argmax over served `meanRating`. It is a *selection* among served verdicts,
+  ordered by a served rating — cheaper than deriving either, and not ratings-free.
 - **D-5 — The landing card is not a `Modal`.** It is a dismissible card with its own `Escape`
   listener. It does not claim `aria-modal`, does not enter the shell's stack, and does not consume
   either of the two permitted dialog layers.
@@ -607,6 +642,14 @@ Nothing below blocks **L1**. Q1 blocks L2's night-row copy; Q2 blocks L4's open 
 - **Q6 — Curated region short names** (`map-tab-v2-plan.md` **O-4**). The pill's 9px region line is
   the first surface where the full names visibly truncate. Closing O-4 would improve this increment
   and three surfaces beside it.
+- **Q8 — Should "everywhere in your area" count regions this window cannot answer for?** Raised by
+  L1's review. A woodland-only region in your area is dropped from the verdict index on every mixed
+  window (the canopy rule), so it sits in the denominator, never in the tally, and makes the
+  all-in-scope case permanently unreachable for that reader. L1's answer is the safe one — a region
+  with no sky answer cannot be said to agree — but it makes the design's third label case rarer than
+  the design assumes. **Recommendation: leave it**, and revisit only if a real roster shows the
+  "everywhere" line never firing. It is a copy decision and belongs to whichever phase renders the
+  words (L2's pill, L5's note), not to the phase that counts.
 - **Q7 — Does the map become the landing tab?** The spec raises it and its own working order says
   *flag it, do not start it*. If the map lands, the Plan tab's job narrows to the week and the *why*.
   **Out of scope for every phase here**, recorded so it is decided deliberately rather than by
@@ -632,7 +675,7 @@ Two checks this plan adds, because they guard decisions the spec does not know a
 
 | # | check | phase | how |
 |---|---|---|---|
-| 8 | Map/Plan verdict agreement | L1 | For every rendered window at one origin, `heat.windows[i].verdict` equals the Plan tab's own card verdict for the same key. Drive both from one fixture so neither can pre-satisfy the other. |
+| 8 | Map/Plan verdict agreement | L1 | ⚠️ **Re-worded at L1**, because the served verdict is no longer forwarded (§4 #9) — there is no `heat.windows[i].verdict` to compare. The check is now: at whole-catalogue scope the map's *derived* tier and named region equal the Plan card's `verdict`/`hotRegionName`, driven from one fixture. ⚠️ And state honestly what that proves: with no origin the card's verdict collapses to the served `win.verdict`, so the tier equality compares two fixture-supplied strings, and both region answers now reach the same shared argmax. The **literals** are the teeth; the equalities guard against a future re-fork. |
 | 9 | Panels survive the map | L3 | Each of the four: open, fire a real `mousedown` → `click` pair on bare ground, assert still open. **Not** a hand-invoked `click` handler. |
 
 ---

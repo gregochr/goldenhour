@@ -156,6 +156,16 @@ function solarRow(date, targetType, served, todayStr, tomorrowStr, inForecastDom
       bestRating: numOrNull(served.bestRating),
       scored: numOrNull(served.bestRating) != null,
       badges: Array.isArray(served.badges) ? served.badges : [],
+      // The forecast's own Best bet / Also good for this window — `'best'`, `'also'`, or null,
+      // copied verbatim from the served window (map-landing-plan.md §3 L1). Server-owned: the
+      // design bundle's client rank formula is deliberately not built (§4 #2).
+      //
+      // ⚠️ The window's VERDICT is deliberately not here. It is not a property of the served
+      // window on this tab — it is a property of the reader's current scope segment, and it lives
+      // in `utils/mapVerdict.js`, read per row in `MapView`. Carrying the served word here as well
+      // would put two answers for one window in the reader's hands, disagreeing whenever "My area"
+      // narrows; `WindowFirstMapPane`'s own mapper records the decision at length.
+      pickKind: served.pickKind ?? null,
       inForecastDomain,
     };
   }
@@ -172,6 +182,16 @@ function solarRow(date, targetType, served, todayStr, tomorrowStr, inForecastDom
     bestRating: null,
     scored: false,
     badges: [],
+    // A D-13 filler row is a date the briefing carried no window for, so there is no pick. Null
+    // rather than absent, so every solar row has one shape.
+    //
+    // ⚠️ A filler row is NOT pastness-filtered the way a served one is. The briefing withdraws an
+    // elapsed window (`PlanWindowProjector.hasPassed`), but `forecastDates` still carries today, so
+    // after this morning's sunrise a filler SUNRISE row is emitted for a window hours in the past
+    // — the `date >= todayStr` gate above only excludes YESTERDAY. A caller wanting "the next N
+    // windows" must therefore gate on `scored` (or on the row having a verdict), never on list
+    // position alone (map-landing-plan.md §3 L4 step 2).
+    pickKind: null,
     inForecastDomain,
   };
 }

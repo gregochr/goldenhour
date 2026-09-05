@@ -16,7 +16,14 @@ import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 const TODAY = '2026-09-02';
 const TOMORROW = '2026-09-03';
 
-/** A served solar window, in the shape `WindowFirstMapPane`'s `heat.windows` builds. */
+/**
+ * A served solar window, in the shape `WindowFirstMapPane`'s `heat.windows` builds.
+ *
+ * Any key not defaulted below is spread through verbatim, so a caller can supply the fields the
+ * pane forwards without this helper needing a line per field — the verdict channel
+ * (`verdict`/`verdictLabel`/`regionName`/`pick`, map-landing-plan.md §3 L1) arrives that way.
+ * Spread LAST so an explicit override always wins over a default.
+ */
 function solarWindow(date, targetType, overrides = {}) {
   return {
     key: `${date}:${targetType}`,
@@ -27,6 +34,7 @@ function solarWindow(date, targetType, overrides = {}) {
     bestRating: 'bestRating' in overrides ? overrides.bestRating : 4,
     confidenceTier: overrides.confidenceTier ?? 'high',
     badges: overrides.badges ?? [],
+    ...overrides,
   };
 }
 
@@ -515,6 +523,70 @@ describe('buildMapEvents — astro roster note', () => {
       auroraResultsByDate: new Map([[TODAY, [{ locationName: 'A', stars: 3, nightStart: `${TODAY}T21:00:00` }]]]),
     });
     expect(events.find((e) => e.kind === EVENT_KIND.AURORA).rosterNote).toBeNull();
+  });
+});
+
+describe('buildMapEvents — the served pick (map-landing-plan.md §3 L1)', () => {
+  it('copies the served pick kind onto a solar row', () => {
+    const [row] = buildMapEvents({
+      ...baseArgs(),
+      solarWindows: [solarWindow(TODAY, 'SUNSET', { pickKind: 'best' })],
+    });
+
+    expect(row.pickKind).toBe('best');
+  });
+
+  it('nulls it on a served window that is neither pick — the normal case', () => {
+    const [row] = buildMapEvents({
+      ...baseArgs(),
+      solarWindows: [solarWindow(TODAY, 'SUNSET')],
+    });
+
+    expect(row.pickKind).toBeNull();
+  });
+
+  it('nulls it on a D-13 filler row, which had no served window to carry one', () => {
+    const rows = buildMapEvents({ ...baseArgs(), forecastDates: [TODAY] });
+
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(row.scored).toBe(false);
+      expect(row.pickKind).toBeNull();
+    }
+  });
+
+  it('carries NO verdict on any solar row — the map derives its own from the reader\'s scope', () => {
+    // ⚠️ The verdict is deliberately not on the EV row. It is a property of the scope segment, not
+    // of the served window, and shipping the served word here as well would put two answers for one
+    // window on one pill. `utils/mapVerdict.js` is the single channel.
+    const [row] = buildMapEvents({
+      ...baseArgs(),
+      solarWindows: [solarWindow(TODAY, 'SUNSET', {
+        verdict: 'WORTH_IT', verdictLabel: 'Worth it', regionName: 'Cumbria',
+      })],
+    });
+
+    expect(row.verdict).toBeUndefined();
+    expect(row.verdictLabel).toBeUndefined();
+    expect(row.regionName).toBeUndefined();
+  });
+
+  it('gives a night row no pick either — only solar windows can be a forecast pick', () => {
+    const rows = buildMapEvents({
+      ...baseArgs(),
+      astroAvailableDates: [TODAY],
+      astroConditionsByDate: new Map([[TODAY, [{ locationName: 'Kielder', stars: 4 }]]]),
+      auroraAvailableDates: [TODAY],
+      auroraResultsByDate: new Map([[TODAY, [{ locationName: 'Kielder', stars: 3 }]]]),
+    });
+
+    const nights = rows.filter((r) => r.kind !== EVENT_KIND.SOLAR);
+    expect(nights).toHaveLength(2);
+    expect(nights.map((r) => r.bestRating)).toEqual([4, 3]);
+    for (const row of nights) {
+      expect(row.pickKind).toBeUndefined();
+      expect(row.verdict).toBeUndefined();
+    }
   });
 });
 
