@@ -836,7 +836,7 @@ export default function WindowFirstHeatStrip({
   useEffect(() => {
     if (!dhrowNode || typeof ResizeObserver === 'undefined') return undefined;
     // The property lands on the SECTION, the common ancestor of the tile row and both rails' sticky
-    // `top` calcs — the same reasoning `useLensReserve` already applies to `--wf-mast-h`.
+    // `top` calcs — the same reasoning `useLensReserve` already applies to `--wf-lens-h`.
     const section = dhrowNode.closest('.wf-hstrip-block');
     if (!section) return undefined;
     // Synchronous measure on attach (the `useLensReserve` shape) — the observer covers everything

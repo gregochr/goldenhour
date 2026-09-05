@@ -61,8 +61,21 @@ Facts the phases depend on. Re-verify only if the file has changed since; do not
   `<span className="wf-hc-top" aria-hidden="true"><span data-testid="wf-heat-sun"
   className="wf-hc-sun">{card.sunrise ? 'SUNRISE' : 'SUNSET'}</span></span>`. The whole caption is
   `aria-hidden`; the card's accessible name is a single `sr-only` span that already names the event.
-- **Sticky chrome today**: `.wf-mast` sticky `top: 0`, z-index **45**; `.wf-lens` sticky
-  `top: var(--wf-mast-h, 128px)`, z-index **20** (⚠️ not the prototype's 30). `useLensReserve`
+- **Sticky chrome today**: `.wf-lens` sticky `top: 0`, z-index **20** (⚠️ not the prototype's 30),
+  and it is the pane's ONLY sticky element.
+  > ⚠️ **Superseded, 2026-09-05.** This section described `.wf-mast` as sticky `top: 0` at z-index
+  > **45** with `.wf-lens` resting on `top: var(--wf-mast-h, 128px)`, and D8/D9 below both add a
+  > `--wf-mast-h` term for the same reason. The masthead's stick never took effect — its containing
+  > block is the shell's `WRAP_MAX_WIDTH` wrapper (masthead + tab bar + tab rule, ~46px taller than
+  > the band), and a sticky element cannot leave its containing block. Measured in Chromium at
+  > 1280×800: the band pinned for those 46px, then left with the page (`bottom: -397` by 600px of
+  > scroll), while the bar and both rails went on sticking against chrome that had gone — the bar
+  > hovering a masthead's height down the viewport with cards scrolling through the band above it.
+  > `.wf-mast`'s stick and `--wf-mast-h` are both deleted; every `top` and reservation below loses
+  > that term. The band keeps `position: relative; z-index: 45` — a stacking context rather than a
+  > stick, and load-bearing: the admin health panel renders inside it at `z-index: 9999` and escapes
+  > over every dialog without it. See `index.css`'s `.wf-mast` block for the checklist a phase pinning the masthead
+  > for real would have to work through. `useLensReserve`
   (ResizeObserver on `.wf-shell`, re-observing `.wf-mast` and `.wf-lens`, **measuring
   synchronously on attach** and again per observation) writes `--wf-mast-h` and
   `--wf-lens-reserve` (= mast + bar + 6px ring allowance) onto `.wf-shell`; its `written` ref is

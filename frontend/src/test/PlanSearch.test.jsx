@@ -476,7 +476,7 @@ describe('PlanSearch', () => {
         expect(panel.style.left).toBe('40px');
         expect(panel.style.width).toBe('1000px');
         // The height cap is measured from the panel's own top rather than from a viewport
-        // fraction, because the anchor moves as the sticky masthead settles. 96 + 16, summed in
+        // fraction, because the anchor moves with page scroll (the masthead does not pin). 96 + 16, summed in
         // JS — see the component's note on why a two-subtraction calc cannot be asserted here.
         expect(panel.style.maxHeight).toBe('calc(100dvh - 112px)');
       } finally {

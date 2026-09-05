@@ -14,15 +14,20 @@ import { useCallback, useEffect, useState } from 'react';
  *
  * <p>The sentinel is a zero-content box immediately above the sticky element, so it scrolls away
  * while the element itself does not. Once it has passed above the line the element sticks at, the
- * element is stuck. {@code rootMargin}'s top is negative that line — the masthead's measured
- * height — which is why this hook takes {@code offset} rather than assuming zero: with the
- * masthead sticky too (M3), the lens bar's resting line is the masthead's bottom edge and not the
- * viewport's.
+ * element is stuck. {@code rootMargin}'s top is negative that line, which is why this hook takes
+ * {@code offset} rather than hard-coding zero.
+ *
+ * <p>⚠️ <b>Its only caller passes nothing today, and the parameter stays anyway.</b> M3 handed in
+ * the masthead's measured height, on the model that the lens bar rested against a pinned masthead's
+ * bottom edge; that masthead was never actually pinned (`index.css`'s `.wf-mast` carries the
+ * measurement) and the bar now anchors at the viewport's own top edge, so the line is zero. The
+ * parameter is what a phase that pins the masthead for real needs in order to move the line back,
+ * and a hook whose inset is baked in would have to be reopened to do it.
  *
  * <p>⚠️ <b>The observer is rebuilt when {@code offset} changes</b>, because {@code rootMargin} is
- * fixed at construction. The offset comes from a measured custom property and moves when the tick
- * line wraps or the origin gains a home button, so a hook that read it once would report "stuck"
- * from the wrong scroll position for the rest of the session.
+ * fixed at construction. A caller supplying a measured offset moves it when the thing it measures
+ * reflows, so a hook that read it once would report "stuck" from the wrong scroll position for the
+ * rest of the session.
  *
  * <p><b>Degrades to never-stuck.</b> jsdom has no {@code IntersectionObserver} and neither does a
  * very old browser; both get {@code false}, which renders the resting treatment. That is the safe
@@ -64,7 +69,7 @@ export default function useStuckSentinel(offset = 0) {
     // would put the shadow back on the next bar the moment it mounts, before anything has scrolled.
     // In the cleanup rather than the body because a `setState` in an effect BODY is a cascading
     // render (the arm's lint rule refuses it); observing re-fires immediately, so the reset costs at
-    // most one frame of resting treatment when the masthead's height changes.
+    // most one frame of resting treatment when the offset changes.
     return () => { observer.disconnect(); setStuck(false); };
   }, [node, offset]);
 
