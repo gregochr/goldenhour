@@ -1,8 +1,9 @@
 import React from 'react';
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeAll } from 'vitest';
 import { render, screen, fireEvent, act, cleanup, within } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
+import warmPlanChunks from './warmPlanChunks.js';
 
 /**
  * The shell's half of the window popup's region layer.
@@ -198,6 +199,11 @@ async function closeWindow() {
 function railCells() {
   return within(screen.getByTestId('window-sheet')).queryAllByTestId('wf-region-cell');
 }
+
+// Pays the shell's four `lazy()` boundaries once per FILE, in a hook with its own budget, rather
+// than inside whichever test happens to run first. See `warmPlanChunks.js` for the measurements
+// and for the full-suite reproduction that made this necessary.
+beforeAll(warmPlanChunks);
 
 describe('WindowFirstShell — building the region layer', () => {
   // ⚠️ `openWindow(1)`, not `(0)`, opens KEY_A (today's sunset — "the first window" every comment

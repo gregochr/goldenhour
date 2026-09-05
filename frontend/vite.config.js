@@ -127,6 +127,23 @@ export default defineConfig(({ mode }) => {
     css: false,
     globals: true,
     exclude: ['**/node_modules/**', '**/e2e/**'],
+    // ⚠️ Raised from Vitest's 5000 ms default because the suite's OWN async ceiling is 4000 ms, and
+    // the two were incoherent. `setup.js` sets `asyncUtilTimeout: 4000` so a cold `React.lazy`
+    // boundary has room; a Plan-shell test crosses two of them in sequence, which the default could
+    // never hold — so the test died at 5000 ms before either `findBy*` reached its own ceiling or
+    // could name the wait that was stuck. What that looked like: `Test timed out in 5000ms`,
+    // pointing at the `it(` line and nothing else.
+    //
+    // Reproduced by running the full suite three times concurrently under a 16-process CPU load:
+    // 3 of 3 runs failed, on the FIRST test of three different shell files, while those files
+    // passed alone in six seconds. `src/test/warmPlanChunks.js` removes the largest part of that
+    // cost — see its note for the measurements — and this covers what is left, which is
+    // `React.lazy`'s own payload resolution: it happens on first RENDER, so no amount of module
+    // warming can pay it ahead of time, and it lands in whichever test runs first.
+    //
+    // It is a CEILING, not a delay: nothing waits longer than it needs to, and a test that hangs
+    // still fails — it now takes 20 s to say so rather than 5. That is the whole cost.
+    testTimeout: 20000,
   },
   };
 });

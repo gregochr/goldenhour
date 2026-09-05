@@ -1,8 +1,9 @@
 import React from 'react';
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeAll } from 'vitest';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
+import warmPlanChunks from './warmPlanChunks.js';
 
 /**
  * The Map tab callout's four-day-sheet handoff (map-tab-v2-plan.md §3 P9) — `App.jsx`'s
@@ -111,6 +112,11 @@ function renderWithHandoff(extra = {}) {
 }
 
 afterEach(() => vi.restoreAllMocks());
+
+// Pays the shell's four `lazy()` boundaries once per FILE, in a hook with its own budget, rather
+// than inside whichever test happens to run first. See `warmPlanChunks.js` for the measurements
+// and for the full-suite reproduction that made this necessary.
+beforeAll(warmPlanChunks);
 
 describe('WindowFirstShell — the Map callout\'s four-day-sheet handoff', () => {
   it('switches to Plan and opens that location\'s four-day sheet when `inPlan` is set', async () => {

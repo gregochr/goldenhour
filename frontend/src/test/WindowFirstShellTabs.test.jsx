@@ -1,9 +1,10 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
 import { render, screen, fireEvent, act, cleanup, within } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { getAlmanac } from '../api/almanacApi.js';
+import warmPlanChunks from './warmPlanChunks.js';
 
 /**
  * The tab bar the shell became at P13, and the Coming-up pane hanging off it.
@@ -129,6 +130,11 @@ const openComingUp = async () => {
   fireEvent.click(tab('Coming up'));
   await act(async () => { await Promise.resolve(); });
 };
+
+// Pays the shell's four `lazy()` boundaries once per FILE, in a hook with its own budget, rather
+// than inside whichever test happens to run first. See `warmPlanChunks.js` for the measurements
+// and for the full-suite reproduction that made this necessary.
+beforeAll(warmPlanChunks);
 
 beforeEach(() => {
   localStorage.clear();

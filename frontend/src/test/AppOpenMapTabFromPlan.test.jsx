@@ -11,7 +11,7 @@
  * as `handoff`) can be read straight off it rather than mounting the real Leaflet-backed pane.
  */
 import React from 'react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
 import { act, render, screen, fireEvent } from '@testing-library/react';
 import App from '../App.jsx';
 import { ukDateStrOffset } from '../utils/mapDates.js';
@@ -90,6 +90,7 @@ import { getAstroConditions } from '../api/astroApi.js';
 import { getAlmanac } from '../api/almanacApi.js';
 import { subscribeToRunNotifications } from '../api/runProgressApi.js';
 import { getTodaysLight } from '../api/lightApi.js';
+import warmPlanChunks from './warmPlanChunks.js';
 
 const TOMORROW = ukDateStrOffset(1);
 
@@ -126,6 +127,11 @@ const renderApp = () => {
   localStorage.setItem('goldenhour_role', 'PRO_USER');
   render(<App />);
 };
+
+// Pays the shell's four `lazy()` boundaries once per FILE, in a hook with its own budget, rather
+// than inside whichever test happens to run first. See `warmPlanChunks.js` for the measurements
+// and for the full-suite reproduction that made this necessary.
+beforeAll(warmPlanChunks);
 
 beforeEach(() => {
   localStorage.clear();

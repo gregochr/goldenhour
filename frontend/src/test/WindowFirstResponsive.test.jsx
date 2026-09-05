@@ -1,9 +1,10 @@
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import WindowFirstComingUp from '../components/WindowFirstComingUp.jsx';
 import WindowSheetDialog from '../components/WindowSheetDialog.jsx';
+import warmPlanChunks from './warmPlanChunks.js';
 
 /**
  * P14 — the responsive pass.
@@ -100,6 +101,11 @@ const renderPopup = (overrides = {}) => render(
     onClose={vi.fn()}
   />,
 );
+
+// Pays the shell's four `lazy()` boundaries once per FILE, in a hook with its own budget, rather
+// than inside whichever test happens to run first. See `warmPlanChunks.js` for the measurements
+// and for the full-suite reproduction that made this necessary.
+beforeAll(warmPlanChunks);
 
 describe('P14 responsive hooks — shell chrome', () => {
   // Each of these carries a `@media (max-width: 639px)` rule in index.css. The class IS the hook;

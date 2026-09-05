@@ -1,8 +1,9 @@
-import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi, beforeAll } from 'vitest';
 import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import React from 'react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
+import warmPlanChunks from './warmPlanChunks.js';
 
 /**
  * The heat kernel, stubbed at its module boundary — the same three exports every suite that mounts
@@ -26,6 +27,11 @@ vi.mock('../utils/heatField.js', async (importOriginal) => {
     drawGeo: vi.fn(() => ([lng, lat]) => [(lng + 4) * 100, (56 - lat) * 100]),
   };
 });
+
+// Pays the shell's four `lazy()` boundaries once per FILE, in a hook with its own budget, rather
+// than inside whichever test happens to run first. See `warmPlanChunks.js` for the measurements
+// and for the full-suite reproduction that made this necessary.
+beforeAll(warmPlanChunks);
 
 /**
  * The four-day location sheet's wiring through the shell (plan D10, P8).

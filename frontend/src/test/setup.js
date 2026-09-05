@@ -86,5 +86,18 @@ if (typeof globalThis.localStorage === 'undefined' || typeof globalThis.localSto
  * <p>It is a CEILING, not a delay — a resolved boundary still returns immediately, so nothing gets
  * slower. What it costs is that a genuinely never-appearing element now fails after four seconds
  * instead of one.
+ *
+ * <p>⚠️ <b>It is also 80% of Vitest's 5000 ms per-test budget, and that is not enough on its own.</b>
+ * The measurement above stands; the conclusion drawn beside it — that "there is nothing to gate on"
+ * — does not, and the shell files no longer rely on this line alone. A test that crosses two of
+ * those boundaries in sequence can spend the whole budget before either {@code findBy*} reaches its
+ * own ceiling, so it dies as {@code Test timed out in 5000ms} without naming the wait that was
+ * stuck. Reproduced by running the full suite three times concurrently under a 16-process CPU load:
+ * 3 of 3 runs failed identically, on the first test of three different shell files. Two changes
+ * answer it, and neither is sufficient alone: there IS something to gate on — a test can load the
+ * module itself — which is what {@code warmPlanChunks.js} does in a {@code beforeAll} where the
+ * cost is per-file, and {@code vite.config.js} raises {@code testTimeout} to 20 000 ms so this
+ * 4000 ms ceiling is reachable at all. This line stays as the backstop for every OTHER boundary in
+ * the suite.
  */
 configure({ asyncUtilTimeout: 4000 });

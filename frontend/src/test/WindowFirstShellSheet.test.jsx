@@ -1,8 +1,9 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
 import { render, screen, fireEvent, within, act } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
+import warmPlanChunks from './warmPlanChunks.js';
 
 /**
  * The drill-down's wiring, which lives in the shell and nowhere else.
@@ -164,10 +165,28 @@ const openPopup = async () => {
   return screen.findByTestId('window-sheet');
 };
 
+/**
+ * Opens the drill-down over that popup.
+ *
+ * <p>⚠️ <b>The bare click is deliberate, and the asymmetry with {@link openPopup} above is the
+ * point.</b> The popup awaits because {@code WindowSheetDialog} is {@code lazy()} and genuinely is
+ * not there yet; this sheet is {@code WindowSpotSheet}, a STATIC import behind a plain
+ * {@code useState}, so Testing Library's act-wrapped {@code fireEvent} flushes it in the same
+ * commit. Measured rather than assumed, because it reads like an omission and has been refiled as
+ * one: over 30 invocations idle and again under a 20-process CPU load, the sheet's testid and a
+ * dialog carrying its accessible name were both present SYNCHRONOUSLY on the line after this
+ * click — every time, including the first, where the popup's own boundary had just cost 858 ms.
+ * A {@code findBy*} here would wait for nothing and imply a race that does not exist.
+ */
 const openSheet = async () => {
   await openPopup();
   fireEvent.click(screen.getByTestId('window-spot-all'));
 };
+
+// Pays the shell's four `lazy()` boundaries once per FILE, in a hook with its own budget, rather
+// than inside whichever test happens to run first. See `warmPlanChunks.js` for the measurements
+// and for the full-suite reproduction that made this necessary.
+beforeAll(warmPlanChunks);
 
 beforeEach(() => {
   localStorage.clear();
