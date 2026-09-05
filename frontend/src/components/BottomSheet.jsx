@@ -33,12 +33,15 @@ import useDialogFocus from '../hooks/useDialogFocus.js';
  *        content. ⚠️ The button is `absolute` on the SHEET (y 8→40px) while the content below is a
  *        SCROLL CONTAINER starting at y 16px, so its top 24px sits under the button permanently —
  *        and padding inside the scroller does NOT fix it, because a scroll container's own padding
- *        scrolls away with its content. Whatever row is at the top of the scrollport is obscured
- *        and its taps are taken, at every scroll position but one. Opt in and a spacer is rendered
- *        BETWEEN the handle and the scroller, with the scroll budget shortened to match, so the
- *        scrollport begins below the button and nothing can ever reach it. Off by default: every
- *        existing caller keeps its exact geometry, and a sheet whose first row has nothing at its
- *        right edge does not need the 24px.
+ *        scrolls away with its content. Any content the row at the top of the scrollport puts under
+ *        the button is obscured and its taps taken, at every scroll position but one. Opt in and a
+ *        spacer is rendered BETWEEN the handle and the scroller, with the scroll budget shortened to
+ *        match, so the scrollport begins below the button and nothing can ever reach it. Off by
+ *        default: every existing caller keeps its exact geometry, and whether a caller needs this
+ *        turns on its ROW SHAPE, not on its width — measured at 390×844, the controls in both map
+ *        sheets overlap the button horizontally by 16px, yet only the Regions list collides, because
+ *        its rows are a grid with a flush-right last track while the Filters rows are columns led by
+ *        a left-aligned label. See `index.css`'s `.wf-jump-sheet` note for the figures.
  * @param {React.ReactNode} props.children - Content rendered inside the sheet.
  */
 export default function BottomSheet({
