@@ -4,7 +4,8 @@
  * `calBand`/`anchorCal`).
  *
  * Covers: the band's ≥50%-frame-width bar rule and its 90px floor; `anchorCallout`'s below/flip/
- * clamp/tail maths at the exact paddings the design bundle authored; the facts row's
+ * clamp maths at the exact paddings the design bundle authored — and that it places no TAIL, the
+ * card's pointer having been removed on 2026-09-05 (map-tab-v2-plan.md §4.30); the facts row's
  * `reachMeasured` discipline (drive/miles/leave-by/dark-sky, each independently gated); the
  * midnight-crossing leave-by rule's both branches; the tide-topic type-map filter; and the region-
  * gloss index join.
@@ -186,27 +187,16 @@ describe('anchorCallout', () => {
     expect(box.left).toBe(200 - 286 / 2);
   });
 
-  it('clamps the tail to stay within the card, at least 13px from either edge', () => {
-    // Point far to the left of the (clamped) card — the tail must not run off the card's own edge.
+  it('places no tail at all — the card carries no pointer any more', () => {
+    // The 11px rotated square was removed on 2026-09-05 at the owner's request
+    // (map-tab-v2-plan.md §4.30). Asserted rather than merely deleted, because a `tailLeft` that
+    // quietly came back would be a value nothing renders — and the three clamp tests that used to
+    // stand here were the only readers of it.
     const box = anchorCallout({
       point: { x: 5, y: 100 }, cardWidth: 286, cardHeight: 250, frameWidth: 400, band,
     });
-    expect(box.tailLeft).toBe(13);
-  });
-
-  it('clamps the tail on the right side symmetrically', () => {
-    const box = anchorCallout({
-      point: { x: 395, y: 100 }, cardWidth: 286, cardHeight: 250, frameWidth: 400, band,
-    });
-    expect(box.tailLeft).toBe(286 - 24);
-  });
-
-  it('positions the tail directly under the point when the card is not clamped', () => {
-    const box = anchorCallout({
-      point: { x: 200, y: 100 }, cardWidth: 286, cardHeight: 250, frameWidth: 400, band,
-    });
-    // point.x - left - 5.5, unclamped: 200 - 57 - 5.5 = 137.5
-    expect(box.tailLeft).toBeCloseTo(137.5, 5);
+    expect(box).not.toHaveProperty('tailLeft');
+    expect(Object.keys(box).sort()).toEqual(['below', 'left', 'top']);
   });
 
   it('honours caller-supplied gap/margin overrides', () => {

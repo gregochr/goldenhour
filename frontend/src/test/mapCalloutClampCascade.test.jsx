@@ -74,11 +74,18 @@ describe('the callout clamp — increment §1', () => {
     expect(declared('.wf-callout-reason-text', 'user-select')).toBe('text');
   });
 
-  it('keeps the card itself unclipped, so the tail is not cut off its own point', () => {
-    // `.wf-callout-tail` is absolutely positioned OUTSIDE the card box (top/bottom -6px), so any
-    // overflow value but `visible` clips the pointer away.
+  it('keeps the card itself unclipped, so the squeeze stays on the body', () => {
+    // `visible` is what leaves `.wf-callout-body` as the one scroller under the inline
+    // `max-height`: `auto`/`scroll` here would wrap it in a second one, `hidden` would clip the
+    // overflow away with no way to reach it. It ALSO used to be what kept `.wf-callout-tail` (an
+    // absolutely positioned child at top/bottom -6px) from being clipped off the card — that
+    // pointer was removed on 2026-09-05 (map-tab-v2-plan.md §4.30), so the rule below pins that it
+    // is gone from the stylesheet rather than merely unrendered.
     expect(declared('.wf-callout', 'overflow')).toBe('visible');
-    expect(declared('.wf-callout-tail', 'position')).toBe('absolute');
+    // `css()` strips comments, so the removal note left at the `overflow` declaration cannot
+    // satisfy this — only a real rule coming back would.
+    expect(bodies('.wf-callout-tail')).toHaveLength(0);
+    expect(css()).not.toContain('wf-callout-tail');
   });
 
   it('puts the ceiling’s squeeze on the ALWAYS-rendered body, never a conditional child', () => {

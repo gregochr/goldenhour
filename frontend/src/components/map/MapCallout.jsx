@@ -412,13 +412,6 @@ export default function MapCallout({
             : { left: '-9999px', top: '0px', visibility: 'hidden' }),
         }}
       >
-        {box && (
-          <span
-            aria-hidden="true"
-            className={`wf-callout-tail${box.below ? ' below' : ' above'}`}
-            style={{ left: `${box.tailLeft}px` }}
-          />
-        )}
         {/* ⚠️ ALWAYS rendered, even when it holds one line. It is what absorbs the card's
             `max-height`; a conditionally-rendered scroller (the strip, in the first cut) leaves the
             collapsed card with nothing able to shrink, so the content paints past the plate while
