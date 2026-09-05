@@ -1,443 +1,329 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PhotoCast — Golden hour, forecast and ranked by AI</title>
-  <meta name="description" content="AI analyses cloud layers, aerosols, and light direction to score every sunrise and sunset across northern England — and tells you why.">
-  <link rel="icon" type="image/png" href="favicon.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --bg: #181A1E;
-      --bg-surface: #252830;
-      --bg-surface-light: #2F323A;
-      --bg-card: #252830;
-      --text: #EBEBEB;
-      --text-muted: #A0A0A0;
-      --text-dim: #6B6B6B;
-      --gold: #E5A00D;
-      --gold-light: #F5C518;
-      --gold-dark: #CC8A00;
-      --gold-bg: rgba(229, 160, 13, 0.08);
-      --gold-border: rgba(229, 160, 13, 0.2);
-      --border: #3A3D45;
-      --border-light: #4A4D55;
-      --radius: 12px;
-      --radius-lg: 14px;
-    }
-    body {
-      font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
-      color: var(--text);
-      background: var(--bg);
-      line-height: 1.5;
-      -webkit-font-smoothing: antialiased;
-    }
-    .page { max-width: 700px; margin: 0 auto; padding: 2rem 1.5rem; }
-
-    /* Nav */
-    .nav { display: flex; justify-content: space-between; align-items: center; padding: 0 0 4rem; }
-    .nav-brand { display: flex; flex-direction: column; }
-    .nav-title {
-      font-size: 36px; font-weight: 800; letter-spacing: -0.025em;
-      color: var(--text); display: flex; align-items: center; gap: 12px;
-    }
-    .nav-title img { height: 40px; width: 40px; object-fit: contain; }
-    .nav-subtitle { font-size: 16px; color: var(--text-muted); margin-top: 4px; }
-    .nav-links { display: flex; gap: 1.5rem; align-items: center; }
-    .nav-links a { font-size: 13px; color: var(--text-muted); text-decoration: none; transition: color 0.15s; }
-    .nav-links a:hover { color: var(--text); }
-    .nav-cta {
-      font-size: 13px; font-weight: 600;
-      background: var(--gold); color: #1a1a1a;
-      padding: 7px 18px; border-radius: 20px;
-      text-decoration: none; display: inline-block;
-      transition: background 0.15s;
-    }
-    .nav-cta:hover { background: var(--gold-light); }
-
-    /* Hero */
-    .hero { text-align: center; padding: 0.5rem 0 2.5rem; }
-    .hero-eyebrow {
-      font-size: 13px; font-weight: 600;
-      color: var(--gold);
-      text-transform: uppercase;
-      letter-spacing: 2.5px;
-      margin-bottom: 0.75rem;
-    }
-    .hero h1 {
-      font-size: clamp(32px, 6vw, 44px);
-      font-weight: 600; letter-spacing: -1.5px;
-      line-height: 1.12; margin-bottom: 1rem; color: var(--text);
-    }
-    .hero h1 em { font-style: normal; color: var(--gold); }
-    .hero-sub {
-      font-size: 16px; color: var(--text-muted);
-      line-height: 1.6; max-width: 480px;
-      margin: 0 auto 1.75rem;
-    }
-    .btn-gold {
-      font-size: 14px; font-weight: 600;
-      background: var(--gold); color: #1a1a1a;
-      padding: 12px 32px; border-radius: 24px;
-      text-decoration: none; display: inline-block;
-      transition: background 0.15s;
-    }
-    .btn-gold:hover { background: var(--gold-light); }
-    .btn-disabled {
-      background: var(--bg-surface-light); color: var(--text-muted);
-      cursor: default; pointer-events: none;
-    }
-    .nav-cta-disabled {
-      background: var(--bg-surface-light); color: var(--text-muted);
-      cursor: default; pointer-events: none;
-    }
-
-    /* Screenshot */
-    .screenshot {
-      margin: 0.5rem 0 3.5rem;
-      background: var(--bg-surface);
-      border-radius: var(--radius-lg);
-      padding: 1.5rem;
-    }
-    .screenshot-inner {
-      border-radius: var(--radius);
-      border: 1px solid var(--border);
-      overflow: hidden;
-    }
-    .screenshot-inner img {
-      width: 100%; display: block;
-    }
-    .screenshot-caption {
-      font-size: 13px;
-      color: var(--text-muted);
-      text-align: center;
-      margin-top: 1rem;
-      line-height: 1.5;
-    }
-    .screenshot-map-wrap {
-      position: relative;
-    }
-    .screenshot-popup {
-      position: absolute;
-      right: -1rem;
-      bottom: -1.5rem;
-      width: 45%;
-      max-width: 260px;
-      border-radius: var(--radius);
-      border: 1px solid var(--border-light);
-      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-      overflow: hidden;
-    }
-    .screenshot-popup img {
-      width: 100%; display: block;
-    }
-
-    /* Features */
-    .features { padding: 1rem 0 2.5rem; }
-    .feature { padding: 1.5rem 0; border-bottom: 1px solid var(--border); }
-    .feature:last-child { border-bottom: none; }
-    .feature h2 {
-      font-size: 18px; font-weight: 600;
-      letter-spacing: -0.2px; margin-bottom: 6px; color: var(--text);
-    }
-    .feature p { font-size: 15px; color: var(--text-muted); line-height: 1.6; }
-
-    /* Story */
-    .story { padding: 1.5rem 0 2.5rem; }
-    .story h2 {
-      font-size: 26px; font-weight: 600;
-      letter-spacing: -0.5px; margin-bottom: 1.5rem;
-      color: #fff; text-align: center;
-    }
-    .story p {
-      font-size: 15px; color: var(--text-muted);
-      line-height: 1.7; max-width: 540px;
-      margin: 0 auto 1rem;
-    }
-    .story p:last-child { margin-bottom: 0; }
-
-    /* Pricing */
-    .pricing { padding: 1.5rem 0 2.5rem; text-align: center; }
-    .pricing h2 {
-      font-size: 26px; font-weight: 600;
-      letter-spacing: -0.5px; margin-bottom: 1.5rem; color: var(--text);
-    }
-    .pricing-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; text-align: left; }
-    .pricing-card {
-      background: var(--bg-card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius-lg);
-      padding: 1.5rem;
-    }
-    .pricing-card.featured {
-      border-color: var(--gold-border);
-      background: linear-gradient(to bottom, rgba(229,160,13,0.04), var(--bg-card));
-    }
-    .pricing-name { font-size: 15px; font-weight: 600; margin-bottom: 4px; color: var(--text); }
-    .pricing-price { font-size: 28px; font-weight: 600; letter-spacing: -0.5px; color: var(--text); }
-    .pricing-price span { font-size: 14px; font-weight: 400; color: var(--text-dim); }
-    .pricing-list { list-style: none; padding: 0; margin-top: 16px; }
-    .pricing-list li {
-      font-size: 13px; color: var(--text-muted);
-      padding: 4px 0; line-height: 1.5;
-      display: flex; align-items: center; gap: 10px;
-    }
-    .dot {
-      width: 5px; height: 5px; border-radius: 50%;
-      background: var(--text-dim); flex-shrink: 0;
-    }
-    .featured .dot { background: var(--gold-dark); }
-    .pro-badge {
-      display: inline-block; font-size: 9px; font-weight: 600;
-      padding: 2px 8px; border-radius: 10px;
-      background: var(--gold-bg); color: var(--gold);
-      letter-spacing: 0.3px; text-transform: uppercase;
-      margin-bottom: 6px;
-    }
-
-    /* FAQ teaser */
-    .faq-teaser { padding: 1.5rem 0 2.5rem; }
-    .faq-teaser h2 {
-      font-size: 26px; font-weight: 600;
-      letter-spacing: -0.5px; margin-bottom: 1.5rem;
-      color: var(--text); text-align: center;
-    }
-    .faq-item {
-      padding: 1.25rem 0;
-      border-bottom: 1px solid var(--border);
-    }
-    .faq-item:first-of-type { border-top: 1px solid var(--border); }
-    .faq-item h3 {
-      font-size: 15px; font-weight: 600;
-      margin-bottom: 4px; color: var(--text);
-    }
-    .faq-item p {
-      font-size: 14px; color: var(--text-muted); line-height: 1.6;
-    }
-    .faq-link {
-      display: block; text-align: center;
-      font-size: 14px; color: var(--gold);
-      text-decoration: none; margin-top: 1.25rem;
-      transition: color 0.15s;
-    }
-    .faq-link:hover { color: var(--gold-light); }
-
-    /* Bottom CTA */
-    .bottom-cta { text-align: center; padding: 2.5rem 0; }
-    .bottom-cta p { font-size: 15px; color: var(--text-muted); margin-bottom: 1.25rem; }
-
-    /* Coming soon teaser */
-    .coming-soon-teaser {
-      padding: 2.5rem 0 1.5rem;
-      text-align: center;
-    }
-    .coming-soon-teaser p {
-      font-size: 15px;
-      color: var(--text-muted);
-      line-height: 1.7;
-      max-width: 540px;
-      margin: 0 auto 0.75rem;
-    }
-    .coming-soon-teaser p:last-child { margin-bottom: 0; }
-    .coming-soon-teaser a {
-      color: var(--gold);
-      text-decoration: none;
-    }
-    .coming-soon-teaser a:hover {
-      text-decoration: underline;
-    }
-
-    /* Footer */
-    .footer { text-align: center; padding: 2rem 0 1rem; border-top: 1px solid var(--border); }
-    .footer-links { display: flex; gap: 1.5rem; justify-content: center; }
-    .footer-links a { font-size: 12px; color: var(--text-dim); text-decoration: none; }
-    .footer-links a:hover { color: var(--text-muted); }
-    .footer-social {
-      display: flex;
-      gap: 1rem;
-      justify-content: center;
-      margin: 1rem 0;
-    }
-    .footer-social a {
-      color: var(--text-dim);
-      transition: color 0.15s;
-    }
-    .footer-social a:hover {
-      color: var(--gold);
-    }
-    .footer-copy { font-size: 11px; color: var(--text-dim); margin-top: 12px; }
-
-    /* Responsive */
-    @media (max-width: 500px) {
-      .pricing-grid { grid-template-columns: 1fr; }
-      .nav-links a:not(.nav-cta) { display: none; }
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PhotoCast — Know before you go</title>
+<meta name="description" content="PhotoCast reads cloud layers, aerosols, humidity and light direction to score every sunrise and sunset across northern England — and opens on a map that has already made the call.">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=IBM+Plex+Sans:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="photocast.css">
+<style>
+/* ── hero ── */
+.hero{padding:88px 0 0;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;inset:-40% 0 auto -10%;height:520px;background:radial-gradient(60% 60% at 22% 40%,color-mix(in oklab,var(--brand) 9%,transparent),transparent 70%);pointer-events:none}
+.hero h1{font-size:clamp(46px,9vw,96px);letter-spacing:-.04em;margin:26px 0 0}
+.hero h1 .go{color:var(--brand);font-style:italic;font-weight:700}
+.lede{font-size:clamp(17px,2.1vw,21px);line-height:1.5;color:var(--ink-soft);max-width:600px;margin:26px 0 0}
+.lede b{color:var(--ink);font-weight:500}
+.ctas{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin:34px 0 0}
+.ctas .note{font-family:var(--mono);font-size:12px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim)}
+/* ── figure / screenshot placeholder ── */
+.fig{margin:56px 0 0;border:1px solid var(--rule);border-radius:var(--r-lg);background:var(--ground-2);padding:14px}
+.shot{position:relative;border:1px solid var(--rule);border-radius:12px;background:
+repeating-linear-gradient(52deg,color-mix(in oklab,var(--ink) 4%,transparent) 0 2px,transparent 2px 11px),var(--card);
+aspect-ratio:16/9;display:flex;align-items:flex-end;justify-content:center;padding:22px;overflow:hidden}
+.shot .slot{font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-dim);border:1px dashed var(--rule-2);border-radius:6px;padding:7px 12px;background:color-mix(in oklab,var(--ground) 70%,transparent)}
+.shot.tall{aspect-ratio:3/4}
+.figcap{font-family:var(--mono);font-size:12px;line-height:1.6;letter-spacing:.03em;color:var(--ink-dim);padding:14px 6px 4px;max-width:620px}
+/* verdict card, rendered from the app's own vocabulary */
+.verdict{position:absolute;top:20px;left:20px;width:min(360px,72%);background:color-mix(in oklab,#140F0C 96%,transparent);border:1px solid var(--rule-2);border-radius:12px;box-shadow:0 18px 44px rgba(0,0,0,.55);overflow:hidden}
+.verdict .vh{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 14px;border-bottom:1px solid var(--rule)}
+.verdict .vh span{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-dim)}
+.vrow{display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:13px 14px;border-bottom:1px solid var(--rule)}
+.vrow:last-child{border-bottom:none}
+.vrow .when{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-soft)}
+.vrow .word{font-family:var(--disp);font-size:19px;font-weight:600;letter-spacing:-.02em;grid-column:1;color:var(--ink)}
+.vrow .word.go{color:var(--go)}
+.vrow .word.maybe{color:var(--maybe)}
+.vrow .where{font-size:13px;color:var(--ink-soft);grid-column:1}
+.tag{align-self:center;grid-row:1/span 3;grid-column:2;font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;padding:5px 9px;border-radius:5px;background:var(--go-wash);color:var(--go);border:1px solid color-mix(in oklab,var(--go) 34%,transparent)}
+/* ── sections ── */
+section{padding:96px 0 0}
+.shead{display:grid;gap:18px;max-width:760px}
+.shead h2{font-size:clamp(30px,4.6vw,50px);letter-spacing:-.03em}
+.shead p{font-size:17.5px;color:var(--ink-soft);max-width:640px}
+/* ── platforms ── */
+.plats{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:40px}
+.plat{border:1px solid var(--rule);border-radius:var(--r-lg);background:var(--card);padding:22px 22px 24px;display:flex;flex-direction:column;gap:10px}
+.plat.live{background:linear-gradient(to bottom,color-mix(in oklab,var(--brand) 7%,transparent),var(--card));border-color:color-mix(in oklab,var(--brand) 28%,transparent)}
+.status{font-family:var(--mono);font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;display:inline-flex;align-items:center;gap:7px;color:var(--ink-dim)}
+.status::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--ink-dim)}
+.plat.live .status{color:var(--brand)}
+.plat.live .status::before{background:var(--brand);box-shadow:0 0 0 3px color-mix(in oklab,var(--brand) 20%,transparent)}
+.plat h3{font-family:var(--disp);font-size:24px;font-weight:600;letter-spacing:-.025em}
+.plat p{font-size:15px;color:var(--ink-soft)}
+/* ── features ── */
+.feats{margin-top:40px;border-top:1px solid var(--rule)}
+.feat{display:grid;grid-template-columns:64px minmax(0,1fr);gap:0 24px;padding:26px 0;border-bottom:1px solid var(--rule);align-items:start}
+.feat .n{font-family:var(--mono);font-size:12px;letter-spacing:.1em;color:var(--ink-dim);padding-top:5px}
+.feat h3{font-family:var(--disp);font-size:23px;font-weight:600;letter-spacing:-.025em;margin-bottom:7px}
+.feat p{font-size:16px;color:var(--ink-soft);max-width:640px}
+.pro{display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;padding:3px 7px;border-radius:5px;background:var(--maybe-wash);color:var(--maybe);border:1px solid color-mix(in oklab,var(--maybe) 30%,transparent);vertical-align:2px;margin-left:2px}
+/* ── story ── */
+.story{background:var(--ground-2);border-top:1px solid var(--rule);border-bottom:1px solid var(--rule);margin-top:96px;padding:80px 0}
+.story-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.25fr);gap:56px;align-items:start}
+.story-grid h2{font-size:clamp(30px,4.2vw,44px);letter-spacing:-.03em}
+.story-grid p{font-size:16.5px;color:var(--ink-soft);margin-bottom:16px}
+.story-grid p:last-child{margin-bottom:0}
+.story-grid p .pull{color:var(--ink)}
+/* ── pricing ── */
+.prices{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:16px;margin-top:40px}
+.price{border:1px solid var(--rule);border-radius:var(--r-lg);background:var(--card);padding:26px}
+.price.hi{border-color:color-mix(in oklab,var(--brand) 30%,transparent);background:linear-gradient(to bottom,color-mix(in oklab,var(--brand) 6%,transparent),var(--card))}
+.price .tier{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-soft)}
+.price .amt{font-family:var(--disp);font-size:42px;font-weight:600;letter-spacing:-.035em;margin:8px 0 2px}
+.price .amt small{font-family:var(--body);font-size:15px;font-weight:400;color:var(--ink-dim);letter-spacing:0}
+.price ul{list-style:none;margin-top:20px;display:grid;gap:9px}
+.price li{font-size:14.5px;color:var(--ink-soft);display:grid;grid-template-columns:16px 1fr;gap:8px;align-items:baseline}
+.price li::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--ink-dim);transform:translateY(-3px)}
+.price.hi li::before{background:var(--brand)}
+/* ── faq teaser ── */
+.qs{margin-top:40px}
+/* ── closing ── */
+.close{margin-top:96px;border-top:1px solid var(--rule);padding:80px 0 0;text-align:center}
+.close h2{font-size:clamp(30px,5vw,54px);letter-spacing:-.035em}
+.close p{font-size:17px;color:var(--ink-soft);max-width:520px;margin:20px auto 0}
+.close .ctas{justify-content:center}
+@media(max-width:820px){
+.story-grid{grid-template-columns:minmax(0,1fr);gap:28px}
+.feat{grid-template-columns:minmax(0,1fr);gap:6px}
+.feat .n{padding-top:0}
+.verdict{position:static;width:auto;margin-bottom:auto}
+.shot{aspect-ratio:auto;min-height:340px;align-items:flex-start;flex-direction:column;justify-content:space-between;gap:18px}
+.shot .slot{align-self:center}
+}
+</style>
 </head>
 <body>
-  <div class="page">
 
-    <nav class="nav">
-      <div class="nav-brand">
-        <div class="nav-title"><img src="logo.png" alt="">PhotoCast</div>
-        <p class="nav-subtitle">Golden hour, forecast and ranked by AI</p>
-      </div>
-      <div class="nav-links">
-        <a href="#features">Features</a>
-        <a href="#pricing">Pricing</a>
-        <a href="faq.html">FAQ</a>
-        <a href="https://app.photocast.online/register" class="nav-cta">Get early access</a>
-      </div>
-    </nav>
+<header class="mast">
+<div class="wrap">
+<a class="mark" href="index.html"><span class="sun"></span><span class="wm">PhotoCast</span></a>
+<nav>
+<a href="#platforms">Apps</a>
+<a href="#features">Features</a>
+<a href="#pricing">Pricing</a>
+<a href="faq.html">FAQ</a>
+<a class="btn sm" href="https://app.photocast.online/register">Start free</a>
+</nav>
+</div>
+</header>
 
-    <div class="hero">
-      <p class="hero-eyebrow">For landscape photographers</p>
-      <h1>Know before you <em>go</em></h1>
-      <p class="hero-sub">PhotoCast, with Artificial Intelligence, analyses cloud layers, aerosols, humidity, and light direction to score sunrise and sunset across northern England — and tells you <em>why</em>.</p>
-      <a href="https://app.photocast.online/register" class="btn-gold">Get early access</a>
-    </div>
+<div class="hero">
+<div class="wrap">
+<div class="eyebrow">For landscape photographers · Northern England</div>
+<h1>Know before<br>you <span class="go">go</span>.</h1>
+<p class="lede">PhotoCast reads cloud layers, aerosols, humidity and light direction to score every sunrise and sunset across northern England — and <b>tells you why</b>.</p>
+<div class="ctas">
+<a class="btn" href="https://app.photocast.online/register">Start free</a>
+<a class="btn ghost" href="#platforms">See the apps</a>
+<span class="note">No card. Lite is free.</span>
+</div>
 
-    <div class="screenshot">
-      <div class="screenshot-inner">
-        <img src="screenshot.png" alt="PhotoCast Planner with AI-generated Best Bet and Also Good recommendations for the best sunrise and sunset opportunities, plus a heatmap grid showing Worth It, Maybe, and Stand Down verdicts across northern England regions">
-      </div>
-      <p class="screenshot-caption">AI Best Bet and Also Good picks with a heatmap grid showing every sunrise and sunset across your regions</p>
-    </div>
+<div class="fig">
+<div class="shot">
+<div class="verdict">
+<div class="vh"><span>Tonight or the morning?</span><span>Sat 5 Sep</span></div>
+<div class="vrow">
+<div class="when">Tonight · sunset 19:48</div>
+<div class="word go">Worth it</div>
+<div class="where">Strongest in Northumberland</div>
+<div class="tag">Best bet</div>
+</div>
+<div class="vrow">
+<div class="when">Tomorrow · sunrise 06:22</div>
+<div class="word maybe">Maybe</div>
+<div class="where">Strongest on the North York Moors</div>
+</div>
+</div>
+<div class="slot">screenshot · map tab, landing state, heat field over the region</div>
+</div>
+<p class="figcap">The map opens with the call already made: the next two windows, each with its verdict and the region that verdict is true of. Nothing to tap first.</p>
+</div>
+</div>
+</div>
 
-    <div class="features" id="features">
-      <div class="feature">
-        <h2>AI reads the atmosphere so you don't have to</h2>
-        <p>AI evaluates cloud cover, humidity, light direction, and even Saharan dust to rate every sunrise and sunset — with dual Fiery Sky and Golden Hour scores <span class="pro-badge">Pro</span> plus a plain-English explanation of why.</p>
-      </div>
-      <div class="feature">
-        <h2>AI picks your best bet — you just show up</h2>
-        <p>AI evaluates every location across the next three days and recommends exactly where and when to go — factoring in day of week and conditions. A heatmap grid shows the full picture at a glance.</p>
-      </div>
-      <div class="feature">
-        <h2>Catch the dramatic tides at the best light</h2>
-        <p>Spring tides, king tides, and storm surge — flagged and aligned with sunrise and sunset so you're there when the water levels tell a story.</p>
-      </div>
-      <div class="feature">
-        <h2>Know about aurora before dark, not after</h2>
-        <p>NOAA space weather data, interpreted by AI. When conditions line up for northern lights, you'll get a forecast with enough time to plan your evening.</p>
-      </div>
-      <div class="feature">
-        <h2>Find the mist before it lifts</h2>
-        <p>AI scores inversion potential for valley and lakeside locations — reading temperature, dew point, wind, and elevation to predict where cloud inversions will create other-worldly scenes.</p>
-      </div>
-      <div class="feature">
-        <h2>Built for the North</h2>
-        <p>Not a global weather app pretending to know your coast. 200+ handpicked locations across Northumberland, the Lakes, and North Yorkshire.</p>
-      </div>
-    </div>
+<section id="platforms">
+<div class="wrap">
+<div class="shead">
+<div class="lab">01 · Where to get it</div>
+<h2>Browser first. iPad and iPhone next.</h2>
+<p>The same forecast, three places to read it. The browser build is very nearly there; the iPad and iPhone apps are in the works.</p>
+</div>
+<div class="plats">
+<div class="plat live">
+<span class="status">Very close</span>
+<h3>Browser</h3>
+<p>The full product in any browser, desktop or phone. Early access is open now while we finish it off.</p>
+</div>
+<div class="plat">
+<span class="status">Coming soon</span>
+<h3>iPad</h3>
+<p>Built for the big map — the field, the week and a location side by side.</p>
+</div>
+<div class="plat">
+<span class="status">Coming soon</span>
+<h3>iPhone</h3>
+<p>The verdict in your pocket, for the car park at 5am.</p>
+</div>
+</div>
+</div>
+</section>
 
-    <div class="screenshot">
-      <div class="screenshot-map-wrap">
-        <div class="screenshot-inner">
-          <img src="screenshot-map.png" alt="PhotoCast map view showing scored location pins around Keswick and Derwentwater in the Lake District, northern England">
-        </div>
-        <div class="screenshot-popup">
-          <img src="screenshot-popup.png" alt="Location popup showing AI scores, cloud breakdown, tide status, and plain-English summary for a single location">
-        </div>
-      </div>
-      <p class="screenshot-caption">Scored pins across 200+ locations with star ratings and filter controls</p>
-    </div>
+<section id="features">
+<div class="wrap">
+<div class="shead">
+<div class="lab">02 · What it does</div>
+<h2>A forecast for the shot, not the weather.</h2>
+</div>
+<div class="feats">
+<div class="feat"><div class="n">/ 01</div><div>
+<h3>The map has already made the call</h3>
+<p>PhotoCast opens on the map with the answer on it: should you go tonight or in the morning, which region is strongest, and where the week's best bet sits. Heat over the ground says poor, middling or worth it before you touch anything.</p>
+</div></div>
+<div class="feat"><div class="n">/ 02</div><div>
+<h3>AI reads the atmosphere so you don't have to</h3>
+<p>AI evaluates cloud cover, humidity, light direction, and even Saharan dust to rate every sunrise and sunset — with dual Fiery Sky and Golden Hour scores <span class="pro">Pro</span> plus a plain-English explanation of why.</p>
+</div></div>
+<div class="feat"><div class="n">/ 03</div><div>
+<h3>AI picks your best bet — you just show up</h3>
+<p>AI evaluates every location across the next three days and recommends exactly where and when to go — factoring in day of week and conditions. A heatmap grid shows the full picture at a glance.</p>
+</div></div>
+<div class="feat"><div class="n">/ 04</div><div>
+<h3>Catch the dramatic tides at the best light</h3>
+<p>Spring tides, king tides, and storm surge — flagged and aligned with sunrise and sunset so you're there when the water levels tell a story.</p>
+</div></div>
+<div class="feat"><div class="n">/ 05</div><div>
+<h3>Know about aurora before dark, not after</h3>
+<p>NOAA space weather data, interpreted by AI. When conditions line up for northern lights, you'll get a forecast with enough time to plan your evening.</p>
+</div></div>
+<div class="feat"><div class="n">/ 06</div><div>
+<h3>Find the mist before it lifts</h3>
+<p>AI scores inversion potential for valley and lakeside locations — reading temperature, dew point, wind, and elevation to predict where cloud inversions will create other-worldly scenes.</p>
+</div></div>
+<div class="feat"><div class="n">/ 07</div><div>
+<h3>Built for the North</h3>
+<p>Not a global weather app pretending to know your coast. 200+ handpicked locations across Northumberland, the Lakes, and North Yorkshire.</p>
+</div></div>
+</div>
 
-    <div class="screenshot">
-      <div class="screenshot-inner">
-        <img src="screenshot-popup.png" alt="PhotoCast location detail showing AI-generated star rating, Fiery Sky and Golden Hour score bars, golden and blue hour times, and a plain-English explanation of conditions">
-      </div>
-      <p class="screenshot-caption">Per-location detail with Fiery Sky and Golden Hour score bars, golden and blue hour times, and a plain-English AI explanation</p>
-    </div>
+<div class="fig">
+<div class="shot">
+<div class="slot">screenshot · location detail, score bars and the plain-English read</div>
+</div>
+<p class="figcap">Per-location detail with Fiery Sky and Golden Hour score bars, golden and blue hour times, and a plain-English AI explanation.</p>
+</div>
+</div>
+</section>
 
-    <div class="story" id="story">
-      <h2>The story</h2>
-      <p>On the evening of 21st February, I asked Claude — Anthropic's Artificial Intelligence platform — whether tomorrow's sunrise was worth getting up for. It said yes. I asked what actually makes a great sunrise — the science behind the colour. It told me about cloud layers, aerosol depth, humidity, light direction.</p>
-      <p>I asked if a tool existed that combined all of it into a simple "go or don't go" answer for photographers. Nothing did quite what I had in mind. The best you could do was approximate from simple cloud cover at the location at the time — nothing about the layers that catch the light, the aerosols that scatter it, or the humidity that kills it.</p>
-      <p>I decided not to risk the early alarm and the wasted drive. So with 25 years of building production systems for global banks, I started building a better answer.</p>
-      <p>Now, PhotoCast, with Claude Artificial Intelligence, analyses 10+ atmospheric variables for every sunrise and sunset across 200+ locations — scoring the light, explaining the reasoning, and telling you exactly where to be.</p>
-    </div>
+<div class="story" id="story">
+<div class="wrap">
+<div class="story-grid">
+<div>
+<div class="lab" style="margin-bottom:16px">03 · The story</div>
+<h2>It started with one question about one sunrise.</h2>
+</div>
+<div>
+<p>One evening last spring, I asked Claude — Anthropic's Artificial Intelligence platform — whether tomorrow's sunrise was worth getting up for. It said yes. So I asked what actually makes a great sunrise: cloud layers, aerosol depth, humidity, light direction.</p>
+<p>Then I asked whether a tool existed that combined all of it into a simple <span class="pull">go or don't go</span> answer for photographers. Nothing did quite what I had in mind. The best you could do was approximate from cloud cover at the location at the time — nothing about the layers that catch the light, the aerosols that scatter it, or the humidity that kills it.</p>
+<p>I decided not to risk the early alarm and the wasted drive. So with 25 years of building production systems for global banks, I started building a better answer. PhotoCast now analyses 10+ atmospheric variables for every sunrise and sunset across 200+ locations — scoring the light, explaining the reasoning, and telling you exactly where to be.</p>
+<p>The long summer days are behind us and autumn is on the march. As the landscape photography season returns, we're ready to launch.</p>
+</div>
+</div>
+</div>
+</div>
 
-    <div class="pricing" id="pricing">
-      <h2>Simple pricing</h2>
-      <div class="pricing-grid">
-        <div class="pricing-card">
-          <div class="pricing-name">Lite</div>
-          <div class="pricing-price">Free</div>
-          <ul class="pricing-list">
-            <li><span class="dot"></span>3-day forecast horizon</li>
-            <li><span class="dot"></span>AI star ratings</li>
-            <li><span class="dot"></span>AI weather triage verdicts</li>
-            <li><span class="dot"></span>Planner heatmap grid</li>
-            <li><span class="dot"></span>Map view with scored locations</li>
-          </ul>
-        </div>
-        <div class="pricing-card featured">
-          <span class="pro-badge">Recommended</span>
-          <div class="pricing-name">Pro</div>
-          <div class="pricing-price">TBC <span>/month</span></div>
-          <ul class="pricing-list">
-            <li><span class="dot"></span>AI-powered best-bet picks</li>
-            <li><span class="dot"></span>Per-location AI scoring</li>
-            <li><span class="dot"></span>AI-written forecast explanations</li>
-            <li><span class="dot"></span>Aurora forecasting and viewline</li>
-            <li><span class="dot"></span>Fiery Sky and Golden Hour score bars</li>
-            <li><span class="dot"></span>Storm surge forecasting for extra high tides</li>
-            <li><span class="dot"></span>Personalised drive times</li>
-          </ul>
-        </div>
-      </div>
-    </div>
+<section id="pricing">
+<div class="wrap">
+<div class="shead">
+<div class="lab">04 · Pricing</div>
+<h2>Simple pricing.</h2>
+<p>Lite is genuinely free. Pro pricing is still being settled — early access users will hear it from us first.</p>
+</div>
+<div class="prices">
+<div class="price">
+<div class="tier">Lite</div>
+<div class="amt">Free</div>
+<ul>
+<li>3-day forecast horizon</li>
+<li>AI star ratings</li>
+<li>AI weather triage verdicts</li>
+<li>Planner heatmap grid</li>
+<li>Map view with scored locations</li>
+</ul>
+</div>
+<div class="price hi">
+<div class="tier">Pro · recommended</div>
+<div class="amt">TBC <small>/month</small></div>
+<ul>
+<li>AI-powered best-bet picks</li>
+<li>Per-location AI scoring</li>
+<li>AI-written forecast explanations</li>
+<li>Aurora forecasting and viewline</li>
+<li>Fiery Sky and Golden Hour score bars</li>
+<li>Storm surge forecasting for extra high tides</li>
+<li>Personalised drive times</li>
+</ul>
+</div>
+</div>
+</div>
+</section>
 
-    <div class="faq-teaser">
-      <h2>Common questions</h2>
-      <div class="faq-item">
-        <h3>How accurate is it?</h3>
-        <p>Forecasts are based on third-party weather data and AI interpretation. They're most reliable for tomorrow and the day after. We never claim to predict the sky perfectly — we just give you much better odds than checking a generic weather app.</p>
-      </div>
-      <div class="faq-item">
-        <h3>What areas do you cover?</h3>
-        <p>Northumberland, the Lake District, North Yorkshire Coast, Yorkshire Dales, North York Moors, Tyne and Wear, and Teesdale. Over 200 named locations.</p>
-      </div>
-      <div class="faq-item">
-        <h3>What's the difference between Lite and Pro?</h3>
-        <p>Lite is free and gives you the planner heatmap, weather triage verdicts, and star ratings. Pro adds AI-powered best-bet picks, AI-powered per-location scoring with written explanations, aurora forecasting, and personalised drive times.  There are more features in the pipeline.</p>
-      </div>
-      <a class="faq-link" href="faq.html">See all questions</a>
-    </div>
+<section id="faq">
+<div class="wrap">
+<div class="shead">
+<div class="lab">05 · Common questions</div>
+<h2>Questions we hear at 4am.</h2>
+</div>
+<div class="qs">
+<div class="qa">
+<h2>How accurate is it?</h2>
+<p>Forecasts are based on third-party weather data and AI interpretation. They're most reliable for tomorrow and the day after. We never claim to predict the sky perfectly — we just give you much better odds than checking a generic weather app.</p>
+</div>
+<div class="qa">
+<h2>What areas do you cover?</h2>
+<p>Northumberland, the Lake District, North Yorkshire Coast, Yorkshire Dales, North York Moors, Tyne and Wear, and Teesdale. Over 200 named locations.</p>
+</div>
+<div class="qa">
+<h2>What's the difference between Lite and Pro?</h2>
+<p>Lite is free and gives you the planner heatmap, weather triage verdicts, and star ratings. Pro adds AI-powered best-bet picks, AI-powered per-location scoring with written explanations, aurora forecasting, and personalised drive times. There are more features in the pipeline.</p>
+</div>
+<p style="margin-top:22px"><a href="faq.html">See all questions →</a></p>
+</div>
+</div>
+</section>
 
-    <div class="bottom-cta">
-      <p>Early access is open. <a href="https://app.photocast.online/register" style="color: var(--gold);">Get started free.</a></p>
-    </div>
+<div class="close">
+<div class="wrap">
+<h2>Tomorrow's sunrise is already brewing.</h2>
+<p>Early access is open, and Lite stays free. Weather warnings and a good deal more are on the way.</p>
+<div class="ctas">
+<a class="btn" href="https://app.photocast.online/register">Start free</a>
+<a class="btn ghost" href="faq.html">Read the FAQ</a>
+</div>
+</div>
+</div>
 
-    <div class="coming-soon-teaser">
-      <p>PhotoCast is just getting started. Bluebell season is almost here — and we're working on something for it. Weather warnings, and a lot more, are on the way too.</p>
-      <p>Follow us on <a href="https://www.instagram.com/photocastuk" target="_blank" rel="noopener noreferrer">Instagram</a> and <a href="https://www.facebook.com/profile.php?id=61572234291376" target="_blank" rel="noopener noreferrer">Facebook</a> to be first to know.</p>
-    </div>
+<footer class="foot">
+<div class="wrap">
+<div class="foot-links">
+<a href="privacy.html">Privacy</a>
+<a href="terms.html">Terms</a>
+<a href="acknowledgements.html">Acknowledgements</a>
+<a href="faq.html">FAQ</a>
+</div>
+<div class="foot-right">
+<div class="social">
+<a href="https://www.instagram.com/photocastuk" target="_blank" rel="noopener noreferrer" aria-label="Instagram"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg></a>
+<a href="https://www.facebook.com/profile.php?id=61572234291376" target="_blank" rel="noopener noreferrer" aria-label="Facebook"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path></svg></a>
+</div>
+<span class="foot-copy">© 2026 PhotoCast · Powered by AI</span>
+</div>
+</div>
+</footer>
 
-    <div class="footer">
-      <div class="footer-links">
-        <a href="privacy.html">Privacy</a>
-        <a href="terms.html">Terms</a>
-        <a href="acknowledgements.html">Acknowledgements</a>
-        <a href="faq.html">FAQ</a>
-      </div>
-      <div class="footer-social">
-        <a href="https://www.instagram.com/photocastuk" target="_blank" rel="noopener noreferrer" aria-label="Instagram">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
-        </a>
-        <a href="https://www.facebook.com/profile.php?id=61572234291376" target="_blank" rel="noopener noreferrer" aria-label="Facebook">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>
-        </a>
-      </div>
-      <p class="footer-copy">Powered by AI</p>
-      <p class="footer-copy">&copy; 2026 PhotoCast</p>
-    </div>
-
-  </div>
 </body>
 </html>

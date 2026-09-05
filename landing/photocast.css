@@ -1,0 +1,84 @@
+/* PhotoCast landing — shared shell */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+--disp:'Bricolage Grotesque',ui-sans-serif,system-ui,sans-serif;
+--body:'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;
+--mono:'DM Mono','IBM Plex Mono',ui-monospace,monospace;
+--ground:#17150F;--ground-2:#1E1B14;--card:#241F17;--card-2:#2B251B;
+--ink:#F0EBE0;--ink-soft:#ABA391;--ink-dim:#948B7A;
+--rule:#332D22;--rule-2:#453D2E;
+--go:oklch(0.76 0.11 132);--maybe:oklch(0.78 0.11 75);--poor:oklch(0.68 0.12 32);
+--brand:oklch(0.78 0.11 75);--brand-hi:oklch(0.86 0.11 82);
+--go-wash:color-mix(in oklab,var(--go) 13%,transparent);
+--maybe-wash:color-mix(in oklab,var(--maybe) 13%,transparent);
+--r:10px;--r-lg:16px
+}
+html{scroll-behavior:smooth}
+body{background:var(--ground);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+a{color:var(--brand);text-decoration:none}
+a:hover{color:var(--brand-hi)}
+h1,h2,h3,h4{font-family:var(--disp);font-weight:600;letter-spacing:-.02em;line-height:1.06;color:var(--ink)}
+p{text-wrap:pretty}
+em{font-style:normal;color:var(--brand)}
+.wrap{width:100%;max-width:1080px;margin:0 auto;padding:0 28px}
+.prose{max-width:660px}
+/* ── masthead ── */
+.mast{border-bottom:1px solid var(--rule);position:sticky;top:0;z-index:20;background:color-mix(in oklab,var(--ground) 92%,transparent);backdrop-filter:blur(10px)}
+.mast .wrap{display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:66px}
+.mark{display:flex;align-items:center;gap:11px;color:var(--ink)}
+.mark .sun{width:13px;height:13px;border-radius:50%;background:var(--brand);box-shadow:0 0 0 4px color-mix(in oklab,var(--brand) 16%,transparent);flex:none}
+.mark .wm{font-family:var(--disp);font-size:21px;font-weight:700;letter-spacing:-.03em}
+.mast nav{display:flex;align-items:center;gap:26px}
+.mast nav a:not(.btn){font-size:14px;color:var(--ink-soft)}
+.mast nav a:not(.btn):hover{color:var(--ink)}
+.btn{font-family:var(--body);font-size:14px;font-weight:600;display:inline-flex;align-items:center;gap:9px;padding:11px 20px;border-radius:999px;background:var(--brand);color:#1A1408;border:1px solid transparent;transition:background .15s,transform .15s}
+.btn:hover{background:var(--brand-hi);color:#1A1408}
+.btn.sm{padding:8px 16px;font-size:13.5px}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--rule-2)}
+.btn.ghost:hover{background:var(--ground-2);color:var(--ink);border-color:var(--ink-dim)}
+/* ── labels ── */
+.lab{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim)}
+.lab.b{color:var(--brand)}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--brand);display:flex;align-items:center;gap:12px}
+.eyebrow::after{content:'';height:1px;flex:1;max-width:120px;background:var(--rule-2)}
+/* ── page headings for content pages ── */
+.phead{padding:76px 0 44px;border-bottom:1px solid var(--rule)}
+.phead h1{font-size:clamp(38px,7vw,62px)}
+.phead p{margin-top:18px;font-size:17px;color:var(--ink-soft);max-width:620px}
+/* ── content pages ── */
+.doc{padding:52px 0 20px;display:grid;grid-template-columns:minmax(0,1fr);gap:0}
+.doc h2{font-size:26px;margin:40px 0 12px;letter-spacing:-.025em}
+.doc h2:first-child{margin-top:0}
+.doc h3{font-family:var(--body);font-size:16px;font-weight:600;margin:22px 0 4px}
+.doc p{font-size:16px;color:var(--ink-soft);margin-bottom:12px;max-width:660px}
+.doc ul{list-style:none;max-width:660px;margin-bottom:12px}
+.doc ul li{font-size:15.5px;color:var(--ink-soft);padding:3px 0 3px 20px;position:relative}
+.doc ul li::before{content:'';position:absolute;left:2px;top:13px;width:5px;height:5px;border-radius:50%;background:var(--ink-dim)}
+.doc .sub{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink);margin:26px 0 8px}
+.qa{border-top:1px solid var(--rule);padding:26px 0}
+.qa:last-of-type{border-bottom:1px solid var(--rule)}
+.qa h2{font-size:22px;margin:0 0 8px}
+.qa p{margin-bottom:0}
+/* ── tables ── */
+.tw{overflow-x:auto;margin:18px 0 6px;border:1px solid var(--rule);border-radius:var(--r)}
+table{width:100%;border-collapse:collapse;min-width:600px}
+th{background:var(--ground-2);font-family:var(--mono);font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink);text-align:left;font-weight:400;padding:13px 16px;border-bottom:1px solid var(--rule)}
+td{background:var(--card);font-size:14px;color:var(--ink-soft);padding:13px 16px;border-bottom:1px solid var(--rule);line-height:1.5;vertical-align:top}
+td:first-child{color:var(--ink);font-weight:500}
+tr:last-child td{border-bottom:none}
+/* ── footer ── */
+.foot{border-top:1px solid var(--rule);margin-top:72px;padding:40px 0 56px}
+.foot .wrap{display:flex;flex-wrap:wrap;gap:24px;align-items:center;justify-content:space-between}
+.foot-links{display:flex;flex-wrap:wrap;gap:22px}
+.foot-links a{font-size:13.5px;color:var(--ink-soft)}
+.foot-links a:hover{color:var(--ink)}
+.foot-right{display:flex;align-items:center;gap:18px}
+.social{display:flex;gap:14px}
+.social a{color:var(--ink-dim);display:flex}
+.social a:hover{color:var(--brand)}
+.foot-copy{font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim)}
+@media(max-width:720px){
+.wrap{padding:0 20px}
+.mast nav a:not(.btn){display:none}
+.phead{padding:48px 0 32px}
+}
