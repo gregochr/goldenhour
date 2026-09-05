@@ -251,6 +251,73 @@
   --color-plex-astro-bright: #A79FE4;
 }
 
+/* ── Safe areas ──────────────────────────────────────────────────────────────────────────────────
+   `index.html` opts in with `viewport-fit=cover`, so the layout viewport now extends under the
+   notch, the Dynamic Island, the landscape sensor housing and the home indicator, and
+   `env(safe-area-inset-*)` reports something other than zero on the devices that have them.
+
+   ⚠️ EVERY RULE IN THIS BLOCK IS A NO-OP WHEN THE INSETS ARE ZERO, and that is the property that
+   makes the opt-in safe to make at all. `padding: env(x, 0px)` is `padding: 0`; `top: env(x, 0px)`
+   is `top: 0`; `max(1rem, env(x, 0px))` is `1rem`. So a desktop browser, an Android phone and every
+   test in the suite see exactly the geometry they saw before, and the whole effect of this block is
+   confined to hardware that reports an inset. Keep it that way: a rule here that changes a
+   zero-inset layout is a regression on every other surface, not a safe-area fix.
+
+   ⚠️ THE TOP INSET IS ZERO IN A HOME-SCREEN PWA TODAY, deliberately. iOS reports a top inset only
+   when the web view is told to go under the status bar, which is
+   `apple-mobile-web-app-status-bar-style: black-translucent` — a visual change (the status bar
+   stops having a background of its own) that is a product decision, not a safe-area one, and is not
+   made here. What IS live today is the pair that needs no opt-in beyond `viewport-fit`: the LEFT
+   and RIGHT insets in landscape, where the sensor housing currently clips content outright, and the
+   BOTTOM inset, where the home indicator sits over it. The top rules below are written and correct
+   so that adding the status-bar style later is a one-line change in `index.html` rather than a
+   second audit of every edge-anchored element.
+
+   The audit that produced this list — every element that touches a viewport edge, and so cannot be
+   reached by an ancestor's padding:
+     · the app root         · in flow, so it insets everything that is
+     · `.wf-lens`           · `position: sticky`, which sticks to the VIEWPORT, not to the root's
+                              padding box, so the root's inset does not reach it
+     · `BottomSheet`        · `position: fixed` to the bottom edge
+     · `Modal`              · `position: fixed inset-0`
+   Two things deliberately NOT here. The map tab's phone chrome (the bottom bar and the lifted
+   stack above it) is `position: absolute` inside the map frame, and that frame is inside the root's
+   padding — the whole tuned cascade in the phone block below moves up with it and needs no term of
+   its own. And `.wf-peek` / `.heatmap-cell-tip` are `position: fixed` but JS-placed against an
+   anchor that is itself already inset, clamping to `window.innerHeight`; they can graze an unsafe
+   zone only at the very edge of their travel, and the fix for those is a JS one against the same
+   `env()` values rather than a rule here. */
+.app-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+}
+
+/* The modal's gutter and its safe inset are the SAME padding, resolved with `max` rather than
+   summed. `p-4` was the gutter before this and stays exactly that wherever the inset is smaller —
+   adding the two instead would push a dialog 16px further from an edge it was already clear of, on
+   the one device class with the least room to give. */
+.app-safe-modal {
+  padding-top: max(1rem, env(safe-area-inset-top, 0px));
+  padding-right: max(1rem, env(safe-area-inset-right, 0px));
+  padding-bottom: max(1rem, env(safe-area-inset-bottom, 0px));
+  padding-left: max(1rem, env(safe-area-inset-left, 0px));
+}
+
+/* The sheet is inset rather than padded on its sides, and padded rather than inset at its foot.
+   Both halves are deliberate. Its close button is `position: absolute; right: …`, whose containing
+   block is this element's PADDING box — so a `padding-right` would leave that button exactly where
+   it was, under a landscape sensor housing, which is the one control the gesture-averse reader
+   needs. Insetting the box moves the button with it. At the foot the opposite holds: padding keeps
+   the sheet's own surface running to the bottom of the screen (a sheet that floats above the edge
+   reads as a dropped card) while its CONTENT clears the home indicator. */
+.app-safe-sheet {
+  left: env(safe-area-inset-left, 0px);
+  right: env(safe-area-inset-right, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 @layer base {
   body {
     @apply bg-plex-bg text-plex-text min-h-screen;
@@ -2758,7 +2825,12 @@ button.wf-hc.also.on:hover {
      row of its own at 664px (measured: 115.8px against 92px). */
   flex-wrap: wrap;
   position: sticky;
-  top: 0;
+  /* ⚠️ NOT `top: 0`, and the root's own safe-area padding does NOT cover this. A sticky element
+     sticks to its scrollport — here the viewport, which `viewport-fit=cover` has just extended
+     under the status bar — not to the padding box of any ancestor. So this bar is the one piece of
+     Plan chrome that has to name the inset itself. Identical to `top: 0` wherever the inset is
+     zero, which is every surface except an iOS device with the status-bar opt-in. */
+  top: env(safe-area-inset-top, 0px);
   /* Above the spot strip's focused card (3) and its edge fades (2), which is the only thing on the
      Plan pane that raises itself at all, and below `.wf-mast`'s 45 — that ceiling SURVIVES the
      anchoring fix, because the masthead keeps `position: relative; z-index: 45` as a stacking

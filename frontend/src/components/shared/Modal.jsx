@@ -145,7 +145,10 @@ export default function Modal({
     <div
       ref={dialogRef}
       tabIndex={-1}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 focus:outline-none"
+      // `p-4` is gone in favour of `app-safe-modal`, which resolves the gutter and the safe inset
+      // as `max()` of the two rather than summing them — it is exactly `p-4` wherever no inset is
+      // reported, which is every surface but a notched device.
+      className="app-safe-modal fixed inset-0 z-50 flex items-center justify-center focus:outline-none"
       role="dialog"
       /* Exactly one element on the page may claim this, and it is the layer the reader is on. */
       aria-modal={stacked ? undefined : 'true'}

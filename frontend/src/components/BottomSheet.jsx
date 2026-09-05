@@ -72,7 +72,10 @@ export default function BottomSheet({
         // else, so a screen-reader user was told something had opened but not what.
         aria-label={label}
         data-testid="bottom-sheet"
-        className="fixed bottom-0 left-0 right-0 rounded-t-2xl bg-plex-surface border-t border-plex-border animate-slide-up focus:outline-none"
+        // `left-0 right-0` is gone in favour of `app-safe-sheet`, which owns `left`/`right`/
+        // `padding-bottom` together — see index.css for why the sides are inset while the foot is
+        // padded. Identical to the old `left-0 right-0 bottom-0` on any device reporting no insets.
+        className="app-safe-sheet fixed bottom-0 rounded-t-2xl bg-plex-surface border-t border-plex-border animate-slide-up focus:outline-none"
         style={{ zIndex: 10000, maxHeight: '60vh' }}
       >
         {/* Drag handle */}

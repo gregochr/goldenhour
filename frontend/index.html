@@ -6,7 +6,12 @@
     <!-- iOS uses this rather than the web-app manifest's icons for Add to Home Screen. -->
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <meta name="theme-color" content="#181210" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- `viewport-fit=cover` is what makes `env(safe-area-inset-*)` report anything but zero;
+         without it every safe-area rule in index.css is inert. See that file's "Safe areas"
+         block for the audit of what answers for the insets, and for why the TOP inset stays
+         zero in a home-screen PWA until someone decides to add
+         `apple-mobile-web-app-status-bar-style: black-translucent`. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
     <!-- Fonts are self-hosted (bundled via @fontsource in src/fonts.js), so there's no
          render-blocking third-party stylesheet on the load path. -->
     <title>PhotoCast — Golden hour, forecast and ranked by AI</title>

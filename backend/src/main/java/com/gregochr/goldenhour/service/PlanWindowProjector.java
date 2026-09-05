@@ -486,8 +486,30 @@ public final class PlanWindowProjector {
      * picks at all for a briefing whose slots happen to carry no solar time.
      */
     private static boolean isPast(Draft draft, LocalDateTime now) {
-        LocalDateTime time = draft.eventTime();
-        return time != null && time.plusMinutes(AFTERGLOW_MINUTES).isBefore(now);
+        return hasPassed(draft.eventTime(), now);
+    }
+
+    /**
+     * Whether a window's moment has gone, afterglow included.
+     *
+     * <p>Extracted from {@link #isPast(Draft, LocalDateTime)} so the briefing digest can ask the
+     * same question of the same rule rather than restating it. That matters more than the two lines
+     * it saves: the digest publishes the same windows this projector authored, and a second
+     * elapsed-test with its own grace period would drop a window from one surface while the other
+     * still showed it, for no reason a reader could see.
+     *
+     * <p>Both halves are deliberate. The <b>afterglow</b> keeps a window current for
+     * {@value #AFTERGLOW_MINUTES} minutes past its own time, because the colour outlasts the
+     * geometry. A <b>null time counts as current, never as past</b> — the same choice
+     * {@code CloseToHomeService} makes; reading a missing time as elapsed would silently empty
+     * both surfaces for a briefing whose slots happen to carry no solar time.
+     *
+     * @param eventTime the window's event time in UTC, or null when it has none
+     * @param now       the current UTC time
+     * @return true only when a known time is more than the afterglow behind {@code now}
+     */
+    public static boolean hasPassed(LocalDateTime eventTime, LocalDateTime now) {
+        return eventTime != null && eventTime.plusMinutes(AFTERGLOW_MINUTES).isBefore(now);
     }
 
     private static BriefingWindow.Pick candidate(RankedRegion ranked, boolean canopyCounts) {

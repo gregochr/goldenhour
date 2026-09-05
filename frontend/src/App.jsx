@@ -421,7 +421,13 @@ function AppInner() {
     // flex children below do, nothing can push the page taller than one screen. Every other tab
     // keeps `min-h-screen` and today's ordinary document flow — the conditional is scoped to
     // exactly the tab that needs it, nothing else.
-    <div className={isMapTabActive ? 'h-[100dvh] flex flex-col overflow-hidden bg-plex-bg' : 'min-h-screen bg-plex-bg'}>
+    // `app-safe` carries the viewport's safe-area insets as padding, so everything in normal flow
+    // below is inset without knowing about them (index.css's "Safe areas" block lists the four
+    // elements that DO have to know, because they touch a viewport edge themselves). On the Map tab
+    // it also does the right thing to `h-[100dvh]`: Tailwind's preflight makes every box
+    // `border-box`, so the padding comes OUT of the screen height and the `flex-1` map pane
+    // shrinks to fit, rather than the page growing past one screen.
+    <div className={`app-safe ${isMapTabActive ? 'h-[100dvh] flex flex-col overflow-hidden bg-plex-bg' : 'min-h-screen bg-plex-bg'}`}>
       {/* A natural-height, non-shrinking flex item on the Map tab — `flex-shrink-0` so a tight
           column never squeezes a banner instead of the map panel, which is the one element with
           `flex-1` and so the one meant to absorb the difference. Inert on every other tab (the

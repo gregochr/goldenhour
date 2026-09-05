@@ -1,8 +1,10 @@
 package com.gregochr.goldenhour.controller;
 
+import com.gregochr.goldenhour.model.BriefingDigestResponse;
 import com.gregochr.goldenhour.model.BriefingModelTestResultDto;
 import com.gregochr.goldenhour.model.BriefingModelTestRunDto;
 import com.gregochr.goldenhour.model.DailyBriefingResponse;
+import com.gregochr.goldenhour.service.BriefingDigestService;
 import com.gregochr.goldenhour.service.BriefingModelTestService;
 import com.gregochr.goldenhour.service.BriefingService;
 import org.springframework.http.ResponseEntity;
@@ -30,17 +32,21 @@ public class BriefingController {
 
     private final BriefingService briefingService;
     private final BriefingModelTestService briefingModelTestService;
+    private final BriefingDigestService briefingDigestService;
 
     /**
      * Constructs a {@code BriefingController}.
      *
      * @param briefingService          the service that manages the briefing cache
      * @param briefingModelTestService the service that runs briefing model comparisons
+     * @param briefingDigestService    the service that projects the briefing into the digest
      */
     public BriefingController(BriefingService briefingService,
-            BriefingModelTestService briefingModelTestService) {
+            BriefingModelTestService briefingModelTestService,
+            BriefingDigestService briefingDigestService) {
         this.briefingService = briefingService;
         this.briefingModelTestService = briefingModelTestService;
+        this.briefingDigestService = briefingDigestService;
     }
 
     /**
@@ -60,6 +66,31 @@ public class BriefingController {
             return ResponseEntity.noContent().build();
         }
         return ResponseEntity.ok(briefing);
+    }
+
+    /**
+     * Returns a flat, bounded, chronological projection of the briefing's solar windows, or 204 No
+     * Content when no briefing has been generated yet.
+     *
+     * <p>The same forecast {@link #getBriefing()} serves, with the tree removed — for clients that
+     * cannot afford to walk it. Bearer with no role gate, by inheritance from {@code /api/**} →
+     * {@code .authenticated()}: it is a strict projection of a payload every authenticated caller
+     * may already read in full, so a gate here would deny nothing and break the callers it exists
+     * for. It carries no per-user data, which is what makes it safe to ETag-revalidate alongside
+     * {@code /api/briefing}.
+     *
+     * @param limit how many windows to return, clamped into
+     *              [1, {@value BriefingDigestService#MAX_LIMIT}]
+     * @return the digest, or 204 when there is no briefing
+     */
+    @GetMapping("/digest")
+    public ResponseEntity<BriefingDigestResponse> getDigest(
+            @RequestParam(defaultValue = "" + BriefingDigestService.DEFAULT_LIMIT) int limit) {
+        BriefingDigestResponse digest = briefingDigestService.digest(limit);
+        if (digest == null) {
+            return ResponseEntity.noContent().build();
+        }
+        return ResponseEntity.ok(digest);
     }
 
     /**

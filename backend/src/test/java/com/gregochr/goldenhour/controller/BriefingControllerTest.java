@@ -5,6 +5,9 @@ import com.gregochr.goldenhour.entity.BriefingModelTestRunEntity;
 import com.gregochr.goldenhour.entity.EvaluationModel;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingDay;
+import com.gregochr.goldenhour.model.BriefingWindow;
+import com.gregochr.goldenhour.model.Confidence;
+import com.gregochr.goldenhour.model.DisplayVerdict;
 import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
@@ -233,6 +236,115 @@ class BriefingControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(1))
                 .andExpect(jsonPath("$[0].evaluationModel").value("HAIKU"));
+    }
+
+    // ── GET /api/briefing/digest ──────────────────────────────────────────────────────────────
+    //
+    // Driven through the REAL Spring MVC / Jackson 3 response chain and the REAL
+    // BriefingDigestService bean (only BriefingService is mocked), because the whole value of this
+    // endpoint is the flat wire shape a memory-constrained client decodes — which a service-level
+    // test on the Jackson 2 graph cannot prove (CLAUDE.md's two-object-graphs warning).
+    //
+    // The fixture sits in the year 2999 deliberately. The wired SolarEventFreshness carries the
+    // real system clock, so a fixture near today would retire its own windows partway through an
+    // afternoon and the suite would fail by the hour. The afterglow rule itself has a fixed-clock
+    // boundary pair in BriefingDigestServiceTest, which is where it belongs.
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/briefing/digest flattens each window onto one object")
+    void getDigest_returnsFlatWindows() throws Exception {
+        when(briefingService.getCachedBriefingForApi()).thenReturn(buildDigestBriefing());
+
+        mockMvc.perform(get("/api/briefing/digest"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.generatedAt").exists())
+                .andExpect(jsonPath("$.windows.length()").value(2))
+                .andExpect(jsonPath("$.windows[0].date").value("2999-03-25"))
+                .andExpect(jsonPath("$.windows[0].event").value("SUNSET"))
+                .andExpect(jsonPath("$.windows[0].verdict").value("WORTH_IT"))
+                .andExpect(jsonPath("$.windows[0].bestRating").value(4))
+                // ⚠️ LOWERCASE, and pinned here on purpose. `Confidence` carries a
+                // `@JsonValue` of "high"/"medium"/"low", so the enum NAME never reaches the
+                // wire — and the digest has to speak the same vocabulary as the full
+                // briefing or a widget and the Plan tab would read one region's confidence
+                // two different ways. Asserting "HIGH" here is what a service-level test on
+                // the Jackson 2 graph would have let through.
+                .andExpect(jsonPath("$.windows[0].confidence").value("high"))
+                .andExpect(jsonPath("$.windows[0].pick").value("BEST"))
+                .andExpect(jsonPath("$.windows[0].headline").value("A long clear run to the west"))
+                .andExpect(jsonPath("$.windows[0].regionName").value("Lake District"))
+                .andExpect(jsonPath("$.windows[0].locationName").value("Keswick"))
+                // Flat: no tree survives the projection, which is the point of the endpoint.
+                .andExpect(jsonPath("$.windows[0].slots").doesNotExist())
+                .andExpect(jsonPath("$.windows[0].regions").doesNotExist())
+                .andExpect(jsonPath("$.hotTopics").doesNotExist())
+                .andExpect(jsonPath("$.days").doesNotExist());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/briefing/digest omits an absent narrative rather than sending nulls")
+    void getDigest_omitsAbsentNarrative() throws Exception {
+        when(briefingService.getCachedBriefingForApi()).thenReturn(buildDigestBriefing());
+
+        mockMvc.perform(get("/api/briefing/digest"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.windows[1].event").value("SUNRISE"))
+                .andExpect(jsonPath("$.windows[1].pick").doesNotExist())
+                .andExpect(jsonPath("$.windows[1].headline").doesNotExist())
+                .andExpect(jsonPath("$.windows[1].regionName").doesNotExist());
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/briefing/digest honours an explicit limit")
+    void getDigest_honoursLimit() throws Exception {
+        when(briefingService.getCachedBriefingForApi()).thenReturn(buildDigestBriefing());
+
+        mockMvc.perform(get("/api/briefing/digest").param("limit", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.windows.length()").value(1))
+                .andExpect(jsonPath("$.windows[0].date").value("2999-03-25"));
+    }
+
+    @Test
+    @WithMockUser
+    @DisplayName("GET /api/briefing/digest returns 204 when cache is empty")
+    void getDigest_noContent() throws Exception {
+        when(briefingService.getCachedBriefingForApi()).thenReturn(null);
+
+        mockMvc.perform(get("/api/briefing/digest"))
+                .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @DisplayName("GET /api/briefing/digest returns 401 without authentication")
+    void getDigest_unauthenticated() throws Exception {
+        mockMvc.perform(get("/api/briefing/digest"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * Two windows on consecutive days: a sunset carrying a pick, and a sunrise carrying none.
+     */
+    private static DailyBriefingResponse buildDigestBriefing() {
+        BriefingWindow.Pick pick = new BriefingWindow.Pick(BriefingWindow.PickKind.BEST,
+                "Lake District", "A long clear run to the west", null, 4.25, "Keswick", 7L);
+        BriefingEventSummary sunset = new BriefingEventSummary(
+                TargetType.SUNSET, List.of(), List.of())
+                .withWindow(new BriefingWindow(LocalDateTime.of(2999, 3, 25, 18, 30),
+                        DisplayVerdict.WORTH_IT, 4, Confidence.HIGH, pick, List.of(), null, null));
+        BriefingEventSummary sunrise = new BriefingEventSummary(
+                TargetType.SUNRISE, List.of(), List.of())
+                .withWindow(new BriefingWindow(LocalDateTime.of(2999, 3, 26, 6, 0),
+                        DisplayVerdict.MAYBE, 2, Confidence.LOW, null, List.of(), null, null));
+
+        return new DailyBriefingResponse(
+                LocalDateTime.of(2999, 3, 25, 9, 0), "headline",
+                List.of(new BriefingDay(LocalDate.of(2999, 3, 25), List.of(sunset)),
+                        new BriefingDay(LocalDate.of(2999, 3, 26), List.of(sunrise))),
+                List.of(), null, null, false, false, 0, "Opus", List.of(), List.of());
     }
 
     private static DailyBriefingResponse buildSampleBriefing() {

@@ -381,7 +381,17 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
   it('anchors the bar at the top of the viewport, not below a masthead that never pinned', () => {
     // The literal is the point. `top: var(--wf-mast-h, …)` hung the bar a masthead's height down
     // the viewport with matrix cards scrolling through the band above it — the "floating" defect.
-    expect(decls(block('.wf-lens'))).toContain('top: 0');
+    //
+    // ⚠️ It reads `env(safe-area-inset-top, 0px)` rather than the bare `top: 0` this asserted until
+    // safe-area handling landed, and that is the SAME anchor, not a relaxation of it. The `0px`
+    // fallback makes it exactly `top: 0` on every surface reporting no inset — which is all of them
+    // but a notched iOS device with the status-bar opt-in — and on one that does report an inset,
+    // the viewport's top edge is under the status bar and this is where the bar's top edge belongs.
+    // A sticky element sticks to its SCROLLPORT, so the app root's own safe-area padding cannot
+    // reach it: this bar is the one piece of Plan chrome that has to name the inset itself. What
+    // must never come back is a top derived from chrome that does not pin, and the second
+    // assertion still guards exactly that.
+    expect(decls(block('.wf-lens'))).toContain('top: env(safe-area-inset-top, 0px)');
     expect(decls(block('.wf-lens'))).not.toContain('--wf-mast-h');
   });
 
