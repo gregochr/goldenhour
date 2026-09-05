@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import PropTypes from 'prop-types';
 import { describe, it, expect, vi } from 'vitest';
 import { act, render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { createPortal } from 'react-dom';
 import Modal from '../../components/shared/Modal.jsx';
 
 /**
@@ -326,6 +327,45 @@ describe('Modal', () => {
       document.activeElement.blur();
       rerender(<Host stacked={false} />);
       expect(document.activeElement).toBe(chip);
+    });
+
+    it('⚠️ records nothing from a PORTALLED child, which is outside its DOM subtree', () => {
+      // The sibling of the test above, on the axis it does not cover: that one pins that the ROOT
+      // is refused, this one that anything outside the dialog's DOM subtree is. React's synthetic
+      // focus bubbles through the REACT tree, so a `createPortal` child reaches this recorder while
+      // its node sits outside the dialog — and the restore would then send focus OUTSIDE a live
+      // `aria-modal` dialog, which is the opposite of its job. The restore's own "did the focus
+      // land" check is no help: such a node takes focus perfectly well. `onPointerDown` has always
+      // tested containment; `onFocus` did not.
+      //
+      // ⚠️ No live route today — the one portalled child these dialogs render (the spot peek) is
+      // `aria-hidden` with nothing focusable in it. This pins the ref's stated contract, not a
+      // reproduced defect, and it is worth pinning now because the root fallback gives a bad record
+      // something correct to beat.
+      const Host = ({ stacked }) => (
+        <Modal label="Under" stacked={stacked} data-testid="under">
+          <button type="button" data-testid="chip">Chip</button>
+          {createPortal(<button type="button" data-testid="portalled">Portalled</button>, document.body)}
+        </Modal>
+      );
+      Host.propTypes = { stacked: PropTypes.bool.isRequired };
+
+      const { rerender } = render(<Host stacked={false} />);
+      const portalled = screen.getByTestId('portalled');
+      const dialog = screen.getByRole('dialog', { name: 'Under' });
+      expect(dialog.contains(portalled)).toBe(false);
+      portalled.focus();
+      expect(portalled).toHaveFocus();
+
+      rerender(<Host stacked />);
+      // Simulated, as everywhere in this block. A browser would not blur this one at all — it is
+      // outside the inert subtree — which is itself the point: the record is not this dialog's to
+      // restore, so the reader must land on the dialog rather than back on it.
+      portalled.blur();
+      expect(document.activeElement).toBe(document.body);
+
+      rerender(<Host stacked={false} />);
+      expect(document.activeElement).toBe(dialog);
     });
 
     it('does NOT yank focus back from wherever the reader has since moved to', async () => {

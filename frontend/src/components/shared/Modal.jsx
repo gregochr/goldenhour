@@ -282,7 +282,24 @@ export default function Modal({
          were headless Chromium; an adversarial review caught the engine assumption. `pointerdown`
          rather than `click` because the blur has to be beaten, and the target is filtered to a real
          element inside this dialog so a press on the backdrop records nothing. */
-      onFocus={(e) => { if (e.target !== e.currentTarget) lastInside.current = e.target; }}
+      onFocus={(e) => {
+        // ⚠️ The containment test is not redundant with the root test beside it, and it is what
+        // makes this ref's own stated contract ("focused INSIDE this dialog") true. React's
+        // synthetic focus bubbles through the REACT tree, so a `createPortal` child is a descendant
+        // for event purposes while its DOM node sits OUTSIDE this dialog — and recording one would
+        // send the restore outside a live `aria-modal` dialog, which is the opposite of what the
+        // restore is for. The restore's own "did the focus land" check cannot catch it either,
+        // because such a node takes focus perfectly well.
+        //
+        // No live route today: the one portalled child these dialogs render (the spot peek) is
+        // `aria-hidden` with nothing focusable in it. This closes the asymmetry with
+        // `onPointerDown` below, which has always tested containment — raised independently by two
+        // adversarial reviewers against the uncover fallback, whose arrival is what gives a bad
+        // record something correct to beat.
+        if (e.target !== e.currentTarget && e.currentTarget.contains(e.target)) {
+          lastInside.current = e.target;
+        }
+      }}
       onPointerDown={(e) => {
         const el = e.target instanceof HTMLElement ? e.target.closest('a,button,input,select,textarea,[tabindex]') : null;
         if (el && el !== e.currentTarget && e.currentTarget.contains(el)) lastInside.current = el;
