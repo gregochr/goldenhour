@@ -2156,6 +2156,94 @@ describe('WindowFirstHeatStrip — thumbnail geography (field-geography plan §2
     expect(screen.getByTestId('wf-heat-area')).toHaveTextContent('DOWNS');
   });
 
+  /**
+   * The region names production actually serves, with the curated label each one is supposed to
+   * reach. ⚠️ Every one of them missed BOTH tables — which were authored without the articles and
+   * conjuncts — and the tiny fallback's "keep the first word" rule then rendered `The Lake
+   * District` and `The Yorkshire Dales` as the single word `THE` on every phone-width card, and
+   * `North York Moors & Coast` as `YORK`.
+   *
+   * <p>ONE list drives both the tiny and the full case below, so the two can never end up
+   * describing different rosters. It is deliberately the served spelling and not the table's own
+   * keys: a fixture written in the key form is what let this ship, since `Lake District` hits the
+   * table on any implementation and proves only that object lookup works.
+   */
+  const SERVED_REGIONS = [
+    { served: 'The Lake District', tiny: 'LAKES', full: 'LAKE DISTRICT' },
+    { served: 'The Yorkshire Dales', tiny: 'DALES', full: 'YORKSHIRE DALES' },
+    { served: 'North York Moors & Coast', tiny: 'N Y MOORS', full: 'NORTH YORK MOORS' },
+    { served: 'Northumberland & Tyneside', tiny: 'NORTHUMB.', full: 'NORTHUMBERLAND' },
+  ];
+
+  it.each(SERVED_REGIONS)('⚠️ reaches the curated TINY name for $served as served', async ({ served, tiny }) => {
+    await withMeasuredThumbs(150, () => withLabelBox(40, 12, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      await renderStrip({ spots: [geoSpot(served, 100, 100)] });
+    }));
+
+    const label = screen.getByTestId('wf-heat-area');
+    // The WHOLE text, not `toHaveTextContent`'s substring: the curation is the point, and a
+    // substring assertion for `DALES` passes just as happily on the uncurated `YORKSHIRE DALES`.
+    expect(label.textContent).toBe(tiny);
+    expect(label).toHaveAttribute('data-region', served);
+  });
+
+  it.each(SERVED_REGIONS)('reaches the FULL table for $served as served', async ({ served, full }) => {
+    await withMeasuredThumbs(300, () => withLabelBox(80, 12, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      await renderStrip({ spots: [geoSpot(served, 100, 100)] });
+    }));
+
+    // Not merely "shorter than the served name": the full fallback uppercases the name UNCHANGED,
+    // so `THE LAKE DISTRICT` would satisfy a looser assertion while proving the lookup still missed.
+    expect(screen.getByTestId('wf-heat-area').textContent).toBe(full);
+  });
+
+  it('⚠️ loops the directional drop instead of stepping once — North West Highlands keeps HIGHLANDS', async () => {
+    // The rule dropped exactly one leading word, so a second directional survived as the label:
+    // this read `WEST`, which names no region at all.
+    await withMeasuredThumbs(150, () => withLabelBox(40, 12, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      await renderStrip({ spots: [geoSpot('North West Highlands', 100, 100)] });
+    }));
+
+    expect(screen.getByTestId('wf-heat-area').textContent).toBe('HIGHLANDS');
+  });
+
+  it('drops a leading article from an UNMAPPED tiny name too, rather than rendering the article', async () => {
+    // The table is non-authoritative by design, so the fallback has to survive the same shape of
+    // name the lookup now normalises — otherwise the next region added reintroduces `THE`.
+    await withMeasuredThumbs(150, () => withLabelBox(40, 12, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      await renderStrip({ spots: [geoSpot('The Cheviots', 100, 100)] });
+    }));
+
+    expect(screen.getByTestId('wf-heat-area').textContent).toBe('CHEVIOTS');
+  });
+
+  it('leaves the FULL fallback uppercasing the served name unchanged, article and all', async () => {
+    // The asymmetry is deliberate (§2.4): at full width a long name is legible, so nothing is
+    // dropped, and only the tiny set abbreviates. Pinned so a later tidy-up cannot quietly align
+    // the two and start editing names on the surface that has room for them.
+    await withMeasuredThumbs(300, () => withLabelBox(80, 12, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      await renderStrip({ spots: [geoSpot('The Cheviots', 100, 100)] });
+    }));
+
+    expect(screen.getByTestId('wf-heat-area').textContent).toBe('THE CHEVIOTS');
+  });
+
+  it('keeps its single word for a region named only of droppable noise', async () => {
+    // The drop always leaves one word standing. Without that floor a region named `North` labels
+    // itself with the empty string, which places a zero-width box and reads as a missing label.
+    await withMeasuredThumbs(150, () => withLabelBox(40, 12, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      await renderStrip({ spots: [geoSpot('North', 100, 100)] });
+    }));
+
+    expect(screen.getByTestId('wf-heat-area').textContent).toBe('NORTH');
+  });
+
   it('marks data-hot="true" on exactly the card\'s hotRegionName label', async () => {
     await withMeasuredThumbs(300, () => withLabelBox(30, 12, async () => {
       drawGeo.mockImplementation(() => IDENTITY_PROJ);

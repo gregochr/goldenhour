@@ -204,17 +204,25 @@ export function bestReachLine(card) {
 }
 
 /**
- * Area-name tables for the thumbnail's region labels (field-geography plan §2.4), keyed by region
- * name as served.
+ * Area-name tables for the thumbnail's region labels (field-geography plan §2.4), keyed in the
+ * {@link plainName} form — <b>not</b> in the form the payload serves.
  *
- * <p>Authored against the roster the design fidelity note treats as final, <b>not</b> the local
- * seed's own regions (`Northumberland & Tyneside` / `The Lake District` / `The Scottish Borders` —
- * `scripts/dev-seed-locations.sh`), so a local browser session exercises {@link areaLabel}'s
- * fallback rather than this table for every region on screen; that is the designed degrade, not a
- * bug in the map. Production regions are DB-managed via the Admin UI and
- * {@code RegionService.setName} makes renames routine (V137 exists to clean up after one) — this
- * table is deliberately non-authoritative and WILL drift. It is a styling nicety over the
- * derivation rule below, never a registry.
+ * <p>⚠️ <b>That distinction is the bug this comment used to hide.</b> Production serves
+ * `The Lake District` / `The Yorkshire Dales` / `North York Moors & Coast` /
+ * `Northumberland & Tyneside`, and all four of the local seed's regions carry an article or a
+ * conjunct too (`scripts/dev-seed-locations.sh`). The tables were authored without either, so
+ * every production lookup missed — and the fallback that caught them is not the harmless degrade
+ * this comment once claimed: the tiny set keeps only the FIRST word, so both Lakes and Dales
+ * rendered as the single word `THE` on every phone-width card, and the Moors as `YORK`.
+ *
+ * <p>{@link areaLabel} now tries the served name first and its plain form second, so the table is
+ * reached whichever way a region is named. Two of the seed's four regions reach it and two still
+ * degrade through the fallback, which leaves a local session exercising both paths.
+ *
+ * <p>Production regions are DB-managed via the Admin UI and {@code RegionService.setName} makes
+ * renames routine (V137 exists to clean up after one) — this table is deliberately
+ * non-authoritative and WILL drift. It is a styling nicety over the derivation rule below, never a
+ * registry, which is why the fix above went into the lookup rather than into these keys.
  */
 export const AREA_FULL = {
   Northumberland: 'NORTHUMBERLAND',
@@ -243,20 +251,72 @@ export const AREA_TINY = {
  */
 export const TINY_NAME_WIDTH = 215;
 
+/**
+ * A leading definite article, dropped by {@link plainName} — and so, transitively, by the tiny
+ * fallback that derives from it.
+ *
+ * <p>Only `the`. `A`/`An` are not here because a one-letter first word is as likely to be part of
+ * a real name as an article, and no region in this roster or any plausible successor starts with
+ * one; the narrow rule cannot misfire.
+ */
+const ARTICLE = /^the$/i;
+
 /** A leading directional dropped from an unmapped region's tiny-set fallback. @see areaLabel */
 const DIRECTIONAL = /^(north|south|east|west)$/i;
 
 /**
+ * A trailing `& Coast` / `and Tyneside` conjunct, dropped by {@link plainName}.
+ *
+ * <p>An appended second area is the region's SCOPE, never its identity — `North York Moors &
+ * Coast` is the Moors table entry with the coast added, and the head alone is what a 175px
+ * thumbnail has room for anyway. Requires a non-space after the conjunction so a trailing `&`
+ * cannot eat the name and leave nothing.
+ */
+const CONJUNCT = /\s+(?:&|and)\s+\S[\s\S]*$/i;
+
+/**
+ * A served region name reduced to the form {@link AREA_FULL}/{@link AREA_TINY} are keyed in —
+ * leading article and trailing conjunct removed, nothing else touched.
+ *
+ * <p>⚠️ <b>This exists because keying the tables on the served names alone is what broke.</b> The
+ * tables hold `Lake District`; the payload says `The Lake District`; the lookup missed, and the
+ * tiny fallback's "keep the first word" rule turned it into `THE`. Re-keying the tables to the
+ * served spelling would have fixed exactly today's four names and re-broken on the next admin
+ * rename — the table's own doc comment says it WILL drift — so the lookup is what gives instead.
+ *
+ * <p>The article drop is here rather than in the fallback alone because the table is the surface
+ * that carries the CURATED short name (`LAKES`, `DALES`); a fallback-only fix would have produced
+ * the merely-tolerable `LAKE`/`YORKSHIRE` and left the curation unreachable.
+ *
+ * @param {string} regionName the region name as served
+ * @returns {string} the plain form, or `''` for a null/blank name
+ */
+function plainName(regionName) {
+  const words = String(regionName ?? '').replace(CONJUNCT, '').trim().split(/\s+/)
+    .filter(Boolean);
+  if (words.length > 1 && ARTICLE.test(words[0])) words.shift();
+  return words.join(' ');
+}
+
+/**
  * One region's label, in the size table {@code tiny} selects.
+ *
+ * <p>Looked up twice — the served name first, so an exact table entry always wins, then
+ * {@link plainName}'s reduction, which is what reaches the curated short name for every region
+ * the payload happens to article- or conjunct-qualify.
  *
  * <p>The two fallbacks are deliberately different shapes. The full set falls back to the
  * uppercased name unchanged — always legible, if long. The tiny set does NOT take that fallback:
  * a long name at under {@link TINY_NAME_WIDTH} fails {@code placeWithNudges} outright and the
- * region silently loses its label, so the tiny fallback derives a short one instead — drop a
- * leading directional, keep the first remaining word, uppercase it.
+ * region silently loses its label, so the tiny fallback derives a short one instead — from the
+ * PLAIN name, drop leading directionals, keep the first remaining word, uppercase it. The drop
+ * loops rather than stepping once, so `North West Highlands` reaches `HIGHLANDS` rather than
+ * stopping on `WEST`; it always leaves one word standing, so a region named only `North` keeps it.
  *
  * <p>Warns once per miss, dev-mode only, so a rename or roster growth surfaces at the next local
- * session rather than as an unlabeled blob (§2.4's three guards).
+ * session rather than as an unlabeled blob (§2.4's three guards). ⚠️ That warning was firing on
+ * every production region for the whole life of this component and nobody saw it — it is a local
+ * tripwire, not a monitor, so it does not discharge the table's drift on its own.
  *
  * @param {string} regionName the region name as served
  * @param {boolean} tiny whether this card drew under {@link TINY_NAME_WIDTH}
@@ -264,19 +324,23 @@ const DIRECTIONAL = /^(north|south|east|west)$/i;
  */
 function areaLabel(regionName, tiny) {
   const table = tiny ? AREA_TINY : AREA_FULL;
-  const known = table[regionName];
+  // Own-property reads: region names are admin-authored, so a region named `constructor` would
+  // otherwise resolve to `Object.prototype`'s member and hand React a function to render.
+  const entry = (key) => (Object.hasOwn(table, key) ? table[key] : null);
+  const plain = plainName(regionName);
+  const known = entry(regionName) ?? entry(plain);
   if (known) return known;
   if (import.meta.env.DEV) {
     console.warn(
-      `WindowFirstHeatStrip: no area-name mapping for region "${regionName}" — falling back. `
-      + 'Regions are DB-managed and renamed routinely; this table is a styling nicety, not a '
-      + 'registry (field-geography plan §2.4).',
+      `WindowFirstHeatStrip: no area-name mapping for region "${regionName}" (nor for its plain `
+      + `form "${plain}") — falling back. Regions are DB-managed and renamed routinely; this `
+      + 'table is a styling nicety, not a registry (field-geography plan §2.4).',
     );
   }
   if (!tiny) return String(regionName ?? '').toUpperCase();
-  const words = String(regionName ?? '').trim().split(/\s+/).filter(Boolean);
-  const head = (words.length > 1 && DIRECTIONAL.test(words[0]) ? words[1] : words[0]) || '';
-  return head.toUpperCase();
+  const words = plain.split(/\s+/).filter(Boolean);
+  while (words.length > 1 && DIRECTIONAL.test(words[0])) words.shift();
+  return (words[0] ?? '').toUpperCase();
 }
 
 /**
