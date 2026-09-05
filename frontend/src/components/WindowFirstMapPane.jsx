@@ -149,17 +149,27 @@ export default function WindowFirstMapPane({
     origin, setOrigin, effectiveReachById, scoreRows, scoresLoaded, briefing,
   } = useWindowFirstBriefing();
   /**
-   * A door handoff, distinguished from the overlay hatch's handoff on the SAME `handoff` channel
-   * (doors D2, `plan-to-map-doors-plan.md` §3 D2 task 2) — both arrive as `App.jsx`'s
-   * `mapTabHandoff`, but a door's payload carries `source: 'plan'` and the hatch's never has a
-   * `source` field at all, so the two are told apart by that one field rather than by a second
-   * channel. Forwarded to `MapView` as ONE `planHandoff` prop; the hatch's own five `handoff*`
-   * props below are withheld whenever a door handoff is the one in flight, so the OLD per-field
-   * effects (`handoffRegion`'s `FitBoundsController` fit, in particular) can never double-apply a
-   * door's own region alongside the new nonce-keyed effect's `jumpToRegion`/`resetToMyArea`.
+   * A STRUCTURED handoff, distinguished from the overlay hatch's on the SAME `handoff` channel
+   * (doors D2, `plan-to-map-doors-plan.md` §3 D2 task 2) — all of them arrive as `App.jsx`'s
+   * `mapTabHandoff`, but a structured payload names its `source` and the hatch's never has that
+   * field at all, so they are told apart by that one field rather than by a second channel.
+   * Forwarded to `MapView` as ONE `planHandoff` prop; the hatch's own five `handoff*` props below
+   * are withheld whenever a structured handoff is the one in flight, so the OLD per-field effects
+   * (`handoffRegion`'s `FitBoundsController` fit, in particular) can never double-apply a door's
+   * own region alongside the new nonce-keyed effect's `jumpToRegion`/`resetToMyArea`.
+   *
+   * <p>⚠️ <b>TWO sources ride it, and the prop's name only covers one of them.</b> `'plan'` is a
+   * door (the reader is arriving from the Plan tab, carrying its lens); `'map'` is the four-day
+   * sheet's own footer pressed while that sheet is already OVER the map, which moves the window and
+   * the selection and nothing else. `MapView` branches on `source` for the lens/scope/camera block
+   * and for the landing strip. They share this channel rather than getting one each because the
+   * effect behind it is the only one that treats the handed-over event as an EXPLICIT selection
+   * (`setUserHasOverriddenEvent(true)`); the hatch's own event arm sets that flag FALSE, and a
+   * map-sourced payload sent down it had its window silently replaced by `autoEventType` a tick
+   * later (Codex review, P1 against the first cut of this route).
    */
-  const isPlanHandoff = handoff?.source === 'plan';
-  const planHandoff = isPlanHandoff ? handoff : null;
+  const isStructuredHandoff = handoff?.source === 'plan' || handoff?.source === 'map';
+  const planHandoff = isStructuredHandoff ? handoff : null;
 
   /**
    * The breadcrumb's `clear` origin reset (D2) — `useCallback`'d, not a fresh arrow literal at the
@@ -339,18 +349,19 @@ export default function WindowFirstMapPane({
         // to decide whether a picked EV row's date may be forwarded via `onSelectDate` at all.
         forecastDates={dates}
         autoEventType={autoEventType}
-        // Withheld outright for a door handoff (`isPlanHandoff`) — see this component's own
-        // `planHandoff` doc note just above: a door's region/location/event ride the ONE
-        // `planHandoff` prop below and must never ALSO reach these older per-field effects, which
-        // apply a region via `FitBoundsController` rather than the door's own `jumpToRegion`/
-        // `resetToMyArea` scope-flip semantics.
-        handoffEventType={isPlanHandoff ? null : (handoff?.eventType ?? null)}
-        handoffFilterAction={isPlanHandoff ? null : (handoff?.filterAction ?? null)}
-        handoffDarkSky={isPlanHandoff ? null : (handoff?.darkSky ?? null)}
-        handoffLocationName={isPlanHandoff ? null : (handoff?.locationName ?? null)}
-        handoffRegion={isPlanHandoff ? null : (handoff?.region ?? null)}
-        handoffNonce={isPlanHandoff ? null : (handoff?.nonce ?? null)}
-        // A door handoff (D2) — the ONE prop a `source: 'plan'` handoff reaches `MapView` through;
+        // Withheld outright for a structured handoff (`isStructuredHandoff`) — see this component's
+        // own `planHandoff` doc note just above: a structured payload's region/location/event ride
+        // the ONE `planHandoff` prop below and must never ALSO reach these older per-field effects,
+        // which apply a region via `FitBoundsController` rather than the door's own `jumpToRegion`/
+        // `resetToMyArea` scope-flip semantics — and whose event arm sets `userHasOverriddenEvent`
+        // to FALSE, which is what made a map-sourced payload lose its window to `autoEventType`.
+        handoffEventType={isStructuredHandoff ? null : (handoff?.eventType ?? null)}
+        handoffFilterAction={isStructuredHandoff ? null : (handoff?.filterAction ?? null)}
+        handoffDarkSky={isStructuredHandoff ? null : (handoff?.darkSky ?? null)}
+        handoffLocationName={isStructuredHandoff ? null : (handoff?.locationName ?? null)}
+        handoffRegion={isStructuredHandoff ? null : (handoff?.region ?? null)}
+        handoffNonce={isStructuredHandoff ? null : (handoff?.nonce ?? null)}
+        // A structured handoff — the ONE prop a `source`-bearing handoff reaches `MapView` through;
         // null whenever `handoff` is the overlay hatch's own (or there is no handoff at all).
         planHandoff={planHandoff}
         briefingScores={briefingScores}
@@ -394,7 +405,7 @@ WindowFirstMapPane.propTypes = {
   onSelectDate: PropTypes.func.isRequired,
   handoff: PropTypes.shape({
     // 'plan' for a door handoff (D2); absent/undefined for the overlay hatch's own — see
-    // `isPlanHandoff`'s own doc note above for how the two are told apart on one channel.
+    // `isStructuredHandoff`'s own doc note above for how the two are told apart on one channel.
     source: PropTypes.string,
     eventType: PropTypes.string,
     filterAction: PropTypes.string,

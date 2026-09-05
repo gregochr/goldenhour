@@ -400,11 +400,19 @@ function AppInner() {
       // then appear over it reading "Where you came from · ← Plan", which is not where they came
       // from, and the `tabRequest` would move focus to the Map tab button of the tab they are on.
       //
-      // Omitting `source` is what makes this a window-and-selection move: `WindowFirstMapPane` tells
-      // a door from the overlay hatch's own handoff by that one field, and the hatch's per-field
-      // props set the event type and select the location, nothing else. No `tabRequest` either —
-      // there is no tab to change.
+      // ⚠️ `source: 'map'`, NOT an absent source. A source-less payload is the OVERLAY HATCH's
+      // shape, and the hatch's own effect sets `userHasOverriddenEvent` to FALSE — which re-runs
+      // `MapView`'s auto-selection effect and immediately replaces the window this press just named
+      // with `autoEventType`. So "Show on map → Monday sunrise", pressed from a map the reader had
+      // manually stepped to, landed on tonight's sunset instead. (Codex review, P1 on the first cut
+      // — the structured door effect already sets that flag TRUE for exactly this reason, and its
+      // own comment records the same reset as a previously shipped blocking defect.) The payload
+      // therefore rides the STRUCTURED channel, where the event is treated as an explicit
+      // selection, and carries no lens fields at all — `MapView` skips the lens/scope/camera block
+      // and the landing strip for a map-sourced one. No `tabRequest` either: there is no tab to
+      // change.
       setMapTabHandoff({
+        source: 'map',
         eventType: door.targetType,
         date: door.date,
         locationName: door.locationName ?? null,

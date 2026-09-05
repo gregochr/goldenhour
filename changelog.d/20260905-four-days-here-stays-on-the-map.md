@@ -26,7 +26,11 @@ Four supporting fixes fell out of it:
   overwritten (and persisted), its reach tier overwritten, its scope snapped back to "My area" and
   its camera refitted — all from a press that asked only to change the window — under a landing
   strip reading "Where you came from · ← Plan" for a reader who had come from the Map tab. It now
-  moves the window and the selection, and nothing else.
+  moves the window and the selection, and nothing else. It rides the map's *structured* handoff
+  channel rather than the older per-field one, because only the structured route treats the
+  handed-over event as an explicit choice: sent the other way, `Show on map → Tomorrow sunrise`
+  landed on tomorrow's **sunset**, the window silently replaced a tick later by the map's own
+  auto-selection.
 - The caption takes focus on the press. macOS and iOS Safari do not focus a `<button>` on click
   unless Full Keyboard Access is on, so without it the sheet had no return address to hand focus
   back to and a keyboard reader was returned to the top of the page instead of to the place they

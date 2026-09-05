@@ -1524,12 +1524,27 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       setEventType(planHandoff.eventType);
       setUserHasOverriddenEvent(true);
       setLocalNightDate(null);
-      const nextMinStars = planHandoff.minRating ?? 1;
-      setMinStars(nextMinStars);
-      writeMapFilter('mapFilterMinStars', String(nextMinStars));
-      setDriveTimeFilter(planHandoff.limitMinutes ?? 0);
-      if (planHandoff.region) jumpToRegion(planHandoff.region);
-      else resetToMyArea();
+      // ⚠️ EVERYTHING BELOW IS THE DOOR'S, and a map-sourced handoff takes none of it. `source:
+      // 'map'` is the four-day sheet's own footer pressed while that sheet is already OVER the map
+      // — the reader never left, so there is no lens to import and nothing was carried: applying
+      // this block would overwrite the floor they set on this very map (and PERSIST it), overwrite
+      // their reach tier, snap scope back to My area and refit the camera, all from a press that
+      // asked only to change the window.
+      //
+      // ⚠️ It rides THIS effect rather than the hatch's per-field ones, and the three lines above
+      // are why: only here is the handed-over event marked as an EXPLICIT selection. The hatch's
+      // event arm sets `userHasOverriddenEvent` FALSE, which re-runs the auto-selection effect and
+      // replaces the named window with `autoEventType` a tick later — the first cut of this route
+      // did exactly that, and `Show on map → Monday sunrise` landed on tonight's sunset (Codex
+      // review, P1). The same true-to-false reset is what this effect's own existence records.
+      if (planHandoff.source !== 'map') {
+        const nextMinStars = planHandoff.minRating ?? 1;
+        setMinStars(nextMinStars);
+        writeMapFilter('mapFilterMinStars', String(nextMinStars));
+        setDriveTimeFilter(planHandoff.limitMinutes ?? 0);
+        if (planHandoff.region) jumpToRegion(planHandoff.region);
+        else resetToMyArea();
+      }
       if (planHandoff.locationName) {
         const loc = locations.find(
           (l) => l.name === planHandoff.locationName && l.enabled !== false,
@@ -3179,7 +3194,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           set on the overlay mount (`App.jsx` never passes it there), so `!overlayMode` is a
           defence-in-depth restatement of a fact that already holds, not a second gate doing real
           work — kept explicit because it is what the plan itself states. */}
-      {!overlayMode && planHandoff && (
+      {/* ⚠️ Door-sourced only. The strip's own accessible name is "Where you came from" and its back
+          control reads `← Plan`; a map-sourced handoff came from THIS tab, so both would be false —
+          and its lens clauses describe a carry that never happened. */}
+      {!overlayMode && planHandoff && planHandoff.source !== 'map' && (
         <MapBreadcrumb
           carried={planHandoff}
           activeRow={activeMapEvent}
@@ -4214,13 +4232,22 @@ MapView.propTypes = {
    * date, targetType}) => void`, the real shell handoff (`App.jsx`'s `openLocationSheet`).
    */
   onOpenLocationSheet: PropTypes.func,
-  /**
-   * A door's landing payload (D2, `plan-to-map-doors-plan.md` §3 D2 task 1) —
-   * `{source: 'plan', eventType, date, region: ?string, minRating: ?number, limitMinutes: ?number,
-   * locationName: ?string, nonce}`, forwarded by `WindowFirstMapPane` ONLY when `handoff?.source
-   * === 'plan'` (never on the overlay, which is never handed this prop at all). Applied by ONE
-   * nonce-keyed effect and mounts `MapBreadcrumb` above the map frame while set — see that
-   * component's own doc for the derived-truth carrying clause.
+   /**
+   * A STRUCTURED landing payload (D2, `plan-to-map-doors-plan.md` §3 D2 task 1) — forwarded by
+   * `WindowFirstMapPane` whenever `handoff` names a `source` (never on the overlay, which is never
+   * handed this prop at all). Applied by ONE nonce-keyed effect. Two sources ride it:
+   *
+   * <ul>
+   *   <li>`{source: 'plan', eventType, date, region, minRating, limitMinutes, locationName, nonce}`
+   *       — a DOOR from the Plan tab. Applies the lens, the scope and the camera, and mounts
+   *       `MapBreadcrumb` above the map frame; see that component's own doc for the derived-truth
+   *       carrying clause.</li>
+   *   <li>`{source: 'map', eventType, date, locationName, nonce}` — the four-day sheet's own footer
+   *       pressed while that sheet is already OVER the map. Moves the window and the selection and
+   *       nothing else: no lens, no scope, no camera reframe, no landing strip. ⚠️ It shares this
+   *       channel deliberately — see the effect's own ⚠️ for the auto-selection race that made the
+   *       hatch's per-field props the wrong home for it.</li>
+   * </ul>
    */
   planHandoff: PropTypes.shape({
     source: PropTypes.string,

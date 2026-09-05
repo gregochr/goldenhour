@@ -222,9 +222,14 @@ describe('App — openMapTabFromPlan (doors D2)', () => {
     });
 
     const handoff = MapPaneStub.lastProps.handoff;
-    // No `source` is what makes `WindowFirstMapPane` read this as the overlay hatch's own shape —
-    // event type and location only — rather than as a door.
-    expect(handoff.source).toBeUndefined();
+    // ⚠️ `source: 'map'`, and NOT an absent source. A source-less payload is the overlay hatch's
+    // shape, and the hatch's own event effect sets `userHasOverriddenEvent` FALSE — which re-runs
+    // `MapView`'s auto-selection effect and replaces the window this press just named with
+    // `autoEventType` a tick later. The first cut of this route did exactly that (Codex review,
+    // P1): `Show on map → Monday sunrise`, pressed from a map the reader had manually stepped to,
+    // landed on tonight's sunset. `'map'` rides the STRUCTURED channel, whose effect marks the
+    // event an explicit selection.
+    expect(handoff.source).toBe('map');
     expect(handoff.eventType).toBe('SUNSET');
     expect(handoff.date).toBe(TOMORROW);
     expect(handoff.locationName).toBe('Bamburgh');
