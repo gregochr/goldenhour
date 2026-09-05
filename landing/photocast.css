@@ -3,10 +3,15 @@
 :root{
 --disp:'Bricolage Grotesque',ui-sans-serif,system-ui,sans-serif;
 --body:'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;
---mono:'DM Mono','IBM Plex Mono',ui-monospace,monospace;
+--mono:'IBM Plex Mono',ui-monospace,monospace;
+--serif:'Newsreader',Georgia,ui-serif,serif;
 --ground:#17150F;--ground-2:#1E1B14;--card:#241F17;--card-2:#2B251B;
 --ink:#F0EBE0;--ink-soft:#ABA391;--ink-dim:#948B7A;
 --rule:#332D22;--rule-2:#453D2E;
+/* Brand lockup tokens — verbatim from the app's @theme (frontend/src/index.css):
+   --color-plex-text, --color-plex-coral, --color-plex-border, --color-plex-border-light.
+   Do not re-tune these to the landing palette; the whole point is that they match. */
+--bone:#F2E7D3;--coral:#E8593F;--spine-rule:#3A2C23;--spine-hole:#4A3A2E;
 --go:oklch(0.76 0.11 132);--maybe:oklch(0.78 0.11 75);--poor:oklch(0.68 0.12 32);
 --brand:oklch(0.78 0.11 75);--brand-hi:oklch(0.86 0.11 82);
 --go-wash:color-mix(in oklab,var(--go) 13%,transparent);
@@ -25,9 +30,18 @@ em{font-style:normal;color:var(--brand)}
 /* ── masthead ── */
 .mast{border-bottom:1px solid var(--rule);position:sticky;top:0;z-index:20;background:color-mix(in oklab,var(--ground) 92%,transparent);backdrop-filter:blur(10px)}
 .mast .wrap{display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:66px}
-.mark{display:flex;align-items:center;gap:11px;color:var(--ink)}
-.mark .sun{width:13px;height:13px;border-radius:50%;background:var(--brand);box-shadow:0 0 0 4px color-mix(in oklab,var(--brand) 16%,transparent);flex:none}
-.mark .wm{font-family:var(--disp);font-size:21px;font-weight:700;letter-spacing:-.03em}
+/* Brand lockup — a port of the app's BrandLockup 'masthead' variant (frontend/src/components/
+   shared/BrandLockup.jsx): film-perforation spine, serif wordmark, coral kicker. It replaced a
+   logo.png + extrabold-sans wordmark there for belonging to no part of the system, which is
+   exactly what the amber dot + Bricolage wordmark was doing here.
+   ⚠️ Always flush left. Centred, the perforation reads as a stray rule rather than a film edge.
+   The 7px-on-15px gauge is the app's `header` gauge, which is what its masthead uses at ~50px. */
+.mark{position:relative;display:flex;flex-direction:column;align-items:flex-start;padding-left:22px;color:var(--bone)}
+.mark::before{content:'';position:absolute;left:0;top:0;bottom:0;width:11px;border-right:1px solid var(--spine-rule);background:repeating-linear-gradient(180deg,var(--spine-hole) 0 7px,transparent 7px 15px)}
+.mark .wm{font-family:var(--serif);font-size:21px;font-weight:600;line-height:1;letter-spacing:-.022em;color:var(--bone)}
+.mark .kicker{font-family:var(--mono);font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--coral);margin-top:4px;line-height:1}
+@media(min-width:640px){.mark{padding-left:25px}.mark .wm{font-size:25px}.mark .kicker{font-size:9.5px;letter-spacing:.2em;margin-top:6px}}
+@media(min-width:1024px){.mark .wm{font-size:28px}}
 .mast nav{display:flex;align-items:center;gap:26px}
 .mast nav a:not(.btn){font-size:14px;color:var(--ink-soft)}
 .mast nav a:not(.btn):hover{color:var(--ink)}
@@ -44,7 +58,11 @@ em{font-style:normal;color:var(--brand)}
 /* ── page headings for content pages ── */
 .phead{padding:76px 0 44px;border-bottom:1px solid var(--rule)}
 .phead h1{font-size:clamp(38px,7vw,62px)}
-.phead p{margin-top:18px;font-size:17px;color:var(--ink-soft);max-width:620px}
+/* `:not(.lab)` for the same reason as `.mast nav a:not(.btn)` above: this descendant selector
+   (0,1,1) out-specifies the .lab component (0,1,0), so a label mounted here kept .lab's mono
+   family and .16em tracking but took THIS rule's 17px and --ink-soft — rendering the quiet
+   'Last updated' metadata as a 17px line tracked out to 2.72px. */
+.phead p:not(.lab){margin-top:18px;font-size:17px;color:var(--ink-soft);max-width:620px}
 /* ── content pages ── */
 .doc{padding:52px 0 20px;display:grid;grid-template-columns:minmax(0,1fr);gap:0}
 .doc h2{font-size:26px;margin:40px 0 12px;letter-spacing:-.025em}
@@ -58,7 +76,10 @@ em{font-style:normal;color:var(--brand)}
 .qa{border-top:1px solid var(--rule);padding:26px 0}
 .qa:last-of-type{border-bottom:1px solid var(--rule)}
 .qa h2{font-size:22px;margin:0 0 8px}
-.qa p{margin-bottom:0}
+/* Colour stated here, not inherited from `.doc p`: .qa is mounted inside .doc on faq.html but
+   outside it on index.html's teaser, so without this the same component renders --ink-soft on
+   one page and --ink on the other. */
+.qa p{margin-bottom:0;color:var(--ink-soft)}
 /* ── tables ── */
 .tw{overflow-x:auto;margin:18px 0 6px;border:1px solid var(--rule);border-radius:var(--r)}
 table{width:100%;border-collapse:collapse;min-width:600px}
