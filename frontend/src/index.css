@@ -3359,7 +3359,46 @@ button.wf-hc.also.on:hover {
   background: var(--color-plex-panel);
   color: var(--color-plex-text-secondary);
   cursor: pointer;
-  max-width: 260px;
+  /* ⚠️ A FIXED width, not `max-width` — the steppers either side must not move as the reader
+     steps through events, which is the whole use the `‹ ›` pair is put to. The pill's content is
+     three variable-width parts (kind chip Sunrise/Sunset/Astro/Aurora · day label Today →
+     "Wednesday night" · a time that is absent whenever a row's `time` is empty, which covers both
+     `mapEvents.js`'s unscored beyond-briefing filler and a served row with no time). Measured in
+     Chromium against this stylesheet's own loaded fonts, that content ranges 115.41px
+     ("No forecast") to 227.52px ("Aurora · Wednesday night · 21:04") — so `›` was travelling up to
+     112px between one click and the next, and the mouse had to chase it.
+
+     ⚠️ **262px is derived from the DROPDOWN, and is not a design figure for the pill.** The bundle
+     gives this control no width at all — `#wnow{gap:9px;padding:6px 10px;min-height:36px}` over a
+     `.pill` with `white-space:nowrap` and no cap, no `overflow` and no ellipsis, so the prototype
+     pill hugs its content and never truncates. The 260px this rule used to carry as `max-width`
+     arrived app-side at P6 (#731) with no counterpart in the bundle, so it is not a provenance to
+     appeal to. What the design DOES declare is `#wmenu`'s 334px (README "The window control",
+     map-tab-v2-plan.md §3 P6) — so the control is sized to the menu it opens and the two share
+     both edges, and 262px is simply what is left of 334 after the two 32px steppers and two 4px
+     gaps. At `width: 260px` the menu overhung its own trigger by exactly 2px at every viewport,
+     which reads as a misalignment on a control that is otherwise pixel-constant. Recorded in
+     map-tab-v2-plan.md §4's window-pill entry, since a fixed, ellipsing pill diverges twice
+     over.
+
+     Truncation is unchanged by all this: the clip threshold was already 260px and every one of
+     `overflow: hidden`, `text-overflow: ellipsis` and the cap pre-date this rule, so nothing that
+     fitted before can start ellipsing — the widest REACHABLE content is that 227.52px case, and
+     `WindowControl.jsx`'s `dayLabel ?? label` fallback (247px) cannot be reached at all from the
+     only producer, `mapEvents.js`, which sets `dayLabel` on all three row shapes it builds. ⚠️ That
+     headroom is ~14% and is measured at 100% text scale with the bundled face loaded; a minimum-
+     font-size setting, Firefox's text-only zoom, or a webfont failure can still eat it. Not a
+     regression — the threshold is the same 260px it always was — but not an absolute guarantee
+     either, and the clipped text stays in the accessible name regardless (the pill's name is
+     computed from its subtree; `title` carries `rosterNote`, never the label).
+
+     `flex-shrink: 0` is what makes "constant" true rather than merely typical: the pill is itself
+     a flex item, so without it 262px is a basis it would shrink below whenever `.wf-map-chrome-tl`
+     (absolute, `left: 60px`, shrink-to-fit) is narrower than 334px. That cannot happen at ≥640px,
+     where the phone rule has already handed over — the guard is there so the invariant holds by
+     construction instead of by arithmetic that a later layout change could quietly invalidate. */
+  width: 262px;
+  flex-shrink: 0;
 }
 .wf-win-pill:focus-visible {
   outline: 2px solid var(--color-plex-gold);
@@ -3373,6 +3412,22 @@ button.wf-hc.also.on:hover {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  /* Takes the slack the fixed width above now leaves, so the time and caret sit against the pill's
+     right edge instead of drifting left behind a short day label — the time is `tabular-nums` mono,
+     so a right-anchored one holds a steady column as the reader steps, the same property the
+     steppers get.
+
+     ⚠️ This is the ONLY declaration the slack needs, and a `min-width: 0` beside it would be a
+     no-op. The usual reason a flex item needs one — its automatic minimum size is its min-content
+     width, so an over-long child pushes its siblings out instead of clipping — does not apply to
+     an item that is already a scroll container, and `overflow: hidden` two lines up makes this one
+     exactly that (CSS Sizing 3 §5.1: the automatic minimum resolves to zero once `overflow` is not
+     `visible`). Measured both ways in Chromium and at 320px: label width, clipping and the caret's
+     position are identical with `min-width: 0` and with `auto`. One was added here and removed at
+     adversarial review — it cost nothing but stated a mechanism that is not the one at work, which
+     is worse than saying nothing. `overflow: hidden` is load-bearing and `flex: 1` is load-bearing;
+     drop either and the label stops clipping and pushes the caret outside the pill. */
+  flex: 1;
 }
 .wf-win-time {
   font-family: var(--font-mono);
@@ -3392,15 +3447,31 @@ button.wf-hc.also.on:hover {
      absolutely positioned block, so its width stretches to fill the gap); `.wf-win-control` — a
      block-level flex row with no width of its own — already fills that box by default, so only the
      PILL needs to grow to take the space the (fixed-width) steppers don't: the bundle's own
-     `#wnow{flex:1;justify-content:center}`. */
-  .wf-win-pill { min-height: 40px; flex: 1; justify-content: center; max-width: none; }
+     `#wnow{flex:1;justify-content:center}`.
+
+     ⚠️ `width: auto` undoes the desktop rule's fixed 262px (it used to undo a `max-width: 260px`,
+     and the property changed with it) — `flex: 1` alone would in fact have sized the pill correctly
+     regardless, since `flex: 1` is `1 1 0%` and that `flex-basis` beats `width`, and it re-asserts
+     `flex-shrink: 1` over the desktop rule's `0` as a side effect of being a shorthand. But leaving
+     a 262px `width` sitting under a phone rule that means "fill the bar" is a trap for the next
+     reader. The phone pill is stable for its own reason: the bar is a fixed full-width box, so a
+     flex-filled pill inside it never changes size at all.
+
+     `.wf-win-label` goes back to not growing, because a flex-grow child absorbs all the free space
+     and leaves `justify-content: center` nothing to distribute. The result is NOT a left-aligned
+     pill — it is content pushed to BOTH edges (chip and label left, time and caret right), which
+     is the desktop treatment arriving on a phone that asked to be centred. */
+  .wf-win-pill { min-height: 40px; flex: 1; justify-content: center; width: auto; }
+  .wf-win-label { flex: 0 1 auto; }
 }
 
 /* The dropdown. `max-height` is a flat px figure rather than the bundle's `calc(100% - 88px)`,
    and that stays true after P7's full-frame phase too: a percentage `max-height` on an absolutely
    positioned element resolves against its nearest POSITIONED ancestor's own height, which here is
-   `.wf-win-control` (`position: relative`) — an inline pill sized to its content, not the tall
-   flex-filled map frame several levels further up. Reaching the frame's real height would need a
+   `.wf-win-control` (`position: relative`) — a one-row control 36px tall, not the tall flex-filled
+   map frame several levels further up. (Its INLINE size is now a constant 334px, matching this
+   rule's own `width` so the menu and its trigger share both edges; the block axis this paragraph
+   is about is still the control's own single row.) Reaching the frame's real height would need a
    different containing block, not a different unit. 420px keeps the menu inside the frame with
    room to scroll, which is the same visible behaviour the bundle's figure was aiming for on its
    own full-bleed map. */

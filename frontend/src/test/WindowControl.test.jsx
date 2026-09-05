@@ -64,6 +64,26 @@ describe('WindowControl — the pill', () => {
     expect(pill).toHaveTextContent('19:45');
   });
 
+  it('names the whole event in its accessible name, even though the pill is a fixed-width box', () => {
+    // The pill is `width: 262px` with `overflow: hidden; text-overflow: ellipsis` on the label
+    // (index.css, `mapWindowControlWidthCascade.test.jsx`), so a long enough day label clips
+    // VISUALLY. CSS truncation does not remove text from the accessibility tree, and there is no
+    // `aria-label` here to replace the subtree, so the full string must still reach a screen
+    // reader — the pill's `title` carries `rosterNote`, never the label, so this is the only route
+    // the clipped text has. Asserted through the role+name a user agent actually computes rather
+    // than the flattened text content, which would pass without the accessible name existing.
+    //
+    // ⚠️ The name computes as the RUN-TOGETHER "SunsetTonight19:45" (measured): accname trims each
+    // element's own contribution before concatenating, so three sibling spans join with no
+    // separator — hence `\s*`, not `\s+`, which is what a naive reading of the rendered text would
+    // have written. The caret is absent from it, which is the `aria-hidden="true"` on that span
+    // doing its job.
+    renderControl();
+    expect(screen.getByRole('button', { name: /Sunset\s*Tonight\s*19:45/ })).toBe(
+      screen.getByTestId('wf-win-pill'),
+    );
+  });
+
   it('prefers dayLabel over label when a row carries the day-only stripped form (kind-chip dedup)', () => {
     // The fixture's own `label` values above are already day-only strings with nothing to strip —
     // this is the primary path `utils/mapEvents.js` actually produces: a served label that STILL
