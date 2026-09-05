@@ -274,4 +274,44 @@ Two traps specific to this codebase:
   gives every test *file* its own process — nothing leaks between files — so a suspected flake is
   either inside one file or is not a flake at all. `--sequence.shuffle.tests --sequence.seed=N`
   reproduces an intra-file order dependency deterministically; use it before reaching for anything
-  cleverer.
+  cleverer. ⚠️ **But shuffling cannot find the flake below**, and reading it as an order dependency
+  is the wrong turning — see the next section.
+
+---
+
+## The first test in a file is not like the others
+
+A file that renders a component behind `React.lazy` pays for those chunks in whichever of its tests
+runs first. That cost is per-**file**; the budget it is charged against is per-**test**. On an idle
+machine it is invisible; under load it is seconds. Measured on the Plan shell under a 20-process CPU
+load: the first `findByTestId('wf-heat-strip')` took 1051 ms and the first
+`findByTestId('window-sheet')` 797 ms, where every later call in the same file took 3.5 ms and 50 ms.
+
+**It does not present as a slow test — it presents as `Test timed out in 5000ms` naming only the
+`it(` line.** Testing Library's ceiling here is `asyncUtilTimeout: 4000` (`src/test/setup.js`), so a
+test crossing two boundaries in sequence can exhaust the whole budget before either `findBy*`
+reports which wait was stuck. `vite.config.js` now sets `testTimeout: 20000` for that reason; its
+note carries the derivation.
+
+- **Do not reach for `--sequence.shuffle.tests` first.** It relocates this cost onto whichever test
+  lands first, so every seed fails somewhere different and it reads as an order dependency that does
+  not exist. **The reproduction that works is concurrency plus CPU starvation**: run the full suite
+  N times at once (3 is enough) with ~16 busy-loop processes running. It failed 3 of 3 runs where a
+  single file, and even the thirteen shell files together, stayed green under the same load.
+- **Report `findBy*` figures as wall times.** Such a wait covers module resolution, the lazy
+  suspend, the component's first render and up to a 50 ms poll tick. Calling one "the lazy boundary"
+  and then adding a separate line for "the first render" double-books the render — which is how one
+  investigation of this reached a wrong conclusion about its own residue.
+- ⚠️ **Warming the boundaries in a `beforeAll` was tried, measured and rejected. Do not rebuild it.**
+  A `warmPlanChunks` helper that `import()`ed the shell's four lazy chunks, called from thirteen
+  files, did work: it cured the popup's wait outright (797 ms → 2.4 ms). It is still not worth
+  carrying. With it neutralised and the raised ceiling in place, the same reproduction is green 3 of
+  3 with a worst first test of 5744 ms against 5065 ms with it — a 12% tail reduction on a budget
+  with 2.7x headroom at the worst first test measured anywhere (7412 ms). And its membership rule ("renders the real shell", not "imports it") was wrong
+  at BOTH ends on the first attempt: a file that `vi.mock`ed the shell was warmed for nothing, and a
+  file reaching it through `App.jsx`'s static import was missed. A mechanism that is easy to get
+  wrong and changes no outcome earns nothing.
+- **What the timeout costs, since it is not free.** A tight per-test budget is this suite's only
+  performance-regression detector, and this defect was found *because* the budget was tight enough
+  to fail on it. At 20 s a shell test that regresses to 6 s passes silently. That is the trade; the
+  4000 ms Testing Library ceiling still catches the ordinary "element never appears" case.

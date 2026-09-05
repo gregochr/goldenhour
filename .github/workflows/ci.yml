@@ -160,6 +160,12 @@ jobs:
     needs: changes
     name: Frontend — Lint, Test & Build
     runs-on: ubuntu-latest
+    # Added alongside the Vitest `testTimeout` raise in `frontend/vite.config.js`. That raise is a
+    # 4x multiplier on what a genuinely hung test costs the runner, and with no job timeout the
+    # ceiling was GitHub's default of 360 minutes. This job runs in ~3m and the suite alone is ~8m
+    # under load, so 20 gives ample headroom while capping the multiplier. The idiom is already used
+    # in `codeql.yml`, `security-scan.yml` and `real-api-smoke.yml`; `ci.yml` simply never had it.
+    timeout-minutes: 20
 
     steps:
       - uses: actions/checkout@v4

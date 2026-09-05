@@ -164,6 +164,24 @@ const openPopup = async () => {
   return screen.findByTestId('window-sheet');
 };
 
+/**
+ * Opens the drill-down over that popup.
+ *
+ * <p>⚠️ <b>The bare click is deliberate, and the asymmetry with {@link openPopup} above is the
+ * point.</b> The popup awaits because {@code WindowSheetDialog} is {@code lazy()} and on the
+ * file's FIRST open genuinely is not there yet (from the second, its payload is fulfilled and
+ * that {@code findBy*} resolves synchronously too); this sheet is {@code WindowSpotSheet}, a
+ * STATIC import behind a plain
+ * {@code useState}, so Testing Library's act-wrapped {@code fireEvent} flushes it in the same
+ * commit. Measured rather than assumed, because it reads like an omission and has been refiled as
+ * one: over 30 invocations idle and again under a 20-process CPU load, the sheet's testid and a
+ * dialog carrying its accessible name were both present SYNCHRONOUSLY on the line after this
+ * click — every time, including the first, where the popup's own wait had just cost 858 ms. (That
+ * was measured BEFORE the warm-up hook below, so it is a figure no run of this file will produce
+ * again; what it shows is that even an 858 ms wait immediately before this click left the sheet
+ * no tick behind.) A {@code findBy*} here would wait for nothing and imply a race that does not
+ * exist.
+ */
 const openSheet = async () => {
   await openPopup();
   fireEvent.click(screen.getByTestId('window-spot-all'));

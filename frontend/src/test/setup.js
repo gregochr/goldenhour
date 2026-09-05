@@ -75,7 +75,7 @@ if (typeof globalThis.localStorage === 'undefined' || typeof globalThis.localSto
  * ⚠️ Testing Library's async timeout, raised from its 1000 ms default.
  *
  * <p>The Plan shell mounts its matrix, its window popup, its search panel and its location sheet
- * behind {@code React.lazy} boundaries, and roughly twenty-five tests across six files begin with
+ * behind {@code React.lazy} boundaries, and tests across the shell files open with
  * {@code await screen.findByTestId('wf-heat-strip')} — a wait on a real dynamic {@code import()},
  * not on a fetch a test could gate. Isolated they resolve in single-digit milliseconds; under a full
  * parallel run on a loaded machine three of them were measured timing out at 1000 ms while the same
@@ -86,5 +86,16 @@ if (typeof globalThis.localStorage === 'undefined' || typeof globalThis.localSto
  * <p>It is a CEILING, not a delay — a resolved boundary still returns immediately, so nothing gets
  * slower. What it costs is that a genuinely never-appearing element now fails after four seconds
  * instead of one.
+ *
+ * <p>⚠️ <b>It WAS also 80% of Vitest's then-5000 ms per-test budget, and that was not enough on
+ * its own.</b> The measurement above stands, and so does the conclusion beside it — the fix really
+ * was the timeout rather than a gate — but the ceiling was raised without the per-test budget
+ * moving with it, and a test crossing TWO of these boundaries in sequence cannot fit two 4000 ms
+ * waits into 5000 ms. So it died as {@code Test timed out in 5000ms} naming neither wait.
+ * Reproduced by running the full suite three times concurrently under a 16-process CPU load: 3 of 3
+ * runs failed identically, on the first test of three different shell files.
+ * {@code vite.config.js} now sets {@code testTimeout: 20000}, which is what makes this 4000 ms
+ * ceiling reachable at all; its note carries the measurements, and the record of a per-file
+ * warm-up that was built to gate these boundaries and then deleted as unnecessary.
  */
 configure({ asyncUtilTimeout: 4000 });
