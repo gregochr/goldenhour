@@ -44,9 +44,9 @@ against them in parallel; the overlap only surfaces at merge, where it is most e
 
 ## §0 Status
 
-**Status: PLANNED — nothing built.** Three owner decisions are open and two of them block a phase
-(§6 Q1 blocks L2's copy, Q2 blocks L4's open rule). Phase log (L1 creates the first row; every phase
-appends its own in the same commit as its code):
+**Status: IN PROGRESS — L1 building. All three blocking owner decisions taken 2026-09-05 (§6): Q1
+night cell renders empty, Q2 once per forecast run, Q3 name the highest-mean region.** Phase log
+(every phase appends its own row in the same commit as its code):
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
@@ -267,7 +267,8 @@ the *scope-limited* region set, and its served pick. **No visual change at all.*
 4. **Enrich the EV rows.** `utils/mapEvents.js#solarRow` gains `verdict`, `verdictLabel`,
    `regionName`, `pick` from the served window it is already handed. **Night rows get none of them**
    and must not synthesise one (spec: night events have no verdict, no tint and are not pick
-   candidates). Keep `bestOfNight`'s licence untouched.
+   candidates; §6 **Q1** decided the pill's night cell renders empty, so there is nothing for a night
+   row to carry). Keep `bestOfNight`'s licence untouched.
 5. **Tally at the call site.** `MapView` computes `windowVerdict` per EV row from the index and its
    own `heatArea`-chosen region set, memoised on `(events, heatArea, index)` — the spec's
    `(windowIndex, scopeKey)` cache, in this app's idiom.
@@ -577,19 +578,27 @@ should challenge these **in review**, not silently "fix" them in code.
 
 Nothing below blocks **L1**. Q1 blocks L2's night-row copy; Q2 blocks L4's open rule.
 
-- **Q1 — Night events' own word.** The spec wants `Clear` / `Cloudy` / `Kp 5` on the pill for astro
-  and aurora. No served per-window night verdict exists (**O-16**). Options: (a) render the cell
-  empty for night rows — *the recommendation*, honest and costs nothing; (b) derive a word on the
-  client from the night's served rows, which is the rated/unrated conflation O-16 names; (c) serve
-  one, which is a backend phase this plan does not contain.
-- **Q2 — When the card opens** (the spec's `OPEN 3`). **Recommendation: once per forecast run**,
-  keyed on `briefing.generatedAt` — the app already has both the value and the localStorage pattern.
-  Alternatives: once per day; suppress when the window you left is still current.
-- **Q3 — Highest or nearest region** (the spec's `OPEN 2`). **Recommendation: highest**, and not
-  merely as the status quo — `buildWindowCards.hotRegionName` already names the highest-mean region,
-  and the Plan tab's heat strip brightens *that* region's thumbnail. Naming a different region on the
-  map would make the two tabs point at two places for one window. If the owner wants nearest, it
-  should change `hotRegionName` for both tabs, not just the map.
+- **Q1 — Night events' own word. ✅ DECIDED 2026-09-05: render the cell EMPTY.** The spec wants
+  `Clear` / `Cloudy` / `Kp 5` on the pill for astro and aurora, and no served per-window night
+  verdict exists (**O-16**). The owner chose option (a): a night row carries no verdict word and no
+  tint, and nothing is synthesised. Rejected: (b) deriving a word client-side from the night's served
+  rows, which is the rated/unrated conflation O-16 exists to name; (c) serving one, a backend phase
+  this plan does not contain. The exit is O-16 — if a rated night rollup ever ships, the cell has
+  somewhere honest to read from.
+- **Q2 — When the card opens** (the spec's `OPEN 3`). **✅ DECIDED 2026-09-05: once per forecast
+  run**, keyed on `briefing.generatedAt` — the app already has both the value and the localStorage
+  pattern (`MapView`'s `readMapFilter`/`writeMapFilter`). Rejected: once per day (a run can land
+  mid-evening, and the card would then be stale for the visit that most needs it); suppressing when
+  the window you left is still current (it makes the rule depend on a second piece of state, and the
+  card is about the *next two* windows, not the one you left).
+- **Q3 — Highest or nearest region** (the spec's `OPEN 2`). **✅ DECIDED 2026-09-05: highest.**
+  Not merely as the status quo — `buildWindowCards.hotRegionName` already names the highest-mean
+  region, and the Plan tab's heat strip brightens *that* region's thumbnail, so naming a different
+  one on the map would make the two tabs point at two places for one window. The spec's own
+  observation stands and is answered by the count rather than by the name: when three regions are
+  Worth it the real tiebreak is drive time, and `+N` is what tells the reader they are in that
+  situation. ⚠️ If nearest is ever wanted, it must change `hotRegionName` for **both** tabs, not just
+  the map.
 - **Q4 — The tally's exit.** Whether a served, scope-aware region tally is ever wanted. It cannot ride
   `/api/briefing` (per-user scope, ETag-shared); the shape would be `map-tab-v2-plan.md` **O-4**'s
   never-cached per-user endpoint. Until then D-4 stands.

@@ -26,10 +26,11 @@ spec gets wrong about this codebase:
 3. **"Panels do not close when you click the map" is five call sites, not one.** Four components hold
    their own `document` `mousedown` listener and fire *before* the map's `click` handler.
 
-**Owner decisions.** §6 Q1 (night rows' own word) blocks L2's copy; §6 Q2 (when the card opens)
-blocks L4's open rule. Q3–Q7 do not block anything. If a blocking decision is still open when the
-session reaches it, build the plan's stated recommendation behind one named constant and say so in
-the phase log — do not stall, and do not silently pick the other option.
+**Owner decisions — all three blocking ones are TAKEN (2026-09-05), and sessions build them
+rather than reopening them:** **Q1** a night row's verdict cell renders **empty** (no word, no tint,
+nothing synthesised); **Q2** the landing card opens **once per forecast run**, keyed on
+`briefing.generatedAt`; **Q3** the verdict names the **highest-mean** region, and `+N` carries the
+drive-time tiebreak. Q4–Q7 do not block anything and are not this series' to settle.
 
 **Multi-agent note.** These sessions need no special mode. The one multi-agent step is the pre-commit
 adversarial review, which each prompt instructs explicitly — plain parallel subagents (the Agent tool)
@@ -118,9 +119,9 @@ merged; `changelog.d/` files never conflict.
 > `min-width: 0` (a measured no-op beside `overflow: hidden` — and do not write a test that pins the
 > no-op).
 >
-> §6 **Q1** (whether a night row states its own `Clear`/`Cloudy`/`Kp N` word) may still be open: if so,
-> render the night cell empty — the plan's recommendation — and say so in the phase log. Do not derive
-> a night word from `bestRating`.
+> §6 **Q1 is decided**: a night row's verdict cell renders **empty** — no word, no tint, nothing
+> synthesised. Do not derive a night word from `bestRating`; that is the rated/unrated conflation
+> `map-tab-v2-plan.md` O-16 exists to name.
 >
 > Tests per §3 L2, plus **check 1** at the `MapView` level (the pill's word and region are string-equal
 > across min-rating / reach / subject / dark-sky changes, and change when `heatArea` flips) and
@@ -199,10 +200,10 @@ merged; `changelog.d/` files never conflict.
 > dialog invariant). ⚠️ It must not dismiss on map click, drag, zoom, wheel or outside tap — panning
 > to the region it just named is *reading* the card.
 >
-> §6 **Q2** (how often it opens) may still be open: build the recommendation — once per forecast run,
-> keyed on `briefing.generatedAt` through `MapView`'s existing `readMapFilter`/`writeMapFilter`
-> helpers, which already carry the try/catch and the read-during-render caveat — behind **one named
-> constant**, and say so in the phase log. Pick the phone treatment (`BottomSheet modal={false}`, the
+> §6 **Q2 is decided**: the card opens **once per forecast run**, keyed on `briefing.generatedAt`
+> through `MapView`'s existing `readMapFilter`/`writeMapFilter` helpers, which already carry the
+> try/catch and the read-during-render caveat. Keep the key behind **one named constant** so a later
+> change of rule is one line. Pick the phone treatment (`BottomSheet modal={false}`, the
 > idiom `FiltersPopover` and `RegionsJump` already use, or the same card inset), state which, and keep
 > the dismissal rules identical either way.
 >
