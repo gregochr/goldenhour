@@ -2169,10 +2169,10 @@ describe('WindowFirstHeatStrip — thumbnail geography (field-geography plan §2
    * table on any implementation and proves only that object lookup works.
    */
   const SERVED_REGIONS = [
-    { served: 'The Lake District', tiny: 'LAKES', full: 'LAKE DISTRICT' },
-    { served: 'The Yorkshire Dales', tiny: 'DALES', full: 'YORKSHIRE DALES' },
-    { served: 'North York Moors & Coast', tiny: 'N Y MOORS', full: 'NORTH YORK MOORS' },
-    { served: 'Northumberland & Tyneside', tiny: 'NORTHUMB.', full: 'NORTHUMBERLAND' },
+    { served: 'The Lake District', tiny: 'LAKES' },
+    { served: 'The Yorkshire Dales', tiny: 'DALES' },
+    { served: 'North York Moors & Coast', tiny: 'N Y MOORS' },
+    { served: 'Northumberland & Tyneside', tiny: 'NORTHUMB.' },
   ];
 
   it.each(SERVED_REGIONS)('⚠️ reaches the curated TINY name for $served as served', async ({ served, tiny }) => {
@@ -2188,15 +2188,19 @@ describe('WindowFirstHeatStrip — thumbnail geography (field-geography plan §2
     expect(label).toHaveAttribute('data-region', served);
   });
 
-  it.each(SERVED_REGIONS)('reaches the FULL table for $served as served', async ({ served, full }) => {
+  it.each(SERVED_REGIONS)('⚠️ leaves $served WHOLE at full width, agreeing with the Map tab', async ({ served }) => {
+    // The reduction is a TINY-table key only. Every AREA_FULL value is its own key uppercased, so
+    // routing the plain form through the full table could only ever TRUNCATE — the first cut of
+    // this fix did exactly that, retitling `Northumberland & Tyneside` as `NORTHUMBERLAND` on
+    // full-width cards: half the name gone where there was room, and a fresh disagreement with
+    // `MapLabels.jsx`, which renders `rid` verbatim. Asserted for all four served names because
+    // the two article-led ones pass on any implementation and would hide the conjunct regression.
     await withMeasuredThumbs(300, () => withLabelBox(80, 12, async () => {
       drawGeo.mockImplementation(() => IDENTITY_PROJ);
       await renderStrip({ spots: [geoSpot(served, 100, 100)] });
     }));
 
-    // Not merely "shorter than the served name": the full fallback uppercases the name UNCHANGED,
-    // so `THE LAKE DISTRICT` would satisfy a looser assertion while proving the lookup still missed.
-    expect(screen.getByTestId('wf-heat-area').textContent).toBe(full);
+    expect(screen.getByTestId('wf-heat-area').textContent).toBe(served.toUpperCase());
   });
 
   it('⚠️ loops the directional drop instead of stepping once — North West Highlands keeps HIGHLANDS', async () => {
@@ -2231,6 +2235,19 @@ describe('WindowFirstHeatStrip — thumbnail geography (field-geography plan §2
     }));
 
     expect(screen.getByTestId('wf-heat-area').textContent).toBe('THE CHEVIOTS');
+  });
+
+  it('never derives an EMPTY tiny label, which the placer would drop rather than shorten', async () => {
+    // ` & Coast` — a leading-whitespace conjunct — matched CONJUNCT from index 0 while the trim
+    // came after the replace, reducing the whole name to ''. A zero-measured candidate is skipped
+    // by the placement pass, so the region loses its label entirely: the §2.4 outcome the tiny
+    // fallback exists to prevent, arriving through the fallback itself.
+    await withMeasuredThumbs(150, () => withLabelBox(40, 12, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      await renderStrip({ spots: [geoSpot(' & Coast', 100, 100)] });
+    }));
+
+    expect(screen.getByTestId('wf-heat-area').textContent).not.toBe('');
   });
 
   it('keeps its single word for a region named only of droppable noise', async () => {

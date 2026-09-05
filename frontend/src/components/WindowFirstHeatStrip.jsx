@@ -255,9 +255,9 @@ export const TINY_NAME_WIDTH = 215;
  * A leading definite article, dropped by {@link plainName} — and so, transitively, by the tiny
  * fallback that derives from it.
  *
- * <p>Only `the`. `A`/`An` are not here because a one-letter first word is as likely to be part of
- * a real name as an article, and no region in this roster or any plausible successor starts with
- * one; the narrow rule cannot misfire.
+ * <p>Only `the`. `A`/`An` are left out because no region in this roster or any plausible successor
+ * begins with one, and `A` in particular is as likely to be part of a real name as an article. The
+ * narrower the drop list, the less it can misfire.
  */
 const ARTICLE = /^the$/i;
 
@@ -267,10 +267,20 @@ const DIRECTIONAL = /^(north|south|east|west)$/i;
 /**
  * A trailing `& Coast` / `and Tyneside` conjunct, dropped by {@link plainName}.
  *
- * <p>An appended second area is the region's SCOPE, never its identity — `North York Moors &
- * Coast` is the Moors table entry with the coast added, and the head alone is what a 175px
- * thumbnail has room for anyway. Requires a non-space after the conjunction so a trailing `&`
- * cannot eat the name and leave nothing.
+ * <p>An appended second area narrows the region's SCOPE — `North York Moors & Coast` is the Moors
+ * entry with the coast added — and the head alone is what a 175px thumbnail has room for. ⚠️ That
+ * is a WIDTH argument and it expires with the width, which is why {@link areaLabel} spends this
+ * ONLY on the tiny table. The conjunct half is not noise: V137 renamed these regions precisely so
+ * the name would follow the roster ("to a user in South Shields a region called 'Northumberland'
+ * reads as somewhere else"), so dropping it at full width — where there is room, and where the Map
+ * tab prints the served name verbatim — would be discarding the thing that migration added.
+ *
+ * <p>Two guards keep it from eating a name whole, and only together: the `\S` requires something
+ * after the conjunction, which covers a trailing `Moors &`; and {@link plainName} TRIMS before
+ * applying this, which covers a leading one. Without the trim, ` & Coast` matches from index 0 and
+ * reduces to the empty string — and an empty label is not a short label, it is a MISSING one: the
+ * placement pass skips a zero-measured candidate, so the region silently loses its name, which is
+ * the §2.4 outcome this whole fallback exists to prevent.
  */
 const CONJUNCT = /\s+(?:&|and)\s+\S[\s\S]*$/i;
 
@@ -292,7 +302,9 @@ const CONJUNCT = /\s+(?:&|and)\s+\S[\s\S]*$/i;
  * @returns {string} the plain form, or `''` for a null/blank name
  */
 function plainName(regionName) {
-  const words = String(regionName ?? '').replace(CONJUNCT, '').trim().split(/\s+/)
+  // TRIM FIRST — see CONJUNCT's own note. Trimming after the replace lets ` & Coast` match from
+  // index 0 and reduce the whole name to ''.
+  const words = String(regionName ?? '').trim().replace(CONJUNCT, '').split(/\s+/)
     .filter(Boolean);
   if (words.length > 1 && ARTICLE.test(words[0])) words.shift();
   return words.join(' ');
@@ -305,6 +317,15 @@ function plainName(regionName) {
  * {@link plainName}'s reduction, which is what reaches the curated short name for every region
  * the payload happens to article- or conjunct-qualify.
  *
+ * <p>⚠️ <b>The second lookup is TINY-ONLY, and that is load-bearing.</b> Every {@link AREA_FULL}
+ * value is exactly its own key uppercased — the full table carries no curation at all — so a plain
+ * lookup there could never return anything the fallback would not, and could only return something
+ * SHORTER. Wiring it up on both tables (the first cut of this fix did) silently retitled
+ * `Northumberland & Tyneside` as `NORTHUMBERLAND` on every full-width card: half the name dropped
+ * where there was room for it, and a fresh disagreement with the Map tab, which renders the served
+ * name verbatim (`MapLabels.jsx`). The curation this reduction exists to reach lives in
+ * {@link AREA_TINY} alone.
+ *
  * <p>The two fallbacks are deliberately different shapes. The full set falls back to the
  * uppercased name unchanged — always legible, if long. The tiny set does NOT take that fallback:
  * a long name at under {@link TINY_NAME_WIDTH} fails {@code placeWithNudges} outright and the
@@ -314,9 +335,11 @@ function plainName(regionName) {
  * stopping on `WEST`; it always leaves one word standing, so a region named only `North` keeps it.
  *
  * <p>Warns once per miss, dev-mode only, so a rename or roster growth surfaces at the next local
- * session rather than as an unlabeled blob (§2.4's three guards). ⚠️ That warning was firing on
- * every production region for the whole life of this component and nobody saw it — it is a local
- * tripwire, not a monitor, so it does not discharge the table's drift on its own.
+ * session rather than as an unlabeled blob (§2.4's three guards). ⚠️ It did not catch the defect
+ * this function was rewritten for, and could not have: `import.meta.env.DEV` is false in a
+ * production build, so no reader's console ever saw it, and a local session runs the SEEDED
+ * roster rather than production's names. It is a local tripwire against the local catalogue, not
+ * a monitor of the real one, and it does not discharge the table's drift on its own.
  *
  * @param {string} regionName the region name as served
  * @param {boolean} tiny whether this card drew under {@link TINY_NAME_WIDTH}
@@ -328,7 +351,7 @@ function areaLabel(regionName, tiny) {
   // otherwise resolve to `Object.prototype`'s member and hand React a function to render.
   const entry = (key) => (Object.hasOwn(table, key) ? table[key] : null);
   const plain = plainName(regionName);
-  const known = entry(regionName) ?? entry(plain);
+  const known = entry(regionName) ?? (tiny ? entry(plain) : null);
   if (known) return known;
   if (import.meta.env.DEV) {
     console.warn(
