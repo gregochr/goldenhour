@@ -272,7 +272,7 @@ export default function FiltersPopover({
       </button>
 
       {isMobile ? (
-        <BottomSheet open={open} onClose={() => onOpenChange(false)} label="Map filters" modal={false}>
+        <BottomSheet open={open} onClose={() => onOpenChange(false)} label="Map filters" modal={false} reserveCloseStrip>
           <div id="wf-filters-panel" data-testid="wf-filters-panel" className="wf-filters-sheet">
             {panelBody}
           </div>

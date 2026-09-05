@@ -1500,6 +1500,179 @@ describe('MapView heat — the Regions jump list (map-tab-v2-plan.md §3 P11)', 
     expect(fitBounds).toHaveBeenCalledWith(AREA_BOUNDS, { padding: [28, 28], animate: false });
   });
 
+  /**
+   * The way back (`RegionsJump`'s reset row, `MapView.clearRegionJump`). The component suite
+   * covers the row's own anatomy; these pin the two things only the CALLER can be wrong about —
+   * which scope the press lands in, and whether the camera actually leaves the region's box.
+   */
+  it('offers no way back until there is a jump to undo', async () => {
+    await renderMap({ heat: heatProp(), reachById: REACH_BY_ID, regionBestIndex: REGION_BEST_INDEX });
+    openJump();
+    expect(screen.queryByTestId('wf-jump-reset')).not.toBeInTheDocument();
+  });
+
+  it('undoes a jump made from "My area" IN FULL — the fit leaves the region\u2019s box and scope goes back with it', async () => {
+    await renderMap({ heat: heatProp(), reachById: REACH_BY_ID, regionBestIndex: REGION_BEST_INDEX });
+    openJump();
+    // "The Borders" is the fixture's one out-of-area region, so this jump flips scope to Everywhere.
+    fireEvent.click(screen.getAllByTestId('wf-jump-row').find((r) => r.textContent.includes('The Borders')));
+
+    openJump();
+    fitBounds.mockClear();
+    fireEvent.click(screen.getByTestId('wf-jump-reset'));
+
+    expect(fitBounds).toHaveBeenCalledTimes(1);
+    expect(fitBounds).toHaveBeenCalledWith(AREA_BOUNDS, { padding: [28, 28], animate: false });
+    openFilters();
+    expect(screen.getByRole('button', { name: 'My area' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('names the scope its own press lands in, not the one the jump left in force', async () => {
+    await renderMap({ heat: heatProp(), reachById: REACH_BY_ID, regionBestIndex: REGION_BEST_INDEX });
+    openJump();
+    fireEvent.click(screen.getAllByTestId('wf-jump-row').find((r) => r.textContent.includes('The Borders')));
+
+    openJump();
+    // Scope is Everywhere at this instant — the jump flipped it — but the press restores My area,
+    // so "Back to Everywhere" here would be a label describing the state it is about to leave.
+    expect(screen.getByTestId('wf-jump-reset')).toHaveTextContent('Back to My area');
+  });
+
+  it('does NOT drag a reader who chose Everywhere back to My area — the undo is the jump\u2019s, not the scope\u2019s', async () => {
+    await renderMap({ heat: heatProp(), reachById: REACH_BY_ID, regionBestIndex: REGION_BEST_INDEX });
+    openFilters();
+    fireEvent.click(screen.getByRole('button', { name: 'Everywhere' }));
+
+    openJump();
+    fireEvent.click(screen.getAllByTestId('wf-jump-row').find((r) => r.textContent.includes('The Borders')));
+
+    openJump();
+    expect(screen.getByTestId('wf-jump-reset')).toHaveTextContent('Back to Everywhere');
+    fitBounds.mockClear();
+    fireEvent.click(screen.getByTestId('wf-jump-reset'));
+
+    expect(fitBounds).toHaveBeenCalledTimes(1);
+    expect(fitBounds).toHaveBeenCalledWith(CATALOGUE_BOUNDS, { padding: [28, 28], animate: false });
+    openFilters();
+    expect(screen.getByRole('button', { name: 'Everywhere' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('carries the pre-jump scope across a SECOND jump — the flip happens once, the undo must not forget it', async () => {
+    await renderMap({ heat: heatProp(), reachById: REACH_BY_ID, regionBestIndex: REGION_BEST_INDEX });
+    openJump();
+    // First jump flips scope to Everywhere...
+    fireEvent.click(screen.getAllByTestId('wf-jump-row').find((r) => r.textContent.includes('The Borders')));
+    openJump();
+    // ...and by now `heatArea` is already false, so re-deriving "did this jump change scope" on
+    // the second one reads NO and would strand the reader at Everywhere.
+    fireEvent.click(screen.getAllByTestId('wf-jump-row').find((r) => r.textContent.includes('The Lakes')));
+
+    openJump();
+    expect(screen.getByTestId('wf-jump-reset')).toHaveTextContent('Back to My area');
+    fitBounds.mockClear();
+    fireEvent.click(screen.getByTestId('wf-jump-reset'));
+    // ⚠️ ONE call: this press fires two updates that BOTH change `heatBounds`
+    // (`setJumpFitOverride(null)` and `setHeatArea`), which is exactly where the race the override
+    // exists to prevent would show up again — the same guard the scope-flip test above carries.
+    expect(fitBounds).toHaveBeenCalledTimes(1);
+    expect(fitBounds).toHaveBeenCalledWith(AREA_BOUNDS, { padding: [28, 28], animate: false });
+  });
+
+  it('lands where the row says even with no home — the label and the press are one expression', async () => {
+    // ⚠️ `hasHome: false` has THREE causes and only two are "the area frame does not narrow".
+    // `areaSpots: []` is the third — an away origin whose region contributes no heat spots — and
+    // there `areaBounds` is null, so a press that restored My area would promise a camera move to
+    // a box that does not exist. The row says Everywhere, so the press must land at Everywhere.
+    await renderMap({
+      heat: heatProp({ hasHome: false, areaSpots: [], areaBounds: null }),
+      reachById: REACH_BY_ID,
+      regionBestIndex: REGION_BEST_INDEX,
+    });
+    openJump();
+    fireEvent.click(screen.getAllByTestId('wf-jump-row').find((r) => r.textContent.includes('The Borders')));
+
+    openJump();
+    expect(screen.getByTestId('wf-jump-reset')).toHaveTextContent('Back to Everywhere');
+    fitBounds.mockClear();
+    fireEvent.click(screen.getByTestId('wf-jump-reset'));
+
+    // The catalogue box, NOT the null area box — the camera actually moves.
+    expect(fitBounds).toHaveBeenCalledTimes(1);
+    expect(fitBounds).toHaveBeenCalledWith(CATALOGUE_BOUNDS, { padding: [28, 28], animate: false });
+  });
+
+  /**
+   * ⚠️ The no-postcode reader's own arm, and the regression test for the ONE-EXPRESSION version of
+   * `jumpResetArea` (adversarial review). With no home the area frame does not narrow, so
+   * `areaSpots` IS the catalogue — `jumpToRegion` never flips scope, and the reset therefore has no
+   * scope change to undo. Gating the PRESS on `hasHome` wrote `heatArea = false` anyway, which is
+   * **sticky** for this reader (no scope segment, `⌂` inert and phone-hidden) and makes the counts
+   * footer assert a "usual drive" for somebody who has saved no postcode — the reach-honesty rule.
+   * The label still says Everywhere, which is honest: with no narrowing frame that is what is on
+   * screen. Label and press answer different questions here, and that is the point.
+   */
+  it('does not flip scope for a reader with no postcode — the jump changed none, so the undo changes none', async () => {
+    await renderMap({
+      heat: heatProp({ hasHome: false }), reachById: REACH_BY_ID, regionBestIndex: REGION_BEST_INDEX,
+    });
+    expect(screen.queryByTestId('wf-map-counts-second')).not.toBeInTheDocument();
+
+    openJump();
+    fireEvent.click(screen.getAllByTestId('wf-jump-row').find((r) => r.textContent.includes('The Borders')));
+    openJump();
+    expect(screen.getByTestId('wf-jump-reset')).toHaveTextContent('Back to Everywhere');
+    fitBounds.mockClear();
+    fireEvent.click(screen.getByTestId('wf-jump-reset'));
+
+    // The claim that actually reaches the reader: the footer must not start naming a drive they
+    // have never measured.
+    expect(screen.queryByTestId('wf-map-counts-second')).not.toBeInTheDocument();
+    expect(fitBounds).toHaveBeenCalledTimes(1);
+    expect(fitBounds).toHaveBeenCalledWith(AREA_BOUNDS, { padding: [28, 28], animate: false });
+  });
+
+  it('closes the panel on the reset press, exactly as a jump does', async () => {
+    // Named in its own right rather than relied on incidentally: the jump's identical rule has its
+    // own test above because a review and a browser pass both found it.
+    await renderMap({ heat: heatProp(), reachById: REACH_BY_ID, regionBestIndex: REGION_BEST_INDEX });
+    openJump();
+    fireEvent.click(screen.getAllByTestId('wf-jump-row').find((r) => r.textContent.includes('The Lakes')));
+    openJump();
+    expect(screen.getByTestId('wf-jump-menu')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('wf-jump-reset'));
+    expect(screen.queryByTestId('wf-jump-menu')).not.toBeInTheDocument();
+  });
+
+  it('marks the region whose jump is in force, and moves the mark on the next jump', async () => {
+    await renderMap({ heat: heatProp(), reachById: REACH_BY_ID, regionBestIndex: REGION_BEST_INDEX });
+    openJump();
+    fireEvent.click(screen.getAllByTestId('wf-jump-row').find((r) => r.textContent.includes('The Lakes')));
+
+    openJump();
+    expect(screen.getByRole('button', { name: /The Lakes/ })).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByRole('button', { name: /North East/ })).not.toHaveAttribute('aria-current');
+
+    fireEvent.click(screen.getAllByTestId('wf-jump-row').find((r) => r.textContent.includes('North East')));
+    openJump();
+    expect(screen.getByRole('button', { name: /North East/ })).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByRole('button', { name: /The Lakes/ })).not.toHaveAttribute('aria-current');
+  });
+
+  it('clears the mark once the jump is undone', async () => {
+    await renderMap({ heat: heatProp(), reachById: REACH_BY_ID, regionBestIndex: REGION_BEST_INDEX });
+    openJump();
+    fireEvent.click(screen.getAllByTestId('wf-jump-row').find((r) => r.textContent.includes('The Lakes')));
+    openJump();
+    fireEvent.click(screen.getByTestId('wf-jump-reset'));
+
+    openJump();
+    ['North East', 'The Lakes', 'The Borders'].forEach((name) => {
+      expect(screen.getByRole('button', { name: new RegExp(name) })).not.toHaveAttribute('aria-current');
+    });
+    expect(screen.queryByTestId('wf-jump-reset')).not.toBeInTheDocument();
+  });
+
   it('joins the exclusivity group — opening Filters closes an open jump menu, and vice versa', async () => {
     await renderMap({ heat: heatProp() });
     openJump();

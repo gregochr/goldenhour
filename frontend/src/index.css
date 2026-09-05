@@ -3303,7 +3303,15 @@ button.wf-hc.also.on:hover {
    its zoom buttons for exactly this reason. Its two affordances survive on the phone through other
    doors: resetting scope to My area is `FiltersPopover`'s own scope segment (already in the phone
    sheet, README §4 "Scope" row), and the "set your postcode" nudge is the masthead's own empty
-   state, unrelated to a corner control the bar has claimed. */
+   state, unrelated to a corner control the bar has claimed.
+
+   ⚠️ The first half of that survival claim was HALF TRUE, and the gap was reported from a phone.
+   The scope segment is withheld entirely when `heat.hasHome` is false, so a reader with no saved
+   postcode had NEITHER door — and a REGION JUMP, which frames a third box neither scope names, was
+   then unundoable outright. It is a poor door even when present: it never mentions regions, so the
+   way back out of the Regions list was filed under Filters. Both are answered by `RegionsJump`'s
+   own reset row (`.wf-jump-reset` below), which sits in the list that caused the jump and needs no
+   postcode. `⌂` stays hidden — the corner is still the bar's. */
 @media (max-width: 639px) {
   .wf-map-tab .wf-map-chrome-tl {
     left: 8px;
@@ -4312,6 +4320,9 @@ button.wf-hc.also.on:hover {
   padding: 7px 12px;
   background: transparent;
   border: none;
+  /* Reserved so `[aria-current]` below can colour a 2px rule without moving the row's own text —
+     `.wf-win-row`'s identical device (it is why that sibling needs no `box-shadow`). */
+  border-left: 2px solid transparent;
   text-align: left;
   cursor: pointer;
   color: var(--color-plex-text-secondary);
@@ -4355,6 +4366,54 @@ button.wf-hc.also.on:hover {
 }
 /* Its own colour, for the reason `.wf-win-row-unscored` records. */
 .wf-jump-unscored { color: rgba(242, 231, 211, 0.52); }
+
+/* The way back, at the head of the list it undoes (`RegionsJump`'s `resetRow`). One column, not
+   the row grid's three: it names a scope rather than a destination, so it has no drive time to
+   measure and no star to carry, and empty `auto` tracks would only spend the grid's own `gap` on
+   nothing. The rule under it separates the action from the destinations below. */
+.wf-jump-reset {
+  grid-template-columns: 1fr;
+  border-bottom: 1px solid var(--color-plex-border-light);
+  margin-bottom: 4px;
+}
+.wf-jump-reset .wf-jump-name {
+  font-weight: 500;
+  color: var(--color-plex-text-secondary);
+}
+.wf-jump-reset:hover .wf-jump-name { color: var(--color-plex-text); }
+
+/* The jump in force — `.wf-win-row.on`'s treatment EXACTLY (fill, stroke colour, and a stroke
+   reserved as a transparent border on the base rule so marking a row cannot shift its own text 2px
+   out of line). That row is this one's sibling: the window menu is the other dropdown in this same
+   top-right cluster, one press away, and `.wf-jump-row`'s own comment above already says the two
+   are meant to read as one family. A first cut used `.wf-seg-btn.on`'s fill with
+   `--color-segment-active` as an inset shadow — measurably a different rule (1.72:1 apart, ΔE76
+   30.2) from the sibling's mid-gold, and `--color-segment-active` is a badge TEXT token that
+   nothing else in this file strokes with. ⚠️ Never `--color-plex-gold` here either: it resolves to
+   `#F2E7D3`, BYTE-IDENTICAL to `--color-plex-text`, so a name painted in it carries a colour
+   declaration that changes nothing.
+
+   `[aria-current="true"]`, not a bare `[aria-current]`: React drops the attribute entirely for
+   `undefined` (what this component passes) but serialises a BOOLEAN `false` to the string
+   `"false"`, which a bare attribute selector matches — so normalising this component onto
+   `WindowControl`'s own `aria-selected={active}` idiom would silently paint every row as in force.
+
+   The one deliberate divergence from the sibling is the hover: `.wf-win-row.on` has none, because
+   `.wf-jump-row:hover` and this rule carry identical specificity (0,2,0) and source order gives the
+   marked fill the win. Re-pressing the framed region is a legitimate action (it re-centres), so the
+   row answers the pointer rather than going dead under it. */
+.wf-jump-row[aria-current="true"] {
+  background: rgba(201, 162, 75, 0.13);
+  border-left-color: var(--color-home);
+}
+.wf-jump-row[aria-current="true"]:hover { background: rgba(201, 162, 75, 0.2); }
+
+/* ⚠️ The `×` collision these two phone sheets had is fixed in `BottomSheet` itself, NOT here —
+   `reserveCloseStrip`, which both opt into. A `padding-top` on these classes was the first cut and
+   it is WRONG, however plausible it reads: they live INSIDE the sheet's scroll container, so their
+   padding scrolls away with their content and the collision returns on the first scroll tick. Two
+   independent reviews caught it. Do not re-add one here — the strip has to be reserved outside the
+   scroller, which only the sheet component can do. */
 
 /* ── Selection: the ring + the callout (map-tab-v2-plan.md §3 P9, README §7) ───────────────────
    Replaces the Leaflet popup and the mobile `BottomSheet` on this tab — "a popup covers exactly the

@@ -1223,8 +1223,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * nothing but React's internal effect order deciding which one the reader actually sees. An
    * override sidesteps the race outright: the one controller is handed one `bounds` prop, and while
    * this is non-null it wins unconditionally. `FiltersPopover`'s own "My area"/"Everywhere"
-   * segment (`onSelectScope` below) clears it on every press of its own — the sole place that does —
-   * so a stale jump can never survive the reader's own later choice to reframe by scope.
+   * segment (`onSelectScope` below) clears it on every press of its own, so a stale jump can never
+   * survive the reader's own later choice to reframe by scope.
+   *
+   * <p>{@link clearRegionJump} is the OTHER place that clears it — the Regions list's own way back,
+   * added because the scope segment and `⌂` were the only two and neither is dependably on a phone
+   * (see that function, and `RegionsJump`'s class doc, for the whole finding). It carries
+   * {@code restoreArea}, which the scope segment needs no equivalent of: a press THERE is the
+   * reader choosing a scope outright, where a press on the reset row is undoing one this component
+   * changed on their behalf.
    */
   const [jumpFitOverride, setJumpFitOverride] = useState(null);
   /** Monotonic source for {@code jumpFitOverride.nonce} — a ref, not state, since bumping it is
@@ -2682,14 +2689,24 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     const spots = heat?.spots || EMPTY_POINTS;
     const regionSpots = spots.filter((s) => s?.regionName === regionName);
     if (regionSpots.length === 0) return;
+    // The scope this jump CHANGED, so `clearRegionJump` below can undo the whole of it. Carried
+    // FORWARD across a second jump rather than re-derived there: the flip happens once, on the
+    // first region outside the area, and `heatArea` is already false by the time the next row is
+    // picked — so a fresh derivation would read "changed nothing" and strand the reader at
+    // Everywhere after pressing a control whose only stated job is to undo a jump.
+    let restoreArea = jumpFitOverride?.restoreArea ?? null;
     if (heatArea) {
       const inArea = (heat?.areaSpots || EMPTY_POINTS).some((s) => s?.regionName === regionName);
-      if (!inArea) setHeatArea(false);
+      if (!inArea) {
+        setHeatArea(false);
+        restoreArea = true;
+      }
     }
     jumpFitSeq.current += 1;
     setJumpFitOverride({
       bounds: latLngBounds(regionSpots, 0.06),
       nonce: jumpFitSeq.current,
+      restoreArea,
       // The door breadcrumb's region clause (D2, plan-to-map-doors-plan.md §3 D2 task 3, §5
       // rule 3) reads THIS field to answer "is the carried region's jump still the scope in
       // force" — `jumpFitOverride` otherwise carries only bounds and a fit nonce, neither of
@@ -2699,6 +2716,66 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     });
     // Closes the jump menu — see this function's own doc for why a jump closes where a filter row
     // would not.
+    setOpenMapMenu(null);
+  }
+
+  /**
+   * What the reset row SAYS, and — separately — what its press DOES. ⚠️ **Two expressions on
+   * purpose, and collapsing them onto one is a regression that has already been made once here.**
+   *
+   * <p>They share the `restoreArea ?? heatArea` core and differ only in their gate, because they
+   * answer different questions. The LABEL asks "is there a narrowing area frame worth naming" —
+   * `heat.hasHome`, which is exactly that (`WindowFirstMapPane`: a home or an origin, AND a frame
+   * that is non-empty AND smaller than the catalogue). With no postcode `areaSpots` IS the whole
+   * catalogue, so "My area" would name a filter that is not running; the row says Everywhere, which
+   * is what the reader is looking at.
+   *
+   * <p>The PRESS asks a narrower question — "does the scope I would restore have a box to fit" —
+   * and must NOT read `hasHome`. `heatArea` is not only a camera input, it is the tab's scope
+   * state: gating the press on `hasHome` writes `false` for a no-postcode reader whose jump never
+   * touched scope, and that write is **sticky** (the scope segment is withheld without a home,
+   * `⌂` is inert without one and hidden on the phone, and a further jump-and-reset repeats it), so
+   * the counts footer starts asserting *"Everywhere — including regions beyond your usual drive"*
+   * to somebody with no measured drive at all — the reach-honesty rule CLAUDE.md states as "none
+   * of them may say 'within reach' unless a drive time exists to have gated on". Found by
+   * adversarial review, against the one-expression version.
+   *
+   * <p>`areaBounds` is the right gate for the press because it is null in precisely the case the
+   * camera cannot honour — an away origin whose region contributes no heat spots leaves `areaSpots`
+   * empty, so restoring that scope would promise a move to a box that does not exist. Everywhere is
+   * the honest landing there, and the label already says so.
+   */
+  const jumpResetArea = Boolean(heat?.hasHome) && (jumpFitOverride?.restoreArea ?? heatArea);
+  const jumpResetLabel = jumpResetArea ? (heat?.areaLabel || 'My area') : 'Everywhere';
+  const jumpResetScope = Boolean(heat?.areaBounds) && (jumpFitOverride?.restoreArea ?? heatArea);
+
+  /**
+   * The Regions list's own way back (`RegionsJump`'s `onReset`) — clears a standing jump and refits
+   * to {@link jumpResetArea}, the exact inverse of {@link jumpToRegion} above.
+   *
+   * <p><b>Not {@code resetToMyArea}</b>, though that is what `⌂` and the scope segment call. A
+   * reader who had deliberately chosen Everywhere BEFORE jumping must not be snapped to My area by
+   * a press that asked to undo one region's framing — that is a scope decision they made and this
+   * control never carried. Where the jump DID flip scope ({@code restoreArea}, set above),
+   * restoring it is the rest of the same undo rather than a second choice.
+   *
+   * <p>⚠️ {@code setHeatArea} therefore runs on every press but is a **no-op wherever the jump
+   * changed nothing** — {@code jumpResetScope} falls through to the current {@code heatArea} in
+   * that case. It reads that value and never {@code jumpResetArea}; see the pair's own doc for why
+   * writing scope through the LABEL's gate is a regression rather than a simplification.
+   *
+   * <p>⚠️ The nonce bump is belt-and-braces, and saying otherwise would be wrong: clearing the
+   * override already changes `heatBounds` from the region's box to the `heatArea`-derived one, and
+   * `HeatBoundsController` keys on `${nonce}|${JSON.stringify(bounds)}`, so the BOUNDS half re-arms
+   * it on every path a test can reach. What the bump covers is the pair no test constructs — a
+   * `jumpFitSeq` that happens to equal `heatFitNonce` while the region's padded box deep-equals the
+   * fallback box — and it keeps this function's shape identical to `resetToMyArea`'s, which is the
+   * more useful property.
+   */
+  function clearRegionJump() {
+    setJumpFitOverride(null);
+    setHeatArea(jumpResetScope);
+    setHeatFitNonce((n) => n + 1);
     setOpenMapMenu(null);
   }
 
@@ -3786,6 +3863,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 onOpenChange={(next) => setOpenMapMenu(next ? 'jump' : null)}
                 rows={jumpRows}
                 onSelectRegion={jumpToRegion}
+                activeRegion={jumpFitOverride?.regionName ?? null}
+                resetLabel={jumpResetLabel}
+                onReset={clearRegionJump}
               />
               {heatOffered && (
                 <div data-testid="wf-map-toolbar" className="wf-map-toolbar-cluster">

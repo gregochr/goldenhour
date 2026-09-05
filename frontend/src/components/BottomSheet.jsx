@@ -29,10 +29,20 @@ import useDialogFocus from '../hooks/useDialogFocus.js';
  *        standing over a pannable map — a `false` disclosure widget that let the map underneath pan
  *        or scroll through its own backdrop would be new behaviour, not a straight `aria-modal`
  *        swap, and is out of this prop's scope entirely.
+ * @param {boolean} [props.reserveCloseStrip] - Keep the close button's own band clear of scrolling
+ *        content. ⚠️ The button is `absolute` on the SHEET (y 8→40px) while the content below is a
+ *        SCROLL CONTAINER starting at y 16px, so its top 24px sits under the button permanently —
+ *        and padding inside the scroller does NOT fix it, because a scroll container's own padding
+ *        scrolls away with its content. Whatever row is at the top of the scrollport is obscured
+ *        and its taps are taken, at every scroll position but one. Opt in and a spacer is rendered
+ *        BETWEEN the handle and the scroller, with the scroll budget shortened to match, so the
+ *        scrollport begins below the button and nothing can ever reach it. Off by default: every
+ *        existing caller keeps its exact geometry, and a sheet whose first row has nothing at its
+ *        right edge does not need the 24px.
  * @param {React.ReactNode} props.children - Content rendered inside the sheet.
  */
 export default function BottomSheet({
-  open, onClose, label = 'Details', modal = true, children,
+  open, onClose, label = 'Details', modal = true, reserveCloseStrip = false, children,
 }) {
   // Prevent body scroll while open
   useEffect(() => {
@@ -101,13 +111,18 @@ export default function BottomSheet({
           &#x2715;
         </button>
 
+        {/* The close button's own band, held OUTSIDE the scroll container — see `reserveCloseStrip`.
+            `aria-hidden` because it is geometry: the button it clears is a real sibling above. */}
+        {reserveCloseStrip && <div aria-hidden="true" className="h-6" />}
+
         {/* Scrollable content */}
         {/* `- var(--safe-b)`: the outer sheet is `60vh` INCLUDING its new safe padding, so this
             budget has to give the same ground back or the scroll viewport overruns the padding box
             and ends inside the home-indicator zone. Resting text cleared it either way via `pb-6`,
-            which is luck rather than design — this makes it the padding's job. */}
+            which is luck rather than design — this makes it the padding's job. The strip above is
+            subtracted for the same reason — it is 24px the scroller no longer has. */}
         <div className="overflow-y-auto px-4 pb-6"
-             style={{ maxHeight: 'calc(60vh - 40px - var(--safe-b))' }}>
+             style={{ maxHeight: `calc(60vh - ${reserveCloseStrip ? 64 : 40}px - var(--safe-b))` }}>
           {children}
         </div>
       </div>
@@ -121,5 +136,6 @@ BottomSheet.propTypes = {
   onClose: PropTypes.func.isRequired,
   label: PropTypes.string,
   modal: PropTypes.bool,
+  reserveCloseStrip: PropTypes.bool,
   children: PropTypes.node,
 };
