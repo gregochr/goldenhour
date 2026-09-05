@@ -266,7 +266,14 @@ export default function WindowSpotSheet({
           >
             <Segment
               id="window-spot-sheet-reach"
-              label="How far"
+              // The bar's own phone shortening of this same control, and deliberately origin-free:
+              // the sheet inherits whatever origin the bar is on and takes no `originBase`, so
+              // `Drive` is true under home and away alike. It read `How far` until 2026-09-05,
+              // which shared a stem with the bar's then-`How far tonight` — when that caption
+              // became `Drive from home`, this one was the only reach control on the tab still
+              // speaking the old vocabulary, and c6's "one source" reads as one source only while
+              // the two ends sound like one control.
+              label="Drive"
               options={REACH_TIERS}
               value={tierId}
               // `disabled` as well as the wrapper's `pointer-events: none`, because pointer-events

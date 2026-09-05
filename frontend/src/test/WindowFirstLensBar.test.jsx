@@ -27,6 +27,7 @@ const SATURDAY = '2026-08-08';
  */
 function Lens({
   todayStr = TUESDAY, locked = false, spotCount = 34, reachedCount, windowCount = 6,
+  originBase = null,
 }) {
   const lens = useReachLens(todayStr, locked);
   const ratingLens = useRatingLens();
@@ -37,6 +38,7 @@ function Lens({
       spotCount={spotCount}
       reachedCount={reachedCount}
       windowCount={windowCount}
+      originBase={originBase}
     />
   );
 }
@@ -108,7 +110,23 @@ describe('WindowFirstLensBar — the control', () => {
     // Their labels are bare durations: without the group's name, "45 min" announces as a duration
     // with no statement of what it does.
     render(<Lens />);
-    expect(screen.getByRole('group', { name: 'How far tonight' })).toBeInTheDocument();
+    expect(screen.getByRole('group', { name: 'Drive from home' })).toBeInTheDocument();
+  });
+
+  it('names its origin at both ends, so one control cannot wear two captions that disagree', () => {
+    // The property the 2026-09-05 rename established, and the only one nothing pinned. The home
+    // caption read `How far tonight` while the away caption already read `Drive from Keswick`, so
+    // moving the origin silently dropped a time claim the gate had never honoured — the chips
+    // filter every window the shell draws, not tonight's. `rerender` rather than two renders
+    // because what is asserted is that the caption FOLLOWS the prop: two static renders would pass
+    // against a component that ignored it. Until today `originBase` reached no test at all, and
+    // the two captions were asserted in two different files, so nothing could see the pair.
+    const { rerender } = render(<Lens />);
+    expect(screen.getByRole('group', { name: 'Drive from home' })).toBeInTheDocument();
+
+    rerender(<Lens originBase="Keswick" />);
+    expect(screen.getByRole('group', { name: 'Drive from Keswick' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Drive from home' })).toBeNull();
   });
 
   it('states the tier, the day that derived it, and the count it left', () => {
@@ -390,16 +408,29 @@ describe('WindowFirstLensBar — the phone branch', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it('shortens the caption, which is the whole of what buys the room', () => {
-    // `HOW FAR TONIGHT` inline costs about a third of a 390px viewport — very close to what the
+    // `DRIVE FROM HOME` inline costs about a third of a 390px viewport — very close to what the
     // four chips were short by. Both halves are asserted: a rule that shortened every caption would
     // pass the first alone.
     asPhone();
     render(<Lens />);
 
     expect(screen.getByRole('group', { name: 'Drive' })).toBeInTheDocument();
-    expect(screen.queryByRole('group', { name: 'How far tonight' })).toBeNull();
+    expect(screen.queryByRole('group', { name: 'Drive from home' })).toBeNull();
     // The rating caption does NOT change — it is already two syllables at either size.
     expect(screen.getByRole('group', { name: 'Rated' })).toBeInTheDocument();
+  });
+
+  it('keeps the base name on the phone, where the home caption gives its words up', () => {
+    // The asymmetry is deliberate and was untested until 2026-09-05: the phone shortens the HOME
+    // caption to `Drive` because that caption is the whole of what buys the four tiers their own
+    // row, but the away caption keeps its base — a phone reading `Drive` over figures measured
+    // from a town the reader has just picked is the one width where moving the origin would be
+    // invisible. `Drive` must be ABSENT here, or the shortening rule would have eaten the base too.
+    asPhone();
+    render(<Lens originBase="Keswick" />);
+
+    expect(screen.getByRole('group', { name: 'From Keswick' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Drive' })).toBeNull();
   });
 
   it('keeps the caption and the group name one string, so label-in-name holds at both sizes', () => {

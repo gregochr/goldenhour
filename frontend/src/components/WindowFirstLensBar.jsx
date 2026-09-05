@@ -10,7 +10,7 @@ import { LENS_RATING_FLOORS } from '../utils/ratingLens.js';
  *
  * <p>{@code aria-labelledby} pointing at the visible caption rather than an {@code aria-label} of
  * its own, and that is load-bearing on a bar whose captions change with the viewport. An
- * {@code aria-label} of "Drive time" over a visible "How far tonight" fails WCAG 2.5.3, because the
+ * {@code aria-label} of "Drive time" over a visible "Drive from home" fails WCAG 2.5.3, because the
  * visible words are not in the accessible name; pointing at the caption makes the two the same
  * string by construction, at every width.
  *
@@ -81,14 +81,75 @@ LensSegment.propTypes = {
  * as the origin button's empty state since M3 — it was the rail footer's until that row went, and
  * design reserves the slot.
  *
+ * <h2>The drive caption names its origin, never a time</h2>
+ *
+ * <p>It read {@code HOW FAR TONIGHT} until 2026-09-05, which is a claim this control does not
+ * honour. The gate runs over <em>every</em> window the shell draws — up to six of them
+ * ({@code PlanRenderLimits.MAX_VISIBLE_EVENTS}), so sunrise and sunset across three or four days —
+ * and the readout on this same row says so out loud, in the "N spots across M windows" clause.
+ * Tomorrow's sunrise card is gated by these chips exactly as tonight's sunset is.
+ * {@code reachLens.defaultTierIdFor} had already written the mismatch down while explaining why
+ * Friday counts as a weekday: "the bar is one control over up to six windows spanning four days".
+ *
+ * <p><b>What "tonight" was reaching for is the setting's lifetime, not the gate's scope.</b> Two
+ * things here really are day-bound — the default tier is a pure function of today's date, and a
+ * manual choice is discarded at the day roll — and for an unlocked reader the bar states both
+ * already: the readout's default clause ({@code weekday default} / {@code weekend default}, or
+ * {@code default here} away) and the amber {@code today only} pill. A LITE reader sees neither,
+ * because {@code useReachLens} pins them to "Any" so nothing is in force to expire — which is why
+ * the caption is the wrong place to carry the lifetime even for them. So it was spending its words
+ * restating what the readout says, and getting the filter's reach wrong in exchange. Plan §6's
+ * sweep polices the second half one element over — "no count describes a set that was never
+ * filtered" — and §2.7 states the first half for the confidence channel; neither clause is written
+ * about captions, so read this as their family rather than as either rule quoted.
+ *
+ * <p><b>The away caption never made the claim</b> ({@code Drive from Keswick}), so one control was
+ * carrying two captions that disagreed about what it did, and the time claim vanished the moment a
+ * reader picked an origin — without the gate changing at all. Naming the origin at both ends makes
+ * them one sentence shape, and {@code WindowSpotSheet}'s inherited reach control was recaptioned
+ * {@code Drive} in the same commit for the same reason: it seeds from this bar's tier and gates the
+ * same axis through the same {@code gateSpotsByReach}, so leaving it on {@code How far} would have
+ * made it the only reach control on the tab still speaking the retired vocabulary. That is
+ * {@code Adversarial Review.html} charge c6 ("Reach is stated in three places") <em>extended</em>,
+ * not applied: c6 ruled on where the reach <em>value</em> lives, and its "one source" remedy reads
+ * as one source only while the two ends sound like one control. Its own clause about the drilldown
+ * saying "widened for browsing" is unaffected — that sentence lives in the sheet's header, not in
+ * this caption.
+ *
+ * <p><b>⚠️ The home arm is a literal where the away arm is data-driven, and that asymmetry is
+ * deliberate — do not "fix" it with a third arm keyed on {@code reachMeasured}.</b> The away branch
+ * renders only when an origin exists, so a reader with no saved postcode gets {@code DRIVE FROM
+ * HOME} one row under the masthead's own {@code Set a postcode for light and drive times} nudge —
+ * a from-point named by the caption while the page above asks them to create it. That looks like
+ * the honesty rule CLAUDE.md states for reach, and is not it: that rule governs saying <em>"within
+ * reach"</em>, a claim that a gate ran and produced a count, which is why {@code formatLensCount}
+ * drops those two words when {@code reachMeasured} is false. A caption naming the origin a
+ * measurement would be taken from asserts no result and no filtering — {@code Rated} makes no claim
+ * that anything is rated either. The two rows agree rather than argue: both point at the same
+ * missing input, where {@code HOW FAR TONIGHT} named something the reader already had and gave no
+ * hint that a postcode was the piece in the way. Shortening to a bare {@code Drive} in that state
+ * would take the hint back out and leave the chips inert with nothing on the bar explaining why —
+ * which is, to be exact about it, what the phone already does at every width below 640px, postcode
+ * or not. That is the room argument below winning over this one where the two collide, and it is
+ * survivable because the masthead's nudge renders at both widths; it is not a reason to give up the
+ * hint on the width that has room for it.
+ *
+ * <p>The swap costs no width: {@code .wf-lens-k} is {@code --font-mono} at a fixed letter-spacing
+ * and both captions are fifteen characters, so the phone reasoning in the next section holds
+ * exactly rather than approximately — and the phone caption itself is unchanged. Measured in the
+ * browser against the real stylesheet on 2026-09-05: both render at 105.313px, and the bar's height
+ * (53.5px) and overflow are unchanged at 1440px and in the 640–781px band the CSS comment flags.
+ *
  * <h2>Two rows on a phone, and the label is what buys the room</h2>
  *
  * <p>The bar used to be a hidden-scrollbar horizontal scroller at every width, so on a 390px screen
  * the tiers past "1h 30min" were off the right edge with nothing saying so. The handoff's fix is
  * layout rather than affordance — "a fade would advertise a scroll that shouldn't need to exist" —
- * and the room comes from the caption: {@code HOW FAR TONIGHT} eats about a third of a phone
- * viewport inline, where {@code Drive} on its own does not. Each control then takes a full row with
- * {@code flex: 1} chips, and nothing overflows at 320px.
+ * and the room comes from the caption: the full fifteen-character label — {@code HOW FAR TONIGHT}
+ * when P14 measured this, {@code DRIVE FROM HOME} since, identical in width for the reason the
+ * section above gives — eats about a third of a phone viewport inline, where {@code Drive} on its
+ * own does not. Each control then takes a full row with {@code flex: 1} chips, and nothing
+ * overflows at 320px.
  *
  * <p>The caption text switches in JS rather than by rendering both and hiding one, because
  * {@code aria-labelledby} resolves through {@code display: none} — two captions would put both
@@ -134,9 +195,8 @@ LensSegment.propTypes = {
  * @param {number}   props.windowCount  windows drawn
  * @param {?string}  [props.originBase] the away origin's base town. Present, the drive caption
  *        names it — the design's {@code DRIVE FROM KESWICK} — because every figure the control
- *        gates is measured from there and a caption reading "tonight" over drives from a town two
- *        hundred miles away is the one thing this bar must not say. Null is home and the caption
- *        is unchanged.
+ *        gates is measured from there, and a caption still naming home would be the one thing this
+ *        bar must not say. Null is home, and the caption names it.
  */
 export default function WindowFirstLensBar({
   lens, ratingLens, spotCount, reachedCount = spotCount, windowCount, reachMeasured = true,
@@ -173,7 +233,7 @@ export default function WindowFirstLensBar({
         // so rendering both and hiding one would put both strings in the accessible name.
         label={originBase
           ? (isMobile ? `From ${originBase}` : `Drive from ${originBase}`)
-          : (isMobile ? 'Drive' : 'How far tonight')}
+          : (isMobile ? 'Drive' : 'Drive from home')}
         options={REACH_TIERS}
         value={tierId}
         // A real `disabled` as well as the wrapper's `pointer-events: none`, because pointer-events

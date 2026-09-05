@@ -120,7 +120,7 @@ describe('WindowSpotSheet', () => {
       // whole of the name — without it a screen reader reads twelve unrelated toggle buttons. The
       // lens bar's own suite asserts its group the same way.
       renderSheet({ barTierId: 'any' });
-      expect(screen.getByRole('group', { name: 'How far' })).toBeInTheDocument();
+      expect(screen.getByRole('group', { name: 'Drive' })).toBeInTheDocument();
       expect(screen.getByRole('group', { name: 'At least' })).toBeInTheDocument();
       expect(screen.getByRole('group', { name: 'Type' })).toBeInTheDocument();
     });

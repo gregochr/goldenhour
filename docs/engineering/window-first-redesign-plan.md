@@ -2362,6 +2362,46 @@ is inert in v2 but load-bearing in v1, and P15b already recorded the split at `:
   placeholder and `CloseToHome` never render beside the rail. The two stories are never on screen
   together. Reconverging the arms after the flag default flips means making this one decision
   once, across both — not splitting it across two surfaces.
+- **The lens bar's drive caption is `Drive from home`, not the spec's `How far tonight`**
+  (2026-09-05, owner-raised). ⚠️ **The bundle specifies this string in six places and one of them
+  is an adversarial-review verdict, so read the whole list before restoring it**: README §2:64 gives
+  the label; PROMPTS §5:77 repeats it and adds "if it needs explaining, the label is wrong"; the mock
+  renders it at `Plan Window First v2.html:311` and records the decision behind it at `:358`; and
+  `Adversarial Review.html` charge **c5** ("The lens has an explainer link", Guilty) prescribes it
+  by name at `:146` — *"Say it in the control: 'How far tonight · 2h30'"* — with `:99` repeating it
+  as cut 1 of 3. **c5 survives this change; only its illustrative string does not.** Its complaint
+  was an explainer link in the bar, and its remedy was to put the meaning in the control itself;
+  the explainer is still gone and the control still carries the meaning — better, since c5's own
+  test is "if it needs explaining, the label is wrong". The label was wrong. The gate this control
+  runs is not scoped to tonight at all — it applies to every window the shell draws, up to six
+  (`PlanRenderLimits.MAX_VISIBLE_EVENTS`), which is sunrise and sunset across three or four days, so
+  tomorrow's sunrise card is filtered by it exactly as tonight's sunset is. The readout eight inches
+  to its right had been contradicting it since P6 ("… spots across N windows"), and README §2's own
+  Purpose line says "how far you will travel **today**", so the bundle disagreed with its own label
+  before either was built. What "tonight" was reaching for is the setting's *lifetime* — the default
+  tier is a pure function of today's date, and a manual choice expires at the day roll — and the bar
+  already states both of those, in the readout's `weekend default` clause and in the `today only`
+  pill, so the caption was duplicating them (§2.7) while overclaiming the filter's scope (§6). The
+  away caption `Drive from Keswick` never made the time claim, which left one control wearing two
+  captions that disagreed about what it did; naming the origin at both ends makes them one sentence
+  shape. `WindowSpotSheet`'s inherited reach control went `How far` → `Drive` in the same commit:
+  it seeds from the bar's tier and gates the same axis through the same `gateSpotsByReach`, so it
+  would otherwise have been the only reach control on the tab still speaking the retired vocabulary
+  — which is `Adversarial Review.html` charge c6 ("Reach is stated in three places") read as it was
+  decided. `.wf-lens-k` is `--font-mono` at a fixed letter-spacing and both bar captions are fifteen
+  characters, so the width is unchanged *exactly* rather than approximately — measured in the
+  browser at 105.313px either way, bar height 53.5px and no overflow at 1440px or across the
+  640–781px band — and §5i's phone measurement (this caption is what buys the second row; `Drive` on
+  the phone is untouched) stands without re-measuring.
+
+  ⚠️ **The home arm is a literal where the away arm is data-driven, and a third arm keyed on
+  `reachMeasured` was considered and rejected.** A reader with no saved postcode sees `DRIVE FROM
+  HOME` one row under the masthead's `Set a postcode for light and drive times` nudge. That is not
+  the honesty rule CLAUDE.md states for reach: that rule governs saying *"within reach"* — a claim
+  that a gate ran and produced a count, which `formatLensCount` already withdraws when
+  `reachMeasured` is false — where a caption naming the origin a measurement would be taken from
+  asserts no result at all. The two rows point at the same missing input, where `HOW FAR TONIGHT`
+  named something the reader already had.
 - **Styling.** CLAUDE.md says Tailwind only, no inline styles; the spec is written in exact px
   (12.5 / 10.5 / 9.5). Follow the existing precedent — `index.css` component classes plus tokens, with
   inline style for one-off exact values, which is what `CloseToHome`, `TideRunRow` and `ViewToggle`
