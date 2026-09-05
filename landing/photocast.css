@@ -1,0 +1,113 @@
+/* PhotoCast landing — shared shell */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+--disp:'Bricolage Grotesque',ui-sans-serif,system-ui,sans-serif;
+--body:'IBM Plex Sans',ui-sans-serif,system-ui,sans-serif;
+--mono:'IBM Plex Mono',ui-monospace,monospace;
+--serif:'Newsreader',Georgia,ui-serif,serif;
+--ground:#17150F;--ground-2:#1E1B14;--card:#241F17;--card-2:#2B251B;
+--ink:#F0EBE0;--ink-soft:#ABA391;--ink-dim:#948B7A;
+--rule:#332D22;--rule-2:#453D2E;
+/* Brand lockup tokens — verbatim from the app's @theme (frontend/src/index.css):
+   --color-plex-text, --color-plex-coral, --color-plex-border, --color-plex-border-light.
+   Do not re-tune these to the landing palette; the whole point is that they match. */
+--bone:#F2E7D3;--coral:#E8593F;--spine-rule:#3A2C23;--spine-hole:#4A3A2E;
+--go:oklch(0.76 0.11 132);--maybe:oklch(0.78 0.11 75);--poor:oklch(0.68 0.12 32);
+--brand:oklch(0.78 0.11 75);--brand-hi:oklch(0.86 0.11 82);
+--go-wash:color-mix(in oklab,var(--go) 13%,transparent);
+--maybe-wash:color-mix(in oklab,var(--maybe) 13%,transparent);
+--r:10px;--r-lg:16px
+}
+/* Guarded: an unconditional smooth scroll animates 5,631px on index.html's #pricing anchor,
+   which is the canonical vestibular trigger (WCAG 2.3.3). */
+@media(prefers-reduced-motion:no-preference){html{scroll-behavior:smooth}}
+body{background:var(--ground);color:var(--ink);font-family:var(--body);font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
+a{color:var(--brand);text-decoration:none}
+a:hover{color:var(--brand-hi)}
+h1,h2,h3,h4{font-family:var(--disp);font-weight:600;letter-spacing:-.02em;line-height:1.06;color:var(--ink)}
+p{text-wrap:pretty}
+em{font-style:normal;color:var(--brand)}
+.wrap{width:100%;max-width:1080px;margin:0 auto;padding:0 28px}
+.prose{max-width:660px}
+/* ── masthead ── */
+.mast{border-bottom:1px solid var(--rule);position:sticky;top:0;z-index:20;background:color-mix(in oklab,var(--ground) 92%,transparent);backdrop-filter:blur(10px)}
+.mast .wrap{display:flex;align-items:center;justify-content:space-between;gap:20px;min-height:66px}
+/* Brand lockup — a port of the app's BrandLockup 'masthead' variant (frontend/src/components/
+   shared/BrandLockup.jsx): film-perforation spine, serif wordmark, coral kicker. It replaced a
+   logo.png + extrabold-sans wordmark there for belonging to no part of the system, which is
+   exactly what the amber dot + Bricolage wordmark was doing here.
+   ⚠️ Always flush left. Centred, the perforation reads as a stray rule rather than a film edge.
+   The 7px-on-15px gauge is the app's `header` gauge, which is what its masthead uses at ~50px. */
+.mark{position:relative;display:flex;flex-direction:column;align-items:flex-start;padding-left:22px;color:var(--bone)}
+.mark::before{content:'';position:absolute;left:0;top:0;bottom:0;width:11px;border-right:1px solid var(--spine-rule);background:repeating-linear-gradient(180deg,var(--spine-hole) 0 7px,transparent 7px 15px)}
+.mark:hover .wm{color:var(--brand-hi)}
+.mark .wm{font-family:var(--serif);font-size:21px;font-weight:600;line-height:1;letter-spacing:-.022em;color:var(--bone)}
+.mark .kicker{font-family:var(--mono);font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--coral);margin-top:4px;line-height:1}
+@media(min-width:640px){.mark{padding-left:25px}.mark .wm{font-size:25px}.mark .kicker{font-size:9.5px;letter-spacing:.2em;margin-top:6px}}
+@media(min-width:1024px){.mark .wm{font-size:28px}}
+.mast nav{display:flex;align-items:center;gap:26px}
+.mast nav a:not(.btn){font-size:14px;color:var(--ink-soft)}
+.mast nav a:not(.btn):hover{color:var(--ink)}
+.btn{font-family:var(--body);font-size:14px;font-weight:600;display:inline-flex;align-items:center;gap:9px;padding:11px 20px;border-radius:999px;background:var(--brand);color:#1A1408;border:1px solid transparent;transition:background .15s,transform .15s}
+.btn:hover{background:var(--brand-hi);color:#1A1408}
+.btn.sm{padding:8px 16px;font-size:13.5px}
+.btn.ghost{background:transparent;color:var(--ink);border-color:var(--rule-2)}
+.btn.ghost:hover{background:var(--ground-2);color:var(--ink);border-color:var(--ink-dim)}
+/* ── labels ── */
+.lab{font-family:var(--mono);font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-dim)}
+.lab.b{color:var(--brand)}
+.eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:.18em;text-transform:uppercase;color:var(--brand);display:flex;align-items:center;gap:12px}
+.eyebrow::after{content:'';height:1px;flex:1;max-width:120px;background:var(--rule-2)}
+/* ── page headings for content pages ── */
+.phead{padding:76px 0 44px;border-bottom:1px solid var(--rule)}
+.phead h1{font-size:clamp(38px,7vw,62px)}
+/* `:not(.lab)` for the same reason as `.mast nav a:not(.btn)` above: this descendant selector
+   (0,1,1) out-specifies the .lab component (0,1,0), so a label mounted here kept .lab's mono
+   family and .16em tracking but took THIS rule's 17px and --ink-soft — rendering the quiet
+   'Last updated' metadata as a 17px line tracked out to 2.72px. */
+.phead p:not(.lab){margin-top:18px;font-size:17px;color:var(--ink-soft);max-width:620px}
+/* ── content pages ── */
+.doc{padding:52px 0 20px;display:grid;grid-template-columns:minmax(0,1fr);gap:0}
+.doc h2{font-size:26px;margin:40px 0 12px;letter-spacing:-.025em}
+.doc h2:first-child{margin-top:0}
+.doc h3{font-family:var(--body);font-size:16px;font-weight:600;margin:22px 0 4px}
+.doc p{font-size:16px;color:var(--ink-soft);margin-bottom:12px;max-width:660px}
+.doc ul{list-style:none;max-width:660px;margin-bottom:12px}
+.doc ul li{font-size:15.5px;color:var(--ink-soft);padding:3px 0 3px 20px;position:relative}
+.doc ul li::before{content:'';position:absolute;left:2px;top:13px;width:5px;height:5px;border-radius:50%;background:var(--ink-dim)}
+.doc .sub{font-family:var(--mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink);margin:26px 0 8px}
+.qa{border-top:1px solid var(--rule);padding:26px 0}
+.qa:last-of-type{border-bottom:1px solid var(--rule)}
+.qa h2,.qa h3{font-family:var(--disp);font-weight:600;letter-spacing:-.02em;font-size:22px;margin:0 0 8px}
+/* Colour stated here, not inherited from `.doc p`: .qa is mounted inside .doc on faq.html but
+   outside it on index.html's teaser, so without this the same component renders --ink-soft on
+   one page and --ink on the other. */
+.qa p{margin-bottom:0;color:var(--ink-soft)}
+/* ── tables ── */
+/* `tabindex=0` + `role=region` + a name in the markup: at 375px the 600px table leaves ~45%
+   off-screen, and neither Chrome nor Safari makes an overflow:auto div focusable, so a
+   keyboard-only reader could not reach the third column (WCAG 2.1.1, axe
+   scrollable-region-focusable). Focusable means it needs a visible focus style. */
+.tw{overflow-x:auto;margin:18px 0 6px;border:1px solid var(--rule);border-radius:var(--r)}
+.tw:focus-visible{outline:2px solid var(--brand);outline-offset:2px}
+table{width:100%;border-collapse:collapse;min-width:600px}
+th{background:var(--ground-2);font-family:var(--mono);font-size:11.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink);text-align:left;font-weight:400;padding:13px 16px;border-bottom:1px solid var(--rule)}
+td{background:var(--card);font-size:14px;color:var(--ink-soft);padding:13px 16px;border-bottom:1px solid var(--rule);line-height:1.5;vertical-align:top}
+td:first-child{color:var(--ink);font-weight:500}
+tr:last-child td{border-bottom:none}
+/* ── footer ── */
+.foot{border-top:1px solid var(--rule);margin-top:72px;padding:40px 0 56px}
+.foot .wrap{display:flex;flex-wrap:wrap;gap:24px;align-items:center;justify-content:space-between}
+.foot-links{display:flex;flex-wrap:wrap;gap:22px}
+.foot-links a{font-size:13.5px;color:var(--ink-soft)}
+.foot-links a:hover{color:var(--ink)}
+.foot-right{display:flex;align-items:center;gap:18px}
+.social{display:flex;gap:14px}
+.social a{color:var(--ink-dim);display:flex}
+.social a:hover{color:var(--brand)}
+.foot-copy{font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-dim)}
+@media(max-width:720px){
+.wrap{padding:0 20px}
+.mast nav a:not(.btn){display:none}
+.phead{padding:48px 0 32px}
+}

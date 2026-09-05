@@ -1,230 +1,97 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Terms &amp; Conditions — PhotoCast</title>
-  <meta name="description" content="Terms and conditions for using PhotoCast.">
-  <link rel="icon" type="image/png" href="favicon.png">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <style>
-    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    :root {
-      --bg: #181A1E;
-      --bg-surface: #252830;
-      --bg-surface-light: #2F323A;
-      --bg-card: #252830;
-      --text: #EBEBEB;
-      --text-muted: #A0A0A0;
-      --text-dim: #6B6B6B;
-      --gold: #E5A00D;
-      --gold-light: #F5C518;
-      --gold-dark: #CC8A00;
-      --gold-bg: rgba(229, 160, 13, 0.08);
-      --gold-border: rgba(229, 160, 13, 0.2);
-      --border: #3A3D45;
-      --border-light: #4A4D55;
-      --radius: 12px;
-      --radius-lg: 14px;
-    }
-    body {
-      font-family: 'IBM Plex Sans', ui-sans-serif, system-ui, sans-serif;
-      color: var(--text);
-      background: var(--bg);
-      line-height: 1.5;
-      -webkit-font-smoothing: antialiased;
-    }
-    .page { max-width: 700px; margin: 0 auto; padding: 2rem 1.5rem; }
-
-    /* Nav */
-    .nav { display: flex; justify-content: space-between; align-items: center; padding: 0 0 4rem; }
-    .nav-brand { display: flex; flex-direction: column; }
-    .nav-brand a { text-decoration: none; color: inherit; }
-    .nav-title {
-      font-size: 36px; font-weight: 800; letter-spacing: -0.025em;
-      color: var(--text); display: flex; align-items: center; gap: 12px;
-    }
-    .nav-title img { height: 40px; width: 40px; object-fit: contain; }
-    .nav-subtitle { font-size: 16px; color: var(--text-muted); margin-top: 4px; }
-    .nav-links { display: flex; gap: 1.5rem; align-items: center; }
-    .nav-links a { font-size: 13px; color: var(--text-muted); text-decoration: none; transition: color 0.15s; }
-    .nav-links a:hover { color: var(--text); }
-    .nav-cta {
-      font-size: 13px; font-weight: 600;
-      background: var(--gold); color: #000;
-      padding: 7px 18px; border-radius: 20px;
-      text-decoration: none; display: inline-block;
-      transition: background 0.15s;
-    }
-    .nav-cta:hover { background: var(--gold-light); }
-
-    /* Page heading */
-    .page-heading { text-align: center; padding: 0 0 3rem; }
-    .page-heading h1 {
-      font-size: clamp(28px, 5vw, 36px); font-weight: 600;
-      letter-spacing: -1px; color: var(--text);
-    }
-    .page-heading .updated { font-size: 13px; color: var(--text-dim); margin-top: 8px; }
-
-    /* Legal content */
-    .legal { padding: 0 0 2.5rem; }
-    .legal h2 {
-      font-size: 18px; font-weight: 600;
-      letter-spacing: -0.2px; margin: 2rem 0 8px; color: var(--text);
-    }
-    .legal h2:first-child { margin-top: 0; }
-    .legal p {
-      font-size: 15px; color: var(--text-muted); line-height: 1.6;
-      margin-bottom: 0.75rem;
-    }
-    .legal ul {
-      list-style: none; padding: 0; margin-bottom: 0.75rem;
-    }
-    .legal ul li {
-      font-size: 15px; color: var(--text-muted); line-height: 1.6;
-      padding: 2px 0 2px 1.25rem; position: relative;
-    }
-    .legal ul li::before {
-      content: ''; position: absolute; left: 0; top: 12px;
-      width: 5px; height: 5px; border-radius: 50%; background: var(--text-dim);
-    }
-
-    /* Footer */
-    .footer { text-align: center; padding: 2rem 0 1rem; border-top: 1px solid var(--border); }
-    .footer-links { display: flex; gap: 1.5rem; justify-content: center; }
-    .footer-links a { font-size: 12px; color: var(--text-dim); text-decoration: none; }
-    .footer-links a:hover { color: var(--text-muted); }
-    .footer-social { display: flex; gap: 1rem; justify-content: center; margin: 1rem 0; }
-    .footer-social a { color: var(--text-dim); transition: color 0.15s; }
-    .footer-social a:hover { color: var(--gold); }
-    .footer-copy { font-size: 11px; color: var(--text-dim); margin-top: 12px; }
-
-    @media (max-width: 500px) {
-      .nav-links a:not(.nav-cta) { display: none; }
-    }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Terms &amp; Conditions — PhotoCast</title>
+<meta name="description" content="Terms and conditions for using PhotoCast.">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Newsreader:opsz,wght@6..72,400..600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="photocast.css">
 </head>
 <body>
-  <div class="page">
+<header class="mast">
+<div class="wrap">
+<a class="mark" href="index.html"><span class="wm">PhotoCast</span> <span class="kicker">Field guide to light</span></a>
+<nav>
+<a href="index.html#platforms">Apps</a>
+<a href="index.html#features">Features</a>
+<a href="index.html#pricing">Pricing</a>
+<a href="faq.html">FAQ</a>
+<a class="btn sm" href="https://app.photocast.online/register">Start free</a>
+</nav>
+</div>
+</header>
+<main>
+<div class="phead"><div class="wrap"><div class="eyebrow">Legal</div><h1>Terms &amp; Conditions.</h1><p class="lab" style="margin-top:20px">Last updated: September 2026</p></div></div>
+<div class="doc"><div class="wrap">
+<div role="note" aria-labelledby="safety-label" style="border:1px solid color-mix(in oklab,var(--poor) 34%,transparent);background:color-mix(in oklab,var(--poor) 9%,transparent);border-radius:var(--r);padding:20px 22px;margin-bottom:12px;max-width:660px">
+<div class="lab" id="safety-label" style="color:var(--poor);margin-bottom:8px">Safety</div>
+<p style="margin:0;color:var(--ink)">PhotoCast provides forecasts for planning purposes only and is not a safety tool. Always check official weather warnings and tide tables before visiting coastal or remote locations. Conditions can change rapidly. You are responsible for your own safety at all times.</p>
+</div>
+<h2>1. About PhotoCast</h2>
+<p>PhotoCast is an AI-powered sunrise, sunset, and aurora forecasting service for landscape photographers in northern England. It is operated by Chris Gregory, an individual based in the United Kingdom.</p>
+<p>By creating an account or using PhotoCast, you agree to these terms.</p>
+<h2>2. Eligibility</h2>
+<p>You must be at least 13 years old to use PhotoCast. By registering, you confirm that you meet this age requirement.</p>
+<h2>3. Accounts</h2>
+<p>You are responsible for maintaining the security of your account credentials. You must provide accurate information when registering. Accounts are personal and should not be shared.</p>
+<p>We reserve the right to suspend or terminate accounts that violate these terms.</p>
+<h2>4. Service tiers</h2>
+<p>PhotoCast offers two tiers:</p>
+<ul><li>Lite (free) — 3-day forecast horizon, star ratings, weather triage verdicts, planner heatmap grid</li><li>Pro (price TBC, billed monthly) — adds AI-powered best-bet picks, per-location AI scoring, aurora forecasting and viewline, full score breakdowns, and personalised drive times</li></ul>
+<p>Features and pricing may change. We will notify registered users of material changes.</p>
+<h2>5. Subscriptions and payment</h2>
+<p>Pro subscriptions are billed monthly. You may cancel at any time. On cancellation, you retain Pro access until the end of your current billing period, after which your account reverts to Lite.</p>
+<p>When Stripe is integrated for Pro subscriptions, Stripe will process your payment card details directly. PhotoCast will never see or store your full card number.</p>
+<h2>6. Forecasts are not advice</h2>
+<p>PhotoCast provides weather and environmental forecasts for photography planning purposes only. Forecasts are based on third-party data and AI interpretation. They are indicative, not guaranteed.</p>
+<p>Star ratings represent AI-assessed conditions and may not reflect actual outcomes. Tidal predictions are astronomical baselines adjusted by weather models and may differ from observed levels. Aurora alerts indicate potential visibility, not certainty.</p>
+<p>You should not rely solely on PhotoCast for any decision involving personal safety.</p>
+<h2>7. Safety</h2>
+<p>PhotoCast is not a safety tool. Many of the locations featured are coastal, remote, or elevated. Conditions can change rapidly and without warning.</p>
+<p>Before visiting any location:</p>
+<ul><li>Always check official weather warnings and tide tables from authoritative sources</li><li>Be aware of tidal cut-off risks at coastal locations</li><li>Never put yourself at risk based on app recommendations</li><li>Tell someone where you are going and when you expect to return</li><li>Carry appropriate equipment for the conditions and terrain</li></ul>
+<p>You are responsible for your own safety at all times. PhotoCast accepts no liability for any injury, loss, or damage arising from decisions made based on information provided by the service.</p>
+<h2>8. Acceptable use</h2>
+<p>You may not:</p>
+<ul><li>Scrape, crawl, or systematically extract data from PhotoCast</li><li>Redistribute forecast data commercially</li><li>Attempt to access admin features or other users' accounts</li><li>Use the service for any unlawful purpose</li></ul>
+<h2>9. Intellectual property</h2>
+<p>PhotoCast, its design, code, and content are owned by Chris Gregory. You retain ownership of any data you provide (outcome ratings, home location).</p>
+<h2>10. Limitation of liability</h2>
+<p>PhotoCast is provided “as is” without warranties of any kind, express or implied. To the maximum extent permitted by law, we are not liable for any indirect, incidental, or consequential damages arising from your use of the service.</p>
+<p>Our total liability to you in any 12-month period shall not exceed the total amount you have paid us in that period.</p>
+<h2>11. Data protection</h2>
+<p>We process personal data in accordance with our <a href="privacy.html">Privacy Policy</a>.</p>
+<h2>12. Dormant accounts</h2>
+<p>Accounts with no login activity for 90 days may be deleted, along with all associated data. We will send a warning email before deletion where possible.</p>
+<h2>13. Changes to these terms</h2>
+<p>We may update these terms from time to time. Material changes will be communicated via email to registered users. Continued use of the service after changes constitutes acceptance.</p>
+<h2>14. Governing law</h2>
+<p>These terms are governed by the laws of England and Wales. Any disputes will be subject to the exclusive jurisdiction of the courts of England and Wales.</p>
+<h2>Contact</h2>
+<p>For any questions about these terms: <a href="mailto:privacy@photocast.online">privacy@photocast.online</a></p>
+</div></div>
+</main>
 
-    <nav class="nav">
-      <div class="nav-brand">
-        <a href="index.html">
-          <div class="nav-title"><img src="logo.png" alt="">PhotoCast</div>
-          <p class="nav-subtitle">Golden hour, forecast and ranked by AI</p>
-        </a>
-      </div>
-      <div class="nav-links">
-        <a href="index.html#features">Features</a>
-        <a href="index.html#pricing">Pricing</a>
-        <a href="faq.html">FAQ</a>
-        <a class="nav-cta" href="https://app.photocast.online/register">Try free</a>
-      </div>
-    </nav>
-
-    <div class="page-heading">
-      <h1>Terms &amp; Conditions</h1>
-      <p class="updated">Last updated: April 2026</p>
-    </div>
-
-    <div class="legal">
-
-      <h2>Safety</h2>
-      <p>PhotoCast provides forecasts for planning purposes only and is not a safety tool. Always check official weather warnings and tide tables before visiting coastal or remote locations. Conditions can change rapidly. You are responsible for your own safety at all times.</p>
-
-      <h2>1. About PhotoCast</h2>
-      <p>PhotoCast is an AI-powered sunrise, sunset, and aurora forecasting service for landscape photographers in northern England. It is operated by Chris Gregory, an individual based in the United Kingdom.</p>
-      <p>By creating an account or using PhotoCast, you agree to these terms.</p>
-
-      <h2>2. Eligibility</h2>
-      <p>You must be at least 13 years old to use PhotoCast. By registering, you confirm that you meet this age requirement.</p>
-
-      <h2>3. Accounts</h2>
-      <p>You are responsible for maintaining the security of your account credentials. You must provide accurate information when registering. Accounts are personal and should not be shared.</p>
-      <p>We reserve the right to suspend or terminate accounts that violate these terms.</p>
-
-      <h2>4. Service tiers</h2>
-      <p>PhotoCast offers two tiers:</p>
-      <ul>
-        <li>Lite (free) — 3-day forecast horizon, star ratings, weather triage verdicts, planner heatmap grid</li>
-        <li>Pro (&pound;4.99/month) — adds AI-powered best-bet picks, per-location AI scoring, aurora forecasting and viewline, full score breakdowns, and personalised drive times</li>
-      </ul>
-      <p>Features and pricing may change. We will notify registered users of material changes.</p>
-
-      <h2>5. Subscriptions and payment</h2>
-      <p>Pro subscriptions are billed monthly. You may cancel at any time. On cancellation, you retain Pro access until the end of your current billing period, after which your account reverts to Lite.</p>
-      <p>Payment is processed by Stripe. PhotoCast does not store your payment card details.</p>
-
-      <h2>6. Forecasts are not advice</h2>
-      <p>PhotoCast provides weather and environmental forecasts for photography planning purposes only. Forecasts are based on third-party data and AI interpretation. They are indicative, not guaranteed.</p>
-      <p>Star ratings represent AI-assessed conditions and may not reflect actual outcomes. Tidal predictions are astronomical baselines adjusted by weather models and may differ from observed levels. Aurora alerts indicate potential visibility, not certainty.</p>
-      <p>You should not rely solely on PhotoCast for any decision involving personal safety.</p>
-
-      <h2>7. Safety</h2>
-      <p>PhotoCast is not a safety tool. Many of the locations featured are coastal, remote, or elevated. Conditions can change rapidly and without warning.</p>
-      <p>Before visiting any location:</p>
-      <ul>
-        <li>Always check official weather warnings and tide tables from authoritative sources</li>
-        <li>Be aware of tidal cut-off risks at coastal locations</li>
-        <li>Never put yourself at risk based on app recommendations</li>
-        <li>Tell someone where you are going and when you expect to return</li>
-        <li>Carry appropriate equipment for the conditions and terrain</li>
-      </ul>
-      <p>You are responsible for your own safety at all times. PhotoCast accepts no liability for any injury, loss, or damage arising from decisions made based on information provided by the service.</p>
-
-      <h2>8. Acceptable use</h2>
-      <p>You may not:</p>
-      <ul>
-        <li>Scrape, crawl, or systematically extract data from PhotoCast</li>
-        <li>Redistribute forecast data commercially</li>
-        <li>Attempt to access admin features or other users' accounts</li>
-        <li>Use the service for any unlawful purpose</li>
-      </ul>
-
-      <h2>9. Intellectual property</h2>
-      <p>PhotoCast, its design, code, and content are owned by Chris Gregory. You retain ownership of any data you provide (outcome ratings, home location).</p>
-
-      <h2>10. Limitation of liability</h2>
-      <p>PhotoCast is provided "as is" without warranties of any kind, express or implied. To the maximum extent permitted by law, we are not liable for any indirect, incidental, or consequential damages arising from your use of the service.</p>
-      <p>Our total liability to you in any 12-month period shall not exceed the total amount you have paid us in that period.</p>
-
-      <h2>11. Data protection</h2>
-      <p>We process personal data in accordance with our <a href="privacy.html" style="color: var(--gold); text-decoration: none;">Privacy Policy</a>.</p>
-
-      <h2>12. Dormant accounts</h2>
-      <p>Accounts with no login activity for 90 days may be deleted, along with all associated data. We will send a warning email before deletion where possible.</p>
-
-      <h2>13. Changes to these terms</h2>
-      <p>We may update these terms from time to time. Material changes will be communicated via email to registered users. Continued use of the service after changes constitutes acceptance.</p>
-
-      <h2>14. Governing law</h2>
-      <p>These terms are governed by the laws of England and Wales. Any disputes will be subject to the exclusive jurisdiction of the courts of England and Wales.</p>
-
-      <h2>Contact</h2>
-      <p>For any questions about these terms: privacy@photocast.online</p>
-
-    </div>
-
-    <div class="footer">
-      <div class="footer-links">
-        <a href="privacy.html">Privacy</a>
-        <a href="terms.html">Terms</a>
-        <a href="acknowledgements.html">Acknowledgements</a>
-        <a href="faq.html">FAQ</a>
-      </div>
-      <div class="footer-social">
-        <a href="https://www.instagram.com/photocastuk" target="_blank" rel="noopener noreferrer" aria-label="Instagram">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
-        </a>
-        <a href="https://www.facebook.com/photocast" target="_blank" rel="noopener noreferrer" aria-label="Facebook">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>
-        </a>
-      </div>
-      <p class="footer-copy">&copy; 2026 PhotoCast</p>
-    </div>
-
-  </div>
+<footer class="foot">
+<div class="wrap">
+<div class="foot-links">
+<a href="privacy.html">Privacy</a>
+<a href="terms.html">Terms</a>
+<a href="acknowledgements.html">Acknowledgements</a>
+<a href="faq.html">FAQ</a>
+</div>
+<div class="foot-right">
+<div class="social">
+<a href="https://www.instagram.com/photocastuk" target="_blank" rel="noopener noreferrer" aria-label="Instagram"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line></svg></a>
+<a href="https://www.facebook.com/profile.php?id=61572234291376" target="_blank" rel="noopener noreferrer" aria-label="Facebook"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"></path></svg></a>
+</div>
+<span class="foot-copy">© 2026 PhotoCast · Powered by AI</span>
+</div>
+</div>
+</footer>
 </body>
 </html>
