@@ -276,6 +276,13 @@ Two traps specific to this codebase:
   reproduces an intra-file order dependency deterministically; use it before reaching for anything
   cleverer. ⚠️ **But shuffling cannot find the flake below**, and reading it as an order dependency
   is the wrong turning — see the next section.
+- Do not put an assertion inside a raw `requestAnimationFrame` (or `setTimeout`) callback and settle
+  a promise after it. A throw there never reaches the `resolve()` on the next line, so the promise
+  never settles and the test does not fail — it **hangs to `testTimeout`**. The failure you get is a
+  bare `Test timed out in 20000ms` naming only the `it(` line; the real `AssertionError` arrives
+  separately as a stray unhandled error under Vitest's "the latest test that might've caused the
+  error is…" hedge, detached from the test that produced it. Use the waits in **Waiting for a
+  deferred effect** below.
 
 ---
 
@@ -315,3 +322,89 @@ note carries the derivation.
   performance-regression detector, and this defect was found *because* the budget was tight enough
   to fail on it. At 20 s a shell test that regresses to 6 s passes silently. That is the trade; the
   4000 ms Testing Library ceiling still catches the ordinary "element never appears" case.
+
+---
+
+## Waiting for a deferred effect (a frame, not a tick)
+
+Some behaviour in this app is deliberately deferred by one animation frame rather than run in the
+commit that causes it. `useDialogFocus` is the one most tests meet: it moves focus to the dialog root
+inside a `requestAnimationFrame`, because a dialog that mounts in the same commit as its content
+would otherwise take focus before the browser has laid anything out, and Safari drops that focus
+silently. `WindowFirstShell`'s tab-moving and matrix handoffs defer too, but for their **own,
+different** reason — the element they focus may be rendering for the first time on that very commit
+(`WindowFirstShell.jsx:694`, `:1162`) — so do not merge the two rationales when citing one. **A test
+of such behaviour has to wait for a frame, and *how* it waits decides what a failure looks like.**
+
+Three forms are in use. Two are waits; the third is a substitution.
+
+- **Real timers — `await waitFor(...)`.** The default, and the one to reach for.
+  `BottomSheet.test.jsx` and `Modal.test.jsx`'s `focus` block are the reference sites:
+
+  ```js
+  it('takes focus when it opens', async () => {
+    render(<BottomSheet open onClose={vi.fn()}><p>Body</p></BottomSheet>);
+    await waitFor(() => expect(screen.getByTestId('bottom-sheet')).toHaveFocus());
+  });
+  ```
+
+  `waitFor` re-runs the callback and *catches* its throws, so a genuine failure surfaces as the
+  expectation's own message at the 4000 ms `asyncUtilTimeout`, not as a test-level timeout.
+
+  ⚠️ It waits for the answer to become right, which is not the same as the answer *being* right.
+  Where the claim is "and it **stays** there", force a frame and assert after it:
+  `await new Promise((r) => { requestAnimationFrame(() => requestAnimationFrame(r)); })` with the
+  expectation OUTSIDE the callback (`Modal.test.jsx:156` and `:410`). At `:410` that is load-bearing
+  and measured: flipping `useDialogFocus(true)` to `useDialogFocus(!stacked)` leaves the preceding
+  `waitFor`-shaped assertion passing 20 of 20 idle while the forced-frame one fails 20 of 20, because
+  that mutant schedules a SECOND frame which only a forced frame reveals.
+
+- **Fake timers — `act(() => vi.advanceTimersByTime(n))`.** Where a file already runs on fake timers,
+  advancing them lands the frame. This works because Vitest's fake timers **do** fake
+  `requestAnimationFrame` (measured, not assumed: under `vi.useFakeTimers()` a rAF callback does not
+  run until the clock is advanced). `WindowFirstShellSheet.test.jsx`'s `settle()` helper is the
+  reference site — and it is load-bearing rather than decorative: a mutation sweep found that
+  hovering before the focus move settled produced a test that passed with the behaviour under test
+  deleted, because it was pinning the focus rule instead of the suppression.
+
+- **Substituting a synchronous rAF** —
+  `vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { cb(); return 0; })`. Not a
+  wait at all: it collapses the frame so a *synchronous* sequence can be asserted in order —
+  "focus went **here** and not there" — which no `waitFor` can express, since waiting for the right
+  answer cannot distinguish it from the wrong answer arriving first. `WindowFirstShell.test.jsx`,
+  `WindowFirstShellTabs.test.jsx`, `planOriginShell.test.jsx`,
+  `WindowFirstShellLocationSheetHandoff.test.jsx` and `locationSheetShell.test.jsx` all use it — the
+  last of those wraps the spy across two lines, so audit the set by grepping `mockImplementation`
+  rather than the whole one-line form. Restore it in a `try/finally`, or rely
+  on a file-level `afterEach(() => vi.restoreAllMocks())` — but have one of the two, because
+  `vi.clearAllMocks()` clears calls, not implementations, and a leaked synchronous rAF **immunises**
+  every later test in the file against exactly the deferral they exist to check.
+
+### ⚠️ Never assert inside the rAF callback itself
+
+There is a fourth shape, and it is the one to avoid. It was live in this suite until it was
+measured out:
+
+```js
+// DO NOT. A throw inside the callback never reaches `resolve()`.
+return new Promise((resolve) => {
+  requestAnimationFrame(() => {
+    expect(document.activeElement).toBe(screen.getByTestId('window-sheet'));
+    resolve();
+  });
+});
+```
+
+It passes and it fails on the right behaviour — so it is not *wrong*, it is **undiagnosable**.
+Measured on one mutant (`dialog.focus()` deleted from `useDialogFocus`), same file, same machine:
+
+| form | fails at | message |
+|---|---|---|
+| raw rAF callback | **20009 ms** — i.e. `testTimeout`, whatever it is set to | `Test timed out in 20000ms.`, pointing at the `it(` line |
+| `await waitFor(...)` | **4768 ms** | `expect(element).toHaveFocus()`, attached to the test |
+
+The assertion is not wholly lost in the first row — it resurfaces as a detached unhandled error with
+Vitest's "might've caused" hedge — but the *failure* is a timeout, and a bare timeout is the exact
+symptom the previous section spent a whole investigation decoding. Raising `testTimeout` to 20000 ms
+made this form four times slower to diagnose than when it was written, which is what prompted the
+rewrite.

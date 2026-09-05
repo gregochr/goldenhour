@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-  cleanup, fireEvent, render, screen, within,
+  cleanup, fireEvent, render, screen, waitFor, within,
 } from '@testing-library/react';
 import WindowSheetDialog from '../components/WindowSheetDialog.jsx';
 import { buildTopicIndex } from '../utils/windowFirstTopics.js';
@@ -275,15 +275,19 @@ describe('WindowSheetDialog — dialog semantics', () => {
     expect(screen.getByTestId('window-sheet-of')).toHaveTextContent('5/6');
   });
 
-  it('takes focus when it opens, so a keyboard reader is not left behind the backdrop', () => {
-    // `useDialogFocus` focuses the dialog ROOT on a frame. Deferred, so the assertion has to be too.
+  it('takes focus when it opens, so a keyboard reader is not left behind the backdrop', async () => {
+    // `useDialogFocus` focuses the dialog ROOT on a frame, so the assertion has to wait for one.
+    // ⚠️ `waitFor`, never a raw `requestAnimationFrame` callback. This test used to be one, and an
+    // assertion that throws inside a rAF callback never reaches the `resolve()` after it: the
+    // promise never settles, so the test does not fail — it hangs to the suite ceiling. Measured on
+    // the same mutant (`dialog.focus()` deleted from `useDialogFocus`): the rAF form died at
+    // 20009 ms — i.e. at `testTimeout`, whatever that happens to be — with a bare
+    // `Test timed out in 20000ms` naming nothing but the `it(` line, where this form fails at
+    // 4768 ms with the expectation in the message. The siblings that had it right
+    // all along are `BottomSheet.test.jsx` and `Modal.test.jsx`'s `focus` block; the class is
+    // written up in `docs/engineering/frontend-test-standards.md`.
     renderDialog();
-    return new Promise((resolve) => {
-      requestAnimationFrame(() => {
-        expect(document.activeElement).toBe(screen.getByTestId('window-sheet'));
-        resolve();
-      });
-    });
+    await waitFor(() => expect(screen.getByTestId('window-sheet')).toHaveFocus());
   });
 
   it('steps and closes from its own controls', () => {

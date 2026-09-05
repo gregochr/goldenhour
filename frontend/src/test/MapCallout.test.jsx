@@ -128,14 +128,22 @@ function scoreRow(overrides = {}) {
 }
 
 let frames = [];
+// Saved and restored, matching `MapHeatLayer.test.jsx`. Symmetry, not a live fix: `isolate: true`
+// keeps this out of every other file and `beforeEach` reinstalls the queue for every test in this one.
+let originalRaf;
+let originalCancel;
 beforeEach(() => {
   frames = [];
   mockIsMobile = false;
+  originalRaf = global.requestAnimationFrame;
+  originalCancel = global.cancelAnimationFrame;
   global.requestAnimationFrame = (cb) => { frames.push(cb); return frames.length; };
   global.cancelAnimationFrame = (id) => { frames[id - 1] = null; };
 });
 
 afterEach(() => {
+  global.requestAnimationFrame = originalRaf;
+  global.cancelAnimationFrame = originalCancel;
   currentMap = null;
   document.body.innerHTML = '';
   vi.clearAllMocks();
