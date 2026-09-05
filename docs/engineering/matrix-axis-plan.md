@@ -71,8 +71,10 @@ Facts the phases depend on. Re-verify only if the file has changed since; do not
   > 1280×800: the band pinned for those 46px, then left with the page (`bottom: -397` by 600px of
   > scroll), while the bar and both rails went on sticking against chrome that had gone — the bar
   > hovering a masthead's height down the viewport with cards scrolling through the band above it.
-  > `.wf-mast`'s rule and `--wf-mast-h` are both deleted; every `top` and reservation below loses
-  > that term. See `index.css`'s `.wf-mast` block for the checklist a phase pinning the masthead
+  > `.wf-mast`'s stick and `--wf-mast-h` are both deleted; every `top` and reservation below loses
+  > that term. The band keeps `position: relative; z-index: 45` — a stacking context rather than a
+  > stick, and load-bearing: the admin health panel renders inside it at `z-index: 9999` and escapes
+  > over every dialog without it. See `index.css`'s `.wf-mast` block for the checklist a phase pinning the masthead
   > for real would have to work through. `useLensReserve`
   (ResizeObserver on `.wf-shell`, re-observing `.wf-mast` and `.wf-lens`, **measuring
   synchronously on attach** and again per observation) writes `--wf-mast-h` and

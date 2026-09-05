@@ -32,6 +32,14 @@ matters on the phone in particular, because `useReachLens` restores the tier fro
 lazy initialiser, so the taller bar is what renders in the first frame — the only frame a fallback is
 ever used in.
 
+The masthead keeps `position: relative; z-index: 45`. That pair is now a stacking context rather
+than a stick, and it is load-bearing: `HealthIndicator` renders inside the band with a
+`position: fixed; z-index: 9999` panel, which only ever composited below a dialog because a
+positioned, non-auto-`z-index` masthead was a ceiling over its own subtree. Dropping the whole
+declaration block — the first cut of this change — let that panel paint over the search dialog's
+scrim while an `aria-modal` dialog was open, hit-testable. Reproduced and fixed against
+`elementFromPoint` in Chromium.
+
 Pinning the masthead for real remains open, and costs about 182px of permanent chrome on an 800px
 viewport, which is why it was not simply fixed in place; `index.css`'s `.wf-mast` block carries the
-checklist a phase taking it would have to work through.
+seven-item checklist a phase taking it would have to work through.

@@ -16,9 +16,11 @@ import {
  * the masthead's bottom edge. A14 kept this inside the shared {@code Modal} (which already solves
  * focus, Escape and scroll) and asked for the anchored LOOK — so the panel is positioned exactly
  * over the tick line and covers it. Every {@code Modal} is Tailwind's {@code z-50} and the masthead
- * is a static box in normal flow, so covering is what the stacking order already does; nothing has
- * to be hidden underneath, which is what keeps this to a position rather than a second piece of
- * state in the shell.
+ * is 45, so covering is what the stacking order already does; nothing has to be hidden underneath,
+ * which is what keeps this to a position rather than a second piece of state in the shell. (That 45
+ * is a stacking context rather than a stick since the anchoring fix — the masthead no longer pins,
+ * but it still has to clamp the admin health panel's {@code z-index: 9999}. See `index.css`'s
+ * `.wf-mast`.)
  *
  * <p>Measured through {@code useSyncExternalStore} rather than into state from an effect: the
  * viewport is an external store, and reading it during render is what makes the panel's first paint
@@ -252,7 +254,7 @@ export default function PlanSearch({
           left: `${anchor.left}px`,
           width: `${anchor.width}px`,
           // From the panel's own top rather than a viewport fraction: the anchor moves with page
-          // scroll (the masthead is a static box — see this file's header), and a `calc` in the
+          // scroll (the masthead does not pin — see this file's header), and a `calc` in the
           // stylesheet could not see where it landed.
           // ⚠️ ONE arithmetic term, summed here rather than left as `- ${top}px - 16px`: jsdom's
           // CSS serializer re-orders a two-subtraction calc into `- 16px + 96px`, which is a

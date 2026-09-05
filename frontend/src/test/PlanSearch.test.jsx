@@ -444,7 +444,7 @@ describe('PlanSearch', () => {
     /**
      * A14: the panel is positioned exactly over the masthead's tick line and covers it, which is
      * the "search replaces the tick line" the design draws — achieved by a position rather than by
-     * a second piece of state, because `Modal` is `z-50` and the masthead is an unpositioned box in normal flow.
+     * a second piece of state, because `Modal` is `z-50` and the masthead is 45.
      *
      * <p>⚠️ jsdom measures every box as ZERO, so the un-anchored branch is what every other test in
      * this file renders. That is the honest fallback (a zero-width panel is not a dropdown), and it

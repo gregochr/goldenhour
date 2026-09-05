@@ -687,8 +687,9 @@
           `WRAP_MAX_WIDTH` wrapper, whose own containing block is the scrolling pane (this also pins
           the tab bar and the tab rule, which is a design change, not a side effect), or this element
           moves out of that wrapper and carries the width cap itself.
-       2. Put `z-index: 45` on WHICHEVER ELEMENT TAKES THE STICK — not here by reflex. See the
-          paragraph below: a `z-index` on a static box is inert and reads as a live stacking claim.
+       2. Move the `z-index: 45` below onto WHICHEVER ELEMENT TAKES THE STICK, and leave this one a
+          stacking context of its own (`position: relative` plus a z-index) unless the stick stays
+          here — the paragraph below has the admin health panel that depends on it.
        3. `.wf-lens`'s `top` goes back onto a measured masthead height.
        4. Both day-tile rails (`.wf-dhrow`, `.wf-rail`) get their masthead term back.
        5. `--wf-lens-reserve` becomes a SUM again — both declarations (`.wf-shell` and the phone
@@ -699,15 +700,34 @@
        7. `WindowFirstShell` hands that height to `useStuckSentinel` as its offset, or the stuck
           shadow arrives a masthead's worth of scroll late.
 
-     ⚠️ Nothing may reintroduce a `z-index` here without also making this element positioned again.
-     `z-index` is inert on a static box, so a bare number would read as a live stacking claim and do
-     nothing. `.wf-peek` (60), every `Modal` (Tailwind `z-50`) and `.wf-lens` (20) all paint over
-     this band now, and only `.wf-lens` is a change: it never overlaps in practice, because the bar
-     reaches `top: 0` a good 40px of scroll AFTER the band's bottom edge has left the viewport.
+     ⚠️ THE `z-index: 45` STAYS, AND IT IS A STACKING CONTEXT RATHER THAN A STICK — do not delete it
+     as leftover. Dropping the whole declaration block was the first cut of this fix and it shipped a
+     real regression, caught by adversarial review and then reproduced in Chromium. `HealthIndicator`
+     renders INSIDE this band (`WindowFirstShell`'s `healthPill` slot) and its panel is
+     `position: fixed; z-index: 9999` — a beat-everything claim that was only ever survivable because
+     a positioned, non-auto-`z-index` masthead was a stacking-context CEILING over its own subtree,
+     compositing that panel at 45. Made static, the band creates no context, and nothing between it
+     and the root does either (the `WRAP_MAX_WIDTH` wrapper, `.wf-shell`, `<main>` and the App root
+     are all static, with no transform, filter, opacity or isolation), so the panel escaped to the
+     root at 9999 and painted OVER the search dialog's scrim — hit-testable, while an `aria-modal`
+     dialog was open. Measured with `elementFromPoint` at the panel's centre with a `z-50` modal up:
+     `modal` while the band is `sticky z-45`, `health` once it is static, `modal` again at
+     `relative z-45`.
+
+     `position: relative` carries no offsets and moves nothing; it exists only to make the `z-index`
+     live, since `z-index` is inert on a static box. ⚠️ `isolation: isolate` is NOT the equivalent and
+     was rejected: it makes a context at the band's natural `z-auto` position, which is BELOW
+     `.wf-lens` (20), so the health panel would paint under the very bar it drops across. 45 is the
+     design's own number and still the right one — it must beat the pane and lose to `Modal`
+     (Tailwind `z-50`), `.wf-peek` (60) and `MapOverlay` (200). Against `.wf-lens` it is moot either
+     way: the two cannot co-occupy a scroll position, because the bar reaches `top: 0` only once this
+     band's wrapper is wholly above the viewport.
 
      The bottom padding is still ZERO. The tick line inside supplies it, and it always renders —
      the blank height-holding placeholder the time row used before M3 is gone with it, because a row
      that is present in all three light states holds its own height. */
+  position: relative;
+  z-index: 45;
 }
 /* ── The tick line (M3) ──
    The masthead's third row, and the design's "ONLY statement of where the plan is computed from;
@@ -2740,13 +2760,15 @@ button.wf-hc.also.on:hover {
   position: sticky;
   top: 0;
   /* Above the spot strip's focused card (3) and its edge fades (2), which is the only thing on the
-     Plan pane that raises itself at all. It used to have a ceiling as well — `.wf-mast`'s 45, so
-     the bar slid under the masthead rather than over it — and that ceiling is gone with the
-     masthead's own `position`, since `z-index` is inert on a static box. The two do not overlap at
-     any scroll position either way, and the reason is structural rather than a measurement: this
-     bar's resting top is the band's bottom edge plus the tab bar and the tab rule, so it reaches
-     `top: 0` exactly that far AFTER the band's bottom edge has left the viewport (~46px). 20 stays
-     because the tiles (15) and rails (14) below it are numbered against it. */
+     Plan pane that raises itself at all, and below `.wf-mast`'s 45 — that ceiling SURVIVES the
+     anchoring fix, because the masthead keeps `position: relative; z-index: 45` as a stacking
+     context even though it no longer pins (its own block says why: an admin health panel at
+     `z-index: 9999` lives inside it). What changed is only that the ceiling no longer describes a
+     bar sliding under a pinned band: the two cannot overlap at any scroll position, and the reason
+     is structural rather than a measurement — this bar's resting top is the band's bottom edge plus
+     the tab bar and the tab rule, so it reaches `top: 0` exactly that far AFTER the band's bottom
+     edge has left the viewport (~46px). 20 stays because the tiles (15) and rails (14) below it are
+     numbered against it. */
   z-index: 20;
   /* Both halves of the stuck treatment animate, so the bar does not snap into a shadow on the
      first pixel of scroll. The design's own `.18s`. */
@@ -4736,7 +4758,7 @@ button.wf-hc.also.on:hover {
    ring behind the sticky chrome. It cost 53.5px before M3, ~180px while the masthead was believed
    to pin, and 98px now that the bar is the only thing over a card. ⚠️ `.wf-tab` was added on a
    mechanism that no longer exists — "the tab bar scrolls under the masthead", which cannot happen
-   now that the masthead is a static box and the tab bar precedes the bar in document order, so the
+   now that the masthead does not pin and the tab bar precedes the bar in document order, so the
    bar is never at `top: 0` while a tab is at the viewport top. Its `scrollIntoView({block:
    'nearest'})` therefore reserves against nothing today. It stays because the reservation is inert
    rather than wrong (it leaves the band's own bottom edge showing above a focused tab), and because
@@ -6410,9 +6432,9 @@ button.wf-cond-oc:focus-visible {
   --wf-search-inset: 14px;
 }
 /* Anchored under the masthead (A14). The panel is positioned exactly over the tick line it replaces
-   and covers it — `Modal` is Tailwind's `z-50` and the masthead is a static box in normal flow
-   (`.wf-mast`), so the covering is what the stacking order already does and nothing has to be
-   hidden underneath. ⚠️ The tick line this anchors to now scrolls away with the page rather than
+   and covers it — `Modal` is Tailwind's `z-50` and `.wf-mast` is 45 (a stacking context that no
+   longer pins; see its own block), so the covering is what the stacking order already does and
+   nothing has to be hidden underneath. ⚠️ The tick line this anchors to now scrolls away with the page rather than
    pinning: `useTickLineBox` re-measures on scroll and the panel follows it, off the top of the
    viewport included, since nothing locks page scroll behind an open `Modal`. That was already true
    before the masthead's dead sticky came off — it only ever held the band for ~46px — so it is

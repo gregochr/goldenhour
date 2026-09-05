@@ -340,15 +340,32 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
    */
 
   it('⚠️ does NOT stick the masthead — the rule never worked and must not come back alone', () => {
-    // An absence, deliberately. `position: sticky; top: 0; z-index: 45` sat here from M3 until the
-    // anchoring fix and did nothing but hold the band for the tab bar's ~46px: a sticky element
-    // cannot leave its containing block, and this one's holds the masthead, the tab bar and the tab
-    // rule and nothing else. Re-adding it in isolation would put a z-45 band over a z-20 bar
-    // resting at `top: 0` — the bar covered by chrome that still does not pin.
+    // An absence, deliberately. `position: sticky; top: 0` sat here from M3 until the anchoring fix
+    // and did nothing but hold the band for the tab bar's ~46px: a sticky element cannot leave its
+    // containing block, and this one's holds the masthead, the tab bar and the tab rule and nothing
+    // else. Re-adding the stick alone would put a pinned band over a bar resting at `top: 0`.
     const mast = decls(block('.wf-mast'));
     expect(mast).not.toContain('position: sticky');
-    expect(mast).not.toContain('z-index');
+    expect(mast).not.toContain('top:');
   });
+
+  it('⚠️ KEEPS the masthead a stacking context, or the admin health panel escapes every dialog',
+    () => {
+      // The regression the first cut of the anchoring fix shipped, found by adversarial review and
+      // reproduced in Chromium. `HealthIndicator` renders inside this band and its panel is
+      // `position: fixed; z-index: 9999`; that only ever composited below a dialog because a
+      // positioned, non-auto-`z-index` masthead was a ceiling over its own subtree. Strip the pair
+      // and nothing between the band and the root makes a context, so the panel paints over the
+      // search dialog's scrim — hit-testable, while an `aria-modal` dialog is open.
+      //
+      // Both halves are asserted because either alone is useless: `z-index` is inert on a static
+      // box, and `position: relative` with no z-index creates no context. `isolation: isolate` is
+      // deliberately NOT accepted here — it would make the context at `z-auto`, below `.wf-lens`'s
+      // 20, putting the panel under the bar it drops across.
+      const mast = decls(block('.wf-mast'));
+      expect(mast).toContain('position: relative');
+      expect(mast).toMatch(/z-index:\s*45\b/);
+    });
 
   it('⚠️ actually STICKS the bar — the declaration everything else here is inert without', () => {
     // This file asserted `top`, `z-index` and two absences on `.wf-lens` and never once that it is
@@ -439,14 +456,18 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
     expect(block('.wf-lens')).toContain('z-index: 20');
   });
 
-  it('⚠️ declares the masthead\'s old z-index nowhere, which is the falsifiable half', () => {
-    // This was two absence checks on exact prose sentences the same commit deleted — unfailable by
-    // construction, and therefore protecting nothing (the standards' own rule). What IS falsifiable
-    // is the number: 45 was the masthead's and no other rule in this stylesheet uses it, so a phase
-    // that re-adds `z-index: 45` here — the exact reflex `.wf-mast`'s own checklist warns against,
-    // since it is inert on a static box — fails this. Read from declarations, because the checklist
-    // and the history both name the number in prose and must stay free to.
-    expect(decls(readCss())).not.toMatch(/z-index:\s*45\b/);
+  it('⚠️ keeps the masthead BELOW every dialog, which is what its 45 is for now', () => {
+    // The stale-invariant guard used to live here as two absence checks on exact prose sentences the
+    // same commit deleted — unfailable by construction, and so protecting nothing (the standards'
+    // own rule). The falsifiable claim in its place is the ordering the band's stacking context
+    // exists to impose: 45 must stay under `Modal`'s Tailwind `z-50`, `.wf-peek`'s 60 and
+    // `MapOverlay`'s 200, or clamping the health panel to it stops being a fix. `.wf-peek` is the
+    // one of the three declared in this stylesheet, so it is the one that can drift here.
+    const peek = decls(block('.wf-peek'));
+    const mastZ = Number(decls(block('.wf-mast')).match(/z-index:\s*(\d+)/)[1]);
+    const peekZ = Number(peek.match(/z-index:\s*(\d+)/)[1]);
+    expect(mastZ).toBeLessThan(peekZ);
+    expect(mastZ).toBeLessThan(50);
   });
 });
 
