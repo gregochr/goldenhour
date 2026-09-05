@@ -552,29 +552,32 @@ export default function WindowFirstShell({
     tabRefs.current[next]?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   };
   /**
-   * The arm's root, and the element that hosts `--wf-lens-reserve` and `--wf-mast-h`.
+   * The arm's root, and the element that hosts `--wf-lens-reserve` and `--wf-lens-h`.
    *
    * <p>Both are written imperatively by {@code useLensReserve} rather than through the `style` prop
    * below, and the two coexist because React updates a style object key by key: it never rewrites
    * `cssText`, so a custom property it does not know about survives every re-render. The
    * alternative — measuring into state and rendering it — puts a `setState` inside a
    * `ResizeObserver` callback for properties that affect no layout of their own.
-   *
-   * <p>The masthead's height comes BACK as a number as well, and that one is not a duplicate: the
-   * stuck sentinel builds an {@code IntersectionObserver} {@code rootMargin} from it, which is a
-   * JavaScript string rather than a stylesheet value. One measurement, two consumers.
    */
   const shellRef = useRef(null);
-  const mastHeight = useLensReserve(shellRef);
+  useLensReserve(shellRef);
   /**
    * Whether the lens bar has left its resting place, and the sentinel that answers it.
    *
-   * <p>M3's chrome model: the masthead is sticky at the top and the bar sticks below it, so the bar
-   * needs a treatment that says which of the two states it is in — without it, a bar overlapping
-   * content it is scrolling over reads as part of that content. The design's own answer is a shadow
-   * and a raised bottom border, and its own mechanism is a 1px sentinel above the bar.
+   * <p>The bar is the pane's only sticky element, so it needs a treatment that says which of its two
+   * states it is in — without it, a bar overlapping content it is scrolling over reads as part of
+   * that content. The design's own answer is a shadow and a raised bottom border, and its own
+   * mechanism is a 1px sentinel above the bar.
+   *
+   * <p>⚠️ <b>No offset, and that is a measured value rather than a default.</b> The sentinel's
+   * {@code rootMargin} insets by the line the bar rests at, which M3 made the masthead's measured
+   * height because the bar was believed to stick below a pinned masthead. It never was pinned
+   * (`index.css`'s `.wf-mast`), and since the anchoring fix the bar rests at the viewport's own top
+   * edge, so the line is zero. A phase that pins the masthead for real has to hand the height back
+   * in here, or the shadow arrives a masthead's worth of scroll late.
    */
-  const [lensSentinelRef, lensStuck] = useStuckSentinel(mastHeight);
+  const [lensSentinelRef, lensStuck] = useStuckSentinel();
   const [openPick, setOpenPick] = useState(null);
   /**
    * The drill-down's window, held by KEY rather than by the card object.
@@ -1204,7 +1207,7 @@ export default function WindowFirstShell({
     <div
       ref={shellRef}
       data-testid="window-first-shell"
-      // `wf-shell` hosts `--wf-gutter`/`--wf-mast-h`/`--wf-lens-reserve` — the arm's shared
+      // `wf-shell` hosts `--wf-gutter`/`--wf-lens-reserve`/`--wf-lens-h` — the arm's shared
       // horizontal inset and the sticky-chrome measurements `useLensReserve` publishes. It carries
       // NO width constraint of its own (map-tab-v2-plan.md §3 P7's second full-frame owner): the
       // masthead and the tab bar stay wrapped at `WRAP_MAX_WIDTH` below on every tab, and — since

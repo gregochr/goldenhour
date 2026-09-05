@@ -23,9 +23,11 @@ import { FAMILY_GLYPHS } from '../utils/comingUpGlyphs.js';
  * <p>A promoted occurrence's {@code see it below →} link finds its chronology card by querying
  * {@code [data-entry-id]} directly — the chronology list and this strip are siblings in the same
  * pane, always mounted together, so there is nothing to prop-drill. `scroll-margin-top` on the
- * target (`index.css`) uses `--wf-mast-h`, not `--wf-lens-reserve`: the lens bar is Plan-only and
- * `useLensReserve` removes its variable on this tab, so the lens bar's larger fallback would
- * over-reserve by a bar that is not on screen here.
+ * target (`index.css`'s `.wf-cu-ent`) is a bare 6px gap, because NOTHING is pinned on this tab: the
+ * lens bar is Plan-only and `useLensReserve` removes its variable here, and the masthead — whose
+ * height this rule used to add, via the since-deleted `--wf-mast-h` — was never actually sticky
+ * (see `index.css`'s `.wf-mast`), so that term reserved ~134px against chrome that has never been
+ * on screen here.
  *
  * <h2>The provisional marker is scoped to this header, not the pane's (plan §7)</h2>
  *

@@ -684,7 +684,12 @@ condition-row figure — §11.17), and the row stays clickable when its status t
 `in the list →` scrolls to and highlights the entry via `entryId` — `scroll-margin-top:
 calc(var(--wf-mast-h, 128px) + 6px)`, **`--wf-mast-h`, NOT `--wf-lens-reserve`**: the lens bar is
 Plan-only and `useLensReserve` removes its variable on this tab, so the 188px fallback would
-over-reserve by a bar that is not on screen. `inside Plan's four days →` calls `onGoToPlan(date)`.
+over-reserve by a bar that is not on screen. ⚠️ **Superseded, 2026-09-05:** the rule is now a bare
+`scroll-margin-top: 6px`. The reasoning above was right about the lens bar and wrong about the
+masthead — that element's `position: sticky` never took effect (its containing block was ~46px
+taller than itself), so `--wf-mast-h` reserved ~134px against chrome that has never been on screen
+on this tab either. The property is deleted; nothing is pinned here, so the 6px gap is all that is
+left. `inside Plan's four days →` calls `onGoToPlan(date)`.
 Multiple panels may be open (`openConditions: Set`) — component-local state, NOT sessionStorage
 (the doors' persistence is for a working position; a disclosure toggle is not that, and any
 storage write would face the whole-value CodeQL rule anyway).

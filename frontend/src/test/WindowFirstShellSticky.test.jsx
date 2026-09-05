@@ -9,19 +9,32 @@ import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 
 /**
- * M3's chrome model: the masthead sticks, the lens bar sticks BELOW it, and both are measured.
+ * The chrome model: the lens bar is the pane's ONE sticky element and it anchors at the top of the
+ * viewport. What is pinned here is the mechanism rather than the appearance — the two custom
+ * properties, that the reservation is the bar plus a focus ring and nothing else, that the sentinel
+ * comes and goes with the bar it watches, and that the stuck class is driven by the observer rather
+ * than by a scroll position anybody guessed.
  *
- * <p>This is the phase's one change to a documented shell invariant — `index.css` carried
- * "`position: sticky` here and nowhere above it" beside `.wf-lens` — so what is pinned here is the
- * mechanism rather than the appearance: the two custom properties, that the reservation is their
- * SUM, that the sentinel comes and goes with the bar it watches, and that the stuck class is driven
- * by the observer rather than by a scroll position anybody guessed.
+ * <h2>⚠️ M3's model was the opposite of this, and it never actually ran</h2>
+ *
+ * <p>M3 made `.wf-mast` sticky as well and rested the bar on its measured height, so this file used
+ * to pin the reverse of nearly every assertion below: a sticky masthead, `top: var(--wf-mast-h)`, a
+ * summed reservation, an observer inset by the masthead. None of it happened in a browser. A sticky
+ * element cannot travel outside its own containing block, and the masthead's is
+ * `WindowFirstShell`'s `WRAP_MAX_WIDTH` wrapper — masthead, tab bar, tab rule, about 46px taller
+ * than the band itself. Measured in Chromium at 1280×800: the band pins for those 46px and is then
+ * carried off the top with the page (`bottom: -397` by 600px of scroll), while the bar went on
+ * sticking a masthead's height down the viewport with matrix cards scrolling through the naked band
+ * above it.
+ *
+ * <p>That is why the guards below are written as they are. The `.wf-mast` one asserts an ABSENCE,
+ * which is normally a weak shape; here it is the only shape that works, because the defect was a
+ * rule that looked correct in the stylesheet and did nothing on the page.
  *
  * <p>⚠️ <b>Every pixel below is a fixture, not a browser measurement.</b> jsdom lays nothing out and
  * evaluates no CSS: `getBoundingClientRect` answers zero for everything, which is why the heights
  * are stubbed by class. What that buys is the arithmetic and the wiring; what it cannot see is
- * whether the bar actually rests against the masthead's bottom edge, which is a browser claim and
- * is verified in one.
+ * where the bar actually lands, which is a browser claim and is verified in one.
  */
 vi.mock('../components/WindowFirstDoors.jsx', () => ({
   default: () => <div data-testid="stub-doors" />,
@@ -128,27 +141,31 @@ afterEach(() => {
 });
 
 describe('WindowFirstShell — the measured sticky chrome', () => {
-  it('publishes the masthead\'s height, which is what the lens bar sticks below', () => {
-    renderShell();
-    const shell = screen.getByTestId('window-first-shell');
-
-    expect(shell.style.getPropertyValue('--wf-mast-h')).toBe('118px');
-  });
-
-  it('⚠️ reserves for BOTH sticky elements, not just the bar', () => {
-    // A focused card now has two things over it. Reserving for the bar alone parks it behind the
-    // masthead — the whole defect the reservation exists to prevent, one element higher up.
-    // 118 + 54 + 6 (the focus ring's outline plus its offset).
+  it('⚠️ reserves for the BAR alone — the masthead is not pinned and is not counted', () => {
+    // 54 + 6 (the focus ring's outline plus its offset), and NOT 118 + 54 + 6. The masthead's
+    // height was in this sum for as long as `.wf-mast` carried a `position: sticky`; that stick was
+    // trapped in a containing block barely taller than itself, so the term reserved against chrome
+    // that had already scrolled away and dropped every focused card 118px further down than it
+    // needed to go.
     renderShell();
 
     expect(screen.getByTestId('window-first-shell').style.getPropertyValue('--wf-lens-reserve'))
-      .toBe('178px');
+      .toBe('60px');
   });
 
-  it('drops the reservation when the bar goes, and keeps the masthead height', () => {
-    // The bar is unmounted on Coming up; the masthead outlives every tab. With no bar there is
-    // nothing on the pane to reserve against, and the stylesheet's own fallback is the right
-    // answer — which only works if the property is REMOVED rather than frozen at its last value.
+  it('⚠️ publishes no masthead height at all — nothing above the bar is pinned', () => {
+    // The property is deleted rather than left unread: three rules derived a sticky `top` or a
+    // reservation from it, and a live measurement of an element that does not pin is exactly what
+    // invites the fourth. `index.css`'s `.wf-mast` carries the checklist for putting it back.
+    renderShell();
+
+    expect(screen.getByTestId('window-first-shell').style.getPropertyValue('--wf-mast-h')).toBe('');
+  });
+
+  it('drops the reservation when the bar goes', () => {
+    // The bar is unmounted on Coming up. With no bar there is nothing on the pane to reserve
+    // against at all, and the stylesheet's own fallback is the right answer — which only works if
+    // the property is REMOVED rather than frozen at its last value.
     renderShell();
     fireEvent.click(screen.getByTestId('window-first-tab-coming-up'));
     // The bar's removal is a layout change, which is what the observer on the SHELL exists to
@@ -159,12 +176,12 @@ describe('WindowFirstShell — the measured sticky chrome', () => {
     const shell = screen.getByTestId('window-first-shell');
     expect(screen.queryByTestId('window-first-lens')).toBeNull();
     expect(shell.style.getPropertyValue('--wf-lens-reserve')).toBe('');
-    expect(shell.style.getPropertyValue('--wf-mast-h')).toBe('118px');
   });
 
   it('⚠️ publishes --wf-lens-h at the bar\'s OWN height (matrix-axis plan D11(a))', () => {
-    // The row-tile rail's own sticky `top` calc, alongside `--wf-mast-h` — the bar's height alone,
-    // not the sum `--wf-lens-reserve` carries.
+    // The whole of the row-tile rail's own sticky `top` calc — the bar's height alone, without the
+    // focus ring's allowance that `--wf-lens-reserve` carries. The two are the same measurement and
+    // must stay two properties: a rail inset by the ring would leave a 6px gap under the bar.
     renderShell();
 
     expect(screen.getByTestId('window-first-shell').style.getPropertyValue('--wf-lens-h'))
@@ -204,14 +221,15 @@ describe('WindowFirstShell — the stuck lens treatment', () => {
     expect(screen.queryByTestId('window-first-lens-sentinel')).toBeNull();
   });
 
-  it('⚠️ insets the observer by the MEASURED masthead height, never by zero', () => {
-    // The bar's resting line is the masthead's bottom edge, not the viewport's. With a zero inset
-    // the sentinel would still be "visible" for the whole height of the masthead and the shadow
-    // would arrive 118px of scroll late.
+  it('⚠️ insets the observer by ZERO, because the bar rests at the viewport top', () => {
+    // The inverse of what M3 pinned here. The bar's resting line WAS the masthead's bottom edge, on
+    // a model where the masthead pinned; it never did, and the bar anchors at `top: 0` now, so the
+    // line is the viewport's own top. An inset of the masthead's 118px would hold the shadow back
+    // until the reader had scrolled a masthead's height past the point the bar actually stuck.
     renderShell();
 
     const last = intersections[intersections.length - 1];
-    expect(last.options.rootMargin).toBe('-118px 0px 0px 0px');
+    expect(last.options.rootMargin).toBe('-0px 0px 0px 0px');
     expect(last.options.threshold).toBe(0);
   });
 
@@ -282,11 +300,10 @@ describe('WindowFirstShell — the stuck lens treatment', () => {
 
 describe('the stylesheet half, which jsdom cannot evaluate', () => {
   /**
-   * Read as text, because `css: false` and jsdom resolves no `var()`. These three are the claims
-   * the JavaScript above cannot reach: that the masthead is sticky at all, that the bar rests on
-   * the published property rather than on `top: 0`, and — the one this phase promised — that the
-   * comment which said sticky happened "nowhere above" the bar has been corrected in the same
-   * commit rather than left to rot.
+   * Read as text, because `css: false` and jsdom resolves no `var()`. These are the claims the
+   * JavaScript above cannot reach: that the masthead is NOT sticky, that the bar anchors at the
+   * viewport's own top edge, that the two row rails no longer add a masthead term to their sticky
+   * `top`, and that every fallback literal moved with the variable it stands in for.
    */
   // ⚠️ Resolved from the runner's cwd (the `frontend` package root), NOT from `import.meta.url`.
   // MEASURED, not reasoned: in this file `new URL('../index.css', import.meta.url)` evaluates to
@@ -301,39 +318,57 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
     expect(at, `${selector} must exist`).toBeGreaterThan(-1);
     return css.slice(at, css.indexOf('\n}', at));
   };
+  /**
+   * ⚠️ Declarations only — required by every ABSENCE assertion below, and not a tidying.
+   * `.wf-mast`'s own comment explains at length why `position: sticky` is gone from it and what a
+   * phase restoring it has to do; a bare `not.toContain('position: sticky')` over the raw block
+   * fails on that explanation. Stripping comments is what lets the guard say "this rule does not
+   * stick" without also forbidding the file from saying why.
+   */
+  const decls = (text) => text.replace(/\/\*[\s\S]*?\*\//g, '');
 
-  it('sticks the masthead above the bar, at the design\'s z-index', () => {
-    const mast = block('.wf-mast');
-    expect(mast).toContain('position: sticky');
-    expect(mast).toContain('top: 0');
-    expect(mast).toContain('z-index: 45');
+  it('⚠️ does NOT stick the masthead — the rule never worked and must not come back alone', () => {
+    // An absence, deliberately. `position: sticky; top: 0; z-index: 45` sat here from M3 until the
+    // anchoring fix and did nothing but hold the band for the tab bar's ~46px: a sticky element
+    // cannot leave its containing block, and this one's holds the masthead, the tab bar and the tab
+    // rule and nothing else. Re-adding it in isolation would put a z-45 band over a z-20 bar
+    // resting at `top: 0` — the bar covered by chrome that still does not pin.
+    const mast = decls(block('.wf-mast'));
+    expect(mast).not.toContain('position: sticky');
+    expect(mast).not.toContain('z-index');
   });
 
-  it('rests the bar on the measured masthead height rather than on the viewport top', () => {
-    expect(block('.wf-lens')).toContain('top: var(--wf-mast-h, 128px)');
+  it('anchors the bar at the top of the viewport, not below a masthead that never pinned', () => {
+    // The literal is the point. `top: var(--wf-mast-h, …)` hung the bar a masthead's height down
+    // the viewport with matrix cards scrolling through the band above it — the "floating" defect.
+    expect(decls(block('.wf-lens'))).toContain('top: 0');
+    expect(decls(block('.wf-lens'))).not.toContain('--wf-mast-h');
   });
 
-  it('⚠️ never falls back to `top: 0`, which would hide the bar UNDER the masthead', () => {
-    // `.wf-mast` is z-45 and `.wf-lens` is 20, so a bar resting at 0 sits beneath it: the page's
-    // only reach and rating controls, and the only way out of a lens that has emptied the plan,
-    // become invisible and unclickable. `top: 0` was the CORRECT resting position before M3, which
-    // is exactly why it survived the first cut as a fallback.
-    const css = readCss();
-    expect(css).not.toContain('--wf-mast-h, 0px');
-    expect(block('.wf-shell')).toMatch(/--wf-mast-h:\s*\d+px/);
+  it('⚠️ publishes no --wf-mast-h anywhere, so no rule can reserve against unpinned chrome', () => {
+    // Three rules derived a sticky `top` or a `scroll-margin-top` from it and all three were wrong
+    // by the masthead's full height. Scoped to DECLARATIONS and `var()` reads: the comments that
+    // explain the removal name the property, and must be free to.
+    const css = decls(readCss());
+    expect(css).not.toMatch(/--wf-mast-h:/);
+    expect(css).not.toContain('var(--wf-mast-h');
   });
 
-  it('reserves for the whole sticky stack at first paint too, not just the bar', () => {
-    // The runtime value is masthead + bar + ring; a fallback still describing the bar alone would
-    // under-reserve by the masthead's full height in the one state it exists for.
-    expect(block('.wf-shell')).toContain('--wf-lens-reserve: 188px');
-    expect(readCss()).toContain('--wf-lens-reserve: 270px');
+  it('reserves for the bar and the focus ring at first paint too, and nothing else', () => {
+    // The runtime value is bar + ring; a fallback still carrying M3's masthead term would drop a
+    // focused card 128px further than it needs to go in the one state it exists for.
+    expect(block('.wf-shell')).toContain('--wf-lens-reserve: 60px');
+    expect(readCss()).toContain('--wf-lens-reserve: 136px');
+    // ⚠️ All THREE fallback sites, not just the declaration — `.wf-door-panel`'s copy has already
+    // been out of step with the other two once (missed at M3, corrected at M5).
+    expect(readCss()).not.toContain('--wf-lens-reserve, 188px');
+    expect(readCss().match(/var\(--wf-lens-reserve, 60px\)/g)).toHaveLength(3);
   });
 
   it('reserves for the matrix cards and the tab bar, which are the pane\'s primary controls', () => {
     // `.wf-hc` is six focusable cards, any of which can sit above the fold; `.wf-tab`'s roving
-    // arrow handler calls `scrollIntoView`. Neither was on the list, and the cost went from 53.5px
-    // to ~180px when the masthead started sticking.
+    // arrow handler calls `scrollIntoView`. Neither was on the list when the reservation was a
+    // literal.
     // The pane's own list, which is the LAST `scroll-margin-top` rule in the file — the earlier one
     // is `.wf-door-panel`'s descendant rule for the re-parented components it hosts, none of which
     // carry a `.wf-` class of their own. Sliced back from the declaration to the previous rule's
@@ -348,16 +383,20 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
     expect(selectors).toContain('.wf-spot,');
   });
 
-  it('keeps the bar UNDER the masthead in the stacking order', () => {
-    // 20 < 45, and the pair is the whole point: a bar that slid over the masthead would cover the
-    // origin control and the search affordance the tick line exists to keep reachable.
+  it('keeps the bar above the pane it scrolls over', () => {
+    // 20 beats the spot strip's focused card (3) and its edge fades (2), the only things on the
+    // pane that raise themselves, and the tiles (15) and rails (14) are numbered against it. Its
+    // old CEILING — the masthead's 45 — is gone with the masthead's `position`, since `z-index` is
+    // inert on a static box.
     expect(block('.wf-lens')).toContain('z-index: 20');
   });
 
-  it('⚠️ no longer claims sticky happens nowhere above the bar', () => {
-    // The stale-invariant guard. The claim was true when it was written and M3 falsified it; a
-    // comment asserting it must not survive the commit that made it wrong.
-    expect(readCss()).not.toContain('`position: sticky` here and nowhere above it');
+  it('⚠️ no longer claims the masthead is pinned above the bar', () => {
+    // The stale-invariant guard, inverted. M3 added this claim in the same commit as the rule that
+    // was supposed to make it true; the rule never did, so the claim must not outlive its removal.
+    const css = readCss();
+    expect(css).not.toContain('the masthead pinned at `z-index: 45`');
+    expect(css).not.toContain('`position: sticky` here AND on `.wf-mast` above it');
   });
 });
 
@@ -369,11 +408,22 @@ describe('the row-rails stylesheet half (matrix-axis plan §6, D6/D8/D9/D10/D12)
     expect(at, `${selector} must exist`).toBeGreaterThan(-1);
     return css.slice(at, css.indexOf('\n}', at));
   };
+  /**
+   * ⚠️ Declarations only — required by every ABSENCE assertion below, and not a tidying.
+   * `.wf-mast`'s own comment explains at length why `position: sticky` is gone from it and what a
+   * phase restoring it has to do; a bare `not.toContain('position: sticky')` over the raw block
+   * fails on that explanation. Stripping comments is what lets the guard say "this rule does not
+   * stick" without also forbidding the file from saying why.
+   */
+  const decls = (text) => text.replace(/\/\*[\s\S]*?\*\//g, '');
 
-  it('sticks the day-tile row under the masthead + lens bar, at the design\'s z-index', () => {
+  it('sticks the day-tile row directly under the lens bar, at the design\'s z-index', () => {
+    // ⚠️ `--wf-lens-h` ALONE. The masthead term hung this row a masthead's height below the bar it
+    // is supposed to sit against, with cards scrolling through the gap — the same defect the bar
+    // itself had, one level down.
     const dhrow = block('.wf-dhrow');
     expect(dhrow).toContain('position: sticky');
-    expect(dhrow).toContain('top: calc(var(--wf-mast-h, 128px) + var(--wf-lens-h, 54px) - 1px)');
+    expect(dhrow).toContain('top: calc(var(--wf-lens-h, 54px) - 1px)');
     expect(dhrow).toContain('z-index: 15');
     expect(dhrow).toContain('background: linear-gradient(180deg, var(--color-plex-bg)');
   });
@@ -383,7 +433,7 @@ describe('the row-rails stylesheet half (matrix-axis plan §6, D6/D8/D9/D10/D12)
     // Omit `position: sticky` and `top`/`z-index` are inert — every other assertion here would
     // still pass against a rail that never actually sticks.
     expect(rail).toContain('position: sticky');
-    expect(rail).toContain('top: calc(var(--wf-mast-h, 128px) + var(--wf-lens-h, 54px) + var(--wf-dh-h, 45px) - 2px)');
+    expect(rail).toContain('top: calc(var(--wf-lens-h, 54px) + var(--wf-dh-h, 45px) - 2px)');
     expect(rail).toContain('z-index: 14');
     expect(rail).toContain('background: linear-gradient(180deg, var(--color-plex-bg)');
   });
@@ -403,9 +453,11 @@ describe('the row-rails stylesheet half (matrix-axis plan §6, D6/D8/D9/D10/D12)
   });
 
   it('reserves scroll room for a card under the pinned tiles + rail, in full', () => {
-    // Existence alone would pass at a truncated string that happened to add up to 0.
+    // Existence alone would pass at a truncated string that happened to add up to 0. The
+    // reservation's own fallback came back from 188 to 60 with the masthead's dead sticky; this
+    // site has to move with the declaration or it under-reserves at first paint.
     expect(readCss()).toContain(
-      'scroll-margin-top: calc(var(--wf-lens-reserve, 188px) + var(--wf-dh-h, 45px) + 17px)',
+      'scroll-margin-top: calc(var(--wf-lens-reserve, 60px) + var(--wf-dh-h, 45px) + 17px)',
     );
   });
 
@@ -416,10 +468,12 @@ describe('the row-rails stylesheet half (matrix-axis plan §6, D6/D8/D9/D10/D12)
   });
 
   it('leaves the existing sticky chrome assertions untouched', () => {
-    // The pre-existing lens z-index and mast-height fallback, and the base scroll-margin selector
-    // list this describe block's own sibling already pins — additive rules must not disturb them.
-    expect(block('.wf-lens')).toContain('z-index: 20');
-    expect(block('.wf-shell')).toMatch(/--wf-mast-h:\s*\d+px/);
+    // The pre-existing lens z-index and the reservation's own declaration, plus the base
+    // scroll-margin selector list this describe block's own sibling already pins — additive rules
+    // must not disturb them. (It was the `--wf-mast-h` declaration here until that property was
+    // deleted; the reservation is the one this describe's rules actually build on.)
+    expect(decls(block('.wf-lens'))).toContain('z-index: 20');
+    expect(block('.wf-shell')).toMatch(/--wf-lens-reserve:\s*\d+px/);
     const css = readCss();
     const at = css.lastIndexOf('scroll-margin-top: var(--wf-lens-reserve');
     const selectors = css.slice(css.lastIndexOf('\n}', at), at);

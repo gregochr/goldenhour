@@ -16,17 +16,22 @@ import {
  * the masthead's bottom edge. A14 kept this inside the shared {@code Modal} (which already solves
  * focus, Escape and scroll) and asked for the anchored LOOK — so the panel is positioned exactly
  * over the tick line and covers it. Every {@code Modal} is Tailwind's {@code z-50} and the masthead
- * is 45, so covering is what the stacking order already does; nothing has to be hidden underneath,
- * which is what keeps this to a position rather than a second piece of state in the shell.
+ * is a static box in normal flow, so covering is what the stacking order already does; nothing has
+ * to be hidden underneath, which is what keeps this to a position rather than a second piece of
+ * state in the shell.
  *
  * <p>Measured through {@code useSyncExternalStore} rather than into state from an effect: the
  * viewport is an external store, and reading it during render is what makes the panel's first paint
- * the anchored one. Measured rather than computed from `--wf-mast-h`: that property is the
- * masthead's HEIGHT, and
- * what is wanted is the tick line's top in viewport coordinates, which differs by the page's own
+ * the anchored one. Measured rather than derived from a published height: what is wanted is the tick
+ * line's top in viewport coordinates, which differs from the masthead's height by the page's own
  * scroll offset and by the band's padding. Re-read on scroll and resize because a page scrolled
- * behind an open dialog moves the sticky masthead's edge exactly once — from its resting position
- * to the top of the viewport — and a panel that did not follow would float over the matrix.
+ * behind an open dialog carries the tick line with it and a panel that did not follow would float
+ * over the matrix. ⚠️ It carries it the WHOLE way now, off the top of the viewport included: this
+ * doc used to say the sticky masthead's edge moved "exactly once, from its resting position to the
+ * top of the viewport", which was never true — that stick was trapped in a containing block ~46px
+ * taller than the band (`index.css`'s `.wf-mast`), and the rule has since gone. Nothing locks page
+ * scroll behind an open {@code Modal}, so an open panel can still be scrolled out of view; that is
+ * a pre-existing edge this correction records rather than introduces.
  *
  * <p><b>Null is the honest answer and it has a real caller.</b> jsdom measures every box as zero,
  * and so does a first paint before layout; a zero-width panel is not a dropdown. The component

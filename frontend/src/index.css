@@ -614,24 +614,15 @@
   /* What every focusable thing on the Plan pane reserves against the sticky chrome, declared once
      so the literals it replaced cannot drift from what they describe.
 
-     ⚠️ M3 MADE THIS A SUM. It was the bar alone (60 = its 53.5px plus the focus ring's 2px outline
-     and 2px offset); the masthead is `position: sticky` too since M3, so a focused card has two
-     things over it and reserving for one parks it behind the other — the exact defect this exists
-     to prevent, one element higher up. 188 = the masthead's browser-measured 128px plus the bar's
-     53.5px plus the ring's 6 — both RESTING heights, which is the same basis the 60px it replaces
-     used (the bar has a wrapped 92px state this has never covered either). First paint only:
-     `useLensReserve` measures both and overwrites within a frame. The phone value is in the same
-     media query that stacks the bar, below. */
-  --wf-lens-reserve: 188px;
-  /* Where `.wf-lens` sticks — the masthead's height, measured by the same hook.
-     ⚠️ The fallback is NOT `0`, and that is not a rounding preference. `.wf-mast` is `z-index: 45`
-     and `.wf-lens` is 20, so a bar resting at `top: 0` sits UNDERNEATH the masthead: the page's only
-     reach and rating controls, and the only way out of a lens that has emptied the plan, become
-     invisible and unclickable. `0` degraded gracefully before M3 (it was the correct resting
-     position) and degrades into a hidden control surface now. 128px is the desktop masthead's
-     browser-measured height; over-shooting leaves a hairline of pane visible above the bar for one
-     frame, which is the harmless direction. */
-  --wf-mast-h: 128px;
+     ⚠️ M3 MADE THIS A SUM AND THE ANCHORING FIX MADE IT ONE TERM AGAIN. 60 = the bar's browser-
+     measured 53.5px plus the focus ring's 2px outline and 2px offset. It was 188 (that plus the
+     masthead's 128) for as long as the masthead was believed to be pinned above the bar; it never
+     was — see `.wf-mast` below for the measurement — so the extra 128 reserved against nothing and
+     dropped every focused card a masthead's height further down the page than it needed. The bar
+     has a wrapped 92px state this has never covered either; first paint only, `useLensReserve`
+     measures the real bar and overwrites within a frame. The phone value is in the same media
+     query that stacks the bar, below. */
+  --wf-lens-reserve: 60px;
 }
 /* ⚠️ SAFE AREAS ARE NOT HANDLED, and a `calc(env(safe-area-inset-top, 0px) + 16px)` here would not
    handle them — it was written that way first and is wrong twice over. `env(safe-area-*)` resolves
@@ -656,25 +647,37 @@
 .wf-mast {
   padding: 16px var(--wf-gutter) 0;
   background: linear-gradient(180deg, #241B16 0%, #1B1411 100%);
-  /* ⚠️ STICKY SINCE M3, and it is a change to the shell's documented stick invariant rather than a
-     tweak. `.wf-lens`'s block below carried "position: sticky here and nowhere above it"; that
-     comment is corrected in the same commit as this rule, because a stale invariant is worse than
-     none. The design's chrome model pins the masthead so the tick line — which is now the ONLY
-     statement of where the plan is computed from, and the search trigger — cannot scroll away from
-     a reader halfway down the matrix; and A14's "search dropdown anchored under the masthead"
-     presumes a masthead still on screen mid-scroll.
+  /* ⚠️ NOT STICKY, AND IT NEVER ACTUALLY WAS. M3 added `position: sticky; top: 0; z-index: 45` here
+     and every comment downstream was written against that intent — the bar resting on the
+     masthead's bottom edge, A14's "search dropdown anchored under the masthead", `--wf-mast-h` as
+     the height of pinned chrome. None of it happened. A sticky element cannot travel outside its
+     own containing block, and this element's is `WindowFirstShell`'s `WRAP_MAX_WIDTH` wrapper,
+     which holds only the masthead, the tab bar and the tab rule. Measured in Chromium at 1280×800:
+     the band pins for the tab bar's ~46px and is then carried off the top of the viewport with the
+     page, `bottom: -397` by 600px of scroll. M3's own note says the invariant was re-checked for
+     `overflow`, `transform`, `filter` and `will-change` ancestors — the containing block's HEIGHT
+     is the fourth way to break a stick, and it was the one in play. Reproduced and re-measured
+     after the fix in the same browser: with the rule gone the band simply scrolls, and the bar
+     lands at `top: 0` from 203px of scroll onward.
 
-     `z-index: 45` is the design's own number, and the two it has to beat are both real: `.wf-lens`
-     at 20 must slide UNDER this, and `.wf-peek` is portalled to the body at 60 so a hover panel
-     still paints over both. Every `Modal` is Tailwind's `z-50`, above this, which is what lets the
-     search panel cover the tick line rather than peek out from under it.
+     So the rule is gone rather than repaired, and the lens bar now anchors at `top: 0` itself
+     (owner decision, 2026-09-05). What that costs is stated plainly: the tick line — the origin
+     control, the search affordance and the light times — scrolls away from a reader halfway down
+     the matrix, which is exactly what M3 wanted to prevent and exactly what has shipped ever since.
+     Pinning it for real is a live option (it costs ~182px of permanent chrome on an 800px viewport,
+     which is why it was not simply fixed in place); a phase that takes it must move the stick onto
+     the wrapper, restore `z-index: 45` here, put `.wf-lens`'s `top` back onto a measured masthead
+     height and give the two day-tile rails their masthead term back.
 
-     The bottom padding is still ZERO. The tick line inside supplies it, and it always renders now —
+     ⚠️ Nothing may reintroduce a `z-index` here without also making this element positioned again.
+     `z-index` is inert on a static box, so a bare number would read as a live stacking claim and do
+     nothing. `.wf-peek` (60), every `Modal` (Tailwind `z-50`) and `.wf-lens` (20) all paint over
+     this band now, and only `.wf-lens` is a change: it never overlaps in practice, because the bar
+     reaches `top: 0` a good 40px of scroll AFTER the band's bottom edge has left the viewport.
+
+     The bottom padding is still ZERO. The tick line inside supplies it, and it always renders —
      the blank height-holding placeholder the time row used before M3 is gone with it, because a row
      that is present in all three light states holds its own height. */
-  position: sticky;
-  top: 0;
-  z-index: 45;
 }
 /* ── The tick line (M3) ──
    The masthead's third row, and the design's "ONLY statement of where the plan is computed from;
@@ -1086,19 +1089,15 @@
   /* One declaration moves every horizontal inset in the arm's chrome. */
   .wf-shell {
     --wf-gutter: 14px;
-    /* The stacked bar is ~2.5× the height of the single-row one, and M3 added the sticky masthead
-       above it. Browser-measured at 390px with the tick line wrapped to two lines (the away state):
-       masthead 134px, stacked bar 130px, plus the ring's 6. Over-reserving costs a focused card a
-       few extra pixels of scroll while under-reserving parks it behind a sticky element, which is
-       the whole defect the reservation exists to prevent — so where the two states of an element
-       differ, the taller one is taken. */
-    --wf-lens-reserve: 270px;
-    /* The masthead's phone height, browser-measured at 390px with the tick line WRAPPED — 134px,
-       the away state, where the label names two places and the times drop to their own line. The
-       unwrapped home state is 117px, and the taller value is deliberate: over-shooting leaves a
-       hairline of pane visible above the bar for one frame, where under-shooting parks the bar
-       under the band and hides the page's only lens controls. Same rule as the desktop value. */
-    --wf-mast-h: 134px;
+    /* The stacked bar is ~2.5× the height of the single-row one, and it is the only thing pinned
+       above a focused card on this tab. Browser-measured at 390px with the tick line wrapped to two lines (the away state):
+       stacked bar 130px, plus the ring's 6. Over-reserving costs a focused card a few extra pixels
+       of scroll while under-reserving parks it behind a sticky element, which is the whole defect
+       the reservation exists to prevent — so where the two states of an element differ, the taller
+       one is taken. It was 270 while the masthead's 134px was counted as pinned chrome above the
+       bar; the masthead is not pinned and never was (see `.wf-mast`), so that term is gone here for
+       the same reason it is gone from the desktop value. */
+    --wf-lens-reserve: 136px;
   }
   .wf-mast { padding: 14px var(--wf-gutter) 0; }
   /* The design's phone sizes: 34px controls, and the `/` chip goes — a phone has no keyboard to
@@ -1238,8 +1237,8 @@
   gap: 7px;
 }
 /* The day-tile row. Pins under the lens bar for as long as the strip is in view (D9, D10 for the
-   z-ordering constraint this comment states so the next chrome renumbering can see it): masthead 45
-   > lens 20 > tiles 15 > rails 14 > every z-auto stacking context inside the strip (a hovered
+   z-ordering constraint this comment states so the next chrome renumbering can see it):
+   lens 20 > tiles 15 > rails 14 > every z-auto stacking context inside the strip (a hovered
    card's transform, the always-on `.wf-hc-away` opacity context) > the pick legend, which is
    correctly UNDER a pinned layer since it is absolute and z-auto inside its own card. Dialogs
    (z-50), `.wf-peek` (60) and `MapOverlay` (200) stay above all of it. ⚠️ 15/14 is a DELIBERATE
@@ -1248,12 +1247,15 @@
    ordering is normative, not the literals. */
 .wf-dhrow {
   position: sticky;
-  /* `--wf-lens-h` (0 when the bar is absent — `useLensReserve` writes a MEASURED zero rather than
-     clearing, D11(a)) + `--wf-mast-h`, minus 1px to close the hairline against the lens bar's own
-     bottom border: the bar painting over the tiles' top 1px is what keeps that border visible
-     through `heightOf`'s rounding. 128px/54px are the app's own measured chrome heights (masthead
-     resting height, lens bar resting height — NOT the design bundle's 48px/44px fallbacks). */
-  top: calc(var(--wf-mast-h, 128px) + var(--wf-lens-h, 54px) - 1px);
+  /* `--wf-lens-h` alone (0 when the bar is absent — `useLensReserve` writes a MEASURED zero rather
+     than clearing, D11(a)), minus 1px to close the hairline against the lens bar's own bottom
+     border: the bar painting over the tiles' top 1px is what keeps that border visible through
+     `heightOf`'s rounding. 54px is the app's own measured lens-bar resting height, NOT the design
+     bundle's 44px fallback. ⚠️ `--wf-mast-h` was the other term until the anchoring fix, and
+     dropping it is not a simplification: the masthead was never actually pinned (see `.wf-mast`),
+     so the tiles were sticking a masthead's height BELOW the bar they are supposed to sit against,
+     with cards scrolling through the naked band between the two. */
+  top: calc(var(--wf-lens-h, 54px) - 1px);
   z-index: 15;
   padding-top: 9px;
   /* The PAGE background, not the panel — `.wf-hstrip-block` sits directly on `--color-plex-bg`
@@ -1272,7 +1274,7 @@
      close that same hairline against the tile row's bottom edge. 45px is the browser-measured
      resting tile-row height (36px tiles + 9px padding-top, live app at 1280px, 2026-08-30 —
      the plan's provisional 49px re-measured per its §6 step 6). */
-  top: calc(var(--wf-mast-h, 128px) + var(--wf-lens-h, 54px) + var(--wf-dh-h, 45px) - 2px);
+  top: calc(var(--wf-lens-h, 54px) + var(--wf-dh-h, 45px) - 2px);
   z-index: 14;
   display: flex;
   align-items: center;
@@ -1322,7 +1324,7 @@
    not quoted here in full, so this comment cannot become a second occurrence of the string that
    search relies on being unique). */
 .wf-hstrip.wf-hstrip-rows .wf-hc {
-  scroll-margin-top: calc(var(--wf-lens-reserve, 188px) + var(--wf-dh-h, 45px) + 17px);
+  scroll-margin-top: calc(var(--wf-lens-reserve, 60px) + var(--wf-dh-h, 45px) + 17px);
 }
 /* The day, said once per column instead of once per card: a calendar tile, then a hairline rule
    running to the right edge of the column. The rule is the column's header in the same legend
@@ -2609,14 +2611,15 @@ button.wf-hc.also.on:hover {
    reservation goes on the panel that mounts them and reaches them by descent. Same 60px, same
    derivation, and it tracks the bar's height exactly as the block below does. */
 .wf-door-panel :is(a[href], button, [tabindex]:not([tabindex='-1'])) {
-  /* ⚠️ 188, not the 60 this was until M5. The two other fallback sites moved at M3 and this one was
-     missed: 60px was derived from the PRE-M3 bar height (53.5 + a focus ring), and M3 made the
-     masthead sticky, so the reservation became masthead + bar + ring — 128 + 53.5 + 6. The variable
-     is written by `useLensReserve` on mount, so this only bites at first paint or in a build where
-     that effect never runs — but that is exactly when a reader may already be tabbing, and 60px
-     against ~188px of sticky chrome parks a focusable HeatmapGrid cell entirely underneath the
-     masthead (WCAG 2.4.11). */
-  scroll-margin-top: var(--wf-lens-reserve, 188px);
+  /* ⚠️ 60 = the bar's browser-measured 53.5px plus a 2px focus outline and its 2px offset, and this
+     site has now been wrong in both directions. It sat at 60 while the other two moved to M3's
+     masthead + bar + ring sum, was corrected to 188 at M5 to match them, and comes back to 60 with
+     them now that the masthead's sticky has gone (it never worked — see `.wf-mast`). The three
+     fallback sites must move together or this one silently disagrees with the variable: it is
+     written by `useLensReserve` on mount, so a stale literal only bites at first paint or in a
+     build where that effect never runs — which is exactly when a reader may already be tabbing, and
+     an under-reservation parks a focusable HeatmapGrid cell underneath the bar (WCAG 2.4.11). */
+  scroll-margin-top: var(--wf-lens-reserve, 60px);
 }
 /* `.heatmap-cell-hoverable:hover` used to be `z-index: 40` against `.wf-lens`'s `z-index: 20` —
    values that never met until P9 put the grid underneath a sticky bar. A hovered cell painted OVER
@@ -2639,22 +2642,28 @@ button.wf-hc.also.on:hover {
    `.lgrp` :61, `.lens .k` :62, `.seg` :63-66, `.seg.home button.on` :67, `.lens .res` :70,
    `.stick.tmp` :71-72, `.lens .rst` :73-74; phone at :250-253).
 
-   ⚠️ `position: sticky` here AND on `.wf-mast` above it, since M3. The claim this comment used to
-   make — "sticky here and nowhere above it" — was true of the shell as P15c left it and stopped
-   being true the moment the masthead grew the tick line: the design's chrome model has the
-   masthead pinned at `z-index: 45` with the bar resting against its bottom edge, and a search
-   dropdown "anchored under the masthead" is a promise about a masthead that is still on screen.
-   The two consequences that comment was really about both still hold, and both had to be checked
-   again rather than inherited: no ancestor of either element sets `overflow`, a `transform`, a
-   `filter` or a `will-change` (any of which would silently re-base the stick onto itself), and the
-   tab bar between them still scrolls away, which is what keeps the two sticky elements from
-   fighting over one edge.
+   ⚠️ `position: sticky` HERE AND NOWHERE ABOVE IT — and that invariant has now been true, false and
+   true again, so read the whole history before moving it. P15c's original claim was correct. M3
+   falsified it by making `.wf-mast` sticky as well and re-based this bar onto the masthead's
+   measured height (`top: var(--wf-mast-h)`), on the chrome model where the masthead pins at
+   `z-index: 45` and the bar rests against its bottom edge. That model never shipped: the masthead's
+   sticky was trapped in a containing block ~46px taller than itself and the band scrolled away
+   anyway, leaving this bar hovering a masthead's height below the top of the viewport with matrix
+   cards scrolling through the naked band above it — the "floating" defect, and the same one
+   `useLensReserve` already names for the row-tile rail one level down. The masthead's rule is gone
+   (see `.wf-mast`) and this bar anchors at the viewport's own top edge.
 
-   `top` is the masthead's MEASURED height, not a literal — `WindowFirstShell` writes `--wf-mast-h`
-   through `useLensReserve`, the same measure/publish contract `--wf-lens-reserve` already used.
-   The masthead is not a fixed height: the tick line wraps at narrow widths and gains a home button
-   whenever the origin moves, so a written-down number here would park the bar over the times for
-   exactly the readers who had moved the origin. The `0px` fallback covers first paint. */
+   `top: 0` is therefore a LITERAL again, deliberately, and it is the one number on this bar that
+   must not become a measurement: there is nothing above it to measure. A future phase that pins the
+   masthead for real has to put `var(--wf-mast-h, …)` back here in the same commit — `.wf-mast`'s
+   own block carries that checklist — because a bar left at 0 under a genuinely pinned band would
+   slide underneath it and take the page's only reach and rating controls with it.
+
+   The two conditions M3's note checked still hold and were re-checked rather than inherited: no
+   ancestor of this element sets `overflow`, a `transform`, a `filter` or a `will-change` (any of
+   which would silently re-base the stick onto itself), and — the check M3 did NOT make, which is
+   what let its own rule fail — this bar's containing block is the panel-region wrapper, which is
+   the whole scrolling pane rather than a strip the height of the bar. */
 .wf-lens {
   display: flex;
   align-items: center;
@@ -2691,10 +2700,15 @@ button.wf-hc.also.on:hover {
      row of its own at 664px (measured: 115.8px against 92px). */
   flex-wrap: wrap;
   position: sticky;
-  top: var(--wf-mast-h, 128px);
+  top: 0;
   /* Above the spot strip's focused card (3) and its edge fades (2), which is the only thing on the
-     Plan pane that raises itself at all — and BELOW `.wf-mast`'s 45, which is the whole point of
-     the pair: the bar must slide under the masthead rather than over it. */
+     Plan pane that raises itself at all. It used to have a ceiling as well — `.wf-mast`'s 45, so
+     the bar slid under the masthead rather than over it — and that ceiling is gone with the
+     masthead's own `position`, since `z-index` is inert on a static box. The two do not overlap at
+     any scroll position either way, and the reason is structural rather than a measurement: this
+     bar's resting top is the band's bottom edge plus the tab bar and the tab rule, so it reaches
+     `top: 0` exactly that far AFTER the band's bottom edge has left the viewport (~46px). 20 stays
+     because the tiles (15) and rails (14) below it are numbered against it. */
   z-index: 20;
   /* Both halves of the stuck treatment animate, so the bar does not snap into a shadow on the
      first pixel of scroll. The design's own `.18s`. */
@@ -4662,10 +4676,11 @@ button.wf-hc.also.on:hover {
    of scroll, where under-reserving parks it behind a sticky element. Every number here is
    browser-measured; none is derivable in jsdom, which loads no CSS at all.
 
-   ⚠️ **M3 MADE IT A SUM.** The masthead is `position: sticky` too, so this is masthead + bar + ring
-   rather than bar + ring, and the fallbacks moved with it (188px / 270px, both re-measured in a
-   browser). The paragraphs above describe the bar's four heights and are still true of the bar;
-   they are no longer the whole of what a focused card has above it.
+   ⚠️ **M3 MADE IT A SUM AND THE ANCHORING FIX UNMADE IT.** For as long as `.wf-mast` carried a
+   `position: sticky` this was masthead + bar + ring (188px / 270px, both re-measured in a browser).
+   That sticky never took effect — its containing block was ~46px taller than itself, so the band
+   scrolled away like any other content (see `.wf-mast`) — so the masthead term reserved against
+   nothing, and the bar is once again the whole of what a focused card has above it.
 
    ⚠️ And the "each deliberately taken from the TALLEST state its media query can see" claim above
    was already an overstatement before M3 — 60px was the bar's RESTING 53.5px, not its wrapped 92px.
@@ -4690,7 +4705,7 @@ button.wf-hc.also.on:hover {
    does not overlap — so the reservation is inert there rather than wrong, and it is kept because
    `.wf-rr` is one class and the popup is not the only thing that could ever mount it. */
 .wf-rr {
-  scroll-margin-top: var(--wf-lens-reserve, 188px);
+  scroll-margin-top: var(--wf-lens-reserve, 60px);
 }
 /* The app's own phone boundary, as `.wf-spots` states it — 639px, not the handoff's 620px, because
    a second breakpoint 19px away would be one more thing to keep in step with `.wf-spots`, the
@@ -5679,11 +5694,13 @@ button.wf-hc.also.on:hover {
   gap: 12px;
   align-items: stretch;
   margin: 0 14px 7px;
-  /* The standing-conditions strip's scroll-to-entry target (plan §7 P4) — `--wf-mast-h`, NOT
-     `--wf-lens-reserve`: the lens bar is Plan-only and `useLensReserve` removes its variable on
-     this tab, so the lens bar's larger fallback would over-reserve by a bar that is not on screen
-     here. */
-  scroll-margin-top: calc(var(--wf-mast-h, 128px) + 6px);
+  /* The standing-conditions strip's scroll-to-entry target (plan §7 P4). ⚠️ A BARE GAP, because
+     NOTHING is pinned on this tab: the lens bar is Plan-only, and the masthead — whose measured
+     height this rule used to add, via the now-deleted `--wf-mast-h` — was never actually sticky
+     (see `.wf-mast`). It therefore reserved ~134px against chrome that has never been on screen
+     here, dropping a scrolled-to entry that far down the viewport for no reason. 6px is the
+     breathing gap the rule already chose on top of its chrome term; it is all that is left. */
+  scroll-margin-top: 6px;
 }
 @media (max-width: 899px) {
   .wf-cu-ent { grid-template-columns: 58px 1fr; }
@@ -6342,8 +6359,13 @@ button.wf-cond-oc:focus-visible {
   --wf-search-inset: 14px;
 }
 /* Anchored under the masthead (A14). The panel is positioned exactly over the tick line it replaces
-   and covers it — `Modal` is Tailwind's `z-50` and `.wf-mast` is 45, so the covering is what the
-   stacking order already does and nothing has to be hidden underneath. The centred rule above stays
+   and covers it — `Modal` is Tailwind's `z-50` and the masthead is a static box in normal flow
+   (`.wf-mast`), so the covering is what the stacking order already does and nothing has to be
+   hidden underneath. ⚠️ The tick line this anchors to now scrolls away with the page rather than
+   pinning: `useTickLineBox` re-measures on scroll and the panel follows it, off the top of the
+   viewport included, since nothing locks page scroll behind an open `Modal`. That was already true
+   before the masthead's dead sticky came off — it only ever held the band for ~46px — so it is
+   recorded here as a known edge rather than introduced by it. The centred rule above stays
    the FALLBACK: first paint, and any page where the tick line cannot be measured.
 
    `position: absolute` inside `Modal`'s `fixed inset-0` overlay — the overlay is the containing
