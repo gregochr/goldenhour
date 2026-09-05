@@ -103,9 +103,11 @@ const FRAME_PAD_DEG = 0.12;
  *                                         explicitly chosen — forwarded to `MapView`'s one-time
  *                                         "colours changed" notice
  * @param {Function} [props.onOpenSettings]
- * @param {Function} [props.onOpenLocationInPlan] the selection callout's "Open in Plan" action
- *                                         (map-tab-v2-plan.md §3 P9) — `(spot) => void`, forwarded
- *                                         from `App.jsx`'s `openLocationInPlan`
+ * @param {Function} [props.onOpenLocationSheet] the selection callout's two routes into one
+ *                                         four-day sheet (map-tab-v2-plan.md §3 P9) —
+ *                                         `(spot) => void`, forwarded from `App.jsx`'s
+ *                                         `openLocationSheet`; `spot.inPlan` says whether the Plan
+ *                                         tab is the destination or the map stays behind the sheet
  * @param {Function} [props.onReturnToPlan] the breadcrumb's `← Plan` (doors D2,
  *                                         `plan-to-map-doors-plan.md` §3 D2 task 5) — `App.jsx`'s
  *                                         `returnToPlan`, forwarded straight through to `MapView`;
@@ -117,26 +119,57 @@ export default function WindowFirstMapPane({
   briefingScores = new Map(),
   onForecastRun = null, seasonalFeatures = [], homeCoords = null,
   mapColourScale = null, colourScaleDefaulted = false, onOpenSettings = null,
-  onOpenLocationInPlan = null, onReturnToPlan = null,
+  onOpenLocationSheet = null, onReturnToPlan = null,
 }) {
   const wrapRef = useRef(null);
   const [resizeNonce, setResizeNonce] = useState(0);
+  /**
+   * Warms the four-day sheet's lazy chunk, the Map-tab twin of `WindowFirstShell`'s own
+   * {@code warmStackedChunks} (which the PLAN routes get for free, since every one of them is
+   * reachable only from an already-open window popup).
+   *
+   * <p>⚠️ <b>Not a performance nicety — it closes a window in which `Esc` deselects.</b> The
+   * callout's `Four days here ›` mounts `LocationFourDaySheet` behind `&lt;Suspense fallback={null}&gt;`,
+   * so between the press and the chunk landing there is NO dialog element in the document: the
+   * sheet's own Escape listener is not installed yet, and `MapView`'s `handleMapPaneKeyDown` —
+   * which stands down while a foreign modal is open — finds none to stand down for. A press in that
+   * gap therefore closes nothing and drops the selection the sheet is about to describe. Firing at
+   * PANE MOUNT rather than at the press gives the fetch the reader's whole time on the map, which
+   * is the same argument the shell's own warm makes with the reader's reading time.
+   *
+   * <p><b>Residual, stated rather than defended against</b> (the shell's warm records the identical
+   * one): a cold, slow first paint of the Map tab in which the reader selects and presses inside
+   * the fetch can still reach the gap. The structural fix is to gate the pane's Escape on the
+   * shell's sheet INTENT rather than on a dialog being in the DOM, which needs `sheetSpot` plumbed
+   * to a pane that is handed to the shell as an opaque node — named here, not smuggled in.
+   */
+  useEffect(() => { import('./LocationFourDaySheet.jsx').catch(() => {}); }, []);
   const {
     heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr,
     origin, setOrigin, effectiveReachById, scoreRows, scoresLoaded, briefing,
   } = useWindowFirstBriefing();
   /**
-   * A door handoff, distinguished from the overlay hatch's handoff on the SAME `handoff` channel
-   * (doors D2, `plan-to-map-doors-plan.md` §3 D2 task 2) — both arrive as `App.jsx`'s
-   * `mapTabHandoff`, but a door's payload carries `source: 'plan'` and the hatch's never has a
-   * `source` field at all, so the two are told apart by that one field rather than by a second
-   * channel. Forwarded to `MapView` as ONE `planHandoff` prop; the hatch's own five `handoff*`
-   * props below are withheld whenever a door handoff is the one in flight, so the OLD per-field
-   * effects (`handoffRegion`'s `FitBoundsController` fit, in particular) can never double-apply a
-   * door's own region alongside the new nonce-keyed effect's `jumpToRegion`/`resetToMyArea`.
+   * A STRUCTURED handoff, distinguished from the overlay hatch's on the SAME `handoff` channel
+   * (doors D2, `plan-to-map-doors-plan.md` §3 D2 task 2) — all of them arrive as `App.jsx`'s
+   * `mapTabHandoff`, but a structured payload names its `source` and the hatch's never has that
+   * field at all, so they are told apart by that one field rather than by a second channel.
+   * Forwarded to `MapView` as ONE `planHandoff` prop; the hatch's own five `handoff*` props below
+   * are withheld whenever a structured handoff is the one in flight, so the OLD per-field effects
+   * (`handoffRegion`'s `FitBoundsController` fit, in particular) can never double-apply a door's
+   * own region alongside the new nonce-keyed effect's `jumpToRegion`/`resetToMyArea`.
+   *
+   * <p>⚠️ <b>TWO sources ride it, and the prop's name only covers one of them.</b> `'plan'` is a
+   * door (the reader is arriving from the Plan tab, carrying its lens); `'map'` is the four-day
+   * sheet's own footer pressed while that sheet is already OVER the map, which moves the window and
+   * the selection and nothing else. `MapView` branches on `source` for the lens/scope/camera block
+   * and for the landing strip. They share this channel rather than getting one each because the
+   * effect behind it is the only one that treats the handed-over event as an EXPLICIT selection
+   * (`setUserHasOverriddenEvent(true)`); the hatch's own event arm sets that flag FALSE, and a
+   * map-sourced payload sent down it had its window silently replaced by `autoEventType` a tick
+   * later (Codex review, P1 against the first cut of this route).
    */
-  const isPlanHandoff = handoff?.source === 'plan';
-  const planHandoff = isPlanHandoff ? handoff : null;
+  const isStructuredHandoff = handoff?.source === 'plan' || handoff?.source === 'map';
+  const planHandoff = isStructuredHandoff ? handoff : null;
 
   /**
    * The breadcrumb's `clear` origin reset (D2) — `useCallback`'d, not a fresh arrow literal at the
@@ -316,18 +349,19 @@ export default function WindowFirstMapPane({
         // to decide whether a picked EV row's date may be forwarded via `onSelectDate` at all.
         forecastDates={dates}
         autoEventType={autoEventType}
-        // Withheld outright for a door handoff (`isPlanHandoff`) — see this component's own
-        // `planHandoff` doc note just above: a door's region/location/event ride the ONE
-        // `planHandoff` prop below and must never ALSO reach these older per-field effects, which
-        // apply a region via `FitBoundsController` rather than the door's own `jumpToRegion`/
-        // `resetToMyArea` scope-flip semantics.
-        handoffEventType={isPlanHandoff ? null : (handoff?.eventType ?? null)}
-        handoffFilterAction={isPlanHandoff ? null : (handoff?.filterAction ?? null)}
-        handoffDarkSky={isPlanHandoff ? null : (handoff?.darkSky ?? null)}
-        handoffLocationName={isPlanHandoff ? null : (handoff?.locationName ?? null)}
-        handoffRegion={isPlanHandoff ? null : (handoff?.region ?? null)}
-        handoffNonce={isPlanHandoff ? null : (handoff?.nonce ?? null)}
-        // A door handoff (D2) — the ONE prop a `source: 'plan'` handoff reaches `MapView` through;
+        // Withheld outright for a structured handoff (`isStructuredHandoff`) — see this component's
+        // own `planHandoff` doc note just above: a structured payload's region/location/event ride
+        // the ONE `planHandoff` prop below and must never ALSO reach these older per-field effects,
+        // which apply a region via `FitBoundsController` rather than the door's own `jumpToRegion`/
+        // `resetToMyArea` scope-flip semantics — and whose event arm sets `userHasOverriddenEvent`
+        // to FALSE, which is what made a map-sourced payload lose its window to `autoEventType`.
+        handoffEventType={isStructuredHandoff ? null : (handoff?.eventType ?? null)}
+        handoffFilterAction={isStructuredHandoff ? null : (handoff?.filterAction ?? null)}
+        handoffDarkSky={isStructuredHandoff ? null : (handoff?.darkSky ?? null)}
+        handoffLocationName={isStructuredHandoff ? null : (handoff?.locationName ?? null)}
+        handoffRegion={isStructuredHandoff ? null : (handoff?.region ?? null)}
+        handoffNonce={isStructuredHandoff ? null : (handoff?.nonce ?? null)}
+        // A structured handoff — the ONE prop a `source`-bearing handoff reaches `MapView` through;
         // null whenever `handoff` is the overlay hatch's own (or there is no handoff at all).
         planHandoff={planHandoff}
         briefingScores={briefingScores}
@@ -352,7 +386,7 @@ export default function WindowFirstMapPane({
         regionBestIndex={regionBestIndex}
         tideAlignmentIndex={tideAlignmentIndex}
         reachById={reachById}
-        onOpenLocationInPlan={onOpenLocationInPlan}
+        onOpenLocationSheet={onOpenLocationSheet}
         // The breadcrumb's `clear` origin reset (D2) — the SAME `setOrigin` the masthead's ⌂ and
         // every plan-from-a-region action already call, so the crumb can never disagree with them
         // about what "clear the origin" means. Resets the whole app's shared origin (plan §4 #4).
@@ -371,7 +405,7 @@ WindowFirstMapPane.propTypes = {
   onSelectDate: PropTypes.func.isRequired,
   handoff: PropTypes.shape({
     // 'plan' for a door handoff (D2); absent/undefined for the overlay hatch's own — see
-    // `isPlanHandoff`'s own doc note above for how the two are told apart on one channel.
+    // `isStructuredHandoff`'s own doc note above for how the two are told apart on one channel.
     source: PropTypes.string,
     eventType: PropTypes.string,
     filterAction: PropTypes.string,
@@ -393,6 +427,6 @@ WindowFirstMapPane.propTypes = {
   /** Whether the colour preference was never explicitly chosen — forwarded to `MapView`'s notice. */
   colourScaleDefaulted: PropTypes.bool,
   onOpenSettings: PropTypes.func,
-  onOpenLocationInPlan: PropTypes.func,
+  onOpenLocationSheet: PropTypes.func,
   onReturnToPlan: PropTypes.func,
 };

@@ -569,11 +569,13 @@ describe('MapCallout — actions', () => {
     expect(currentMap.flyToCalls[0][1]).toBe(14);
   });
 
-  it('"Open in Plan" calls the handoff exactly once', async () => {
+  it('"Open in Plan" calls the tab-moving handoff exactly once, never the peek', async () => {
     const onOpenInPlan = vi.fn();
-    await mount({ onOpenInPlan });
+    const onOpenSheet = vi.fn();
+    await mount({ onOpenInPlan, onOpenSheet });
     fireEvent.click(screen.getByTestId('map-callout-open-in-plan'));
     expect(onOpenInPlan).toHaveBeenCalledTimes(1);
+    expect(onOpenSheet).not.toHaveBeenCalled();
   });
 });
 
@@ -714,14 +716,30 @@ describe('MapCallout — the reason routes into the location sheet (increment §
     + 'matters most here, and there is enough mid-level canvas overhead to take colour once the '
     + 'light starts coming in underneath it.';
 
-  it('is a BUTTON, and opens the sheet — the same destination the primary action reaches', async () => {
+  it('is a BUTTON, and opens the sheet OVER the map — never the tab-moving route', async () => {
+    // ⚠️ The two routes into one sheet are deliberately different props. The prose is a peek: the
+    // map stays behind it, so the reader can back out to the selection they pressed it from.
+    // `onOpenInPlan` (the actions row's button, which names the Plan tab) must not fire from here.
+    const onOpenSheet = vi.fn();
     const onOpenInPlan = vi.fn();
     const scoreIndex = buildScoreIndex([scoreRow({ summary: LONG })]);
-    await mount({ scoreIndex, onOpenInPlan });
+    await mount({ scoreIndex, onOpenSheet, onOpenInPlan });
     const reason = screen.getByTestId('map-callout-reason');
     expect(reason.tagName).toBe('BUTTON');
     fireEvent.click(reason);
-    expect(onOpenInPlan).toHaveBeenCalledTimes(1);
+    expect(onOpenSheet).toHaveBeenCalledTimes(1);
+    expect(onOpenInPlan).not.toHaveBeenCalled();
+  });
+
+  it('takes focus on the press, so the sheet has a return address to restore to', async () => {
+    // ⚠️ macOS/iOS Safari do not focus a `<button>` on click. `useDialogFocus` captures
+    // `document.activeElement` when the sheet mounts and restores it on close, so without the
+    // explicit focus the peek's whole point — backing out to where you were — degrades to <body>.
+    const scoreIndex = buildScoreIndex([scoreRow({ summary: LONG })]);
+    await mount({ scoreIndex, onOpenSheet: vi.fn() });
+    const reason = screen.getByTestId('map-callout-reason');
+    fireEvent.click(reason);
+    expect(document.activeElement).toBe(reason);
   });
 
   it('captions the route, and the caption is NOT inside the clamped box', async () => {

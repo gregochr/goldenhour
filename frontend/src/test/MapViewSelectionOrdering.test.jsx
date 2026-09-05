@@ -9,8 +9,9 @@
  * - The inbound `handoffLocationName` TAB-vs-OVERLAY branch: the tab selects the location without
  *   ever calling `marker.openPopup()` (there is no popup left to open); the overlay branch is
  *   byte-identical to before this phase.
- * - The "Open in Plan" handoff: the callout's action reaches `onOpenLocationInPlan` with the
- *   `{id, name, regionName}` shape `WindowFirstShell.jsx`'s `sheetSpotOf` already normalises onto.
+ * - The four-day-sheet handoff: BOTH of the callout's routes reach `onOpenLocationSheet` with the
+ *   `{id, name, regionName}` shape `WindowFirstShell.jsx`'s `sheetSpotOf` already normalises onto,
+ *   differing only in the `inPlan` flag that says whether the tab moves with them.
  * - PR #734 review: a DELIBERATE selection outranks the pool's own rating/subject/drive/dark-sky
  *   filters. `selectedLoc` used to be resolved from `visibleLocations` (the FILTERED pool), so the
  *   every-window strip switching to a window where the selection sits below the min-stars default
@@ -95,7 +96,8 @@ vi.mock('../components/map/MapLabels.jsx', () => ({
 /** The callout, mocked to a probe that exposes exactly what this file asserts on: whether it is
  * mounted at all (the selection state MapView feeds it), its own `rating` (PR #734 review — proves
  * a strip-switch shows that window's HONEST state rather than unmounting), a button that plays the
- * every-window strip's own `onSelectEv` action, and its "Open in Plan" wiring. Its own
+ * every-window strip's own `onSelectEv` action, and its TWO sheet routes (`onOpenSheet`, the prose's
+ * `Four days here ›` peek, and `onOpenInPlan`, the actions row's tab move). Its own
  * content/anchoring is `MapCallout.test.jsx`'s job. */
 vi.mock('../components/map/MapCallout.jsx', () => ({
   default: (props) => (
@@ -114,6 +116,9 @@ vi.mock('../components/map/MapCallout.jsx', () => ({
       ))}
       <button type="button" data-testid="probe-callout-open-in-plan" onClick={() => props.onOpenInPlan?.()}>
         open in plan
+      </button>
+      <button type="button" data-testid="probe-callout-open-sheet" onClick={() => props.onOpenSheet?.()}>
+        four days here
       </button>
     </div>
   ),
@@ -315,16 +320,59 @@ describe('MapView — Esc closes menus, THEN the callout', () => {
     fireEvent.keyDown(screen.getByTestId('wf-win-pill'), { key: 'Escape' });
     expect(screen.queryByTestId('probe-callout')).toBeNull();
   });
+
+  it('stands DOWN entirely while a foreign modal is over the map — the peek keeps its selection', async () => {
+    // ⚠️ Measured in a real browser before the guard existed: `Four days here ›` opens the four-day
+    // sheet WITHOUT leaving the Map tab, the sheet dismisses on a document-level Escape listener of
+    // its own, and the callout button underneath it still held focus — so one press closed the
+    // sheet AND deselected the location, which is the whole of what the peek is for. The sheet is
+    // rendered by the shell, outside this pane, so it is stood in for here by a modal appended to
+    // `document.body`.
+    await renderMap();
+    await selectTheSpot();
+    const foreign = document.createElement('div');
+    foreign.setAttribute('role', 'dialog');
+    foreign.setAttribute('aria-modal', 'true');
+    document.body.appendChild(foreign);
+    try {
+      fireEvent.keyDown(screen.getByTestId('wf-win-pill'), { key: 'Escape' });
+      expect(screen.getByTestId('probe-callout')).toBeInTheDocument();
+    } finally {
+      foreign.remove();
+    }
+    // And the press lands again the moment that modal goes, so this is a stand-down, not a latch.
+    fireEvent.keyDown(screen.getByTestId('wf-win-pill'), { key: 'Escape' });
+    expect(screen.queryByTestId('probe-callout')).toBeNull();
+  });
+
+  it('a modal INSIDE the pane does not suppress it — containment, not "any dialog"', async () => {
+    // The overlay's phone `BottomSheet` is rendered by this component; a future in-pane dialog would
+    // be too. Suppressing on "any open dialog" would silently change their behaviour, so the guard
+    // tests containment and this pins the half a `querySelector` alone would get wrong.
+    await renderMap();
+    await selectTheSpot();
+    const pill = screen.getByTestId('wf-win-pill');
+    const inPane = document.createElement('div');
+    inPane.setAttribute('role', 'dialog');
+    inPane.setAttribute('aria-modal', 'true');
+    pill.closest('.wf-map-tab').appendChild(inPane);
+    try {
+      fireEvent.keyDown(pill, { key: 'Escape' });
+      expect(screen.queryByTestId('probe-callout')).toBeNull();
+    } finally {
+      inPane.remove();
+    }
+  });
 });
 
-describe('MapView — "Open in Plan" reaches the shell handoff', () => {
-  it('calls onOpenLocationInPlan with the sheet-spot shape AND the window on screen', async () => {
-    const onOpenLocationInPlan = vi.fn();
-    await renderMap({ onOpenLocationInPlan });
+describe('MapView — both callout routes reach the shell handoff', () => {
+  it('calls onOpenLocationSheet with the sheet-spot shape AND the window on screen', async () => {
+    const onOpenLocationSheet = vi.fn();
+    await renderMap({ onOpenLocationSheet });
     await selectTheSpot();
     fireEvent.click(screen.getByTestId('probe-callout-open-in-plan'));
-    expect(onOpenLocationInPlan).toHaveBeenCalledTimes(1);
-    const [handoff] = onOpenLocationInPlan.mock.calls[0];
+    expect(onOpenLocationSheet).toHaveBeenCalledTimes(1);
+    const [handoff] = onOpenLocationSheet.mock.calls[0];
     expect(handoff).toMatchObject({ id: SPOT.id, name: SPOT.name, regionName: SPOT.rid });
     // ⚠️ The window is load-bearing, not decoration (increment §1). Without it the sheet seeds its
     // expansion on its own BEST window and its footer hands back the best-RATED one — so a reader
@@ -332,6 +380,22 @@ describe('MapView — "Open in Plan" reaches the shell handoff', () => {
     // Two review lenses found that independently against the first cut of this handoff.
     expect(handoff.date).toBeTruthy();
     expect(handoff.targetType).toBeTruthy();
+  });
+
+  it('marks the routes apart by `inPlan` ALONE — same spot, same window, different destination', async () => {
+    // ⚠️ The whole of what separates the peek from the tab move. Anything else that differed
+    // between the two payloads would be a way for one route to seed a sheet the other could not.
+    const onOpenLocationSheet = vi.fn();
+    await renderMap({ onOpenLocationSheet });
+    await selectTheSpot();
+    fireEvent.click(screen.getByTestId('probe-callout-open-sheet'));
+    fireEvent.click(screen.getByTestId('probe-callout-open-in-plan'));
+    expect(onOpenLocationSheet).toHaveBeenCalledTimes(2);
+    const [peek] = onOpenLocationSheet.mock.calls[0];
+    const [toPlan] = onOpenLocationSheet.mock.calls[1];
+    expect(peek.inPlan).toBe(false);
+    expect(toPlan.inPlan).toBe(true);
+    expect({ ...peek, inPlan: null }).toEqual({ ...toPlan, inPlan: null });
   });
 });
 

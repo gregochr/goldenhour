@@ -1011,9 +1011,11 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  *   are measured from home, and printing them under an away drive would put two journeys on one
  *   line), so this prop is never consulted for MINUTES once `driveOverride` is set (it stays the
  *   miles source regardless, since `driveOverride` never carries miles either).
- * - `onOpenLocationInPlan` — the real shell handoff (`App.jsx`'s `openLocationInPlan`, mirroring
- *   `openFullMapTab`'s shape in reverse): switches to the Plan tab via `WindowFirstShell`'s
- *   `selectTab` and opens this location's `LocationFourDaySheet` as the only dialog layer.
+ * - `onOpenLocationSheet` — the real shell handoff (`App.jsx`'s `openLocationSheet`, mirroring
+ *   `openFullMapTab`'s shape in reverse): opens this location's `LocationFourDaySheet` as the only
+ *   dialog layer. The payload's `inPlan` says where the reader ends up — `false` for the prose's
+ *   `Four days here ›`, which leaves the map on screen behind the sheet, `true` for the actions
+ *   row's `Open in Plan`, which additionally moves the tab via `WindowFirstShell`'s `selectTab`.
  * - `tideAlignmentIndex` — from `utils/locationSheet.buildTideAlignmentIndex` over the SAME
  *   `briefing.days` `regionGlossIndex`/`regionBestIndex` already read (bundle rev 2's tide-chip
  *   tweak): whether THIS window's water lands on the light for a location, read through
@@ -1025,7 +1027,7 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  * overlay never passes one (it is frozen and has no origin concept). Gates home geography — see
  * `homeGeo` below.
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, origin = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, tideAlignmentIndex = null, reachById = null, onOpenLocationInPlan = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, origin = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, tideAlignmentIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -1228,6 +1230,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /** Monotonic source for {@code jumpFitOverride.nonce} — a ref, not state, since bumping it is
    *  always paired with a `setJumpFitOverride` call that already triggers the re-render. */
   const jumpFitSeq = useRef(0);
+  /**
+   * This pane's own root, read by {@link handleMapPaneKeyDown} alone — see that function's ⚠️ for
+   * why "is the open modal one of MINE" has to be answered by containment rather than by a flag.
+   */
+  const mapPaneRef = useRef(null);
   /**
    * The reach-rings toggle (map-tab-v2-plan.md §3 P8) — read by both {@code MapHeatLayer} (the
    * dashed canvas circles) and {@code MapLabels} (their duration/distance labels), so the two can
@@ -1517,12 +1524,27 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       setEventType(planHandoff.eventType);
       setUserHasOverriddenEvent(true);
       setLocalNightDate(null);
-      const nextMinStars = planHandoff.minRating ?? 1;
-      setMinStars(nextMinStars);
-      writeMapFilter('mapFilterMinStars', String(nextMinStars));
-      setDriveTimeFilter(planHandoff.limitMinutes ?? 0);
-      if (planHandoff.region) jumpToRegion(planHandoff.region);
-      else resetToMyArea();
+      // ⚠️ EVERYTHING BELOW IS THE DOOR'S, and a map-sourced handoff takes none of it. `source:
+      // 'map'` is the four-day sheet's own footer pressed while that sheet is already OVER the map
+      // — the reader never left, so there is no lens to import and nothing was carried: applying
+      // this block would overwrite the floor they set on this very map (and PERSIST it), overwrite
+      // their reach tier, snap scope back to My area and refit the camera, all from a press that
+      // asked only to change the window.
+      //
+      // ⚠️ It rides THIS effect rather than the hatch's per-field ones, and the three lines above
+      // are why: only here is the handed-over event marked as an EXPLICIT selection. The hatch's
+      // event arm sets `userHasOverriddenEvent` FALSE, which re-runs the auto-selection effect and
+      // replaces the named window with `autoEventType` a tick later — the first cut of this route
+      // did exactly that, and `Show on map → Monday sunrise` landed on tonight's sunset (Codex
+      // review, P1). The same true-to-false reset is what this effect's own existence records.
+      if (planHandoff.source !== 'map') {
+        const nextMinStars = planHandoff.minRating ?? 1;
+        setMinStars(nextMinStars);
+        writeMapFilter('mapFilterMinStars', String(nextMinStars));
+        setDriveTimeFilter(planHandoff.limitMinutes ?? 0);
+        if (planHandoff.region) jumpToRegion(planHandoff.region);
+        else resetToMyArea();
+      }
       if (planHandoff.locationName) {
         const loc = locations.find(
           (l) => l.name === planHandoff.locationName && l.enabled !== false,
@@ -2681,17 +2703,27 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }
 
   /**
-   * The Plan-tab handoff (map-tab-v2-plan.md §3 P9's "Open in Plan" action) — builds the SAME
+   * The four-day-sheet handoff (map-tab-v2-plan.md §3 P9's "Open in Plan" action) — builds the SAME
    * {@code {id, name, regionName}} shape `WindowFirstShell.jsx`'s `sheetSpotOf` already normalises
-   * every location-sheet entry point onto, so `App.jsx`'s `openLocationInPlan` needs no second
+   * every location-sheet entry point onto, so `App.jsx`'s `openLocationSheet` needs no second
    * translation for this one more caller.
+   *
+   * <p>⚠️ {@code inPlan} is the callout's TWO routes into one sheet, not a preference: the clamped
+   * prose's `Four days here ›` passes {@code false} and the sheet opens over the map with this
+   * callout still behind it, so an Escape puts the reader back exactly where they pressed it; the
+   * actions row's `Open in Plan` passes {@code true} because its label names the Plan tab. One
+   * handler rather than two, so the payload the shell receives can never differ between them in
+   * anything but that flag.
+   *
+   * @param {boolean} inPlan whether to move to the Plan tab as well as open the sheet
    */
-  function handleOpenLocationInPlan() {
+  function handleOpenLocationSheet(inPlan) {
     if (!selectedLoc) return;
-    onOpenLocationInPlan?.({
+    onOpenLocationSheet?.({
       id: selectedLoc.id ?? null,
       name: selectedLoc.name,
       regionName: selectedLoc.regionName ?? null,
+      inPlan,
       /**
        * ⚠️ The WINDOW the map is on, and it is load-bearing rather than a convenience.
        *
@@ -2830,15 +2862,48 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    *
    * <p>Tab-only: the overlay has no popover and no callout, so this is a no-op there — it is
    * simply never wired to the overlay's return path below.
+   *
+   * <p>⚠️ <b>AND it stands down entirely while a dialog from outside this pane is over the map</b>
+   * — the four-day sheet the callout's `Four days here ›` now opens without leaving the Map tab.
+   * That sheet dismisses on a document-level Escape listener of its own, and until this guard the
+   * two answered the SAME press: the sheet closed and the selection underneath it closed with it,
+   * so the peek's whole point (back out to the callout you opened it from) was lost, and focus fell
+   * to `<body>` because `useDialogFocus` found its captured trigger detached. Measured in a real
+   * browser before and after, on the reachable path — the sheet is not a focus trap, so a keyboard
+   * reader can Tab back onto this pane while it is open, and the callout button itself holds focus
+   * for the frame between the press and `Modal` claiming it.
+   *
+   * <p>⚠️ <b>It stands down for EVERY foreign modal, including ones that do not dismiss on Escape</b>
+   * — `UserSettingsModal` is exactly that (three `Modal` sites, none passing `closeOnEscape`, one of
+   * them a deliberately unclosable spinner). So with settings open over the map, a press that used
+   * to deselect the callout now does nothing at all. That is the intended reading rather than an
+   * overreach: a key pressed while a modal is up must not operate the page behind it, and silently
+   * dropping a selection the reader cannot currently see was the worse of the two answers.
+   *
+   * <p>Containment, not "is any modal open": a dialog this pane renders INLINE is its own business
+   * and must keep behaving exactly as it does — only a FOREIGN one suppresses the press. It is the
+   * same test, for the same reason, that `WindowFirstShell`'s `/` shortcut already applies to
+   * `UserSettingsModal`. ⚠️ <b>It is DOM containment, so it protects no component that exists
+   * today</b> — a first draft of this comment named the phone `BottomSheet` and was wrong:
+   * `BottomSheet` portals to `document.body`, so it is foreign by this test whatever the React tree
+   * says (unreachable either way — the tab's two callers pass `modal={false}`, and the only
+   * default-modal one is `overlayMode && isMobile`, where this handler is not wired at all). The
+   * branch is kept because it is the correct rule for the first inline dialog this pane ever grows,
+   * not because something is behind it now.
    */
   function handleMapPaneKeyDown(mapPaneEvent) {
     if (mapPaneEvent.key !== 'Escape') return;
     if (openMapMenu != null) return;
+    const paneRoot = mapPaneRef.current;
+    const foreignModal = Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]'))
+      .some((node) => !paneRoot || !paneRoot.contains(node));
+    if (foreignModal) return;
     if (selectedLocationName != null) setSelectedLocationName(null);
   }
 
   return (
     <div
+      ref={mapPaneRef}
       // `wf-map-tab` is a pure CSS scoping hook (map-tab-v2-plan.md §3 P12) — the phone media
       // query needs to hide Leaflet's OWN zoom control (a real `.leaflet-control-zoom` DOM node
       // this component never renders itself, so there is no React-owned element to gate) on the
@@ -3129,7 +3194,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           set on the overlay mount (`App.jsx` never passes it there), so `!overlayMode` is a
           defence-in-depth restatement of a fact that already holds, not a second gate doing real
           work — kept explicit because it is what the plan itself states. */}
-      {!overlayMode && planHandoff && (
+      {/* ⚠️ Door-sourced only. The strip's own accessible name is "Where you came from" and its back
+          control reads `← Plan`; a map-sourced handoff came from THIS tab, so both would be false —
+          and its lens clauses describe a carry that never happened. */}
+      {!overlayMode && planHandoff && planHandoff.source !== 'map' && (
         <MapBreadcrumb
           carried={planHandoff}
           activeRow={activeMapEvent}
@@ -3552,7 +3620,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               astroConditionsByDate={astroConditionsByDate}
               auroraResultsByDate={auroraResultsByDate}
               onSelectEv={selectEvRow}
-              onOpenInPlan={handleOpenLocationInPlan}
+              onOpenSheet={() => handleOpenLocationSheet(false)}
+              onOpenInPlan={() => handleOpenLocationSheet(true)}
               onClose={() => setSelectedLocationName(null)}
             />
           )}
@@ -4159,17 +4228,26 @@ MapView.propTypes = {
    */
   reachById: PropTypes.instanceOf(Map),
   /**
-   * The callout's "Open in Plan" action — `(spot: {id, name, regionName}) => void`, the real shell
-   * handoff (`App.jsx`'s `openLocationInPlan`).
+   * The callout's two routes into one four-day sheet — `(spot: {id, name, regionName, inPlan,
+   * date, targetType}) => void`, the real shell handoff (`App.jsx`'s `openLocationSheet`).
    */
-  onOpenLocationInPlan: PropTypes.func,
-  /**
-   * A door's landing payload (D2, `plan-to-map-doors-plan.md` §3 D2 task 1) —
-   * `{source: 'plan', eventType, date, region: ?string, minRating: ?number, limitMinutes: ?number,
-   * locationName: ?string, nonce}`, forwarded by `WindowFirstMapPane` ONLY when `handoff?.source
-   * === 'plan'` (never on the overlay, which is never handed this prop at all). Applied by ONE
-   * nonce-keyed effect and mounts `MapBreadcrumb` above the map frame while set — see that
-   * component's own doc for the derived-truth carrying clause.
+  onOpenLocationSheet: PropTypes.func,
+   /**
+   * A STRUCTURED landing payload (D2, `plan-to-map-doors-plan.md` §3 D2 task 1) — forwarded by
+   * `WindowFirstMapPane` whenever `handoff` names a `source` (never on the overlay, which is never
+   * handed this prop at all). Applied by ONE nonce-keyed effect. Two sources ride it:
+   *
+   * <ul>
+   *   <li>`{source: 'plan', eventType, date, region, minRating, limitMinutes, locationName, nonce}`
+   *       — a DOOR from the Plan tab. Applies the lens, the scope and the camera, and mounts
+   *       `MapBreadcrumb` above the map frame; see that component's own doc for the derived-truth
+   *       carrying clause.</li>
+   *   <li>`{source: 'map', eventType, date, locationName, nonce}` — the four-day sheet's own footer
+   *       pressed while that sheet is already OVER the map. Moves the window and the selection and
+   *       nothing else: no lens, no scope, no camera reframe, no landing strip. ⚠️ It shares this
+   *       channel deliberately — see the effect's own ⚠️ for the auto-selection race that made the
+   *       hatch's per-field props the wrong home for it.</li>
+   * </ul>
    */
   planHandoff: PropTypes.shape({
     source: PropTypes.string,

@@ -406,6 +406,72 @@ describe('MapView — the door-landing effect is nonce-guarded, not payload-guar
   });
 });
 
+describe('MapView — a `source: \'map\'` handoff moves the window and the selection, and NOTHING else', () => {
+  // ⚠️ The four-day sheet's own footer, pressed while that sheet is already OVER the map (the
+  // callout's `Four days here ›` peek). The reader never left, so nothing was carried: applying the
+  // door block would overwrite the floor and the tier they set on this very map, snap scope back to
+  // My area and refit the camera — from a press that asked only to change the window.
+  const IN_PLACE = { source: 'map', eventType: 'SUNRISE', date: TODAY, locationName: null };
+
+  it('applies NO lens, NO tier and NO scope reset — the map keeps what the reader set on it', async () => {
+    const { rerender } = await renderTab({ planHandoff: null });
+    // The reader's own state on this map — driven through the SAME callbacks `MapView` hands the
+    // real popover, so this cannot set state by a route production does not have.
+    await act(async () => { filtersPopoverCalls.at(-1).onSelectMinStars(4); });
+    await act(async () => { filtersPopoverCalls.at(-1).onSelectDriveTime(150); });
+    expect(filtersPopoverCalls.at(-1).minStars).toBe(4);
+    expect(filtersPopoverCalls.at(-1).driveTimeFilter).toBe(150);
+
+    await act(async () => {
+      rerender(
+        <MapView
+          locations={ALL_LOCATIONS}
+          date={TODAY}
+          forecastDates={[TODAY]}
+          heat={HEAT}
+          planHandoff={{ ...IN_PLACE, nonce: 1 }}
+        />,
+      );
+    });
+
+    expect(filtersPopoverCalls.at(-1).minStars).toBe(4);
+    expect(filtersPopoverCalls.at(-1).driveTimeFilter).toBe(150);
+  });
+
+  it('mounts NO landing strip — "Where you came from · ← Plan" would be false on this route', async () => {
+    await renderTab({ planHandoff: { ...IN_PLACE, nonce: 1 } });
+    expect(screen.queryByTestId('wf-map-breadcrumb')).toBeNull();
+  });
+
+  it('⚠️ keeps the window it names, against a DIFFERENT autoEventType — the P1 the hatch route lost', async () => {
+    // The whole reason this rides the structured channel. The hatch's own event arm sets
+    // `userHasOverriddenEvent` FALSE, which is a genuine dependency change on the auto-selection
+    // effect: it re-runs and replaces the named window with `autoEventType` a tick later. Codex
+    // caught it on the first cut — `Show on map → Monday sunrise` landed on tonight's sunset.
+    const { rerender } = await renderTab({ autoEventType: 'SUNSET', planHandoff: null });
+    await act(async () => {
+      rerender(
+        <MapView
+          locations={ALL_LOCATIONS}
+          date={TODAY}
+          autoEventType="SUNSET"
+          forecastDates={[TODAY]}
+          heat={HEAT}
+          planHandoff={{ ...IN_PLACE, eventType: 'SUNRISE', nonce: 1 }}
+        />,
+      );
+    });
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent(/sunrise/i);
+  });
+
+  it('still selects the location it names — the half the route DOES keep', async () => {
+    await renderTab({
+      planHandoff: { ...IN_PLACE, locationName: ALL_LOCATIONS[0].name, nonce: 1 },
+    });
+    expect(screen.getByTestId('probe-callout-name')).toHaveTextContent(ALL_LOCATIONS[0].name);
+  });
+});
+
 describe('MapView — the crumb never mounts without a live, tab-mode door handoff', () => {
   it('is absent with no handoff at all', async () => {
     await renderTab({ planHandoff: null });

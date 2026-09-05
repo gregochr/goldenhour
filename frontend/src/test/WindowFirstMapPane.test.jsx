@@ -199,6 +199,22 @@ describe('WindowFirstMapPane', () => {
       expect(MapStub.lastProps.handoffNonce).toBeNull();
     });
 
+    it('a source:\'map\' handoff rides the SAME structured prop, not the hatch\'s per-field ones', () => {
+      // ⚠️ The four-day sheet's footer, pressed while that sheet is already over the map. It MUST
+      // NOT go down the hatch: the hatch's own event effect sets `userHasOverriddenEvent` FALSE,
+      // which re-runs `MapView`'s auto-selection effect and replaces the named window with
+      // `autoEventType` a tick later — so "Show on map → Monday sunrise" landed on tonight's sunset
+      // (Codex review, P1 against the first cut, which emitted no `source` at all).
+      const IN_PLACE = {
+        source: 'map', eventType: 'SUNRISE', date: DATES[0], locationName: 'Keswick View', nonce: 11,
+      };
+      renderPane({ handoff: IN_PLACE });
+      expect(MapStub.lastProps.planHandoff).toEqual(IN_PLACE);
+      expect(MapStub.lastProps.handoffEventType).toBeNull();
+      expect(MapStub.lastProps.handoffLocationName).toBeNull();
+      expect(MapStub.lastProps.handoffNonce).toBeNull();
+    });
+
     it('a hatch handoff (no source field) reaches MapView through the OLD per-field props, exactly '
         + 'as before — and planHandoff stays null', () => {
       // Every one of the six OLD fields, not just three of them — proving the `isPlanHandoff`

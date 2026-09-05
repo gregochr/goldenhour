@@ -226,8 +226,13 @@ describe('WindowFirstShell — Door 1 (the popup field’s "Open in map")', () =
     // The lens values are read LIVE through `openMapDoor`, never off the door payload itself — see
     // `mapDoors.js`'s own doc comment. This fixture's lens is Any rating / 45 min, so that is what
     // rides regardless of what a caller might have written into the door object.
+    // `inPlace: false` is the shell's own stamp, read off the tab in force at the moment of the
+    // press. It is false here because this fixture has no map pane at all, so `effectiveTab` is
+    // 'plan' — and a door pressed from the Plan tab MUST carry the full payload: it is the route
+    // that imports the Plan's lens onto the map (`App.openMapTabFromPlan`'s two branches).
     expect(onOpenMapTab).toHaveBeenCalledWith({
       date: TODAY, targetType: 'SUNSET', region: null, minRating: null, limitMinutes: 45,
+      inPlace: false,
     });
   });
 
