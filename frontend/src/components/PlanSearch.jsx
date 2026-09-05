@@ -260,7 +260,11 @@ export default function PlanSearch({
           // CSS serializer re-orders a two-subtraction calc into `- 16px + 96px`, which is a
           // different number — so a multi-term form is untestable in this suite and only looks
           // fine. 16 is `Modal`'s own overlay padding (`p-4`), kept off the bottom edge.
-          maxHeight: `calc(100dvh - ${anchor.top + 16}px)`,
+          // `--safe-b` rather than a second numeric term: a `var()` cannot be folded, so the
+          // serializer re-ordering this comment warns about does not reach it. Without it
+          // the panel may run to 16px above the PHYSICAL bottom edge, which
+          // `viewport-fit=cover` has just moved into the home-indicator zone.
+          maxHeight: `calc(100dvh - ${anchor.top + 16}px - var(--safe-b))`,
         } : undefined}
       >
         <div className="wf-search-field">

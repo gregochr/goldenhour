@@ -57,6 +57,10 @@ class HttpCachingConfigTest {
         "/api/tides",
         "/api/tides/stats",
         "/api/briefing",
+        // Listed in its own right rather than inherited from "/api/briefing" above: the whitelist
+        // is matched EXACTLY, never by prefix (pinned by whitelistIsExactMatchNotPrefix below), so
+        // a projection of a revalidatable payload gets no revalidation of its own for free.
+        "/api/briefing/digest",
         "/api/briefing/evaluate/scores",
         "/api/astro/conditions",
         "/api/astro/conditions/available-dates",

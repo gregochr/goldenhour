@@ -145,7 +145,15 @@ export default function Modal({
     <div
       ref={dialogRef}
       tabIndex={-1}
-      className="fixed inset-0 z-50 flex items-center justify-center p-4 focus:outline-none"
+      // `p-4` is gone in favour of `app-safe-modal`, which resolves the gutter and the safe inset
+      // as `max()` of the two rather than summing them — measured at exactly 16px on all four
+      // sides, the same as the `p-4` it replaces, wherever no inset is reported.
+      //
+      // ⚠️ Removed as HYGIENE, not because it would have won: this class is unlayered and Tailwind
+      // v4's utilities are layered, so it beats them outright — an element carrying both
+      // `app-safe-modal` and `p-8` measures 16px, not 32px. Worth knowing before adding a padding
+      // utility to this element and wondering why nothing moves.
+      className="app-safe-modal fixed inset-0 z-50 flex items-center justify-center focus:outline-none"
       role="dialog"
       /* Exactly one element on the page may claim this, and it is the layer the reader is on. */
       aria-modal={stacked ? undefined : 'true'}

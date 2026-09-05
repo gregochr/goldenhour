@@ -478,7 +478,12 @@ describe('PlanSearch', () => {
         // The height cap is measured from the panel's own top rather than from a viewport
         // fraction, because the anchor moves with page scroll (the masthead does not pin). 96 + 16, summed in
         // JS — see the component's note on why a two-subtraction calc cannot be asserted here.
-        expect(panel.style.maxHeight).toBe('calc(100dvh - 112px)');
+        // `- var(--safe-b)` since the safe-area work: the numeric part is still summed in JS (see
+        // the component's note on why a two-subtraction calc cannot be asserted), but a `var()`
+        // cannot be folded by the serializer, so it survives as written. Without it the panel could
+        // run to 16px above the PHYSICAL bottom edge, which `viewport-fit=cover` moved into the
+        // home-indicator zone.
+        expect(panel.style.maxHeight).toBe('calc(100dvh - 112px - var(--safe-b))');
       } finally {
         tick.remove();
       }

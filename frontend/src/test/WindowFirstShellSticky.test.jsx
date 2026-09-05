@@ -381,7 +381,18 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
   it('anchors the bar at the top of the viewport, not below a masthead that never pinned', () => {
     // The literal is the point. `top: var(--wf-mast-h, …)` hung the bar a masthead's height down
     // the viewport with matrix cards scrolling through the band above it — the "floating" defect.
-    expect(decls(block('.wf-lens'))).toContain('top: 0');
+    //
+    // ⚠️ It reads `var(--safe-t)` rather than the bare `top: 0` this asserted until
+    // safe-area handling landed, and that is the SAME anchor, not a relaxation of it. That property
+    // is `env(safe-area-inset-top, 0px)`, declared once on `:root`, so the `0px` fallback makes this
+    // exactly `top: 0` on every surface reporting no inset — which is all of them
+    // but a notched iOS device with the status-bar opt-in — and on one that does report an inset,
+    // the viewport's top edge is under the status bar and this is where the bar's top edge belongs.
+    // A sticky element sticks to its SCROLLPORT, so the app root's own safe-area padding cannot
+    // reach it: this bar is the one piece of Plan chrome that has to name the inset itself. What
+    // must never come back is a top derived from chrome that does not pin, and the second
+    // assertion still guards exactly that.
+    expect(decls(block('.wf-lens'))).toContain('top: var(--safe-t)');
     expect(decls(block('.wf-lens'))).not.toContain('--wf-mast-h');
   });
 
@@ -440,7 +451,12 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
     // closing brace, so what is searched is that rule's selector list (and the comments interleaved
     // in it) and nothing else.
     const css = readCss();
-    const at = css.lastIndexOf('scroll-margin-top: var(--wf-lens-reserve');
+    // ⚠️ The anchor is `calc(var(--wf-lens-reserve` since the safe-area work wrapped every
+    // reservation in a `calc` to add `--safe-t`. It was `scroll-margin-top: var(--wf-lens-reserve`,
+    // which `lastIndexOf` then missed entirely — returning -1 and slicing a window from the top of
+    // the file that happened to contain neither selector, so this failed for the right reason but
+    // told a confusing story.
+    const at = css.lastIndexOf('scroll-margin-top: calc(var(--wf-lens-reserve');
     const selectors = css.slice(css.lastIndexOf('\n}', at), at);
     expect(selectors).toContain('.wf-hc,');
     expect(selectors).toContain('.wf-tab,');
@@ -478,7 +494,11 @@ describe('the row-rails stylesheet half (matrix-axis plan §6, D6/D8/D9/D10/D12)
     // itself had, one level down.
     const dhrow = block('.wf-dhrow');
     expect(dhrow).toContain('position: sticky');
-    expect(dhrow).toContain('top: calc(var(--wf-lens-h, 54px) - 1px)');
+    // ⚠️ `--safe-t` FIRST. `--wf-lens-h` is the bar's measured HEIGHT, not the line it rests on,
+    // and `.wf-lens` now sticks at `top: var(--safe-t)`. Without this term a nonzero top inset puts
+    // the bar at [inset, inset+h] while this row sticks at h-1 — inside the bar's own band, the
+    // overlap the anchoring fix removed. Adds nothing wherever the inset is zero.
+    expect(dhrow).toContain('top: calc(var(--safe-t) + var(--wf-lens-h, 54px) - 1px)');
     expect(dhrow).toContain('z-index: 15');
     expect(dhrow).toContain('background: linear-gradient(180deg, var(--color-plex-bg)');
   });
@@ -488,7 +508,10 @@ describe('the row-rails stylesheet half (matrix-axis plan §6, D6/D8/D9/D10/D12)
     // Omit `position: sticky` and `top`/`z-index` are inert — every other assertion here would
     // still pass against a rail that never actually sticks.
     expect(rail).toContain('position: sticky');
-    expect(rail).toContain('top: calc(var(--wf-lens-h, 54px) + var(--wf-dh-h, 45px) - 2px)');
+    // `--safe-t` for the same reason as `.wf-dhrow`: this row is numbered against that one and has
+    // to start from the same line.
+    expect(rail).toContain(
+      'top: calc(var(--safe-t) + var(--wf-lens-h, 54px) + var(--wf-dh-h, 45px) - 2px)');
     expect(rail).toContain('z-index: 14');
     expect(rail).toContain('background: linear-gradient(180deg, var(--color-plex-bg)');
   });
@@ -511,9 +534,15 @@ describe('the row-rails stylesheet half (matrix-axis plan §6, D6/D8/D9/D10/D12)
     // Existence alone would pass at a truncated string that happened to add up to 0. The
     // reservation's own fallback came back from 188 to 60 with the masthead's dead sticky; this
     // site has to move with the declaration or it under-reserves at first paint.
+    // ⚠️ Plus `--safe-t`, and it is the same term the other two reservation sites carry.
+    // `scroll-margin-top` is measured from the SCROLLPORT edge, which `viewport-fit=cover` moved up
+    // by the inset, while `--wf-lens-reserve` is a height that knows nothing about where the bar
+    // rests — so without it a focused card lands behind the bar by exactly the inset (WCAG 2.2
+    // SC 2.4.11). Wrapped across lines in the stylesheet, so this asserts the two halves.
     expect(readCss()).toContain(
-      'scroll-margin-top: calc(var(--wf-lens-reserve, 98px) + var(--wf-dh-h, 45px) + 17px)',
+      'scroll-margin-top: calc(var(--wf-lens-reserve, 98px) + var(--wf-dh-h, 45px) + 17px',
     );
+    expect(readCss()).toContain('+ var(--safe-t));');
   });
 
   it('never falls back either new property to a bare zero', () => {
@@ -530,7 +559,12 @@ describe('the row-rails stylesheet half (matrix-axis plan §6, D6/D8/D9/D10/D12)
     expect(decls(block('.wf-lens'))).toContain('z-index: 20');
     expect(block('.wf-shell')).toMatch(/--wf-lens-reserve:\s*\d+px/);
     const css = readCss();
-    const at = css.lastIndexOf('scroll-margin-top: var(--wf-lens-reserve');
+    // ⚠️ The anchor is `calc(var(--wf-lens-reserve` since the safe-area work wrapped every
+    // reservation in a `calc` to add `--safe-t`. It was `scroll-margin-top: var(--wf-lens-reserve`,
+    // which `lastIndexOf` then missed entirely — returning -1 and slicing a window from the top of
+    // the file that happened to contain neither selector, so this failed for the right reason but
+    // told a confusing story.
+    const at = css.lastIndexOf('scroll-margin-top: calc(var(--wf-lens-reserve');
     const selectors = css.slice(css.lastIndexOf('\n}', at), at);
     expect(selectors).toContain('.wf-hc,');
   });

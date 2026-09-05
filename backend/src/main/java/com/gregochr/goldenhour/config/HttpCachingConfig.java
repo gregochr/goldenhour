@@ -73,6 +73,11 @@ public class HttpCachingConfig {
             "/api/tides",
             "/api/tides/stats",
             "/api/briefing",
+            // The digest is a strict projection of "/api/briefing" above — same forecast,
+            // same non-personal content, same revalidation. Listed in its own right because
+            // this set is matched exactly, never by prefix, so a path cannot inherit the
+            // treatment of the payload it derives from.
+            "/api/briefing/digest",
             "/api/briefing/evaluate/scores",
             "/api/astro/conditions",
             "/api/astro/conditions/available-dates",

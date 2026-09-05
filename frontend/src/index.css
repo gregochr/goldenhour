@@ -251,6 +251,117 @@
   --color-plex-astro-bright: #A79FE4;
 }
 
+/* ── Safe areas ──────────────────────────────────────────────────────────────────────────────────
+   `index.html` opts in with `viewport-fit=cover`, so the layout viewport now extends under the
+   notch, the Dynamic Island, the landscape sensor housing and the home indicator, and
+   `env(safe-area-inset-*)` reports something other than zero on the devices that have them.
+
+   ⚠️ EVERY RULE IN THIS BLOCK IS A NO-OP WHEN THE INSETS ARE ZERO, and that is the property that
+   makes the opt-in safe to make at all. `padding: env(x, 0px)` is `padding: 0`; `top: env(x, 0px)`
+   is `top: 0`; `max(1rem, env(x, 0px))` is `1rem`. So a desktop browser, an Android phone and every
+   test in the suite see exactly the geometry they saw before, and the whole effect of this block is
+   confined to hardware that reports an inset. Keep it that way: a rule here that changes a
+   zero-inset layout is a regression on every other surface, not a safe-area fix.
+
+   ⚠️ THE TOP INSET IS ZERO IN A HOME-SCREEN PWA TODAY, deliberately. iOS reports a top inset only
+   when the web view is told to go under the status bar, which is
+   `apple-mobile-web-app-status-bar-style: black-translucent` — a visual change (the status bar
+   stops having a background of its own) that is a product decision, not a safe-area one, and is not
+   made here. What IS live today is the pair that needs no opt-in beyond `viewport-fit`: the LEFT
+   and RIGHT insets in landscape, where the sensor housing currently clips content outright, and the
+   BOTTOM inset, where the home indicator sits over it.
+
+   ⚠️ ADDING THE STATUS-BAR STYLE IS NOT A ONE-LINE CHANGE, and an earlier draft of this block said
+   it was. Every CSS consumer of the top inset now carries its term — `.wf-dhrow` and `.wf-rail`
+   start from `--safe-t` rather than from `--wf-lens-h` alone (a HEIGHT is not the line the bar
+   rests on), and all three `scroll-margin-top: var(--wf-lens-reserve)` sites add it — the third
+   was found by the sweep in `safeAreas.test.jsx` after two were fixed by hand, which is why that
+   guard enumerates rather than naming them. What is left is in
+   JS and cannot be reached from here: `useStuckSentinel` is called with `offset = 0`
+   (`WindowFirstShell.jsx`), so its `rootMargin` would be the wrong line by the inset and the stuck
+   shadow would arrive that much scroll late. Fix that at the same time as the opt-in.
+
+   The audit that produced this list — every element that touches a viewport edge, and so cannot be
+   reached by an ancestor's padding:
+     · the app root         · in flow, so it insets everything that is
+     · `.wf-lens`           · `position: sticky`, which sticks to the VIEWPORT, not to the root's
+                              padding box, so the root's inset does not reach it
+     · `BottomSheet`        · `position: fixed` to the bottom edge
+     · `Modal`              · `position: fixed inset-0`
+     · `MapOverlay`         · a fifth `fixed; inset: 0` layer, styled INLINE in its own component,
+                              so no rule here can reach it — it resolves its 24px gutter against
+                              the insets with `max()` itself. Missed by the first cut of this audit,
+                              which is why the list now says how each element is reached, not just
+                              that it was found.
+
+   ⚠️ AND A DESCENDANT CAN CANCEL AN ANCESTOR'S INSET, which is the failure mode this block's
+   "everything in normal flow is inset without knowing about it" premise does not survive on its
+   own. `[data-testid="window-sheet"]` in the phone block below was `padding: 0` — deliberately, to
+   drop the popup's frame — and being unlayered, 0,1,0 and thousands of lines further down, it beat
+   `.app-safe-modal` outright and cancelled the safe padding on the one device class that has an
+   unsafe zone. Anything that zeroes or replaces a padding this block set has to re-state the
+   insets. The same goes for a `max-height` that reconstructs the gutter arithmetically: five sites
+   encoded `Modal`'s `p-4` as a literal `32px`, and each needed `--safe-v` to stop eating the
+   padding whole.
+
+   Two things deliberately NOT here. The map tab's phone chrome (the bottom bar and the lifted
+   stack above it) is `position: absolute` inside the map frame, and that frame is inside the root's
+   padding — the whole tuned cascade in the phone block below moves up with it and needs no term of
+   its own. And `.wf-peek` / `.heatmap-cell-tip` are `position: fixed` but JS-placed against an
+   anchor that is itself already inset, clamping to `window.innerHeight`; they can graze an unsafe
+   zone only at the very edge of their travel, and the fix for those is a JS one against the same
+   values rather than a rule here. */
+/* The insets as properties, declared ONCE. Every rule below and every dialog cap elsewhere in this
+   file reads these rather than repeating `env()`, for the reason `--wf-lens-reserve` exists: a
+   layout term written out at each site is a term that gets half-changed. `--safe-v` and `--safe-h`
+   are the sums the dialog caps actually need — a `max-height` competes with BOTH insets on its
+   axis, never one. */
+:root {
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-v: calc(env(safe-area-inset-top, 0px) + env(safe-area-inset-bottom, 0px));
+  --safe-h: calc(env(safe-area-inset-left, 0px) + env(safe-area-inset-right, 0px));
+}
+
+.app-safe {
+  padding-top: var(--safe-t);
+  padding-right: var(--safe-r);
+  padding-bottom: var(--safe-b);
+  padding-left: var(--safe-l);
+}
+
+/* The modal's gutter and its safe inset are the SAME padding, resolved with `max` rather than
+   summed. `p-4` was the gutter before this and stays exactly that wherever the inset is smaller —
+   adding the two instead would push a dialog 16px further from an edge it was already clear of, on
+   the one device class with the least room to give. */
+.app-safe-modal {
+  padding-top: max(1rem, var(--safe-t));
+  padding-right: max(1rem, var(--safe-r));
+  padding-bottom: max(1rem, var(--safe-b));
+  padding-left: max(1rem, var(--safe-l));
+}
+
+/* The sheet is inset rather than padded on its sides, and padded rather than inset at its foot.
+   At the foot, padding keeps the sheet's own surface running to the bottom of the screen (a sheet
+   that floats above the edge reads as a dropped card) while its CONTENT clears the home indicator.
+   That is the half that does work: `--safe-b` is live on any home-screen iPhone.
+
+   ⚠️ THE SIDES ARE DEFENCE, NOT A LIVE FIX, and an earlier draft of this comment claimed otherwise.
+   All three `BottomSheet` mounts are gated on `useIsMobile`, which is `(max-width: 639px)`, and no
+   iPhone reports 639 CSS px or fewer in landscape (SE 667, mini 812, standard 844+) — so
+   `--safe-l`/`--safe-r` are always 0 wherever a sheet can actually mount. They are written as
+   insets rather than padding because that is the form that would be correct if the breakpoint ever
+   moved: the close button is `position: absolute; right: …`, whose containing block is this
+   element's PADDING box, so a `padding-right` would leave it exactly where it was while insetting
+   the box moves it. Do not cite the sides as verified behaviour. */
+.app-safe-sheet {
+  left: var(--safe-l);
+  right: var(--safe-r);
+  padding-bottom: var(--safe-b);
+}
+
 @layer base {
   body {
     @apply bg-plex-bg text-plex-text min-h-screen;
@@ -634,15 +745,18 @@
      frame. The phone value is in the same media query that stacks the bar, below. */
   --wf-lens-reserve: 98px;
 }
-/* ⚠️ SAFE AREAS ARE NOT HANDLED, and a `calc(env(safe-area-inset-top, 0px) + 16px)` here would not
-   handle them — it was written that way first and is wrong twice over. `env(safe-area-*)` resolves
-   to 0 unless the document opts in with `viewport-fit=cover`, which `index.html` does not; and this
-   is not the element that touches the top of the document anyway. `App.jsx` wraps the Plan in
-   `<main className="px-4 py-6">`, so the band already starts 24px down. On a notched phone with the
-   opt-in added, an inset term here would push the wordmark to 24 + 59 + 14 = 97px and leave the
-   notch strip painted in page colour rather than in the band. The inset belongs on the outermost
-   element, and the opt-in is an app-wide change every edge-anchored element would have to answer
-   for — so it is deliberately not made here, and not faked here either.
+/* ⚠️ SAFE AREAS ARE HANDLED, BUT NOT HERE, and a `calc(env(safe-area-inset-top, 0px) + 16px)` on
+   this element would still be wrong. The opt-in this paragraph used to say was missing has since
+   been made — `index.html` carries `viewport-fit=cover` and the "Safe areas" block near the top of
+   this file names the four elements that answer for the insets — but the second half of the
+   original objection is what survives, and it is the half that keeps the band out of that list:
+   this is not the element that touches the top of the document. `App.jsx` wraps the Plan in
+   `<main className="px-4 py-6">`, so the band already starts 24px down, and the app root's own
+   `.app-safe` padding sits above even that. An inset term HERE would therefore be added to both:
+   on a notched phone it would push the wordmark to 24 + 59 + 14 = 97px and leave the notch strip
+   painted in page colour rather than in the band. The root carries it instead — which is why the
+   notch strip is page colour by design, continuous with the 24px of page colour already below it —
+   and it is deliberately not repeated here, nor faked here.
 
    The lit band. Two things here are not decoration.
 
@@ -1313,7 +1427,11 @@
      dropping it is not a simplification: the masthead was never actually pinned (see `.wf-mast`),
      so the tiles were sticking a masthead's height BELOW the bar they are supposed to sit against,
      with cards scrolling through the naked band between the two. */
-  top: calc(var(--wf-lens-h, 54px) - 1px);
+  /* ⚠️ `--safe-t` first, because `--wf-lens-h` is the bar's HEIGHT, not the line it rests on.
+     `.wf-lens` sticks at `top: var(--safe-t)`, so with a nonzero top inset it occupies
+     [inset, inset + lensH] while this row without the term would stick at lensH - 1 — inside the
+     bar's own band, which is the overlap the anchoring fix removed. Adds nothing at a zero inset. */
+  top: calc(var(--safe-t) + var(--wf-lens-h, 54px) - 1px);
   z-index: 15;
   padding-top: 9px;
   /* The PAGE background, not the panel — `.wf-hstrip-block` sits directly on `--color-plex-bg`
@@ -1332,7 +1450,9 @@
      close that same hairline against the tile row's bottom edge. 45px is the browser-measured
      resting tile-row height (36px tiles + 9px padding-top, live app at 1280px, 2026-08-30 —
      the plan's provisional 49px re-measured per its §6 step 6). */
-  top: calc(var(--wf-lens-h, 54px) + var(--wf-dh-h, 45px) - 2px);
+  /* `--safe-t` for the same reason as `.wf-dhrow` above — this row is numbered against that one
+     and has to start from the same line. */
+  top: calc(var(--safe-t) + var(--wf-lens-h, 54px) + var(--wf-dh-h, 45px) - 2px);
   z-index: 14;
   display: flex;
   align-items: center;
@@ -1382,7 +1502,12 @@
    not quoted here in full, so this comment cannot become a second occurrence of the string that
    search relies on being unique). */
 .wf-hstrip.wf-hstrip-rows .wf-hc {
-  scroll-margin-top: calc(var(--wf-lens-reserve, 98px) + var(--wf-dh-h, 45px) + 17px);
+  /* `--safe-t` for the same reason as the other two reservation sites: `scroll-margin-top` is
+     measured from the scrollport edge, which `viewport-fit=cover` moves up by the inset, and
+     `--wf-lens-reserve` is a height that knows nothing about the line the bar rests on. This one
+     reserves against the day-heading row as well, which is why it has a third term. */
+  scroll-margin-top: calc(var(--wf-lens-reserve, 98px) + var(--wf-dh-h, 45px) + 17px
+      + var(--safe-t));
 }
 /* The day, said once per column instead of once per card: a calendar tile, then a hairline rule
    running to the right edge of the column. The rule is the column's header in the same legend
@@ -2677,7 +2802,12 @@ button.wf-hc.also.on:hover {
      written by `useLensReserve` on mount, so a stale literal only bites at first paint or in a
      build where that effect never runs — which is exactly when a reader may already be tabbing, and
      an under-reservation parks a focusable HeatmapGrid cell underneath the bar (WCAG 2.4.11). */
-  scroll-margin-top: var(--wf-lens-reserve, 98px);
+  /* ⚠️ Plus `--safe-t`. `useLensReserve` publishes the bar's measured HEIGHT plus its focus ring;
+     it does not know what line the bar rests on. `scroll-margin-top` is measured from the
+     scrollport edge, which `viewport-fit=cover` moves up by the inset — so without this term a
+     keyboard-focused card lands behind the bar by exactly the inset, which is WCAG 2.2 SC 2.4.11
+     Focus Not Obscured (Minimum) and the precise defect this reservation exists to prevent. */
+  scroll-margin-top: calc(var(--wf-lens-reserve, 98px) + var(--safe-t));
 }
 /* `.heatmap-cell-hoverable:hover` used to be `z-index: 40` against `.wf-lens`'s `z-index: 20` —
    values that never met until P9 put the grid underneath a sticky bar. A hovered cell painted OVER
@@ -2758,7 +2888,12 @@ button.wf-hc.also.on:hover {
      row of its own at 664px (measured: 115.8px against 92px). */
   flex-wrap: wrap;
   position: sticky;
-  top: 0;
+  /* ⚠️ NOT `top: 0`, and the root's own safe-area padding does NOT cover this. A sticky element
+     sticks to its scrollport — here the viewport, which `viewport-fit=cover` has just extended
+     under the status bar — not to the padding box of any ancestor. So this bar is the one piece of
+     Plan chrome that has to name the inset itself. Identical to `top: 0` wherever the inset is
+     zero, which is every surface except an iOS device with the status-bar opt-in. */
+  top: var(--safe-t);
   /* Above the spot strip's focused card (3) and its edge fades (2), which is the only thing on the
      Plan pane that raises itself at all, and below `.wf-mast`'s 45 — that ceiling SURVIVES the
      anchoring fix, because the masthead keeps `position: relative; z-index: 45` as a stacking
@@ -4827,7 +4962,12 @@ button.wf-hc.also.on:hover {
    does not overlap — so the reservation is inert there rather than wrong, and it is kept because
    `.wf-rr` is one class and the popup is not the only thing that could ever mount it. */
 .wf-rr {
-  scroll-margin-top: var(--wf-lens-reserve, 98px);
+  /* ⚠️ Plus `--safe-t`. `useLensReserve` publishes the bar's measured HEIGHT plus its focus ring;
+     it does not know what line the bar rests on. `scroll-margin-top` is measured from the
+     scrollport edge, which `viewport-fit=cover` moves up by the inset — so without this term a
+     keyboard-focused card lands behind the bar by exactly the inset, which is WCAG 2.2 SC 2.4.11
+     Focus Not Obscured (Minimum) and the precise defect this reservation exists to prevent. */
+  scroll-margin-top: calc(var(--wf-lens-reserve, 98px) + var(--safe-t));
 }
 /* The app's own phone boundary, as `.wf-spots` states it — 639px, not the handoff's 620px, because
    a second breakpoint 19px away would be one more thing to keep in step with `.wf-spots`, the
@@ -5313,7 +5453,10 @@ button.wf-hc.also.on:hover {
   flex-direction: column;
   width: 100%;
   max-width: 880px;
-  max-height: calc(100dvh - 32px);
+  /* ⚠️ `- 32px` is `Modal`'s own gutter counted twice, and `--safe-v` is the rest of it. Without
+     that term this cap reconstructs a 16px inset the modal no longer necessarily has, consumes the
+     whole safe-area padding and leaves the panel's foot exactly where it was. */
+  max-height: calc(100dvh - 32px - var(--safe-v));
   overflow: hidden;
   background: var(--color-plex-panel);
   border: 1px solid var(--color-plex-border-light);
@@ -6474,7 +6617,10 @@ button.wf-cond-oc:focus-visible {
   width: 100%;
   max-width: 520px;
   margin-top: 6vh;
-  max-height: calc(100dvh - 32px);
+  /* ⚠️ `- 32px` is `Modal`'s own gutter counted twice, and `--safe-v` is the rest of it. Without
+     that term this cap reconstructs a 16px inset the modal no longer necessarily has, consumes the
+     whole safe-area padding and leaves the panel's foot exactly where it was. */
+  max-height: calc(100dvh - 32px - var(--safe-v));
   overflow: hidden;
   background: var(--color-plex-surface);
   border: 1px solid var(--color-plex-border-light);
@@ -7321,7 +7467,10 @@ button.wf-mchip:hover {
   flex-direction: column;
   width: 100%;
   max-width: 780px;
-  max-height: calc(100dvh - 32px);
+  /* ⚠️ `- 32px` is `Modal`'s own gutter counted twice, and `--safe-v` is the rest of it. Without
+     that term this cap reconstructs a 16px inset the modal no longer necessarily has, consumes the
+     whole safe-area padding and leaves the panel's foot exactly where it was. */
+  max-height: calc(100dvh - 32px - var(--safe-v));
   overflow: hidden;
   background: var(--color-plex-panel);
   border: 1px solid var(--color-plex-border-light);
@@ -7692,15 +7841,33 @@ button.wf-mchip:hover {
      breakpoint, one set of dials. */
   .wf-wsh-grid,
   .wf-wsh-grid[data-field="true"] { grid-template-columns: 1fr; gap: 10px; }
-  /* ⚠️ Targeted by test id, because `Modal`'s own root is where the 16px inset lives (`p-4`) and it
-     takes no class from its caller. A phone popup that is full-screen apart from a 16px frame reads
-     as a card floating over a page the reader cannot use — the frame has to go with the radius. */
-  [data-testid="window-sheet"] { padding: 0; }
+  /* ⚠️ Targeted by test id, because `Modal`'s own root is where the gutter lives
+     (`.app-safe-modal`) and it takes no class from its caller. A phone popup that is full-screen
+     apart from a 16px frame reads as a card floating over a page the reader cannot use — the frame
+     has to go with the radius.
+
+     ⚠️ IT DROPS THE FRAME, NOT THE SAFE AREA, and the difference is the whole reason this is not
+     `padding: 0` any more. It was, and being unlayered, 0,1,0 and ~7400 lines below
+     `.app-safe-modal`, it won on source order and cancelled the modal's safe-area padding outright
+     — on a phone, which is the only device class that has an unsafe zone, for the Plan tab's one
+     popup, whose `.wf-wsh` is `height: 100dvh`. Its footer sat under the home indicator and the
+     feature was a no-op exactly where it was needed. Found by adversarial review; measured in
+     Chromium at 390×844 with a 34px bottom inset before and after.
+
+     These four terms are `0` wherever no inset is reported, so the full-screen phone design is
+     byte-identical to what it was. */
+  [data-testid="window-sheet"] {
+    padding: var(--safe-t) var(--safe-r) var(--safe-b) var(--safe-l);
+  }
   /* Full screen, as the design has it. */
   .wf-wsh {
     max-width: none;
-    max-height: 100dvh;
-    height: 100dvh;
+    /* 100% of the popup's own content box, not of the viewport. The two were the same thing while
+       the rule above was `padding: 0`; now that it carries the insets, `100dvh` would overrun the
+       padded box by exactly the inset and put this element's foot back under the home indicator,
+       which is the defect the padding was added to fix. */
+    max-height: 100%;
+    height: 100%;
     border: none;
     border-radius: 0;
   }

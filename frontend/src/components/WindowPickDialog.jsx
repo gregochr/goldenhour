@@ -91,7 +91,10 @@ export default function WindowPickDialog({
           // At 400% zoom the viewport is ~320×256 CSS px and this panel is taller than that, so
           // without a cap the footer's actions land off-screen with nothing to scroll. The prose
           // scrolls; the header and the two destinations stay pinned.
-          maxHeight: 'calc(100dvh - 32px)',
+          // `- 32px` is `Modal`'s own gutter counted twice; `--safe-v` is the rest of it.
+          // Without that term this cap eats the whole safe-area padding and the dialog's
+          // foot lands back under the home indicator. Inert where no inset is reported.
+          maxHeight: 'calc(100dvh - 32px - var(--safe-v))',
           background: 'var(--color-plex-surface)',
           border: '1px solid var(--color-plex-border-light)',
           borderRadius: '13px',
