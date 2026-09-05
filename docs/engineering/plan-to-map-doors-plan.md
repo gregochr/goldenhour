@@ -643,6 +643,16 @@ Numbered so a phase log can cite them. Each phase appends; D6 reconciles.
   shape and its overlay-frozen surface are out of scope for this plan. If ever revisited, the fix is
   the identical one-line flip this phase made for the door.
 
+  ⚠️ **It stopped being theoretical on 2026-09-05, and the fix that day routed AROUND it rather
+  than closing it.** The Map callout's `Four days here ›` peek (map-tab-v2-plan.md §4 #25, O-18)
+  gave the four-day sheet a second host, and its footer's `◍ Show on map →`, pressed while the sheet
+  is over the map, first shipped as a source-less payload — i.e. down this very hatch. Codex caught
+  it as a P1 and it reproduced in a browser: with the map manually stepped to a sunrise window,
+  `Show on map → Tomorrow sunrise` landed on `Sunset Tomorrow`. The route now names
+  `source: 'map'` and rides the STRUCTURED channel with the door, where the flag is already set
+  true. So the hole is now demonstrated rather than inferred, and it has one live caller left —
+  the overlay's own hatch — with the same one-line flip still available.
+
 ---
 
 ## §7 Verify — the increment's six checks, and how each is measured
