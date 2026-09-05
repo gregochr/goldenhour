@@ -246,6 +246,18 @@ means from the heat-spot catalogue.
 
 ### 2.4 Area-name text
 
+> ⚠️ **AMENDED 2026-09-05 — this section's key scheme shipped and was wrong.** The tables below
+> are the design bundle's `SHORT` map (`docs/design/field-geography/Plan Thumbnail Geography.html`
+> line 108), which is keyed by opaque region **id** (`ntw`, `nymc`, `lakes`, …), re-keyed here by
+> **display name**. That re-keying is where the defect entered, and the verification step this
+> section prescribes two paragraphs down — "verify the keys against the seeded roster's actual
+> region names at implementation time" — is the step that was skipped. Production serves
+> `The Lake District`, `The Yorkshire Dales`, `North York Moors & Coast` and
+> `Northumberland & Tyneside`; every key below misses all four, so every lookup fell to the tiny
+> fallback and both Lakes and Dales rendered as the single word `THE` on phone-width cards. See
+> §5 decision 12 for the fix and what it deliberately did not change. The tables and the fallback
+> rule below are kept verbatim as the shipped design, not as current behaviour.
+
 New module-level tables in `WindowFirstHeatStrip.jsx` (exported for tests), keyed by **region
 name** as served:
 
@@ -717,6 +729,56 @@ Either way, expect textual merge conflicts with #690 in `WindowComingUpEntry.jsx
     landmarks (reads as a basemap the app does not have); rings on the thumbnails (too small; the
     small field's job is the shape of the night). No animation on any label — they appear with
     their field.
+12. **DECIDED 2026-09-05 — the area-name lookup normalises; the tables are not re-keyed.** §2.4's
+    tables miss every region production actually serves (see that section's amendment note), so
+    `areaLabel` now reduces a served name to the tables' own key form — drop a leading `the`, drop
+    a trailing `& …`/`and …` conjunct — and looks up the served spelling first, the reduction
+    second. Re-keying the tables to today's four spellings was the obvious alternative and is
+    **rejected**: the tables are non-authoritative by this section's own reasoning, regions are
+    DB-managed and renamed routinely, and that fix re-breaks on the next rename. Three parts of
+    the shape are load-bearing and should not be "tidied":
+    - **The reduction is a TINY-table key only.** Every `AREA_FULL` value is exactly its own key
+      uppercased — the bundle's `SHORT` needed no full-width curation because its keys were opaque
+      ids — so a plain-form lookup there can only ever return something *shorter* than the
+      fallback, never something better. The first cut of this fix wired it to both tables and
+      silently retitled `Northumberland & Tyneside` as `NORTHUMBERLAND` on full-width cards: half
+      the name dropped where there was room, and a fresh disagreement with the Map tab, which
+      renders the served name verbatim. Caught in adversarial review before merge.
+    - **The tiny fallback's directional drop loops** and always leaves one word standing, so
+      `North West Highlands` reaches `HIGHLANDS` rather than the meaningless `WEST`, and a region
+      named only `North` keeps it.
+    - **`plainName` trims before stripping the conjunct.** The other order lets a leading ` & …`
+      match from index 0 and reduce the whole name to `''`, and an empty label is not a short one:
+      the placement pass skips a zero-measured candidate, so the region loses its name — the very
+      outcome §2.4's third guard exists to prevent, arriving through the guard itself. The trim is
+      the ONLY guard on that case: a `\S` in the conjunct pattern was written as a second one and
+      removed, because after the trim no input distinguishes it, and an unreachable guard carrying
+      a paragraph about its own necessity sends the next reader hunting for a test that cannot be
+      written.
+
+    **Known and accepted, not oversights — and each has a named test, so an accepted residual
+    stays distinguishable from an unnoticed one.** `The Scottish Borders` — a *seeded* region, not
+    a production one — still reaches no curated entry and renders `SCOTTISH`, because the
+    reduction strips an article and a conjunct but nothing else, and `Scottish Borders` is not the
+    `Borders` key; adding it would mean authoring a table entry for a name outside the roster this
+    section's tables were written against. An abbreviation-headed rename (`N. York Moors & Coast`,
+    the spelling every `docs/design/*/plan-data.js` uses) still yields the two-character `N.`,
+    because the reduction reaches no table key and `N.` is not a directional — the fallback has no
+    minimum-length floor. And the reductions are case-insensitive while the table match is
+    byte-exact, so `the lake district` reaches `LAKE` rather than `LAKES`; exact region-name
+    matching is the project rule (`utils/planOrigin.js`), so this is an inconsistency inside one
+    function rather than a violation of it. All three are recorded here rather than fixed, to keep
+    the change to the defect that was reported.
+13. **Two live answers to "what do we call this region when there is no room", and D-11 must
+    displace both.** The Map tab shortens by CSS — the served name, `max-width: 90px` with an
+    ellipsis below `REGION_TINY_FRAME_WIDTH` (`utils/mapLabels.js`, which says in terms that it
+    "only decides WHEN to shorten, not what to shorten it TO"). The Plan matrix curates *and*, as
+    of decision 12, normalises. So a thumbnail labelled `LAKES` opens a popup whose own field
+    prints `The Lake District` verbatim, on the same screen and one click apart. This is not new —
+    before decision 12 the Plan answer was `THE` — but it is now worth stating, because
+    `map-tab-v2-plan.md`'s **O-4** (curated `regions.short_name`, served) is a port of this logic
+    and would otherwise be written against the Map tab's CSS-only answer alone. A served short name
+    should retire the client table, the reduction and the CSS clamp together.
 
 ## 5b. Interaction with the Coming-up series (no ordering assumed)
 
