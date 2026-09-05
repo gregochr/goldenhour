@@ -1062,7 +1062,12 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
 - **O-3** Ring distances: confirm 25/50 mi stands over the bundle's 36/72 km.
 - **O-4** Curated region short names (migration + admin UI).
 - **O-5** Azimuth lines on the redesigned tab.
-- **O-6** Overlay convergence onto the callout (and `MarkerPopupContent`'s long-term home).
+- **O-6** Overlay convergence onto the callout (and `MarkerPopupContent`'s long-term home). One
+  producer has already moved off the overlay: the location sheet's `Show on map` footer button now
+  opens the Map tab directly (`plan-to-map-doors-plan.md` doors D3, #764), landing on the sheet's
+  own window with the location's callout up. Every other producer (`WindowPickDialog`'s two
+  actions, `HeatmapGrid`, `WindowComingUpEntry`, `SlotLocationName`, `WindowFirstRegionalPanel`, the
+  aurora banner) still opens the overlay — this is a step towards convergence, not its completion.
 - **O-7** Admin single-slot "Run Forecast" from the map surface.
 - **O-8** `regionId` on briefing region rollups (kills the name-keyed join class).
 - **O-9** Aurora nightly scheduling (today: manually triggered — `POST /api/aurora/forecast/run`,
@@ -1103,7 +1108,15 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
 - **O-18** ✅ **CLOSED 2026-09-05, on an owner ask.** It asked whether `Four days here ›` should
   open the sheet OVER the map rather than switching to the Plan tab. It should, and now does; the
   actions row's `Open in Plan` keeps the tab move its label promises. §4 #25 records the reversal
-  and what had to move with it.
+  and what had to move with it. ⚠️ **It does not contradict the doors series' Q2**, which sent
+  the reverse route — the Map tab's `← Plan` breadcrumb — to the plan itself with no dialog
+  reopened (`plan-to-map-doors-plan.md` §6). Q2's own text already draws the line the two sit
+  either side of: **the destination decides.** Returning through a door, the destination is the
+  plan, and a modal left over it covers "the answer you went to check"; peeking with
+  `Four days here ›`, the sheet IS the destination and the callout underneath is what the reader
+  wants back on Escape. Recorded because the first draft of this sweep read Q2 as a general
+  precedent for landing plain, which would have made the two routes look like an inconsistency
+  to harmonise — harmonising them breaks whichever one the pass does not start from.
 - **O-20** The pane under a peek is not inert, and this is the first route where the covered layer
   is a whole interactive pane. `useDialogFocus`'s ruling accepts Tab-out app-wide and names the
   structural alternative (shell-root `inert` while any dialog is open) as an unstarted follow-on, so
