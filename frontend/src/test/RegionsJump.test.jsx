@@ -155,6 +155,81 @@ describe('RegionsJump — row anatomy (README §2)', () => {
   });
 });
 
+describe('RegionsJump — the way back (the reset row + the jump in force)', () => {
+  it('draws no reset row at all when no jump stands — a control whose press does nothing is banned', () => {
+    render(<RegionsJump {...baseProps({ open: true, activeRegion: null, onReset: vi.fn() })} />);
+    expect(screen.queryByTestId('wf-jump-reset')).not.toBeInTheDocument();
+  });
+
+  it('draws the reset row while a jump stands, naming the scope the press lands the reader in', () => {
+    render(<RegionsJump {...baseProps({
+      open: true, activeRegion: 'The Lakes', resetLabel: 'My area', onReset: vi.fn(),
+    })} />);
+    expect(screen.getByTestId('wf-jump-reset')).toHaveTextContent('Back to My area');
+  });
+
+  it('names an away origin\u2019s own scope rather than assuming "My area"', () => {
+    render(<RegionsJump {...baseProps({
+      open: true, activeRegion: 'The Lakes', resetLabel: 'Around Keswick', onReset: vi.fn(),
+    })} />);
+    expect(screen.getByTestId('wf-jump-reset')).toHaveTextContent('Back to Around Keswick');
+  });
+
+  it('calls onReset on press', () => {
+    const onReset = vi.fn();
+    render(<RegionsJump {...baseProps({
+      open: true, activeRegion: 'The Lakes', resetLabel: 'Everywhere', onReset,
+    })} />);
+    fireEvent.click(screen.getByTestId('wf-jump-reset'));
+    expect(onReset).toHaveBeenCalledTimes(1);
+  });
+
+  it('withholds the row when the caller supplies no handler, rather than rendering a dead button', () => {
+    render(<RegionsJump {...baseProps({ open: true, activeRegion: 'The Lakes', resetLabel: 'My area' })} />);
+    expect(screen.queryByTestId('wf-jump-reset')).not.toBeInTheDocument();
+  });
+
+  it('puts the way back ABOVE the destinations it undoes', () => {
+    const { container } = render(<RegionsJump {...baseProps({
+      open: true, activeRegion: 'The Lakes', resetLabel: 'My area', onReset: vi.fn(),
+    })} />);
+    const first = container.querySelector('[data-testid="wf-jump-menu"]').firstElementChild;
+    expect(first).toHaveAttribute('data-testid', 'wf-jump-reset');
+  });
+
+  it('keeps the arrow out of the accessible name — "Back to My area", not "\u21ba Back to My area"', () => {
+    render(<RegionsJump {...baseProps({
+      open: true, activeRegion: 'The Lakes', resetLabel: 'My area', onReset: vi.fn(),
+    })} />);
+    expect(screen.getByRole('button', { name: 'Back to My area' })).toBeInTheDocument();
+  });
+
+  it('marks exactly the region whose jump is in force with aria-current', () => {
+    render(<RegionsJump {...baseProps({
+      open: true, activeRegion: 'The Lakes', resetLabel: 'My area', onReset: vi.fn(),
+    })} />);
+    const rows = screen.getAllByTestId('wf-jump-row');
+    const marked = rows.filter((r) => r.getAttribute('aria-current') === 'true');
+    expect(marked).toHaveLength(1);
+    expect(marked[0]).toHaveTextContent('The Lakes');
+  });
+
+  it('marks nothing when no jump stands — the attribute is absent, never "false"', () => {
+    render(<RegionsJump {...baseProps({ open: true, activeRegion: null })} />);
+    screen.getAllByTestId('wf-jump-row').forEach((r) => {
+      expect(r).not.toHaveAttribute('aria-current');
+    });
+  });
+
+  it('reaches the phone sheet too — the whole point of the row (map-tab-v2-plan.md §3 P12)', () => {
+    mockIsMobile = true;
+    render(<RegionsJump {...baseProps({
+      open: true, activeRegion: 'The Lakes', resetLabel: 'My area', onReset: vi.fn(),
+    })} />);
+    expect(screen.getByTestId('bottom-sheet')).toContainElement(screen.getByTestId('wf-jump-reset'));
+  });
+});
+
 describe('RegionsJump — phone: the same rows in a BottomSheet (map-tab-v2-plan.md §3 P12)', () => {
   beforeEach(() => { mockIsMobile = true; });
 
