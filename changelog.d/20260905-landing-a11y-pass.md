@@ -26,9 +26,11 @@ real `<h3>`s rather than styled `<div>`s, so 23 list items are no longer one und
 run; `terms.html`'s safety callout is a `role="note"` labelled by its own *Safety* heading;
 `scroll-behavior:smooth` is guarded behind `prefers-reduced-motion` (the `#pricing` anchor
 animates 5,631px, the canonical vestibular trigger); the home link regained hover feedback,
-lost when `.mark .wm` (0,2,0) began out-specifying `a:hover` (0,1,1); and a bare text node
-between the wordmark and kicker makes the link's accessible name *"PhotoCast Field guide to
-light"* rather than *"PhotoCastField guide to light"*.
+lost when `.mark .wm` (0,2,0) began out-specifying `a:hover` (0,1,1); A bare text node was also added between the
+wordmark and kicker; that one is belt-and-braces rather than a fix, because `.mark` is
+`display:flex` and every real engine already spaces the contributions of blockified
+children — the run-together accessible name it guards against occurs only for genuinely
+inline children, and in jsdom.
 
 The review separately verified clean, and these are recorded so they are not re-litigated:
 41 contrast pairs with none below threshold (tightest 4.86), no focus indicator removed
