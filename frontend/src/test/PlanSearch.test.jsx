@@ -444,7 +444,7 @@ describe('PlanSearch', () => {
     /**
      * A14: the panel is positioned exactly over the masthead's tick line and covers it, which is
      * the "search replaces the tick line" the design draws — achieved by a position rather than by
-     * a second piece of state, because `Modal` is `z-50` and the masthead is 45.
+     * a second piece of state, because `Modal` is `z-50` and the masthead is an unpositioned box in normal flow.
      *
      * <p>⚠️ jsdom measures every box as ZERO, so the un-anchored branch is what every other test in
      * this file renders. That is the honest fallback (a zero-width panel is not a dropdown), and it
@@ -476,7 +476,7 @@ describe('PlanSearch', () => {
         expect(panel.style.left).toBe('40px');
         expect(panel.style.width).toBe('1000px');
         // The height cap is measured from the panel's own top rather than from a viewport
-        // fraction, because the anchor moves as the sticky masthead settles. 96 + 16, summed in
+        // fraction, because the anchor moves with page scroll (the masthead does not pin). 96 + 16, summed in
         // JS — see the component's note on why a two-subtraction calc cannot be asserted here.
         expect(panel.style.maxHeight).toBe('calc(100dvh - 112px)');
       } finally {

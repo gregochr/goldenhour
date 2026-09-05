@@ -614,15 +614,25 @@
   /* What every focusable thing on the Plan pane reserves against the sticky chrome, declared once
      so the literals it replaced cannot drift from what they describe.
 
-     ⚠️ M3 MADE THIS A SUM AND THE ANCHORING FIX MADE IT ONE TERM AGAIN. 60 = the bar's browser-
-     measured 53.5px plus the focus ring's 2px outline and 2px offset. It was 188 (that plus the
-     masthead's 128) for as long as the masthead was believed to be pinned above the bar; it never
-     was — see `.wf-mast` below for the measurement — so the extra 128 reserved against nothing and
-     dropped every focused card a masthead's height further down the page than it needed. The bar
-     has a wrapped 92px state this has never covered either; first paint only, `useLensReserve`
-     measures the real bar and overwrites within a frame. The phone value is in the same media
-     query that stacks the bar, below. */
-  --wf-lens-reserve: 60px;
+     ⚠️ M3 MADE THIS A SUM AND THE ANCHORING FIX MADE IT ONE TERM AGAIN. It was 188 (the masthead's
+     128, plus the bar, plus the ring) for as long as the masthead was believed to be pinned above
+     the bar. It never was — see `.wf-mast` below for the measurement — so that 128 reserved against
+     nothing and dropped every focused card a masthead's height further down the page than it needed.
+     The bar is once again the whole of what a focused card has above it.
+
+     ⚠️ 98, NOT 60, and the difference is this rule's entire point rather than a rounding preference.
+     60 is the bar's RESTING 53.5px plus the ring — what this site carried before M3, and what the
+     first cut of the anchoring fix restored without thinking. It does not cover the bar's WRAPPED
+     state, which is 92px and which a reader gets below ~840px as soon as a non-default tier adds the
+     "today only" pill and the named reset: a card focused in that first frame loses ~38px of itself
+     behind the bar. The rule stated in the design-record block further down is "each deliberately
+     taken from the TALLEST state its media query can see", because over-reserving costs a focused
+     card a few pixels of scroll where under-reserving parks it behind a sticky element — and 98 =
+     92 + the ring is the first value here that has ever actually obeyed it. (The wrapped height is
+     recorded as 91px in one place and 92px in another; the larger is taken, that being the harmless
+     direction.) First paint only: `useLensReserve` measures the real bar and overwrites within a
+     frame. The phone value is in the same media query that stacks the bar, below. */
+  --wf-lens-reserve: 98px;
 }
 /* ⚠️ SAFE AREAS ARE NOT HANDLED, and a `calc(env(safe-area-inset-top, 0px) + 16px)` here would not
    handle them — it was written that way first and is wrong twice over. `env(safe-area-*)` resolves
@@ -665,9 +675,29 @@
      control, the search affordance and the light times — scrolls away from a reader halfway down
      the matrix, which is exactly what M3 wanted to prevent and exactly what has shipped ever since.
      Pinning it for real is a live option (it costs ~182px of permanent chrome on an 800px viewport,
-     which is why it was not simply fixed in place); a phase that takes it must move the stick onto
-     the wrapper, restore `z-index: 45` here, put `.wf-lens`'s `top` back onto a measured masthead
-     height and give the two day-tile rails their masthead term back.
+     which is why it was not simply fixed in place). ⚠️ THE CHECKLIST FOR THAT PHASE IS SEVEN ITEMS,
+     and three files point here for it (`useLensReserve`, `WindowFirstShell`, `.wf-lens` below), so
+     it is written out in full rather than sketched — an earlier version listed four and left every
+     focused card reserving 98px against ~174px of newly pinned chrome, which is WCAG 2.4.11 with
+     the card fully hidden rather than clipped. That is the SAME family of sites M3 missed and M5
+     corrected (see `.wf-door-panel`'s note), so it is the one a sketch reproduces.
+
+       1. Give the stick a containing block it can travel in. It cannot go back on this element as
+          things stand — that is the whole defect. Either the stick moves onto `WindowFirstShell`'s
+          `WRAP_MAX_WIDTH` wrapper, whose own containing block is the scrolling pane (this also pins
+          the tab bar and the tab rule, which is a design change, not a side effect), or this element
+          moves out of that wrapper and carries the width cap itself.
+       2. Put `z-index: 45` on WHICHEVER ELEMENT TAKES THE STICK — not here by reflex. See the
+          paragraph below: a `z-index` on a static box is inert and reads as a live stacking claim.
+       3. `.wf-lens`'s `top` goes back onto a measured masthead height.
+       4. Both day-tile rails (`.wf-dhrow`, `.wf-rail`) get their masthead term back.
+       5. `--wf-lens-reserve` becomes a SUM again — both declarations (`.wf-shell` and the phone
+          media query) AND all three `var(--wf-lens-reserve, …)` fallback sites, which must move
+          together.
+       6. `useLensReserve` measures `.wf-mast` again, republishes `--wf-mast-h`, and returns the
+          height.
+       7. `WindowFirstShell` hands that height to `useStuckSentinel` as its offset, or the stuck
+          shadow arrives a masthead's worth of scroll late.
 
      ⚠️ Nothing may reintroduce a `z-index` here without also making this element positioned again.
      `z-index` is inert on a static box, so a bare number would read as a live stacking claim and do
@@ -1090,14 +1120,22 @@
   .wf-shell {
     --wf-gutter: 14px;
     /* The stacked bar is ~2.5× the height of the single-row one, and it is the only thing pinned
-       above a focused card on this tab. Browser-measured at 390px with the tick line wrapped to two lines (the away state):
-       stacked bar 130px, plus the ring's 6. Over-reserving costs a focused card a few extra pixels
-       of scroll while under-reserving parks it behind a sticky element, which is the whole defect
-       the reservation exists to prevent — so where the two states of an element differ, the taller
-       one is taken. It was 270 while the masthead's 134px was counted as pinned chrome above the
-       bar; the masthead is not pinned and never was (see `.wf-mast`), so that term is gone here for
-       the same reason it is gone from the desktop value. */
-    --wf-lens-reserve: 136px;
+       above a focused card on this tab. Over-reserving costs a focused card a few extra pixels of
+       scroll while under-reserving parks it behind a sticky element, which is the whole defect the
+       reservation exists to prevent — so where an element's states differ, the taller is taken. It
+       was 270 while the masthead's 134px was counted as pinned chrome above the bar; the masthead is
+       not pinned and never was (see `.wf-mast`), so that term is gone here exactly as it is gone
+       from the desktop value.
+
+       ⚠️ 160, NOT 136, and this is the taller-state rule biting on the phone as it does on the
+       desktop. 136 is the stacked bar's browser-measured 130px plus the ring — its BASE state. A
+       returning reader on a non-default tier gets the bar's two extra marks, measured at 153.5px,
+       and `useReachLens` restores that tier from `localStorage` in a lazy `useState` initialiser, so
+       the taller bar is what renders in the very first frame — the one frame this fallback exists
+       for. 160 = 153.5 + the ring, rounded up. The 270 it replaces covered that by accident; 136
+       would not have, making this fix a regression at 390px for precisely the readers who have set
+       a tier. */
+    --wf-lens-reserve: 160px;
   }
   .wf-mast { padding: 14px var(--wf-gutter) 0; }
   /* The design's phone sizes: 34px controls, and the `/` chip goes — a phone has no keyboard to
@@ -1324,7 +1362,7 @@
    not quoted here in full, so this comment cannot become a second occurrence of the string that
    search relies on being unique). */
 .wf-hstrip.wf-hstrip-rows .wf-hc {
-  scroll-margin-top: calc(var(--wf-lens-reserve, 60px) + var(--wf-dh-h, 45px) + 17px);
+  scroll-margin-top: calc(var(--wf-lens-reserve, 98px) + var(--wf-dh-h, 45px) + 17px);
 }
 /* The day, said once per column instead of once per card: a calendar tile, then a hairline rule
    running to the right edge of the column. The rule is the column's header in the same legend
@@ -2619,7 +2657,7 @@ button.wf-hc.also.on:hover {
      written by `useLensReserve` on mount, so a stale literal only bites at first paint or in a
      build where that effect never runs — which is exactly when a reader may already be tabbing, and
      an under-reservation parks a focusable HeatmapGrid cell underneath the bar (WCAG 2.4.11). */
-  scroll-margin-top: var(--wf-lens-reserve, 60px);
+  scroll-margin-top: var(--wf-lens-reserve, 98px);
 }
 /* `.heatmap-cell-hoverable:hover` used to be `z-index: 40` against `.wf-lens`'s `z-index: 20` —
    values that never met until P9 put the grid underneath a sticky bar. A hovered cell painted OVER
@@ -4683,17 +4721,26 @@ button.wf-hc.also.on:hover {
    nothing, and the bar is once again the whole of what a focused card has above it.
 
    ⚠️ And the "each deliberately taken from the TALLEST state its media query can see" claim above
-   was already an overstatement before M3 — 60px was the bar's RESTING 53.5px, not its wrapped 92px.
-   The desktop sum keeps that basis (masthead 128 + bar 53.5 + 6); the phone sum does take the
-   taller of each (masthead 134 wrapped + stacked bar 130 + 6). What actually covers every state is
-   the runtime measurement; these two are first-paint only. */
+   was an overstatement from M1 until the anchoring fix, on BOTH values: the desktop literal was the
+   bar's RESTING 53.5px rather than its wrapped 92px, and the phone literal was the stacked bar's
+   base 130px rather than the 153.5px it reaches with the override's two marks. M3's masthead terms
+   hid that — 188 and 270 happened to clear both taller states — so removing them exposed an
+   under-reservation that had been latent for four phases. The two literals are now what the claim
+   says they are: 98 = 92 + 6 desktop, 160 = 153.5 + 6 (rounded up) phone. Neither carries a
+   masthead term, because nothing above the bar pins. What covers every state at runtime is still
+   the measurement; these two are first-paint only. */
 /* ⚠️ M3: THE MATRIX CARDS AND THE TAB BAR JOIN THE LIST, and they should have been on it since M1.
    `.wf-hc` is the Plan tab's PRIMARY control — six of them, any of which can sit above the fold on a
    phone's transposed grid — and it was reserved against nothing, so a keyboard reader tabbing into
    the matrix scrolled a card flush to the viewport top and lost it, its verdict word and its focus
-   ring behind the sticky chrome. That cost 53.5px before M3 and costs ~180px now, which is what
-   made it visible. `.wf-tab` is the same defect through a different door: the bar's roving arrow
-   handler calls `scrollIntoView({block: 'nearest'})` and the tab bar scrolls under the masthead. */
+   ring behind the sticky chrome. It cost 53.5px before M3, ~180px while the masthead was believed
+   to pin, and 98px now that the bar is the only thing over a card. ⚠️ `.wf-tab` was added on a
+   mechanism that no longer exists — "the tab bar scrolls under the masthead", which cannot happen
+   now that the masthead is a static box and the tab bar precedes the bar in document order, so the
+   bar is never at `top: 0` while a tab is at the viewport top. Its `scrollIntoView({block:
+   'nearest'})` therefore reserves against nothing today. It stays because the reservation is inert
+   rather than wrong (it leaves the band's own bottom edge showing above a focused tab), and because
+   a phase that pins the masthead for real makes the original mechanism true again. */
 .wf-hc,
 .wf-tab,
 .wf-spot,
@@ -4705,7 +4752,7 @@ button.wf-hc.also.on:hover {
    does not overlap — so the reservation is inert there rather than wrong, and it is kept because
    `.wf-rr` is one class and the popup is not the only thing that could ever mount it. */
 .wf-rr {
-  scroll-margin-top: var(--wf-lens-reserve, 60px);
+  scroll-margin-top: var(--wf-lens-reserve, 98px);
 }
 /* The app's own phone boundary, as `.wf-spots` states it — 639px, not the handoff's 620px, because
    a second breakpoint 19px away would be one more thing to keep in step with `.wf-spots`, the
@@ -5698,8 +5745,12 @@ button.wf-hc.also.on:hover {
      NOTHING is pinned on this tab: the lens bar is Plan-only, and the masthead — whose measured
      height this rule used to add, via the now-deleted `--wf-mast-h` — was never actually sticky
      (see `.wf-mast`). It therefore reserved ~134px against chrome that has never been on screen
-     here, dropping a scrolled-to entry that far down the viewport for no reason. 6px is the
-     breathing gap the rule already chose on top of its chrome term; it is all that is left. */
+     here. ⚠️ The displacement that caused was about HALF that, not all of it: the rule's only
+     consumer scrolls with `block: 'center'` (`WindowComingUpConditions`), and centring the
+     scroll-margin BOX rather than the element pushes the entry down by half the margin — ~70px, not
+     ~140px. Still a reservation against nothing, just not the size a reader of the arithmetic would
+     assume. 6px is the breathing gap the rule already chose on top of its chrome term; it is all
+     that is left, and at `block: 'center'` it displaces ~3px. */
   scroll-margin-top: 6px;
 }
 @media (max-width: 899px) {

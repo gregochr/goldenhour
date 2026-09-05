@@ -251,8 +251,9 @@ export default function PlanSearch({
           top: `${anchor.top}px`,
           left: `${anchor.left}px`,
           width: `${anchor.width}px`,
-          // From the panel's own top rather than a viewport fraction: the anchor moves as the
-          // sticky masthead settles, and a `calc` in the stylesheet could not see where it landed.
+          // From the panel's own top rather than a viewport fraction: the anchor moves with page
+          // scroll (the masthead is a static box — see this file's header), and a `calc` in the
+          // stylesheet could not see where it landed.
           // ⚠️ ONE arithmetic term, summed here rather than left as `- ${top}px - 16px`: jsdom's
           // CSS serializer re-orders a two-subtraction calc into `- 16px + 96px`, which is a
           // different number — so a multi-term form is untestable in this suite and only looks

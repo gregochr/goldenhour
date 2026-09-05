@@ -27,7 +27,8 @@ import { FAMILY_GLYPHS } from '../utils/comingUpGlyphs.js';
  * lens bar is Plan-only and `useLensReserve` removes its variable here, and the masthead — whose
  * height this rule used to add, via the since-deleted `--wf-mast-h` — was never actually sticky
  * (see `index.css`'s `.wf-mast`), so that term reserved ~134px against chrome that has never been
- * on screen here.
+ * on screen here — displacing the entry by about half of that, since the scroll below centres the
+ * scroll-margin box rather than the element.
  *
  * <h2>The provisional marker is scoped to this header, not the pane's (plan §7)</h2>
  *

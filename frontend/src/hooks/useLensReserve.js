@@ -131,8 +131,9 @@ export default function useLensReserve(rootRef) {
 
     observer = new ResizeObserver(apply);
     // The bar comes and goes with the tab, so what is watched is the SHELL — a box that outlives
-    // every layout change inside it — and both elements are looked up on each callback. Watching
-    // either directly would need re-attaching on every tab change and would never fire for removal.
+    // every layout change inside it — and the bar is looked up on each callback. Watching ONLY the
+    // bar would need re-attaching on every tab change and would never fire for its removal, which
+    // is why the shell is observed as well as (not instead of) the bar itself, above.
     observer.observe(root);
     apply();
 

@@ -15,12 +15,22 @@ ancestors; the containing block's height is the fourth way to break a stick and 
 
 The dead rule is removed rather than repaired, and everything derived from that height loses the
 term with it: the bar sticks at `top: 0`, the day-tile row and the row rails stick directly under the
-bar rather than a masthead's height below it, `--wf-lens-reserve` is the bar plus a focus ring again
-(60px desktop, 136px phone) so a focused card is no longer scrolled 128px further than it needs to
-go, the stuck-shadow sentinel insets by zero, and the Coming up tab's scroll-to-entry target drops a
-~134px reservation against chrome that was never pinned there either. `--wf-mast-h` is deleted
-outright — a published measurement of an element that does not pin is what invited the next rule to
-reserve against it.
+bar rather than a masthead's height below it, the stuck-shadow sentinel insets by zero, and the
+Coming up tab's scroll-to-entry target drops a ~134px reservation against chrome that was never
+pinned there either (worth about half that in displacement, since that one scroll centres the
+scroll-margin box rather than the element). `--wf-mast-h` is deleted outright — a published
+measurement of an element that does not pin is what invited the next rule to reserve against it.
+
+`--wf-lens-reserve` — the scroll room every focusable thing on the Plan pane claims against the bar —
+is the bar plus a focus ring again rather than a sum, so a focused card is no longer dropped a
+masthead's height further down the page than it needs to be. Removing the masthead term also exposed
+an under-reservation that had been latent since M1 and that the term had been accidentally covering:
+both literals were the bar's SHORTER state, against a rule two comment blocks away that says to take
+the tallest. They now obey it — 98px desktop (the bar's wrapped 92px, not its resting 53.5px) and
+160px phone (the stacked bar's 153.5px with a non-default tier's two marks, not its base 130px). That
+matters on the phone in particular, because `useReachLens` restores the tier from `localStorage` in a
+lazy initialiser, so the taller bar is what renders in the first frame — the only frame a fallback is
+ever used in.
 
 Pinning the masthead for real remains open, and costs about 182px of permanent chrome on an 800px
 viewport, which is why it was not simply fixed in place; `index.css`'s `.wf-mast` block carries the

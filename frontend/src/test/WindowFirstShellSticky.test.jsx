@@ -40,6 +40,39 @@ vi.mock('../components/WindowFirstDoors.jsx', () => ({
   default: () => <div data-testid="stub-doors" />,
 }));
 
+/**
+ * The stylesheet readers, shared by the two text-reading describes below.
+ *
+ * <p>⚠️ Resolved from the runner's cwd (the `frontend` package root), NOT from `import.meta.url`.
+ * MEASURED, not reasoned: in this file `new URL('../index.css', import.meta.url)` evaluates to
+ * `http://localhost:3000/src/index.css`, which `readFileSync` rejects with "The URL must be of
+ * scheme file". Two sibling guards (`mastheadColours.test.js`, `MastheadTickLine.test.jsx`) use the
+ * URL form and are green, so whatever the cause it is not uniform across this suite — which is why
+ * this note records the observation rather than a diagnosis, and why the cwd form stays.
+ *
+ * <p>Declared once at module scope rather than per describe: they were copied verbatim into both,
+ * six-line doc comment included, and two copies of a comment-stripping helper diverge.
+ */
+const readCss = () => readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
+
+/** One rule's text, comments and all, from its selector to its closing brace. */
+const block = (selector) => {
+  const css = readCss();
+  const at = css.indexOf(`\n${selector} {`);
+  expect(at, `${selector} must exist`).toBeGreaterThan(-1);
+  return css.slice(at, css.indexOf('\n}', at));
+};
+
+/**
+ * Declarations only — required by every ABSENCE assertion below, and not a tidying. `.wf-mast`'s own
+ * comment explains at length why `position: sticky` is gone from it and what a phase restoring it
+ * has to do; a bare `not.toContain('position: sticky')` over the raw block fails on that
+ * explanation. Stripping comments is what lets a guard say "this rule does not stick" without also
+ * forbidding the file from saying why — and it is what stops a comment quoting a declaration from
+ * standing in for the declaration itself.
+ */
+const decls = (text) => text.replace(/\/\*[\s\S]*?\*\//g, '');
+
 const TODAY = '2026-08-08';
 
 /** Heights by class, so the two measured elements can be told apart in a layout-free DOM. */
@@ -305,27 +338,6 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
    * viewport's own top edge, that the two row rails no longer add a masthead term to their sticky
    * `top`, and that every fallback literal moved with the variable it stands in for.
    */
-  // ⚠️ Resolved from the runner's cwd (the `frontend` package root), NOT from `import.meta.url`.
-  // MEASURED, not reasoned: in this file `new URL('../index.css', import.meta.url)` evaluates to
-  // `http://localhost:3000/src/index.css`, which `readFileSync` rejects with "The URL must be of
-  // scheme file". Two sibling guards (`mastheadColours.test.js`, `MastheadTickLine.test.jsx`) use
-  // the URL form and are green, so whatever the cause it is not uniform across this suite — which
-  // is why this note records the observation rather than a diagnosis, and why the cwd form stays.
-  const readCss = () => readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
-  const block = (selector) => {
-    const css = readCss();
-    const at = css.indexOf(`\n${selector} {`);
-    expect(at, `${selector} must exist`).toBeGreaterThan(-1);
-    return css.slice(at, css.indexOf('\n}', at));
-  };
-  /**
-   * ⚠️ Declarations only — required by every ABSENCE assertion below, and not a tidying.
-   * `.wf-mast`'s own comment explains at length why `position: sticky` is gone from it and what a
-   * phase restoring it has to do; a bare `not.toContain('position: sticky')` over the raw block
-   * fails on that explanation. Stripping comments is what lets the guard say "this rule does not
-   * stick" without also forbidding the file from saying why.
-   */
-  const decls = (text) => text.replace(/\/\*[\s\S]*?\*\//g, '');
 
   it('⚠️ does NOT stick the masthead — the rule never worked and must not come back alone', () => {
     // An absence, deliberately. `position: sticky; top: 0; z-index: 45` sat here from M3 until the
@@ -336,6 +348,17 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
     const mast = decls(block('.wf-mast'));
     expect(mast).not.toContain('position: sticky');
     expect(mast).not.toContain('z-index');
+  });
+
+  it('⚠️ actually STICKS the bar — the declaration everything else here is inert without', () => {
+    // This file asserted `top`, `z-index` and two absences on `.wf-lens` and never once that it is
+    // sticky at all. Drop `position: sticky` and every one of those still passes while the bar
+    // scrolls away with the matrix, taking the page's only reach and rating controls and the only
+    // exit from an emptied lens with it — and the stuck shadow still fires, because
+    // `useStuckSentinel` watches a sentinel rather than the bar, so it would sit mid-page under a
+    // permanent drop shadow. `.wf-dhrow` and `.wf-rail` both carry this assertion for exactly that
+    // reason (`.wf-rail`'s own note spells it out); the element they are numbered against did not.
+    expect(decls(block('.wf-lens'))).toContain('position: sticky');
   });
 
   it('anchors the bar at the top of the viewport, not below a masthead that never pinned', () => {
@@ -356,13 +379,38 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
 
   it('reserves for the bar and the focus ring at first paint too, and nothing else', () => {
     // The runtime value is bar + ring; a fallback still carrying M3's masthead term would drop a
-    // focused card 128px further than it needs to go in the one state it exists for.
-    expect(block('.wf-shell')).toContain('--wf-lens-reserve: 60px');
-    expect(readCss()).toContain('--wf-lens-reserve: 136px');
-    // ⚠️ All THREE fallback sites, not just the declaration — `.wf-door-panel`'s copy has already
-    // been out of step with the other two once (missed at M3, corrected at M5).
-    expect(readCss()).not.toContain('--wf-lens-reserve, 188px');
-    expect(readCss().match(/var\(--wf-lens-reserve, 60px\)/g)).toHaveLength(3);
+    // focused card 128px further than it needs to go in the one state it exists for. 98 = the bar's
+    // WRAPPED 92px + the ring, not its resting 53.5 — see the declaration's own note for why the
+    // resting basis was an under-reservation every phase since M1 had carried.
+    expect(block('.wf-shell')).toContain('--wf-lens-reserve: 98px');
+  });
+
+  it('⚠️ scopes the phone value to the phone, not merely to the file', () => {
+    // A whole-file `toContain` was the first shape here and it cannot see a breakpoint sweep: move
+    // this declaration into the adjacent `max-width: 899px` block and the string is still present,
+    // the test still passes, and every phone falls back to the desktop 98px against a bar that is
+    // 130-153.5px tall there. 160 = the stacked bar's 153.5px with a non-default tier's two marks,
+    // plus the ring — the state a returning reader gets on the FIRST paint, since `useReachLens`
+    // restores the tier from `localStorage` in a lazy initialiser.
+    const css = readCss();
+    const at = css.indexOf('@media (max-width: 639px) {');
+    expect(at, 'the phone media query must exist').toBeGreaterThan(-1);
+    const phoneShell = css.slice(at, css.indexOf('\n  }', at));
+    expect(phoneShell).toContain('--wf-lens-reserve: 160px');
+  });
+
+  it('⚠️ keeps EVERY fallback site equal to the declaration, whatever the site count', () => {
+    // Not a count. `toHaveLength(3)` was the first shape and fails both ways: a fourth legitimate
+    // consumer reds the build with a message naming no rule, and DELETING `.wf-door-panel`'s rule
+    // while documenting the removal in a comment that quotes the string keeps the count at three —
+    // which is precisely how every other removal in this change is recorded, and precisely the site
+    // whose drift the file already records once (missed at M3, corrected at M5). Read from
+    // declarations only, so a comment quoting the string can neither satisfy nor break it.
+    const fallbacks = [...decls(readCss()).matchAll(/var\(--wf-lens-reserve,\s*([^)]+)\)/g)]
+      .map((m) => m[1].trim());
+    expect(fallbacks.length, 'the fallback sites must exist, or this proves nothing')
+      .toBeGreaterThan(0);
+    fallbacks.forEach((value) => expect(value).toBe('98px'));
   });
 
   it('reserves for the matrix cards and the tab bar, which are the pane\'s primary controls', () => {
@@ -391,32 +439,18 @@ describe('the stylesheet half, which jsdom cannot evaluate', () => {
     expect(block('.wf-lens')).toContain('z-index: 20');
   });
 
-  it('⚠️ no longer claims the masthead is pinned above the bar', () => {
-    // The stale-invariant guard, inverted. M3 added this claim in the same commit as the rule that
-    // was supposed to make it true; the rule never did, so the claim must not outlive its removal.
-    const css = readCss();
-    expect(css).not.toContain('the masthead pinned at `z-index: 45`');
-    expect(css).not.toContain('`position: sticky` here AND on `.wf-mast` above it');
+  it('⚠️ declares the masthead\'s old z-index nowhere, which is the falsifiable half', () => {
+    // This was two absence checks on exact prose sentences the same commit deleted — unfailable by
+    // construction, and therefore protecting nothing (the standards' own rule). What IS falsifiable
+    // is the number: 45 was the masthead's and no other rule in this stylesheet uses it, so a phase
+    // that re-adds `z-index: 45` here — the exact reflex `.wf-mast`'s own checklist warns against,
+    // since it is inert on a static box — fails this. Read from declarations, because the checklist
+    // and the history both name the number in prose and must stay free to.
+    expect(decls(readCss())).not.toMatch(/z-index:\s*45\b/);
   });
 });
 
 describe('the row-rails stylesheet half (matrix-axis plan §6, D6/D8/D9/D10/D12)', () => {
-  const readCss = () => readFileSync(resolve(process.cwd(), 'src/index.css'), 'utf8');
-  const block = (selector) => {
-    const css = readCss();
-    const at = css.indexOf(`\n${selector} {`);
-    expect(at, `${selector} must exist`).toBeGreaterThan(-1);
-    return css.slice(at, css.indexOf('\n}', at));
-  };
-  /**
-   * ⚠️ Declarations only — required by every ABSENCE assertion below, and not a tidying.
-   * `.wf-mast`'s own comment explains at length why `position: sticky` is gone from it and what a
-   * phase restoring it has to do; a bare `not.toContain('position: sticky')` over the raw block
-   * fails on that explanation. Stripping comments is what lets the guard say "this rule does not
-   * stick" without also forbidding the file from saying why.
-   */
-  const decls = (text) => text.replace(/\/\*[\s\S]*?\*\//g, '');
-
   it('sticks the day-tile row directly under the lens bar, at the design\'s z-index', () => {
     // ⚠️ `--wf-lens-h` ALONE. The masthead term hung this row a masthead's height below the bar it
     // is supposed to sit against, with cards scrolling through the gap — the same defect the bar
@@ -457,7 +491,7 @@ describe('the row-rails stylesheet half (matrix-axis plan §6, D6/D8/D9/D10/D12)
     // reservation's own fallback came back from 188 to 60 with the masthead's dead sticky; this
     // site has to move with the declaration or it under-reserves at first paint.
     expect(readCss()).toContain(
-      'scroll-margin-top: calc(var(--wf-lens-reserve, 60px) + var(--wf-dh-h, 45px) + 17px)',
+      'scroll-margin-top: calc(var(--wf-lens-reserve, 98px) + var(--wf-dh-h, 45px) + 17px)',
     );
   });
 
