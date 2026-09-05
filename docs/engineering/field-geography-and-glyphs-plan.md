@@ -750,16 +750,25 @@ Either way, expect textual merge conflicts with #690 in `WindowComingUpEntry.jsx
     - **`plainName` trims before stripping the conjunct.** The other order lets a leading ` & …`
       match from index 0 and reduce the whole name to `''`, and an empty label is not a short one:
       the placement pass skips a zero-measured candidate, so the region loses its name — the very
-      outcome §2.4's third guard exists to prevent, arriving through the guard itself.
+      outcome §2.4's third guard exists to prevent, arriving through the guard itself. The trim is
+      the ONLY guard on that case: a `\S` in the conjunct pattern was written as a second one and
+      removed, because after the trim no input distinguishes it, and an unreachable guard carrying
+      a paragraph about its own necessity sends the next reader hunting for a test that cannot be
+      written.
 
-    **Known and accepted, not oversights.** An abbreviation-headed rename (`N. York Moors & Coast`,
+    **Known and accepted, not oversights — and each has a named test, so an accepted residual
+    stays distinguishable from an unnoticed one.** `The Scottish Borders` — a *seeded* region, not
+    a production one — still reaches no curated entry and renders `SCOTTISH`, because the
+    reduction strips an article and a conjunct but nothing else, and `Scottish Borders` is not the
+    `Borders` key; adding it would mean authoring a table entry for a name outside the roster this
+    section's tables were written against. An abbreviation-headed rename (`N. York Moors & Coast`,
     the spelling every `docs/design/*/plan-data.js` uses) still yields the two-character `N.`,
     because the reduction reaches no table key and `N.` is not a directional — the fallback has no
     minimum-length floor. And the reductions are case-insensitive while the table match is
     byte-exact, so `the lake district` reaches `LAKE` rather than `LAKES`; exact region-name
     matching is the project rule (`utils/planOrigin.js`), so this is an inconsistency inside one
-    function rather than a violation of it. Both are recorded here rather than fixed, to keep the
-    change to the defect that was reported.
+    function rather than a violation of it. All three are recorded here rather than fixed, to keep
+    the change to the defect that was reported.
 13. **Two live answers to "what do we call this region when there is no room", and D-11 must
     displace both.** The Map tab shortens by CSS — the served name, `max-width: 90px` with an
     ellipsis below `REGION_TINY_FRAME_WIDTH` (`utils/mapLabels.js`, which says in terms that it

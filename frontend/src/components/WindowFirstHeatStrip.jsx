@@ -275,14 +275,17 @@ const DIRECTIONAL = /^(north|south|east|west)$/i;
  * reads as somewhere else"), so dropping it at full width — where there is room, and where the Map
  * tab prints the served name verbatim — would be discarding the thing that migration added.
  *
- * <p>Two guards keep it from eating a name whole, and only together: the `\S` requires something
- * after the conjunction, which covers a trailing `Moors &`; and {@link plainName} TRIMS before
- * applying this, which covers a leading one. Without the trim, ` & Coast` matches from index 0 and
- * reduces to the empty string — and an empty label is not a short label, it is a MISSING one: the
- * placement pass skips a zero-measured candidate, so the region silently loses its name, which is
- * the §2.4 outcome this whole fallback exists to prevent.
+ * <p>⚠️ <b>{@link plainName} TRIMS before applying this, and that is the whole guard against it
+ * eating a name.</b> Untrimmed, ` & Coast` matches from index 0 and reduces to the empty string —
+ * and an empty label is not a short label, it is a MISSING one: the placement pass skips a
+ * zero-measured candidate, so the region silently loses its name, the §2.4 outcome this fallback
+ * exists to prevent. Trimmed, the pattern cannot match a name-final conjunction at all, since the
+ * `\s+` after it would have to be trailing whitespace that no longer exists. This carried a `\S`
+ * as a second guard on that same case; it was removed because, after the trim, no input
+ * distinguishes it (swept over every head/separator/tail combination), and an unreachable guard
+ * with a paragraph claiming necessity sends the next reader hunting for a test that cannot exist.
  */
-const CONJUNCT = /\s+(?:&|and)\s+\S[\s\S]*$/i;
+const CONJUNCT = /\s+(?:&|and)\s+[\s\S]*$/i;
 
 /**
  * A served region name reduced to the form {@link AREA_FULL}/{@link AREA_TINY} are keyed in —
@@ -302,8 +305,8 @@ const CONJUNCT = /\s+(?:&|and)\s+\S[\s\S]*$/i;
  * @returns {string} the plain form, or `''` for a null/blank name
  */
 function plainName(regionName) {
-  // TRIM FIRST — see CONJUNCT's own note. Trimming after the replace lets ` & Coast` match from
-  // index 0 and reduce the whole name to ''.
+  // TRIM FIRST — see CONJUNCT's own note; it is the only thing stopping a leading ` & Coast` from
+  // matching at index 0 and reducing the whole name to ''.
   const words = String(regionName ?? '').trim().replace(CONJUNCT, '').split(/\s+/)
     .filter(Boolean);
   if (words.length > 1 && ARTICLE.test(words[0])) words.shift();

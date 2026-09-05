@@ -2169,13 +2169,13 @@ describe('WindowFirstHeatStrip — thumbnail geography (field-geography plan §2
    * table on any implementation and proves only that object lookup works.
    */
   const SERVED_REGIONS = [
-    { served: 'The Lake District', tiny: 'LAKES' },
-    { served: 'The Yorkshire Dales', tiny: 'DALES' },
-    { served: 'North York Moors & Coast', tiny: 'N Y MOORS' },
-    { served: 'Northumberland & Tyneside', tiny: 'NORTHUMB.' },
+    ['The Lake District', 'LAKES'],
+    ['The Yorkshire Dales', 'DALES'],
+    ['North York Moors & Coast', 'N Y MOORS'],
+    ['Northumberland & Tyneside', 'NORTHUMB.'],
   ];
 
-  it.each(SERVED_REGIONS)('⚠️ reaches the curated TINY name for $served as served', async ({ served, tiny }) => {
+  it.each(SERVED_REGIONS)('⚠️ reaches the curated TINY name for %s as served', async (served, tiny) => {
     await withMeasuredThumbs(150, () => withLabelBox(40, 12, async () => {
       drawGeo.mockImplementation(() => IDENTITY_PROJ);
       await renderStrip({ spots: [geoSpot(served, 100, 100)] });
@@ -2188,7 +2188,7 @@ describe('WindowFirstHeatStrip — thumbnail geography (field-geography plan §2
     expect(label).toHaveAttribute('data-region', served);
   });
 
-  it.each(SERVED_REGIONS)('⚠️ leaves $served WHOLE at full width, agreeing with the Map tab', async ({ served }) => {
+  it.each(SERVED_REGIONS)('⚠️ leaves %s WHOLE at full width, agreeing with the Map tab', async (served) => {
     // The reduction is a TINY-table key only. Every AREA_FULL value is its own key uppercased, so
     // routing the plain form through the full table could only ever TRUNCATE — the first cut of
     // this fix did exactly that, retitling `Northumberland & Tyneside` as `NORTHUMBERLAND` on
@@ -2237,28 +2237,94 @@ describe('WindowFirstHeatStrip — thumbnail geography (field-geography plan §2
     expect(screen.getByTestId('wf-heat-area').textContent).toBe('THE CHEVIOTS');
   });
 
-  it('never derives an EMPTY tiny label, which the placer would drop rather than shorten', async () => {
+  it('never derives an EMPTY tiny label — ` & Coast` degrades to `&`, not to nothing', async () => {
     // ` & Coast` — a leading-whitespace conjunct — matched CONJUNCT from index 0 while the trim
-    // came after the replace, reducing the whole name to ''. A zero-measured candidate is skipped
-    // by the placement pass, so the region loses its label entirely: the §2.4 outcome the tiny
-    // fallback exists to prevent, arriving through the fallback itself.
+    // came after the replace, reducing the whole name to ''. An empty label is not a short one:
+    // the placement pass skips a zero-measured candidate, so the region would lose its name
+    // entirely — the §2.4 outcome the tiny fallback exists to prevent, arriving through the
+    // fallback itself.
+    //
+    // ⚠️ Asserts the VALUE, not `not.toBe('')`. A bare `&` is no more a label than the empty
+    // string is, so the weaker form passed while the stated purpose failed; pinning `&` as the
+    // accepted degenerate result means the next `plainName` edit cannot move it silently. (What
+    // this test does NOT prove is the placer's own drop: `withLabelBox` stubs a constant
+    // offsetWidth/Height on the prototype, so the `w > 0 && h > 0` gate never sees a zero
+    // whatever the text says. The string is the whole claim here.)
     await withMeasuredThumbs(150, () => withLabelBox(40, 12, async () => {
       drawGeo.mockImplementation(() => IDENTITY_PROJ);
       await renderStrip({ spots: [geoSpot(' & Coast', 100, 100)] });
     }));
 
-    expect(screen.getByTestId('wf-heat-area').textContent).not.toBe('');
+    expect(screen.getByTestId('wf-heat-area').textContent).toBe('&');
   });
 
-  it('keeps its single word for a region named only of droppable noise', async () => {
-    // The drop always leaves one word standing. Without that floor a region named `North` labels
-    // itself with the empty string, which places a zero-width box and reads as a missing label.
+  it.each([['North'], ['The']])('keeps its single word for a region named only of droppable noise (%s)', async (name) => {
+    // Both drops carry the same `words.length > 1` floor, and both need it: without one, a region
+    // named for nothing but its own droppable word labels itself with the empty string, which
+    // places a zero-width box and reads as a missing label. Only the directional floor was pinned
+    // — removing the ARTICLE floor left the whole suite green.
     await withMeasuredThumbs(150, () => withLabelBox(40, 12, async () => {
       drawGeo.mockImplementation(() => IDENTITY_PROJ);
-      await renderStrip({ spots: [geoSpot('North', 100, 100)] });
+      await renderStrip({ spots: [geoSpot(name, 100, 100)] });
     }));
 
-    expect(screen.getByTestId('wf-heat-area').textContent).toBe('NORTH');
+    expect(screen.getByTestId('wf-heat-area').textContent).toBe(name.toUpperCase());
+  });
+
+  it('takes the fallback for a region whose name collides with Object.prototype', async () => {
+    // Region names are admin-authored free text. An unguarded `table[name]` returns the `Object`
+    // CONSTRUCTOR here — a function, which React refuses as a child, so the whole matrix drops
+    // into PlanErrorBoundary. `__proto__` reaches the same crash by the same route. The
+    // Object.hasOwn guard shipped with no test at all: removing it left the suite green.
+    await withMeasuredThumbs(300, () => withLabelBox(80, 12, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      await renderStrip({ spots: [geoSpot('constructor', 100, 100)] });
+    }));
+
+    expect(screen.getByTestId('wf-heat-area').textContent).toBe('CONSTRUCTOR');
+  });
+
+  it('⚠️ warns for an unmapped region and is SILENT for every name production serves', async () => {
+    // The negative is the entire point of the lookup change, and nothing pinned it: the warn block
+    // could be deleted outright with the suite still green. Its message and its reach were both
+    // rewritten in the same change, so the claim "it no longer fires for production" needs an
+    // assertion rather than prose.
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      for (const [served] of SERVED_REGIONS) {
+        await withMeasuredThumbs(150, () => withLabelBox(40, 12, async () => {
+          drawGeo.mockImplementation(() => IDENTITY_PROJ);
+          await renderStrip({ spots: [geoSpot(served, 100, 100)] });
+        }));
+      }
+      expect(warn).not.toHaveBeenCalled();
+
+      await withMeasuredThumbs(150, () => withLabelBox(40, 12, async () => {
+        drawGeo.mockImplementation(() => IDENTITY_PROJ);
+        await renderStrip({ spots: [geoSpot('South Downs', 100, 100)] });
+      }));
+      expect(warn).toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  /**
+   * Degrades the fix knowingly does not reach (§5 decision 12). Each is pinned so a later
+   * refactor cannot move it silently, and so an accepted residual stays distinguishable from an
+   * unnoticed one.
+   */
+  it.each([
+    ['The Scottish Borders', 'SCOTTISH', 'the seeded region the reduction does not reach: `Scottish Borders` is not the `Borders` key'],
+    ['N. York Moors & Coast', 'N.', 'no minimum-length floor: an abbreviated head survives as two characters'],
+    ['the lake district', 'LAKE', 'the table match is byte-exact, so a lower-cased name misses the LAKES curation'],
+  ])('records an accepted degrade — %s stays %s', async (served, expected) => {
+    await withMeasuredThumbs(150, () => withLabelBox(40, 12, async () => {
+      drawGeo.mockImplementation(() => IDENTITY_PROJ);
+      await renderStrip({ spots: [geoSpot(served, 100, 100)] });
+    }));
+
+    expect(screen.getByTestId('wf-heat-area').textContent).toBe(expected);
   });
 
   it('marks data-hot="true" on exactly the card\'s hotRegionName label', async () => {
