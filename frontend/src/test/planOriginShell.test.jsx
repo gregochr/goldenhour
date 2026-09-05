@@ -303,12 +303,12 @@ describe('WindowFirstShell — the origin', () => {
     it('names the base every figure it gates is measured from', () => {
       renderShell({ origin: ORIGIN });
       expect(screen.getByRole('group', { name: 'Drive from Keswick' })).toBeInTheDocument();
-      expect(screen.queryByRole('group', { name: 'How far tonight' })).toBeNull();
+      expect(screen.queryByRole('group', { name: 'Drive from home' })).toBeNull();
     });
 
     it('keeps its home caption at home', () => {
       renderShell();
-      expect(screen.getByRole('group', { name: 'How far tonight' })).toBeInTheDocument();
+      expect(screen.getByRole('group', { name: 'Drive from home' })).toBeInTheDocument();
     });
   });
 

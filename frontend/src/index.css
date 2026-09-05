@@ -4783,11 +4783,13 @@ button.wf-hc.also.on:hover {
    ⚠️ THE PHONE BAR NO LONGER SCROLLS, AND MUST NOT BE MADE TO AGAIN. P14 made `nowrap` +
    `overflow-x: auto` the base rule, having measured that wrapping grew a sticky bar to 77.3px in
    the 640–781px band. That was right about the tablet band and wrong about the phone: with the
-   caption `HOW FAR TONIGHT` inline, four tiers on a 390px screen simply did not fit, so the last
+   full fifteen-character caption inline — `HOW FAR TONIGHT` when P14 measured, `DRIVE FROM HOME`
+   since 2026-09-05, identical in width because `.wf-lens-k` is `--font-mono` at a fixed
+   letter-spacing — four tiers on a 390px screen simply did not fit, so the last
    two lived off the right edge of a scroller with a hidden scrollbar — invisible, and unreachable
    by anything but a horizontal drag on a sticky element. The handoff's answer is layout rather than
    an affordance ("a fade would advertise a scroll that shouldn't need to exist"), and the room
-   comes from the caption: `Drive` instead of `HOW FAR TONIGHT` buys back about 120px, which is very
+   comes from the caption: `Drive` instead of the fifteen-character label buys back about 120px, very
    close to what the four chips were short by.
 
    The base rule wraps at every width; what is phone-specific is that each group claims a WHOLE row
