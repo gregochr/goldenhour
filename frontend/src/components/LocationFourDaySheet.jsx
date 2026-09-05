@@ -30,10 +30,17 @@ const DIM_AT_OR_BELOW = 2;
  * the window they were reading — while a search result opens it with the popup closed, because
  * arriving from search is a different gesture and the shell's "closes FIRST" rule governs it.
  *
- * <p>Escape then takes exactly one layer per press. This layer declines the key while search sits
- * over it ({@code escapeEnabled}), and the popup underneath declines it while this one is up, which
- * is the bundle README's stated order: search → the location sheet → the window popup. It is wired
- * exactly as {@code WindowSpotSheet}'s is, because they are the same rung.
+ * <p>Escape then takes exactly one layer per press: the popup underneath declines the key while
+ * this one is up ({@code stackedOverPopup} counts {@code sheetSpot}), so a press takes this sheet
+ * off and leaves the window behind it. It is wired exactly as {@code WindowSpotSheet}'s is, because
+ * they are the same rung.
+ *
+ * <p>⚠️ <b>The bundle README's three-rung order (search → this sheet → the popup) is NOT what
+ * ships, so {@code escapeEnabled}'s {@code searchSeed} arm is a belt that can no longer engage.</b>
+ * M5 refuses the third layer outright — every route into search guards on {@code stackedOverPopup}
+ * — so the supported stack is two deep: search over the popup, or a sheet over the popup, never
+ * both (plan-matrix §4 A22). Nor can search survive the way in: {@code PlanSearch} calls
+ * {@code onClose} on every pick, so a search result closes it in the same commit that opens this.
  *
  * <p>The map is not lost: the footer carries it, and names the window it will open in the
  * vocabulary the strip behind it uses.
