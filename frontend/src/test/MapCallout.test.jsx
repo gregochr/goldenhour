@@ -1,7 +1,7 @@
 /**
  * `components/map/MapCallout.jsx` — the Map tab's selection callout (map-tab-v2-plan.md §3 P9).
  *
- * The anchoring ARITHMETIC (below/flip/clamp/tail/band) is `mapCallout.test.js`'s job, against pure
+ * The anchoring ARITHMETIC (below/flip/clamp/band) is `mapCallout.test.js`'s job, against pure
  * functions with no DOM at all; this file proves the React/Leaflet host wires content correctly —
  * the served-summary-then-region-gloss reason prose, the `reachMeasured` facts row (drive/miles/
  * leave-by/dark-sky, each independently gated), the tide-topic filter, the every-window strip's
@@ -608,6 +608,26 @@ describe('MapCallout — anchoring lifecycle', () => {
   it('renders nothing with no location selected', async () => {
     const { container } = await mount({ location: null });
     expect(container.textContent).toBe('');
+  });
+
+  it('draws NO pointer at its point — the card is a plain plate now', async () => {
+    // The 11px rotated-square tail was removed on 2026-09-05 at the owner's request
+    // (map-tab-v2-plan.md §4.30). Pinned HERE as well as in `mapCallout.test.js` (no `tailLeft`)
+    // and `mapCalloutClampCascade` (no stylesheet rule) because this is the only one of the three
+    // that sees the RENDERED card: a pointer re-added under any other class, or with inline styles
+    // and no class at all, would pass both of the others. The card is placed (`box` is non-null,
+    // via `withMeasuredCard`), which is the state the tail used to render in.
+    await mount();
+    const card = screen.getByTestId('map-callout');
+    expect(card.querySelector('[class*="tail"]')).toBeNull();
+    // The card's own children are its content — no decorative element ahead of the body.
+    expect(card.firstElementChild).toHaveClass('wf-callout-body');
+    // Nothing absolutely positioned outside the plate: the tail's whole mechanism was a child
+    // pulled to a negative offset, so no child may carry one.
+    for (const child of card.children) {
+      expect(child.style.top.startsWith('-')).toBe(false);
+      expect(child.style.bottom.startsWith('-')).toBe(false);
+    }
   });
 
   it('re-measures the anchor when the ACTIVE EVENT changes, even though location/map do not (regression: adversarial review on the tide-chip PR)', async () => {

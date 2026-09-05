@@ -4197,11 +4197,14 @@ button.wf-hc.also.on:hover {
   gap: 8px;
   color: var(--color-plex-text);
   font-family: var(--font-sans);
-  /* ⚠️ `overflow: visible` and NOT `auto`, and it is not a preference: `.wf-callout-tail` is an
-     absolutely positioned child at `top: -6px` / `bottom: -6px`, i.e. deliberately OUTSIDE this box,
-     so any other `overflow` value clips the pointer off the card. The card takes a `max-height`
+  /* ⚠️ `overflow: visible` and NOT `auto`, and it is not a preference: the card takes a `max-height`
      (inline — measured from the live chrome band every paint) and `.wf-callout-body` below is what
-     actually absorbs it.
+     actually absorbs it. A scroll declared HERE would take the squeeze off the body and put a second
+     scroller around it; `hidden` would clip the overflow away with no way to reach it.
+     (It was also what kept the 11px `.wf-callout-tail` — an absolutely positioned child at
+     `top`/`bottom: -6px` — from being clipped off the card. That pointer was removed on 2026-09-05
+     at the owner's request, map-tab-v2-plan.md §4.30; the two reasons above are what still hold this
+     value in place.)
 
      ⚠️ THE SCROLL MUST NOT LIVE ON A CONDITIONALLY-RENDERED CHILD. It briefly lived on
      `.wf-callout-strip`, which is only in the DOM while the "every window" strip is OPEN — so in
@@ -4233,27 +4236,6 @@ button.wf-hc.also.on:hover {
 .wf-callout-body > * {
   flex: none;
 }
-/* The 11px rotated-square tail, clamped into the card (`anchorCallout`'s own `tailLeft`) — pointing
-   down when the card sits BELOW the marker, up when it flips above. */
-.wf-callout-tail {
-  position: absolute;
-  width: 11px;
-  height: 11px;
-  background: rgba(20, 15, 12, 0.965);
-  border: 1px solid var(--color-plex-border-light);
-  transform: rotate(45deg);
-}
-.wf-callout-tail.below {
-  top: -6px;
-  border-right: none;
-  border-bottom: none;
-}
-.wf-callout-tail.above {
-  bottom: -6px;
-  border-left: none;
-  border-top: none;
-}
-
 .wf-callout-head {
   display: flex;
   align-items: flex-start;

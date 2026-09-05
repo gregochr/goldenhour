@@ -429,9 +429,12 @@ Replaces the Leaflet popup / mobile BottomSheet **on the tab** ("a popup covers 
 you just asked about").
 
 - Selection ring `.selmk` (34px, `--home` ring + halo + centre dot) and
-  `components/map/MapCallout.jsx` (286px desktop / 266px phone, dark card, 11px tail).
+  `components/map/MapCallout.jsx` (286px desktop / 266px phone, dark card, 11px tail). ⚠️ **The
+  tail was removed on 2026-09-05 at the owner's request — §4.30 below**, taking the next line's
+  "tail clamped into the card" clause with it (struck below rather than deleted, so the phase spec
+  still reads as it shipped); every other clause in this bullet still stands.
   Anchoring recomputed **every paint** so it travels with its point: prefer below (22px gap),
-  flip above on band overflow, clamp horizontally to 8px, tail clamped into the card; the
+  flip above on band overflow, clamp horizontally to 8px, ~~tail clamped into the card~~; the
   vertical band is derived from chrome bars spanning ≥ 50% of the frame width (the rule that lets
   it sit beside the desktop pill but never under the phone's bottom bar). On open:
   `map.panInside(latlng, {padding:[70,150]})`.
@@ -465,7 +468,8 @@ you just asked about").
 - **Split point if this runs long**: P9a = ring + anchoring engine + core contents; P9b =
   every-window strip + the Open-in-Plan shell hook + popup/BottomSheet removal + inbound handoff
   rewire.
-- Tests: anchoring math (band, flip, clamp, tail) as pure functions; content gating
+- Tests: anchoring math (band, flip, clamp) as pure functions — the tail arm of this became, on
+  2026-09-05, a pin that NO tail is placed (§4.30); content gating
   (reachMeasured, missing summary, LITE); every-window strip switching; the Open-in-Plan handoff
   (new shell hook) incl. the hidden-pane rule (a hidden map must not act on stale handoffs).
 
@@ -884,6 +888,42 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     without the fix. The `visibility`-vs-`display` half of the original decision is still pinned, and
     the review that surfaced this measured it as overwhelmingly pre-existing rather than caused by
     item 18 — `fadeAt` already returned 0 at every zoom the tab opens at.
+
+30. **The callout's 11px tail is gone (2026-09-05) — an owner decision, taken on the rendered
+    card.** ⚠️ **Numbered 30, not 22**: the two entries above it are a second run of 20 and 21
+    (added 2026-09-04 by #755 and #757), so this list already carries two items numbered 20 and two
+    numbered 21, and a third 22 would have made every "§4.22" in this repo ambiguous. Those two are
+    left as they stand because CLAUDE.md cites "item 20" for the clustering deletion; cite the end
+    of this list by CONTENT, not by number.
+    P9 above specifies "286px desktop / 266px phone, dark card, 11px tail", and the tail was
+    built: a rotated square held outside the card's own box by CSS alone — a plain child `<span>`
+    of `.wf-callout` at `top`/`bottom: -6px`, NOT a second `createPortal` (only the ring + card as a
+    unit are portalled, to the chrome wrapper), which is exactly why that box's `overflow: visible`
+    was load-bearing for it. It flipped `above`/`below` with the anchoring and slid along the card's
+    edge by `anchorCallout`'s `tailLeft`. The owner asked for it removed.
+    **What that costs, stated rather than waved past**: the tail was the only part
+    of the card that pointed AT anything, so the card's tie to its location now rests entirely on
+    the `.wf-selmk` selection ring (P9 above calls it `.selmk`, the design bundle's own name) and on
+    `map.panInside` bringing both into view together — which is what the ring was always for, and
+    the card also names the location in its own title. Measured in Chromium at 1280×900 rather than
+    asserted: with the card flipped ABOVE its point the ring sits 5.3px under the card's bottom edge
+    and centred on it, and with the card BELOW its point 5.0px over its top edge — the same 22px
+    gap the anchoring always used, minus the ring's own 34px box. The card carries two children,
+    both `position: static`, and no node in the document matches `[class*="tail"]`. The
+    anchoring itself is untouched: prefer-below, the band flip, the 8px horizontal clamp and the
+    22px gap all still run, and `below` still chooses `top` — it merely no longer chooses which way
+    a pointer faced. `tailLeft` was deleted with it (nothing else read it) rather than left as a
+    computed value with no renderer, which is the shape the clustering deletion's own sweep took
+    (the SECOND item numbered 20, above).
+    ⚠️ **`below` is deliberately not treated the same way, and the difference is not a hedge.** The
+    tail span was its only production reader too — `MapCallout` now takes `left`/`top` alone — so a
+    mechanical application of the rule above would delete it. It stays because it is not a derived
+    coordinate for a deleted element: it is the function's own flip DECISION, computed regardless in
+    order to choose `top`, and returning it is what lets a test say "it flipped" rather than compare
+    two pixel values that can coincide. `mapCallout.js`'s own doc carries the same distinction.
+    `.wf-callout`'s `overflow: visible` **stays**: the tail was one of two reasons for it, and the
+    other — the inline `max-height` whose squeeze must land on `.wf-callout-body` alone — is still
+    pinned by `mapCalloutClampCascade`, which now also pins that the tail rule has not come back.
 
 ## §5 Decisions taken in this plan (challenge in review, not in code)
 

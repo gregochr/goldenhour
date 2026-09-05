@@ -80,9 +80,20 @@ export function calloutBand({ frameWidth, frameHeight, bars }) {
 }
 
 /**
- * Where the card and its tail land, recomputed every paint so the callout travels with its point
- * through pan and zoom (README §7). Prefers below the marker; flips above when it would overflow
- * the band; clamps horizontally to {@link CALLOUT_MARGIN}; clamps the tail to stay within the card.
+ * Where the card lands, recomputed every paint so the callout travels with its point through pan
+ * and zoom (README §7). Prefers below the marker; flips above when it would overflow the band;
+ * clamps horizontally to {@link CALLOUT_MARGIN}.
+ *
+ * <p>⚠️ It no longer places a tail: the card's 11px pointer was removed on 2026-09-05 at the
+ * owner's request (map-tab-v2-plan.md §4.30), and the {@code tailLeft} this returned went with it —
+ * a coordinate with no renderer is the write-only shape this codebase deletes on sight.
+ *
+ * <p>{@code below} is deliberately NOT treated the same way, though the tail span was its only
+ * production reader and {@code MapCallout} now takes {@code left}/{@code top} alone. It is not a
+ * derived coordinate for a deleted element: it is this function's own flip DECISION, which it makes
+ * regardless in order to choose {@code top}, and returning it is what lets a test say "it flipped"
+ * rather than compare two pixel values that can coincide. Kept as the readable expression of that
+ * branch, not as a value anything paints.
  *
  * @param {object} args
  * @param {{x: number, y: number}} args.point   the marker's own container-relative pixel position
@@ -92,7 +103,7 @@ export function calloutBand({ frameWidth, frameHeight, bars }) {
  * @param {{top: number, bot: number}} args.band from {@link calloutBand}
  * @param {number} [args.gap]    vertical gap between the marker and the card
  * @param {number} [args.margin] horizontal clamp margin
- * @returns {{left: number, top: number, below: boolean, tailLeft: number}}
+ * @returns {{left: number, top: number, below: boolean}}
  */
 export function anchorCallout({
   point, cardWidth, cardHeight, frameWidth, band, gap = CALLOUT_GAP, margin = CALLOUT_MARGIN,
@@ -105,10 +116,7 @@ export function anchorCallout({
   }
   top = clamp(top, band.top, Math.max(band.top, band.bot - cardHeight));
   const left = clamp(point.x - cardWidth / 2, margin, Math.max(margin, frameWidth - cardWidth - margin));
-  const tailLeft = clamp(point.x - left - 5.5, 13, Math.max(13, cardWidth - 24));
-  return {
-    left, top, below, tailLeft,
-  };
+  return { left, top, below };
 }
 
 /**
