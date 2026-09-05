@@ -1,15 +1,9 @@
-import { describe, it, expect, afterEach, vi, beforeAll } from 'vitest';
+import { describe, it, expect, afterEach, vi } from 'vitest';
 import { act, render, screen, fireEvent, within } from '@testing-library/react';
 import React from 'react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { buildPaneItems } from '../utils/windowFirstAway.js';
-import warmPlanChunks from './warmPlanChunks.js';
-
-// Pays the shell's `lazy()` boundaries once per FILE, in a hook with its own budget, rather than
-// inside whichever test happens to run first. See `warmPlanChunks.js` for the measurements, the
-// membership rule and the full-suite reproduction that made this necessary.
-beforeAll(warmPlanChunks);
 
 describe('WindowFirstShell', () => {
   const renderShell = (props = {}) => {

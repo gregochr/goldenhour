@@ -1,9 +1,8 @@
 import React from 'react';
-import { describe, it, expect, vi, afterEach, beforeAll } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, cleanup, within } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
-import warmPlanChunks from './warmPlanChunks.js';
 
 /**
  * The shell's wiring for Door 1 (`◍ Open in map →`, `plan-to-map-doors-plan.md` §3 D4) — the popup
@@ -207,11 +206,6 @@ function railCells() {
 function doorButton() {
   return within(screen.getByTestId('window-sheet')).getByTestId('wf-row-map-open');
 }
-
-// Pays the shell's `lazy()` boundaries once per FILE, in a hook with its own budget, rather than
-// inside whichever test happens to run first. See `warmPlanChunks.js` for the measurements, the
-// membership rule and the full-suite reproduction that made this necessary.
-beforeAll(warmPlanChunks);
 
 describe('WindowFirstShell — Door 1 (the popup field’s "Open in map")', () => {
   it('renders no button at all when the shell has no map door', async () => {

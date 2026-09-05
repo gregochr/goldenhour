@@ -2,12 +2,11 @@ import React from 'react';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  describe, it, expect, vi, beforeEach, afterEach, beforeAll,
+  describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
-import warmPlanChunks from './warmPlanChunks.js';
 
 /**
  * The chrome model: the lens bar is the pane's ONE sticky element and it anchors at the top of the
@@ -128,11 +127,6 @@ const renderShell = (extraProps = {}) => {
     {...extraProps}
   />);
 };
-
-// Pays the shell's `lazy()` boundaries once per FILE, in a hook with its own budget, rather than
-// inside whichever test happens to run first. See `warmPlanChunks.js` for the measurements, the
-// membership rule and the full-suite reproduction that made this necessary.
-beforeAll(warmPlanChunks);
 
 beforeEach(() => {
   localStorage.clear();

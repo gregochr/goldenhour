@@ -1,11 +1,10 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import { getAlmanac } from '../api/almanacApi.js';
 import { markComingUpSeen } from '../api/settingsApi.js';
-import warmPlanChunks from './warmPlanChunks.js';
 
 /**
  * The Coming-up tab badge, `lastSeenAt` bootstrap and `Mark seen` (plan D3/D4/D12, P5).
@@ -155,11 +154,6 @@ const openComingUp = async () => {
   fireEvent.click(screen.getByRole('tab', { name: /^Coming up/ }));
   await act(async () => { await Promise.resolve(); });
 };
-
-// Pays the shell's `lazy()` boundaries once per FILE, in a hook with its own budget, rather than
-// inside whichever test happens to run first. See `warmPlanChunks.js` for the measurements, the
-// membership rule and the full-suite reproduction that made this necessary.
-beforeAll(warmPlanChunks);
 
 beforeEach(() => {
   getAlmanac.mockReset();

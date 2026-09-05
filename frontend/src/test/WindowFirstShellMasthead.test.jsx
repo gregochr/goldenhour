@@ -1,9 +1,8 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach, afterEach, beforeAll } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import WindowFirstShell from '../components/WindowFirstShell.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
-import warmPlanChunks from './warmPlanChunks.js';
 
 /**
  * The Plan's masthead, and specifically the status pill it inherited from the app header it
@@ -76,11 +75,6 @@ const renderShell = (extraProps = {}, ctxOverrides = {}) => {
   };
   return { ...props, ...render(<WindowFirstShell {...props} />) };
 };
-
-// Pays the shell's `lazy()` boundaries once per FILE, in a hook with its own budget, rather than
-// inside whichever test happens to run first. See `warmPlanChunks.js` for the measurements, the
-// membership rule and the full-suite reproduction that made this necessary.
-beforeAll(warmPlanChunks);
 
 beforeEach(() => {
   localStorage.clear();

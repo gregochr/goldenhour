@@ -127,47 +127,46 @@ export default defineConfig(({ mode }) => {
     css: false,
     globals: true,
     exclude: ['**/node_modules/**', '**/e2e/**'],
-    // ⚠️ Raised from Vitest's 5000 ms default because the suite's OWN async ceiling is 4000 ms, and
+    // ⚠️ Raised from Vitest's 5000 ms default, because the suite's OWN async ceiling is 4000 ms and
     // the two were incoherent. `setup.js` sets `asyncUtilTimeout: 4000` so a cold `React.lazy`
-    // boundary has room; a Plan-shell test crosses two of them in sequence, which the default could
-    // never hold — so the test died at 5000 ms before either `findBy*` reached its own ceiling or
-    // could name the wait that was stuck. What that looked like: `Test timed out in 5000ms`,
-    // pointing at the `it(` line and nothing else.
+    // boundary has room; a Plan-shell test crosses two of them in sequence, which a 5000 ms budget
+    // could never hold — so the test died before either `findBy*` reached its own ceiling or could
+    // name the wait that was stuck. What that looked like: `Test timed out in 5000ms`, pointing at
+    // the `it(` line and nothing else. Reproduced by running the full suite three times
+    // concurrently under a 16-process CPU load: 3 of 3 runs failed, on the FIRST test of three
+    // different shell files, while those files passed alone in six seconds.
     //
-    // Reproduced by running the full suite three times concurrently under a 16-process CPU load:
-    // 3 of 3 runs failed, on the FIRST test of three different shell files, while those files
-    // passed alone in six seconds. `src/test/warmPlanChunks.js` removes the largest part of that
-    // cost — see its note for the measurements — and this covers what is left, which is
-    // `React.lazy`'s own payload resolution: it happens on first RENDER, so no amount of module
-    // warming can pay it ahead of time, and it lands in whichever test runs first.
+    // **Why the first test and not the others.** It is the one that finds the module registry cold,
+    // so it pays the shell's four `lazy()` chunks for the whole file. Measured under a 20-process
+    // load: its first `findByTestId('wf-heat-strip')` took 1051 ms and its first
+    // `findByTestId('window-sheet')` 797 ms, where every later call in the same file took 3.5 ms and
+    // 50 ms.
+    //
+    // ⚠️ **Warming those chunks in a `beforeAll` was built, measured and then DELETED — do not
+    // rebuild it.** It works, and it is not needed. With the warm-up neutralised and this ceiling in
+    // place, the same reproduction is green 3 of 3 with a worst first test of 5744 ms; with the
+    // warm-up it is 5065 ms. That is a 12% tail reduction on a budget with 2.7x headroom, bought for
+    // a helper, a conformance test and a hook in thirteen files — whose membership rule ("renders
+    // the real shell", not "imports it") an adversarial review found wrong at BOTH ends on the first
+    // attempt. A mechanism that is easy to get wrong and changes no outcome is not worth carrying.
+    // The timeout alone is necessary and sufficient; the warm-up alone is neither (it left 4 of the
+    // 9 original failures standing).
+    //
+    // **Why 20000, and not 10000.** Across six concurrent-suite runs under this load the worst first
+    // test measured 7412 ms (`WindowFirstShellSheet`), with 5744 / 6421 / 7339 ms close behind on
+    // four different files. A 10 s ceiling would sit 1.35x above an observation that has already
+    // moved 1.7x between runs on the same machine; 20 s is ~2.7x, and a shared runner or a busier
+    // laptop has no ceiling this measurement establishes.
     //
     // ⚠️ **The cost is not just "a hang takes 20 s to report".** A tight per-test budget is also the
-    // only performance-regression detector this suite has, and THIS COMMIT IS THE PROOF: a per-file
-    // cost hiding inside a per-test budget was discoverable only because the budget was tight
-    // enough to fail on it. After this raise, a shell test that regresses to 6 s or 12 s passes
-    // silently. That is a real loss, accepted deliberately and written down here rather than
-    // discovered later. Two things blunt it: Testing Library's own 4000 ms ceiling still caps the
-    // ordinary "element never appears" case, so most failure latencies are unchanged; and the CI
-    // job carries a `timeout-minutes` so a genuine hang cannot run up the runner's clock.
-    //
-    // **Why 20000 and not 8000.** Derived, not picked. Under the reproduction load the worst
-    // post-fix first test measured 4903 / 5065 / 4939 ms across three concurrent suites
-    // (`locationSheetShell`) — one of them already OVER the old budget, which is why the warm-up
-    // alone was not enough. 20 s is ~4x the worst observed, and the load a laptop or a shared
-    // runner can produce has no ceiling that measurement establishes.
-    //
-    // **Why global and not `vi.setConfig` in the 13 warmed files.** Because the exposure is not
-    // confined to them: in the same runs `MapViewTypeFilter` and `WindowFirstMapPaneSelection` —
-    // neither of which mounts the Plan shell — took 3392-3625 ms and 3463-3516 ms on their own
-    // first tests, against a 5000 ms budget. Scoping the relaxation to the files that happened to
-    // fail first would have left the next two waiting their turn.
+    // only performance-regression detector this suite has, and THIS DEFECT IS THE PROOF: a per-file
+    // cost hiding inside a per-test budget was discoverable only because the budget was tight enough
+    // to fail on it. After this raise, a shell test that regresses to 6 s or 12 s passes silently.
+    // Accepted deliberately, and written down here rather than discovered later. Two things blunt
+    // it: Testing Library's own 4000 ms ceiling still caps the ordinary "element never appears"
+    // case, so most failure latencies are unchanged; and the frontend CI job now carries a
+    // `timeout-minutes` so a genuine hang cannot run up the runner's clock.
     testTimeout: 20000,
-    // Raised WITH `testTimeout`, because this change moved the load-sensitive work into a hook
-    // (`src/test/warmPlanChunks.js`) and left it on the default 10 000 ms. The asymmetry is what
-    // makes it worth a line: a blown test budget fails ONE test, a blown hook budget fails EVERY
-    // test in the file. Budgeting the residue generously while leaving the relocated bulk on a
-    // default would have swapped a single-test flake for a whole-file one.
-    hookTimeout: 20000,
   },
   };
 });

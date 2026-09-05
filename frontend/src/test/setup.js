@@ -88,16 +88,14 @@ if (typeof globalThis.localStorage === 'undefined' || typeof globalThis.localSto
  * instead of one.
  *
  * <p>⚠️ <b>It WAS also 80% of Vitest's then-5000 ms per-test budget, and that was not enough on
- * its own.</b> The measurement above stands; the conclusion drawn beside it — that "there is nothing to gate on"
- * — does not, and the shell files no longer rely on this line alone. A test that crosses two of
- * those boundaries in sequence can spend the whole budget before either {@code findBy*} reaches its
- * own ceiling, so it dies as {@code Test timed out in 5000ms} without naming the wait that was
- * stuck. Reproduced by running the full suite three times concurrently under a 16-process CPU load:
- * 3 of 3 runs failed identically, on the first test of three different shell files. Two changes
- * answer it, and neither is sufficient alone: there IS something to gate on — a test can load the
- * module itself — which is what {@code warmPlanChunks.js} does in a {@code beforeAll} where the
- * cost is per-file, and {@code vite.config.js} raises {@code testTimeout} to 20 000 ms so this
- * 4000 ms ceiling is reachable at all. This line stays as the backstop for every OTHER boundary in
- * the suite.
+ * its own.</b> The measurement above stands, and so does the conclusion beside it — the fix really
+ * was the timeout rather than a gate — but the ceiling was raised without the per-test budget
+ * moving with it, and a test crossing TWO of these boundaries in sequence cannot fit two 4000 ms
+ * waits into 5000 ms. So it died as {@code Test timed out in 5000ms} naming neither wait.
+ * Reproduced by running the full suite three times concurrently under a 16-process CPU load: 3 of 3
+ * runs failed identically, on the first test of three different shell files.
+ * {@code vite.config.js} now sets {@code testTimeout: 20000}, which is what makes this 4000 ms
+ * ceiling reachable at all; its note carries the measurements, and the record of a per-file
+ * warm-up that was built to gate these boundaries and then deleted as unnecessary.
  */
 configure({ asyncUtilTimeout: 4000 });

@@ -640,14 +640,13 @@ a ceiling rather than a delay (a resolved boundary still returns immediately). I
 because there is nothing to gate on: the module either has loaded or has not. The cost is that a
 genuinely never-appearing element fails after four seconds instead of one.
 
-> **Superseded 2026-09-05.** The measurement above stands; the conclusion beside it — *"it is
-> the honest fix because there is nothing to gate on"* — does not. There is: a test can load
-> the module itself, which `frontend/src/test/warmPlanChunks.js` now does in a `beforeAll` for
-> every file that renders the shell. The 4000 ms ceiling also turned out to be 80% of Vitest's
-> then-5000 ms per-test budget, so a test crossing two of these boundaries died as a bare
-> `Test timed out in 5000ms` before either wait could reach it; `testTimeout` and `hookTimeout`
-> moved to 20 000 ms with it. Left standing above rather than rewritten, because §11 is the
-> record of what was known at M5.
+> **Amended 2026-09-05.** The measurement and the conclusion above both stand — the fix was the
+> ceiling, not a gate — but raising it to 4000 ms without moving Vitest's 5000 ms per-test budget
+> left the two incoherent: a test crossing TWO of these boundaries cannot fit two 4000 ms waits
+> into 5000 ms, so it died as a bare `Test timed out in 5000ms` naming neither. `testTimeout` moved
+> to 20 000 ms. A per-file `beforeAll` warm-up was also built, to gate exactly what this paragraph
+> says cannot be gated; it worked, and it was deleted, because the timeout alone is necessary and
+> sufficient and the warm-up alone is neither. See `frontend/vite.config.js`.
 
 ### 11a. Claims by how they were established
 
