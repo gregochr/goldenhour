@@ -22,12 +22,26 @@ import {
  *
  * <h2>What this file can and cannot prove</h2>
  *
+ * <h2>⚠️ The MECHANISM changed at map-landing L2; the invariant did not</h2>
+ *
+ * <p>#773 held the width constant with a fixed `width: 262px` on the pill, derived from the
+ * dropdown's 334px so the two shared both edges. That worked while the pill held three parts. L2
+ * adds a verdict cell and, on two windows in the whole forecast, a pick medallion — measured at up
+ * to **417.47px** of reachable content — so a 262px pill would ellipse the day label, which is the
+ * one thing the design says must never truncate.
+ *
+ * <p>The width is now a property of the FRAME rather than of the content, which is the same
+ * guarantee by a different route: `.wf-map-tab .wf-map-chrome-tl` bounds the group on the right
+ * (clear of the Regions / Heat-Pins / Filters cluster), `.wf-win-control` caps it at 504px, and the
+ * pill fills whatever is left. At any given viewport every event renders the same width, so `›`
+ * still does not move as the reader steps — and the dropdown still shares both edges, because the
+ * cap is on the GROUP and the menu is `width: 100%` of it.
+ *
  * <p>jsdom resolves specificity but implements no layout — `getBoundingClientRect` answers zero for
  * everything — so nothing here measures a pill, and the px figures above are browser measurements
- * this file takes on trust. What it pins is the mechanism: that the pill's width is a FIXED length
- * rather than a cap (a revert to `max-width` reads back as `auto`), that it cannot shrink below it,
- * that the label carries the `flex` + `overflow` pair that lets it absorb the slack and clip, and
- * that the phone rule hands the width back.
+ * this file takes on trust. What it pins is the mechanism: that the group is bounded and capped,
+ * that the pill fills rather than content-sizes, that the label carries the `flex` + `overflow` pair
+ * that lets it absorb the slack and clip, and that the phone rule hands the width back.
  *
  * <p>⚠️ It also cannot see `box-sizing`. That comes from Tailwind's preflight via
  * `@import "tailwindcss"` on line 1, which the slicer below never resolves — `index.css` itself
@@ -39,11 +53,23 @@ import {
 
 const CSS_PATH = resolve(process.cwd(), 'src/index.css');
 
-/** The four classes the control's geometry lives on. */
-const NEEDLES = ['.wf-win-pill', '.wf-win-label', '.wf-win-control', '.wf-win-step'];
+/** The classes the control's geometry lives on — the chrome box included, since L2 the bound that
+ *  makes "the pill fills" mean "the pill is constant" lives there. */
+const NEEDLES = ['.wf-win-pill', '.wf-win-label', '.wf-win-control', '.wf-win-step', '.wf-map-chrome-tl'];
 
-/** The one media query this stylesheet gives the window control. */
-const PHONE_QUERY = 'max-width: 639px';
+/**
+ * The media queries this stylesheet gives the window control, widest breakpoint first.
+ *
+ * <p>L2 added two beyond the original phone one, because the design's yield order needs two
+ * intermediate steps: the medallion's WORDS are withdrawn once the group can no longer hold the
+ * widest content (811), and the medallion goes entirely once the day label would start to clip
+ * (389). `extractRules` concatenates every query at or below the requested width, in source order,
+ * which is what the cascade resolves to.
+ */
+const QUERIES = ['max-width: 811px', 'max-width: 639px', 'max-width: 389px'];
+
+/** Widths at which each viewport name resolves — only queries at or above the width apply. */
+const VIEWPORT_WIDTH = { desktop: 1280, tablet: 700, phone: 390, tiny: 320 };
 
 /** `index.css` with comments stripped — they carry both braces and the class names. */
 function readCss() {
@@ -110,10 +136,15 @@ function sliceTopLevelBlocks(css) {
  */
 function extractRules(needles, viewport) {
   const matches = (selector) => needles.some((needle) => selector.includes(needle));
+  const width = VIEWPORT_WIDTH[viewport];
+  expect(width, `unknown viewport "${viewport}"`).toBeTypeOf('number');
+  /** Which of `QUERIES` a viewport of `width` actually matches. */
+  const applies = (selector) => QUERIES.some((q) => selector.includes(q)
+    && width <= Number(q.match(/(\d+)/)[1]));
   const rules = [];
   for (const block of sliceTopLevelBlocks(readCss())) {
     if (block.selector.startsWith('@')) {
-      if (viewport !== 'phone' || !block.selector.includes(PHONE_QUERY)) continue;
+      if (!applies(block.selector)) continue;
       for (const nested of sliceTopLevelBlocks(block.bodyInner)) {
         if (matches(nested.selector)) rules.push(`${nested.selector} {${nested.bodyInner}}`);
       }
@@ -130,17 +161,33 @@ afterEach(() => {
   cleanupFns = [];
 });
 
-/** Injects `slice`, builds `className`, and hands back its computed style. */
-function computedStyleFor(slice, className) {
+/**
+ * Injects `slice`, builds `className` under any `ancestors`, and hands back its computed style.
+ *
+ * <p>The ancestor chain is not optional decoration: since L2 the two declarations that bound the
+ * control are written as descendant selectors scoped to the tab (`.wf-map-tab .wf-win-control`,
+ * `.wf-map-tab .wf-map-chrome-tl`) so they cannot reach the frozen Plan-tab overlay. A single
+ * element carrying both class names does not match a descendant selector, so a test written that
+ * way reads the BASE rule and passes while asserting nothing about the scoped one — the same shape
+ * `mapPhoneChromeCascade.test.jsx`'s own helper takes for the same reason.
+ */
+function computedStyleFor(slice, className, ancestors = []) {
   const style = document.createElement('style');
   style.textContent = slice;
   document.head.appendChild(style);
-  const el = document.createElement('div');
-  el.className = className;
-  document.body.appendChild(el);
-  cleanupFns.push(() => { style.remove(); el.remove(); });
-  return getComputedStyle(el);
+  const nodes = [...ancestors, className].map((cls) => {
+    const el = document.createElement('div');
+    el.className = cls;
+    return el;
+  });
+  for (let i = 0; i < nodes.length - 1; i += 1) nodes[i].appendChild(nodes[i + 1]);
+  document.body.appendChild(nodes[0]);
+  cleanupFns.push(() => { style.remove(); nodes[0].remove(); });
+  return getComputedStyle(nodes[nodes.length - 1]);
 }
+
+/** The tab root, the ancestor both of L2's scoped bounds hang off. */
+const TAB = ['wf-map-tab'];
 
 const PILL = ['.wf-win-pill'];
 const LABEL = ['.wf-win-label'];
@@ -156,7 +203,7 @@ describe('the slicer sees every rule there is', () => {
       if (!block.selector.startsWith('@')) continue;
       const nested = sliceTopLevelBlocks(block.bodyInner)
         .filter((r) => NEEDLES.some((needle) => r.selector.includes(needle)));
-      if (nested.length && !block.selector.includes(PHONE_QUERY)) {
+      if (nested.length && !QUERIES.some((q) => block.selector.includes(q))) {
         stray.push(`${block.selector} → ${nested.map((r) => r.selector).join(', ')}`);
       }
     }
@@ -165,36 +212,131 @@ describe('the slicer sees every rule there is', () => {
   });
 });
 
-describe('the window control is one width on the desktop, whatever the event says', () => {
-  it('the pill takes a fixed width rather than a cap a short label can undercut', () => {
-    // 262px so the control totals the dropdown's own 334px — see the rule's comment; a revert to
-    // `max-width` leaves `width` at `auto` and the pill content-sized again.
-    expect(computedStyleFor(extractRules(PILL, 'desktop'), 'wf-win-pill').width).toBe('262px');
+describe('the window control is one width per frame, whatever the event says', () => {
+  // ⚠️ These assert the CHAIN, not a list of values. The old file's second test existed so the
+  // claim held "by construction instead of by arithmetic that a later layout change could quietly
+  // invalidate", and L2's first rewrite dropped it for three value assertions — every one of which
+  // stayed true while the invariant was false (measured: `›` travelled 182.58px). Each test below
+  // names the link it holds and the failure that link's absence produces.
+
+  it('link 1 — the group has a DECLARED width, so the box hugs a constant', () => {
+    // Without this the shrink-to-fit box hugs the CONTENT instead, the pill is content-sized, and
+    // the steppers travel with the event. Measured at 182.58px when this was only a `max-width`.
+    const style = computedStyleFor(extractRules(['.wf-win-control'], 'desktop'), 'wf-win-control');
+    expect(style.width).toBe('504px');
+    expect(style.maxWidth).toBe('100%');
   });
 
-  it('the pill cannot shrink below that width when its own container is tight', () => {
-    // The pill is itself a flex item, so without this the fixed width is only a basis and the
-    // "constant 334px" claim would hold by arithmetic rather than by construction.
-    expect(computedStyleFor(extractRules(PILL, 'desktop'), 'wf-win-pill').flexShrink).toBe('0');
+  it('link 2 — the pill FILLS that width rather than taking its content\'s', () => {
+    expect(computedStyleFor(extractRules(PILL, 'desktop'), 'wf-win-pill').flexGrow).toBe('1');
   });
 
-  it('the label absorbs the slack the fixed width leaves', () => {
-    expect(computedStyleFor(extractRules(LABEL, 'desktop'), 'wf-win-label').flexGrow).toBe('1');
-  });
-
-  it('the label clips rather than pushing the caret out of the pill', () => {
-    // ⚠️ `overflow: hidden` is the load-bearing half, NOT a `min-width: 0` — an item that is
-    // already a scroll container has an automatic minimum of zero (CSS Sizing 3 §5.1), so a
-    // `min-width: 0` here would be a no-op. One was added and removed at adversarial review;
-    // measured in Chromium, clipping and the caret's position are identical either way.
-    const style = computedStyleFor(extractRules(LABEL, 'desktop'), 'wf-win-label');
+  it('link 3 — the pill can actually shrink, which needs min-width AND overflow', () => {
+    // ⚠️ The pill is NOT a scroll container by default, so its automatic minimum is its min-content
+    // width and `flex-shrink` never engages — it overflows instead, under the right-hand cluster
+    // where it goes dead to clicks. #773 measured `min-width: 0` as a no-op on `.wf-win-label`,
+    // which IS a scroll container; that finding does not transfer to this element.
+    const style = computedStyleFor(extractRules(PILL, 'desktop'), 'wf-win-pill');
+    expect(style.minWidth).toBe('0px');
     expect(style.overflow).toBe('hidden');
-    expect(style.textOverflow).toBe('ellipsis');
   });
 
-  it('the steppers keep the 32px the design gives them', () => {
-    // The other half of the 334px total. Named here so a change to it has to face this file.
-    expect(computedStyleFor(extractRules(['.wf-win-step'], 'desktop'), 'wf-win-step').width).toBe('32px');
+  it('link 4 — the steppers never shrink, so they cannot move under compression', () => {
+    // The direct successor of the assertion #773 wrote and L2's first rewrite deleted. Drop this and
+    // the steppers become content-sized under pressure and `›` moves as the reader steps, with every
+    // other test in this file still green.
+    const style = computedStyleFor(extractRules(['.wf-win-step'], 'desktop'), 'wf-win-step');
+    expect(style.flexShrink).toBe('0');
+    expect(style.width).toBe('32px');
+  });
+
+  it('link 5 — the day label grows but never shrinks, so it is the last thing to yield', () => {
+    // The design's own constraint: "the day label never truncates … the medallion words and the
+    // region yield instead". `flex: 1` (a 0 base) made it the FIRST to yield, all the way to zero.
+    const style = computedStyleFor(extractRules(LABEL, 'desktop'), 'wf-win-label');
+    expect(style.flexGrow).toBe('1');
+    expect(style.flexShrink).toBe('0');
+  });
+
+  it('link 6 — the region line yields first, by cap and ellipsis', () => {
+    const cell = computedStyleFor(extractRules(['.wf-win-verdict'], 'desktop'), 'wf-win-verdict');
+    // The cell itself must be shrinkable for its child's cap to matter.
+    expect(cell.minWidth).toBe('0px');
+    const region = computedStyleFor(
+      extractRules(['.wf-win-verdict'], 'desktop'), 'wf-win-verdict-region', ['wf-win-verdict'],
+    );
+    expect(region.maxWidth).toBe('112px');
+    expect(region.textOverflow).toBe('ellipsis');
+  });
+
+  it('the box is BOUNDED but not STRETCHED — the difference is a dead strip over the map', () => {
+    // ⚠️ `right` beside the existing `left` stretches this absolutely-positioned block to
+    // `100% − 308px`: a transparent div at z-index 1100 across the top of the map that swallows
+    // every drag begun in it, and a label-placement obstacle (`MapLabels.jsx`) three times its
+    // licensed size. `max-width` bounds it while leaving it shrink-to-fit.
+    const style = computedStyleFor(
+      extractRules(['.wf-map-chrome-tl'], 'desktop'), 'wf-map-chrome-tl', TAB,
+    );
+    expect(style.maxWidth).toBe('calc(100% - 308px)');
+    expect(style.right).toBe('auto');
+  });
+
+  it('the tab-scoped bounds do NOT reach a control outside the tab (the frozen overlay)', () => {
+    // ⚠️ The ancestor chain makes the descendant selector match; it does not prove the selector IS
+    // scoped. Dropping `.wf-map-tab ` from either rule leaves every other assertion in this file
+    // green while the frozen Plan-tab overlay inherits a bound written for the tab.
+    const chrome = computedStyleFor(
+      extractRules(['.wf-map-chrome-tl'], 'desktop'), 'wf-map-chrome-tl',
+    );
+    expect(chrome.maxWidth).toBe('none');
+  });
+
+  it('the menu shares both edges with the control, at every frame', () => {
+    // ⚠️ No `min-width`. `min-width` beats `max-width` (CSS 2.1 §10.4), so one here disables both
+    // this rule's own `max-width: calc(100vw - 32px)` and the phone rule's `max-width: none` —
+    // measured, the dropdown rendered 22px past the right edge of a 320px viewport.
+    const style = computedStyleFor(extractRules(['.wf-win-menu'], 'desktop'), 'wf-win-menu');
+    expect(style.width).toBe('100%');
+    // `auto` is jsdom's reading for "never declared", which is the assertion: no `min-width` at all.
+    expect(style.minWidth).toBe('auto');
+  });
+});
+
+describe('the yield order the design specifies, breakpoint by breakpoint', () => {
+  it('at 811px and below the medallion words are hidden VISUALLY, not removed', () => {
+    // ⚠️ `display: none` takes an element out of the accessibility tree, and the glyph beside it is
+    // `aria-hidden` — so the pick would vanish from the pill's accessible name entirely while a
+    // sighted reader still saw ◎/○. This project's own standards name that as a defect.
+    const style = computedStyleFor(
+      extractRules(['.wf-win-pick-words'], 'tablet'), 'wf-win-pick-words', TAB,
+    );
+    expect(style.display).not.toBe('none');
+    expect(style.position).toBe('absolute');
+    expect(style.clipPath).toBe('inset(50%)');
+  });
+
+  it('at 639px and below the region line goes and the word stays', () => {
+    const rules = extractRules(['.wf-win-verdict'], 'phone');
+    const region = computedStyleFor(rules, 'wf-win-verdict-region', ['wf-map-tab', 'wf-win-verdict']);
+    const word = computedStyleFor(rules, 'wf-win-verdict-word', ['wf-map-tab', 'wf-win-verdict']);
+
+    expect(region.display).toBe('none');
+    // The verdict WORD is never withdrawn — a phone reader still gets the answer.
+    expect(word.display).not.toBe('none');
+  });
+
+  it('at 389px and below the medallion leaves the layout, so the day label keeps its space', () => {
+    const style = computedStyleFor(
+      extractRules(['.wf-win-pick'], 'tiny'), 'wf-win-pick', ['wf-map-tab', 'wf-win-pill'],
+    );
+    expect(style.display).toBe('none');
+  });
+
+  it('the medallion is still present at 390px, the frame the plan measures', () => {
+    const style = computedStyleFor(
+      extractRules(['.wf-win-pick'], 'phone'), 'wf-win-pick', ['wf-map-tab', 'wf-win-pill'],
+    );
+    expect(style.display).not.toBe('none');
   });
 });
 
@@ -203,8 +345,13 @@ describe('the phone rule hands the width back (map-tab-v2-plan.md §3 P12)', () 
   // `min-height: 40px`, `flex: 1` and `justify-content: center` are already pinned by
   // `mapPhoneChromeCascade.test.jsx` ("the window pill grows to 40px and fills the full-width
   // control on the phone"); restating them would be two suites owning one claim.
-  it('the pill drops the desktop fixed width', () => {
-    expect(computedStyleFor(extractRules(PILL, 'phone'), 'wf-win-pill').width).toBe('auto');
+  it('the group drops the desktop cap and the chrome box drops its bound', () => {
+    // The nav cluster has moved to the bottom bar down here, so the top-left box owns the full
+    // width and the control fills the row.
+    expect(computedStyleFor(extractRules(['.wf-win-control'], 'phone'), 'wf-win-control', TAB).maxWidth)
+      .toBe('none');
+    expect(computedStyleFor(extractRules(['.wf-map-chrome-tl'], 'phone'), 'wf-map-chrome-tl', TAB).right)
+      .toBe('8px');
   });
 
   it('the label stops growing, so there is free space left to centre', () => {

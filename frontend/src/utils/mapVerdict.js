@@ -279,3 +279,46 @@ export function buildEvVerdicts({ events, index, regionsInScope, overlayMode = f
   }
   return out;
 }
+
+/**
+ * The region line under the pill's verdict word — the design's three label cases, in one place
+ * (`docs/design/map-landing/README.md` §1 "Naming the region", map-landing-plan.md §3 L2).
+ *
+ * <ul>
+ *   <li>one region in the tier → the region's name</li>
+ *   <li>several, not all → {@code "<name> +N"}, N being the OTHERS that share it</li>
+ *   <li>every region in scope (n &gt; 1) → no name at all, the scope's own words</li>
+ * </ul>
+ *
+ * <p><b>Both failures the third case exists to prevent were made during the design.</b> Naming only
+ * the strongest overclaims — three regions Worth it reading as <em>only</em> the Lakes. Naming the
+ * top one when they all share the tier presents the least-bad region as a destination, which is the
+ * same overclaim inverted. The count is the more useful half either way: one region Worth it is a
+ * <em>where</em> answer, three is a <em>pick on drive time</em> answer.
+ *
+ * <p>⚠️ <b>The "everywhere" wording follows the scope segment, and there are two forms, not the
+ * three the plan first specified</b> (§4 #7). "My area" gets <em>everywhere in your area</em>;
+ * "Everywhere" gets <em>everywhere</em>. The third form — <em>everywhere around &lt;base&gt;</em> —
+ * cannot render: an away origin scopes to a single region, so {@code allInScope}'s {@code n > 1}
+ * guard is never satisfied there.
+ *
+ * <p><b>Full served region names, truncated by CSS.</b> The design's curated short-name table
+ * ({@code lakes -> the Lakes}) has no producer in this app — that is `map-tab-v2-plan.md` **O-4**,
+ * still open — and inventing a client-side map would be a second source of truth for a region's
+ * name. The pill ellipses instead.
+ *
+ * @param {?{regionName: ?string, sharingCount: number, allInScope: boolean}} verdict from
+ *        {@link windowVerdict}; null yields an empty string
+ * @param {object} [opts]
+ * @param {boolean} [opts.scopeIsArea] true when the scope segment is "My area" rather than
+ *        "Everywhere" — decides only the all-in-scope wording
+ * @returns {string} the region line, or '' when there is nothing to name
+ */
+export function verdictRegionLabel(verdict, { scopeIsArea = true } = {}) {
+  if (!verdict) return '';
+  if (verdict.allInScope) return scopeIsArea ? 'everywhere in your area' : 'everywhere';
+  if (!verdict.regionName) return '';
+  return verdict.sharingCount > 0
+    ? `${verdict.regionName} +${verdict.sharingCount}`
+    : verdict.regionName;
+}

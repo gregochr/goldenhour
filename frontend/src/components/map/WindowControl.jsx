@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { calDow } from '../../utils/windowFirstStrip.js';
-import { badgeChannel } from '../../utils/windowFirstCards.js';
+import { VERDICT_LABEL, badgeChannel } from '../../utils/windowFirstCards.js';
+import { verdictRegionLabel } from '../../utils/mapVerdict.js';
 
 /**
  * The Map tab's single chronological window control — map-tab-v2-plan.md §3 P6,
@@ -41,6 +42,7 @@ import { badgeChannel } from '../../utils/windowFirstCards.js';
  */
 export default function WindowControl({
   events, activeIndex, onSelect, open: openProp, onOpenChange = null,
+  verdicts = null, scopeIsArea = true,
 }) {
   const isControlled = openProp !== undefined;
   const [openState, setOpenState] = useState(false);
@@ -65,6 +67,36 @@ export default function WindowControl({
   // "next" means.
   const atStart = !active || activeIndex <= 0;
   const atEnd = !active || activeIndex >= events.length - 1;
+
+  /**
+   * One EV row's tier, or null — the stepper ticks' whole source, and the pill's.
+   *
+   * <p>A miss is the honest answer for three different rows and this control draws all three the
+   * same way (no tick, no word): a NIGHT row, which has no per-region rollup at all
+   * (map-tab-v2-plan.md O-16, and §6 Q1 decided its cell renders empty); an unscored solar row; and
+   * a row beyond the briefing's horizon. Telling them apart is `row.kind`'s job, not this map's —
+   * see `utils/mapVerdict.js`'s own note on how overloaded a null is here.
+   */
+  function verdictAt(index) {
+    const row = index >= 0 && index < events.length ? events[index] : null;
+    return row ? (verdicts?.get(row.id) ?? null) : null;
+  }
+  const activeVerdict = active ? (verdicts?.get(active.id) ?? null) : null;
+
+  /**
+   * A stepper's accessible name, carrying the neighbour's verdict when there is one.
+   *
+   * <p>⚠️ Without this the tick is a colour-only channel with NO text alternative: it is
+   * {@code aria-hidden}, and `aria-label` REPLACES a button's subtree, so nothing about the
+   * neighbouring window reached a screen reader at all. The whole point of the tick — "`‹ ›` stop
+   * being blind", so the reader can see whether the night either side is better before spending a
+   * tap — was delivered to sighted users only, and at 11×3px the three tier colours are also the
+   * canonical red/green confusion for a dichromat (WCAG 1.4.1). The word is the second channel.
+   */
+  function stepLabel(base, verdict) {
+    const word = verdict ? VERDICT_LABEL[verdict.tier] : null;
+    return word ? `${base}, ${word}` : base;
+  }
 
   useEffect(() => {
     if (!open) return undefined;
@@ -136,17 +168,21 @@ export default function WindowControl({
       <button
         type="button"
         data-testid="wf-win-prev"
-        aria-label="Previous event"
+        aria-label={stepLabel('Previous event', atStart ? null : verdictAt(activeIndex - 1))}
         className="wf-win-step"
         disabled={atStart}
         onClick={() => step(-1)}
       >
         &#x2039;
+        <StepTick verdict={atStart ? null : verdictAt(activeIndex - 1)} />
       </button>
 
       <button
         type="button"
         data-testid="wf-win-pill"
+        /* The tint is an inset left bar plus a matching border, keyed off the tier. A night row and
+           an unscored one both carry no tier and so no tint, which is the design's own rule. */
+        data-tier={activeVerdict?.tier || undefined}
         className="wf-win-pill"
         aria-haspopup="listbox"
         aria-expanded={open}
@@ -157,12 +193,23 @@ export default function WindowControl({
         {active ? (
           <>
             <KindChip row={active} />
+            {' '}
             {/* The kind chip already reads SUNRISE/SUNSET, so the pill text is the day-only
                 form — `dayLabel`, never `label` (map-tab-v2-plan.md's kind-chip dedup). Falls
                 back to `label` for a caller that predates the field, rather than rendering
                 nothing. */}
             <span className="wf-win-label">{active.dayLabel ?? active.label}</span>
+            {' '}
             {active.time && <span className="wf-win-time">{active.time}</span>}
+            {/* ⚠️ The bare spaces are load-bearing, not formatting. accname TRIMS each element's own
+                contribution before concatenating, so sibling spans join with nothing between them —
+                measured, this name read "20:28Also goodWorth iteverywhere in your area". With the
+                stylesheet loaded the inline-flex boxes happen to insert spaces, which makes the name
+                a side effect of a `display` value the phone rule already proves is volatile. */}
+            {' '}
+            <Medallion kind={active.pickKind} />
+            {' '}
+            <VerdictCell verdict={activeVerdict} scopeIsArea={scopeIsArea} />
           </>
         ) : (
           // The map is on a date/event this list has no row for — an ordinary state (the map's
@@ -177,12 +224,13 @@ export default function WindowControl({
       <button
         type="button"
         data-testid="wf-win-next"
-        aria-label="Next event"
+        aria-label={stepLabel('Next event', atEnd ? null : verdictAt(activeIndex + 1))}
         className="wf-win-step"
         disabled={atEnd}
         onClick={() => step(1)}
       >
         &#x203A;
+        <StepTick verdict={atEnd ? null : verdictAt(activeIndex + 1)} />
       </button>
 
       {open && (
@@ -226,6 +274,8 @@ WindowControl.propTypes = {
     scored: PropTypes.bool,
     badges: PropTypes.array,
     rosterNote: PropTypes.string,
+    /** `'best'` / `'also'` when this window is one of the forecast's two served picks. */
+    pickKind: PropTypes.oneOf(['best', 'also']),
   })).isRequired,
   /** Index into `events` of the currently-shown row; -1 when nothing matches yet. */
   activeIndex: PropTypes.number.isRequired,
@@ -238,6 +288,104 @@ WindowControl.propTypes = {
   open: PropTypes.bool,
   /** Fired on every open/close this component would otherwise have applied to local state. */
   onOpenChange: PropTypes.func,
+  /**
+   * Row id → that window's verdict, from `utils/mapVerdict.buildEvVerdicts`. Optional: omitting it
+   * renders the control exactly as it did before this phase, which is what the frozen Plan-tab
+   * overlay would get if it ever mounted this control (it does not).
+   */
+  verdicts: PropTypes.instanceOf(Map),
+  /** Whether the scope segment reads "My area" — decides only the all-in-scope wording. */
+  scopeIsArea: PropTypes.bool,
+};
+
+/** The two picks' vocabulary — glyph and words, as SEPARATE elements (see {@link Medallion}). */
+const PICK_TEXT = { best: { glyph: '\u25CE', words: 'Best bet' }, also: { glyph: '\u25CB', words: 'Also good' } };
+
+/**
+ * The pick medallion — an outline chip, never a filled one.
+ *
+ * <p>A filled chip became the loudest thing on a control whose job is the verdict; it was built and
+ * cut, and the rejection is part of the spec. Drawn only where the window it names is on screen: on
+ * the pill when the current window is a pick, and on every menu row that is one. ⚠️ <b>No chip
+ * pointing at OTHER windows</b> — also built, also cut, because it put a second navigation control
+ * on the map to answer a question the reader arrives from the Plan tab already having answered.
+ *
+ * <p>⚠️ <b>The glyph and the words are separate elements, and that is load-bearing.</b> The phone
+ * rule drops the words and keeps the glyph; doing it with {@code font-size: 0} plus
+ * {@code ::first-letter} does not work, because these glyphs are symbols rather than letters and the
+ * chip renders as an empty bordered box.
+ *
+ * <p><b>The colours are this arm's own pick channel, not the bundle's.</b> The design gives
+ * ALSO GOOD {@code #EFC377} — which in this app is {@code --color-badge-maybe}, the <em>Maybe
+ * verdict</em> colour, and it would sit six pixels from a verdict word drawn in exactly that amber
+ * on exactly the windows where the runner-up is a Maybe. The Plan matrix already answered this for
+ * its own BEST BET / ALSO GOOD legend — one green channel at two strengths — so this reuses that
+ * pair rather than minting a second vocabulary (map-landing-plan.md §4 #12).
+ */
+function Medallion({ kind }) {
+  const pick = kind ? PICK_TEXT[kind] : null;
+  if (!pick) return null;
+  return (
+    <span className="wf-win-pick" data-pick={kind} data-testid="wf-win-pick">
+      <i aria-hidden="true" data-testid="wf-win-pick-glyph" className="wf-win-pick-glyph">{pick.glyph}</i>
+      <span data-testid="wf-win-pick-words" className="wf-win-pick-words">{pick.words}</span>
+    </span>
+  );
+}
+
+Medallion.propTypes = { kind: PropTypes.oneOf(['best', 'also']) };
+
+/**
+ * The verdict word, with the region it is true of stacked under it.
+ *
+ * <p><b>Stacked, not inline.</b> The design measured the inline form at about 120px, which pushed
+ * the stepper under the right-hand nav cluster — so the word sits over the region, and the region
+ * is the part that yields at phone width.
+ *
+ * <p>Renders nothing at all when there is no verdict. That covers a night row (§6 Q1: the cell is
+ * empty, and nothing is borrowed from the solar vocabulary or synthesised from the night's stars),
+ * an unscored window, and a date beyond the briefing.
+ */
+function VerdictCell({ verdict, scopeIsArea }) {
+  if (!verdict) return null;
+  const region = verdictRegionLabel(verdict, { scopeIsArea });
+  return (
+    <span className="wf-win-verdict" data-tier={verdict.tier} data-testid="wf-win-verdict">
+      <b className="wf-win-verdict-word" data-testid="wf-win-verdict-word">{VERDICT_LABEL[verdict.tier] || VERDICT_LABEL.AWAITING}</b>
+      {/* Same accname rule as the pill's own siblings: without this the word and the region read as
+          one token ("Worth iteverywhere in your area"). */}
+      {' '}
+      {/* A `<span>`, not an `<em>`: `<em>` means stress emphasis, some AT announces it, and the
+          stylesheet immediately sets `font-style: normal` on it — the tell that none is intended. */}
+      {region && <span className="wf-win-verdict-region" data-testid="wf-win-verdict-region">{region}</span>}
+    </span>
+  );
+}
+
+VerdictCell.propTypes = {
+  verdict: PropTypes.shape({
+    tier: PropTypes.string.isRequired,
+    regionName: PropTypes.string,
+    sharingCount: PropTypes.number,
+    allInScope: PropTypes.bool,
+  }),
+  scopeIsArea: PropTypes.bool,
+};
+
+/**
+ * The stepper's verdict tick — the tier of the window one step back or forward.
+ *
+ * <p>"`‹ ›` stop being blind": the map draws one window at a time, so without this the reader
+ * cannot see whether the night either side is better before spending a tap. Hidden when the stepper
+ * is disabled (there is no neighbour to describe) and when the neighbour carries no tier.
+ */
+function StepTick({ verdict }) {
+  if (!verdict?.tier) return null;
+  return <i aria-hidden="true" className="wf-win-tick" data-tier={verdict.tier} data-testid="wf-win-tick" />;
+}
+
+StepTick.propTypes = {
+  verdict: PropTypes.shape({ tier: PropTypes.string }),
 };
 
 /** "SAT 12" — the dropdown's day heading, from the app's own weekday abbreviation. */
@@ -311,11 +459,21 @@ function WindowRow({ row, active, onSelect }) {
       onClick={onSelect}
     >
       <KindChip row={row} />
+      {' '}
       <span className="wf-win-row-main">
         {/* Day-only form beside the kind chip — see the collapsed pill above, including the
             same back-compat fallback. */}
         <b>{row.dayLabel ?? row.label}</b>
-        {row.time && <span className="wf-win-row-time">{row.time}</span>}
+        {' '}
+        <span className="wf-win-row-sub">
+          {row.time && <span className="wf-win-row-time">{row.time}</span>}
+          {' '}
+          {/* Inside the label cell rather than as a fifth grid child: the row's
+              `grid-template-columns` is a fixed four, and a conditional fifth child would leave the
+              score and topic columns landing in different places on rows that have a pick and rows
+              that do not. */}
+          <Medallion kind={row.pickKind} />
+        </span>
       </span>
       <span className="wf-win-row-score">
         {row.scored ? (
@@ -345,6 +503,8 @@ WindowRow.propTypes = {
     scored: PropTypes.bool,
     badges: PropTypes.array,
     rosterNote: PropTypes.string,
+    /** `'best'` / `'also'` when this window is one of the forecast's two served picks. */
+    pickKind: PropTypes.oneOf(['best', 'also']),
   }).isRequired,
   active: PropTypes.bool.isRequired,
   onSelect: PropTypes.func.isRequired,

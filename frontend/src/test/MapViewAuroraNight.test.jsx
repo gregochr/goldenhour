@@ -127,6 +127,7 @@ vi.mock('../components/markerUtils.js', () => ({
 }));
 
 import MapView from '../components/MapView.jsx';
+import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
 import { getAuroraForecastResults } from '../api/auroraApi.js';
 import { ukDateStrOffset } from '../utils/mapDates.js';
 
@@ -526,5 +527,81 @@ describe('MapView aurora night — the KEPT-LOCAL branch via the real window con
     // the auto-jump would have preferred.
     await waitFor(() => expect(getAuroraForecastResults).toHaveBeenCalledWith(KEPT_LOCAL_NIGHT));
     expect(getAuroraForecastResults).not.toHaveBeenCalledWith(AUTOJUMP_NIGHT);
+  });
+});
+
+describe('MapView aurora night — a night row must not blank the solar windows\' verdicts', () => {
+  /**
+   * ⚠️ **The regression this pins is one an adversarial review found in L1 and no test caught.**
+   * The verdict's region scope was routed through `heatOffered`, which folds in `!isAuroraMode`
+   * because it gates whether the heat FIELD is drawable. Selecting any aurora row therefore emptied
+   * the scope and silently deleted the verdict from every SOLAR window in the list — and standing
+   * on a night row is exactly when both neighbours are solar and both stepper ticks should be lit.
+   * Which regions are in the reader's scope is a fact about geography; it has nothing to do with
+   * which layer is currently painted.
+   */
+  const NIGHT = '2026-08-10';
+
+  beforeEach(() => {
+    localStorage.clear();
+    mockUseAuth.mockReturnValue({ role: 'ADMIN' });
+    auroraStatusRef.current = null;
+    availableDatesRef.current = [NIGHT];
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(SMALL_HOURS));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    localStorage.clear();
+  });
+
+  it('keeps the neighbouring solar windows\' stepper ticks while an aurora row is showing', async () => {
+    const region = {
+      regionName: 'North East', meanRating: 4.2, displayVerdict: 'WORTH_IT', slots: [{ canopy: false }],
+    };
+    const days = [{
+      date: THE_CALENDAR_DAY,
+      eventSummaries: ['SUNRISE', 'SUNSET'].map((targetType) => ({ targetType, regions: [region] })),
+    }];
+
+    // A minimal heat prop: the verdict's scope is read off the spot pool, so without one there are
+    // no regions in scope and the assertion below would pass for the wrong reason.
+    const spots = [{
+      id: 1, name: 'Bamburgh', lat: 55.61, lng: -1.71, rid: 'North East', regionName: 'North East',
+    }];
+
+    await renderMap({
+      date: THE_CALENDAR_DAY,
+      forecastDates: [THE_CALENDAR_DAY],
+      heat: {
+        enabled: true, hasHome: true, spots, areaSpots: spots, pointsByKey: new Map(), windows: [],
+      },
+      regionVerdictIndex: buildRegionVerdictIndex(days),
+    });
+
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-win-pill')); });
+    const auroraRow = screen.getAllByTestId('wf-win-row')
+      .find((r) => r.getAttribute('data-ev-id') === `aur:${NIGHT}:AURORA`);
+    expect(auroraRow).toBeTruthy();
+    await act(async () => { fireEvent.click(auroraRow); });
+
+    // The night row itself states no verdict — §6 Q1, and it has no per-region rollup to state one
+    // from. That is the correct absence.
+    expect(screen.queryByTestId('wf-win-verdict')).toBeNull();
+
+    // But the SOLAR neighbours still have theirs, which is what the ticks are for. Route the scope
+    // back through `heatOffered` and this array is empty.
+    //
+    // ⚠️ **Exactly one, on the NEXT stepper** — asserted precisely rather than as "more than zero",
+    // which is the banned assert-existence form and hid what this fixture can actually produce. The
+    // EV list is chronological and this night (2026-08-10) sorts BEFORE the calendar day's two solar
+    // rows, so it is index 0: `atStart` suppresses the `‹` tick by design and only `›` can be lit.
+    // The scenario where both neighbours are solar needs a night bracketed by solar rows, which this
+    // harness cannot build — its solar rows are D-13 fillers and those exist only from today
+    // forward. `WindowControl.test.jsx` covers the two-neighbour case directly.
+    const ticks = screen.getAllByTestId('wf-win-tick');
+    expect(ticks).toHaveLength(1);
+    expect(ticks[0]).toHaveAttribute('data-tier', 'WORTH_IT');
+    expect(screen.getByTestId('wf-win-next')).toContainElement(ticks[0]);
   });
 });

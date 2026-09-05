@@ -50,6 +50,7 @@ night cell renders empty, Q2 once per forecast run, Q3 name the highest-mean reg
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
+| L2 | `feature/map-landing-l2-pill` | (pending commit) | 2026-09-05 | The pill's verdict cell (word over region, three label cases via `mapVerdict.verdictRegionLabel`), the tier tint, the outline pick medallion and the two stepper verdict ticks; `MapView` passes `evVerdicts` and `scopeIsArea`. **No new colour tokens** — five of the spec's six already existed and the sixth (night) is moot under §6 Q1. ⚠️ **Adversarial review (4 read-only lenses: CSS/tokens, accessibility, runtime+test-quality, spec-fidelity/forward-compat) found that the width mechanism this phase first shipped was BROKEN, and it was rebuilt rather than patched.** Measured in Chromium: the pill had `flex: 1 1 auto` with no `min-width`/`overflow`, so it never shrank — it OVERFLOWED, and `›` travelled 182.58px between events below an 812px frame, worse than the 112px #773 removed, spilling under the right-hand cluster where it went dead to clicks. Three further defects in the same mechanism: `right: 248px` beside the existing `left` STRETCHED an absolutely-positioned box into a ~600px transparent div over the map (swallowing every drag begun in it — verbatim the dead strip the bound existed to prevent) and tripled a label-placement obstacle `map-tab-v2-plan.md` §4 #31 had licensed by measurement; `.wf-win-label`'s `flex: 1` gave it a zero base, making the day label the FIRST thing to yield and yield to nothing, inverting the design's stated order; and the region cap's stated derivation was 55px wrong (measured 100.81px, not 155.67px — the first harness measured the `em` outside the pill's inherited font context), so the cap never engaged. Rebuilt as a pinned chain: `max-width` on the box (shrink-to-fit, no dead strip, obstacle stays ~504px), `width: 504px; max-width: 100%` on the control, `flex: 1 1 auto; min-width: 0; overflow: hidden` on the pill, `flex-shrink: 0` on the steppers and the day label. **Re-measured across twelve frame widths: stepper travel 0 at every one**, cluster cleared, nothing out of frame, menu edges shared. ⚠️ Five more real defects, all fixed: `min-width: 334px` on the menu beat both its own `max-width` guards and put the dropdown 22px off-screen at 320px; `display: none` on the medallion words deleted the pick from the accessibility tree while a sighted reader kept ◎/○ (now visually hidden, still named); the stepper tick was a colour-only channel with no text alternative, so "‹ › stop being blind" was sighted-only (the tier is now in each stepper's `aria-label`); the accessible name glued into "Worth iteverywhere in your area" (bare `{' '}` nodes, and the pre-existing kind-chip/day glue fixed with it); and `scopeIsArea` read `true` for a reader with no postcode, printing "everywhere in your area" over the whole catalogue with no control on screen that could say otherwise. The medallion also regained the `font-weight` axis of the `.wf-hc-lg` precedent (the two greens are 1.34:1 apart, so ink alone never distinguished them) and its ring moved off a `--color-badge-*`, which this file's own token contract forbids as a border. ⚠️ **The test suite was substantially rebuilt too**, on findings that were fair: two of the four "filters must not move the verdict" tests could not fail (every fixture location is rated 4, and dark-sky left both regions represented), the glyph test passed for the empty bordered box it was written to prevent, "picks are solar-only" asserted a field the fixture never set, and the rewritten width test pinned three values that were all true while the invariant was false — it now pins the chain link by link, including the `flex-shrink: 0` the first rewrite dropped. Five mutations re-run, all now fail. **Residual, measured and accepted:** at exactly 320px a verdict row still clips the day label by 5px (the pre-L2 control did not, so this is a regression of this phase, recorded as one); closing it means dropping the time or the verdict word, and losing the verdict on the smallest phone is the worse trade. 360px and up are clean. Gate green: lint 0, vitest **5207** passing (215 files), audit 0 vulnerabilities, build clean. |
 | L1 | `feature/map-landing-l1-verdict-data` | (pending commit) | 2026-09-05 | New pure `utils/mapVerdict.js` (`buildRegionVerdictIndex` over `eligibleRegions`, `windowVerdict`, `regionNamesOf`, `buildEvVerdicts`); `pickTopEligibleRegion` extracted from `windowFirstCards.topRegion` as a behaviour-identical refactor and shared with the map, finishing the reconvergence that function's own doc had asked for; the pane forwards `pickKind` and builds `regionVerdictIndex`; `MapView` gains the prop, `verdictScopePool`/`regionsInScope` and a thin `buildEvVerdicts` call. **No visual change** — proven by `git diff --stat -- frontend/src/components/map/` being empty, so the pill, callout, filters, legend and regions list are byte-identical. ⚠️ **Two plan steps were changed in code, deliberately** (§5's "challenge in review, not in code" cuts both ways, so they are recorded here): step 3's `areaRegionNames`/`catalogueRegionNames` pane props were not built — `MapView` already holds the scope pool, so reading it directly makes the tally's population *identical* to the counts footer's rather than merely consistent with it; and step 5's memo was dropped because `mapEvents` is a fresh array every render, so a `useMemo` keyed on it could never hit (the O(catalogue) half is a plain const for the same conditional-hook reason `scopedRatedCount` records). ⚠️ **Adversarial review (4 read-only lenses: runtime, test quality, project conventions, forward-compat) found five real defects, all fixed pre-commit.** (1) The pane folds `heatStripCards`, which publishes `pickKind` and never `pick` — so `card.pick` was `undefined` on every window forever, with a green suite. (2) **Two verdict channels with no precedence**: the forwarded served word (whole-roster/origin-scoped) and the computed one (area-scoped) disagree by default, and two comments in the same commit claimed opposite things about which the pill reads; resolved by forwarding no verdict at all (§4 #9). (3) `regionsInScope` was routed through `heatOffered`, which folds in `!isAuroraMode` — so selecting any aurora night row silently deleted the verdict from every solar window, exactly the case L2's stepper ticks would have exposed; now built from `heat?.enabled`. (4) The tally was not pinned to the *scoped* records: `records` → `index.values()` was a one-word mutation the whole suite survived. (5) `evVerdicts`' glue was untested and the comment defending that misread the doors precedent — D2 was corrected by *extracting the glue*, so `buildEvVerdicts` is now pure and directly tested. Four comment claims were also factually wrong and were fixed: a licence CLAUDE.md has not granted yet (L7's job), "folds over verdicts and never ratings" (it argmaxes on `meanRating`), "`scopeBasePool` is itself a `useMemo`" (it is a plain const), and "the same payload over the same keys" (the three region indexes share a shape, not a key set). Every previously-surviving mutation now dies (5 re-run, 1–2 failures each); ⚠️ one earlier mutation had **silently no-op'd** because its anchor moved in this phase's own refactor — re-run with an asserted anchor. Gate green: lint 0, vitest **5168** passing (215 files), audit 0 vulnerabilities, build clean. |
 
 ---
@@ -317,11 +318,14 @@ neighbouring windows' tiers on the steppers.
    ⚠️ **No chip pointing at other windows** (built, then cut).
 5. **Stepper ticks**: 11×3px, 4px from the bottom, centred, filled with the *neighbouring* window's
    tier colour; hidden when that stepper is disabled. Free once L1 landed — read `events[i±1]`.
-6. **Width.** Re-derive both the pill and the menu, per §5 D-3: **measure** the widest reachable
-   content in Chromium against this stylesheet's own loaded fonts (the #773 comment records the
-   method and the numbers it produced), set the menu to the measured pill width + 2×32 + 2×4, and
-   record both figures and the measurement in the CSS comment the way #773 did. Keep
-   `flex-shrink: 0`. **Do not** add `max-width: calc(100% - 344px)` or `min-width: 0` (§4 #3).
+6. **Width.** ⚠️ **This step's original instruction was wrong on both counts and is rewritten from
+   what shipped** (§4 #3 carries the full story). It said "keep `flex-shrink: 0`; do not add
+   `max-width: calc(100% - 344px)` or `min-width: 0`". In fact the design's `max-width` form is
+   exactly right — a `right` bound stretches the box into a dead strip over the map and inflates a
+   label-placement obstacle — and `min-width: 0` on the **pill** is required, because the pill is not
+   a scroll container and without it `flex-shrink` never engages. The no-op #773 measured was on
+   `.wf-win-label`, which is one. What must survive is the *invariant*: at a given frame every event
+   renders the same width, so the steppers do not move as the reader steps.
 7. **Responsive** (`@media (max-width: 639px)`, scoped to `.wf-map-tab`): the region line is hidden,
    the medallion drops its **words** and keeps its **glyph** at 11px, the control stays one row.
 
@@ -534,11 +538,22 @@ should challenge these **in review**, not silently "fix" them in code.
    *region*, so the Map tab can show Best bet and Also good naming the same region on two nights —
    which the spec's both-differ rule exists to prevent. That is a **backend** change to
    `selectPicks` if the owner wants it, and it would move the Plan tab too. §6 Q5.
-3. **Pill layout: fixed width, not shrink-to-fit.** `max-width: calc(100% - 344px)` is unnecessary
-   (a fixed group is bounded by construction) and `min-width: 0` is a measured no-op beside
-   `overflow: hidden`. The spec's *invariants* — bounded group, day label never truncates, glyph
-   survives on phone — are all still enforced and all still measured by check 4. Only the mechanism
-   differs. §1 #4.
+3. **Pill layout: the invariant is "constant per frame", and L2 changed the mechanism that delivers
+   it.** ⚠️ **This entry was rewritten at L2 — its first form said "fixed width, not shrink-to-fit"
+   and that is no longer what the code does.** #773 held the pill at a fixed 262px derived from the
+   menu's 334px. L2 measured the reachable content at up to **417.47px** (a solar row with a pick and
+   the "everywhere in your area" line), so 262px would ellipse the day label — the one thing the spec
+   says must never truncate. The pill now FILLS a bounded, capped group: `.wf-map-tab
+   .wf-map-chrome-tl` gets `right: 248px`, `.wf-win-control` gets `max-width: 504px`, the pill gets
+   `flex: 1 1 auto`, and the menu is `width: 100%` of the same group so the two still share both
+   edges. The width is therefore a property of the **frame**, never of the content — the steppers
+   still do not move as the reader steps, which is the actual invariant.
+
+   So the spec's first layout constraint (a bounded group) **does** port after all; only its number
+   does not — `calc(100% - 344px)` was sized for the prototype's chrome, and 248px is this app's
+   cluster measured at 224.45px plus its inset and slack. `min-width: 0` remains a measured no-op
+   beside `overflow: hidden` and is still not added. §1 #4, and `mapWindowControlWidthCascade.test.jsx`
+   was rewritten to pin the new mechanism against the same invariant.
 4. **`mapLabels.verdictWord` is not reused.** Its 3.7/2.8 are right for a per-location whole star and
    wrong for a region mean. Nothing in this increment imports it.
 5. **Scope means `heatArea`, and `origin` is a second axis the spec does not model.** Under an away
@@ -574,6 +589,17 @@ should challenge these **in review**, not silently "fix" them in code.
    No served per-window night *verdict* exists (`map-tab-v2-plan.md` **O-16**), so L2 either sources
    one honestly or renders the cell empty. It must not borrow a solar word, and it must not
    synthesise from `bestRating` — that is the rated/unrated conflation O-16 exists to name.
+12. **The medallion's ALSO GOOD is green, not the spec's amber.** The spec gives BEST BET `#A8C795`
+   and ALSO GOOD `#EFC377`. In this app `#EFC377` is `--color-badge-maybe` — the **Maybe verdict**
+   ink — and the medallion sits a few pixels from a verdict word drawn in exactly that amber on every
+   window where the runner-up is a Maybe: two different meanings, one colour, one control. The Plan
+   matrix already answered this for its own BEST BET / ALSO GOOD legend (`.wf-hc-lg`) with one green
+   channel at two strengths, and that pair is reused here rather than minting a second vocabulary.
+13. **No new colour tokens were added, and none were needed.** Five of the spec's six values already
+   exist (`--color-verdict-go/-marginal/-standdown` as fills, `--color-badge-go/-maybe` as inks);
+   Poor's ink is this arm's `--color-badge-poor` (`#E58C7A`) rather than the spec's `#E5806C`, a hair
+   apart and one channel. The sixth — the night pair `#6E7C8C`/`#9FB0C0` — is not needed at all,
+   because §6 Q1 decided a night row's cell renders empty.
 
 ---
 
@@ -584,11 +610,15 @@ should challenge these **in review**, not silently "fix" them in code.
   with a null `displayVerdict`, which the record's own contract says cannot happen.
 - **D-2 — Picks are server-owned.** Rationale in §1 #3 and §4 #2. The precedent is in code already
   (`windowFirstCards.js`: *"picks are server-owned (plan §2.12)"*).
-- **D-3 — Keep the fixed pill; re-derive both widths from a measurement.** The pill and the menu keep
-  sharing both edges, and the new numbers are recorded in the CSS comment with the method, exactly as
-  #773 did. Rejected: letting the pill hug its content (undoes #773's travelling stepper fix);
-  putting the verdict cell outside the pill (a second control on a surface whose whole argument is
-  that one control replaced three).
+- **D-3 — Hold the invariant, not the mechanism; re-derive every number from a measurement.**
+  ⚠️ **Rewritten at L2.** The headline was "keep the fixed pill"; that is not what shipped and could
+  not have. The invariant is *constant width per frame*, and it now comes from a chain — the box is
+  bounded by `max-width` and stays shrink-to-fit, the control declares `width: 504px; max-width:
+  100%`, the pill fills it with `flex: 1 1 auto; min-width: 0; overflow: hidden`, and the steppers
+  and day label carry `flex-shrink: 0`. `mapWindowControlWidthCascade.test.jsx` pins that chain link
+  by link rather than pinning the values, because L2's first rewrite pinned three values that were
+  all true while the invariant was false (measured: `›` travelled 182.58px). Rejected as before:
+  letting the pill hug its content, and putting the verdict cell outside the pill.
 - **D-4 — The tier tally is a client computation, to be named at L7.** `heatArea` is per-user, so
   "how many regions *in your area* are Worth it" has no servable answer on the shared, ETag'd
   `GET /api/briefing` — the same reasoning that put reach on its own never-cached contract. It should

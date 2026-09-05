@@ -139,6 +139,7 @@ vi.mock('../components/markerUtils.js', async (importOriginal) => {
 });
 
 import MapView from '../components/MapView.jsx';
+import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
 import { STOPS_VERDICT, STOPS_TEMP, setMode } from '../utils/scoreRamp.js';
 import { markerLabelAndColour } from '../components/markerUtils.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
@@ -1698,3 +1699,159 @@ describe('MapView heat — the Regions jump list (map-tab-v2-plan.md §3 P11)', 
 // stub exists to avoid. `⌂`'s new behaviour is pinned there instead, alongside its own
 // mount/position/no-postcode-fallback tests, using that file's own `heatProp()`-style fixture.
 
+describe('the window pill\'s verdict — filters must not move it, scope must (design check 1)', () => {
+  /**
+   * A briefing whose TOP region is one the planning area excludes.
+   *
+   * `AREA_SPOTS` drops `SPOTS[3]` (Kelso / The Borders), so the catalogue holds three regions and
+   * the area holds two. Giving The Borders the highest mean makes the two scopes give genuinely
+   * different answers — without that, "scope moves the verdict" would pass on a fixture where it
+   * could not have failed.
+   */
+  const DAYS = [{
+    date: TODAY,
+    eventSummaries: [{
+      targetType: 'SUNSET',
+      regions: [
+        { regionName: 'The Borders', meanRating: 4.4, displayVerdict: 'WORTH_IT', slots: [{ canopy: false }] },
+        { regionName: 'The Lakes', meanRating: 2.9, displayVerdict: 'MAYBE', slots: [{ canopy: false }] },
+        { regionName: 'North East', meanRating: 2.0, displayVerdict: 'STAND_DOWN', slots: [{ canopy: false }] },
+      ],
+    }],
+  }];
+
+  const verdictProps = () => ({
+    heat: heatProp(),
+    regionVerdictIndex: buildRegionVerdictIndex(DAYS),
+  });
+
+  /** What the pill is actually saying, as a reader would read it. */
+  function pillVerdict() {
+    return {
+      word: screen.getByTestId('wf-win-verdict').querySelector('b').textContent,
+      region: screen.queryByTestId('wf-win-verdict-region')?.textContent ?? null,
+      tier: screen.getByTestId('wf-win-pill').getAttribute('data-tier'),
+    };
+  }
+
+  it('states the strongest region in scope, and names it', async () => {
+    await renderMap(verdictProps());
+
+    // Opens in "My area", which excludes The Borders — so the answer is The Lakes, not the
+    // catalogue's best.
+    expect(pillVerdict()).toEqual({ word: 'Maybe', region: 'The Lakes', tier: 'MAYBE' });
+  });
+
+  it('would MOVE if the verdict were computed from a filtered pool — the mutation these guard', async () => {
+    // ⚠️ Two of the four filter tests below cannot fail on their own, and that was a review finding:
+    // with every fixture location rated 4 a 4★ floor removes nothing, and the dark-sky filter still
+    // leaves both regions represented — so against the mutation they exist to catch
+    // (`regionsInScope = regionNamesOf(scopedVisibleLocations)`) the region set is IDENTICAL and the
+    // pill does not move. They are kept because each states the rule for its own control, but this
+    // is the one with teeth: it empties the DRAWN set entirely while leaving the scope pool
+    // untouched, so a verdict taken from the filtered pool would have nothing to name at all.
+    await renderMap(verdictProps());
+    expect(pillVerdict()).toEqual({ word: 'Maybe', region: 'The Lakes', tier: 'MAYBE' });
+
+    openFilters();
+    fireEvent.click(screen.getByTestId('star-filter-5'));
+
+    expect(pillVerdict()).toEqual({ word: 'Maybe', region: 'The Lakes', tier: 'MAYBE' });
+  });
+
+  it('does not move when the minimum rating changes', async () => {
+    await renderMap(verdictProps());
+    const before = pillVerdict();
+
+    openFilters();
+    fireEvent.click(screen.getByTestId('star-filter-4'));
+
+    expect(pillVerdict()).toEqual(before);
+  });
+
+  it('does not move when the subject chips change', async () => {
+    await renderMap(verdictProps());
+    const before = pillVerdict();
+
+    openFilters();
+    fireEvent.click(screen.getByTestId('location-type-filter-SEASCAPE'));
+
+    expect(pillVerdict()).toEqual(before);
+  });
+
+  it('does not move when the dark-sky filter is toggled', async () => {
+    await renderMap(verdictProps());
+    const before = pillVerdict();
+
+    openFilters();
+    fireEvent.click(screen.getByTestId('dark-sky-filter-toggle'));
+
+    expect(pillVerdict()).toEqual(before);
+  });
+
+  it('does not move when the drive-time tier changes', async () => {
+    await renderMap(verdictProps());
+    const before = pillVerdict();
+
+    openFilters();
+    fireEvent.click(screen.getByTestId('drive-time-filter-45'));
+
+    expect(pillVerdict()).toEqual(before);
+  });
+
+  it('DOES move when the scope flips to the whole catalogue', async () => {
+    await renderMap(verdictProps());
+    expect(pillVerdict()).toEqual({ word: 'Maybe', region: 'The Lakes', tier: 'MAYBE' });
+
+    openFilters();
+    fireEvent.click(screen.getByTestId('wf-filters-scope-all'));
+
+    // The Borders is now a candidate, and it is the strongest.
+    expect(pillVerdict()).toEqual({ word: 'Worth it', region: 'The Borders', tier: 'WORTH_IT' });
+  });
+
+  it('says "everywhere" rather than naming the least-bad region when they all agree', async () => {
+    const allPoor = [{
+      date: TODAY,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [
+          { regionName: 'The Lakes', meanRating: 2.2, displayVerdict: 'STAND_DOWN', slots: [{ canopy: false }] },
+          { regionName: 'North East', meanRating: 2.0, displayVerdict: 'STAND_DOWN', slots: [{ canopy: false }] },
+        ],
+      }],
+    }];
+    await renderMap({ heat: heatProp(), regionVerdictIndex: buildRegionVerdictIndex(allPoor) });
+
+    const { word, region } = pillVerdict();
+    expect(word).toBe('Poor');
+    expect(region).toBe('everywhere in your area');
+  });
+
+  it('drops "in your area" once the scope IS the whole catalogue', async () => {
+    const allPoor = [{
+      date: TODAY,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [
+          { regionName: 'The Lakes', meanRating: 2.2, displayVerdict: 'STAND_DOWN', slots: [{ canopy: false }] },
+          { regionName: 'North East', meanRating: 2.0, displayVerdict: 'STAND_DOWN', slots: [{ canopy: false }] },
+          { regionName: 'The Borders', meanRating: 1.8, displayVerdict: 'STAND_DOWN', slots: [{ canopy: false }] },
+        ],
+      }],
+    }];
+    await renderMap({ heat: heatProp(), regionVerdictIndex: buildRegionVerdictIndex(allPoor) });
+
+    openFilters();
+    fireEvent.click(screen.getByTestId('wf-filters-scope-all'));
+
+    expect(screen.getByTestId('wf-win-verdict-region').textContent).toBe('everywhere');
+  });
+
+  it('renders no verdict at all with no index — the pre-L2 control', async () => {
+    await renderMap({ heat: heatProp() });
+
+    expect(screen.queryByTestId('wf-win-verdict')).toBeNull();
+    expect(screen.getByTestId('wf-win-pill')).not.toHaveAttribute('data-tier');
+  });
+});

@@ -3118,6 +3118,33 @@ button.wf-hc.also.on:hover {
   left: 60px;
   z-index: 1100;
 }
+/* ⚠️ The control group is BOUNDED on the tab — with `max-width`, which is the design bundle's own
+   form (`calc(100% - 344px)`) after all. Two earlier attempts got this wrong and both are recorded
+   because the second was worse than the first: map-landing-plan.md §4 #3 originally dismissed the
+   bundle's form as unnecessary (a fixed 262px pill could not reach the cluster), and L2's first cut
+   then replaced it with `right: 248px` — which, beside the existing `left: 60px`, STRETCHES this
+   absolutely-positioned block to `100% − 308px`. Two consequences, both caught at review:
+
+     · a transparent ~600px × 36px div at `z-index: 1100` across the top of the map, swallowing
+       every drag begun in it — verbatim the dead strip this bound exists to prevent, relocated.
+       `.wf-map-toolbar`'s own comment records the same failure and its cure;
+     · `[data-testid="wf-map-chrome-tl"]` is the FIRST label-placement obstacle in both
+       `MapLabels.jsx` and `PinsLayer.jsx`, and map-tab-v2-plan.md §4 #31 licensed the last
+       widening of it (187→334px) by measuring that no label moved. Stretching it to ~970px would
+       have spent that budget without re-measuring anything.
+
+   `max-width` leaves the box shrink-to-fit, so it stays exactly as wide as the control: no dead
+   strip, and the obstacle grows only to the control's own 504px.
+
+   308px = this rule's own `left: 60px` + 248px for the right-hand cluster, whose box measures
+   224.45px in headless Chromium against this stylesheet's loaded fonts, plus its 8px inset and
+   ~16px of slack. ⚠️ That cluster's width is not fixed — `FiltersPopover` renders `Filters (N)` —
+   so the slack is the whole margin of safety; see `.wf-map-chrome-tr` for the back-reference.
+
+   Tab-only. The frozen Plan-tab overlay mounts no window control. */
+.wf-map-tab .wf-map-chrome-tl {
+  max-width: calc(100% - 308px);
+}
 .wf-map-chrome-tr {
   position: absolute;
   top: 8px;
@@ -3320,6 +3347,23 @@ button.wf-hc.also.on:hover {
   .wf-map-tab .wf-win-control {
     width: 100%;
   }
+  /* ⚠️ The desktop bound must be RELEASED here, not merely overridden by `left`/`right`.
+     `max-width: calc(100% - 308px)` reserves a band for a cluster that has already moved to the
+     bottom bar — at 390px it caps the control at 82px and the pill collapses to a stub. (L2's first
+     cut carried a `right: 8px` rule here, which was a dead duplicate of this block's own first rule
+     and reset nothing that mattered; deleting it is what exposed this.) */
+  .wf-map-tab .wf-map-chrome-tl { max-width: none; }
+  /* The design's responsive table: the region line goes here. The medallion's words are already
+     withdrawn by the ≤811px rule above (visually, so they stay in the accessible name); this block
+     only enlarges what is left. ⚠️ There is no `.wf-map-chrome-tl` rule here — the first rule of
+     this block already sets `left: 8px; right: 8px` on it, and L2's first cut added a second one
+     re-setting `right: 8px` eight lines later, which was dead CSS whose own comment described the
+     rule above it as a different block. */
+  .wf-map-tab .wf-win-verdict-region { display: none; }
+  .wf-map-tab .wf-win-pick { padding: 3px 5px; }
+  .wf-map-tab .wf-win-pick-glyph { font-size: 11px; }
+  /* The group fills the bar here; the 504px cap is a desktop/tablet concern. */
+  .wf-map-tab .wf-win-control { max-width: none; }
 
   .wf-map-tab .wf-map-chrome-tr {
     top: auto;
@@ -3470,6 +3514,27 @@ button.wf-hc.also.on:hover {
   display: flex;
   align-items: center;
   gap: 4px;
+  /* ⚠️ The cap lives HERE, on the group, not on the pill — and that is what keeps the dropdown
+     sharing both edges with the control above it. `.wf-map-tab .wf-map-chrome-tl` now carries a
+     `right` bound, so this box would otherwise stretch to it and `.wf-win-menu`'s `width: 100%`
+     would be far wider than the visible control. Capping the group instead leaves the pill to fill
+     whatever is left of it (`flex: 1 1 auto`), so pill + steppers + gaps == control == menu at
+     every frame.
+
+     ⚠️ **A `width`, not only a `max-width`** — and the difference is the whole invariant. The box
+     above is shrink-to-fit (it has to be: a stretched box swallows clicks across the map and
+     inflates the label-placement obstacle), so with only a `max-width` here the box hugs whatever
+     the control's content happens to be, the pill is content-sized again, and `›` travelled a
+     measured 182.58px between a night row and a solar row with a pick. Declaring the width makes
+     the control a constant, the box hugs THAT, and the pill takes a constant 432px of it.
+     `max-width: 100%` is what lets both give way together once the box's own bound bites at a
+     narrow frame — at any given frame the width is still constant, which is the invariant.
+
+     504px = the pill's 432px worst case + two 32px steppers + two 4px gaps. The 432 is measured;
+     see `.wf-win-pill`'s own note for the reachable cases and for the case an earlier pass measured
+     that does not exist. */
+  width: 504px;
+  max-width: 100%;
 }
 .wf-win-step {
   width: 32px;
@@ -3502,46 +3567,52 @@ button.wf-hc.also.on:hover {
   background: var(--color-plex-panel);
   color: var(--color-plex-text-secondary);
   cursor: pointer;
-  /* ⚠️ A FIXED width, not `max-width` — the steppers either side must not move as the reader
-     steps through events, which is the whole use the `‹ ›` pair is put to. The pill's content is
-     three variable-width parts (kind chip Sunrise/Sunset/Astro/Aurora · day label Today →
-     "Wednesday night" · a time that is absent whenever a row's `time` is empty, which covers both
-     `mapEvents.js`'s unscored beyond-briefing filler and a served row with no time). Measured in
-     Chromium against this stylesheet's own loaded fonts, that content ranges 115.41px
-     ("No forecast") to 227.52px ("Aurora · Wednesday night · 21:04") — so `›` was travelling up to
-     112px between one click and the next, and the mouse had to chase it.
+  /* ⚠️ The steppers either side must not move as the reader steps through events — that is the whole
+     use the `‹ ›` pair is put to, and it is why #773 replaced a `max-width` with a FIXED 262px.
+     That invariant is unchanged here; only the mechanism is, because the content it was sized for
+     changed.
 
-     ⚠️ **262px is derived from the DROPDOWN, and is not a design figure for the pill.** The bundle
-     gives this control no width at all — `#wnow{gap:9px;padding:6px 10px;min-height:36px}` over a
-     `.pill` with `white-space:nowrap` and no cap, no `overflow` and no ellipsis, so the prototype
-     pill hugs its content and never truncates. The 260px this rule used to carry as `max-width`
-     arrived app-side at P6 (#731) with no counterpart in the bundle, so it is not a provenance to
-     appeal to. What the design DOES declare is `#wmenu`'s 334px (README "The window control",
-     map-tab-v2-plan.md §3 P6) — so the control is sized to the menu it opens and the two share
-     both edges, and 262px is simply what is left of 334 after the two 32px steppers and two 4px
-     gaps. At `width: 260px` the menu overhung its own trigger by exactly 2px at every viewport,
-     which reads as a misalignment on a control that is otherwise pixel-constant. Recorded in
-     map-tab-v2-plan.md §4's window-pill entry, since a fixed, ellipsing pill diverges twice
-     over.
+     **What changed.** The pill now carries a verdict cell (word over region) and, on two windows in
+     the whole forecast, a medallion. Measured in headless Chromium against this stylesheet's own
+     loaded fonts, over the REACHABLE combinations only:
 
-     Truncation is unchanged by all this: the clip threshold was already 260px and every one of
-     `overflow: hidden`, `text-overflow: ellipsis` and the cap pre-date this rule, so nothing that
-     fitted before can start ellipsing — the widest REACHABLE content is that 227.52px case, and
-     `WindowControl.jsx`'s `dayLabel ?? label` fallback (247px) cannot be reached at all from the
-     only producer, `mapEvents.js`, which sets `dayLabel` on all three row shapes it builds. ⚠️ That
-     headroom is ~14% and is measured at 100% text scale with the bundled face loaded; a minimum-
-     font-size setting, Firefox's text-only zoom, or a webfont failure can still eat it. Not a
-     regression — the threshold is the same 260px it always was — but not an absolute guarantee
-     either, and the clipped text stays in the accessible name regardless (the pill's name is
-     computed from its subtree; `title` carries `rosterNote`, never the label).
+       231.38px  a night row — widest night label ("Aurora · Wednesday night · 21:04"), and it
+                 carries NEITHER a verdict (§6 Q1: the cell is empty) nor a pick (picks are
+                 solar-only), so the two cannot combine
+       348.61px  a solar row with a verdict and the "everywhere in your area" line, no pick
+       417.47px  a solar row with a pick AND that line — the true worst case
+       458.36px  the same with an uncapped long region name ("Northumberland & Tyneside +2")
 
-     `flex-shrink: 0` is what makes "constant" true rather than merely typical: the pill is itself
-     a flex item, so without it 262px is a basis it would shrink below whenever `.wf-map-chrome-tl`
-     (absolute, `left: 60px`, shrink-to-fit) is narrower than 334px. That cannot happen at ≥640px,
-     where the phone rule has already handed over — the guard is there so the invariant holds by
-     construction instead of by arithmetic that a later layout change could quietly invalidate. */
-  width: 262px;
-  flex-shrink: 0;
+     ⚠️ An earlier pass measured 544.73px by combining an aurora night row with a medallion and a
+     verdict. That case does not exist. Measure what the component can actually build.
+
+     **So: fill the bounded group.** `.wf-map-tab .wf-map-chrome-tl` carries a `right` bound and
+     `.wf-win-control` carries the 504px cap (both have their own notes), so this box has a real
+     width at every frame and the pill takes exactly what is left of it — 432px at the cap, which
+     clears the 417.47px worst case with the "everywhere" sentence intact and ellipses only a long
+     region NAME beyond it. **The width is therefore a property of the FRAME, never of the content**,
+     which is the invariant #773 established, stated properly: the steppers still do not move as the
+     reader steps.
+
+     ⚠️ **`min-width: 0` IS required here, and an earlier cut of this phase forbade it in a comment
+     that had transplanted its reasoning from the wrong element.** #773 measured that declaration as
+     a no-op on `.wf-win-label` — correctly, because that item carries `overflow: hidden` and is
+     therefore already a scroll container, whose automatic minimum is zero (CSS Sizing 3 §5.1). The
+     PILL is not a scroll container. Without `min-width: 0` its automatic minimum is its min-content
+     width, so `flex-shrink` never engages: measured in Chromium, the pill did not shrink, it
+     OVERFLOWED — `›` travelled up to 142.94px between events below an 812px frame, worse than the
+     112px #773 removed, and spilled under the right-hand cluster where it went dead to clicks. The
+     design bundle lists this declaration among the three "layout constraints that must survive".
+     `overflow: hidden` joins it so a pill under compression clips rather than pushing the caret out.
+
+     The yield order is the design's, and it is `flex` that encodes it: `.wf-win-label` is
+     `flex: 1 0 auto` — it grows into free space and **never shrinks**, so the day label cannot
+     truncate ("it is the fact the control exists to state"); `.wf-win-verdict` carries
+     `min-width: 0`, so the region line ellipses first; and the medallion's WORDS are withdrawn
+     below 812px (visually only — see that rule). */
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
 }
 .wf-win-pill:focus-visible {
   outline: 2px solid var(--color-plex-gold);
@@ -3569,8 +3640,18 @@ button.wf-hc.also.on:hover {
      position are identical with `min-width: 0` and with `auto`. One was added here and removed at
      adversarial review — it cost nothing but stated a mechanism that is not the one at work, which
      is worse than saying nothing. `overflow: hidden` is load-bearing and `flex: 1` is load-bearing;
-     drop either and the label stops clipping and pushes the caret outside the pill. */
-  flex: 1;
+     drop either and the label stops clipping and pushes the caret outside the pill.
+
+     ⚠️ **`1 0 auto`, not `1`, since map-landing L2.** `flex: 1` is `1 1 0%`: a zero base size, which
+     makes this the FIRST item to yield and lets it yield all the way to nothing — the exact inverse
+     of the design's stated order ("the day label never truncates … the medallion words and the
+     region yield instead"). It was harmless while the pill was a fixed 262px whose widest reachable
+     content was 227.52px, because the slack was then a constant ~34px at every frame; once the
+     pill's width became a property of the frame, the label's slack became one too. `1 0 auto` grows
+     into free space exactly as before and refuses to shrink, so the compression lands on the region
+     line and the medallion words, which is where the design puts it. `overflow: hidden` stays as a
+     backstop for the case where the pill is narrower than this item's own content. */
+  flex: 1 0 auto;
 }
 .wf-win-time {
   font-family: var(--font-mono);
@@ -3618,12 +3699,255 @@ button.wf-hc.also.on:hover {
    different containing block, not a different unit. 420px keeps the menu inside the frame with
    room to scroll, which is the same visible behaviour the bundle's figure was aiming for on its
    own full-bleed map. */
+/* ── The verdict cell, the medallion and the stepper ticks (map-landing-plan.md §3 L2) ─────────
+   `docs/design/map-landing/README.md` §2 "The window control". Every colour below is one of this
+   app's EXISTING tokens — no new ones were needed, which is worth stating because the design gives
+   six hex values and all six either already exist or belong to a case §6 Q1 removed:
+
+     Worth it fill  #8AAE72 = --color-verdict-go        text #A8C795 = --color-badge-go
+     Maybe    fill  #E0A542 = --color-verdict-marginal  text #EFC377 = --color-badge-maybe
+     Poor     fill  #C8452F = --color-verdict-standdown text #E5806C ≈ --color-badge-poor (#E58C7A)
+     Night    fill  #6E7C8C                             text #9FB0C0   — NOT NEEDED: §6 Q1 decided a
+                                                                         night row's cell is empty
+
+   The Poor ink is this arm's own token rather than the design's value: one channel, and the two are
+   a hair apart. The v2 rule holds throughout — the fill carries the colour, never the ink, so no
+   verdict colour is drawn as text on a coloured fill. */
+.wf-win-pill[data-tier="WORTH_IT"] {
+  border-color: color-mix(in srgb, var(--color-verdict-go) 55%, transparent);
+  box-shadow: inset 3px 0 0 var(--color-verdict-go);
+}
+.wf-win-pill[data-tier="MAYBE"] {
+  border-color: color-mix(in srgb, var(--color-verdict-marginal) 50%, transparent);
+  box-shadow: inset 3px 0 0 var(--color-verdict-marginal);
+}
+.wf-win-pill[data-tier="STAND_DOWN"] {
+  border-color: color-mix(in srgb, var(--color-verdict-standdown) 50%, transparent);
+  box-shadow: inset 3px 0 0 var(--color-verdict-standdown);
+}
+/* No `[data-tier]` arm for a night or unscored row on purpose — the attribute is simply absent and
+   the pill keeps its plain border, which is the design's "night events get no tint". */
+
+/* The word over the region. STACKED, not inline: the design measured the inline form at about 120px,
+   which pushed the stepper under the right-hand nav cluster. `margin-left: auto` puts the cell hard
+   against the caret so the pill's left half stays a stable navigation control as the reader steps. */
+.wf-win-verdict {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  line-height: 1.18;
+  /* ⚠️ No `margin-left: auto` here. It was inert on the desktop — `.wf-win-label`'s grow consumes
+     the free space first, so the auto margin always resolved to zero, and this file's own standard
+     is that a declaration stating a mechanism that is not the one at work is worse than saying
+     nothing (see `.wf-win-label`). On the PHONE it was not inert and not harmless: auto margins are
+     resolved before `justify-content`, so it ate the free space the phone rule's
+     `justify-content: center` needs, and a solar row's content sat against both pill edges with a
+     311px hole in the middle at 639px while a night row stayed centred — the reader watched the day
+     label jump ~190px sideways when stepping between them. Measured in Chromium at review. */
+  padding-left: 9px;
+  border-left: 1px solid var(--color-plex-border-light);
+  min-width: 0;
+}
+.wf-win-verdict-word {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.wf-win-verdict[data-tier="WORTH_IT"] .wf-win-verdict-word { color: var(--color-badge-go); }
+.wf-win-verdict[data-tier="MAYBE"] .wf-win-verdict-word { color: var(--color-badge-maybe); }
+.wf-win-verdict[data-tier="STAND_DOWN"] .wf-win-verdict-word { color: var(--color-badge-poor); }
+/* The region line, capped so a long region NAME ellipses and the longest SENTENCE does not — a
+   truncated sentence reads as a bug where a truncated proper name reads as a name.
+
+   ⚠️ **112px, re-measured.** L2's first cut said 156px "is the natural width of 'everywhere in your
+   area' (155.67px)". It is not: measured at THIS rule's own 9px / 0.02em inheriting from the pill,
+   that string is 100.81px and the longest region name in the roster ("Northumberland & Tyneside +2")
+   is 131.63px. The 155.67 figure came from a harness that measured the `em` outside the pill's
+   inherited font context, so it was ~55px too generous — the cap never engaged, and those 55px are
+   what carried the pill past the width it was allotted. 112px clears the sentence with ~11px of
+   headroom and ellipses the long names, which is the intended order.
+
+   The full served name is used because the curated short-name table has no producer
+   (map-tab-v2-plan.md O-4). ⚠️ A px cap on 9px text does not scale with a browser minimum-font-size
+   setting or Firefox's text-only zoom; at raised text scale the sentence clips. Stated rather than
+   defended against — the text stays in the accessible name either way. */
+.wf-win-verdict-region {
+  display: block;
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 400;
+  font-size: 9px;
+  letter-spacing: 0.02em;
+  color: var(--color-plex-text-secondary);
+}
+
+/* The pick medallion — OUTLINE ONLY, never filled. A filled chip became the loudest thing on a
+   control whose job is the verdict; it was built and cut, and the rejection is part of the spec.
+
+   The inks are this arm's own pick channel, not the bundle's: it gives ALSO GOOD #EFC377, which is
+   `--color-badge-maybe` — the MAYBE VERDICT colour — and it would sit a few pixels from a verdict
+   word drawn in exactly that amber on every window where the runner-up is a Maybe. The Plan matrix
+   already answered this for its own BEST BET / ALSO GOOD legend (`.wf-hc-lg`): one green channel at
+   two strengths. Reused here rather than minting a second vocabulary (map-landing-plan.md §4 #12). */
+.wf-win-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* ⚠️ The two picks are separated on TWO axes, ink AND weight, which is the whole of the precedent
+   this deviation cites. `.wf-hc-lg` reads `[data-pick="best"] { color: --color-badge-go }` and
+   `[data-pick="also"] { color: --color-verdict-go; font-weight: 600 }`; L2's first cut copied the
+   inks and dropped the weight, leaving the pair 1.34:1 apart in colour — measured — on two adjacent
+   rows of one dropdown, and on the phone, where the words are withdrawn, ◎ versus ○ was carrying the
+   entire distinction. WCAG 1.4.11 asks 3:1 between adjacent meaningful graphics.
+
+   ⚠️ The RING is a `--color-verdict-*` on both, never a `--color-badge-*`. The badge family is the
+   lifted TEXT variant and this file states the rule outright ("Never use a `--color-badge-*` as a
+   fill or a border"); the first cut used `--color-badge-go` in a `box-shadow`, which grep says was
+   the only such use in the file. The design asks for `#A8C795` as the ring, so spec and token
+   contract genuinely conflict here — the contract wins, and the ring is the same hue one step
+   deeper. */
+.wf-win-pick[data-pick="best"] {
+  color: var(--color-badge-go);
+  font-weight: 700;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-verdict-go) 62%, transparent);
+}
+.wf-win-pick[data-pick="also"] {
+  color: var(--color-verdict-go);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-verdict-go) 45%, transparent);
+}
+/* ⚠️ Glyph and words are SEPARATE elements so the phone rule can drop one and keep the other.
+   `font-size: 0` plus `::first-letter` does not work here: these glyphs are symbols rather than
+   letters, so the chip renders as an empty bordered box. */
+.wf-win-pick-glyph { font-style: normal; font-size: 10px; line-height: 1; }
+
+/* ── The medallion's words yield before the day label does (design §2's priority order) ─────────
+   Below 812px the group's cap can no longer hold the widest reachable content, so the words go and
+   the glyph stays — the split the two elements exist for.
+
+   ⚠️ **Visually hidden, NOT `display: none`.** `display: none` removes an element from the
+   accessibility tree, and the glyph beside it is `aria-hidden` — so the earlier `display: none`
+   deleted "Best bet" / "Also good" from the pill's accessible name entirely, while a sighted reader
+   kept ◎ / ○. That is this project's own written rule broken ("an `aria-hidden` decorative panel
+   must never be the only route to anything") and WCAG 1.1.1. The clip recipe below is what
+   Tailwind's own `sr-only` uses, written out because these declarations have to arrive from a media
+   query rather than from a class on the element.
+
+   812px = 60 (this box's left inset) + 248 (the cluster's reserved band) + 504 (the group's cap):
+   the frame width below which the group stops getting its full allotment. Above it the words fit. */
+@media (max-width: 811px) {
+  .wf-map-tab .wf-win-pick-words {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border-width: 0;
+  }
+}
+
+/* ⚠️ Below 390px the medallion goes entirely — glyph included — because the day label starts to
+   clip otherwise, and the design's priority order is explicit that the medallion yields first ("the
+   day label never truncates … the medallion words and the region yield instead"). A pick is a
+   cross-reference to another window; the day is the fact the control exists to state. Measured: at
+   360 and 320 the label clips with the glyph present and not without it. The words are already
+   clipped out of view by the ≤811px rule above and remain in the accessible name there; at these
+   widths the chip leaves the layout altogether, which is the honest trade for keeping the day. */
+@media (max-width: 389px) {
+  .wf-map-tab .wf-win-pill .wf-win-pick { display: none; }
+  /* With the medallion gone the verdict cell has no neighbour to be separated from, so its rule and
+     most of its padding are spend for nothing — and at 320px (the WCAG 1.4.10 reflow width) those
+     ~10px are exactly what decides whether the day label clips. ⚠️ Measured: the pre-L2 control did
+     NOT clip at 320, so without this the verdict cell would have been a regression at that width
+     rather than a pre-existing limit. */
+  .wf-map-tab .wf-win-verdict {
+    padding-left: 0;
+    border-left: none;
+  }
+  /* The last 11px, measured. At 320px the solar pill needs 233.1px of the 224px it has, and the
+     shortfall lands on the day label. Four inter-item gaps at 6px and 10px of side padding are the
+     only fat left once the medallion has gone; 4px and 8px recover 12px and the label fits with the
+     margin to spare. Nothing is dropped to buy this. */
+  .wf-map-tab .wf-win-pill {
+    gap: 4px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+  /* `.1em` of tracking on an 8-character uppercase word is ~8px of pure air. Half of it is the last
+     of the shortfall, and tighter tracking at a smaller size is the ordinary typographic direction
+     rather than a concession. */
+  .wf-map-tab .wf-win-verdict-word { letter-spacing: 0.04em; }
+  /* ⚠️ **Residual, measured and accepted.** At exactly 320px — the WCAG 1.4.10 reflow width, and a
+     640px window at 200% zoom — a row carrying a verdict is still 5px short, so a weekday day label
+     renders "Wednesda…". The pre-L2 control did NOT clip there, so this IS a regression of this
+     phase and is recorded as one rather than filed as a pre-existing limit. It was bought down from
+     11px by the three rules above; closing the last 5px means dropping either the time or the
+     verdict word, and losing the verdict outright on the smallest phone is the worse trade. The
+     full label stays in the pill's accessible name either way. 360px and up are clean. */
+}
+
+/* The stepper's verdict tick — "‹ › stop being blind". 11×3px, 4px from the bottom, centred, in the
+   NEIGHBOURING window's tier colour; absent when that stepper is disabled or its neighbour carries
+   no tier. `.wf-win-step` is already a flex box, so the tick is positioned against it. */
+.wf-win-step { position: relative; }
+.wf-win-tick {
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 11px;
+  height: 3px;
+  border-radius: 2px;
+}
+.wf-win-tick[data-tier="WORTH_IT"] { background: var(--color-verdict-go); }
+.wf-win-tick[data-tier="MAYBE"] { background: var(--color-verdict-marginal); }
+.wf-win-tick[data-tier="STAND_DOWN"] { background: var(--color-verdict-standdown); }
+
+/* The menu row's medallion rides the label cell's second line, beside the time — see the component
+   for why it is not a fifth grid child. Smaller than the pill's, because the row already carries a
+   score and topic icons and the chip is a cross-reference rather than the row's subject. */
+.wf-win-row-sub { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.wf-win-row .wf-win-pick { font-size: 8.5px; padding: 1px 5px; }
+.wf-win-row .wf-win-pick-glyph { font-size: 9px; }
+
 .wf-win-menu {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
   z-index: 1500;
-  width: 334px;
+  /* Shares both edges with the control above it, which is the property #773 established by deriving
+     the pill's 262px from this menu's 334px. The derivation is now the other way round — the group
+     is bounded and the pill fills it — so the menu fills the same box rather than naming a width the
+     pill has to be reverse-engineered from. The design bundle's own 334px was a width for a pill
+     that hugged its content; this control's does not.
+
+     ⚠️ **No `min-width: 334px`.** One was added in L2's first cut to keep the dropdown from
+     narrowing, and `min-width` always beats `max-width` (CSS 2.1 §10.4) — so it disabled both of
+     this rule's own guards: the `max-width: calc(100vw - 32px)` below, and the phone rule's
+     `max-width: none`, whose comment calls itself load-bearing. Measured at a 320px viewport (the
+     WCAG 1.4.10 reflow width, and a 640px window at 200% zoom) the menu rendered 334px wide with
+     its right edge 22px past the viewport. It also re-created the exact 2px overhang past its own
+     trigger that #773 removed, in the 640–642px band. */
+  width: 100%;
   max-width: calc(100vw - 32px);
   max-height: 420px;
   overflow-y: auto;

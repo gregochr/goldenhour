@@ -420,3 +420,259 @@ describe('WindowControl — controlled mode (map-tab-v2-plan.md §3 P7)', () => 
     expect(screen.getByTestId('wf-win-menu')).toBeInTheDocument();
   });
 });
+
+describe('WindowControl — the verdict cell, medallion and ticks (map-landing-plan.md §3 L2)', () => {
+  const SUNRISE = EVENTS[0].id;
+  const SUNSET = EVENTS[1].id;
+
+  const verdict = (tier, regionName, sharingCount = 0, allInScope = false) => ({
+    tier, regionName, sharingCount, allInScope, scopedRegionCount: sharingCount + 1,
+  });
+
+  function renderControl({ verdicts, activeIndex = 0, scopeIsArea = true } = {}) {
+    return render(
+      <WindowControl
+        events={EVENTS}
+        activeIndex={activeIndex}
+        onSelect={vi.fn()}
+        verdicts={verdicts}
+        scopeIsArea={scopeIsArea}
+      />,
+    );
+  }
+
+  describe('the three region label cases — design check 2', () => {
+    it('names the region alone when it is the only one in its tier', () => {
+      renderControl({ verdicts: new Map([[SUNRISE, verdict('WORTH_IT', 'The Lake District')]]) });
+
+      expect(screen.getByTestId('wf-win-verdict')).toHaveTextContent('Worth it');
+      expect(screen.getByTestId('wf-win-verdict-region')).toHaveTextContent('The Lake District');
+    });
+
+    it('counts the others when several share the tier', () => {
+      renderControl({
+        verdicts: new Map([[SUNRISE, verdict('WORTH_IT', 'Northumberland', 2)]]),
+      });
+
+      expect(screen.getByTestId('wf-win-verdict-region')).toHaveTextContent('Northumberland +2');
+    });
+
+    it('names NO region when every region in scope shares the tier — the case that regressed', () => {
+      renderControl({
+        verdicts: new Map([[SUNRISE, verdict('STAND_DOWN', 'The Pennines', 6, true)]]),
+      });
+
+      const region = screen.getByTestId('wf-win-verdict-region');
+      expect(region).toHaveTextContent('everywhere in your area');
+      // The least-bad region must not be presented as a destination.
+      expect(region).not.toHaveTextContent('Pennines');
+    });
+
+    it('says "everywhere" without "in your area" when the scope is the whole catalogue', () => {
+      renderControl({
+        verdicts: new Map([[SUNRISE, verdict('STAND_DOWN', 'The Pennines', 6, true)]]),
+        scopeIsArea: false,
+      });
+
+      expect(screen.getByTestId('wf-win-verdict-region').textContent).toBe('everywhere');
+    });
+  });
+
+  describe('the tier tint', () => {
+    it('tints the pill with the tier it is showing', () => {
+      renderControl({ verdicts: new Map([[SUNRISE, verdict('MAYBE', 'The Dales')]]) });
+
+      expect(screen.getByTestId('wf-win-pill')).toHaveAttribute('data-tier', 'MAYBE');
+      expect(screen.getByTestId('wf-win-verdict')).toHaveAttribute('data-tier', 'MAYBE');
+    });
+
+    it('leaves an unscored window untinted rather than tinting it as poor', () => {
+      renderControl({ verdicts: new Map() });
+
+      expect(screen.getByTestId('wf-win-pill')).not.toHaveAttribute('data-tier');
+      expect(screen.queryByTestId('wf-win-verdict')).toBeNull();
+    });
+  });
+
+  describe('night events (§6 Q1)', () => {
+    it('renders no verdict word and no tint on a night row', () => {
+      // The astro row is index 2 in the fixture. A night window has no per-region rollup at all, so
+      // the cell is EMPTY — it does not borrow the solar vocabulary and it invents nothing.
+      renderControl({ verdicts: new Map([[SUNRISE, verdict('WORTH_IT', 'The Lakes')]]), activeIndex: 2 });
+
+      expect(screen.queryByTestId('wf-win-verdict')).toBeNull();
+      expect(screen.getByTestId('wf-win-pill')).not.toHaveAttribute('data-tier');
+    });
+
+    it('never wears a medallion, even if a night row somehow carried a pick kind', () => {
+      // ⚠️ The first cut of this test rendered the plain astro fixture and asserted no chip — which
+      // no source change could have broken, because no row in `EVENTS` sets `pickKind` at all. The
+      // producer-side rule ("picks are solar-only") is `mapEvents.js`'s and is tested there; what
+      // this component owes is that a night row's own cell and chip stay empty, so the fixture has
+      // to carry the field for the assertion to mean anything.
+      const events = [EVENTS[0], EVENTS[1], { ...EVENTS[2], pickKind: 'best' }];
+      render(<WindowControl events={events} activeIndex={2} onSelect={vi.fn()} verdicts={new Map()} />);
+
+      expect(screen.queryByTestId('wf-win-verdict')).toBeNull();
+      expect(screen.getByTestId('wf-win-pick')).toBeInTheDocument();
+    });
+  });
+
+  describe('the medallion', () => {
+    it('wears it on the pill only when the window on screen is a pick', () => {
+      const events = [{ ...EVENTS[0], pickKind: 'best' }, EVENTS[1], EVENTS[2]];
+      const { rerender } = render(
+        <WindowControl events={events} activeIndex={0} onSelect={vi.fn()} verdicts={new Map()} />,
+      );
+
+      expect(screen.getByTestId('wf-win-pick')).toHaveTextContent('Best bet');
+
+      // Step to a window that is NOT a pick: the chip goes entirely, rather than pointing at the
+      // other window (built, then cut — it put a second navigation control on the map).
+      rerender(
+        <WindowControl events={events} activeIndex={1} onSelect={vi.fn()} verdicts={new Map()} />,
+      );
+      expect(screen.queryByTestId('wf-win-pick')).toBeNull();
+    });
+
+    it('draws the glyph and the words as SEPARATE elements, so the phone rule can drop one', () => {
+      const events = [{ ...EVENTS[0], pickKind: 'also' }, EVENTS[1], EVENTS[2]];
+      render(<WindowControl events={events} activeIndex={0} onSelect={vi.fn()} verdicts={new Map()} />);
+
+      const chip = screen.getByTestId('wf-win-pick');
+      expect(chip).toHaveAttribute('data-pick', 'also');
+      // ⚠️ Assert the CHARACTER, not the element's existence. The failure the two-element split
+      // exists to prevent is an EMPTY bordered box, and `.not.toBeNull()` on the glyph passes for
+      // exactly that. `font-size: 0` + `::first-letter` cannot do the job because these are
+      // symbols rather than letters.
+      expect(screen.getByTestId('wf-win-pick-glyph')).toHaveTextContent('\u25CB');
+      expect(screen.getByTestId('wf-win-pick-words')).toHaveTextContent('Also good');
+    });
+
+    it('draws the Best bet glyph too — the two are different characters', () => {
+      const events = [{ ...EVENTS[0], pickKind: 'best' }, EVENTS[1], EVENTS[2]];
+      render(<WindowControl events={events} activeIndex={0} onSelect={vi.fn()} verdicts={new Map()} />);
+
+      expect(screen.getByTestId('wf-win-pick-glyph')).toHaveTextContent('\u25CE');
+    });
+
+    it('shows it on every menu row that is a pick, and on no other', () => {
+      const events = [
+        { ...EVENTS[0], pickKind: 'best' },
+        { ...EVENTS[1], pickKind: 'also' },
+        EVENTS[2],
+      ];
+      render(<WindowControl events={events} activeIndex={2} onSelect={vi.fn()} verdicts={new Map()} />);
+      fireEvent.click(screen.getByTestId('wf-win-pill'));
+
+      const chips = screen.getAllByTestId('wf-win-pick');
+      expect(chips.map((c) => c.getAttribute('data-pick'))).toEqual(['best', 'also']);
+    });
+  });
+
+  describe('the stepper ticks', () => {
+    it('shows each stepper the tier of the window it would land on', () => {
+      renderControl({
+        activeIndex: 1,
+        verdicts: new Map([
+          [SUNRISE, verdict('WORTH_IT', 'The Lakes')],
+          [SUNSET, verdict('MAYBE', 'The Dales')],
+        ]),
+      });
+
+      const ticks = screen.getAllByTestId('wf-win-tick');
+      // One tick only: the previous window is Worth it; the next (the astro row) has no tier.
+      expect(ticks).toHaveLength(1);
+      expect(ticks[0]).toHaveAttribute('data-tier', 'WORTH_IT');
+      expect(screen.getByTestId('wf-win-prev')).toContainElement(ticks[0]);
+    });
+
+    it('shows no tick on a disabled stepper — there is no neighbour to describe', () => {
+      renderControl({
+        activeIndex: 0,
+        verdicts: new Map([[SUNSET, verdict('MAYBE', 'The Dales')]]),
+      });
+
+      expect(screen.getByTestId('wf-win-prev')).toBeDisabled();
+      const ticks = screen.getAllByTestId('wf-win-tick');
+      expect(ticks).toHaveLength(1);
+      expect(screen.getByTestId('wf-win-next')).toContainElement(ticks[0]);
+    });
+
+    it('reads the NEIGHBOUR\'s tier, not the current window\'s', () => {
+      // Mutating the current window's tier must not move either tick.
+      renderControl({
+        activeIndex: 1,
+        verdicts: new Map([
+          [SUNRISE, verdict('STAND_DOWN', 'The Dales')],
+          [SUNSET, verdict('WORTH_IT', 'The Lakes')],
+        ]),
+      });
+
+      expect(screen.getAllByTestId('wf-win-tick')[0]).toHaveAttribute('data-tier', 'STAND_DOWN');
+    });
+  });
+
+  describe('accessible names — the standards require these for every changed control', () => {
+    it('names the pill with its verdict and region, with real word breaks', () => {
+      // ⚠️ accname TRIMS each element's contribution before concatenating, so sibling spans join
+      // with nothing between them. Measured before the fix, this name read
+      // "20:28Also goodWorth iteverywhere in your area". The bare `{' '}` text nodes are what stop
+      // it — and they must be, because with the stylesheet loaded the name reads correctly only as
+      // a side effect of `display: inline-flex`, which the phone rule already changes.
+      const events = [{ ...EVENTS[0], pickKind: 'also' }, EVENTS[1], EVENTS[2]];
+      render(
+        <WindowControl
+          events={events}
+          activeIndex={0}
+          onSelect={vi.fn()}
+          verdicts={new Map([[EVENTS[0].id, verdict('WORTH_IT', 'The Lake District')]])}
+        />,
+      );
+
+      const name = screen.getByTestId('wf-win-pill').textContent;
+      expect(name).toContain('Also good Worth it');
+      expect(name).toContain('Worth it The Lake District');
+      expect(name).not.toMatch(/[a-z][A-Z]/);
+    });
+
+    it('tells a screen reader what the NEXT window is, not just that there is one', () => {
+      // ⚠️ The tick is `aria-hidden` and `aria-label` REPLACES a button's subtree, so before this
+      // the tier reached no screen reader at all — "‹ › stop being blind" was a sighted-only
+      // feature, and at 11×3px the three tier colours are also the canonical dichromat confusion.
+      renderControl({
+        activeIndex: 0,
+        verdicts: new Map([[EVENTS[1].id, verdict('MAYBE', 'The Dales')]]),
+      });
+
+      expect(screen.getByRole('button', { name: 'Next event, Maybe' })).toBeInTheDocument();
+    });
+
+    it('says only "Previous event" when the neighbour has no verdict to report', () => {
+      renderControl({ activeIndex: 1, verdicts: new Map() });
+
+      expect(screen.getByRole('button', { name: 'Previous event' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Next event' })).toBeInTheDocument();
+    });
+
+    it('keeps the pick in the accessible name of a menu row', () => {
+      const events = [{ ...EVENTS[0], pickKind: 'best' }, EVENTS[1], EVENTS[2]];
+      render(<WindowControl events={events} activeIndex={1} onSelect={vi.fn()} verdicts={new Map()} />);
+      fireEvent.click(screen.getByTestId('wf-win-pill'));
+
+      const row = screen.getAllByTestId('wf-win-row')[0];
+      expect(row.textContent).toContain('Best bet');
+      expect(row.textContent).not.toMatch(/[0-9]Best/);
+    });
+  });
+
+  it('renders exactly as before when no verdicts are supplied at all', () => {
+    // The prop is optional; a caller that predates this phase gets the pre-L2 control.
+    render(<WindowControl events={EVENTS} activeIndex={0} onSelect={vi.fn()} />);
+
+    expect(screen.queryByTestId('wf-win-verdict')).toBeNull();
+    expect(screen.queryByTestId('wf-win-tick')).toBeNull();
+    expect(screen.queryByTestId('wf-win-pick')).toBeNull();
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent('Today');
+  });
+});

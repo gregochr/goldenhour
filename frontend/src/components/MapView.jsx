@@ -2606,10 +2606,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * analogy: {@code mapEvents} is a new array on every render, so a {@code useMemo} listing it as a
    * dependency could never hit.
    *
-   * <p><b>No reader yet — L2 is the pill that draws it</b>, which is why the disable below is here
-   * rather than the value being deferred to that phase.
+   * <p>Read by the window control's verdict cell, its medallion and its two stepper ticks
+   * (map-landing-plan.md §3 L2).
    */
-  // eslint-disable-next-line no-unused-vars -- read by L2's window pill (map-landing-plan.md §3 L2)
   const evVerdicts = buildEvVerdicts({
     events: mapEvents, index: regionVerdictIndex, regionsInScope, overlayMode,
   });
@@ -2958,6 +2957,18 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       onSelect={selectEvRow}
       open={openMapMenu === 'window'}
       onOpenChange={(next) => setOpenMapMenu(next ? 'window' : null)}
+      verdicts={evVerdicts}
+      // Only the all-in-scope wording turns on this: "everywhere in your area" versus "everywhere".
+      // `heatArea` IS the scope segment, so the words and the tally can never describe two
+      // different pools.
+      //
+      // ⚠️ `heat.hasHome` is the second term, and without it the phrase lies to the reader it most
+      // affects. `heatArea` initialises to `true` and the scope SEGMENT is withheld entirely when
+      // there is no home to scope from (`FiltersPopover`'s own rule, and `WindowFirstMapPane` sets
+      // `hasHome` false precisely when the area IS the whole catalogue) — so a reader with no
+      // postcode saw "everywhere in your area" over every region there is, with no control on
+      // screen that could have said otherwise. With no area, the honest word is "everywhere".
+      scopeIsArea={heatArea && Boolean(heat?.hasHome)}
     />
   );
 
