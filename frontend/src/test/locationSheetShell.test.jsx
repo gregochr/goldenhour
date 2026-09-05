@@ -470,9 +470,12 @@ describe('WindowFirstShell — the four-day location sheet', () => {
     const view = renderShell();
     await openSheetFor('Bamburgh');
     fireEvent.click(screen.getByRole('button', { name: /Show on map/ }));
+    // `inPlace: false` — this shell's fixture has no map pane, so `effectiveTab` is 'plan' and the
+    // press IS a door. The peek's own in-place stamp is pinned in
+    // `WindowFirstShellLocationSheetHandoff.test.jsx`.
     expect(view.props.onOpenMapTab).toHaveBeenCalledWith({
       date: '2026-08-14', targetType: 'SUNSET', locationName: 'Bamburgh Beach', region: null,
-      minRating: null, limitMinutes: 45,
+      minRating: null, limitMinutes: 45, inPlace: false,
     });
     // Never the retired route — a re-pointing must not also ring the old bell, or the overlay would
     // open silently behind the Map tab.
@@ -658,7 +661,7 @@ describe('WindowFirstShell — the four-day location sheet', () => {
       fireEvent.click(screen.getByTestId('location-sheet-map'));
       expect(view.props.onOpenMapTab).toHaveBeenCalledWith({
         date: '2026-08-14', targetType: 'SUNSET', locationName: 'Derwentwater', region: null,
-        minRating: null, limitMinutes: 45,
+        minRating: null, limitMinutes: 45, inPlace: false,
       });
       expect(view.props.onShowOnMap).not.toHaveBeenCalled();
       expect(screen.queryByTestId('location-sheet')).toBeNull();

@@ -292,7 +292,7 @@ export default function WindowFirstShell({
   onOpenSettings, onSignOut, contentDisabled, onShowOnMap, onEvaluationScoresChange,
   onSeasonalFeaturesChange, locations, mapPane, operationsPane, tabRequest, healthPill,
   light, onSetPostcode, mapColourScale = null, homeCoords = null, onTabChange = null,
-  planLocationHandoff = null, onOpenMapTab = null,
+  locationSheetHandoff = null, onOpenMapTab = null,
 }) {
   const {
     heatStripCards, heatPointSets, heatSpots, reachById, regionSeries,
@@ -637,8 +637,18 @@ export default function WindowFirstShell({
    * is corrected here rather than left to mislead the next reader).
    */
   const openMapTab = useCallback((door) => openMapDoor({
-    openOverPopup, openWindow, onOpenMapTab, ratingLens, reachLens, door,
-  }), [openOverPopup, openWindow, onOpenMapTab, ratingLens, reachLens]);
+    openOverPopup,
+    openWindow,
+    onOpenMapTab,
+    ratingLens,
+    reachLens,
+    // ⚠️ `inPlace` — the one thing this wrapper adds that {@link openMapDoor} could not know. A
+    // "door onto the map" pressed from a sheet that is ALREADY over the map is not a door: `App`'s
+    // in-place branch explains what a full door payload would silently undo there (the map's own
+    // rating floor, its reach tier, its scope and its camera). It is answered here rather than in
+    // the pure function because only the shell knows which tab is in force.
+    door: { ...door, inPlace: effectiveTab === 'map' },
+  }), [openOverPopup, openWindow, onOpenMapTab, ratingLens, reachLens, effectiveTab]);
   /**
    * A tab asked for from OUTSIDE the bar — currently the map overlay's "open the full map" hatch.
    *
@@ -695,14 +705,35 @@ export default function WindowFirstShell({
   }, [requestedNonce, requestedId, mapPane, operationsPane]);
 
   /**
-   * The Map tab callout's "Open in Plan" handoff (map-tab-v2-plan.md §3 P9) — `openFullMapTab`'s
-   * shape, in reverse, routed through {@code selectTab} rather than a bare {@code setActiveTab} for
-   * the SAME reason every other entry into this dialog stack is: {@code selectTab} clears
-   * {@code sheetSpot} (along with `openWindowKey`/`openPick`/`sheetKey`/`focusedRegion`) as part of
-   * its own body, so the {@code setSheetSpot} call immediately below — in the SAME synchronous
-   * effect, i.e. the SAME React batch — is the write that survives: two calls to one setter inside
-   * one commit resolve to the LAST one, never the {@code null} `selectTab` made a line earlier. The
-   * sheet therefore lands as the ONLY dialog layer, never stacked over a popup nobody asked to see.
+   * The Map tab callout's four-day-sheet handoff (map-tab-v2-plan.md §3 P9) — `openFullMapTab`'s
+   * shape, in reverse.
+   *
+   * <p><b>The sheet lands as the ONLY dialog layer on either route, and the two routes differ only
+   * in whether the tab moves.</b> {@code inPlan} is true for the callout's `Open in Plan` button,
+   * whose label names the Plan tab, and false for the clamped prose's `Four days here ›`, which is
+   * a peek: the map stays on screen behind the sheet and the callout stays mounted, so dismissing
+   * the sheet returns the reader to the selection they opened it from (an owner ask — "I'd like it
+   * to stay with the map behind, then I can back track on my user journey").
+   *
+   * <p>⚠️ <b>The peek route goes through {@code selectTab} too, naming the tab already in force.</b>
+   * That is not a trick to read twice: {@code selectTab} is idempotent in everything except the
+   * dialog clearing ({@code setActiveTab} to the current id changes nothing, and {@code setOpenedTabs}
+   * returns {@code prev} for an id it already holds), and that clearing is the only thing making
+   * this sheet the only layer. Routing both ways through it keeps exactly ONE definition of "take
+   * every dialog this shell owns down", so a seventh dialog added later cannot reach one route and
+   * miss the other. (A {@code closeOwnDialogs()} helper called by {@code selectTab} and by this
+   * effect says the same thing and was tried first; it was dropped because splitting the body that
+   * way makes {@code react-hooks/exhaustive-deps} begin demanding {@code selectTab} in two
+   * unrelated effects' dependency lists — a real cost for no behavioural gain.)
+   *
+   * <p>⚠️ <b>The clearing and the {@code setSheetSpot} must stay in ONE synchronous body.</b>
+   * {@code selectTab} clears {@code sheetSpot} (along with
+   * `openWindowKey`/`openPick`/`sheetKey`/`focusedRegion`), so the {@code setSheetSpot} call below
+   * survives only because it is in the SAME React batch: two calls to one setter inside one commit
+   * resolve to the LAST one, never the {@code null} made a line earlier. That is also why the tab
+   * move rides {@code inPlan} on this payload rather than a second {@code tabRequest} from `App` —
+   * a second channel would put the two writes in two effects and make the outcome depend on their
+   * declaration order.
    *
    * <p>Guarded by its own nonce and its own ref, mirroring the `tabRequest` effect immediately
    * above — the identical protection against acting on a STALE handoff twice, which here is the
@@ -711,30 +742,40 @@ export default function WindowFirstShell({
    * pane itself relies on), so without a nonce guard a plain prop-identity check could refire on an
    * unrelated re-render while the Plan tab sits hidden behind whatever tab the reader is actually on.
    */
-  const planHandoffNonce = planLocationHandoff?.nonce ?? null;
-  const lastHandledPlanHandoff = useRef(planLocationHandoff?.nonce ?? null);
+  const sheetHandoffNonce = locationSheetHandoff?.nonce ?? null;
+  const lastHandledSheetHandoff = useRef(locationSheetHandoff?.nonce ?? null);
   useEffect(() => {
-    if (planHandoffNonce == null || planHandoffNonce === lastHandledPlanHandoff.current) return;
-    lastHandledPlanHandoff.current = planHandoffNonce;
-    selectTab('plan');
+    if (sheetHandoffNonce == null || sheetHandoffNonce === lastHandledSheetHandoff.current) return;
+    lastHandledSheetHandoff.current = sheetHandoffNonce;
+    const toPlanTab = locationSheetHandoff.inPlan === true;
+    selectTab(toPlanTab ? 'plan' : effectiveTab);
     setSheetSpot({
-      id: planLocationHandoff.id ?? null,
-      name: planLocationHandoff.name ?? '',
-      regionName: planLocationHandoff.regionName ?? null,
+      id: locationSheetHandoff.id ?? null,
+      name: locationSheetHandoff.name ?? '',
+      regionName: locationSheetHandoff.regionName ?? null,
     });
     // The window the map was on, so the sheet opens ON it rather than on its own best — see
-    // `MapView.handleOpenLocationInPlan`'s note for the defect this closes. Null for every other
+    // `MapView.handleOpenLocationSheet`'s note for the defect this closes. Null for every other
     // entry point (search, a field chip, a spot card), which keeps their seeding exactly as it was.
-    setSheetWindowKey(planLocationHandoff.date && planLocationHandoff.targetType
-      ? `${planLocationHandoff.date}:${planLocationHandoff.targetType}`
+    setSheetWindowKey(locationSheetHandoff.date && locationSheetHandoff.targetType
+      ? `${locationSheetHandoff.date}:${locationSheetHandoff.targetType}`
       : null);
-    // Same focus rule as the `tabRequest` effect above: an external ask arrives with focus wherever
-    // the caller (a callout button that is about to be hidden along with its whole panel) left it.
-    const domId = tabDomId('plan');
-    requestAnimationFrame(() => document.getElementById(domId)?.focus());
+    // ⚠️ ONLY on the route that moves the tab. Same focus rule as the `tabRequest` effect above:
+    // an external ask arrives with focus wherever the caller (a callout button that is about to be
+    // hidden along with its whole panel) left it. On the peek route that panel is NOT hidden — the
+    // button is still on screen behind the sheet — so moving focus to a tab the reader did not
+    // press would both send them somewhere they did not ask to go and overwrite the very element
+    // `useDialogFocus` is about to capture as the sheet's return address.
+    if (toPlanTab) {
+      const domId = tabDomId('plan');
+      requestAnimationFrame(() => document.getElementById(domId)?.focus());
+    }
     // `selectTab`/`setSheetSpot` deliberately absent from the dependency list — both are rebuilt
-    // every render, and the nonce is the trigger already in it.
-  }, [planHandoffNonce, planLocationHandoff]);
+    // every render, and the nonce is the trigger already in it. `effectiveTab` IS in the list (the
+    // linter asks for it and it is free): a tab change re-runs this, and the nonce guard on the
+    // first line returns immediately, exactly as `mapPane`/`operationsPane` do in the `tabRequest`
+    // effect above.
+  }, [sheetHandoffNonce, locationSheetHandoff, effectiveTab]);
 
   // ⚠️ A key whose card has gone stops rendering but is not released, and the effect that would
   // release it is a `setState` inside `useEffect` that `react-hooks/set-state-in-effect` rejects.
@@ -2009,12 +2050,18 @@ WindowFirstShell.propTypes = {
    * no pane for is ignored rather than obeyed.
    */
   tabRequest: PropTypes.shape({ id: PropTypes.string, nonce: PropTypes.number }),
-  /** The Map tab callout's "Open in Plan" handoff (map-tab-v2-plan.md §3 P9) — `App.jsx`'s
-   * `openLocationInPlan`, `openFullMapTab`'s shape in reverse. */
-  planLocationHandoff: PropTypes.shape({
+  /** The Map tab callout's four-day-sheet handoff (map-tab-v2-plan.md §3 P9) — `App.jsx`'s
+   * `openLocationSheet`, `openFullMapTab`'s shape in reverse. `inPlan` is the destination: true
+   * moves to the Plan tab (the callout's `Open in Plan` button), false/absent leaves the reader on
+   * whichever tab asked, with the sheet over it (the prose's `Four days here ›`). `date`/
+   * `targetType` seed the sheet's open window — see the handoff effect's own note. */
+  locationSheetHandoff: PropTypes.shape({
     id: PropTypes.oneOfType([PropTypes.number, PropTypes.string]),
     name: PropTypes.string,
     regionName: PropTypes.string,
+    inPlan: PropTypes.bool,
+    date: PropTypes.string,
+    targetType: PropTypes.string,
     nonce: PropTypes.number,
   }),
   /**

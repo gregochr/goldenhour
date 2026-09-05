@@ -152,7 +152,8 @@ was written 2026-09-04 and code moves.
    `WindowFirstMapPane.jsx:290–295` forwards the handoff as five `handoff*` props, and `MapView` applies
    them in four separate effects (`:1296–1370`) whose doc comments record two real staleness defects
    from applying fields independently. **The reverse route is the template**: `App.jsx:354`
-   `openLocationInPlan` + `WindowFirstShell.jsx:691–714` + `test/WindowFirstShellPlanHandoff.test.jsx`
+   `openLocationSheet` + `WindowFirstShell.jsx`'s sheet-handoff effect +
+   `test/WindowFirstShellLocationSheetHandoff.test.jsx`
    ("lands as the ONLY dialog layer", nonce replay guards, "never leaves focus stranded at `<body>`").
 
 5. **A window's identity is `card.key` = `` `${date}:${targetType}` ``, and the map already resolves
@@ -381,7 +382,7 @@ opens the first door, but everything D3 and D4 need lands here, testable through
    itself, no dialog reopened** (§6 Q2 — DECIDED, the default stands) — so the payload carries no
    window key, per the increment's own "do not send a parameter nothing reads". Should that ever be
    reopened, the change is: add
-   `windowKey` to a `planWindowHandoff` channel modelled on `planLocationHandoff`, and the shell's
+   `windowKey` to a `planWindowHandoff` channel modelled on `locationSheetHandoff`, and the shell's
    effect calls `openWindow(key)` after `selectTab('plan')`. Focus follows the request the way the
    two existing effects do (`requestAnimationFrame(() => tab.focus())`).
 6. **Tests.** `WindowFirstMapPane.test.jsx`: a `source:'plan'` handoff reaches `MapView` as

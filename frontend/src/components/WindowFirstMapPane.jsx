@@ -103,9 +103,11 @@ const FRAME_PAD_DEG = 0.12;
  *                                         explicitly chosen — forwarded to `MapView`'s one-time
  *                                         "colours changed" notice
  * @param {Function} [props.onOpenSettings]
- * @param {Function} [props.onOpenLocationInPlan] the selection callout's "Open in Plan" action
- *                                         (map-tab-v2-plan.md §3 P9) — `(spot) => void`, forwarded
- *                                         from `App.jsx`'s `openLocationInPlan`
+ * @param {Function} [props.onOpenLocationSheet] the selection callout's two routes into one
+ *                                         four-day sheet (map-tab-v2-plan.md §3 P9) —
+ *                                         `(spot) => void`, forwarded from `App.jsx`'s
+ *                                         `openLocationSheet`; `spot.inPlan` says whether the Plan
+ *                                         tab is the destination or the map stays behind the sheet
  * @param {Function} [props.onReturnToPlan] the breadcrumb's `← Plan` (doors D2,
  *                                         `plan-to-map-doors-plan.md` §3 D2 task 5) — `App.jsx`'s
  *                                         `returnToPlan`, forwarded straight through to `MapView`;
@@ -117,10 +119,31 @@ export default function WindowFirstMapPane({
   briefingScores = new Map(),
   onForecastRun = null, seasonalFeatures = [], homeCoords = null,
   mapColourScale = null, colourScaleDefaulted = false, onOpenSettings = null,
-  onOpenLocationInPlan = null, onReturnToPlan = null,
+  onOpenLocationSheet = null, onReturnToPlan = null,
 }) {
   const wrapRef = useRef(null);
   const [resizeNonce, setResizeNonce] = useState(0);
+  /**
+   * Warms the four-day sheet's lazy chunk, the Map-tab twin of `WindowFirstShell`'s own
+   * {@code warmStackedChunks} (which the PLAN routes get for free, since every one of them is
+   * reachable only from an already-open window popup).
+   *
+   * <p>⚠️ <b>Not a performance nicety — it closes a window in which `Esc` deselects.</b> The
+   * callout's `Four days here ›` mounts `LocationFourDaySheet` behind `&lt;Suspense fallback={null}&gt;`,
+   * so between the press and the chunk landing there is NO dialog element in the document: the
+   * sheet's own Escape listener is not installed yet, and `MapView`'s `handleMapPaneKeyDown` —
+   * which stands down while a foreign modal is open — finds none to stand down for. A press in that
+   * gap therefore closes nothing and drops the selection the sheet is about to describe. Firing at
+   * PANE MOUNT rather than at the press gives the fetch the reader's whole time on the map, which
+   * is the same argument the shell's own warm makes with the reader's reading time.
+   *
+   * <p><b>Residual, stated rather than defended against</b> (the shell's warm records the identical
+   * one): a cold, slow first paint of the Map tab in which the reader selects and presses inside
+   * the fetch can still reach the gap. The structural fix is to gate the pane's Escape on the
+   * shell's sheet INTENT rather than on a dialog being in the DOM, which needs `sheetSpot` plumbed
+   * to a pane that is handed to the shell as an opaque node — named here, not smuggled in.
+   */
+  useEffect(() => { import('./LocationFourDaySheet.jsx').catch(() => {}); }, []);
   const {
     heatSpots, heatPointSets, heatStripCards, reachById, homePlace, todayStr,
     origin, setOrigin, effectiveReachById, scoreRows, scoresLoaded, briefing,
@@ -352,7 +375,7 @@ export default function WindowFirstMapPane({
         regionBestIndex={regionBestIndex}
         tideAlignmentIndex={tideAlignmentIndex}
         reachById={reachById}
-        onOpenLocationInPlan={onOpenLocationInPlan}
+        onOpenLocationSheet={onOpenLocationSheet}
         // The breadcrumb's `clear` origin reset (D2) — the SAME `setOrigin` the masthead's ⌂ and
         // every plan-from-a-region action already call, so the crumb can never disagree with them
         // about what "clear the origin" means. Resets the whole app's shared origin (plan §4 #4).
@@ -393,6 +416,6 @@ WindowFirstMapPane.propTypes = {
   /** Whether the colour preference was never explicitly chosen — forwarded to `MapView`'s notice. */
   colourScaleDefaulted: PropTypes.bool,
   onOpenSettings: PropTypes.func,
-  onOpenLocationInPlan: PropTypes.func,
+  onOpenLocationSheet: PropTypes.func,
   onReturnToPlan: PropTypes.func,
 };

@@ -4,7 +4,7 @@
  * distinguished downstream by `source: 'plan'`.
  *
  * No door UI ships in this phase (D3/D4 add the real buttons), so — the same problem
- * `WindowFirstShellPlanHandoff.test.jsx` solves for `openLocationInPlan`'s reverse-direction
+ * `WindowFirstShellLocationSheetHandoff.test.jsx` solves for `openLocationSheet`'s reverse-direction
  * cousin — the shell is stubbed to a probe exposing exactly the two props under test
  * (`onOpenMapTab`, `tabRequest`) plus a button standing in for "a door was pressed", and
  * `WindowFirstMapPane` is stubbed too so the payload App actually builds (`mapTabHandoff`, forwarded
@@ -204,6 +204,47 @@ describe('App — openMapTabFromPlan (doors D2)', () => {
     expect(ShellStub.lastProps.tabRequest.id).toBe('map');
     expect(typeof ShellStub.lastProps.tabRequest.nonce).toBe('number');
     expect(ShellStub.lastProps.tabRequest.nonce).not.toBe(MapPaneStub.lastProps.handoff.nonce);
+  });
+
+  it('an inPlace door carries NO source, NO lens and NO tabRequest — the reader is already there', async () => {
+    // ⚠️ The four-day sheet can now be open OVER the Map tab (the callout's `Four days here ›`
+    // peek), and its footer's `Show on map → <window>` presses this same entry from there. A door
+    // payload would be destructive rather than redundant: `MapView`'s landing effect writes
+    // `minRating` — and PERSISTS it to `mapFilterMinStars` — writes `limitMinutes`, and calls
+    // `resetToMyArea()` for a `region: null` door, flipping scope and refitting the camera. So a
+    // reader who had set a 4★ floor and jumped to a region ON THAT MAP would have all three
+    // silently undone by a press that only asked to change the window.
+    renderApp();
+    await screen.findByTestId('stub-map-pane');
+
+    await act(async () => {
+      ShellStub.lastProps.onOpenMapTab({ ...DOOR, inPlace: true });
+    });
+
+    const handoff = MapPaneStub.lastProps.handoff;
+    // No `source` is what makes `WindowFirstMapPane` read this as the overlay hatch's own shape —
+    // event type and location only — rather than as a door.
+    expect(handoff.source).toBeUndefined();
+    expect(handoff.eventType).toBe('SUNSET');
+    expect(handoff.date).toBe(TOMORROW);
+    expect(handoff.locationName).toBe('Bamburgh');
+    // The three fields the landing effect would have applied are absent, not null-and-applied.
+    expect(handoff.minRating).toBeUndefined();
+    expect(handoff.limitMinutes).toBeUndefined();
+    expect(handoff.region).toBeUndefined();
+    expect(MapPaneStub.lastProps.selectedDate).toBe(TOMORROW);
+  });
+
+  it('an inPlace door raises no tabRequest — a tab move would only steal focus to the tab in force', async () => {
+    renderApp();
+    await screen.findByTestId('stub-map-pane');
+    const before = ShellStub.lastProps.tabRequest;
+
+    await act(async () => {
+      ShellStub.lastProps.onOpenMapTab({ ...DOOR, inPlace: true });
+    });
+
+    expect(ShellStub.lastProps.tabRequest).toBe(before);
   });
 
   it('a null field on the door (no region/rating/reach/location) lands as null, never undefined, '

@@ -454,6 +454,8 @@ you just asked about").
   the window; actions: *Zoom to it* (`flyTo`, floor z12.6) and *Open in Plan* — a real handoff:
   switch to the Plan tab and open that location's `LocationFourDaySheet` as the **only** dialog
   layer (the supported stack is two deep; a sheet alone is one — do not route through the popup).
+  ⚠️ Since 2026-09-05 this is one of **two** routes into that sheet and the only one that moves the
+  tab; the clamped prose's `Four days here ›` opens the same sheet over the map (§4 #25, O-18).
   The shell already supports both halves: the sheet mounts independently of the popup
   (`WindowFirstShell.jsx:1652–1654`; search's `onPickLocation` opens sheet-alone the same way),
   and `selectTab` clears every shell dialog on any tab switch (`:464–475`) — route the handoff
@@ -775,14 +777,31 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     and the **class vocabulary** is `.wf-sheet-*`/`.wf-loc-*`. None is a defect and none was
     introduced by this increment — but the increment asks for them by name, so the divergence is
     recorded here rather than left to be rediscovered.
-25. **The route LEAVES the Map tab, where the increment's z-index note implies a layer over it
-    (2026-09-04).** §2's one recorded adaptation is `z-index: 1700` "over everything, **without
-    closing what is underneath**". Here `Four days here ›` reuses `Open in Plan`, which requests a
-    tab change, so the map goes. Kept, for two reasons. The sheet's own footer carries
-    `◍ Show on map → …`, an action that only makes sense from somewhere the map is not — the sheet
-    was designed off-map. And mounting it over the map would give one dialog two hosts and force the
-    two-deep dialog-stack invariant (plan-matrix §6 M5) onto a third route. Revisit as **O-18** if
-    the owner wants the map kept underneath.
+25. **~~The route LEAVES the Map tab~~ — reversed 2026-09-05 on an owner ask; the sheet now opens
+    OVER the map (O-18 closed).** This entry used to record the divergence the other way: §2's one
+    recorded adaptation is `z-index: 1700` "over everything, **without closing what is underneath**",
+    and `Four days here ›` reused `Open in Plan`, requested a tab change, and took the map with it.
+    The owner's report — *"I'd like it to stay with the map behind, then I can back track on my user
+    journey"* — settled it: the increment's own note was right and the arm was wrong, so the arm
+    moved onto the spec. `Four days here ›` and `Open in Plan` are now **two callbacks, not one**
+    (`onOpenSheet`/`onOpenInPlan`), carried to the shell as a single handoff distinguished by
+    `inPlan`. The two reasons this entry gave for keeping the old behaviour are both answered rather
+    than overruled:
+    - *"the sheet's footer carries `◍ Show on map → …`, an action that only makes sense from
+      somewhere the map is not"* — true, and pressing it from a sheet already over the map was
+      **destructive**, not merely redundant: `MapView`'s door-landing effect writes `minRating` (and
+      persists it), writes `limitMinutes`, and calls `resetToMyArea()` for a `region: null` door, so
+      a reader's own map filters, scope and camera were silently reset by a press that asked only to
+      change the window — and the landing breadcrumb then read "Where you came from · ← Plan" to
+      someone who had come from the Map tab. The shell now stamps `inPlace` on the door from the tab
+      in force, and `App.openMapTabFromPlan` answers it with a window-and-selection handoff carrying
+      no `source`, no lens and no `tabRequest`.
+    - *"one dialog two hosts … forces the two-deep dialog-stack invariant onto a third route"* — the
+      peek is **one** layer, not a stack: the shell routes it through `selectTab` exactly as the
+      tab-moving route does, so it lands as the only dialog, and the masthead search (the only other
+      shell layer reachable from here) is already refused while `sheetSpot` stands. What it does add
+      is the first route where the layer UNDER the sheet is a fully interactive pane the shell has
+      no `stacked` opt-in over — recorded as **O-20**, not fixed here.
 26. **The reason button's accessible name is the whole narrative, and that is the spec's structure
     (2026-09-04).** §1 is explicit that "the clamped prose *is* a button", with an HTML sketch
     wrapping both prose and caption. Measured on the increment's own long fixture the resulting
@@ -1019,8 +1038,23 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   the extreme's kind and a formatted phrase), computed per slot at that location's own solar time
   against `TideFactDeriver`'s dynamic half-width. The limitation this item existed to name no longer
   exists.
-- **O-18** Whether `Four days here ›` should open the sheet OVER the map rather than switching to
-  the Plan tab (§4 #25).
+- **O-18** ✅ **CLOSED 2026-09-05, on an owner ask.** It asked whether `Four days here ›` should
+  open the sheet OVER the map rather than switching to the Plan tab. It should, and now does; the
+  actions row's `Open in Plan` keeps the tab move its label promises. §4 #25 records the reversal
+  and what had to move with it.
+- **O-20** The pane under a peek is not inert, and this is the first route where the covered layer
+  is a whole interactive pane. `useDialogFocus`'s ruling accepts Tab-out app-wide and names the
+  structural alternative (shell-root `inert` while any dialog is open) as an unstarted follow-on, so
+  this is the same posture the Plan tab has always had, applied to a bigger surface — but two
+  consequences are specific to the map and are written down rather than left to be rediscovered:
+  a keyboard reader can Tab from the sheet onto Leaflet's controls, the window control, the
+  Filters/Regions/Legend chips and the callout's own buttons, all behind a 60%-black backdrop; and
+  from a map popover opened that way, one `Escape` answers **two** layers (the popover closes
+  itself locally without `stopPropagation`, and the sheet's document listener fires on the same
+  press). Neither is reachable without first Tabbing out of a modal. The fix is the follow-on, not
+  a fourth per-route guard: `inert` on the map panel needs `Modal`'s own `lastInside` machinery
+  mirrored onto the pane, or the peek's return address (the callout button, blurred by `inert`
+  before `useDialogFocus` can capture it) is destroyed by the fix.
 - **O-19** Whether the reason button should keep the spec's whole-prose target (a 399-character
   accessible name) or move to caption-as-button with a four-word one (§4 #26).
 - **O-16** The exit for §4 #15 / CLAUDE.md's Backend-heavy fifth class: a served, RATED

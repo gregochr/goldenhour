@@ -332,29 +332,38 @@ function AppInner() {
   };
 
   /**
-   * The location the PLAN tab should open a four-day sheet for, asked for from the Map tab's
-   * selection callout (map-tab-v2-plan.md §3 P9's "Open in Plan" action) — `openFullMapTab`'s shape,
-   * in reverse. Kept SEPARATE from `tabRequest` for the identical reason `mapTabHandoff` is kept
-   * separate from it in the forward direction: the Plan tab's body is `hidden` rather than
-   * unmounted while another tab is active (`WindowFirstShell.jsx`'s own sticky-pane idiom), so a
-   * handoff that arrived on some OTHER channel while it was hidden must not be mistaken for one the
-   * reader explicitly asked for by pressing "Open in Plan".
+   * The location a four-day sheet should be opened for, asked for from the Map tab's selection
+   * callout (map-tab-v2-plan.md §3 P9) — `openFullMapTab`'s shape, in reverse. Kept SEPARATE from
+   * `tabRequest` for the identical reason `mapTabHandoff` is kept separate from it in the forward
+   * direction: the Plan tab's body is `hidden` rather than unmounted while another tab is active
+   * (`WindowFirstShell.jsx`'s own sticky-pane idiom), so a handoff that arrived on some OTHER
+   * channel while it was hidden must not be mistaken for one the reader explicitly asked for.
    */
-  const [planLocationHandoff, setPlanLocationHandoff] = useState(null);
+  const [locationSheetHandoff, setLocationSheetHandoff] = useState(null);
 
   /**
-   * Switch to the Plan tab and open one location's four-day sheet — the Map tab callout's "Open in
-   * Plan" action. `WindowFirstShell.jsx`'s `tabRequest`-handling effect routes this through
-   * `selectTab('plan')` (never a bare `setActiveTab`), which clears every OTHER dialog layer first,
-   * so the sheet lands as the ONLY layer rather than stacking over a popup nobody asked to see.
+   * Open one location's four-day sheet, asked for from the Map tab's selection callout.
    *
-   * @param {{id: *, name: string, regionName: ?string}} spot the sheet's own identity shape
-   *        (`utils/locationSheet.sheetSpotOf`'s), already built by `MapView.jsx`'s caller
+   * <p>⚠️ <b>The tab move is the callout's choice, not this function's, and it does NOT ride
+   * `tabRequest`.</b> The callout has two routes into the same sheet and they differ only in where
+   * the reader ends up: the clamped prose's `Four days here ›` opens it OVER the map, so closing it
+   * puts the reader back on the callout they pressed it from (an owner ask — "I'd like it to stay
+   * with the map behind, then I can back track on my user journey"), while the actions row's
+   * `Open in Plan` names the Plan tab and still goes there. `spot.inPlan` carries which, and
+   * `WindowFirstShell`'s handoff effect performs the move ITSELF rather than App raising a second
+   * `tabRequest` alongside this one — that effect calls `selectTab('plan')` and then writes
+   * `sheetSpot` in the SAME synchronous body (i.e. the same React batch), which is the whole reason
+   * the sheet survives `selectTab`'s own dialog-clearing. Two channels would put those two writes
+   * in two effects and make the outcome depend on their declaration order.
+   *
+   * @param {{id: *, name: string, regionName: ?string, inPlan: boolean, date: ?string,
+   *        targetType: ?string}} spot the sheet's own identity shape
+   *        (`utils/locationSheet.sheetSpotOf`'s), the destination flag, and the window the map is
+   *        on (which the shell turns into the sheet's `focusWindowKey`) — all built by
+   *        `MapView.jsx`'s caller
    */
-  const openLocationInPlan = (spot) => {
-    tabRequestNonce.current += 1;
-    setPlanLocationHandoff({ ...spot, nonce: handoffNonce.current++ });
-    setTabRequest({ id: 'plan', nonce: tabRequestNonce.current });
+  const openLocationSheet = (spot) => {
+    setLocationSheetHandoff({ ...spot, nonce: handoffNonce.current++ });
   };
 
   /**
@@ -373,9 +382,36 @@ function AppInner() {
    * Map tab already reads from the SAME `WindowFirstBriefingContext` the Plan tab does, so sending
    * it here would be the increment's own `org`-in-the-URL mistake in reverse: a parameter the map
    * never reads because it already has a truer answer to the same question.
+   *
+   * <p>⚠️ <b>`door.inPlace` is not a door at all</b> — it is the same footer pressed from a sheet
+   * that is already OVER the map, and it takes the other branch below for the reasons stated there.
    */
   const openMapTabFromPlan = (door) => {
     setSelectedDate(door.date);
+    if (door.inPlace) {
+      // ⚠️ The reader is ALREADY on the Map tab — the four-day sheet was opened over it by the
+      // callout's `Four days here ›` peek, and this is its footer's `Show on map → <window>`. A
+      // door PAYLOAD here would be actively destructive rather than merely redundant: `MapView`'s
+      // landing effect writes `minRating` (and PERSISTS it to `mapFilterMinStars`), writes
+      // `limitMinutes`, and — because a sheet door always carries `region: null` — calls
+      // `resetToMyArea()`, which flips scope back to My area and refits the camera. So a reader who
+      // had just set a 4★ floor and jumped to a region on this very map would have all three
+      // silently undone by a press that only ever asked to change the WINDOW. The breadcrumb would
+      // then appear over it reading "Where you came from · ← Plan", which is not where they came
+      // from, and the `tabRequest` would move focus to the Map tab button of the tab they are on.
+      //
+      // Omitting `source` is what makes this a window-and-selection move: `WindowFirstMapPane` tells
+      // a door from the overlay hatch's own handoff by that one field, and the hatch's per-field
+      // props set the event type and select the location, nothing else. No `tabRequest` either —
+      // there is no tab to change.
+      setMapTabHandoff({
+        eventType: door.targetType,
+        date: door.date,
+        locationName: door.locationName ?? null,
+        nonce: handoffNonce.current++,
+      });
+      return;
+    }
     tabRequestNonce.current += 1;
     setMapTabHandoff({
       source: 'plan',
@@ -558,7 +594,7 @@ function AppInner() {
               onSeasonalFeaturesChange={handleSeasonalFeaturesChange}
               locations={visibleLocations}
               tabRequest={tabRequest}
-              planLocationHandoff={planLocationHandoff}
+              locationSheetHandoff={locationSheetHandoff}
               // Withheld when there is nothing to map, which is the same rule the Operations tab
               // follows and §6's ban on controls that open nothing. `allDates` is empty whenever
               // `GET /api/forecast` returned no rows, and a Map tab onto no dates would be a tab
@@ -582,7 +618,7 @@ function AppInner() {
                     mapColourScale={mapColourScale}
                     colourScaleDefaulted={colourScaleDefaulted}
                     onOpenSettings={() => setSettingsFocus('postcode')}
-                    onOpenLocationInPlan={openLocationInPlan}
+                    onOpenLocationSheet={openLocationSheet}
                     // The breadcrumb's `← Plan` (D2) — a `tabRequest` for `'plan'`, no window key.
                     onReturnToPlan={returnToPlan}
                   />

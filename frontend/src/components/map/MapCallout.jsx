@@ -150,10 +150,15 @@ function kindShort(event) {
  *        date → that night's served aurora rows, the aurora twin of `astroConditionsByDate`
  * @param {?Function} [props.onSelectEv] `(row) => void` — switches the active window (the P6
  *        selection path, `MapView.jsx`'s `selectEvRow`)
- * @param {?Function} [props.onOpenInPlan] `() => void` — the real shell handoff (opens this
- *        location's `LocationFourDaySheet` as the only dialog layer on the Plan tab). Called with
- *        no arguments: the CALLER reads the active window off its own state, because it already
- *        holds the one the map is on and a second copy passed from here could disagree with it
+ * @param {?Function} [props.onOpenSheet] `() => void` — the clamped prose's `Four days here ›`
+ *        (increment §1). Opens this location's `LocationFourDaySheet` as the only dialog layer
+ *        OVER the map, with this callout still mounted behind it, so dismissing the sheet returns
+ *        the reader to the selection they opened it from. Called with no arguments: the CALLER
+ *        reads the active window off its own state, because it already holds the one the map is on
+ *        and a second copy passed from here could disagree with it
+ * @param {?Function} [props.onOpenInPlan] `() => void` — the actions row's `Open in Plan`. The same
+ *        sheet as `onOpenSheet`, plus the tab move its label promises. The two are deliberately
+ *        NOT one control: the prose is a peek that keeps the map, the button names a destination
  * @param {?Function} [props.onClose] `() => void` — the ✕ button and the map-background click rule
  */
 export default function MapCallout({
@@ -161,7 +166,7 @@ export default function MapCallout({
   tideOnLight = null,
   scoreIndex = null, scoresKnown = false, regionGlossIndex = null, evRows = [],
   astroConditionsByDate = null, auroraResultsByDate = null,
-  onSelectEv = null, onOpenInPlan = null, onClose = null,
+  onSelectEv = null, onOpenSheet = null, onOpenInPlan = null, onClose = null,
 }) {
   const map = useMap();
   const isMobile = useIsMobile();
@@ -477,17 +482,36 @@ export default function MapCallout({
             data-testid="map-callout-reason"
             // The convention every other dialog-opener on this tab follows (`FiltersPopover`,
             // `RegionsJump`, `MapLegendPanel`, `WindowFirstHeatStrip` — the last carries the comment
-            // "`aria-haspopup="dialog"` is the pattern for a control that opens one"). It matters
-            // more here than there: this control also takes the reader off the Map tab, and nothing
-            // in its name says so.
+            // "`aria-haspopup="dialog"` is the pattern for a control that opens one").
             aria-haspopup="dialog"
-            onClick={() => onOpenInPlan?.()}
+            // ⚠️ FOCUSES ITSELF FIRST, and that is the return leg rather than belt-and-braces.
+            // `useDialogFocus` records `document.activeElement` when the sheet mounts and puts focus
+            // back there when it closes — which is the whole of what makes this a peek the reader
+            // can back out of. But **macOS and iOS Safari do not focus a `<button>` on click**
+            // unless Full Keyboard Access is on (the same engine fact `Modal`'s own `onPointerDown`
+            // note records), so without this the capture reads `<body>` and the reader is returned
+            // to the top of the document instead of to the place they were reading about.
+            onClick={(pressEvent) => { pressEvent.currentTarget.focus(); onOpenSheet?.(); }}
           >
             <span className="wf-callout-reason-text">{reason}</span>
             <span className="wf-callout-reason-more" aria-hidden="true">Four days here ›</span>
-            {/* The caption is decorative to a screen reader — the accessible name below states the
-                destination in full, and "Four days here ›" read after a 90-word narrative names
-                nothing. The name opens with the place, which is what a speech-input user says. */}
+            {/* The caption is decorative to a screen reader — "Four days here ›" read after a
+                90-word narrative names nothing — so the sr-only span is what states the destination.
+                ⚠️ The prose is deliberately NOT hidden with it: it is the callout's only reading of
+                this window, and `aria-hidden` (or an `aria-label`, which REPLACES content outright)
+                would take it from a screen reader entirely to shorten a name. The consequence is
+                that the name is the whole summary and then the place — it does NOT open with the
+                place, whatever an earlier draft of this comment claimed, and a speech-input user
+                still has the visible "Four days here" inside it (2.5.3).
+
+                ⚠️ The `{' '}` is load-bearing and must stay a BARE TEXT NODE. accname trims each
+                element's own contribution before joining with nothing, and the caption between
+                these two is `aria-hidden`, so without it the summary's final word and the place ran
+                together into one spoken token ("…underneath it.Bamburgh"). A CSS `gap` or a
+                pseudo-element `::before` cannot do this — neither is in the accessibility tree —
+                and JSX drops a whitespace-only line between two tags rather than collapsing it to a
+                space, so it has to be written as an explicit expression. */}
+            {' '}
             <span className="sr-only">{`${location.name} — four days here`}</span>
           </button>
         )}
@@ -641,6 +665,7 @@ MapCallout.propTypes = {
   astroConditionsByDate: PropTypes.instanceOf(Map),
   auroraResultsByDate: PropTypes.instanceOf(Map),
   onSelectEv: PropTypes.func,
+  onOpenSheet: PropTypes.func,
   onOpenInPlan: PropTypes.func,
   onClose: PropTypes.func,
 };
