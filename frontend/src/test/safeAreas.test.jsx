@@ -186,6 +186,64 @@ describe('safe areas', () => {
     });
   });
 
+  describe('⚠️ the Map tab bleeds, and that is two halves of one mechanism', () => {
+    // Everywhere else the root's padding insets the page and nothing in flow has to know. The Map
+    // tab opts out: the map is scenery, and letterboxing it cost 34px of picture under a 390×844
+    // phone and 63px off EACH side of an 844×390 landscape one. So the frame is pulled back out
+    // over the padding and the chrome takes the insets as its own terms.
+
+    it('the map tab pulls back over the root padding on the three bled edges', () => {
+      const block = rule('.wf-map-tab');
+
+      expect(block).toMatch(/margin-left: calc\(-1 \* var\(--safe-l\)\)/);
+      expect(block).toMatch(/margin-right: calc\(-1 \* var\(--safe-r\)\)/);
+      expect(block).toMatch(/margin-bottom: calc\(-1 \* var\(--safe-b\)\)/);
+      // Top is deliberately absent — nothing pulls the map up over the top inset, because that is
+      // where the masthead is.
+      expect(block, 'the map must not bleed upward past the masthead')
+        .not.toMatch(/margin-top:/);
+    });
+
+    it('every chrome edge that now meets the screen carries its inset back', () => {
+      // ⚠️ THE HALF THAT IS EASY TO DROP. The negative margins without these terms put the bottom
+      // bar under the home indicator — which is exactly the defect the safe-area work existed to
+      // fix, reintroduced by the change meant to improve the same surface. Measured at 390×844
+      // with a 34px inset: the frame reaches y=844 and the bar's foot sits at y=802, 42px clear.
+      const css = decls(read('../index.css'));
+      const scoped = css.slice(css.indexOf('.wf-map-tab {'));
+
+      [
+        ['.wf-map-tab .wf-map-chrome-bl', /bottom: calc\(8px \+ var\(--safe-b\)\)/],
+        ['.wf-map-tab .wf-map-counts-footer', /bottom: calc\(8px \+ var\(--safe-b\)\)/],
+        ['.wf-map-tab .wf-map-chrome-tr', /right: calc\(8px \+ var\(--safe-r\)\)/],
+        ['.wf-map-tab .wf-map-chrome-tl', /left: calc\(60px \+ var\(--safe-l\)\)/],
+        ['.wf-map-tab .leaflet-bottom.leaflet-right', /padding-bottom: var\(--safe-b\)/],
+      ].forEach(([selector, pattern]) => {
+        const at = scoped.indexOf(`${selector} {`);
+        expect(at, `${selector} must exist`).toBeGreaterThan(-1);
+        expect(scoped.slice(at, scoped.indexOf('}', at)), `${selector} lost its inset term`)
+          .toMatch(pattern);
+      });
+    });
+
+    it('the bleed is scoped to the tab, so the frozen Plan-tab overlay cannot inherit it', () => {
+      // `MapView` mounts on both surfaces and only the tab root carries `wf-map-tab`
+      // (`overlayMode` renders none). The overlay sits inside a normally-inset page, so a bleed
+      // reaching it would pull it out from under the padding that is doing its job. Scoping is
+      // what makes that impossible without anyone having to audit which chrome the overlay
+      // happens to render.
+      const css = decls(read('../index.css'));
+      const at = css.indexOf('.wf-map-tab {');
+      const bleed = css.slice(at, css.indexOf('}', at));
+
+      expect(bleed).toMatch(/margin-bottom/);
+      expect(css.indexOf('.wf-map-tab {'), 'the bleed rule must exist').toBeGreaterThan(-1);
+      // The negative margins appear on the scoped rule and nowhere else in the file.
+      const allNegatives = [...css.matchAll(/margin-(?:left|right|bottom): calc\(-1 \* var\(--safe-[lrb]\)\)/g)];
+      expect(allNegatives, 'exactly the three bled edges, on one rule').toHaveLength(3);
+    });
+  });
+
   describe('the classes reach the elements', () => {
     it('the bottom sheet carries app-safe-sheet and no longer pins its own left/right', () => {
       render(<BottomSheet open onClose={() => {}} label="Sheet"><p>Content</p></BottomSheet>);

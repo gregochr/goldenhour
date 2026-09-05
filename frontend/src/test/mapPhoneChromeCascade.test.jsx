@@ -1,8 +1,51 @@
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
+
   describe, it, expect, afterEach,
 } from 'vitest';
+
+/**
+ * Resolves a `bottom` / `padding-bottom` that the Map tab's safe-area bleed turned into a `calc()`.
+ *
+ * ⚠️ Read this before "fixing" a NaN here by reaching for the literal again. jsdom resolves neither
+ * `var()` nor `calc()`, so the moment a declaration stopped being a bare `112px` every `parseFloat`
+ * below returned NaN — and every comparison against NaN is false, so the whole pairwise matrix went
+ * quietly vacuous rather than red. (It went red here only because the sweep asserts each rect's top
+ * is `>= 0` first, which NaN also fails.) Asserting the literal instead would pin a number that is
+ * no longer the geometry on screen.
+ *
+ * So this evaluates the one form the bleed introduces — `calc(<n>px + var(--safe-b))` — at a chosen
+ * inset, which makes the sweep STRICTLY STRONGER than it was: the same pairwise matrix now has to
+ * hold at a real 34px inset as well as at zero, and the design's tuned clearances are preserved by
+ * construction because every row gained the identical term.
+ *
+ * @param {string} value a computed `bottom`/`padding-bottom`
+ * @param {number} inset the safe-area bottom inset, in px, to resolve `--safe-b` to
+ * @returns {number} the resolved pixel value
+ */
+const pxAt = (value, inset) => {
+  const v = String(value).trim();
+  if (!v.startsWith('calc(')) {
+    const bare = parseFloat(v);
+    return Number.isNaN(bare) ? 0 : bare;
+  }
+  const m = v.match(/^calc\(\s*(-?[\d.]+)px\s*\+\s*var\(--safe-b\)\s*\)$/);
+  expect(m, `unrecognised bleed form, cannot resolve: ${v}`).not.toBeNull();
+  return parseFloat(m[1]) + inset;
+};
+
+/**
+ * The inset the individual geometry assertions resolve at — a home-indicator-sized one, NOT zero.
+ *
+ * Zero is the easy case and was the only one these ever saw. THE SWEEP below runs at both, which is
+ * what pins the two properties that matter: the pairwise clearances survive a real inset, and the
+ * whole cascade is a no-op without one.
+ */
+const INSET = 34;
+
+/** The insets THE SWEEP runs its full pairwise matrix at. */
+const INSETS = [0, INSET];
 
 /**
  * The Map tab's PHONE chrome (map-tab-v2-plan.md §3 P12, `docs/design/map-tab-v2/README.md`
@@ -195,8 +238,11 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
     const cleanup = inject(slice);
     try {
       const style = computedStyleFor('wf-map-chrome-tl', ['wf-map-tab']);
-      expect(style.left).toBe('8px');
-      expect(style.right).toBe('8px');
+      // The design's own literal, plus the safe-area term the Map tab's bleed requires: the
+      // frame this is measured from now ends at the PHYSICAL screen edge, so the literal
+      // alone would put this under the sensor housing / home indicator. Inert at a zero inset.
+      expect(style.left).toBe('calc(8px + var(--safe-l))');
+      expect(style.right).toBe('calc(8px + var(--safe-r))');
     } finally {
       cleanup();
     }
@@ -225,7 +271,10 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
       const style = computedStyleFor('wf-map-chrome-tr', ['wf-map-tab']);
       expect(style.flexDirection).toBe('row');
       expect(style.justifyContent).toBe('space-between');
-      expect(style.bottom).toBe('8px');
+      // The design's own literal, plus the safe-area term the Map tab's bleed requires: the
+      // frame this is measured from now ends at the PHYSICAL screen edge, so the literal
+      // alone would put this under the sensor housing / home indicator. Inert at a zero inset.
+      expect(style.bottom).toBe('calc(8px + var(--safe-b))');
     } finally {
       cleanup();
     }
@@ -262,7 +311,11 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
       // with Leaflet's full-width attribution control once both were lifted; `112px` is its own
       // row in the staggered stack (see index.css's own comment above this rule, and the sweep
       // describe block below, which pins the full pairwise arithmetic rather than this literal).
-      expect(computedStyleFor('wf-map-counts-footer', ['wf-map-tab']).bottom).toBe('112px');
+      // The design's own literal, plus the safe-area term the Map tab's bleed requires: the
+      // frame this is measured from now ends at the PHYSICAL screen edge, so the literal
+      // alone would put this under the sensor housing / home indicator. Inert at a zero inset.
+      expect(computedStyleFor('wf-map-counts-footer', ['wf-map-tab']).bottom)
+        .toBe('calc(112px + var(--safe-b))');
       expect(computedStyleFor('wf-map-counts-second', ['wf-map-tab']).display).toBe('none');
     } finally {
       cleanup();
@@ -372,8 +425,8 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
     const slice = extractRulesIncludingMedia(['.wf-map-chrome-bl', '.wf-map-chrome-tr']);
     const cleanup = inject(slice);
     try {
-      const barBottom = parseFloat(computedStyleFor('wf-map-chrome-tr', ['wf-map-tab']).bottom);
-      const blBottom = parseFloat(computedStyleFor('wf-map-chrome-bl', ['wf-map-tab']).bottom);
+      const barBottom = pxAt(computedStyleFor('wf-map-chrome-tr', ['wf-map-tab']).bottom, INSET);
+      const blBottom = pxAt(computedStyleFor('wf-map-chrome-bl', ['wf-map-tab']).bottom, INSET);
       const ASSUMED_BAR_HEIGHT = 48; // documented in index.css's own `.wf-map-chrome-bl` comment
       const CLEARANCE_GAP = 8;
       expect(blBottom).toBeGreaterThanOrEqual(barBottom + ASSUMED_BAR_HEIGHT + CLEARANCE_GAP);
@@ -408,8 +461,8 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
     expect(slice).toContain('.wf-map-tab .wf-map-scored-legend');
     const cleanup = inject(slice);
     try {
-      const barBottom = parseFloat(computedStyleFor('wf-map-chrome-tr', ['wf-map-tab']).bottom);
-      const scoredBottom = parseFloat(computedStyleFor('wf-map-scored-legend', ['wf-map-tab']).bottom);
+      const barBottom = pxAt(computedStyleFor('wf-map-chrome-tr', ['wf-map-tab']).bottom, INSET);
+      const scoredBottom = pxAt(computedStyleFor('wf-map-scored-legend', ['wf-map-tab']).bottom, INSET);
       const ASSUMED_BAR_HEIGHT = 48;
       const CLEARANCE_GAP = 8;
       expect(scoredBottom).toBeGreaterThanOrEqual(barBottom + ASSUMED_BAR_HEIGHT + CLEARANCE_GAP);
@@ -439,11 +492,11 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
     expect(slice).toContain('.wf-map-tab .leaflet-bottom.leaflet-right');
     const cleanup = inject(slice);
     try {
-      const barBottom = parseFloat(computedStyleFor('wf-map-chrome-tr', ['wf-map-tab']).bottom);
+      const barBottom = pxAt(computedStyleFor('wf-map-chrome-tr', ['wf-map-tab']).bottom, INSET);
       const corner = computedStyleFor('leaflet-bottom leaflet-right', ['wf-map-tab']);
       const ASSUMED_BAR_HEIGHT = 48;
       const CLEARANCE_GAP = 8;
-      expect(parseFloat(corner.paddingBottom)).toBeGreaterThanOrEqual(barBottom + ASSUMED_BAR_HEIGHT + CLEARANCE_GAP);
+      expect(pxAt(corner.paddingBottom, INSET)).toBeGreaterThanOrEqual(barBottom + ASSUMED_BAR_HEIGHT + CLEARANCE_GAP);
     } finally {
       cleanup();
     }
@@ -473,7 +526,7 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
     const slice = extractRulesIncludingMedia('.leaflet-bottom.leaflet-right');
     const cleanup = inject(slice);
     try {
-      expect(parseFloat(computedStyleFor('leaflet-bottom leaflet-right').paddingBottom)).toBe(0);
+      expect(pxAt(computedStyleFor('leaflet-bottom leaflet-right').paddingBottom, INSET)).toBe(0);
     } finally {
       cleanup();
     }
@@ -556,31 +609,36 @@ describe('the phone chrome re-arrangement is scoped to `.wf-map-tab` (map-tab-v2
       return a.bottom <= b.top || b.bottom <= a.top;
     }
 
-    it('every one of the 10 pairs among {bar, attribution, counts footer, scored legend, chrome-bl} is vertically disjoint', () => {
+    // ⚠️ Run at BOTH insets. The stack is `bottom: calc(<literal> + var(--safe-b))` since the Map
+    // tab started bleeding past the safe area, so 0 pins that the bleed changed no geometry where
+    // no inset is reported, and 34 pins that the tuned clearances survive one. Every row gained the
+    // identical term, so the pairwise differences are invariant by construction — this is what
+    // proves that claim rather than restating it.
+    it.each(INSETS)('every one of the 10 pairs among {bar, attribution, counts footer, scored legend, chrome-bl} is vertically disjoint (inset %ipx)', (INSET) => {
       const slice = extractRulesIncludingMedia([
         '.wf-map-chrome-tr', '.wf-map-chrome-bl', '.wf-map-counts-footer',
         '.wf-map-scored-legend', '.leaflet-bottom.leaflet-right',
       ]);
       const cleanup = inject(slice);
       try {
-        const barBottom = parseFloat(computedStyleFor('wf-map-chrome-tr', ['wf-map-tab']).bottom);
-        const attributionBottom = parseFloat(
-          computedStyleFor('leaflet-bottom leaflet-right', ['wf-map-tab']).paddingBottom,
+        const barBottom = pxAt(computedStyleFor('wf-map-chrome-tr', ['wf-map-tab']).bottom, INSET);
+        const attributionBottom = pxAt(
+          computedStyleFor('leaflet-bottom leaflet-right', ['wf-map-tab']).paddingBottom, INSET,
         );
 
         const rects = {
           bar: rectFromBottom(barBottom, ASSUMED_BAR_HEIGHT),
           attribution: rectFromBottom(attributionBottom, MEASURED_ATTRIBUTION_HEIGHT),
           counts_footer: rectFromBottom(
-            parseFloat(computedStyleFor('wf-map-counts-footer', ['wf-map-tab']).bottom),
+            pxAt(computedStyleFor('wf-map-counts-footer', ['wf-map-tab']).bottom, INSET),
             ASSUMED_CHIP_HEIGHT,
           ),
           scored_legend: rectFromBottom(
-            parseFloat(computedStyleFor('wf-map-scored-legend', ['wf-map-tab']).bottom),
+            pxAt(computedStyleFor('wf-map-scored-legend', ['wf-map-tab']).bottom, INSET),
             MEASURED_SCORED_LEGEND_HEIGHT,
           ),
           chrome_bl: rectFromBottom(
-            parseFloat(computedStyleFor('wf-map-chrome-bl', ['wf-map-tab']).bottom),
+            pxAt(computedStyleFor('wf-map-chrome-bl', ['wf-map-tab']).bottom, INSET),
             ASSUMED_CHIP_HEIGHT,
           ),
         };

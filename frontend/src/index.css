@@ -304,10 +304,15 @@
    encoded `Modal`'s `p-4` as a literal `32px`, and each needed `--safe-v` to stop eating the
    padding whole.
 
-   Two things deliberately NOT here. The map tab's phone chrome (the bottom bar and the lifted
-   stack above it) is `position: absolute` inside the map frame, and that frame is inside the root's
-   padding — the whole tuned cascade in the phone block below moves up with it and needs no term of
-   its own. And `.wf-peek` / `.heatmap-cell-tip` are `position: fixed` but JS-placed against an
+   ⚠️ THE MAP TAB IS THE ONE SURFACE THAT OPTS OUT, and this paragraph used to say the opposite.
+   It said the map's phone chrome needed no term because the frame it sits in was inside the root's
+   padding — true, and measured true, but it was an argument that the map was SAFE rather than that
+   it was right. What it bought was a letterboxed map: 34px of page colour under a 390×844 phone and
+   63px off each side of a landscape one. The Map tab now bleeds back over that padding and its
+   chrome carries the insets itself — see "The Map tab BLEEDS" above, which is the only place in
+   this file where a negative margin cancels `.app-safe`.
+
+   One thing still deliberately NOT here: `.wf-peek` / `.heatmap-cell-tip` are `position: fixed` but JS-placed against an
    anchor that is itself already inset, clamping to `window.innerHeight`; they can graze an unsafe
    zone only at the very edge of their travel, and the fix for those is a JS one against the same
    values rather than a rule here. */
@@ -3163,6 +3168,63 @@ button.wf-hc.also.on:hover {
    Bottom-centre, matching `.wf-map-key`'s pill treatment so the new chrome reads as one family
    with the old. `--color-plex-panel` opaque for the same reason every map-floating chip is: a
    translucent ground puts a coastline through the words. */
+/* ── The Map tab BLEEDS past the safe area, and its chrome answers for the insets itself ────────
+   Everywhere else in this app the root's `.app-safe` padding insets the whole page and nothing in
+   normal flow has to know. The Map tab is the one surface where that is the wrong trade: the map is
+   scenery, and letterboxing it costs real picture. Measured against the built stylesheet before
+   this block existed: a 34px band of page colour under the map on a 390×844 phone, and 63px of lost
+   map on EACH side of an 844×390 landscape one (47px inset + the 16px `sm:px-4` gutter) — about 15%
+   of the width, to keep coastline out of a strip the reader can see through anyway.
+
+   So the map frame is pulled back out over the root's padding by exactly the padding, and every
+   control that floats above it takes the inset as its own term instead.
+
+   ⚠️ THE NEGATIVE MARGINS AND THE `calc()` TERMS BELOW ARE ONE MECHANISM. Remove either half alone
+   and the result is worse than before this block: the margins without the terms put the bar under
+   the home indicator, and the terms without the margins inset the chrome twice.
+
+   ⚠️ IT IS ON `.wf-map-tab`, THE TAB'S OWN ROOT — never on `MapView` itself, which the frozen
+   Plan-tab overlay also mounts (`overlayMode` renders no `wf-map-tab`). The overlay sits inside a
+   normally-inset page and must not bleed; scoping every rule here means it cannot, without anyone
+   having to answer whether it happens to render the same chrome classes.
+
+   ⚠️ The masthead, the tab bar and the banners above the map are NOT bled — they are chrome with
+   text in them, and they keep the root's padding. Only the picture extends. `.wf-map-tab` sits
+   below all of them, which is what makes that split a one-line scope rather than an audit.
+
+   Top is deliberately absent: nothing pulls the map up over the top inset, because that is where
+   the masthead is. */
+.wf-map-tab {
+  margin-left: calc(-1 * var(--safe-l));
+  margin-right: calc(-1 * var(--safe-r));
+  margin-bottom: calc(-1 * var(--safe-b));
+}
+
+/* The compensating terms for the desktop/tablet chrome. Each is the design's own literal plus the
+   inset on that edge, so the tuned geometry is untouched wherever no inset is reported. */
+.wf-map-tab .wf-map-chrome-tl {
+  left: calc(60px + var(--safe-l));
+}
+
+.wf-map-tab .wf-map-chrome-tr {
+  right: calc(8px + var(--safe-r));
+}
+
+.wf-map-tab .wf-map-chrome-bl {
+  bottom: calc(8px + var(--safe-b));
+  left: calc(8px + var(--safe-l));
+}
+
+.wf-map-tab .wf-map-counts-footer {
+  bottom: calc(8px + var(--safe-b));
+}
+
+/* Leaflet's attribution is a licensing requirement, so it lifts rather than hides. It sits in
+   Leaflet's own bottom-right corner container, which now ends at the physical screen edge. */
+.wf-map-tab .leaflet-bottom.leaflet-right {
+  padding-bottom: var(--safe-b);
+}
+
 .wf-map-counts-footer {
   position: absolute;
   bottom: 8px;
@@ -3314,8 +3376,8 @@ button.wf-hc.also.on:hover {
    postcode. `⌂` stays hidden — the corner is still the bar's. */
 @media (max-width: 639px) {
   .wf-map-tab .wf-map-chrome-tl {
-    left: 8px;
-    right: 8px;
+    left: calc(8px + var(--safe-l));
+    right: calc(8px + var(--safe-r));
   }
   .wf-map-tab .wf-win-control {
     width: 100%;
@@ -3323,9 +3385,13 @@ button.wf-hc.also.on:hover {
 
   .wf-map-tab .wf-map-chrome-tr {
     top: auto;
-    bottom: 8px;
-    left: 8px;
-    right: 8px;
+    /* ⚠️ Every `bottom:` in this phone cascade carries `+ var(--safe-b)`, because the frame it is
+       measured from now ends at the PHYSICAL screen edge (see the bleed block above). The whole
+       tuned stack — bar 8, attribution 76, counts 112, scored chip 152, upsell 192 — shifts up
+       together by the inset, so every pairwise clearance THE SWEEP pins is preserved exactly. */
+    bottom: calc(8px + var(--safe-b));
+    left: calc(8px + var(--safe-l));
+    right: calc(8px + var(--safe-r));
     flex-direction: row;
     align-items: stretch;
     justify-content: space-between;
@@ -3408,7 +3474,7 @@ button.wf-hc.also.on:hover {
      already removed from flow before this phase, so a taller stack changes nothing about the
      frame's own box, only where within it these five chips paint. */
   .wf-map-tab .wf-map-counts-footer {
-    bottom: 112px;
+    bottom: calc(112px + var(--safe-b));
   }
   .wf-map-tab .wf-map-counts-second {
     display: none;
@@ -3418,7 +3484,7 @@ button.wf-hc.also.on:hover {
      WIDEST of the lifted set (its own text can approach the frame's full width, see the stack
      comment above), so it takes the TOPMOST row rather than sharing one with anything else. */
   .wf-map-tab .wf-map-chrome-bl {
-    bottom: 192px;
+    bottom: calc(192px + var(--safe-b));
   }
 
   /* The scored-locations chip (`photocast-scored-legend`) — PR #741 review found it colliding
@@ -3427,7 +3493,7 @@ button.wf-hc.also.on:hover {
      folded into the counts footer, since its text ("★ PhotoCast-scored locations shown") is not
      duplicated anywhere else on the phone. */
   .wf-map-tab .wf-map-scored-legend {
-    bottom: 152px;
+    bottom: calc(152px + var(--safe-b));
   }
 
   /* Leaflet's own attribution control (PR #741 review, then the live-measurement review above) —
@@ -3443,7 +3509,7 @@ button.wf-hc.also.on:hover {
      quieting styles on `.leaflet-control-attribution` itself (background/colour/font-size/padding)
      are a DIFFERENT selector entirely and are untouched by this rule. */
   .wf-map-tab .leaflet-bottom.leaflet-right {
-    padding-bottom: 76px;
+    padding-bottom: calc(76px + var(--safe-b));
   }
 
   /* Pinch instead (README "Responsive" table: "Zoom buttons | hidden (pinch instead)"). Real
