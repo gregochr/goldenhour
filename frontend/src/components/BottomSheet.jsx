@@ -75,6 +75,14 @@ export default function BottomSheet({
         // `left-0 right-0` is gone in favour of `app-safe-sheet`, which owns `left`/`right`/
         // `padding-bottom` together — see index.css for why the sides are inset while the foot is
         // padded. Identical to the old `left-0 right-0 bottom-0` on any device reporting no insets.
+        //
+        // ⚠️ Removed as HYGIENE, not because it would have won. Measured in Chromium against the
+        // built stylesheet with the insets substituted for real values (47px sides): the sheet's
+        // `left`/`right` resolve to 47px WITH `left-0 right-0` still on the element. Tailwind v4
+        // emits its utilities into a cascade layer and these rules are unlayered, so they beat
+        // every utility regardless of specificity or source order. What a left-behind `left-0`
+        // would be is a declaration that never applies — markup telling a reader the sheet is
+        // pinned to the viewport edges when it is not.
         className="app-safe-sheet fixed bottom-0 rounded-t-2xl bg-plex-surface border-t border-plex-border animate-slide-up focus:outline-none"
         style={{ zIndex: 10000, maxHeight: '60vh' }}
       >
@@ -94,7 +102,12 @@ export default function BottomSheet({
         </button>
 
         {/* Scrollable content */}
-        <div className="overflow-y-auto px-4 pb-6" style={{ maxHeight: 'calc(60vh - 40px)' }}>
+        {/* `- var(--safe-b)`: the outer sheet is `60vh` INCLUDING its new safe padding, so this
+            budget has to give the same ground back or the scroll viewport overruns the padding box
+            and ends inside the home-indicator zone. Resting text cleared it either way via `pb-6`,
+            which is luck rather than design — this makes it the padding's job. */}
+        <div className="overflow-y-auto px-4 pb-6"
+             style={{ maxHeight: 'calc(60vh - 40px - var(--safe-b))' }}>
           {children}
         </div>
       </div>

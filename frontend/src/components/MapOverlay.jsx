@@ -66,7 +66,13 @@ export default function MapOverlay({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '24px',
+        // The overlay's gutter and the safe inset resolved with `max()`, the same rule
+        // `.app-safe-modal` uses — exactly 24px wherever no inset is reported. This is a
+        // fifth full-viewport `fixed; inset: 0` layer and the root's own padding cannot
+        // reach it; adversarial review caught it missing from index.css's audit list, where
+        // it is now named. 24px is smaller than every landscape side inset, so without this
+        // the panel sat inside the sensor housing on a landscape phone.
+        padding: 'max(24px, var(--safe-t)) max(24px, var(--safe-r)) max(24px, var(--safe-b)) max(24px, var(--safe-l))',
       }}
     >
       <div

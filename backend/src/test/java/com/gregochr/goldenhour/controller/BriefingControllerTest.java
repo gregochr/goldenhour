@@ -258,10 +258,17 @@ class BriefingControllerTest extends AbstractControllerTest {
 
         mockMvc.perform(get("/api/briefing/digest"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.generatedAt").exists())
+                // ⚠️ Both timestamps pinned as ISO STRINGS, not just `.exists()`. This is the one
+                // endpoint built for a foreign decoder, and CLAUDE.md's two-Jackson-graphs warning
+                // is exactly about a `LocalDateTime` that reaches the wire as [2999,3,25,18,30]
+                // instead. `JsonDateFormatContractTest` covers /api/forecast and /api/user/settings
+                // and would not have noticed this one. `eventTime` is the field a widget puts on
+                // screen, so it is pinned on the window too, below.
+                .andExpect(jsonPath("$.generatedAt").value("2999-03-25T09:00:00"))
                 .andExpect(jsonPath("$.windows.length()").value(2))
                 .andExpect(jsonPath("$.windows[0].date").value("2999-03-25"))
                 .andExpect(jsonPath("$.windows[0].event").value("SUNSET"))
+                .andExpect(jsonPath("$.windows[0].eventTime").value("2999-03-25T18:30:00"))
                 .andExpect(jsonPath("$.windows[0].verdict").value("WORTH_IT"))
                 .andExpect(jsonPath("$.windows[0].bestRating").value(4))
                 // ⚠️ LOWERCASE, and pinned here on purpose. `Confidence` carries a
@@ -275,6 +282,10 @@ class BriefingControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.windows[0].headline").value("A long clear run to the west"))
                 .andExpect(jsonPath("$.windows[0].regionName").value("Lake District"))
                 .andExpect(jsonPath("$.windows[0].locationName").value("Keswick"))
+                // The id travels with the name for the reason BriefingWindow.Pick gives: every
+                // per-user contract joins on it and carries no name, so a name-only payload forces
+                // a join a rename silently empties.
+                .andExpect(jsonPath("$.windows[0].locationId").value(7))
                 // Flat: no tree survives the projection, which is the point of the endpoint.
                 .andExpect(jsonPath("$.windows[0].slots").doesNotExist())
                 .andExpect(jsonPath("$.windows[0].regions").doesNotExist())
@@ -316,6 +327,38 @@ class BriefingControllerTest extends AbstractControllerTest {
 
         mockMvc.perform(get("/api/briefing/digest"))
                 .andExpect(status().isNoContent());
+    }
+
+    @Test
+    @WithMockUser(roles = {"LITE_USER"})
+    @DisplayName("a LITE user may read the digest — it projects a payload they already read in full")
+    void getDigest_liteUserMayRead() throws Exception {
+        when(briefingService.getCachedBriefingForApi()).thenReturn(buildDigestBriefing());
+
+        mockMvc.perform(get("/api/briefing/digest"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.windows.length()").value(2));
+    }
+
+    @Test
+    @WithMockUser(roles = {"PRO_USER"})
+    @DisplayName("a PRO user may read it too")
+    void getDigest_proUserMayRead() throws Exception {
+        when(briefingService.getCachedBriefingForApi()).thenReturn(buildDigestBriefing());
+
+        mockMvc.perform(get("/api/briefing/digest")).andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("an admin may read it — no role is excluded, which is the claim being pinned")
+    void getDigest_adminMayRead() throws Exception {
+        // The three roles are asserted for the reason CLAUDE.md gives on the almanac feed: this
+        // project has already documented an endpoint as ADMIN that the code never enforced, so a
+        // missing @PreAuthorize has to be provably deliberate rather than merely absent.
+        when(briefingService.getCachedBriefingForApi()).thenReturn(buildDigestBriefing());
+
+        mockMvc.perform(get("/api/briefing/digest")).andExpect(status().isOk());
     }
 
     @Test

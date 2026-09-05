@@ -25,10 +25,25 @@ import java.util.List;
 @Service
 public class BriefingDigestService {
 
-    /** Windows returned when the caller names no limit — the Plan matrix's own six pictures. */
-    public static final int DEFAULT_LIMIT = 6;
+    /**
+     * Windows returned when the caller names no limit — the Plan matrix's own six pictures.
+     *
+     * <p>⚠️ <b>Derived, never a literal.</b> {@link PlanRenderLimits} exists because the projector
+     * once kept its own copy of this horizon and it silently diverged; writing {@code 6} here would
+     * re-open exactly that. The divergence is not theoretical: {@code selectPicks} draws BEST and
+     * ALSO from the rendered window set, so raising the render horizon while this stayed at six
+     * would let the forecast's Best Bet fall outside a default digest — a widget whose whole
+     * purpose is to show the best window, structurally unable to.
+     */
+    public static final int DEFAULT_LIMIT = PlanRenderLimits.MAX_VISIBLE_EVENTS;
 
-    /** The most windows one request may ask for. */
+    /**
+     * The most windows one request may ask for.
+     *
+     * <p>Deliberately above anything the briefing can currently produce (five days × two solar
+     * events = ten), so it is a guard against a caller asking for something absurd rather than a
+     * horizon of its own. It must never be read as "the digest returns up to 24 windows".
+     */
     public static final int MAX_LIMIT = 24;
 
     /**
@@ -69,6 +84,16 @@ public class BriefingDigestService {
      * @return the digest, or null when no briefing has been generated yet
      */
     public BriefingDigestResponse digest(int limit) {
+        // ⚠️ A SMALL PAYLOAD, NOT A CHEAP REQUEST. This is the only accessor that attaches
+        // `summary.window()`, so it is the only correct one here — but it is the full Plan-tab
+        // assembly: live hot-topic recomputation across every strategy, the cached-evaluation
+        // re-enrichment, the movement queries and the window tide rollup. The digest keeps ten
+        // scalars per window and discards the rest. That is the "paid twice, one copy thrown away"
+        // shape `ServedBriefingAssembler` was extracted to stop, and it matters more here than
+        // elsewhere because the intended caller is an unattended background refresh — the most
+        // frequent, lowest-payload reader in the system now drives the most expensive read path.
+        // If that becomes a problem the fix is a windows-only assembly or a short-TTL memo of the
+        // assembled payload, NOT a cheaper accessor: one that omits the window omits the answer.
         DailyBriefingResponse briefing = briefingService.getCachedBriefingForApi();
         if (briefing == null) {
             return null;
@@ -121,7 +146,8 @@ public class BriefingDigestService {
                 pick == null ? null : pick.kind(),
                 pick == null ? null : pick.headline(),
                 pick == null ? null : pick.regionName(),
-                pick == null ? null : pick.locationName());
+                pick == null ? null : pick.locationName(),
+                pick == null ? null : pick.locationId());
     }
 
     /**

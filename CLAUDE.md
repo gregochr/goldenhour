@@ -414,9 +414,36 @@ Two consequences worth stating plainly:
 `GET /api/aurora/status` (Bearer) | `GET /api/aurora/locations` (Bearer) | `GET /api/aurora/viewline` (Bearer) | `POST /api/aurora/admin/enrich-bortle` (ADMIN) | `POST /api/aurora/admin/run` (ADMIN — triggers immediate NOAA cycle) | `POST /api/aurora/admin/reset` (ADMIN)
 
 ### Briefing (Bearer / ADMIN for writes)
-`GET /api/briefing` | `POST /api/briefing/run` (ADMIN) | `GET /api/briefing/evaluate/scores` (Bearer) | `DELETE /api/briefing/evaluate/cache` (ADMIN) | `POST /api/briefing/compare-models` (ADMIN) | `GET /api/briefing/compare-models/runs` (ADMIN) | `GET /api/briefing/compare-models/results` (ADMIN)
+`GET /api/briefing` | `GET /api/briefing/digest` (Bearer) | `POST /api/briefing/run` (ADMIN) | `GET /api/briefing/evaluate/scores` (Bearer) | `DELETE /api/briefing/evaluate/cache` (ADMIN) | `POST /api/briefing/compare-models` (ADMIN) | `GET /api/briefing/compare-models/runs` (ADMIN) | `GET /api/briefing/compare-models/results` (ADMIN)
 
-> The former SSE `GET /api/briefing/evaluate` and the `/evaluate/cache[/timestamp]` GETs no longer exist — `BriefingEvaluationController` exposes only `GET /scores` and `DELETE /cache`. This matters for HTTP caching: `/api/briefing` and `/api/briefing/evaluate/scores` are ETag-revalidated (`HttpCachingConfig`), and that whitelist is exact-match precisely so it can never catch a streaming endpoint.
+> **`GET /api/briefing/digest`** is a flat, bounded, chronological projection of the briefing's
+> solar windows — the same forecast `GET /api/briefing` serves, through the same
+> `BriefingService.getCachedBriefingForApi()` accessor, with the
+> `days[] → eventSummaries[] → regions[] → slots[]` tree removed. It exists for clients that cannot
+> afford to walk that tree (an iOS widget decodes inside a ~30 MB ceiling, on a battery budget).
+> Bearer with **no role gate**, by inheritance from `SecurityConfig`'s `/api/**` →
+> `.authenticated()`: it is a strict projection of a payload every authenticated caller may already
+> read in full, so a gate would deny nothing — pinned across LITE/PRO/ADMIN plus anonymous, the same
+> way `AlmanacControllerTest` pins its own. `limit` defaults to `PlanRenderLimits.MAX_VISIBLE_EVENTS`
+> and is **clamped** to [1, 24] rather than rejected, because the intended caller is an unattended
+> background refresh and a widget that draws a short list beats one that fails to draw. 204 when no
+> briefing exists, matching `GET /api/briefing`.
+>
+> ⚠️ **It derives nothing** — every field is copied off the `BriefingWindow` that
+> `PlanWindowProjector` already authored, and the elapsed test is the *shared*
+> `PlanWindowProjector.hasPassed`, so the digest and the Plan tab retire a window at the same minute
+> (pinned by an agreement test that drives both from one rule). **If a figure is not already on
+> `BriefingWindow`, it does not belong on the digest — it belongs on `BriefingWindow` first, where
+> both clients read it.** A projection that computed anything of its own would be the aggregator
+> divergence `plan-panel-data-contracts.md` §3 records, one process further out. ⚠️ **A small
+> payload is not a cheap request**: this is the full Plan-tab assembly (live hot-topic
+> recomputation, the cached-evaluation re-enrichment, movement queries, the window tide rollup) with
+> ten scalars per window kept — the "paid twice, one copy thrown away" shape `ServedBriefingAssembler`
+> was extracted to stop. It is the only accessor that attaches a window, so the fix if it ever bites
+> is a windows-only assembly or a short-TTL memo, never a cheaper accessor. **No frontend caller
+> today** — like `GET /api/briefing/close-to-home`, it exists ahead of its client.
+>
+> The former SSE `GET /api/briefing/evaluate` and the `/evaluate/cache[/timestamp]` GETs no longer exist — `BriefingEvaluationController` exposes only `GET /scores` and `DELETE /cache`. This matters for HTTP caching: `/api/briefing`, `/api/briefing/digest` and `/api/briefing/evaluate/scores` are ETag-revalidated (`HttpCachingConfig`), and that whitelist is exact-match precisely so it can never catch a streaming endpoint — which is also why the digest is listed in its own right rather than inheriting `/api/briefing`'s treatment as a prefix.
 
 ### Almanac (Bearer)
 `GET /api/almanac?days=90` — the 90-day "Coming up" feed. Bearer with **no role gate**, by

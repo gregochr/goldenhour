@@ -24,6 +24,26 @@ import java.util.List;
  * reconcile from the payload. If a figure is not on {@code BriefingWindow}, it does not belong
  * here — it belongs on {@code BriefingWindow} first, where both clients can read it.
  *
+ * <p><b>Two things a non-web client must be told, because the payload does not say them.</b>
+ *
+ * <p>⚠️ <b>Every timestamp here is UTC and carries no offset</b> — {@code "2999-03-25T18:30:00"},
+ * the project-wide wire format pinned by {@code JsonDateFormatContractTest} and shared with every
+ * other endpoint. It is stated rather than fixed here on purpose: a digest that alone spoke
+ * offset-carrying instants would be the second timezone rule this codebase has, which is the thing
+ * its tide-chart bullet forbids. The consequence for a decoder is concrete — Swift's
+ * {@code JSONDecoder.dateDecodingStrategy = .iso8601} rejects an offset-free string outright, so a
+ * client must decode with an explicit UTC formatter and render in {@code Europe/London}. Note also
+ * that {@code date} is the UK civil date while {@code eventTime} is UTC, so a device in another
+ * zone that formats {@code eventTime} locally can print a day that disagrees with {@code date};
+ * trust {@code date}, which is the day the forecast is about.
+ *
+ * <p>⚠️ <b>There is no verdict WORD.</b> {@code verdict} is the enum, and the display vocabulary
+ * ("Worth it", "Maybe", "Stand down") lives in the web client. A second client must therefore keep
+ * its own copy, and the two can drift — a real cost, accepted here rather than papered over,
+ * because publishing a label would put display vocabulary on a payload whose stated rule is that
+ * it copies {@link BriefingWindow} and derives nothing. If a label is wanted on the wire it belongs
+ * on {@code BriefingWindow} first, where both clients read it.
+ *
  * @param generatedAt when the underlying briefing was built, so a client can show its age
  * @param windows     the next {@code limit} windows that have not yet passed, earliest first
  */
@@ -49,12 +69,29 @@ public record BriefingDigestResponse(
      * @param event        SUNRISE or SUNSET
      * @param eventTime    the window's own event time, UTC, as {@code BriefingWindow} states it
      * @param verdict      the served verdict for this window
-     * @param bestRating   the best star rating across the window, or null when nothing is rated
+     * @param bestRating   the best star rating across the window, or null when nothing is rated.
+     *                     ⚠️ <b>A labelled spot signal, never a verdict</b> — the rule
+     *                     {@link BriefingWindow} states and every client inherits. {@code verdict}
+     *                     is the top region's <em>average</em>, so {@code STAND_DOWN} beside a 4
+     *                     here is a legitimate state describing two different things, and a client
+     *                     that renders this number as the window's quality will contradict the
+     *                     verdict beside it. Render it with its own label ("best spot 4★")
      * @param confidence   how provisional that verdict is, or null when unknown
-     * @param pick         BEST or ALSO when this window is one of the forecast's two picks
+     * @param pick         BEST or ALSO when this window is one of the forecast's two picks. The two
+     *                     are drawn only from the leading {@link
+     *                     com.gregochr.goldenhour.service.PlanRenderLimits#MAX_VISIBLE_EVENTS}
+     *                     windows, so a request reaching past that horizon gets tail windows that
+     *                     structurally cannot carry one — absence there is not evidence of a poor
+     *                     window
      * @param headline     that pick's headline; null exactly when {@code pick} is null
      * @param regionName   the picked region's name, or null when this window carries no pick
      * @param locationName the picked region's highest-rated location, nullable independently
+     * @param locationId   that location's id, travelling with the name for the reason
+     *                     {@link BriefingWindow.Pick} gives: every per-user contract in this project
+     *                     joins on the id and carries no name at all, so a name-only payload forces
+     *                     a join through the locations roster — the join a rename silently empties.
+     *                     Null on a slot cached before slots carried an id; prefer the id, fall
+     *                     back to the name
      */
     public record Window(
             LocalDate date,
@@ -66,6 +103,7 @@ public record BriefingDigestResponse(
             @JsonInclude(JsonInclude.Include.NON_NULL) BriefingWindow.PickKind pick,
             @JsonInclude(JsonInclude.Include.NON_NULL) String headline,
             @JsonInclude(JsonInclude.Include.NON_NULL) String regionName,
-            @JsonInclude(JsonInclude.Include.NON_NULL) String locationName) {
+            @JsonInclude(JsonInclude.Include.NON_NULL) String locationName,
+            @JsonInclude(JsonInclude.Include.NON_NULL) Long locationId) {
     }
 }

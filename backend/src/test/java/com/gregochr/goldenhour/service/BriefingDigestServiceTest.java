@@ -11,13 +11,15 @@ import com.gregochr.goldenhour.model.DisplayVerdict;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
@@ -26,21 +28,23 @@ import static org.mockito.Mockito.when;
  * <p>The clock is fixed through a stubbed {@link SolarEventFreshness} rather than left to the wall
  * clock, so the afterglow boundary below is a real boundary on every day of the year.
  */
+@ExtendWith(MockitoExtension.class)
 class BriefingDigestServiceTest {
 
     private static final LocalDate DAY_ONE = LocalDate.of(2026, 3, 25);
     private static final LocalDate DAY_TWO = LocalDate.of(2026, 3, 26);
     private static final LocalDateTime NOW = LocalDateTime.of(2026, 3, 25, 12, 0);
 
+    @Mock
     private BriefingService briefingService;
+
+    @Mock
     private SolarEventFreshness freshness;
+
     private BriefingDigestService service;
 
     @BeforeEach
     void setUp() {
-        briefingService = mock(BriefingService.class);
-        freshness = mock(SolarEventFreshness.class);
-        when(freshness.now()).thenReturn(NOW);
         service = new BriefingDigestService(briefingService, freshness);
     }
 
@@ -204,9 +208,45 @@ class BriefingDigestServiceTest {
                 .containsExactly(TargetType.SUNRISE);
     }
 
+    @Test
+    @DisplayName("⚠️ retires a window exactly when PlanWindowProjector says it has, at every offset")
+    void digest_sharesTheProjectorsElapsedRule() {
+        // The property the `hasPassed` extraction exists to create, and the one thing no other test
+        // here can see: inline a private 30-minute copy into BriefingDigestService and every other
+        // test in this file still passes, because they all hardcode the same 30 minutes.
+        //
+        // This drives the expectation from `hasPassed` ITSELF, so the two move together. Scope,
+        // stated rather than overclaimed: it catches the named failure — someone tunes
+        // AFTERGLOW_MINUTES, and a digest carrying its own copy keeps the old one — but it cannot
+        // catch a copy that happens to agree today. That is the same bargain
+        // `TideSurfaceAgreementTest` strikes, and for the same reason: one input, two surfaces,
+        // neither fixture able to pre-satisfy its own predicate.
+        for (int minutesBack = 0; minutesBack <= 60; minutesBack += 5) {
+            LocalDateTime eventTime = NOW.minusMinutes(minutesBack);
+            BriefingWindow window = new BriefingWindow(eventTime, DisplayVerdict.MAYBE, 3,
+                    Confidence.MEDIUM, null, List.of(), null, null);
+            stubBriefing(day(DAY_ONE, summary(TargetType.SUNSET, window)));
+
+            assertThat(service.digest(6).windows())
+                    .as("%d minutes past the event, the digest and the Plan tab must agree",
+                            minutesBack)
+                    .hasSize(PlanWindowProjector.hasPassed(eventTime, NOW) ? 0 : 1);
+        }
+    }
+
     // ── fixtures ──────────────────────────────────────────────────────────────────────────────
 
+    /**
+     * Stubs the served briefing AND the clock.
+     *
+     * <p>The clock stub lives here rather than in {@code @BeforeEach} because
+     * {@code digest_noBriefing_returnsNull} returns before ever reading it, and under
+     * {@code MockitoExtension}'s strict stubs an unnecessary stub is an error rather than a silent
+     * one — which is the point: a refactor that stopped consulting the clock would otherwise leave
+     * this standing and the class would quietly stop testing retirement at all.
+     */
     private void stubBriefing(BriefingDay... days) {
+        when(freshness.now()).thenReturn(NOW);
         when(briefingService.getCachedBriefingForApi()).thenReturn(new DailyBriefingResponse(
                 LocalDateTime.of(2026, 3, 25, 9, 0), "headline", List.of(days), List.of(),
                 null, null, false, false, 0, "Opus", List.of(), List.of()));

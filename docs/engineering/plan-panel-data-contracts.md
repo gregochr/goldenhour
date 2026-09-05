@@ -282,3 +282,41 @@ absent from this document**. What is missing:
 
 Sections 2 and 3 rest on directly verified evidence and are safe to act on. Sections 5 and 7
 would benefit from the missing work before anyone commits engineering time.
+
+---
+
+## Section 9 — a third case, 2026-09-05: a different *client*, not a different panel
+
+`GET /api/briefing/digest` is a flat, bounded, chronological projection of the same briefing
+snapshot, added for clients that cannot walk the tree — an iOS widget decodes inside a ~30 MB
+ceiling, on a battery budget. Read literally, §3's rule condemns it: *a panel that is another view
+of the same snapshot does not earn its own REST contract.* It is recorded here as an exception with
+a stated reason, so the next feature does not have to re-derive the argument or, worse, cite this
+endpoint as a precedent for something it is not.
+
+**Why it is not the hazard §3 warns about.**
+
+1. §3's hazard is two panels fetching independently and showing 4★ and 3★ for the same location.
+   The digest cannot reach that state: it calls `BriefingService.getCachedBriefingForApi()` — the
+   same accessor `BriefingController.getBriefing()` calls, past the same re-enrichment, best-bet
+   fallback, honesty filter and window projection. There is one snapshot and one code path to it.
+2. §3's ⚠️ amendment is the sharper trap — *"one source removed disagreement about the data; it said
+   nothing about the aggregators"*, the 2026-08-16 "Worth it · best 4★" over a grid of "Poor". The
+   digest is immune by construction because it runs **no** aggregator. Every published field is a
+   direct read off `BriefingWindow`; the only operations are a filter, a sort and a truncate. Even
+   the elapsed test is shared rather than restated — `PlanWindowProjector.hasPassed`, with an
+   agreement test driving both surfaces from one rule.
+3. The consumer is a different **client**, in a different process, with a different decode budget —
+   not a second panel in the same client. §3's consistency argument is about two panels a reader
+   sees at once, and does not reach across processes.
+
+**The rule that keeps it honest, and the one to enforce on any successor:** *if a figure is not
+already on `BriefingWindow`, it does not belong on the digest — it belongs on `BriefingWindow`
+first, where both clients read it.* A projection that computed anything of its own would be exactly
+the aggregator divergence this document's §7 records, one process further out.
+
+Two costs accepted rather than papered over, both recorded on the response record's javadoc: the
+digest carries no verdict *word* (the display vocabulary lives in the web client, and publishing a
+label here would put display strings on a payload whose whole rule is that it copies), and it is a
+small payload but not a cheap request — it drives the full Plan-tab assembly and keeps ten scalars
+per window, which is §7's cost-centre finding with a new, more frequent caller.

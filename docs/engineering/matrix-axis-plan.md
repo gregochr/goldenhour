@@ -61,7 +61,7 @@ Facts the phases depend on. Re-verify only if the file has changed since; do not
   `<span className="wf-hc-top" aria-hidden="true"><span data-testid="wf-heat-sun"
   className="wf-hc-sun">{card.sunrise ? 'SUNRISE' : 'SUNSET'}</span></span>`. The whole caption is
   `aria-hidden`; the card's accessible name is a single `sr-only` span that already names the event.
-- **Sticky chrome today**: `.wf-lens` sticky `top: 0`, z-index **20** (⚠️ not the prototype's 30),
+- **Sticky chrome today**: `.wf-lens` sticky `top: var(--safe-t)` (identical to `top: 0` wherever no safe-area inset is reported — a sticky element sticks to its scrollport, so the root's own inset padding cannot reach it), z-index **20** (⚠️ not the prototype's 30),
   and it is the pane's ONLY sticky element.
   > ⚠️ **Superseded, 2026-09-05.** This section described `.wf-mast` as sticky `top: 0` at z-index
   > **45** with `.wf-lens` resting on `top: var(--wf-mast-h, 128px)`, and D8/D9 below both add a
