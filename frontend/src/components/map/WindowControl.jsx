@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { calDow } from '../../utils/windowFirstStrip.js';
 import { VERDICT_LABEL, badgeChannel } from '../../utils/windowFirstCards.js';
 import { verdictRegionLabel } from '../../utils/mapVerdict.js';
+import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 
 /**
  * The Map tab's single chronological window control — map-tab-v2-plan.md §3 P6,
@@ -98,14 +99,10 @@ export default function WindowControl({
     return word ? `${base}, ${word}` : base;
   }
 
-  useEffect(() => {
-    if (!open) return undefined;
-    function onDocMouseDown(e) {
-      if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false);
-    }
-    document.addEventListener('mousedown', onDocMouseDown);
-    return () => document.removeEventListener('mousedown', onDocMouseDown);
-  }, [open, setOpen]);
+  // A press on the MAP never dismisses — `useOutsideDismiss` carries that rule for all four map
+  // panels, so they cannot drift apart. No `enabled` gate here: this dropdown is not a
+  // `BottomSheet` on any viewport, so it is never portalled outside `rootRef`.
+  useOutsideDismiss({ open, rootRef, onDismiss: () => setOpen(false) });
 
   /** Grouped by date, in the list's own order — the list is already chronological. */
   const groups = useMemo(() => {

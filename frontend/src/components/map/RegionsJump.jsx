@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import PropTypes from 'prop-types';
+import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
 import BottomSheet from '../BottomSheet.jsx';
@@ -77,16 +78,21 @@ export default function RegionsJump({
    */
   const popoverRef = useDialogFocus(open && !isMobile);
 
-  useEffect(() => {
-    // Desktop/tablet only — `FiltersPopover`'s identical guard, for the identical reason.
-    if (!open || isMobile) return undefined;
-    function onDocMouseDown(e) {
-      if (rootRef.current && !rootRef.current.contains(e.target)) onOpenChange(false);
-    }
-    document.addEventListener('mousedown', onDocMouseDown);
-    return () => document.removeEventListener('mousedown', onDocMouseDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, isMobile]);
+  // Desktop/tablet only — `FiltersPopover`'s identical guard, for the identical reason.
+
+  // A press on the MAP dismisses nothing on desktop and tablet — `useOutsideDismiss` carries that
+  // rule for all four map panels so they cannot drift apart.
+  //
+  // ⚠️ **The phone is genuinely different, and the rule does not hold there.** `enabled: !isMobile`
+  // withholds the listener because the `BottomSheet` below is portalled outside `rootRef` and this
+  // would close it on the first tap inside it — but that sheet's own backdrop is `fixed inset-0`
+  // with `onClick={onClose}` and it locks body scroll, so a tap on the map DOES dismiss here and
+  // the map cannot be panned at all while it is open. Pre-existing (the sheet's behaviour, not
+  // L3's) and recorded rather than fixed, because changing it means changing `BottomSheet`'s own
+  // dismiss surface — map-landing-plan.md §6 Q9.
+  useOutsideDismiss({
+    open, rootRef, onDismiss: () => onOpenChange(false), enabled: !isMobile,
+  });
 
   function onKeyDown(e) {
     if (e.key === 'Escape' && open) {

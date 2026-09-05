@@ -1,13 +1,24 @@
 /**
- * The Map tab's "click empty map closes whatever popover is open" rule (map-tab-v2-plan.md §3 P7,
- * README "Interactions & behaviour": "Click map background → Close menus"), implemented by
- * `MapBackgroundClickController` — a `useMapEvents({ click })` listener mounted only on the tab.
+ * The Map tab's ground-press rule — **inverted at map-landing L3** (`map-landing-plan.md` §3 L3,
+ * `docs/design/map-landing/README.md` §5 "Panels do not close when you click the map").
  *
- * Leaflet's own marker click handlers stop propagation before a marker tap ever reaches the map's
- * `click` event, so this listener only ever fires for a genuine empty-map click; that guarantee is
- * Leaflet's, not this file's to re-prove; what this file pins is that when the event DOES fire, it
- * reaches whichever of the window control or the filters popover is open, and that it never fires
- * on the Plan-tab overlay, which has no popover of its own for it to close.
+ * <p>It used to be "click empty map closes whatever popover is open". It is now: a press on the map
+ * closes **nothing**. The week menu, the Regions list, Filters and the Legend are all *about* the
+ * map, so reading "Thursday is Poor" and then panning to see where is one action, not two — and
+ * losing the list halfway through made the panel feel like something to be got rid of. What a
+ * ground press still does is **deselect a location**, because that is a selection rather than a
+ * panel; that is the one distinction the design draws.
+ *
+ * <p>⚠️ The rule has TWO halves and this file pins both, because pinning either alone proves
+ * nothing. `MapBackgroundClickController`'s Leaflet `click` is one; the four panels' own
+ * `document`-level `mousedown` listeners are the other, and they fire — and commit — first. Editing
+ * only the controller leaves the behaviour unchanged, which is exactly the trap
+ * `MapBackgroundClickController`'s class doc records having been caught by in the browser rather
+ * than by any test.
+ *
+ * <p>Leaflet's own marker click handlers stop propagation before a marker tap reaches the map's
+ * `click` event, so that listener only ever fires for genuine empty ground; that guarantee is
+ * Leaflet's, not this file's to re-prove.
  */
 import React from 'react';
 import {
@@ -91,16 +102,20 @@ async function renderMap(props = {}) {
 }
 
 /**
- * Fires a synthetic map background click on every listener registered this render — `mousedown`
- * THEN `click`, in that order, mirroring the two events one physical click actually fires
- * (`MapBackgroundClickController`'s own class doc, map-tab-v2-plan.md §3 P9: the close-ordering fix
- * snapshots `openMapMenu` on `mousedown`, before `WindowControl`/`FiltersPopover`'s own
- * `document`-level `mousedown` listener can close the menu the `click` handler still needs to see
- * as "was open"). Firing `click` alone — this file's own shape before P9 — skipped the snapshot
- * entirely and read the ref's initial `null`, which happened to still close a popover today only
- * because `openMapMenuAtMouseDownRef.current == null` takes the SAME "close it" branch a popover
- * being open is meant to; `MapViewSelectionOrdering.test.jsx` is where that ordering itself (versus
- * the callout) is actually pinned.
+ * Fires Leaflet's own map-background events on every listener registered this render.
+ *
+ * <p>⚠️ **The `mousedown?.()` line looks dead and is a REVERT CANARY — do not delete it.** Since
+ * map-landing L3 the controller registers `click` alone: the branch that needed a trustworthy
+ * pre-`document` snapshot of `openMapMenu` went with the popover-closing it guarded. The pre-L3
+ * implementation registered both, and it is `handlers.mousedown` being ABSENT that the assertion
+ * below turns into a failure if anyone restores it. The optional call keeps this helper usable
+ * either way rather than throwing on the shape it is watching for.
+ *
+ * <p>⚠️ **It dispatches no DOM event**, so no panel's own `document` listener runs. That is the
+ * other half of the rule and it needs a real `fireEvent.mouseDown` — see `pressOn` below, and the
+ * combined test that fires both in one sequence. A file that only called this helper would report
+ * the rule as held while three of its five call sites were untouched, which is the exact shape of
+ * test that let the original ordering regression reach the browser.
  */
 function clickMapBackground() {
   act(() => {
@@ -116,35 +131,32 @@ beforeEach(() => {
 });
 afterEach(() => { vi.useRealTimers(); });
 
-describe('MapView — clicking the map background closes an open popover (tab only)', () => {
-  it('closes an open filters panel', async () => {
+describe('MapView — a press on the map closes no panel (map-landing-plan.md §3 L3)', () => {
+  it('leaves an open filters panel open', async () => {
     await renderMap();
     fireEvent.click(screen.getByTestId('wf-filters-chip'));
     expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
 
     clickMapBackground();
-    expect(screen.queryByTestId('wf-filters-panel')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
   });
 
-  it('closes an open window-control dropdown', async () => {
+  it('leaves an open window-control dropdown open', async () => {
     await renderMap();
     fireEvent.click(screen.getByTestId('wf-win-pill'));
     expect(screen.getByTestId('wf-win-menu')).toBeInTheDocument();
 
     clickMapBackground();
-    expect(screen.queryByTestId('wf-win-menu')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wf-win-menu')).toBeInTheDocument();
   });
 
-  // map-tab-v2-plan.md §3 P11 — the Regions jump list is a fourth value on the SAME `openMapMenu`
-  // switch (`MapView.jsx`'s own class doc), so it closes through this identical controller with no
-  // wiring of its own; renders with no `heat` prop at all, which is enough to open an empty panel.
-  it('closes an open Regions jump menu', async () => {
+  it('leaves an open Regions jump menu open', async () => {
     await renderMap();
     fireEvent.click(screen.getByTestId('wf-jump-chip'));
     expect(screen.getByTestId('wf-jump-menu')).toBeInTheDocument();
 
     clickMapBackground();
-    expect(screen.queryByTestId('wf-jump-menu')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wf-jump-menu')).toBeInTheDocument();
   });
 
   it('is a no-op with nothing open — it must not throw or otherwise disturb the pane', async () => {
@@ -154,6 +166,20 @@ describe('MapView — clicking the map background closes an open popover (tab on
     expect(screen.queryByTestId('wf-filters-panel')).not.toBeInTheDocument();
   });
 
+  it('registers NO mousedown handler — the snapshot went with the branch that read it', async () => {
+    // ⚠️ Pins the removal itself. Without this, restoring the pre-L3 wiring verbatim
+    // (`onMouseDown` snapshotting `openMapMenu`, `onBackgroundClick` closing the popover) is
+    // invisible to `MapViewSelectionOrdering.test.jsx`, whose mock no longer captures `mousedown`
+    // at all — so the ref would stay at its initial `null`, the handler would fall through to
+    // deselecting, and that file's assertions would pass against a full revert.
+    await renderMap();
+
+    expect(mapEventHandlers.length).toBeGreaterThan(0);
+    for (const handlers of mapEventHandlers) {
+      expect(handlers.mousedown).toBeUndefined();
+    }
+  });
+
   it('never registers on the Plan-tab overlay — nothing there for it to close', async () => {
     await renderMap({ overlayMode: true });
     // Only `ZoomTracker` (and, on the overlay, `BoundsTracker`) register — neither carries `click`.
@@ -161,5 +187,128 @@ describe('MapView — clicking the map background closes an open popover (tab on
     for (const handlers of mapEventHandlers) {
       expect(handlers.click).toBeUndefined();
     }
+  });
+});
+
+describe('the other half of the rule — the panels\' own document listeners', () => {
+  /**
+   * A REAL `mousedown` on a real node, which is what the four panels listen for.
+   *
+   * ⚠️ `clickMapBackground()` above cannot exercise this: it invokes Leaflet's handlers with an
+   * empty object, so no `document` event is dispatched and no panel listener runs. A file that only
+   * called it would report the rule as held while three of the five call sites were untouched.
+   */
+  function pressOn(node) {
+    act(() => { fireEvent.mouseDown(node); });
+  }
+
+  /**
+   * The map frame — the PRODUCTION one.
+   *
+   * ⚠️ This file's `react-leaflet` mock gives its own `MapContainer` stub the same `map-container`
+   * test-id the real `MapView` puts on the frame around it, so two nodes match here and exactly one
+   * matches in the app. Taking `[0]` on document order is not enough on its own: **delete the
+   * production attribute and `[0]` silently becomes the mock's div**, every press still resolves
+   * inside "a" frame, and a full L3 revert reads as green. So the count is asserted, and the outer
+   * node is proved to contain the inner one — a rename now fails here rather than passing quietly.
+   */
+  function mapFrame() {
+    const frames = screen.getAllByTestId('map-container');
+    expect(frames, 'expected the production frame plus this file\'s MapContainer stub').toHaveLength(2);
+    expect(frames[0]).toContainElement(frames[1]);
+    return frames[0];
+  }
+
+  it('a press inside the map frame dismisses nothing, and still SAYS so', async () => {
+    // ⚠️ `aria-expanded` as well as presence. A change that left the panel mounted while flipping
+    // the chip to `false` would tell a screen-reader user it had closed while it visibly had not —
+    // which is precisely the failure a persistence rule invites, and presence alone cannot see it.
+    await renderMap();
+    const chip = screen.getByRole('button', { name: /filters/i });
+    fireEvent.click(chip);
+    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
+    expect(chip).toHaveAttribute('aria-expanded', 'true');
+
+    pressOn(mapFrame());
+
+    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
+    expect(chip).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('a press OUTSIDE the map frame still dismisses — leaving the map is not reading the map', async () => {
+    await renderMap();
+    fireEvent.click(screen.getByTestId('wf-filters-chip'));
+    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
+
+    pressOn(document.body);
+
+    expect(screen.queryByTestId('wf-filters-panel')).not.toBeInTheDocument();
+  });
+
+  it('holds for the window control', async () => {
+    await renderMap();
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+
+    pressOn(mapFrame());
+
+    expect(screen.getByTestId('wf-win-menu')).toBeInTheDocument();
+  });
+
+  it('holds for the Regions list', async () => {
+    await renderMap();
+    fireEvent.click(screen.getByTestId('wf-jump-chip'));
+
+    pressOn(mapFrame());
+
+    expect(screen.getByTestId('wf-jump-menu')).toBeInTheDocument();
+  });
+
+  // The Legend is the fourth panel and is covered at the component level instead
+  // (`MapLegendPanel.test.jsx`) — it mounts here only behind `heatOffered && !isMobile`, and this
+  // file's `renderMap` supplies no `heat`, so wiring it up here would test the fixture more than
+  // the rule.
+
+  it('holds for a REAL press sequence — mousedown then click, in one gesture', async () => {
+    // ⚠️ **The two halves of the rule, fired together.** Everything above exercises one or the
+    // other: `clickMapBackground` dispatches no DOM event so no panel listener runs, and `pressOn`
+    // never fires the Leaflet `click`. One physical press fires both, in this order, and the panels'
+    // `document` listeners commit BEFORE the `click` arrives — which is the timeline that let the
+    // original ordering regression reach the browser past a green suite
+    // (`MapBackgroundClickController`'s class doc; map-landing-plan.md §3 L3 asks for this pair by
+    // name). Both mechanisms must stand down for the panel to survive.
+    await renderMap();
+    fireEvent.click(screen.getByTestId('wf-filters-chip'));
+    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
+
+    pressOn(mapFrame());
+    clickMapBackground();
+
+    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
+  });
+});
+
+describe('the way out the rule now depends on', () => {
+  it('Escape closes an open panel even when focus has moved to the map', async () => {
+    // ⚠️ The panels' own `Escape` handlers are scoped to their own subtree, so once a press on the
+    // map no longer closes them — and no longer moves focus back — that route is gone. `MapView`'s
+    // pane-level handler used to STAND DOWN whenever a panel was open, which would have left the
+    // panel closable only by re-finding its chip.
+    await renderMap();
+    fireEvent.click(screen.getByTestId('wf-filters-chip'));
+    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
+
+    act(() => { fireEvent.keyDown(screen.getAllByTestId('map-container')[0], { key: 'Escape' }); });
+
+    expect(screen.queryByTestId('wf-filters-panel')).not.toBeInTheDocument();
+  });
+
+  it('the chip still toggles its own panel shut', async () => {
+    await renderMap();
+    const chip = screen.getByTestId('wf-filters-chip');
+    fireEvent.click(chip);
+    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
+
+    fireEvent.click(chip);
+    expect(screen.queryByTestId('wf-filters-panel')).not.toBeInTheDocument();
   });
 });

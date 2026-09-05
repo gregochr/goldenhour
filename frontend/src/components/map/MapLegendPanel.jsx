@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import PropTypes from 'prop-types';
+import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 import { rampGradientCss } from '../../utils/scoreRamp.js';
 import { RING_TIERS } from '../../utils/reachRings.js';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
@@ -83,15 +84,18 @@ export default function MapLegendPanel({
 }) {
   const rootRef = useRef(null);
 
-  useEffect(() => {
-    if (!open) return undefined;
-    function onDocMouseDown(e) {
-      if (rootRef.current && !rootRef.current.contains(e.target)) onOpenChange(false);
-    }
-    document.addEventListener('mousedown', onDocMouseDown);
-    return () => document.removeEventListener('mousedown', onDocMouseDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+
+  // A press on the MAP dismisses nothing — `useOutsideDismiss` carries that rule for all four map
+  // panels so they cannot drift apart.
+  //
+  // ⚠️ **No `enabled` gate, and the reason is a mount condition rather than this component.** Its
+  // two siblings pass `!isMobile` because they become a portalled `BottomSheet` on a phone; this
+  // panel is simply not mounted there (`MapView` gates it on `!isMobile`). ⚠️ If it ever grows a
+  // phone surface — `map-tab-v2-plan.md` **O-15** option (b) proposes exactly a `BottomSheet`
+  // variant — this call needs the gate, or the first tap inside the sheet will close it.
+  useOutsideDismiss({
+    open, rootRef, onDismiss: () => onOpenChange(false),
+  });
 
   function onKeyDown(e) {
     if (e.key === 'Escape' && open) {

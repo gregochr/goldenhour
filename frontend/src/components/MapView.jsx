@@ -453,40 +453,47 @@ BoundsTracker.propTypes = {
 };
 
 /**
- * Closes whichever of the map tab's own overlay popovers is open when the reader clicks empty map
- * — map-tab-v2-plan.md §3 P7 / README "Interactions & behaviour": "Click map background → Close
- * menus". Leaflet's marker click handlers stop propagation before it reaches the map's own `click`
- * event (`L.Marker` sets `bubblingMouseEvents: false`), so this never fires for a marker tap —
- * only genuine empty-map ground.
+ * Deselects the current location when the reader clicks empty map — and does nothing else.
  *
- * <p>⚠️ map-tab-v2-plan.md §3 P9's ordering rule ("popover, then callout — never both on one
- * press") needs a SECOND event, `mousedown`, and it is not optional. `WindowControl`/
- * `FiltersPopover` each close THEIR OWN menu via a `document`-level `mousedown` listener
- * (`onDocMouseDown`), entirely independent of this controller. On a real click that listener fires
- * — and commits its `setOpen(false)`/`onOpenChange(false)` — BEFORE the native `click` event that
- * follows it reaches this controller's own handler (browser event order: `mousedown` → `mouseup` →
- * `click`, and React's automatic batching flushes the `mousedown`-triggered update in between): by
- * the time `onBackgroundClick` ran, `openMapMenu` had ALREADY gone null, so the ordering collapsed
- * to "close everything on one click" — a live regression, caught in the browser (not by any unit
- * test, since every one of them invoked the captured `click` handler manually, never alongside a
- * real `mousedown`). `mousedown` fires on THIS controller too, via Leaflet's own map event of that
- * name, and — because `.leaflet-container` is an ancestor of `document` — reaches it BEFORE the
- * document-level listener does, so `onMouseDown` snapshots `openMapMenu`'s value into a ref at the
- * one moment it is still trustworthy. The actual close still happens on `click`, never `mousedown`
- * itself, because `click` is Leaflet's OWN pan-vs-tap distinction (a `mousedown` that turns into a
- * drag never fires `click`) — reacting on `mousedown` directly would close the callout at the START
- * of every pan gesture.
+ * <p>⚠️ **It no longer closes popovers**, which inverts what map-tab-v2-plan.md §3 P7 and
+ * `docs/design/map-tab-v2/README.md`'s interactions table both still say ("Click map background →
+ * Close menus"). Those two are stale as of map-landing L3; `docs/design/map-landing/README.md` §5
+ * is the live rule. Leaflet's marker click handlers stop propagation before it reaches the map's
+ * own `click` event (`L.Marker` sets `bubblingMouseEvents: false`), so this never fires for a
+ * marker tap — only genuine empty-map ground.
+ *
+ * <p>⚠️ **It reacts on `click`, never on `mousedown`, and that has always been load-bearing.**
+ * `click` is Leaflet's own pan-vs-tap distinction — a `mousedown` that turns into a drag never
+ * fires one — so reacting on `mousedown` would clear the selection at the START of every pan.
+ *
+ * <p><b>Historical note, kept because it explains a `mousedown` handler that is no longer here.</b>
+ * Until map-landing L3 this controller also closed whichever map popover was open, and did so under
+ * an ordering rule (map-tab-v2-plan.md §3 P9, whose own words are "closes the callout (after
+ * closing any open popover)" — the snappier "never both on one press" is this codebase's gloss and
+ * appears nowhere in that document).
+ * That needed a second event: the panels each close themselves on a `document`-level `mousedown`
+ * which fires — and commits — before the `click` this controller answers, so a plain closure read at
+ * click time already saw the popover closed and the ordering collapsed to "close everything at
+ * once". A live regression, caught in the browser rather than by any test, since every test invoked
+ * the captured `click` handler by hand and never alongside a real `mousedown`. It was fixed by
+ * snapshotting on Leaflet's own `mousedown`, which reaches this controller before `document` does.
+ *
+ * <p>⚠️ L3 removed the branch that read the snapshot AND the race that made it necessary — an
+ * earlier draft of this note claimed only the former, and a reviewer was right that the claim would
+ * send someone to restore machinery that is no longer needed. `useOutsideDismiss` now returns early
+ * for any press inside the map frame, and a Leaflet ground press IS inside it, so no panel commits
+ * anything on that `mousedown` any more: a plain closure over `openMapMenu` read at `click` time
+ * would now see the correct pre-press value. The timeline is only still live for a press OUTSIDE
+ * the frame, which this controller never sees.
  */
-function MapBackgroundClickController({ onMouseDown, onBackgroundClick }) {
+function MapBackgroundClickController({ onBackgroundClick }) {
   useMapEvents({
-    mousedown: () => onMouseDown(),
     click: () => onBackgroundClick(),
   });
   return null;
 }
 
 MapBackgroundClickController.propTypes = {
-  onMouseDown: PropTypes.func.isRequired,
   onBackgroundClick: PropTypes.func.isRequired,
 };
 
@@ -1328,13 +1335,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // Live Leaflet marker instances keyed by location name — used to open a popup
   // programmatically when the Plan tab hands off a specific location.
   const markerRefs = useRef(new Map());
-  /**
-   * `openMapMenu`'s value at the START of the CURRENT click gesture — see
-   * `MapBackgroundClickController`'s own class doc for why a bare closure read at `click` time is
-   * unreliable (map-tab-v2-plan.md §3 P9's close-ordering rule). Written on `mousedown`, read on
-   * `click`; never read anywhere else.
-   */
-  const openMapMenuAtMouseDownRef = useRef(null);
   // Aurora is available when the user is ADMIN/PRO and either the state machine is active
   // or there are stored forecast results for any date on the date strip.
   const hasStoredAuroraResults = auroraAvailableDates.length > 0;
@@ -2993,10 +2993,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * `Esc` closes menus, THEN the callout (map-tab-v2-plan.md §3 P9, README "Interactions"
    * table) — never both on one press. `WindowControl`/`FiltersPopover` each close THEIR OWN open
    * menu locally on `Escape` (calling `onOpenChange`, which updates `openMapMenu`) without
-   * `stopPropagation`, so the bubbled keydown still reaches this wrapper on the SAME press — but
-   * `openMapMenu` here is read from the CLOSURE captured before that update commits, so it still
-   * reads the menu's PRE-press value on press 1 (skipping the callout) and its POST-press value
-   * (null) on press 2 (closing the callout). No `stopPropagation` needed on either child.
+   * `stopPropagation`, so the bubbled keydown still reaches this wrapper on the SAME press — and
+   * `openMapMenu` here is read from the CLOSURE captured before that update commits, so it reads
+   * the menu's PRE-press value on press 1 and its POST-press value (null) on press 2.
+   *
+   * <p>⚠️ Since map-landing L3 press 1 does not merely SKIP the callout — it also closes the panel
+   * itself, rather than leaving that to the panel's own handler. That is not redundancy: a press on
+   * the map no longer closes panels, so a reader can very ordinarily have one open with focus on the
+   * map, where the panel's own subtree-scoped listener never fires at all. When the panel DOES have
+   * focus its handler runs first and this is an idempotent second write. Either way the callout is
+   * spared on press 1, which is the ordering this doc has always described.
    *
    * <p>Tab-only: the overlay has no popover and no callout, so this is a no-op there — it is
    * simply never wired to the overlay's return path below.
@@ -3031,11 +3037,35 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   function handleMapPaneKeyDown(mapPaneEvent) {
     if (mapPaneEvent.key !== 'Escape') return;
-    if (openMapMenu != null) return;
     const paneRoot = mapPaneRef.current;
     const foreignModal = Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]'))
       .some((node) => !paneRoot || !paneRoot.contains(node));
     if (foreignModal) return;
+    // ⚠️ **Below the foreign-modal stand-down, and an adversarial review is why.** The first cut of
+    // this phase put the panel branch ABOVE it, which made the stand-down unreachable whenever any
+    // panel was open — and L3 is what makes "panel open behind a foreign modal" an ordinary state,
+    // because a press on the map no longer closes the panel on the way to opening the sheet. One
+    // Escape then closed the four-day sheet AND the panel behind it (`map-tab-v2-plan.md` O-20's
+    // named defect), and with `UserSettingsModal` up — which does not close on Escape at all — it
+    // silently closed a panel the reader could not even see. The rule this handler's own doc states
+    // is absolute: a key pressed while a modal is up must not operate the page behind it.
+    //
+    // Escape CLOSES an open panel rather than standing down for it (map-landing-plan.md §3 L3).
+    // Standing down was sufficient only while a press on the map closed panels: focus was then
+    // necessarily still inside the panel, so its own subtree-scoped `onKeyDown` saw the key. Now a
+    // reader can very ordinarily have a panel open with focus on the map, where that listener never
+    // fires — leaving the panel closable only by re-finding its chip, which is the "something to be
+    // got rid of" feeling the persistence rule exists to remove.
+    //
+    // Closing here and returning keeps the keyboard's own nearest-layer-first ordering (P9 — whose
+    // own words are "Esc closes (after menus)"), the
+    // same shape the ground-click controller gives the pointer: Escape closes the panel OR clears
+    // the selection, never both. When the panel does have focus its own handler runs first and this
+    // is an idempotent second write, not a double action.
+    if (openMapMenu != null) {
+      setOpenMapMenu(null);
+      return;
+    }
     if (selectedLocationName != null) setSelectedLocationName(null);
   }
 
@@ -3561,31 +3591,29 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             </>
           )}
           {overlayMode && <BoundsTracker onBounds={handleBounds} />}
-          {/* Tab only — the overlay has no popover of its own to close this way (its Filters
-              disclosure is a page-flow drawer, not a menu the click-away rule applies to).
+          {/* Tab only — the overlay has no ground-click behaviour of its own.
 
-              ⚠️ map-tab-v2-plan.md §3 P9's ordering rule: a background click closes the callout
-              ONLY AFTER any open popover — i.e. one click closes the NEAREST layer, exactly the
-              two-deep-stack idiom the rest of this app already uses for Escape (never both at
-              once). `openMapMenuAtMouseDownRef` — NOT a bare closure over `openMapMenu` — is what
-              makes this reliable: `WindowControl`/`FiltersPopover` close THEIR OWN menu on a
-              `document`-level `mousedown` listener, which fires (and commits) BEFORE the `click`
-              this controller's own handler answers, so a plain closure read at click-time already
-              sees the menu as closed and the ordering collapses to "close both" — a real regression
-              caught live in the browser. Snapshotting on `mousedown` (which reaches this controller
-              BEFORE `document`, since `.leaflet-container` is `document`'s descendant) records the
-              value while it is still trustworthy; see `MapBackgroundClickController`'s own class
-              doc for the full timeline. */}
+              ⚠️ **A ground press does exactly one thing now: it deselects** (map-landing-plan.md
+              §3 L3, `docs/design/map-landing/README.md` §5). It used to close the nearest open
+              layer instead — a popover first, the callout only on a second press — and that
+              ordering existed because one press could do two things. It no longer can: the week
+              menu, Regions, Filters and the Legend are all ABOUT the map, so a press on the map
+              leaves every one of them open, and the only thing left for this handler to do is the
+              one the design carves out ("tapping bare ground still deselects a location — that is
+              a selection, not a panel").
+
+              So the `mousedown` snapshot this controller used to take is gone with the branch that
+              read it. ⚠️ It was NOT redundant beforehand and must not be reintroduced casually:
+              the four panels close themselves on a `document`-level `mousedown` that fires — and
+              commits — before the `click` this handler answers, so a plain closure over
+              `openMapMenu` read at click time already saw them closed. That timeline is still real
+              (`MapBackgroundClickController`'s class doc records it); there is simply no longer a
+              decision here that depends on it. Escape still orders the two layers, in
+              `handleMapPaneKeyDown`, because one key press there genuinely does have two possible
+              targets. */}
           {!overlayMode && (
             <MapBackgroundClickController
-              onMouseDown={() => { openMapMenuAtMouseDownRef.current = openMapMenu; }}
-              onBackgroundClick={() => {
-                if (openMapMenuAtMouseDownRef.current != null) {
-                  setOpenMapMenu(null);
-                  return;
-                }
-                setSelectedLocationName(null);
-              }}
+              onBackgroundClick={() => setSelectedLocationName(null)}
             />
           )}
           <MapSizeSync trigger={overlayMode ? advancedOpen : resizeNonce} />

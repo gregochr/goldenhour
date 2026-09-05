@@ -61,6 +61,24 @@ describe('MapLegendPanel — the chip', () => {
 });
 
 describe('MapLegendPanel — close semantics (the exclusivity group)', () => {
+  it('does NOT dismiss on a press inside the map frame (map-landing-plan.md §3 L3)', () => {
+    // ⚠️ The Legend is the fourth panel on the shared `useOutsideDismiss` rule and the only one
+    // with no MapView-level coverage of it — it mounts there behind `heatOffered && !isMobile`.
+    // Without this test, reverting this component to its own pre-L3 `document` listener is
+    // invisible: the rest of this file renders the panel with no `map-container` ancestor, so
+    // `isInsideMapFrame` is never true and old and new code behave identically.
+    const onOpenChange = vi.fn();
+    render(
+      <div data-testid="map-container">
+        <MapLegendPanel {...baseProps({ open: true, onOpenChange })} />
+      </div>,
+    );
+
+    fireEvent.mouseDown(screen.getByTestId('map-container'));
+
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
   it('calls onOpenChange(false) on an outside click', () => {
     const onOpenChange = vi.fn();
     render(<MapLegendPanel {...baseProps({ open: true, onOpenChange })} />);
