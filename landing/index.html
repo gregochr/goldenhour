@@ -27,6 +27,11 @@ repeating-linear-gradient(52deg,color-mix(in oklab,var(--ink) 4%,transparent) 0 
 aspect-ratio:16/9;display:flex;align-items:flex-end;justify-content:center;padding:22px;overflow:hidden}
 .shot .slot{font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-dim);border:1px dashed var(--rule-2);border-radius:6px;padding:7px 12px;background:color-mix(in oklab,var(--ground) 70%,transparent)}
 .shot.tall{aspect-ratio:3/4}
+/* A .shot holding a real image drops the placeholder's padding, centring and 16/9 box: the
+   image IS the content, so the well takes the image's own ratio rather than cropping it.
+   Both shots are cropped to their subject at build time, so nothing needs object-fit. */
+.shot.has-img{padding:0;display:block;background:var(--card);aspect-ratio:auto}
+.shot.has-img img{display:block;width:100%;height:auto;border-radius:11px}
 .figcap{font-family:var(--mono);font-size:12px;line-height:1.6;letter-spacing:.03em;color:var(--ink-dim);padding:14px 6px 4px;max-width:620px}
 /* verdict card, rendered from the app's own vocabulary */
 .verdict{position:absolute;top:20px;left:20px;width:min(360px,72%);background:color-mix(in oklab,#140F0C 96%,transparent);border:1px solid var(--rule-2);border-radius:12px;box-shadow:0 18px 44px rgba(0,0,0,.55);overflow:hidden}
@@ -93,6 +98,7 @@ section{padding:96px 0 0}
 .feat .n{padding-top:0}
 .verdict{position:static;width:auto;margin-bottom:auto}
 .shot{aspect-ratio:auto;min-height:340px;align-items:flex-start;flex-direction:column;justify-content:space-between;gap:18px}
+.shot.has-img{min-height:0;aspect-ratio:auto}
 .shot .slot{align-self:center}
 }
 </style>
@@ -125,7 +131,8 @@ section{padding:96px 0 0}
 </div>
 
 <div class="fig">
-<div class="shot">
+<div class="shot has-img">
+<img src="shot-map.webp" width="1600" height="783" alt="The PhotoCast map tab: a heat field over northern England for tomorrow's sunrise, with the strongest areas warm and the poor ones cool, and named locations rated four stars.">
 <div class="verdict">
 <div class="vh"><span>Tonight or the morning?</span><span>Sat 5 Sep</span></div>
 <div class="vrow">
@@ -140,7 +147,6 @@ section{padding:96px 0 0}
 <div class="where">Strongest on the North York Moors</div>
 </div>
 </div>
-<div class="slot">screenshot · map tab, landing state, heat field over the region</div>
 </div>
 <p class="figcap">The map opens with the call already made: the next two windows, each with its verdict and the region that verdict is true of. Nothing to tap first.</p>
 </div>
@@ -212,8 +218,8 @@ section{padding:96px 0 0}
 </div>
 
 <div class="fig">
-<div class="shot">
-<div class="slot">screenshot · location detail, score bars and the plain-English read</div>
+<div class="shot has-img">
+<img src="shot-detail.webp" width="1600" height="1115" alt="A location sheet for Derwent Water East Shore: the next three days, a four-star sunrise with Fiery Sky 72 and Golden Hour 68 score bars, blue and golden hour times, and a written explanation of the conditions.">
 </div>
 <p class="figcap">Per-location detail with Fiery Sky and Golden Hour score bars, golden and blue hour times, and a plain-English AI explanation.</p>
 </div>

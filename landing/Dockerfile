@@ -6,6 +6,8 @@ COPY privacy.html /usr/share/nginx/html/
 COPY terms.html /usr/share/nginx/html/
 COPY acknowledgements.html /usr/share/nginx/html/
 COPY photocast.css /usr/share/nginx/html/
+COPY shot-map.webp /usr/share/nginx/html/
+COPY shot-detail.webp /usr/share/nginx/html/
 COPY favicon.png /usr/share/nginx/html/
 COPY logo.png /usr/share/nginx/html/
 COPY screenshot.png /usr/share/nginx/html/
