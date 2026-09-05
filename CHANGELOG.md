@@ -5,6 +5,336 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.20.3] - 2026-09-05
+
+### Added — the app answers for the notch, the sensor housing and the home indicator
+
+`index.html` now opts in with `viewport-fit=cover`, so `env(safe-area-inset-*)` reports something
+other than zero on hardware that has an unsafe zone. The insets are declared once as `--safe-t/r/b/l`
+(plus the `--safe-v`/`--safe-h` sums a dialog cap needs, since a `max-height` competes with both
+insets on its axis), and every element that touches a viewport edge reads them: the app root insets
+everything in normal flow, the Plan tab's sticky lens bar names the top inset itself (a sticky
+element sticks to the viewport, so an ancestor's padding cannot reach it), the bottom sheet insets
+its sides and pads its foot, the modal resolves its gutter and its inset with `max()` rather than
+summing them, and `MapOverlay` — inline-styled, so no rule could reach it — does the same for its
+own 24px gutter.
+
+Every rule is a no-op where the insets are zero. Measured in Chromium against the built stylesheet:
+at zero insets the root computes `0px`, the modal `16px` on all four sides (exactly the `p-4` it
+replaces) and the phone popup `0px`; with a 34px bottom inset the popup's foot moves from flush to
+34px clear. A test pins the invariant by requiring a `0px` fallback on every `env()` in the
+stylesheet — without one the declaration is simply invalid on a browser that does not know the
+variable, and takes its `top` or `padding` with it.
+
+**Two ways an inset gets silently cancelled, both found by adversarial review and both now guarded
+by tests.** A descendant can beat the ancestor that set it: `[data-testid="window-sheet"]` was
+`padding: 0` — deliberately, to drop the popup's frame on a phone — and being unlayered, equal in
+specificity and thousands of lines further down, it won on source order and cancelled the modal's
+safe padding outright, on the one device class that has an unsafe zone, for the Plan tab's flagship
+dialog. And a `max-height` can reconstruct the gutter arithmetically: five sites encoded the modal's
+`p-4` as a literal `32px`, so each ate the whole safe-area padding and left its panel's foot exactly
+where it was. Both classes now have a sweep in `safeAreas.test.jsx`, and the sweep found a third
+`scroll-margin-top` reservation site that two hand fixes had missed.
+
+Live today: the **left/right** insets, where a landscape sensor housing clips content outright, and
+the **bottom** inset under the home indicator. The **top** inset stays zero in a home-screen web app
+until someone decides on `apple-mobile-web-app-status-bar-style: black-translucent`, which is a
+visual decision rather than a safe-area one. Every CSS consumer of the top inset now carries its
+term, but that change is **not** the one-line edit an earlier draft of this work claimed:
+`useStuckSentinel` is called with `offset = 0` and would need the inset too. That is recorded where
+someone making the change will read it.
+
+The map tab's phone chrome needed no term of its own — its tuned `bottom:` cascade is
+`position: absolute` inside a frame the root's padding already insets, so the whole stack moves up
+with it.
+
+### Added — the Map tab's Regions list carries its own way back
+
+Selecting a region from the Map tab's `◎ Regions` list frames the camera on it. Until now, undoing
+that framing was filed somewhere else entirely: `⌂` at the map's bottom-right corner, or the scope
+segment inside the Filters popover. Neither mentions regions, and on a phone neither is reliably
+there — the `⌂` is hidden outright, because the phone's bottom bar sits over Leaflet's bottom-right
+corner and covered it (invisible *and* untappable, which is why it was hidden rather than moved),
+and the Filters scope segment is withheld whenever the area frame does not actually narrow. A phone
+reader with a saved postcode had a way back under a chip that never names regions; **a phone reader
+with no postcode had no way back at all.**
+
+So the inverse now sits in the list that caused it. While a jump stands, one more row appears at the
+top — `↺ Back to My area`, or `Back to Everywhere`, or an away origin's own `Back to Around Keswick`
+— and the region currently framed is marked in the list beneath it. Nothing else on the tab named
+that region. The `⌂`, the scope segment and a Plan door's breadcrumb all still end a jump; what
+none of them do is say which region is framed, or mention regions at all.
+
+**It undoes the jump, not the reader's scope.** A jump to a region outside your area flips scope to
+Everywhere as a side effect, so the reset restores it; but a reader who had deliberately chosen
+Everywhere *before* jumping is left there, because that is a decision they made and this row never
+carried it. The pre-jump scope is recorded on the jump itself and carried forward across a second
+jump — by then scope has already flipped, so re-deriving "did this jump change anything" would read
+*no* and strand the reader in the wrong place.
+
+The row names the scope its own press lands you in rather than saying "all regions", which would be
+false for anyone whose scope is My area — a subset. With no postcode saved, the area frame is the
+whole catalogue, so the row honestly says Everywhere instead of naming an area that filters nothing.
+
+### Fixed — the Plan shell's test files no longer time out under a loaded machine
+
+The first test in each file that renders `WindowFirstShell` was silently paying a per-**file** cost
+inside a per-**test** budget: the shell puts its matrix, its window popup, its search panel and its
+location sheet behind `React.lazy`, and whichever test ran first found the module registry cold.
+Measured under a 20-process CPU load, in `WindowFirstShellSheet.test.jsx`, that test's first
+`findByTestId('wf-heat-strip')` took 1051ms and its first `findByTestId('window-sheet')` 797ms,
+where every later call in the same file took 3.5ms and 50ms. Nothing about the first test is
+different — it just gets there first.
+
+That had been met once already: `setup.js` raised Testing Library's `asyncUtilTimeout` to 4000ms so
+a cold boundary had room. But Vitest's per-test budget stayed at 5000ms, and a test crossing two of
+these boundaries in sequence cannot fit two 4000ms waits into 5000ms — so it died before either
+`findBy*` could reach its own ceiling or say which wait was stuck, as a bare `Test timed out in
+5000ms` pointing at the `it(` line. Running the full suite three times concurrently under a
+16-process CPU load reproduced it in 3 of 3 runs, on the first test of `WindowFirstShellSheet`,
+`WindowFirstShellDoor1` and `locationSheetShell`, while the same files passed alone in six seconds.
+
+The fix is `testTimeout: 20000`, which is what makes the existing 4000ms ceiling reachable at all.
+The frontend CI job gains a `timeout-minutes` alongside it, because a 4× per-test ceiling with no
+job ceiling left the cost of a genuine hang capped only by GitHub's six-hour default.
+
+⚠️ Two things are worth knowing, because both were built or believed and then measured away. A
+per-file `beforeAll` warm-up that loaded those four chunks — the obvious structural fix, and the one
+this change was originally built around — **works and is not needed**: with it neutralised and the
+new ceiling in place the same reproduction is green 3 of 3, worst first test 5744ms against 5065ms
+with it — a 12% tail reduction on a budget with 2.7× headroom at the worst first test seen
+anywhere (7412ms). It was deleted rather than shipped, and the standards doc records why, so it
+is not rebuilt. And raising the ceiling is not free: a tight
+per-test budget is this suite's only performance-regression detector, and this very defect was
+discoverable *because* the budget was tight enough to fail on it.
+
+No test changed what it asserts. One measurement is worth keeping: the drill-down helper's
+un-awaited `fireEvent.click`, which looks like the obvious culprit and was the first hypothesis, is
+correct — `WindowSpotSheet` is a static import, so it lands in the same commit as the click, present
+synchronously in 30 of 30 invocations idle and under load. The helper now says so, since it reads
+like an omission and has been refiled as one.
+
+One flake that reproduction surfaced is NOT fixed here and is unrelated:
+`src/test/shared/Modal.test.jsx`'s "does NOT yank focus back from wherever the reader has since
+moved to" failed once in ten runs of that file alone under the same load, and in 4 of 24 concurrent
+suite runs — a rate those samples pin down no further. It races `useDialogFocus`'s animation frame
+rather than a module boundary, and the shape is inverted (it passes only while the frame has yet to
+fire), so it may be a question about whether uncovering a stacked dialog should take focus at all
+rather than a test fix. It is now recorded at the test itself, which is where the next person to hit
+it will be looking.
+
+### Fixed — the phone Regions sheet no longer draws its first row under the close button
+
+`BottomSheet`'s `✕` is absolutely positioned at the sheet's top-right, and the scrolling content
+below it began above its lower edge. On the Regions list the `✕` sat directly over the nearest
+region's own star rating, hiding it and taking its taps — the list's rows are a three-column grid
+whose last track is flush right, so the star is exactly what lands there. The desktop popover it
+mirrors has no close button, so this only ever happened on the phone.
+
+The fix reserves the button's band **outside** the scroll container rather than padding the content
+inside it: a scroll container's own padding scrolls away with its content, so padding there clears
+the first row and nothing else. Measured in Chromium against the built stylesheet at 390 × 844, at
+five scroll positions — the scrollport now begins exactly at the button's lower edge and no painted
+row reaches it, where the padded version collided from the first scroll tick onward.
+
+The Filters phone sheet takes the same treatment **defensively, not as a fix**: its controls also run
+16px past the button horizontally, but its rows are a column led by a left-aligned key label, so the
+band under the `✕` holds only that label and no control was ever obscured. Measured with the real
+face loaded. One right-aligned control added to its first row and it would be the Regions defect, so
+the reservation stays; it costs nothing, since that sheet does not scroll at this size.
+
+### Fixed — the Map tab's `‹ ›` steppers no longer move as you step through events
+
+The window control was sized by whatever the current event happened to say, so the buttons used to
+step through it moved every time they were pressed. Its three parts are all variable-width — the
+kind chip (Sunrise / Sunset / Astro / Aurora), the day label (`Today` through `Wednesday night`),
+and a time that is missing altogether on an event that is past or beyond the forecast's horizon —
+and measured across every combination the control can produce, the pill ranged from 115px to 228px.
+`›` travelled up to 112px between one click and the next, so browsing the forecast meant chasing
+the button with the mouse.
+
+The pill now holds a fixed 262px, which makes the whole control 334px — the width of the dropdown
+it opens, so the menu and its trigger now line up on both edges instead of the menu overhanging by
+a couple of pixels. The day label takes up the slack, which pins the time against the pill's right
+edge as a steady column of its own. Truncation is unchanged: the label could already be shortened
+with an ellipsis past 260px, and the widest event the control can actually show reaches 228px. The
+phone bar is untouched — a full-width pill there was already stable for its own reason.
+
+One knock-on worth knowing about, since the top-left chrome doubles as an obstacle the map routes
+location labels around: that obstacle is now a constant width rather than one that changed with
+every event. Across two views on the live map the same labels were drawn in the same places as
+before, and labels should now stop flickering in and out as you step, for the same reason the
+buttons do.
+
+### Removed — the Map tab's selection callout no longer draws a pointer at its location
+
+The card that opens when you select a location on the Map tab carried an 11px rotated square on its
+edge, pointing back at the marker it described. It has been removed at the owner's request — and it
+was not merely surplus. In the screen grab that prompted the removal the arrow sat directly beneath
+a chip reading *Gosforth Nature Reserve*, above a card titled *Newcastle and Gateshead Quayside*.
+
+**The tail was accurate to a point, and what is drawn at a point is a label — which is not at its
+own point.** The map's greedy label pass nudges every chip off its anchor to keep the layer
+readable: up to 38px vertically, and up to half the chip's own width plus 9px horizontally, so a
+name 297px wide can legitimately sit 158px from the place it names. An arrow fired into that layer
+lands on a neighbour's name routinely, and a reader has no way to tell. An arrow is a strong claim —
+*that* one — so pointing at the wrong name costs more than pointing at nothing.
+
+There was also a case where it aimed at a pixel the location was definitely not at: `tailLeft` was
+clamped to stay inside the card, so a card pushed against a frame edge got a tail that stopped at
+the card's edge rather than reaching its own point. The clamp was deliberate — keeping the tail on
+the card was chosen over keeping it on the location — which is the trade a pointer cannot win once
+the card is edge-clamped.
+
+The tail was a plain `<span>` inside the card, held outside the card's box by CSS alone (`top: -6px`
+when the card sat below its point, `bottom: -6px` when the band flipped it above — which is why that
+box's `overflow` had to stay `visible`), and slid along that edge by `anchorCallout`'s `tailLeft` —
+which tried to keep it over the location, and gave up at the card's own edge. All three parts go
+together: the element, its stylesheet rules, and the `tailLeft` the placer computed — a coordinate
+nothing renders is the kind of write-only value this codebase has spent phases deleting. Its removal
+is pinned in three places for one reason each: that the geometry no longer computes it, that the
+stylesheet carries no rule for it, and — the only one that sees a rendered card — that no such
+element is drawn under any class.
+
+Nothing else about the anchoring moves. The card still prefers to sit below its point with a 22px
+gap, still flips above when it would overflow the chrome-clear band, still clamps 8px from the frame
+edges, and `below` still chooses the card's `top`; it merely no longer chooses which way a pointer
+faced. The card does lose the only part of it that pointed at anything, so the tie between card and
+location now rests on the `.wf-selmk` selection ring drawn on the point and on `panInside` bringing
+both into view on open — which is what the ring is for — plus the location's own name in the title.
+That is a smaller loss than it sounds, since what the pointer pointed at could not be relied on.
+
+The ring inherits the congestion half of the problem and keeps it, knowingly: label placement treats
+only the map's chrome as an obstacle, so nothing stops another location's chip being drawn where the
+selection is marked. It is less wrong than the arrow was — it encircles a spot and dots the exact
+point rather than aiming across a gap at it — and the arrow was the part that actually misread.
+Checked in Chromium at 1280×900 and at 375×812 rather than reasoned about: the ring sits 5.3px below
+a card that has flipped above its point, 5.0px above one placed below it, centred on the card either
+way, and on the phone it reads clearly as the thing the card is about.
+
+`.wf-callout`'s `overflow: visible` stays, and the reason is worth stating because the comment there
+used to give the tail as its first justification. The second one is untouched: the card takes an
+inline `max-height` measured from the live chrome band, and `.wf-callout-body` is the single child
+that absorbs it. A scroll declared on the card would wrap that body in a second scroller, and
+`hidden` would clip the overflow away with no way to reach it. The cascade test that pinned the tail
+as absolutely positioned now pins the opposite — that no rule for it has come back — against a
+comment-stripped copy of `index.css`, so the removal note left at that declaration cannot satisfy
+it.
+
+### Fixed — the Plan lens bar's home caption claimed a scope the control never had
+
+The reach control read `HOW FAR TONIGHT`, and the chips beneath it have never been scoped to
+tonight. The gate runs over **every** window the Plan matrix draws — up to six of them
+(`PlanRenderLimits.MAX_VISIBLE_EVENTS`), which is sunrise and sunset across three or four days — so
+tomorrow morning's sunrise card was being filtered by a control whose caption said it was about this
+evening. It now reads `DRIVE FROM HOME`, naming the point the figures are measured from.
+
+The bar had been contradicting itself in place since the readout was built: the summary sitting on
+that same row states "… N spots across M windows", and on any ordinary day M is three to six. The
+design bundle disagreed with its own label too — its Purpose line for this control says "how far you
+will travel *today*" while the label beside it says "tonight".
+
+What "tonight" was reaching for is the setting's **lifetime**, not the gate's **scope**. Two things
+here really are day-bound — the default tier is a pure function of today's date, and a hand-picked
+tier is discarded at the day roll — but the bar already states both, in the readout's
+`weekend default` clause and in the amber `today only` pill. So the caption was spending its words
+restating those two and getting the filter's reach wrong in exchange.
+
+The away caption never made the claim. Pick a region base and the label has always read
+`Drive from Keswick`, so one control was wearing two captions that disagreed about what it did, and
+the time claim vanished the moment a reader moved their origin — without the gate changing at all.
+Naming the origin at both ends makes them one sentence shape. The window drill-down's inherited
+reach control joins that vocabulary rather than that shape — `How far` becomes `Drive`, deliberately
+origin-free, because the sheet inherits whatever origin the bar is on and takes no base name of its
+own. It seeds from the bar's tier and gates the same axis through the same helper, so leaving it
+behind would have made it the only reach control on the tab still speaking the retired words.
+
+`.wf-lens-k` is `--font-mono` at a fixed letter-spacing and both bar captions are fifteen characters,
+so the caption occupies exactly the width it did — measured in the browser at 105.313px either way,
+with the bar's height and overflow unchanged at 1440px and across the 640–781px band. The phone
+layout, where shortening this caption to `Drive` is the whole of what buys the four tiers their own
+row, is untouched, and the phone caption is unchanged.
+
+### Changed — "Four days here" is a peek now, not a departure
+
+The Map tab's selection callout has always ended its clamped narrative with `Four days here ›`, and
+pressing it took the reader off the Map tab entirely: the four-day sheet opened, but on the Plan
+tab, so dismissing it left them on a screen they had not asked for with the map, the camera and the
+selection all gone. Owner report: *"I'd like it to stay with the map behind, then I can back track
+on my user journey."*
+
+It now opens the same sheet **over the map**. The tab does not move, the callout stays mounted
+underneath, and closing the sheet — `Esc`, the ✕, or the backdrop — puts the reader back on exactly
+the selection they opened it from, with focus returned to the caption they pressed.
+
+The callout's own `Open in Plan` button is unchanged and still goes to the Plan tab. The two used to
+be the same action behind two labels; they are now the two things those labels say. One handoff
+carries both, distinguished by a single `inPlan` flag, so neither route can seed a sheet the other
+could not.
+
+Four supporting fixes fell out of it:
+
+- The map pane's own `Esc` rule (menus first, then the callout) now stands down entirely while a
+  dialog from outside the pane is over it. Before that guard one press closed the sheet **and**
+  deselected the location underneath, and dropped focus to the top of the document — the whole of
+  what the peek exists to prevent. Measured in a browser before and after.
+- The sheet's own `◍ Show on map →` footer no longer imports the Plan's lens when it is pressed from
+  a sheet that is already over the map. It used to arrive as a full door: the map's rating floor was
+  overwritten (and persisted), its reach tier overwritten, its scope snapped back to "My area" and
+  its camera refitted — all from a press that asked only to change the window — under a landing
+  strip reading "Where you came from · ← Plan" for a reader who had come from the Map tab. It now
+  moves the window and the selection, and nothing else. It rides the map's *structured* handoff
+  channel rather than the older per-field one, because only the structured route treats the
+  handed-over event as an explicit choice: sent the other way, `Show on map → Tomorrow sunrise`
+  landed on tomorrow's **sunset**, the window silently replaced a tick later by the map's own
+  auto-selection.
+- The caption takes focus on the press. macOS and iOS Safari do not focus a `<button>` on click
+  unless Full Keyboard Access is on, so without it the sheet had no return address to hand focus
+  back to and a keyboard reader was returned to the top of the page instead of to the place they
+  were reading about. Its accessible name also gains the separator it was missing: the summary's
+  last word and the place name were running together into one spoken token.
+- The Map tab warms the sheet's lazy chunk when it opens. Between the press and that chunk landing
+  there is no dialog in the document at all, so neither the sheet's own `Esc` listener nor the new
+  map guard exists yet, and a press in the gap dropped the selection the sheet was about to describe.
+
+### Added — `GET /api/briefing/digest`, the briefing without the tree
+
+A flat, bounded, chronological projection of the briefing's solar windows: one object per window
+carrying its date, event, time, verdict, best rating, confidence and — when the window is one of the
+forecast's two picks — that pick's kind, headline, region and location. Bearer, no role gate, and
+ETag-revalidated alongside `/api/briefing`, which it carries no more data than.
+
+It exists because `/api/briefing` is a tree — `days[] → eventSummaries[] → regions[] → slots[]`,
+plus hot topics, best bets and two aurora summaries — and a client that only wants "the next window
+is Thursday's sunset, three stars, here is the sentence" has to walk all of it to find out. Some
+cannot afford to.
+
+**It derives nothing.** Every field is copied off the `BriefingWindow` that `PlanWindowProjector`
+already authored for the Plan tab. A second client that re-derived a verdict, a rating or a headline
+could disagree with the web UI about the same window, and the two would be impossible to reconcile
+from the payload — so if a figure is not on `BriefingWindow`, it belongs there first, where both
+clients can read it.
+
+`limit` derives its default from `PlanRenderLimits.MAX_VISIBLE_EVENTS` rather than repeating the
+literal — the forecast's two picks are drawn from the rendered window set, so a digest with its own
+copy of that horizon could silently exclude the Best Bet from a widget whose whole purpose is to
+show it.
+
+Two rules are shared rather than restated. The elapsed test is `PlanWindowProjector.hasPassed`,
+extracted for this and unchanged in behaviour, so the digest and the Plan tab retire a window at the
+same minute and a null event time still counts as current on both. And the ordering is the day's own
+date and event type — never the window's nullable `eventTime`, which would need a null-ordering rule
+whose answer would be a claim about when a timeless window happens that the payload does not make.
+An agreement test drives both surfaces from `hasPassed` itself, so tuning the afterglow moves them
+together rather than leaving the digest on the old value.
+
+Two costs are recorded on the record's javadoc rather than papered over: the digest carries no
+verdict *word* (that vocabulary lives in the web client, and publishing a label would put display
+strings on a payload whose stated rule is that it copies), and every timestamp is offset-free UTC —
+the project-wide wire format, which a Swift decoder's `.iso8601` strategy rejects outright and must
+be decoded with an explicit UTC formatter. A small payload is also not a cheap request: it drives
+the full Plan-tab assembly and keeps ten scalars per window.
+
 ## [v2.20.2] - 2026-09-05
 
 ### Fixed — Plan matrix thumbnails labelled two regions `THE`
