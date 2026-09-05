@@ -44,9 +44,11 @@ member and handed React a function to render.
 
 `docs/engineering/field-geography-and-glyphs-plan.md` §2.4 is amended in place — it still
 prescribed the key scheme and the single-step fallback that shipped — with the reasoning recorded
-as §5 decisions 12 and 13, including two cases left deliberately unfixed (an abbreviation-headed
-rename such as `N. York Moors & Coast` still yields `N.`; the reductions are case-insensitive while
-the table match is byte-exact) and a note that the Map tab and the Plan matrix now hold two
+as §5 decisions 12 and 13, including three cases left deliberately unfixed (`The Scottish Borders`
+reaches no curated entry and renders `SCOTTISH`; an abbreviation-headed rename such as
+`N. York Moors & Coast` still yields `N.`; the reductions are case-insensitive while the table
+match is byte-exact — each with a named test, so an accepted residual stays distinguishable from
+an unnoticed one) and a note that the Map tab and the Plan matrix now hold two
 different answers to "what do we call this region when there is no room", which `map-tab-v2-plan.md`'s
 O-4 would need to displace together.
 
@@ -61,7 +63,18 @@ dev-only `console.warn` on a table miss could not have caught this: `import.meta
 in a production build, and a local session runs the seeded roster rather than production's names.
 It is a local tripwire against the local catalogue, not a monitor of the real one.
 
-Verified with the frontend CI gate (lint, 5047 tests, `npm audit --audit-level=high`, build) and by
-reverting the component alone to confirm the new tests fail against it. Not browser-verified: this
-is a pure string derivation whose outputs are asserted exactly, and the labels need a scored local
-catalogue to appear at all.
+A second adversarial pass prosecuted the tests by **mutation** rather than by reading, and found
+four guards that could be deleted outright with the suite still green — the `Object.hasOwn`
+prototype guard, the article drop's one-word floor, the dev warning, and the conjunct pattern's
+`\S`. Three now have named tests and are killed by them. The fourth was **deleted** rather than
+tested: after the trim, no input distinguishes it (swept over every head/separator/tail
+combination, 275 inputs, zero differing), and an unreachable guard carrying a paragraph about its
+own necessity sends the next reader hunting for a test that cannot be written. The same pass caught
+the empty-label test asserting `not.toBe('')` while the value it let through was a bare `&` — no
+more a label than the empty string is — so it pins `&` as the accepted degenerate result instead.
+
+Verified with the frontend CI gate (lint, 5054 tests, `npm audit --audit-level=high`, build), by
+reverting the component alone to confirm the new tests fail against it, and by re-running the
+mutation battery against the strengthened suite — all four mutants killed. Not browser-verified:
+this is a pure string derivation whose outputs are asserted exactly, and the labels need a scored
+local catalogue to appear at all.
