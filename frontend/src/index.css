@@ -4408,12 +4408,21 @@ button.wf-hc.also.on:hover {
 }
 .wf-jump-row[aria-current="true"]:hover { background: rgba(201, 162, 75, 0.2); }
 
-/* ⚠️ The `×` collision these two phone sheets had is fixed in `BottomSheet` itself, NOT here —
-   `reserveCloseStrip`, which both opt into. A `padding-top` on these classes was the first cut and
-   it is WRONG, however plausible it reads: they live INSIDE the sheet's scroll container, so their
-   padding scrolls away with their content and the collision returns on the first scroll tick. Two
+/* ⚠️ The `×` collision is fixed in `BottomSheet` itself, NOT here — `reserveCloseStrip`, which both
+   of these classes' sheets opt into. A `padding-top` on these classes was the first cut and it is
+   WRONG, however plausible it reads: they live INSIDE the sheet's scroll container, so their padding
+   scrolls away with their content and the collision returns on the first scroll tick. Two
    independent reviews caught it. Do not re-add one here — the strip has to be reserved outside the
-   scroller, which only the sheet component can do. */
+   scroller, which only the sheet component can do.
+
+   ⚠️ **Only `.wf-jump-sheet` actually had the collision**; the first cut of this comment said both
+   did, and that was asserted rather than measured. At 390×844 with the real face loaded, controls in
+   BOTH sheets run to x=362 against a button starting at x=346 — a 16px horizontal overlap either
+   way. What spares Filters is its ROW SHAPE: `.wf-filters-row` is a column led by a left-aligned
+   `.wf-filters-key`, so the 24px band under the button holds a short label and nothing else, while
+   `.wf-jump-row` is a `1fr auto auto` grid whose last track is flush right and puts the star there.
+   Filters keeps the reservation defensively — one right-aligned control in its first row and the
+   16px overlap stops being harmless — and it costs nothing, that sheet not scrolling at this size. */
 
 /* ── Selection: the ring + the callout (map-tab-v2-plan.md §3 P9, README §7) ───────────────────
    Replaces the Leaflet popup and the mobile `BottomSheet` on this tab — "a popup covers exactly the
