@@ -333,20 +333,10 @@ describe('Modal', () => {
       // — that is the app's settled, unchanged behaviour — and a dialog underneath that grabbed
       // focus the moment it was uncovered would fight them for it.
       //
-      // ⚠️ **This test is load-sensitive and has NOT been fixed.** Measured 2026-09-05: it failed
-      // once in ten runs of this file ALONE under a 24-process CPU load on 8 cores, and turned up in
-      // 2 of 6 concurrent full-suite runs. Those samples pin the rate down no further than that. `document.activeElement` is then the
-      // dialog ROOT rather than `outside`. `useDialogFocus` moves focus on a `requestAnimationFrame`
-      // and the `await act(async () => {})` below drains microtasks without ever awaiting that
-      // frame — so on an idle machine the assertion wins the race and under starvation the frame
-      // does.
-      //
-      // ⚠️ **Do not "fix" it by awaiting the frame.** The shape is INVERTED against the usual flake:
-      // this test passes only while the frame has yet to fire, so settling it would likely make the
-      // failure deterministic rather than removing it. That points at a product question rather
-      // than a test one — when a stacked dialog is UNCOVERED, should `useDialogFocus` treat that as
-      // an open and take the root at all? Neither this test nor its sibling at the top of this
-      // block expects the root. Answer that before touching either.
+      // ⚠️ This test was load-sensitive until the settle below. #776 recorded it here as unfixed
+      // and warned that awaiting the frame would make the failure deterministic; that is true of
+      // awaiting it beside the ASSERTION and false of awaiting it before the reader moves, which
+      // is what the settle does. Measured both ways — see there.
       const Host = ({ stacked }) => (
         <div>
           <button type="button" data-testid="outside">Outside</button>
@@ -358,6 +348,49 @@ describe('Modal', () => {
       Host.propTypes = { stacked: PropTypes.bool.isRequired };
 
       const { rerender } = render(<Host stacked={false} />);
+      // ⚠️ PRECONDITION, not the subject: let the dialog finish OPENING before playing a reader
+      // who has been inside it a while. `useDialogFocus` moves focus to the dialog root on a frame
+      // scheduled at MOUNT — the only frame `Modal`'s own code schedules, since its effect's dep is
+      // the literal `true` Modal passes (a fact about THIS caller — the hook re-opens happily for
+      // the dynamic `active` that `BottomSheet` and `RegionsJump` pass it), so neither stacking nor
+      // unstacking re-runs it and nothing here is a second open. Without this settle that frame
+      // stayed in flight for the rest of the test and, on a starved machine, fired at whatever
+      // `await` came next, so the assertion found the dialog ROOT rather than `outside`. The hook's
+      // own guard could not help: it stands down only when focus is on a DESCENDANT
+      // (`contains(active) && active !== dialog`), and this is the one test in the block that
+      // deliberately ends with focus outside the dialog. (Three siblings are immune for a plainer
+      // reason — they are synchronous and offer the frame no `await` to land on at all.)
+      //
+      // ⚠️ Do not reach for the failure RATE to reason about this. It was seen at 1 of 10 runs of
+      // this file under a 24-process load on an 8-core Mac, 2 of 10 re-measuring the same way, and
+      // 2 of 6 concurrent full-suite runs — but an interleaved A/B under comparable load saw 0 of
+      // 12. Load is not the variable; PHASE against jsdom's rAF interval is, so those counts are
+      // existence proofs and nothing more. What pins the mechanism is a delay sweep — busy-spin
+      // N ms between `render()` and the rest of this body, 8 reps each, pre-settle:
+      //
+      //     0ms 1/8   2ms 0/8   4ms 1/8   6ms 2/8   8ms 3/8
+      //     10ms 5/8  12ms 6/8  16ms 8/8  24ms 8/8
+      //
+      // A ramp saturating at 16 ms — the frame interval itself. The frame lands one interval after
+      // mount at arbitrary phase, so a delay of d steals with probability ≈ min(1, d/16), and at
+      // d = 0 the residue is the ~1-in-10 seen in the wild. Nothing here is a step function, and a
+      // sweep of one rep per step will look like one; run reps.
+      //
+      // ⚠️ The settle belongs HERE and nowhere later. This flake is shaped the other way up from
+      // the usual one: the test passed while the frame had *not* yet fired, so settling it beside
+      // the assertion fails every time. Settling before the reader moves is what removes the race,
+      // and is the real sequence — a dialog is open far longer than a frame before anyone tabs.
+      // `WindowFirstShellSheet` settles the same frame ahead of its hover for a related reason (a
+      // mutation sweep caught it pinning the focus rule); it does so with fake timers and asserts
+      // nothing, so the precedent is "settle first", not "settle by asserting where focus went".
+      //
+      // ⚠️ This settles by PROXY: it waits for the root to hold focus, which is not the same claim
+      // as "the frame has fired". They coincide only while that frame is the sole thing that
+      // focuses this root — true today (the restore effect can only focus a control, guarded by
+      // `e.target !== e.currentTarget`). Give the root another route to focus and this line is
+      // satisfied with the frame still pending, and the flake returns with the suite green.
+      await waitFor(() => expect(screen.getByTestId('under')).toHaveFocus());
+
       screen.getByTestId('chip').focus();
       rerender(<Host stacked />);
       expect(screen.getByTestId('under')).toHaveAttribute('inert');
@@ -366,7 +399,15 @@ describe('Modal', () => {
       const outside = screen.getByTestId('outside');
       outside.focus();
       rerender(<Host stacked={false} />);
-      await act(async () => {});
+      expect(document.activeElement).toBe(outside);
+      // ⚠️ And it STAYS there. Not belt-and-braces: the settle above removes the race from today's
+      // code, and without this the test also stops being able to SEE it come back. Measured — flip
+      // `Modal`'s `useDialogFocus(true)` to `useDialogFocus(!stacked)` (the "treat uncovering as an
+      // open" change) and the assertion above passes 20 of 20 idle while this one fails 20 of 20,
+      // because that mutant schedules a SECOND frame at the uncover which only a forced frame
+      // reveals. `rerender` is act-wrapped, so the restore effect has already run by the line
+      // above; this is the same double-rAF idiom the self-focusing-child test uses.
+      await new Promise((r) => { requestAnimationFrame(() => requestAnimationFrame(r)); });
       expect(document.activeElement).toBe(outside);
     });
 
