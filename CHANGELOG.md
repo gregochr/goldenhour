@@ -5,6 +5,135 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.20.2] - 2026-09-05
+
+### Fixed — Plan matrix thumbnails labelled two regions `THE`
+
+`WindowFirstHeatStrip`'s `AREA_FULL`/`AREA_TINY` tables are keyed `Lake District`,
+`Yorkshire Dales`, `North York Moors`, `Northumberland`. Production serves those regions as
+`The Lake District`, `The Yorkshire Dales`, `North York Moors & Coast` and
+`Northumberland & Tyneside`, so **every** lookup missed and every thumbnail label came from
+`areaLabel`'s fallback instead. At full width that degrades harmlessly to the uppercased name, but
+under `TINY_NAME_WIDTH` — which is every card on a phone, two to a row at ~175px — the tiny
+fallback keeps only the first word after a leading compass direction. Both Lakes and Dales
+therefore rendered as the single word `THE`, and the Moors as `YORK`. Reported from a phone
+screenshot where the same regions read correctly on the Map tab above, which renders the served
+name verbatim (`MapLabels.jsx`) and shares none of this path.
+
+The fix is in the lookup, not the tables. `plainName` reduces a served name to the form the tables
+are keyed in — drop a leading `the`, drop a trailing `& …`/`and …` conjunct — and `areaLabel` tries
+the served spelling first (so an exact entry always wins) and the reduction second. Re-keying the
+tables to today's four spellings was the alternative and was rejected: the table's own doc comment
+already says it is non-authoritative and WILL drift, regions are DB-managed and renamed routinely
+through the Admin UI, and that fix would have re-broken on the next rename. Keeping the
+normalisation in the lookup is also what reaches the *curated* short names — `LAKES`, `DALES`,
+`N Y MOORS`, `NORTHUMB.` — where a fallback-only fix would have produced the merely tolerable
+`LAKE`/`YORKSHIRE`.
+
+⚠️ **The reduction is a tiny-table key only, and that is load-bearing.** Every `AREA_FULL` value is
+exactly its own key uppercased — the design bundle's `SHORT` map needed no full-width curation
+because its keys were opaque region ids, and re-keying it by display name is where this whole
+defect entered — so a plain-form lookup there can only ever return something *shorter* than the
+fallback, never something better. The first cut of this change wired it to both tables and silently
+retitled `Northumberland & Tyneside` as `NORTHUMBERLAND` on full-width cards. That drops half the
+name where there is room for it, disagrees with the Map tab beside it, and discards exactly what
+V137 added: that migration renamed the region *because* "to a user in South Shields or Sunderland a
+region called 'Northumberland' … reads as somewhere else, so the name follows the roster". Caught in
+adversarial review before merge and pinned by a test across all four served names.
+
+Three smaller repairs alongside it. The tiny fallback now derives from the plain name and **loops**
+its directional drop rather than stepping once, so `North West Highlands` reaches `HIGHLANDS`
+instead of stopping on the meaningless `WEST`; it still always leaves one word standing, so a
+region named only `North` keeps it. `plainName` trims *before* stripping the conjunct, because the
+other order lets a leading ` & …` match from index 0 and reduce the whole name to the empty string
+— and an empty label is not a short label but a missing one, since the placement pass skips a
+zero-measured candidate. And the table reads are `Object.hasOwn`-guarded, since region names are
+admin-authored and one named `constructor` would otherwise have resolved to `Object.prototype`'s
+member and handed React a function to render.
+
+`docs/engineering/field-geography-and-glyphs-plan.md` §2.4 is amended in place — it still
+prescribed the key scheme and the single-step fallback that shipped — with the reasoning recorded
+as §5 decisions 12 and 13, including three cases left deliberately unfixed (`The Scottish Borders`
+reaches no curated entry and renders `SCOTTISH`; an abbreviation-headed rename such as
+`N. York Moors & Coast` still yields `N.`; the reductions are case-insensitive while the table
+match is byte-exact — each with a named test, so an accepted residual stays distinguishable from
+an unnoticed one) and a note that the Map tab and the Plan matrix now hold two
+different answers to "what do we call this region when there is no room", which `map-tab-v2-plan.md`'s
+O-4 would need to displace together.
+
+Why a green suite missed it: every label fixture in `WindowFirstHeatStrip.test.jsx` was a name on
+which the old rule happened to work — `Lake District` (a table key, so it hits on any
+implementation) and `South Downs` (a fallback whose first word *is* a compass direction). The new
+cases are driven by the served spellings for exactly that reason, asserting whole label text rather
+than `toHaveTextContent`'s substring, since a substring assertion for `DALES` passes just as
+happily on the uncurated `YORKSHIRE DALES`. Ten of the twelve fail against the previous derivation;
+the two that pass are the two pinning behaviour this change deliberately preserves. The component's
+dev-only `console.warn` on a table miss could not have caught this: `import.meta.env.DEV` is false
+in a production build, and a local session runs the seeded roster rather than production's names.
+It is a local tripwire against the local catalogue, not a monitor of the real one.
+
+A second adversarial pass prosecuted the tests by **mutation** rather than by reading, and found
+four guards that could be deleted outright with the suite still green — the `Object.hasOwn`
+prototype guard, the article drop's one-word floor, the dev warning, and the conjunct pattern's
+`\S`. Three now have named tests and are killed by them. The fourth was **deleted** rather than
+tested: after the trim, no input distinguishes it (swept over every head/separator/tail
+combination, 275 inputs, zero differing), and an unreachable guard carrying a paragraph about its
+own necessity sends the next reader hunting for a test that cannot be written. The same pass caught
+the empty-label test asserting `not.toBe('')` while the value it let through was a bare `&` — no
+more a label than the empty string is — so it pins `&` as the accepted degenerate result instead.
+
+Verified with the frontend CI gate (lint, 5054 tests, `npm audit --audit-level=high`, build), by
+reverting the component alone to confirm the new tests fail against it, and by re-running the
+mutation battery against the strengthened suite — all four mutants killed. Not browser-verified:
+this is a pure string derivation whose outputs are asserted exactly, and the labels need a scored
+local catalogue to appear at all.
+
+### Fixed — the Plan tab's filter bar anchors to the top of the screen instead of floating below it
+
+The reach/rating bar stayed on screen while the matrix scrolled, but it hung roughly a masthead's
+height down the viewport, with window cards scrolling through the naked band above it and a heavy
+shadow underneath. It now anchors flush to the top edge.
+
+The cause was a `position: sticky` that never took effect. M3 pinned the masthead and rested the bar
+against its bottom edge (`top: var(--wf-mast-h)`), but the masthead's containing block is the shell
+wrapper holding only the masthead, the tab bar and the tab rule — about 46px taller than the band
+itself — and a sticky element cannot travel outside its containing block. Measured in Chromium at
+1280×800: the band pins for those 46px and is then carried off the top with the page, `bottom: -397`
+by 600px of scroll, while the bar went on sticking against chrome that had already gone. M3's own
+note records re-checking the invariant for `overflow`, `transform`, `filter` and `will-change`
+ancestors; the containing block's height is the fourth way to break a stick and was the one in play.
+
+The dead rule is removed rather than repaired, and everything derived from that height loses the
+term with it: the bar sticks at `top: 0`, the day-tile row and the row rails stick directly under the
+bar rather than a masthead's height below it, the stuck-shadow sentinel insets by zero, and the
+Coming up tab's scroll-to-entry target drops a ~134px reservation against chrome that was never
+pinned there either (worth about half that in displacement, since that one scroll centres the
+scroll-margin box rather than the element). `--wf-mast-h` is deleted outright — a published
+measurement of an element that does not pin is what invited the next rule to reserve against it.
+
+`--wf-lens-reserve` — the scroll room every focusable thing on the Plan pane claims against the bar —
+is the bar plus a focus ring again rather than a sum, so a focused card is no longer dropped a
+masthead's height further down the page than it needs to be. Removing the masthead term also exposed
+an under-reservation that had been latent since M1 and that the term had been accidentally covering:
+both literals were the bar's SHORTER state, against a rule two comment blocks away that says to take
+the tallest. They now obey it — 98px desktop (the bar's wrapped 92px, not its resting 53.5px) and
+160px phone (the stacked bar's 153.5px with a non-default tier's two marks, not its base 130px). That
+matters on the phone in particular, because `useReachLens` restores the tier from `localStorage` in a
+lazy initialiser, so the taller bar is what renders in the first frame — the only frame a fallback is
+ever used in.
+
+The masthead keeps `position: relative; z-index: 45`. That pair is now a stacking context rather
+than a stick, and it is load-bearing: `HealthIndicator` renders inside the band with a
+`position: fixed; z-index: 9999` panel, which only ever composited below a dialog because a
+positioned, non-auto-`z-index` masthead was a ceiling over its own subtree. Dropping the whole
+declaration block — the first cut of this change — let that panel paint over the search dialog's
+scrim while an `aria-modal` dialog was open, hit-testable. Reproduced and fixed against
+`elementFromPoint` in Chromium.
+
+Pinning the masthead for real remains open, and costs about 182px of permanent chrome on an 800px
+viewport, which is why it was not simply fixed in place; `index.css`'s `.wf-mast` block carries the
+seven-item checklist a phase taking it would have to work through.
+
 ## [v2.20.1] - 2026-09-04
 
 ### Changed — the recurring-conditions rows drop the last raw surprisal figure
