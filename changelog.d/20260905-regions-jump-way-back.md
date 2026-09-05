@@ -12,8 +12,8 @@ with no postcode had no way back at all.**
 So the inverse now sits in the list that caused it. While a jump stands, one more row appears at the
 top — `↺ Back to My area`, or `Back to Everywhere`, or an away origin's own `Back to Around Keswick`
 — and the region currently framed is marked in the list beneath it. Nothing else on the tab named
-that region; the list is now the one place that says which jump is in force and the one place that
-ends it.
+that region. The `⌂`, the scope segment and a Plan door's breadcrumb all still end a jump; what
+none of them do is say which region is framed, or mention regions at all.
 
 **It undoes the jump, not the reader's scope.** A jump to a region outside your area flips scope to
 Everywhere as a side effect, so the reset restores it; but a reader who had deliberately chosen

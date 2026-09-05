@@ -1009,6 +1009,29 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     with a stated mechanism that was not the one at work — `overflow: hidden` already makes the
     label a scroll container, so its automatic minimum was zero before the change (CSS Sizing 3
     §5.1). Verified identical both ways in Chromium and at 320px.
+32. **The Regions list carries a row that is not a region, and marks the one in force
+    (2026-09-05).** The bundle specifies the list's contents exactly — README §2: *"One row per
+    region, sorted by nearest drive time"*, then a three-part row anatomy (name / drive / best
+    score). The port adds a fourth row shape at the head of the list — `↺ Back to <scope>`, with no
+    drive time and no score — and an `aria-current` treatment on the framed region that the
+    bundle's anatomy has no counterpart for.
+    **Why.** The bundle never had to answer "how do I undo this", because in the prototype the
+    jump's inverse lives in chrome the phone layout later took away. `⌂` is `display: none` under
+    639px (P12 hid it: the bottom bar covers Leaflet's bottom-right corner, so it was invisible AND
+    untappable), and `FiltersPopover`'s scope segment is withheld whenever `heat.hasHome` is false.
+    So a phone reader with no saved postcode had **no way back at all**, and one with a postcode
+    had a way back filed under a chip that never says "region". Reported from a phone, not
+    theorised.
+    **Why in this list rather than restoring a control.** A jump is a completed navigation; its
+    inverse belongs beside the action that caused it, and this list is the only surface that needs
+    no postcode to work. Restoring `⌂` on the phone would re-open the P12 finding verbatim.
+    **The row is drawn only while a jump stands**, so it is never the no-op control §4's own
+    `FiltersPopover` scope reasoning bans; and it names the scope the press LANDS in
+    (`MapView.jumpResetArea`, one expression read by both the label and the press) rather than "all
+    regions", which would be false for a reader whose scope is My area — a subset.
+    ⚠️ **The undo is the jump's, not the reader's scope.** `jumpFitOverride.restoreArea` records
+    only the flip the jump itself caused, carried forward across a second jump; a reader who chose
+    Everywhere *before* jumping stays there.
 
 ## §5 Decisions taken in this plan (challenge in review, not in code)
 

@@ -4320,6 +4320,9 @@ button.wf-hc.also.on:hover {
   padding: 7px 12px;
   background: transparent;
   border: none;
+  /* Reserved so `[aria-current]` below can colour a 2px rule without moving the row's own text —
+     `.wf-win-row`'s identical device (it is why that sibling needs no `box-shadow`). */
+  border-left: 2px solid transparent;
   text-align: left;
   cursor: pointer;
   color: var(--color-plex-text-secondary);
@@ -4379,32 +4382,38 @@ button.wf-hc.also.on:hover {
 }
 .wf-jump-reset:hover .wf-jump-name { color: var(--color-plex-text); }
 
-/* The jump in force. `.wf-seg-btn.on`'s own background and `--color-segment-active`, which is what
-   "this control is on" is spelled as everywhere else in this app — never `--color-plex-gold`, which
-   resolves to `#F2E7D3`, BYTE-IDENTICAL to `--color-plex-text`: a name painted in it would carry a
-   colour declaration that changes nothing, the same "markup asserting a state it does not have"
-   defect `BottomSheet.jsx`'s own `left-0` note records. Measured against the built stylesheet.
+/* The jump in force — `.wf-win-row.on`'s treatment EXACTLY (fill, stroke colour, and a stroke
+   reserved as a transparent border on the base rule so marking a row cannot shift its own text 2px
+   out of line). That row is this one's sibling: the window menu is the other dropdown in this same
+   top-right cluster, one press away, and `.wf-jump-row`'s own comment above already says the two
+   are meant to read as one family. A first cut used `.wf-seg-btn.on`'s fill with
+   `--color-segment-active` as an inset shadow — measurably a different rule (1.72:1 apart, ΔE76
+   30.2) from the sibling's mid-gold, and `--color-segment-active` is a badge TEXT token that
+   nothing else in this file strokes with. ⚠️ Never `--color-plex-gold` here either: it resolves to
+   `#F2E7D3`, BYTE-IDENTICAL to `--color-plex-text`, so a name painted in it carries a colour
+   declaration that changes nothing.
 
-   An inset shadow rather than a real border, so marking a row cannot move its own text 2px out of
-   line with every other row's — the baseline-drift class of defect the P4c browser pass caught on a
-   rail elsewhere in this app. */
-.wf-jump-row[aria-current] {
-  background: rgba(201, 162, 75, 0.18);
-  box-shadow: inset 2px 0 0 var(--color-segment-active);
-}
-.wf-jump-row[aria-current] .wf-jump-name { color: var(--color-segment-active); }
+   `[aria-current="true"]`, not a bare `[aria-current]`: React drops the attribute entirely for
+   `undefined` (what this component passes) but serialises a BOOLEAN `false` to the string
+   `"false"`, which a bare attribute selector matches — so normalising this component onto
+   `WindowControl`'s own `aria-selected={active}` idiom would silently paint every row as in force.
 
-/* ⚠️ `BottomSheet`'s own close button is `absolute top-2 right-3 w-8 h-8` — it occupies y 8→40px
-   inside the sheet, while the scrollable content starts at y 16px (drag handle: `pt-2` + `h-1` +
-   `pb-1`). So the phone sheet's FIRST row rendered underneath it: on the Regions list the `×` sat
-   directly over the nearest region's own `N★`, hiding it and taking its taps. Neither of these two
-   classes carried a single rule before this — `.wf-jump-menu`/`.wf-filters-panel` are the DESKTOP
-   popovers, which have no close button and never had the problem. Reserving the header strip is
-   the fix rather than moving the button, which is shared by every other `BottomSheet` caller. */
-.wf-jump-sheet,
-.wf-filters-sheet {
-  padding-top: 26px;
+   The one deliberate divergence from the sibling is the hover: `.wf-win-row.on` has none, because
+   `.wf-jump-row:hover` and this rule carry identical specificity (0,2,0) and source order gives the
+   marked fill the win. Re-pressing the framed region is a legitimate action (it re-centres), so the
+   row answers the pointer rather than going dead under it. */
+.wf-jump-row[aria-current="true"] {
+  background: rgba(201, 162, 75, 0.13);
+  border-left-color: var(--color-home);
 }
+.wf-jump-row[aria-current="true"]:hover { background: rgba(201, 162, 75, 0.2); }
+
+/* ⚠️ The `×` collision these two phone sheets had is fixed in `BottomSheet` itself, NOT here —
+   `reserveCloseStrip`, which both opt into. A `padding-top` on these classes was the first cut and
+   it is WRONG, however plausible it reads: they live INSIDE the sheet's scroll container, so their
+   padding scrolls away with their content and the collision returns on the first scroll tick. Two
+   independent reviews caught it. Do not re-add one here — the strip has to be reserved outside the
+   scroller, which only the sheet component can do. */
 
 /* ── Selection: the ring + the callout (map-tab-v2-plan.md §3 P9, README §7) ───────────────────
    Replaces the Leaflet popup and the mobile `BottomSheet` on this tab — "a popup covers exactly the

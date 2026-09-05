@@ -2720,40 +2720,64 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }
 
   /**
-   * The Regions list's own way back (`RegionsJump`'s `onReset`) — clears a standing jump and
-   * refits to the scope in force, the exact inverse of {@link jumpToRegion} above.
+   * What the reset row SAYS, and — separately — what its press DOES. ⚠️ **Two expressions on
+   * purpose, and collapsing them onto one is a regression that has already been made once here.**
    *
-   * <p><b>Not {@code resetToMyArea}</b>, though that is what `⌂` and the scope segment call. A jump
-   * is undone here, and scope is only touched where the jump itself changed it ({@code restoreArea},
-   * set above): a reader who had deliberately chosen Everywhere BEFORE jumping must not be snapped
-   * to My area by a press that asked to undo one region's framing — that is a scope decision they
-   * made and this control never carried. Where the jump did flip scope, restoring it is the rest of
-   * the same undo rather than a second choice.
+   * <p>They share the `restoreArea ?? heatArea` core and differ only in their gate, because they
+   * answer different questions. The LABEL asks "is there a narrowing area frame worth naming" —
+   * `heat.hasHome`, which is exactly that (`WindowFirstMapPane`: a home or an origin, AND a frame
+   * that is non-empty AND smaller than the catalogue). With no postcode `areaSpots` IS the whole
+   * catalogue, so "My area" would name a filter that is not running; the row says Everywhere, which
+   * is what the reader is looking at.
    *
-   * <p>The nonce bump is what re-arms `HeatBoundsController`: with the override gone, `heatBounds`
-   * falls back to the ordinary `heatArea`-derived box, whose nonce is `heatFitNonce`. Without the
-   * bump the camera would keep the region's framing with nothing on screen saying so.
+   * <p>The PRESS asks a narrower question — "does the scope I would restore have a box to fit" —
+   * and must NOT read `hasHome`. `heatArea` is not only a camera input, it is the tab's scope
+   * state: gating the press on `hasHome` writes `false` for a no-postcode reader whose jump never
+   * touched scope, and that write is **sticky** (the scope segment is withheld without a home,
+   * `⌂` is inert without one and hidden on the phone, and a further jump-and-reset repeats it), so
+   * the counts footer starts asserting *"Everywhere — including regions beyond your usual drive"*
+   * to somebody with no measured drive at all — the reach-honesty rule CLAUDE.md states as "none
+   * of them may say 'within reach' unless a drive time exists to have gated on". Found by
+   * adversarial review, against the one-expression version.
+   *
+   * <p>`areaBounds` is the right gate for the press because it is null in precisely the case the
+   * camera cannot honour — an away origin whose region contributes no heat spots leaves `areaSpots`
+   * empty, so restoring that scope would promise a move to a box that does not exist. Everywhere is
+   * the honest landing there, and the label already says so.
+   */
+  const jumpResetArea = Boolean(heat?.hasHome) && (jumpFitOverride?.restoreArea ?? heatArea);
+  const jumpResetLabel = jumpResetArea ? (heat?.areaLabel || 'My area') : 'Everywhere';
+  const jumpResetScope = Boolean(heat?.areaBounds) && (jumpFitOverride?.restoreArea ?? heatArea);
+
+  /**
+   * The Regions list's own way back (`RegionsJump`'s `onReset`) — clears a standing jump and refits
+   * to {@link jumpResetArea}, the exact inverse of {@link jumpToRegion} above.
+   *
+   * <p><b>Not {@code resetToMyArea}</b>, though that is what `⌂` and the scope segment call. A
+   * reader who had deliberately chosen Everywhere BEFORE jumping must not be snapped to My area by
+   * a press that asked to undo one region's framing — that is a scope decision they made and this
+   * control never carried. Where the jump DID flip scope ({@code restoreArea}, set above),
+   * restoring it is the rest of the same undo rather than a second choice.
+   *
+   * <p>⚠️ {@code setHeatArea} therefore runs on every press but is a **no-op wherever the jump
+   * changed nothing** — {@code jumpResetScope} falls through to the current {@code heatArea} in
+   * that case. It reads that value and never {@code jumpResetArea}; see the pair's own doc for why
+   * writing scope through the LABEL's gate is a regression rather than a simplification.
+   *
+   * <p>⚠️ The nonce bump is belt-and-braces, and saying otherwise would be wrong: clearing the
+   * override already changes `heatBounds` from the region's box to the `heatArea`-derived one, and
+   * `HeatBoundsController` keys on `${nonce}|${JSON.stringify(bounds)}`, so the BOUNDS half re-arms
+   * it on every path a test can reach. What the bump covers is the pair no test constructs — a
+   * `jumpFitSeq` that happens to equal `heatFitNonce` while the region's padded box deep-equals the
+   * fallback box — and it keeps this function's shape identical to `resetToMyArea`'s, which is the
+   * more useful property.
    */
   function clearRegionJump() {
-    const restore = jumpFitOverride?.restoreArea;
     setJumpFitOverride(null);
-    if (restore != null) setHeatArea(restore);
+    setHeatArea(jumpResetScope);
     setHeatFitNonce((n) => n + 1);
     setOpenMapMenu(null);
   }
-
-  /**
-   * The scope the reset row NAMES, which is the one its press actually lands the reader in —
-   * `restoreArea` when the jump flipped scope, otherwise whatever is in force. Resolved here rather
-   * than in `RegionsJump` because only this component knows whether the area frame narrows at all:
-   * with `heat.hasHome` false, `areaSpots` IS the whole catalogue (`WindowFirstMapPane`'s own
-   * derivation), so "My area" would name a box identical to Everywhere and claim a filter that is
-   * not running — the same honesty rule that withholds `FiltersPopover`'s scope segment there.
-   */
-  const jumpResetArea = jumpFitOverride?.restoreArea ?? heatArea;
-  const jumpResetLabel = heat?.hasHome && jumpResetArea
-    ? (heat?.areaLabel || 'My area')
-    : 'Everywhere';
 
   /**
    * The four-day-sheet handoff (map-tab-v2-plan.md §3 P9's "Open in Plan" action) — builds the SAME

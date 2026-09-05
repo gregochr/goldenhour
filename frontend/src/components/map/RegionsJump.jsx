@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
 import BottomSheet from '../BottomSheet.jsx';
+import useDialogFocus from '../../hooks/useDialogFocus.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 
 /**
@@ -36,7 +37,9 @@ import { useIsMobile } from '../../hooks/useIsMobile.js';
  * (`heat.hasHome`). A phone reader with no saved postcode therefore had NO way back at all, and one
  * with a postcode had a way back filed under a different chip that never mentions regions. So
  * `resetLabel`/`onReset` render one more row at the top of the list, and `activeRegion` marks the
- * row whose jump is in force — which is also the only thing on this tab that names it.
+ * row whose jump is in force. ⚠️ Not the only thing on the tab that names it — `MapBreadcrumb`'s
+ * region clause does too — but that strip mounts only on a Plan-door arrival carrying that same
+ * region, so on every other route here this list is the only place the framed region is named.
  *
  * <p>The reset row is drawn ONLY while a jump stands (`activeRegion` non-null). With no jump there
  * is nothing to undo and the row would be the no-op control `FiltersPopover`'s own scope comment
@@ -62,6 +65,17 @@ export default function RegionsJump({
 }) {
   const rootRef = useRef(null);
   const isMobile = useIsMobile();
+  /**
+   * Focus-in-and-restore for the DESKTOP popover — never containment (`useDialogFocus`'s own class
+   * doc records why this app refuses to trap app-wide). The phone twin has had this since it was
+   * built, because `BottomSheet` runs the same hook; the popover never did, and pressing a row
+   * unmounts it while that row still holds focus, which browsers reset to `<body>` — the exact
+   * failure that hook's doc names. Harmless while every row was a jump, and no longer: the reset
+   * row's whole job is recovery, so ending a press with the reader's place thrown away is the
+   * opposite of what it is for. Passing `open && !isMobile` keeps it a no-op on the phone, where
+   * `BottomSheet` already owns it — running both would restore focus twice.
+   */
+  const popoverRef = useDialogFocus(open && !isMobile);
 
   useEffect(() => {
     // Desktop/tablet only — `FiltersPopover`'s identical guard, for the identical reason.
@@ -149,7 +163,7 @@ export default function RegionsJump({
       </button>
 
       {isMobile ? (
-        <BottomSheet open={open} onClose={() => onOpenChange(false)} label="Jump to a region" modal={false}>
+        <BottomSheet open={open} onClose={() => onOpenChange(false)} label="Jump to a region" modal={false} reserveCloseStrip>
           <div id="wf-jump-menu" data-testid="wf-jump-menu" className="wf-jump-sheet">
             {resetRow}
             {panelBody}
@@ -157,7 +171,15 @@ export default function RegionsJump({
         </BottomSheet>
       ) : (
         open && (
-          <div id="wf-jump-menu" data-testid="wf-jump-menu" className="wf-jump-menu" role="dialog" aria-label="Jump to a region">
+          <div
+            ref={popoverRef}
+            tabIndex={-1}
+            id="wf-jump-menu"
+            data-testid="wf-jump-menu"
+            className="wf-jump-menu"
+            role="dialog"
+            aria-label="Jump to a region"
+          >
             {resetRow}
             {panelBody}
           </div>

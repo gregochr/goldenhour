@@ -8,7 +8,9 @@
 import {
   describe, it, expect, vi, beforeEach,
 } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import {
+  render, screen, fireEvent, within,
+} from '@testing-library/react';
 import RegionsJump from '../components/map/RegionsJump.jsx';
 
 // `FiltersPopover.test.jsx`'s own pattern — mutable per-test, defaulting to desktop/tablet so
@@ -190,11 +192,11 @@ describe('RegionsJump — the way back (the reset row + the jump in force)', () 
   });
 
   it('puts the way back ABOVE the destinations it undoes', () => {
-    const { container } = render(<RegionsJump {...baseProps({
+    render(<RegionsJump {...baseProps({
       open: true, activeRegion: 'The Lakes', resetLabel: 'My area', onReset: vi.fn(),
     })} />);
-    const first = container.querySelector('[data-testid="wf-jump-menu"]').firstElementChild;
-    expect(first).toHaveAttribute('data-testid', 'wf-jump-reset');
+    const [first] = within(screen.getByTestId('wf-jump-menu')).getAllByRole('button');
+    expect(first).toHaveAccessibleName('Back to My area');
   });
 
   it('keeps the arrow out of the accessible name — "Back to My area", not "\u21ba Back to My area"', () => {
@@ -204,21 +206,32 @@ describe('RegionsJump — the way back (the reset row + the jump in force)', () 
     expect(screen.getByRole('button', { name: 'Back to My area' })).toBeInTheDocument();
   });
 
+  // ⚠️ Read through the ROLE, never off `wf-jump-row` — an `aria-hidden` on the row button would
+  // take the whole mark out of the accessibility tree while a test-id query stayed green.
   it('marks exactly the region whose jump is in force with aria-current', () => {
     render(<RegionsJump {...baseProps({
       open: true, activeRegion: 'The Lakes', resetLabel: 'My area', onReset: vi.fn(),
     })} />);
-    const rows = screen.getAllByTestId('wf-jump-row');
-    const marked = rows.filter((r) => r.getAttribute('aria-current') === 'true');
-    expect(marked).toHaveLength(1);
-    expect(marked[0]).toHaveTextContent('The Lakes');
+    expect(screen.getByRole('button', { name: /The Lakes/ })).toHaveAttribute('aria-current', 'true');
+    expect(screen.getByRole('button', { name: /North East/ })).not.toHaveAttribute('aria-current');
+    expect(screen.getByRole('button', { name: /The Borders/ })).not.toHaveAttribute('aria-current');
   });
 
   it('marks nothing when no jump stands — the attribute is absent, never "false"', () => {
     render(<RegionsJump {...baseProps({ open: true, activeRegion: null })} />);
-    screen.getAllByTestId('wf-jump-row').forEach((r) => {
-      expect(r).not.toHaveAttribute('aria-current');
+    ROWS.forEach(({ name }) => {
+      expect(screen.getByRole('button', { name: new RegExp(name) })).not.toHaveAttribute('aria-current');
     });
+  });
+
+  it('restores focus to the chip when the popover closes, rather than dropping it to the body', () => {
+    // The reset row's whole job is recovery; ending its press on a detached node would send the
+    // next Tab to the top of the document (`useDialogFocus`'s own class doc names this failure).
+    const { rerender } = render(<RegionsJump {...baseProps({ open: false })} />);
+    screen.getByTestId('wf-jump-chip').focus();
+    rerender(<RegionsJump {...baseProps({ open: true })} />);
+    rerender(<RegionsJump {...baseProps({ open: false })} />);
+    expect(screen.getByTestId('wf-jump-chip')).toHaveFocus();
   });
 
   it('reaches the phone sheet too — the whole point of the row (map-tab-v2-plan.md §3 P12)', () => {
