@@ -1354,10 +1354,21 @@ export default function WindowFirstShell({
           // own comment already settled the rule this restores — "those are already stacked on the
           // popup, and a third layer has nowhere to go" — so the button was simply bypassing it.
           onOpenSearch={() => { if (!stackedOverPopup) setSearchSeed(''); }}
-          // ⚠️ Takes every dialog down first, since M4. The tick line keeps its tab stops while no
-          // search panel is open, and `useDialogFocus` is not a trap — so a keyboard reader inside
-          // an open location sheet can reach this button, and moving the origin under that sheet is
-          // the case M4.3's close-then-move footer exists to rule out. One rule, every route.
+          // ⚠️ Takes every dialog down first — but at M5 the two calls stopped being on the same
+          // footing, and the difference is worth stating so neither is later read as dead.
+          //
+          // `openWindow(null)` has a LIVE route. `useDialogFocus` is not a trap and nothing makes
+          // the masthead inert, so a Tab walk out of an open dialog reaches this row — M5 measured
+          // press 17. With ONLY the popup open `searchOpen` is false, so the row keeps its tab
+          // stops and this button is reachable from inside the popup; moving the origin under it is
+          // the case M4.3's close-then-move footer exists to rule out.
+          //
+          // `openOverPopup(null)` is a belt, and M5's own fix is why. `searchOpen` counts
+          // `stackedOverPopup` as well as search (the prop below) and puts `tabIndex={-1}` on all
+          // four controls in this row, so the moment a sheet or the pick dialog stands over the
+          // popup this button leaves the tab order — it cannot be what moves the origin with a
+          // sheet up. Kept because the invariant is stated once per route, not once per reachable
+          // route. One rule, every route.
           onGoHome={() => { openOverPopup(null); openWindow(null); setOrigin?.(null); }}
           onSetPostcode={onSetPostcode ?? onOpenSettings}
           // Out of the tab order for TWO reasons now, which is why the prop is no longer named for
@@ -1823,8 +1834,11 @@ export default function WindowFirstShell({
           // it takes the same lock; the rating floor and the type are not gated at all.
           reachLocked={reachLens.locked}
           typesByName={typesByName}
-          // Declines Escape while search is over it — the same one-layer-per-press rule the popup
-          // beneath it follows. Nothing else can stack on this one.
+          // ⚠️ The same one-layer-per-press predicate its two sibling layers carry, and since M5 a
+          // belt that can no longer go false: search is refused while anything is stacked over the
+          // popup (`stackedOverPopup` counts this sheet), so the supported stack is two deep and
+          // nothing can sit over this one. Kept in the shared shape because `WindowSpotSheet`
+          // derives `stacked` from it, and those two must never come apart.
           escapeEnabled={searchSeed == null}
           onClose={() => openOverPopup(null)}
           // Closes FIRST, exactly as the strip dismisses its peek before the same handoff. The map
@@ -1875,17 +1889,27 @@ export default function WindowFirstShell({
             // build exactly that, and M4.3's `Plan from <region>` footer is specified as
             // close-then-move for the same reason — two contradictory semantics for one action on
             // one screen is what this avoids.
-            // ⚠️ `openOverPopup(null)` as well, since M4. Search can now sit over a location sheet
-            // that is itself over the popup, and moving the origin with that sheet still up is the
-            // exact thing M4.3's close-then-move footer goes to trouble to prevent — the drive, the
-            // base named beside it, the outside badge and every departure would all change under
-            // the reader. One rule, every route.
+            // ⚠️ `openOverPopup(null)` as well — the SAME rule, applied at every route that moves
+            // the origin rather than only at the reachable ones. Moving it with a location sheet up
+            // is the exact thing M4.3's close-then-move footer goes to trouble to prevent: the
+            // drive, the base named beside it, the outside badge and every departure would all
+            // change under the reader.
+            // ⚠️ It is NOT here because search can sit over that sheet — since M5 it cannot. The
+            // third layer is refused outright: all three routes into search guard on
+            // `stackedOverPopup`, which counts `sheetSpot`, so the supported stack is two deep —
+            // search over the popup, or a sheet over the popup, never both (plan-matrix §4 A22).
+            // So this arm cannot fire with a sheet up today. It stays because the invariant is
+            // stated once per route — `onGoHome` above and the sheet's own footer state it too —
+            // and a route added later inherits it instead of rediscovering why this one was
+            // exempt. One rule, every route.
             onPickRegion={(region) => {
               openOverPopup(null); openWindow(null); setOrigin?.(region);
             }}
-            // ⚠️ And here, because otherwise the pick lands on a popup nobody can see: search
-            // closes, `openWindowKey` moves, and the location sheet is still on top — so from the
-            // reader's side choosing a window did nothing until the next Escape.
+            // ⚠️ The same belt here, and for the reason above rather than a new one: nothing can
+            // be over the popup when a search pick fires, because that layer is what refuses
+            // search. Were one ever up, the pick would land on a popup nobody can see — search
+            // closes, `openWindowKey` moves, and the layer is still on top, so from the reader's
+            // side choosing a window did nothing until the next Escape.
             onPickWindow={(key) => { openOverPopup(null); openWindow(key); }}
             // P8: a location result opens that place's own six-window timeline rather than jumping
             // straight to the map. The map is not lost — the sheet's footer carries it and names
