@@ -901,11 +901,38 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     unit are portalled, to the chrome wrapper), which is exactly why that box's `overflow: visible`
     was load-bearing for it. It flipped `above`/`below` with the anchoring and slid along the card's
     edge by `anchorCallout`'s `tailLeft`. The owner asked for it removed.
-    **What that costs, stated rather than waved past**: the tail was the only part
-    of the card that pointed AT anything, so the card's tie to its location now rests entirely on
+    ⚠️ **AND IT DESERVED TO GO ON ITS OWN MERITS — do not read the paragraph below as a reluctant
+    trade.** That framing was written first and is too generous to the tail; the owner corrected it
+    from the screen grab that prompted the removal, where the arrow sat directly under a chip
+    reading *Gosforth Nature Reserve* above a card titled *Newcastle and Gateshead Quayside*.
+    **The tail was accurate to a POINT, and what is drawn at that point is a LABEL — which is not
+    at its own point.** `placeLabelPass` nudges every chip off its anchor to keep the layer
+    readable: up to ±38px vertically (`MAP_NUDGES`) and up to half the chip's own width plus 9px
+    horizontally (`mapDxOffsets`), so a ~297px name legitimately sits ~158px from the place it
+    names. An arrow fired into that layer therefore lands on a neighbour's name routinely, and the
+    reader cannot tell the difference: an arrow is a strong claim — *that* one — so pointing at the
+    wrong name costs more than pointing at nothing. **And in one case it aimed at a pixel the
+    location was definitely not at**: `tailLeft` was clamped to `[13, cardWidth − 24]`, so a card
+    pushed against a frame edge got a tail that stopped at the card's edge instead of reaching its
+    point. That clamp was deliberate — keeping the tail ON THE CARD was chosen over keeping it on
+    the location — which is the trade a pointer cannot win once the card is edge-clamped.
+    ⚠️ **The ring inherits the CONGESTION half of this, and that was left alone deliberately
+    (owner's call, same day).** `MapLabels`' greedy pass seeds only *chrome* as obstacles — the
+    eleven `OBSTACLE_SELECTOR` testids plus Leaflet's own corner — so neither `.wf-selmk` (z1200)
+    nor the card (`map-callout`, z1350) is one, and nothing keeps another location's chip off the
+    selected point; both simply paint over the label pane (z650). The ring is *less* wrong than the
+    arrow was — it encircles a spot and puts a 7px dot on the exact point rather than aiming across
+    a 22px gap at it — but in a crowded area it can be drawn around a neighbour's name. Seeding the
+    ring's 34px box as an obstacle before the pass is the fix if this is ever worth taking;
+    considered on 2026-09-05 and not taken, because it changes label placement on the tab and the
+    arrow was the part that actually misread.
+    **What removal costs, stated rather than waved past** — read now in the light of the two
+    paragraphs above, which is a smaller cost than it first looked: the tail was the only part of
+    the card that pointed AT anything, so the card's tie to its location now rests entirely on
     the `.wf-selmk` selection ring (P9 above calls it `.selmk`, the design bundle's own name) and on
     `map.panInside` bringing both into view together — which is what the ring was always for, and
-    the card also names the location in its own title. Measured in Chromium at 1280×900 rather than
+    the card also names the location in its own title. A pointer whose target could not be relied
+    on is not a capability lost. Measured in Chromium at 1280×900 rather than
     asserted: with the card flipped ABOVE its point the ring sits 5.3px under the card's bottom edge
     and centred on it, and with the card BELOW its point 5.0px over its top edge — the same 22px
     gap the anchoring always used, minus the ring's own 34px box. The card carries two children,
