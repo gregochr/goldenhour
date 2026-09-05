@@ -105,9 +105,15 @@ const HOME = { lat: 54.9, lon: -1.4 };
 
 let frames = [];
 let restoreMeasure;
+// Saved and restored, matching `MapHeatLayer.test.jsx`. Symmetry, not a live fix: `isolate: true`
+// keeps this out of every other file and `beforeEach` reinstalls the queue for every test in this one.
+let originalRaf;
+let originalCancel;
 
 beforeEach(() => {
   frames = [];
+  originalRaf = global.requestAnimationFrame;
+  originalCancel = global.cancelAnimationFrame;
   global.requestAnimationFrame = (cb) => { frames.push(cb); return frames.length; };
   global.cancelAnimationFrame = (id) => { frames[id - 1] = null; };
   // The pin fill is the LIVE `scoreRamp` mode (`MapLabels.test.jsx`'s own precedent) — the module's
@@ -117,6 +123,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  global.requestAnimationFrame = originalRaf;
+  global.cancelAnimationFrame = originalCancel;
   currentMap = null;
   if (restoreMeasure) { restoreMeasure(); restoreMeasure = null; }
   document.body.innerHTML = '';
