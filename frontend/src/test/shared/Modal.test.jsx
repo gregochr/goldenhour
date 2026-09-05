@@ -411,6 +411,164 @@ describe('Modal', () => {
       expect(document.activeElement).toBe(outside);
     });
 
+    it('⚠️ lands on the ROOT when nothing inside was ever recorded, rather than stranding the reader', async () => {
+      // The cell no other test in this block reaches: `lastInside` null AND focus orphaned. Every
+      // sibling populates `lastInside` first, so the uncover's `!node` early return was never
+      // exercised with focus on `<body>` — and it did nothing, leaving the reader at the top of the
+      // document beneath a layer still claiming `aria-modal="true"`, their next Tab walking the
+      // page behind the backdrop. That is the defect `useDialogFocus` exists to prevent, reproduced
+      // by the effect written to fix it.
+      //
+      // It is not a contrived cell. A reader who opens the popup and presses `/` without touching
+      // anything inside reaches it on any engine; on macOS and iOS Safari, which do not focus a
+      // `<button>` on click, the ordinary POINTER route reaches it too, because nothing inside is
+      // ever recorded there.
+      const Host = ({ stacked }) => (
+        <Modal label="Under" stacked={stacked} data-testid="under">
+          <button type="button" data-testid="chip">Chip</button>
+        </Modal>
+      );
+      Host.propTypes = { stacked: PropTypes.bool.isRequired };
+
+      const { rerender } = render(<Host stacked={false} />);
+      // The dialog opens onto its own root — which `onFocus` deliberately refuses to record, so
+      // `lastInside` is still null. Settled rather than assumed; see the sibling below on why.
+      await waitFor(() => expect(screen.getByTestId('under')).toHaveFocus());
+
+      rerender(<Host stacked />);
+      // `inert` blurs whatever inside had focus; jsdom does not implement it, so it is simulated.
+      document.activeElement.blur();
+      expect(document.activeElement).toBe(document.body);
+
+      rerender(<Host stacked={false} />);
+      // ⚠️ BY ROLE AND NAME, not by test-id. The justification for landing here is that the thing
+      // taking focus announces itself, so the test has to pin that it CAN: queried by test-id this
+      // passes just as happily against a dialog whose `aria-label` has been dropped, which would
+      // land the reader somewhere that announces nothing. Found by an adversarial review.
+      expect(document.activeElement).toBe(screen.getByRole('dialog', { name: 'Under' }));
+    });
+
+    it('⚠️ falls through to the root when the recorded control REFUSES the focus', () => {
+      // `focus()` is a silent no-op on an attached but unfocusable node, so `document.contains` is
+      // not enough to know a restore worked. The old code returned the moment it found a node and
+      // could believe it had restored a reader it had in fact left on `<body>` — this defect again,
+      // one step further on. A disabled control is the cheap reproduction (jsdom agrees with the
+      // browser here: focusing one leaves `activeElement` on `<body>`); an `inert` ancestor is the
+      // route that would matter in a real browser, which jsdom cannot model at all.
+      const Host = ({ stacked, chipDisabled }) => (
+        <Modal label="Under" stacked={stacked} data-testid="under">
+          <button type="button" data-testid="chip" disabled={chipDisabled}>Chip</button>
+        </Modal>
+      );
+      Host.propTypes = {
+        stacked: PropTypes.bool.isRequired,
+        chipDisabled: PropTypes.bool.isRequired,
+      };
+
+      const { rerender } = render(<Host stacked={false} chipDisabled={false} />);
+      const chip = screen.getByTestId('chip');
+      chip.focus();
+      expect(document.activeElement).toBe(chip);
+
+      // Cover it, and blur as `inert` would — while the chip is still enabled. ⚠️ The order
+      // matters and the first cut got it wrong: jsdom does not blur a focused element when it
+      // becomes disabled (browsers do), and `blur()` on an already-disabled node is itself a
+      // no-op, so disabling first left focus stuck on the chip and the test failed at this line
+      // rather than exercising anything.
+      rerender(<Host stacked chipDisabled={false} />);
+      document.activeElement.blur();
+      expect(document.activeElement).toBe(document.body);
+
+      // Now the recorded control stops accepting focus, which is what a re-render underneath a
+      // covering layer can plausibly do, and the uncover arrives to find it unfocusable.
+      rerender(<Host stacked={false} chipDisabled />);
+      expect(chip).toBeDisabled();
+      expect(document.activeElement).toBe(screen.getByRole('dialog', { name: 'Under' }));
+    });
+
+    it('⚠️ with a REAL covering dialog, whichever layer gets there first, focus ends up inside', async () => {
+      // Every other fixture in this block drives `stacked` as a bare prop on a lone `Modal`. In the
+      // app there is always a covering dialog, and it is not a bystander: its `useDialogFocus`
+      // cleanup calls `previous.focus()` in the same passive-destroy pass, immediately BEFORE this
+      // effect's create. Which of the two moves the reader depends on what the cover captured, and
+      // that in turn depends on whether `inert`'s blur had landed by then — measured through
+      // Playwright as two to four frames late, in both Chromium and WebKit, so BOTH orders happen
+      // in the wild. This pins the outcome rather than the winner.
+      //
+      // Without it the suite pins the branch's logic but not the interaction that decides whether
+      // the branch is reached at all — a change to the hook's cleanup could make the fallback dead
+      // code with nothing here turning red.
+      const Stack = ({ covered }) => (
+        <div>
+          <Modal label="Under" stacked={covered} data-testid="under">
+            <button type="button" data-testid="chip">Chip</button>
+          </Modal>
+          {covered && (
+            <Modal label="Cover" data-testid="cover">
+              <button type="button" data-testid="cover-chip">Cover chip</button>
+            </Modal>
+          )}
+        </div>
+      );
+      Stack.propTypes = { covered: PropTypes.bool.isRequired };
+
+      // ORDER A — the blur lands LATE, so the cover mounts while the under-root still holds focus
+      // and captures it as its own return address. Here the cover hands the reader back on unmount
+      // and the fallback never runs. Kept because it is the common Chromium case, and because it
+      // pins that the two mechanisms do not fight.
+      const { rerender, unmount } = render(<Stack covered={false} />);
+      await waitFor(() => expect(screen.getByRole('dialog', { name: 'Under' })).toHaveFocus());
+      rerender(<Stack covered />);
+      // `inert` blurs; jsdom implements none, so it is simulated — after the cover mounted.
+      document.activeElement.blur();
+      expect(document.activeElement).toBe(document.body);
+      rerender(<Stack covered={false} />);
+      expect(document.activeElement).toBe(screen.getByRole('dialog', { name: 'Under' }));
+      unmount();
+
+      // ORDER B — the blur lands EARLY, before the cover mounts, so the cover captures `<body>` and
+      // its cleanup's `body.focus()` is a no-op. Nothing upstairs can help, and this fallback is the
+      // only thing standing between the reader and the top of the document. ⚠️ This half is the one
+      // that fails when the fallback is deleted; order A passes either way, which is exactly why
+      // both are here.
+      const second = render(<Stack covered={false} />);
+      await waitFor(() => expect(screen.getByRole('dialog', { name: 'Under' })).toHaveFocus());
+      document.activeElement.blur();
+      expect(document.activeElement).toBe(document.body);
+      second.rerender(<Stack covered />);
+      second.rerender(<Stack covered={false} />);
+
+      const under = screen.getByRole('dialog', { name: 'Under' });
+      expect(document.activeElement).toBe(under);
+      expect(screen.queryByTestId('cover')).toBeNull();
+    });
+
+    it('⚠️ still does nothing on a dialog that MOUNTS unstacked with focus already orphaned', async () => {
+      // The pin on `wasStacked`. Until the root fallback above, "this is a mount, not an uncover"
+      // was inferred from `lastInside` being null — sound only while a null recording meant "do
+      // nothing". Make it actionable and that inference silently becomes "focus the root on mount",
+      // in a PASSIVE EFFECT: ahead of `useDialogFocus`'s deliberate frame, and ahead of the
+      // consumer-autofocus yield that only exists because of it.
+      //
+      // Focus is deliberately parked on `<body>` here, because that is the one starting state in
+      // which every other guard stands aside and `wasStacked` is the only thing left holding the
+      // line. Delete that ref and this test fails while the whole block above stays green.
+      document.body.focus();
+      expect(document.activeElement).toBe(document.body);
+
+      render(
+        <Modal label="Never stacked" data-testid="solo">
+          <button type="button" data-testid="solo-chip">Chip</button>
+        </Modal>,
+      );
+      // Nothing has moved focus yet — the restore effect has run and stood down, and the only
+      // thing that may take the root is the hook's frame, which has not fired.
+      expect(document.activeElement).toBe(document.body);
+
+      // And when it does fire, the root takes focus on the OPEN path exactly as it always did.
+      await waitFor(() => expect(screen.getByRole('dialog', { name: 'Never stacked' })).toHaveFocus());
+    });
+
     it('leaves the unstacked path exactly as it was — the container takes focus, nothing else moves', async () => {
       // ⚠️ Named for what it can actually see. An adversarial review disabled the whole restore
       // effect and this test still passed, because `lastInside` is null on a dialog that is never
