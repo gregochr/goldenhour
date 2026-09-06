@@ -155,6 +155,18 @@ function solarRow(date, targetType, served, todayStr, tomorrowStr, inForecastDom
       ),
       bestRating: numOrNull(served.bestRating),
       scored: numOrNull(served.bestRating) != null,
+      // Whether the BRIEFING served this window, as distinct from `scored` ("is anything in it
+      // rated"). The two differ for a served window nothing is rated in, and the difference is
+      // load-bearing for any caller asking "which windows are still ahead of me": the briefing
+      // withdraws an elapsed window (`PlanWindowProjector.hasPassed`) while the D-13 filler branch
+      // below is only gated on `date >= todayStr` — so after this morning's sunrise the list still
+      // leads with a filler SUNRISE row for a window hours in the past. Gate on THIS, never on list
+      // position (map-landing-plan.md §3 L4 step 2).
+      served: true,
+      // Whether the briefing marked this window a TRAVEL day. Carried, never derived — the away
+      // state is `buildWindowCards`' own, and the landing card drops such a window rather than
+      // offering it as one of "your next two" (map-landing-plan.md §3 L4).
+      away: Boolean(served.away),
       badges: Array.isArray(served.badges) ? served.badges : [],
       // The forecast's own Best bet / Also good for this window — `'best'`, `'also'`, or null,
       // copied verbatim from the served window (map-landing-plan.md §3 L1). Server-owned: the
@@ -181,6 +193,12 @@ function solarRow(date, targetType, served, todayStr, tomorrowStr, inForecastDom
     confidence: resolveConfidence(null, daysOut(date, todayStr)),
     bestRating: null,
     scored: false,
+    // A D-13 filler: the briefing served no window for this date, so nothing here has been through
+    // the elapsed test. See the served branch above.
+    served: false,
+    // A filler row is a date the briefing carried no window for at all, so it carries no away
+    // state either — the travel ranges the pane knows about never reach this list.
+    away: false,
     badges: [],
     // A D-13 filler row is a date the briefing carried no window for, so there is no pick. Null
     // rather than absent, so every solar row has one shape.
@@ -189,8 +207,8 @@ function solarRow(date, targetType, served, todayStr, tomorrowStr, inForecastDom
     // elapsed window (`PlanWindowProjector.hasPassed`), but `forecastDates` still carries today, so
     // after this morning's sunrise a filler SUNRISE row is emitted for a window hours in the past
     // — the `date >= todayStr` gate above only excludes YESTERDAY. A caller wanting "the next N
-    // windows" must therefore gate on `scored` (or on the row having a verdict), never on list
-    // position alone (map-landing-plan.md §3 L4 step 2).
+    // windows" must therefore gate on `served`, never on list position alone
+    // (map-landing-plan.md §3 L4 step 2).
     pickKind: null,
     inForecastDomain,
   };

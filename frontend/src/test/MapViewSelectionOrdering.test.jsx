@@ -309,6 +309,40 @@ describe('MapView — Esc closes menus, THEN the callout', () => {
     expect(screen.queryByTestId('probe-callout')).toBeNull();
   });
 
+  it('the LANDING CARD is the last layer to go — after the menu, after the selection', async () => {
+    // map-landing-plan.md §3 L4 step 6. The card's Escape is a DOCUMENT listener (it holds no
+    // focus to bubble from), so it sees every press the pane handler sees and has to re-state the
+    // pane's own precedence rather than act on it. Three presses, three layers, in z-order:
+    // menu 1500, callout 1350, card 1300.
+    await renderMap({ runId: '2026-01-15T04:00:00' });
+    await selectTheSpot();
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByTestId('map-container'), { key: 'Escape' });
+    expect(screen.queryByTestId('wf-win-menu')).toBeNull();
+    expect(screen.getByTestId('probe-callout')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByTestId('map-container'), { key: 'Escape' });
+    expect(screen.queryByTestId('probe-callout')).toBeNull();
+    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByTestId('map-container'), { key: 'Escape' });
+    expect(screen.queryByTestId('wf-land')).toBeNull();
+  });
+
+  it('selecting a location does not dismiss the landing card', async () => {
+    // A press on the map is not a dismissal — and neither is the callout it opens. The card sits
+    // UNDER the callout (1300 vs 1350) precisely so both can stand.
+    await renderMap({ runId: '2026-01-15T04:00:00' });
+
+    await selectTheSpot();
+
+    expect(screen.getByTestId('probe-callout')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
+  });
+
   it('stands down for a PANEL too, not just the selection — one press must not reach two layers', async () => {
     // ⚠️ **The arm the sibling test's word "entirely" was claiming and never reached.** It opens no
     // panel, so it never exercises the branch that closes one — and L3's first cut put that branch

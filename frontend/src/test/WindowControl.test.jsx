@@ -7,7 +7,7 @@
  */
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, within, cleanup } from '@testing-library/react';
 import WindowControl from '../components/map/WindowControl.jsx';
 import { rampHex } from '../utils/scoreRamp.js';
 
@@ -139,12 +139,20 @@ describe('WindowControl — the pill', () => {
 });
 
 describe('WindowControl — disclosure semantics (map-tab-v2-plan.md §3 P12 a11y sweep)', () => {
-  it('the pill names the dropdown it controls via aria-controls, matching the dropdown\'s own id', () => {
+  it('the pill names the LISTBOX it controls via aria-controls, matching that element\'s own id', () => {
+    // ⚠️ Since map-landing L4 the popup box holds the landing card's reopen row beside the listbox,
+    // so `role="listbox"` — and the id with it — moved to an inner element. A trigger declaring
+    // `aria-haspopup="listbox"` while `aria-controls` pointed at the generic wrapper left JAWS's
+    // "move to controlled element" landing on an unnamed div.
     renderControl();
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+
     const pill = screen.getByTestId('wf-win-pill');
-    expect(pill).toHaveAttribute('aria-controls', 'wf-win-menu');
-    fireEvent.click(pill);
-    expect(screen.getByTestId('wf-win-menu')).toHaveAttribute('id', 'wf-win-menu');
+    expect(pill).toHaveAttribute('aria-haspopup', 'listbox');
+    expect(pill).toHaveAttribute('aria-controls', 'wf-win-listbox');
+    expect(screen.getByTestId('wf-win-listbox')).toHaveAttribute('id', 'wf-win-listbox');
+    expect(screen.getByRole('listbox', { name: 'Choose an event' }))
+      .toBe(screen.getByTestId('wf-win-listbox'));
   });
 
   it('carries no aria-modal and no focus trap — a disclosure widget, not a dialog', () => {
@@ -155,6 +163,95 @@ describe('WindowControl — disclosure semantics (map-tab-v2-plan.md §3 P12 a11
     expect(menu).not.toHaveAttribute('aria-modal');
     // Tab still reaches the rest of the page — no `tabindex`-manipulating containment here at all,
     // the app-wide rule `useDialogFocus`'s own class doc records (this component never calls it).
+  });
+});
+
+describe('WindowControl — the way back into the landing card (map-landing-plan.md §3 L4 step 7)', () => {
+  const landing = { landingLabel: 'Tonight, or tomorrow?', onReopenLanding: vi.fn() };
+
+  it('is the FIRST row of the menu, above the windows it compares', () => {
+    renderControl(landing);
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+
+    const menu = screen.getByTestId('wf-win-menu');
+    const reopen = screen.getByTestId('wf-win-landing');
+    expect(reopen).toHaveTextContent('Tonight, or tomorrow?');
+    expect(menu.firstElementChild).toBe(reopen);
+  });
+
+  it('reopens the card and closes the menu — it chooses no window', () => {
+    const onReopenLanding = vi.fn();
+    const { onSelect } = renderControl({ ...landing, onReopenLanding });
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+
+    fireEvent.click(screen.getByTestId('wf-win-landing'));
+
+    expect(onReopenLanding).toHaveBeenCalledTimes(1);
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('wf-win-menu')).toBeNull();
+  });
+
+  it('sits in the popup box but OUTSIDE the listbox — it chooses no window', () => {
+    // ⚠️ `role="listbox"` admits only `option`/`group` children, and this row is neither. Leaving
+    // it inside left one child a listbox-navigating screen-reader user could not reach by the roles
+    // the container promises — so the ROLE moved to an inner element and the popup box kept the id
+    // `aria-controls` names. Asserting the option COUNT alone would not have caught this: a stray
+    // button inside a listbox is not an option either way.
+    renderControl(landing);
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+
+    const panel = screen.getByTestId('wf-win-menu');
+    const listbox = screen.getByTestId('wf-win-listbox');
+    const reopen = screen.getByTestId('wf-win-landing');
+    expect(panel.contains(reopen)).toBe(true);
+    expect(listbox.contains(reopen)).toBe(false);
+    expect(within(listbox).getAllByRole('option')).toHaveLength(EVENTS.length);
+  });
+
+  it('names itself with a VERB, not the card\'s bare question', () => {
+    // ⚠️ It shipped with the header as its entire accessible name — a bare interrogative in NVDA's
+    // Elements List among "Previous event, Worth it" and the window rows, saying neither that it
+    // was a control nor what it did. `RegionsJump`'s `.wf-jump-reset`, the cited precedent, reads
+    // "↺ Back to <region>"; this row had taken its placement and dropped its wording.
+    renderControl(landing);
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+
+    expect(screen.getByRole('button', { name: /Back to\s*Tonight, or tomorrow\?/ }))
+      .toBe(screen.getByTestId('wf-win-landing'));
+  });
+
+  it('hands focus back to the pill, which caused the menu and survives the press', () => {
+    // The button unmounts itself, so without this focus falls to `<body>` — on the one control
+    // whose entire purpose is recovery.
+    renderControl(landing);
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+
+    fireEvent.click(screen.getByTestId('wf-win-landing'));
+
+    expect(document.activeElement).toBe(screen.getByTestId('wf-win-pill'));
+  });
+
+  it('is ONE grid item, so it cannot auto-place onto two rows', () => {
+    // ⚠️ `.wf-win-row` is `display: grid`, and CSS Grid wraps each contiguous text run in an
+    // anonymous grid item — a bare glyph span beside bare text measured `grid-template-rows:
+    // 18px 18px` in Chromium, the glyph alone on a full-width line above the words.
+    renderControl(landing);
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+
+    const row = screen.getByTestId('wf-win-landing');
+    expect(row.children).toHaveLength(1);
+    expect(row.firstElementChild.className).toBe('wf-win-landing-txt');
+  });
+
+  it('is withheld with no label, and with no handler — the pre-L4 control', () => {
+    renderControl({ landingLabel: '', onReopenLanding: vi.fn() });
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    expect(screen.queryByTestId('wf-win-landing')).toBeNull();
+
+    cleanup();
+    renderControl({ landingLabel: 'Tonight, or tomorrow?' });
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    expect(screen.queryByTestId('wf-win-landing')).toBeNull();
   });
 });
 

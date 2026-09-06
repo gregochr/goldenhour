@@ -43,7 +43,7 @@ import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
  */
 export default function WindowControl({
   events, activeIndex, onSelect, open: openProp, onOpenChange = null,
-  verdicts = null, scopeIsArea = true,
+  verdicts = null, scopeIsArea = true, landingLabel = '', onReopenLanding = null,
 }) {
   const isControlled = openProp !== undefined;
   const [openState, setOpenState] = useState(false);
@@ -59,6 +59,8 @@ export default function WindowControl({
     onOpenChange?.(value);
   }, [open, isControlled, onOpenChange]);
   const rootRef = useRef(null);
+  /** The pill, so the reopen row can hand focus back to the control that opened the menu. */
+  const pillRef = useRef(null);
 
   const active = activeIndex >= 0 && activeIndex < events.length ? events[activeIndex] : null;
   // Stepping from "nowhere" is ambiguous — the map is on a date/event the list has no row for.
@@ -175,6 +177,7 @@ export default function WindowControl({
       </button>
 
       <button
+        ref={pillRef}
         type="button"
         data-testid="wf-win-pill"
         /* The tint is an inset left bar plus a matching border, keyed off the tier. A night row and
@@ -183,7 +186,12 @@ export default function WindowControl({
         className="wf-win-pill"
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-controls="wf-win-menu"
+        // ⚠️ Names the LISTBOX, not the popup box around it. Since L4 the popup holds the landing
+        // card's reopen row beside the listbox, so `role="listbox"` moved to an inner element — and
+        // a trigger declaring `aria-haspopup="listbox"` while `aria-controls` pointed at a generic
+        // container left JAWS's "move to controlled element" landing on an unnamed div. The id and
+        // the role belong on one element.
+        aria-controls="wf-win-listbox"
         title={active?.rosterNote || undefined}
         onClick={() => setOpen((v) => !v)}
       >
@@ -231,22 +239,83 @@ export default function WindowControl({
       </button>
 
       {open && (
-        <div id="wf-win-menu" data-testid="wf-win-menu" className="wf-win-menu" role="listbox" aria-label="Choose an event">
-          {groups.map((group) => (
-            <div key={group.date}>
-              <div data-testid="wf-win-day" className="wf-win-day">
-                {dayHeading(group.date)}
+        <div id="wf-win-menu" data-testid="wf-win-menu" className="wf-win-menu">
+          {/* The way back into the landing card, above the windows it compares — dismissing it used
+              to be irreversible, which quietly made closing it a risk (README §4 "Recoverable").
+              `RegionsJump`'s own `wf-jump-reset` is the precedent: the way back lives in the
+              control that caused it.
+
+              ⚠️ It sits in the popup box but OUTSIDE the listbox below — see that element's note. */}
+          {onReopenLanding && landingLabel && (
+            <button
+              type="button"
+              data-testid="wf-win-landing"
+              className="wf-win-row wf-win-landing"
+              onClick={() => {
+                setOpen(false);
+                onReopenLanding();
+                // ⚠️ This button unmounts itself (the row is withheld while the card is open), so
+                // without this focus falls to `<body>` and a keyboard reader has to re-traverse the
+                // masthead and the tab list — on the one control whose entire purpose is recovery.
+                // Focus returns to the pill, which caused the menu and is still on screen.
+                // `selectRow`'s identical pre-existing loss is untouched here.
+                pillRef.current?.focus();
+              }}
+            >
+              {/* ⚠️ ONE grid item, not two. `.wf-win-row` is `display: grid`, and CSS Grid wraps
+                  each contiguous text run in an anonymous grid item — so a bare glyph span beside
+                  bare text auto-placed onto two ROWS: measured `grid-template-rows: 18px 18px` and a
+                  57px row against its siblings' 41px, with the glyph alone on a full-width line.
+                  `RegionsJump`'s `.wf-jump-name` wraps glyph and text together for exactly this
+                  reason; the first cut took that precedent's placement and not its markup.
+
+                  ⚠️ **"Back to" is not decoration either.** The row shipped with the card's header
+                  as its whole accessible name — a bare interrogative ("Tonight, or tomorrow?") in
+                  NVDA's Elements List among "Previous event, Worth it" and the window rows, with
+                  nothing saying it was a control or what it did. The precedent's own name is
+                  "↺ Back to <region>"; this had taken the placement and dropped the verb.
+
+                  ⚠️ The glyph is `↺`, matching that precedent, and deliberately NOT `◎` — which is
+                  `PICK_TEXT.best`'s glyph, rendered on window rows a few pixels below in this same
+                  popup. One glyph, two meanings, one menu. */}
+              <span className="wf-win-landing-txt">
+                <span aria-hidden="true">&#8634;{' '}</span>
+                Back to
+                {' '}
+                {landingLabel}
+              </span>
+            </button>
+          )}
+          {/* ⚠️ The LISTBOX is this inner element, not the popup box above it. `role="listbox"`
+              admits only `option` (and `group`) children, and the reopen row is neither — it
+              chooses no window, so leaving it inside left one child a listbox-navigating screen
+              reader could not reach by the roles the container promises. The popup box keeps the
+              test-id and the class; the id moved here WITH the role, so the pill's `aria-controls`
+              still names the listbox itself rather than a generic wrapper.
+
+              ⚠️ **This does NOT make the listbox fully conforming, and an earlier revision of this
+              comment implied it did.** The day-group wrappers below are `div`s with no role, each
+              holding a text-bearing `.wf-win-day` heading — also neither `option` nor `group`. That
+              is pre-existing, and it is left alone rather than quietly rolled into a landing-card
+              commit; but it is the same class of problem, and this note must not be read as saying
+              it was handled. */}
+          <div role="listbox" id="wf-win-listbox" data-testid="wf-win-listbox" aria-label="Choose an event">
+            {groups.map((group) => (
+              <div key={group.date}>
+                <div data-testid="wf-win-day" className="wf-win-day">
+                  {dayHeading(group.date)}
+                </div>
+                {group.rows.map((row) => (
+                  <WindowRow
+                    key={row.id}
+                    row={row}
+                    active={row.id === active?.id}
+                    onSelect={() => selectRow(row)}
+                  />
+                ))}
               </div>
-              {group.rows.map((row) => (
-                <WindowRow
-                  key={row.id}
-                  row={row}
-                  active={row.id === active?.id}
-                  onSelect={() => selectRow(row)}
-                />
-              ))}
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       )}
     </div>
@@ -293,10 +362,25 @@ WindowControl.propTypes = {
   verdicts: PropTypes.instanceOf(Map),
   /** Whether the scope segment reads "My area" — decides only the all-in-scope wording. */
   scopeIsArea: PropTypes.bool,
+  /**
+   * The landing card's own header text (map-landing-plan.md §3 L4 step 7). Derived ONCE by the
+   * caller and handed to both surfaces, so this row can never name a different pair of windows from
+   * the card it reopens. Empty while the card is open, or when it has nothing to show.
+   */
+  landingLabel: PropTypes.string,
+  /** Reopens the landing card. Null withholds the row entirely — including on the overlay. */
+  onReopenLanding: PropTypes.func,
 };
 
-/** The two picks' vocabulary — glyph and words, as SEPARATE elements (see {@link Medallion}). */
-const PICK_TEXT = { best: { glyph: '\u25CE', words: 'Best bet' }, also: { glyph: '\u25CB', words: 'Also good' } };
+/**
+ * The two picks' vocabulary — glyph and words, as SEPARATE elements (see {@link Medallion}).
+ *
+ * <p><b>Exported since map-landing L4</b>, because the landing card wears the same two picks and a
+ * second copy would be a second vocabulary: L4's first cut minted `PICK_WORDS` plus an inline glyph
+ * ternary, giving three spellings of `◎` across two files in one commit — in a component whose own
+ * kind-chip comment nine lines away says "never a second one". L5 and L6 each want the pair again.
+ */
+export const PICK_TEXT = { best: { glyph: '\u25CE', words: 'Best bet' }, also: { glyph: '\u25CB', words: 'Also good' } };
 
 /**
  * The pick medallion — an outline chip, never a filled one.

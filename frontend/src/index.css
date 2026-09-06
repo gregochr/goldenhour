@@ -3757,9 +3757,14 @@ button.wf-hc.also.on:hover {
   text-transform: uppercase;
   white-space: nowrap;
 }
-.wf-win-verdict[data-tier="WORTH_IT"] .wf-win-verdict-word { color: var(--color-badge-go); }
-.wf-win-verdict[data-tier="MAYBE"] .wf-win-verdict-word { color: var(--color-badge-maybe); }
-.wf-win-verdict[data-tier="STAND_DOWN"] .wf-win-verdict-word { color: var(--color-badge-poor); }
+/* Grouped with the landing card's own verdict cell (map-landing L4) so one tier has one ink. The
+   two cells differ in size and in the box around them; the colour is the same claim in both. */
+.wf-win-verdict[data-tier="WORTH_IT"] .wf-win-verdict-word,
+.wf-land-verdict[data-tier="WORTH_IT"] .wf-land-verdict-word { color: var(--color-badge-go); }
+.wf-win-verdict[data-tier="MAYBE"] .wf-win-verdict-word,
+.wf-land-verdict[data-tier="MAYBE"] .wf-land-verdict-word { color: var(--color-badge-maybe); }
+.wf-win-verdict[data-tier="STAND_DOWN"] .wf-win-verdict-word,
+.wf-land-verdict[data-tier="STAND_DOWN"] .wf-land-verdict-word { color: var(--color-badge-poor); }
 /* The region line, capped so a long region NAME ellipses and the longest SENTENCE does not — a
    truncated sentence reads as a bug where a truncated proper name reads as a name.
 
@@ -3822,12 +3827,18 @@ button.wf-hc.also.on:hover {
    the only such use in the file. The design asks for `#A8C795` as the ring, so spec and token
    contract genuinely conflict here — the contract wins, and the ring is the same hue one step
    deeper. */
-.wf-win-pick[data-pick="best"] {
+/* ⚠️ Grouped with `.wf-land-pick` (the landing card's own medallion) so the ink/weight PAIR above
+   is defined once. The two differ only in their box: `.wf-win-pick` carries a ≤811px rule that
+   visually-hides its words under the pill's width pressure, which is not a fact about a 376px card,
+   so the card must not simply reuse the class. */
+.wf-win-pick[data-pick="best"],
+.wf-land-pick[data-pick="best"] {
   color: var(--color-badge-go);
   font-weight: 700;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-verdict-go) 62%, transparent);
 }
-.wf-win-pick[data-pick="also"] {
+.wf-win-pick[data-pick="also"],
+.wf-land-pick[data-pick="also"] {
   color: var(--color-verdict-go);
   font-weight: 600;
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-verdict-go) 45%, transparent);
@@ -3864,6 +3875,7 @@ button.wf-hc.also.on:hover {
     border-width: 0;
   }
 }
+
 
 /* ⚠️ Below 390px the medallion goes entirely — glyph included — because the day label starts to
    clip otherwise, and the design's priority order is explicit that the medallion yields first ("the
@@ -3903,6 +3915,368 @@ button.wf-hc.also.on:hover {
      11px by the three rules above; closing the last 5px means dropping either the time or the
      verdict word, and losing the verdict outright on the smallest phone is the worse trade. The
      full label stays in the pill's accessible name either way. 360px and up are clean. */
+}
+
+/* ── The landing card (map-landing-plan.md §3 L4, design README §4) ────────────────────────────
+   The map's opening statement: the next two solar windows, their verdicts and the region each
+   verdict is true of.
+
+   ⚠️ **1050, and getting here took three wrong answers — every one of them from READING declared
+   z-index values instead of asking which stacking context they live in.**
+
+   The plan's §4 #6 said 1300 lands "between the callout (1200) and the tooltip (1400)". Both terms
+   were wrong: 1200 is the selection RING (`.wf-selmk`) and the callout is 1350. Corrected to "above
+   the chrome (1100), below the callout" — still wrong, because **`.wf-map-chrome-tl` is a stacking
+   context**: `position: absolute` with a non-auto `z-index: 1100`. So `.wf-win-menu`'s `z-index:
+   1500` is LOCAL to that context and composites at the parent's 1100 slot; it has never competed
+   with anything outside the chrome. Same for `.wf-map-chrome-tr` and its Filters/Regions panels.
+
+   Measured in headless Chromium against this built sheet, with the real ancestor chain and an open
+   dropdown: at 1300 the card painted OVER the window menu across **328 × 133 px** at 1280 and
+   374 × 141 at 390, `elementFromPoint` in the shared region returning `.wf-land` — so opening the
+   pill's own dropdown showed only its right-hand strip, and on a phone hid it outright. That is the
+   ordinary state, not an edge case: the card does not dismiss when a menu opens, and it sits in the
+   dropdown's exact footprint.
+
+   The effective ladder inside `#map-container` (itself `position: relative; z-index: 0`) is:
+   heat 410 / ring pane 415 / labels 650 / **card 1050** / chrome 1100 — and everything nested in
+   it, menus included / ring `.wf-selmk` 1200 / callout `.wf-callout` 1350 / tooltip 1400.
+
+   The accepted cost of 1050 is that the 34px selection ring and the colour-scale notice also paint
+   over the card. Both are small, both are things the reader asked for; a menu covered by a greeting
+   is not. ⚠️ The design bundle puts `#land` at 1300 over a `.bar` at 1100 and has the identical
+   defect — it is a prototype, and its number is not evidence.
+
+   Tab-only — `MapView` mounts it behind `!overlayMode`, so there is no overlay rule to write. */
+.wf-land {
+  position: absolute;
+  top: 60px;
+  left: 12px;
+  z-index: 1050;
+  width: 376px;
+  max-width: calc(100% - 24px);
+  /* Never taller than the frame it floats in — and never into the bottom chrome band. The bundle
+     sets `overflow: hidden` alone, which on a short laptop viewport lets the footer fall off the
+     bottom of the map; `hidden auto` keeps the horizontal clip the border radius needs and lets a
+     long card scroll instead.
+
+     ⚠️ 112px, not the 76px this shipped with. 76 was `top: 60 + 16` — measured from the frame's own
+     edge, which put a capped card's bottom edge 16px up, INSIDE `.wf-map-chrome-bl`'s band (the
+     Legend chip, `bottom: 8px` × ~36px tall) and the counts footer's. 112 = `top: 60` + `bottom: 8`
+     + a 44px chip. Measured overlaps before the fix: 4px at a 340px frame, 30px at 260px. */
+  max-height: calc(100% - 112px);
+  overflow: hidden auto;
+  border-radius: 12px;
+  /* The same plate `.wf-callout` uses, so the two cards over one map read as one family. */
+  border: 1px solid var(--color-plex-border-light);
+  background: rgba(20, 15, 12, 0.965);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 26px 60px rgba(0, 0, 0, 0.72);
+  color: var(--color-plex-text);
+  font-family: var(--font-sans);
+}
+/* A two-row grid rather than the bundle's absolutely-positioned kicker (`left: 12px; top: 32px`
+   under a `padding-bottom: 24px`). Same picture, no magic numbers: the title and the kicker stack
+   in column 1 and the ✕ spans both rows in column 2, so a wrapped title moves the kicker with it
+   instead of landing on top of it. */
+.wf-land-head {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 3px 9px;
+  padding: 11px 12px 10px;
+  border-bottom: 1px solid var(--color-plex-border);
+  background: linear-gradient(180deg, rgba(201, 162, 75, 0.07), transparent);
+}
+.wf-land-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  text-wrap: pretty;
+}
+.wf-land-sub {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-plex-text-muted);
+}
+.wf-land-x {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: start;
+  width: 24px;
+  height: 24px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--color-plex-text-secondary);
+  background: none;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.wf-land-x:hover {
+  color: var(--color-plex-text);
+  border-color: var(--color-plex-border-light);
+}
+.wf-land-rows {
+  display: flex;
+  flex-direction: column;
+}
+.wf-land-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 10px 12px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--color-plex-border);
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+.wf-land-row:hover { background: rgba(255, 255, 255, 0.05); }
+/* ⚠️ The kind chip holds its width. `.wf-hc-sun` carries `min-width: 0; overflow: hidden` and the
+   default `flex-shrink: 1`, so with the day label pinned (`1 0 auto`) and the medallion at
+   `flex-shrink: 0`, the negative free space landed on the CHIP and on the verdict — measured in
+   headless Chromium on the widest reachable row (`Wednesday` / `◎ ALSO GOOD` / `Not scored` /
+   `Northumberland & Tyneside +2`): the chip clipped from 57px to 54.8 at 1280 and to 35.2 at 320,
+   showing roughly `SUNRI`. It names the event the row is about; it is not the thing that gives. */
+.wf-land-row .wf-hc-sun { flex-shrink: 0; }
+/* The window the map is already showing — `.wf-win-row.on`'s own mid-gold fill AND its 2px
+   `--color-home` left rule, so the card and the pill's dropdown really do mark "in force" the same
+   way. ⚠️ Both halves were wrong at first cut: the fill was 0.09 against the sibling's 0.13 under a
+   comment claiming they matched, and there was no second channel at all — measured 1.16:1 against
+   an unselected row, under WCAG 1.4.11's 3:1 for a state indicator and discarded outright under
+   forced-colors. The row also carries `aria-current`; see `MapLandingCard.jsx`. The transparent
+   base border reserves the rule's width so marking a row cannot shift its own text 2px, the same
+   pairing `.wf-jump-row` uses. */
+.wf-land-row { border-left: 2px solid transparent; }
+.wf-land-row.on {
+  background: rgba(201, 162, 75, 0.13);
+  border-left-color: var(--color-home);
+}
+/* ⚠️ `1 0 auto`, NOT `1` — the same inversion L2 found on `.wf-win-label` and for the same reason.
+   `flex: 1` is `1 1 0%`: a zero base size, which makes the day label the FIRST item to yield and
+   lets it yield all the way to nothing. Measured in headless Chromium against the built sheet, the
+   day label OVERFLOWED its box at 375px (one row) and 320px (both) and ran under the medallion —
+   `scrollWidth > clientWidth` on a `display: block` child with `overflow: visible` is a spill, not a
+   clip. `1 0 auto` grows into free space and refuses to shrink, so the compression lands where the
+   design puts it: on the verdict's region line, which ellipses (`min-width: 0` on the cell is what
+   lets it), and on nothing else. */
+.wf-land-when {
+  flex: 1 0 auto;
+}
+.wf-land-when b {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  /* Backstop for a row narrower than this item's own content — the same pairing `.wf-win-label`
+     carries, so an extreme width clips the day rather than pushing the verdict out of the card. */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.wf-land-time {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--color-plex-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+/* Right-aligned and stacked, the pill's own arrangement — the word over the region, the region
+   yielding first. */
+.wf-land-verdict {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  min-width: 0;
+  line-height: 1.18;
+  text-align: right;
+}
+.wf-land-verdict-word {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* 120px, **measured** in headless Chromium against this built sheet inside the card's own inherited
+   font context — the method `.wf-win-verdict-region` two hundred lines up records L2 having got
+   wrong by 55px when it measured outside one. At this rule's 9.5px / 0.02em: "everywhere in your
+   area" renders 106.4px (clears the cap, never ellipses — the sentence must not read as a bug), and
+   "Northumberland & Tyneside +2" renders 138.9px (ellipses, which is what a proper name should do).
+   The pill's own cap is 112px because its face is 9px in a different inherited context.
+   ⚠️ Same caveat as the pill's: a px cap on small text does not scale with a browser
+   minimum-font-size setting; the text stays in the accessible name either way. */
+.wf-land-verdict-region {
+  display: block;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9.5px;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  color: var(--color-plex-text-secondary);
+}
+/* The row medallion. Its INK and WEIGHT come from the grouped `[data-pick]` rules above, shared
+   with `.wf-win-pick`; only the box is its own — see this class's note there for why the pill's
+   class could not simply be reused. */
+.wf-land-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.wf-land-pick-glyph {
+  font-style: normal;
+  font-size: 10px;
+  /* `.wf-win-pick-glyph`'s own declaration, which the first cut dropped — without it the 10px glyph
+     takes the card's normal line-height and the chip stands 16px tall against the pill's 14px, in a
+     pair whose comments claim they differ "only in their box". */
+  line-height: 1;
+}
+/* The quiet line for a pick on some OTHER window — deliberately colourless. It answers a different
+   question from the rows above it ("when is the best window this week", not "should I go tonight"),
+   and giving it the pick inks would put it in competition with the verdicts, which is the one thing
+   the card must not do. */
+.wf-land-pick-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--color-plex-border);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--color-plex-text-secondary);
+  text-align: left;
+}
+.wf-land-pick-row:hover { background: rgba(255, 255, 255, 0.05); }
+.wf-land-pick-lbl {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.wf-land-pick-win {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-plex-text);
+}
+.wf-land-pick-go { color: var(--color-plex-text-muted); }
+.wf-land-none {
+  margin: 0;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--color-plex-border);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: var(--color-plex-text-secondary);
+  text-wrap: pretty;
+}
+/* ⚠️ `--color-badge-go`, and the choice is the sentence's own: this button exists only to name a
+   window the words beside it call **Worth it**, so it wears the ink that word wears.
+
+   ⚠️ An earlier revision of this comment justified it by saying the bundle's raw `#8FC0C7` "is the
+   TIDE channel in this app". It is not — `--color-badge-tide` is `#9CCBD1`, and `.wf-maplab-tip-t`,
+   the rule that comment cited for corroboration, says in as many words "NOT the design bundle's raw
+   `#8FC0C7`". This app defines that value nowhere; it is a bundle teal this file already declined
+   once, for a different element. The conclusion stands on its own: a link naming a Worth it window
+   wears the Worth it ink, and reaching for a teal would mint a fourth colour on this card. */
+.wf-land-go {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--color-badge-go);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+/* ⚠️ This rule and the three other `--color-plex-text-muted` mounts on this card (`.wf-land-sub`,
+   `.wf-land-time`, `.wf-land-pick-go`) clear AA **only** because `.wf-body.wf-body--map` overrides
+   that token to `--color-panel-ink` (alpha 0.66) — §6's own rule, 280 lines up. Measured live in
+   Chromium with the real ancestor chain: the token resolves to `rgba(242,231,211,0.66)` here, and
+   these land 6.9–7.2:1. At the token's bare 0.42 they compute to ~3.5:1, under AA — the exact
+   figures `.wf-map-breadcrumb-sep`'s comment already records. The card is not portalled, so it is
+   inside that wrapper; if the override is ever narrowed, these four fail silently. (⚠️ A review lens
+   charged them as failing today, measuring in a harness that transcribed the chain from `MapView`
+   and so omitted `.wf-body--map` — the "invented DOM chain" trap. Refuted by measurement, and the
+   dependency is named here so the next reader does not have to re-derive it either way.) */
+.wf-land-foot {
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.03em;
+  line-height: 1.5;
+  color: var(--color-plex-text-muted);
+  background: rgba(0, 0, 0, 0.24);
+  text-wrap: pretty;
+}
+.wf-land button:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
+/* ⚠️ The card's own yield order, which the first cut left unwritten. The pill has two escapes for
+   the same pressure (its region line at ≤639px, its whole medallion at ≤389px) and both are
+   class-scoped to `.wf-win-*`, so neither reaches here — correctly, but nothing was put in their
+   place, and the row simply ran out of room: measured on the widest reachable row, the chip clipped
+   and the verdict cell was pushed under its min-content width below 390px. The medallion's WORDS go
+   first, which is the design's own order, and visually — they stay in the accessible name, the same
+   `clip-path` the pill's ≤811px rule uses and for the same reason. The glyph, the kind chip, the day
+   label and the verdict word all survive to 320px. */
+@media (max-width: 400px) {
+  .wf-land-pick-words {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border-width: 0;
+  }
+}
+
+/* The phone keeps the CARD, inset to the frame — never a `BottomSheet`. That component's backdrop
+   dismisses on an outside tap, which is the one route this card forbids (see `MapLandingCard.jsx`).
+   `top: 56px` clears the full-width window control the ≤639px chrome rule puts across the top. */
+@media (max-width: 639px) {
+  .wf-land {
+    top: 56px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-width: none;
+    /* ⚠️ 196px, not 130. 130 was `top: 56 + 74`, which clears the bottom bar (8 + 48) and nothing
+       else — but the same media block lifts a stack above that bar (attribution, counts footer,
+       scored legend, LITE viewline chip), and a card allowed to reach 74px from the bottom passes
+       through it. 196 = `top: 56` + 140, clearing the bar and the two rows a reader always has. The
+       cap engages only below a ~540px frame; the card's natural height is ~341px. */
+    max-height: calc(100% - 196px);
+  }
 }
 
 /* The stepper's verdict tick — "‹ › stop being blind". 11×3px, 4px from the bottom, centred, in the
@@ -3993,6 +4367,27 @@ button.wf-hc.also.on:hover {
   text-align: left;
   cursor: pointer;
   color: var(--color-plex-text-secondary);
+}
+/* The way back into the landing card (map-landing-plan.md §3 L4 step 7) — `.wf-jump-reset`'s own
+   treatment, because it is the same idea in the sibling dropdown: one full-width row above the ones
+   it relates to, quieter than them, separated by a rule. Collapses the four-column grid it
+   inherits — it has one cell, not four. */
+.wf-win-landing {
+  grid-template-columns: 1fr;
+  border-bottom: 1px solid var(--color-plex-border-light);
+  margin-bottom: 4px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+}
+.wf-win-landing:hover { color: var(--color-plex-text); }
+/* The single grid item — see the markup's own note for why the glyph and the text cannot be
+   siblings here. */
+.wf-win-landing-txt {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .wf-win-row:hover { background: var(--color-plex-surface-light); }
 .wf-win-row.on {

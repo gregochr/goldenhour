@@ -297,6 +297,11 @@ export default function WindowFirstMapPane({
           // dropdown draws its topic icons straight from these, the same list the matrix draws
           // its own badge row from (`WindowFirstHeatStrip`).
           badges: card.badges,
+          // Whether this window is a TRAVEL day (map-landing-plan.md §3 L4). `buildHeatStripCards`
+          // publishes every window the strip must show, away days included, and without this the
+          // landing card opened on "Tomorrow — sunrise or sunset?" over two days the reader is not
+          // there for, as live buttons, while the Plan matrix drew the same two cards as Away.
+          away: card.away,
           // ── map-landing-plan.md §3 L1: the served pick ───────────────────────────────────
           // The forecast's own Best bet / Also good for this window: `'best'`, `'also'`, or null.
           // Server-owned — the design bundle's client rank formula is deliberately not built
@@ -308,7 +313,15 @@ export default function WindowFirstMapPane({
           // its kind alone. Reading `card.pick` here compiles, lints, passes a suite and is
           // `undefined` on every window forever — the first cut of this phase did exactly that, and
           // an adversarial review caught it. The kind is all the medallion needs: L2's chip reads
-          // BEST BET / ALSO GOOD, and L4's line takes its region from the window's own verdict.
+          // BEST BET / ALSO GOOD.
+          //
+          // ⚠️ An earlier revision of this comment added "and L4's line takes its region from the
+          // window's own verdict". That was false about the shipped card — the quiet line names no
+          // region at all (map-landing-plan.md §4 #17) — and worse as advice: the pick is
+          // ROSTER-WIDE and the window's verdict is narrowed to the reader's scope segment, so
+          // building it that way would print "Best bet · Northumberland" for a pick that is in
+          // Cornwall. If the line ever names a region it must be `win.pick.regionName`, the pick's
+          // own, which `buildHeatStripCards` currently drops.
           pickKind: card.pickKind,
           // ⚠️ **The verdict is NOT forwarded, and that is the phase's central decision.**
           // `card.verdict` is the Plan tab's answer: the whole roster's top region (or the origin's
@@ -423,6 +436,10 @@ export default function WindowFirstMapPane({
         regionGlossIndex={regionGlossIndex}
         regionBestIndex={regionBestIndex}
         regionVerdictIndex={regionVerdictIndex}
+        // The forecast run the landing card's once-per-run open is keyed on (map-landing-plan.md
+        // §3 L4 step 8). The briefing's BUILD stamp — see `MapView`'s `LANDING_SEEN_KEY` for why
+        // that granularity is the intended one and not a bug to sharpen.
+        runId={briefing?.generatedAt ?? null}
         tideAlignmentIndex={tideAlignmentIndex}
         reachById={reachById}
         onOpenLocationSheet={onOpenLocationSheet}

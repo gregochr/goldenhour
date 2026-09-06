@@ -171,6 +171,39 @@ describe('buildMapEvents — D-13 beyond-briefing solar rows', () => {
     expect(far.every((e) => e.scored === false && e.bestRating === null)).toBe(true);
   });
 
+  it('marks a filler row NOT served, and a briefing row served — the pastness gate\'s own field', () => {
+    // ⚠️ `served` is what the landing card gates on, and it is a different question from `scored`.
+    // The briefing withdraws an ELAPSED window (`PlanWindowProjector.hasPassed`); the filler branch
+    // is gated only on `date >= todayStr`, so from this morning's sunrise until midnight the list
+    // still leads with a filler SUNRISE row for a window hours in the past. "First two solar rows"
+    // would open the card on a window the reader cannot reach.
+    const FAR = '2026-09-06';
+    const events = buildMapEvents({
+      ...baseArgs(),
+      solarWindows: [solarWindow(TODAY, 'SUNSET')],
+      forecastDates: [TODAY, FAR],
+    });
+
+    expect(events.find((e) => e.date === TODAY && e.eventType === 'SUNSET').served).toBe(true);
+    expect(events.filter((e) => e.date === FAR).every((e) => e.served === false)).toBe(true);
+    // A filler is a date the briefing carried no window for at all, so it carries no away state.
+    expect(events.filter((e) => e.date === FAR).every((e) => e.away === false)).toBe(true);
+  });
+
+  it('carries a served window\'s TRAVEL flag through, never inventing one', () => {
+    const events = buildMapEvents({
+      ...baseArgs(),
+      solarWindows: [
+        { ...solarWindow(TODAY, 'SUNRISE'), away: true },
+        solarWindow(TODAY, 'SUNSET'),
+      ],
+      forecastDates: [TODAY],
+    });
+
+    expect(events.find((e) => e.eventType === 'SUNRISE').away).toBe(true);
+    expect(events.find((e) => e.eventType === 'SUNSET').away).toBe(false);
+  });
+
   it('never invents a solar row for a date outside forecastDates entirely', () => {
     // An astro-only admin backfill date with no colour forecast at all — the map's own domain
     // (forecastDates) must gate whether a solar row exists, not merely whether a night row does.
