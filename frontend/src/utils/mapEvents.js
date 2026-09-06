@@ -178,6 +178,10 @@ function solarRow(date, targetType, served, todayStr, tomorrowStr, inForecastDom
       // would put two answers for one window in the reader's hands, disagreeing whenever "My area"
       // narrows; `WindowFirstMapPane`'s own mapper records the decision at length.
       pickKind: served.pickKind ?? null,
+      // ⚠️ Carried WITH the kind, never separately (map-landing-plan.md §3 L6). A medallion whose
+      // subject is a region must be able to test the pick's own region; one whose subject is the
+      // window ignores this and reads the kind alone.
+      pickRegion: served.pickRegion ?? null,
       inForecastDomain,
     };
   }

@@ -3,6 +3,8 @@ import { VERDICT_LABEL } from './windowFirstCards.js';
 import { resolveRegionDisplay } from './tierUtils.js';
 import { regionDriveMinutes } from './planningArea.js';
 import { formatDriveDuration } from './briefingDisplay.js';
+import { eventInstantOf, lookupForWindow } from './locationSheet.js';
+import { calloutLeaveBy } from './mapCallout.js';
 
 /**
  * The Map tab's drilldown — window → regions (map-landing-plan.md §3 L5,
@@ -104,21 +106,40 @@ export function buildPanelRegionRows({
   index, date, targetType, regionsInScope, points, driveMap, spots,
 }) {
   const inScope = new Set((Array.isArray(regionsInScope) ? regionsInScope : []).filter(Boolean));
-  // ⚠️ No pre-filter on `spots`. A review lens measured that one was a dead guard: this map is keyed
+
+  // ⚠️ **The population of every figure on a row is the places this window COULD rate**, and two
+  // adversarial-review lenses found it was not, independently.
+  //
+  // <p>The denominator counts PLACES, not rows we happen to hold a rating for — an earlier cut had
+  // it the other way round, and counting points on both sides made the line literally "N of M
+  // scored", which `plan-matrix-plan.md` §5 clause 5 and CLAUDE.md's licensed-class bullet ban by
+  // name. But the fix over-corrected: `buildHeatSpots` KEEPS a non-sky location (a wildlife hide, a
+  // waterfall) as a spot and withholds only its scores — `isSkyPromptCandidate` decides, and
+  // `skySubject` records it — so such a place is in the denominator and can never, by construction,
+  // reach the numerator. A region with five sky locations (three at 4★+) and four hides read
+  // `3 of 9`, understating every wood-bearing region uniformly. That is the mirror image of the
+  // phrasing the rule bans: not a denominator of rows-we-scored, but one containing places the
+  // question does not apply to.
+  //
+  // <p>The same filter feeds the NEAREST drive, for the same reason: `nearest 12 min` over a hide,
+  // printed above four rows starting at 1h 20min, describes a journey to somewhere this window has
+  // no answer for. ⚠️ A residual remains and is deliberate — "nearest" is the nearest place the
+  // window could rate, not the nearest of the four the panel lists, because those four are chosen by
+  // STAR (map-landing-plan.md §4 #33).
+  //
+  // <p>`=== false` rather than `!skySubject`: `skySubject` is set on every spot `buildHeatSpots`
+  // emits, so an absent field means a shape this function has not seen, and counting it keeps the
+  // pre-existing behaviour rather than silently emptying a region.
+  const scoreable = (Array.isArray(spots) ? spots : []).filter((s) => s?.skySubject !== false);
+
+  // ⚠️ No pre-filter on region. A review lens measured that one was a dead guard: this map is keyed
   // by region name and read only at `minutes.get(name)` for names already in scope, so out-of-scope
   // keys are unreachable by construction. A guard no test can ever assert implies a protection that
   // is not there.
-  const minutes = regionDriveMinutes(spots, driveMap);
+  const minutes = regionDriveMinutes(scoreable, driveMap);
 
-  // ⚠️ **The denominator counts PLACES, not rows we happen to hold a rating for**, and an earlier
-  // cut had it the other way round. `heatPointsFor` emits a point only where the score is finite, so
-  // counting points on both sides made the line literally "N of M scored" — which
-  // `plan-matrix-plan.md` §5 clause 5 and CLAUDE.md's own licensed-class bullet ban by name ("counts
-  // of places you could drive to, never 'N of M scored'"). A region with nine locations of which
-  // three were scored read `2 of 3`, which a reader takes as a statement about the region. The
-  // denominator is now its locations in scope; the numerator is those this window rated at 4★+.
   const places = new Map();
-  for (const spot of Array.isArray(spots) ? spots : []) {
+  for (const spot of scoreable) {
     const name = spot?.regionName;
     if (!name || !inScope.has(name)) continue;
     places.set(name, (places.get(name) ?? 0) + 1);
@@ -218,3 +239,145 @@ const RANKING_NOTE = 'Verdict is the strongest region’s average. Regions rank 
 /** A night window has no solar verdict of its own, and cannot be a pick. */
 const NIGHT_NOTE = 'A night event, scored from darkness, clarity and Kp rather than the solar '
   + 'forecast. It has no Worth it / Maybe / Poor of its own and cannot be the week’s Best bet.';
+
+/**
+ * How many locations the region panel names (map-landing-plan.md §3 L6 step 1, "top four
+ * locations"). A shortlist, not a listing: the panel's job is to end in ONE place worth driving to,
+ * and the sheet below it is where a reader who wants the whole region goes.
+ */
+export const REGION_PANEL_LOCATIONS = 4;
+
+/**
+ * The region panel's top locations for one window — the second level of the drilldown
+ * (map-landing-plan.md §3 L6, `docs/design/map-landing/README.md` §5).
+ *
+ * <h2>The population is the window's SCORED locations in that region, and nothing else</h2>
+ *
+ * <p>{@code heatPointsFor} emits a point only where the score is finite, so an unscored location has
+ * no star to rank on and no place in a "top four" — the same population the region row's own
+ * {@code atFourPlus} numerator counts, one level up. It is scope-only and pre-filter, like every
+ * other figure on this drilldown: a reader hiding 3★ locations must not change which four places a
+ * region's panel names, any more than they can turn a Maybe into a Worth it.
+ *
+ * <h2>⚠️ The two per-location facts are LOOKED UP, never re-derived</h2>
+ *
+ * <p><b>The tide glyph</b> reads {@code BriefingSlot.TideInfo.tideOnTheLight} through
+ * {@code locationSheet.buildTideAlignmentIndex} — served since #749, per location, per window. The
+ * plan says it in as many words: <em>do not</em> re-derive one representative coastline's geometry.
+ * CLAUDE.md's tide-axis rule is why a served answer is the only acceptable one here — the run row's
+ * extremes belong to a separately-selected representative and its {@code tideAligned} sibling asks a
+ * preference-weighted question this glyph must not answer.
+ *
+ * <p><b>The leave-by time</b> comes from {@code mapCallout.calloutLeaveBy} over
+ * {@code locationSheet.eventInstantOf} — the SAME recovery the callout already makes for its own
+ * `Leave by` fact, from the same {@code buildScoreIndex} row. ⚠️ A second recovery would risk
+ * disagreeing with that one about which boundary is the event ({@code eventInstantOf}'s own doc
+ * records why it exists at all), and the callout and this panel can both be open over one map.
+ * {@code heat.windows}' {@code time} is NOT usable for it: that is the window's roster-wide header
+ * clock — some other location's sunrise, minutes away — and `leaveBy`'s own doc names per-location
+ * event times as the reason it takes an instant rather than a window.
+ *
+ * <h2>Ranking: stars, then the shorter drive, then the name</h2>
+ *
+ * <p>The design's own rule ({@code map-tab-v4.js} `regionsFor`: {@code scoreOf(b)-scoreOf(a) ||
+ * driveOf(a)-driveOf(b)}), plus a name tiebreak the prototype has no need of and this does — its
+ * sort would otherwise leave two equally-rated, equally-far locations in whatever order the point
+ * array happened to hold, so the panel could name a different four across two renders of one
+ * window. An UNMEASURED drive sorts last rather than first: it is not a nearer journey, it is no
+ * journey at all, and `regionDriveMinutes` draws the same distinction one level up.
+ *
+ * @param {object} args
+ * @param {?string} args.regionName the region the panel is about
+ * @param {Array<{id: *, name: string, rid: ?string, r: Array<number>}>} args.points the window's
+ *        served per-location scores (`heat.pointsByKey`), un-narrowed — this filters by region
+ * @param {?Map<*, {driveMinutes: ?number}>} args.driveMap the drive map in force
+ *        (`MapView`'s `activeDriveMap`) — home reach OR the region-base matrix, never both
+ * @param {?{byId: Map, byName: Map}} args.scoreIndex from `locationSheet.buildScoreIndex`
+ * @param {?{byId: Map, byName: Map}} args.tideIndex from `locationSheet.buildTideAlignmentIndex`
+ * @param {?string} args.date
+ * @param {?string} args.targetType SUNRISE or SUNSET
+ * @param {number} [args.limit]
+ * @returns {Array<object>} at most `limit` rows, best first
+ */
+export function buildRegionLocationRows({
+  regionName, points, driveMap, scoreIndex, tideIndex, date, targetType,
+  limit = REGION_PANEL_LOCATIONS,
+}) {
+  if (!regionName) return [];
+  const rows = [];
+  for (const point of Array.isArray(points) ? points : []) {
+    if (!point || point.rid !== regionName) continue;
+    const rating = finite(point.r?.[0]);
+    if (rating == null) continue;
+    const name = point.name || '';
+    const driveMinutes = finite(driveMap?.get?.(point.id)?.driveMinutes);
+    const eventTimeIso = eventInstantOf(
+      lookupForWindow(scoreIndex, point.id, name, date, targetType), targetType,
+    );
+    const leave = calloutLeaveBy(eventTimeIso, driveMinutes);
+    rows.push({
+      id: point.id ?? null,
+      name,
+      rating,
+      driveMinutes,
+      driveLabel: driveMinutes == null ? null : formatDriveDuration(driveMinutes),
+      leaveTime: leave?.time ?? null,
+      leaveDayWord: leave?.dayWord ?? null,
+      // ⚠️ A MISSING entry and a `false` one are different claims and only the deriver knows which
+      // is true (`buildTideAlignmentIndex` skips rather than indexes an underivable slot), so this
+      // is read for TRUTH alone — the glyph is drawn or it is not, and nothing anywhere says
+      // "the tide does not land on the light here".
+      tideOnLight: Boolean(lookupForWindow(tideIndex, point.id, name, date, targetType)?.onTheLight),
+    });
+  }
+  rows.sort((a, b) => (b.rating - a.rating)
+    || ((a.driveMinutes ?? Infinity) - (b.driveMinutes ?? Infinity))
+    || a.name.localeCompare(b.name));
+  return rows.slice(0, Math.max(0, limit));
+}
+
+/**
+ * The region panel's stats line, as segments — `N of M at 4★+ · nearest <drive> · average N★`
+ * (map-landing-plan.md §3 L6 step 1).
+ *
+ * <p><b>Segments rather than one string</b>, for two reasons that are both already this file's
+ * rules. A `★` needs a hidden glyph and a spoken alternative beside it (NVDA at its default symbol
+ * level does not speak U+2605, so `4 of 9 at 4★+` announces as "4 of 9 at 4 plus"), which a flat
+ * string cannot carry. And an unmeasured drive must be OMITTED rather than dashed — CLAUDE.md's
+ * reach-honesty rule — so the separators are the caller's to place between whatever survives.
+ *
+ * <p>⚠️ <b>Taken off the window panel's OWN row</b>, never recounted here. The row the reader
+ * pressed carries `atFourPlus`, `placeCount`, `driveLabel` and `meanRating` already; a second count
+ * over the same pool is a second chance to answer differently about a region whose figures are on
+ * screen one press apart.
+ *
+ * <p>⚠️ <b>No "rated locations".</b> The prototype's copy is `N of M rated locations at 4★+`, which
+ * is literally the "N of M scored" the licensed-class rule bans by name — and our M counts PLACES
+ * in scope, not rows we hold a rating for, so the prototype's noun would be false about our own
+ * number as well as forbidden (map-landing-plan.md §4 #25).
+ *
+ * @param {?object} row one row from {@link buildPanelRegionRows}
+ * @returns {Array<{key: string, text: string, glyph: ?string, spoken: ?string}>}
+ */
+export function regionStatSegments(row) {
+  if (!row) return [];
+  const segments = [{
+    key: 'hits',
+    text: `${row.atFourPlus ?? 0} of ${row.placeCount ?? 0} at ${PANEL_STAR_FLOOR}`,
+    glyph: '★+',
+    spoken: ' stars or better',
+  }];
+  if (row.driveLabel) segments.push({ key: 'near', text: `nearest ${row.driveLabel}`, glyph: null, spoken: null });
+  const mean = finite(row.meanRating);
+  if (mean != null) {
+    segments.push({
+      key: 'mean',
+      // One decimal, and the trailing `.0` trimmed: `average 4★` reads as the figure it is, where
+      // `average 4.0★` implies a precision the roll-up does not have.
+      text: `average ${Number(mean.toFixed(1))}`,
+      glyph: '★',
+      spoken: ' stars',
+    });
+  }
+  return segments;
+}

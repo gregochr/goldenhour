@@ -12,6 +12,7 @@ import { verdictWord } from '../../utils/mapLabels.js';
 import { rampHex, rampRgb, rgb } from '../../utils/scoreRamp.js';
 import { eventInstantOf, lookupForWindow } from '../../utils/locationSheet.js';
 import { subjectWordsOf } from '../../utils/locationTypes.js';
+import TideWave from './TideWave.jsx';
 import { readableInkOn } from '../../utils/windowFirstSpots.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
 
@@ -532,15 +533,7 @@ export default function MapCallout({
           // existing bordered-tide-row look (`.wf-frow`'s border/background/kicker-ink), not the
           // design bundle's `.ctide` values verbatim (bundle rev 2's tide-chip tweak).
           <div className="wf-callout-tide" data-testid="map-callout-tide">
-            <svg viewBox="0 0 14 8" aria-hidden="true">
-              <path
-                d="M0.6 5.6C3 5.6 3 2.4 5.4 2.4S7.8 5.6 10.2 5.6 12.6 2.4 13.4 2.4"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-            </svg>
+            <TideWave />
             <span className="wf-callout-tide-text">
               <b>Tide lands on the light</b>
               {tideOnLight.phrase}

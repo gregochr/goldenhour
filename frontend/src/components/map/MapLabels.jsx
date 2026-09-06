@@ -13,6 +13,7 @@ import {
 } from '../../utils/mapLabels.js';
 import { formatDriveDuration } from '../../utils/briefingDisplay.js';
 import { rampHex } from '../../utils/scoreRamp.js';
+import TideWave from './TideWave.jsx';
 
 /**
  * The pane the label layer paints into, and its stacking order.
@@ -61,13 +62,17 @@ const OBSTACLE_SELECTOR = [
   // list cannot see it), so the reflow lands on the next one — a pre-existing property of every
   // transient obstacle in this list, not a new one.
   '[data-testid="wf-land"]',
-  // The window panel (map-landing-plan.md §3 L5). ⚠️ It needs its OWN entry despite nesting inside
-  // `wf-map-chrome-tl` — for the reason this list already states twice: an absolutely-positioned
-  // panel is out of flow, so the chrome wrapper's `getBoundingClientRect()` does not grow to cover
-  // it and only the panel's own rect does. Without this the obstacle stayed the ~504×40px window
-  // control while a panel several hundred pixels tall covered chips the placer believed were clear
-  // — and perversely, the obstacle SHRANK at the moment the panel replaced the menu.
+  // The drilldown's two levels (map-landing-plan.md §3 L5, L6). ⚠️ **Each needs its OWN entry**,
+  // and the first cut of this comment gave the wrong reason for it — it said the panel "nests
+  // inside `wf-map-chrome-tl`", which was true for about an hour: L5's review moved it out to
+  // frame level at z-index 1150 and the note did not follow. The standing reason is simpler and
+  // survives that move — a panel is its own absolutely-positioned element, several hundred pixels
+  // tall, and nothing else in this list has a rect that covers it. Without an entry the obstacle
+  // stayed the ~504×40px window control while the panel covered chips the placer believed were
+  // clear, and perversely SHRANK at the moment the panel replaced the menu. The two levels are
+  // mutually exclusive, so at most one of these ever matches.
   '[data-testid="wf-win-panel"]',
+  '[data-testid="wf-reg-panel"]',
   '[data-testid="colour-scale-notice"]',
   '[data-testid="viewline-upsell-chip"]',
   '[data-testid="photocast-scored-legend"]',
@@ -533,20 +538,7 @@ export default function MapLabels({
             {onTheLight && (
               // A glyph, not a second number (bundle rev 2's tide-chip tweak) — this window's
               // tide lands on the light here. The path is the design bundle's TIDEGLYPH verbatim.
-              <svg
-                className="wf-maplab-chip-tw"
-                viewBox="0 0 14 8"
-                aria-hidden="true"
-                data-testid="map-label-chip-tide"
-              >
-                <path
-                  d="M0.6 5.6C3 5.6 3 2.4 5.4 2.4S7.8 5.6 10.2 5.6 12.6 2.4 13.4 2.4"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                />
-              </svg>
+              <TideWave className="wf-maplab-chip-tw" testId="map-label-chip-tide" />
             )}
             {hasRating && <em className="wf-maplab-chip-r">{spot.rating}★</em>}
           </button>

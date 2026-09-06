@@ -323,6 +323,10 @@ export default function WindowFirstMapPane({
           // Cornwall. If the line ever names a region it must be `win.pick.regionName`, the pick's
           // own, which `buildHeatStripCards` currently drops.
           pickKind: card.pickKind,
+          // The region the pick NAMES (map-landing-plan.md §3 L6). The pill and the window panel
+          // need only the kind — their subject is the window — but the region panel's header is
+          // about one region, and a medallion there has to know whether it is that one.
+          pickRegion: card.pickRegion,
           // ⚠️ **The verdict is NOT forwarded, and that is the phase's central decision.**
           // `card.verdict` is the Plan tab's answer: the whole roster's top region (or the origin's
           // region when planning from one). The MAP's verdict has to move with the map's own scope

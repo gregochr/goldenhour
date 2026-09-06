@@ -45,13 +45,11 @@ const OBSTACLE_SELECTOR = [
   // list cannot see it), so the reflow lands on the next one — a pre-existing property of every
   // transient obstacle in this list, not a new one.
   '[data-testid="wf-land"]',
-  // The window panel (map-landing-plan.md §3 L5). ⚠️ It needs its OWN entry despite nesting inside
-  // `wf-map-chrome-tl` — for the reason this list already states twice: an absolutely-positioned
-  // panel is out of flow, so the chrome wrapper's `getBoundingClientRect()` does not grow to cover
-  // it and only the panel's own rect does. Without this the obstacle stayed the ~504×40px window
-  // control while a panel several hundred pixels tall covered chips the placer believed were clear
-  // — and perversely, the obstacle SHRANK at the moment the panel replaced the menu.
+  // The drilldown's two levels (map-landing-plan.md §3 L5, L6) — see `MapLabels.jsx`'s copy of
+  // this list for why each needs its own entry, and for the stale reason that comment used to
+  // give. The two levels are mutually exclusive, so at most one ever matches.
   '[data-testid="wf-win-panel"]',
+  '[data-testid="wf-reg-panel"]',
   '[data-testid="colour-scale-notice"]',
   '[data-testid="viewline-upsell-chip"]',
   '[data-testid="photocast-scored-legend"]',

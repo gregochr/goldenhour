@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 import { VERDICT_LABEL, eventWord } from '../../utils/windowFirstCards.js';
@@ -34,10 +34,22 @@ import { PICK_TEXT } from './WindowControl.jsx';
  * above the card for the same reason the menu does, with no z-index of its own to keep in step.
  */
 export default function MapWindowPanel({
-  row, verdict, note, rows, scopeIsArea = true, onClose, onSelectRegion = null,
+  row, verdict, note, rows, scopeIsArea = true, onClose, onSelectRegion, focusRegion = null,
 }) {
   const rootRef = useRef(null);
+  const returnRef = useRef(null);
   useOutsideDismiss({ open: true, rootRef, onDismiss: onClose });
+
+  // ⚠️ **Returning from the level below, focus goes back to the row that opened it.** The region
+  // panel replaces this one, so its back arrow destroys itself on the way here and focus would fall
+  // to `<body>` — where neither this panel's subtree handler nor `MapView`'s pane-level one is on
+  // the dispatch path, leaving `Escape` inert. Returning focus to the invoking control is also the
+  // standard behaviour for closing a layer. `focusRegion` is null on a FRESH open, where
+  // `WindowControl`'s entry row has already put focus on the pill: this must not steal it, because
+  // the reader has not pressed a row yet and the pill is where they came from.
+  useEffect(() => {
+    if (focusRegion) (returnRef.current ?? rootRef.current)?.focus();
+  }, [focusRegion]);
 
   function onKeyDown(e) {
     if (e.key !== 'Escape') return;
@@ -64,10 +76,12 @@ export default function MapWindowPanel({
     // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions
     <div
       ref={rootRef}
-      id="wf-win-panel"
       data-testid="wf-win-panel"
       className="wf-win-panel"
       role="dialog"
+      // Focusable programmatically, never a tab stop — the fallback target when the row a reader
+      // stepped back from is no longer in the list.
+      tabIndex={-1}
       aria-label={`${row?.label ?? 'This window'}, region by region`}
       onKeyDown={onKeyDown}
     >
@@ -84,7 +98,10 @@ export default function MapWindowPanel({
                 <span className="wf-land-pick" data-pick={row.pickKind} data-testid="wf-win-panel-pick">
                   <i aria-hidden="true" className="wf-land-pick-glyph">{pick.glyph}</i>
                   {' '}
-                  <span>{pick.words}</span>
+                  {/* The ≤400px escape hatch, missed at L5 and added with the region panel's — the
+                      medallion's other two mounts (`MapLandingCard`, `WindowControl`) both carry it,
+                      and two of three would have been the odd behaviour to explain. */}
+                  <span className="wf-land-pick-words">{pick.words}</span>
                 </span>
               </>
             )}
@@ -113,21 +130,22 @@ export default function MapWindowPanel({
       <p className="wf-win-panel-note" data-testid="wf-win-panel-note">{note}</p>
 
       <div className="wf-win-panel-rows">
-        {rows.map((region) => {
-          // ⚠️ **A div, never a disabled button** — CLAUDE.md's own matrix rule ("a travel day is a
-          // div, never a button"). L6 turns these into the region panel; until then there is nothing
-          // to press, and `disabled` would announce them as *unavailable*, which is a claim about
-          // these regions that is false — the feature is unbuilt, the regions are fine. It also took
-          // every row out of the tab order, leaving the ✕ as the panel's only stop.
-          const Row = onSelectRegion ? 'button' : 'div';
-          return (
-            <Row
-              key={region.name}
-              {...(onSelectRegion ? { type: 'button', onClick: () => onSelectRegion(region) } : {})}
-              data-testid="wf-win-panel-row"
-              data-region={region.name}
-              className="wf-win-panel-row"
-            >
+        {rows.map((region) => (
+          // ⚠️ **A real button, and never a `disabled` one** — CLAUDE.md's matrix rule ("a travel
+          // day is a div, never a button"). L5 shipped these as DIVS because the level below was
+          // unbuilt; L6 built it, `onSelectRegion` is now required, and a review lens caught the
+          // ternary that used to choose between them still standing with a dead arm and a comment
+          // saying "until then".
+          <button
+            type="button"
+            key={region.name}
+            ref={region.name === focusRegion ? returnRef : null}
+            onClick={() => onSelectRegion(region)}
+            aria-haspopup="dialog"
+            data-testid="wf-win-panel-row"
+            data-region={region.name}
+            className="wf-win-panel-row"
+          >
             <span className="wf-win-panel-name">{region.name}</span>
             {' '}
             <span className="wf-win-panel-stat" data-testid="wf-win-panel-stat">
@@ -147,12 +165,16 @@ export default function MapWindowPanel({
             {' '}
             <span
               className="wf-win-panel-word"
-              data-tier={region.verdictLabel ? region.tier : undefined}
+              data-tier={region.tier}
               data-testid="wf-win-panel-word"
             >
-              {/* An em dash for a night window: astro and aurora carry no per-region rollup at all,
-                  and borrowing a solar word for one would invent a verdict. */}
-              {region.verdictLabel ?? '—'}
+              {/* ⚠️ **No em-dash arm.** The spec draws one for a night window, and this used to carry
+                  `?? '—'` for it — dead twice over, as a review lens measured: `buildPanelRegionRows`
+                  sets `verdictLabel` from `VERDICT_LABEL[tier] || VERDICT_LABEL.AWAITING`, which is
+                  never nullish, AND a night window yields no rows at all (§4 #27, O-16). It is gone
+                  for the same reason the sibling `isSolar` branch was — scenery is worse than a gap,
+                  because it implies a state somebody has thought about. */}
+              {region.verdictLabel}
             </span>
             {' '}
             <span className="wf-win-panel-best" data-testid="wf-win-panel-best">
@@ -173,9 +195,8 @@ export default function MapWindowPanel({
                 </>
               )}
             </span>
-            </Row>
-          );
-        })}
+          </button>
+        ))}
       </div>
 
       {rows.length === 0 && (
@@ -223,6 +244,11 @@ MapWindowPanel.propTypes = {
   })).isRequired,
   scopeIsArea: PropTypes.bool,
   onClose: PropTypes.func.isRequired,
-  /** L6's route into the region panel. Absent until then, which makes the rows inert. */
-  onSelectRegion: PropTypes.func,
+  /** Opens the region panel — required since L6 built it; the rows are its only entry. */
+  onSelectRegion: PropTypes.func.isRequired,
+  /**
+   * The region whose row to return focus to, when this panel is re-entered from that region's own
+   * panel. Null on a fresh open, where `WindowControl` has already focused the pill.
+   */
+  focusRegion: PropTypes.string,
 };

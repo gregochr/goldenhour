@@ -36,6 +36,7 @@ const REGIONS = [
 
 function renderPanel(props = {}) {
   const onClose = vi.fn();
+  const onSelectRegion = vi.fn();
   const result = render(
     <MapWindowPanel
       row={ROW}
@@ -43,10 +44,11 @@ function renderPanel(props = {}) {
       note="Verdict is the strongest region’s average."
       rows={REGIONS}
       onClose={onClose}
+      onSelectRegion={onSelectRegion}
       {...props}
     />,
   );
-  return { ...result, onClose };
+  return { ...result, onClose, onSelectRegion };
 }
 
 describe('MapWindowPanel — the header', () => {
@@ -128,26 +130,55 @@ describe('MapWindowPanel — the region rows', () => {
       .toBeInTheDocument();
   });
 
-  it('⚠️ rows are a DIV until L6 gives them somewhere to go — never a disabled button', () => {
-    // CLAUDE.md's own matrix rule ("a travel day is a div, never a button"). `disabled` announced
-    // them as *unavailable*, a claim about these regions that is false — the feature is unbuilt —
-    // and took every row out of the tab order, leaving the ✕ as the panel's only stop.
-    renderPanel();
-
-    const rows = screen.getAllByTestId('wf-win-panel-row');
-    expect(rows[0].tagName).toBe('DIV');
-    expect(screen.queryAllByRole('button', { name: /The Lakes/ })).toHaveLength(0);
-  });
-
-  it('...and a BUTTON, named for its region, once it does', () => {
-    const onSelectRegion = vi.fn();
-    renderPanel({ onSelectRegion });
+  /**
+   * ⚠️ L5 shipped these as DIVS, because the level below was unbuilt and a `disabled` button would
+   * have announced the regions as *unavailable* — a claim about the regions that was false. L6 built
+   * the level, so `onSelectRegion` is required and they are real buttons; a review lens caught the
+   * ternary that chose between them still standing with a dead arm.
+   */
+  it('rows are BUTTONS, named for their region, and open that region', () => {
+    const { onSelectRegion } = renderPanel();
 
     const row = screen.getByRole('button', { name: /The Lakes.*Worth it/ });
+    expect(row.tagName).toBe('BUTTON');
     expect(row).toHaveAttribute('data-region', 'The Lakes');
+    // The app's own convention for a control that opens a dialog — `RegionsJump`, `FiltersPopover`
+    // and `WindowFirstHeatStrip` all carry it, and this one opens `MapRegionPanel`.
+    expect(row).toHaveAttribute('aria-haspopup', 'dialog');
     fireEvent.click(row);
 
     expect(onSelectRegion).toHaveBeenCalledWith(expect.objectContaining({ name: 'The Lakes' }));
+  });
+
+  /**
+   * ⚠️ **Focus, and it is what makes `Escape` reachable at all.** Returning from the region panel
+   * unmounts its back arrow, so without a target focus falls to `<body>` — outside the React
+   * subtree `MapView`'s pane-level key handler is bound to. The row the reader stepped in from is
+   * both the correct place to land and inside the pane.
+   */
+  it('returns focus to the row a reader stepped back from', () => {
+    renderPanel({ focusRegion: 'North East' });
+
+    expect(document.activeElement).toBe(
+      screen.getAllByTestId('wf-win-panel-row').find((r) => r.getAttribute('data-region') === 'North East'),
+    );
+  });
+
+  it('...falls back to the panel itself when that row is no longer in the list', () => {
+    renderPanel({ focusRegion: 'Somewhere Else' });
+
+    expect(document.activeElement).toBe(screen.getByTestId('wf-win-panel'));
+  });
+
+  it('⚠️ takes NO focus on a fresh open — the pill already has it, and this must not steal it', () => {
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    outside.focus();
+
+    renderPanel();
+
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
   });
 
   it('says why it is empty rather than rendering a blank panel', () => {

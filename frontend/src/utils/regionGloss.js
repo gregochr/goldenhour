@@ -60,7 +60,25 @@ export function buildRegionGlossIndex(days) {
  * @returns {?string} the gloss prose, or null
  */
 export function regionGlossFor(index, date, eventType, regionName) {
-  if (!index || !regionName) return null;
-  const entry = index.get(`${date}|${eventType}|${regionName}`);
+  const entry = regionGlossEntry(index, date, eventType, regionName);
   return entry ? (entry.detail || entry.headline || null) : null;
+}
+
+/**
+ * The same lookup, unflattened — BOTH halves of one region's gloss for one window.
+ *
+ * <p>{@link regionGlossFor} above answers for surfaces with room for one sentence (the callout's
+ * clamped prose, the sheet's fallback). The Map tab's region panel has room for the pair and the
+ * design asks for it, so it reads the entry rather than the collapse — through this rather than by
+ * indexing the map itself, because the composite key belongs in the module that writes it.
+ *
+ * @param {?Map} index    from {@link buildRegionGlossIndex}
+ * @param {string} date
+ * @param {string} eventType SUNRISE or SUNSET
+ * @param {?string} regionName
+ * @returns {?{headline: ?string, detail: ?string}} the entry, or null
+ */
+export function regionGlossEntry(index, date, eventType, regionName) {
+  if (!index || !regionName) return null;
+  return index.get(`${date}|${eventType}|${regionName}`) ?? null;
 }

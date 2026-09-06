@@ -216,4 +216,4 @@ export { filterCalloutTopics } from './windowFirstTopics.js';
  * importing THIS module would close a cycle. The implementation lives in `utils/regionGloss.js`;
  * these re-exports keep the callout arm's own vocabulary and its existing importers intact.
  */
-export { buildRegionGlossIndex, regionGlossFor } from './regionGloss.js';
+export { buildRegionGlossIndex, regionGlossEntry, regionGlossFor } from './regionGloss.js';

@@ -142,6 +142,45 @@ describe('buildPanelRegionRows', () => {
     expect(rows.find((r) => r.name === 'The Borders')).toMatchObject({ driveMinutes: null, driveLabel: null });
   });
 
+  /**
+   * ⚠️ **A place this window could never rate is not in the denominator, and two review lenses
+   * found independently that it was.** `buildHeatSpots` KEEPS a non-sky location — a wildlife hide,
+   * a waterfall — as a spot and withholds only its scores (`skySubject` records why), so it sat in
+   * M and could never, by construction, reach N. A region with two sky locations (one at 4★+) and
+   * two hides read `1 of 4`, understating every wood-bearing region uniformly. That is the mirror
+   * image of the "N of M scored" phrasing the plan bans: not a denominator of rows-we-scored, but
+   * one holding places the question does not apply to.
+   */
+  it('⚠️ counts only places this window COULD rate — a non-sky location is in neither half', () => {
+    const withHides = [
+      ...SPOTS,
+      { id: 8, regionName: 'The Lakes', skySubject: false },
+      { id: 9, regionName: 'The Lakes', skySubject: false },
+    ];
+
+    const rows = build({ spots: withHides });
+
+    expect(rows.find((r) => r.name === 'The Lakes')).toMatchObject({ placeCount: 2, atFourPlus: 1 });
+  });
+
+  /** The same filter feeds NEAREST: a 5-minute hide is not the nearest answer to a sky question. */
+  it('...and the nearest drive is the nearest SCOREABLE place, not the nearest place', () => {
+    const withHides = [...SPOTS, { id: 8, regionName: 'The Lakes', skySubject: false }];
+    const drive = new Map([...DRIVE, [8, { driveMinutes: 5 }]]);
+
+    const rows = build({ spots: withHides, driveMap: drive });
+
+    expect(rows.find((r) => r.name === 'The Lakes')).toMatchObject({ driveMinutes: 95 });
+  });
+
+  /** A spot shape with no `skySubject` at all keeps counting — an unknown shape must not empty a
+   *  region, and every spot `buildHeatSpots` emits carries the field. */
+  it('counts a spot that carries no sky-subject flag at all', () => {
+    const rows = build({ spots: [...SPOTS, { id: 8, regionName: 'The Lakes' }] });
+
+    expect(rows.find((r) => r.name === 'The Lakes').placeCount).toBe(3);
+  });
+
   it('narrows to the reader\'s scope — a region outside it has no row', () => {
     const rows = build({ regionsInScope: ['The Lakes', 'North East'] });
 

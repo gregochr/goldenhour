@@ -375,6 +375,33 @@ describe('the real chain — WindowFirstMapPane → MapView → MapLabels → Ma
     expect(await screen.findByTestId('map-selection-ring')).toBeInTheDocument();
   });
 
+  /**
+   * ⚠️ **The peek route must not close a popover it has nothing to do with**, and L6 briefly made it
+   * do exactly that. `handleOpenLocationSheet` gained an unconditional `setOpenMapMenu(null)` for
+   * the region panel's own close-then-move ordering — but `openMapMenu` holds five values, and the
+   * callout's `Four days here ›` is one of that handler's two OTHER callers. A review lens caught
+   * it; the comment defending it ("a setState to the value already held is a no-op") was true only
+   * of the value it had been tested with. This file is the only harness where the real callout
+   * mounts, which is why the test lives here rather than beside the panel's own.
+   */
+  it('⚠️ the callout\'s sheet route leaves an open Filters popover alone', async () => {
+    const onOpenLocationSheet = vi.fn();
+    await renderPane({ onOpenLocationSheet });
+    const chip = await screen.findByRole('button', { name: new RegExp(SPOT_NAME) });
+    await act(async () => { fireEvent.click(chip); });
+    await screen.findByTestId('map-callout');
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-filters-chip')); });
+    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
+
+    // The actions row's `Open in Plan` rather than the clamped prose's `Four days here ›`: this
+    // fixture carries no prose, so that button does not mount — but BOTH are the same handler, and
+    // the popover close is what is under test rather than the flag.
+    await act(async () => { fireEvent.click(screen.getByTestId('map-callout-open-in-plan')); });
+
+    expect(onOpenLocationSheet).toHaveBeenCalledWith(expect.objectContaining({ inPlan: true }));
+    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
+  });
+
   it('never mounts a Leaflet Popup for the click — the callout is the tab\'s only selection surface', async () => {
     await renderPane();
     const chip = await screen.findByRole('button', { name: new RegExp(SPOT_NAME) });

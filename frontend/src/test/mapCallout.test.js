@@ -14,7 +14,7 @@ import { describe, it, expect } from 'vitest';
 import {
   anchorCallout, buildRegionGlossIndex, calloutBand, calloutFacts, calloutLeaveBy,
   CALLOUT_GAP, CALLOUT_MARGIN, CALLOUT_MIN_BAND, filterCalloutTopics, isCoastalTidalLocation,
-  regionGlossFor,
+  regionGlossEntry, regionGlossFor,
 } from '../utils/mapCallout.js';
 
 describe('calloutBand', () => {
@@ -391,6 +391,30 @@ describe('buildRegionGlossIndex / regionGlossFor', () => {
     expect(regionGlossFor(null, '2026-06-15', 'SUNSET', 'Northumberland')).toBeNull();
     expect(buildRegionGlossIndex(undefined).size).toBe(0);
     expect(buildRegionGlossIndex([{ date: null }]).size).toBe(0);
+  });
+
+  /**
+   * `regionGlossEntry` — the UNFLATTENED lookup (map-landing-plan.md §3 L6). The Map tab's region
+   * panel has room for both halves and the design asks for both; `regionGlossFor` above delegates
+   * to it, so the composite key lives in the module that writes it rather than in a caller.
+   */
+  it('answers with BOTH halves where the collapse above keeps one', () => {
+    const index = buildRegionGlossIndex(daysFixture());
+
+    expect(regionGlossEntry(index, '2026-06-15', 'SUNSET', 'Northumberland')).toEqual({
+      headline: 'Clear skies inland',
+      detail: 'A calm evening with light cloud burning off by dusk.',
+    });
+  });
+
+  it('...and is keyed on the window AND the region, degrading to null on either miss', () => {
+    const index = buildRegionGlossIndex(daysFixture());
+
+    expect(regionGlossEntry(index, '2026-06-15', 'SUNRISE', 'Northumberland')).toBeNull();
+    expect(regionGlossEntry(index, '2026-06-16', 'SUNSET', 'Northumberland')).toBeNull();
+    expect(regionGlossEntry(index, '2026-06-15', 'SUNSET', 'Nowhere')).toBeNull();
+    expect(regionGlossEntry(null, '2026-06-15', 'SUNSET', 'Northumberland')).toBeNull();
+    expect(regionGlossEntry(index, '2026-06-15', 'SUNSET', null)).toBeNull();
   });
 
   it('⚠️ builds from region.regionName specifically — a region.name fixture must index nothing (pre-existing P9 bug, fixed at map-tab-v2-plan.md §3 P11)', () => {

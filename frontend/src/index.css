@@ -4331,6 +4331,8 @@ button.wf-hc.also.on:hover {
 .wf-win-panel-x { grid-column: 3; }
 .wf-win-panel-verdict {
   align-self: center;
+  /* The base ink for an absent or unrecognised tier — see the AWAITING rule below for why. */
+  color: rgba(242, 231, 211, 0.52);
   font-family: var(--font-mono);
   font-size: 10px;
   font-weight: 700;
@@ -4343,7 +4345,13 @@ button.wf-hc.also.on:hover {
 .wf-win-panel-verdict[data-tier="MAYBE"] { color: var(--color-badge-maybe); }
 .wf-win-panel-verdict[data-tier="STAND_DOWN"] { color: var(--color-badge-poor); }
 /* Not scored is not a verdict. Without this it inherited `--color-plex-text` and measured 14.45:1 —
-   the brightest thing on the panel — against 9.5:1 for a real "Worth it". */
+   the brightest thing on the panel — against 9.5:1 for a real "Worth it". ⚠️ The BASE literal below
+   is the same rule for an absent or unrecognised tier, which the four attribute selectors cannot
+   reach: `data-tier` is optional on both panels' PropTypes, and without a base the fallback word
+   rendered at that same 14.45:1. `.wf-win-panel-word` has carried its base literal since L5; this
+   sibling did not, and a review lens measured the gap when L6 mounted the chip a second time. It
+   lives on the base block above; every `[data-tier]` rule out-specifies it (0,2,0 vs 0,1,0), so the
+   four real tiers are unaffected wherever it sits. */
 .wf-win-panel-verdict[data-tier="AWAITING"] { color: rgba(242, 231, 211, 0.52); }
 .wf-win-panel-note {
   margin: 0;
@@ -4457,6 +4465,158 @@ button.wf-hc.also.on:hover {
   outline: 2px solid var(--color-plex-gold);
   outline-offset: -2px;
 }
+
+/* ── The drilldown's second level: one region (map-landing-plan.md §3 L6) ──────────────────────
+   It REUSES `.wf-win-panel`'s frame verbatim — same box, same 1150, same phone release — because
+   the two levels are one panel with a back arrow, not two surfaces. Only what the extra column and
+   the two extra blocks need is written here.
+
+   ⚠️ **Both of the rules below override a `grid-column` that the level above encodes, and that is
+   the L5 blocking defect repeating itself if they are omitted.** `.wf-land-x`'s `grid-column: 2`
+   was written for the landing card's TWO-column head and seated the ✕ in the middle of the window
+   panel's THREE-column one; this head has FOUR (back, title, verdict, ✕) and the row grid has TWO
+   rather than three. A track count is part of a rule's contract with its own head — every one of
+   these three heads needs its own placement, and inheriting one is how the ✕ lands in the middle
+   again. Measured in Chromium at twelve widths, not reasoned about. */
+.wf-reg-panel-head { grid-template-columns: auto 1fr auto auto; }
+/* ⚠️ **THREE declarations, not one, and the first cut overrode only `grid-column`.** `.wf-land-x`
+   carries `grid-column: 2`, `grid-row: 1 / span 2` and `align-self: start` — written together for
+   the landing card's two-column head. Overriding the column alone left the row span and the
+   alignment in force, so the ✕ sat start-aligned across a phantom second row while `.wf-reg-back`
+   was centred in the first: measured 7.9px apart at desktop widths and **25.1px** at 320, with the
+   ✕ pinned to the top of a 77px head and the ← beside the meta line. Borrowing a rule borrows all
+   of its assumptions, not the one you remember — which is the same lesson as the L5 defect, on the
+   axis nobody re-checked. `grid-row: 1` also removes the phantom implicit row the span created. */
+.wf-reg-panel-x {
+  grid-column: 4;
+  grid-row: 1;
+  align-self: start;
+}
+.wf-reg-back {
+  grid-column: 1;
+  /* `start`, matching the ✕ above — the two are the head's outer controls and must sit on one
+     line as the title below them wraps to three or four. */
+  align-self: start;
+  /* 24px square and a 6px radius, matching `.wf-land-x`'s own box exactly: a back arrow that is
+     easier or harder to hit than the close is a tap-target accident, and a 5px radius beside a 6px
+     one is a difference nobody chose. */
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 14px;
+  line-height: 1;
+  color: var(--color-plex-text-secondary);
+}
+/* 0.05, the file's own hover plate — `.wf-win-panel-row:hover` uses it 120 lines up, and 0.06 was
+   the only use of that alpha anywhere. */
+.wf-reg-back:hover { color: var(--color-plex-text); background: rgba(255, 255, 255, 0.05); }
+
+/* Two columns, not the window panel's three: a location row has no verdict word of its own — a
+   verdict is a claim about a region, and a per-location one would be `mapLabels.verdictWord`'s
+   3.7/2.8, which §4 #4 refuses for exactly this reason. The stars column keeps the level above's
+   78px so the right-hand edge does not shift as the reader steps in and back out. */
+.wf-reg-row { grid-template-columns: minmax(0, 1fr) 78px; }
+/* ⚠️ The last row's `border-bottom` met `.wf-reg-gloss`'s and `.wf-reg-actions`' `border-top` at
+   the same y, painting a 2px rule where every other separator on the panel is 1px — pixel-sampled
+   in Chromium, and visible in both branches (with a gloss and without). It could not happen at L5,
+   where the rows were the panel's last block. */
+.wf-reg-panel .wf-win-panel-rows > :last-child { border-bottom: none; }
+.wf-reg-stars { grid-column: 2; }
+/* The wave sits INSIDE the name cell, which is `nowrap` + `text-overflow: ellipsis` — so it is
+   inline-block rather than the `flex: none` the bundle gives it, and a long name ellipses through
+   the glyph rather than the glyph being pushed out of the box. `--color-tide` is this app's
+   objective-tide channel (`.wf-maplab-chip-tw` reads the same token). */
+.wf-reg-tide {
+  display: inline-block;
+  width: 14px;
+  height: 8px;
+  color: var(--color-tide);
+}
+/* The region's served narrative. Serif italic is this app's prose voice on the map — the callout's
+   own `.wf-callout-reason` — so the one piece of real writing on either panel does not arrive in
+   the mono the figures are set in. */
+.wf-reg-gloss {
+  margin: 0;
+  padding: 10px 12px;
+  border-top: 1px solid var(--color-plex-border);
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--color-plex-text-secondary);
+  text-wrap: pretty;
+}
+/* ⚠️ The app's own action row (`.wf-callout-actions`), NOT the bundle's teal-on-teal and
+   gold-on-gold fills. Two reasons, both recorded rather than assumed: this bundle already shipped a
+   1.24:1 CTA once, and the map's other card of actions is twenty pixels away — a second visual
+   language for "press this" on one map is a worse trade than a primary that is merely brighter.
+   The primary is weight and ink, no fill. */
+/* ⚠️ **`wrap`, and the two flex bases are measured rather than chosen.** The design gives both
+   buttons `flex: 1` and lets the second ellipse — but the second one's whole content is a location
+   NAME, and printing it in FULL is the one thing this phase's spec says twice ("Four days at
+   Infinity" and "Four days at Scott's" are not places). Measured in Chromium at fourteen widths
+   with the roster's longest realistic name: an even split clipped it at 768, 700, 430, 390, 375 and
+   320. With `2 1 240px` against `1 1 150px` the row splits while both bases fit and drops the
+   long button onto its own full-width line below that — clipping only where no layout could help.
+   The ellipsis and the `title` stay as the backstop, because a name has no upper bound. */
+.wf-reg-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 9px 12px;
+  border-top: 1px solid var(--color-plex-border);
+  /* ⚠️ **Sticky, because the panel is a capped scroller and this is its only navigation.** Measured
+     with 180px of chrome above the frame: on an iPhone SE the panel caps at 293px and the actions
+     sat 163px below the fold, on a 320×568 device 282px below, and a landscape phone 275px — with
+     an overlay scrollbar giving no standing cue that anything was down there. L5 had no footer, so
+     this is the first level where that could happen. The plate is composited over an OPAQUE base
+     rather than left translucent: a sticky footer over its own scrolling rows would otherwise show
+     them through it. 0.24 is `.wf-land-foot`'s plate, and the two footers can be on screen at once. */
+  position: sticky;
+  bottom: 0;
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.24), rgba(0, 0, 0, 0.24)),
+    var(--color-plex-panel);
+}
+.wf-reg-action {
+  flex: 1 1 150px;
+  min-width: 150px;
+  /* 30px, `.wf-callout-actions button`'s own — the rule this one takes its background, ink and
+     border from, and which the cascade test pins it against. 32px was an unsourced number from the
+     design bundle sitting inside a claim of parity with a 30px neighbour. It stays above the 24px
+     WCAG 2.5.8 floor either way. */
+  min-height: 30px;
+  padding: 6px 8px;
+  border: 1px solid var(--color-plex-border);
+  border-radius: 999px;
+  background: var(--color-plex-surface);
+  color: var(--color-plex-text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  /* The full location name can be long ("Four days at Bamburgh Castle Beach"); it ellipses rather
+     than wrapping the row to two lines, and the button carries the whole name in `title`. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-reg-action:hover,
+.wf-reg-action:focus-visible {
+  color: var(--color-plex-text);
+  border-color: var(--color-plex-border-light);
+}
+.wf-reg-action-primary {
+  color: var(--color-plex-text);
+  font-weight: 600;
+  border-color: var(--color-plex-border-light);
+}
+/* The long one takes the slack, and forces the wrap when it cannot have 240px. */
+.wf-reg-action-wide { flex: 2 1 240px; }
 
 /* ⚠️ The phone release, which `.wf-win-menu`'s own rule calls load-bearing and the first cut of this
    panel omitted: the base `max-width` survives `width: auto` untouched, so the panel measured

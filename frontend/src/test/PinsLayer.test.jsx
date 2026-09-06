@@ -435,11 +435,18 @@ describe('PinsLayer — the home marker', () => {
   // never mount together, so the entry is repeated rather than imported — see that constant's own
   // class doc), and needs its own obstacle test for the identical reason `wf-win-menu`/
   // `wf-filters-panel` do: it overflows its trigger chip's own layout box.
-  it('seeds the Regions jump menu as an obstacle too (P11)', async () => {
+  // ⚠️ The drilldown's two levels (map-landing-plan.md §3 L5/L6) join it: a review lens measured
+  // that deleting both entries from this list left every spec in this file green, so a pin could be
+  // placed under a several-hundred-pixel panel with nothing failing.
+  it.each([
+    ['the Regions jump menu (P11)', 'wf-jump-menu'],
+    ['the window panel', 'wf-win-panel'],
+    ['the region panel', 'wf-reg-panel'],
+  ])('seeds %s as an obstacle too', async (_label, testid) => {
     restoreMeasure = withMeasuredLabels(30, 14);
     currentMap = makeFullMap({ zoom: 9 });
     const chrome = document.createElement('div');
-    chrome.setAttribute('data-testid', 'wf-jump-menu');
+    chrome.setAttribute('data-testid', testid);
     currentMap.wrap.appendChild(chrome);
     vi.spyOn(currentMap.container, 'getBoundingClientRect').mockReturnValue({
       left: 0, top: 0, width: 800, height: 500,
