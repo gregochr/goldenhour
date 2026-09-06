@@ -170,14 +170,22 @@ describe('MapWindowPanel — the region rows', () => {
     expect(document.activeElement).toBe(screen.getByTestId('wf-win-panel'));
   });
 
-  it('⚠️ takes NO focus on a fresh open — the pill already has it, and this must not steal it', () => {
+  /**
+   * ⚠️ **This asserted the OPPOSITE until the PR review, and the old rule was wrong.** L5 had
+   * `WindowControl`'s entry row focus the PILL and this panel take nothing — a fix for the same
+   * `<body>`-focus problem, but one that leaves focus OUTSIDE a `role="dialog"` that has just
+   * appeared, so a screen reader announces nothing and the press reads as a no-op on the only route
+   * into the feature. `MapRegionPanel` diagnoses and fixes exactly that one level down; a lens
+   * pointed out that L6 established the rule and did not carry it back up.
+   */
+  it('takes focus itself on a fresh open, so the dialog is announced', () => {
     const outside = document.createElement('button');
     document.body.appendChild(outside);
     outside.focus();
 
     renderPanel();
 
-    expect(document.activeElement).toBe(outside);
+    expect(document.activeElement).toBe(screen.getByTestId('wf-win-panel'));
     outside.remove();
   });
 

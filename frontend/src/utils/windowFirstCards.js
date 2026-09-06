@@ -4,6 +4,7 @@ import { gateSpotsByRating } from './ratingLens.js';
 import { buildWindowSpots } from './windowFirstSpots.js';
 import { buildWindowRows } from './windowFirstRows.js';
 import { gateSpotsByOrigin } from './planOrigin.js';
+import { resolveRegionDisplay } from './tierUtils.js';
 
 /**
  * The window-card descriptors — one per rendered solar window.
@@ -414,7 +415,16 @@ export function buildWindowCards(
     const scopedRegion = originRegion(es, origin);
     // A scoped region with no served verdict is AWAITING, not the window's: falling back to the
     // roster's word would put "Worth it" on a card about a region nothing was said about.
-    const verdictSource = scopedRegion ? (scopedRegion.displayVerdict || 'AWAITING') : null;
+    //
+    // ⚠️ **Through `resolveRegionDisplay`, not the raw field** — map-landing-plan.md §3 L5 step 6b
+    // asked for BOTH raw readers to converge on the helper and only `windowFirstRegions` moved,
+    // which left the two disagreeing where before they had at least agreed by both being raw. The
+    // helper prefers the served `displayVerdict` and MAPS the legacy triage `verdict` where the
+    // cached payload carries only that; reading raw here dropped to `AWAITING` while the region rail
+    // beside it — built by `buildRegionRows`, converged at L5 — said `Worth it`. Both render in one
+    // `WindowSheetDialog`, the card's word at its head and the rail under it. Found by the
+    // cross-phase review on #792 (§4 #39).
+    const verdictSource = scopedRegion ? resolveRegionDisplay(scopedRegion) : null;
     const verdict = verdictSource || win?.verdict || 'AWAITING';
 
     // The attribute rows — the tide row, and whatever channel joins it next. Since M2 no topic is

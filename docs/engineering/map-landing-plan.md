@@ -905,6 +905,45 @@ should challenge these **in review**, not silently "fix" them in code.
    windows it asserts on. Both halves are mutation-checked: blanking the neighbours still fails that
    spec, and removing the `served` gate still fails the new one.
 
+39. **The `resolveRegionDisplay` convergence L5 claimed as done went HALF way, and the half was worse
+   than neither.** Step 6b named two raw `displayVerdict` readers and said "converge both"; only
+   `windowFirstRegions` moved, and L5's phase-log row nonetheless claims "both convergences step 6
+   asked for are done". Before the phase they at least AGREED by both being raw — so the partial fix
+   is what created the disagreement. On a legacy `daily_briefing_cache` payload (a triage `verdict`,
+   no `displayVerdict`) `buildWindowCards` said `Not scored` while `buildRegionRows` said `Worth it`,
+   and both render inside one `WindowSheetDialog` — the card's word at its head, the rail beneath it.
+   ⚠️ This is a PLAN-TAB regression introduced by a map phase, which is why no map review saw it.
+   Converged and pinned on the legacy shape, the only input on which the two can differ.
+40. **Two routes destroy their own trigger and now hand focus to the pill; the ✕ and the sheet
+   handoff.** Both stranded it on `<body>` — measured in Chromium and WebKit by two PR-review lenses
+   independently, each against a control whose trigger survives. The sheet case is the worse one: it
+   closes the panel in the same commit the sheet mounts, so `useDialogFocus` records `<body>` as the
+   thing to restore to and **the peek cannot be backed out of** — which is the entire point of the
+   route, and which `MapView`'s own comment claimed it shared with the callout's. `MapCallout`
+   focuses its own trigger first and can, because its button survives; these cannot, so
+   `WindowControl` now accepts a `pillRef` and they focus the survivor instead.
+41. **The landing card and the drilldown arrived TOGETHER, and the panel buried the card.** Not a
+   rare overlap: `landingLabel` is empty while the card is open, which is exactly when the pill menu
+   shows the drilldown row rather than the reopen row — so it was the ordinary state after one press
+   on the first visit of every forecast run. Measured: the panel covers the card except a 48px sliver
+   at 1280 and entirely at ≤390px, putting FOUR consecutive tab stops on elements 0% visible
+   (WCAG 2.4.11 AA), and the card's ✕ — its only pointer dismissal, since it deliberately survives an
+   outside tap — became unclickable. `openDrilldown` now dismisses the card, which is also the
+   honest reading: the card asks *which window*, the drilldown asks *where on it*, so opening the
+   second has already answered the first.
+42. **The window panel focuses ITSELF on a fresh open, reversing L5.** L5 had the entry row focus the
+   pill — a correct fix for the `<body>` problem, but one that leaves focus outside a `role="dialog"`
+   that has just appeared, so a screen reader announces nothing and the press reads as a no-op on the
+   only route into the feature. That is precisely what L6 diagnosed and fixed one level down; a lens
+   pointed out the rule was never carried back up. `wf-win-more` also gains the `aria-haspopup="dialog"`
+   its eight siblings carry. ⚠️ Two shipped tests asserted the old rule and are rewritten, with the
+   reasoning, rather than deleted.
+43. **The `served` gate had to reach the drilldown ENTRY too, and the first cut's changelog
+   overclaimed.** Gating `buildEvVerdicts` withholds the pill's word but not the panel's rows —
+   `buildPanelRegionRows` reads the verdict index directly, so it would still print each region's
+   served verdict beside `0 of N at 4★+`. The entry row is now withheld on an unserved window, which
+   is the honest form: there is no answer to drill into.
+
 
 ### §4b — Measured residuals: what shipped imperfect, and was left
 

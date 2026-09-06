@@ -4057,6 +4057,15 @@ button.wf-hc.also.on:hover {
   background: rgba(201, 162, 75, 0.13);
   border-left-color: var(--color-home);
 }
+/* ⚠️ **The replacement channel fails the same forced-colors test the rejected one did**, which the
+   comment above cites as one of its reasons for rejecting it. Paint-sampled in Chromium: under
+   `forced-colors: active` both the on-row and off-row borders resolve to `rgb(0, 0, 0)` and the
+   fill collapses onto Canvas, so the row in force is indistinguishable. `aria-current` still carries
+   it for assistive technology; this is sighted high-contrast users only. `Highlight` is the system
+   colour for exactly this, and `forced-color-adjust` is not needed — the border is ours to set. */
+@media (forced-colors: active) {
+  .wf-land-row.on { border-left-color: Highlight; }
+}
 /* ⚠️ `1 0 auto`, NOT `1` — the same inversion L2 found on `.wf-win-label` and for the same reason.
    `flex: 1` is `1 1 0%`: a zero base size, which makes the day label the FIRST item to yield and
    lets it yield all the way to nothing. Measured in headless Chromium against the built sheet, the
@@ -4563,7 +4572,7 @@ button.wf-hc.also.on:hover {
    with the roster's longest realistic name: an even split clipped it at 768, 700, 430, 390, 375 and
    320. With `2 1 240px` against `1 1 150px` the row splits while both bases fit and drops the
    long button onto its own full-width line below that — clipping only where no layout could help.
-   The ellipsis and the `title` stay as the backstop, because a name has no upper bound. */
+   The ellipsis stays as the backstop, because a name has no upper bound — but NOT a `title`. */
 .wf-reg-actions {
   display: flex;
   flex-wrap: wrap;
@@ -4600,7 +4609,9 @@ button.wf-hc.also.on:hover {
   font-weight: 500;
   cursor: pointer;
   /* The full location name can be long ("Four days at Bamburgh Castle Beach"); it ellipses rather
-     than wrapping the row to two lines, and the button carries the whole name in `title`. */
+     than wrapping the row to two lines. The whole name survives in the accessible name, which a
+     CSS ellipsis does not truncate; there is deliberately NO `title` — `MapRegionPanel`'s own note
+     records why it was measured to be the wrong tool. */
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

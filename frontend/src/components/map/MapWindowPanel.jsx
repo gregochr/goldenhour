@@ -58,7 +58,18 @@ export default function MapWindowPanel({
   // `WindowControl`'s entry row has already put focus on the pill: this must not steal it, because
   // the reader has not pressed a row yet and the pill is where they came from.
   useEffect(() => {
-    if (focusRegion) (returnRef.current ?? rootRef.current)?.focus();
+    // Returning from the level below: the row the reader stepped in from, which is both the correct
+    // landing place and inside the pane. On a FRESH open there is no such row, so the panel takes
+    // focus itself.
+    //
+    // ⚠️ **It focuses itself on a fresh open too, and the first cut deliberately did not.** L5 had
+    // `WindowControl`'s entry row focus the PILL instead — a fix for the same `<body>` problem, but
+    // one that leaves focus OUTSIDE a `role="dialog"` that has just appeared, so a screen reader
+    // announces nothing and the press reads as a no-op on the only route into the feature. That is
+    // precisely what `MapRegionPanel` diagnoses and fixes one level down; a review lens pointed out
+    // that L6 established the rule and did not carry it back up. The pill focus stays where it is:
+    // it runs first and is harmless, and it is still the fallback if this panel ever fails to mount.
+    (focusRegion ? (returnRef.current ?? rootRef.current) : rootRef.current)?.focus();
   }, [focusRegion]);
 
   function onKeyDown(e) {

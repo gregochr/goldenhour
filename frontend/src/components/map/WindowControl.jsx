@@ -44,7 +44,7 @@ import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 export default function WindowControl({
   events, activeIndex, onSelect, open: openProp, onOpenChange = null,
   verdicts = null, scopeIsArea = true, landingLabel = '', onReopenLanding = null,
-  onOpenWindowPanel = null,
+  onOpenWindowPanel = null, pillRef: pillRefProp = null,
 }) {
   const isControlled = openProp !== undefined;
   const [openState, setOpenState] = useState(false);
@@ -61,7 +61,16 @@ export default function WindowControl({
   }, [open, isControlled, onOpenChange]);
   const rootRef = useRef(null);
   /** The pill, so the reopen row can hand focus back to the control that opened the menu. */
-  const pillRef = useRef(null);
+  /**
+   * ⚠️ **The pill is this tab's return address, and `MapView` needs to reach it.** Two routes it
+   * owns destroy their own trigger and must leave focus somewhere stable inside the pane, or it
+   * falls to `<body>` where the pane's React `onKeyDown` never fires and `useDialogFocus` records
+   * nothing to restore to: closing a drilldown panel with its ✕, and handing off to the four-day
+   * sheet from a region row. The caller may therefore supply the ref; the internal uses below are
+   * unchanged (map-landing-plan.md §4 #40).
+   */
+  const ownPillRef = useRef(null);
+  const pillRef = pillRefProp ?? ownPillRef;
 
   const active = activeIndex >= 0 && activeIndex < events.length ? events[activeIndex] : null;
   // Stepping from "nowhere" is ambiguous — the map is on a date/event the list has no row for.
@@ -328,6 +337,10 @@ export default function WindowControl({
               type="button"
               data-testid="wf-win-more"
               className="wf-win-row wf-win-landing wf-win-more"
+              // The app's own convention for a control that opens a dialog — eight siblings in
+              // `components/map/` carry it, including both panels this row leads to. It was the one
+              // route into the drilldown without it (review, #792).
+              aria-haspopup="dialog"
               onClick={() => {
                 setOpen(false);
                 onOpenWindowPanel();
@@ -402,6 +415,8 @@ WindowControl.propTypes = {
   onReopenLanding: PropTypes.func,
   /** Opens the window panel on the row in force (map-landing-plan.md §3 L5). Null withholds it. */
   onOpenWindowPanel: PropTypes.func,
+  /** A ref the caller attaches to the pill, to return focus to it from a route it owns. */
+  pillRef: PropTypes.object,
 };
 
 /**

@@ -1388,6 +1388,18 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * fresh open leaves `WindowControl`'s own pill focus alone.
    */
   const [panelReturnTo, setPanelReturnTo] = useState(null);
+  /**
+   * The window pill — this tab's stable return address for a route that destroys its own trigger.
+   *
+   * <p>⚠️ Two of them do, and both stranded focus on {@code <body>} until the cross-phase review on
+   * #792 measured it in Chromium and WebKit: the drilldown's ✕ (a button inside the panel it
+   * unmounts) and the four-day-sheet handoff (which closes the panel in the same commit the sheet
+   * mounts, so {@code useDialogFocus} records {@code <body>} as the thing to restore to and the
+   * peek cannot be backed out of). {@code MapCallout} already focuses its own trigger before
+   * handing off for exactly this reason — its button survives, so it can; these cannot, and need a
+   * survivor instead. The pill is the control the whole drilldown hangs from.
+   */
+  const winPillRef = useRef(null);
   // Filters are collapsed by default (a quiet "tell me more" follow-up to Plan);
   // the open/closed choice persists since users rarely change filters.
   //
@@ -3151,7 +3163,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // the O-18 peek, whose whole point is that backing out returns the reader to what they left.
     // A review lens caught it; the comment defending it ("a setState to the value already held is a
     // no-op") was true only of the value it happened to be tested with.
-    if (windowPanelOpen) setOpenMapMenu(null);
+    if (windowPanelOpen) {
+      // ⚠️ **Before the close, not after** — and this ordering is the whole of the peek's return
+      // leg. The button that was pressed is inside the panel this line unmounts, so without moving
+      // focus first `useDialogFocus` records `<body>` and closing the sheet restores to nothing:
+      // measured in Chromium and WebKit, against a control whose trigger survives.
+      winPillRef.current?.focus();
+      setOpenMapMenu(null);
+    }
     onOpenLocationSheet?.({
       id: target.id ?? null,
       name: target.name,
@@ -3194,7 +3213,30 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   function openDrilldown() {
     setPanelRegion(null);
     setPanelReturnTo(null);
+    // ⚠️ **Dismiss the landing card.** They are not merely allowed to coexist — they ARRIVE
+    // together: `landingLabel` is empty while the card is open, which is exactly when
+    // `WindowControl` shows the drilldown row rather than the reopen row, so card-plus-panel is the
+    // ordinary state after one press on the first visit of every forecast run. Measured in Chromium
+    // and WebKit: the panel covers the card except a 48px sliver at 1280 and entirely at ≤390px,
+    // so four consecutive tab stops sit on elements 0% visible (WCAG 2.4.11 AA) and the card's ✕ —
+    // its only pointer dismissal, since it deliberately survives an outside tap — is unclickable.
+    // The two also answer the same question one after the other: the card asks WHICH window, the
+    // drilldown asks where on it, so opening the second has already answered the first.
+    dismissLanding();
     setOpenMapMenu('window-panel');
+  }
+
+  /**
+   * Closing the whole drilldown, from either level's ✕.
+   *
+   * <p>⚠️ Focus back to the pill, because the ✕ is inside the panel it unmounts — without it focus
+   * falls to {@code <body>}, where the pane's key handler never fires and the next Tab restarts at
+   * the top of the document. The same reason `WindowControl`'s own two rows carry it.
+   */
+  function closeDrilldown() {
+    winPillRef.current?.focus();
+    setPanelRegion(null);
+    setOpenMapMenu(null);
   }
 
   /**
@@ -3321,7 +3363,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       onReopenLanding={landingRunStamp && landingModel.rows.length > 0 ? reopenLanding : null}
       // The drilldown's entry (map-landing-plan.md §3 L5). Withheld when the map is on a date the
       // EV list has no row for at all — there would be no window for the panel to be about.
-      onOpenWindowPanel={activeMapEvent ? openDrilldown : null}
+      // ⚠️ `served`, not merely "there is a row". A D-13 filler is a window the briefing served
+      // nothing for, so the drilldown has nothing to open onto: `buildPanelRegionRows` reads the
+      // index directly and would still print each region's served verdict beside `0 of N at 4★+`,
+      // which is the same false claim the pill's own `served` gate removes one line up. Withholding
+      // the entry is the honest form — there is no answer to drill into.
+      onOpenWindowPanel={activeMapEvent && activeMapEvent.served !== false ? openDrilldown : null}
+      pillRef={winPillRef}
     />
   );
 
@@ -3433,6 +3481,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // `panelRegionRow`, the level's one derived value — "is the region panel on screen", which is
     // exactly the question a key press has to answer.
     if (panelRegionRow != null) {
+      // ⚠️ **Set the return target here too, not only on the back arrow.** This branch and
+      // `onBack` are the two ways up a level, and only one recorded where to put focus — so a
+      // reader who entered The Lakes, backed out, entered North East, then pressed Escape with
+      // focus on the map got the window panel focusing THE LAKES' row, pulled off whatever they
+      // were using. Measured by a review lens in exactly the state L3 created (panel open, focus on
+      // the map), which is the state this handler exists to cover.
+      setPanelReturnTo(panelRegionRow.name);
       setPanelRegion(null);
       return;
     }
@@ -4381,7 +4436,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 // clear here is a write no test can distinguish. `jumpToRegion` closes it itself
                 // (`setOpenMapMenu(null)`): a jump is a completed navigation, and a panel left over
                 // the ground the reader just asked to see is the defect its own doc records.
-                onClose={() => setOpenMapMenu(null)}
+                onClose={closeDrilldown}
                 onZoomToRegion={jumpToRegion}
                 // ⚠️ `inPlan: false` — the sheet opens OVER the map with the panel's own window
                 // focused, the same peek route the callout's `Four days here ›` takes since O-18,
@@ -4406,7 +4461,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 })}
                 rows={panelRows}
                 scopeIsArea={heatArea && Boolean(heat?.hasHome)}
-                onClose={() => setOpenMapMenu(null)}
+                onClose={closeDrilldown}
                 // ⚠️ The row's NAME is stored, keyed to the window it was pressed on — never the
                 // row object. The region panel re-finds it every render off `panelRows`, so its
                 // header prints the figures this panel is printing right now rather than a snapshot

@@ -1911,16 +1911,22 @@ describe('the window panel — this window, region by region', () => {
     expect(screen.queryByTestId('wf-win-menu')).toBeNull();
   });
 
-  it('⚠️ hands focus back to the pill, which is what makes Escape reachable at all', async () => {
-    // The entry unmounts itself with the menu, so without this focus falls to `<body>` — and
-    // `handleMapPaneKeyDown` is a React `onKeyDown` on the pane root, which a press on `<body>`
-    // never reaches. The panel would be un-closable by keyboard on its only entry. A review lens
-    // found the Escape test below firing at a node no press ever targets, which is why this exists.
+  /**
+   * ⚠️ **This asserted the PILL until the PR review, and the panel is the right answer.** The entry
+   * row unmounts itself with the menu, so without a focus move at all it falls to `<body>` — and
+   * `handleMapPaneKeyDown` is a React `onKeyDown` on the pane root, which a press on `<body>` never
+   * reaches, leaving the panel un-closable by keyboard on its only entry. L5 solved that by focusing
+   * the pill, which is inside the pane and fixes Escape — but leaves focus OUTSIDE a `role="dialog"`
+   * that has just appeared, so a screen reader announces nothing. The panel now takes it, matching
+   * `MapRegionPanel` one level down. `WindowControl`'s `pillRef.current?.focus()` still runs first
+   * and is harmless; this asserts who ends up with it.
+   */
+  it('⚠️ hands focus to the PANEL, which is what makes Escape reachable and the dialog announced', async () => {
     await renderMap(panelProps());
 
     openPanel();
 
-    expect(document.activeElement).toBe(screen.getByTestId('wf-win-pill'));
+    expect(document.activeElement).toBe(screen.getByTestId('wf-win-panel'));
   });
 
   it('renders the note its own state asks for, not a hard-coded one', async () => {
@@ -2302,6 +2308,98 @@ describe('the region panel — one region, into the sheet that already exists', 
     // The menu is what closed; nothing else was open to close.
     expect(screen.queryByTestId('wf-win-menu')).toBeNull();
     expect(screen.queryByTestId('wf-win-panel')).toBeNull();
+  });
+
+  /**
+   * ⚠️ **The ✕ is inside the panel it unmounts**, so without a focus move it lands on `<body>` —
+   * outside the pane's React `onKeyDown`, and the next Tab restarts at the top of the document.
+   * Measured on both panels in Chromium and WebKit by a PR-review lens. `RegionsJump` gets this
+   * free from `useDialogFocus`; these panels manage focus by hand and had only the open half.
+   */
+  it('⚠️ the ✕ returns focus to the pill, from either level', async () => {
+    await renderMap(panelProps());
+    openPanel();
+    openRegion('The Lakes');
+
+    fireEvent.click(screen.getByTestId('wf-reg-panel-close'));
+
+    expect(document.activeElement).toBe(screen.getByTestId('wf-win-pill'));
+  });
+
+  /**
+   * ⚠️ **The card and the panel used to arrive together and the panel buried the card.** They are
+   * not merely allowed to coexist: `landingLabel` is empty while the card is open, which is exactly
+   * when `WindowControl` shows the drilldown row — so this was the ordinary state after one press on
+   * the first visit of every forecast run. Measured: the panel covers the card entirely at ≤390px,
+   * putting four consecutive tab stops on elements 0% visible (WCAG 2.4.11 AA), and the card's ✕ —
+   * its only pointer dismissal, since it deliberately survives an outside tap — became unclickable.
+   */
+  it('⚠️ opening the drilldown dismisses the landing card rather than burying it', async () => {
+    await renderMap(panelProps({ runId: '2026-01-15T04:00:00' }));
+    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
+
+    openPanel();
+
+    expect(screen.getByTestId('wf-win-panel')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-land')).toBeNull();
+  });
+
+  /**
+   * ⚠️ **The peek's return leg.** `handleOpenLocationSheet` closes the panel in the same commit the
+   * sheet mounts, so the button that was pressed is detached before `useDialogFocus` reads
+   * `document.activeElement` — it then records `<body>` and closing the sheet restores to nothing.
+   * `MapCallout` focuses its own trigger before handing off for exactly this reason; its button
+   * survives, so it can. These cannot, and need a survivor: the pill the drilldown hangs from.
+   * Measured in Chromium and WebKit against a control whose trigger stays mounted.
+   */
+  it('⚠️ leaves focus on the pill when a region row hands off to the sheet', async () => {
+    const onOpenLocationSheet = vi.fn();
+    await renderMap(panelProps({ onOpenLocationSheet }));
+    openPanel();
+    openRegion('The Lakes');
+
+    fireEvent.click(screen.getAllByTestId('wf-reg-panel-row')[0]);
+
+    expect(onOpenLocationSheet).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(screen.getByTestId('wf-win-pill'));
+  });
+
+  /**
+   * ⚠️ A D-13 filler is a window the briefing served nothing for, so there is no answer to drill
+   * into — and `buildPanelRegionRows` reads the verdict index directly, so it would print each
+   * region's served word beside `0 of N at 4★+`. Same false claim the pill's own `served` gate
+   * removes; withholding the entry is the honest form (§4 #38).
+   */
+  it('⚠️ offers no drilldown at all on a window the briefing never served', async () => {
+    // `windows: []` plus a forecast date is what makes every solar row a D-13 filler: the EV list
+    // is built from `forecastDates` where the briefing served no window.
+    await renderMap(panelProps({ heat: heatProp({ windows: [] }), forecastDates: [TODAY] }));
+    expect(screen.getByTestId('wf-win-pill')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+
+    expect(screen.queryByTestId('wf-win-more')).toBeNull();
+  });
+
+  /**
+   * ⚠️ **The pane's Escape branch is the OTHER way up a level, and only the back arrow recorded
+   * where to put focus.** Reachable in exactly the state L3 created — panel open, focus on the map —
+   * which is the state that handler exists to cover.
+   */
+  it('⚠️ pane-level Escape returns focus to the region it actually left, not a stale one', async () => {
+    await renderMap(panelProps());
+    openPanel();
+    openRegion('The Lakes');
+    fireEvent.click(screen.getByTestId('wf-reg-panel-back'));
+    openRegion('North East');
+
+    // Fired at the map container — inside the pane, outside the panel — so ONLY the pane handler
+    // runs. Firing at the panel would let its own `onBack` set the target and hide the defect.
+    fireEvent.keyDown(screen.getAllByTestId('map-container')[0], { key: 'Escape' });
+
+    expect(document.activeElement).toBe(
+      screen.getAllByTestId('wf-win-panel-row').find((r) => r.getAttribute('data-region') === 'North East'),
+    );
   });
 
   it('the ✕ closes the whole drilldown from the second level, in one press', async () => {
