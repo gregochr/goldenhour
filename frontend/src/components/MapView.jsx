@@ -39,6 +39,8 @@ import { latLngBounds } from '../utils/heatGeometry.js';
 import { buildJumpRows, regionBestRatingFor, buildNightRegionBest } from '../utils/regionsJump.js';
 import { landingCardModel } from '../utils/mapLanding.js';
 import MapLandingCard from './map/MapLandingCard.jsx';
+import MapWindowPanel from './map/MapWindowPanel.jsx';
+import { buildPanelRegionRows, windowPanelNote } from '../utils/mapDrilldown.js';
 
 /** localStorage key for the "colours changed" notice's one-time dismissal. */
 const COLOUR_SCALE_NOTICE_DISMISSED_KEY = 'colourScaleNoticeDismissed';
@@ -263,6 +265,8 @@ function heatSpotKey(spot) {
  * of its paint callback — so an unscored window would repaint the same nothing on every render.
  */
 const EMPTY_POINTS = [];
+/** Stable empty rows — the window panel's fallback while it is closed (map-landing-plan.md §3 L5). */
+const EMPTY_ROWS = [];
 
 /**
  * One empty date array, shared — the same reasoning as {@link EMPTY_POINTS} one level up, for the
@@ -1445,7 +1449,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * one press is still one action. A foreign modal stands it down entirely; an open menu or a
    * standing selection makes it defer, because the pane handler is closing that on this very press
    * (reading, like this one, the pre-update closure). The card is the LAST layer to go, which is
-   * also the z-order: menus 1500, callout 1350, this card 1300.
+   * also the z-order: menus and panels above the chrome, callout 1350, this card 1050.
    *
    * <p>Residual, stated rather than defended against: with a menu open and focus on {@code <body>},
    * neither handler fires usefully and Escape does nothing — which is exactly what it does on that
@@ -2782,6 +2786,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const landingModel = landingCardModel({ events: mapEvents, verdicts: evVerdicts });
 
+
   /** Which EV row is "now showing" — derived from `eventType`/`nightDate`, never a second store. */
   const activeEvIndex = findEvIndex(mapEvents, eventType, nightDate);
 
@@ -2800,6 +2805,37 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /** The row `MapCallout`'s verdict block and "every window" strip treat as "now showing" — the
    * SAME row the pill/tooltip above already read off `activeEvIndex`, never a second lookup. */
   const activeMapEvent = mapEvents[activeEvIndex] ?? null;
+  /**
+   * The window panel's rows and its note — the drilldown's first level (map-landing-plan.md §3 L5).
+   *
+   * <p>Built only while the panel is open: unlike the landing card, whose header the pill's menu row
+   * prints whether or not the card is up, nothing outside the panel reads either value.
+   *
+   * <p><b>The points go in un-narrowed; `buildPanelRegionRows` scopes them by region name.</b>
+   * ⚠️ An earlier cut filtered them by location ID first, under a comment claiming a region could be
+   * "partly in scope" — which is false, and a review lens caught it: every scope pool this app has
+   * is region-grained (`planningArea.areaRegions` says so in as many words, "A region is in or out
+   * as a unit"; `planOrigin.scopeSpots` filters on `regionName`; "Everywhere" is the whole
+   * catalogue). So the id filter could never change an answer, and it minted a THIRD spot-identity
+   * rule beside this file's own `heatSpotKey` — one that collapses every id-less spot onto a single
+   * `undefined` key.
+   *
+   * <p>The population is still scope-only, before every reader filter, exactly as the verdict is:
+   * `heat.pointsByKey` is the unfiltered set (the lens-filtered one is the separate `heatPoints`).
+   */
+  const windowPanelOpen = openMapMenu === 'window-panel';
+  const panelPoints = (windowPanelOpen && activeMapEvent
+    && heat?.pointsByKey?.get(`${activeMapEvent.date}:${activeMapEvent.eventType}`)) || EMPTY_POINTS;
+  const panelRows = windowPanelOpen ? buildPanelRegionRows({
+    index: regionVerdictIndex,
+    date: activeMapEvent?.date ?? null,
+    targetType: activeMapEvent?.eventType ?? null,
+    regionsInScope,
+    points: panelPoints,
+    driveMap: activeDriveMap,
+    spots: verdictScopePool,
+    isSolar: activeMapEvent?.kind === EVENT_KIND.SOLAR,
+  }) : EMPTY_ROWS;
 
   /**
    * Whether the "This event is not scored yet" line is drawn — {@code windowUnscored} plus the
@@ -3149,6 +3185,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       // bans outright elsewhere in its own words (`CentreOnHomeControl`).
       landingLabel={!landingOpen ? landingModel.header : ''}
       onReopenLanding={landingRunStamp && landingModel.rows.length > 0 ? reopenLanding : null}
+      // The drilldown's entry (map-landing-plan.md §3 L5). Withheld when the map is on a date the
+      // EV list has no row for at all — there would be no window for the panel to be about.
+      onOpenWindowPanel={activeMapEvent ? () => setOpenMapMenu('window-panel') : null}
     />
   );
 
@@ -4134,12 +4173,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             </div>
 
             {/* The landing card (map-landing-plan.md §3 L4) — a sibling of the chrome corners, not
-                a child: it is its own `top: 60px; left: 12px` block at z-index 1300, which sits
-                above the chrome (1100) and the selection ring (1200) and BELOW the callout (1350),
-                the tooltip (1400) and the menus (1500). ⚠️ That is the design bundle's own ladder
-                (`#land` 1300 under `#cal` 1350), and plan §4 #6's arithmetic for it was wrong in
-                both terms — 1200 is the selection RING here, and the app's callout is 1350. The
-                number is right; the reason recorded for it was not. */}
+                a child: it is its own `top: 60px; left: 12px` block at **z-index 1050**, BELOW the
+                chrome (1100) and everything nested in it, and below the callout (1350). ⚠️ This
+                comment used to say 1300-above-the-chrome; L4 moved the value and left the copy
+                behind, and a review lens caught it sitting five lines from L5's new mount, which
+                depends on the true number. The whole account of why 1050 (and of the three wrong
+                answers before it) is on `.wf-land`'s own rule in index.css. */}
             {landingOpen && (
               <MapLandingCard
                 model={landingModel}
@@ -4155,6 +4194,39 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 activeId={activeMapEvent?.id ?? null}
                 onSelect={selectLandingRow}
                 onDismiss={dismissLanding}
+              />
+            )}
+
+          {/* The drilldown's first level (map-landing-plan.md §3 L5) — a FRAME-level sibling of
+              the chrome corners, at z-index 1150: above the chrome (1100) and everything nested in
+              it, below the callout (1350).
+
+              ⚠️ It was first mounted INSIDE `.wf-map-chrome-tl`, on the reasoning that the chrome
+              is a stacking context so the panel would land above the 1050 card for free. True, and
+              it cost two measured defects: that box is ~36px tall, so the panel's `max-height`
+              had no percentage basis and fell back to `vh` — the VIEWPORT, which is taller than
+              the frame by the whole masthead, so rows were clipped by `.wf-body--map`'s
+              `overflow: hidden` with no scrollbar to reach them; and the bottom chrome (counts
+              footer, scored-legend chip, Legend chip, phone bar — all 1100 and later in DOM order)
+              painted straight over the panel's last rows. Out here `100%` is the frame and 1150
+              beats the lot. */}
+            {/* ⚠️ `activeMapEvent` is a second term, not decoration. With the panel open the map
+                can lose its EV row — the briefing poll withdraws an elapsed window, or a handoff
+                moves the date — and `activeMapEvent` goes null. `isSolar` then read false, so the
+                panel printed the NIGHT note over a solar map and an empty line saying no region
+                had a "night" answer. */}
+            {windowPanelOpen && activeMapEvent && (
+              <MapWindowPanel
+                row={activeMapEvent}
+                verdict={activeMapEvent ? (evVerdicts.get(activeMapEvent.id) ?? null) : null}
+                note={windowPanelNote({
+                  verdict: activeMapEvent ? (evVerdicts.get(activeMapEvent.id) ?? null) : null,
+                  isSolar: activeMapEvent?.kind === EVENT_KIND.SOLAR,
+                  scopeIsArea: heatArea && Boolean(heat?.hasHome),
+                })}
+                rows={panelRows}
+                scopeIsArea={heatArea && Boolean(heat?.hasHome)}
+                onClose={() => setOpenMapMenu(null)}
               />
             )}
 

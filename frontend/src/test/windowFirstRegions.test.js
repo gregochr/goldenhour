@@ -207,6 +207,31 @@ describe('buildRegionRows — the served figures', () => {
     expect(rows[1].verdictLabel).toBe('Not scored');
     expect(rows[1].verdict).toBe('AWAITING');
   });
+
+  it('⚠️ MAPS a legacy payload\'s triage verdict rather than reading it as Awaiting', () => {
+    // map-landing-plan.md §3 L5 step 6b. This module read `displayVerdict` raw while the Map tab's
+    // pill read the same region through `tierUtils.resolveRegionDisplay`, which falls back to the
+    // triage verdict — so on a cached payload written before `displayVerdict` existed, the pill said
+    // `Worth it` above a rail cell saying `Not scored`. L5 puts those two answers eight pixels apart
+    // in one panel, so the two were converged onto the helper.
+    //
+    // ⚠️ This test exists because a review lens MEASURED that reverting the convergence left the
+    // whole 5360-test suite green: the only fixture here carries neither field, which both the old
+    // and the new code answer AWAITING for, and the one test that did exercise the mapping drove a
+    // different function in a different module.
+    const es = {
+      regions: [
+        region({ regionName: 'Legacy go', displayVerdict: undefined, verdict: 'GO', meanRating: 4 }),
+        region({ regionName: 'Legacy marginal', displayVerdict: undefined, verdict: 'MARGINAL', meanRating: 3 }),
+        region({ regionName: 'Legacy standdown', displayVerdict: undefined, verdict: 'STANDDOWN', meanRating: 2 }),
+      ],
+    };
+
+    const rows = buildRegionRows(es, [], [], {});
+
+    expect(rows.map((r) => r.verdict)).toEqual(['WORTH_IT', 'MAYBE', 'STAND_DOWN']);
+    expect(rows.map((r) => r.verdictLabel)).toEqual(['Worth it', 'Maybe', 'Poor']);
+  });
 });
 
 describe('buildRegionRows — what a cell may say about its count', () => {

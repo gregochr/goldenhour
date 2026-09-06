@@ -44,6 +44,7 @@ import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 export default function WindowControl({
   events, activeIndex, onSelect, open: openProp, onOpenChange = null,
   verdicts = null, scopeIsArea = true, landingLabel = '', onReopenLanding = null,
+  onOpenWindowPanel = null,
 }) {
   const isControlled = openProp !== undefined;
   const [openState, setOpenState] = useState(false);
@@ -316,6 +317,35 @@ export default function WindowControl({
               </div>
             ))}
           </div>
+
+          {/* The drilldown's entry (map-landing-plan.md §3 L5) — below the windows, because it is
+              about the one already chosen rather than a way to choose another. `RegionsJump`'s reset
+              row and the landing card's reopen row are the same idiom at the other end of the list.
+
+              ⚠️ Outside the listbox for the same reason the reopen row is: it selects no window. */}
+          {onOpenWindowPanel && (
+            <button
+              type="button"
+              data-testid="wf-win-more"
+              className="wf-win-row wf-win-landing wf-win-more"
+              onClick={() => {
+                setOpen(false);
+                onOpenWindowPanel();
+                // ⚠️ **Not optional, and I made this exact mistake one row above before fixing it
+                // there.** This button unmounts itself, so without this focus falls to `<body>` —
+                // and `MapView`'s Escape handler is a React `onKeyDown` on the map pane's root,
+                // which a press on `<body>` never reaches. The panel would then be un-closable by
+                // keyboard on the ONLY route that opens it (plan §3 L5 step 5 asks for Escape by
+                // name). Focus returns to the pill, which is inside the pane and still on screen.
+                pillRef.current?.focus();
+              }}
+            >
+              <span className="wf-win-landing-txt">
+                <span aria-hidden="true">&#9636;{' '}</span>
+                This window, region by region
+              </span>
+            </button>
+          )}
         </div>
       )}
     </div>
@@ -370,6 +400,8 @@ WindowControl.propTypes = {
   landingLabel: PropTypes.string,
   /** Reopens the landing card. Null withholds the row entirely — including on the overlay. */
   onReopenLanding: PropTypes.func,
+  /** Opens the window panel on the row in force (map-landing-plan.md §3 L5). Null withholds it. */
+  onOpenWindowPanel: PropTypes.func,
 };
 
 /**

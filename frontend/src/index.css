@@ -4260,6 +4260,220 @@ button.wf-hc.also.on:hover {
   }
 }
 
+/* ── The window panel: this window, region by region (map-landing-plan.md §3 L5) ───────────────
+   The drilldown's first level, hanging under the window control.
+
+   ⚠️ **A FRAME-level block with its own z-index, and the first cut was neither.** It was mounted
+   inside `.wf-map-chrome-tl` on the reasoning that the chrome is a stacking context, so the panel
+   would land above the 1050 landing card for free. That reasoning is correct and it cost two
+   measured defects (headless Chromium, real ancestor chain, 11 widths):
+
+     · the chrome box is ~36px tall, so `max-height` had no percentage basis and fell back to
+       `100vh` — the VIEWPORT, taller than the frame by the whole masthead and tab bar. Measured with
+       180px of chrome above the frame, the panel ran 28px past the frame's bottom at 1280 and 76px
+       at 390; `.wf-body--map` is `overflow: hidden`, and the panel's own scroller had not engaged,
+       so those rows were unreachable by any means. The over-run was exactly `chrome − 108px`, and
+       index.css's own `.wf-mast` records the masthead at 128px before the tab bar;
+     · the bottom chrome — counts footer, scored-locations chip, Legend chip, and the whole phone
+       bar — is `z-index: 1100` and later in DOM order, so it painted over the panel's last rows.
+       `elementFromPoint` returned `.wf-legend-chip` and `.wf-jump-chip` in the shared region.
+
+   Out here `100%` is the frame, and **1150** sits above the chrome (1100) and everything nested in
+   it, below the callout (1350) and the tooltip (1400). The landing card is 1050. */
+.wf-win-panel {
+  position: absolute;
+  /* Under the control: chrome `top: 8` + a 36px control + the 6px the dropdown also uses. */
+  top: 50px;
+  left: 60px;
+  z-index: 1150;
+  /* The control's own box, so the panel and the dropdown it replaces share both edges — including
+     the right-hand bound that clears the Regions / Heat-Pins / Filters cluster. */
+  width: 504px;
+  max-width: calc(100% - 308px);
+  /* 102 = this panel's own `top: 50` + the bottom band the landing card's 112 also clears
+     (`bottom: 8` + a ~44px Legend chip). A percentage of the FRAME, which is the point. */
+  max-height: calc(100% - 102px);
+  overflow: hidden auto;
+  border: 1px solid var(--color-plex-border-light);
+  border-radius: 10px;
+  background: var(--color-plex-panel);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.6);
+  color: var(--color-plex-text);
+  font-family: var(--font-sans);
+}
+.wf-win-panel-head {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  align-items: start;
+  gap: 3px 9px;
+  padding: 10px 12px 9px;
+  border-bottom: 1px solid var(--color-plex-border);
+}
+.wf-win-panel-title > b {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.wf-win-panel-meta {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.02em;
+  color: var(--color-plex-text-secondary);
+}
+/* ⚠️ The ✕ borrows `.wf-land-x`'s box and NOT its placement. That rule carries `grid-column: 2`,
+   written for the landing card's two-column head; this head has three, so grid auto-placement seated
+   the ✕ in the MIDDLE — measured `380.78px 24px 55.22px`, ✕ in track 2 and "WORTH IT" flush right
+   where the dismiss control belongs, at every width. Visual order then disagreed with DOM and focus
+   order (WCAG 1.3.2 / 2.4.3). */
+.wf-win-panel-x { grid-column: 3; }
+.wf-win-panel-verdict {
+  align-self: center;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+/* One tier, one ink — grouped with the pill's and the card's own words. */
+.wf-win-panel-verdict[data-tier="WORTH_IT"] { color: var(--color-badge-go); }
+.wf-win-panel-verdict[data-tier="MAYBE"] { color: var(--color-badge-maybe); }
+.wf-win-panel-verdict[data-tier="STAND_DOWN"] { color: var(--color-badge-poor); }
+/* Not scored is not a verdict. Without this it inherited `--color-plex-text` and measured 14.45:1 —
+   the brightest thing on the panel — against 9.5:1 for a real "Worth it". */
+.wf-win-panel-verdict[data-tier="AWAITING"] { color: rgba(242, 231, 211, 0.52); }
+.wf-win-panel-note {
+  margin: 0;
+  padding: 9px 12px;
+  border-bottom: 1px solid var(--color-plex-border);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.55;
+  color: var(--color-plex-text-secondary);
+  text-wrap: pretty;
+}
+.wf-win-panel-rows {
+  display: flex;
+  flex-direction: column;
+}
+/* Four columns: name, the stat line, the verdict word, the swatch + ceiling. The stat takes the
+   slack so a long region name never truncates — the same yield order the landing card's row uses,
+   and for the same reason (the name is the fact the row exists to state). */
+.wf-win-panel-row {
+  display: grid;
+  /* ⚠️ FIXED tracks for the two right-hand columns, not `auto`. Each row is its own grid — the
+     rows are a flex column, and a `button` cannot be `display: contents` without losing its
+     semantics in several engines — so `auto` sized every row independently and the verdict column
+     wandered 45px down a list whose entire purpose is reading four values down a column. Measured
+     at 1440/834/390 alike: four distinct word x-positions across nine rows. The widths hold the
+     longest reachable content ("Not scored", "not scored"). */
+  grid-template-columns: minmax(0, 1fr) 62px 78px;
+  align-items: center;
+  gap: 2px 9px;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--color-plex-border);
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+.wf-win-panel-row:not(:disabled) { cursor: pointer; }
+.wf-win-panel-row:not(:disabled):hover { background: rgba(255, 255, 255, 0.05); }
+.wf-win-panel-name {
+  grid-column: 1;
+  font-size: 12.5px;
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-win-panel-stat {
+  grid-column: 1;
+  grid-row: 2;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-secondary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wf-win-panel-word {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: center;
+  justify-self: end;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  /* ⚠️ An explicit literal, not `--color-plex-text-muted` — §6 sets muted == secondary inside a
+     panel, so reading the token made the no-answer marker the same ink as a real score. The same
+     flattening `.wf-win-row-unscored` and `.wf-jump-unscored` each record and cure the same way. */
+  color: rgba(242, 231, 211, 0.52);
+}
+.wf-win-panel-word[data-tier="WORTH_IT"] { color: var(--color-badge-go); }
+.wf-win-panel-word[data-tier="MAYBE"] { color: var(--color-badge-maybe); }
+.wf-win-panel-word[data-tier="STAND_DOWN"] { color: var(--color-badge-poor); }
+.wf-win-panel-best {
+  grid-column: 3;
+  grid-row: 1 / span 2;
+  align-self: center;
+  justify-self: end;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--color-plex-text-secondary);
+  white-space: nowrap;
+}
+.wf-win-panel-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: none;
+}
+/* Its own literal, for the reason `.wf-win-panel-word`'s default records. */
+.wf-win-panel-unscored { color: rgba(242, 231, 211, 0.52); }
+.wf-win-panel-empty {
+  margin: 0;
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.55;
+  color: var(--color-plex-text-secondary);
+  text-wrap: pretty;
+}
+.wf-win-panel button:focus-visible {
+  outline: 2px solid var(--color-plex-gold);
+  outline-offset: -2px;
+}
+
+/* ⚠️ The phone release, which `.wf-win-menu`'s own rule calls load-bearing and the first cut of this
+   panel omitted: the base `max-width` survives `width: auto` untouched, so the panel measured
+   exactly 16px narrower than the full-width control it hangs from at 639/430/390/375/320 — a visible
+   right-edge jump on the one interaction that swaps the dropdown for the panel. `max-height` uses
+   the lifted-stack reckoning the landing card's own phone rule derives (top 54 + 140). */
+@media (max-width: 639px) {
+  .wf-win-panel {
+    top: 54px;
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-width: none;
+    max-height: calc(100% - 194px);
+  }
+}
+
 /* The phone keeps the CARD, inset to the frame — never a `BottomSheet`. That component's backdrop
    dismisses on an outside tap, which is the one route this card forbids (see `MapLandingCard.jsx`).
    `top: 56px` clears the full-width window control the ≤639px chrome rule puts across the top. */
@@ -4381,6 +4595,17 @@ button.wf-hc.also.on:hover {
   font-weight: 500;
 }
 .wf-win-landing:hover { color: var(--color-plex-text); }
+/* ⚠️ `.wf-win-landing` is written for a row ABOVE the list — its own comment says so — and the
+   drilldown entry is the LAST child of the popup. Borrowing the class unflipped drew a hairline
+   against the popup's own bottom edge with 4px of empty plate under it, and NO rule separating it
+   from the listbox above. Measured: `border-top: 0`, `gapAboveMore: 0`. This is the flip, and it is
+   why the class exists at all (it was declared empty and orphaned in the first cut). */
+.wf-win-more {
+  border-top: 1px solid var(--color-plex-border-light);
+  border-bottom: none;
+  margin-top: 4px;
+  margin-bottom: 0;
+}
 /* The single grid item — see the markup's own note for why the glyph and the text cannot be
    siblings here. */
 .wf-win-landing-txt {
