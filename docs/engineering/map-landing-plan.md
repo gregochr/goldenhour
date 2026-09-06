@@ -942,7 +942,19 @@ should challenge these **in review**, not silently "fix" them in code.
    overclaimed.** Gating `buildEvVerdicts` withholds the pill's word but not the panel's rows —
    `buildPanelRegionRows` reads the verdict index directly, so it would still print each region's
    served verdict beside `0 of N at 4★+`. The entry row is now withheld on an unserved window, which
-   is the honest form: there is no answer to drill into.
+   is the honest form: there is no answer to drill into. ⚠️ **And the entry gate was still only half
+   of it** — a second Codex round, which explicitly named the entry-only fix as its baseline, pointed
+   out that a window can become unserved WHILE the drilldown is open: the briefing's refresh
+   withdraws a window whose event has passed and `buildMapEvents` replaces it with a same-id filler,
+   so `activeMapEvent` stays truthy and both mounts went on rendering. The condition now lives on
+   `windowPanelOpen` itself, so the points, the rows, the region level and both mounts inherit it
+   from one place.
+44. **`Zoom to region` was the THIRD exit that destroys its own trigger, and the batch that fixed the
+   other two missed it.** `jumpToRegion` ends with `setOpenMapMenu(null)`, so the pressed button goes
+   with the panel and focus falls to `<body>`. Found by the same second Codex round, one commit after
+   the ✕ and the sheet handoff were fixed for exactly this reason — which is the useful part of the
+   record: a fix applied to "the exits" is not a fix applied to *every* exit unless they were
+   enumerated, and these three were not.
 
 
 ### §4b — Measured residuals: what shipped imperfect, and was left

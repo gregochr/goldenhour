@@ -2402,6 +2402,50 @@ describe('the region panel — one region, into the sheet that already exists', 
     );
   });
 
+  /**
+   * ⚠️ **The window can become unserved WHILE the drilldown is open**, which the entry-only gate did
+   * nothing about — the briefing's refresh withdraws a window whose event has passed, and
+   * `buildMapEvents` replaces it with a same-id filler. Both mounts checked only `activeMapEvent`,
+   * so they went on rendering region rows joined from the broad verdict index over an empty point
+   * set: served verdicts beside `0 of N`. Raised as a second-round finding by the cross-vendor
+   * review, which named the entry gate as its baseline.
+   */
+  it('⚠️ closes an OPEN drilldown when its window becomes unserved under it', async () => {
+    const locations = makeLocations();
+    const props = panelProps();
+    const { rerender } = await renderMap(props);
+    openPanel();
+    openRegion('The Lakes');
+    expect(screen.getByTestId('wf-reg-panel')).toBeInTheDocument();
+
+    // The same window, now served by nothing — what a refresh that retires an elapsed window does.
+    await act(async () => {
+      rerender(<MapView
+        locations={locations}
+        date={TODAY}
+        autoEventType={null}
+        {...props}
+        heat={heatProp({ windows: [] })}
+        forecastDates={[TODAY]}
+      />);
+    });
+
+    expect(screen.queryByTestId('wf-reg-panel')).toBeNull();
+    expect(screen.queryByTestId('wf-win-panel')).toBeNull();
+  });
+
+  /** ⚠️ The third exit that destroys its own trigger; the batch that fixed the other two missed it. */
+  it('⚠️ leaves focus on the pill when Zoom to region closes the drilldown', async () => {
+    await renderMap(panelProps());
+    openPanel();
+    openRegion('The Lakes');
+
+    fireEvent.click(screen.getByTestId('wf-reg-panel-zoom'));
+
+    expect(screen.queryByTestId('wf-reg-panel')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId('wf-win-pill'));
+  });
+
   it('the ✕ closes the whole drilldown from the second level, in one press', async () => {
     await renderMap(panelProps());
     openPanel();

@@ -2874,7 +2874,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * <p>The population is still scope-only, before every reader filter, exactly as the verdict is:
    * `heat.pointsByKey` is the unfiltered set (the lens-filtered one is the separate `heatPoints`).
    */
-  const windowPanelOpen = openMapMenu === 'window-panel';
+  /**
+   * ⚠️ **`served` belongs HERE, not only on the entry.** Gating `onOpenWindowPanel` stops a filler
+   * window's drilldown being OPENED; it does nothing about one already open when the window becomes
+   * a filler — which the briefing's own refresh causes on a schedule, by withdrawing a window whose
+   * event has passed. `buildMapEvents` then replaces it with the same-id `served: false` row, so
+   * `activeMapEvent` stays truthy and both mounts went on rendering: `panelRows` joins the broad
+   * verdict index while `panelPoints` is empty, printing each region's served verdict beside
+   * `0 of N at 4★+`. Putting the condition on this one derived value closes the whole family at
+   * once — the points, the rows, the region level and both mounts all read it. Raised as a
+   * SECOND-round finding by the cross-vendor review on #792, which named the entry-only gate as its
+   * own baseline (§4 #43).
+   */
+  const windowPanelOpen = openMapMenu === 'window-panel' && activeMapEvent?.served !== false;
   const panelPoints = (windowPanelOpen && activeMapEvent
     && heat?.pointsByKey?.get(`${activeMapEvent.date}:${activeMapEvent.eventType}`)) || EMPTY_POINTS;
   const panelRows = windowPanelOpen ? buildPanelRegionRows({
@@ -4437,7 +4449,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 // (`setOpenMapMenu(null)`): a jump is a completed navigation, and a panel left over
                 // the ground the reader just asked to see is the defect its own doc records.
                 onClose={closeDrilldown}
-                onZoomToRegion={jumpToRegion}
+                // ⚠️ The THIRD exit that unmounts its own trigger, and the batch that fixed the ✕
+                // and the sheet handoff missed it: `jumpToRegion` ends with `setOpenMapMenu(null)`,
+                // so the pressed button goes with the panel and focus falls to `<body>`. Same
+                // survivor, same reason.
+                onZoomToRegion={(name) => { winPillRef.current?.focus(); jumpToRegion(name); }}
                 // ⚠️ `inPlan: false` — the sheet opens OVER the map with the panel's own window
                 // focused, the same peek route the callout's `Four days here ›` takes since O-18,
                 // so the sheet's footer map door is stamped `inPlace` and cannot import the Plan's
