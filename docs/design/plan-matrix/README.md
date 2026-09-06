@@ -162,7 +162,9 @@ Matching is accent- and punctuation-insensitive, expands `&` to `and`, folds `sa
 
 **Region focus in the popup.** Clicking a region card, or the field within 26% of the canvas width of a region's centroid, toggles that region as the focus. The field repaints with every other region faded almost out, the location list filters, the prose swaps, and the footer chip updates. Clicking again (or `All regions`) clears. Nothing moves position.
 
-**Keyboard.** `/` opens search from anywhere. `↑ ↓` move the selection, `Enter` activates, `Esc` closes search → then the location sheet → then the window popup, in that order. `← →` step between windows while a popup is open.
+**Keyboard.** `/` opens search from the Plan tab. `↑ ↓` move the selection, `Enter` activates, `Esc` closes whichever layer is above the window popup, then the popup itself. `← →` step between windows while a popup is open and nothing is over it.
+
+**Adaptation (M5).** As handed over, the line above read "`/` opens search from anywhere" and "`Esc` closes search → then the location sheet → then the window popup, in that order" — a three-deep stack. That was measured broken in a browser. A Tab walk out of the topmost sheet reached the masthead's search button on press 17, which was the only route into a third layer and one that bypassed the guard `/` had carried since M3; and the result rendered wrong, because every dialog is `fixed inset-0 z-50`, so paint order is DOM order and the sheet painted its scrim and its whole card over the search panel. The shipped stack is two deep: the rung above the popup is search **or** a stacked sheet, never both. `/` is additionally refused off the Plan tab, inside a text field, while a dialog this tab does not own is open, and while the shell is disabled by a dead backend. See `docs/engineering/plan-matrix-plan.md` §4 A22.
 
 **Confidence.** `CONF = [0.95, 0.88, 0.82, 0.72, 0.65, 0.57]` per window. The kernel desaturates and thins the field as confidence falls, so a day-4 guess cannot look as authoritative as tonight. Shown numerically only in the popup header.
 
