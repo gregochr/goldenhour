@@ -570,11 +570,26 @@ describe('MapView aurora night — a night row must not blank the solar windows\
       id: 1, name: 'Bamburgh', lat: 55.61, lng: -1.71, rid: 'North East', regionName: 'North East',
     }];
 
+    // ⚠️ **`windows` must carry these two, and the first cut of this fixture left it empty.** With
+    // no served window the EV list builds both solar rows as D-13 FILLERS, and this test then
+    // asserted verdicts on windows the briefing never served — the exact defect the cross-vendor
+    // review found on #792 (§4 #38). The test's own claim is sound and unchanged; its fixture was
+    // demonstrating the bug it now guards against. Serving them makes the ticks legitimate.
+    const windows = ['SUNRISE', 'SUNSET'].map((targetType) => ({
+      key: `${THE_CALENDAR_DAY}:${targetType}`,
+      date: THE_CALENDAR_DAY,
+      targetType,
+      label: `${targetType === 'SUNRISE' ? 'Sunrise' : 'Sunset'} ${THE_CALENDAR_DAY}`,
+      time: targetType === 'SUNRISE' ? '05:34' : '20:31',
+      bestRating: 4,
+      conf: 1,
+    }));
+
     await renderMap({
       date: THE_CALENDAR_DAY,
       forecastDates: [THE_CALENDAR_DAY],
       heat: {
-        enabled: true, hasHome: true, spots, areaSpots: spots, pointsByKey: new Map(), windows: [],
+        enabled: true, hasHome: true, spots, areaSpots: spots, pointsByKey: new Map(), windows,
       },
       regionVerdictIndex: buildRegionVerdictIndex(days),
     });

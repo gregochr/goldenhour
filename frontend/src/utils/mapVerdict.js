@@ -280,6 +280,23 @@ export function buildEvVerdicts({ events, index, regionsInScope, overlayMode = f
   if (overlayMode || !index) return out;
   for (const row of Array.isArray(events) ? events : []) {
     if (row?.kind !== SOLAR_KIND) continue;
+    // ⚠️ **`served`, not just `kind`** — and `utils/mapEvents.js` states this rule three lines above
+    // the branch that breaks it: "a caller wanting 'the next N windows' must gate on `served`, never
+    // on list position alone". This function is older than the flag (L1 wrote it, L4 added
+    // `served`), which is how it came to check one and not the other.
+    //
+    // A D-13 filler row is a date `forecastDates` carries that the briefing served no WINDOW for,
+    // and its only gate is `date >= todayStr`. But `buildRegionVerdictIndex` is folded from the
+    // whole `briefing.days` tree, which still holds that date's `eventSummary` — so the key hits and
+    // the filler is handed a real verdict. The reachable case is not exotic: `PlanWindowProjector`
+    // withdraws an ELAPSED window from the rendered set while `forecastDates` still carries today,
+    // so every morning after sunrise the list leads with a filler for a window hours in the past,
+    // and the pill would colour it, tint it and let a drilldown open on it — over a scope pool that
+    // has no heat points for it, so its region rows would read `0 of N` beneath a served verdict.
+    //
+    // Found by the cross-vendor review on #792. `mapLanding.landingRows` already gated on this
+    // (L4's own step 2); the pill and the drilldown did not.
+    if (row.served === false) continue;
     const verdict = windowVerdict({
       index, date: row.date, targetType: row.eventType, regionsInScope,
     });

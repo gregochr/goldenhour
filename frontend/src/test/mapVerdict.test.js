@@ -13,7 +13,7 @@ import { describe, it, expect } from 'vitest';
 import {
   buildEvVerdicts, buildRegionVerdictIndex, regionNamesOf, windowVerdict,
 } from '../utils/mapVerdict.js';
-import { EVENT_KIND } from '../utils/mapEvents.js';
+import { EVENT_KIND, buildMapEvents } from '../utils/mapEvents.js';
 import { buildWindowCards } from '../utils/windowFirstCards.js';
 
 const DATE = '2026-09-06';
@@ -494,6 +494,47 @@ describe('buildEvVerdicts', () => {
     region('The Dales', 2.0, 'STAND_DOWN'),
   ]));
   const SCOPE = ['Cumbria', 'The Dales'];
+
+  /**
+   * ⚠️ **The D-13 filler must not be handed a verdict, and this is driven through the REAL
+   * `buildMapEvents` rather than `evRow` above.** That helper hand-rolls
+   * `{id, kind, date, eventType}` with no `served` field at all, so every other test in this block
+   * exercises `served: undefined` — the guard would have been unkillable against them, which is
+   * exactly the "fixture pre-satisfies its own predicate" trap this repo has paid for before.
+   *
+   * <p>The defect, found by the cross-vendor review on #792: `buildRegionVerdictIndex` is folded
+   * from the whole `briefing.days` tree, but the EV list also carries D-13 FILLER rows for dates
+   * `forecastDates` holds and the briefing served no window for. Their keys still hit that index.
+   * The reachable case is daily: `PlanWindowProjector` withdraws an ELAPSED window from the served
+   * set while `forecastDates` still carries today, so after this morning's sunrise the list leads
+   * with a filler for a window hours past — and the pill would colour and tint it.
+   */
+  it('⚠️ skips a D-13 FILLER row, whose key still hits the index built from `briefing.days`', () => {
+    const TOMORROW = '2026-09-07';
+    // The briefing serves TOMORROW's sunset only; `forecastDates` carries today as well, which is
+    // what `buildMapEvents` emits a filler for.
+    const events = buildMapEvents({
+      solarWindows: [{ date: TOMORROW, targetType: SUNSET, label: 'Tomorrow sunset', bestRating: 4 }],
+      forecastDates: [DATE, TOMORROW],
+      todayStr: DATE,
+      tomorrowStr: TOMORROW,
+    });
+    const filler = events.find((e) => e.date === DATE && e.eventType === SUNSET);
+    const servedRow = events.find((e) => e.date === TOMORROW && e.eventType === SUNSET);
+    // The premise: one row of each kind, and the index answers for BOTH dates.
+    expect(filler.served).toBe(false);
+    expect(servedRow.served).toBe(true);
+    const index = buildRegionVerdictIndex([
+      ...days([region('Cumbria', 4.4, 'WORTH_IT')], { date: DATE }),
+      ...days([region('Cumbria', 4.4, 'WORTH_IT')], { date: TOMORROW }),
+    ]);
+    expect(index.has(`${DATE}|${SUNSET}|Cumbria`)).toBe(true);
+
+    const out = buildEvVerdicts({ events, index, regionsInScope: ['Cumbria'] });
+
+    expect(out.has(servedRow.id)).toBe(true);
+    expect(out.has(filler.id)).toBe(false);
+  });
 
   it('keys on the row id, so a caller can look up a stepper neighbour', () => {
     const events = [evRow('solar:2026-09-06:SUNSET', 'solar', DATE, SUNSET)];
