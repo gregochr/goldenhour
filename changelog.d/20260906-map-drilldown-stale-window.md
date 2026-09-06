@@ -6,3 +6,6 @@ locations — the figures were read from the wider forecast payload while the ma
 draw. It now closes with the window.
 
 `Zoom to region` also left the keyboard on the page body, like the two exits fixed alongside it.
+
+If the window is retired while you are reading the panel, the keyboard comes back to the window pill
+rather than being left on the page body.

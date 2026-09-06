@@ -955,6 +955,18 @@ should challenge these **in review**, not silently "fix" them in code.
    the ✕ and the sheet handoff were fixed for exactly this reason — which is the useful part of the
    record: a fix applied to "the exits" is not a fix applied to *every* exit unless they were
    enumerated, and these three were not.
+45. **The FIFTH exit is the one no press initiates, and it has no handler to hang a focus move on.**
+   Raised by the review's third round, against the commit that created it: the `served` gate on
+   `windowPanelOpen` unmounts the panel when a briefing refresh retires the active window, taking a
+   focused subtree with it. ⚠️ **The fix does not add a sixth focus call** — that would have been the
+   fourth patch to a set nobody had enumerated, which is #44's whole lesson. It **adopts an orphan**:
+   one effect that fires when the drilldown has just closed AND focus actually ended on `<body>`,
+   which every deliberate exit has already prevented by then. Any exit added later inherits the
+   recovery for free. Two guards keep it from confiscating rather than adopting — it never fires
+   while the panel is still open (a panel open with focus on the map is the ordinary state L3
+   created), and never when the reader is deliberately elsewhere. All four mutants killed, including
+   both guards; the "still open" one needed a real re-render, because a click that changes no state
+   runs no effect.
 
 
 ### §4b — Measured residuals: what shipped imperfect, and was left

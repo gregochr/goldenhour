@@ -1400,6 +1400,42 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * survivor instead. The pill is the control the whole drilldown hangs from.
    */
   const winPillRef = useRef(null);
+  /**
+   * ⚠️ **The drilldown can close with nobody pressing anything, and that path has no handler to hang
+   * a focus move on.** Every DELIBERATE exit — both ✕ buttons, the sheet handoff, `Zoom to region` —
+   * moves focus to the pill itself, because each destroys its own trigger. The `served` gate on
+   * {@code windowPanelOpen} adds a fifth exit that no press initiates: a briefing refresh retires the
+   * active window and the panel unmounts under the reader, taking the focused subtree with it. Focus
+   * then falls to {@code <body>}, outside the pane's React {@code onKeyDown}, and the next Tab
+   * restarts at the top of the document. Raised by the cross-vendor review's THIRD round, against
+   * the commit that added the gate.
+   *
+   * <p>It adopts an ORPHANED focus rather than duplicating each exit's own move: it fires only when
+   * the drilldown has just closed AND focus actually ended up on {@code <body>}, which the four
+   * deliberate exits have already prevented by then. Any exit added later inherits the recovery
+   * without being enumerated — the lesson §4 #44 records, since "the exits" was never a written set.
+   *
+   * <p>⚠️ Declared HERE, above the {@code if (!date || locations.length === 0)} early return, and
+   * reading the open state through a ref written during render below — a hook after that return is
+   * conditional, which this file's own comments record having paid for twice. No dependency array:
+   * the value it watches is a ref, so there is nothing for React to compare.
+   *
+   * <p>Two guards, both the landing card listener's own: never while the pane is off screen (panes
+   * mount and stay, so a closed tab must not steal focus), and never while a foreign modal is up —
+   * taking focus out of the four-day sheet would be worse than losing it.
+   */
+  const drilldownOpenRef = useRef(false);
+  const drilldownWasOpenRef = useRef(false);
+  useEffect(() => {
+    const was = drilldownWasOpenRef.current;
+    const now = drilldownOpenRef.current;
+    drilldownWasOpenRef.current = now;
+    if (!was || now) return;
+    const pane = mapPaneRef.current;
+    if (!pane || paneIsOffScreen(pane) || foreignModalOver(pane)) return;
+    if (document.activeElement && document.activeElement !== document.body) return;
+    winPillRef.current?.focus();
+  });
   // Filters are collapsed by default (a quiet "tell me more" follow-up to Plan);
   // the open/closed choice persists since users rarely change filters.
   //
@@ -2887,6 +2923,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * own baseline (§4 #43).
    */
   const windowPanelOpen = openMapMenu === 'window-panel' && activeMapEvent?.served !== false;
+  // Read by the orphaned-focus effect above, which is declared before this file's early return.
+  drilldownOpenRef.current = windowPanelOpen;
   const panelPoints = (windowPanelOpen && activeMapEvent
     && heat?.pointsByKey?.get(`${activeMapEvent.date}:${activeMapEvent.eventType}`)) || EMPTY_POINTS;
   const panelRows = windowPanelOpen ? buildPanelRegionRows({

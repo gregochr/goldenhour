@@ -2434,6 +2434,89 @@ describe('the region panel — one region, into the sheet that already exists', 
     expect(screen.queryByTestId('wf-win-panel')).toBeNull();
   });
 
+  /**
+   * ⚠️ **The fifth exit is the one no press initiates**, and it therefore has no handler to hang a
+   * focus move on: a briefing refresh retires the active window and the panel unmounts under the
+   * reader with focus inside it. The recovery adopts an ORPHANED focus rather than duplicating each
+   * deliberate exit's own move, so an exit added later inherits it without being enumerated —
+   * which is the whole lesson of the four that were not (§4 #44). Third Codex round.
+   */
+  it('⚠️ recovers focus when a refresh retires the window with focus inside the panel', async () => {
+    const locations = makeLocations();
+    const props = panelProps();
+    const { rerender } = await renderMap(props);
+    openPanel();
+    openRegion('The Lakes');
+    // Focus is genuinely inside the panel, which is the precondition the recovery exists for.
+    expect(screen.getByTestId('wf-reg-panel').contains(document.activeElement)).toBe(true);
+
+    await act(async () => {
+      rerender(<MapView
+        locations={locations}
+        date={TODAY}
+        autoEventType={null}
+        {...props}
+        heat={heatProp({ windows: [] })}
+        forecastDates={[TODAY]}
+      />);
+    });
+
+    expect(screen.queryByTestId('wf-reg-panel')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId('wf-win-pill'));
+  });
+
+  /**
+   * ⚠️ **It adopts an orphan; it does not confiscate.** Without the `activeElement !== body` guard
+   * the recovery fires on every close, including ones where the reader is deliberately somewhere
+   * else — yanking focus to the pill from whatever they were using.
+   */
+  it('⚠️ leaves focus alone when the window is retired and the reader is elsewhere', async () => {
+    const locations = makeLocations();
+    const props = panelProps();
+    const { rerender } = await renderMap(props);
+    openPanel();
+    const elsewhere = screen.getByTestId('wf-jump-chip');
+    elsewhere.focus();
+
+    await act(async () => {
+      rerender(<MapView
+        locations={locations}
+        date={TODAY}
+        autoEventType={null}
+        {...props}
+        heat={heatProp({ windows: [] })}
+        forecastDates={[TODAY]}
+      />);
+    });
+
+    expect(screen.queryByTestId('wf-win-panel')).toBeNull();
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
+  /**
+   * ⚠️ **And it fires on CLOSE only.** A panel open with focus on the map — `<body>` — is the
+   * ordinary state L3 created and its own comment names; without the `|| now` term the recovery
+   * would run on every render while open and drag the reader back to the pill.
+   */
+  it('⚠️ does not grab focus while the drilldown is still open', async () => {
+    const locations = makeLocations();
+    const props = panelProps();
+    const { rerender } = await renderMap(props);
+    openPanel();
+    document.activeElement?.blur();
+    expect(document.activeElement).toBe(document.body);
+
+    // ⚠️ A real RE-RENDER with the panel still open. A click that changes no state causes none, and
+    // this effect has no dependency array — so only a render can run it, which is exactly what the
+    // briefing's own poll does every ten minutes.
+    await act(async () => {
+      rerender(<MapView locations={locations} date={TODAY} autoEventType={null} {...props} />);
+    });
+
+    expect(screen.getByTestId('wf-win-panel')).toBeInTheDocument();
+    expect(document.activeElement).toBe(document.body);
+  });
+
   /** ⚠️ The third exit that destroys its own trigger; the batch that fixed the other two missed it. */
   it('⚠️ leaves focus on the pill when Zoom to region closes the drilldown', async () => {
     await renderMap(panelProps());
