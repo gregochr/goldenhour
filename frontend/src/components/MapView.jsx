@@ -1426,11 +1426,26 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   const drilldownOpenRef = useRef(false);
   const drilldownWasOpenRef = useRef(false);
+  // ⚠️ No dependency array, and the `setOpenMapMenu` inside is why the rule objects. It cannot
+  // chain: the write happens only on a true→false transition of `drilldownOpenRef`, and after it
+  // `openMapMenu` is null, so the next render's `windowPanelOpen` is false, `was` is false, and the
+  // effect returns at its first line. One step, then quiescent. An array is not available either —
+  // the value it watches is derived below this file's early return, and a hook declared down there
+  // would be a conditional one.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     const was = drilldownWasOpenRef.current;
     const now = drilldownOpenRef.current;
     drilldownWasOpenRef.current = now;
     if (!was || now) return;
+    // ⚠️ **Clear the switch, not only the render.** When the close came from the `served` gate
+    // rather than from a press, `openMapMenu` is still `'window-panel'` — a value with nothing
+    // rendered behind it, which is not merely untidy: the landing card's own Escape listener defers
+    // whenever `openMapMenu != null`, so Escape stops working on a card the reader can SEE, and
+    // `onOpenWindowPanel` is withheld in the same state so there is no control left to clear it.
+    // (A deliberate exit has already set it to null, so this is a no-op there.) Raised twice —
+    // by the PR's cross-phase lens and by the review's fourth round.
+    setOpenMapMenu((cur) => (cur === 'window-panel' ? null : cur));
     const pane = mapPaneRef.current;
     if (!pane || paneIsOffScreen(pane) || foreignModalOver(pane)) return;
     if (document.activeElement && document.activeElement !== document.body) return;

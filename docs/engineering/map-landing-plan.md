@@ -967,6 +967,14 @@ should challenge these **in review**, not silently "fix" them in code.
    created), and never when the reader is deliberately elsewhere. All four mutants killed, including
    both guards; the "still open" one needed a real re-render, because a click that changes no state
    runs no effect.
+46. **The switch had to be cleared, not merely the render suppressed** — raised twice, by this PR's
+   cross-phase lens and by the review's fourth round. A retirement left `openMapMenu` at
+   `'window-panel'` with nothing behind it, which is not untidiness: the landing card's Escape
+   listener defers whenever that value is non-null, so Escape stopped working on a card the reader
+   can SEE, and `handleMapPaneKeyDown` spent its first press clearing an invisible menu instead of
+   the selection. ⚠️ **The first test written for it proved nothing and a mutant walked straight
+   through** — it reopened the pill, which works either way. The observable is the pane's Escape
+   ladder, and finding that is what made the guard killable.
 
 
 ### §4b — Measured residuals: what shipped imperfect, and was left

@@ -2517,6 +2517,48 @@ describe('the region panel — one region, into the sheet that already exists', 
     expect(document.activeElement).toBe(document.body);
   });
 
+  /**
+   * ⚠️ **The switch has to be cleared, not just the render suppressed.** A retirement left
+   * `openMapMenu` at `'window-panel'` with nothing behind it — and the landing card's own Escape
+   * listener defers whenever `openMapMenu != null`, so Escape stopped working on a card the reader
+   * can SEE, while `onOpenWindowPanel` was withheld in the same state so no control remained to
+   * clear it. Raised twice: by this PR's cross-phase lens and by the review's fourth round.
+   */
+  it('⚠️ leaves no orphaned menu state when the window is retired', async () => {
+    // ⚠️ The observable is the PANE's Escape ladder, not the pill: `handleMapPaneKeyDown` clears an
+    // open menu BEFORE it clears a selection, so a stale `'window-panel'` swallows the first press
+    // on nothing the reader can see and the selection survives a keystroke that should have cleared
+    // it. (Reopening the pill works either way, which is why the first draft of this test proved
+    // nothing and a mutant walked through it.) The landing card's own Escape listener defers on the
+    // same value, for the same reason.
+    const locations = [...makeAzimuthLocation(), ...makeLocations()];
+    const props = panelProps({
+      locations, handoffLocationName: 'AzimuthSpot', handoffNonce: 11,
+    });
+    polylineCalls.length = 0;
+    const { rerender } = await renderMap(props);
+    expect(polylineCalls.length).toBeGreaterThan(0);
+    openPanel();
+
+    await act(async () => {
+      rerender(<MapView
+        date={TODAY}
+        autoEventType={null}
+        {...props}
+        heat={heatProp({ windows: [] })}
+        forecastDates={[TODAY]}
+      />);
+    });
+    expect(screen.queryByTestId('wf-win-panel')).toBeNull();
+
+    // One press, on the pane. With the switch left set it is spent clearing an invisible menu.
+    polylineCalls.length = 0;
+    fireEvent.keyDown(screen.getAllByTestId('map-container')[0], { key: 'Escape' });
+    await act(async () => {});
+
+    expect(polylineCalls).toHaveLength(0);
+  });
+
   /** ⚠️ The third exit that destroys its own trigger; the batch that fixed the other two missed it. */
   it('⚠️ leaves focus on the pill when Zoom to region closes the drilldown', async () => {
     await renderMap(panelProps());

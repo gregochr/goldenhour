@@ -9,3 +9,6 @@ draw. It now closes with the window.
 
 If the window is retired while you are reading the panel, the keyboard comes back to the window pill
 rather than being left on the page body.
+
+And the map no longer holds an invisible open-panel state afterwards, which used to swallow the next
+`Escape` — including the one that dismisses the landing card.
