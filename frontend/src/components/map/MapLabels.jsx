@@ -46,6 +46,23 @@ const LABEL_PANE_Z = 650;
  * `wf-map-chrome-tl`/`wf-map-chrome-tr`: an absolutely-positioned dropdown overflows its trigger
  * chip's own layout box, so the chrome wrapper's `getBoundingClientRect()` does not cover it — only
  * the panel's own rect does. The closed chip needs no entry of its own; the wrapper already covers it.
+ *
+ * <h2>⚠️ Adding to this list is not free, and HEIGHT is what costs</h2>
+ *
+ * <p>{@link MAP_NUDGES} reaches ±38px and {@code mapDxOffsets} is <b>anchor-relative</b>
+ * ({@code round(w/2) + MAP_DX_GAP}), not obstacle-relative — the horizontal fallback moves a box by
+ * half its OWN width plus 9px, which clears a neighbouring label and not a 504px-wide plate. So
+ * <b>an obstacle that swallows a label's anchor cannot be escaped on any of the 21 rungs</b>: the
+ * label is dropped, never nudged. 36px of chrome leaves rungs above and below it; a several-hundred-
+ * pixel panel leaves none.
+ *
+ * <p>That was measured rather than reasoned (`map-landing-plan.md` §4b.1, 2026-09-06 — the real
+ * placer, real Chromium-measured boxes, 560 state-pairs). The reassuring half: across every state
+ * measured, <b>zero</b> of the labels the three panels drop had clear air — each one is a label its
+ * panel covers, which is what seeding it is for. The half to keep in mind before adding a fifth
+ * entry: `wf-reg-panel` on a phone (374×449 over a 390×844 frame) takes the placed set down by
+ * ~64%, and `map-tab-v2-plan.md` §4 #31's "no label moved" licence was granted on a 36px band and
+ * does not cover a panel.
  */
 const OBSTACLE_SELECTOR = [
   '[data-testid="wf-map-chrome-tl"]',
