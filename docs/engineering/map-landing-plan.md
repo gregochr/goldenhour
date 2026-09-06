@@ -44,12 +44,13 @@ against them in parallel; the overlap only surfaces at merge, where it is most e
 
 ## §0 Status
 
-**Status: IN PROGRESS — L1–L6 built (unpushed), L7 (sweep and docs) next. All three blocking owner
-decisions taken 2026-09-05 (§6): Q1 night cell renders empty, Q2 once per forecast run, Q3 name the
-highest-mean region.** Phase log (every phase appends its own row in the same commit as its code):
+**Status: ✅ CODE-COMPLETE — L1–L7 built, unpushed. The nine-commit stack has not been rebased onto
+main and no PR is open; §6 leaves Q4–Q9 with the owner.** Phase log (every phase appends its own row
+in the same commit as its code):
 
 | phase | branch | commit | date | notes |
 |---|---|---|---|---|
+| L7 | `feature/map-landing-l7-sweep` | (pending commit) | 2026-09-06 | Sweep and docs; **no user-visible behaviour change**. §6's three decided questions answered against what shipped, Q4/Q6/Q8 restated (⚠️ Q8 now stands against COMPLETED work — both phases that could have acted on it have shipped). **CLAUDE.md**: a new *Map tab — the verdict, the picks and the landing card* bullet, and a **sixth licensed class** on Backend-heavy naming all four scope-derived figures with their exit and (d)'s population stated explicitly, plus `buildRegionLocationRows` named as deliberately NOT a fifth member. The three "claims a case, not a permission" notes are discharged in the same commit the permission lands. `map-tab-v2-plan.md` §6: O-4, O-16 and O-20 updated. New `plan-panel-data-contracts.md` §10. New **§4b** collecting six measured residuals that until now lived only inside these phase-log cells. ⚠️ **Two read-only lenses then found ten defects in the sweep itself, five of them FALSE STATEMENTS I had just written into authoritative files.** The worst: CLAUDE.md's new paragraph gave **a waterfall** as an example of a place excluded from the `N of M` denominator — `SKY_SUBJECT_TYPES` is LANDSCAPE, SEASCAPE *and* WATERFALL, so a waterfall is a sky subject and sits in both halves. The withheld set is WILDLIFE-, WOODLAND- or BLUEBELL-only sites. The error was inherited from `mapVerdict.js`'s L1-era module doc, copied into `mapDrilldown.js` at L6, and L7 was the commit that promoted it into the file the project treats as authoritative; corrected in all five places, plus CLAUDE.md's own **Waterfall UI** bullet, which claimed that filter as the cluster-era exclusion's survivor and is likewise wrong. Also false: `(#1–#36)` when §4 had 37 (L7 added the 37th); "three taken and four still open" when §6 has nine (three taken, **six** open); "four truncating surfaces" beside an enumeration of three; and §4 #37's claim that both panels' Escape handlers are redundant with the pane's — true of `MapWindowPanel`, **false of `MapRegionPanel`**, whose `onBack` also carries the return-focus target, so deleting it would reinstate the `<body>`-focus defect the increment fixed four times. Overstated and corrected: "the places THIS WINDOW could rate" (⚠️ `skySubject` is a per-LOCATION flag set once from `locationType` — it does not vary by window); "three times" for the focus defect (four within the increment, five counting `MapCallout` before it); a `§6 clause 4` citation with no referent inside its own document (the ban lives in `window-first-redesign-plan.md` §6, and ⚠️ several comments in this tree mis-cite it as `plan-matrix-plan.md` §5 clause 5 — §5 there is Data mapping). **And the sweep had missed real orphans**, corrected here: CLAUDE.md's **Map tab (v2)** bullet still said "two sheet routes" where L6 made three, and step 2 had asked for that bullet by name — a sibling bullet was added instead of updating it; `MapWindowPanel`'s class doc still carried `⚠️ Mounted inside .wf-map-chrome-tl, and that is load-bearing` as a section heading, which L5's own review made false and which L6 had already corrected in two copies elsewhere; `useOutsideDismiss` said "four panels"/"five call sites" in nine places and has six and seven (with the same sentence duplicated consecutively in `FiltersPopover`); `heat.windows`' PropTypes was three fields behind its producer (`away`, `pickKind`, `pickRegion`) — the same shape as the `isSolar` argument L5 passed to a function that never read it; `mapEvents`' filler branch broke the one-shape invariant its own comment asserts by setting `pickKind: null` without `pickRegion`; `driveMinutes` was published on both row payloads and declared in neither PropTypes; the `regionGlossEntry` re-export I added at L6 had no production importer at all; and `MapRegionPanel` still carried the verbatim twin of the dead `|| AWAITING` arm L6 deleted one file over. **Two plan entries were actively dangerous and are rewritten**: §4 #3 named three declarations and all three were wrong — including "`min-width: 0` … is still not added", which is present on `.wf-win-pill` and required (without it the pill OVERFLOWED and the `›` travelled 142.94px) — and §4's own preamble tells reviewers to challenge these entries rather than fix the code, so a stale one licensed deleting a measured fix; and `map-tab-v2-plan.md` §4 #31 still declared the pill "a FIXED 262px", abandoned at L2, while `index.css` cites that entry as having licensed a label-obstacle widening that has since grown again to a size nobody re-measured (now R5). **Changelog set reconciled** as one release-time read: the plan entry claimed the pill "has been a deliberate fixed width since #773" (L2 abandoned it), the L3 entry promised Escape never operates behind a dialog (§4 #37 says otherwise for the two later panels) and carried the stale four/five, and two entries described the stepper fix twice. Gate green: lint 0, vitest **5485** passing (224 files), audit 0, build clean. |
 | L6 | `feature/map-landing-l6-region-panel` | (pending commit) | 2026-09-06 | The drilldown's second and last level. `utils/mapDrilldown.js` gains `buildRegionLocationRows` (one region's top four, ranked star→drive→name) and `regionStatSegments`; new presentational `components/map/MapRegionPanel.jsx`; `MapWindowPanel`'s rows become buttons through the `onSelectRegion` hook L5 left for it. **The two looked-up facts are looked up, never re-derived** — the tide glyph is served `BriefingSlot.TideInfo.tideOnTheLight` through `locationSheet.buildTideAlignmentIndex`, and the leave-by reads `mapCallout.calloutLeaveBy` over `locationSheet.eventInstantOf`, the SAME recovery the callout makes off the same `buildScoreIndex` row. Three shared extractions rather than a fourth copy: `components/map/TideWave.jsx`, `regionGloss.regionGlossEntry`, and `handleOpenLocationSheet(inPlan, spot)` — one handler for all THREE sheet routes. Escape back-stack built (§4 #28), *not* by stopping propagation: both handlers run and are made to agree. 49 mutants run pre-review, all killed; three earlier survivors changed the CODE rather than the test (an EV-row key nothing could kill, two provably-equivalent level clears). ⚠️ **Then six read-only adversarial lenses found TWO blocking defects, two data-honesty defects and eleven measured test holes — a green suite, clean lint, a clean build, my own 49 mutants and a fourteen-width browser pass had all gone over every one of them.** **BLOCKING 1, and the third repetition of a defect this plan has already fixed twice:** every drilldown transition dropped focus to `<body>`, so `Escape` was DEAD on the only route in — the row that opens the region panel unmounts itself, and `MapView`'s handler is a React `onKeyDown` on the pane root that a press on `<body>` never reaches. `WindowControl.jsx` carries my own L5 comment stating that exact mechanism. Measured in Chromium, WebKit AND Firefox plus a jsdom probe against the real components, by three lenses independently; §4 #28 reasoned about two focus cases and missed the one the panel's own route produces, and both my Escape tests fired at the panel node, which passes regardless of focus. Fixed with focus-on-mount and return-to-invoker. **BLOCKING 2:** `.wf-reg-panel-x` overrode `grid-column` — but `.wf-land-x` carries THREE placement declarations, and `grid-row: 1 / span 2` + `align-self: start` both survived, putting the back arrow and the ✕ 7.9px apart at desktop and **25.1px** at 320. I audited the axis the L5 defect was on and never looked at the other two; borrowing a rule borrows all of its assumptions. **DATA HONESTY 1** (two lenses): `N of M at 4★+` counted places that can NEVER enter the numerator — `buildHeatSpots` keeps a wildlife hide as a spot and withholds only its scores, so a region with five sky locations and four hides read `3 of 9`. The mirror image of the phrasing the rule bans. The same filter now feeds `nearest`, which was naming a hide (§4 #34). **DATA HONESTY 2:** the pick medallion is a claim about a WINDOW rendered in a REGION header — `windowFirstStrip` dropped the served `pick.regionName`, so `◎ Best bet` could sit three columns from a `Poor` chip on a region the forecast never picked. `pickRegion` now rides beside `pickKind` and the medallion is gated on it, as the prototype gates its own. **Six more fixed:** the ‹ › steppers closed the whole drilldown (§4 #35 — L5's, inherited, and it made `panelRegion`'s doc claim the opposite of what shipped); `handleOpenLocationSheet`'s unconditional `setOpenMapMenu(null)` closed Filters/Legend/Regions for its two PRE-EXISTING callers; a doubled 2px hairline where the last row met the gloss; the action row sat 163–282px below the fold on short phones with no scroll cue (now sticky); `.wf-land-pick-words`' ≤400px hatch was unwired on both panels; `title` on the four-days action was a duplicate AX description on 100% of renders backing an ellipsis that needs 41+ characters. Plus four over-claimed parity literals, `TideWave`'s missing intrinsic size, `eventWord`'s absent night arm, `.wf-win-panel-verdict`'s absent base ink, a dead em-dash arm, and two comments describing a component 27 lines below them. **Eleven measured test holes closed:** both lookup windows and the boundary side were unpinned (the guarding assertion was inert by construction); "does not move the current selection" could not fail (`MapCallout` cannot render in that harness); "re-found by name, never stored" passed under a snapshot implementation; the cascade test was blind to SOURCE ORDER, so moving one line reintroduced the L5 defect with all 15 green; both `OBSTACLE_SELECTOR` entries were untested on both files; the row buttons had no `getByRole` coverage at all, so an `aria-label` deleting four facts survived. ⚠️ **Two lens charges REFUTED rather than fixed:** the action buttons' 1.3:1 borders are `.wf-callout-actions`' own, app-wide and unchanged; and `5stars` in the accessible name is a jsdom gluing artefact — all three engines return `5 stars`, so the test records the harness rather than the component. **Re-measured after the fixes** (headless Chromium, built sheet, real `.wf-body--map` chain): head delta 0.0px at every size and the phantom grid row gone; the seam a single 1px rule; the actions sticky, visible and hit-testable at 375×667, 360×640 and 320×568 where the panel scrolls; no clipping of the full location name at any of fourteen widths; the stars column one distinct right edge, identical to the window panel's; contrast 6.75–14.45:1 with zero failures. **Residuals, stated**: one region name clips at 320px (as at L5); the panel overlaps `.wf-map-chrome-bl` at ≤430px and paints over it at 1150; `5 ★` carries a 5px flex gap the window panel shares. Gate green: lint 0, vitest **5484** passing (224 files), audit 0, build clean. |
 | L5 | `feature/map-landing-l5-window-panel` | (pending commit) | 2026-09-06 | New pure `utils/mapDrilldown.js` (`buildPanelRegionRows`, `windowPanelNote`) + presentational `components/map/MapWindowPanel.jsx`; the pill menu gains a `▤ This window, region by region ›` footer row; `openMapMenu` gains `'window-panel'`. **Both convergences step 6 asked for are done in the shared module**: `windowFirstRegions` exports `byMeanThenName` and now reads its tier through `resolveRegionDisplay` (6b), so a legacy cached payload no longer makes the map's pill say `Worth it` above a rail cell saying `Not scored`. ⚠️ **Four §4 divergences recorded** (#23–26 plus #27/#28 after review): the panel prints the confidence LABEL not the spec's percentage (the only number this app has is a fill opacity); ONE live entry, not the spec's three (the card's rows already have the design's own job, and a pick chip pointing at other windows was built and cut at L2); `N of M at 4★+` is scope-scoped with a fixed 4 and says no reach word; a NIGHT window has no region rows at all and cannot (O-16); and step 0's Escape back-stack is deferred to L6 with the reason recorded. ⚠️ **Adversarial review (4 read-only lenses: runtime, CSS/layout, test quality, accessibility+conventions) found two blocking-class defects, both MEASURED by the lens that raised them, and a long tail.** Blocking 1: the close ✕ borrowed `.wf-land-x`, whose `grid-column: 2` is written for the landing card's TWO-column head — this head has three, so grid auto-placement seated the ✕ in the MIDDLE with the verdict word flush right where the dismiss control belongs, at every width, on every solar window. Blocking 2: mounted inside `.wf-map-chrome-tl` the panel's `max-height` had no percentage basis (that box is ~36px tall) and fell back to `100vh` — the VIEWPORT, taller than the frame by the masthead — so rows ran `chrome − 108px` past the frame bottom (28px at 1280, 76px at 390) to be cut by `.wf-body--map`'s `overflow: hidden` with **no scrollbar to reach them**, and the bottom chrome (all 1100, later in DOM order) painted over the last rows. Fixed by moving the panel to frame level at z-index 1150. ⚠️ **And a repeat of my own fix from one row above**: the drilldown entry unmounts itself, so focus fell to `<body>` and `Escape` — which step 5 asks for by name — never reached the pane's subtree handler; the sibling reopen row carries `pillRef.current?.focus()` with a comment saying exactly this, added last phase. ⚠️ **Two false claims of mine, corrected**: that exporting the comparator made three surfaces agree "by construction" (the map's argmax still carries its own copy, and it *skips* a null-mean region where the comparator ranks it last), and that the panel's `max-height` used "the same reckoning" as the card's. ⚠️ **Data honesty**: `N of M at 4★+` counted our own rated rows on both sides, which is literally "N of M scored" — banned by name in `plan-matrix-plan.md` §5 and CLAUDE.md — now a count of PLACES in scope; the several-regions note printed "N regions are poor … so the choice between them is drive time", advice to pick between write-offs, reachable whenever one canopy-only region sits in the reader's area; and a night window printed a confidence band inferred from the SOLAR horizon directly above its own note disclaiming the solar forecast. ⚠️ **Accessibility**: rows were `disabled` buttons, announcing regions as *unavailable* when the feature is merely unbuilt and leaving the ✕ as the panel's only tab stop (now divs, per CLAUDE.md's "a travel day is a div, never a button"); `★` had no spoken alternative in either the count or the ceiling. ⚠️ **A CSS charge REFUTED by measurement**: four muted-token mounts were charged as failing AA; with the real `.wf-body--map` chain they resolve through `--color-panel-ink` and land 6.9–7.2:1 — the same trap L4 recorded, and this time the lens's own harness avoided it and a different one did not. ⚠️ **Test rebuild on MEASURED findings**: the mean-vs-ceiling fixture was rank-correlated, so a ceiling sort passed all 153 tests; reverting the shared tier convergence passed the whole 5360-test suite; the note had no rendered coverage at all (`note=""`, hard-coded `isSolar` and `scopeIsArea` all survived); the `?? -Infinity` null-mean rule survived `?? 0`; the overlay test could not fail for an L5 reason; and the Escape test fired at a node no press ever targets. 27 mutations run in total, all now killed — three of them only after a new `mapWindowPanelCascade.test.js`, because jsdom has no layout and the z-index, the grid columns and the flipped row rule were unpinnable without it. ⚠️ **I mutated the working tree while a read-only lens was still reading it**, leaving the suite red under that reviewer — CLAUDE.md says to commit or stash first, and it is why one lens's figures are against an older tree. Browser: headless Chromium against the BUILT sheet with the real ancestor chain, 12 widths — the ✕ flush right, both right-hand columns at ONE distinct edge down nine rows, nothing past the frame bottom, no width shortfall on the phone, clipping only at 320px. **Residual, stated**: on ≤639px the panel overlaps `.wf-map-chrome-bl`, but at 1150 it paints OVER that chip rather than being covered by it, which is ordinary behaviour for an open panel. Gate green: lint 0, vitest **5377** passing (222 files), audit 0 vulnerabilities, build clean. |
 | L4 | `feature/map-landing-l4-landing-card` | (pending commit) | 2026-09-06 | New pure `utils/mapLanding.js` (`landingRows`, `landingHeader`, `elsewherePicks`, `nextWorthIt`, `landingCardModel`) + presentational `components/map/MapLandingCard.jsx`; `mapEvents.solarRow` gains `served` and `away`; `MapView` gains `runId`, a DERIVED once-per-run open and a document `Escape`; `WindowControl` gains the reopen row. ⚠️ **Two plan steps were changed in code, deliberately** (§4 #18/#19): rows gate on the new `served` flag rather than the plan's `scored` (they differ for a served-but-unrated window), plus `away` — and the phone keeps the card inset rather than becoming a `BottomSheet`, whose backdrop is the one dismissal route the card forbids. ⚠️ **Adversarial review (6 read-only lenses: runtime, CSS/tokens, test quality, accessibility, conventions/spec-fidelity, data honesty) found TWO blocking defects, a long tail, and — the recurring category — five of my own comments that were false.** Blocking 1, confirmed independently by the runtime and accessibility lenses: the card's document-level `Escape` listener stayed armed while the Map pane was `hidden`, and the pane is never unmounted — so an Escape pressed on the **Plan tab** dismissed a card the reader could not see and stamped the run as seen, spending the once-a-run greeting on a keystroke aimed at something else. `WindowControl`'s own class doc states that hazard as its reason for refusing a document listener, and I had read it. Fixed with a `closest('[hidden]')` stand-down, testable in jsdom. Blocking 2, **paint-measured** by the CSS lens: at `z-index: 1300` the card painted OVER the window control's own dropdown (328×133px at 1280, `elementFromPoint` returning `.wf-land`), because `.wf-map-chrome-tl` is a stacking context and the menu's declared 1500 is local to it — an ordering the DOM has never implemented. ⚠️ That is the **third** wrong z-index answer in this plan, every one from reading declared values instead of asking which context they live in; the card is now **1050**, below the chrome. ⚠️ **Two more measured layout defects**: `.wf-land-when` shipped as `flex: 1` (a zero base, so the day label was the first thing to yield and yielded to nothing — it overflowed at 375px and 320px), and once that was pinned the squeeze moved onto the KIND CHIP, which clipped to `SUNRI` at 320px; fixed with `flex: 1 0 auto`, `flex-shrink: 0` on the chip and a card-scoped ≤400px medallion-word withdrawal, re-measured clean at twelve widths. Both `max-height` figures were measured from the frame edge rather than the bottom chrome band (76→112px, 130→196px). ⚠️ **Accessibility**: the row in force had a 1.16:1 tint and no ARIA state at all (now `aria-current` plus `.wf-win-row.on`'s real 0.13 fill and its left rule — the comment had claimed a value 31% weaker than the sibling it cited); the reopen row's whole accessible name was a bare question ("Tonight, or tomorrow?") wearing `◎`, the Best-bet glyph, in the same menu (now "↺ Back to …"), and it dropped focus to `<body>` on the one control whose purpose is recovery (now returns it to the pill); three buttons on the tab were named "Dismiss"; `aria-controls` pointed at a generic div after the listbox restructure; and a chevron sat inside a button's name. ⚠️ **Data honesty**: `scopeLabel` was not gated on `heat.hasHome`, so a reader with no postcode saw "· My area" over the whole catalogue beside a verdict cell correctly reading "everywhere" — **verbatim the defect L2 fixed, repeated one line above it**; `nextWorthIt` could name a window the briefing served but never rendered (the days list runs to ten, `MAX_VISIBLE_EVENTS` renders six); and a travel day could become one of "your next two", as a live button. ⚠️ **Five false or overstated comments of my own, all corrected**: `#8FC0C7` "is the TIDE channel in this app" (it is `#9CCBD1`, and the rule I cited for corroboration says "NOT the design bundle's raw `#8FC0C7`"); "the bare spaces are load-bearing" (this project measured three engines yesterday and found they are no-ops in a flex container — a jsdom artefact, and taking it for a browser defect has already cost a build); "`.wf-win-pick` carries a ≤811px rule" (the rule names `.wf-win-pick-words`; the conclusion held, the sentence did not); a claimed divergence from the prototype's all-Poor pick handling that **does not exist** (it behaves identically on its computed path — a lens read the prototype and I had not); and "a one-line change to `landingSeenKeyFor`" for policies that need a new argument. A sixth, in `WindowFirstMapPane`, told the next implementer to take the quiet line's region from the window's verdict — false about shipped code and, since the pick is roster-wide and the verdict scope-narrowed, the recipe for "Best bet · Northumberland" on a Cornwall pick. ⚠️ **One lens charge REFUTED by measurement**: four `--color-plex-text-muted` mounts were charged as failing AA at ~3.5:1; measured live with the real ancestor chain they resolve through `.wf-body--map`'s override to 0.66 and land 6.9–7.2:1. That harness had transcribed the chain from `MapView` and omitted the wrapper — the "invented DOM chain" trap. The dependency is now named in the CSS. ⚠️ **Test rebuild on measured findings**: `elsewherePicks`' `onRows` clause was **dead across the entire suite** (every fixture put the on-row pick on row 0, where the neighbouring clause already suppressed it) — a lens ran the mutant and it survived; the "strictly later than both rows" assertion had been excused in a comment as structurally untestable, which was **wrong** (rows need not be contiguous); the accname test asserted `textContent`; the row-in-force test pinned a CSS class substring; the foreign-modal node was torn down on a line an assertion could skip; `Today` and `Tonight` were never exercised in the header's lowering position; and 11 `toBeTruthy()` calls on `getBy*` results. 30 mutations run in total (23 behaviour + 7 CSS-cascade), all killed. Browser verification: headless Chromium against the BUILT sheet with the real ancestor chain — checks 5 and 6's behaviour is jsdom + mutation, the card's geometry, paint order, clipping and token resolution are measured. **Not run**: the seeded-fixture end-to-end §9 describes. Gate green: lint 0, vitest **5320** passing (219 files), audit 0 vulnerabilities, build clean. |
@@ -583,17 +584,33 @@ should challenge these **in review**, not silently "fix" them in code.
    and that is no longer what the code does.** #773 held the pill at a fixed 262px derived from the
    menu's 334px. L2 measured the reachable content at up to **417.47px** (a solar row with a pick and
    the "everywhere in your area" line), so 262px would ellipse the day label — the one thing the spec
-   says must never truncate. The pill now FILLS a bounded, capped group: `.wf-map-tab
-   .wf-map-chrome-tl` gets `right: 248px`, `.wf-win-control` gets `max-width: 504px`, the pill gets
-   `flex: 1 1 auto`, and the menu is `width: 100%` of the same group so the two still share both
-   edges. The width is therefore a property of the **frame**, never of the content — the steppers
-   still do not move as the reader steps, which is the actual invariant.
+   says must never truncate. The pill now FILLS a bounded, capped group, and the menu is `width: 100%`
+   of that same group so the two still share both edges. The width is therefore a property of the
+   **frame**, never of the content — the steppers still do not move as the reader steps, which is
+   the actual invariant.
 
    So the spec's first layout constraint (a bounded group) **does** port after all; only its number
-   does not — `calc(100% - 344px)` was sized for the prototype's chrome, and 248px is this app's
-   cluster measured at 224.45px plus its inset and slack. `min-width: 0` remains a measured no-op
-   beside `overflow: hidden` and is still not added. §1 #4, and `mapWindowControlWidthCascade.test.jsx`
-   was rewritten to pin the new mechanism against the same invariant.
+   does not — `calc(100% - 344px)` was sized for the prototype's chrome. §1 #4, and
+   `mapWindowControlWidthCascade.test.jsx` was rewritten to pin the new mechanism against the same
+   invariant.
+
+   ⚠️ **This entry named three declarations and all three were wrong by the time L7's completeness
+   sweep read them back — which matters more than ordinary staleness, because §4's own preamble tells
+   a reviewer to challenge these entries rather than silently "fix" the code. As written it licensed
+   deleting a measured fix.** Corrected against the shipped sheet, and deliberately not restated
+   here a second time: read `index.css`, where each carries its own measurement.
+   - `.wf-map-tab .wf-map-chrome-tl` is **`max-width: calc(100% - 308px)`**, not `right: 248px`. That
+     form was tried and L2's own phase-log row records it as a measured defect — `right:` beside
+     `left:` stretches rather than bounds, leaving a ~600px transparent strip that swallowed drags.
+   - `.wf-win-control` is **`width: 504px; max-width: 100%`**, not `max-width: 504px`. Its own rule
+     says why in as many words: "a `width`, not only a `max-width` — and the difference is the whole
+     invariant."
+   - **`min-width: 0` IS present, on `.wf-win-pill`, and is required.** This entry said it "remains a
+     measured no-op … and is still not added", which is true of `.wf-win-label` — a scroll container,
+     where #773 measured the no-op — and false of the pill, which is not one: without it the pill did
+     not shrink, it OVERFLOWED, and the `›` stepper travelled up to 142.94px. The rule's own comment
+     records that an earlier cut forbade it "in a comment that had transplanted its reasoning from
+     the wrong element". This entry was that comment's twin, and outlived it.
 4. **`mapLabels.verdictWord` is not reused.** Its 3.7/2.8 are right for a per-location whole star and
    wrong for a region mean. Nothing in this increment imports it.
 5. **Scope means `heatArea`, and `origin` is a second axis the spec does not model.** Under an away
@@ -803,10 +820,15 @@ should challenge these **in review**, not silently "fix" them in code.
 34. **The counts and the nearest drive exclude places this window could never rate**, where the
    design's own prototype has no such distinction. `map-tab-v4.js` computes `hits` and `n` from one
    array because every prototype location is scoreable; ours are not. `buildHeatSpots` KEEPS a
-   wildlife hide or a waterfall as a spot and withholds only its scores, so such a place sat in the
-   `N of M` denominator and could never reach the numerator — a region with five sky locations
-   (three at 4★+) and four hides read `3 of 9`. That is the mirror image of the "N of M scored"
-   phrasing `plan-matrix-plan.md` §5 and CLAUDE.md ban: not a denominator of rows-we-scored, but one
+   non-sky location as a spot and withholds only its scores, so such a place sat in the `N of M`
+   denominator and could never reach the numerator — a region with five sky locations (three at 4★+)
+   and four wildlife hides read `3 of 9`. ⚠️ **A waterfall is NOT one of them**, and the first
+   wording of this entry said it was: `SKY_SUBJECT_TYPES` is LANDSCAPE, SEASCAPE and WATERFALL, so
+   the withheld set is WILDLIFE-, WOODLAND- or BLUEBELL-only sites and an untagged location counts.
+   Caught by L7's fact-check before it reached CLAUDE.md's own wording. That is the mirror image of
+   the "N of M scored" phrasing `window-first-redesign-plan.md` §6's fourth bullet and CLAUDE.md ban
+   (⚠️ several comments in this tree mis-cite it as `plan-matrix-plan.md` §5 clause 5; §5 there is
+   Data mapping and the ban is restated at its §3 rule 5): not a denominator of rows-we-scored, but one
    holding places the question does not apply to. Found independently by two adversarial-review
    lenses; the same filter feeds `nearest`, for the same reason.
 35. **`WindowControl` closing its own dropdown no longer closes the drilldown**, and until L6 it
@@ -831,7 +853,44 @@ should challenge these **in review**, not silently "fix" them in code.
    occur. ⚠️ **If these ever become separate PRs, amend L5's commit instead.** The same edit removed
    the entry's promise of "an em dash" on night rows, which §4 #27 had already established cannot
    render.
+37. **Both panels' own `Escape` handlers operate behind a foreign modal, and L7 records rather than
+   fixes it.** `MapView.handleMapPaneKeyDown` stands down while a foreign `[role="dialog"][aria-modal]`
+   is open — its own doc calls the rule absolute — but `MapWindowPanel` and `MapRegionPanel` each
+   carry a subtree `onKeyDown` that does not, and theirs fires first. So with the four-day sheet open
+   over the map, one `Escape` reaching a panel steps it back or closes it *behind* the sheet.
+   Measured by a review lens at both levels. ⚠️ **The state needs a precondition worth stating**: every
+   route into the sheet closes the drilldown on the way (`handleOpenLocationSheet`'s
+   `if (windowPanelOpen) setOpenMapMenu(null)`), so a panel can only be *behind* the sheet if it was
+   opened after it — by Tabbing out of a non-trapping modal onto the pill. ⚠️ **Not fixed, on
+   `map-tab-v2-plan.md` O-20's own stated posture**: it is unreachable without that Tab-out, it is the
+   third direction the same double-answer already arrives from (the phone `BottomSheet` case is
+   recorded there), and O-20 says in as many words that the fix is the shell-root `inert` follow-on
+   rather than a further per-route guard — which two more guards here would be. ⚠️ **The tempting
+   cheaper move is not available, and the first wording of this entry said it was.** Deleting the
+   panels' own handlers would inherit the pane's stand-down for free — both mounts are inside the
+   pane's subtree, so the pane handler already sees every press — but that is true only of
+   `MapWindowPanel`, whose `onClose` is the pane's own `openMapMenu` branch. `MapRegionPanel`'s is
+   **not** redundant: its `onBack` also sets `panelReturnTo`, which is what returns focus to the row
+   the reader came from, and the pane's region branch does not. Deleting it would reinstate the
+   `<body>`-focus defect this increment fixed four times. A fact-check lens caught the claim.
+   Recorded on O-20 as well, so it is found from either end.
 
+
+
+### §4b — Measured residuals: what shipped imperfect, and was left
+
+⚠️ **These lived only inside §0's phase-log cells until L7's completeness sweep**, which is not
+somewhere a continuing session looks. None is a defect worth a phase; each is a measurement someone
+will otherwise re-discover and file as new.
+
+| # | residual | measured at | why left |
+|---|---|---|---|
+| R1 | The window pill's day label clips at **320px** | L2 | Below every device in the roster's target set; the label is the one thing the design says must not truncate, so it is recorded rather than accepted silently. `map-tab-v2-plan.md` **O-4** (curated short names) is the real cure. |
+| R2 | One region name clips at **320px** in the region panel | L6 | Same cause, same cure — R1 and R2 close together or not at all. |
+| R3 | The drilldown overlaps `.wf-map-chrome-bl` (the Legend chip) at **≤430px** | L5, re-measured L6 | The panel is 1150 and the chrome 1100, so it paints *over* rather than being covered — ordinary behaviour for an open panel, and the chip is reachable the moment it closes. |
+| R4 | `5 ★` carries a 5px flex gap between the number and the glyph | L6 | `.wf-win-panel-best` is `inline-flex; gap: 5px` and the window panel shares it, so fixing one level only would make the two disagree. Pre-existing to L6. |
+| R5 | The label-placement obstacle grew **334→504px** with the control | L2 | `map-tab-v2-plan.md` §4 #31 licensed the previous widening *by measuring that no label moved*; that measurement was not re-run at 504px. ⚠️ The licence was spent at a size it never measured — re-run it before trusting the citation. |
+| R6 | Both drilldown panels answer `Escape` behind a foreign modal | L6 | §4 #37 in full. Left on `map-tab-v2-plan.md` O-20's stated posture; the obvious shortcut is unavailable. |
 
 ---
 
@@ -881,13 +940,25 @@ Nothing below blocks **L1**. Q1 blocks L2's night-row copy; Q2 blocks L4's open 
   tint, and nothing is synthesised. Rejected: (b) deriving a word client-side from the night's served
   rows, which is the rated/unrated conflation O-16 exists to name; (c) serving one, a backend phase
   this plan does not contain. The exit is O-16 — if a rated night rollup ever ships, the cell has
-  somewhere honest to read from.
+  somewhere honest to read from. **✅ SHIPPED as decided, and it reached further than the cell.**
+  A night window also has no region rows on the window panel (nothing serves a per-region night
+  rollup either), so the region panel is unreachable from one — three silences, one cause, now
+  recorded on O-16 itself. ⚠️ Two dead branches were built for the night case and deleted rather than
+  left as scenery: an `isSolar` arm in `buildPanelRegionRows` reachable only by an input `MapView`
+  never produces (§4 #27), and the spec's em dash on a `verdictLabel` that is never nullish (L6).
+  And `windowFirstCards.eventWord` has no night arm at all, so the region panel's empty state names
+  the WINDOW rather than the event side — a trap left for whoever lands O-16.
 - **Q2 — When the card opens** (the spec's `OPEN 3`). **✅ DECIDED 2026-09-05: once per forecast
   run**, keyed on `briefing.generatedAt` — the app already has both the value and the localStorage
   pattern (`MapView`'s `readMapFilter`/`writeMapFilter`). Rejected: once per day (a run can land
   mid-evening, and the card would then be stale for the visit that most needs it); suppressing when
   the window you left is still current (it makes the rule depend on a second piece of state, and the
-  card is about the *next two* windows, not the one you left).
+  card is about the *next two* windows, not the one you left). **✅ SHIPPED as decided**, keyed on
+  `runId` through `landingSeenKeyFor`. ⚠️ Two things the decision did not anticipate, both found in
+  review and both fixed: the dismissal listener was armed while the Map pane was `hidden`, so an
+  Escape pressed on the Plan tab dismissed a card nobody had seen AND stamped the run; and the card
+  needed `paneIsOffScreen`/`foreignModalOver` guards the "once per run" wording implies nothing
+  about. `LANDING_ROW_COUNT` pins the two-row shape the question has (L7).
 - **Q3 — Highest or nearest region** (the spec's `OPEN 2`). **✅ DECIDED 2026-09-05: highest.**
   Not merely as the status quo — `buildWindowCards.hotRegionName` already names the highest-mean
   region, and the Plan tab's heat strip brightens *that* region's thumbnail, so naming a different
@@ -895,15 +966,28 @@ Nothing below blocks **L1**. Q1 blocks L2's night-row copy; Q2 blocks L4's open 
   observation stands and is answered by the count rather than by the name: when three regions are
   Worth it the real tiebreak is drive time, and `+N` is what tells the reader they are in that
   situation. ⚠️ If nearest is ever wanted, it must change `hotRegionName` for **both** tabs, not just
-  the map.
-- **Q4 — The tally's exit.** Whether a served, scope-aware region tally is ever wanted. It cannot ride
-  `/api/briefing` (per-user scope, ETag-shared); the shape would be `map-tab-v2-plan.md` **O-4**'s
-  never-cached per-user endpoint. Until then D-4 stands.
+  the map. **✅ SHIPPED as decided**, and the drilldown discharges the spec's own worry in full: a
+  reader who wants nearest opens the window panel and reads every in-scope region's nearest measured
+  drive beside its verdict, so the pill names the strongest and the level below answers "but which
+  of them is closest" — without either surface re-deriving the other's figure.
+- **Q4 — The tally's exit. STILL OPEN, and it now covers four figures rather than one.** Whether a
+  served, scope-aware region tally is ever wanted. It cannot ride `/api/briefing` (per-user scope,
+  ETag-shared); the shape is `plan-matrix-plan.md` §8's **O-4**, a never-cached per-user endpoint.
+  ⚠️ **Not `map-tab-v2-plan.md`'s O-4**, which is curated region short names — two plans, two O-4s,
+  and this entry cited the wrong one until L7. Until it ships, D-4 stands and CLAUDE.md's
+  Backend-heavy bullet names all four as its **sixth licensed class** with that exit attached
+  (L7 step 2): `mapVerdict`'s tally, `mapLanding`'s `allPoor` and `nextWorthIt`, and
+  `mapDrilldown.buildPanelRegionRows`' counts. `plan-panel-data-contracts.md` §10 records why the
+  contract is warranted in principle and was deliberately not built.
 - **Q5 — Should the two picks be forced to differ in region?** A backend change to
   `PlanWindowProjector.selectPicks` that would move the Plan tab too. §4 #2.
-- **Q6 — Curated region short names** (`map-tab-v2-plan.md` **O-4**). The pill's 9px region line is
-  the first surface where the full names visibly truncate. Closing O-4 would improve this increment
-  and three surfaces beside it.
+- **Q6 — Curated region short names** (`map-tab-v2-plan.md` **O-4**). **STILL OPEN, and the
+  increment added two more surfaces to it.** The pill's 9px region line was the first place the full
+  names visibly truncate; the drilldown's window-panel rows and the region panel's own header are
+  now the second and third, and one region name measurably clips at 320px on the last of them.
+  Closing O-4 would improve **three** surfaces at once — the old wording said four, which was
+  1 + "three surfaces beside it" from a sentence that no longer stands beside an enumeration. Recorded on that item as load-bearing rather than
+  cosmetic.
 - **Q9 — Should the phone's bottom sheets obey the persistence rule?** Raised by L3's review. On a
   phone, Filters and the Regions list render as a `BottomSheet` whose backdrop is `fixed inset-0`
   with `onClick={onClose}` and which locks body scroll — so a tap on the map DOES dismiss them and
@@ -919,8 +1003,11 @@ Nothing below blocks **L1**. Q1 blocks L2's night-row copy; Q2 blocks L4's open 
   all-in-scope case permanently unreachable for that reader. L1's answer is the safe one — a region
   with no sky answer cannot be said to agree — but it makes the design's third label case rarer than
   the design assumes. **Recommendation: leave it**, and revisit only if a real roster shows the
-  "everywhere" line never firing. It is a copy decision and belongs to whichever phase renders the
-  words (L2's pill, L5's note), not to the phase that counts.
+  "everywhere" line never firing. It is a copy decision and belonged to whichever phase renders the
+  words (L2's pill, L5's note), not to the phase that counts. ⚠️ **Both have now shipped without
+  changing it**, so this stands as an open question against completed work rather than against a
+  future phase: revisiting it means editing shipped copy on two surfaces, not choosing before either
+  is written.
 - **Q7 — Does the map become the landing tab?** The spec raises it and its own working order says
   *flag it, do not start it*. If the map lands, the Plan tab's job narrows to the week and the *why*.
   **Out of scope for every phase here**, recorded so it is decided deliberately rather than by
@@ -947,7 +1034,7 @@ Two checks this plan adds, because they guard decisions the spec does not know a
 | # | check | phase | how |
 |---|---|---|---|
 | 8 | Map/Plan verdict agreement | L1 | ⚠️ **Re-worded at L1**, because the served verdict is no longer forwarded (§4 #9) — there is no `heat.windows[i].verdict` to compare. The check is now: at whole-catalogue scope the map's *derived* tier and named region equal the Plan card's `verdict`/`hotRegionName`, driven from one fixture. ⚠️ And state honestly what that proves: with no origin the card's verdict collapses to the served `win.verdict`, so the tier equality compares two fixture-supplied strings, and both region answers now reach the same shared argmax. The **literals** are the teeth; the equalities guard against a future re-fork. |
-| 9 | Panels survive the map | L3 | Each of the four: open, fire a real `mousedown` → `click` pair on bare ground, assert still open. **Not** a hand-invoked `click` handler. |
+| 9 | Panels survive the map | L3 | Each of the SIX (⚠️ four when written; L5 and L6 added the drilldown's two levels, which adopt the same hook): open, fire a real `mousedown` → `click` pair on bare ground, assert still open. **Not** a hand-invoked `click` handler. |
 
 ---
 

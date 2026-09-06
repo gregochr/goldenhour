@@ -23,5 +23,4 @@ panel closes first, the way every other door onto a map already does.
 
 `Escape` steps back one level rather than collapsing the whole drilldown; a second press closes it.
 Opening a region moves the keyboard into the panel, and stepping back returns it to the row you came
-from — so the way out is always one press away. Stepping to another window with the drilldown open
-now keeps it open on the region you were reading about, rather than closing it.
+from — so the way out is always one press away.

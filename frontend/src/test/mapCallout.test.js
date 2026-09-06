@@ -14,8 +14,11 @@ import { describe, it, expect } from 'vitest';
 import {
   anchorCallout, buildRegionGlossIndex, calloutBand, calloutFacts, calloutLeaveBy,
   CALLOUT_GAP, CALLOUT_MARGIN, CALLOUT_MIN_BAND, filterCalloutTopics, isCoastalTidalLocation,
-  regionGlossEntry, regionGlossFor,
+  regionGlossFor,
 } from '../utils/mapCallout.js';
+// Imported from its DEFINING module — `mapCallout.js` re-exports only the two names that had
+// importers before the split; see that line's own note.
+import { regionGlossEntry } from '../utils/regionGloss.js';
 
 describe('calloutBand', () => {
   it('defaults to the whole frame, minus an 8px margin on each edge, with no bars', () => {

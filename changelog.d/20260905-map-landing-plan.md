@@ -19,5 +19,5 @@ Three of the bundle's rules are deliberately not ported, each with the evidence 
 client verdict thresholds (3.7/2.8) do not land where the served bands do (3.5/2.5), so the fallback
 they were meant to reconcile is not built at all; its client pick ranking would put a different Best
 bet on the Map tab from the Plan tab, which is the disagreement the bundle's own verdict rule exists
-to prevent; and its pill layout constraints were written for a prototype pill that hugs its content,
-where this one has been a deliberate fixed width since #773.
+to prevent; and its pill layout constraints carry a number sized for a prototype's
+chrome rather than this app's.

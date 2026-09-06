@@ -10,7 +10,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
-  landingRows, landingHeader, elsewherePicks, nextWorthIt, landingCardModel,
+  landingRows, landingHeader, elsewherePicks, nextWorthIt, landingCardModel, LANDING_ROW_COUNT,
 } from '../utils/mapLanding.js';
 import { EVENT_KIND } from '../utils/mapEvents.js';
 
@@ -95,6 +95,26 @@ describe('landingRows', () => {
     ];
 
     expect(landingRows({ events }).map((r) => r.index)).toEqual([2, 3]);
+  });
+
+  /**
+   * ⚠️ **The card is a TWO-row card, and that is a design fact rather than an accident of the
+   * fixture.** L7's orphan sweep found `LANDING_ROW_COUNT` exported with no reader anywhere — not
+   * production (its only use is `landingRows`' own default) and not a test. Asserting the number
+   * here is what gives the export a reason to exist: it pins "should I go tonight or in the
+   * morning" as a question about exactly two windows, so widening the card becomes a deliberate
+   * edit rather than a silent one.
+   */
+  it('takes exactly LANDING_ROW_COUNT rows, and that is two', () => {
+    const events = [
+      solar(TODAY, 'SUNSET'), solar(TOMORROW, 'SUNRISE'),
+      solar(TOMORROW, 'SUNSET'), solar(THURSDAY, 'SUNSET'),
+    ];
+
+    expect(LANDING_ROW_COUNT).toBe(2);
+    expect(landingRows({ events })).toHaveLength(LANDING_ROW_COUNT);
+    // …and the default is the constant, not a literal that happens to agree with it.
+    expect(landingRows({ events, count: 3 })).toHaveLength(3);
   });
 
   it('skips night rows — they carry no per-region rollup and answer a different question', () => {

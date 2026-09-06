@@ -31,10 +31,12 @@ import { eventWord } from './windowFirstCards.js';
  * {@code allPoor} FOLDS two scope-narrowed verdicts into a sentence no server field states —
  * <em>"Neither is worth the drive."</em> — and {@code nextWorthIt} searches on the same
  * client-scoped tier. Both are per-user claims, because the scope is the reader's own planning
- * area. That is the shape of CLAUDE.md's licensed per-user-join class, and like
- * {@code utils/mapVerdict.js}'s tally it is <b>not yet a named member of it</b>: this comment
- * claims a case, not a permission. ⚠️ Plan §3 L7 step 2 as written adds only <em>mapVerdict's
- * tally</em> to that bullet, which would sweep straight past this — widened at L4.
+ * area. ✅ <b>Both are now NAMED members of CLAUDE.md's licensed per-user-join class</b> — its sixth,
+ * the Map tab's scope class, entries (b) and (c) — added at L7 alongside {@code mapVerdict}'s tally
+ * and {@code mapDrilldown}'s counts. Until then this comment claimed a case rather than a
+ * permission; the permission exists now, and its exit is O-4's shape (a never-cached per-user GET,
+ * plan §6 Q4, undecided). ⚠️ Plan §3 L7 step 2 as first written added only <em>mapVerdict's
+ * tally</em> to that bullet, which would have swept straight past these two — widened at L4.
  */
 
 /** How many windows the card compares. Two — see the module doc; it is the question's shape. */

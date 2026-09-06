@@ -25,13 +25,23 @@ import { PICK_TEXT } from './WindowControl.jsx';
  * ⚠️ That is the opposite of the landing card's rule, which forbids an outside tap as well; the two
  * are different surfaces and `useOutsideDismiss`'s own doc names the card as its exception.
  *
- * <h2>⚠️ Mounted inside `.wf-map-chrome-tl`, and that is load-bearing</h2>
+ * <h2>⚠️ Mounted at FRAME level, not inside `.wf-map-chrome-tl`</h2>
  *
- * <p>The chrome box is a stacking context ({@code position: absolute} with {@code z-index: 1100}),
- * so anything inside it composites at 1100 as a unit — which is exactly why L4 had to put the
- * landing card at 1050 rather than the 1300 that would have covered the window dropdown. Rendering
- * this panel as a sibling of that dropdown puts it in the same context by construction, so it lands
- * above the card for the same reason the menu does, with no z-index of its own to keep in step.
+ * <p><b>This heading said the opposite, and was true for about an hour.</b> The first cut mounted
+ * the panel inside the chrome box on the reasoning that it is a stacking context
+ * ({@code position: absolute}, {@code z-index: 1100}), so anything inside composites at 1100 as a
+ * unit and the panel would land above the 1050 landing card for free. True, and it cost two measured
+ * defects: that box is ~36px tall, so the panel's {@code max-height} had no percentage basis and
+ * fell back to {@code vh} — the VIEWPORT, taller than the frame by the whole masthead — and rows
+ * were clipped by {@code .wf-body--map}'s {@code overflow: hidden} with no scrollbar to reach them;
+ * and the bottom chrome (all 1100, later in DOM order) painted over the last rows. L5's own review
+ * moved it out to frame level at {@code z-index: 1150}, where {@code 100%} is the frame.
+ *
+ * <p>⚠️ The note did not follow the move — twice. The obstacle lists in {@code MapLabels}/
+ * {@code PinsLayer} carried the same stale claim and were corrected at L6; this heading, which is
+ * the original and is marked <em>load-bearing</em>, survived until L7's completeness sweep. It is
+ * recorded rather than merely fixed because "the comment did not follow the code" is now this
+ * increment's most repeated defect after focus loss.
  */
 export default function MapWindowPanel({
   row, verdict, note, rows, scopeIsArea = true, onClose, onSelectRegion, focusRegion = null,
@@ -238,6 +248,13 @@ MapWindowPanel.propTypes = {
     verdictLabel: PropTypes.string,
     meanRating: PropTypes.number,
     bestRating: PropTypes.number,
+    /**
+     * The raw minutes behind `driveLabel`. Published rather than internal because it is the row
+     * ordering's own second term, and a consumer that re-sorts must read the same number the
+     * label was formatted from — but ⚠️ **nothing renders it**: every surface prints `driveLabel`,
+     * so a reach figure is formatted in exactly one place. Undeclared here until L7's sweep.
+     */
+    driveMinutes: PropTypes.number,
     driveLabel: PropTypes.string,
     placeCount: PropTypes.number,
     atFourPlus: PropTypes.number,

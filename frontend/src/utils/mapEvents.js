@@ -214,6 +214,11 @@ function solarRow(date, targetType, served, todayStr, tomorrowStr, inForecastDom
     // windows" must therefore gate on `served`, never on list position alone
     // (map-landing-plan.md §3 L4 step 2).
     pickKind: null,
+    // Null rather than absent, with `pickKind` — the invariant the comment above states is that
+    // every solar row has ONE shape, and L6 added this field to the served branch alone. A
+    // completeness sweep caught the omission; it is harmless today only because every reader
+    // short-circuits on the kind first.
+    pickRegion: null,
     inForecastDomain,
   };
 }

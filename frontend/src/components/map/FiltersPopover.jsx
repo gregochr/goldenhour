@@ -61,10 +61,10 @@ export default function FiltersPopover({
 
   // Desktop/tablet only — see the class doc's phone section. `BottomSheet`'s own backdrop is the
   // phone's dismiss surface, and its content is portalled OUTSIDE `rootRef`, so this listener would
-  // otherwise fire (and close the sheet) on the very first tap inside it. A press on the MAP never
-  // dismisses — `useOutsideDismiss` carries that rule for all four map panels.
-  // A press on the MAP dismisses nothing on desktop and tablet — `useOutsideDismiss` carries that
-  // rule for all four map panels so they cannot drift apart.
+  // otherwise fire (and close the sheet) on the very first tap inside it. A press on the MAP
+  // dismisses nothing on desktop and tablet — `useOutsideDismiss` carries that rule for all six map
+  // panels so they cannot drift apart. (⚠️ The sentence was here twice, consecutively, saying the
+  // same thing with the same stale count; L7's sweep merged them.)
   //
   // ⚠️ **The phone is genuinely different, and the rule does not hold there.** `enabled: !isMobile`
   // withholds the listener because the `BottomSheet` below is portalled outside `rootRef` and this

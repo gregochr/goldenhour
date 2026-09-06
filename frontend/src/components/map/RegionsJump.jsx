@@ -81,7 +81,7 @@ export default function RegionsJump({
   // Desktop/tablet only — `FiltersPopover`'s identical guard, for the identical reason.
 
   // A press on the MAP dismisses nothing on desktop and tablet — `useOutsideDismiss` carries that
-  // rule for all four map panels so they cannot drift apart.
+  // rule for all six map panels so they cannot drift apart.
   //
   // ⚠️ **The phone is genuinely different, and the rule does not hold there.** `enabled: !isMobile`
   // withholds the listener because the `BottomSheet` below is portalled outside `rootRef` and this

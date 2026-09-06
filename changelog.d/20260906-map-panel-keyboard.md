@@ -8,4 +8,5 @@ a screen reader announce that anything happened.
 
 The window control's `‹ ›` steppers no longer close the drilldown either. They close the control's own
 dropdown, which is what they were written to do, but that landed as "close whatever is open" — so an
-11px stepper beside the pill silently discarded two levels of navigation.
+11px stepper beside the pill silently discarded two levels of navigation. Stepping now keeps the
+drilldown open on the region you were reading about, so you can compare one region across windows.

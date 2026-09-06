@@ -35,11 +35,12 @@ import { resolveRegionDisplay } from './tierUtils.js';
  * {@code GET /api/briefing} payload — the same reasoning that keeps reach on its own never-cached
  * contract (map-landing-plan.md §5 D-4; the exit is §6 Q4, a never-cached per-user endpoint).
  *
- * <p>⚠️ <b>It is not yet a named member of CLAUDE.md's licensed per-user-join class</b> — that
- * bullet closes each of its sub-lists with "Members: those N, nothing else", and adding this one is
- * L7's job (map-landing-plan.md §3 L7 step 2). Stating the licence here before the list grants it
- * would be the self-authorising move that ⚠️ exists to stop, so this comment claims a case, not a
- * permission.
+ * <p>✅ <b>It is a NAMED member of CLAUDE.md's licensed per-user-join class</b> — its sixth, the Map
+ * tab's scope class, entry (a) — added at L7 (map-landing-plan.md §3 L7 step 2) together with
+ * {@code mapLanding}'s {@code allPoor}/{@code nextWorthIt} and {@code mapDrilldown}'s counts. Until
+ * that list grew, this comment claimed a case rather than a permission, because that bullet closes
+ * each sub-list with "Members: those N, nothing else" and asserting a licence here before the list
+ * granted it would have been the self-authorising move ⚠️ exists to stop.
  *
  * <p><b>What it actually folds over.</b> The tier and the tally are served
  * {@code displayVerdict}s — nothing here bands a number into a word. But the region whose tier is
@@ -225,9 +226,16 @@ export function windowVerdict({ index, date, targetType, regionsInScope }) {
  *
  * <p>{@code regionName} rather than {@code rid} — {@code heatSpots.js} sets the two from one value
  * and they are the same string, but the named one says what it is. Non-sky subjects are <b>kept</b>:
- * {@code buildHeatSpots} withholds a waterfall's scores from the field and keeps the spot, so a
- * region reachable only for waterfalls is still a region in your area, and the backend's own
+ * {@code buildHeatSpots} withholds their scores from the field and keeps the spot, so a region
+ * reachable only for woods or wildlife hides is still a region in your area, and the backend's own
  * ranking can name it.
+ *
+ * <p>⚠️ <b>This said "a waterfall's scores" and a waterfall is a SKY subject.</b>
+ * {@code SKY_SUBJECT_TYPES} is LANDSCAPE, SEASCAPE and WATERFALL, so a waterfall keeps its scores
+ * and is not an example of anything withheld; the withheld set is WILDLIFE-, WOODLAND- or
+ * BLUEBELL-only sites, and an untagged location counts as a candidate. The error was copied forward
+ * into {@code mapDrilldown.js} at L6 and from there into CLAUDE.md at L7, where a fact-check caught
+ * it — corrected in all five places at once, this being the original.
  *
  * @param {Array<{regionName: ?string}>} spots
  * @returns {string[]} distinct region names, in first-seen order

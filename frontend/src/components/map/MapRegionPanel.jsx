@@ -1,7 +1,6 @@
 import { useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
-import { VERDICT_LABEL } from '../../utils/windowFirstCards.js';
 import { regionStatSegments } from '../../utils/mapDrilldown.js';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { PICK_TEXT } from './WindowControl.jsx';
@@ -74,7 +73,7 @@ export default function MapRegionPanel({
   // beside a region the forecast did not pick — next to a `Poor` chip, three columns right. That is
   // the same shape as `windowFirstCards`' own warning about "a BEST BET flag for Northumberland on a
   // page framed to the Lakes". A window with no pick, or a pick naming another region, shows none.
-  const pick = (row?.pickKind && row?.pickRegion && row.pickRegion === region?.name)
+  const pick = (row?.pickKind && row?.pickRegion && row.pickRegion === region.name)
     ? PICK_TEXT[row.pickKind] : null;
   const stats = regionStatSegments(region);
   // ⚠️ The FULL name, and the design says so twice: splitting on whitespace produced "Four days at
@@ -91,7 +90,7 @@ export default function MapRegionPanel({
       role="dialog"
       // Programmatically focusable, not a tab stop — `RegionsJump`'s dialog does the same.
       tabIndex={-1}
-      aria-label={`${region?.name ?? 'This region'}, ${row?.label ?? 'this window'}`}
+      aria-label={`${region.name}, ${row?.label ?? 'this window'}`}
       onKeyDown={onKeyDown}
     >
       <div className="wf-win-panel-head wf-reg-panel-head">
@@ -105,7 +104,7 @@ export default function MapRegionPanel({
           &#8592;
         </button>
         <div className="wf-win-panel-title">
-          <b data-testid="wf-reg-panel-region">{region?.name ?? ''}</b>
+          <b data-testid="wf-reg-panel-region">{region.name}</b>
           <span className="wf-win-panel-meta" data-testid="wf-reg-panel-meta">
             {row?.label}
             {row?.time ? ` · ${row.time}` : ''}
@@ -130,8 +129,14 @@ export default function MapRegionPanel({
             strongest region, and a reader who drilled into the third-best one must not be shown that
             region's word over this one's rows. Both come from the same served record through
             `resolveRegionDisplay`, one level apart. */}
-        <span className="wf-win-panel-verdict" data-tier={region?.tier} data-testid="wf-reg-panel-verdict">
-          {region?.verdictLabel || VERDICT_LABEL.AWAITING}
+        <span className="wf-win-panel-verdict" data-tier={region.tier} data-testid="wf-reg-panel-verdict">
+          {/* ⚠️ No `|| AWAITING` fallback, and no `region?.` chain. `buildPanelRegionRows` sets
+              `verdictLabel` from `VERDICT_LABEL[tier] || VERDICT_LABEL.AWAITING`, which is never
+              nullish, and `region` is a required prop that `onZoomToRegion(region.name)` below would
+              throw on anyway. This was the verbatim twin of the arm L6 deleted one file over — a
+              completeness sweep found it still standing here. Scenery is worse than a gap: it
+              implies a state somebody has thought about. */}
+          {region.verdictLabel}
         </span>
         <button
           type="button"
@@ -224,7 +229,7 @@ export default function MapRegionPanel({
               rollup and the window panel gains night rows, drilling into an ASTRO window would
               print "rated for this sunset yet". Nothing here needs to name the event side: the
               header two inches up already says which window this is. */}
-          {`Nothing in ${region?.name ?? 'this region'} is rated for this window yet.`}
+          {`Nothing in ${region.name} is rated for this window yet.`}
         </p>
       )}
 
@@ -285,6 +290,13 @@ MapRegionPanel.propTypes = {
     tier: PropTypes.string,
     verdictLabel: PropTypes.string,
     meanRating: PropTypes.number,
+    /**
+     * The raw minutes behind `driveLabel`. Published rather than internal because it is the row
+     * ordering's own second term, and a consumer that re-sorts must read the same number the
+     * label was formatted from — but ⚠️ **nothing renders it**: every surface prints `driveLabel`,
+     * so a reach figure is formatted in exactly one place. Undeclared here until L7's sweep.
+     */
+    driveMinutes: PropTypes.number,
     driveLabel: PropTypes.string,
     placeCount: PropTypes.number,
     atFourPlus: PropTypes.number,

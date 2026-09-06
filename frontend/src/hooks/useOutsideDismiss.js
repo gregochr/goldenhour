@@ -1,8 +1,15 @@
 import { useEffect, useRef } from 'react';
 
 /**
- * The map chrome's shared outside-click dismissal — one rule, four panels
- * (`docs/engineering/map-landing-plan.md` §3 L3, `docs/design/map-landing/README.md` §5).
+ * The map chrome's shared outside-click dismissal — one rule, SIX panels
+ * (`docs/engineering/map-landing-plan.md` §3 L3/L5/L6, `docs/design/map-landing/README.md` §5).
+ *
+ * <p>⚠️ <b>It said "four" until L7's completeness sweep, in nine places in this file alone.</b>
+ * L3 wrote the rule for the week menu, the Regions list, Filters and the Legend; L5 and L6 then
+ * added the drilldown's two levels ({@code MapWindowPanel}, {@code MapRegionPanel}) as consumers
+ * and left every count behind. The number is load-bearing in the argument below — "editing three
+ * of the four" is the whole case for a shared hook — so a stale one weakens exactly the reasoning
+ * a future caller is meant to read.
  *
  * <h2>Nothing closes because you looked at the map</h2>
  *
@@ -30,26 +37,27 @@ import { useEffect, useRef } from 'react';
  * selection and on <em>nothing else</em> — not an outside tap either. Do not adopt this by pattern
  * match.
  *
- * <h2>⚠️ Why this is a shared hook rather than four edits</h2>
+ * <h2>⚠️ Why this is a shared hook rather than six edits</h2>
  *
- * <p>The rule reads like one change to one handler and is in fact five call sites: these four
- * `document`-level listeners plus `MapView`'s own Leaflet ground-click controller. The four
+ * <p>The rule reads like one change to one handler and is in fact seven call sites: these six
+ * `document`-level listeners plus `MapView`'s own Leaflet ground-click controller. The six
  * listeners fire — and commit — <em>before</em> the `click` that controller answers, which is a
  * timeline `MapBackgroundClickController`'s class doc already records having been caught by, in the
  * browser rather than by any test. Editing the controller alone changes nothing observable, and
- * editing three of the four leaves a panel that behaves differently from its neighbours for no
- * reason a reader could infer. One hook makes the four incapable of drifting.
+ * editing five of the six leaves a panel that behaves differently from its neighbours for no
+ * reason a reader could infer. One hook makes the six incapable of drifting — which is what let
+ * L5 and L6 adopt it in one line each and inherit the whole rule.
  *
  * <h2>The selector, not a ref</h2>
  *
  * <p>The frame is found by climbing from the event target rather than by threading a ref down from
- * `MapView` through four unrelated components, every one of which is rendered inside it.
+ * `MapView` through six unrelated components, every one of which is rendered inside it.
  *
  * <p>⚠️ <b>This selector is NOT how the rest of the map finds its own frame</b>, and an earlier
  * draft of this comment claimed it was. `MapLabels.jsx` and `PinsLayer.jsx` reach the frame through
  * Leaflet — `map.getContainer().parentElement` — and their `OBSTACLE_SELECTOR` lists *chrome*
  * test-ids, never `map-container`. That route is unavailable here: these panels hold no map
- * instance, and threading one through four components to answer "was this press on the map" would
+ * instance, and threading one through six components to answer "was this press on the map" would
  * be worse. So the test-id is a deliberate second handle on the same node, not an existing idiom.
  *
  * <p>The trade is that renaming or dropping that attribute silently restores the old behaviour.
@@ -90,7 +98,7 @@ export function isInsideMapFrame(target) {
  */
 export function useOutsideDismiss({ open, rootRef, onDismiss, enabled = true }) {
   // Held in a ref so a caller may pass a fresh arrow every render without re-subscribing, and
-  // without the `exhaustive-deps` disable the four call sites each carried separately.
+  // without the `exhaustive-deps` disable the call sites each carried separately.
   const onDismissRef = useRef(onDismiss);
   useEffect(() => { onDismissRef.current = onDismiss; }, [onDismiss]);
 

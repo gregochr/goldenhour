@@ -36,13 +36,15 @@ import { calloutLeaveBy } from './mapCallout.js';
  * all-canopy outside your area but mixed inside it answer the canopy question differently on the
  * two tabs).
  *
- * <h2>⚠️ The one client aggregation, and it is not licensed yet</h2>
+ * <h2>The one client aggregation, and it is licensed</h2>
  *
  * <p>{@link buildPanelRegionRows}' {@code atFourPlus}/{@code placeCount} pair is counted in the
  * browser, over the reader's own scope pool. That is the same per-user-join shape as
- * {@code mapVerdict}'s tally and, like it, is <b>not yet a named member</b> of CLAUDE.md's licensed
- * class — L7 adds all of them together (plan §3 L7 step 2). This comment claims a case, not a
- * permission.
+ * {@code mapVerdict}'s tally, and ✅ both are <b>named members</b> of CLAUDE.md's licensed class —
+ * its sixth, the Map tab's scope class, entry (d) — added at L7 with the other three. ⚠️ That
+ * bullet states the population explicitly, because L6 had to fix it: the places <b>this window
+ * could rate</b>, never every place in scope. {@link buildRegionLocationRows} below is
+ * deliberately NOT a member (plan §4 #32)
  *
  * <p>It is nonetheless the honest population: <b>scope only</b>, before every reader filter, exactly
  * as the pill's verdict is. A reader hiding 3★ locations must not change how many places a region
@@ -112,20 +114,29 @@ export function buildPanelRegionRows({
   //
   // <p>The denominator counts PLACES, not rows we happen to hold a rating for — an earlier cut had
   // it the other way round, and counting points on both sides made the line literally "N of M
-  // scored", which `plan-matrix-plan.md` §5 clause 5 and CLAUDE.md's licensed-class bullet ban by
-  // name. But the fix over-corrected: `buildHeatSpots` KEEPS a non-sky location (a wildlife hide, a
-  // waterfall) as a spot and withholds only its scores — `isSkyPromptCandidate` decides, and
-  // `skySubject` records it — so such a place is in the denominator and can never, by construction,
-  // reach the numerator. A region with five sky locations (three at 4★+) and four hides read
-  // `3 of 9`, understating every wood-bearing region uniformly. That is the mirror image of the
-  // phrasing the rule bans: not a denominator of rows-we-scored, but one containing places the
-  // question does not apply to.
+  // scored", which `window-first-redesign-plan.md` §6's fourth bullet and CLAUDE.md's licensed-class
+  // bullet ban by name (⚠️ this comment cited `plan-matrix-plan.md` §5 clause 5, which does not
+  // exist — §5 there is Data mapping, and its §3 rule 5 is where the ban is restated).
+  // But the fix over-corrected: `buildHeatSpots` KEEPS a non-sky location as a spot and withholds
+  // only its scores — `isSkyPromptCandidate` decides, and `skySubject` records it — so such a place
+  // is in the denominator and can never, by construction, reach the numerator. A region with five
+  // sky locations (three at 4★+) and four wildlife hides read `3 of 9`, understating every
+  // wood-bearing region uniformly. That is the mirror image of the phrasing the rule bans: not a
+  // denominator of rows-we-scored, but one containing places the question does not apply to.
+  //
+  // ⚠️ **A WATERFALL is a sky subject and is NOT withheld** — `SKY_SUBJECT_TYPES` is LANDSCAPE,
+  // SEASCAPE and WATERFALL. The withheld set is WILDLIFE-, WOODLAND- or BLUEBELL-only sites, and an
+  // untagged location counts (`isSkyPromptCandidate` returns true for an empty list). The first cut
+  // of this comment named a waterfall as an example and a fact-check caught it before the error
+  // reached CLAUDE.md's own wording.
   //
   // <p>The same filter feeds the NEAREST drive, for the same reason: `nearest 12 min` over a hide,
-  // printed above four rows starting at 1h 20min, describes a journey to somewhere this window has
-  // no answer for. ⚠️ A residual remains and is deliberate — "nearest" is the nearest place the
-  // window could rate, not the nearest of the four the panel lists, because those four are chosen by
-  // STAR (map-landing-plan.md §4 #33).
+  // printed above four rows starting at 1h 20min, describes a journey to somewhere a sky verdict
+  // does not apply. ⚠️ A residual remains and is deliberate — "nearest" is the nearest place a sky
+  // verdict applies to, not the nearest of the four the panel lists, because those four are chosen
+  // by STAR (map-landing-plan.md §4 #33). ⚠️ And `skySubject` is a per-LOCATION flag, set once from
+  // `locationType`: it does not vary by window, so neither figure may be described as "what THIS
+  // window could rate" — a precision the flag has not got.
   //
   // <p>`=== false` rather than `!skySubject`: `skySubject` is set on every spot `buildHeatSpots`
   // emits, so an absent field means a shape this function has not seen, and counting it keeps the

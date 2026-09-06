@@ -4779,6 +4779,18 @@ MapView.propTypes = {
       confidenceTier: PropTypes.oneOf(['high', 'medium', 'low']),
       /** The window's served topic badges — the window control's dropdown reads these directly. */
       badges: PropTypes.array,
+      /**
+       * ⚠️ The three the map-landing increment added, and this shape was three behind its producer
+       * until L7's completeness sweep — the same shape as the `isSolar` argument L5 passed to a
+       * function that did not destructure it, which survived a whole phase.
+       *
+       * <p>`away` is whether the window is a TRAVEL day (L4); `pickKind` is the forecast's own
+       * Best bet / Also good (L1); `pickRegion` is the region that pick NAMES (L6), carried WITH
+       * the kind so a medallion whose subject is a region can test it — see `MapRegionPanel`.
+       */
+      away: PropTypes.bool,
+      pickKind: PropTypes.oneOf(['best', 'also']),
+      pickRegion: PropTypes.string,
     })),
     areaBounds: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
     catalogueBounds: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
