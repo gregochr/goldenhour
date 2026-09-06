@@ -32,13 +32,99 @@ import RegionsJump from './map/RegionsJump.jsx';
 import MapBreadcrumb from './map/MapBreadcrumb.jsx';
 import { fadeAt } from '../utils/heatHandover.js';
 import { buildMapEvents, findEvIndex, solarHorizonDates, EVENT_KIND } from '../utils/mapEvents.js';
+import { buildEvVerdicts, regionNamesOf } from '../utils/mapVerdict.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { GLANCE_MINUTES } from '../utils/planningArea.js';
 import { latLngBounds } from '../utils/heatGeometry.js';
 import { buildJumpRows, regionBestRatingFor, buildNightRegionBest } from '../utils/regionsJump.js';
+import { landingCardModel } from '../utils/mapLanding.js';
+import MapLandingCard from './map/MapLandingCard.jsx';
+import MapWindowPanel from './map/MapWindowPanel.jsx';
+import {
+  buildPanelRegionRows, buildRegionLocationRows, windowPanelNote, REGION_PANEL_LOCATIONS,
+} from '../utils/mapDrilldown.js';
+import MapRegionPanel from './map/MapRegionPanel.jsx';
+import { regionGlossEntry } from '../utils/regionGloss.js';
 
 /** localStorage key for the "colours changed" notice's one-time dismissal. */
 const COLOUR_SCALE_NOTICE_DISMISSED_KEY = 'colourScaleNoticeDismissed';
+
+/**
+ * localStorage key for the landing card's "you have seen this run" stamp — map-landing-plan.md
+ * §3 L4 step 8, §6 Q2 (the owner chose <b>once per forecast run</b>).
+ *
+ * <p>The stored value is the {@code briefing.generatedAt} the reader last dismissed the card on, so
+ * the next run reopens it and a fourth visit in one evening does not. ⚠️ {@code generatedAt} is the
+ * briefing's BUILD stamp and the payload is re-derived at SERVE time
+ * (`WindowFirstBriefingContext.jsx` records this for its own memo), so two responses can carry one
+ * stamp with different window content. That is the right granularity here and not a bug to fix: the
+ * card is a once-a-run greeting, not a change notification.
+ *
+ * <p>⚠️ §6 Q2 is <b>decided</b> — the owner chose once per forecast run — so the alternatives it
+ * listed are history, not live options. An earlier revision of this block claimed they were "a
+ * one-line change to {@link landingSeenKeyFor}", which is false for two of the three: "once per
+ * day" needs a civil date and "suppress while the window you left is still current" needs the
+ * active window, and neither is in that function's scope. Changing the policy means a new argument
+ * and a new call site as well as a new body. The function exists to give the policy ONE name, not
+ * to make it cheap to change.
+ */
+const LANDING_SEEN_KEY = 'mapLandingSeenRun';
+
+/**
+ * Whether this pane is not on screen — detached, or inside a hidden tab panel.
+ *
+ * <p>⚠️ <b>The Map pane is never unmounted, only hidden.</b> `WindowFirstShell` renders every
+ * opened tab's panel and sets `hidden={effectiveTab !== tab.id}` on it, so a pane the reader
+ * navigated away from is still mounted, still holding state, and still running any `document`
+ * listener it registered. `WindowControl`'s own class doc states this hazard as its reason for
+ * refusing a document listener — and the landing card's Escape listener, which cannot be
+ * subtree-scoped (the card takes no focus, so a cold-open press lands on `<body>`), walked straight
+ * into it: an Escape pressed on the Plan tab dismissed a card the reader could not see AND stamped
+ * the run as seen, spending the once-a-run greeting on a keystroke aimed at something else. Two
+ * independent review lenses found it.
+ *
+ * <p>The `hidden` ATTRIBUTE rather than a computed style or a Tailwind class name: it is what the
+ * shell actually sets, it is what `role="tabpanel"` semantics require, and an attribute selector is
+ * one of the few visibility questions jsdom can answer — so the rule is testable rather than a
+ * browser-only claim.
+ *
+ * @param {?Element} paneRoot this pane's root node
+ * @returns {boolean}
+ */
+function paneIsOffScreen(paneRoot) {
+  return !paneRoot || !paneRoot.isConnected || Boolean(paneRoot.closest('[hidden]'));
+}
+
+/**
+ * Whether a dialog from OUTSIDE this map pane is currently over it — the four-day sheet the
+ * callout opens, `UserSettingsModal`, a search overlay.
+ *
+ * <p>Extracted to module scope because two Escape rules consult it and they must never disagree:
+ * {@code handleMapPaneKeyDown} (menus, then the selection) and the landing card's own document
+ * listener. A key pressed while a modal is up must not operate the page behind it, and one of the
+ * two quietly not applying that rule would be the O-20 defect L3 fixed, re-entered from the card.
+ *
+ * <p>Containment, not "is any modal open": a dialog this pane renders INLINE is its own business.
+ * See {@code handleMapPaneKeyDown}'s own block for the whole finding.
+ *
+ * @param {?Element} paneRoot this pane's root node
+ * @returns {boolean}
+ */
+function foreignModalOver(paneRoot) {
+  return Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]'))
+    .some((node) => !paneRoot || !paneRoot.contains(node));
+}
+
+/**
+ * The value stamped under {@link LANDING_SEEN_KEY} for a given forecast run — the whole of the
+ * "when does it open" policy, in one expression.
+ *
+ * @param {?string} runId `briefing.generatedAt`
+ * @returns {?string} null when there is no run to key on, in which case the card stays shut
+ */
+function landingSeenKeyFor(runId) {
+  return runId || null;
+}
 
 /**
  * The map's own localStorage filter keys, read/written fail-soft — a storage-denied browser
@@ -183,6 +269,8 @@ function heatSpotKey(spot) {
  * of its paint callback — so an unscored window would repaint the same nothing on every render.
  */
 const EMPTY_POINTS = [];
+/** Stable empty rows — the window panel's fallback while it is closed (map-landing-plan.md §3 L5). */
+const EMPTY_ROWS = [];
 
 /**
  * One empty date array, shared — the same reasoning as {@link EMPTY_POINTS} one level up, for the
@@ -452,40 +540,47 @@ BoundsTracker.propTypes = {
 };
 
 /**
- * Closes whichever of the map tab's own overlay popovers is open when the reader clicks empty map
- * — map-tab-v2-plan.md §3 P7 / README "Interactions & behaviour": "Click map background → Close
- * menus". Leaflet's marker click handlers stop propagation before it reaches the map's own `click`
- * event (`L.Marker` sets `bubblingMouseEvents: false`), so this never fires for a marker tap —
- * only genuine empty-map ground.
+ * Deselects the current location when the reader clicks empty map — and does nothing else.
  *
- * <p>⚠️ map-tab-v2-plan.md §3 P9's ordering rule ("popover, then callout — never both on one
- * press") needs a SECOND event, `mousedown`, and it is not optional. `WindowControl`/
- * `FiltersPopover` each close THEIR OWN menu via a `document`-level `mousedown` listener
- * (`onDocMouseDown`), entirely independent of this controller. On a real click that listener fires
- * — and commits its `setOpen(false)`/`onOpenChange(false)` — BEFORE the native `click` event that
- * follows it reaches this controller's own handler (browser event order: `mousedown` → `mouseup` →
- * `click`, and React's automatic batching flushes the `mousedown`-triggered update in between): by
- * the time `onBackgroundClick` ran, `openMapMenu` had ALREADY gone null, so the ordering collapsed
- * to "close everything on one click" — a live regression, caught in the browser (not by any unit
- * test, since every one of them invoked the captured `click` handler manually, never alongside a
- * real `mousedown`). `mousedown` fires on THIS controller too, via Leaflet's own map event of that
- * name, and — because `.leaflet-container` is an ancestor of `document` — reaches it BEFORE the
- * document-level listener does, so `onMouseDown` snapshots `openMapMenu`'s value into a ref at the
- * one moment it is still trustworthy. The actual close still happens on `click`, never `mousedown`
- * itself, because `click` is Leaflet's OWN pan-vs-tap distinction (a `mousedown` that turns into a
- * drag never fires `click`) — reacting on `mousedown` directly would close the callout at the START
- * of every pan gesture.
+ * <p>⚠️ **It no longer closes popovers**, which inverts what map-tab-v2-plan.md §3 P7 and
+ * `docs/design/map-tab-v2/README.md`'s interactions table both still say ("Click map background →
+ * Close menus"). Those two are stale as of map-landing L3; `docs/design/map-landing/README.md` §5
+ * is the live rule. Leaflet's marker click handlers stop propagation before it reaches the map's
+ * own `click` event (`L.Marker` sets `bubblingMouseEvents: false`), so this never fires for a
+ * marker tap — only genuine empty-map ground.
+ *
+ * <p>⚠️ **It reacts on `click`, never on `mousedown`, and that has always been load-bearing.**
+ * `click` is Leaflet's own pan-vs-tap distinction — a `mousedown` that turns into a drag never
+ * fires one — so reacting on `mousedown` would clear the selection at the START of every pan.
+ *
+ * <p><b>Historical note, kept because it explains a `mousedown` handler that is no longer here.</b>
+ * Until map-landing L3 this controller also closed whichever map popover was open, and did so under
+ * an ordering rule (map-tab-v2-plan.md §3 P9, whose own words are "closes the callout (after
+ * closing any open popover)" — the snappier "never both on one press" is this codebase's gloss and
+ * appears nowhere in that document).
+ * That needed a second event: the panels each close themselves on a `document`-level `mousedown`
+ * which fires — and commits — before the `click` this controller answers, so a plain closure read at
+ * click time already saw the popover closed and the ordering collapsed to "close everything at
+ * once". A live regression, caught in the browser rather than by any test, since every test invoked
+ * the captured `click` handler by hand and never alongside a real `mousedown`. It was fixed by
+ * snapshotting on Leaflet's own `mousedown`, which reaches this controller before `document` does.
+ *
+ * <p>⚠️ L3 removed the branch that read the snapshot AND the race that made it necessary — an
+ * earlier draft of this note claimed only the former, and a reviewer was right that the claim would
+ * send someone to restore machinery that is no longer needed. `useOutsideDismiss` now returns early
+ * for any press inside the map frame, and a Leaflet ground press IS inside it, so no panel commits
+ * anything on that `mousedown` any more: a plain closure over `openMapMenu` read at `click` time
+ * would now see the correct pre-press value. The timeline is only still live for a press OUTSIDE
+ * the frame, which this controller never sees.
  */
-function MapBackgroundClickController({ onMouseDown, onBackgroundClick }) {
+function MapBackgroundClickController({ onBackgroundClick }) {
   useMapEvents({
-    mousedown: () => onMouseDown(),
     click: () => onBackgroundClick(),
   });
   return null;
 }
 
 MapBackgroundClickController.propTypes = {
-  onMouseDown: PropTypes.func.isRequired,
   onBackgroundClick: PropTypes.func.isRequired,
 };
 
@@ -1027,7 +1122,7 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  * overlay never passes one (it is frozen and has no origin concept). Gates home geography — see
  * `homeGeo` below.
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, origin = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, tideAlignmentIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, origin = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -1258,6 +1353,104 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * must never be conditional, and an unused value on the overlay mount costs nothing.
    */
   const [openMapMenu, setOpenMapMenu] = useState(null);
+  /**
+   * The drilldown's LEVEL, while `openMapMenu === 'window-panel'` (map-landing-plan.md §3 L6) — a
+   * region NAME for the region panel, null for the window panel above it.
+   *
+   * <p><b>Not a fifth value on {@code openMapMenu}.</b> The two levels are one panel with a back
+   * arrow, and every exclusivity rule that switch enforces applies to the pair identically: the
+   * drilldown is open or it is not.
+   *
+   * <p><b>A name, and deliberately not a {@code {window, name}} pair.</b> The first cut keyed it to
+   * the EV row it was pressed on, on the L5 reasoning that a window can change under an open panel.
+   * Mutation testing found that guard unkillable, and working out why changed the answer rather
+   * than the test: {@code panelRegionRow} re-finds the row in `panelRows` every render, so a window
+   * on which this region has no row already drops the reader back to the list — and in the only
+   * case the key would have changed, where the region DOES have a row on the new window, following
+   * it is what the level above already does. Stepping with the panel open moves the window panel;
+   * the region panel now moves with it, header and figures together. A guard no test can assert
+   * implies a protection that is not there, which is the note {@code buildPanelRegionRows} carries
+   * about its own dead spot filter.
+   *
+   * <p>⚠️ A stale name survives a close (nothing clears it there, deliberately — chasing every
+   * {@code setOpenMapMenu(null)} caller is how one gets missed). It is unobservable because the ONE
+   * opener resets it, and because it is read only while the panel is open. That reset is
+   * load-bearing, not belt-and-braces: opening another menu over the drilldown leaves this set.
+   */
+  const [panelRegion, setPanelRegion] = useState(null);
+  /**
+   * The region a reader has just stepped BACK from, so the window panel can return focus to its
+   * row (map-landing-plan.md §3 L6).
+   *
+   * <p>⚠️ Focus management is not decoration here — it is what makes {@code Escape} reachable at
+   * all. The back arrow unmounts itself, so without a target focus falls to {@code <body>}, which
+   * is outside {@link handleMapPaneKeyDown}'s React subtree. Cleared by {@link openDrilldown} so a
+   * fresh open leaves `WindowControl`'s own pill focus alone.
+   */
+  const [panelReturnTo, setPanelReturnTo] = useState(null);
+  /**
+   * The window pill — this tab's stable return address for a route that destroys its own trigger.
+   *
+   * <p>⚠️ Two of them do, and both stranded focus on {@code <body>} until the cross-phase review on
+   * #792 measured it in Chromium and WebKit: the drilldown's ✕ (a button inside the panel it
+   * unmounts) and the four-day-sheet handoff (which closes the panel in the same commit the sheet
+   * mounts, so {@code useDialogFocus} records {@code <body>} as the thing to restore to and the
+   * peek cannot be backed out of). {@code MapCallout} already focuses its own trigger before
+   * handing off for exactly this reason — its button survives, so it can; these cannot, and need a
+   * survivor instead. The pill is the control the whole drilldown hangs from.
+   */
+  const winPillRef = useRef(null);
+  /**
+   * ⚠️ **The drilldown can close with nobody pressing anything, and that path has no handler to hang
+   * a focus move on.** Every DELIBERATE exit — both ✕ buttons, the sheet handoff, `Zoom to region` —
+   * moves focus to the pill itself, because each destroys its own trigger. The `served` gate on
+   * {@code windowPanelOpen} adds a fifth exit that no press initiates: a briefing refresh retires the
+   * active window and the panel unmounts under the reader, taking the focused subtree with it. Focus
+   * then falls to {@code <body>}, outside the pane's React {@code onKeyDown}, and the next Tab
+   * restarts at the top of the document. Raised by the cross-vendor review's THIRD round, against
+   * the commit that added the gate.
+   *
+   * <p>It adopts an ORPHANED focus rather than duplicating each exit's own move: it fires only when
+   * the drilldown has just closed AND focus actually ended up on {@code <body>}, which the four
+   * deliberate exits have already prevented by then. Any exit added later inherits the recovery
+   * without being enumerated — the lesson §4 #44 records, since "the exits" was never a written set.
+   *
+   * <p>⚠️ Declared HERE, above the {@code if (!date || locations.length === 0)} early return, and
+   * reading the open state through a ref written during render below — a hook after that return is
+   * conditional, which this file's own comments record having paid for twice. No dependency array:
+   * the value it watches is a ref, so there is nothing for React to compare.
+   *
+   * <p>Two guards, both the landing card listener's own: never while the pane is off screen (panes
+   * mount and stay, so a closed tab must not steal focus), and never while a foreign modal is up —
+   * taking focus out of the four-day sheet would be worse than losing it.
+   */
+  const drilldownOpenRef = useRef(false);
+  const drilldownWasOpenRef = useRef(false);
+  // ⚠️ No dependency array, and the `setOpenMapMenu` inside is why the rule objects. It cannot
+  // chain: the write happens only on a true→false transition of `drilldownOpenRef`, and after it
+  // `openMapMenu` is null, so the next render's `windowPanelOpen` is false, `was` is false, and the
+  // effect returns at its first line. One step, then quiescent. An array is not available either —
+  // the value it watches is derived below this file's early return, and a hook declared down there
+  // would be a conditional one.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => {
+    const was = drilldownWasOpenRef.current;
+    const now = drilldownOpenRef.current;
+    drilldownWasOpenRef.current = now;
+    if (!was || now) return;
+    // ⚠️ **Clear the switch, not only the render.** When the close came from the `served` gate
+    // rather than from a press, `openMapMenu` is still `'window-panel'` — a value with nothing
+    // rendered behind it, which is not merely untidy: the landing card's own Escape listener defers
+    // whenever `openMapMenu != null`, so Escape stops working on a card the reader can SEE, and
+    // `onOpenWindowPanel` is withheld in the same state so there is no control left to clear it.
+    // (A deliberate exit has already set it to null, so this is a no-op there.) Raised twice —
+    // by the PR's cross-phase lens and by the review's fourth round.
+    setOpenMapMenu((cur) => (cur === 'window-panel' ? null : cur));
+    const pane = mapPaneRef.current;
+    if (!pane || paneIsOffScreen(pane) || foreignModalOver(pane)) return;
+    if (document.activeElement && document.activeElement !== document.body) return;
+    winPillRef.current?.focus();
+  });
   // Filters are collapsed by default (a quiet "tell me more" follow-up to Plan);
   // the open/closed choice persists since users rarely change filters.
   //
@@ -1308,6 +1501,80 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     setColourScaleNoticeDismissed(true);
     writeMapFilter(COLOUR_SCALE_NOTICE_DISMISSED_KEY, '1');
   };
+
+  /**
+   * The landing card's open state — <b>derived, never an effect</b> (map-landing-plan.md §3 L4
+   * step 8; §6 Q2, where the owner chose <em>once per forecast run</em>).
+   *
+   * <p>Two pieces of state, both keyed on the run stamp, and the card's visibility falls out of
+   * them: {@code landingSeenRun} is the run the reader last DISMISSED it on (persisted — the whole
+   * premise is a once-a-run greeting, and a session-only stamp would greet you on every reload),
+   * and {@code landingReopenedRun} is the run they explicitly reopened it on from the pill menu
+   * (session-only — reopening is an act, not a preference). A new run makes both stale at once and
+   * the card returns.
+   *
+   * <p>⚠️ <b>An effect that opened the card on a run change was the first cut and is banned outright
+   * here</b> — `react-hooks/set-state-in-effect`, and rightly: "is the card open" is a function of
+   * props and state, so computing it during render is both correct and one fewer render.
+   *
+   * <p>⚠️ <b>With no run stamp the card never opens at all.</b> A briefing that has not arrived, or
+   * a payload with no {@code generatedAt}, gives nothing to key a dismissal on — and a card that
+   * cannot remember being closed would reopen on every render. Silence is the safe degrade for a
+   * greeting. The overlay is excluded the same way: it mounts no card.
+   */
+  const [landingSeenRun, setLandingSeenRun] = useState(() => readMapFilter(LANDING_SEEN_KEY));
+  const [landingReopenedRun, setLandingReopenedRun] = useState(null);
+  const landingRunStamp = overlayMode ? null : landingSeenKeyFor(runId);
+  const landingOpen = Boolean(landingRunStamp)
+    && (landingSeenRun !== landingRunStamp || landingReopenedRun === landingRunStamp);
+  /**
+   * Closes the card for this run. Clears the reopen stamp too — without that, a card reopened from
+   * the pill menu could never be closed again, since the reopen clause would keep winning.
+   */
+  const dismissLanding = () => {
+    setLandingReopenedRun(null);
+    if (!landingRunStamp) return;
+    setLandingSeenRun(landingRunStamp);
+    writeMapFilter(LANDING_SEEN_KEY, landingRunStamp);
+  };
+  /** Reopens it for this run — the pill menu's own way back (L4 step 7). */
+  const reopenLanding = () => setLandingReopenedRun(landingRunStamp);
+  /**
+   * `Escape` dismisses the card — a <b>document</b> listener, and it has to be.
+   *
+   * <p>The card takes no focus (it is not a dialog and `useDialogFocus` is not involved), so on a
+   * cold open the key lands on {@code <body>} and {@code handleMapPaneKeyDown} — a React
+   * {@code onKeyDown} on this pane's own root — never sees it at all. A subtree listener would
+   * therefore deliver "Escape dismisses" only to a reader who had already tabbed into the card.
+   *
+   * <p>⚠️ <b>It re-states the pane handler's precedence rather than duplicating its actions</b>, so
+   * one press is still one action. A foreign modal stands it down entirely; an open menu or a
+   * standing selection makes it defer, because the pane handler is closing that on this very press
+   * (reading, like this one, the pre-update closure). The card is the LAST layer to go, which is
+   * also the z-order: menus and panels above the chrome, callout 1350, this card 1050.
+   *
+   * <p>Residual, stated rather than defended against: with a menu open and focus on {@code <body>},
+   * neither handler fires usefully and Escape does nothing — which is exactly what it does on that
+   * pane today, since every menu's own `Escape` is subtree-scoped too. Widening this listener into
+   * the pane's whole chain is a change to shipped behaviour and belongs to a phase that reviews it.
+   */
+  useEffect(() => {
+    if (overlayMode || !landingOpen) return undefined;
+    function onDocKeyDown(e) {
+      if (e.key !== 'Escape') return;
+      // ⚠️ First, before anything: a pane the reader has tabbed away from must not answer a key.
+      if (paneIsOffScreen(mapPaneRef.current)) return;
+      if (foreignModalOver(mapPaneRef.current)) return;
+      if (openMapMenu != null || selectedLocationName != null) return;
+      dismissLanding();
+    }
+    document.addEventListener('keydown', onDocKeyDown);
+    return () => document.removeEventListener('keydown', onDocKeyDown);
+    // `dismissLanding` is re-created every render and is deliberately not a dependency: listing it
+    // would re-subscribe on every render, and the effect only ever calls the version captured with
+    // the same `runId` this render read.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [overlayMode, landingOpen, openMapMenu, selectedLocationName, runId]);
   // `colourScaleDefaulted` alone is not quite enough: it says the STORED preference was null, but
   // the notice's own words ("cold to hot") only make sense while the live ramp is actually temp.
   // Cheap and correct to check both rather than assume the one implies the other forever — if
@@ -1327,13 +1594,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // Live Leaflet marker instances keyed by location name — used to open a popup
   // programmatically when the Plan tab hands off a specific location.
   const markerRefs = useRef(new Map());
-  /**
-   * `openMapMenu`'s value at the START of the CURRENT click gesture — see
-   * `MapBackgroundClickController`'s own class doc for why a bare closure read at `click` time is
-   * unreliable (map-tab-v2-plan.md §3 P9's close-ordering rule). Written on `mousedown`, read on
-   * `click`; never read anywhere else.
-   */
-  const openMapMenuAtMouseDownRef = useRef(null);
   // Aurora is available when the user is ADMIN/PRO and either the state machine is active
   // or there are stored forecast results for any date on the date strip.
   const hasStoredAuroraResults = auroraAvailableDates.length > 0;
@@ -2564,6 +2824,71 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     isLite: role === 'LITE_USER',
     formatTimeUk: formatEventTimeUk,
   });
+  /**
+   * The region names in scope — "My area" or "Everywhere", before every OTHER filter
+   * (map-landing-plan.md §3 L1, `docs/design/map-landing/README.md` §1).
+   *
+   * <p><b>Read off the scope pool, which is the point.</b> The design's first check is that
+   * minimum rating, reach, subject and dark-sky must never move the verdict while the scope segment
+   * must — so the tally's population is taken from the one pool that is already scope-only, the same
+   * pool the counts footer reports as "of K". A reader hiding 3★ locations cannot turn a Maybe into
+   * a Worth it, because no reader filter reaches this list at all.
+   *
+   * <p>⚠️ <b>Built from {@code heat?.enabled}, NOT from {@code heatOffered}</b>, and the difference
+   * is a real defect this phase's review caught. {@code heatOffered} folds in {@code !isAuroraMode}
+   * because it gates whether the FIELD is drawable — and selecting any aurora night row sets
+   * {@code eventType} to `AURORA`, so routing the verdict through it emptied the scope and silently
+   * deleted the verdict from every SOLAR window in the list. Which regions are in the reader's scope
+   * is a fact about geography and has nothing to do with which layer is currently painted. L2's
+   * stepper ticks are exactly the case that would have exposed it: standing on an aurora row is when
+   * both neighbours are solar and both ticks must be coloured.
+   *
+   * <p>⚠️ A plain {@code const}, <b>not</b> a {@code useMemo} — it is declared below the
+   * {@code if (!date || locations.length === 0)} early return, where a hook would be a conditional
+   * hook. That is the trap {@code scopedRatedCount}'s own doc block records having already paid for
+   * once, in a lint error and a "rendered fewer hooks" failure. The work is a `Set` over ~50 spots.
+   */
+  const verdictScopePool = heat?.enabled
+    ? ((heatArea ? heat?.areaSpots : heat?.spots) || EMPTY_POINTS)
+    : EMPTY_POINTS;
+  const regionsInScope = regionNamesOf(verdictScopePool);
+
+  /**
+   * Each solar EV row's verdict, the region it names, and how many other in-scope regions share its
+   * tier — keyed by row id (map-landing-plan.md §3 L1).
+   *
+   * <p>A thin wrapper over {@code utils/mapVerdict.buildEvVerdicts}, which holds the guards, the
+   * night-row rule and the keying so a test can reach them without a component — the correction the
+   * doors series' own no-caller-yet phase was given at review.
+   *
+   * <p>Built fresh every render, for the same reason {@code mapEvents} above is, and not merely by
+   * analogy: {@code mapEvents} is a new array on every render, so a {@code useMemo} listing it as a
+   * dependency could never hit.
+   *
+   * <p>Read by the window control's verdict cell, its medallion and its two stepper ticks
+   * (map-landing-plan.md §3 L2).
+   */
+  const evVerdicts = buildEvVerdicts({
+    events: mapEvents, index: regionVerdictIndex, regionsInScope, overlayMode,
+  });
+
+  /**
+   * Everything the landing card draws (map-landing-plan.md §3 L4) — one call into the pure
+   * {@code utils/mapLanding.landingCardModel}, which owns the row selection, the header
+   * derivation, the pick suppression and the all-Poor branch.
+   *
+   * <p><b>Derived here rather than inside the card, because it has two readers</b>: the card, and
+   * the window pill's own reopen row, which prints the SAME header string. Deriving it twice is
+   * how the reopen row would come to name a different pair of windows from the card it reopens —
+   * which is L4's own "a header naming windows not on screen" defect, one level out.
+   *
+   * <p>Built fresh every render, like {@code mapEvents} and {@code evVerdicts} above and for the
+   * identical reason: {@code mapEvents} is a new array on every render, so a memo listing it could
+   * never hit.
+   */
+  const landingModel = landingCardModel({ events: mapEvents, verdicts: evVerdicts });
+
+
   /** Which EV row is "now showing" — derived from `eventType`/`nightDate`, never a second store. */
   const activeEvIndex = findEvIndex(mapEvents, eventType, nightDate);
 
@@ -2582,6 +2907,87 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /** The row `MapCallout`'s verdict block and "every window" strip treat as "now showing" — the
    * SAME row the pill/tooltip above already read off `activeEvIndex`, never a second lookup. */
   const activeMapEvent = mapEvents[activeEvIndex] ?? null;
+  /**
+   * The window panel's rows and its note — the drilldown's first level (map-landing-plan.md §3 L5).
+   *
+   * <p>Built only while the panel is open: unlike the landing card, whose header the pill's menu row
+   * prints whether or not the card is up, nothing outside the panel reads either value.
+   *
+   * <p><b>The points go in un-narrowed; `buildPanelRegionRows` scopes them by region name.</b>
+   * ⚠️ An earlier cut filtered them by location ID first, under a comment claiming a region could be
+   * "partly in scope" — which is false, and a review lens caught it: every scope pool this app has
+   * is region-grained (`planningArea.areaRegions` says so in as many words, "A region is in or out
+   * as a unit"; `planOrigin.scopeSpots` filters on `regionName`; "Everywhere" is the whole
+   * catalogue). So the id filter could never change an answer, and it minted a THIRD spot-identity
+   * rule beside this file's own `heatSpotKey` — one that collapses every id-less spot onto a single
+   * `undefined` key.
+   *
+   * <p>The population is still scope-only, before every reader filter, exactly as the verdict is:
+   * `heat.pointsByKey` is the unfiltered set (the lens-filtered one is the separate `heatPoints`).
+   */
+  /**
+   * ⚠️ **`served` belongs HERE, not only on the entry.** Gating `onOpenWindowPanel` stops a filler
+   * window's drilldown being OPENED; it does nothing about one already open when the window becomes
+   * a filler — which the briefing's own refresh causes on a schedule, by withdrawing a window whose
+   * event has passed. `buildMapEvents` then replaces it with the same-id `served: false` row, so
+   * `activeMapEvent` stays truthy and both mounts went on rendering: `panelRows` joins the broad
+   * verdict index while `panelPoints` is empty, printing each region's served verdict beside
+   * `0 of N at 4★+`. Putting the condition on this one derived value closes the whole family at
+   * once — the points, the rows, the region level and both mounts all read it. Raised as a
+   * SECOND-round finding by the cross-vendor review on #792, which named the entry-only gate as its
+   * own baseline (§4 #43).
+   */
+  const windowPanelOpen = openMapMenu === 'window-panel' && activeMapEvent?.served !== false;
+  // Read by the orphaned-focus effect above, which is declared before this file's early return.
+  drilldownOpenRef.current = windowPanelOpen;
+  const panelPoints = (windowPanelOpen && activeMapEvent
+    && heat?.pointsByKey?.get(`${activeMapEvent.date}:${activeMapEvent.eventType}`)) || EMPTY_POINTS;
+  const panelRows = windowPanelOpen ? buildPanelRegionRows({
+    index: regionVerdictIndex,
+    date: activeMapEvent?.date ?? null,
+    targetType: activeMapEvent?.eventType ?? null,
+    regionsInScope,
+    points: panelPoints,
+    driveMap: activeDriveMap,
+    spots: verdictScopePool,
+  }) : EMPTY_ROWS;
+
+  /**
+   * The drilldown's second level — one region's own top locations (map-landing-plan.md §3 L6).
+   *
+   * <p><b>The region row is re-found by name every render rather than stored.</b> The header's
+   * stats line is the SAME row the window panel printed one press ago — its `atFourPlus`,
+   * `placeCount`, nearest drive and mean — so a stored copy would be a second source for four
+   * figures the reader can step back to and compare. A `find` over at most a dozen rows costs
+   * nothing, and it self-heals: if the window's rows change under an open panel, this either finds
+   * the region's new row or finds nothing and drops the reader back to the list.
+   *
+   * <p>⚠️ It is also the level's ONE derived value, and there is deliberately no second one beside
+   * it. An intermediate `panelRegionName`, gated on `windowPanelOpen && activeMapEvent`, was
+   * written first and mutation testing showed the gate could not be killed — `panelRows` is already
+   * `EMPTY_ROWS` unless the panel is open, so the `find` below cannot answer while it is closed.
+   * A guard no test can assert implies a protection that is not there, and every reader of the
+   * level (the two mounts, the locations, the gloss, the pane's Escape branch) now asks the one
+   * question that matters: is the region panel actually on screen?
+   */
+  const panelRegionRow = panelRegion
+    ? (panelRows.find((r) => r.name === panelRegion) ?? null) : null;
+  const panelLocations = panelRegionRow ? buildRegionLocationRows({
+    regionName: panelRegionRow.name,
+    points: panelPoints,
+    driveMap: activeDriveMap,
+    scoreIndex,
+    tideIndex: tideAlignmentIndex,
+    date: activeMapEvent?.date ?? null,
+    targetType: activeMapEvent?.eventType ?? null,
+    // Passed rather than defaulted: how many places the panel names is a fact about this surface,
+    // and stating it here is what keeps the constant from being an export only its test reads.
+    limit: REGION_PANEL_LOCATIONS,
+  }) : EMPTY_ROWS;
+  const panelGloss = panelRegionRow && activeMapEvent
+    ? regionGlossEntry(
+      regionGlossIndex, activeMapEvent.date, activeMapEvent.eventType, panelRegionRow.name,
+    ) : null;
 
   /**
    * Whether the "This event is not scored yet" line is drawn — {@code windowUnscored} plus the
@@ -2792,14 +3198,48 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * handler rather than two, so the payload the shell receives can never differ between them in
    * anything but that flag.
    *
+   * <p>⚠️ <b>{@code spot} is the THIRD caller's doing (map-landing-plan.md §3 L6), and it defaults
+   * to the selection for the two that came first.</b> The region panel opens the sheet for a
+   * location the reader has not selected — pressing a row there must not first move the callout —
+   * so the handler takes the place explicitly. It stays ONE handler for the reason the paragraph
+   * above gives: the payload the shell receives can then differ between the three routes in nothing
+   * but the flag and the place.
+   *
+   * <p>⚠️ <b>The panel is closed FIRST</b>, which is the close-then-move ordering
+   * {@code utils/mapDoors.js#openMapDoor} already encodes for every door onto a map and the shell's
+   * cog does for every dialog. The panels are not {@code Modal}s and must not become them
+   * ({@code map-tab-v2-plan.md} O-20); leaving one mounted under the sheet would put an interactive
+   * surface behind a dialog the shell has no {@code stacked} opt-in over, which is the exact
+   * hazard O-20 records. It is unconditional rather than gated on a panel being open — a
+   * {@code setState} to the value already held is a no-op, and a gate is one more thing to get
+   * wrong.
+   *
    * @param {boolean} inPlan whether to move to the Plan tab as well as open the sheet
+   * @param {?{id: *, name: string, regionName: ?string}} [spot] the place to open the sheet for;
+   *        the current selection when omitted
    */
-  function handleOpenLocationSheet(inPlan) {
-    if (!selectedLoc) return;
+  function handleOpenLocationSheet(inPlan, spot = null) {
+    const target = spot ?? selectedLoc;
+    if (!target) return;
+    // ⚠️ **Gated on the drilldown actually being open**, and the first cut was not. `openMapMenu`
+    // holds five values, not two, and this handler's two OTHER callers are the callout's own
+    // `Four days here ›` and `Open in Plan` — so an unconditional clear silently closed an open
+    // Filters, Legend or Regions popover on a route that has nothing to do with any of them, and on
+    // the O-18 peek, whose whole point is that backing out returns the reader to what they left.
+    // A review lens caught it; the comment defending it ("a setState to the value already held is a
+    // no-op") was true only of the value it happened to be tested with.
+    if (windowPanelOpen) {
+      // ⚠️ **Before the close, not after** — and this ordering is the whole of the peek's return
+      // leg. The button that was pressed is inside the panel this line unmounts, so without moving
+      // focus first `useDialogFocus` records `<body>` and closing the sheet restores to nothing:
+      // measured in Chromium and WebKit, against a control whose trigger survives.
+      winPillRef.current?.focus();
+      setOpenMapMenu(null);
+    }
     onOpenLocationSheet?.({
-      id: selectedLoc.id ?? null,
-      name: selectedLoc.name,
-      regionName: selectedLoc.regionName ?? null,
+      id: target.id ?? null,
+      name: target.name,
+      regionName: target.regionName ?? null,
       inPlan,
       /**
        * ⚠️ The WINDOW the map is on, and it is load-bearing rather than a convenience.
@@ -2819,6 +3259,49 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       date: activeMapEvent?.kind === EVENT_KIND.SOLAR ? activeMapEvent.date : null,
       targetType: activeMapEvent?.kind === EVENT_KIND.SOLAR ? activeMapEvent.eventType : null,
     });
+  }
+
+  /**
+   * Opening the drilldown, at its FIRST level (map-landing-plan.md §3 L5, L6).
+   *
+   * <p>⚠️ <b>A function rather than an inline arrow, because it is a two-part invariant and a
+   * future entry point must not be able to do half of it.</b> The design has the drilldown "entered
+   * three ways" (the pill menu footer row, the landing card, a pick chip); only the first is built,
+   * and the other two are the reason this is named. `panelRegion` deliberately survives a close —
+   * chasing every `setOpenMapMenu(null)` caller is how one gets missed — so it is the OPEN that has
+   * to reset the level, and every route in must come through here.
+   *
+   * <p>It is also the sole writer of `'window-panel'`, which is what makes the stale name
+   * unobservable and what lets `onClose`/`onZoomToRegion` leave the level alone (see their own
+   * note at the mount).
+   */
+  function openDrilldown() {
+    setPanelRegion(null);
+    setPanelReturnTo(null);
+    // ⚠️ **Dismiss the landing card.** They are not merely allowed to coexist — they ARRIVE
+    // together: `landingLabel` is empty while the card is open, which is exactly when
+    // `WindowControl` shows the drilldown row rather than the reopen row, so card-plus-panel is the
+    // ordinary state after one press on the first visit of every forecast run. Measured in Chromium
+    // and WebKit: the panel covers the card except a 48px sliver at 1280 and entirely at ≤390px,
+    // so four consecutive tab stops sit on elements 0% visible (WCAG 2.4.11 AA) and the card's ✕ —
+    // its only pointer dismissal, since it deliberately survives an outside tap — is unclickable.
+    // The two also answer the same question one after the other: the card asks WHICH window, the
+    // drilldown asks where on it, so opening the second has already answered the first.
+    dismissLanding();
+    setOpenMapMenu('window-panel');
+  }
+
+  /**
+   * Closing the whole drilldown, from either level's ✕.
+   *
+   * <p>⚠️ Focus back to the pill, because the ✕ is inside the panel it unmounts — without it focus
+   * falls to {@code <body>}, where the pane's key handler never fires and the next Tab restarts at
+   * the top of the document. The same reason `WindowControl`'s own two rows carry it.
+   */
+  function closeDrilldown() {
+    winPillRef.current?.focus();
+    setPanelRegion(null);
+    setOpenMapMenu(null);
   }
 
   /**
@@ -2907,9 +3390,63 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       activeIndex={activeEvIndex}
       onSelect={selectEvRow}
       open={openMapMenu === 'window'}
-      onOpenChange={(next) => setOpenMapMenu(next ? 'window' : null)}
+      // ⚠️ **Closing the MENU must not close the drilldown**, and until L6 it did. `WindowControl`
+      // calls `setOpen(false)` from four places — Escape, an outside press, picking a row, and the
+      // ‹ › STEPPERS — and each landed here as an unconditional `setOpenMapMenu(null)`, so an 11px
+      // stepper beside the pill silently discarded both levels of a panel that is not its dropdown.
+      // The design's rule is explicit ("Panels ... close on their own chip, their close button, or
+      // Escape"), and a stepper is none of the three. A functional update so a close only clears
+      // the value the control actually owns; opening still replaces whatever was up, which is the
+      // exclusivity rule P7 asks for. Found by an adversarial review, which also caught the
+      // `panelRegion` doc claiming the opposite of what shipped.
+      onOpenChange={(next) => setOpenMapMenu((cur) => {
+        if (next) return 'window';
+        return cur === 'window' ? null : cur;
+      })}
+      verdicts={evVerdicts}
+      // Only the all-in-scope wording turns on this: "everywhere in your area" versus "everywhere".
+      // `heatArea` IS the scope segment, so the words and the tally can never describe two
+      // different pools.
+      //
+      // ⚠️ `heat.hasHome` is the second term, and without it the phrase lies to the reader it most
+      // affects. `heatArea` initialises to `true` and the scope SEGMENT is withheld entirely when
+      // there is no home to scope from (`FiltersPopover`'s own rule, and `WindowFirstMapPane` sets
+      // `hasHome` false precisely when the area IS the whole catalogue) — so a reader with no
+      // postcode saw "everywhere in your area" over every region there is, with no control on
+      // screen that could have said otherwise. With no area, the honest word is "everywhere".
+      scopeIsArea={heatArea && Boolean(heat?.hasHome)}
+      // The way back into the landing card, in the control that dismissed it — `RegionsJump`'s
+      // `wf-jump-reset` is the precedent ("the way back lives in the control that caused it").
+      // Withheld while the card is open (there is nothing to reopen) and when the model has no
+      // rows to show. The label is the card's OWN header string, derived once above, so the row
+      // can never name a different pair of windows from the card it reopens.
+      // ⚠️ `landingRunStamp` is the third term and it is not optional: `reopenLanding` sets
+      // `landingReopenedRun` to that stamp, so with no run to key on it writes null and
+      // `landingOpen` stays false — a menu row whose every press does nothing, which this file
+      // bans outright elsewhere in its own words (`CentreOnHomeControl`).
+      landingLabel={!landingOpen ? landingModel.header : ''}
+      onReopenLanding={landingRunStamp && landingModel.rows.length > 0 ? reopenLanding : null}
+      // The drilldown's entry (map-landing-plan.md §3 L5). Withheld when the map is on a date the
+      // EV list has no row for at all — there would be no window for the panel to be about.
+      // ⚠️ `served`, not merely "there is a row". A D-13 filler is a window the briefing served
+      // nothing for, so the drilldown has nothing to open onto: `buildPanelRegionRows` reads the
+      // index directly and would still print each region's served verdict beside `0 of N at 4★+`,
+      // which is the same false claim the pill's own `served` gate removes one line up. Withholding
+      // the entry is the honest form — there is no answer to drill into.
+      onOpenWindowPanel={activeMapEvent && activeMapEvent.served !== false ? openDrilldown : null}
+      pillRef={winPillRef}
     />
   );
+
+  /**
+   * Picking a row from the landing card — the same {@code selectEvRow} the window control uses,
+   * plus the dismissal the design pairs with it ("selecting a row sets that window and closes the
+   * card"). Ordered dismiss-then-select so the card is gone in the same commit the map moves.
+   */
+  function selectLandingRow(row) {
+    dismissLanding();
+    selectEvRow(row);
+  }
 
   // The overlay's own disclosure. The chips beside it already summarise what is active, so this
   // drops to the plain weight of the modal's ✕ — one button, right-aligned, with a caret that
@@ -2932,10 +3469,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * `Esc` closes menus, THEN the callout (map-tab-v2-plan.md §3 P9, README "Interactions"
    * table) — never both on one press. `WindowControl`/`FiltersPopover` each close THEIR OWN open
    * menu locally on `Escape` (calling `onOpenChange`, which updates `openMapMenu`) without
-   * `stopPropagation`, so the bubbled keydown still reaches this wrapper on the SAME press — but
-   * `openMapMenu` here is read from the CLOSURE captured before that update commits, so it still
-   * reads the menu's PRE-press value on press 1 (skipping the callout) and its POST-press value
-   * (null) on press 2 (closing the callout). No `stopPropagation` needed on either child.
+   * `stopPropagation`, so the bubbled keydown still reaches this wrapper on the SAME press — and
+   * `openMapMenu` here is read from the CLOSURE captured before that update commits, so it reads
+   * the menu's PRE-press value on press 1 and its POST-press value (null) on press 2.
+   *
+   * <p>⚠️ Since map-landing L3 press 1 does not merely SKIP the callout — it also closes the panel
+   * itself, rather than leaving that to the panel's own handler. That is not redundancy: a press on
+   * the map no longer closes panels, so a reader can very ordinarily have one open with focus on the
+   * map, where the panel's own subtree-scoped listener never fires at all. When the panel DOES have
+   * focus its handler runs first and this is an idempotent second write. Either way the callout is
+   * spared on press 1, which is the ordering this doc has always described.
    *
    * <p>Tab-only: the overlay has no popover and no callout, so this is a no-op there — it is
    * simply never wired to the overlay's return path below.
@@ -2970,11 +3513,53 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    */
   function handleMapPaneKeyDown(mapPaneEvent) {
     if (mapPaneEvent.key !== 'Escape') return;
-    if (openMapMenu != null) return;
-    const paneRoot = mapPaneRef.current;
-    const foreignModal = Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]'))
-      .some((node) => !paneRoot || !paneRoot.contains(node));
-    if (foreignModal) return;
+    if (foreignModalOver(mapPaneRef.current)) return;
+    // ⚠️ **Below the foreign-modal stand-down, and an adversarial review is why.** The first cut of
+    // this phase put the panel branch ABOVE it, which made the stand-down unreachable whenever any
+    // panel was open — and L3 is what makes "panel open behind a foreign modal" an ordinary state,
+    // because a press on the map no longer closes the panel on the way to opening the sheet. One
+    // Escape then closed the four-day sheet AND the panel behind it (`map-tab-v2-plan.md` O-20's
+    // named defect), and with `UserSettingsModal` up — which does not close on Escape at all — it
+    // silently closed a panel the reader could not even see. The rule this handler's own doc states
+    // is absolute: a key pressed while a modal is up must not operate the page behind it.
+    //
+    // Escape CLOSES an open panel rather than standing down for it (map-landing-plan.md §3 L3).
+    // Standing down was sufficient only while a press on the map closed panels: focus was then
+    // necessarily still inside the panel, so its own subtree-scoped `onKeyDown` saw the key. Now a
+    // reader can very ordinarily have a panel open with focus on the map, where that listener never
+    // fires — leaving the panel closable only by re-finding its chip, which is the "something to be
+    // got rid of" feeling the persistence rule exists to remove.
+    //
+    // Closing here and returning keeps the keyboard's own nearest-layer-first ordering (P9 — whose
+    // own words are "Esc closes (after menus)"), the
+    // same shape the ground-click controller gives the pointer: Escape closes the panel OR clears
+    // the selection, never both. When the panel does have focus its own handler runs first and this
+    // is an idempotent second write, not a double action.
+    //
+    // ⚠️ **The drilldown's back-stack, and it must be tested BEFORE the panel branch below**
+    // (map-landing-plan.md §3 L6 step 0, deferred there from L5 with the reason recorded at §4
+    // #28). `MapRegionPanel`'s own `onKeyDown` calls `preventDefault()` without
+    // `stopPropagation()`, so a press with focus inside the panel runs BOTH handlers on one event;
+    // ordered the other way this one would close the whole drilldown a frame after the panel's own
+    // handler stepped back a level, and one Escape would collapse two levels. Both read the same
+    // pre-update render, so as written they are the same idempotent write twice. The test is
+    // `panelRegionRow`, the level's one derived value — "is the region panel on screen", which is
+    // exactly the question a key press has to answer.
+    if (panelRegionRow != null) {
+      // ⚠️ **Set the return target here too, not only on the back arrow.** This branch and
+      // `onBack` are the two ways up a level, and only one recorded where to put focus — so a
+      // reader who entered The Lakes, backed out, entered North East, then pressed Escape with
+      // focus on the map got the window panel focusing THE LAKES' row, pulled off whatever they
+      // were using. Measured by a review lens in exactly the state L3 created (panel open, focus on
+      // the map), which is the state this handler exists to cover.
+      setPanelReturnTo(panelRegionRow.name);
+      setPanelRegion(null);
+      return;
+    }
+    if (openMapMenu != null) {
+      setOpenMapMenu(null);
+      return;
+    }
     if (selectedLocationName != null) setSelectedLocationName(null);
   }
 
@@ -3500,31 +4085,29 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             </>
           )}
           {overlayMode && <BoundsTracker onBounds={handleBounds} />}
-          {/* Tab only — the overlay has no popover of its own to close this way (its Filters
-              disclosure is a page-flow drawer, not a menu the click-away rule applies to).
+          {/* Tab only — the overlay has no ground-click behaviour of its own.
 
-              ⚠️ map-tab-v2-plan.md §3 P9's ordering rule: a background click closes the callout
-              ONLY AFTER any open popover — i.e. one click closes the NEAREST layer, exactly the
-              two-deep-stack idiom the rest of this app already uses for Escape (never both at
-              once). `openMapMenuAtMouseDownRef` — NOT a bare closure over `openMapMenu` — is what
-              makes this reliable: `WindowControl`/`FiltersPopover` close THEIR OWN menu on a
-              `document`-level `mousedown` listener, which fires (and commits) BEFORE the `click`
-              this controller's own handler answers, so a plain closure read at click-time already
-              sees the menu as closed and the ordering collapses to "close both" — a real regression
-              caught live in the browser. Snapshotting on `mousedown` (which reaches this controller
-              BEFORE `document`, since `.leaflet-container` is `document`'s descendant) records the
-              value while it is still trustworthy; see `MapBackgroundClickController`'s own class
-              doc for the full timeline. */}
+              ⚠️ **A ground press does exactly one thing now: it deselects** (map-landing-plan.md
+              §3 L3, `docs/design/map-landing/README.md` §5). It used to close the nearest open
+              layer instead — a popover first, the callout only on a second press — and that
+              ordering existed because one press could do two things. It no longer can: the week
+              menu, Regions, Filters and the Legend are all ABOUT the map, so a press on the map
+              leaves every one of them open, and the only thing left for this handler to do is the
+              one the design carves out ("tapping bare ground still deselects a location — that is
+              a selection, not a panel").
+
+              So the `mousedown` snapshot this controller used to take is gone with the branch that
+              read it. ⚠️ It was NOT redundant beforehand and must not be reintroduced casually:
+              the four panels close themselves on a `document`-level `mousedown` that fires — and
+              commits — before the `click` this handler answers, so a plain closure over
+              `openMapMenu` read at click time already saw them closed. That timeline is still real
+              (`MapBackgroundClickController`'s class doc records it); there is simply no longer a
+              decision here that depends on it. Escape still orders the two layers, in
+              `handleMapPaneKeyDown`, because one key press there genuinely does have two possible
+              targets. */}
           {!overlayMode && (
             <MapBackgroundClickController
-              onMouseDown={() => { openMapMenuAtMouseDownRef.current = openMapMenu; }}
-              onBackgroundClick={() => {
-                if (openMapMenuAtMouseDownRef.current != null) {
-                  setOpenMapMenu(null);
-                  return;
-                }
-                setSelectedLocationName(null);
-              }}
+              onBackgroundClick={() => setSelectedLocationName(null)}
             />
           )}
           <MapSizeSync trigger={overlayMode ? advancedOpen : resizeNonce} />
@@ -3856,6 +4439,106 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
             <div className="wf-map-chrome-tl" data-testid="wf-map-chrome-tl">
               {windowControl}
             </div>
+
+            {/* The landing card (map-landing-plan.md §3 L4) — a sibling of the chrome corners, not
+                a child: it is its own `top: 60px; left: 12px` block at **z-index 1050**, BELOW the
+                chrome (1100) and everything nested in it, and below the callout (1350). ⚠️ This
+                comment used to say 1300-above-the-chrome; L4 moved the value and left the copy
+                behind, and a review lens caught it sitting five lines from L5's new mount, which
+                depends on the true number. The whole account of why 1050 (and of the three wrong
+                answers before it) is on `.wf-land`'s own rule in index.css. */}
+            {landingOpen && (
+              <MapLandingCard
+                model={landingModel}
+                // ⚠️ **`heat.hasHome` is the second term on BOTH lines, and it was missing from
+                // the first.** `heatArea` initialises to `true`, and the scope SEGMENT that would
+                // flip it is withheld entirely when there is no home to scope from — so a reader
+                // with no postcode had the kicker reading "· My area" over the whole catalogue
+                // while the verdict cell two rows below, correctly gated, read "everywhere". One
+                // population, two words, six pixels apart. Verbatim the defect L2 fixed for
+                // `scopeIsArea`, repeated one line above it (map-landing-plan.md §4 #16).
+                scopeLabel={heatArea && heat?.hasHome ? (heat?.areaLabel || 'My area') : 'Everywhere'}
+                scopeIsArea={heatArea && Boolean(heat?.hasHome)}
+                activeId={activeMapEvent?.id ?? null}
+                onSelect={selectLandingRow}
+                onDismiss={dismissLanding}
+              />
+            )}
+
+          {/* The drilldown, at whichever of its two levels is in force (map-landing-plan.md §3 L5,
+              L6) — a FRAME-level sibling of the chrome corners, at z-index 1150: above the chrome
+              (1100) and everything nested in it, below the callout (1350).
+
+              ⚠️ The panel was first mounted INSIDE `.wf-map-chrome-tl`, on the reasoning that the
+              chrome is a stacking context so it would land above the 1050 card for free. True, and
+              it cost two measured defects: that box is ~36px tall, so `max-height` had no
+              percentage basis and fell back to `vh` — the VIEWPORT, taller than the frame by the
+              whole masthead — so rows were clipped by `.wf-body--map`'s `overflow: hidden` with no
+              scrollbar to reach them; and the bottom chrome (counts footer, scored-legend chip,
+              Legend chip, phone bar — all 1100 and later in DOM order) painted straight over the
+              last rows. Out here `100%` is the frame and 1150 beats the lot.
+
+              ⚠️ The two levels are mutually exclusive — the design gives the second a BACK arrow,
+              not a second frame — so `panelRegionRow` gates one out rather than painting over the
+              other. One panel means one z-index and one `useOutsideDismiss` root, and it is what
+              keeps anyone from reaching for a `Modal` to stack them (O-20).
+
+              ⚠️ `activeMapEvent` is a second term on BOTH, not decoration: with a panel open the
+              map can lose its EV row — the briefing poll withdraws an elapsed window, or a handoff
+              moves the date — and it goes null. `isSolar` then read false, so the window panel
+              printed the NIGHT note over a solar map and an empty line saying no region had a
+              "night" answer. */}
+            {windowPanelOpen && activeMapEvent && panelRegionRow && (
+              <MapRegionPanel
+                row={activeMapEvent}
+                region={panelRegionRow}
+                locations={panelLocations}
+                gloss={panelGloss}
+                onBack={() => { setPanelReturnTo(panelRegionRow.name); setPanelRegion(null); }}
+                // ⚠️ Neither of these clears the LEVEL, and mutation testing is why. Both close the
+                // drilldown, `panelRows` is `EMPTY_ROWS` the moment it is closed, and `openDrilldown`
+                // is the only writer of `'window-panel'` — so a stale name is unreachable, and a
+                // clear here is a write no test can distinguish. `jumpToRegion` closes it itself
+                // (`setOpenMapMenu(null)`): a jump is a completed navigation, and a panel left over
+                // the ground the reader just asked to see is the defect its own doc records.
+                onClose={closeDrilldown}
+                // ⚠️ The THIRD exit that unmounts its own trigger, and the batch that fixed the ✕
+                // and the sheet handoff missed it: `jumpToRegion` ends with `setOpenMapMenu(null)`,
+                // so the pressed button goes with the panel and focus falls to `<body>`. Same
+                // survivor, same reason.
+                onZoomToRegion={(name) => { winPillRef.current?.focus(); jumpToRegion(name); }}
+                // ⚠️ `inPlan: false` — the sheet opens OVER the map with the panel's own window
+                // focused, the same peek route the callout's `Four days here ›` takes since O-18,
+                // so the sheet's footer map door is stamped `inPlace` and cannot import the Plan's
+                // lens onto the map this reader is already looking at. The region is added here
+                // rather than carried on the row: the panel IS one region, so a row repeating it
+                // would be a second place for the same string to be wrong.
+                onOpenLocationSheet={(spot) => handleOpenLocationSheet(
+                  false, { ...spot, regionName: panelRegionRow.name },
+                )}
+              />
+            )}
+
+            {windowPanelOpen && activeMapEvent && !panelRegionRow && (
+              <MapWindowPanel
+                row={activeMapEvent}
+                verdict={activeMapEvent ? (evVerdicts.get(activeMapEvent.id) ?? null) : null}
+                note={windowPanelNote({
+                  verdict: activeMapEvent ? (evVerdicts.get(activeMapEvent.id) ?? null) : null,
+                  isSolar: activeMapEvent?.kind === EVENT_KIND.SOLAR,
+                  scopeIsArea: heatArea && Boolean(heat?.hasHome),
+                })}
+                rows={panelRows}
+                scopeIsArea={heatArea && Boolean(heat?.hasHome)}
+                onClose={closeDrilldown}
+                // ⚠️ The row's NAME is stored, keyed to the window it was pressed on — never the
+                // row object. The region panel re-finds it every render off `panelRows`, so its
+                // header prints the figures this panel is printing right now rather than a snapshot
+                // taken a press ago; see `panelRegion`'s own doc for the window half of the key.
+                onSelectRegion={(region) => setPanelRegion(region.name)}
+                focusRegion={panelReturnTo}
+              />
+            )}
 
             <div className="wf-map-chrome-tr" data-testid="wf-map-chrome-tr">
               <RegionsJump
@@ -4220,6 +4903,18 @@ MapView.propTypes = {
       confidenceTier: PropTypes.oneOf(['high', 'medium', 'low']),
       /** The window's served topic badges — the window control's dropdown reads these directly. */
       badges: PropTypes.array,
+      /**
+       * ⚠️ The three the map-landing increment added, and this shape was three behind its producer
+       * until L7's completeness sweep — the same shape as the `isSolar` argument L5 passed to a
+       * function that did not destructure it, which survived a whole phase.
+       *
+       * <p>`away` is whether the window is a TRAVEL day (L4); `pickKind` is the forecast's own
+       * Best bet / Also good (L1); `pickRegion` is the region that pick NAMES (L6), carried WITH
+       * the kind so a medallion whose subject is a region can test it — see `MapRegionPanel`.
+       */
+      away: PropTypes.bool,
+      pickKind: PropTypes.oneOf(['best', 'also']),
+      pickRegion: PropTypes.string,
     })),
     areaBounds: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
     catalogueBounds: PropTypes.arrayOf(PropTypes.arrayOf(PropTypes.number)),
@@ -4293,6 +4988,19 @@ MapView.propTypes = {
    * `date|targetType|regionName`.
    */
   regionBestIndex: PropTypes.instanceOf(Map),
+  /**
+   * The window verdict's per-region source (map-landing-plan.md §3 L1) — `date|targetType|
+   * regionName` to that region's served record, from `utils/mapVerdict.buildRegionVerdictIndex`.
+   * Tab-only: the frozen overlay never mounts the window control and is never handed one.
+   */
+  regionVerdictIndex: PropTypes.instanceOf(Map),
+  /**
+   * The forecast run this payload was built on — `briefing.generatedAt`, the key the landing card's
+   * once-per-run open is stamped with (map-landing-plan.md §3 L4 step 8). Null on the frozen
+   * Plan-tab overlay, which mounts no card, and null before the briefing arrives, where the card
+   * deliberately stays shut (see {@link landingSeenKeyFor}).
+   */
+  runId: PropTypes.string,
   /**
    * From `utils/locationSheet.buildTideAlignmentIndex` (bundle rev 2's tide-chip tweak) — whether
    * this window's water lands on the light per location, read through `lookupForWindow` exactly

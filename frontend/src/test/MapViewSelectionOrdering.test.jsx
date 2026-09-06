@@ -3,9 +3,10 @@
  * own content/anchoring (`MapCallout.test.jsx`) and from the chip-click reveal mechanics
  * (`MapViewChipSelect.test.jsx`). Covers:
  *
- * - The close ORDERING rule (README "Interactions & behaviour"): a background click or an `Esc`
- *   press closes the nearest open layer first — a popover, if one is open — and only takes the
- *   callout on a SECOND press/click, never both on one.
+ * - The close ordering rule, which since map-landing L3 applies to `Esc` ALONE: one press closes
+ *   the nearest open layer — a popover, if one is open — and takes the callout only on a second.
+ *   A background CLICK no longer orders anything, because it no longer closes panels at all; it
+ *   deselects, and that is its whole job (`docs/design/map-landing/README.md` §5).
  * - The inbound `handoffLocationName` TAB-vs-OVERLAY branch: the tab selects the location without
  *   ever calling `marker.openPopup()` (there is no popup left to open); the overlay branch is
  *   byte-identical to before this phase.
@@ -38,11 +39,6 @@ let fakeMarker;
  * `MapBackgroundClickController` uses the `click` key on this tab (`BoundsTracker`'s `moveend`/
  * `zoomend` pair and `ZoomTracker`'s bare `zoomend` never collide with it). */
 let capturedBackgroundClick = null;
-/** Captured from the SAME controller's `mousedown` handler — the snapshot half of the
- * close-ordering fix (`MapBackgroundClickController`'s own class doc). A real background click
- * fires BOTH, `mousedown` then `click`, so {@link clickBackground} below fires them in that order
- * rather than invoking the `click` handler alone. */
-let capturedBackgroundMouseDown = null;
 
 vi.mock('react-leaflet', () => ({
   MapContainer: ({ children }) => <div>{children}</div>,
@@ -55,7 +51,6 @@ vi.mock('react-leaflet', () => ({
   Polyline: () => null,
   useMapEvents: (handlers) => {
     if (handlers?.click) capturedBackgroundClick = handlers.click;
-    if (handlers?.mousedown) capturedBackgroundMouseDown = handlers.mousedown;
     return null;
   },
   useMap: () => ({
@@ -227,7 +222,10 @@ async function selectTheSpot() {
  */
 function clickBackground() {
   act(() => {
-    capturedBackgroundMouseDown();
+    // ⚠️ No `mousedown` companion since map-landing L3: the controller no longer registers one,
+    // because the branch that needed a trustworthy pre-`document` snapshot of `openMapMenu` is
+    // gone with the popover-closing it guarded. `MapBackgroundClickController`'s class doc keeps
+    // the timeline, since a future decision here would need the snapshot back.
     capturedBackgroundClick();
   });
 }
@@ -236,7 +234,6 @@ beforeEach(() => {
   localStorage.clear();
   fakeMarker = { openPopup: vi.fn() };
   capturedBackgroundClick = null;
-  capturedBackgroundMouseDown = null;
   astroAvailableDatesResponse = [];
   mapLabelsCalls.length = 0;
 });
@@ -247,8 +244,13 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('MapView — background click closes the NEAREST layer first', () => {
-  it('a click WITH a popover open closes only the popover, leaving the callout selected', async () => {
+describe('MapView — a background click deselects, and closes no panel (L3)', () => {
+  it('a click WITH a popover open leaves the popover AND deselects — one press, one job', async () => {
+    // ⚠️ **Inverted at map-landing L3.** This used to assert the opposite: the press closed the
+    // popover and spared the callout, under an ordering rule that existed because one press could
+    // do two things. It cannot any more — a press on the map closes no panel at all — so the only
+    // thing left for it to do is the one the design carves out: "tapping bare ground still
+    // deselects a location, because that is a selection, not a panel".
     await renderMap();
     await selectTheSpot();
     expect(screen.getByTestId('probe-callout')).toBeInTheDocument();
@@ -259,9 +261,8 @@ describe('MapView — background click closes the NEAREST layer first', () => {
     expect(capturedBackgroundClick).toBeTypeOf('function');
     clickBackground();
 
-    expect(screen.queryByTestId('wf-win-menu')).toBeNull();
-    // The callout survives this press — the ordering rule's whole point.
-    expect(screen.getByTestId('probe-callout')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-win-menu')).toBeInTheDocument();
+    expect(screen.queryByTestId('probe-callout')).toBeNull();
   });
 
   it('a click with NO popover open closes the callout instead', async () => {
@@ -275,19 +276,6 @@ describe('MapView — background click closes the NEAREST layer first', () => {
     expect(screen.queryByTestId('probe-callout')).toBeNull();
   });
 
-  it('two clicks in sequence close the popover, then the callout — never both on one press', async () => {
-    await renderMap();
-    await selectTheSpot();
-    fireEvent.click(screen.getByTestId('wf-win-pill'));
-    expect(screen.getByTestId('wf-win-menu')).toBeInTheDocument();
-
-    clickBackground();
-    expect(screen.queryByTestId('wf-win-menu')).toBeNull();
-    expect(screen.getByTestId('probe-callout')).toBeInTheDocument();
-
-    clickBackground();
-    expect(screen.queryByTestId('probe-callout')).toBeNull();
-  });
 });
 
 describe('MapView — Esc closes menus, THEN the callout', () => {
@@ -319,6 +307,73 @@ describe('MapView — Esc closes menus, THEN the callout', () => {
     await renderMap();
     fireEvent.keyDown(screen.getByTestId('wf-win-pill'), { key: 'Escape' });
     expect(screen.queryByTestId('probe-callout')).toBeNull();
+  });
+
+  it('the LANDING CARD is the last layer to go — after the menu, after the selection', async () => {
+    // map-landing-plan.md §3 L4 step 6. The card's Escape is a DOCUMENT listener (it holds no
+    // focus to bubble from), so it sees every press the pane handler sees and has to re-state the
+    // pane's own precedence rather than act on it. Three presses, three layers, in z-order:
+    // menu 1500, callout 1350, card 1300.
+    await renderMap({ runId: '2026-01-15T04:00:00' });
+    await selectTheSpot();
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByTestId('map-container'), { key: 'Escape' });
+    expect(screen.queryByTestId('wf-win-menu')).toBeNull();
+    expect(screen.getByTestId('probe-callout')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByTestId('map-container'), { key: 'Escape' });
+    expect(screen.queryByTestId('probe-callout')).toBeNull();
+    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByTestId('map-container'), { key: 'Escape' });
+    expect(screen.queryByTestId('wf-land')).toBeNull();
+  });
+
+  it('selecting a location does not dismiss the landing card', async () => {
+    // A press on the map is not a dismissal — and neither is the callout it opens. The card sits
+    // UNDER the callout (1300 vs 1350) precisely so both can stand.
+    await renderMap({ runId: '2026-01-15T04:00:00' });
+
+    await selectTheSpot();
+
+    expect(screen.getByTestId('probe-callout')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
+  });
+
+  it('stands down for a PANEL too, not just the selection — one press must not reach two layers', async () => {
+    // ⚠️ **The arm the sibling test's word "entirely" was claiming and never reached.** It opens no
+    // panel, so it never exercises the branch that closes one — and L3's first cut put that branch
+    // ABOVE the foreign-modal check, making the stand-down unreachable whenever a panel was open.
+    // The state is ordinary since L3: a press on the map no longer closes the panel on the way to
+    // opening the sheet, so "panel open behind a foreign modal" is what a reader who opened Filters
+    // and then pressed `Four days here ›` is looking at. One Escape then closed the sheet AND the
+    // panel behind it — `map-tab-v2-plan.md` O-20's named defect — and with a modal that does not
+    // close on Escape at all (`UserSettingsModal`), a panel the reader could not see.
+    await renderMap();
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    expect(screen.getByTestId('wf-win-menu')).toBeInTheDocument();
+
+    const foreign = document.createElement('div');
+    foreign.setAttribute('role', 'dialog');
+    foreign.setAttribute('aria-modal', 'true');
+    document.body.appendChild(foreign);
+    // ⚠️ The key goes to the map frame, NOT the pill: the pill is inside `WindowControl`'s own
+    // root, so its subtree handler would close the menu on its own and the pane-level branch this
+    // test is about would never be the thing under observation. Pressing on the frame is also the
+    // realistic case — L3 is what makes "panel open, focus on the map" ordinary.
+    try {
+      fireEvent.keyDown(screen.getByTestId('map-container'), { key: 'Escape' });
+      expect(screen.getByTestId('wf-win-menu')).toBeInTheDocument();
+    } finally {
+      foreign.remove();
+    }
+
+    // And it lands the moment the modal goes — a stand-down, not a latch.
+    fireEvent.keyDown(screen.getByTestId('map-container'), { key: 'Escape' });
+    expect(screen.queryByTestId('wf-win-menu')).toBeNull();
   });
 
   it('stands DOWN entirely while a foreign modal is over the map — the peek keeps its selection', async () => {

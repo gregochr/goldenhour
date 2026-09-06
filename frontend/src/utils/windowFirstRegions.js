@@ -153,8 +153,15 @@ export function buildRegionRows(es, spots, allSpots, lens) {
     const reachHolds = reachWordHolds(drawn, limitMinutes, minRating);
     return {
       name,
-      verdict: region.displayVerdict || 'AWAITING',
-      verdictLabel: VERDICT_LABEL[region.displayVerdict] || VERDICT_LABEL.AWAITING,
+      // ⚠️ Through `resolveRegionDisplay`, not off the raw field — map-landing plan §3 L5 step 6b.
+      // The helper prefers the served `displayVerdict` and falls back to MAPPING a legacy cached
+      // payload's triage `verdict` (GO/MARGINAL/STANDDOWN) rather than reading it as AWAITING.
+      // `utils/mapVerdict.js` has always used it; this module and `windowFirstCards` read the field
+      // raw, so on such a payload the map's pill said `Worth it` above a rail cell saying
+      // `Not scored`. Converged here rather than left as a recorded divergence, because L5 puts the
+      // two answers eight pixels apart in one panel.
+      verdict: resolveRegionDisplay(region),
+      verdictLabel: VERDICT_LABEL[resolveRegionDisplay(region)] || VERDICT_LABEL.AWAITING,
       // Served, both of them. See the module comment for why neither is re-derived.
       meanRating: finite(region.meanRating),
       bestRating: finite(region.bestRating),
@@ -199,15 +206,39 @@ export function buildRegionRows(es, spots, allSpots, lens) {
     };
   });
 
-  // Ranked on the served mean, best first. Name is the tiebreak so the order is TOTAL — without it
-  // two regions on the same mean can swap places between renders, which reads as the rail flickering
-  // for no reason. A region with no mean ranks last rather than as a zero: "not scored" and "scored
-  // badly" are different statements, and the same rule `windowFirstCards.js` applies to windows.
-  return rows.sort((a, b) => {
-    const ma = a.meanRating ?? -Infinity;
-    const mb = b.meanRating ?? -Infinity;
-    return mb === ma ? a.name.localeCompare(b.name) : mb - ma;
-  });
+  return rows.sort(byMeanThenName);
+}
+
+/**
+ * Rank two region rows: on the served mean, best first, with the NAME as the tiebreak.
+ *
+ * <p>The tiebreak makes the order TOTAL — without it two regions on the same mean can swap places
+ * between renders, which reads as the rail flickering for no reason. A region with no mean ranks
+ * <b>last</b> rather than as a zero: "not scored" and "scored badly" are different statements, and
+ * it is the same rule {@code windowFirstCards.js} applies to windows.
+ *
+ * <p><b>Exported since map-landing L5</b> (plan §3 L5 step 6a), because the Map tab's window panel
+ * ranks its own region rows the same way over a scope-narrowed set. Sharing the comparator rather
+ * than writing a third one is the step L1 asked for, continuing the reconvergence it began by
+ * extracting {@link pickTopEligibleRegion}.
+ *
+ * <p>⚠️ <b>It does NOT make the three agree "by construction", and an earlier revision of this note
+ * claimed it did.</b> A review lens checked: {@code windowFirstCards.pickTopEligibleRegion} — the
+ * map's argmax — still carries its own inlined rule and does not import this, and its own doc admits
+ * as much ("Ties break on the NAME … it is `buildRegionRows`' rule, copied"). The two are also not
+ * behaviourally identical: the argmax <em>skips</em> a region with no finite mean, where this ranks
+ * it last at {@code -Infinity}, and it reads {@code regionName} where this reads {@code name}. Two
+ * of three share one function; the third is a copy that agrees for the cases both reach. Converging
+ * it is a further step, not something this export accomplished.
+ *
+ * @param {{meanRating: ?number, name: string}} a
+ * @param {{meanRating: ?number, name: string}} b
+ * @returns {number}
+ */
+export function byMeanThenName(a, b) {
+  const ma = a.meanRating ?? -Infinity;
+  const mb = b.meanRating ?? -Infinity;
+  return mb === ma ? a.name.localeCompare(b.name) : mb - ma;
 }
 
 /** A number the payload actually carried, or null — never a coercion. */

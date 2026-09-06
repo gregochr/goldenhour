@@ -320,3 +320,55 @@ digest carries no verdict *word* (the display vocabulary lives in the web client
 label here would put display strings on a payload whose whole rule is that it copies), and it is a
 small payload but not a cheap request — it drives the full Plan-tab assembly and keeps ten scalars
 per window, which is §7's cost-centre finding with a new, more frequent caller.
+
+---
+
+## Section 10 — a fourth case, 2026-09-06: the Map tab's scope, and why it never reached a contract
+
+The map-landing increment (`map-landing-plan.md`, L1–L7) put four new figures on the Map tab that
+are computed in the browser over the reader's own **scope segment** — "My area" or "Everywhere":
+`mapVerdict`'s region tally, `mapLanding.landingCardModel`'s `allPoor` fold, `mapLanding.nextWorthIt`,
+and `mapDrilldown.buildPanelRegionRows`' `N of M at 4★+` with the region's nearest drive beside it.
+They are recorded here because §3's rule is about *where a figure may be computed*, and this is the
+first increment since Close to home to answer "not on the server" for a whole surface's worth of them.
+
+**Why they did not earn their own contract, having the same shape as the one that did.** Close to
+home qualified because it asked a different question about **differently owned** data — a home
+postcode and per-user drive times. The scope segment is the same class of data (it is the ≤3h
+planning area measured from that postcode, or a region base the reader is planning from), and by
+§3's own logic "how many regions in *your* area are Worth it" cannot ride the ETag-shared
+`GET /api/briefing` payload for exactly the reason `/api/user/settings/reach` does not. So the
+contract *is* warranted in principle — and was not built, deliberately, because the alternative on
+offer is a never-cached per-user endpoint (`plan-matrix-plan.md` §8's **O-4**) that no surface has
+yet needed enough to pay for. CLAUDE.md's Backend-heavy bullet names all four as its sixth licensed
+class with that exit attached, so the debt has a name rather than being an unremarked exception.
+The owner decision is `map-landing-plan.md` §6 **Q4**, open.
+
+**The trap this increment actually hit, and it was not the seam §3 warns about.** Nothing here
+disagreed with the server. What went wrong twice was the **population** a client count was taken
+over:
+
+1. `N of M at 4★+` first counted our own rated rows on both sides — literally "N of M scored", which
+   `window-first-redesign-plan.md` §6's fourth bullet ("No counts of our own data") and CLAUDE.md
+   ban by name — ⚠️ **not** this document's own §6, which a bare citation would read as, and not
+   `plan-matrix-plan.md` §5, which several comments in the tree mis-cite it as (§5 is Data mapping;
+   the ban is restated at its §3 rule 5). A region with nine locations of which three were scored
+   read `2 of 3`, which a reader takes as a statement about the region.
+2. The fix over-corrected. Counting every place in scope put locations in the denominator that can
+   **never** enter the numerator: `buildHeatSpots` keeps a wildlife hide or a wood as a spot and
+   withholds only its scores, so a region with five sky locations and four hides read `3 of 9`,
+   understating every wood-bearing region uniformly. Two adversarial-review lenses found it
+   independently. ⚠️ **A waterfall is NOT one of them** — `SKY_SUBJECT_TYPES` is LANDSCAPE, SEASCAPE
+   and WATERFALL, so a waterfall keeps its scores and sits in both halves; the withheld set is
+   WILDLIFE-, WOODLAND- or BLUEBELL-only sites, and an untagged location counts. The first draft of
+   this section said "or a waterfall" and a fact-check caught it: the example was inherited from
+   comments written at L6, which are corrected in the same commit.
+
+**The rule that generalises, and the one to enforce on any successor:** *a client-side count must
+state which population it is over, and both halves of a ratio must be able to reach each other.* A
+denominator holding rows the numerator's question does not apply to is the same defect as "N of M
+scored" seen from the other end — one under-reports, the other over-reports, and neither is a fact
+about the region. The population that survives review is **the places the question applies to at all** — here, the
+sky subjects. ⚠️ Note it is a per-LOCATION property and not a per-window one: `skySubject` is set
+once from `locationType`, so "this window could rate it" would claim a precision the flag does not
+have.

@@ -155,7 +155,33 @@ function solarRow(date, targetType, served, todayStr, tomorrowStr, inForecastDom
       ),
       bestRating: numOrNull(served.bestRating),
       scored: numOrNull(served.bestRating) != null,
+      // Whether the BRIEFING served this window, as distinct from `scored` ("is anything in it
+      // rated"). The two differ for a served window nothing is rated in, and the difference is
+      // load-bearing for any caller asking "which windows are still ahead of me": the briefing
+      // withdraws an elapsed window (`PlanWindowProjector.hasPassed`) while the D-13 filler branch
+      // below is only gated on `date >= todayStr` — so after this morning's sunrise the list still
+      // leads with a filler SUNRISE row for a window hours in the past. Gate on THIS, never on list
+      // position (map-landing-plan.md §3 L4 step 2).
+      served: true,
+      // Whether the briefing marked this window a TRAVEL day. Carried, never derived — the away
+      // state is `buildWindowCards`' own, and the landing card drops such a window rather than
+      // offering it as one of "your next two" (map-landing-plan.md §3 L4).
+      away: Boolean(served.away),
       badges: Array.isArray(served.badges) ? served.badges : [],
+      // The forecast's own Best bet / Also good for this window — `'best'`, `'also'`, or null,
+      // copied verbatim from the served window (map-landing-plan.md §3 L1). Server-owned: the
+      // design bundle's client rank formula is deliberately not built (§4 #2).
+      //
+      // ⚠️ The window's VERDICT is deliberately not here. It is not a property of the served
+      // window on this tab — it is a property of the reader's current scope segment, and it lives
+      // in `utils/mapVerdict.js`, read per row in `MapView`. Carrying the served word here as well
+      // would put two answers for one window in the reader's hands, disagreeing whenever "My area"
+      // narrows; `WindowFirstMapPane`'s own mapper records the decision at length.
+      pickKind: served.pickKind ?? null,
+      // ⚠️ Carried WITH the kind, never separately (map-landing-plan.md §3 L6). A medallion whose
+      // subject is a region must be able to test the pick's own region; one whose subject is the
+      // window ignores this and reads the kind alone.
+      pickRegion: served.pickRegion ?? null,
       inForecastDomain,
     };
   }
@@ -171,7 +197,28 @@ function solarRow(date, targetType, served, todayStr, tomorrowStr, inForecastDom
     confidence: resolveConfidence(null, daysOut(date, todayStr)),
     bestRating: null,
     scored: false,
+    // A D-13 filler: the briefing served no window for this date, so nothing here has been through
+    // the elapsed test. See the served branch above.
+    served: false,
+    // A filler row is a date the briefing carried no window for at all, so it carries no away
+    // state either — the travel ranges the pane knows about never reach this list.
+    away: false,
     badges: [],
+    // A D-13 filler row is a date the briefing carried no window for, so there is no pick. Null
+    // rather than absent, so every solar row has one shape.
+    //
+    // ⚠️ A filler row is NOT pastness-filtered the way a served one is. The briefing withdraws an
+    // elapsed window (`PlanWindowProjector.hasPassed`), but `forecastDates` still carries today, so
+    // after this morning's sunrise a filler SUNRISE row is emitted for a window hours in the past
+    // — the `date >= todayStr` gate above only excludes YESTERDAY. A caller wanting "the next N
+    // windows" must therefore gate on `served`, never on list position alone
+    // (map-landing-plan.md §3 L4 step 2).
+    pickKind: null,
+    // Null rather than absent, with `pickKind` — the invariant the comment above states is that
+    // every solar row has ONE shape, and L6 added this field to the served branch alone. A
+    // completeness sweep caught the omission; it is harmless today only because every reader
+    // short-circuits on the kind first.
+    pickRegion: null,
     inForecastDomain,
   };
 }

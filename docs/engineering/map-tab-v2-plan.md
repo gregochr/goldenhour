@@ -971,7 +971,24 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     other — the inline `max-height` whose squeeze must land on `.wf-callout-body` alone — is still
     pinned by `mapCalloutClampCascade`, which now also pins that the tail rule has not come back.
 31. **The window pill is a FIXED 262px and ellipses; the bundle's hugs its content and never
-    truncates (2026-09-05).** The prototype gives this control no width at all —
+    truncates (2026-09-05).** ⚠️ **SUPERSEDED 2026-09-05 by the map-landing increment's L2, and this
+    entry's headline is now false — read `map-landing-plan.md` §4 #3 for what shipped.** The pill is
+    no longer a fixed width at all: it FILLS a bounded, capped group (`.wf-win-control` is
+    `width: 504px; max-width: 100%`), because L2 measured the reachable content at **417.47px** once
+    the verdict, its region and the pick medallion joined the row — so 262px would have ellipsed the
+    day label, the one thing this entry's own reasoning says must never truncate. **The invariant
+    below survives intact and is the part to keep**: the steppers must not move as the reader steps,
+    and they do not — the width is now a property of the frame rather than of the content, which is
+    a different mechanism for the same guarantee. The measured figures below (115.41–227.52px) are
+    the *pre-L2* content range and are left as the record of why a content-sized pill was rejected;
+    they are not the range the control can emit today.
+    ⚠️ **One consequence needs stating rather than inheriting.** `index.css` cites this entry as
+    having "licensed the last widening of the label-placement obstacle (187→334px) by measuring that
+    no label moved". The control is now 504px, so that obstacle grew again (334→504px) — and
+    `map-landing-plan.md`'s L2 row records the new width without recording a fresh label
+    measurement. **The licence this entry granted was spent at a size it never measured.** Whoever
+    next touches label placement should re-run that measurement rather than reading the citation as
+    still covering it. The prototype gives this control no width at all —
     `#wnow{gap:9px;padding:6px 10px;min-height:36px}` over a `.pill` with `white-space:nowrap`, no
     cap, no `overflow` and no ellipsis (`Map Tab v2.html`) — so the pill grows and shrinks with
     whatever the event says. The port already diverged once at P6, which added a `max-width: 260px`
@@ -1060,7 +1077,12 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
 - **O-2** `OPEN 3` hillshade basemap (`Elevation/World_Hillshade_Dark`, filter `saturate(.4)
   sepia(.22) brightness(.86)`): option, default, or dropped. The six-way comparison is vendored.
 - **O-3** Ring distances: confirm 25/50 mi stands over the bundle's 36/72 km.
-- **O-4** Curated region short names (migration + admin UI).
+- **O-4** Curated region short names (migration + admin UI). ⚠️ **Now load-bearing rather than
+  cosmetic** (`map-landing-plan.md` §6 Q6, L2): the window pill's 9px region line is the first
+  surface where the full names visibly truncate, and the drilldown adds two more — the window
+  panel's region rows and the region panel's own header — **three** in total. ⚠️ Do not confuse it with the *other* O-4 this repo cites: `plan-matrix-plan.md` §8's O-4
+  is the never-cached per-user endpoint, which is the exit for CLAUDE.md's licensed client classes
+  (including the Map tab's own, added at map-landing L7). Two plans, two O-4s, unrelated.
 - **O-5** Azimuth lines on the redesigned tab.
 - **O-6** Overlay convergence onto the callout (and `MarkerPopupContent`'s long-term home). One
   producer has already moved off the overlay: the location sheet's `Show on map` footer button now
@@ -1134,6 +1156,18 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   a fourth per-route guard: `inert` on the map panel needs `Modal`'s own `lastInside` machinery
   mirrored onto the pane, or the peek's return address (the callout button, blurred by `inert`
   before `useDialogFocus` can capture it) is destroyed by the fix.
+  ⚠️ **The map-landing increment added two more panels under that peek, and they are `role="dialog"`
+  WITHOUT `aria-modal` deliberately** (`map-landing-plan.md` §3 L5/L6): the drilldown's two levels.
+  Neither carries a foreign-modal stand-down of its own — `MapView`'s pane-level key handler does,
+  and the panels' subtree handlers do not — so with the four-day sheet open over the map, one
+  `Escape` reaching a panel's own handler still operates it behind the sheet. That is the same
+  double-answer this item already records for a phone `BottomSheet`, from a third direction, and it
+  is likewise unreachable without first Tabbing out of a modal — every route into the sheet closes
+  the drilldown on the way in, so a panel is only behind it if it was opened afterwards. Recorded
+  rather than fixed for the reason above: the fix is the shell-root follow-on, not a fifth per-route
+  guard. ⚠️ And the obvious shortcut is unavailable: `MapRegionPanel`'s handler is NOT redundant with
+  the pane's, because its `onBack` also carries the return-focus target (`map-landing-plan.md`
+  §4 #37).
 - **O-19** Whether the reason button should keep the spec's whole-prose target (a 399-character
   accessible name) or move to caption-as-button with a four-word one (§4 #26).
 - **O-16** The exit for §4 #15 / CLAUDE.md's Backend-heavy fifth class: a served, RATED
@@ -1142,6 +1176,13 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   and `regionsJump.buildNightRegionBest`'s licensed client aggregation outright. No such rollup
   exists today — `AuroraRegionSummary` carries a GO/STANDDOWN `verdict` but no stars, and astro
   has no per-region rollup at all — so until one ships, this pair is the licensed stand-in.
+  ⚠️ **Untouched by the map-landing increment, and now the reason THREE more surfaces are silent**
+  (`map-landing-plan.md` §4 #27, §6 Q1): a night row's verdict cell on the window pill renders
+  EMPTY (the owner's decision, rather than synthesising a word), the window panel has no region
+  rows at all for a night window, and the region panel is therefore unreachable from one. Each is
+  a deliberate silence with the same single cause. ⚠️ Whoever lands O-16 must re-check
+  `windowFirstCards.eventWord`, which has no night arm — anything that is not SUNRISE is
+  "sunset" — so any night copy built on it will read wrongly the moment those rows appear.
 - **O-17** — bundle rev 2's width note (the map keeps the masthead's 1080px column rather than
   full-bleed): **DECIDED 2026-09-03**, owner chose the column; implemented as its own change (see
   the width PR), not in this PR.

@@ -216,4 +216,9 @@ export { filterCalloutTopics } from './windowFirstTopics.js';
  * importing THIS module would close a cycle. The implementation lives in `utils/regionGloss.js`;
  * these re-exports keep the callout arm's own vocabulary and its existing importers intact.
  */
+// ⚠️ `regionGlossEntry` is deliberately NOT re-exported here, and L6 added it before L7's sweep took
+// it out. This line's own doc says the re-exports exist to keep "existing importers" intact —
+// `regionGlossEntry` is new and has none: production imports it straight from `regionGloss.js`
+// (`MapView.jsx`), so adding it here created a name whose only importer was the test written
+// beside it. A re-export with one test reader is an orphan wearing a module's vocabulary.
 export { buildRegionGlossIndex, regionGlossFor } from './regionGloss.js';

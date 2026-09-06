@@ -117,6 +117,13 @@ export function buildHeatStripCards(
       // does that, and this fold must not reconstruct one. An away plan showing no legend at all is
       // the accepted deviation (plan-matrix D-5).
       pickKind: card?.pick?.kind ?? null,
+      // ⚠️ **The pick's own REGION, carried since map-landing-plan.md §3 L6.** The kind alone is all
+      // a WINDOW-subject medallion needs, which is what this fold's own comment used to say and why
+      // the region was dropped — but the map's region panel puts the same medallion in a header
+      // whose subject is a REGION, and there `◎ Best bet` beside a region the pick does not name is
+      // a false claim about that region. `buildWindowCards` already withholds the whole pick when an
+      // away origin has scoped its region out, so this is null in exactly the cases the kind is.
+      pickRegion: card?.pick?.regionName ?? null,
       away,
       // Feeds the kernel's haze through `confidenceScalar`, so the picture and the card's badge
       // decay by the same number (plan D3).

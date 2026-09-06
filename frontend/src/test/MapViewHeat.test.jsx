@@ -139,12 +139,14 @@ vi.mock('../components/markerUtils.js', async (importOriginal) => {
 });
 
 import MapView from '../components/MapView.jsx';
+import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
 import { STOPS_VERDICT, STOPS_TEMP, setMode } from '../utils/scoreRamp.js';
 import { markerLabelAndColour } from '../components/markerUtils.js';
 import { getAstroConditions, getAstroAvailableDates } from '../api/astroApi.js';
 import { ukDateStrOffset } from '../utils/mapDates.js';
 import { latLngBounds } from '../utils/heatGeometry.js';
-import { buildTideAlignmentIndex } from '../utils/locationSheet.js';
+import { buildScoreIndex, buildTideAlignmentIndex } from '../utils/locationSheet.js';
+import { buildRegionGlossIndex } from '../utils/regionGloss.js';
 
 const TODAY = '2026-01-15';
 const TOMORROW = '2026-01-16';
@@ -1698,3 +1700,1335 @@ describe('MapView heat — the Regions jump list (map-tab-v2-plan.md §3 P11)', 
 // stub exists to avoid. `⌂`'s new behaviour is pinned there instead, alongside its own
 // mount/position/no-postcode-fallback tests, using that file's own `heatProp()`-style fixture.
 
+describe('the window pill\'s verdict — filters must not move it, scope must (design check 1)', () => {
+  /**
+   * A briefing whose TOP region is one the planning area excludes.
+   *
+   * `AREA_SPOTS` drops `SPOTS[3]` (Kelso / The Borders), so the catalogue holds three regions and
+   * the area holds two. Giving The Borders the highest mean makes the two scopes give genuinely
+   * different answers — without that, "scope moves the verdict" would pass on a fixture where it
+   * could not have failed.
+   */
+  const DAYS = [{
+    date: TODAY,
+    eventSummaries: [{
+      targetType: 'SUNSET',
+      regions: [
+        { regionName: 'The Borders', meanRating: 4.4, displayVerdict: 'WORTH_IT', slots: [{ canopy: false }] },
+        { regionName: 'The Lakes', meanRating: 2.9, displayVerdict: 'MAYBE', slots: [{ canopy: false }] },
+        { regionName: 'North East', meanRating: 2.0, displayVerdict: 'STAND_DOWN', slots: [{ canopy: false }] },
+      ],
+    }],
+  }];
+
+  const verdictProps = () => ({
+    heat: heatProp(),
+    regionVerdictIndex: buildRegionVerdictIndex(DAYS),
+  });
+
+  /** What the pill is actually saying, as a reader would read it. */
+  function pillVerdict() {
+    return {
+      word: screen.getByTestId('wf-win-verdict').querySelector('b').textContent,
+      region: screen.queryByTestId('wf-win-verdict-region')?.textContent ?? null,
+      tier: screen.getByTestId('wf-win-pill').getAttribute('data-tier'),
+    };
+  }
+
+  it('states the strongest region in scope, and names it', async () => {
+    await renderMap(verdictProps());
+
+    // Opens in "My area", which excludes The Borders — so the answer is The Lakes, not the
+    // catalogue's best.
+    expect(pillVerdict()).toEqual({ word: 'Maybe', region: 'The Lakes', tier: 'MAYBE' });
+  });
+
+  it('would MOVE if the verdict were computed from a filtered pool — the mutation these guard', async () => {
+    // ⚠️ Two of the four filter tests below cannot fail on their own, and that was a review finding:
+    // with every fixture location rated 4 a 4★ floor removes nothing, and the dark-sky filter still
+    // leaves both regions represented — so against the mutation they exist to catch
+    // (`regionsInScope = regionNamesOf(scopedVisibleLocations)`) the region set is IDENTICAL and the
+    // pill does not move. They are kept because each states the rule for its own control, but this
+    // is the one with teeth: it empties the DRAWN set entirely while leaving the scope pool
+    // untouched, so a verdict taken from the filtered pool would have nothing to name at all.
+    await renderMap(verdictProps());
+    expect(pillVerdict()).toEqual({ word: 'Maybe', region: 'The Lakes', tier: 'MAYBE' });
+
+    openFilters();
+    fireEvent.click(screen.getByTestId('star-filter-5'));
+
+    expect(pillVerdict()).toEqual({ word: 'Maybe', region: 'The Lakes', tier: 'MAYBE' });
+  });
+
+  it('does not move when the minimum rating changes', async () => {
+    await renderMap(verdictProps());
+    const before = pillVerdict();
+
+    openFilters();
+    fireEvent.click(screen.getByTestId('star-filter-4'));
+
+    expect(pillVerdict()).toEqual(before);
+  });
+
+  it('does not move when the subject chips change', async () => {
+    await renderMap(verdictProps());
+    const before = pillVerdict();
+
+    openFilters();
+    fireEvent.click(screen.getByTestId('location-type-filter-SEASCAPE'));
+
+    expect(pillVerdict()).toEqual(before);
+  });
+
+  it('does not move when the dark-sky filter is toggled', async () => {
+    await renderMap(verdictProps());
+    const before = pillVerdict();
+
+    openFilters();
+    fireEvent.click(screen.getByTestId('dark-sky-filter-toggle'));
+
+    expect(pillVerdict()).toEqual(before);
+  });
+
+  it('does not move when the drive-time tier changes', async () => {
+    await renderMap(verdictProps());
+    const before = pillVerdict();
+
+    openFilters();
+    fireEvent.click(screen.getByTestId('drive-time-filter-45'));
+
+    expect(pillVerdict()).toEqual(before);
+  });
+
+  it('DOES move when the scope flips to the whole catalogue', async () => {
+    await renderMap(verdictProps());
+    expect(pillVerdict()).toEqual({ word: 'Maybe', region: 'The Lakes', tier: 'MAYBE' });
+
+    openFilters();
+    fireEvent.click(screen.getByTestId('wf-filters-scope-all'));
+
+    // The Borders is now a candidate, and it is the strongest.
+    expect(pillVerdict()).toEqual({ word: 'Worth it', region: 'The Borders', tier: 'WORTH_IT' });
+  });
+
+  it('says "everywhere" rather than naming the least-bad region when they all agree', async () => {
+    const allPoor = [{
+      date: TODAY,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [
+          { regionName: 'The Lakes', meanRating: 2.2, displayVerdict: 'STAND_DOWN', slots: [{ canopy: false }] },
+          { regionName: 'North East', meanRating: 2.0, displayVerdict: 'STAND_DOWN', slots: [{ canopy: false }] },
+        ],
+      }],
+    }];
+    await renderMap({ heat: heatProp(), regionVerdictIndex: buildRegionVerdictIndex(allPoor) });
+
+    const { word, region } = pillVerdict();
+    expect(word).toBe('Poor');
+    expect(region).toBe('everywhere in your area');
+  });
+
+  it('drops "in your area" once the scope IS the whole catalogue', async () => {
+    const allPoor = [{
+      date: TODAY,
+      eventSummaries: [{
+        targetType: 'SUNSET',
+        regions: [
+          { regionName: 'The Lakes', meanRating: 2.2, displayVerdict: 'STAND_DOWN', slots: [{ canopy: false }] },
+          { regionName: 'North East', meanRating: 2.0, displayVerdict: 'STAND_DOWN', slots: [{ canopy: false }] },
+          { regionName: 'The Borders', meanRating: 1.8, displayVerdict: 'STAND_DOWN', slots: [{ canopy: false }] },
+        ],
+      }],
+    }];
+    await renderMap({ heat: heatProp(), regionVerdictIndex: buildRegionVerdictIndex(allPoor) });
+
+    openFilters();
+    fireEvent.click(screen.getByTestId('wf-filters-scope-all'));
+
+    expect(screen.getByTestId('wf-win-verdict-region').textContent).toBe('everywhere');
+  });
+
+  it('renders no verdict at all with no index — the pre-L2 control', async () => {
+    await renderMap({ heat: heatProp() });
+
+    expect(screen.queryByTestId('wf-win-verdict')).toBeNull();
+    expect(screen.getByTestId('wf-win-pill')).not.toHaveAttribute('data-tier');
+  });
+});
+
+/**
+ * The landing card (map-landing-plan.md §3 L4) — what OPENS it, what closes it, and the far longer
+ * list of things that must not.
+ *
+ * <p>The card's own selection rules are pinned in `mapLanding.test.js` and its markup in
+ * `MapLandingCard.test.jsx`; this block is the wiring only — the once-per-run key, the three
+ * dismissal routes and, more importantly, the five gestures that are NOT dismissal routes.
+ */
+/**
+ * The window panel — the drilldown's first level (map-landing-plan.md §3 L5).
+ *
+ * <p>Its rows and its note are pinned in `mapDrilldown.test.js`, its markup in
+ * `MapWindowPanel.test.jsx`. This block is the wiring: the one live entry, the exclusivity it
+ * inherits from `openMapMenu`, and the two dismissal rules a panel has that the landing card
+ * does not.
+ */
+describe('the window panel — this window, region by region', () => {
+  const DAYS = [{
+    date: TODAY,
+    eventSummaries: [{
+      targetType: 'SUNSET',
+      regions: [
+        { regionName: 'The Lakes', meanRating: 4.4, bestRating: 5, displayVerdict: 'WORTH_IT', slots: [{ canopy: false }] },
+        { regionName: 'North East', meanRating: 2.0, bestRating: 3, displayVerdict: 'STAND_DOWN', slots: [{ canopy: false }] },
+        { regionName: 'The Borders', meanRating: 4.9, bestRating: 5, displayVerdict: 'WORTH_IT', slots: [{ canopy: false }] },
+      ],
+    }],
+  }];
+
+  const panelProps = (extra = {}) => ({
+    heat: heatProp(),
+    regionVerdictIndex: buildRegionVerdictIndex(DAYS),
+    ...extra,
+  });
+
+  const openPanel = () => {
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    fireEvent.click(screen.getByTestId('wf-win-more'));
+  };
+
+  it('opens from the pill menu\'s own footer row, and closes the menu on the way', async () => {
+    await renderMap(panelProps());
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+
+    // Asserted by ROLE and NAME, as the standards require of anything interactive — the glyph is
+    // `aria-hidden`, so this also pins that the words survive it.
+    const entry = screen.getByRole('button', { name: /This window, region by region/ });
+    expect(entry).toBe(screen.getByTestId('wf-win-more'));
+    fireEvent.click(entry);
+
+    expect(screen.getByTestId('wf-win-panel')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-win-menu')).toBeNull();
+  });
+
+  /**
+   * ⚠️ **This asserted the PILL until the PR review, and the panel is the right answer.** The entry
+   * row unmounts itself with the menu, so without a focus move at all it falls to `<body>` — and
+   * `handleMapPaneKeyDown` is a React `onKeyDown` on the pane root, which a press on `<body>` never
+   * reaches, leaving the panel un-closable by keyboard on its only entry. L5 solved that by focusing
+   * the pill, which is inside the pane and fixes Escape — but leaves focus OUTSIDE a `role="dialog"`
+   * that has just appeared, so a screen reader announces nothing. The panel now takes it, matching
+   * `MapRegionPanel` one level down. `WindowControl`'s `pillRef.current?.focus()` still runs first
+   * and is harmless; this asserts who ends up with it.
+   */
+  it('⚠️ hands focus to the PANEL, which is what makes Escape reachable and the dialog announced', async () => {
+    await renderMap(panelProps());
+
+    openPanel();
+
+    expect(document.activeElement).toBe(screen.getByTestId('wf-win-panel'));
+  });
+
+  it('renders the note its own state asks for, not a hard-coded one', async () => {
+    // ⚠️ The note had no rendered coverage at all: `note=""`, a hard-coded `isSolar: true` and a
+    // hard-coded `scopeIsArea: true` all survived the suite (measured). This drives the real wiring.
+    await renderMap(panelProps());
+
+    openPanel();
+
+    // In "My area" only The Lakes is Worth it (North East is Poor), so this is the one-region
+    // branch: the ranking rule alone, with no drive-time sentence to make.
+    expect(screen.getByTestId('wf-win-panel-note'))
+      .toHaveTextContent(/^Verdict is the strongest region’s average\./);
+    expect(screen.getByTestId('wf-win-panel-note').textContent).not.toMatch(/regions are/);
+  });
+
+  it('...and switches branch when the scope brings a second Worth it region in', async () => {
+    // The Borders is Worth it too and sits outside the area — flipping scope makes two share the
+    // tier, which is the several-regions branch. Driven through the real wiring, not a stub prop.
+    await renderMap(panelProps());
+    openFilters();
+    fireEvent.click(screen.getByTestId('wf-filters-scope-all'));
+
+    openPanel();
+
+    expect(screen.getByTestId('wf-win-panel-note'))
+      .toHaveTextContent(/^2 regions are worth it for this window, so the choice between them is drive time\./);
+  });
+
+  it('says "in your area" only when there IS an area', async () => {
+    await renderMap(panelProps({ heat: heatProp({ hasHome: false }) }));
+
+    openPanel();
+
+    expect(screen.getByTestId('wf-win-panel-note').textContent).not.toMatch(/your area/);
+  });
+
+  it('offers no entry when the map is on a window the EV list has no row for', async () => {
+    // ⚠️ The overlay test below cannot cover this gate: `WindowControl` is not mounted there at all,
+    // so `wf-win-more` can never exist regardless of what the gate does (measured — removing it left
+    // that test green). A date outside the forecast domain is the reachable case.
+    await renderMap({ ...panelProps(), date: '2026-01-25' });
+
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+
+    expect(screen.queryByTestId('wf-win-more')).toBeNull();
+  });
+
+  it('is about the window in force, and lists only regions in SCOPE', async () => {
+    // `AREA_SPOTS` drops Kelso / The Borders, so the catalogue holds three regions and the area
+    // two — and The Borders has the BEST mean, so a panel built over the wrong pool would lead
+    // with it. Same population the pill's tally counts.
+    await renderMap(panelProps());
+
+    openPanel();
+
+    expect(screen.getByTestId('wf-win-panel-window')).toHaveTextContent('Tonight');
+    expect(screen.getAllByTestId('wf-win-panel-row').map((r) => r.dataset.region))
+      .toEqual(['The Lakes', 'North East']);
+  });
+
+  it('DOES list it once the scope is the whole catalogue', async () => {
+    await renderMap(panelProps());
+    openFilters();
+    fireEvent.click(screen.getByTestId('wf-filters-scope-all'));
+
+    openPanel();
+
+    expect(screen.getAllByTestId('wf-win-panel-row').map((r) => r.dataset.region))
+      .toEqual(['The Borders', 'The Lakes', 'North East']);
+  });
+
+  it('counts the window\'s own rated locations, at four stars and better', async () => {
+    // `POINTS_BY_KEY[TODAY:SUNSET]` gives The Lakes one 4★ (Wastwater) and North East a 5, a 2,
+    // a 4 and a 2 — so the two rows must read differently, and neither may count the other's.
+    await renderMap(panelProps());
+
+    openPanel();
+
+    // ⚠️ The denominator counts PLACES in scope, not rows we hold a rating for. `AREA_SPOTS` gives
+    // The Lakes one location and North East four; the window rates Wastwater 4★, and North East's
+    // Bamburgh 5 / Tynemouth 2 / Alnmouth 4 / Coquet 2.
+    const rows = screen.getAllByTestId('wf-win-panel-row');
+    expect(within(rows[0]).getByTestId('wf-win-panel-stat')).toHaveTextContent('1 of 1 at 4★+');
+    expect(within(rows[1]).getByTestId('wf-win-panel-stat')).toHaveTextContent('2 of 4 at 4★+');
+  });
+
+  it('Escape closes it', async () => {
+    await renderMap(panelProps());
+    openPanel();
+
+    fireEvent.keyDown(screen.getByTestId('wf-map-chrome-tl'), { key: 'Escape' });
+
+    expect(screen.queryByTestId('wf-win-panel')).toBeNull();
+  });
+
+  it('a press on the MAP does not close it — L3\'s rule, which the landing card does not share', async () => {
+    await renderMap(panelProps());
+    openPanel();
+
+    fireEvent.mouseDown(screen.getAllByTestId('map-container')[0]);
+    await act(async () => {
+      for (const handlers of mapEventHandlers) handlers.click?.({});
+    });
+
+    expect(screen.getByTestId('wf-win-panel')).toBeInTheDocument();
+  });
+
+  it('opening another menu closes it — one switch, one open surface', async () => {
+    await renderMap(panelProps());
+    openPanel();
+
+    openFilters();
+
+    expect(screen.queryByTestId('wf-win-panel')).toBeNull();
+    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
+  });
+
+  it('closes rather than becoming a "night" panel when the window under it goes away', async () => {
+    // ⚠️ With the panel open the map can lose its EV row — the briefing poll withdraws an elapsed
+    // window, or a handoff moves the date. `isSolar` then read false, so the panel printed the
+    // NIGHT note over a solar map and an empty line saying no region had a "night" answer.
+    const locations = makeLocations();
+    const props = panelProps();
+    const { rerender } = await renderMap(props);
+    openPanel();
+    expect(screen.getByTestId('wf-win-panel')).toBeInTheDocument();
+
+    await act(async () => {
+      rerender(<MapView locations={locations} date="2026-01-25" autoEventType={null} {...props} />);
+    });
+
+    expect(screen.queryByTestId('wf-win-panel')).toBeNull();
+  });
+
+  it('never mounts on the frozen Plan-tab overlay', async () => {
+    await renderMap(panelProps({ overlayMode: true }));
+
+    expect(screen.queryByTestId('wf-win-more')).toBeNull();
+    expect(screen.queryByTestId('wf-win-panel')).toBeNull();
+  });
+});
+
+/**
+ * The region panel — the drilldown's second and last level (map-landing-plan.md §3 L6).
+ *
+ * <p>Its rows are pinned in `mapRegionDrilldown.test.js` and its markup in
+ * `MapRegionPanel.test.jsx`. This block is the wiring only, and it is where the phase's four
+ * caller-side rules live: the level replaces rather than stacks, Escape steps BACK one level rather
+ * than collapsing the drilldown (§4 #28), the sheet opens with `inPlan: false` after the panel is
+ * closed, and the two looked-up per-location facts actually reach the row from `MapView`'s props.
+ */
+describe('the region panel — one region, into the sheet that already exists', () => {
+  /**
+   * ⚠️ **TWO windows, and The Lakes has a row on both with DIFFERENT figures.** With one window the
+   * "re-found by name, never stored" claim was structurally untestable — a review lens implemented
+   * the snapshot the doc forbids and all 146 tests passed, because no other window had any region
+   * rows for the panel to disagree with. This morning's sunrise gives it one.
+   */
+  const DAYS = [{
+    date: TODAY,
+    eventSummaries: [{
+      targetType: 'SUNRISE',
+      regions: [
+        { regionName: 'The Lakes', meanRating: 3.1, bestRating: 4, displayVerdict: 'MAYBE', slots: [{ canopy: false }] },
+      ],
+    }, {
+      targetType: 'SUNSET',
+      regions: [
+        { regionName: 'The Lakes', meanRating: 4.4, bestRating: 5, displayVerdict: 'WORTH_IT', slots: [{ canopy: false }] },
+        { regionName: 'North East', meanRating: 2.0, bestRating: 3, displayVerdict: 'STAND_DOWN', slots: [{ canopy: false }] },
+        { regionName: 'The Borders', meanRating: 4.9, bestRating: 5, displayVerdict: 'WORTH_IT', slots: [{ canopy: false }] },
+      ],
+      // The narrative the panel prints — served per region per window, exactly as
+      // `regionGloss.buildRegionGlossIndex` reads it (⚠️ `regionName`, never `name`: that index
+      // shipped silently empty for weeks because a fixture used the wrong field).
+    }],
+  }];
+
+  /**
+   * ⚠️ Keyed by `locationId`, NOT by name. `makeLocations()` suffixes every location name with a
+   * per-test nonce (the marker-icon cache note above), while `heat.spots` keeps the plain name — so
+   * a name-keyed fixture would join in this file and nowhere else, or vice versa. Real ids are what
+   * `heatPointsFor` carries onto every point.
+   *
+   * <p>`goldenHourEnd` is the SUNSET event instant `locationSheet.eventInstantOf` recovers; nothing
+   * on this path reads `solarEventTime`, which is why the fixture does not carry one.
+   */
+  const SCORE_INDEX = buildScoreIndex([
+    { locationId: 3, date: TODAY, targetType: 'SUNSET', rating: 4, goldenHourEnd: `${TODAY}T16:12:00` },
+    { locationId: 1, date: TODAY, targetType: 'SUNSET', rating: 5, goldenHourEnd: `${TODAY}T16:10:00` },
+  ]);
+
+  const TIDE_INDEX = buildTideAlignmentIndex([{
+    date: TODAY,
+    eventSummaries: [{
+      targetType: 'SUNSET',
+      regions: [{
+        regionName: 'North East',
+        slots: [{ locationId: 1, tideOnTheLight: true, nearestSolarOffsetPhrase: 'HW 12 min after sunset' }],
+      }],
+    }],
+  }]);
+
+  const GLOSS_INDEX = buildRegionGlossIndex([{
+    date: TODAY,
+    eventSummaries: [{
+      targetType: 'SUNSET',
+      regions: [{
+        regionName: 'The Lakes',
+        glossHeadline: 'A clean western horizon.',
+        glossDetail: 'High cloud thins through the afternoon.',
+      }],
+    }],
+  }]);
+
+  const REACH = new Map([[1, { driveMinutes: 95 }], [2, { driveMinutes: 30 }], [3, { driveMinutes: 40 }]]);
+
+  const panelProps = (extra = {}) => ({
+    heat: heatProp(),
+    regionVerdictIndex: buildRegionVerdictIndex(DAYS),
+    regionGlossIndex: GLOSS_INDEX,
+    scoreIndex: SCORE_INDEX,
+    tideAlignmentIndex: TIDE_INDEX,
+    reachById: REACH,
+    ...extra,
+  });
+
+  const openPanel = () => {
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    fireEvent.click(screen.getByTestId('wf-win-more'));
+  };
+
+  const openRegion = (name) => {
+    const row = screen.getAllByTestId('wf-win-panel-row').find((r) => r.getAttribute('data-region') === name);
+    expect(row).toBeTruthy();
+    fireEvent.click(row);
+  };
+
+  it('opens from a window-panel row, and REPLACES the level above rather than stacking on it', async () => {
+    await renderMap(panelProps());
+    openPanel();
+
+    openRegion('The Lakes');
+
+    expect(screen.getByTestId('wf-reg-panel-region')).toHaveTextContent('The Lakes');
+    // ⚠️ One panel at a time — one z-index, one outside-dismiss root, and nothing to make anyone
+    // reach for a `Modal` to stack them (map-tab-v2-plan.md O-20).
+    expect(screen.queryByTestId('wf-win-panel')).toBeNull();
+  });
+
+  it('carries the SAME figures the row it was pressed from was printing', async () => {
+    await renderMap(panelProps());
+    openPanel();
+    const rowText = screen.getAllByTestId('wf-win-panel-row')
+      .find((r) => r.getAttribute('data-region') === 'The Lakes').textContent;
+
+    openRegion('The Lakes');
+
+    // One place in The Lakes in scope (Wastwater), rated 4 — so `1 of 1 at 4★+`, and a 40-minute
+    // nearest drive. Both are read off the window panel's own row rather than recounted.
+    expect(rowText).toContain('1 of 1 at 4');
+    expect(screen.getByTestId('wf-reg-panel-stats')).toHaveTextContent('1 of 1 at 4');
+    expect(screen.getByTestId('wf-reg-panel-stats')).toHaveTextContent('nearest 40 min');
+  });
+
+  it('draws the location row with the drive and the departure its own event instant gives it', async () => {
+    await renderMap(panelProps());
+    openPanel();
+
+    openRegion('The Lakes');
+
+    // 16:12 UTC − a 40-minute drive − 20 minutes of setup = 15:12, on the UK clock in January.
+    expect(screen.getByTestId('wf-reg-panel-when')).toHaveTextContent('40 min · leave 15:12');
+  });
+
+  it('draws the served tide glyph, from the index MapView is handed', async () => {
+    await renderMap(panelProps());
+    openPanel();
+
+    // Bamburgh (id 1) is the fixture's one location whose water lands on the light.
+    openRegion('North East');
+
+    const bamburgh = screen.getAllByTestId('wf-reg-panel-row')
+      .find((r) => r.getAttribute('data-location') === 'Bamburgh');
+    expect(within(bamburgh).getByTestId('wf-reg-panel-tide')).toBeInTheDocument();
+    const tynemouth = screen.getAllByTestId('wf-reg-panel-row')
+      .find((r) => r.getAttribute('data-location') === 'Tynemouth');
+    expect(within(tynemouth).queryByTestId('wf-reg-panel-tide')).toBeNull();
+  });
+
+  it('prints this region\'s served narrative for this window', async () => {
+    await renderMap(panelProps());
+    openPanel();
+
+    openRegion('The Lakes');
+
+    expect(screen.getByTestId('wf-reg-panel-gloss'))
+      .toHaveTextContent('A clean western horizon. High cloud thins through the afternoon.');
+  });
+
+  it('...and nothing at all where the payload carries none', async () => {
+    await renderMap(panelProps());
+    openPanel();
+
+    openRegion('North East');
+
+    expect(screen.queryByTestId('wf-reg-panel-gloss')).toBeNull();
+  });
+
+  it('back returns to the window panel, on the same window', async () => {
+    await renderMap(panelProps());
+    openPanel();
+    openRegion('The Lakes');
+
+    fireEvent.click(screen.getByTestId('wf-reg-panel-back'));
+
+    expect(screen.getByTestId('wf-win-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-win-panel-window')).toHaveTextContent('Tonight sunset');
+    expect(screen.queryByTestId('wf-reg-panel')).toBeNull();
+  });
+
+  /**
+   * ⚠️ **The back-stack, and the reason L5 deferred it here** (§4 #28). `MapRegionPanel`'s own
+   * `onKeyDown` calls `preventDefault()` without `stopPropagation()`, so a press inside the panel
+   * runs BOTH it and `MapView`'s pane-level handler on one event. The pane handler must test the
+   * region level FIRST; with the branches the other way round one press would close the whole
+   * drilldown a frame after the panel stepped back a level.
+   */
+  it('Escape steps back ONE level — never collapsing the whole drilldown', async () => {
+    await renderMap(panelProps());
+    openPanel();
+    openRegion('The Lakes');
+
+    fireEvent.keyDown(screen.getByTestId('wf-reg-panel'), { key: 'Escape' });
+
+    expect(screen.getByTestId('wf-win-panel')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-reg-panel')).toBeNull();
+  });
+
+  it('...and a SECOND Escape then closes the drilldown', async () => {
+    await renderMap(panelProps());
+    openPanel();
+    openRegion('The Lakes');
+    fireEvent.keyDown(screen.getByTestId('wf-reg-panel'), { key: 'Escape' });
+
+    fireEvent.keyDown(screen.getByTestId('wf-win-panel'), { key: 'Escape' });
+
+    expect(screen.queryByTestId('wf-win-panel')).toBeNull();
+    expect(screen.queryByTestId('wf-reg-panel')).toBeNull();
+  });
+
+  /**
+   * ⚠️ **Closing the window control's own dropdown must not close the drilldown.** `WindowControl`
+   * calls `setOpen(false)` from four places — Escape, an outside press, picking a row, and the ‹ ›
+   * steppers — and each landed in `MapView` as an unconditional `setOpenMapMenu(null)`, so an 11px
+   * stepper beside the pill silently discarded both levels of a panel that is not its dropdown.
+   * The design's rule is explicit: panels close on their own chip, their close button, or Escape.
+   */
+  it('⚠️ a window stepper moves the window and LEAVES the drilldown open', async () => {
+    await renderMap(panelProps());
+    openPanel();
+    openRegion('The Lakes');
+
+    fireEvent.click(screen.getByTestId('wf-win-prev'));
+
+    expect(screen.getByTestId('wf-reg-panel')).toBeInTheDocument();
+  });
+
+  it('...and so does closing the pill menu itself, which the panel replaced', async () => {
+    await renderMap(panelProps());
+    openPanel();
+
+    // Re-open the dropdown OVER the panel, then dismiss it with Escape from inside the control.
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    expect(screen.queryByTestId('wf-win-panel')).toBeNull();
+    fireEvent.keyDown(screen.getByTestId('wf-win-menu'), { key: 'Escape' });
+
+    // The menu is what closed; nothing else was open to close.
+    expect(screen.queryByTestId('wf-win-menu')).toBeNull();
+    expect(screen.queryByTestId('wf-win-panel')).toBeNull();
+  });
+
+  /**
+   * ⚠️ **The ✕ is inside the panel it unmounts**, so without a focus move it lands on `<body>` —
+   * outside the pane's React `onKeyDown`, and the next Tab restarts at the top of the document.
+   * Measured on both panels in Chromium and WebKit by a PR-review lens. `RegionsJump` gets this
+   * free from `useDialogFocus`; these panels manage focus by hand and had only the open half.
+   */
+  it('⚠️ the ✕ returns focus to the pill, from either level', async () => {
+    await renderMap(panelProps());
+    openPanel();
+    openRegion('The Lakes');
+
+    fireEvent.click(screen.getByTestId('wf-reg-panel-close'));
+
+    expect(document.activeElement).toBe(screen.getByTestId('wf-win-pill'));
+  });
+
+  /**
+   * ⚠️ **The card and the panel used to arrive together and the panel buried the card.** They are
+   * not merely allowed to coexist: `landingLabel` is empty while the card is open, which is exactly
+   * when `WindowControl` shows the drilldown row — so this was the ordinary state after one press on
+   * the first visit of every forecast run. Measured: the panel covers the card entirely at ≤390px,
+   * putting four consecutive tab stops on elements 0% visible (WCAG 2.4.11 AA), and the card's ✕ —
+   * its only pointer dismissal, since it deliberately survives an outside tap — became unclickable.
+   */
+  it('⚠️ opening the drilldown dismisses the landing card rather than burying it', async () => {
+    await renderMap(panelProps({ runId: '2026-01-15T04:00:00' }));
+    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
+
+    openPanel();
+
+    expect(screen.getByTestId('wf-win-panel')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-land')).toBeNull();
+  });
+
+  /**
+   * ⚠️ **The peek's return leg.** `handleOpenLocationSheet` closes the panel in the same commit the
+   * sheet mounts, so the button that was pressed is detached before `useDialogFocus` reads
+   * `document.activeElement` — it then records `<body>` and closing the sheet restores to nothing.
+   * `MapCallout` focuses its own trigger before handing off for exactly this reason; its button
+   * survives, so it can. These cannot, and need a survivor: the pill the drilldown hangs from.
+   * Measured in Chromium and WebKit against a control whose trigger stays mounted.
+   */
+  it('⚠️ leaves focus on the pill when a region row hands off to the sheet', async () => {
+    const onOpenLocationSheet = vi.fn();
+    await renderMap(panelProps({ onOpenLocationSheet }));
+    openPanel();
+    openRegion('The Lakes');
+
+    fireEvent.click(screen.getAllByTestId('wf-reg-panel-row')[0]);
+
+    expect(onOpenLocationSheet).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(screen.getByTestId('wf-win-pill'));
+  });
+
+  /**
+   * ⚠️ A D-13 filler is a window the briefing served nothing for, so there is no answer to drill
+   * into — and `buildPanelRegionRows` reads the verdict index directly, so it would print each
+   * region's served word beside `0 of N at 4★+`. Same false claim the pill's own `served` gate
+   * removes; withholding the entry is the honest form (§4 #38).
+   */
+  it('⚠️ offers no drilldown at all on a window the briefing never served', async () => {
+    // `windows: []` plus a forecast date is what makes every solar row a D-13 filler: the EV list
+    // is built from `forecastDates` where the briefing served no window.
+    await renderMap(panelProps({ heat: heatProp({ windows: [] }), forecastDates: [TODAY] }));
+    expect(screen.getByTestId('wf-win-pill')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+
+    expect(screen.queryByTestId('wf-win-more')).toBeNull();
+  });
+
+  /**
+   * ⚠️ **The pane's Escape branch is the OTHER way up a level, and only the back arrow recorded
+   * where to put focus.** Reachable in exactly the state L3 created — panel open, focus on the map —
+   * which is the state that handler exists to cover.
+   */
+  it('⚠️ pane-level Escape returns focus to the region it actually left, not a stale one', async () => {
+    await renderMap(panelProps());
+    openPanel();
+    openRegion('The Lakes');
+    fireEvent.click(screen.getByTestId('wf-reg-panel-back'));
+    openRegion('North East');
+
+    // Fired at the map container — inside the pane, outside the panel — so ONLY the pane handler
+    // runs. Firing at the panel would let its own `onBack` set the target and hide the defect.
+    fireEvent.keyDown(screen.getAllByTestId('map-container')[0], { key: 'Escape' });
+
+    expect(document.activeElement).toBe(
+      screen.getAllByTestId('wf-win-panel-row').find((r) => r.getAttribute('data-region') === 'North East'),
+    );
+  });
+
+  /**
+   * ⚠️ **The window can become unserved WHILE the drilldown is open**, which the entry-only gate did
+   * nothing about — the briefing's refresh withdraws a window whose event has passed, and
+   * `buildMapEvents` replaces it with a same-id filler. Both mounts checked only `activeMapEvent`,
+   * so they went on rendering region rows joined from the broad verdict index over an empty point
+   * set: served verdicts beside `0 of N`. Raised as a second-round finding by the cross-vendor
+   * review, which named the entry gate as its baseline.
+   */
+  it('⚠️ closes an OPEN drilldown when its window becomes unserved under it', async () => {
+    const locations = makeLocations();
+    const props = panelProps();
+    const { rerender } = await renderMap(props);
+    openPanel();
+    openRegion('The Lakes');
+    expect(screen.getByTestId('wf-reg-panel')).toBeInTheDocument();
+
+    // The same window, now served by nothing — what a refresh that retires an elapsed window does.
+    await act(async () => {
+      rerender(<MapView
+        locations={locations}
+        date={TODAY}
+        autoEventType={null}
+        {...props}
+        heat={heatProp({ windows: [] })}
+        forecastDates={[TODAY]}
+      />);
+    });
+
+    expect(screen.queryByTestId('wf-reg-panel')).toBeNull();
+    expect(screen.queryByTestId('wf-win-panel')).toBeNull();
+  });
+
+  /**
+   * ⚠️ **The fifth exit is the one no press initiates**, and it therefore has no handler to hang a
+   * focus move on: a briefing refresh retires the active window and the panel unmounts under the
+   * reader with focus inside it. The recovery adopts an ORPHANED focus rather than duplicating each
+   * deliberate exit's own move, so an exit added later inherits it without being enumerated —
+   * which is the whole lesson of the four that were not (§4 #44). Third Codex round.
+   */
+  it('⚠️ recovers focus when a refresh retires the window with focus inside the panel', async () => {
+    const locations = makeLocations();
+    const props = panelProps();
+    const { rerender } = await renderMap(props);
+    openPanel();
+    openRegion('The Lakes');
+    // Focus is genuinely inside the panel, which is the precondition the recovery exists for.
+    expect(screen.getByTestId('wf-reg-panel').contains(document.activeElement)).toBe(true);
+
+    await act(async () => {
+      rerender(<MapView
+        locations={locations}
+        date={TODAY}
+        autoEventType={null}
+        {...props}
+        heat={heatProp({ windows: [] })}
+        forecastDates={[TODAY]}
+      />);
+    });
+
+    expect(screen.queryByTestId('wf-reg-panel')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId('wf-win-pill'));
+  });
+
+  /**
+   * ⚠️ **It adopts an orphan; it does not confiscate.** Without the `activeElement !== body` guard
+   * the recovery fires on every close, including ones where the reader is deliberately somewhere
+   * else — yanking focus to the pill from whatever they were using.
+   */
+  it('⚠️ leaves focus alone when the window is retired and the reader is elsewhere', async () => {
+    const locations = makeLocations();
+    const props = panelProps();
+    const { rerender } = await renderMap(props);
+    openPanel();
+    const elsewhere = screen.getByTestId('wf-jump-chip');
+    elsewhere.focus();
+
+    await act(async () => {
+      rerender(<MapView
+        locations={locations}
+        date={TODAY}
+        autoEventType={null}
+        {...props}
+        heat={heatProp({ windows: [] })}
+        forecastDates={[TODAY]}
+      />);
+    });
+
+    expect(screen.queryByTestId('wf-win-panel')).toBeNull();
+    expect(document.activeElement).toBe(elsewhere);
+  });
+
+  /**
+   * ⚠️ **And it fires on CLOSE only.** A panel open with focus on the map — `<body>` — is the
+   * ordinary state L3 created and its own comment names; without the `|| now` term the recovery
+   * would run on every render while open and drag the reader back to the pill.
+   */
+  it('⚠️ does not grab focus while the drilldown is still open', async () => {
+    const locations = makeLocations();
+    const props = panelProps();
+    const { rerender } = await renderMap(props);
+    openPanel();
+    document.activeElement?.blur();
+    expect(document.activeElement).toBe(document.body);
+
+    // ⚠️ A real RE-RENDER with the panel still open. A click that changes no state causes none, and
+    // this effect has no dependency array — so only a render can run it, which is exactly what the
+    // briefing's own poll does every ten minutes.
+    await act(async () => {
+      rerender(<MapView locations={locations} date={TODAY} autoEventType={null} {...props} />);
+    });
+
+    expect(screen.getByTestId('wf-win-panel')).toBeInTheDocument();
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  /**
+   * ⚠️ **The switch has to be cleared, not just the render suppressed.** A retirement left
+   * `openMapMenu` at `'window-panel'` with nothing behind it — and the landing card's own Escape
+   * listener defers whenever `openMapMenu != null`, so Escape stopped working on a card the reader
+   * can SEE, while `onOpenWindowPanel` was withheld in the same state so no control remained to
+   * clear it. Raised twice: by this PR's cross-phase lens and by the review's fourth round.
+   */
+  it('⚠️ leaves no orphaned menu state when the window is retired', async () => {
+    // ⚠️ The observable is the PANE's Escape ladder, not the pill: `handleMapPaneKeyDown` clears an
+    // open menu BEFORE it clears a selection, so a stale `'window-panel'` swallows the first press
+    // on nothing the reader can see and the selection survives a keystroke that should have cleared
+    // it. (Reopening the pill works either way, which is why the first draft of this test proved
+    // nothing and a mutant walked through it.) The landing card's own Escape listener defers on the
+    // same value, for the same reason.
+    const locations = [...makeAzimuthLocation(), ...makeLocations()];
+    const props = panelProps({
+      locations, handoffLocationName: 'AzimuthSpot', handoffNonce: 11,
+    });
+    polylineCalls.length = 0;
+    const { rerender } = await renderMap(props);
+    expect(polylineCalls.length).toBeGreaterThan(0);
+    openPanel();
+
+    await act(async () => {
+      rerender(<MapView
+        date={TODAY}
+        autoEventType={null}
+        {...props}
+        heat={heatProp({ windows: [] })}
+        forecastDates={[TODAY]}
+      />);
+    });
+    expect(screen.queryByTestId('wf-win-panel')).toBeNull();
+
+    // One press, on the pane. With the switch left set it is spent clearing an invisible menu.
+    polylineCalls.length = 0;
+    fireEvent.keyDown(screen.getAllByTestId('map-container')[0], { key: 'Escape' });
+    await act(async () => {});
+
+    expect(polylineCalls).toHaveLength(0);
+  });
+
+  /** ⚠️ The third exit that destroys its own trigger; the batch that fixed the other two missed it. */
+  it('⚠️ leaves focus on the pill when Zoom to region closes the drilldown', async () => {
+    await renderMap(panelProps());
+    openPanel();
+    openRegion('The Lakes');
+
+    fireEvent.click(screen.getByTestId('wf-reg-panel-zoom'));
+
+    expect(screen.queryByTestId('wf-reg-panel')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId('wf-win-pill'));
+  });
+
+  it('the ✕ closes the whole drilldown from the second level, in one press', async () => {
+    await renderMap(panelProps());
+    openPanel();
+    openRegion('The Lakes');
+
+    fireEvent.click(screen.getByTestId('wf-reg-panel-close'));
+
+    expect(screen.queryByTestId('wf-reg-panel')).toBeNull();
+    expect(screen.queryByTestId('wf-win-panel')).toBeNull();
+  });
+
+  it('⚠️ re-opens at the FIRST level, never at the region it was last on', async () => {
+    await renderMap(panelProps());
+    openPanel();
+    openRegion('The Lakes');
+    fireEvent.click(screen.getByTestId('wf-reg-panel-close'));
+
+    openPanel();
+
+    expect(screen.getByTestId('wf-win-panel')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-reg-panel')).toBeNull();
+  });
+
+  /**
+   * ⚠️ **The reset at the opener, and mutation testing is what made it testable.** Deleting it
+   * survived every test that closed the panel with its own ✕ — which clears the level on the way.
+   * The route that does not is the ordinary one: open ANOTHER menu over the drilldown. The level is
+   * then still set when the reader comes back through the pill.
+   */
+  it('⚠️ re-opens at the FIRST level even when it was closed by opening another menu', async () => {
+    await renderMap(panelProps());
+    openPanel();
+    openRegion('The Lakes');
+
+    // The Regions chip takes `openMapMenu` without touching the drilldown's level.
+    fireEvent.click(screen.getByTestId('wf-jump-chip'));
+    openPanel();
+
+    expect(screen.getByTestId('wf-win-panel')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-reg-panel')).toBeNull();
+  });
+
+  it('drops back to the region list when this region has no row on the window it moves to', async () => {
+    const locations = makeLocations();
+    const props = panelProps();
+    const { rerender } = await renderMap(props);
+    openPanel();
+    openRegion('The Lakes');
+
+    await act(async () => {
+      rerender(<MapView locations={locations} date={TOMORROW} autoEventType={null} {...props} />);
+    });
+
+    expect(screen.queryByTestId('wf-reg-panel')).toBeNull();
+    // ⚠️ The positive half. Without it this passes under the OPPOSITE behaviour — closing the whole
+    // drilldown, which is what the sibling L5 test asserts for a date move — under a name saying
+    // the reader drops back a level.
+    expect(screen.getByTestId('wf-win-panel')).toBeInTheDocument();
+  });
+
+  /**
+   * ⚠️ **The claim `panelRegion`'s own doc makes, and the reason its window key was removed.** The
+   * row is re-found in `panelRows` every render rather than snapshotted, so stepping the window
+   * moves the region panel's figures with it. A stored copy passes every other test in this block;
+   * this is the one that fails.
+   */
+  it('follows the window, re-reading the region\'s row rather than a snapshot of it', async () => {
+    await renderMap(panelProps());
+    openPanel();
+    openRegion('The Lakes');
+    expect(screen.getByTestId('wf-reg-panel-verdict')).toHaveTextContent('Worth it');
+
+    // Step to this morning's sunrise, where The Lakes is Maybe with a different average.
+    fireEvent.click(screen.getByTestId('wf-win-prev'));
+
+    expect(screen.getByTestId('wf-reg-panel-region')).toHaveTextContent('The Lakes');
+    expect(screen.getByTestId('wf-reg-panel-verdict')).toHaveTextContent('Maybe');
+    expect(screen.getByTestId('wf-reg-panel-stats')).toHaveTextContent('average 3.1');
+  });
+
+  it('zooms to the region it names, and closes the drilldown as a completed navigation', async () => {
+    await renderMap(panelProps());
+    openPanel();
+    openRegion('The Lakes');
+    fitBounds.mockClear();
+
+    fireEvent.click(screen.getByTestId('wf-reg-panel-zoom'));
+
+    const expected = latLngBounds(SPOTS.filter((s) => s.regionName === 'The Lakes'), 0.06);
+    expect(fitBounds).toHaveBeenCalledWith(expected, { padding: [40, 40], animate: false });
+    expect(screen.queryByTestId('wf-reg-panel')).toBeNull();
+    expect(screen.queryByTestId('wf-win-panel')).toBeNull();
+  });
+
+  /**
+   * ⚠️ **`jumpToRegion`'s scope flip is UNREACHABLE from this panel, and the plan's own test list
+   * asked for it** (map-landing-plan.md §4 #30). The rows are scope-narrowed, so while `heatArea`
+   * stands the panel can only ever name a region already inside the area — and `jumpToRegion` flips
+   * only `if (heatArea)`. The action still routes through that one function, so it would inherit
+   * the flip if an entry point ever handed it an out-of-scope region; what is testable here is the
+   * other arm, that an in-area zoom leaves the reader's scope alone.
+   */
+  it('...and leaves the reader\'s scope alone, because the region was already in it', async () => {
+    await renderMap(panelProps());
+    openPanel();
+    openRegion('The Lakes');
+
+    fireEvent.click(screen.getByTestId('wf-reg-panel-zoom'));
+
+    openFilters();
+    expect(screen.getByRole('button', { name: 'My area' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('opens the four-day sheet OVER the map, and closes the panel first', async () => {
+    const onOpenLocationSheet = vi.fn();
+    await renderMap(panelProps({ onOpenLocationSheet }));
+    openPanel();
+    openRegion('The Lakes');
+
+    fireEvent.click(screen.getByTestId('wf-reg-panel-four-days'));
+
+    // ⚠️ `inPlan: false` — the peek route (O-18), so the sheet's own footer map door is stamped
+    // `inPlace` and cannot import the Plan's lens onto the map this reader is already on.
+    expect(onOpenLocationSheet).toHaveBeenCalledWith(expect.objectContaining({
+      id: 3, regionName: 'The Lakes', inPlan: false, date: TODAY, targetType: 'SUNSET',
+    }));
+    // ⚠️ Closed FIRST — the close-then-move ordering every door onto a map already uses. These
+    // panels are not `Modal`s, and one left mounted under the sheet is O-20's named hazard.
+    expect(screen.queryByTestId('wf-reg-panel')).toBeNull();
+    expect(screen.queryByTestId('wf-win-panel')).toBeNull();
+  });
+
+  it('opens it for a row pressed directly, not only for the one the action names', async () => {
+    const onOpenLocationSheet = vi.fn();
+    await renderMap(panelProps({ onOpenLocationSheet }));
+    openPanel();
+    openRegion('North East');
+
+    fireEvent.click(screen.getAllByTestId('wf-reg-panel-row')
+      .find((r) => r.getAttribute('data-location') === 'Alnmouth'));
+
+    expect(onOpenLocationSheet).toHaveBeenCalledWith(expect.objectContaining({
+      id: 5, name: 'Alnmouth', regionName: 'North East', inPlan: false,
+    }));
+  });
+
+  /**
+   * ⚠️ **Rebuilt on the azimuth fixture, because the first cut could not fail.** Its only
+   * observable was `queryByTestId('map-callout')`, and `MapCallout` cannot render under this file's
+   * `react-leaflet` mock at all — it portals into `map.getContainer().parentElement` and the mocked
+   * container is a bare object. A review lens proved it by adding the very selection the test's name
+   * forbids and watching it stay green. The `Polyline` IS observable, and `MapView` draws it only
+   * for a selected location.
+   */
+  it('does not move the current selection on the way — the sheet is opened for a place, not by selecting it', async () => {
+    const onOpenLocationSheet = vi.fn();
+    const locations = [...makeAzimuthLocation(), ...makeLocations()];
+    await renderMap(panelProps({ onOpenLocationSheet, locations }));
+    openPanel();
+    openRegion('The Lakes');
+    polylineCalls.length = 0;
+
+    fireEvent.click(screen.getByTestId('wf-reg-panel-four-days'));
+
+    expect(onOpenLocationSheet).toHaveBeenCalledTimes(1);
+    // Nothing became selected: no azimuth line was drawn for AzimuthSpot or for anything else.
+    expect(polylineCalls).toHaveLength(0);
+  });
+
+  /**
+   * ⚠️ **The place the panel names WINS over the selection, and mutation testing is what exposed
+   * the gap.** Swapping the handler's `spot ?? selectedLoc` for `selectedLoc ?? spot` survived every
+   * test above, because none of them had a location selected — so the fallback answered for the
+   * argument. A reader with a callout open who presses a different location's row must get a sheet
+   * for the place they pressed, not for the pin still ringed behind the panel.
+   */
+  it('⚠️ opens the sheet for the row pressed, even with a DIFFERENT location selected', async () => {
+    const onOpenLocationSheet = vi.fn();
+    // ⚠️ The selection has to be PROVEN, or this passes whether or not one took — the fixture would
+    // then pre-satisfy its own predicate, which is how the last few dead tests in this repo hid.
+    // `MapCallout` cannot render under this file's `react-leaflet` mock (it portals into
+    // `map.getContainer().parentElement`, and the mocked container is a bare object), so the
+    // azimuth `Polyline` is the observable: `MapView` draws it only for a SELECTED location, and
+    // only `makeAzimuthLocation`'s fixture carries the `azimuthDeg` it needs.
+    const locations = [...makeAzimuthLocation(), ...makeLocations()];
+    polylineCalls.length = 0;
+    await renderMap(panelProps({
+      onOpenLocationSheet, locations, handoffLocationName: 'AzimuthSpot', handoffNonce: 7,
+    }));
+    expect(polylineCalls.length).toBeGreaterThan(0);
+    openPanel();
+    // AzimuthSpot is in North East; the panel is opened on The Lakes, whose one place is Wastwater.
+    openRegion('The Lakes');
+
+    fireEvent.click(screen.getByTestId('wf-reg-panel-four-days'));
+
+    expect(onOpenLocationSheet).toHaveBeenCalledWith(expect.objectContaining({
+      id: 3, regionName: 'The Lakes',
+    }));
+  });
+});
+
+describe('the landing card — once per forecast run, and dismissed only three ways', () => {
+  const RUN = '2026-01-15T04:00:00';
+  const LATER_RUN = '2026-01-15T14:00:00';
+  const SEEN_KEY = 'mapLandingSeenRun';
+  /** Torn down centrally — see the foreign-modal test's own note. */
+  let foreignModal = null;
+  afterEach(() => {
+    foreignModal?.remove();
+    foreignModal = null;
+  });
+
+  /** The two windows the card compares here are TODAY's sunrise and sunset — one day, two events. */
+  const DAYS = [{
+    date: TODAY,
+    eventSummaries: [
+      {
+        targetType: 'SUNRISE',
+        regions: [{ regionName: 'The Lakes', meanRating: 4.4, displayVerdict: 'WORTH_IT', slots: [{ canopy: false }] }],
+      },
+      {
+        targetType: 'SUNSET',
+        regions: [{ regionName: 'North East', meanRating: 2.9, displayVerdict: 'MAYBE', slots: [{ canopy: false }] }],
+      },
+    ],
+  }];
+
+  const landingProps = (extra = {}) => ({
+    heat: heatProp(),
+    regionVerdictIndex: buildRegionVerdictIndex(DAYS),
+    runId: RUN,
+    ...extra,
+  });
+
+  it('opens on a run the reader has not dismissed it on', async () => {
+    await renderMap(landingProps());
+
+    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
+    // Derived from the rows it is showing — both of this fixture's first two windows are TODAY.
+    expect(screen.getByTestId('wf-land-head')).toHaveTextContent('This morning — sunrise or sunset?');
+  });
+
+  it('stays shut for a run already stamped, and returns for the NEXT one', async () => {
+    localStorage.setItem(SEEN_KEY, RUN);
+    const { unmount } = await renderMap(landingProps());
+    expect(screen.queryByTestId('wf-land')).toBeNull();
+    unmount();
+
+    await renderMap(landingProps({ runId: LATER_RUN }));
+
+    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
+  });
+
+  it('stays shut with no run to key a dismissal on — silence is the safe degrade', async () => {
+    await renderMap({ heat: heatProp(), regionVerdictIndex: buildRegionVerdictIndex(DAYS) });
+
+    expect(screen.queryByTestId('wf-land')).toBeNull();
+  });
+
+  it('never mounts on the frozen Plan-tab overlay', async () => {
+    // ⚠️ Asserts the OUTCOME, not one mechanism — the overlay is closed off three independent ways
+    // and no single-term mutation of any of them is observable here: the card's JSX lives in the
+    // `!overlayMode` render branch, `buildMapEvents` is skipped outright so there are no rows to
+    // show, and `landingRunStamp` is null. Recorded because a mutation test of the third one
+    // survives, and "survived" would otherwise read as a coverage gap rather than as redundancy.
+    await renderMap(landingProps({ overlayMode: true }));
+
+    expect(screen.queryByTestId('wf-land')).toBeNull();
+  });
+
+  it('the close control dismisses it, and stamps the run so a re-render does not reopen it', async () => {
+    await renderMap(landingProps());
+
+    fireEvent.click(screen.getByTestId('wf-land-close'));
+
+    expect(screen.queryByTestId('wf-land')).toBeNull();
+    expect(localStorage.getItem(SEEN_KEY)).toBe(RUN);
+  });
+
+  it('Escape dismisses it from the DOCUMENT — the card holds no focus to bubble from', async () => {
+    await renderMap(landingProps());
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(screen.queryByTestId('wf-land')).toBeNull();
+  });
+
+  it('Escape closes an open MENU first, and the card only on the next press', async () => {
+    // One press, one action. The press is dispatched from INSIDE the pane, which is what reaches
+    // `handleMapPaneKeyDown` (a React `onKeyDown` on the pane root) — the card's own document
+    // listener sees the same press and must defer to it.
+    await renderMap(landingProps());
+    openFilters();
+    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByTestId('wf-map-chrome-tl'), { key: 'Escape' });
+    expect(screen.queryByTestId('wf-filters-panel')).toBeNull();
+    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
+
+    fireEvent.keyDown(screen.getByTestId('wf-map-chrome-tl'), { key: 'Escape' });
+    expect(screen.queryByTestId('wf-land')).toBeNull();
+  });
+
+  // ⚠️ The card's deferral to a standing SELECTION is pinned in
+  // `MapViewSelectionOrdering.test.jsx`, beside the two Escape-ordering tests it extends — that
+  // file already carries a callout probe and a `selectTheSpot()` helper; this one stubs
+  // `MapLabels` and has no route to a selection at all.
+
+  it('records the residual: from OUTSIDE the pane, a menu blocks the card\'s own Escape', async () => {
+    // ⚠️ Not a bug being enshrined — a limitation being named. `handleMapPaneKeyDown` is
+    // subtree-scoped, so a press with focus on `<body>` never reaches it and the menu cannot close;
+    // the card's listener therefore defers to a menu it is powerless to shut. That is exactly what
+    // Escape does on this pane today with any menu open and focus outside it. If a later phase
+    // widens the listener into the pane's whole chain, this test should be UPDATED deliberately
+    // rather than discovered by accident.
+    await renderMap(landingProps());
+    openFilters();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();
+    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
+  });
+
+  it('Escape stands down entirely while a FOREIGN modal is over the map', async () => {
+    await renderMap(landingProps());
+    // ⚠️ Torn down in `afterEach`, not on the last line: RTL's cleanup removes only its own
+    // container, so an assertion that threw first would leave a `[role="dialog"][aria-modal]` in
+    // the body and make `foreignModalOver` true for every later Escape test in this file.
+    foreignModal = document.createElement('div');
+    foreignModal.setAttribute('role', 'dialog');
+    foreignModal.setAttribute('aria-modal', 'true');
+    document.body.appendChild(foreignModal);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
+  });
+
+  it('Escape does NOTHING while the Map tab is hidden — the pane is never unmounted', async () => {
+    // ⚠️ **The blocking defect of this phase, found by two independent review lenses.** The shell
+    // keeps every opened tab's pane mounted and sets `hidden` on the panel, so a `document`
+    // listener registered here keeps firing for a pane the reader is not looking at: an Escape
+    // pressed on the Plan tab dismissed the card AND stamped the run as seen, spending the
+    // once-a-run greeting on a keystroke aimed at something else. `WindowControl`'s own class doc
+    // states this hazard as its reason for refusing a document listener.
+    const { container } = await renderMap(landingProps());
+    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
+
+    // What `WindowFirstShell` does to the panel when the reader picks another tab.
+    const panel = document.createElement('div');
+    panel.hidden = true;
+    container.parentNode.insertBefore(panel, container);
+    panel.appendChild(container);
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
+    expect(localStorage.getItem(SEEN_KEY)).toBeNull();
+  });
+
+  it('names the SCOPE it is actually taken over, never "My area" without an area', async () => {
+    // ⚠️ Verbatim the defect L2 fixed for `scopeIsArea`, repeated one line above it. `heatArea`
+    // initialises true and the segment that would flip it is withheld when there is no home to
+    // scope from — so the kicker read "· My area" over the whole catalogue while the verdict cell
+    // two rows below, correctly gated, read "everywhere".
+    await renderMap(landingProps({ heat: heatProp({ hasHome: false }) }));
+
+    expect(screen.getByTestId('wf-land-sub')).toHaveTextContent('Your next two windows · Everywhere');
+    for (const region of screen.getAllByTestId('wf-land-verdict-region')) {
+      expect(region).not.toHaveTextContent('your area');
+    }
+  });
+
+  it('offers no reopen row when there is no run to reopen for', async () => {
+    // `reopenLanding` stamps `landingRunStamp`; with none it writes null and the card stays shut —
+    // a menu row whose every press does nothing, which this file bans outright elsewhere.
+    await renderMap({ heat: heatProp(), regionVerdictIndex: buildRegionVerdictIndex(DAYS) });
+
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+
+    expect(screen.queryByTestId('wf-win-landing')).toBeNull();
+  });
+
+  it('selecting a row sets that window AND closes the card', async () => {
+    await renderMap(landingProps());
+    // Row 2 is tonight's sunset; the map opens on it already, so pick row 1 (this morning).
+    const rows = screen.getAllByTestId('wf-land-row');
+
+    await act(async () => { fireEvent.click(rows[0]); });
+
+    expect(screen.queryByTestId('wf-land')).toBeNull();
+    expect(screen.getByTestId('wf-win-pill')).toHaveTextContent('Sunrise');
+  });
+
+  it('a map CLICK does not dismiss it — panning to the region it named is reading it', async () => {
+    // ⚠️ The gesture list the design names explicitly (map click, drag, zoom, wheel, outside tap).
+    // `MapBackgroundClickController` registers `click`; `ZoomTracker`/`BoundsTracker` register
+    // `zoomend`/`moveend`. Driving every handler this render registered covers all of them at once,
+    // and would fail the moment the card grew a `useOutsideDismiss` or a map-event dismissal.
+    await renderMap(landingProps());
+
+    await act(async () => {
+      for (const handlers of mapEventHandlers) {
+        handlers.click?.({});
+        handlers.zoomend?.({ target: { getZoom: () => 11, getBounds: () => null } });
+        handlers.moveend?.({ target: { getBounds: () => null } });
+      }
+    });
+
+    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
+  });
+
+  it('an outside press does not dismiss it either', async () => {
+    await renderMap(landingProps());
+
+    fireEvent.mouseDown(document.body);
+    fireEvent.click(document.body);
+
+    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
+  });
+
+  it('is recoverable from the pill menu, with the SAME header text', async () => {
+    await renderMap(landingProps());
+    const header = screen.getByTestId('wf-land-head').textContent;
+    fireEvent.click(screen.getByTestId('wf-land-close'));
+    expect(screen.queryByTestId('wf-land')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    const reopen = screen.getByTestId('wf-win-landing');
+    expect(reopen).toHaveTextContent(header);
+    fireEvent.click(reopen);
+
+    expect(screen.getByTestId('wf-land-head')).toHaveTextContent(header);
+    // The menu closes on its way — the row is an action, not a window choice.
+    expect(screen.queryByTestId('wf-win-menu')).toBeNull();
+  });
+
+  it('offers no reopen row while the card is already open', async () => {
+    await renderMap(landingProps());
+
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+
+    expect(screen.queryByTestId('wf-win-landing')).toBeNull();
+  });
+
+  it('a card reopened from the menu can be closed again', async () => {
+    // The reopen stamp has to be cleared on dismissal, or its clause keeps winning over the seen
+    // stamp and the card becomes unclosable.
+    await renderMap(landingProps());
+    fireEvent.click(screen.getByTestId('wf-land-close'));
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    fireEvent.click(screen.getByTestId('wf-win-landing'));
+    expect(screen.getByTestId('wf-land')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('wf-land-close'));
+
+    expect(screen.queryByTestId('wf-land')).toBeNull();
+  });
+});

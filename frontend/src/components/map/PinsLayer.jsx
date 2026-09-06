@@ -39,6 +39,17 @@ const OBSTACLE_SELECTOR = [
   '[data-testid="wf-jump-menu"]',
   '[data-testid="wf-filters-panel"]',
   '[data-testid="wf-legend-panel"]',
+  // The landing card (map-landing-plan.md §3 L4) — a 376px block in the top-left corner, seeded
+  // for the same reason the four menus above it are: a chip placed under it is invisible. ⚠️ Like
+  // those menus, its open/close does not itself trigger a placement pass (`paint`'s dependency
+  // list cannot see it), so the reflow lands on the next one — a pre-existing property of every
+  // transient obstacle in this list, not a new one.
+  '[data-testid="wf-land"]',
+  // The drilldown's two levels (map-landing-plan.md §3 L5, L6) — see `MapLabels.jsx`'s copy of
+  // this list for why each needs its own entry, and for the stale reason that comment used to
+  // give. The two levels are mutually exclusive, so at most one ever matches.
+  '[data-testid="wf-win-panel"]',
+  '[data-testid="wf-reg-panel"]',
   '[data-testid="colour-scale-notice"]',
   '[data-testid="viewline-upsell-chip"]',
   '[data-testid="photocast-scored-legend"]',

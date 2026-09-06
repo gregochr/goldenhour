@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PhotoCast — Map as the landing page</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#181210;--surface:#221A15;--surface-light:#2A2019;--panel:#1E1712;--border:#3A2C23;--border-light:#4A3A2E;--ink:#F2E7D3;--ink-2:rgba(242,231,211,.66);--ink-3:rgba(242,231,211,.42);--go:#8AAE72;--marginal:#E0A542;--poor:#C8452F;--tide:#6FA8B0;--home:#C9A24B;--coral:#E8593F;--dawn:#8FA8C4;--astro:#8E86D6;--sans:'IBM Plex Sans',system-ui,sans-serif;--serif:'Newsreader',Georgia,serif;--mono:'IBM Plex Mono',monospace}
+html,body{background:#0e0b09;color:var(--ink)}
+body{font-family:var(--sans);line-height:1.5;-webkit-font-smoothing:antialiased;padding:24px 20px 60px}
+a{color:var(--tide);text-decoration:none}a:hover{color:#8fc4cc}
+.hd{max-width:1240px;margin:0 auto 13px}
+.hd .m{font-family:var(--mono);font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:7px}
+.hd h1{font-size:20px;font-weight:700;letter-spacing:-.02em}
+.hd p{font-size:13px;color:var(--ink-2);max-width:92ch;margin-top:6px;text-wrap:pretty}
+.hd b{font-weight:600;color:var(--ink)}
+.hd code{font-family:var(--mono);font-size:11.5px;color:#EBD9A8}
+.demobar{max-width:1240px;margin:0 auto 10px;display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);flex-wrap:wrap}
+.demobar .sp{margin-right:auto}
+.demobar button{font-family:var(--mono);font-size:10.5px;border:1px solid var(--border);background:var(--surface);color:var(--ink-2);border-radius:7px;padding:6px 11px;cursor:pointer}
+.demobar button:hover{border-color:var(--border-light);color:var(--ink)}
+.demobar button.on{border-color:rgba(201,162,75,.55);background:rgba(201,162,75,.12);color:#EBD9A8}
+.wrap{max-width:1240px;margin:0 auto;transition:max-width .22s ease}
+.wrap.pad{max-width:834px}
+.wrap.mob{max-width:390px}
+/* the full-bleed comparison: what the live app does today */
+.wrap.full{max-width:none}
+.wrap.full .frame{height:760px}
+
+.frame{position:relative;display:flex;flex-direction:column;height:880px;overflow:hidden;background:var(--bg);border:1px solid var(--border);border-radius:12px}
+.wrap.pad .frame{height:1000px;border-radius:18px;box-shadow:0 0 0 7px #241c17,0 22px 50px rgba(0,0,0,.55)}
+.wrap.mob .frame{height:812px;border:none;border-radius:26px;box-shadow:0 0 0 8px #241c17,0 24px 56px rgba(0,0,0,.6)}
+.status{display:none;align-items:center;justify-content:space-between;padding:9px 18px 3px;font-family:var(--mono);font-size:9.5px;color:var(--ink-3);flex:none}
+.wrap.mob .status{display:flex}
+
+/* ── masthead ─────────────────────────────────────────────────────────────── */
+.mast{background:linear-gradient(180deg,#241B16,#1B1411);padding:13px 20px 0;border-bottom:1px solid var(--border);flex:none}
+.wrap.mob .mast{padding:8px 13px 0}
+.c-top{display:flex;align-items:center;gap:14px}
+.spine{position:relative;padding-left:24px;display:flex;flex-direction:column;align-items:flex-start}
+.spine::before{content:'';position:absolute;left:0;top:0;bottom:0;width:11px;background:repeating-linear-gradient(180deg,var(--border-light) 0 7px,transparent 7px 15px);border-right:1px solid var(--border)}
+.c-w{font-family:var(--serif);font-weight:600;font-size:25px;line-height:1;letter-spacing:-.022em;color:#F9F1E2}
+.c-k{font-family:var(--mono);font-size:9px;letter-spacing:.2em;text-transform:uppercase;color:var(--coral);margin-top:5px}
+.wrap.mob .c-w{font-size:19px}
+.wrap.mob .c-k{font-size:7.5px;letter-spacing:.16em;margin-top:4px}
+.wrap.mob .spine{padding-left:18px}.wrap.mob .spine::before{width:8px}
+.mright{margin-left:auto;display:flex;align-items:center;gap:9px}
+.up{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--go);border:1px solid rgba(138,174,114,.4);border-radius:6px;padding:4px 8px;white-space:nowrap}
+.up .dot{width:6px;height:6px;border-radius:50%;background:var(--go);box-shadow:0 0 6px var(--go)}
+.up .vv{color:var(--ink-3);font-weight:400}
+.wrap.mob .up .vv{display:none}
+.cog{width:15px;height:15px;border-radius:50%;border:2px solid var(--ink-3);flex:none}
+.signout{font-size:11.5px;font-weight:500;background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:5px 9px;color:var(--ink-2);white-space:nowrap}
+.wrap.mob .signout{display:none}
+.c-rule{margin-top:11px;height:4px;border-radius:2px;background:linear-gradient(90deg,#26313F 0%,#4A3550 9%,#B4553C 19%,#E8593F 25%,#E0A542 33%,#F2E7D3 50%,#E0A542 66%,#E8593F 74%,#7C4A56 84%,#2E3446 93%,#26313F 100%)}
+.c-ticks{display:flex;align-items:center;gap:9px;padding:5px 0 8px}
+/* On the Map tab the origin is a STATEMENT, not a search trigger: panning is the search here,
+   so the postcode says what every drive time is measured from and hands off to the map. */
+.oloc{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:9.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-2);min-width:0}
+.oloc .nm{font-weight:600;color:var(--ink);white-space:nowrap}
+.oloc .pinsvg{width:13px;height:13px;display:block;flex:none;color:var(--home)}
+.oloc .frm{color:var(--ink-3);letter-spacing:.1em}
+.wrap.mob .oloc{font-size:8.5px;letter-spacing:.07em}
+.wrap.mob .oloc .frm{display:none}
+.c-times{margin-left:auto;display:flex;gap:15px;font-family:var(--mono);font-size:9px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);white-space:nowrap}
+.c-times b{color:var(--marginal);font-weight:500}
+.wrap.mob .c-times{gap:8px;font-size:8px;letter-spacing:.05em}
+.tabs{display:flex;gap:6px;padding:2px 20px 0;flex:none}
+.wrap.mob .tabs{padding:2px 13px 0}
+.tab{font-size:12.5px;font-weight:500;color:var(--ink-2);border:1px solid var(--border);border-bottom-width:0;background:var(--panel);border-radius:8px 8px 0 0;padding:8px 14px;cursor:pointer;white-space:nowrap;font-family:var(--sans)}
+.wrap.mob .tab{padding:8px 11px;font-size:12px}
+.tab.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:inset 0 2px 0 var(--home)}
+.tab.gate{margin-left:auto;color:var(--ink-3)}
+.wrap.mob .tab.gate{display:none}
+.tabrule{height:1px;background:var(--border);flex:none}
+
+/* ── the map owns the rest of the frame ───────────────────────────────────── */
+#mapwrap{position:relative;flex:1;min-height:0;background:#161310}
+#map{position:absolute;inset:0}
+.leaflet-container{background:#161310;font-family:var(--mono)}
+/* the basemap, warmed into the palette — the tiles are neutral blue-grey and the app is not */
+.basewarm{filter:saturate(.5) sepia(.32) brightness(.9) contrast(1.08)}
+.baseref{filter:saturate(.35) sepia(.3) brightness(1.02)}
+.leaflet-control-attribution{background:rgba(20,16,13,.62)!important;color:rgba(242,231,211,.3)!important;font-size:9px!important;padding:1px 5px!important}
+.leaflet-control-attribution a{color:rgba(242,231,211,.42)!important}
+#heat{position:absolute;inset:0;z-index:410;pointer-events:none}
+#labs{position:absolute;inset:0;z-index:420;pointer-events:none}
+#labs>*{pointer-events:auto}
+
+/* field labels — same classes and meanings as the Plan tab's popup field */
+.rg2{position:absolute;font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.09em;color:rgba(242,231,211,.6);text-shadow:0 1px 3px rgba(0,0,0,.95),0 0 9px rgba(0,0,0,.82);white-space:nowrap;line-height:1.2;pointer-events:none!important}
+.rg2.hot{color:#F9F1E2}
+.hm{position:absolute;display:flex;flex-direction:column;align-items:center;gap:2px;line-height:1;pointer-events:none!important}
+.hm .mk{width:11px;height:11px;border-radius:50%;border:2px solid var(--home);background:rgba(20,15,11,.6);box-shadow:0 0 0 2.5px rgba(20,15,11,.5),0 0 9px rgba(201,162,75,.5)}
+.hm .lb{font-family:var(--mono);font-size:8px;font-weight:600;letter-spacing:.14em;color:#EBD9A8;text-shadow:0 1px 3px rgba(0,0,0,.95)}
+.ringlb{position:absolute;font-family:var(--mono);font-size:8.5px;letter-spacing:.08em;color:rgba(235,217,168,.7);background:rgba(14,11,9,.72);padding:1px 4px;border-radius:3px;white-space:nowrap;line-height:1.35;pointer-events:none!important}
+.loc{position:absolute;display:flex;align-items:center;gap:5px;padding:2px 5px;border-radius:5px;background:rgba(14,11,9,.84);box-shadow:inset 0 0 0 1px var(--border-light),0 2px 6px rgba(0,0,0,.5);font-family:var(--mono);font-size:9.5px;white-space:nowrap;cursor:pointer}
+.loc:hover{background:rgba(14,11,9,.96);box-shadow:inset 0 0 0 1px var(--home),0 2px 9px rgba(0,0,0,.6)}
+.loc.on{box-shadow:inset 0 0 0 1.5px var(--home),0 2px 10px rgba(0,0,0,.65);background:rgba(28,21,15,.96)}
+.loc i{width:5px;height:5px;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.85)}
+.loc b{font-weight:600;color:var(--ink);letter-spacing:.01em}
+.loc em{font-style:normal;font-weight:600;color:var(--ink);padding-left:4px;border-left:1px solid var(--border-light)}
+/* tide alignment: a glyph, not a second number — the rating stays the only score on the chip */
+.loc .tw{width:13px;height:7px;display:block;flex:none;color:var(--tide)}
+.loc.td{box-shadow:inset 0 0 0 1px rgba(111,168,176,.45),0 2px 6px rgba(0,0,0,.5)}
+.loc.td.on,.loc.on{box-shadow:inset 0 0 0 1.5px var(--home),0 2px 10px rgba(0,0,0,.65)}
+#tip .tt{color:#8FC0C7}
+.ctide{display:flex;align-items:flex-start;gap:7px;border:1px solid rgba(111,168,176,.32);background:rgba(111,168,176,.09);border-radius:8px;padding:5px 8px}
+.ctide .tw{width:16px;height:9px;flex:none;color:var(--tide);margin-top:3px}
+.ctide span{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);line-height:1.45}
+.ctide span b{display:block;color:#8FC0C7;font-size:10px;font-weight:600}
+.wrap.mob .loc{font-size:10px;padding:3px 6px}
+.pin{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;border-radius:50%;font-family:var(--mono);font-weight:700;font-size:11px;cursor:pointer;border:2px solid rgba(0,0,0,.35)}
+.pin .st{font-size:.62em;margin-left:1px;opacity:.85}
+#tip{position:absolute;z-index:1400;pointer-events:none;background:rgba(20,15,12,.97);border:1px solid var(--border-light);border-radius:8px;padding:7px 10px;font-family:var(--mono);font-size:11px;color:var(--ink);box-shadow:0 10px 26px rgba(0,0,0,.6);display:none;max-width:250px}
+#tip .n{font-weight:600;font-size:12px}
+#tip .s{color:var(--ink-2);margin-top:3px;line-height:1.5}
+#tip .s b{color:#EBD9A8}
+
+/* Inside the map frame the recessive token is OPT-IN, not the default. On an opaque panel
+   rgba(...,.42) measures ~3.5:1 and fails AA, and enumerating the panels that need fixing
+   (#cal, #drill, then .menu, then #tip…) kept missing one. So every panel in the frame
+   inherits the passing value, and the map-overlay labels that genuinely want to recede state
+   it themselves — over tile imagery they must not compete with the field, which is the data.
+   Recessiveness is now a declared exception rather than something a new panel inherits. */
+#mapwrap{--ink-3:rgba(242,231,211,.66)}
+
+/* ── the selected location, rendered ON the map ─────────────────────────────
+   Not a panel over the map and not a Leaflet popup: an anchored callout with a tail into the
+   marker, so the thing you selected stays the thing you are looking at. */
+.selmk{position:absolute;z-index:415;transform:translate(-50%,-50%);width:34px;height:34px;border-radius:50%;pointer-events:none;display:none;box-shadow:0 0 0 1.5px rgba(201,162,75,.85),0 0 0 7px rgba(201,162,75,.14)}
+.selmk.on{display:block}
+.selmk::after{content:'';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:7px;height:7px;border-radius:50%;background:var(--home);box-shadow:0 0 10px rgba(201,162,75,.9)}
+#cal{position:absolute;z-index:1350;width:286px;display:none;overflow:hidden;background:rgba(20,15,12,.965);border:1px solid var(--border-light);border-radius:11px;box-shadow:0 22px 50px rgba(0,0,0,.72);backdrop-filter:blur(7px)}
+#cal.on{display:block}
+.wrap.mob #cal{width:266px}
+#cal .tail{position:absolute;width:11px;height:11px;background:rgba(20,15,12,.965);border-right:1px solid var(--border-light);border-bottom:1px solid var(--border-light);transform:rotate(45deg)}
+.ch{display:flex;align-items:flex-start;gap:8px;padding:9px 10px 8px;border-bottom:1px solid var(--border)}
+.ch .cn b{display:block;font-size:13.5px;font-weight:700;letter-spacing:-.01em;line-height:1.25}
+.ch .cn span{display:block;font-family:var(--mono);font-size:9px;letter-spacing:.05em;color:var(--ink-2);margin-top:3px}
+.cx{margin-left:auto;flex:none;font-family:var(--mono);font-size:11px;color:var(--ink-2);background:none;border:1px solid var(--border);border-radius:6px;width:24px;height:24px;cursor:pointer}
+.cx:hover{color:var(--ink);border-color:var(--border-light)}
+.cb{padding:9px 10px 10px;display:flex;flex-direction:column;gap:7px;min-height:0;overflow:hidden}
+.cv2{display:flex;align-items:center;gap:7px;border:1px solid;border-radius:8px;padding:6px 8px;flex-wrap:wrap}
+.cvk{font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;padding:2px 5px;border-radius:4px}
+.cvk.am{color:var(--dawn);background:color-mix(in srgb,var(--dawn) 16%,transparent)}
+.cvk.pm{color:#EE8064;background:color-mix(in srgb,var(--coral) 16%,transparent)}
+.cvk.astro,.cvk.aur{color:#A79FE4;background:color-mix(in srgb,var(--astro) 18%,transparent)}
+.cvl{font-family:var(--mono);font-size:9.5px;color:var(--ink-2)}
+.cvs{margin-left:auto;font-family:var(--mono);font-size:12px;font-weight:600;white-space:nowrap;padding:2px 7px;border-radius:5px}
+.cw{font-family:var(--serif);font-size:12.5px;line-height:1.45;color:var(--ink-2);text-wrap:pretty}
+/* the clamp lives on the TEXT, not on the button: -webkit-line-clamp needs display:-webkit-box,
+   and putting it on the button would clamp the "Full forecast" label away with it */
+.cwtext{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.cfacts{display:flex;flex-wrap:wrap;gap:4px 14px;font-family:var(--mono);font-size:10px;color:var(--ink)}
+.cfacts i{display:block;font-style:normal;font-size:8.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-2);margin-bottom:1px}
+.ctp{display:flex;flex-wrap:wrap;gap:3px 10px}
+.ctp span{font-family:var(--mono);font-size:10px;font-weight:600;color:var(--tc);white-space:nowrap;cursor:help}
+.ck{display:flex;align-items:center;gap:6px;width:100%;font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);border:none;border-top:1px solid var(--border);background:none;padding:7px 0 0;cursor:pointer;text-align:left}
+.ck:hover{color:var(--ink-2)}
+.ck .cv{margin-left:auto}
+.cb .cv,.ck .cv{color:var(--ink-2)}
+.cstrip[hidden]{display:none}
+.cstrip{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:4px}
+.sr{display:flex;align-items:center;gap:6px;border:1px solid var(--border);border-radius:6px;background:var(--panel);padding:4px 6px;cursor:pointer;font:inherit;color:inherit;text-align:left;min-height:26px}
+.sr:hover{border-color:var(--border-light);background:var(--surface)}
+.sr.on{border-color:rgba(201,162,75,.6);background:rgba(201,162,75,.11)}
+.sr .sk{font-family:var(--mono);font-size:7.5px;font-weight:700;letter-spacing:.08em}
+.sr .sk.am{color:var(--dawn)}.sr .sk.pm{color:#EE8064}.sr .sk.astro,.sr .sk.aur{color:#A79FE4}
+.sr .sd{font-family:var(--mono);font-size:8.5px;color:var(--ink-2)}
+.sr .sv{display:flex;align-items:center;gap:4px;font-family:var(--mono);font-size:10.5px;font-weight:600;color:var(--ink);margin-left:auto}
+.sr .sv i{width:6px;height:6px;border-radius:2px;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.6)}
+.cacts{display:flex;gap:7px}
+.cacts button{flex:1;font-family:var(--mono);font-size:10px;color:var(--tide);background:rgba(111,168,176,.09);border:1px solid rgba(111,168,176,.32);border-radius:7px;padding:6px 8px;cursor:pointer;min-height:32px}
+.cacts button:hover{background:rgba(111,168,176,.18)}
+.cacts button.pri{color:#EBD9A8;background:rgba(201,162,75,.14);border-color:rgba(201,162,75,.42);font-weight:600}
+.cacts button.pri:hover{background:rgba(201,162,75,.24)}
+/* the clamp is fine; clamping into three dots with no way out is not. The prose IS the button. */
+.cw{display:block;width:100%;text-align:left;background:none;border:none;padding:0;cursor:pointer}
+.cw:hover .cwmore{color:#EBD9A8}
+.cwmore{display:block;font-family:var(--mono);font-size:9.5px;color:var(--tide);margin-top:3px}
+
+/* ── the location sheet: four days here ──────────────────────────────────────
+   NOT a new component. This is the sheet specified in design_handoff_plan_matrix README §3
+   and implemented in plan-tab-v5.js renderSpot() — same classes, geometry, lead-at-top,
+   best-marked-in-place, weak-row opacity and footer actions. It is reused rather than
+   reinvented so a location opened from the map and the same location opened from the Plan tab
+   are one view. The only addition is .smeta, the superset row that carries what previously
+   existed only on the map callout: subject tags, dark sky, tide, topics. */
+.sheet{position:absolute;inset:0;z-index:60;display:none}
+.sheet.on{display:block}
+#sheet{z-index:1700}
+.scrim{position:absolute;inset:0;background:rgba(8,6,5,.74)}
+.card{position:absolute;left:50%;top:20px;transform:translateX(-50%);width:min(680px,calc(100% - 36px));max-height:calc(100% - 40px);display:flex;flex-direction:column;background:var(--bg);border:1px solid var(--border-light);border-radius:13px;box-shadow:0 30px 80px rgba(0,0,0,.72);overflow:hidden}
+.wrap.mob .card{left:0;top:0;transform:none;width:100%;height:100%;max-height:100%;border:none;border-radius:0}
+.sh{display:flex;align-items:flex-start;gap:11px;padding:13px 16px 11px;border-bottom:1px solid var(--border);background:var(--surface)}
+.sh .bk{font-family:var(--mono);font-size:15px;color:var(--ink-2);background:none;border:none;cursor:pointer;padding:0 2px}
+.sh h3{font-size:16.5px;font-weight:700;letter-spacing:-.02em}
+.sh .meta{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:4px;display:flex;gap:9px;flex-wrap:wrap}
+.bdg{font-family:var(--mono);font-size:10px;padding:3px 8px;border-radius:999px;border:1px solid var(--border-light);background:rgba(255,255,255,.04);color:var(--ink-2);white-space:nowrap}
+.bdg.out{border-color:rgba(224,165,66,.45);background:rgba(224,165,66,.11);color:#EFC377}
+.sh .x2{margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--ink-3);border:1px solid var(--border);background:none;border-radius:7px;padding:5px 9px;cursor:pointer;flex:none}
+.wrap.mob .sh .x2{display:none}
+/* the superset row — the only thing this sheet gains for the map */
+.smeta{display:flex;flex-wrap:wrap;gap:5px 7px;padding:9px 16px;border-bottom:1px solid var(--border)}
+.smeta span{font-family:var(--mono);font-size:9.5px;color:var(--ink-2);background:var(--panel);border:1px solid var(--border);border-radius:999px;padding:3px 8px}
+.smeta .stp{width:100%;border-radius:7px;color:#EBD9A8;border-color:rgba(201,162,75,.32);background:rgba(201,162,75,.1)}
+.lead2{padding:11px 16px 12px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(201,162,75,.06),transparent)}
+.lead2 .kk{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);display:block;margin-bottom:5px}
+.lead2 p{font-family:var(--serif);font-size:14px;line-height:1.55;color:var(--ink);text-wrap:pretty}
+.tl{overflow-y:auto;padding:11px 16px 14px;display:flex;flex-direction:column;gap:6px;scrollbar-color:var(--border-light) transparent;scrollbar-width:thin}
+.tl::-webkit-scrollbar{width:10px}
+.tl::-webkit-scrollbar-thumb{background:var(--border-light);border-radius:99px;border:3px solid var(--bg)}
+.ev{display:grid;grid-template-columns:52px 1fr;gap:11px;align-items:start;padding:8px 11px;border:1px solid var(--border);border-radius:10px;background:var(--panel);cursor:pointer}
+.ev.top{border-color:rgba(201,162,75,.45);background:linear-gradient(180deg,rgba(201,162,75,.07),transparent 62%),var(--panel)}
+.ev.weak{opacity:.62}
+.ev>div{min-width:0}
+.ev .dbox{border:1px solid var(--border-light);border-radius:7px;text-align:center;padding:3px 0 4px;background:rgba(0,0,0,.2)}
+.ev .dow2{display:block;font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.1em;color:var(--ink-3)}
+.ev .dn{display:block;font-size:15px;font-weight:700;line-height:1.15}
+.ev .ttl{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.ev .ttl .w{font-size:14px;font-weight:700;letter-spacing:-.01em}
+.ev .ttl .t2{font-family:var(--mono);font-size:12.5px;font-weight:600;color:var(--ink-2)}
+.ev .ttl .tag{font-family:var(--mono);font-size:9px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;color:#EBD9A8}
+.ev .ttl .tw{width:14px;height:8px;color:var(--tide);align-self:center}
+.ev .ttl .st{margin-left:auto;font-family:var(--mono);font-size:11px;font-weight:600;padding:2px 6px;border-radius:5px}
+.ev .car{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.ev .lv2{font-family:var(--mono);font-size:10.5px;color:rgba(235,217,168,.72);margin-top:4px;display:block}
+.ev .lv2 b{color:#EBD9A8;font-weight:600}
+.ev .why{font-family:var(--serif);font-size:12.5px;line-height:1.5;color:var(--ink-2);margin-top:6px;text-wrap:pretty}
+.ev .bars{display:flex;flex-direction:column;gap:5px;margin-top:7px}
+.dbar{display:grid;grid-template-columns:1fr auto;gap:3px 8px;font-family:var(--mono);font-size:10.5px;color:var(--ink-2)}
+.dbar em{font-style:normal;font-weight:600;color:var(--ink)}
+.dbar i{grid-column:1/3;height:6px;border-radius:99px;background:rgba(255,255,255,.07);overflow:hidden}
+.dbar i u{display:block;height:100%;background:linear-gradient(90deg,#8E7A5A,#C9A24B);border-radius:99px}
+.dlt{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);margin-top:6px}
+.ft{padding:9px 16px;border-top:1px solid var(--border);background:rgba(0,0,0,.22);display:flex;align-items:center;gap:13px;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);flex-wrap:wrap}
+.ft button{font-family:var(--mono);font-size:10.5px;color:var(--tide);background:none;border:none;cursor:pointer;padding:0}
+.ft button:hover{color:#8fc4cc}
+
+/* ── overlay chrome ───────────────────────────────────────────────────────── */
+.bar{position:absolute;z-index:1100;display:flex;gap:8px;align-items:flex-start}
+/* the breadcrumb only exists on a handover, so it pushes the window control down rather than
+   competing with it for the corner — and the whole overlay stack shifts with one variable. */
+#crumb{top:12px;left:12px;right:12px;display:none;align-items:center;gap:8px;background:rgba(24,18,15,.92);border:1px solid rgba(201,162,75,.34);border-radius:9px;padding:6px 10px;font-family:var(--mono);font-size:10.5px;color:var(--ink-2);backdrop-filter:blur(7px);flex-wrap:wrap;min-height:34px}
+#crumb.on{display:flex}
+#mapwrap:has(#crumb.on) #gwin{top:56px}
+#mapwrap:has(#crumb.on) #gnav{top:56px}
+#mapwrap:has(#crumb.on) #wmenu,#mapwrap:has(#crumb.on) #fpanel{top:100px}
+.cb2{font-family:var(--mono);font-size:10.5px;font-weight:600;color:#EBD9A8;background:none;border:none;padding:0;cursor:pointer}
+.cb2:hover{text-decoration:underline}
+#crumb .cd{color:var(--ink-3)}
+#crumb .cw2 b{color:var(--ink);font-weight:600}
+#crumb .cf{margin-left:auto;display:flex;align-items:center;gap:7px;color:var(--ink-2);white-space:nowrap}
+#crumb .cf button{font-family:var(--mono);font-size:10px;color:var(--tide);background:none;border:none;padding:0;cursor:pointer}
+#crumb .cf button:hover{color:#8fc4cc}
+.wrap.mob #crumb{left:10px;right:10px;font-size:10px}
+.wrap.mob #crumb .cf{margin-left:0;width:100%}
+#gwin{top:12px;left:12px;flex-wrap:wrap;max-width:calc(100% - 344px)}
+#gnav{top:12px;right:12px;justify-content:flex-end;flex-wrap:wrap}
+.wrap.mob #gwin{top:10px;left:10px;right:10px}
+.wrap.mob #gnav{top:auto;bottom:12px;left:10px;right:10px;justify-content:space-between}
+.wrap.mob #gnav .seg{flex:1}
+.wrap.mob #jchip .lbl{display:none}
+.pill{display:flex;align-items:center;gap:7px;background:rgba(24,18,15,.92);border:1px solid var(--border);border-radius:9px;padding:7px 11px;font-family:var(--mono);font-size:11.5px;color:var(--ink-2);cursor:pointer;white-space:nowrap;backdrop-filter:blur(7px);min-height:36px}
+.pill:hover{border-color:var(--border-light);color:var(--ink)}
+.pill.open{border-color:rgba(201,162,75,.55);color:#EBD9A8}
+.pill.act{border-color:rgba(201,162,75,.5);background:rgba(201,162,75,.16);color:#EBD9A8}
+.pill.hide{display:none}
+.step{font-family:var(--mono);font-size:15px;line-height:1;color:var(--ink-2);background:rgba(24,18,15,.92);border:1px solid var(--border);border-radius:9px;width:32px;min-height:36px;cursor:pointer;backdrop-filter:blur(7px);flex:none}
+.step:hover:not(:disabled){border-color:var(--border-light);color:var(--ink)}
+.step:disabled{opacity:.3;cursor:default}
+.wrap.mob .step{width:36px;min-height:40px}
+/* the one window control: kind, day, time, in that order */
+#wnow{gap:9px;padding:6px 10px;min-height:36px}
+.wrap.mob #wnow{flex:1;min-width:0;min-height:40px;justify-content:center;overflow:hidden}
+/* the day label is the one fact the control exists to state, so it never yields; the
+   medallion's words and the region do */
+#wnow .wl{flex:none}
+.wpk{display:inline-flex;align-items:center;gap:5px}
+.wpk .pkg{font-style:normal}
+.wrap.mob #wnow .wpk .pkt{display:none}
+.wrap.mob #wnow .wpk{padding:3px 5px}
+.wrap.mob #wnow .wpk .pkg{font-size:11px}
+.wk{font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;padding:3px 5px;border-radius:4px;flex:none}
+.wk.am{color:var(--dawn);background:color-mix(in srgb,var(--dawn) 16%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--dawn) 30%,transparent)}
+.wk.pm{color:#EE8064;background:color-mix(in srgb,var(--coral) 16%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--coral) 30%,transparent)}
+.wk.astro,.wk.aur{color:#A79FE4;background:color-mix(in srgb,var(--astro) 18%,transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--astro) 34%,transparent)}
+.wl{font-size:12.5px;font-weight:600;color:var(--ink);font-family:var(--sans);letter-spacing:-.01em}
+.wt{font-family:var(--mono);font-size:11.5px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.cv{font-size:9px;color:var(--ink-3);margin-left:1px}
+.seg{display:flex;background:rgba(24,18,15,.92);border:1px solid var(--border);border-radius:9px;overflow:hidden;backdrop-filter:blur(7px)}
+.seg button{font-family:var(--mono);font-size:11.5px;font-weight:600;padding:7px 12px;background:none;border:none;border-right:1px solid var(--border);color:var(--ink-2);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;min-height:36px}
+.wrap.mob .seg button{min-height:40px;flex:1}
+.seg button:last-child{border-right:none}
+.seg button.on{background:rgba(201,162,75,.2);color:#EBD9A8}
+.seg .dot{width:9px;height:9px;border-radius:2px}
+
+.menu{position:absolute;z-index:1500;background:rgba(22,17,13,.97);border:1px solid var(--border-light);border-radius:11px;box-shadow:0 24px 56px rgba(0,0,0,.7);backdrop-filter:blur(8px);display:none;overflow:hidden}
+.menu.on{display:block}
+#wmenu{top:56px;left:56px;width:334px;max-height:calc(100% - 88px);overflow-y:auto}
+.wrap.mob #wmenu{left:10px;right:10px;top:58px;width:auto}
+.wday{font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);padding:8px 11px 3px;border-top:1px solid var(--border)}
+.wday:first-child{border-top:none}
+.wr{display:grid;grid-template-columns:auto 1fr auto auto;gap:9px;align-items:center;width:100%;padding:6px 11px;background:none;border:none;border-left:2px solid transparent;cursor:pointer;font:inherit;color:inherit;text-align:left}
+.wr:hover{background:rgba(255,255,255,.045)}
+.wr.on{background:rgba(201,162,75,.13);border-left-color:var(--home)}
+.wm b{font-size:12.5px;font-weight:600;letter-spacing:-.01em;display:block}
+.wt2{font-family:var(--mono);font-size:9.5px;color:var(--ink-3)}
+.wsc{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);display:flex;align-items:center;gap:5px;white-space:nowrap}
+.wsc i{width:8px;height:8px;border-radius:2px}
+.wtp{font-size:10px;min-width:14px;text-align:right;white-space:nowrap;filter:saturate(.85)}
+#jmenu{top:56px;right:12px;width:300px;max-height:calc(100% - 96px);overflow-y:auto}
+.wrap.mob #jmenu{left:10px;right:10px;width:auto;top:auto;bottom:60px}
+.jr{display:grid;grid-template-columns:1fr auto;gap:2px 9px;width:100%;padding:8px 11px;background:none;border:none;border-top:1px solid var(--border);cursor:pointer;font:inherit;color:inherit;text-align:left}
+.jr:first-child{border-top:none}
+.jr:hover{background:rgba(255,255,255,.045)}
+.jn{font-size:12.5px;font-weight:600;letter-spacing:-.01em}
+.jd{grid-column:1;font-family:var(--mono);font-size:9.5px;color:var(--ink-3)}
+.jv{grid-column:2;grid-row:1/3;align-self:center;font-family:var(--mono);font-size:11px;font-weight:600;color:var(--ink-2);display:flex;align-items:center;gap:5px}
+.jv i{width:8px;height:8px;border-radius:2px}
+.jr.out .jn{color:var(--ink-2)}
+#fpanel{top:56px;right:12px;width:318px;padding:4px 0 0;max-height:calc(100% - 88px);overflow-y:auto}
+.wrap.mob #fpanel{top:auto;bottom:60px;left:10px;right:10px;width:auto}
+.frow{padding:8px 12px;border-bottom:1px solid var(--border)}
+.fk{display:block;font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:6px}
+.fseg{display:flex;border:1px solid var(--border);border-radius:7px;overflow:hidden;background:var(--panel)}
+.fseg button{flex:1;font-family:var(--mono);font-size:10.5px;padding:6px 4px;background:none;border:none;border-right:1px solid var(--border);color:var(--ink-2);cursor:pointer;min-height:32px}
+.fseg button:last-child{border-right:none}
+.fseg button.on{background:rgba(201,162,75,.18);color:#EBD9A8;font-weight:600}
+.fchips{display:flex;flex-wrap:wrap;gap:5px}
+.fchips button{font-family:var(--mono);font-size:10.5px;padding:5px 9px;border-radius:999px;border:1px solid var(--border);background:var(--panel);color:var(--ink-2);cursor:pointer;min-height:30px}
+.fchips button.on{border-color:rgba(201,162,75,.5);background:rgba(201,162,75,.15);color:#EBD9A8}
+.ffoot{display:flex;align-items:center;gap:10px;padding:8px 12px;font-family:var(--mono);font-size:10px;color:var(--ink-3);background:rgba(0,0,0,.22)}
+.ffoot b{color:var(--ink)}
+.fclr{margin-left:auto;font-family:var(--mono);font-size:10px;color:var(--tide);background:none;border:none;cursor:pointer}
+#lchip{position:absolute;left:12px;bottom:12px;z-index:1100}
+.wrap.mob #lchip{display:none}
+#lpanel{left:12px;bottom:56px;width:262px;padding:11px 12px 12px}
+.legbar{height:9px;border-radius:999px;background:linear-gradient(90deg,#b03a2a,#C8452F 22%,#E0A542 55%,#a9be78 80%,#8AAE72);border:1px solid rgba(0,0,0,.3)}
+.legrow{display:flex;justify-content:space-between;font-family:var(--mono);font-size:9.5px;color:var(--ink-3);margin-top:5px}
+.lk{font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);margin-bottom:6px}
+.hand{display:flex;align-items:center;gap:9px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin:11px 0}
+.hand .mix{flex:none;width:42px;height:7px;border-radius:999px;background:rgba(255,255,255,.07);position:relative;overflow:hidden}
+.hand .mix i{position:absolute;inset:0 auto 0 0;background:linear-gradient(90deg,#C8452F,#E0A542,#8AAE72);border-radius:999px;transition:width .18s}
+.hand .txt{font-family:var(--mono);font-size:10px;color:var(--ink-3);line-height:1.35}
+.hand .txt b{display:block;color:var(--ink);font-weight:600;font-size:10.5px}
+.ltog{display:flex;align-items:center;gap:7px;width:100%;font-family:var(--mono);font-size:10.5px;color:var(--ink-2);background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:7px 9px;cursor:pointer;min-height:32px}
+.ltog .bx{width:11px;height:11px;border-radius:3px;border:1px solid var(--border-light);flex:none}
+.ltog.on{color:#EBD9A8;border-color:rgba(201,162,75,.45)}
+.ltog.on .bx{background:var(--home);border-color:var(--home)}
+.lnote{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);line-height:1.5;margin-top:10px;padding-top:9px;border-top:1px solid var(--border);text-wrap:pretty}
+.zoomg{position:absolute;right:12px;bottom:12px;z-index:1100;display:flex;flex-direction:column;gap:5px}
+.wrap.mob .zoomg{display:none}
+.zoomg button{width:34px;height:34px;font-family:var(--mono);font-size:14px;color:var(--ink-2);background:rgba(24,18,15,.92);border:1px solid var(--border);border-radius:8px;cursor:pointer;backdrop-filter:blur(7px)}
+.zoomg button:hover{border-color:var(--border-light);color:var(--ink)}
+.foot{position:absolute;left:50%;transform:translateX(-50%);bottom:13px;z-index:1090;text-align:center;font-family:var(--mono);font-size:9.5px;color:var(--ink-3);background:rgba(20,15,12,.8);border:1px solid var(--border);border-radius:8px;padding:5px 11px;backdrop-filter:blur(6px);max-width:calc(100% - 130px)}
+.foot b{color:var(--ink-2);font-weight:600}
+.foot .fx{color:#EBD9A8}
+.foot .an{display:block;margin-top:2px;color:rgba(242,231,211,.55)}
+.foot .an:empty{display:none}
+.wrap.mob .foot{bottom:60px;left:10px;right:10px;transform:none;max-width:none;font-size:9px}
+.wrap.mob .foot .an{display:none}
+
+.walk{max-width:1240px;margin:14px auto 0;border:1px dashed var(--border-light);border-radius:10px;padding:11px 13px;display:flex;gap:8px 16px;flex-wrap:wrap;align-items:center;font-family:var(--mono);font-size:11px;color:var(--ink-3)}
+.walk b{color:var(--ink-2)}
+.walk button{font-family:var(--mono);font-size:11px;color:var(--tide);background:none;border:none;cursor:pointer;padding:0;text-align:left}
+.walk button:hover{color:#8fc4cc}
+.notes{max-width:1240px;margin:16px auto 0;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:8px}
+.nt{border:1px solid var(--border);border-left:3px solid var(--home);border-radius:8px;background:var(--surface);padding:10px 13px}
+.nt b{display:block;font-size:12.5px;font-weight:600;margin-bottom:3px}
+.nt span{font-size:12px;color:var(--ink-2);line-height:1.55;text-wrap:pretty}
+.nt em{font-style:normal;color:var(--ink);font-weight:500}
+.nt code{font-family:var(--mono);font-size:11px;color:#EBD9A8}
+.nt.cut{border-left-color:var(--poor)}
+.nt.q{border-left-color:var(--tide)}
+/* ── verdict &amp; picks · options A / B / C ─────────────────────────────────── */
+.wrap #pickrow,.wrap .rail,.wrap #flags{display:none}
+.wrap.oa #pickrow{display:flex}
+.wrap.ob .rail{display:flex}
+.wrap.ob #gwin{display:none}
+.wrap.ob .foot,.wrap.ob #lchip,.wrap.ob .zoomg{bottom:112px}
+.wrap.ob #lpanel{bottom:156px}
+.wrap.oc #flags{display:block}
+.demobar .opts,.demobar .vps{display:flex;align-items:center;gap:6px}
+.demobar .opts b{color:var(--ink-2);font-weight:600;letter-spacing:.08em;text-transform:uppercase;font-size:9.5px;margin-right:2px}
+/* A · the window pill states the verdict and wears the medallion */
+#wnow.v-go{border-color:rgba(138,174,114,.55);box-shadow:inset 3px 0 0 var(--go)}
+#wnow.v-mid{border-color:rgba(224,165,66,.5);box-shadow:inset 3px 0 0 var(--marginal)}
+#wnow.v-poor{border-color:rgba(200,69,47,.5);box-shadow:inset 3px 0 0 var(--poor)}
+#wnow .wv{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding-left:9px;border-left:1px solid var(--border-light)}
+.wv.go{color:#A8C795}.wv.mid{color:#EFC377}.wv.poor{color:#E5806C}.wv.na{color:var(--ink-2)}
+#wnow.v-na{box-shadow:none}
+.vdot{width:9px;height:9px;border-radius:50%;flex:none;box-shadow:0 0 0 1px rgba(0,0,0,.5)}
+/* outline, not filled: the medallion is a cross-reference to another window, and a filled
+   chip made it the loudest thing on a pill whose job is to state the verdict */
+.wpk{font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.11em;padding:3px 6px;border-radius:4px;background:none}
+.wpk.best{color:#A8C795;box-shadow:inset 0 0 0 1px rgba(168,199,149,.55)}
+.wpk.also{color:#EFC377;box-shadow:inset 0 0 0 1px rgba(239,195,119,.55)}
+.step{position:relative}
+.step .nbd{position:absolute;left:50%;bottom:4px;transform:translateX(-50%);width:11px;height:3px;border-radius:2px}
+.step:disabled .nbd{display:none}
+/* always its own line under the pill: #gwin spans the frame, so a single chip would otherwise
+   run on beneath the Regions / Heat / Filters cluster instead of wrapping */
+#pickrow{position:static;width:100%;gap:7px;flex-wrap:wrap}
+.pkchip{display:flex;align-items:center;gap:8px;background:rgba(24,18,15,.92);border:1px solid var(--border);border-left-width:3px;border-radius:9px;padding:6px 10px;min-height:36px;font-family:var(--mono);font-size:10.5px;color:var(--ink-2);cursor:pointer;backdrop-filter:blur(7px);white-space:nowrap}
+.pkchip.best{border-left-color:#A8C795}.pkchip.also{border-left-color:#EFC377}
+.pkchip:hover{border-color:var(--border-light)}
+.pkchip .pkl{font-size:9px;font-weight:700;letter-spacing:.09em;text-transform:uppercase}
+.pkchip.best .pkl{color:#A8C795}.pkchip.also .pkl{color:#EFC377}
+.pkchip .pkw{color:var(--ink)}
+.wrap.mob #pickrow{width:100%}
+.wrap.mob .pkchip .pkr{display:none}
+/* B · the week rail */
+.rail{position:absolute;left:12px;right:12px;bottom:12px;z-index:1100;align-items:stretch;gap:6px;background:rgba(20,15,12,.9);border:1px solid var(--border);border-radius:11px;padding:8px 9px;backdrop-filter:blur(8px);overflow-x:auto}
+.rail .rlk{font-family:var(--mono);font-size:8.5px;font-weight:600;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);writing-mode:vertical-rl;transform:rotate(180deg);flex:none;text-align:center}
+.rt{position:relative;flex:1;min-width:98px;display:grid;grid-template-rows:34px auto auto;gap:5px;background:var(--panel);border:1px solid var(--border);border-radius:8px;padding:7px 8px 8px;cursor:pointer;font:inherit;color:inherit;text-align:left}
+.rt:hover{border-color:var(--border-light)}
+.rt.on{border-color:rgba(201,162,75,.6);background:rgba(201,162,75,.1)}
+.rt .rbar{display:flex;align-items:flex-end}
+.rt .rbar i{display:block;width:100%;border-radius:3px 3px 0 0;opacity:.82}
+.rt.on .rbar i{opacity:1}
+.rt .rd{font-family:var(--mono);font-size:9px;color:var(--ink-3);line-height:1.35}
+.rt .rd b{display:block;font-family:var(--sans);font-size:11.5px;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+.rt .rv{font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase}
+.rv.go{color:#A8C795}.rv.mid{color:#EFC377}.rv.poor{color:#E5806C}.rv.na{color:#9FB0C0}
+.rt .rpk{position:absolute;top:-1px;right:-1px;font-family:var(--mono);font-size:8px;font-weight:700;letter-spacing:.08em;padding:2px 5px;border-radius:0 7px 0 7px;color:#12100E}
+.rt .rpk.best{background:#A8C795}.rt .rpk.also{background:#EFC377}
+.wrap.mob .rail{left:10px;right:10px;bottom:10px;padding:7px}
+.wrap.mob .rt{min-width:88px}
+/* C · the picks pinned to the ground */
+#flags{position:absolute;inset:0;z-index:1080;pointer-events:none}
+.flag{position:absolute;transform:translate(-50%,-100%);display:flex;flex-direction:column;align-items:center;pointer-events:auto;cursor:pointer}
+.flag .fcard{display:grid;gap:2px;background:rgba(20,15,12,.95);border:1px solid var(--border-light);border-top-width:3px;border-radius:9px;padding:7px 10px 8px;box-shadow:0 14px 34px rgba(0,0,0,.62);text-align:left;min-width:158px}
+.flag.best .fcard{border-top-color:#A8C795}
+.flag.also .fcard{border-top-color:#EFC377}
+.flag .fl{font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.12em;text-transform:uppercase}
+.flag.best .fl{color:#A8C795}.flag.also .fl{color:#EFC377}
+.flag .fcard b{font-size:12.5px;font-weight:700;letter-spacing:-.01em}
+.flag .fw{font-family:var(--mono);font-size:9.5px;color:var(--ink-2)}
+.flag .fgo{font-family:var(--mono);font-size:9.5px;color:#8FC0C7;margin-top:2px}
+.flag .fstem{width:1px;height:15px;background:var(--border-light)}
+.flag .fdot{width:9px;height:9px;border-radius:50%;border:2px solid rgba(0,0,0,.55)}
+.flag.best .fdot{background:#A8C795}.flag.also .fdot{background:#EFC377}
+.flag.off .fcard{border-style:dashed;background:rgba(20,15,12,.86)}
+.flag.off .fcard b,.flag.off .fw{color:var(--ink-2)}
+.flag .fl em{font-style:normal;font-weight:600;color:var(--ink-3);letter-spacing:.06em}
+.flag.clamped .fstem,.flag.clamped .fdot{display:none}
+.flag:hover .fcard{border-color:var(--home)}
+/* the drilldown, shared by all three */
+#rpanel{top:56px;left:56px;width:352px;max-height:calc(100% - 96px);overflow-y:auto;z-index:1600}
+.wrap.ob #rpanel{top:auto;bottom:112px;left:12px;max-height:calc(100% - 200px)}
+.wrap.mob #rpanel{left:10px;right:10px;width:auto;top:58px}
+.wrap.mob.ob #rpanel{top:auto;bottom:104px}
+.rph{display:flex;align-items:flex-start;gap:9px;padding:10px 11px;border-bottom:1px solid var(--border);background:var(--surface)}
+.rph>div{min-width:0;flex:1}
+.rph b{display:block;font-size:13px;font-weight:700;letter-spacing:-.01em}
+.rph .rpm{display:block;font-family:var(--mono);font-size:9.5px;color:var(--ink-2);margin-top:3px}
+.rpv{font-family:var(--mono);font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;padding:3px 7px;border-radius:5px;white-space:nowrap;flex:none}
+.rpv.go{color:#A8C795;background:rgba(138,174,114,.18)}
+.rpv.mid{color:#EFC377;background:rgba(224,165,66,.18)}
+.rpv.poor{color:#E5806C;background:rgba(200,69,47,.2)}
+.rpv.na{color:var(--ink-2);background:rgba(255,255,255,.06)}
+.rpn{font-family:var(--mono);font-size:9.5px;color:var(--ink-3);line-height:1.55;padding:8px 11px;border-bottom:1px solid var(--border);text-wrap:pretty}
+.rr{display:grid;grid-template-columns:1fr auto;gap:2px 9px;width:100%;padding:8px 11px;background:none;border:none;border-bottom:1px solid var(--border);cursor:pointer;font:inherit;color:inherit;text-align:left}
+.rr:hover{background:rgba(255,255,255,.05)}
+.rr .rn{font-size:12.5px;font-weight:600;letter-spacing:-.01em;display:flex;align-items:center;gap:5px}
+.rr .rn .tw{width:14px;height:8px;color:var(--tide);flex:none}
+.rr .rd2{grid-column:1;font-family:var(--mono);font-size:9.5px;color:var(--ink-3)}
+.rr .rv2{grid-column:2;grid-row:1;font-family:var(--mono);font-size:9.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;text-align:right}
+.rv2.go{color:#A8C795}.rv2.mid{color:#EFC377}.rv2.poor{color:#E5806C}.rv2.na{color:var(--ink-3)}
+.rr .rs{grid-column:2;grid-row:2;display:flex;align-items:center;justify-content:flex-end;gap:5px;font-family:var(--mono);font-size:10.5px;color:var(--ink-2);white-space:nowrap}
+.rr .rs i{width:8px;height:8px;border-radius:2px;flex:none}
+.rpw{font-family:var(--serif);font-size:12.5px;line-height:1.5;color:var(--ink-2);padding:9px 11px;text-wrap:pretty}
+.rpa{display:flex;gap:7px;padding:9px 11px;border-top:1px solid var(--border);background:rgba(0,0,0,.22)}
+.rpa button{flex:1;font-family:var(--mono);font-size:10px;color:#8FC0C7;background:rgba(111,168,176,.09);border:1px solid rgba(111,168,176,.32);border-radius:7px;padding:6px 8px;cursor:pointer;min-height:32px}
+.rpa button{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.rpa button.pri{color:#EBD9A8;background:rgba(201,162,75,.14);border-color:rgba(201,162,75,.42);font-weight:600}
+.rpbk{font-family:var(--mono);font-size:12px;color:var(--ink-2);background:none;border:none;cursor:pointer;padding:2px 2px 0;flex:none}
+.wmore{display:flex;align-items:center;gap:7px;width:100%;font-family:var(--mono);font-size:10px;color:#8FC0C7;background:rgba(111,168,176,.08);border:none;border-top:1px solid var(--border);padding:9px 11px;cursor:pointer;text-align:left}
+.wmore:hover{background:rgba(111,168,176,.16)}
+.wmore.top{border-top:none;border-bottom:1px solid var(--border);color:#EBD9A8;background:rgba(201,162,75,.1);font-weight:600}
+.wmore.top:hover{background:rgba(201,162,75,.18)}
+.wpkm{font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.09em;padding:2px 5px;border-radius:4px;white-space:nowrap}
+.wpkm.best{color:#A8C795;box-shadow:inset 0 0 0 1px rgba(168,199,149,.5)}
+.wpkm.also{color:#EFC377;box-shadow:inset 0 0 0 1px rgba(239,195,119,.5)}
+.wr .wsc{flex-direction:column;align-items:flex-end;gap:2px}
+.wvw{font-family:var(--mono);font-size:8.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase}
+.wvw.go{color:#A8C795}.wvw.mid{color:#EFC377}.wvw.poor{color:#E5806C}.wvw.na{color:#9FB0C0}
+/* ── the landing card ───────────────────────────────────────────────────────── */
+#land{position:absolute;top:60px;left:12px;z-index:1300;width:376px;max-width:calc(100% - 24px);display:none;background:rgba(20,15,12,.965);border:1px solid var(--border-light);border-radius:12px;box-shadow:0 26px 60px rgba(0,0,0,.72);backdrop-filter:blur(8px);overflow:hidden}
+#land.on{display:block}
+.wrap.mob #land{top:56px;left:10px;right:10px;width:auto}
+#land .lh{display:flex;align-items:flex-start;gap:9px;padding:11px 12px 10px;border-bottom:1px solid var(--border);background:linear-gradient(180deg,rgba(201,162,75,.07),transparent)}
+#land .lh>b{flex:1;font-size:15px;font-weight:700;letter-spacing:-.015em}
+#land .lh>span{position:absolute;left:12px;top:32px;font-family:var(--mono);font-size:9px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+#land .lh{padding-bottom:24px;position:relative}
+#land .lrows{display:flex;flex-direction:column}
+.lr{display:flex;align-items:center;gap:9px;width:100%;padding:10px 12px;background:none;border:none;border-bottom:1px solid var(--border);cursor:pointer;font:inherit;color:inherit;text-align:left}
+.lr:hover{background:rgba(255,255,255,.05)}
+.lr.on{background:rgba(201,162,75,.09)}
+.lr .lw{flex:1;min-width:0}
+.lr .lw b{display:block;font-size:13.5px;font-weight:600;letter-spacing:-.01em}
+.lr .lt{font-family:var(--mono);font-size:10px;color:var(--ink-3)}
+.lv{font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;text-align:right;white-space:nowrap}
+.lv.go{color:#A8C795}.lv.mid{color:#EFC377}.lv.poor{color:#E5806C}
+.lv .rgn{display:block;font-style:normal;font-weight:400;font-size:9.5px;letter-spacing:.02em;text-transform:none;color:var(--ink-2);margin-top:2px}
+/* a pick on some other window: a line, not a chip — it answers a different question */
+.lp{display:flex;align-items:center;gap:8px;width:100%;padding:9px 12px;background:none;border:none;border-bottom:1px solid var(--border);cursor:pointer;font-family:var(--mono);font-size:10.5px;color:var(--ink-2);text-align:left}
+.lp:hover{background:rgba(255,255,255,.05)}
+.lp .lpk{font-size:9px;font-weight:700;letter-spacing:.09em;text-transform:uppercase;white-space:nowrap}
+.lp.best .lpk{color:#A8C795}
+.lp.also .lpk{color:var(--ink-3)}
+.lp .lpw{flex:1;color:var(--ink)}
+.lp.also .lpw{color:var(--ink-2)}
+.lp .lpg{color:var(--ink-3)}
+.lno{padding:10px 12px;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:10.5px;color:var(--ink-2);line-height:1.55;text-wrap:pretty}
+.lgo{font-family:var(--mono);font-size:10.5px;font-weight:600;color:#8FC0C7;background:none;border:none;padding:0;cursor:pointer;text-align:left}
+.lgo:hover{color:#A9D6DC}
+.lf{padding:8px 12px;font-family:var(--mono);font-size:9px;letter-spacing:.03em;color:var(--ink-3);background:rgba(0,0,0,.24);text-wrap:pretty}
+/* the pill's verdict names its region */
+#wnow .wv{display:inline-flex;flex-direction:column;align-items:flex-start;gap:1px;line-height:1.18}
+#wnow .wv .rgn{font-style:normal;font-weight:400;font-size:9px;letter-spacing:.02em;text-transform:none;color:var(--ink-2)}
+.wrap.mob #wnow .wv .rgn{display:none}
+.wrap.mob #gwin{max-width:none}
+</style>
+</head>
+<body>
+
+<div class="hd">
+<div class="m">PhotoCast · map tab · landing state</div>
+<h1>The map answers “tonight or the morning?” before you touch it</h1>
+<p>The heat already says poor, middling or worth it — that is what the field is for, and a word cannot say it better than the colour of the ground you would be standing on. What the field cannot say is <b>which window</b>, because it draws one at a time. So the landing state is not a summary: it is <b>your next two windows</b>, tonight and the morning, each with its verdict and the region that verdict is true of, and the week's <em>Best bet</em> riding the row it belongs to. If neither clears Maybe the card stops comparing and names the next night that does. It stays while you use the map — panning to the region it just named is reading it, not finishing with it — and closes on the ✕, on Escape, or by choosing one of the two rows. After that the verdict, the region and the medallion live on the window pill, and <code>◎ Tonight, or tomorrow? ›</code> at the top of the pill's menu brings the question back.</p>
+</div>
+
+<div class="demobar"><span class="sp">Reload lands on the card · it closes on ✕ or Escape · arrow keys step the window.</span>
+<span class="vps"><button id="bD" class="on">▭ Desktop</button><button id="bF">▭ Full-bleed</button><button id="bP">▭ iPad</button><button id="bM">▭ iPhone</button></span></div>
+
+<div class="wrap" id="wrap">
+<div class="frame">
+<div class="status"><span>9:41</span><span>▮▮▮ ◗</span></div>
+<div class="mast">
+<div class="c-top"><span class="spine"><span class="c-w">PhotoCast</span><span class="c-k">Field guide to light</span></span>
+<span class="mright"><span class="up"><span class="dot"></span>UP <span class="vv">v2.19.9</span></span><span class="cog"></span><span class="signout">Sign out</span></span></div>
+<div class="c-rule"></div>
+<div class="c-ticks"><span class="oloc"><svg class="pinsvg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s7-6.2 7-11a7 7 0 1 0-14 0c0 4.8 7 11 7 11z"></path><circle cx="12" cy="10" r="2.4"></circle></svg><span class="nm" id="oname">Home · DH3 4NG</span><span class="frm">drive times from here</span></span><span class="c-times" id="ctimes"></span></div>
+</div>
+<div class="tabs"><button class="tab">◉ Plan</button><button class="tab">Coming up</button><button class="tab on">◍ Map</button><button class="tab gate">Operations</button></div>
+<div class="tabrule"></div>
+
+<div id="mapwrap">
+<div id="map"></div>
+<canvas id="heat"></canvas>
+<div class="selmk" id="selmk"></div>
+<div id="labs"></div>
+<div id="cal"><div class="tail"></div></div>
+<div class="sheet" id="sheet"><div class="scrim" data-act="closespot"></div><div class="card" id="drillcard" role="dialog" aria-modal="true" aria-label="Four days here"></div></div>
+<div id="tip"></div>
+
+<div class="bar" id="crumb"></div>
+<div id="land"></div>
+<div class="bar" id="gwin">
+<button class="step" id="wprev" aria-label="Previous window">‹</button>
+<button class="pill" id="wnow"></button>
+<button class="step" id="wnext" aria-label="Next window">›</button>
+</div>
+<div class="bar" id="gnav">
+<button class="pill" id="jchip">◎ <span class="lbl">Regions</span> <span class="cv">▾</span></button>
+<div class="seg" id="viewseg">
+<button data-view="heat" class="on"><span class="dot" style="background:linear-gradient(90deg,#C8452F,#E0A542,#8AAE72)"></span> Heat</button><button data-view="pins">◍ Pins</button>
+</div>
+<button class="pill" id="fchip">Filters<span id="fcount"></span> <span class="cv">▾</span></button>
+</div>
+
+<div class="menu" id="wmenu"></div>
+<div class="menu" id="jmenu"></div>
+<div class="menu" id="fpanel"></div>
+<div class="menu" id="rpanel"></div>
+
+<button class="pill" id="lchip">▤ Legend <span class="cv">▾</span></button>
+<div class="menu" id="lpanel">
+<div class="lk">Colour = this window's score</div>
+<div class="legbar"></div>
+<div class="legrow"><span>1★ poor</span><span>3★</span><span>5★ go</span></div>
+<div class="hand"><span class="mix"><i id="handbar"></i></span><span class="txt" id="handtxt"><b>Field</b>the regional glance</span></div>
+<button class="ltog on" id="ringtog"><span class="bx"></span>Reach rings · 45 min, 1h 30</button>
+<div class="lnote">Warmth only where rated locations are, clipped to the coast, with a guaranteed disc at each rated location. Later windows render hazier — lower confidence.</div>
+</div>
+
+<div class="zoomg"><button id="zin" aria-label="Zoom in">+</button><button id="zout" aria-label="Zoom out">−</button><button id="zhome" aria-label="Back to my area">⌂</button></div>
+<div class="foot"><span id="count"></span><span class="an" id="areanote"></span></div>
+</div>
+</div>
+</div>
+
+<div class="walk"><b>Walk it</b>
+<button data-do="land">1 · the landing card</button>
+<button data-do="dull">2 · neither is worth it — the itch-scratching line</button>
+<button data-do="landfrom:2">3 · later in the week — both picks sit behind you</button>
+<button data-do="ev:0">4 · tonight — Worth it, in Northumberland</button>
+<button data-do="ev:3">5 · Thursday sunrise — Poor</button>
+<button data-do="wnow">6 · open the week — medallions on the rows</button>
+<button data-do="wpanel">7 · drill in, region by region</button>
+<button data-do="filt">8 · filter to 4★+ seascapes — the verdict does not move</button>
+<button data-do="clr">9 · clear filters</button>
+</div>
+
+<div class="notes">
+<div class="nt"><b>The question the landing screen has to answer</b><span><em>Should I go tonight or in the morning — and if neither, when can I scratch the itch?</em> That is a comparison of <b>two windows</b>, not a summary of six, and it is why the card is two rows rather than a rail or a week strip. Both rows are live: tapping one selects that window and the card leaves.</span></div>
+<div class="nt"><b>The field says poor or worth it; it cannot say which window</b><span>Colour on the ground you would be standing on is a better answer than any word, so the verdict is not trying to replace it. What one window of heat cannot say is that <em>a different window is better</em> — the map draws one at a time, and stepping was blind. That gap is what the card, the pill's verdict and the stepper ticks are for, and it is the whole reason the picks belonged here rather than only in the Plan tab.</span></div>
+<div class="nt"><b>The verdict names its region</b><span><code>Worth it</code> alone invites you to apply it to the whole field, which is the one thing it is not: it is the strongest region's average. So the pill and both card rows name that region. It also makes the disagreement visible rather than resolved — a night that is Poor at home and Worth it in the Borders now says where, instead of averaging the two into a shrug.</span></div>
+<div class="nt"><b>…and counts the ones that share it</b><span>Naming only the strongest overclaimed: three regions worth it and the pill read <code>Worth it in the Lakes</code>, which says <em>only</em> the Lakes. It now reads <code>the Lakes +2</code> — top region named, others counted. The count is the more useful half, because it says which situation you are in: one region worth it is a <em>where</em> answer, three is a <em>pick on drive time</em> answer, and the window panel states it in words before it lists them ranked.</span></div>
+<div class="nt cut"><b>…and says nothing when there is nothing to name</b><span>The count rule then failed at the other end: on a night where all seven regions are Poor, naming the top one read <code>Poor · the Pennines +6</code> — the least-bad region presented as a destination, which is the same overclaim inverted. When every region in scope shares the tier there is no region to name, so the pill reads <code>Poor · everywhere in your area</code> and the panel drops the drive-time sentence, because there is no choice to make between seven write-offs.</span></div>
+<div class="nt"><b>Best bet rides the row it belongs to</b><span>If the best bet is one of your next two windows — which is most of the time, since the near windows are the confident ones — it is a medallion on that row, and nothing is repeated. When it falls later in the week it becomes one quiet line under the rows, naming its window and region and taking you there. <em>Also good</em> takes the same line with no colour: second billing, not second competition.</span></div>
+<div class="nt"><b>When neither is worth it</b><span>The card stops comparing. It says so in a sentence and names the next window that clears Maybe — window, region and verdict — as the only thing worth saying to someone who cannot go tonight or in the morning. <code>Walk it · 2</code> forces that state; nothing else about the screen changes.</span></div>
+<div class="nt"><b>Nothing closes because you looked at the map</b><span>The same rule now covers the week menu, the region drilldown, Filters and Legend: a click on the ground does not close them. Every one of those panels is <em>about</em> the map, so reading “Thursday is Poor” and then panning to see where is one action, not two — and losing the list halfway through it made the panel feel like something to be got rid of. They close on their own chip, their ✕, or Escape. Tapping bare ground still deselects a location, because that is a selection rather than a panel.</span></div>
+<div class="nt"><b>There is a way back</b><span>Dismissing the card used to be irreversible, which quietly made closing it a risk — so the question sits at the top of the pill's menu, in its own words: <code>◎ Tonight, or the morning? ›</code>, above the six windows and beside the region-by-region row. The pill is where <em>when</em> lives, so that is where the question belongs, and it costs no map.</span></div>
+<div class="nt"><b>It closes when you close it</b><span>The first build dismissed it on any drag, and that punished the one move it had just invited: reading “Worth it in Northumberland” and panning to Northumberland made the sentence vanish mid-thought. Panning is <em>reading</em> the card, not finishing with it. So it stays until the ✕ or Escape, and it does not come back on its own — from then on the pill carries the verdict, the region and the medallion, and the stepper ticks carry the week, so nothing it said is lost. Selecting one of the two rows also closes it, because that is a decision rather than a look.</span></div>
+<div class="nt"><b>What it opens on</b><span>The next window from now, not the best bet. Landing on Thursday because Thursday is the best night of the week answers a question nobody asked at 6pm on Tuesday, and it makes the drive times and leave-by figures on screen fiction. The best bet is stated; the map still starts where you are.</span></div>
+<div class="nt"><b>Filters must not move the verdict</b><span>Verdict, card and picks ignore minimum rating, reach, subject and dark-sky: hiding 3★ locations cannot turn a Maybe into a Worth it. Scope does apply — <code>My area</code> versus <code>Whole catalogue</code> changes which regions are candidates at all, so it changes the verdict, the region named beside it and both picks.</span></div>
+<div class="nt"><b>Night events state their own word</b><span>Astro and aurora run on darkness, clarity and Kp, so they show <em>Clear</em>, <em>Cloudy</em> or <em>Kp 5</em> rather than borrowing a verdict, and they cannot be the week's Best bet. They are also not candidates for the card's two rows, which compare solar windows because that is the question being asked.</span></div>
+<div class="nt q"><b>Open question · what makes this the landing tab</b><span>If the map lands, the Plan tab's job narrows to the week and the <em>why</em> — prose, tides, topics, run history. Worth deciding deliberately rather than by accident: the two tabs currently both open with an opinion about tonight, and only one of them should.</span></div>
+<div class="nt q"><b>Open question · returning users within one session</b><span>The card is right on a cold open. On the fourth visit in an evening it is furniture you already read. Candidates: show it once per forecast run, or once per day, or suppress it when the window you left is still the current one.</span></div>
+<div class="nt q"><b>Open question · does the word ever contradict the picture</b><span>Still the thing to test: someone reading <em>Worth it in the Lakes</em> while looking at an amber coast. Naming the region is the fix I would try first, and it is in here — but it needs a real user in front of it, not another iteration from me.</span></div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script src="https://unpkg.com/d3@7.9.0/dist/d3.min.js" integrity="sha384-CjloA8y00+1SDAUkjs099PVfnY2KmDC2BZnws9kh8D/lX1s46w6EPhpXdqMfjK6i" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/topojson-client@3.1.0/dist/topojson-client.min.js" integrity="sha384-Ukv1p/xTma6P4/2bY5KzWBw+ydSpXmhCMtyciIQVDJ1RmOxtCYNMF1uXT9T63H67" crossorigin="anonymous"></script>
+<script src="heat-field.js"></script>
+<script src="plan-data.js"></script>
+<script src="map-tab-v4.js"></script>
+</body>
+</html>

@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import PropTypes from 'prop-types';
+import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { STAND_DOWN_COLOUR } from '../markerUtils.js';
 import InfoTip from '../InfoTip.jsx';
@@ -58,18 +59,23 @@ export default function FiltersPopover({
   const rootRef = useRef(null);
   const isMobile = useIsMobile();
 
-  useEffect(() => {
-    // Desktop/tablet only — see the class doc's phone section. `BottomSheet`'s own backdrop is
-    // the phone's dismiss surface, and its content is portalled OUTSIDE `rootRef`, so this listener
-    // would otherwise fire (and close the sheet) on the very first tap inside it.
-    if (!open || isMobile) return undefined;
-    function onDocMouseDown(e) {
-      if (rootRef.current && !rootRef.current.contains(e.target)) onOpenChange(false);
-    }
-    document.addEventListener('mousedown', onDocMouseDown);
-    return () => document.removeEventListener('mousedown', onDocMouseDown);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, isMobile]);
+  // Desktop/tablet only — see the class doc's phone section. `BottomSheet`'s own backdrop is the
+  // phone's dismiss surface, and its content is portalled OUTSIDE `rootRef`, so this listener would
+  // otherwise fire (and close the sheet) on the very first tap inside it. A press on the MAP
+  // dismisses nothing on desktop and tablet — `useOutsideDismiss` carries that rule for all six map
+  // panels so they cannot drift apart. (⚠️ The sentence was here twice, consecutively, saying the
+  // same thing with the same stale count; L7's sweep merged them.)
+  //
+  // ⚠️ **The phone is genuinely different, and the rule does not hold there.** `enabled: !isMobile`
+  // withholds the listener because the `BottomSheet` below is portalled outside `rootRef` and this
+  // would close it on the first tap inside it — but that sheet's own backdrop is `fixed inset-0`
+  // with `onClick={onClose}` and it locks body scroll, so a tap on the map DOES dismiss here and
+  // the map cannot be panned at all while it is open. Pre-existing (the sheet's behaviour, not
+  // L3's) and recorded rather than fixed, because changing it means changing `BottomSheet`'s own
+  // dismiss surface — map-landing-plan.md §6 Q9.
+  useOutsideDismiss({
+    open, rootRef, onDismiss: () => onOpenChange(false), enabled: !isMobile,
+  });
 
   function onKeyDown(e) {
     if (e.key === 'Escape' && open) {

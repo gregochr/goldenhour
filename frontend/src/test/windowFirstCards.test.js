@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { badgeChannel, buildWindowCards } from '../utils/windowFirstCards.js';
+import { buildRegionRows } from '../utils/windowFirstRegions.js';
 
 const TODAY = '2026-08-04';
 const TOMORROW = '2026-08-05';
@@ -1286,5 +1287,42 @@ describe('buildWindowCards — the origin\'s scope', () => {
     // The window's OWN verdict, not the Peak District's — there is no served record for that region
     // to re-point to, which is exactly what `originRegion` returning null means.
     expect(away.verdict).toBe('WORTH_IT');
+  });
+});
+
+
+/**
+ * ⚠️ **The card's verdict and the region rail's must not disagree, and the half-done convergence at
+ * L5 made them.** `map-landing-plan.md` §3 L5 step 6b asked for BOTH raw `displayVerdict` readers to
+ * move onto `resolveRegionDisplay`; only `windowFirstRegions` did. Before that they at least agreed
+ * by both being raw — so the partial fix is what created the pair. Both render inside one
+ * `WindowSheetDialog`: the card's word at its head, the rail beneath it.
+ *
+ * <p>The fixture carries the LEGACY shape — a triage `verdict` and no `displayVerdict`, which is
+ * what a `daily_briefing_cache` payload written before the field existed deserialises to. That is
+ * the only input on which the two can differ, so it is the only one that can pin the fix.
+ */
+describe('the scoped card reads its verdict through the shared resolver', () => {
+  const LEGACY = { regionName: 'The Lakes', verdict: 'GO', meanRating: 4.2, slots: [{ canopy: false }] };
+
+  it('maps a legacy triage verdict rather than dropping to Not scored', () => {
+    const DATE = '2026-09-06';
+    const days = [{ date: DATE, eventSummaries: [{ targetType: 'SUNSET', regions: [LEGACY] }] }];
+
+    const cards = buildWindowCards(
+      [{ date: DATE, targetType: 'SUNSET' }], days, DATE, '2026-09-07', new Set(), null,
+      { origin: { name: 'The Lakes' } },
+    );
+
+    expect(cards[0].verdict).toBe('WORTH_IT');
+  });
+
+  it('...the same answer the region rail gives for that payload', () => {
+    const DATE = '2026-09-06';
+    const rows = buildRegionRows(
+      { targetType: 'SUNSET', regions: [LEGACY] }, DATE,
+    );
+
+    expect(rows[0].verdict).toBe('WORTH_IT');
   });
 });
