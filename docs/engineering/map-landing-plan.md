@@ -917,8 +917,9 @@ should challenge these **in review**, not silently "fix" them in code.
    `preventDefault` moved above it, and the selector broken.
 
    ⚠️ **Only the panels' arm of O-20 is closed.** Tab-out onto the pane behind a sheet, and the
-   phone `BottomSheet` painting over one, are untouched; the shell-root `inert` follow-on remains
-   their cure. And the reason deletion was never the cheap way out still stands: `MapRegionPanel`'s
+   phone `BottomSheet` painting over one, are untouched — and the shell-root `inert` follow-on is no
+   longer stated as their cure: `o20-shell-inert-plan.md` §5 costs four options and leaves the choice
+   to the owner. And the reason deletion was never the cheap way out still stands: `MapRegionPanel`'s
    handler is not redundant with the pane's, because its `onBack` also carries the return-focus
    target.
 
