@@ -24,9 +24,22 @@ Measured in **both** environments rather than reasoned, because focus/blur timin
 project has been burned by the jsdom/browser difference before: detaching a focused node, or a
 subtree containing focus, puts `activeElement` on `<body>` first, in jsdom and in Chromium alike.
 
-`useDialogFocus` had **no test file at all**; it has one now — seven cases, the guard's three
-mutants killed — and both map integration cases now assert `document.activeElement` rather than only
-that the panel is still in the document. ⚠️ An earlier wording of this entry said "fourteen
+⚠️ **The first cut of this guard shipped a regression on the Plan tab, found by review and fixed
+here.** "Focus is somewhere real" is not the same as "focus is somewhere coherent". `Modal`'s guard
+governs a dialog that stays OPEN; this cleanup governs one being DESTROYED, and on a stacked route
+that also changes which layer claims modality. Measured: Plan popup open, `/` opens search (the
+popup goes `stacked`/`inert`), Tab out onto the page, `Escape` — search closes, the popup re-claims
+`aria-modal`, and both guards stood down, leaving the reader outside a dialog AT is told to treat
+everything outside of as unavailable. The guard now restores when the reader is stranded outside a
+layer still claiming modality, and stands down only when nothing claims it or they are inside the
+thing that does. Arm C is unaffected: the map drilldown's panels carry no `aria-modal`, so nothing
+claims modality when the sheet closes over them.
+
+`useDialogFocus` had **no test file at all**; it has one now — ten cases, six mutants killed across
+two rounds, including one that reintroduces the regression above. ⚠️ The two map integration cases
+also assert `document.activeElement` now, but they do NOT cover this guard and an earlier wording of
+this entry implied they did: measured, both pass with the guard removed, because their foreign modal
+is a planted `div` and no consumer of the hook unmounts on that press. ⚠️ An earlier wording said "fourteen
 consumers": that was `grep -rl`, which counts files mentioning the hook. There are **four** call
 sites (`Modal`, `BottomSheet`, `MapOverlay`, `RegionsJump`); the blast radius is wider than four
 because most dialogs reach it through the first two, but the list of callers is not.

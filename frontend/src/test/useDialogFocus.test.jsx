@@ -89,22 +89,106 @@ describe('useDialogFocus', () => {
   });
 
   it('still restores when focus is nowhere — `<body>` is not a choice', async () => {
+    // ⚠️ The precondition is ASSERTED, and the first cut of this case did not assert it — which made
+    // it a duplicate of its neighbour above wearing a different branch's name. `document.body.focus()`
+    // is a silent no-op in this jsdom, so without the assertion the case reached the `<body>` clause
+    // only via `unmount()` detaching the focused root: the same mechanism the normal-close test
+    // already covers. Measured by a review lens.
     trigger = button('trigger');
     trigger.focus();
     const { unmount } = render(<Dialog />);
     await settle();
-    document.body.focus();
+    const dialog = document.querySelector('[data-testid="dlg"]');
+    dialog.blur();
+    expect(document.activeElement, 'precondition: focus is genuinely nowhere before the unmount')
+      .toBe(document.body);
 
     unmount();
 
     expect(document.activeElement).toBe(trigger);
   });
 
+  describe('⚠️ stranded outside a layer that still claims modality', () => {
+    // The regression the first cut of the guard shipped, found by an accessibility lens and
+    // MEASURED against the real `Modal`: Plan popup open, `/` opens search (the popup goes
+    // `stacked`/`inert`), Tab out onto the page, `Escape`. Search closes, the popup re-claims
+    // `aria-modal` — and both guards stood down, leaving the reader outside a dialog that AT is
+    // told to treat everything outside of as unavailable.
+    let survivor = null;
+    afterEach(() => { survivor?.remove(); survivor = null; });
+
+    const layerBelow = () => {
+      survivor = document.createElement('div');
+      survivor.setAttribute('role', 'dialog');
+      survivor.setAttribute('aria-modal', 'true');
+      document.body.appendChild(survivor);
+      return survivor;
+    };
+
+    it('restores INTO it, because being outside it is not a choice', async () => {
+      trigger = button('trigger');
+      elsewhere = button('elsewhere');
+      layerBelow();
+      trigger.focus();
+      const { unmount } = render(<Dialog />);
+      await settle();
+      elsewhere.focus();          // Tabbed out onto the page behind the backdrop
+
+      unmount();                  // the covering layer closes; the one below re-claims modality
+
+      expect(document.activeElement, 'orphaned outside an aria-modal layer is not a chosen place')
+        .toBe(trigger);
+    });
+
+    it('but leaves the reader alone when they are INSIDE it', async () => {
+      trigger = button('trigger');
+      const below = layerBelow();
+      const within = document.createElement('button');
+      below.appendChild(within);
+      trigger.focus();
+      const { unmount } = render(<Dialog />);
+      await settle();
+      within.focus();
+
+      unmount();
+
+      expect(document.activeElement, 'their position is coherent — leave it').toBe(within);
+    });
+
+    it('⚠️ and arm C still holds: nothing claiming modality means nothing to be stranded outside', async () => {
+      // The map drilldown's panels are `role="dialog"` WITHOUT `aria-modal`, deliberately. So when
+      // the four-day sheet closes over them nothing claims modality and the reader keeps their
+      // place — which is the whole of arm C, and what the narrowing had to preserve.
+      trigger = button('trigger');
+      elsewhere = button('elsewhere');
+      const panel = document.createElement('div');
+      panel.setAttribute('role', 'dialog');       // no aria-modal, as the real panels have none
+      document.body.appendChild(panel);
+      try {
+        trigger.focus();
+        const { unmount } = render(<Dialog />);
+        await settle();
+        elsewhere.focus();
+
+        unmount();
+
+        expect(document.activeElement, 'arm C: focus must stay where the reader put it')
+          .toBe(elsewhere);
+      } finally {
+        panel.remove();
+      }
+    });
+  });
+
   it('⚠️ treats the document ROOT as nowhere too, not as a choice', () => {
-    // `Modal`'s own copy of this guard records this as MEASURED in this app, not hypothetical:
-    // "`WindowFirstShell`'s tab-select records `activeElement` landing on the document root after
-    // the overlay's map hatch". jsdom will not put focus on `<html>` unaided, so the fixture makes
-    // it focusable — synthetic in HOW focus gets there, real in what is then asserted. Without the
+    // ⚠️ The evidence that this state is reachable is BORROWED, and an earlier version of this
+    // comment did not say so. `Modal`'s copy of the guard records `activeElement` landing on the
+    // document root after `WindowFirstShell`'s tab-select and the overlay's map hatch — a different
+    // mechanism from this hook's cleanup, and nothing establishes it is reachable HERE. The clause
+    // is kept because treating the root as "nowhere" cannot swallow a reader's own choice, and
+    // pinned because it otherwise survives every other case in this file. jsdom will not focus
+    // `<html>` unaided, so the fixture makes it focusable: synthetic in how focus gets there, real
+    // in what is then asserted. Without the
     // `documentElement` clause the guard reads the root as a deliberate choice and skips a restore
     // the reader is owed; that mutant survived every other case in this file.
     trigger = button('trigger');

@@ -1226,13 +1226,18 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   node, or a subtree containing focus, puts `activeElement` on `<body>` first, in jsdom (React 19
   detaches and clears the ref before passive cleanup) and in Chromium (both the focused-node and
   focused-subtree cases). So the normal close still restores, and that is pinned by test.
-  `useDialogFocus` had **no test file at all** despite fourteen consumers; it has one now, with the
+  `useDialogFocus` had **no test file at all**; it has one now, with the
   guard's three mutants killed, and both map integration cases now assert `document.activeElement`
   rather than only that the panel is still in the document. The obvious shortcut stayed unavailable
   throughout — `MapRegionPanel`'s handler is NOT redundant with the pane's, because its `onBack`
   also carries the return-focus target (`map-landing-plan.md` §4 #37, which records the rejected
   prop design and the five mutants). ⚠️ **The rest of O-20 is untouched**: the Tab-out and the phone
-  `BottomSheet` cases above still want the shell-root `inert` follow-on, and this item stays open
+  `BottomSheet` cases above are UNDECIDED rather than pending a known cure — `o20-shell-inert-plan.md`
+  §5 costs four options and puts the choice to the owner. ⚠️ It also corrects this item's own
+  framing: an `inert` guard here IS pinnable in the ordinary suite, the way item 21 pins
+  `MapHeatLayer`'s marker-pane guard by asserting the attribute lands and is cleaned up, so "the fix
+  is the follow-on" was never blocked on testability — only its EFFECT is browser-only. This item
+  stays open
   for them.
 - **O-19** Whether the reason button should keep the spec's whole-prose target (a 399-character
   accessible name) or move to caption-as-button with a four-word one (§4 #26).

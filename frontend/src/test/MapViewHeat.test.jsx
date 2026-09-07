@@ -1972,10 +1972,11 @@ describe('the window panel — this window, region by region', () => {
       screen.getByTestId('wf-win-panel'),
       'the panel must survive an Escape aimed at the sheet above it',
     ).toBeInTheDocument();
-    // ⚠️ And the reader must still be STANDING in it. Surviving is half the promise: an
-    // accessibility lens on #794 found the panel stayed while `useDialogFocus`'s restore pulled
-    // focus out onto the callout beneath (O-20 arm C). Both integration cases asserted only
-    // `toBeInTheDocument`, which is exactly the half that was already true.
+    // ⚠️ This pins that the stand-down moves no focus — NOT the O-20 arm C guard, and an earlier
+    // version of this comment claimed otherwise. Measured by a review lens: both these cases pass
+    // with `useDialogFocus`'s guard removed, because the foreign modal here is a planted `div` and
+    // no consumer of that hook unmounts on this press, so its cleanup never runs. Arm C's guard is
+    // covered in `useDialogFocus.test.jsx`, which is the level it lives at.
     expect(screen.getByTestId('wf-win-panel').contains(document.activeElement)
       || document.activeElement === screen.getByTestId('wf-win-panel'),
     'focus must stay inside the panel that survived').toBe(true);
@@ -2321,7 +2322,8 @@ describe('the region panel — one region, into the sheet that already exists', 
       screen.getByTestId('wf-reg-panel-region'),
       'the region panel must survive an Escape aimed at the sheet above it',
     ).toHaveTextContent('The Lakes');
-    // See the window panel's twin above: surviving is half the promise, standing in it is the rest.
+    // As above: this pins that the stand-down moves no focus, not the arm C guard — which lives in
+    // `useDialogFocus.test.jsx` and is not exercised by a planted `div`.
     expect(screen.getByTestId('wf-reg-panel').contains(document.activeElement)
       || document.activeElement === screen.getByTestId('wf-reg-panel'),
     'focus must stay inside the panel that survived').toBe(true);

@@ -84,7 +84,7 @@ wrong reason. ⚠️ `wf-map-tab` is therefore **no longer a pure CSS hook** —
 and moving it to an inner wrapper drops every consumer into the stand-down-for-anything fallback.
 ⚠️ **This closes the Escape and outside-press arms of O-20, not O-20.** Its other consequences — Tab-out onto
 the pane behind a sheet, and the phone `BottomSheet` that paints over one — are untouched, and the
-shell-root `inert` follow-on is still their cure. `map-landing-plan.md` §4 #37 records why deleting
+shell-root `inert` follow-on is one of four options costed in `docs/engineering/o20-shell-inert-plan.md` §5 — an open owner decision, not a settled cure. `map-landing-plan.md` §4 #37 records why deleting
 the panels' handlers was never the cheap way out: `MapRegionPanel`'s is not redundant with the
 pane's, because its `onBack` also carries the return-focus target.
 It is deliberately **not** a focus trap; `useDialogFocus` records why containment is refused

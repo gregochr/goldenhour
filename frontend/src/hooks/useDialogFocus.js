@@ -43,6 +43,13 @@ import { useEffect, useRef } from 'react';
  *
  * <h2>The container takes focus, not the first control</h2>
  *
+ * <p><b>The restore is conditional, and the docblock used to say otherwise.</b> Focus goes back to
+ * the trigger only when the reader has not moved it somewhere real in the meantime — the guard
+ * `Modal` carries on its own uncover path, mirrored here (`map-tab-v2-plan.md` O-20 arm C). This
+ * hook refuses containment, so Tabbing out is supported; a restore that fired regardless would take
+ * back with one hand what that refusal grants with the other. The cleanup's own comment carries the
+ * measurement that shows the ordinary close is unaffected.
+ *
  * <p>Focusing the dialog's own root (via {@code tabIndex={-1}}) rather than hunting for its first
  * button is what makes this safe across every render site. It works when there is nothing
  * focusable inside; it works when the content is still loading and the real controls do not exist
@@ -112,8 +119,40 @@ export default function useDialogFocus(active = true) {
       // this guard records a MEASURED case of `activeElement` landing on the document root after
       // the overlay's map hatch. Nothing focuses `<html>` deliberately, so widening it cannot
       // swallow a reader's own choice.
-      const active = document.activeElement;
-      if (active && active !== document.body && active !== document.documentElement) return;
+      // Named `focused`, not `active`: the hook's own parameter is `active`, and shadowing it
+      // inside this closure is correct only for as long as nothing here reads the prop. A review
+      // lens flagged it — the next line added to this cleanup that wants the prop would silently
+      // get the wrong binding.
+      const focused = document.activeElement;
+      const nowhere = !focused || focused === document.body || focused === document.documentElement;
+
+      // ⚠️ **"Somewhere real" is not the same as "somewhere COHERENT", and the first cut of this
+      // guard conflated them — a measured regression on the Plan tab.** `Modal`'s guard, which this
+      // mirrors, governs a dialog that STAYS OPEN through a change the reader cannot see, so
+      // leaving them where they are is right. This cleanup governs a dialog being DESTROYED, and on
+      // a stacked route that also changes which layer claims modality.
+      //
+      // <p>The route: Plan popup open, press `/` to open search — the popup goes `stacked` and
+      // `inert` — Tab out onto the page behind the backdrop (a supported move, pinned by
+      // `WindowFirstShellSheet.test.jsx`), then `Escape`. Search closes, the popup re-claims
+      // `aria-modal="true"` and drops `inert`, and with the unconditional "focus is somewhere real"
+      // test BOTH guards stood down: nothing returned the reader into the layer now claiming
+      // modality, so their next Tab walked content AT is hiding. `Modal`'s own doc names that end
+      // state as the defect its uncover fallback exists to prevent.
+      //
+      // <p>So a position only counts as the reader's own CHOICE when nothing is left claiming
+      // modality, or when they are inside the thing that is. Stranded outside one, they are not
+      // choosing — they are orphaned, and the restore is what recovers them.
+      //
+      // <p>Arm C is unaffected, and that is why the narrowing is safe rather than a revert: the map
+      // drilldown's two panels are `role="dialog"` WITHOUT `aria-modal` deliberately, so when the
+      // four-day sheet closes over them nothing claims modality, `stranded` is false, and focus
+      // stays where the reader put it.
+      if (!nowhere) {
+        const modals = Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]'));
+        const stranded = modals.length > 0 && !modals.some((m) => m.contains(focused));
+        if (!stranded) return;
+      }
 
       previous.focus();
     };
