@@ -1128,7 +1128,7 @@ released entirely, so the box is frame-driven at 374px and there is no widening 
   (`left: 8px; right: 8px; max-width: none`), so the box is a full-width 374px bar and *neither*
   334 nor 504 renders there. Any claim of identity "on all four viewports" is false by construction.
 - **At the tab's own opening framing, the widening changes nothing at all** — the placed set *and*
-  every position, on all six comparable frames. That is §4 #31's own claim, and it survives.
+  every position, at all twelve comparable states. That is §4 #31's own claim, and it survives.
 
   ⚠️ **Getting that answer took three corrections, and two earlier cuts of this section reported
   "one chip moves" purely as an artefact of them.** The camera is Leaflet's: it centres on the
@@ -1141,9 +1141,12 @@ released entirely, so the box is frame-driven at 374px and there is no widening 
   `latLngBounds` signature without checking which `latLngBounds` the file imports. It was false, and
   it is the "grep the file you cite before you cite it" failure this project has recorded before.
 
-  Only the **28px** padding arm is measured, because it is the only reachable one: `openingBounds`
-  is non-null whenever a field exists at all, and where it is null `heatOn` is false and `MapLabels`
-  is not mounted.
+  **Both** opening arms are measured, and they are different cameras rather than one camera at two
+  paddings: 28px over the padded area bounds, and 60px over the **raw** catalogue extrema
+  (`MapView`'s own `bounds` is an unpadded `locations.map(...)`). ⚠️ An earlier cut dropped the 60px
+  arm as unreachable, which was wrong — `heat.enabled` keys on the FULL catalogue, not the scoped
+  set, so a reader whose saved reach puts every region beyond `GLANCE_MINUTES` gets an empty
+  `framed`, a null `areaBounds` and that branch, while `heatOn` stays true and `MapLabels` mounts.
 
   ⚠️ That camera is Leaflet's, not an approximation of it, and two separate corrections were needed
   to make it so. `fitBounds` centres on the **unprojection of the projected midpoint**, not on the

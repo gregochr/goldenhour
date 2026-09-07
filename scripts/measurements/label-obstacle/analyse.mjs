@@ -16,8 +16,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  ALWAYS_ON, FRONTEND, HERE, ZOOM_GRIDS, centresFor, fitBoundsCentre, latLngToPoint, loadRoster,
-  openingBounds, projector, spotsFrom,
+  ALWAYS_ON, FRAME_PAD_DEG, FRONTEND, HERE, ZOOM_GRIDS, centresFor, fitBoundsCentre,
+  latLngToPoint, loadRoster, openingBounds, projector, spotsFrom,
 } from './lib.mjs';
 
 const {
@@ -253,8 +253,8 @@ function classify(a, b, fromRects, toRects) {
  * is `heatGeometry`'s helper rather than Leaflet's, and for the false claim an earlier cut made
  * about it.
  */
-function fitZoom(w, h, pad) {
-  const b = openingBounds(SPOTS);
+function fitZoom(w, h, pad, padDeg) {
+  const b = openingBounds(SPOTS, padDeg);
   const z0 = 10;
   const nw = latLngToPoint(b.north, b.west, z0);
   const se = latLngToPoint(b.south, b.east, z0);
@@ -269,14 +269,26 @@ console.log('   `MapContainer` reads `bounds` once at construction and fits the 
 for (const fk of FRAMES) {
   const { width: w, height: h } = frameOf(fk);
   const cfg = configsFor(fk);
-  // ⚠️ 28px ONLY. `openingBounds` is non-null whenever a field exists at all, and with a non-empty
-  // roster it always does — so `boundsOptions` takes the 28px branch. The 60px branch is the
-  // no-bounds fallback, and there `heatOn` is false, so `MapLabels` is not even mounted. Measuring
-  // both doubled six reachable frames into twelve states, half of which this flow cannot produce.
-  const zooms = [fitZoom(w, h, 28)];
+  /**
+   * BOTH opening arms, each fitting its own bounds — they are different cameras, not one camera at
+   * two paddings.
+   *
+   *   · 28px over the PADDED area bounds (`heatGeometry.latLngBounds(framed, FRAME_PAD_DEG)`),
+   *     which is what `openingBounds` carries whenever the planning area is non-empty;
+   *   · 60px over the RAW catalogue extrema (`MapView`'s own `bounds`, an unpadded
+   *     `locations.map(...)`), the fallback taken when `openingBounds` is null.
+   *
+   * ⚠️ An earlier cut dropped the 60px arm as unreachable. That was wrong: `heat.enabled` keys on
+   * the FULL catalogue (`heatSpots.length > 0`), not on the scoped set, so a reader whose saved
+   * reach puts every region beyond `GLANCE_MINUTES` gets an empty `framed`, a null `areaBounds` and
+   * therefore the 60px branch — while `heatOffered`, and so `heatOn`, stay true and `MapLabels`
+   * mounts. The pool is then the selection alone at "My area", or the whole catalogue once scope is
+   * widened. Reachable either way.
+   */
+  const zooms = [[fitZoom(w, h, 28, FRAME_PAD_DEG), FRAME_PAD_DEG], [fitZoom(w, h, 60, 0), 0]];
   const comparable = wideningOn(fk);
-  for (const zoom of zooms) {
-    const { items } = itemsFor(fk, fitBoundsCentre(SPOTS, zoom), zoom);
+  for (const [zoom, padDeg] of zooms) {
+    const { items } = itemsFor(fk, fitBoundsCentre(SPOTS, zoom, padDeg), zoom);
     const counts = Object.fromEntries(
       Object.entries(cfg).map(([n, r]) => [n, run(items, w, h, r).size]),
     );
