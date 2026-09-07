@@ -23,7 +23,9 @@ import {
 const {
   chipCandidates, regionLabelItems, placeLabelPass, REGION_TINY_FRAME_WIDTH,
 } = await import(resolve(FRONTEND, 'src/utils/mapLabels.js'));
-const { seedObstacles } = await import(resolve(FRONTEND, 'src/utils/labelPlacement.js'));
+const {
+  MAP_NUDGES, mapDxOffsets, placeWithNudges, seedObstacles,
+} = await import(resolve(FRONTEND, 'src/utils/labelPlacement.js'));
 
 const boxes = JSON.parse(readFileSync(resolve(HERE, 'out/boxes.json'), 'utf8'));
 /**
@@ -470,3 +472,85 @@ console.log('   total. A label the newly-opened obstacle covers by less than hal
 console.log('   is now gone — so "covered" is not a synonym for "was invisible anyway".');
 console.log('   ⚠️ Read those per-row; summing the column across rows double-counts states, because');
 console.log('   the axes revisit the same viewports and zooms and win/win9 are one panel twice.');
+
+// ── 6. The two cures R7 rules out ────────────────────────────────────────────────────────────────
+/**
+ * ⚠️ These ran as throwaway scripts when R7 was written, and the plan quoted their numbers while
+ * the instrument could not produce them — the exact defect this whole directory exists to prevent,
+ * one level down. They are committed here so the residual's reasoning is re-runnable.
+ *
+ * Population for both: the no-drive roster, zoom grid a, the five fixed pans, every measured frame,
+ * and each of the three panels — printed below so it is never inferred.
+ */
+console.log('\n══ 6. The two cures R7 rules out ══\n');
+{
+  SPOTS = SPOTS_BY_DRIVE.none;
+  const PANELS = [['wf-land', 'land'], ['wf-win-panel', 'win'], ['wf-reg-panel', 'reg']];
+  let states = 0;
+  let dropped = 0;
+  let recovered = 0;
+  let seededPlaced = 0;
+  let culledPlaced = 0;
+  let relocated = 0;
+  let cullCollateral = 0;
+  for (const fk of FRAMES) {
+    const v = boxes.viewports[fk].surfaces;
+    const { width: w, height: h } = frameOf(fk);
+    const tl = v.none.obstacles['wf-map-chrome-tl'];
+    const chrome = ALWAYS_ON.map((t) => v.none.obstacles[t]).filter((r) => r && r.width > 0);
+    for (const [testid, surface] of PANELS) {
+      const panel = v[surface].obstacles[testid];
+      const withPanel = [tl, panel, ...chrome];
+      const withoutPanel = [tl, ...chrome];
+      for (const zoom of ZOOM_GRIDS.a) {
+        for (const centre of CENTRES) {
+          const { items } = itemsFor(fk, centre, zoom);
+          states += 1;
+
+          // (a) A RETRY pass after the greedy one. `placeLabelPass` only ever grows `boxes` and
+          //     `placeWithNudges` rejects on any overlap, so a dropped item must fail against every
+          //     later superset. This is a proof; the run is corroboration.
+          const placed = run(items, w, h, withPanel);
+          const obs = seed(withPanel);
+          const finalBoxes = [...obs, ...placed.values()];
+          for (const it of items) {
+            if (placed.has(it.key)) continue;
+            dropped += 1;
+            const box = placeWithNudges(
+              { x: it.x, y: it.y }, { w: it.w, h: it.h }, finalBoxes, w, h,
+              { dy: MAP_NUDGES, dx: mapDxOffsets },
+            );
+            if (box) recovered += 1;
+          }
+
+          // (b) PLACE-THEN-CULL: place as if the panel were not there, then drop whatever it
+          //     covers. Collateral-free by construction — the question is what it costs in labels
+          //     that seeding would have RELOCATED rather than lost.
+          const bare = run(items, w, h, withoutPanel);
+          const panelRect = {
+            x: panel.left, y: panel.top, w: panel.width, h: panel.height,
+          };
+          let kept = 0;
+          for (const [, b] of bare) if (!hits(b, panelRect)) kept += 1;
+          seededPlaced += placed.size;
+          culledPlaced += kept;
+          for (const [k, b] of placed) {
+            const before = bare.get(k);
+            if (before && (before.x !== b.x || before.y !== b.y)) relocated += 1;
+          }
+          for (const [k, b] of bare) {
+            if (placed.has(k) || hits(b, panelRect)) continue;
+            cullCollateral += 1;
+          }
+        }
+      }
+    }
+  }
+  console.log(`   population: ${states} states — no-drive roster x grid a x 5 fixed pans x ${FRAMES.length} frames x 3 panels\n`);
+  console.log(`   (a) retry after the greedy pass: ${recovered} of ${dropped} drops recovered`);
+  console.log('       → nothing, and by construction: `boxes` only grows, `placeWithNudges` rejects');
+  console.log('         on any overlap, so a drop must fail against every later superset.\n');
+  console.log(`   (b) place-then-cull vs seeding: ${culledPlaced} labels kept vs ${seededPlaced} when seeded`);
+  console.log(`       collateral it avoids: ${cullCollateral}   labels seeding RELOCATES instead: ${relocated}`);
+  console.log(`       → seeding relocates ${(relocated / Math.max(1, cullCollateral)).toFixed(1)}x more labels than culling avoids losing.`);
+}

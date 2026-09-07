@@ -1031,9 +1031,9 @@ will otherwise re-discover and file as new.
 | R2 | One region name clips at **320px** in the region panel | L6 | Same cause, same cure — R1 and R2 close together or not at all. |
 | R3 | The drilldown overlaps `.wf-map-chrome-bl` (the Legend chip) at **≤430px** | L5, re-measured L6 | The panel is 1150 and the chrome 1100, so it paints *over* rather than being covered — ordinary behaviour for an open panel, and the chip is reachable the moment it closes. |
 | R4 | `5 ★` carries a 5px flex gap between the number and the glyph | L6 | `.wf-win-panel-best` is `inline-flex; gap: 5px` and the window panel shares it, so fixing one level only would make the two disagree. Pre-existing to L6. |
-| R5 | The label-placement obstacle grew **334→504px** with the control, and three panels joined it | L2, L4–L6; **re-measured 2026-09-07** | ✅ **CLOSED — §4 #31's licence holds.** At the tab's own opening framing the widening changes nothing at all: the placed set and every position, at every comparable state of the **28px** camera — the only opening camera that carries labels (F1 says why the 60px fallback cannot). Two qualifications #31 did not carry: it is **not one change** (`max-width` clamps the control, so production widened 334→504 on wide frames and 334→480 at 788px, and below 640px there is no widening to license), and away from that framing it is not free. ⚠️ **The panels are a different matter and are now residual R7.** §4b.1 has the findings, `scripts/measurements/label-obstacle/` the instrument. ⚠️ **Read §4b.1's findings, not its counts** — the counts moved on all seven review rounds, every time because the instrument got more faithful, never because the app changed. Re-run it rather than cite them. |
+| R5 | The label-placement obstacle grew **334→504px** with the control, and three panels joined it | L2, L4–L6; **re-measured 2026-09-07** | ✅ **CLOSED — §4 #31's licence holds.** At the tab's own opening framing the widening changes nothing at all: the placed set and every position, over the six opening states the instrument runs (the 28px camera, whole-roster no-postcode fixture, no selection). ⚠️ Six states, not the opening flow: saved reach, an away origin, a selection, home, rings and the 60px fallback are all untested and unclaimed — F1 lists them. Two qualifications #31 did not carry: it is **not one change** (`max-width` clamps the control, so production widened 334→504 on wide frames and 334→480 at 788px, and below 640px there is no widening to license), and away from that framing it is not free. ⚠️ **The panels are a different matter and are now residual R7.** §4b.1 has the findings, `scripts/measurements/label-obstacle/` the instrument. ⚠️ **Read §4b.1's findings, not its counts** — the counts moved on all seven review rounds, every time because the instrument got more faithful, never because the app changed. Re-run it rather than cite them. |
 | R6 | Both drilldown panels answer `Escape` behind a foreign modal | L6 | ✅ **CLOSED 2026-09-07**, and it was never only the two panels — eight Escape rules and the pointer channel now read one predicate. §4 #37 carries the fix, the rejected prop design and the two wrong counts. |
-| R7 | ⚠️ **Seeding the drilldown panels as label obstacles drops labels that had clear air** | raised 2026-09-07 by R5's re-measurement | A panel does not merely hide what is under it: the greedy pass reshuffles around it and loses labels that were visible elsewhere, real destinations among them. It worsens with contention and with region count — though that last is a panel-height effect measured against one roster, not a claim that production costs more overall (§4b.1 F2). ⚠️ **Two cures are ruled out by measurement, not argument.** A retry pass after the greedy one recovers nothing *by construction* — `placeLabelPass` only grows its `boxes` list and `placeWithNudges` rejects on any overlap, so an item that failed early fails against every later superset (driven anyway: 0 of 7,081). And *not* seeding the panels is worse: it puts labels under an opaque plate, the defect that put them in `OBSTACLE_SELECTOR` at L5. A third option — place, then cull what the panel covers — is collateral-free but relocates ~20× fewer labels. A real cure is re-ordered or non-greedy assignment, which is a phase, not a patch. §4b.1 F2 has it in full. |
+| R7 | ⚠️ **Seeding the drilldown panels as label obstacles drops labels that had clear air** | raised 2026-09-07 by R5's re-measurement | A panel does not merely hide what is under it: the greedy pass reshuffles around it and loses labels that were visible elsewhere, real destinations among them. It worsens with contention and with region count — though that last is a panel-height effect measured against one roster, not a claim that production costs more overall (§4b.1 F2). ⚠️ **Two cures are ruled out by measurement, not argument.** A retry pass after the greedy one recovers nothing *by construction* — `placeLabelPass` only grows its `boxes` list and `placeWithNudges` rejects on any overlap, so an item that failed early fails against every later superset (the instrument drives it anyway: **0 of 7,148** over 840 states). And *not* seeding the panels is worse: it puts labels under an opaque plate, the defect that put them in `OBSTACLE_SELECTOR` at L5. A third option — place, then cull what the panel covers — is collateral-free, but seeding **relocates ~60× more labels than culling avoids losing** (`analyse.mjs` §6 emits both with their population). A real cure is re-ordered or non-greedy assignment, which is a phase, not a patch. §4b.1 F2 has it in full. |
 
 #### §4b.1 — R5 re-measured: the label-obstacle licence at 504px, and the three panels
 
@@ -1109,12 +1109,17 @@ unchanging set of conclusions. Treat the counts as what this instrument produced
 
 ###### F1 — §4 #31's licence holds, and holds exactly where it was claimed
 
-At the tab's own opening framing the widening changes **nothing at all** — the placed set and every
-label's position, at every comparable state. That is precisely what #31 asserted, and it survives a
-far harder test than the two views it was granted on.
+Over the six opening states the instrument runs, the widening changes **nothing at all** — the
+placed set and every label's position. That is what #31 asserted, tested harder than the two views
+it was granted on.
 
-⚠️ Measured at the **28px** camera, over the padded area bounds, because that is the only opening
-camera with labels in it. The 60px fallback is genuinely reachable — a reader whose saved reach puts
+⚠️ **Six states, not "the opening flow".** They are the 28px camera, the whole-roster no-postcode
+fixture, no selection. Untested and therefore unclaimed: saved reach, an away origin, a selected
+location, the home marker and the reach rings — and the 60px fallback, which *does* carry labels
+(a selection and its region label), just not enough of them to answer this question.
+
+⚠️ Measured at the **28px** camera, over the padded area bounds. The 60px fallback is genuinely
+reachable — a reader whose saved reach puts
 every region beyond `GLANCE_MINUTES` gets an empty planning area, a null `areaBounds` and that
 branch, with `MapLabels` still mounted — but in exactly that state `scopedVisibleLocations` filters
 through an empty `heat.areaSpots`, leaving at most the appended selection, and the reader cannot
@@ -1143,10 +1148,11 @@ note that this roster is denser in chips than production, which pushes the other
 ⚠️ Two cures are ruled out by measurement, not by argument. A retry pass after the greedy one
 recovers nothing **by construction** — `placeLabelPass` only grows its `boxes` list and
 `placeWithNudges` rejects on any overlap, so an item that failed early must fail against every later
-superset (driven anyway: 0 of 7,081). And *not* seeding the panels is worse: it puts labels under an
+superset (the instrument drives it anyway: **0 of 7,148** over 840 states). And *not* seeding the panels is worse: it puts labels under an
 opaque plate, the defect that put them in `OBSTACLE_SELECTOR` at L5. A third option — place, then
-cull what the panel covers — is collateral-free but relocates roughly twenty times fewer labels. A
-real cure is re-ordered or non-greedy assignment, which is a phase.
+cull what the panel covers — is collateral-free, but seeding **relocates roughly sixty times more
+labels than culling avoids losing** (`analyse.mjs` §6 emits both, with their population). A real
+cure is re-ordered or non-greedy assignment, which is a phase.
 
 ###### F3 — the escape ladder is small, asymmetric, and width is the harsher axis
 
@@ -1168,7 +1174,8 @@ reads.
 
 `chipCandidates` sorts on rating, then tide, then **drive time** — and whether drive times exist at
 all (they do not for a reader with no postcode) reorders the greedy pass and moves every count in
-this section. The same sensitivity is why an added obstacle has non-local effects, and why F2 is a
+the *collateral sweep*, which is the only part that varies it. The magnitude and escape-ladder
+sections both pin the no-drive roster, so nothing here says what drive times would do to those. The same sensitivity is why an added obstacle has non-local effects, and why F2 is a
 cost rather than a bug.
 
 ---
@@ -1193,8 +1200,10 @@ so those ranges are a single configuration's, not cross-cell extrema.
 
 ⚠️ **The clearance column is the honest qualifier** — many lost labels sat within a few pixels of the
 panel's edge, which is a genuine loss but a much weaker example than one well out in open map.
-Roughly 2% of the drops counted as *covered* were under half covered: visible labels, now gone, so
-"covered" is not a synonym for "was invisible anyway". At the phone's own opening framing on the
+A minority of the drops counted as *covered* were under half covered — visible labels, now gone, so
+"covered" is not a synonym for "was invisible anyway". ⚠️ Deliberately not a global percentage:
+`analyse.mjs` emits that count per sweep row and warns that summing the column double-counts states,
+since the axes revisit views and `win`/`win9` measure one panel twice. Read it per row. At the phone's own opening framing on the
 shorter frame, `wf-reg-panel` and a nine-region `wf-win-panel` each leave **no labels at all**.
 
 ⚠️ And the measured "after" is not immediate: `MapLabels.jsx` records that opening or closing a panel
@@ -1214,8 +1223,9 @@ list rather than importing it, places only the home label, and whose drop hides 
 itself. The shell chrome above the frame is a 0–175px band rather than a measurement. The landing
 card is mounted in its shortest form. Ratings, tide alignment and drive times are deterministic
 synthetic values; they steer `chipCandidates`' ordering and the chip's own width, and both arms of
-every comparison see identical ones. The roster is the dev seed — denser than production in chips,
-**thinner in regions**, which understates the window panel.
+every comparison see identical ones. The roster is the dev seed — denser than production in chips
+and thinner in regions. ⚠️ Those pull in opposite directions, so this says nothing about whether a
+production roster costs more or less overall; see F2.
 
 ---
 
