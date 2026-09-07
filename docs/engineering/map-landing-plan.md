@@ -859,16 +859,17 @@ should challenge these **in review**, not silently "fix" them in code.
    occur. ⚠️ **If these ever become separate PRs, amend L5's commit instead.** The same edit removed
    the entry's promise of "an em dash" on night rows, which §4 #27 had already established cannot
    render.
-37. **Both panels' own `Escape` handlers operate behind a foreign modal, and L7 records rather than
-   fixes it.** `MapView.handleMapPaneKeyDown` stands down while a foreign `[role="dialog"][aria-modal]`
+37. **Both panels' own `Escape` handlers operated behind a foreign modal. ⚠️ FIXED 2026-09-07 —
+   this entry is kept as the record of the defect, of the one design that did not work, and of the two counts that were wrong.** `MapView.handleMapPaneKeyDown` stands down while a foreign `[role="dialog"][aria-modal]`
    is open — its own doc calls the rule absolute — but `MapWindowPanel` and `MapRegionPanel` each
-   carry a subtree `onKeyDown` that does not, and theirs fires first. So with the four-day sheet open
-   over the map, one `Escape` reaching a panel steps it back or closes it *behind* the sheet.
+   carried a subtree `onKeyDown` that did not, and theirs fired first. So with the four-day sheet
+   open over the map, one `Escape` reaching a panel stepped it back or closed it *behind* the sheet.
    Measured by a review lens at both levels. ⚠️ **The state needs a precondition worth stating**: every
    route into the sheet closes the drilldown on the way (`handleOpenLocationSheet`'s
    `if (windowPanelOpen) setOpenMapMenu(null)`), so a panel can only be *behind* the sheet if it was
-   opened after it — by Tabbing out of a non-trapping modal onto the pill. ⚠️ **Not fixed, on
-   `map-tab-v2-plan.md` O-20's own stated posture**: it is unreachable without that Tab-out, it is the
+   opened after it — by Tabbing out of a non-trapping modal onto the pill. ⚠️ **That posture was held until 2026-09-07 and is now SUPERSEDED** — it framed the fix as "two
+   more per-route guards", and what shipped is the opposite: one shared predicate that all eight of
+   the tab's Escape rules read. The reasoning below was sound as far as it went, and it under-counted: it is unreachable without that Tab-out, it is the
    third direction the same double-answer already arrives from (the phone `BottomSheet` case is
    recorded there), and O-20 says in as many words that the fix is the shell-root `inert` follow-on
    rather than a further per-route guard — which two more guards here would be. ⚠️ **The tempting
@@ -880,6 +881,47 @@ should challenge these **in review**, not silently "fix" them in code.
    the reader came from, and the pane's region branch does not. Deleting it would reinstate the
    `<body>`-focus defect this increment fixed four times. A fact-check lens caught the claim.
    Recorded on O-20 as well, so it is found from either end.
+   ⚠️ **THE FIX, 2026-09-07 — one design rejected, two counts corrected.** `foreignModalOver` moved
+   from `MapView`'s module scope into `utils/mapForeignModal.js` — the panels cannot import it from
+   `MapView` without a cycle — and **all eight** of this tab's Escape rules consult it, plus the
+   POINTER channel in `useOutsideDismiss`. ⚠️ **The first cut fixed only the two panels and wrote
+   "four rules" into six files.** Two review lenses counted eight independently, and one showed
+   `WindowControl` sits on the very route that reaches the panels — the reader Tabs out of the sheet
+   onto the pill — so two-of-eight left the defect live one control earlier. `useOutsideDismiss` was
+   the same defect on the POINTER: a press inside the sheet dismissed these surfaces invisibly
+   behind it. That is the opposite
+   of the fifth per-route guard O-20 warned against — nine surfaces reading one predicate, not nine
+   copies of one rule. ⚠️ **An earlier wording of this paragraph quoted the predicate's old doc as
+   saying it was extracted "because two Escape rules consult it and they must never disagree". That
+   sentence lived in the `MapView` JSDoc THIS WORK DELETED**, so the quotation cited a source it had
+   removed, and a review lens found it — the same defect L3's review recorded when a quotation was
+   attributed to a plan section that never contained it. The intent behind it was real and is now
+   stated plainly in `utils/mapForeignModal.js` instead, with the true count.
+
+   **Design 1, rejected: a required `foreignModalOver` prop from `MapView`.** Mutation testing
+   killed it. With either mount unwired, the prop was `undefined`, `foreignModalOver()` threw inside
+   the event handler, the handler died *before* acting, and the panel stayed open — so every wiring
+   test still passed, asserting the right outcome for the wrong reason. Vitest's own
+   "Unhandled Errors … might cause false positive tests" was the tell. A crash is also a worse
+   product failure than the bug it guards.
+
+   **Design 2, shipped: each panel resolves its own pane** with `closest('.wf-map-tab')`, the node
+   `mapPaneRef` points at. No prop, no wiring to forget, no crash mode; an unresolvable pane stands
+   down, because not locating your own container is not evidence that nothing is over you.
+
+   ⚠️ **A fixture derived from the thing it tests proves nothing**, and the first
+   `mapForeignModal.test.js` did exactly that: it built its pane element from
+   `MAP_PANE_SELECTOR.replace('.', '')`, so a mutated selector moved the fixture with it and the
+   mutant survived all 225 tests. The class is a literal now, with `MAP_PANE_SELECTOR`'s value
+   asserted separately. Five mutants, all killed: the stand-down dropped from each panel, the
+   `preventDefault` moved above it, and the selector broken.
+
+   ⚠️ **Only the panels' arm of O-20 is closed.** Tab-out onto the pane behind a sheet, and the
+   phone `BottomSheet` painting over one, are untouched; the shell-root `inert` follow-on remains
+   their cure. And the reason deletion was never the cheap way out still stands: `MapRegionPanel`'s
+   handler is not redundant with the pane's, because its `onBack` also carries the return-focus
+   target.
+
 38. **The pill's verdict is gated on `served`, not on `kind` — a cross-phase defect the per-phase
    reviews could not see, found by the cross-vendor (Codex) review on [#792].** `buildEvVerdicts` was
    written at L1; `served` was added to the EV row at L4. Nothing re-read the older function, so it
@@ -990,7 +1032,7 @@ will otherwise re-discover and file as new.
 | R3 | The drilldown overlaps `.wf-map-chrome-bl` (the Legend chip) at **≤430px** | L5, re-measured L6 | The panel is 1150 and the chrome 1100, so it paints *over* rather than being covered — ordinary behaviour for an open panel, and the chip is reachable the moment it closes. |
 | R4 | `5 ★` carries a 5px flex gap between the number and the glyph | L6 | `.wf-win-panel-best` is `inline-flex; gap: 5px` and the window panel shares it, so fixing one level only would make the two disagree. Pre-existing to L6. |
 | R5 | The label-placement obstacle grew **334→504px** with the control | L2 | `map-tab-v2-plan.md` §4 #31 licensed the previous widening *by measuring that no label moved*; that measurement was not re-run at 504px. ⚠️ The licence was spent at a size it never measured — re-run it before trusting the citation. |
-| R6 | Both drilldown panels answer `Escape` behind a foreign modal | L6 | §4 #37 in full. Left on `map-tab-v2-plan.md` O-20's stated posture; the obvious shortcut is unavailable. |
+| R6 | Both drilldown panels answer `Escape` behind a foreign modal | L6 | ✅ **CLOSED 2026-09-07**, and it was never only the two panels — eight Escape rules and the pointer channel now read one predicate. §4 #37 carries the fix, the rejected prop design and the two wrong counts. |
 
 ---
 

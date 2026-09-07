@@ -65,13 +65,28 @@ two consequences and why `inert` cannot simply be added). Two per-route guards w
 the peek: `MapView`'s own Escape rule stands down while a foreign `aria-modal` dialog is open (one
 press used to close the sheet AND deselect the location), and the map pane warms the sheet's lazy
 chunk on mount, because a `Suspense fallback={null}` window is a window in which no dialog exists
-for that guard to find. ⚠️ **That stand-down is on the PANE handler, and the map-landing
-increment's two drilldown panels each carry their own subtree `onKeyDown` that does not have it**
-— theirs fires first, so an `Escape` reaching a panel operates it behind the sheet. Reachable only
-by Tabbing out of the non-trapping modal onto the pill (every route into the sheet closes the
-drilldown on the way in), and left unfixed on `map-tab-v2-plan.md` O-20's stated posture that the
-cure is the shell-root `inert` follow-on rather than a further per-route guard —
-`map-landing-plan.md` §4 #37 records it and why the obvious shortcut is unavailable.
+for that guard to find. ⚠️ **That stand-down used to be on the PANE handler alone**, so
+an `Escape` reaching one of the six other surfaces on this tab operated it behind the sheet. **FIXED
+2026-09-07**, and the shape of the fix is the point: `foreignModalOver` moved out of `MapView`'s
+module scope into `utils/mapForeignModal.js` (the components that need it cannot import from
+`MapView` without a cycle), and **all eight Escape rules across six components now read that one
+predicate** — the pane handler, the landing card's document listener, the drilldown's two panels,
+`WindowControl`, `FiltersPopover`, `RegionsJump` and `MapLegendPanel` — as does the POINTER channel
+in `useOutsideDismiss`, whose outside-press rule dismissed those surfaces behind an open sheet in
+exactly the same way. ⚠️ **The first cut fixed only the two panels and claimed "four rules".** Two
+review lenses counted eight, and one showed `WindowControl` sits on the very route that reaches the
+panels — a keyboard reader gets to the drilldown by Tabbing out of the non-trapping sheet onto the
+pill — so fixing two of eight left the defect live one control earlier. Each surface resolves its
+own pane with `closest('.wf-map-tab')` rather than taking a prop: a required prop was built first
+and mutation testing killed it, because an unwired mount made the predicate throw inside the
+handler, the handler died before acting, the panel stayed open, and every wiring test passed for the
+wrong reason. ⚠️ `wf-map-tab` is therefore **no longer a pure CSS hook** — it is `MAP_PANE_SELECTOR`,
+and moving it to an inner wrapper drops every consumer into the stand-down-for-anything fallback.
+⚠️ **This closes the Escape and outside-press arms of O-20, not O-20.** Its other consequences — Tab-out onto
+the pane behind a sheet, and the phone `BottomSheet` that paints over one — are untouched, and the
+shell-root `inert` follow-on is still their cure. `map-landing-plan.md` §4 #37 records why deleting
+the panels' handlers was never the cheap way out: `MapRegionPanel`'s is not redundant with the
+pane's, because its `onBack` also carries the return-focus target.
 It is deliberately **not** a focus trap; `useDialogFocus` records why containment is refused
 app-wide, and Tab still leaves the topmost dialog and cycles to the rest of the page.
 `docs/engineering/plan-matrix-plan.md` is the port plan and its §4 records every place the design

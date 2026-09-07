@@ -1158,16 +1158,44 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   before `useDialogFocus` can capture it) is destroyed by the fix.
   ⚠️ **The map-landing increment added two more panels under that peek, and they are `role="dialog"`
   WITHOUT `aria-modal` deliberately** (`map-landing-plan.md` §3 L5/L6): the drilldown's two levels.
-  Neither carries a foreign-modal stand-down of its own — `MapView`'s pane-level key handler does,
-  and the panels' subtree handlers do not — so with the four-day sheet open over the map, one
-  `Escape` reaching a panel's own handler still operates it behind the sheet. That is the same
-  double-answer this item already records for a phone `BottomSheet`, from a third direction, and it
-  is likewise unreachable without first Tabbing out of a modal — every route into the sheet closes
-  the drilldown on the way in, so a panel is only behind it if it was opened afterwards. Recorded
-  rather than fixed for the reason above: the fix is the shell-root follow-on, not a fifth per-route
-  guard. ⚠️ And the obvious shortcut is unavailable: `MapRegionPanel`'s handler is NOT redundant with
-  the pane's, because its `onBack` also carries the return-focus target (`map-landing-plan.md`
-  §4 #37).
+  Neither carried a foreign-modal stand-down of its own — `MapView`'s pane-level key handler did,
+  and the panels' subtree handlers did not — so with the four-day sheet open over the map, one
+  `Escape` reaching a panel's own handler operated it behind the sheet: the same double-answer this
+  item records for a phone `BottomSheet`, from a third direction, and likewise unreachable without
+  first Tabbing out of a modal.
+
+  ⚠️ **FIXED 2026-09-07, and not with a fifth guard — but it was never only the two panels.**
+  `foreignModalOver` moved to `utils/mapForeignModal.js`, and **all eight** of this tab's Escape
+  rules read it: the pane handler, the landing card's document listener, the drilldown's two panels,
+  `WindowControl`, `FiltersPopover`, `RegionsJump` and `MapLegendPanel`. So does the POINTER channel
+  in `useOutsideDismiss`, which dismissed the same surfaces invisibly on a press inside the sheet —
+  the identical defect on the other input device, and unrecorded until this fix. ⚠️ The first cut
+  corrected only the two panels and asserted "four rules"; two review lenses counted eight, and one
+  showed `WindowControl` is on the very route that reaches the panels, so two-of-eight left it live
+  one control earlier. Each surface resolves its own pane with `closest('.wf-map-tab')`, so there is
+  no prop to forget — ⚠️ which makes that class `MAP_PANE_SELECTOR` rather than the "pure CSS
+  scoping hook" `MapView` used to call it.
+
+  ⚠️ **A CONSEQUENCE OF THE FIX, recorded not fixed: the panel survives the press, but focus does
+  not stay in it.** Found by the accessibility lens on that same commit. `useDialogFocus`'s unmount
+  cleanup restores focus to whatever it captured, with no orphaned-focus guard — unlike `Modal`'s
+  own uncover-restore, which refuses to act unless focus is on `<body>`, on the stated reasoning
+  that "a reader who Tabbed out into the page while the top layer was up has chosen where they are".
+  So: sheet open, Tab out, open the drilldown (which focuses its own root), press `Escape`. The
+  panel now correctly stands down and the sheet closes — and the cleanup then moves focus out of the
+  still-open panel onto the callout button beneath it. The reader's next Tab starts from the wrong
+  place, and their next `Escape` is answered by the pane rather than by the panel they are standing
+  in. This is NEW: before the fix the panel closed on that press, so moving focus out of it was
+  coherent. It is the same family as the focus-to-`<body>` defect this increment fixed five times.
+  Not fixed here because `useDialogFocus` is app-wide and its ruling is cited by the Plan tab's own
+  dialogs — the cure is the same shell-root `inert` follow-on this item already names, which needs
+  `lastInside` mirrored onto the pane anyway. No test covers it: the two integration cases assert
+  only that the panel is still in the document, never `document.activeElement`. The obvious shortcut stayed unavailable
+  throughout — `MapRegionPanel`'s handler is NOT redundant with the pane's, because its `onBack`
+  also carries the return-focus target (`map-landing-plan.md` §4 #37, which records the rejected
+  prop design and the five mutants). ⚠️ **The rest of O-20 is untouched**: the Tab-out and the phone
+  `BottomSheet` cases above still want the shell-root `inert` follow-on, and this item stays open
+  for them.
 - **O-19** Whether the reason button should keep the spec's whole-prose target (a 399-character
   accessible name) or move to caption-as-button with a four-word one (§4 #26).
 - **O-16** The exit for §4 #15 / CLAUDE.md's Backend-heavy fifth class: a served, RATED

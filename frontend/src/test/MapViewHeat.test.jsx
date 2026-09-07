@@ -1897,6 +1897,83 @@ describe('the window panel — this window, region by region', () => {
     fireEvent.click(screen.getByTestId('wf-win-more'));
   };
 
+  let drilldownForeignModal = null;
+  afterEach(() => {
+    drilldownForeignModal?.remove();
+    drilldownForeignModal = null;
+  });
+
+  /**
+   * ⚠️ **The WIRING, which the panel's own unit tests structurally cannot prove.**
+   *
+   * <p>The panel's own file mounts it with no `.wf-map-tab` ancestor, so
+   * `foreignModalOverPaneOf` falls into its null branch there and the pane is never really
+   * resolved. This drives the real component tree — the panel genuinely inside the pane — with a
+   * real foreign modal in the document, and presses `Escape` where a reader would: on the panel,
+   * which is where the subtree handler lives.
+   *
+   * <p>⚠️ An earlier cut threaded a required `foreignModalOver` PROP from `MapView` and this test
+   * was written to prove the wiring. Mutation testing killed that design: with either mount
+   * unwired the predicate threw inside the handler, the handler died before acting, and the panel
+   * stayed open — so this test passed for the wrong reason. The panels resolve their own pane now,
+   * and there is no wiring left to forget.
+   */
+  /**
+   * ⚠️ **The mutant-killing half.** A modal in `document.body` cannot distinguish "resolved the pane
+   * and found the modal outside it" from "failed to resolve the pane and fell into the null branch",
+   * because both stand down — breaking `MAP_PANE_SELECTOR` left every test green through two
+   * rounds of this review. A modal INSIDE the pane separates them: containment says it is the
+   * pane's own business, so the panel must still act. With the selector broken, `closest` returns
+   * null, the null branch stands down, and this fails.
+   */
+  it('⚠️ a modal the pane renders INLINE does not stand the drilldown down', async () => {
+    await renderMap(panelProps());
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    fireEvent.click(screen.getByTestId('wf-win-more'));
+    const pane = screen.getByTestId('wf-map-pane');
+    drilldownForeignModal = document.createElement('div');
+    drilldownForeignModal.setAttribute('role', 'dialog');
+    drilldownForeignModal.setAttribute('aria-modal', 'true');
+    pane.appendChild(drilldownForeignModal);
+
+    fireEvent.keyDown(screen.getByTestId('wf-win-panel'), { key: 'Escape' });
+
+    expect(screen.queryByTestId('wf-win-panel'), 'an inline modal is the pane\u2019s own business')
+      .toBeNull();
+  });
+
+  it('⚠️ Escape does not operate the drilldown behind a foreign modal — the real wiring', async () => {
+    await renderMap(panelProps());
+    fireEvent.click(screen.getByTestId('wf-win-pill'));
+    fireEvent.click(screen.getByTestId('wf-win-more'));
+    expect(screen.getByTestId('wf-win-panel')).toBeInTheDocument();
+
+    // Torn down in this describe's `afterEach`, not on the last line — an assertion that threw
+    // first would leave an `[aria-modal]` in the body and silently stand every later Escape test
+    // in this file down. That trap is recorded on the landing card's own copy of this fixture.
+    drilldownForeignModal = document.createElement('div');
+    drilldownForeignModal.setAttribute('role', 'dialog');
+    drilldownForeignModal.setAttribute('aria-modal', 'true');
+    document.body.appendChild(drilldownForeignModal);
+
+    // ⚠️ The discriminator. Planting the modal in `document.body` alone does NOT prove the pane was
+    // resolved: a broken `MAP_PANE_SELECTOR` returns null, the null branch stands down for any modal
+    // anywhere, and the assertion below passes either way — both review lenses said so. These two
+    // lines are what make this a wiring test: the panel must resolve the pane by
+    // `MAP_PANE_SELECTOR`, and that pane must be the element carrying the ref and the key handler.
+    expect(
+      screen.getByTestId('wf-win-panel').closest('.wf-map-tab'),
+      'the panel must sit inside MAP_PANE_SELECTOR, on the ref-bearing element',
+    ).toBe(screen.getByTestId('wf-map-pane'));
+
+    fireEvent.keyDown(screen.getByTestId('wf-win-panel'), { key: 'Escape' });
+
+    expect(
+      screen.getByTestId('wf-win-panel'),
+      'the panel must survive an Escape aimed at the sheet above it',
+    ).toBeInTheDocument();
+  });
+
   it('opens from the pill menu\'s own footer row, and closes the menu on the way', async () => {
     await renderMap(panelProps());
     fireEvent.click(screen.getByTestId('wf-win-pill'));
@@ -2165,6 +2242,80 @@ describe('the region panel — one region, into the sheet that already exists', 
     expect(row).toBeTruthy();
     fireEvent.click(row);
   };
+
+  let regionForeignModal = null;
+  afterEach(() => {
+    regionForeignModal?.remove();
+    regionForeignModal = null;
+  });
+
+  /**
+   * ⚠️ **The second half of the wiring, and MUTATION TESTING is the only reason it exists.**
+   *
+   * <p>Two levels need two proofs. While the fix still used a prop, unwiring THIS mount left all
+   * 203 tests green — the describe above covers whichever level it happens to open, and it opens
+   * the other one. The prop is gone, but the asymmetry it exposed is not: a change to one panel's
+   * handler is invisible to a test that only ever reaches the other.
+   *
+   * <p>This level matters more than the one above it, because the cheap fix is unavailable here:
+   * `MapRegionPanel`'s handler is NOT redundant with the pane's — its `onBack` also carries the
+   * return-focus target (`map-landing-plan.md` §4 #37) — so it cannot simply be deleted.
+   */
+  /**
+   * ⚠️ **The mutant-killing half.** A modal in `document.body` cannot distinguish "resolved the pane
+   * and found the modal outside it" from "failed to resolve the pane and fell into the null branch",
+   * because both stand down — breaking `MAP_PANE_SELECTOR` left every test green through two
+   * rounds of this review. A modal INSIDE the pane separates them: containment says it is the
+   * pane's own business, so the panel must still act. With the selector broken, `closest` returns
+   * null, the null branch stands down, and this fails.
+   */
+  it('⚠️ a modal the pane renders INLINE does not stand the drilldown down', async () => {
+    await renderMap(panelProps());
+    openPanel();
+    openRegion('The Lakes');
+    const pane = screen.getByTestId('wf-map-pane');
+    regionForeignModal = document.createElement('div');
+    regionForeignModal.setAttribute('role', 'dialog');
+    regionForeignModal.setAttribute('aria-modal', 'true');
+    pane.appendChild(regionForeignModal);
+
+    fireEvent.keyDown(screen.getByTestId('wf-reg-panel'), { key: 'Escape' });
+
+    expect(screen.queryByTestId('wf-reg-panel'), 'an inline modal is the pane\u2019s own business')
+      .toBeNull();
+    expect(screen.getByTestId('wf-win-panel')).toBeInTheDocument();
+  });
+
+  it('⚠️ Escape does not step the region panel back behind a foreign modal — the real wiring', async () => {
+    await renderMap(panelProps());
+    openPanel();
+    openRegion('The Lakes');
+    expect(screen.getByTestId('wf-reg-panel-region')).toHaveTextContent('The Lakes');
+
+    regionForeignModal = document.createElement('div');
+    regionForeignModal.setAttribute('role', 'dialog');
+    regionForeignModal.setAttribute('aria-modal', 'true');
+    document.body.appendChild(regionForeignModal);
+
+    // ⚠️ The discriminator. Planting the modal in `document.body` alone does NOT prove the pane was
+    // resolved: a broken `MAP_PANE_SELECTOR` returns null, the null branch stands down for any modal
+    // anywhere, and the assertion below passes either way — both review lenses said so. These two
+    // lines are what make this a wiring test: the panel must resolve the pane by
+    // `MAP_PANE_SELECTOR`, and that pane must be the element carrying the ref and the key handler.
+    expect(
+      screen.getByTestId('wf-reg-panel').closest('.wf-map-tab'),
+      'the panel must sit inside MAP_PANE_SELECTOR, on the ref-bearing element',
+    ).toBe(screen.getByTestId('wf-map-pane'));
+
+    fireEvent.keyDown(screen.getByTestId('wf-reg-panel'), { key: 'Escape' });
+
+    // Still on the region level: neither stepped back to the window panel nor closed.
+    expect(
+      screen.getByTestId('wf-reg-panel-region'),
+      'the region panel must survive an Escape aimed at the sheet above it',
+    ).toHaveTextContent('The Lakes');
+    expect(screen.queryByTestId('wf-win-panel')).toBeNull();
+  });
 
   it('opens from a window-panel row, and REPLACES the level above rather than stacking on it', async () => {
     await renderMap(panelProps());
