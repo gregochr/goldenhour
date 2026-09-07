@@ -113,7 +113,7 @@ const LOCATIONS = [
 ];
 
 function renderMap() {
-  return render(<MapView locations={LOCATIONS} date={TODAY} autoEventType={null} />);
+  return render(<MapView locations={LOCATIONS} date={TODAY} forecastDates={[TODAY]} autoEventType={null} />);
 }
 
 // map-tab-v2-plan.md §3 P7 moved the Subject chips off the tab's old always-rendered drawer and
@@ -174,7 +174,7 @@ describe('MapView Subject filter — the standalone handoffFilterAction effect o
   // (map-tab-v2-plan.md §3 P7) needs its own proof rather than inheriting that file's.
   it('opens the filters popover with the type filter already applied', () => {
     render(
-      <MapView locations={LOCATIONS} date={TODAY} autoEventType={null} handoffFilterAction="SEASCAPE" />,
+      <MapView locations={LOCATIONS} date={TODAY} forecastDates={[TODAY]} autoEventType={null} handoffFilterAction="SEASCAPE" />,
     );
     expect(screen.getByTestId('wf-filters-chip')).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByTestId('wf-filters-panel')).toBeInTheDocument();

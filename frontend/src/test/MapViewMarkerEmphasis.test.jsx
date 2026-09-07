@@ -90,6 +90,7 @@ function renderMap({ target, other }, overrides = {}) {
     <MapView
       locations={[makeLocation(target, 54.8), makeLocation(other, 55.0)]}
       date={TODAY}
+      forecastDates={[TODAY]}
       autoEventType={null}
       {...overrides}
     />,
@@ -137,6 +138,7 @@ describe('MapView marker emphasis className', () => {
       <MapView
         locations={locations}
         date={TODAY}
+        forecastDates={[TODAY]}
         autoEventType={null}
         emphasiseLocationName={`${n.target} (filtered out)`}
       />,

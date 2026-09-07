@@ -14,7 +14,7 @@ import { setMode, getMode, resolveMode } from './utils/scoreRamp.js';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { AuroraStatusProvider } from './context/AuroraStatusContext.jsx';
 import { useAuroraStatus } from './hooks/useAuroraStatus.js';
-import { ukDateStr, ukDateStrOffset, resolveAuroraNight } from './utils/mapDates.js';
+import { ukDateStr, ukDateStrOffset, resolveAuroraNight, resolveMapDate } from './utils/mapDates.js';
 import { useForecasts } from './hooks/useForecasts.js';
 import { useHealthStatus } from './hooks/useHealthStatus.js';
 import { useRunNotifications } from './hooks/useRunNotifications.js';
@@ -246,13 +246,21 @@ function AppInner() {
   const { status: auroraStatus } = useAuroraStatus();
   const auroraNightStr = resolveAuroraNight(auroraStatus);
 
-  const defaultDate = allDates.find((d) => d >= todayStr) ?? allDates[allDates.length - 1] ?? null;
-  const autoDate = autoSelection?.date ?? null;
-  const effectiveDate = (selectedDate && allDates.includes(selectedDate))
-    ? selectedDate
-    : (autoDate && allDates.includes(autoDate))
-      ? autoDate
-      : defaultDate;
+  // ⚠️ Never a PAST date on ANY branch — `resolveMapDate` owns the whole precedence and records
+  // what the old shape cost, the same way `normalizeMapTrigger` owns the handoff branch selection
+  // below rather than sitting inline here. It replaced a three-branch expression whose "not past"
+  // rule sat on the LAST branch only, guarded on the other two by a bare `allDates.includes(...)`
+  // that a past date passes — and `autoDate` is frozen at mount, so a tab left open across UK
+  // midnight took the stale branch every time and never reached the rule.
+  const effectiveDate = resolveMapDate({
+    selectedDate,
+    autoDate: autoSelection?.date ?? null,
+    allDates,
+    todayStr,
+    // The one "past" date an explicit choice may name — see `handleAuroraViewOnMap` below, which
+    // sets it deliberately, and `resolveMapDate`'s own note on the regression this prevents.
+    nightDate: auroraNightStr,
+  });
 
   /**
    * Called from any Plan-tab recommendation (Best Bet, Hot Topic, region row, grid cell, strip
