@@ -1097,6 +1097,15 @@ form below 430px).
 
 ##### Result 1 — the widening's licence holds
 
+⚠️ **The opening framing measured here is the no-postcode one, and that is a real limit on the
+claim.** Production scopes the opening bounds through `scopeSpots(heatSpots, reachById, origin)`, so
+a reader with saved drive times, or planning from an away origin, opens on a *narrowed* set and
+therefore a different centre and zoom. With no postcode and no away origin — the configuration this
+whole measurement runs in, since it excludes the home marker and the reach rings —
+`WindowFirstMapPane`'s own comment records that "`reachById` is empty, every region is
+unmeasured-and-therefore-in, and `framed` is the whole catalogue", which is what the harness fits.
+The tally below covers that case only.
+
 The widening costs at worst **4** collateral drops across 210 comparable state-pairs — roughly a
 sixth of what the panels cost, so it is the cheap change §4 #31 took it for. ⚠️ But it is **not
 free**, and #31's "identical" is true only of the opening framing.
@@ -1218,7 +1227,8 @@ fixed in a measurement PR — and this section's Result 1 would need re-running 
 `wf-jump-menu`, `wf-filters-panel`, `wf-legend-panel`, `colour-scale-notice`,
 `viewline-upsell-chip` — nor is `LEAFLET_CORNER_SELECTOR`, Leaflet's own bottom-right zoom/home
 corner, which the host seeds from a second root every pass. The home marker and reach rings are
-excluded, so **nothing here speaks to `PinsLayer`** — which holds a *duplicate* of the selector
+excluded — which also fixes *which* opening camera Result 1 tests: the unscoped, no-postcode one
+(see its own note). So **nothing here speaks to `PinsLayer`** — which holds a *duplicate* of the selector
 list rather than importing it, places only the home label, and whose drop hides the home dot
 itself. The shell chrome above the frame is a 0–175px band rather than a measurement. The landing
 card is mounted in its shortest form. Ratings, tide alignment and drive times are deterministic

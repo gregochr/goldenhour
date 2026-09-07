@@ -230,7 +230,14 @@ function classify(a, b, fromRects, toRects) {
  * is several pixels, which is material to the edge-sensitive collisions this harness exists for.
  * For EPSG3857 `getScaleZoom(scale, z0) = z0 + log2(scale)`, so it closes in one expression.
  *
- * ⚠️ The bounds are the roster's raw extrema, deliberately. `WindowFirstMapPane` calls
+ * ⚠️ The bounds are the WHOLE roster's, which is the no-postcode case. Production narrows them
+ * through `scopeSpots(heatSpots, reachById, origin)`, so a reader with saved drive times or an away
+ * origin opens on a different camera — but with no postcode `reachById` is empty, every region
+ * counts as in-area, and `framed` is the whole catalogue (`WindowFirstMapPane`'s own comment says
+ * so). Since this harness excludes the home marker and the reach rings anyway, that is the
+ * configuration it is measuring throughout; §4b.1's Result 1 says so.
+ *
+ * ⚠️ And they are the roster's RAW extrema, deliberately. `WindowFirstMapPane` calls
  * `latLngBounds(framed, FRAME_PAD_DEG)` — but Leaflet reads that second argument as `corner2`, and
  * a bare number there resolves to an empty `LatLngBounds` whose `extend` is a no-op. `FRAME_PAD_DEG`
  * therefore expands nothing in production, so fitting the raw extrema is what the app does. That is
