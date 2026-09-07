@@ -60,7 +60,7 @@ const LABEL_PANE_Z = 650;
  *
  * <p>⚠️ <b>An earlier revision of this note said the opposite</b> — that an obstacle swallowing a
  * label's anchor could never be escaped, and that height rather than width spent the budget. Both
- * are false: 29 of 58 labels whose anchor sits inside the padded 504px box are placed anyway.
+ * are false: 30 of 62 labels whose anchor sits inside the padded 504px box are placed anyway.
  *
  * <p><b>What the panels actually cost</b> (`map-landing-plan.md` §4b.1, re-measured 2026-09-07 with
  * the instrument now committed at `scripts/measurements/label-obstacle/`): seeding them drops

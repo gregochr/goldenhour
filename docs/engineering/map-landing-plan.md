@@ -1089,8 +1089,8 @@ means the labels stay missing after the panel closes, until they move the map.
 
 ⚠️ **The rule the first attempt recorded here was false, and backwards.** It said an obstacle that
 swallows a label's anchor cannot be escaped, and that height rather than width spends the budget.
-Measured against the real ladder, **29 of 58** labels whose anchor sits inside the padded 504px box
-are placed anyway.
+Measured against the real ladder, **30 of 62** labels whose anchor sits inside the padded 504px box
+are placed anyway — about half.
 
 What is true, derived from the constants and checked against behaviour — margins from the seeded
 (5px-padded) rect's edge:
