@@ -270,22 +270,25 @@ for (const fk of FRAMES) {
   const { width: w, height: h } = frameOf(fk);
   const cfg = configsFor(fk);
   /**
-   * BOTH opening arms, each fitting its own bounds — they are different cameras, not one camera at
-   * two paddings.
+   * The 28px arm only — over the PADDED area bounds
+   * (`heatGeometry.latLngBounds(framed, FRAME_PAD_DEG)`), which is what `openingBounds` carries.
    *
-   *   · 28px over the PADDED area bounds (`heatGeometry.latLngBounds(framed, FRAME_PAD_DEG)`),
-   *     which is what `openingBounds` carries whenever the planning area is non-empty;
-   *   · 60px over the RAW catalogue extrema (`MapView`'s own `bounds`, an unpadded
-   *     `locations.map(...)`), the fallback taken when `openingBounds` is null.
+   * ⚠️ The 60px fallback is REACHABLE but cannot bear on this question, and both of my earlier
+   * treatments of it were wrong. First I dropped it as unreachable — false: `heat.enabled` keys on
+   * the full catalogue, so a reader whose saved reach puts every region beyond `GLANCE_MINUTES`
+   * gets an empty `framed`, a null `areaBounds` and that branch while `MapLabels` still mounts.
+   * Then I restored it fitting all 210 spots — also false, because in exactly that state the label
+   * pool is empty: `scopedVisibleLocations` filters `visibleLocations` through the empty
+   * `heat.areaSpots`, leaving at most the appended selection. Nor can the reader widen scope out of
+   * it — `hasHome` requires `framed.length > 0`, so `FiltersPopover` withholds the scope segment
+   * entirely.
    *
-   * ⚠️ An earlier cut dropped the 60px arm as unreachable. That was wrong: `heat.enabled` keys on
-   * the FULL catalogue (`heatSpots.length > 0`), not on the scoped set, so a reader whose saved
-   * reach puts every region beyond `GLANCE_MINUTES` gets an empty `framed`, a null `areaBounds` and
-   * therefore the 60px branch — while `heatOffered`, and so `heatOn`, stay true and `MapLabels`
-   * mounts. The pool is then the selection alone at "My area", or the whole catalogue once scope is
-   * widened. Reachable either way.
+   * So that camera carries at most one chip and its region label. It is a real state; it simply
+   * cannot demonstrate anything about whether a wider obstacle moves a label, which is what this
+   * section asks. Measuring it over the whole roster would be a fiction, and measuring it over one
+   * chip would be a null with no content.
    */
-  const zooms = [[fitZoom(w, h, 28, FRAME_PAD_DEG), FRAME_PAD_DEG], [fitZoom(w, h, 60, 0), 0]];
+  const zooms = [[fitZoom(w, h, 28, FRAME_PAD_DEG), FRAME_PAD_DEG]];
   const comparable = wideningOn(fk);
   for (const [zoom, padDeg] of zooms) {
     const { items } = itemsFor(fk, fitBoundsCentre(SPOTS, zoom, padDeg), zoom);

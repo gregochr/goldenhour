@@ -62,14 +62,18 @@ const LABEL_PANE_Z = 650;
  * label's anchor could never be escaped, and that height rather than width spent the budget. Both
  * are false: 52 of 133 labels whose anchor sits inside the padded control box are placed anyway.
  *
- * <p><b>What the panels actually cost</b> (`map-landing-plan.md` §4b.1, re-measured 2026-09-07 with
- * the instrument now committed at `scripts/measurements/label-obstacle/`): seeding them drops
- * labels that had <em>clear air</em> — up to 25, 28 and 29 per 280 map states for
- * {@code wf-land}, {@code wf-win-panel} and {@code wf-reg-panel}, and 36 for a production-shaped
- * nine-region window panel, real destinations among them. Some sit within a few px of the panel's
- * edge; a handful per cell are more than 30px into open map. That is a real cost, recorded as
- * residual R7 — still better than not seeding them, which puts chips under an opaque plate. It
- * worsens with contention, so a fifth entry deserves a run of the harness rather than an argument.
+ * <p><b>What the panels actually cost</b> (`map-landing-plan.md` §4b.1, residual R7). Seeding a
+ * panel does not merely hide the labels beneath it: the greedy pass reshuffles around it and drops
+ * labels that had clear air elsewhere on the map, real destinations among them. It gets worse the
+ * busier the map is, and worse again with a production-shaped region count, so the dev seed
+ * understates it. Still better than not seeding them — that puts labels under an opaque plate — and
+ * the obvious cure is a proven no-op: `placeLabelPass` only grows its `boxes` list, so a retry pass
+ * after the greedy one recovers nothing by construction.
+ *
+ * <p>⚠️ <b>A fifth entry deserves a run of the harness rather than an argument</b>
+ * (`scripts/measurements/label-obstacle/`) — and read that section's FINDINGS rather than quoting
+ * its counts. Those counts moved on all seven of this PR's review rounds, every time because the
+ * instrument got more faithful, never because this code changed.
  */
 const OBSTACLE_SELECTOR = [
   '[data-testid="wf-map-chrome-tl"]',
