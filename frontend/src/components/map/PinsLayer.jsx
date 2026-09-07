@@ -29,6 +29,14 @@ const PIN_PANE_Z = 650;
  * each testid). Includes the Legend chip/panel even though neither renders in Pins mode — harmless
  * ({@code querySelectorAll} simply finds nothing — and future-proof if a later phase ever changes
  * that).
+ *
+ * <p>⚠️ <b>Adding an entry here is not free either, and this list is the copy with no measurement
+ * behind it.</b> `map-landing-plan.md` §4b.1 measured what seeding the three drilldown panels costs
+ * — labels dropped that had clear air, recorded as residual R7 — but it measured them against
+ * `MapLabels`' placement pass, not this one. This layer places exactly ONE item by collision
+ * avoidance (the home label), and a drop here hides the home marker itself rather than a name. So
+ * the numbers in §4b.1 do not transfer, and nothing has been measured for this file: extend the
+ * harness at `scripts/measurements/label-obstacle/` before relying on either answer here.
  */
 const OBSTACLE_SELECTOR = [
   '[data-testid="wf-map-chrome-tl"]',

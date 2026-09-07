@@ -8,8 +8,8 @@ The instrument behind **`docs/engineering/map-landing-plan.md` §4b.1**. It answ
 
 It exists because that question was once answered by a measurement nobody could re-run.
 `map-tab-v2-plan.md` §4 #31 licensed widening `.wf-map-chrome-tl` by measuring that no label moved;
-the obstacle then grew again and three panels joined the list, and the licence was re-used for years
-without the measurement being repeated. **Committing the instrument is the fix for that**, and it is
+the obstacle then grew again and three panels joined the list within a day, and the licence was
+carried forward without the measurement being repeated. **Committing the instrument is the fix for that**, and it is
 the point of this directory — not the particular numbers, which will age.
 
 ## Running it
@@ -64,8 +64,10 @@ Every drop is classified:
 
 1. **Tailwind silently not running.** Vite looks for a PostCSS config beside its `root`, which here
    is `harness/`. Without `css: { postcss: FRONTEND }` the page renders with a different font stack
-   and no utility classes — and it fails *plausibly*: chips measured 56–107px instead of 71–128px,
-   and every panel reported a height of 0. If a run's numbers look slightly off, suspect this first.
+   and no utility classes — and it fails *plausibly*: the widths stay in a believable range while
+   every panel reports a height of **0**, which is the reliable tell. ⚠️ Do not check a run against
+   a remembered chip-width range; that range has already moved once, when the chip markup was
+   corrected. Read the rects a run prints.
 2. **The seed script's heredoc opener ends `|| true`**, which splits on `|` into a phantom anchor.
    The roster came out 220 across 5 regions instead of 210 across 4. `lib.mjs` drops the opener line
    explicitly; a run prints the roster size it loaded so this cannot pass unnoticed again.

@@ -60,13 +60,14 @@ const LABEL_PANE_Z = 650;
  *
  * <p>⚠️ <b>An earlier revision of this note said the opposite</b> — that an obstacle swallowing a
  * label's anchor could never be escaped, and that height rather than width spent the budget. Both
- * are false: 30 of 62 labels whose anchor sits inside the padded 504px box are placed anyway.
+ * are false: 51 of 122 labels whose anchor sits inside the padded 504px box are placed anyway.
  *
  * <p><b>What the panels actually cost</b> (`map-landing-plan.md` §4b.1, re-measured 2026-09-07 with
  * the instrument now committed at `scripts/measurements/label-obstacle/`): seeding them drops
- * labels that had <em>clear air</em> — up to 8, 10 and 9 per 140 map states for
- * {@code wf-land}, {@code wf-win-panel} and {@code wf-reg-panel}, and 13 for a production-shaped
- * nine-region window panel. That is a real cost, recorded as residual R7; it is still better than
+ * labels that had <em>clear air</em> — up to 19, 24 and 21 per 280 map states for
+ * {@code wf-land}, {@code wf-win-panel} and {@code wf-reg-panel}, and 29 for a production-shaped
+ * nine-region window panel, real destinations among them. Many sit within a few px of the panel's
+ * edge; a handful per cell are more than 30px into open map. That is a real cost, recorded as residual R7; it is still better than
  * not seeding them, which puts chips under an opaque plate. It worsens with contention, so a fifth
  * entry deserves a run of the harness rather than an argument.
  */

@@ -3133,8 +3133,8 @@ button.wf-hc.also.on:hover {
        widening of it (187→334px) by measuring that no label moved. Stretching it to ~970px would
        have spent that budget without re-measuring anything. ⚠️ The 334→504px growth this rule
        permits WAS spent unmeasured for a while. It has since been re-run (map-landing-plan.md
-       §4b.1, instrument at `scripts/measurements/label-obstacle/`) and costs 0-1 labels that had
-       clear air, so the citation survives for THIS obstacle — but only for the widening, only for
+       §4b.1, instrument at `scripts/measurements/label-obstacle/`) and costs at worst 2 labels that
+       had clear air in 140 state-pairs — cheap, not free — so the citation survives for THIS obstacle — but only for the widening, only for
        `MapLabels`, and not on a phone, where neither width renders. **`PinsLayer` reads a duplicate
        of that list and was not measured at all.** Re-run the harness before widening this again;
        the same measurement found the three drilldown panels genuinely costing labels (R7).

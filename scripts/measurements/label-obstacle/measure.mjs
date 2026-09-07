@@ -15,9 +15,9 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { createServer } from 'node:http';
-import { extname, join, resolve } from 'node:path';
+import { extname, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { FRONTEND, HERE, loadRoster, spotsFrom } from './lib.mjs';
+import { FRONTEND, HERE, SHELL_CHROME_BAND, loadRoster, spotsFrom } from './lib.mjs';
 
 // Resolve the frontend's own toolchain — this harness lives outside that package on purpose (it is
 // not build surface), so it borrows rather than duplicating a dependency set.
@@ -71,7 +71,11 @@ console.error(`roster: ${roster.length} locations, ${new Set(roster.map((r) => r
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
 const server = createServer((req_, res) => {
   const p = req_.url.split('?')[0];
-  const file = join(DIST, p === '/' ? 'index.html' : p);
+  // ⚠️ Resolve, then confirm the result is still inside `DIST`. `join` alone happily walks out of
+  // it on a `..` segment, which is a path traversal even on a loopback-bound ephemeral port — and
+  // CodeQL flags it, correctly, as uncontrolled data in a path expression.
+  const file = resolve(DIST, `.${p === '/' ? '/index.html' : p}`);
+  if (file !== DIST && !file.startsWith(DIST + sep)) { res.writeHead(403); res.end(); return; }
   try {
     const body = readFileSync(file);
     res.writeHead(200, { 'Content-Type': MIME[extname(file)] || 'application/octet-stream' });
@@ -123,8 +127,25 @@ const OBSTACLE_TESTIDS = [
 ];
 
 const out = { viewports: {} };
-for (const vp of VIEWPORTS) {
-  out.viewports[vp.name] = { width: vp.width, height: vp.height, surfaces: {} };
+/**
+ * ⚠️ Every frame height is MEASURED, never derived by subtracting from a taller one.
+ *
+ * The sweep compares a full-viewport frame against one shortened by the app's masthead and tab
+ * strip. An earlier cut modelled the short case by shrinking the placer's height while reusing the
+ * TALL frame's obstacle rects — which left every bottom-anchored obstacle (`wf-map-chrome-bl`, the
+ * counts footer, the scored legend, the phone bottom bar) stranded near the old bottom edge,
+ * partly or wholly off-frame. Those cells then had LESS collision pressure than reality, in
+ * exactly the cells several worst cases came from. Measuring both heights costs one more pass and
+ * removes the modelling entirely.
+ */
+const FRAMES = VIEWPORTS.flatMap((vp) => SHELL_CHROME_BAND.map((shell) => ({
+  ...vp, shell, key: `${vp.name}@${shell}`, height: Math.max(320, vp.height - shell),
+})));
+
+for (const vp of FRAMES) {
+  out.viewports[vp.key] = {
+    name: vp.name, shell: vp.shell, width: vp.width, height: vp.height, surfaces: {},
+  };
   for (const surface of SURFACES) {
     const page = await browser.newPage({ viewport: { width: vp.width, height: vp.height } });
     const errs = [];
@@ -165,15 +186,15 @@ for (const vp of VIEWPORTS) {
       };
     }, OBSTACLE_TESTIDS);
     if (errs.length) console.error(`⚠️ [${vp.name}/${surface}] page errors:`, errs.slice(0, 3));
-    out.viewports[vp.name].surfaces[surface] = data;
+    out.viewports[vp.key].surfaces[surface] = data;
     await page.close();
   }
-  const b = out.viewports[vp.name].surfaces.none;
+  const b = out.viewports[vp.key].surfaces.none;
   const ws = b.chips.map((c) => c.w);
   console.error(
-    `${vp.name}: chips ${b.chips.length} w=${Math.min(...ws)}..${Math.max(...ws)} `
+    `${vp.key}: chips ${b.chips.length} w=${Math.min(...ws)}..${Math.max(...ws)} `
     + `h=${[...new Set(b.chips.map((c) => c.h))].join(',')}  `
-    + Object.entries(out.viewports[vp.name].surfaces)
+    + Object.entries(out.viewports[vp.key].surfaces)
       .flatMap(([s, d]) => Object.entries(d.obstacles)
         .filter(([k]) => k !== 'wf-map-chrome-tl' || s === 'none')
         .map(([k, r]) => `${k} ${Math.round(r.width)}x${Math.round(r.height)}@(${Math.round(r.left)},${Math.round(r.top)})`))

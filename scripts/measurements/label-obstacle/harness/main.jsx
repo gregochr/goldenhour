@@ -12,6 +12,12 @@
  */
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+// ⚠️ BOTH, and `fonts.js` is not optional. `index.css` declares the font FAMILIES but carries no
+// `@font-face` at all — the self-hosted faces are registered by `fonts.js`, which the app's real
+// entry point imports (`frontend/src/main.jsx`). Without it Chromium measures fallback system
+// fonts, `document.fonts.ready` cannot correct it because the real faces were never requested, and
+// every box in this measurement is a metric of the wrong typeface.
+import '../../../../frontend/src/fonts.js';
 import '../../../../frontend/src/index.css';
 import MapLandingCard from '../../../../frontend/src/components/map/MapLandingCard.jsx';
 import MapWindowPanel from '../../../../frontend/src/components/map/MapWindowPanel.jsx';
@@ -254,9 +260,15 @@ function AlwaysOnChrome() {
 function Harness() {
   const which = window.__R5_SURFACE__;
   return (
-    <div className="wf-shell">
-      <div className="wf-body wf-body--map">
-        <div className="flex flex-col flex-1 min-h-0 wf-map-tab">
+    // ⚠️ The map frame is NOT the viewport. `App.jsx` pads `<main>` by `sm:px-4` (32px total, at
+    // >=640px only) and `WindowFirstShell` wraps the pane in a block capped at `WRAP_MAX_WIDTH`
+    // (1080px). So a 1280px window yields a 1080px frame, and 1024/820 yield 992/788 — different
+    // projections and different chrome coordinates from the ones a viewport-wide frame produces.
+    <main className="wf-r5-main">
+      <div className="wf-r5-wrap">
+        <div className="wf-shell">
+          <div className="wf-body wf-body--map">
+            <div className="flex flex-col flex-1 min-h-0 wf-map-tab">
           <div
             id="r5-frame"
             style={{ position: 'relative', flex: 1, minHeight: 0, overflow: 'hidden' }}
@@ -313,10 +325,12 @@ function Harness() {
             )}
             <AlwaysOnChrome />
             <Chips />
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    </div>
+    </main>
   );
 }
 

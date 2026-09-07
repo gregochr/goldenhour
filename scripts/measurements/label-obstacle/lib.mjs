@@ -86,8 +86,18 @@ export const VIEWPORTS = [
   { name: 'phone-390', width: 390, height: 844 },
 ];
 
-/** The seven zooms swept, spanning the region-label cutoff (11.2) and the chip budget's range. */
-export const ZOOMS = [8.6, 9.2, 10.0, 10.6, 11.2, 12.0, 13.0];
+/**
+ * Zoom grids swept. TWO of them, offset from each other, because the tab sets `zoomSnap: 0` — every
+ * fractional zoom is reachable, so a single grid is a free parameter rather than a sample.
+ *
+ * ⚠️ It was load-bearing: a review found that shifting the grid by ~0.3 took the widening's worst
+ * collateral count from 1 to 4, and put a named location among the losses. Both grids span the same
+ * range and straddle `REGION_LABEL_MAX_ZOOM` (11.2) the same way.
+ */
+export const ZOOM_GRIDS = {
+  a: [8.6, 9.2, 10.0, 10.6, 11.2, 12.0, 13.0],
+  b: [8.9, 9.6, 10.3, 10.9, 11.6, 12.5, 13.5],
+};
 
 /** The five camera centres: the roster centroid, then four pans in degrees. */
 export const CENTRE_OFFSETS = [

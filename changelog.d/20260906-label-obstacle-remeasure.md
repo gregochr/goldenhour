@@ -7,16 +7,18 @@ drilldown's two panels) joined the obstacle list. Neither change re-ran the meas
 licence had been spent at sizes nobody had checked.
 
 It has now been re-run against the real placer, with the real label boxes measured in headless
-Chromium off the built stylesheet, across a 32-cell sweep. **The widening's licence survives**: going
-from 334px to 504px costs at most one label that had clear air, in every cell. Two of the original
-entry's qualifications do not survive and are now recorded — the phone was never a passing viewport,
+Chromium off the built stylesheet, over every combination of camera, selection and frame height.
+**The widening is the cheap change it was taken for** — going from 334px to 504px costs at worst
+two labels that had clear air across 140 states, an order of magnitude below the panels — but
+it is not free, and the original entry's "identical" holds only at the framing the tab opens on. Two
+of its qualifications do not survive and are now recorded: the phone was never a passing viewport,
 because below 640px neither width renders; and "every label's position" overstates what is testable,
 since a chip can step a nudge rung without anything being lost.
 
 **The three drilldown panels are a different matter, and this is the new finding.** Seeding them as
-obstacles drops labels that had clear air — up to eight, ten and nine per 140 map states, and
-thirteen for a window panel sized to a realistic region count, with real named locations among them.
-It gets worse the busier the map is. That is a genuine cost rather than a defect with a line to fix
+obstacles drops labels that had clear air — up to nineteen, twenty-four and twenty-one per 280 map
+states, and twenty-nine for a window panel sized to a realistic region count, with real destinations
+among them. It gets worse the busier the map is. That is a genuine cost rather than a defect with a line to fix
 — not seeding them is worse, since it puts labels under an opaque panel — so it is recorded as a
 residual with numbers attached rather than quietly absorbed.
 

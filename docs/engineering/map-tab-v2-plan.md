@@ -988,11 +988,14 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     control is now 504px, so that obstacle grew again, and three panels (`wf-land`,
     `wf-win-panel`, `wf-reg-panel`) later joined `OBSTACLE_SELECTOR` — none of it with a fresh
     measurement. **The licence this entry granted was spent at a size it never measured.** It has
-    now been re-run against the real placer over a 32-cell sweep, with the instrument committed at
+    now been re-run against the real placer over a 16-cell sweep, with the instrument committed at
     `scripts/measurements/label-obstacle/` so the next reader re-runs rather than re-derives;
     `map-landing-plan.md` **§4b.1** carries the method, the numbers and the limitations.
-    **The licence survives**: `334 → 504` costs 0–1 labels that had clear air, per 105 comparable
-    state-pairs, in every cell. ⚠️ Two of this entry's own qualifications do not survive, and both
+    **The licence broadly survives**: `334 → 504` costs at worst 2 labels that had clear air across
+    140 comparable state-pairs — an order of magnitude below what the three panels cost — but it is
+    **not free**, and this entry's "identical" is true only of the opening framing. ⚠️ Only two of
+    the four viewports can host the comparison at all: below 640px the bound is released, and on a
+    788px frame `max-width: calc(100% - 308px)` clamps the control to 480px. ⚠️ Two of this entry's own qualifications do not survive, and both
     are worth carrying: the **phone was never a passing viewport** (below 640px `index.css`
     releases the bound and neither width renders), and **"every label's position" overstates what
     is testable** — the durable claim is the placed SET, since a chip may step a nudge rung without
@@ -1031,11 +1034,11 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     variable 187–300px to a constant 334px. Measured at two views on the live tab, the rendered
     label set and every label's position were **identical** before and after — the band is only
     36px tall, so widening it rarely exhausts a location's candidates. ⚠️ **"Two views" is
-    load-bearing and was under-stated here.** A 32-cell re-measurement (`map-landing-plan.md`
+    load-bearing and was under-stated here.** A 16-cell re-measurement (`map-landing-plan.md`
     §4b.1) confirms the placed SET is identical at the tab's own opening framing on every
-    comparable viewport, and that the widening costs 0–1 labels that had clear air across the
-    whole sweep — but it also finds one chip stepping a nudge rung at two of those opening states.
-    The durable claim is the set, not every position. The stability cuts the other
+    comparable frame — but one chip changes position at four of those states, and across the wider
+    sweep the widening does lose labels that had clear air (at worst 2 in 140 state-pairs). The
+    durable claim is the set at the opening framing, not every position everywhere. The stability cuts the other
     way too, and in the same direction as the fix: a variable obstacle made labels appear and
     disappear as the reader stepped, which is the flicker the steppers were doing.
     Adversarial review also removed a `min-width: 0` from `.wf-win-label` that the first cut added

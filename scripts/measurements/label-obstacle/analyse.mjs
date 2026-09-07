@@ -16,8 +16,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  ALWAYS_ON, FRONTEND, HERE, SHELL_CHROME_BAND, loadRoster, spotsFrom, VIEWPORTS, ZOOMS,
-  centresFor, projector,
+  ALWAYS_ON, FRONTEND, HERE, SHELL_CHROME_BAND, loadRoster, spotsFrom, VIEWPORTS,
+  ZOOM_GRIDS, centresFor, projector,
 } from './lib.mjs';
 
 const {
@@ -26,6 +26,12 @@ const {
 const { seedObstacles } = await import(resolve(FRONTEND, 'src/utils/labelPlacement.js'));
 
 const boxes = JSON.parse(readFileSync(resolve(HERE, 'out/boxes.json'), 'utf8'));
+/**
+ * Frames are keyed `<viewport>@<shell>` and each was MEASURED at that height — see `measure.mjs`'s
+ * note on why the short case is not derived by subtracting from the tall one.
+ */
+const FRAMES = Object.keys(boxes.viewports);
+const frameOf = (k) => boxes.viewports[k].surfaces.none.frame;
 const SPOTS = spotsFrom(loadRoster());
 const CENTRES = centresFor(SPOTS);
 
@@ -36,14 +42,30 @@ const CENTRES = centresFor(SPOTS);
  * so the box is a full-width bar and NEITHER figure renders: the phone is excluded from that
  * comparison rather than reported as a passing viewport.
  */
-const PHONE_MEDIA_MAX = 639;
-const widthComparable = (vp) => boxes.viewports[vp].width > PHONE_MEDIA_MAX;
+const CONTROL_WIDTH = 504;
+
+/**
+ * Whether a frame can host the `334 → 504` comparison at all.
+ *
+ * ⚠️ Keyed on the MEASURED obstacle, never on the viewport. Below 640px `index.css` releases the
+ * bound entirely (`left: 8px; right: 8px; max-width: none`), and on a 788px frame
+ * `max-width: calc(100% - 308px)` clamps the control to 480px — so on both, a synthetic "334 vs
+ * 504" is a comparison between two widths the CSS never emits. An earlier cut tested
+ * `viewport > 639`, which excluded the phone and silently kept the tablet; two of the three
+ * collateral drops it then attributed to the widening were tablet rows.
+ */
+const widthComparable = (k) => Math.abs(
+  boxes.viewports[k].surfaces.none.obstacles['wf-map-chrome-tl'].width - CONTROL_WIDTH,
+) < 0.5;
 
 function configsFor(vpName) {
   const s = boxes.viewports[vpName].surfaces;
   const tl = s.none.obstacles['wf-map-chrome-tl'];
   // Every always-on rect, as MEASURED — never modelled. Held constant in both arms.
-  const chrome = ALWAYS_ON.map((t) => s.none.obstacles[t]).filter(Boolean);
+  // ⚠️ Drop zero-area rects. On a phone the Legend wrapper renders empty (`!isMobile`), and
+  // `seedObstacles`' 5px pad would inflate a 0x0 box into a 10x10 obstacle the app never has.
+  const chrome = ALWAYS_ON.map((t) => s.none.obstacles[t])
+    .filter((r) => r && r.width > 0 && r.height > 0);
   const at = (width) => ({ ...tl, width });
   return {
     'tl-334': [at(334), ...chrome],
@@ -65,7 +87,7 @@ function configsFor(vpName) {
  * reader zoomed into a cluster.
  */
 function denseCentres(vpName, zoom, n = 5) {
-  const v = boxes.viewports[vpName].surfaces.none.frame;
+  const v = frameOf(vpName);
   const lat = SPOTS.map((s) => s.lat);
   const lon = SPOTS.map((s) => s.lng);
   const bb = {
@@ -102,12 +124,10 @@ function denseCentres(vpName, zoom, n = 5) {
 }
 
 /** The host's own priority order, minus home and rings — see §4b.1's stated limitations. */
-function itemsFor(vpName, centre, zoom, shellChrome = 0, selectedName = null) {
+function itemsFor(vpName, centre, zoom, selectedName = null) {
   const v = boxes.viewports[vpName].surfaces.none;
   const w = v.frame.width;
-  // The app's map frame sits UNDER the masthead and tab strip; the harness's fills the viewport.
-  // `shellChrome` is the band's current end — see `SHELL_CHROME_BAND`.
-  const h = Math.max(200, v.frame.height - shellChrome);
+  const h = v.frame.height;
   const to = projector(centre, zoom, w, h);
   // Leaflet rounds both the projected point and the pixel origin, so a real anchor is integral.
   const project = (s) => { const [x, y] = to(s.lat, s.lng); return [Math.round(x), Math.round(y)]; };
@@ -135,15 +155,12 @@ function itemsFor(vpName, centre, zoom, shellChrome = 0, selectedName = null) {
 }
 
 const seed = (rects) => seedObstacles(rects, { left: 0, top: 0 }, 5);
-const w0 = (vp) => boxes.viewports[vp.name].surfaces.none.frame.width;
-const h0 = (vp) => boxes.viewports[vp.name].surfaces.none.frame.height;
 const run = (items, w, h, rects) => placeLabelPass(items, w, h, seed(rects));
 const hits = (b, o) => b.x < o.x + o.w && b.x + b.w > o.x && b.y < o.y + o.h && b.y + b.h > o.y;
 
 /** Classify one placed-set pair. */
 function classify(a, b, fromRects, toRects) {
   const fromObs = seed(fromRects);
-  const toObs = seed(toRects);
   /**
    * ⚠️ "Covered" is tested against the obstacle's REAL rect, not the seeded one. `seedObstacles`
    * inflates by 5px on every side, so classifying against the padded box would score a label
@@ -155,12 +172,19 @@ function classify(a, b, fromRects, toRects) {
    * is now gone. `coveredFrac` is reported so a reader can judge rather than take "covered" as a
    * synonym for "invisible anyway".
    */
-  const realAdded = toRects.filter((r) => !fromRects.includes(r))
-    .map((r) => ({ x: r.left, y: r.top, w: r.width, h: r.height }));
-  const grew = fromRects.filter((r) => toRects.every((t) => t !== r));
-  for (const g of grew) {
-    const t = toRects.find((r) => r.left === g.left && r.top === g.top && r.width !== g.width);
-    if (t) realAdded.push({ x: g.left + g.width, y: g.top, w: t.width - g.width, h: g.height });
+  // ⚠️ For an obstacle that GREW, only the strip it gained is new geometry. Taking the whole new
+  // rect inflates `coveredFrac` with area that was already there in both arms, which understates
+  // Result 3's under-half-covered count for that pair.
+  const grewFrom = new Map(fromRects.map((r) => [`${r.left},${r.top}`, r]));
+  const realAdded = [];
+  for (const r of toRects) {
+    if (fromRects.includes(r)) continue;
+    const g = grewFrom.get(`${r.left},${r.top}`);
+    if (g && r.width > g.width && r.height === g.height) {
+      realAdded.push({ x: g.left + g.width, y: g.top, w: r.width - g.width, h: g.height });
+    } else {
+      realAdded.push({ x: r.left, y: r.top, w: r.width, h: r.height });
+    }
   }
   const coveredFrac = (b) => {
     let best = 0;
@@ -182,8 +206,11 @@ function classify(a, b, fromRects, toRects) {
       continue;
     }
     const frac = coveredFrac(boxA);
+    const gap = Math.min(...realAdded.map((o) => Math.max(
+      0, o.x - (boxA.x + boxA.w), boxA.x - (o.x + o.w), o.y - (boxA.y + boxA.h), boxA.y - (o.y + o.h),
+    )), Infinity);
     (addedCovers(boxA) ? out.covered : out.collateral)
-      .push({ key: k, at: [boxA.x, boxA.y], frac });
+      .push({ key: k, at: [boxA.x, boxA.y], frac, gap });
   }
   return out;
 }
@@ -218,13 +245,13 @@ const boundsCentre = () => {
 console.log('══ 1. The opening framing — what a reader actually lands on ══');
 console.log('   `MapContainer` reads `bounds` once at construction and fits the planning area.\n');
 const centre0 = boundsCentre();
-for (const vp of VIEWPORTS) {
-  const { width: w, height: h } = boxes.viewports[vp.name].surfaces.none.frame;
-  const cfg = configsFor(vp.name);
+for (const fk of FRAMES) {
+  const { width: w, height: h } = frameOf(fk);
+  const cfg = configsFor(fk);
   const zooms = [fitZoom(w, h, 60), fitZoom(w, h, 28)];
-  const comparable = widthComparable(vp.name);
+  const comparable = widthComparable(fk);
   for (const zoom of zooms) {
-    const { items } = itemsFor(vp.name, centre0, zoom);
+    const { items } = itemsFor(fk, centre0, zoom);
     const counts = Object.fromEntries(
       Object.entries(cfg).map(([n, r]) => [n, run(items, w, h, r).size]),
     );
@@ -235,7 +262,7 @@ for (const vp of VIEWPORTS) {
         : '334→504 CHANGED')
       : '334→504 n/a (phone: the box is a full-width bar, neither width renders)';
     console.log(
-      `   ${vp.name.padEnd(13)} z${String(zoom).padEnd(5)} ${String(items.length).padStart(2)} offered  `
+      `   ${fk.padEnd(17)} z${String(zoom).padEnd(5)} ${String(items.length).padStart(2)} offered  `
       + Object.entries(counts).map(([n, c]) => `${n}=${c}`).join(' ') + `   ${widthLine}`,
     );
   }
@@ -254,37 +281,40 @@ const PAIRS = [
  * anything that does not is reported as sensitive, with the worst case named.
  */
 const AXES = [];
-for (const centres of ['pans', 'dense']) {
-  for (const shell of SHELL_CHROME_BAND) {
-    for (const selected of [false, true]) AXES.push({ centres, shell, selected });
+for (const grid of Object.keys(ZOOM_GRIDS)) {
+  for (const centres of ['pans', 'dense']) {
+    for (const selected of [false, true]) AXES.push({ grid, centres, selected });
   }
 }
 
-console.log('\n══ 2. The sweep — every cell of centres x frame-height x selection ══\n');
+console.log('\n══ 2. The sweep — centres x selection, over every measured frame ══');
+console.log('   (each viewport measured at BOTH frame heights: full, and minus the app shell)\n');
 const worst = {};
 for (const [from, to] of PAIRS) worst[`${from} → ${to}`] = { collateral: -1 };
 
 for (const axis of AXES) {
-  const label = `${axis.centres.padEnd(5)} shell:${String(axis.shell).padStart(3)} sel:${axis.selected ? 'y' : 'n'}`;
+  const label = `${axis.centres.padEnd(5)} sel:${axis.selected ? 'y' : 'n'}`;
   for (const [from, to] of PAIRS) {
     const key = `${from} → ${to}`;
     const t = {
-      states: 0, changed: 0, covered: 0, collateral: 0, moved: 0, partial: 0, at: [],
+      states: 0, changed: 0, covered: 0, collateral: 0, moved: 0, partial: 0, at: [], gap: [],
     };
-    for (const vp of VIEWPORTS) {
-      if (from === 'tl-334' && !widthComparable(vp.name)) continue;
-      const cfg = configsFor(vp.name);
-      for (const zoom of ZOOMS) {
-        const centres = axis.centres === 'pans' ? CENTRES : denseCentres(vp.name, zoom);
+    for (const fk of FRAMES) {
+      if (from === 'tl-334' && !widthComparable(fk)) continue;
+      const cfg = configsFor(fk);
+      const { width: w, height: h } = frameOf(fk);
+      for (const zoom of ZOOM_GRIDS[axis.grid]) {
+        const centres = axis.centres === 'pans' ? CENTRES : denseCentres(fk, zoom);
         for (const centre of centres) {
-          const { items, w, h } = itemsFor(
-            vp.name, centre, zoom, axis.shell,
-            axis.selected ? (SPOTS.find((sp) => {
-              const pr = projector(centre, zoom, w0(vp), h0(vp) - axis.shell);
+          let sel = null;
+          if (axis.selected) {
+            const pr = projector(centre, zoom, w, h);
+            sel = SPOTS.find((sp) => {
               const [x, y] = pr(sp.lat, sp.lng);
-              return x > 0 && x < w0(vp) && y > 0 && y < h0(vp) - axis.shell;
-            })?.name ?? null) : null,
-          );
+              return x > 0 && x < w && y > 0 && y < h;
+            })?.name ?? null;
+          }
+          const { items } = itemsFor(fk, centre, zoom, sel);
           const a = run(items, w, h, cfg[from]);
           const b = run(items, w, h, cfg[to]);
           const r = classify(a, b, cfg[from], cfg[to]);
@@ -295,7 +325,8 @@ for (const axis of AXES) {
           t.moved += r.moved.length;
           t.partial += r.covered.filter((c) => c.frac < 0.5).length;
           for (const c of r.collateral) {
-            t.at.push(`${c.key} @(${Math.round(c.at[0])},${Math.round(c.at[1])}) ${vp.name}/z${zoom}`);
+            t.at.push(`${c.key} @(${Math.round(c.at[0])},${Math.round(c.at[1])}) ${fk}/z${zoom}`);
+            t.gap.push(c.gap);
           }
         }
       }
@@ -304,7 +335,7 @@ for (const axis of AXES) {
     console.log(
       `   ${label} | ${key.padEnd(18)} ${String(t.states).padStart(4)} pairs · ${String(t.changed).padStart(3)} changed `
       + `· drops ${String(t.covered).padStart(4)} covered / ${String(t.collateral).padStart(2)} COLLATERAL `
-      + `· ${String(t.moved).padStart(3)} moved · ${String(t.partial).padStart(2)} under-half-covered`,
+      + `· ${String(t.moved).padStart(3)} moved · ${String(t.partial).padStart(3)} under-half-covered`,
     );
   }
   console.log('');
@@ -313,26 +344,81 @@ for (const axis of AXES) {
 console.log('══ Worst case per pair, across every cell ══\n');
 for (const [pair, t] of Object.entries(worst)) {
   console.log(`   ${pair.padEnd(18)} ${t.collateral} collateral  (at ${t.axis})`);
-  for (const a of [...new Set(t.at)].slice(0, 4)) console.log(`        └ ${a}`);
+  // Distinct labels, named ones first — "a scatter point" and "a real destination" are different
+  // costs, and the sliced sample used to hide which this was.
+  // ⚠️ How far each lost label actually sat from the panel. "Had clear air" is a claim about
+  // distance, and a label 2px outside an opaque plate is a much weaker example than one 100px out.
+  const far = t.gap.filter((g) => g > 30).length;
+  const halo = t.gap.filter((g) => g <= 5).length;
+  console.log(`        └ clearance from the panel: ${halo} within 5px, ${far} beyond 30px`);
+  const distinct = [...new Set(t.at.map((x) => x.split(' @')[0]))];
+  const named = distinct.filter((k) => !/^chip:Scatter /.test(k));
+  console.log(`        └ ${distinct.length} distinct labels; ${named.length} named: ${named.map((k) => k.replace('chip:', '')).join(', ') || '—'}`);
 }
 
 // ── 3. Magnitude ─────────────────────────────────────────────────────────────────────────────────
 console.log('\n══ 3. Magnitude — how much of the placed set each panel removes ══\n');
-for (const vp of VIEWPORTS) {
-  const cfg = configsFor(vp.name);
-  const { width: w, height: h } = boxes.viewports[vp.name].surfaces.none.frame;
+for (const fk of FRAMES) {
+  const cfg = configsFor(fk);
+  const { width: w, height: h } = frameOf(fk);
   const tot = {};
   for (const n of Object.keys(cfg)) tot[n] = 0;
   for (const centre of CENTRES) {
-    for (const zoom of ZOOMS) {
-      const { items } = itemsFor(vp.name, centre, zoom);
+    for (const zoom of ZOOM_GRIDS.a) {
+      const { items } = itemsFor(fk, centre, zoom);
       for (const [n, rects] of Object.entries(cfg)) tot[n] += run(items, w, h, rects).size;
     }
   }
   const base = tot['tl-504'];
   console.log(
-    `   ${vp.name.padEnd(13)} tl-504=${String(base).padStart(3)}  `
+    `   ${fk.padEnd(17)} tl-504=${String(base).padStart(3)}  `
     + ['tl+land', 'tl+win', 'tl+reg']
       .map((n) => `${n} ${(((tot[n] - base) / base) * 100).toFixed(1)}%`).join('  '),
   );
 }
+
+// ── 4. The escape ladder ─────────────────────────────────────────────────────────────────────────
+/**
+ * How often an anchor INSIDE the seeded top-left obstacle still finds a rung.
+ *
+ * ⚠️ Emitted by the instrument rather than derived by hand, and reported with its population —
+ * an earlier cut quoted this figure from one cell of the sweep as though it were general, and
+ * quoted it from a superseded run at that.
+ */
+console.log('\n══ 4. Escape ladder — anchors inside the seeded top-left obstacle ══\n');
+{
+  let total = 0;
+  let escaped = 0;
+  for (const fk of FRAMES) {
+    const v = boxes.viewports[fk].surfaces.none;
+    const { width: w, height: h } = v.frame;
+    const cfg = configsFor(fk);
+    const obs = seed(cfg['tl-504']);
+    const tl = obs[0];
+    const within = (x, y) => x >= tl.x && x <= tl.x + tl.w && y >= tl.y && y <= tl.y + tl.h;
+    for (const zoom of ZOOM_GRIDS.a) {
+      for (const centre of CENTRES) {
+        const { items } = itemsFor(fk, centre, zoom);
+        const out = run(items, w, h, cfg['tl-504']);
+        for (const it of items) {
+          if (!within(it.x, it.y)) continue;
+          total += 1;
+          if (out.has(it.key)) escaped += 1;
+        }
+      }
+    }
+  }
+  console.log(
+    `   ${escaped} of ${total} placed anyway (${((escaped / total) * 100).toFixed(0)}%)`
+    + `  — population: every frame x grid a x the five fixed pans`,
+  );
+  console.log('   So "an obstacle that swallows a label\'s anchor cannot be escaped" is false.');
+}
+
+// ── 5. Coverage is a fraction, not a boolean ─────────────────────────────────────────────────────
+console.log('\n══ 5. Coverage is a fraction ══\n');
+console.log('   Each sweep row above reports its own "N under-half-covered" against its own covered');
+console.log('   total. A label the newly-opened obstacle covers by less than half was visible, and');
+console.log('   is now gone — so "covered" is not a synonym for "was invisible anyway".');
+console.log('   ⚠️ Read those per-row; summing the column across rows double-counts states, because');
+console.log('   the axes revisit the same viewports and zooms and win/win9 are one panel twice.');
