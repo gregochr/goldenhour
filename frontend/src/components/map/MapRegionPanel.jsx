@@ -70,11 +70,11 @@ export default function MapRegionPanel({
     // `stopPropagation`), so with the four-day sheet open the pane's stood down correctly and
     // THIS one operated the panel behind it.
     //
-    // ⚠️ It consults `foreignModalOver`, the module-scope predicate in `MapView` — not a local
-    // re-derivation. That helper's own doc says it was extracted "because two Escape rules consult
-    // it and they must never disagree"; there are four now, and the two that did not read it were
-    // the two that got this wrong. A copy here would be the fifth rule O-20 warns against; reading
-    // the same predicate, against the same pane root, is the opposite of one.
+    // ⚠️ It consults the shared predicate in `utils/mapForeignModal.js` — not a local
+    // re-derivation. Eight Escape rules on this tab read it, plus the pointer channel in
+    // `useOutsideDismiss`; a copy here would be a ninth thing to keep in step, where reading the one
+    // predicate is the opposite of that. `foreignModalOverPaneOf` resolves this pane with
+    // `closest(MAP_PANE_SELECTOR)` — the same node `MapView`'s own rules pass.
     if (foreignModalOverPaneOf(rootRef.current)) return;
     e.preventDefault();
     onBack();

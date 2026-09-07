@@ -3548,11 +3548,23 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   return (
     <div
       ref={mapPaneRef}
-      // `wf-map-tab` is a pure CSS scoping hook (map-tab-v2-plan.md §3 P12) — the phone media
+      // ⚠️ `wf-map-tab` IS NO LONGER A PURE CSS HOOK, and this comment said it was until the §4 #37
+      // fix. It is `MAP_PANE_SELECTOR` (`utils/mapForeignModal.js`): every Escape rule on this tab,
+      // and `useOutsideDismiss`, resolve this pane by `closest('.wf-map-tab')` from their own root.
+      // Moving the class to an inner wrapper for a CSS reason — which the paragraph below actively
+      // invites — makes `closest` return null in all of them, and their fallback is to stand down
+      // for ANY modal anywhere: the one state where the pane and panel handlers disagree.
+      // `mapForeignModal.test.js` pins the class ONTO THIS ELEMENT, not merely the constant's value.
+      // Its original job stands too — the phone media
       // query needs to hide Leaflet's OWN zoom control (a real `.leaflet-control-zoom` DOM node
       // this component never renders itself, so there is no React-owned element to gate) on the
       // TAB only, never the overlay, whose own mount never carries this class.
       className={overlayMode ? 'flex flex-col' : 'flex flex-col flex-1 min-h-0 wf-map-tab'}
+      // Present on the TAB only, like the class and the handler beside it — the overlay is not a
+      // pane any of this reasons about. It exists so a test can pin that `MAP_PANE_SELECTOR`'s
+      // class sits on THIS element, the one carrying `mapPaneRef` and the pane's key handler,
+      // rather than merely existing somewhere in the tree.
+      data-testid={overlayMode ? undefined : 'wf-map-pane'}
       onKeyDown={overlayMode ? undefined : handleMapPaneKeyDown}
     >
       {overlayMode && (

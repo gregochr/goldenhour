@@ -1,20 +1,31 @@
 /**
- * Whether a dialog from OUTSIDE the map pane is currently over it — the four-day sheet the callout
- * opens, `UserSettingsModal`, a search overlay.
+ * The Map tab's foreign-modal predicate — "is a dialog from OUTSIDE this pane currently over it":
+ * the four-day sheet the callout opens, `UserSettingsModal`, a search overlay.
  *
- * <p>⚠️ **One predicate, because the Escape rules on this tab must never disagree.** There are four
- * of them now: `MapView`'s pane-level `handleMapPaneKeyDown`, the landing card's own document
- * listener, and the drilldown's two panels. This lived in `MapView`'s module scope while only the
- * first two consulted it, and the two that did not read it were the two that got it wrong — one
- * `Escape` reaching a panel operated it *behind* an open sheet (`map-landing-plan.md` §4 #37,
- * `map-tab-v2-plan.md` O-20). It moved here rather than being exported from `MapView`, which the
- * panels cannot import without a cycle.
+ * <p>⚠️ **One predicate, because the dismissal rules on this tab must never disagree.** There are
+ * **eight** Escape rules across six components — `MapView`'s pane-level `handleMapPaneKeyDown` and
+ * the landing card's document listener, the drilldown's two panels, and `WindowControl`,
+ * `FiltersPopover`, `RegionsJump` and `MapLegendPanel` — plus the POINTER channel in
+ * `useOutsideDismiss`. All of them read this.
+ *
+ * <p>⚠️ **The first cut of this fix said "four" and corrected only the two panels.** Two review
+ * lenses counted eight independently, and one pointed out that `WindowControl` is on the very route
+ * by which the panels are reachable behind a sheet: a keyboard reader gets to the drilldown by
+ * Tabbing out of the non-trapping sheet onto the pill, so the pill's own dropdown answered the same
+ * press first. Fixing two of eight would have left the defect live one control earlier
+ * (`map-landing-plan.md` §4 #37, `map-tab-v2-plan.md` O-20).
+ *
+ * <p>It lives here rather than in `MapView`'s module scope, where it began: the components that
+ * need it cannot import from `MapView` without a cycle.
  *
  * <p><b>Containment, not "is any modal open"</b>: a dialog the pane renders INLINE is its own
- * business. Today nothing inside the pane carries `aria-modal` at all — `FiltersPopover`, the
- * landing card and both drilldown panels each say in their own docs that they deliberately do not —
- * so the distinction is defensive rather than load-bearing, and it is kept because the day one of
- * them gains the attribute is not the day to rediscover this rule.
+ * business. Today nothing inside the pane carries `aria-modal` at all — verified by grep, not by
+ * citation: only `Modal`, `BottomSheet` (which omits it under `modal={false}`) and `MapOverlay` ever
+ * emit it, and the pane renders none of them inline. ⚠️ An earlier wording cited "both drilldown
+ * panels' own docs" as saying so; they say no such thing, and a review lens caught it — it is
+ * `map-tab-v2-plan.md` O-20 that records the choice. The distinction is defensive rather than
+ * load-bearing today, kept because the day one of them gains the attribute is not the day to
+ * rediscover this rule, and pinned by `mapForeignModal.test.js` so it cannot be deleted as dead.
  */
 
 /** The map TAB's own root — the node `MapView`'s `mapPaneRef` points at. Never the overlay. */

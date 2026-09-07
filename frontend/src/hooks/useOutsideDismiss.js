@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { foreignModalOverPaneOf } from '../utils/mapForeignModal.js';
 
 /**
  * The map chrome's shared outside-click dismissal — one rule, SIX panels
@@ -107,6 +108,14 @@ export function useOutsideDismiss({ open, rootRef, onDismiss, enabled = true }) 
     function onDocMouseDown(e) {
       if (!rootRef.current || rootRef.current.contains(e.target)) return;
       if (isInsideMapFrame(e.target)) return;
+      // ⚠️ The POINTER twin of `map-landing-plan.md` §4 #37, found by an accessibility lens on the
+      // Escape fix. A press inside a dialog from outside the pane — a row in the four-day sheet,
+      // its close button, its backdrop — is neither inside `rootRef` nor inside the map frame, so
+      // it satisfied both tests above and dismissed this surface INVISIBLY behind that dialog.
+      // Exactly what §4 #37 describes for `Escape`, on the other input device. Fixed here rather
+      // than at each of the eight call sites, for the same reason the Escape rule reads one shared
+      // predicate: one rule, one place.
+      if (foreignModalOverPaneOf(rootRef.current)) return;
       onDismissRef.current();
     }
     document.addEventListener('mousedown', onDocMouseDown);

@@ -65,6 +65,23 @@ describe('foreignModalOver — containment, not "is any modal open"', () => {
     expect(foreignModalOver(p)).toBe(false);
   });
 
+  it('⚠️ a dialog with NO aria-modal is not foreign — the phone Filters/Regions sheets', () => {
+    // Measured by a review lens: rewriting the selector to `[role="dialog"]` left all eight cases
+    // in this file green, so the `[aria-modal="true"]` half was untested here. It is load-bearing,
+    // and more so since the Escape stand-down reached `FiltersPopover` and `RegionsJump`:
+    // `BottomSheet` renders `role="dialog"` with `aria-modal` only under `modal`, both of those
+    // pass `modal={false}`, and it portals to `document.body` — i.e. OUTSIDE the pane by this
+    // predicate's own containment test. Without the attribute clause, opening the phone Filters
+    // sheet would stand down the very control that opened it.
+    const p = pane();
+    const disclosure = document.createElement('div');
+    disclosure.setAttribute('role', 'dialog');
+    document.body.appendChild(disclosure);
+    planted.push(disclosure);
+
+    expect(foreignModalOver(p)).toBe(false);
+  });
+
   it('stands down when the pane root is unknown — not locating your container is not evidence', () => {
     modalIn(document.body);
 

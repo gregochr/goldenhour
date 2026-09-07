@@ -329,7 +329,20 @@ describe('MapRegionPanel — back, close and the outside press', () => {
     expect(handlers.onClose).not.toHaveBeenCalled();
   });
 
-  it('and leaves the press for the layer above rather than consuming it', () => {
+  it('consumes the press when it DOES act, so nothing behind answers it twice', () => {
+    // ⚠️ The positive direction, and the suite had only the negative. Measured by a review lens:
+    // `e.preventDefault()` could be deleted from BOTH panels and all 5520 tests stayed green,
+    // because every `defaultPrevented` assertion in the repo asserted `false`. A pair that pins one
+    // direction reads as if it pins the ordering and does not.
+    renderPanel();
+
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    screen.getByTestId('wf-reg-panel').dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it('but leaves the press for the layer above when it stands down', () => {
     // The stand-down returns BEFORE `preventDefault`. If it did not, the sheet over this panel
     // would get a press already marked handled and the reader would need a second Escape to close
     // the thing they are actually looking at.
@@ -340,14 +353,6 @@ describe('MapRegionPanel — back, close and the outside press', () => {
     screen.getByTestId('wf-reg-panel').dispatchEvent(event);
 
     expect(event.defaultPrevented).toBe(false);
-  });
-
-  it('and acts as before once nothing is over the pane', () => {
-    const handlers = renderPanel();
-
-    fireEvent.keyDown(screen.getByTestId('wf-reg-panel'), { key: 'Escape' });
-
-    expect(handlers.onBack).toHaveBeenCalledTimes(1);
   });
 
   it('the close control closes the whole drilldown, and says so', () => {

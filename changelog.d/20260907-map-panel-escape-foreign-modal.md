@@ -7,11 +7,18 @@ subtree handler that did not — and both run on one press, since neither calls 
 the pane's rule stood down correctly and the panel's acted anyway.
 
 The fix is one predicate rather than another guard. `foreignModalOver` moved out of `MapView`'s
-module scope into `utils/mapForeignModal.js` — the panels cannot import it from `MapView` without a
-cycle — and both panels consult it. That helper's own doc already said it was extracted "because two
-Escape rules consult it and they must never disagree"; there are four on this tab, and the two that
-did not read it were the two that got this wrong. The stand-down returns *before* `preventDefault`,
-so the layer above still receives the press and a reader does not need a second Escape.
+module scope into `utils/mapForeignModal.js` — the components that need it cannot import from
+`MapView` without a cycle — and **all eight** of the tab's Escape rules now read it: the pane
+handler, the landing card's listener, the drilldown's two panels, `WindowControl`, `FiltersPopover`,
+`RegionsJump` and `MapLegendPanel`. So does `useOutsideDismiss`, whose outside-press rule dismissed
+the same surfaces invisibly when the press landed inside the sheet — the identical defect on the
+pointer, unrecorded until now.
+
+⚠️ **The first cut corrected only the two panels and claimed there were four rules.** Two review
+lenses counted eight, and one showed `WindowControl` is on the very route that reaches the panels: a
+keyboard reader gets to the drilldown by Tabbing out of the non-trapping sheet onto the pill, so the
+pill's own dropdown answered the same press first. Fixing two of eight would have left the defect
+live one control earlier.
 
 Each panel resolves its own pane with `closest('.wf-map-tab')` rather than taking the predicate as a
 prop. ⚠️ **The prop design was built first and mutation testing killed it**: with either mount
