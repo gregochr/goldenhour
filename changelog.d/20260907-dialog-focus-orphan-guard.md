@@ -24,6 +24,9 @@ Measured in **both** environments rather than reasoned, because focus/blur timin
 project has been burned by the jsdom/browser difference before: detaching a focused node, or a
 subtree containing focus, puts `activeElement` on `<body>` first, in jsdom and in Chromium alike.
 
-`useDialogFocus` had **no test file at all** despite fourteen consumers; it has one now — seven
-cases, the guard's three mutants killed — and both map integration cases now assert
-`document.activeElement` rather than only that the panel is still in the document.
+`useDialogFocus` had **no test file at all**; it has one now — seven cases, the guard's three
+mutants killed — and both map integration cases now assert `document.activeElement` rather than only
+that the panel is still in the document. ⚠️ An earlier wording of this entry said "fourteen
+consumers": that was `grep -rl`, which counts files mentioning the hook. There are **four** call
+sites (`Modal`, `BottomSheet`, `MapOverlay`, `RegionsJump`); the blast radius is wider than four
+because most dialogs reach it through the first two, but the list of callers is not.

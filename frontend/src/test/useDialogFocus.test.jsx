@@ -6,10 +6,26 @@ import useDialogFocus from '../hooks/useDialogFocus.js';
  * `hooks/useDialogFocus.js` — focus-in on open, restore on close, and the guard that stops the
  * restore stealing a reader's own choice.
  *
- * ⚠️ **This hook had no test file at all** until `map-tab-v2-plan.md` O-20 arm C, despite fourteen
- * components mounting it. Its behaviour was covered only incidentally, through whichever dialog a
- * given test happened to open — so the one rule that is about the PAGE rather than the dialog (what
- * happens to focus when the reader has moved it elsewhere) had nowhere to be asserted.
+ * ⚠️ **This hook had no test file at all** until `map-tab-v2-plan.md` O-20 arm C. Its behaviour was
+ * covered only incidentally, through whichever dialog a given test happened to open — so the one
+ * rule that is about the PAGE rather than the dialog (what happens to focus when the reader has
+ * moved it elsewhere) had nowhere to be asserted.
+ *
+ * <p>⚠️ **Four call sites, not fourteen** — and the first cut of this file, its changelog entry and
+ * its commit message all said fourteen. That was `grep -rl`, which counts files CONTAINING the
+ * string: doc comments and cross-references, not mounts. The real callers are `Modal`,
+ * `BottomSheet`, `MapOverlay` and `RegionsJump` — everything else reaches the hook THROUGH `Modal`
+ * or `BottomSheet`, which is a wider blast radius than four but not a longer list of call sites.
+ *
+ * <h2>What is deliberately NOT covered here</h2>
+ *
+ * <p>The hook keys on `[active]`, so its cleanup also runs on a **deactivation** — `active` going
+ * false while the component stays mounted. The guard's behaviour there is unexercised, and that is
+ * stated rather than tested because no consumer does it: `BottomSheet` is `if (!open) return null`
+ * and `RegionsJump` swaps its desktop popover for a `BottomSheet` on the same flip, so both take
+ * the dialog's DOM with them and focus is on `<body>` by the time the cleanup runs — the same path
+ * the unmount cases below cover. A consumer that deactivates while keeping its dialog mounted would
+ * need its own case here.
  */
 describe('useDialogFocus', () => {
   let trigger = null;
