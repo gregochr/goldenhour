@@ -999,10 +999,14 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     `334 → 504` on the wide frames and `334 → 480` on the 788px one. ⚠️ Two of this entry's own
     qualifications do not survive, and both
     are worth carrying: the **phone was never a passing viewport** (below 640px `index.css`
-    releases the bound and neither width renders), and **"every label's position" overstates what
-    is testable** — the durable claim is the placed SET, since a chip may step a nudge rung without
-    anything being lost. ⚠️ And the licence is **for this obstacle only**: the same measurement
-    found the three panels genuinely dropping labels that had clear air (up to 36 per 280 states for
+    releases the bound and neither width renders), and **the licence covers the opening framing
+    that was measured, not the opening flow** — six states on the 28px camera, whole-roster and
+    no-postcode, with saved reach, an away origin, a selection, home, rings and the 60px fallback
+    all untested. ⚠️ An earlier revision of this sentence said "every label's position" was
+    untestable and that only SET identity was durable; that was an artefact of an unpadded camera
+    and a quantised fit zoom, and the corrected run finds set *and* positions identical — see the
+    passage below, which this must not be allowed to contradict again. ⚠️ And the licence is **for this obstacle only**: the same measurement
+    found the three panels genuinely dropping labels that had clear air (up to 38 per 280 states for
     a production-shaped window panel), recorded as `map-landing-plan.md` residual **R7**.
     The prototype gives this control no width at all —
     `#wnow{gap:9px;padding:6px 10px;min-height:36px}` over a `.pill` with `white-space:nowrap`, no

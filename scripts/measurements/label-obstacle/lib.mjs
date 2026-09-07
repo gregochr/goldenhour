@@ -229,6 +229,10 @@ export function fitBoundsCentre(spots, zoom, padDeg = FRAME_PAD_DEG) {
  */
 export const ALWAYS_ON = [
   'wf-map-chrome-tr', 'wf-map-chrome-bl', 'wf-map-counts-footer', 'photocast-scored-legend',
+  // ⚠️ Leaflet's own bottom-right corner (zoom + home + attribution). The host seeds it from a
+  // SECOND root — `map.getContainer()` rather than its parent — which is exactly why the harness
+  // missed it for ten review rounds while listing every sibling faithfully.
+  'r5-leaflet-corner',
 ];
 
 /**

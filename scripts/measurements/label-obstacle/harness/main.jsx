@@ -18,6 +18,9 @@ import { createRoot } from 'react-dom/client';
 // fonts, `document.fonts.ready` cannot correct it because the real faces were never requested, and
 // every box in this measurement is a metric of the wrong typeface.
 import '../../../../frontend/src/fonts.js';
+// ⚠️ BOTH, and in this order — `MapView.jsx` imports Leaflet's stylesheet, and `index.css`'s own
+// comment records that it must load second. The Leaflet corner below is positioned by it.
+import 'leaflet/dist/leaflet.css';
 import '../../../../frontend/src/index.css';
 import MapLandingCard from '../../../../frontend/src/components/map/MapLandingCard.jsx';
 import MapWindowPanel from '../../../../frontend/src/components/map/MapWindowPanel.jsx';
@@ -246,6 +249,42 @@ function AlwaysOnChrome() {
         style={{ fontSize: '11px' }}
       >
         ★ PhotoCast-scored locations shown
+      </div>
+
+      {/* ⚠️ Leaflet's OWN bottom-right corner — the second obstacle root. `MapLabels` seeds this
+          separately (`LEAFLET_CORNER_SELECTOR`, queried from the map container rather than its
+          parent), and the harness omitted it entirely until a review pointed it out: every
+          comparison was running with less competition than production.
+
+          Markup copied from what actually renders: Leaflet's `Control.Zoom._createButton` emits
+          `<a class="leaflet-control-zoom-in" href="#" title="Zoom in"><span aria-hidden>+</span></a>`
+          inside `.leaflet-control-zoom.leaflet-bar.leaflet-control`, and `CentreOnHomeControl`
+          builds `div.leaflet-bar.map-home-control` (MapView.jsx) into which it portals its button.
+          Both are sized by this app's own rules in index.css, which is why they must be real class
+          names rather than a stand-in box.
+
+          ⚠️ Visible on the three larger frames only: `@media (max-width: 639px)` sets
+          `display: none` on both controls, so on the phone this corner holds the attribution
+          alone. That is a real difference, not a harness simplification — the measurement reads
+          whatever the CSS produces at each width. */}
+      <div className="leaflet-control-container">
+        <div className="leaflet-bottom leaflet-right" data-testid="r5-leaflet-corner">
+          <div className="leaflet-control-zoom leaflet-bar leaflet-control">
+            <a className="leaflet-control-zoom-in" href="#" title="Zoom in" role="button">
+              <span aria-hidden="true">+</span>
+            </a>
+            <a className="leaflet-control-zoom-out" href="#" title="Zoom out" role="button">
+              <span aria-hidden="true">&#x2212;</span>
+            </a>
+          </div>
+          <div className="leaflet-bar map-home-control leaflet-control">
+            <button type="button" title="Centre on home">&#8962;</button>
+          </div>
+          <div className="leaflet-control-attribution leaflet-control">
+            <a href="https://leafletjs.com">Leaflet</a>
+            {' | © OpenStreetMap'}
+          </div>
+        </div>
       </div>
 
       <div data-testid="wf-map-counts-footer" className="wf-map-counts-footer">

@@ -136,6 +136,8 @@ const OBSTACLE_TESTIDS = [
   'wf-map-chrome-tl', 'wf-land', 'wf-win-panel', 'wf-reg-panel',
   // …and the chrome that is on screen in every ordinary state, measured rather than invented.
   'wf-map-chrome-tr', 'wf-map-chrome-bl', 'wf-map-counts-footer', 'photocast-scored-legend',
+  // Leaflet's own corner — seeded by the host from a SECOND root, so easy to forget.
+  'r5-leaflet-corner',
 ];
 
 const out = { viewports: {} };
