@@ -1,6 +1,12 @@
 # O-20 — the pane under a dialog, and whether `inert` is the answer
 
-**Status: PLAN ONLY. Nothing built. One decision blocks the work and it is the owner's.**
+**Status: arm C BUILT 2026-09-07. Arms A and B unstarted, and §5's decision — whether shell-root
+`inert` is the right cure at all — is still the owner's.**
+
+⚠️ **Arm C did not need `inert`, and §5's recommendation (c) is what shipped.** `Modal` already
+carried the guard; mirroring it closed the arm with neither prerequisite in §3 and with a test the
+suite CI actually runs. That is evidence for (c) beyond arm C: before adopting a guard nobody can
+prove, check whether the defect has a cure that can be.
 
 `map-tab-v2-plan.md` **O-20** names its own cure in one line — "shell-root `inert` while any dialog
 is open" — and `useDialogFocus`'s ruling names it as "a named follow-on, not adopted here". This
@@ -49,7 +55,7 @@ The Escape and outside-press arms closed on 2026-09-07 (#794). Three remain.
 |---|---|---|
 | **A — Tab-out** | A keyboard reader Tabs from the sheet onto Leaflet's controls, the window control, the Filters/Regions/Legend chips and the callout's buttons, all behind a 60%-black backdrop | Tab, repeatedly, from any open dialog |
 | **B — phone `BottomSheet`** | Portalled to `document.body` at `z-index: 10000`, so it paints *over* the `z-50` sheet rather than under it | open a map popover from arm A on a phone |
-| **C — focus restore (NEW, 2026-09-07)** | `useDialogFocus`'s cleanup restores focus to its captured trigger with no orphaned-focus guard, so closing the sheet moves focus *out of* a drilldown panel that is still open | arm A, then open the drilldown, then Escape |
+| **C — focus restore** | ✅ **CLOSED 2026-09-07** by mirroring `Modal`'s own uncover-restore guard — no `inert`, neither §3 prerequisite, verifiable in jsdom | arm A, then open the drilldown, then Escape |
 
 C is new and is a **consequence of #794**: before it, the panel closed on that press, so moving focus
 out of it was coherent. It is the same family as the focus-to-`<body>` defect the map-landing
@@ -89,10 +95,12 @@ yanking them back is worse than leaving them."* `useDialogFocus`'s cleanup has n
 ⚠️ **The obvious port would strand the reader on `<body>` if focus were still inside the closing
 dialog at cleanup time** — the exact defect fixed five times last increment. Measured (jsdom, React
 19): at cleanup `document.activeElement` is **already `<body>`** and the dialog node is already
-detached, so the guard passes and the normal close still restores. ⚠️ **That measurement is jsdom's
-ordering, not Chromium's**, and focus/blur timing is precisely where this project has been burned by
-the difference before (`jsdom-accname-is-not-a-browser`; `inert`'s blur landing at a rendering step).
-**Re-measure in a browser before relying on it.**
+detached, so the guard passes and the normal close still restores. ⚠️ **That was jsdom's ordering only**, and
+focus/blur timing is precisely where this project has been burned by the difference before
+(`jsdom-accname-is-not-a-browser`; `inert`'s blur landing at a rendering step). ✅ **Re-measured in
+Chromium before the fix landed**: detaching a focused node, and detaching a subtree containing
+focus, both put `activeElement` on `<body>`. The environments agree; the normal close is
+unaffected, and is pinned by test.
 
 Arm C is jsdom-testable *on its own terms* (focus state is observable without `inert`), which is why
 it is separable from the `inert` question entirely.

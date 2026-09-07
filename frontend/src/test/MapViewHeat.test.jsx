@@ -1972,6 +1972,13 @@ describe('the window panel — this window, region by region', () => {
       screen.getByTestId('wf-win-panel'),
       'the panel must survive an Escape aimed at the sheet above it',
     ).toBeInTheDocument();
+    // ⚠️ And the reader must still be STANDING in it. Surviving is half the promise: an
+    // accessibility lens on #794 found the panel stayed while `useDialogFocus`'s restore pulled
+    // focus out onto the callout beneath (O-20 arm C). Both integration cases asserted only
+    // `toBeInTheDocument`, which is exactly the half that was already true.
+    expect(screen.getByTestId('wf-win-panel').contains(document.activeElement)
+      || document.activeElement === screen.getByTestId('wf-win-panel'),
+    'focus must stay inside the panel that survived').toBe(true);
   });
 
   it('opens from the pill menu\'s own footer row, and closes the menu on the way', async () => {
@@ -2314,6 +2321,10 @@ describe('the region panel — one region, into the sheet that already exists', 
       screen.getByTestId('wf-reg-panel-region'),
       'the region panel must survive an Escape aimed at the sheet above it',
     ).toHaveTextContent('The Lakes');
+    // See the window panel's twin above: surviving is half the promise, standing in it is the rest.
+    expect(screen.getByTestId('wf-reg-panel').contains(document.activeElement)
+      || document.activeElement === screen.getByTestId('wf-reg-panel'),
+    'focus must stay inside the panel that survived').toBe(true);
     expect(screen.queryByTestId('wf-win-panel')).toBeNull();
   });
 

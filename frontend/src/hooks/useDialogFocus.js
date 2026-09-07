@@ -81,9 +81,41 @@ export default function useDialogFocus(active = true) {
       // trigger lived on — and focusing a detached node throws away the user's place entirely
       // rather than returning it. Doing nothing leaves focus where the browser put it, which is
       // no worse than today.
-      if (previous instanceof HTMLElement && document.contains(previous)) {
-        previous.focus();
-      }
+      if (!(previous instanceof HTMLElement) || !document.contains(previous)) return;
+
+      // ⚠️ **AND only if the reader has not chosen somewhere else in the meantime**
+      // (`map-tab-v2-plan.md` O-20 arm C, found by an accessibility lens on #794).
+      //
+      // <p>This is `Modal`'s own uncover-restore guard, mirrored — same condition, same reasoning
+      // it states there: "a reader who Tabbed out into the page while the top layer was up has
+      // chosen where they are, and yanking them back is worse than leaving them". This hook refuses
+      // containment app-wide, so Tabbing out is a supported thing to do; a restore that fires
+      // regardless is that refusal taking away with one hand what it grants with the other.
+      //
+      // <p>The route that made it visible: with the four-day sheet open over the map, Tab out onto
+      // the pane, open the drilldown, press Escape. Since #794 the panel correctly stands down and
+      // only the sheet closes — and this cleanup then moved focus OUT of the still-open panel onto
+      // the callout button beneath it. New as of that fix, because the panel used to close on the
+      // same press, which made moving focus out of it coherent.
+      //
+      // ⚠️ **The normal close is unaffected, and that is measured rather than assumed.** The worry
+      // is the mirror-image defect this increment fixed five times: if focus were still inside the
+      // closing dialog here, the guard would skip the restore and strand the reader on `<body>`. It
+      // is not. Detaching a focused node — or a subtree containing focus — puts `activeElement` on
+      // `<body>` first, so by the time this runs the guard passes and the restore happens as
+      // before. Measured in BOTH environments on 2026-09-07, because focus/blur timing is exactly
+      // where this project has been burned by the jsdom/browser difference before: jsdom reports
+      // `<body>` and a detached ref, and Chromium reports `<body>` for the focused-node and
+      // focused-subtree cases alike.
+      //
+      // <p>`documentElement` as well as `<body>`: both mean "nowhere", and `Modal`'s own copy of
+      // this guard records a MEASURED case of `activeElement` landing on the document root after
+      // the overlay's map hatch. Nothing focuses `<html>` deliberately, so widening it cannot
+      // swallow a reader's own choice.
+      const active = document.activeElement;
+      if (active && active !== document.body && active !== document.documentElement) return;
+
+      previous.focus();
     };
   }, [active]);
 

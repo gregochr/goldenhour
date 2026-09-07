@@ -1205,21 +1205,30 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   no prop to forget — ⚠️ which makes that class `MAP_PANE_SELECTOR` rather than the "pure CSS
   scoping hook" `MapView` used to call it.
 
-  ⚠️ **A CONSEQUENCE OF THE FIX, recorded not fixed: the panel survives the press, but focus does
-  not stay in it.** Found by the accessibility lens on that same commit. `useDialogFocus`'s unmount
-  cleanup restores focus to whatever it captured, with no orphaned-focus guard — unlike `Modal`'s
-  own uncover-restore, which refuses to act unless focus is on `<body>`, on the stated reasoning
-  that "a reader who Tabbed out into the page while the top layer was up has chosen where they are".
-  So: sheet open, Tab out, open the drilldown (which focuses its own root), press `Escape`. The
-  panel now correctly stands down and the sheet closes — and the cleanup then moves focus out of the
-  still-open panel onto the callout button beneath it. The reader's next Tab starts from the wrong
-  place, and their next `Escape` is answered by the pane rather than by the panel they are standing
-  in. This is NEW: before the fix the panel closed on that press, so moving focus out of it was
-  coherent. It is the same family as the focus-to-`<body>` defect this increment fixed five times.
-  Not fixed here because `useDialogFocus` is app-wide and its ruling is cited by the Plan tab's own
-  dialogs — the cure is the same shell-root `inert` follow-on this item already names, which needs
-  `lastInside` mirrored onto the pane anyway. No test covers it: the two integration cases assert
-  only that the panel is still in the document, never `document.activeElement`. The obvious shortcut stayed unavailable
+  ⚠️ **ARM C — the panel survived the press but focus did not stay in it. FIXED 2026-09-07.**
+  Found by the accessibility lens on #794, and NEW as of that fix: before it the panel closed on the
+  same press, which made moving focus out of it coherent. `useDialogFocus`'s unmount cleanup
+  restored focus to its captured trigger with no orphaned-focus guard, so the route — sheet open
+  over the map, Tab out, open the drilldown, `Escape` — left the panel correctly standing and pulled
+  the reader out of it onto the callout beneath.
+
+  ⚠️ **The cure was NOT the shell-root `inert` follow-on this item names, and this paragraph said it
+  was.** `Modal` had already solved the identical problem for its own uncover path, with the
+  reasoning written out — *"a reader who Tabbed out into the page while the top layer was up has
+  chosen where they are, and yanking them back is worse than leaving them"*. Mirroring that one
+  condition into `useDialogFocus` closes arm C outright, needs neither prerequisite in
+  `o20-shell-inert-plan.md` §3, and — unlike `inert` — is verifiable in the suite CI runs.
+
+  ⚠️ **The obvious risk was the mirror-image defect this increment fixed five times**: if focus were
+  still inside the closing dialog at cleanup, the guard would skip the restore and strand the reader
+  on `<body>`. Measured in BOTH environments rather than reasoned, because focus/blur timing is
+  where this project has been burned by the jsdom/browser difference before — detaching a focused
+  node, or a subtree containing focus, puts `activeElement` on `<body>` first, in jsdom (React 19
+  detaches and clears the ref before passive cleanup) and in Chromium (both the focused-node and
+  focused-subtree cases). So the normal close still restores, and that is pinned by test.
+  `useDialogFocus` had **no test file at all** despite fourteen consumers; it has one now, with the
+  guard's three mutants killed, and both map integration cases now assert `document.activeElement`
+  rather than only that the panel is still in the document. The obvious shortcut stayed unavailable
   throughout — `MapRegionPanel`'s handler is NOT redundant with the pane's, because its `onBack`
   also carries the return-focus target (`map-landing-plan.md` §4 #37, which records the rejected
   prop design and the five mutants). ⚠️ **The rest of O-20 is untouched**: the Tab-out and the phone
