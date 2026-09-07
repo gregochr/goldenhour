@@ -3131,7 +3131,15 @@ button.wf-hc.also.on:hover {
      · `[data-testid="wf-map-chrome-tl"]` is the FIRST label-placement obstacle in both
        `MapLabels.jsx` and `PinsLayer.jsx`, and map-tab-v2-plan.md §4 #31 licensed the last
        widening of it (187→334px) by measuring that no label moved. Stretching it to ~970px would
-       have spent that budget without re-measuring anything.
+       have spent that budget without re-measuring anything. ⚠️ The 334→504px growth this rule
+       permits WAS spent unmeasured for a while. It has since been re-run (map-landing-plan.md
+       §4b.1, instrument at `scripts/measurements/label-obstacle/`), and at the tab's own opening
+       framing it changes nothing at all — which is exactly what #31 claimed. Away from that
+       framing it is cheap but not free. The citation therefore survives for THIS obstacle, THIS
+       widening, `MapLabels` only, and not on a phone, where the bound is released entirely.
+       **`PinsLayer` holds a duplicate of that list and was not measured at all.** Re-run the
+       harness before widening this again — and the same measurement found the three drilldown
+       panels genuinely costing labels (residual R7).
 
    `max-width` leaves the box shrink-to-fit, so it stays exactly as wide as the control: no dead
    strip, and the obstacle grows only to the control's own 504px.

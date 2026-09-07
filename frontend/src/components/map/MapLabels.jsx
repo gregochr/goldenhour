@@ -46,6 +46,39 @@ const LABEL_PANE_Z = 650;
  * `wf-map-chrome-tl`/`wf-map-chrome-tr`: an absolutely-positioned dropdown overflows its trigger
  * chip's own layout box, so the chrome wrapper's `getBoundingClientRect()` does not cover it — only
  * the panel's own rect does. The closed chip needs no entry of its own; the wrapper already covers it.
+ *
+ * <h2>⚠️ Adding to this list is not free — measure it</h2>
+ *
+ * <p>The escape ladder is anchor-relative and its reach is small and asymmetric. Measured from the
+ * SEEDED (5px-padded) rect's edge: <b>~27.5px vertically</b> for a 17px chip
+ * ({@code max(MAP_NUDGES) - h/2 - COLLISION_PAD_Y}, so it depends on the label's height) and
+ * <b>6px horizontally</b> ({@code MAP_DX_GAP - COLLISION_PAD_X}) — the horizontal figure being
+ * <b>independent of the label's width</b>, because the dx offset scales with {@code w}, so a box's
+ * near edge always lands {@code MAP_DX_GAP} past its own anchor rather than clear of the obstacle.
+ * <b>Width is the harsher axis.</b> One further asymmetry: an obstacle against the frame's top edge
+ * can only be escaped downward, because {@code EDGE_INSET} rejects any box above {@code y = 1}.
+ *
+ * <p>⚠️ <b>An earlier revision of this note said the opposite</b> — that an obstacle swallowing a
+ * label's anchor could never be escaped, and that height rather than width spent the budget. Both
+ * are false: about two in five labels whose anchor sits inside the padded control box are placed
+ * anyway. (Deliberately not a precise count here — `analyse.mjs` §4 emits one with its own
+ * population attached, and a bare figure in a comment is the kind of thing that gets quoted
+ * long after the run that produced it.)
+ *
+ * <p><b>What the panels actually cost</b> (`map-landing-plan.md` §4b.1, residual R7). Seeding a
+ * panel does not merely hide the labels beneath it: the greedy pass reshuffles around it and drops
+ * labels that had clear air elsewhere on the map, real destinations among them. It gets worse the
+ * busier the map is, and worse again with a taller panel — though that is a panel-height effect
+ * measured against one roster, NOT a claim that production costs more overall (the dev seed is also
+ * denser in chips, which pulls the other way). Still better than not seeding them — that puts
+ * labels under an opaque plate — and
+ * the obvious cure is a proven no-op: `placeLabelPass` only grows its `boxes` list, so a retry pass
+ * after the greedy one recovers nothing by construction.
+ *
+ * <p>⚠️ <b>A fifth entry deserves a run of the harness rather than an argument</b>
+ * (`scripts/measurements/label-obstacle/`) — and read that section's FINDINGS rather than quoting
+ * its counts. Those counts moved on all eight of this PR's review rounds, every time because the
+ * instrument got more faithful, never because this code changed.
  */
 const OBSTACLE_SELECTOR = [
   '[data-testid="wf-map-chrome-tl"]',

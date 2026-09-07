@@ -982,13 +982,33 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     a different mechanism for the same guarantee. The measured figures below (115.41–227.52px) are
     the *pre-L2* content range and are left as the record of why a content-sized pill was rejected;
     they are not the range the control can emit today.
-    ⚠️ **One consequence needs stating rather than inheriting.** `index.css` cites this entry as
-    having "licensed the last widening of the label-placement obstacle (187→334px) by measuring that
-    no label moved". The control is now 504px, so that obstacle grew again (334→504px) — and
-    `map-landing-plan.md`'s L2 row records the new width without recording a fresh label
-    measurement. **The licence this entry granted was spent at a size it never measured.** Whoever
-    next touches label placement should re-run that measurement rather than reading the citation as
-    still covering it. The prototype gives this control no width at all —
+    ⚠️ **One consequence needed stating rather than inheriting, and it has now been settled by
+    re-measurement (2026-09-07).** `index.css` cites this entry as having "licensed the last
+    widening of the label-placement obstacle (187→334px) by measuring that no label moved". The
+    control is now 504px, so that obstacle grew again, and three panels (`wf-land`,
+    `wf-win-panel`, `wf-reg-panel`) later joined `OBSTACLE_SELECTOR` — none of it with a fresh
+    measurement. **The licence this entry granted was spent at a size it never measured.** It has
+    now been re-run against the real placer over a 16-cell sweep of 8 measured frames, with the
+    instrument committed at
+    `scripts/measurements/label-obstacle/` so the next reader re-runs rather than re-derives;
+    `map-landing-plan.md` **§4b.1** carries the method, the numbers and the limitations.
+    **The licence broadly survives**: the widening costs at worst 7 labels that had clear air across
+    210 comparable state-pairs — roughly a quarter of what the three panels cost — but it is **not
+    free**, and this entry's "identical" is true only of the opening framing. ⚠️ It is also not one
+    change: `max-width: calc(100% - 308px)` clamps the control, so production's change was
+    `334 → 504` on the wide frames and `334 → 480` on the 788px one. ⚠️ Two of this entry's own
+    qualifications do not survive, and both
+    are worth carrying: the **phone was never a passing viewport** (below 640px `index.css`
+    releases the bound and neither width renders), and **the licence covers the opening framing
+    that was measured, not the opening flow** — six states on the 28px camera, whole-roster and
+    no-postcode, with saved reach, an away origin, a selection, home, rings and the 60px fallback
+    all untested. ⚠️ An earlier revision of this sentence said "every label's position" was
+    untestable and that only SET identity was durable; that was an artefact of an unpadded camera
+    and a quantised fit zoom, and the corrected run finds set *and* positions identical — see the
+    passage below, which this must not be allowed to contradict again. ⚠️ And the licence is **for this obstacle only**: the same measurement
+    found the three panels genuinely dropping labels that had clear air (up to 39 per 280 states for
+    a production-shaped window panel), recorded as `map-landing-plan.md` residual **R7**.
+    The prototype gives this control no width at all —
     `#wnow{gap:9px;padding:6px 10px;min-height:36px}` over a `.pill` with `white-space:nowrap`, no
     cap, no `overflow` and no ellipsis (`Map Tab v2.html`) — so the pill grows and shrinks with
     whatever the event says. The port already diverged once at P6, which added a `max-width: 260px`
@@ -1019,8 +1039,17 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     not nudged), so the control's width is not purely its own business. The obstacle goes from a
     variable 187–300px to a constant 334px. Measured at two views on the live tab, the rendered
     label set and every label's position were **identical** before and after — the band is only
-    36px tall, so widening it rarely exhausts a location's candidates. The stability cuts the other
-    way too, and in the same direction as the fix: a variable obstacle made labels appear and
+    36px tall, so widening it rarely exhausts a location's candidates. ⚠️ **"Two views" is
+    load-bearing and was under-stated here.** A 16-cell re-measurement (`map-landing-plan.md`
+    §4b.1) confirms that over the six opening states it runs — the 28px camera, whole-roster
+    no-postcode fixture, no selection — the widening changes nothing at all: the placed set AND
+    every label's position. ⚠️ Six states, not the opening flow: saved reach, an away origin, a
+    selection, the home marker, the reach rings and the 60px fallback are untested and unclaimed.
+    Away from that framing the widening does lose labels that had clear air. ⚠️ An earlier revision
+    of this passage reported one chip moving at four states and limited the licence to SET identity;
+    that was an artefact of an unpadded camera and a quantised fit zoom, both since corrected.
+    The stability
+    cuts the other way too, and in the same direction as the fix: a variable obstacle made labels appear and
     disappear as the reader stepped, which is the flicker the steppers were doing.
     Adversarial review also removed a `min-width: 0` from `.wf-win-label` that the first cut added
     with a stated mechanism that was not the one at work — `overflow: hidden` already makes the

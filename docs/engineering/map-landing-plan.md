@@ -1031,8 +1031,218 @@ will otherwise re-discover and file as new.
 | R2 | One region name clips at **320px** in the region panel | L6 | Same cause, same cure — R1 and R2 close together or not at all. |
 | R3 | The drilldown overlaps `.wf-map-chrome-bl` (the Legend chip) at **≤430px** | L5, re-measured L6 | The panel is 1150 and the chrome 1100, so it paints *over* rather than being covered — ordinary behaviour for an open panel, and the chip is reachable the moment it closes. |
 | R4 | `5 ★` carries a 5px flex gap between the number and the glyph | L6 | `.wf-win-panel-best` is `inline-flex; gap: 5px` and the window panel shares it, so fixing one level only would make the two disagree. Pre-existing to L6. |
-| R5 | The label-placement obstacle grew **334→504px** with the control | L2 | `map-tab-v2-plan.md` §4 #31 licensed the previous widening *by measuring that no label moved*; that measurement was not re-run at 504px. ⚠️ The licence was spent at a size it never measured — re-run it before trusting the citation. |
+| R5 | The label-placement obstacle grew **334→504px** with the control, and three panels joined it | L2, L4–L6; **re-measured 2026-09-07** | ✅ **CLOSED — §4 #31's licence holds.** At the tab's own opening framing the widening changes nothing at all: the placed set and every position, over the six opening states the instrument runs (the 28px camera, whole-roster no-postcode fixture, no selection). ⚠️ Six states, not the opening flow: saved reach, an away origin, a selection, home, rings and the 60px fallback are all untested and unclaimed — F1 lists them. Two qualifications #31 did not carry: it is **not one change** (`max-width` clamps the control, so production widened 334→504 on wide frames and 334→480 at 788px, and below 640px there is no widening to license), and away from that framing it is not free. ⚠️ **The panels are a different matter and are now residual R7.** §4b.1 has the findings, `scripts/measurements/label-obstacle/` the instrument. ⚠️ **Read §4b.1's findings, not its counts** — the counts moved on every review round, every time because the instrument got more faithful, never because the app changed. Re-run it rather than cite them. |
 | R6 | Both drilldown panels answer `Escape` behind a foreign modal | L6 | ✅ **CLOSED 2026-09-07**, and it was never only the two panels — eight Escape rules and the pointer channel now read one predicate. §4 #37 carries the fix, the rejected prop design and the two wrong counts. |
+| R7 | ⚠️ **Seeding the drilldown panels as label obstacles drops labels that had clear air** | raised 2026-09-07 by R5's re-measurement | A panel does not merely hide what is under it: the greedy pass reshuffles around it and loses labels that were visible elsewhere, real destinations among them. It worsens with contention and with region count — though that last is a panel-height effect measured against one roster, not a claim that production costs more overall (§4b.1 F2). ⚠️ **Two cures are ruled out by measurement, not argument.** A retry pass after the greedy one recovers nothing *by construction* — `placeLabelPass` only grows its `boxes` list and `placeWithNudges` rejects on any overlap, so an item that failed early fails against every later superset (the instrument drives it anyway: **0 of 7,557** over 840 states). And *not* seeding the panels is worse: it puts labels under an opaque plate, the defect that put them in `OBSTACLE_SELECTOR` at L5. A third option — place, then cull what the panel covers — is collateral-free and still loses: over 840 states seeding **rescues 279** labels culling would drop, against the **7** it costs as collateral — net **+272** (`analyse.mjs` §6 builds the culled set and differences it both ways, so nothing that is clear in both arms counts for either side). A real cure is re-ordered or non-greedy assignment, which is a phase, not a patch. §4b.1 F2 has it in full. |
+
+#### §4b.1 — R5 re-measured: the label-obstacle licence at 504px, and the three panels
+
+**Why this needed doing.** `map-tab-v2-plan.md` §4 #31 widened `.wf-map-chrome-tl` from a variable
+187–300px to a constant 334px and licensed it by measuring that *"the rendered label set and every
+label's position were identical before and after"*. Two things then happened without that
+measurement being re-run: L2 took the obstacle to **504px**, and L4–L6 added three more entries to
+`MapLabels.jsx`'s `OBSTACLE_SELECTOR` — `wf-land`, `wf-win-panel`, `wf-reg-panel`. ⚠️ The entry's own
+justification is what made a re-run necessary rather than merely tidy: *"the band is only 36px tall,
+so widening it rarely exhausts a location's candidates."* That argument is about a 36px band and
+does not transfer to a 271–581px panel.
+
+⚠️ **The first attempt at this measurement was wrong, and its instrument is now committed so the
+next one need not be rebuilt from prose.** `scripts/measurements/label-obstacle/` is the harness;
+its README carries the traps. The corrections that changed results are in that commit's message —
+the largest was a chip markup missing two of the real chip's four children, which made every
+measured box 26–45px too narrow and biased every answer toward *it fits*.
+
+**Method.** The real code, driven directly. `mapLabels.regionLabelItems` / `chipCandidates` /
+`placeLabelPass`, obstacles seeded through the host's own `seedObstacles(rects, containerRect, 5)`,
+Leaflet's own `CRS.EPSG3857` projection with its rounding, and label boxes measured in headless
+Chromium against the **built** stylesheet with the real components mounted inside the real
+`.wf-shell` › `.wf-body.wf-body--map` › `.wf-map-tab` chain. Roster:
+`scripts/dev-seed-locations.sh` — 21 anchors plus its deterministic 189-point `--dense` scatter,
+210 locations across 4 regions.
+
+⚠️ **The sweep is 16 axis cells over 8 measured frames**, because a single configuration is what went
+wrong the first time. The axes: {no drive times, drive times} × {zoom grid a, zoom grid b} × {five fixed
+pans, five density-picked centres} × {no selection, a selection}; the frames: each of four viewports measured at BOTH heights
+— full, and minus a 175px shell for the masthead and tab strip. Every panel pair is 280 state-pairs
+per cell; the widening pair is **210**, because the phone's frame hosts no widening at all (below
+640px the bound is released, so the control is frame-driven) while the other six frames each
+compare 334 against **their own measured control** — 504px on the wide ones, 480px on the 788px
+one, where `max-width: calc(100% - 308px)` bites.
+
+⚠️ Each axis exists because it was found to be load-bearing rather than chosen for symmetry.
+Density-picked centres, because the fixed pans leave the frame nearly empty and a greedy-reshuffle
+loss needs contention. **Two zoom grids**, because the tab sets `zoomSnap: 0` — every fractional
+zoom is reachable, so one grid is a free parameter rather than a sample, and a review found that
+shifting it by ~0.3 changed the widening's worst count. A selection axis, because `selectedName`
+moves a chip to the front of the priority order and reorders the whole arbitration. And a **drive-
+time axis**, because `chipCandidates` sorts on rating, then tide, then drive — so whether drive
+minutes exist at all reorders the greedy pass. A reader with no postcode has none; one with a
+postcode has them. Every worst case below falls in the no-drive-time arm, which is also the reader
+the rest of the harness models.
+
+⚠️ **The frame is not the viewport, and every height is measured rather than derived.** `App.jsx`
+pads `<main>` by `sm:px-4` at ≥640px and `WindowFirstShell` caps the pane at `WRAP_MAX_WIDTH`
+(1080px), so a 1280px window yields a **1080×800** frame, 1024 yields 992×720 and 820 yields
+788×1100; only the phone is viewport-wide. An earlier cut used the viewport, which put every
+projection and every chrome coordinate somewhere the app never puts them. The short-frame case is
+measured in its own browser pass rather than by subtracting, because subtracting leaves every
+bottom-anchored obstacle stranded at the taller frame's bottom edge — off-frame, exerting no
+collision pressure, in the very cells several worst cases come from.
+
+**Measured rects** (the 1080×800 frame; other frames differ where noted): `wf-map-chrome-tl`
+**504×36** @(60,8) — but **480×36** on the 788px frame, where `max-width: calc(100% - 308px)`
+finally bites, and 374×40 on the phone · `wf-map-chrome-tr` **158×146** @(914,8), and on the phone
+not there at all: a **374×57 bottom bar** · `wf-land` **376×271** @(12,60) · `wf-win-panel`
+**504×307** @(60,50) at the dev seed's four regions and **504×567** at nine · `wf-reg-panel`
+**504×412** @(60,50). Chips **98–155 × 17**; region names 111–164 × 14 (90×14 in the `data-tiny`
+form below 430px).
+
+⚠️ **Leaflet's own bottom-right corner is an obstacle too, and modelling it by hand undersized it
+six times running.** It measures **413×141** on the three wide frames and **390×103** on the phone —
+where the `≤639px` rule hides both the zoom control and `.map-home-control`, leaving the attribution
+alone to wrap. Every hand-built version of it was *smaller* than the real thing, in the same
+direction each time: an attribution string truncated at "© OpenStreetMap", a control tree not nested
+under `.leaflet-container` (which supplies the production font and the
+`.leaflet-container .leaflet-control-attribution { margin: 0 }` rule), Leaflet's inline
+Ukrainian-flag SVG omitted, and finally the zoom control left at its default `topleft` when
+`MapView` moves it to `bottomright` (`ZoomControlPositioner`, under `!overlayMode`) — that last one
+alone cost 86px of height and read as a plausible number. The harness now mounts a **real
+`MapContainer`** and reads `.leaflet-bottom.leaflet-right`, so the corner's geometry is Leaflet's
+rather than a reproduction of it. **Model no map chrome by hand: mount it.**
+
+---
+
+##### What this measured — the durable part
+
+⚠️ **Read the findings, not the counts.** The numbers below moved on every one of eight review
+rounds — the widening's worst case went 2 → 4 → 7 across them — and every move was a fidelity fix in
+the *instrument*, never a change in the app. Eight rounds produced eight sets of numbers and one
+unchanging set of conclusions. Treat the counts as what this instrument produced on 2026-09-07, and
+**re-run it rather than cite them**; treat the four findings as the result.
+
+###### F1 — §4 #31's licence holds, and holds exactly where it was claimed
+
+Over the six opening states the instrument runs, the widening changes **nothing at all** — the
+placed set and every label's position. That is what #31 asserted, tested harder than the two views
+it was granted on.
+
+⚠️ **Six states, not "the opening flow".** They are the 28px camera, the whole-roster no-postcode
+fixture, no selection. Untested and therefore unclaimed: saved reach, an away origin, a selected
+location, the home marker and the reach rings — and the 60px fallback, which *does* carry labels
+(a selection and its region label), just not enough of them to answer this question.
+
+⚠️ Measured at the **28px** camera, over the padded area bounds. The 60px fallback is genuinely
+reachable — a reader whose saved reach puts
+every region beyond `GLANCE_MINUTES` gets an empty planning area, a null `areaBounds` and that
+branch, with `MapLabels` still mounted — but in exactly that state `scopedVisibleLocations` filters
+through an empty `heat.areaSpots`, leaving at most the appended selection, and the reader cannot
+widen scope out of it because `hasHome` requires a non-empty `framed` and the scope segment is
+withheld without it. One chip and its region label cannot show whether a wider obstacle moves a
+label.
+
+Two qualifications #31 did not carry. It is **not one change**: `max-width: calc(100% - 308px)`
+clamps the control, so production widened `334 → 504` on wide frames and `334 → 480` on a 788px one,
+and below 640px the bound is released entirely so there is no widening to license at all. And away
+from the opening framing the widening is **not free** — it does lose labels that had clear air, at a
+rate far below the panels but not zero.
+
+###### F2 — seeding the drilldown panels costs labels that were visible, and that is R7
+
+This is the finding. A panel does not merely hide the labels beneath it: the greedy pass reshuffles
+around it and loses labels that had clear air elsewhere on the map, real destinations among them.
+The cost rises with contention, with a realistic frame height, and with region count.
+
+⚠️ **That last one is a panel-height effect, measured against one roster — not a claim about
+production.** A nine-row window panel costs more than a four-row one over the *same* 210-location
+pool; whether a real roster costs more overall is not established here, and the limitations below
+note that this roster is denser in chips than production, which pushes the other way. Do not read
+"four regions" as "an understatement of production".
+
+⚠️ Two cures are ruled out by measurement, not by argument. A retry pass after the greedy one
+recovers nothing **by construction** — `placeLabelPass` only grows its `boxes` list and
+`placeWithNudges` rejects on any overlap, so an item that failed early must fail against every later
+superset (the instrument drives it anyway: **0 of 7,557** over 840 states). And *not* seeding the panels is worse: it puts labels under an
+opaque plate, the defect that put them in `OBSTACLE_SELECTOR` at L5. A third option — place, then
+cull what the panel covers — is collateral-free, and loses by a wide margin anyway: over 840 states
+seeding **rescues 279 labels** that culling would simply drop (their un-seeded position is under the
+panel), at a cost of the **7** it loses as collateral — net **+272** labels in favour of seeding.
+⚠️ Those are the honest quantities; an earlier draft weighed "labels relocated" against collateral,
+which folded 92 labels that were clear in both arms and merely shifted — churn, not a benefit.
+`analyse.mjs` §6 emits all three with their population. A real cure is re-ordered or non-greedy assignment, which is a phase.
+
+###### F3 — the escape ladder is small, asymmetric, and width is the harsher axis
+
+Margins from the seeded (5px-padded) rect's edge: **~27.5px vertically** for a 17px chip
+(`max(MAP_NUDGES) − h/2 − COLLISION_PAD_Y`, so it scales with label height) against **6px
+horizontally** (`MAP_DX_GAP − COLLISION_PAD_X`) — and the horizontal figure is **independent of the
+label's width**, because `mapDxOffsets` scales with `w`, so a box's near edge always lands
+`MAP_DX_GAP` past its own anchor rather than clear of the obstacle. One further asymmetry: an
+obstacle against the frame's top edge can only be escaped *downward*, because `EDGE_INSET` rejects
+any box above `y = 1`.
+
+⚠️ **An earlier revision of this section recorded the opposite** — that an obstacle swallowing a
+label's anchor could never be escaped, and that height rather than width spent the budget. Both are
+false: about **two in five** such labels are placed anyway. That wrong rule was written into
+`MapLabels.jsx` beside the selector list, which is where someone deciding whether to add an obstacle
+reads.
+
+###### F4 — placement is order-dependent, so nothing about it is a local change
+
+`chipCandidates` sorts on rating, then tide, then **drive time** — and whether drive times exist at
+all (they do not for a reader with no postcode) reorders the greedy pass and moves every count in
+the *collateral sweep*, which is the only part that varies it. The magnitude and escape-ladder
+sections both pin the no-drive roster, so nothing here says what drive times would do to those. The same sensitivity is why an added obstacle has non-local effects, and why F2 is a
+cost rather than a bug.
+
+---
+
+##### The counts, as of 2026-09-07 — re-runnable, not citable
+
+Produced by `scripts/measurements/label-obstacle/`. **Re-run it.**
+
+⚠️ **The two halves of this table have different populations.** The *collateral* columns are worst
+cases across all 16 axis cells over 8 measured frames — 280 state-pairs per cell for a panel pair,
+210 for the widening. The *placed-set reduction* column is not: `analyse.mjs`'s magnitude section
+pins one cell (no drive times, fixed pans, zoom grid a, no selection) and reports its eight frames,
+so those ranges are a single configuration's, not cross-cell extrema.
+
+| comparison | worst collateral | distinct labels | >30px clear | placed-set reduction |
+|---|---|---|---|---|
+| `334 → 504` / `334 → 480` | 7 | 5 | 2 | — |
+| `wf-land` (376×271) | 25 | 19 | 8 | 16.6–69.9% |
+| `wf-win-panel` (504×307, 4 regions) | 29 | 18 | 15 | 29.2–78.0% |
+| `wf-win-panel` (504×567, 9 regions) | 39 | 23 | 14 | — |
+| `wf-reg-panel` (504×412) | 32 | 19 | 17 | 37.3–94.3% |
+
+⚠️ **The clearance column is the honest qualifier** — many lost labels sat within a few pixels of the
+panel's edge, which is a genuine loss but a much weaker example than one well out in open map.
+A minority of the drops counted as *covered* were under half covered — visible labels, now gone, so
+"covered" is not a synonym for "was invisible anyway". ⚠️ Deliberately not a global percentage:
+`analyse.mjs` emits that count per sweep row and warns that summing the column double-counts states,
+since the axes revisit views and `win`/`win9` measure one panel twice. Read it per row. At the phone's own opening framing on the
+shorter frame, `wf-reg-panel` and a nine-region `wf-win-panel` each leave **no labels at all**.
+
+⚠️ And the measured "after" is not immediate: `MapLabels.jsx` records that opening or closing a panel
+triggers no placement pass, so the reflow lands on the reader's next pan or zoom — which also means
+the labels stay missing after the panel closes, until they move the map.
+
+---
+
+
+**Stated limitations.** Six `OBSTACLE_SELECTOR` entries are never seeded — `wf-win-menu`,
+`wf-jump-menu`, `wf-filters-panel`, `wf-legend-panel`, `colour-scale-notice`,
+`viewline-upsell-chip`. ⚠️ `LEAFLET_CORNER_SELECTOR` — Leaflet's own bottom-right corner, which the
+host seeds from a *second* root — **is** seeded, and was not for the first ten review rounds; the
+method section above records what it measures and what adding it changed. The home marker and reach rings are
+excluded — which also fixes *which* opening camera Result 1 tests: the unscoped, no-postcode one
+(see its own note). So **nothing here speaks to `PinsLayer`** — which holds a *duplicate* of the selector
+list rather than importing it, places only the home label, and whose drop hides the home dot
+itself. The shell chrome above the frame is a 0–175px band rather than a measurement. The landing
+card is mounted in its shortest form. Ratings, tide alignment and drive times are deterministic
+synthetic values; they steer `chipCandidates`' ordering and the chip's own width, and both arms of
+every comparison see identical ones. The roster is the dev seed — denser than production in chips
+and thinner in regions. ⚠️ Those pull in opposite directions, so this says nothing about whether a
+production roster costs more or less overall; see F2.
 
 ---
 
