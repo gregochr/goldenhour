@@ -60,7 +60,10 @@ const LABEL_PANE_Z = 650;
  *
  * <p>⚠️ <b>An earlier revision of this note said the opposite</b> — that an obstacle swallowing a
  * label's anchor could never be escaped, and that height rather than width spent the budget. Both
- * are false: 52 of 133 labels whose anchor sits inside the padded control box are placed anyway.
+ * are false: about two in five labels whose anchor sits inside the padded control box are placed
+ * anyway. (Deliberately not a precise count here — `analyse.mjs` §4 emits one with its own
+ * population attached, and a bare figure in a comment is the kind of thing that gets quoted
+ * long after the run that produced it.)
  *
  * <p><b>What the panels actually cost</b> (`map-landing-plan.md` §4b.1, residual R7). Seeding a
  * panel does not merely hide the labels beneath it: the greedy pass reshuffles around it and drops
