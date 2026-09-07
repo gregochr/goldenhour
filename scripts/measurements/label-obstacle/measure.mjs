@@ -15,7 +15,7 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { createServer } from 'node:http';
-import { extname, resolve, sep } from 'node:path';
+import { extname, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { FRONTEND, HERE, SHELL_CHROME_BAND, loadRoster, spotsFrom } from './lib.mjs';
 
@@ -69,18 +69,30 @@ const spots = spotsFrom(roster);
 console.error(`roster: ${roster.length} locations, ${new Set(roster.map((r) => r.region)).size} regions`);
 
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css' };
+
+/**
+ * The built files, enumerated once and served from a Map keyed by exact URL path.
+ *
+ * ⚠️ Deliberately builds NO path from the request. An earlier cut did `join(DIST, req.url)` and
+ * then, when CodeQL flagged it, added a prefix check — which is a correct guard but still a path
+ * constructed from user data, and still flagged. Serving from a fixed allow-list removes the taint
+ * rather than filtering it, which is both safer and honest about what this server is: it needs to
+ * serve exactly one page and its two assets.
+ */
+const ROUTES = new Map();
+for (const rel of readdirSync(DIST, { recursive: true, withFileTypes: true })) {
+  if (!rel.isFile()) continue;
+  const abs = resolve(rel.parentPath ?? rel.path, rel.name);
+  const url = `/${relative(DIST, abs).split(sep).join('/')}`;
+  ROUTES.set(url, abs);
+}
+ROUTES.set('/', ROUTES.get('/index.html'));
+
 const server = createServer((req_, res) => {
-  const p = req_.url.split('?')[0];
-  // ⚠️ Resolve, then confirm the result is still inside `DIST`. `join` alone happily walks out of
-  // it on a `..` segment, which is a path traversal even on a loopback-bound ephemeral port — and
-  // CodeQL flags it, correctly, as uncontrolled data in a path expression.
-  const file = resolve(DIST, `.${p === '/' ? '/index.html' : p}`);
-  if (file !== DIST && !file.startsWith(DIST + sep)) { res.writeHead(403); res.end(); return; }
-  try {
-    const body = readFileSync(file);
-    res.writeHead(200, { 'Content-Type': MIME[extname(file)] || 'application/octet-stream' });
-    res.end(body);
-  } catch { res.writeHead(404); res.end(); }
+  const file = ROUTES.get(req_.url.split('?')[0]);
+  if (!file) { res.writeHead(404); res.end(); return; }
+  res.writeHead(200, { 'Content-Type': MIME[extname(file)] || 'application/octet-stream' });
+  res.end(readFileSync(file));
 });
 await new Promise((r) => server.listen(0, '127.0.0.1', r));
 const port = server.address().port;

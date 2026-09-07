@@ -131,13 +131,55 @@ export function latLngToPoint(lat, lon, zoom) {
   };
 }
 
-/** `(lat, lon) => [x, y]` in frame px, for a map centred at `centre` at `zoom` in a `w`×`h` frame. */
+/**
+ * `(lat, lon) => [x, y]` in frame px, reproducing Leaflet's `latLngToContainerPoint` exactly.
+ *
+ * ⚠️ **Leaflet rounds TWICE, and separately** (`Map.latLngToLayerPoint`, `Map._getNewPixelOrigin`):
+ *
+ *     layerPoint = round(project(latlng))  −  round(project(centre) − size/2)
+ *
+ * — not `round(project(latlng) − project(centre) + size/2)`. An earlier cut did the latter, and at
+ * fractional zooms (which the tab has: `zoomSnap: 0`) the two differ by a pixel for roughly half
+ * the roster. Every collision and clearance decision here turns on a few pixels, so that is not a
+ * rounding nicety.
+ */
 export function projector(centre, zoom, w, h) {
   const c = latLngToPoint(centre.lat, centre.lon, zoom);
+  const originX = Math.round(c.x - w / 2);
+  const originY = Math.round(c.y - h / 2);
   return (lat, lon) => {
     const p = latLngToPoint(lat, lon, zoom);
-    return [p.x - c.x + w / 2, p.y - c.y + h / 2];
+    return [Math.round(p.x) - originX, Math.round(p.y) - originY];
   };
+}
+
+/** The inverse of {@link latLngToPoint}, for deriving a `fitBounds` centre the way Leaflet does. */
+export function pointToLatLng(x, y, zoom) {
+  const scale = 256 * 2 ** zoom;
+  const mx = (x / scale - 0.5) / TA;
+  const my = (y / scale - 0.5) / TC;
+  return {
+    lat: (2 * Math.atan(Math.exp(my / R)) - Math.PI / 2) / D,
+    lon: mx / (R * D),
+  };
+}
+
+/**
+ * The camera `fitBounds` actually produces for these bounds at this zoom.
+ *
+ * ⚠️ Leaflet centres on the **unprojection of the projected midpoint**
+ * (`Map._getBoundsCenterZoom`: `unproject(swPoint.add(nePoint).divideBy(2))`), NOT on the
+ * arithmetic mean of the latitude extrema. Mercator is non-linear in latitude, so the two differ —
+ * by a few pixels for this roster, which is enough to move an edge-sensitive placement. An earlier
+ * cut averaged lat/lon and so tested a camera the app never uses.
+ */
+export function fitBoundsCentre(spots, zoom) {
+  const lat = spots.map((s) => s.lat);
+  const lon = spots.map((s) => s.lng);
+  const sw = latLngToPoint(Math.min(...lat), Math.min(...lon), zoom);
+  const ne = latLngToPoint(Math.max(...lat), Math.max(...lon), zoom);
+  const c = pointToLatLng((sw.x + ne.x) / 2, (sw.y + ne.y) / 2, zoom);
+  return { name: 'fitBounds', lat: c.lat, lon: c.lon };
 }
 
 /**

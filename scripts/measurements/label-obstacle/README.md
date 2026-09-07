@@ -47,12 +47,15 @@ Every drop is classified:
 ## Reading a result honestly
 
 - **A null result is only worth having under competition.** The top-right chrome cluster is held
-  constant in both arms for this reason. The one collateral loss §4b.1 reports appeared *only* after
-  it was added.
-- **Not every configuration is comparable at every viewport.** Below 640px `index.css` releases
-  `.wf-map-chrome-tl`'s bound entirely, so the box is a full-width bar and a synthetic "334px vs
-  504px" comparison is counterfactual there. `analyse.mjs` excludes the phone from that pair rather
-  than reporting it as a passing viewport.
+  constant in both arms for this reason. Collateral counts rise with every axis that adds contention, which is why the sweep
+  runs all of them rather than one.
+- **The widening is not the same change on every frame.** `max-width: calc(100% - 308px)` clamps
+  the control, so production's change was `334 → 504` on the wide frames and `334 → 480` on the
+  788px one; `analyse.mjs` compares each frame against its own MEASURED control rather than against
+  a fixed 504. Only the phone is skipped, and for a different reason: below 640px the bound is
+  released entirely, so the box is frame-driven and there is no widening to license. ⚠️ Two earlier
+  cuts got this wrong in opposite directions — one compared 334 against 504 everywhere, the other
+  discarded the tablet altogether.
 - **The home marker and the reach rings are excluded**, so this says nothing about `PinsLayer` —
   which places *only* the home label, and whose drop hides the home dot itself. Extending the
   harness to cover it is the obvious next improvement.

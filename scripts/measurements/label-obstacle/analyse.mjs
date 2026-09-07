@@ -16,8 +16,8 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  ALWAYS_ON, FRONTEND, HERE, SHELL_CHROME_BAND, loadRoster, spotsFrom, VIEWPORTS,
-  ZOOM_GRIDS, centresFor, projector,
+  ALWAYS_ON, FRONTEND, HERE, ZOOM_GRIDS, centresFor, fitBoundsCentre, latLngToPoint, loadRoster,
+  projector, spotsFrom,
 } from './lib.mjs';
 
 const {
@@ -42,21 +42,27 @@ const CENTRES = centresFor(SPOTS);
  * so the box is a full-width bar and NEITHER figure renders: the phone is excluded from that
  * comparison rather than reported as a passing viewport.
  */
-const CONTROL_WIDTH = 504;
+/** The width the control had when §4 #31 licensed the previous widening. */
+const HISTORIC_WIDTH = 334;
 
 /**
- * Whether a frame can host the `334 → 504` comparison at all.
+ * Whether a frame can host the widening comparison at all — and, if so, what the widening IS there.
  *
- * ⚠️ Keyed on the MEASURED obstacle, never on the viewport. Below 640px `index.css` releases the
- * bound entirely (`left: 8px; right: 8px; max-width: none`), and on a 788px frame
- * `max-width: calc(100% - 308px)` clamps the control to 480px — so on both, a synthetic "334 vs
- * 504" is a comparison between two widths the CSS never emits. An earlier cut tested
- * `viewport > 639`, which excluded the phone and silently kept the tablet; two of the three
- * collateral drops it then attributed to the widening were tablet rows.
+ * ⚠️ It is not always `334 → 504`. `max-width: calc(100% - 308px)` clamps the control, so on the
+ * 788px frame the change production actually made was **334 → 480**. An earlier cut tested for
+ * exactly 504 and so *discarded* the tablet, which excludes a real affected viewport rather than
+ * measuring it; the cut before that tested the viewport width and silently kept the tablet at a
+ * comparison the CSS never emits. The right test is neither: compare 334 against whatever the
+ * control MEASURES on that frame, and skip only frames where 334 was never the width.
+ *
+ * The phone is the one such frame. Below 640px `index.css` releases the bound entirely
+ * (`left: 8px; right: 8px; max-width: none`), so the control is frame-driven at 374px and there is
+ * no widening to license — the box is whatever the frame is.
  */
-const widthComparable = (k) => Math.abs(
-  boxes.viewports[k].surfaces.none.obstacles['wf-map-chrome-tl'].width - CONTROL_WIDTH,
-) < 0.5;
+function wideningOn(k) {
+  const tl = boxes.viewports[k].surfaces.none.obstacles['wf-map-chrome-tl'];
+  return boxes.viewports[k].width > 639 && tl.width > HISTORIC_WIDTH ? tl.width : null;
+}
 
 function configsFor(vpName) {
   const s = boxes.viewports[vpName].surfaces;
@@ -68,7 +74,7 @@ function configsFor(vpName) {
     .filter((r) => r && r.width > 0 && r.height > 0);
   const at = (width) => ({ ...tl, width });
   return {
-    'tl-334': [at(334), ...chrome],
+    'tl-334': [at(HISTORIC_WIDTH), ...chrome],
     'tl-504': [tl, ...chrome],
     'tl+land': [tl, s.land.obstacles['wf-land'], ...chrome],
     'tl+win': [tl, s.win.obstacles['wf-win-panel'], ...chrome],
@@ -224,43 +230,36 @@ function fitZoom(w, h, pad) {
   };
   let best = 0;
   for (let z = 0; z <= 20; z += 0.01) {
-    const p = projector({ lat: 0, lon: 0 }, z, 0, 0);
-    const [x1, y1] = p(bb.n, bb.w);
-    const [x2, y2] = p(bb.s, bb.e);
-    if (Math.abs(x2 - x1) <= w - 2 * pad && Math.abs(y2 - y1) <= h - 2 * pad) best = z; else break;
+    // Unrounded on purpose: this is a span, and `getBoundsZoom` compares the projected extent
+    // before any of Leaflet's pixel rounding applies.
+    const a = latLngToPoint(bb.n, bb.w, z);
+    const b = latLngToPoint(bb.s, bb.e, z);
+    if (Math.abs(b.x - a.x) <= w - 2 * pad && Math.abs(b.y - a.y) <= h - 2 * pad) best = z;
+    else break;
   }
   return Number(best.toFixed(2));
 }
-const boundsCentre = () => {
-  const lat = SPOTS.map((s) => s.lat);
-  const lon = SPOTS.map((s) => s.lng);
-  return {
-    name: 'fitBounds',
-    lat: (Math.max(...lat) + Math.min(...lat)) / 2,
-    lon: (Math.max(...lon) + Math.min(...lon)) / 2,
-  };
-};
 
 // ── 1. The tab's own opening framing ─────────────────────────────────────────────────────────────
 console.log('══ 1. The opening framing — what a reader actually lands on ══');
 console.log('   `MapContainer` reads `bounds` once at construction and fits the planning area.\n');
-const centre0 = boundsCentre();
+
 for (const fk of FRAMES) {
   const { width: w, height: h } = frameOf(fk);
   const cfg = configsFor(fk);
   const zooms = [fitZoom(w, h, 60), fitZoom(w, h, 28)];
-  const comparable = widthComparable(fk);
+  const comparable = wideningOn(fk);
   for (const zoom of zooms) {
-    const { items } = itemsFor(fk, centre0, zoom);
+    const { items } = itemsFor(fk, fitBoundsCentre(SPOTS, zoom), zoom);
     const counts = Object.fromEntries(
       Object.entries(cfg).map(([n, r]) => [n, run(items, w, h, r).size]),
     );
     const widthLine = comparable
       ? (counts['tl-334'] === counts['tl-504']
         ? (JSON.stringify([...run(items, w, h, cfg['tl-334'])]) === JSON.stringify([...run(items, w, h, cfg['tl-504'])])
-          ? '334→504 IDENTICAL' : '334→504 same count, different positions')
-        : '334→504 CHANGED')
-      : '334→504 n/a (phone: the box is a full-width bar, neither width renders)';
+          ? `334→${Math.round(comparable)} IDENTICAL` : `334→${Math.round(comparable)} same count, different positions`)
+        : `334→${Math.round(comparable)} CHANGED`)
+      : '334→? n/a (phone: the bound is released; the box is a full-width bar)';
     console.log(
       `   ${fk.padEnd(17)} z${String(zoom).padEnd(5)} ${String(items.length).padStart(2)} offered  `
       + Object.entries(counts).map(([n, c]) => `${n}=${c}`).join(' ') + `   ${widthLine}`,
@@ -300,7 +299,7 @@ for (const axis of AXES) {
       states: 0, changed: 0, covered: 0, collateral: 0, moved: 0, partial: 0, at: [], gap: [],
     };
     for (const fk of FRAMES) {
-      if (from === 'tl-334' && !widthComparable(fk)) continue;
+      if (from === 'tl-334' && !wideningOn(fk)) continue;
       const cfg = configsFor(fk);
       const { width: w, height: h } = frameOf(fk);
       for (const zoom of ZOOM_GRIDS[axis.grid]) {
