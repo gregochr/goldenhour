@@ -1,4 +1,4 @@
-### Docs — the label-placement obstacle re-measured at 504px, and with the drilldown panels
+### Docs — the Map tab's label obstacles, measured properly
 
 `map-tab-v2-plan.md` §4 #31 licensed widening the Map tab's top-left chrome — a label-placement
 obstacle — from a variable 187–300px to a constant 334px, and it licensed it by *measuring* that no
@@ -6,17 +6,23 @@ label moved. The control has since grown to 504px, and three more surfaces (the 
 drilldown's two panels) joined the obstacle list. Neither change re-ran the measurement, so the
 licence had been spent at sizes nobody had checked.
 
-It has now been re-run: the real placer and the real candidate builders, against label boxes measured
-in headless Chromium off the built stylesheet with the components mounted in their real ancestor
-chain, over 560 map-state pairs. **At the tab's own opening framing the widening is still exactly
-identical on all four viewports** — the licence holds where a reader actually lands. Over a wider
-sweep it costs one label that had clear air, in one state of 140. The three panels drop a great deal
-more (up to 64% of the placed set on a phone) and **none of it is collateral**: every label they drop
-is one the panel covers, which is what seeding it as an obstacle is for.
+It has now been re-run against the real placer, with the real label boxes measured in headless
+Chromium off the built stylesheet, across a 32-cell sweep. **The widening's licence survives**: going
+from 334px to 504px costs at most one label that had clear air, in every cell. Two of the original
+entry's qualifications do not survive and are now recorded — the phone was never a passing viewport,
+because below 640px neither width renders; and "every label's position" overstates what is testable,
+since a chip can step a nudge rung without anything being lost.
 
-The general rule that fell out, now recorded where obstacles are declared: the nudge ladder reaches
-±38px and its horizontal fallback is anchor-relative, so an obstacle that swallows a label's own
-anchor cannot be escaped on any rung. **Obstacle height is what spends the placement budget, not
-width** — which is why a 36px band's licence does not cover a several-hundred-pixel panel.
+**The three drilldown panels are a different matter, and this is the new finding.** Seeding them as
+obstacles drops labels that had clear air — up to eight, ten and nine per 140 map states, and
+thirteen for a window panel sized to a realistic region count, with real named locations among them.
+It gets worse the busier the map is. That is a genuine cost rather than a defect with a line to fix
+— not seeding them is worse, since it puts labels under an opaque panel — so it is recorded as a
+residual with numbers attached rather than quietly absorbed.
 
-No behaviour change. Method, figures and stated limitations are in `map-landing-plan.md` §4b.1.
+The measurement instrument is committed this time, at `scripts/measurements/label-obstacle/`. That
+is the actual fix for what created this residual: a licence granted by a measurement nobody could
+repeat. Its README carries the two traps it fell into, both of which failed plausibly rather than
+loudly.
+
+No behaviour change. Method, figures and limitations are in `map-landing-plan.md` §4b.1.

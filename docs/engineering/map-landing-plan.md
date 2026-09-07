@@ -989,95 +989,138 @@ will otherwise re-discover and file as new.
 | R2 | One region name clips at **320px** in the region panel | L6 | Same cause, same cure — R1 and R2 close together or not at all. |
 | R3 | The drilldown overlaps `.wf-map-chrome-bl` (the Legend chip) at **≤430px** | L5, re-measured L6 | The panel is 1150 and the chrome 1100, so it paints *over* rather than being covered — ordinary behaviour for an open panel, and the chip is reachable the moment it closes. |
 | R4 | `5 ★` carries a 5px flex gap between the number and the glyph | L6 | `.wf-win-panel-best` is `inline-flex; gap: 5px` and the window panel shares it, so fixing one level only would make the two disagree. Pre-existing to L6. |
-| R5 | The label-placement obstacle grew **334→504px** with the control, and three panels joined it | L2, L4–L6; **re-measured 2026-09-06** | ✅ **CLOSED — the licence holds, and the panels cost nothing they should not.** `map-tab-v2-plan.md` §4 #31 licensed the previous widening *by measuring that no label moved*, at two views; that measurement was never re-run at 504px, nor after L4–L6 added `wf-land`/`wf-win-panel`/`wf-reg-panel` to `OBSTACLE_SELECTOR`. It has now been re-run — method and full numbers in §4b.1 below. **At the tab's own opening framing the widening is still exactly identical on all four viewports.** Across a wider 140-state sweep it is not, and the single genuine cost is **one** label in 140 states. The three panels drop 11–64% of the placed set and **zero** of those drops are collateral — every one is a label the panel covers, which is what seeding it is for. |
+| R5 | The label-placement obstacle grew **334→504px** with the control, and three panels joined it | L2, L4–L6; **re-measured 2026-09-07** | **Measured — the widening's licence holds; the PANELS are a new residual (R7).** §4 #31 licensed the previous widening by measuring that no label moved, at two views, and that was never re-run at 504px nor after L4–L6 seeded three panels. It has now been re-run against the real placer, over a 32-cell sweep; instrument at `scripts/measurements/label-obstacle/`, findings in §4b.1. `334 → 504` costs **0–1** collateral drops per 105 comparable state-pairs in every cell, so #31's licence survives. ⚠️ Two of its qualifications do not: the phone was never a passing viewport (below 640px neither width renders), and "every position" was never tested — the durable claim is the placed **set**. |
 | R6 | Both drilldown panels answer `Escape` behind a foreign modal | L6 | §4 #37 in full. Left on `map-tab-v2-plan.md` O-20's stated posture; the obvious shortcut is unavailable. |
+| R7 | ⚠️ **Seeding the drilldown panels as label obstacles drops labels that had clear air** | raised 2026-09-07 by R5's re-measurement | Up to **8 / 10 / 9** collateral drops per 140 state-pairs for `wf-land` / `wf-win-panel` / `wf-reg-panel`, and **13** for a production-shaped nine-region window panel — real named locations among them (`Robin Hood's Bay`, `Ashness Bridge`, `Saltburn Pier`). Inherent to greedy placement around a large obstacle, and it worsens with contention, so it is a genuine cost rather than a bug with a line to fix. Left recorded rather than actioned: the alternative — not seeding the panels — is worse, since it puts chips under an opaque plate (the defect that put them in `OBSTACLE_SELECTOR` at L5). §4b.1 Result 2 has the numbers; a cure would be a placement pass that re-tries dropped labels after the greedy pass, which is a phase, not a patch. |
 
-#### §4b.1 — R5 re-measured: the label-obstacle licence at 504px and with the three panels
+#### §4b.1 — R5 re-measured: the label-obstacle licence at 504px, and the three panels
 
 **Why this needed doing.** `map-tab-v2-plan.md` §4 #31 widened `.wf-map-chrome-tl` from a variable
 187–300px to a constant 334px and licensed it by measuring that *"the rendered label set and every
 label's position were identical before and after"*. Two things then happened without that
 measurement being re-run: L2 took the obstacle to **504px**, and L4–L6 added three more entries to
-`MapLabels.jsx`'s `OBSTACLE_SELECTOR` — `wf-land`, `wf-win-panel`, `wf-reg-panel`. ⚠️ The entry's
-own justification is what made the re-run necessary rather than merely tidy: *"the band is only 36px
-tall, so widening it rarely exhausts a location's candidates."* That argument is about **height**,
-and it does not transfer to a 307–449px panel.
+`MapLabels.jsx`'s `OBSTACLE_SELECTOR` — `wf-land`, `wf-win-panel`, `wf-reg-panel`. ⚠️ The entry's own
+justification is what made a re-run necessary rather than merely tidy: *"the band is only 36px tall,
+so widening it rarely exhausts a location's candidates."* That argument is about a 36px band and
+does not transfer to a 271–581px panel.
 
-**Method.** Not a re-derivation — the real code, driven directly.
+⚠️ **The first attempt at this measurement was wrong, and its instrument is now committed so the
+next one need not be rebuilt from prose.** `scripts/measurements/label-obstacle/` is the harness;
+its README carries the traps. The corrections that changed results are in that commit's message —
+the largest was a chip markup missing two of the real chip's four children, which made every
+measured box 26–45px too narrow and biased every answer toward *it fits*.
 
-- **Boxes measured in headless Chromium** (`playwright-core`, the cached `chromium-1234`) against
-  the **built** stylesheet, with the real components (`WindowControl`, `MapLandingCard`,
-  `MapWindowPanel`, `MapRegionPanel`) mounted inside the real ancestor chain
-  `.wf-shell` › `.wf-body.wf-body--map` › `.wf-map-tab` › the relative frame — the chain
-  `measuring-css-cascade-claims`' own lesson says to transcribe rather than invent. Labels are read
-  with `offsetWidth`/`offsetHeight` while absolutely positioned, exactly as `MapLabels`' measure
-  pass reads them.
-- **Placement run through the real modules** — `mapLabels.regionLabelItems`, `chipCandidates` and
-  `placeLabelPass`, with obstacles seeded through the host's own
-  `labelPlacement.seedObstacles(rects, containerRect, 5)`. Nothing about the placer is reimplemented.
-- **Projection is Leaflet's own** (`CRS.EPSG3857` + `latLngToContainerPoint`), so a frame coordinate
-  here is the frame coordinate the tab computes.
-- **Roster**: `scripts/dev-seed-locations.sh` — its 21 real anchors plus the deterministic 189-point
-  `--dense` scatter, 210 locations across 4 regions. That scatter exists to make exactly this kind
-  of density measurement possible.
-- **States**: 4 viewports (1280×800, 1024×720, 820×1100, 390×844) × 5 centres × 7 zooms
-  (8.6 → 13.0) = 140 per configuration, plus each viewport's **real** `fitBounds` opening zoom.
+**Method.** The real code, driven directly. `mapLabels.regionLabelItems` / `chipCandidates` /
+`placeLabelPass`, obstacles seeded through the host's own `seedObstacles(rects, containerRect, 5)`,
+Leaflet's own `CRS.EPSG3857` projection with its rounding, and label boxes measured in headless
+Chromium against the **built** stylesheet with the real components mounted inside the real
+`.wf-shell` › `.wf-body.wf-body--map` › `.wf-map-tab` chain. Roster:
+`scripts/dev-seed-locations.sh` — 21 anchors plus its deterministic 189-point `--dense` scatter,
+210 locations across 4 regions.
 
-**Measured rects** (desktop 1280×800; the phone's own rules give it different numbers):
-`wf-map-chrome-tl` **504×36** @(60,8) · `wf-land` **376×271** @(12,60) ·
-`wf-win-panel` **504×307** @(60,50) · `wf-reg-panel` **504×412** @(60,50).
-Chips run **71–128 × 17**; region names **111–164 × 14** (90×14 in the `data-tiny` form).
+⚠️ **The sweep runs 32 cells, not one configuration**, because a single configuration is what went
+wrong the first time: every combination of {five fixed pans, five density-picked centres} ×
+{full viewport, minus a 175px shell for the masthead and tab strip} × {no selection, a selection}.
+Density-picked centres matter — under the fixed pans the frame is 96.8–99.95% empty in every state,
+so a null result there is close to a null by construction.
 
-**Result 1 — at the tab's own opening framing, 334→504 is still identical.** `MapContainer` reads
-`bounds` once at construction and fits the planning area, which for this roster lands at zoom
-**8.05–8.40** (6.90–7.21 on the phone). At every one of those eight opening states, on all four
-viewports, the placed set and every position are **byte-identical** at 334px and at 504px. The
-licence's own claim survives where a reader actually lands.
+**Measured rects** (desktop 1280×800; the phone's own media query gives it different ones, listed
+where they matter): `wf-map-chrome-tl` **504×36** @(60,8) · `wf-map-chrome-tr` **158×146** @(1114,8)
+· `wf-land` **376×271** @(12,60) · `wf-win-panel` **504×307** @(60,50) at the dev seed's four
+regions and **504×567** at nine · `wf-reg-panel` **504×412** @(60,50). Chips **98–155 × 17**; region
+names 111–164 × 14 (90×14 in the `data-tiny` form below 430px).
 
-**Result 2 — over a wider sweep it is not identical, and the real cost is one label in 140 states.**
-20 of the 140 state-pairs differ: 10 labels dropped, 22 moved. But nineteen of those twenty are the
-obstacle doing its job — the label's old box lies **inside** the widened strip, so it was covered
-either way. Exactly **one** is a genuine collateral loss: `chip:Scatter 2` at 1024×720, west pan,
-zoom 8.6, sitting at (704, 2) — clear air in both arms, lost to the greedy pass reshuffling around
-the wider obstacle. ⚠️ It appears **only** once the top-right chrome cluster is seeded as competition
-as well, which is the direction to keep in mind: the null result below is a result under competition,
-not under an empty frame.
+---
 
-**Result 3 — the three panels drop a great deal, and none of it is collateral.** Against the
-`tl-504` baseline, the placed total falls by 11.0–45.3% (`wf-land`), 19.9–53.7% (`wf-win-panel`) and
-25.4–64.2% (`wf-reg-panel`), the largest figures being the phone's. Across all **560** state-pairs,
-the collateral count is **zero**: every single dropped label had its old box under the newly-opened
-panel. The seeding is behaving exactly as designed, and the panels cost nothing a reader could have
-seen.
+##### Result 1 — the widening's licence holds
 
-**Result 4 — the mechanism, now stated as a rule rather than left implicit.** `MAP_NUDGES` reaches
-±38px and `mapDxOffsets` is **anchor-relative** (`round(w/2) + MAP_DX_GAP`), not obstacle-relative.
-So **an obstacle that swallows a label's own anchor cannot be escaped on any of the 21 rungs** — the
-horizontal fallback moves the box by half its own width plus 9px, which clears a neighbouring label
-but not a 504px-wide plate. Worked example, verified in isolation: `region:The Scottish Borders` at
-1280×800, roster centroid, zoom 8.6 anchors at **(527.1, 16.9)** with a 131×14 box. At 334px the
-obstacle spans x[55..399] and the label places at its natural position; at 504px it spans x[55..569]
-and **all 21 rungs fail**. ⚠️ The practical form: **obstacle HEIGHT is what spends the placement
-budget, not width.** 36px of chrome leaves rungs above and below; a 307–449px panel leaves none.
-§4 #31's licence was granted on a 36px band and does not generalise to a panel — which is why
-Result 3's zero-collateral finding is the one that matters, not the size of the drop.
+Across all 32 cells, `334 → 504` costs **0 or 1** collateral drops per 105 comparable state-pairs.
+That is the question §4 #31 licensed, and the answer survives re-measurement.
 
-**Stated limitations** — what this did *not* measure:
-- **The home marker and the reach rings are excluded.** Both are higher-priority labels than region
-  names, so including them would change the greedy outcome; a reader with no saved postcode has
-  neither, which is the case measured.
-- **Only two obstacles were seeded** — `wf-map-chrome-tl` and the top-right cluster (its 224.45px
-  box is this project's own headless measurement, cited in `index.css`). The counts footer, the
-  Legend chip, the scored-locations chip and the phone bar were held out. They are constant across
-  both arms of every comparison, but Result 2's single collateral loss appeared *only* after
-  competition was added, so a fuller chrome set could find more.
-- **Ratings, tide alignment and drive times are deterministic synthetic values.** They steer
-  `chipCandidates`' ordering, never the geometry, and both arms of every comparison see identical
-  inputs.
-- **The roster is the dev seed, not production's.** 210 locations across 4 regions rather than ~61
-  across more — denser than production, which loads the placer harder rather than less.
-- **No claim is made about `PinsLayer`**, which reads the same `OBSTACLE_SELECTOR` but places
-  different items.
+⚠️ Two qualifications the original entry did not carry, and which my own first attempt repeated:
+
+- **The phone is excluded, not passing.** Below 640px `index.css` releases the bound entirely
+  (`left: 8px; right: 8px; max-width: none`), so the box is a full-width 374px bar and *neither*
+  334 nor 504 renders there. Any claim of identity "on all four viewports" is false by construction.
+- **"Every position" is not what was tested — then or now.** At the tab's own `fitBounds` opening
+  framing (zoom 8.23/8.36, 8.05/8.19, 8.28/8.40) the placed **set** is identical at all six
+  comparable states; at two of them one chip (`chip:Scatter 163`) steps one `MAP_NUDGES` rung. The
+  set is the durable claim; "and every position" is not.
+
+##### Result 2 — ⚠️ the three panels DO drop labels that had clear air, and this is the finding
+
+This is the opposite of what the first attempt reported. Worst case per panel, over 140 state-pairs
+each, taken across the 32 cells:
+
+| obstacle seeded | worst collateral drops | at |
+|---|---|---|
+| `wf-land` (376×271) | **8** | dense centres, realistic frame |
+| `wf-win-panel` (504×307, four regions) | **10** | dense centres, realistic frame, a selection |
+| `wf-win-panel` (504×567, nine regions) | **13** | dense centres |
+| `wf-reg-panel` (504×412) | **9** | dense centres, realistic frame, a selection |
+
+A *collateral* drop is a label whose box lay entirely clear of the newly-opened panel and which the
+greedy pass lost anyway, reshuffling around it. They are not all anonymous scatter points —
+**`Robin Hood's Bay`, `Ashness Bridge` and `Saltburn Pier`** are among them.
+
+The count rises monotonically with contention, with a realistic frame height, and with region count.
+So the honest reading is not a rate but a direction: **the busier the map, the more this costs**,
+and the dev seed's four regions understate it against any real roster.
+
+##### Result 3 — "covered" is not a synonym for "was invisible anyway"
+
+Coverage is a fraction, not a boolean. Across the sweep, **344** of the drops classified as covered
+were less than **half** covered — visible labels, now gone. The first attempt's classifier also
+tested against the 5px-padded seed rect rather than the panel itself, so a label sitting in clear
+air *beside* a panel scored as covered.
+
+##### Result 4 — magnitude
+
+Against the `tl-504` baseline the panels take the placed set down **11.3–48.9%** (`wf-land`),
+**20.3–58.2%** (`wf-win-panel`) and **25.9–70.1%** (`wf-reg-panel`), the largest figures being the
+phone's. ⚠️ At the phone's own opening framing, a nine-region `wf-win-panel` (374×581 over a 390×844
+frame) leaves **no labels at all**.
+
+⚠️ And the measured "after" is not immediate: `MapLabels.jsx` records that opening or closing a
+panel triggers no placement pass, so the reflow lands on the reader's next pan or zoom — which also
+means the labels stay missing after the panel closes, until they move the map.
+
+##### Result 5 — the escape ladder, measured rather than reasoned
+
+⚠️ **The rule the first attempt recorded here was false, and backwards.** It said an obstacle that
+swallows a label's anchor cannot be escaped, and that height rather than width spends the budget.
+Measured against the real ladder, **29 of 58** labels whose anchor sits inside the padded 504px box
+are placed anyway.
+
+What is true, derived from the constants and checked against behaviour — margins from the seeded
+(5px-padded) rect's edge:
+
+- **vertical ≈ 27.5px** for a 17px chip (`max(MAP_NUDGES) − h/2 − COLLISION_PAD_Y`), and dependent
+  on the label's height;
+- **horizontal = 6px** (`MAP_DX_GAP − COLLISION_PAD_X`), and **independent of the label's width**,
+  because `mapDxOffsets` scales with `w` — so the box's near edge always lands `MAP_DX_GAP` past the
+  anchor, never clear of the obstacle.
+
+So **width is the harsher axis, not the freer one**, and the reason 187→334→504 cost so little is
+that a 46px seeded band puts every anchor within 23px of an edge. ⚠️ One further asymmetry: an
+obstacle against the frame's top edge can only be escaped *downward*, because `EDGE_INSET` rejects
+any box above `y = 1` — which is why §4 #31's own worked example
+(`region:The Scottish Borders`, anchor (527.1, 16.9)) fails all 21 rungs at 504px while placing
+cleanly at 334px.
+
+---
+
+**Stated limitations.** Six `OBSTACLE_SELECTOR` entries are never seeded — `wf-win-menu`,
+`wf-jump-menu`, `wf-filters-panel`, `wf-legend-panel`, `colour-scale-notice`,
+`viewline-upsell-chip` — nor is `LEAFLET_CORNER_SELECTOR`, Leaflet's own bottom-right zoom/home
+corner, which the host seeds from a second root every pass. The home marker and reach rings are
+excluded, so **nothing here speaks to `PinsLayer`** — which holds a *duplicate* of the selector
+list rather than importing it, places only the home label, and whose drop hides the home dot
+itself. The shell chrome above the frame is a 0–175px band rather than a measurement. The landing
+card is mounted in its shortest form. Ratings, tide alignment and drive times are deterministic
+synthetic values; they steer `chipCandidates`' ordering and the chip's own width, and both arms of
+every comparison see identical ones. The roster is the dev seed — denser than production in chips,
+**thinner in regions**, which understates the window panel.
 
 ---
 

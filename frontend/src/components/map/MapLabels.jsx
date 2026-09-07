@@ -47,22 +47,28 @@ const LABEL_PANE_Z = 650;
  * chip's own layout box, so the chrome wrapper's `getBoundingClientRect()` does not cover it — only
  * the panel's own rect does. The closed chip needs no entry of its own; the wrapper already covers it.
  *
- * <h2>⚠️ Adding to this list is not free, and HEIGHT is what costs</h2>
+ * <h2>⚠️ Adding to this list is not free — measure it</h2>
  *
- * <p>{@link MAP_NUDGES} reaches ±38px and {@code mapDxOffsets} is <b>anchor-relative</b>
- * ({@code round(w/2) + MAP_DX_GAP}), not obstacle-relative — the horizontal fallback moves a box by
- * half its OWN width plus 9px, which clears a neighbouring label and not a 504px-wide plate. So
- * <b>an obstacle that swallows a label's anchor cannot be escaped on any of the 21 rungs</b>: the
- * label is dropped, never nudged. 36px of chrome leaves rungs above and below it; a several-hundred-
- * pixel panel leaves none.
+ * <p>The escape ladder is anchor-relative and its reach is small and asymmetric. Measured from the
+ * SEEDED (5px-padded) rect's edge: <b>~27.5px vertically</b> for a 17px chip
+ * ({@code max(MAP_NUDGES) - h/2 - COLLISION_PAD_Y}, so it depends on the label's height) and
+ * <b>6px horizontally</b> ({@code MAP_DX_GAP - COLLISION_PAD_X}) — the horizontal figure being
+ * <b>independent of the label's width</b>, because the dx offset scales with {@code w}, so a box's
+ * near edge always lands {@code MAP_DX_GAP} past its own anchor rather than clear of the obstacle.
+ * <b>Width is the harsher axis.</b> One further asymmetry: an obstacle against the frame's top edge
+ * can only be escaped downward, because {@code EDGE_INSET} rejects any box above {@code y = 1}.
  *
- * <p>That was measured rather than reasoned (`map-landing-plan.md` §4b.1, 2026-09-06 — the real
- * placer, real Chromium-measured boxes, 560 state-pairs). The reassuring half: across every state
- * measured, <b>zero</b> of the labels the three panels drop had clear air — each one is a label its
- * panel covers, which is what seeding it is for. The half to keep in mind before adding a fifth
- * entry: `wf-reg-panel` on a phone (374×449 over a 390×844 frame) takes the placed set down by
- * ~64%, and `map-tab-v2-plan.md` §4 #31's "no label moved" licence was granted on a 36px band and
- * does not cover a panel.
+ * <p>⚠️ <b>An earlier revision of this note said the opposite</b> — that an obstacle swallowing a
+ * label's anchor could never be escaped, and that height rather than width spent the budget. Both
+ * are false: 29 of 58 labels whose anchor sits inside the padded 504px box are placed anyway.
+ *
+ * <p><b>What the panels actually cost</b> (`map-landing-plan.md` §4b.1, re-measured 2026-09-07 with
+ * the instrument now committed at `scripts/measurements/label-obstacle/`): seeding them drops
+ * labels that had <em>clear air</em> — up to 8, 10 and 9 per 140 map states for
+ * {@code wf-land}, {@code wf-win-panel} and {@code wf-reg-panel}, and 13 for a production-shaped
+ * nine-region window panel. That is a real cost, recorded as residual R7; it is still better than
+ * not seeding them, which puts chips under an opaque plate. It worsens with contention, so a fifth
+ * entry deserves a run of the harness rather than an argument.
  */
 const OBSTACLE_SELECTOR = [
   '[data-testid="wf-map-chrome-tl"]',

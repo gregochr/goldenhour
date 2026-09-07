@@ -3132,9 +3132,12 @@ button.wf-hc.also.on:hover {
        `MapLabels.jsx` and `PinsLayer.jsx`, and map-tab-v2-plan.md §4 #31 licensed the last
        widening of it (187→334px) by measuring that no label moved. Stretching it to ~970px would
        have spent that budget without re-measuring anything. ⚠️ The 334→504px growth this rule
-       permits WAS spent unmeasured for a while; it has since been re-run against the real placer
-       (map-landing-plan.md §4b.1) and comes out identical at the tab's own opening framing, so the
-       citation stands — but read that section, not this line, before widening it again.
+       permits WAS spent unmeasured for a while. It has since been re-run (map-landing-plan.md
+       §4b.1, instrument at `scripts/measurements/label-obstacle/`) and costs 0-1 labels that had
+       clear air, so the citation survives for THIS obstacle — but only for the widening, only for
+       `MapLabels`, and not on a phone, where neither width renders. **`PinsLayer` reads a duplicate
+       of that list and was not measured at all.** Re-run the harness before widening this again;
+       the same measurement found the three drilldown panels genuinely costing labels (R7).
 
    `max-width` leaves the box shrink-to-fit, so it stays exactly as wide as the control: no dead
    strip, and the obstacle grows only to the control's own 504px.
