@@ -5,6 +5,990 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.20.4] - 2026-09-07
+
+### Fixed — Escape no longer operates the map drilldown behind an open dialog
+
+With the four-day sheet over the map, one `Escape` reaching either drilldown panel stepped it back
+or closed it **behind** the sheet. `MapView`'s pane-level handler has stood down for a foreign
+`[role="dialog"][aria-modal]` since the panel-persistence work, but the two panels each carried a
+subtree handler that did not — and both run on one press, since neither calls `stopPropagation`. So
+the pane's rule stood down correctly and the panel's acted anyway.
+
+The fix is one predicate rather than another guard. `foreignModalOver` moved out of `MapView`'s
+module scope into `utils/mapForeignModal.js` — the components that need it cannot import from
+`MapView` without a cycle — and **all eight** of the tab's Escape rules now read it: the pane
+handler, the landing card's listener, the drilldown's two panels, `WindowControl`, `FiltersPopover`,
+`RegionsJump` and `MapLegendPanel`. So does `useOutsideDismiss`, whose outside-press rule dismissed
+the same surfaces invisibly when the press landed inside the sheet — the identical defect on the
+pointer, unrecorded until now.
+
+⚠️ **The first cut corrected only the two panels and claimed there were four rules.** Two review
+lenses counted eight, and one showed `WindowControl` is on the very route that reaches the panels: a
+keyboard reader gets to the drilldown by Tabbing out of the non-trapping sheet onto the pill, so the
+pill's own dropdown answered the same press first. Fixing two of eight would have left the defect
+live one control earlier.
+
+Each panel resolves its own pane with `closest('.wf-map-tab')` rather than taking the predicate as a
+prop. ⚠️ **The prop design was built first and mutation testing killed it**: with either mount
+unwired the predicate threw inside the event handler, the handler died before acting, the panel
+stayed open — and every wiring test passed, asserting the right outcome for the wrong reason. A
+crash is also a worse failure than the bug it guards. Resolving the pane locally leaves nothing to
+forget.
+
+Five mutants, all killed: the stand-down dropped from each panel, `preventDefault` moved above it,
+and the pane selector broken. ⚠️ The last of those survived at first because the new util test built
+its fixture from `MAP_PANE_SELECTOR` itself, so the fixture moved with the mutation — true by
+construction for any value, the same shape as the lunar-epoch assertions this project has been
+bitten by before. The class is a literal now and the constant is asserted separately.
+
+Only the panels' arm of the wider issue is closed. Tabbing out of a non-trapping dialog onto the
+pane behind it, and the phone bottom sheet that paints over one, are unchanged — those still want
+the shell-root `inert` follow-on.
+
+### Fixed — the window pill's dropdown is a valid listbox again
+
+The dropdown's `role="listbox"` moved from the popup box onto an inner element holding only the
+window rows. A listbox admits only `option` children, and the new "reopen the landing card" row is
+not one — it chooses no window. It now sits in the popup beside the listbox rather than inside it,
+so a listbox-navigating screen-reader user is not offered a child the container's own roles cannot
+describe. The popup keeps the id `aria-controls` names, its test-id and its class.
+
+### Fixed — the docs said a waterfall is not a sky subject; it is
+
+Four comments and two engineering notes described `heatSpots.js`'s sky-subject filter as the thing
+that withholds a waterfall's scores. It does not: the sky subjects are landscape, seascape **and**
+waterfall, so a waterfall paints in the heat field and counts in the map's `N of M at 4★+` like any
+other place. What the filter actually withholds is a wildlife hide, a wood or a bluebell site.
+
+No behaviour changed — the code was always right and only the prose was wrong. It is recorded because
+the wrong version had reached `CLAUDE.md`, which the project treats as authoritative, and because the
+error had been copied forward three times before a fact-check caught it.
+
+### Changed — one tide glyph, not three
+
+The map's tide-alignment wave lived as a hand-copied SVG path in both the callout and the label
+chip, and the region panel would have made a third. It is now one component. No visual change; a
+bezier nobody can proof-read is how a map ends up with two subtly different waves.
+
+### Fixed — one answer per region, across the Plan tab and the Map tab
+
+The region rail read a region's verdict straight off `displayVerdict`, while the map's window pill
+read it through the shared resolver that also maps a legacy cached payload's triage verdict. On such
+a payload the pill said `Worth it` above a rail cell saying `Not scored`. Both now read the same
+helper. The rail's ranking comparator is shared too, rather than copied a third time, so the rail,
+the map's leading-region pick and the new panel cannot drift apart about what "best region" means.
+
+### Added — the Map tab's window, region by region
+
+The window control's dropdown gains a footer row, `▤ This window, region by region ›`, opening a
+panel that answers *where*. Every region in the scope you are planning from, ranked on its served
+average with its ceiling beside it — because a single 5★ in an otherwise flat region is a lucky
+location, not a good night, and the two numbers have to be readable together. Each row carries the
+region's nearest measured drive, how many of the places this window can rate reach 4★ or better,
+and its own
+verdict word. A night window has no rows at all — astro and aurora carry no per-region verdict for
+one to borrow.
+
+Above the rows, one note that changes with what it is describing: why the ranking is on the average
+rather than the ceiling; how many regions share the verdict, when more than one does, so the choice
+between them is drive time; or — when every region in scope is Poor — that nothing here is worth the
+drive, with the drive-time sentence dropped, since there is no choice to make between write-offs.
+
+It is a panel, so the map's own rule governs it: panning while it is open is using it, not finishing
+with it. It closes on its chip, its close control or `Escape`.
+
+### Added — the Map tab's region panel, and the way into the four-day sheet from it
+
+Pressing a region on the window panel now opens that region, on that window. The header carries a
+back arrow, the region's name, the window it is about and the region's own verdict — its own, not
+the window's, because the window's word names its strongest region and you may well have drilled
+into the third-best one. Under it, one line of figures: how many of the places this window can rate
+reach 4★ or better, the nearest of those, and the region's average. A wood or a wildlife hide is a
+real place in the region but not one a sunset is scored at, so neither figure counts it.
+
+Then its four best locations for that window — name, stars, the drive, and the time to leave so the
+drive and the setup are done before the light is. A location whose water lands on the light this
+window carries the tide glyph; the fact is the one the forecast served for that place on that
+window, never re-derived from one representative coastline's geometry. Where no drive has been
+measured, the drive and the departure are both simply absent rather than shown as unknown. Below
+the rows sits the region's own narrative for the window, and two actions: `Zoom to region`, and
+`Four days at <the location>` — named in full, because a name trimmed at the first space produces
+places that do not exist.
+
+That second action ends the drilldown where it should: the four-day sheet that already exists,
+opened **over** the map with the window you were looking at in focus, the same peek route the
+callout's `Four days here ›` takes. Pressing any location row does the same for that location. The
+panel closes first, the way every other door onto a map already does.
+
+`Escape` steps back one level rather than collapsing the whole drilldown; a second press closes it.
+Opening a region moves the keyboard into the panel, and stepping back returns it to the row you came
+from — so the way out is always one press away.
+
+### Fixed — the map's drilldown is reachable from the keyboard
+
+Opening a region, and stepping back out of one, each destroyed the control that was pressed and left
+the keyboard on the page body — where the map's own `Escape` rule never sees a key. On the only route
+into the region panel, `Escape` did nothing at all: not back, not close. Focus now moves into the
+panel when it opens and returns to the row you came from when you step back, which is also what makes
+a screen reader announce that anything happened.
+
+The window control's `‹ ›` steppers no longer close the drilldown either. They close the control's own
+dropdown, which is what they were written to do, but that landed as "close whatever is open" — so an
+11px stepper beside the pill silently discarded two levels of navigation. Stepping now keeps the
+drilldown open on the region you were reading about, so you can compare one region across windows.
+
+### Fixed — the map's panels hand the keyboard back, and no longer bury the card
+
+Three routes out of the drilldown left the keyboard on the page body: closing either panel with its
+✕, and opening a location's four-day sheet from a region row. The last was the worst — it is the
+route whose whole point is that you can back out of the peek to what you were reading, and closing
+the sheet returned you to the top of the document instead. Focus now goes back to the window pill,
+which is the control the drilldown hangs from and the one thing on that route that survives the press.
+
+Opening the drilldown also dismisses the landing card rather than covering it. They arrived together
+on the first visit of every forecast run, and the panel hid the card entirely on a phone — including
+its close button, which was then unreachable by pointer since the card deliberately survives a tap on
+the map. The two ask the same question one after the other: the card asks which window, the drilldown
+asks where on it.
+
+The window panel now takes focus when it opens, so a screen reader announces it. It previously handed
+focus to the pill — which fixed Escape but left the reader outside a dialog that had just appeared,
+with nothing said.
+
+### Fixed — the Plan tab's window card and its region rail agreed again
+
+On a forecast cached before the display-verdict field existed, the card at the head of the window
+popup read "Not scored" while the region rail directly beneath it read "Worth it". Both now read the
+same value through the same resolver.
+
+### Changed — the Map tab's client-side figures are named in the engineering rules
+
+The map derives four figures in the browser rather than on the server — the region tally on the
+window pill, the landing card's "neither is worth the drive", its "next up" search, and the
+drilldown's `N of M at 4★+`. Each is per-user because the scope it counts over is the reader's own
+planning area, which has no servable answer on a payload every reader shares.
+
+`CLAUDE.md` now names all four, with the rule that keeps them honest and the route that would retire
+them. It also states what the counts are over: the places **this window could rate**, not every place
+in the region. A wildlife hide is a real place you can drive to, but a sunset is not scored at one, so
+counting it in the denominator understated every wood-bearing region.
+
+No behaviour changed.
+
+### Added — the Map tab opens on an answer, not a map
+
+On a cold open the Map tab now shows a **landing card**: the next two solar windows, each with its
+served verdict and the region that verdict is true of, and the forecast's Best bet / Also good
+riding the row it belongs to. Its header is derived from the windows on screen ("Tonight, or
+tomorrow?" across two days, "Tomorrow — sunrise or sunset?" within one), so it can never name a
+window the card is not showing. A pick that falls later in the week becomes one quiet line; a pick
+earlier than the first row is dropped, because a window that has passed is not an answer. When
+neither of the two clears Poor the card stops comparing and names the next window that is genuinely
+Worth it — never a Maybe, and never one of the two it has just dismissed; when no such window
+exists the sentence simply ends.
+
+It opens **once per forecast run** and is dismissed by its close control, `Escape`, or selecting a
+row — and by nothing else. Not a map click, drag, zoom, wheel or outside tap: panning to the region
+it has just named is reading the card, not finishing with it. Dismissing is recoverable — the same
+header text is the first row of the window pill's menu, the way `RegionsJump`'s reset row already
+works.
+
+### Fixed — a window that has already happened no longer carries a verdict
+
+The map's window list carries a filler row for any forecast date the briefing served no window for,
+and its only gate is that the date is not yesterday's. But the briefing withdraws a window once its
+event has passed — so every morning after sunrise the list led with a filler for a window hours in
+the past, and the pill coloured and tinted it from the region data still sitting in the wider payload.
+Opening its drilldown showed served region verdicts above locations counted as zero.
+
+The verdict now follows whether the briefing actually served that window, which is the rule the
+window list's own code had already written down for its callers.
+
+### Fixed — the drilldown closes when its window is retired under it
+
+The forecast retires a window once its event has passed. With the region drilldown already open on
+that window, the panel stayed up and went on showing each region's verdict beside a count of zero
+locations — the figures were read from the wider forecast payload while the map had nothing left to
+draw. It now closes with the window.
+
+`Zoom to region` also left the keyboard on the page body, like the two exits fixed alongside it.
+
+If the window is retired while you are reading the panel, the keyboard comes back to the window pill
+rather than being left on the page body.
+
+And the map no longer holds an invisible open-panel state afterwards, which used to swallow the next
+`Escape` — including the one that dismisses the landing card.
+
+### Docs — the Map tab's label obstacles, measured properly
+
+`map-tab-v2-plan.md` §4 #31 licensed widening the Map tab's top-left chrome — a label-placement
+obstacle — from a variable 187–300px to a constant 334px, and it licensed it by *measuring* that no
+label moved. The control has since grown to 504px, and three more surfaces (the landing card and the
+drilldown's two panels) joined the obstacle list. Neither change re-ran the measurement, so the
+licence had been spent at sizes nobody had checked.
+
+It has now been re-run against the real placer, with real label boxes measured in headless Chromium
+off the built stylesheet. **The licence holds where it was claimed**: over the six opening states the
+instrument runs — the 28px camera, whole-roster, no saved postcode, no selection — the widening
+changes nothing at all, the placed set and every label's position. Six states, not the opening flow:
+saved reach, an away origin, a selection, the home marker, the reach rings and the 60px fallback are
+untested and therefore unclaimed. Two qualifications the original entry did not carry are now recorded: it
+is not one change (a `max-width` clamp makes it 334→504 on wide frames and 334→480 on a narrower
+one, and below 640px there is no widening to license at all), and away from that framing it is cheap
+but not free.
+
+**The three drilldown panels are a different matter, and that is the finding.** Seeding them as
+obstacles does not merely hide the labels beneath them: the greedy pass reshuffles around them and
+drops labels that had clear air elsewhere on the map, real destinations among them. It worsens the
+busier the map is. Two candidate cures are ruled out by measurement rather than argument — a retry
+pass after the greedy one recovers nothing by construction, and not seeding the panels is worse
+because it puts labels under an opaque plate. Recorded as a residual with the numbers attached.
+
+⚠️ **The instrument is committed this time**, at `scripts/measurements/label-obstacle/`, which is the
+actual fix for what created this residual: a licence granted by a measurement nobody could repeat.
+Its README carries the traps it fell into. And the write-up leads with its findings rather than its
+counts, deliberately — those counts moved on every one of eight review rounds, each time because the
+instrument became more faithful and never because the app changed. Re-run it rather than cite them.
+
+No behaviour change.
+
+### Fixed — the site advertised weather warnings, which are not built
+
+The FAQ said "Weather warnings update in near real-time" while `index.html` said they were
+"on the way". The index was right: `WeatherAPI.com` appears nowhere in the repository
+outside these pages — no client, no configuration key, no dependency, no UI. The
+integration has never existed, so this was not a feature awaiting exposure.
+
+The same untrue claim sat on four pages, and all four are corrected:
+
+- `faq.html` drops the near-real-time sentence and the WeatherAPI.com row from the data
+  sources table. That table's own count moves from "nine different sources" to eight,
+  which now matches the number of rows beneath it — every one of them a real integration.
+- `privacy.html` drops WeatherAPI.com from the third parties table. A privacy policy
+  naming a processor that receives nothing is wrong in the direction that matters, and
+  removing it is the accurate and narrower claim.
+- `acknowledgements.html` drops it from the data providers table, where it was credited
+  as a commercial API "used under licence" that is not licensed or used.
+
+The three safety disclaimers on `terms.html` and `faq.html` are untouched. They tell
+readers to check *official* weather warnings from authoritative sources, which is correct
+advice regardless of what PhotoCast ships, and is if anything more important while the
+feature does not exist. `index.html`'s future-tense line is now the site's only mention.
+
+### Fixed — terms and privacy contradicted each other on Stripe
+
+`terms.html` section 5 asserted "Payment is processed by Stripe" as present fact, while
+`privacy.html` said "*When* Stripe is integrated for Pro subscriptions, Stripe *will*
+process your payment card details directly". With Pro's price now stated as TBC, privacy
+was the accurate one — and a contractual representation about who handles payment card
+details should not be readable two ways.
+
+Terms now carries privacy's sentence verbatim, so the two pages are byte-identical on
+this point rather than merely consistent today. That also adopts privacy's stronger
+commitment: *never see or store your full card number*, rather than terms' weaker "does
+not store your payment card details".
+
+### Fixed — a dialog focus test that reported real failures as a timeout
+
+`WindowSheetDialog > takes focus when it opens` asserted inside a raw `requestAnimationFrame`
+callback and resolved its own promise on the line after:
+
+```js
+return new Promise((resolve) => {
+  requestAnimationFrame(() => {
+    expect(document.activeElement).toBe(screen.getByTestId('window-sheet'));
+    resolve();      // ← never reached when the expectation throws
+  });
+});
+```
+
+A throw inside that callback never reaches the `resolve()`, so the promise never settles and the
+test does not fail — it **hangs to `testTimeout`**. It has been rewritten into the idiom its
+siblings (`BottomSheet.test.jsx`, `Modal.test.jsx`'s `focus` block) have always used:
+`await waitFor(() => expect(...).toHaveFocus())`, which catches the throw and reports it.
+
+**Measured, not argued**, on one mutant (`dialog.focus()` deleted from `useDialogFocus`), same
+file, same machine:
+
+| form | fails at | message |
+|---|---|---|
+| raw rAF callback | 20009 ms — i.e. `testTimeout`, whatever it is set to | `Test timed out in 20000ms.`, naming only the `it(` line |
+| `await waitFor(...)` | 4768 ms | `expect(element).toHaveFocus()`, attached to the test |
+
+Both forms *do* fail on the mutant — the test was never wrong about the behaviour, only
+undiagnosable about it. The assertion is not wholly lost in the first row either; it resurfaces as
+a detached unhandled error under Vitest's "the latest test that might've caused the error is…"
+hedge, which is worse than silence in one specific way: it is not attributed to the test that
+produced it.
+
+⚠️ **It got worse without being touched.** A bare `Test timed out in Nms` is the exact symptom the
+`testTimeout` investigation spent a whole pass decoding, and raising that ceiling from 5000 ms to
+20000 ms made this form four times slower to diagnose than when it was written. A test that
+converts a clear failure into a timeout is a standing tax on whoever next changes the hook.
+
+Grepped before generalising: this was the **only** assertion inside a raw rAF callback in the
+suite. The other twenty-odd rAF sites either resolve a promise with no assertion in the callback
+(`useHeatCanvas`, `Modal`'s double-frame await) or substitute a synchronous rAF deliberately.
+
+### Docs — five Plan-tab comments still described routes M5 closed
+
+`WindowFirstShell`'s `onPickRegion` handler explained its `openOverPopup(null)` with "Search can now
+sit over a location sheet that is itself over the popup". True at M4, false since M5, which refuses
+the third layer outright: all three routes into search — the `/` shortcut, the masthead button and
+`WindowFirstHeatStrip`'s `onSearchRegion` — guard on `stackedOverPopup`, which counts `sheetSpot`.
+The supported stack is two deep (plan-matrix §4 A22): search over the popup, or a sheet over the
+popup, never both.
+
+The handler now gives the reason that is actually load-bearing. `openOverPopup(null)` belongs there
+because moving the origin under an open sheet would change the drive, the base named beside it, the
+outside badge and every departure beneath the reader — P8's invariant, which M4.3's close-then-move
+footer protects at the one route where a sheet genuinely is up. It also says plainly that its own
+arm cannot fire with a sheet up today: the invariant is stated once per route so a route added
+later inherits it, not evidence that the refused stack is reachable.
+
+**Three more said the same thing in different words**, and a keyword sweep for the first one's
+phrasing found none of them:
+
+- `onPickWindow`, three lines below, justified its identical belt with "the location sheet is still
+  on top" — the same simultaneity, as a premise rather than a claim.
+- `WindowSpotSheet`'s `escapeEnabled` said it "declines Escape while search is over it". Search
+  cannot be over it; `stackedOverPopup` counts that sheet too. The prop is kept — the component
+  derives `stacked` from it and the two must not come apart — but it is now named as a belt that
+  cannot go false.
+- `LocationFourDaySheet`'s class comment published the bundle README's three-rung order (search →
+  this sheet → the popup) as the shipped behaviour. Its own `escapeEnabled={searchSeed == null}`
+  gets the `WindowSpotSheet` treatment, with the second reason it can never engage: `PlanSearch`
+  calls `onClose` on every pick, so a search result closes search in the same commit that opens the
+  sheet.
+
+**A fifth was a stale route rather than a stale stack.** The tick line's `onGoHome` justified its
+own `openOverPopup(null)` with "a keyboard reader inside an open location sheet can reach this
+button". M5 closed that walk with the fix three lines above it: `searchOpen` is
+`searchSeed != null || stackedOverPopup`, and `MastheadTickLine` puts `tabIndex={-1}` on all four
+controls in the row when it is set — pinned per control by `MastheadTickLine.test.jsx`'s "takes %s
+out of the tab order".
+
+That handler's two calls are no longer on the same footing, so the comment now separates them
+instead of covering both with one route. `openWindow(null)` stays live: `useDialogFocus` is not a
+trap and nothing makes the masthead inert, so a Tab walk out of an open dialog reaches that row —
+M5 measured press 17 — and with only the popup open `searchOpen` is false, so the stops are still
+there and the button is reachable from inside the popup. `openOverPopup(null)` is the belt, since
+any layer standing over the popup is exactly what removes those stops.
+
+Comment-only throughout; no behaviour changed and no prop moved.
+
+Left alone deliberately: `WindowSheetDialog`'s "search → a stacked sheet → this" and the
+`stackedOverPopup` docblock's matching line are **precedence** orderings — which layer answers
+Escape when it is on top — not claims that all three can stand at once, and the latter states the
+refusal in the sentence before it.
+
+### Fixed — an uncovered dialog no longer strands a reader at the top of the page
+
+Open a Plan dialog, press `/` for search without touching anything inside it, then press Escape.
+The dialog underneath is uncovered and still claims `aria-modal="true"` — and focus was left on
+`<body>`, so the next Tab walked the page behind the backdrop instead of the dialog on top of it.
+That is verbatim the defect `useDialogFocus` was written to prevent, reproduced by the effect
+written to fix it.
+
+The cause is a gap between two deliberate rules that were each right on their own. `Modal` records
+the last **control** focused inside itself so that an uncover returns a reader to the chip they were
+on, and it excludes the dialog's own root from that recording — otherwise the restore would land on
+a container rather than on the thing they were using. But a dialog *opens* onto exactly that root,
+so a reader who touches nothing inside leaves the recording empty, and the restore's `!node` early
+return then did nothing at all. Nothing was ever decided about that case; it was the shape of an
+early return.
+
+A null or detached recording now falls back to the dialog root — which is only a restatement of
+where this component already puts focus when a dialog opens. That answer needs no focusable child
+(the settings modal's refresh spinner has none), survives content that has not loaded yet, and
+announces the dialog's accessible name to a screen reader on landing.
+
+⚠️ **The ordering it depends on is a browser fact the suite cannot check.** `inert` makes `focus()`
+a silent no-op, so the fallback works only because React clears that attribute in the mutation phase
+and the restore runs after it — and jsdom implements no `inert` at all, so the tests would stay
+green either way. Measured directly in Chrome 148: `focus()` on an inert root leaves focus on
+`<body>`, and the same call after clearing `inert` lands on the root, both in the same task and
+across a microtask. The existing restore branch has always relied on the same ordering; it just
+never had a measurement.
+
+⚠️ **It does not bite every time on every engine.** Paired old-vs-new runs through Playwright: on
+WebKit the reader is stranded on every attempt; on Chromium only when the covering layer mounts a
+frame or more after the press, because a cover that mounts in the same frame captures the dialog
+root as its own return address and hands it back on unmount. That delay is the normal case on first
+use — search, the window popup and the four-day sheet are all lazily loaded behind a `Suspense`
+boundary — and the rare one afterwards. A related measurement corrects a claim that has been in this
+component's docs for a while: setting `inert` does **not** blur synchronously, in either engine; the
+fix-up lands two to four animation frames later.
+
+**It is a keyboard route.** An earlier draft of this entry claimed the ordinary tap-a-chip route
+reached it too on macOS and iOS Safari, which do not focus a `<button>` on click — and then said, two
+sentences later, that the recording listens on `pointerdown` for exactly that reason. Both cannot be
+true, and the second is the true one: `pointerdown` fires on Safari, every control that stacks a
+layer over a Plan dialog is a real button inside it, so a pointer route populates the recording and
+never reaches the fallback. Corrected rather than quietly dropped, because reading that existing
+comment backwards is an easy mistake to make twice.
+
+The restore's "is this a mount or an uncover?" test used to be inferred from the recording being
+empty, which is sound only while an empty recording means "do nothing". Making it actionable would
+have turned that inference into "focus the root on mount" — in a passive effect, ahead of the
+deliberate frame `useDialogFocus` defers to and the consumer-autofocus yield that exists because of
+it. An explicit `wasStacked` ref now carries that question, pinned by its own test.
+
+Scope: four Plan-shell dialogs pass `stacked` at all, and only two of them can reach the new branch
+in production — `WindowSpotSheet` and `WindowPickDialog` are stacked only while search is open, and
+the shell refuses to open search over either. The path also needs a genuine uncover with focus
+already orphaned. Every other dialog in the app is untouched.
+
+The orphan test now counts `document.documentElement` alongside `<body>`. Both mean "nowhere", and
+this app has measured the second: the shell's tab-select records focus landing on the document root
+after the overlay's map hatch. Whether an `inert`-driven blur can land there too is unverified —
+jsdom always yields `<body>` — so the guard covers both rather than betting on one.
+
+### Fixed — a load-sensitive flake in `Modal`'s stacked-focus test
+
+`Modal > stacked > does NOT yank focus back from wherever the reader has since moved to` failed
+intermittently under CPU load — 1 of 10 runs of its own file under a 24-process load on an 8-core
+Mac, 2 of 10 re-measuring the same way, and 2 of 6 concurrent full-suite runs — while passing every
+idle run. The assertion found the dialog **root** (`<div role="dialog" data-testid="under">`) where
+it expected the button outside it.
+
+⚠️ Those counts are existence proofs, not a rate: an interleaved A/B under comparable load saw 0 of
+12. Load is not the variable — **phase** against jsdom's `requestAnimationFrame` interval is. What
+pins the mechanism is a delay sweep: busy-spin *N* ms between the render and the rest of the test
+body, 8 reps per step, and the unfixed version is stolen 1/8 at 0 ms, 3/8 at 8 ms, 6/8 at 12 ms and
+8/8 from 16 ms up — a ramp saturating at exactly the frame interval. The frame lands one interval
+after mount at arbitrary phase, so a delay of *d* steals with probability ≈ min(1, *d*/16), and the
+residue at *d* = 0 is the roughly-one-in-ten seen in the wild.
+
+**No product defect caused it.** The thief was the dialog's own opening. `useDialogFocus` moves
+focus to the dialog root on a `requestAnimationFrame` scheduled at MOUNT, and — measured by counting
+frames — that is the only frame `Modal`'s own code schedules: the hook's effect depends on the
+literal `true` that `Modal` passes, so neither stacking nor unstacking re-runs it. Uncovering a
+stacked dialog is therefore not treated as an open **at this call site** — the hook itself re-opens
+readily for the dynamic `active` that `BottomSheet` and `RegionsJump` hand it. The test simply never let that frame land. It
+rendered the dialog and then immediately played a reader who had been inside it for a while, leaving
+the open-focus frame in flight across every later statement; on a starved machine it fired at the
+test's one yield point and took focus back to the root. The hook's own guard could not help — it
+stands down only when focus is on a descendant — and this is the one test in the block that
+deliberately ends with focus outside the dialog.
+
+The fix settles the open-focus before the reader moves, which is also the real sequence. **The
+settle belongs there and nowhere later**: this flake is shaped the other way up from the usual one,
+passing while the frame had *not* yet fired, so settling it beside the assertion fails every time.
+
+A second assertion now holds the result across a forced frame, and it is the half that keeps the
+test honest rather than merely green. Settling at the top removes today's race but would also blind
+the test to the race returning: flipping `useDialogFocus(true)` to `useDialogFocus(!stacked)` — the
+"treat uncovering as an open" change — passes the first assertion 20 runs of 20 on an idle machine
+and fails the second 20 of 20, because that mutant schedules a second frame at the uncover which
+only a forced frame reveals.
+
+Verified against a control arm rather than green runs alone: under identical load the unfixed test
+failed 2 of 10 and the fixed one passed 26 of 26. Removing `Modal`'s orphan-focus guard still fails
+this test and only this test, so it remains the sole cover for the behaviour it was written for.
+
+⚠️ **One product question #776 raised is narrowed, not closed.** Uncovering is not an open, but the
+restore still does nothing when `lastInside` is null — a reader who opened a dialog and never
+touched a control inside it (or any Safari pointer route, where a click fires no focus event) can be
+left on `<body>` beneath a live `aria-modal` layer, which is the defect the hook exists to prevent.
+No test covers that cell and this change does not address it.
+
+### Fixed — a dialog's focus recorder now ignores anything outside its own subtree
+
+`Modal` remembers the last control focused *inside* itself so it can put focus back there when the
+layer stacked over it goes. Its two recorders disagreed about what "inside" meant: the pointer half
+tested that the element was within the dialog, and the focus half did not. React's synthetic focus
+bubbles through the React tree rather than the DOM, so a `createPortal` child reaches that handler
+while its node sits outside the dialog — and restoring onto one would send focus outside a live
+`aria-modal` dialog, which is the opposite of what the restore is for. The landing check added
+alongside the root fallback is no help here, because such a node takes focus perfectly well.
+
+Nothing focusable is portalled into these dialogs today — the one portalled child they render is
+`aria-hidden` with no controls — so no reader could reach it. This makes the two halves agree and
+the ref's stated contract true, and it is worth closing now rather than later: the root fallback
+gives a bad record something correct to beat.
+
+### Tests — three map test files now restore the rAF they replace
+
+`MapCallout`, `MapLabels` and `PinsLayer` install a manual frame queue over
+`global.requestAnimationFrame` in `beforeEach` and never put the real one back;
+`MapHeatLayer.test.jsx` already saved and restored. All four now agree.
+
+Stated honestly: **this fixes nothing today.** `isolate: true` gives every test file its own
+process, so the replacement cannot reach another file, and `beforeEach` reinstalls the queue for
+every test within the file. It is symmetry, so that a reader comparing the four finds them agreeing
+rather than wondering which is right.
+
+A second charge from the same review — that `WindowFirstShellLocationSheetHandoff.test.jsx`'s bare
+trailing `raf.mockRestore()` leaks a synchronous-rAF mock into later tests when an assertion throws
+first — was **refuted and no change made**: that file carries a top-level
+`afterEach(() => vi.restoreAllMocks())`, so the spy cannot survive the already-failed test. The
+`try/finally` in `WindowFirstShell.test.jsx` is belt-and-braces over the identical net, not the thing
+that makes it safe.
+
+### Docs — a port plan for the Map tab's verdict, picks and landing card
+
+The design bundle for the Map tab's next increment — the verdict on the window control, the served
+picks as outline medallions, a two-row landing card answering *tonight or the morning*, and one
+window → region drilldown — is vendored at `docs/design/map-landing/`, and
+`docs/engineering/map-landing-plan.md` is the plan for porting it. `map-landing-prompts.md` carries
+one kickoff prompt per phase.
+
+The plan is mostly a record of how much of the increment is already on the wire.
+`BriefingWindow` already serves the verdict, the confidence and both picks; `BriefingRegion` already
+serves the per-region verdict, mean and best; and `windowFirstCards.buildWindowCards` already folds
+all of it per window, origin-scoped, naming the leading region. So the first phase forwards four
+fields the map's own pane currently drops on the floor rather than deriving anything new. The one
+genuinely new computation is the tier tally — how many regions in *your* scope share the verdict's
+band — which is client-side only because the scope it counts over is per-user and so cannot ride the
+shared, ETag-revalidated briefing payload.
+
+Three of the bundle's rules are deliberately not ported, each with the evidence written down: its
+client verdict thresholds (3.7/2.8) do not land where the served bands do (3.5/2.5), so the fallback
+they were meant to reconcile is not built at all; its client pick ranking would put a different Best
+bet on the Map tab from the Plan tab, which is the disagreement the bundle's own verdict rule exists
+to prevent; and its pill layout constraints carry a number sized for a prototype's
+chrome rather than this app's.
+
+### Changed — nothing on the map closes because you looked at the map
+
+Opening the week list, the Regions jump, Filters or the Legend and then panning to see what one of
+them just named used to lose it: a press anywhere on the map closed whichever panel was open. They
+are all *about* the map, so reading "Thursday is Poor" and then going to look is one action, not
+two — and losing the list halfway through made every panel feel like something to be got rid of.
+They now close on their own chip, on their own close control, or on Escape. A press on bare ground
+still deselects a location, because that is a selection rather than a panel.
+
+The rule reads like one change to one handler and is really seven: the ground-press handler plus each
+panel's own outside-click listener, which fire first. They are now one shared hook, so they cannot
+drift apart, and a press outside the map — the masthead, another tab — still dismisses.
+
+Escape had to grow with it. Each panel only ever heard the key when focus was inside it, which was
+guaranteed while a map press closed panels and is not any more: a reader can very ordinarily have a
+panel open with focus on the map. The map now closes an open panel on Escape itself — but only when
+there is no dialog over it, so a press while the four-day sheet or the settings window is up still
+operates that window and never the page behind it. (That guard is on the map's own handler; a panel
+you have deliberately tabbed onto from behind an open dialog still answers its own Escape.)
+
+Two limits are worth stating rather than discovering. On a phone, Filters and the Regions list are
+bottom sheets whose backdrop covers the map, so a tap there still closes them and the map cannot be
+panned while one is open — unchanged by this work, and a separate decision about that sheet. And a
+panel opened by a handoff from another tab can start with focus nowhere near the map, where Escape
+does not reach it until the reader touches the map once.
+
+### Added — the Map tab's window pill states the verdict
+
+The pill now says what the window it names is worth. The verdict word sits over the region that
+verdict is actually true of — "Worth it / the Lakes", or "the Lakes +2" when others share the band,
+or "everywhere in your area" when they all do and there is no one region to send anyone to. The
+window's own tier tints the pill's left edge. When the window on screen is the forecast's Best bet
+or Also good it wears an outline medallion, and both steppers carry a small bar in the colour of the
+window they would take you to, so `‹ ›` stop being blind: you can see whether the night either side
+is better before spending a tap.
+
+A night row states none of this. Astro and aurora are scored on darkness, clarity and Kp rather than
+on the colour forecast, so they have no verdict to borrow and the cell is simply empty — nothing is
+invented to fill it.
+
+The control's width had to be rebuilt to hold all this. It has been a fixed 262px since #773, which
+stopped the steppers travelling as the reader stepped; the new content reaches 417px, so a fixed
+262px would have truncated the day label — the one thing the design says must never truncate. The
+width is now a property of the frame rather than of the content: the group is bounded clear of the
+Regions/Filters cluster, given a declared width, and the pill fills it. At any given window size
+every event still renders the same width, which is the property that mattered all along.
+
+Under pressure the yield order is the design's own — the region line ellipses first, then the
+medallion's words, and the day label last. On a phone the region goes and the medallion keeps its
+glyph; below 390px the medallion goes too, so the day keeps its space. The medallion's words are
+hidden from view but kept for screen readers, and each stepper now says which verdict it is pointing
+at rather than leaving that to colour alone.
+
+### Added — the Map tab's window verdict, as data
+
+The Map tab draws one window at a time and colours it by per-location score, so it could say
+neither the verdict the Plan tab states on every card nor which region that verdict is true of.
+This is the first of seven phases that fix that (`docs/engineering/map-landing-plan.md`), and it is
+the plumbing: a new pure module answers, for any window and any scope, what the verdict is, which
+region it is true of, and how many other regions in the reader's scope share it — and every event
+row now carries the forecast's own served Best bet / Also good. Nothing is drawn yet; the window
+pill that renders it is the next phase.
+
+Most of the raw material was already on the wire. `BriefingWindow` has carried the verdict, the
+confidence and both picks for months, and the Plan tab's own window cards already fold all of it per
+window — the map pane's mapper simply dropped the pick on the floor.
+
+The verdict, though, is deliberately *not* passed through. The Plan tab's word is about the whole
+roster; the map's has to move with the map's own scope segment, because the design's first rule is
+that scope changes the verdict and reader filters never do. Shipping both would have put two answers
+for one window in the reader's hands, disagreeing by default. So there is exactly one verdict
+channel on the map, and that the two tabs agree at whole-catalogue scope is proven by a test rather
+than by sending the same value twice.
+
+The one genuinely new computation is the region tally, and it is client-side for one reason: the
+scope it counts over ("My area" versus "Everywhere") is per-user, so "how many regions in *your*
+area are worth it" has no servable answer on the shared, cache-revalidated briefing payload. It
+counts served verdicts and never ratings, and it is taken over the same pool the map's own counts
+footer already reports — which is what makes the design's first rule true by construction: hiding
+three-star locations cannot turn a Maybe into a Worth it, because no reader filter reaches the
+tally at all.
+
+Three rules were written into the code rather than left to be rediscovered. The design bundle asks
+for a client fallback of "3.7 or better is Worth it, 2.8 is Maybe", on the stated grounds that it
+lands where the API lands; it does not — the backend bands a region average at 3.5 and 2.5, so a
+region averaging 3.6 would have read Worth it on one tab and Maybe on the other. No fallback is
+built at all. The argmax that picks the region to name is now one shared function rather than
+two copies, because the Plan tab's heat strip brightens that same region's thumbnail and the two
+must not be able to drift into naming different places for one window — its own comment had asked
+for exactly that reconvergence, and this is the caller that made it worth doing. And the region
+whose scope the tally counts is read from the pool the map's counts footer already reports, so
+"hiding three-star locations cannot move the verdict" is true by construction rather than by care.
+
+### Changed — bump the legal pages to September 2026
+
+`privacy.html` and `terms.html` both read *Last updated: April 2026*. The revamp changed
+a commercial term in terms section 4 — Pro's price became "TBC, billed monthly" rather
+than a stated £4.99/month — so the date no longer described the document. Both now read
+September 2026.
+
+Note that `privacy.html` still undertakes to communicate material changes to registered
+users by email; this bump does not discharge that.
+
+### Added — real screenshots in the landing page's two figure slots
+
+The revamp shipped with dashed placeholders because the existing `screenshot*.png` showed
+superseded UI. Both slots now carry current captures, redacted and cropped.
+
+The hero shows the Map tab's heat field over northern England for tomorrow's sunrise,
+cropped to the map pane itself: the app's own masthead and window control are dropped so
+the CSS verdict card — the design's device for "the call is already made" — has clean map
+under it rather than a second masthead competing with the landing page's own. The features
+figure shows a location sheet with the Fiery Sky and Golden Hour bars, the blue and golden
+hour times, and the written explanation, which is exactly what its caption promises.
+
+**The owner's home postcode was redacted from both.** It appeared as `HOME · DH3 4NG` in
+the masthead of one and `1h 55min from DH3 4NG` in the sheet header of the other. A UK
+postcode identifies a handful of houses, so publishing it on a marketing page would have
+published an approximate home address. Both were removed by sampling the surrounding
+background and painting over the glyphs, so the UI reads as though the text was never
+there; the masthead pill was additionally reflowed left — text and rounded end cap
+together — so it closes up rather than leaving a hole. Verified by asserting zero light
+pixels remain in either region.
+
+Served as WebP at 1600px: **113 KB for both**, against 679 KB for the equivalent PNG pair,
+at slightly better fidelity (RMSE 1.99 vs 2.21 for the hero). `nginx:alpine`'s bundled
+`mime.types` was checked on the production container before committing to the format —
+it maps `image/webp`. Both carry `width`/`height` so neither shifts layout while loading,
+and descriptive `alt` text.
+
+⚠️ Both `COPY` lines were added to `landing/Dockerfile` in the same commit as the files.
+That file enumerates assets one line at a time, so an image added without one is a broken
+image in production while looking correct locally — the same trap that would have shipped
+the stylesheet missing.
+
+### Changed — landing site revamped: new skin, map-first hero, platform status
+
+The five pages under `landing/` are rewritten onto a shared stylesheet
+(`landing/photocast.css`) — Bricolage Grotesque for display type, IBM Plex Sans for
+body, DM Mono for labels, over a warm graphite ground. The accent pair is the app's
+own verdict language: lichen green for Worth it, amber for Maybe.
+
+The hero now leads on the map having already made the call, with the verdict card
+rendered in CSS rather than baked into a screenshot. A new `#platforms` section states
+where you can actually get it — Browser *very close*, iPad and iPhone *coming soon* —
+and the nav links to it as "Apps". The six existing features are kept verbatim and
+renumbered 02–07 beneath a new 01 covering the map landing. The story is retold
+against the season rather than a fixed February date, and the stale bluebell teaser is
+gone. Pro's price reads "TBC, billed monthly" in `terms.html` section 4, matching the
+pricing section, which is the only change to the legal copy — privacy, terms and
+acknowledgements are otherwise ported word for word.
+
+Two defects in the incoming bundle were fixed before it landed. `landing/Dockerfile`
+copies files one by one and had no line for the new stylesheet, so the deployed
+container would have served every page unstyled while the local files looked correct.
+And `.mast nav a` (specificity 0,1,2) out-specified `.btn` (0,1,0), which painted the
+sticky "Start free" button — the primary call to action on all five pages — in
+`--ink-soft` beige on amber at **1.24:1** contrast, dropping to 1.71:1 on hover.
+Excluding `.btn` from both masthead nav rules, the way the bundle's own mobile
+`display` rule already did, restores the intended near-black at **9.03:1**.
+
+The three screenshot slots in `index.html` are deliberate dashed placeholders: the
+existing `screenshot*.png` files show superseded UI and were not carried over.
+`favicon.png`, `logo.png` and the screenshots all stay on disk; `logo.png` is no longer
+referenced, as the wordmark is now type plus a CSS dot.
+
+### Docs — write down how the landing site is actually released
+
+`landing/` had no README, and its release procedure was recorded nowhere in the repo.
+It is easy to assume a version tag ships it, because that is how everything else here
+ships — but `.github/workflows/deploy.yml` builds exactly two images, backend and
+frontend, and never reads that directory. The marketing site is built on the production
+host from a standalone `docker-compose.yml`, so releasing it is a manual step that is
+independent of the release tag in both directions.
+
+`landing/README.md` now states that, gives the commands, and records the two traps: the
+`--build` flag is required (Compose otherwise restarts the previous image and reports
+success), and the `Dockerfile` copies assets one `COPY` line at a time, so a new file
+that is not listed there is missing in production while looking correct locally.
+
+### Changed — the landing masthead now uses the app's brand lockup
+
+The landing page opened with an amber dot beside a Bricolage Grotesque wordmark, which
+matched nothing in the product. The app's identity is `BrandLockup` — a film-perforation
+spine, a Newsreader serif wordmark and a coral "Field guide to light" kicker — and that
+component's own notes record that it *replaced* a `logo.png` and an extrabold sans
+wordmark precisely for belonging to no part of the Kodachrome Field Guide system. The
+landing page had reinvented the thing the app had already discarded.
+
+All five mastheads now render a port of that lockup's `masthead` variant, with the four
+brand values (`#F2E7D3` bone, `#E8593F` coral, `#3A2C23` spine rule, `#4A3A2E`
+perforations) lifted verbatim from the app's `@theme` rather than re-tuned to the landing
+palette. Measured against the component's spec, every value agrees: Newsreader 600 at
+21/25/28px with −0.022em tracking, an IBM Plex Mono kicker at 8.5/9.5px, and the 7px-on-
+15px spine gauge. The coral reproduces its documented contrast, 5.16:1 here against
+5.24:1 in the app.
+
+`DM Mono` is dropped for `IBM Plex Mono`, the app's own mono, so the kicker and the
+page's other labels share one typeface rather than two.
+
+### Fixed — the "Last updated" label rendered as a headline, and FAQ answers changed colour by page
+
+Two more cascade defects of the kind that produced the masthead CTA one.
+
+`.phead p` (specificity 0,1,1) out-specified the `.lab` component (0,1,0), so the quiet
+metadata line on `privacy.html` and `terms.html` kept `.lab`'s mono family and .16em
+tracking while taking the container's 17px and `--ink-soft`. *Last updated: September
+2026* was rendering at 17px tracked out to 2.72px — a headline where a caption was
+intended. Scoping the container rule `:not(.lab)`, the same idiom the masthead fix used,
+restores 11.5px at 1.84px in `--ink-dim`.
+
+`.qa` is mounted inside `.doc` on `faq.html` but outside it on `index.html`'s teaser, and
+took its paragraph colour from `.doc p`. The same component therefore rendered
+`--ink-soft` on one page and `--ink` on the other; it now states its own colour.
+
+### Docs — correct the landing release steps: a full `git pull` on the host is unsafe
+
+`landing/README.md` was written from the repository alone and prescribed
+`git pull && docker compose up -d --build`. Deploying for real showed that to be wrong in a
+way that matters.
+
+The production checkout at `~/goldenhour` is roughly **1,235 commits behind** `origin/main`
+and carries four hand-edited, uncommitted production config files — `docker-compose.yml`,
+`nginx.conf`, `application-prod.yml` and `scripts/backup-postgres.sh`. A `git pull origin
+main` would attempt to merge 1,235 commits across exactly those paths. The host's own
+`deploy-landing.sh` does precisely that under `set -e`, so a conflict aborts it part-way and
+leaves live configuration in an unfinished merge. This is the same staleness that
+`.github/workflows/deploy.yml` already works around by reading files out of the release tag
+rather than trusting the checkout.
+
+The documented procedure is now `git fetch` plus `git checkout FETCH_HEAD -- landing/`, which
+updates only this directory, never moves `HEAD`, and cannot touch those four files. It also
+records tagging the running image before `--no-cache` orphans it, since that image is the only
+rollback available, and a per-path status check where a 404 on `photocast.css` is the signal
+that the `COPY` line went missing again.
+
+### Fixed — the highlighted cards had no highlight, and six accessibility defects
+
+An adversarial accessibility review of the revamped landing site found seven issues.
+
+**The two highlighted cards were losing their surface.** `background` is a shorthand, so
+`.plat.live` ("Browser · Very close") and `.price.hi` ("Pro · recommended") reset
+`background-color` to transparent and their 7%/6% brand wash fell onto the page ground
+instead of onto `--card`. Measured, the Pro card's top edge rendered `rgb(35,30,20)`
+against its plain sibling's `rgb(36,31,23)` — **one unit apart**, so the emphasis marking
+the recommended tier was invisible. Naming `--card` as the final background layer restores
+it to `rgb(49,41,28)`. This is the third instance of the same cascade family as the
+masthead CTA and `.lab` defects.
+
+**Data tables were keyboard-unreachable on a phone** (WCAG 2.1.1, Level A). At 375px a
+600px table leaves 44.5% off-screen, and neither Chrome nor Safari makes an
+`overflow-x:auto` div focusable — so the third column could not be reached at all, which
+on `privacy.html` is the *Purpose* column, the substantive GDPR disclosure. Each scroll
+container is now `tabindex="0"` with `role="region"` and a name, plus a focus ring, since
+a thing that takes focus must show it.
+
+Also: every page gains a `<main>` landmark (previously all content sat outside every
+landmark, leaving a screen-reader user cycling landmarks with only banner and contentinfo);
+`index.html`'s FAQ teaser questions drop to `<h3>` so they no longer rank equal to the
+`<h2>` introducing them; `acknowledgements.html`'s Backend/Frontend/Infrastructure become
+real `<h3>`s rather than styled `<div>`s, so 23 list items are no longer one undifferentiated
+run; `terms.html`'s safety callout is a `role="note"` labelled by its own *Safety* heading;
+`scroll-behavior:smooth` is guarded behind `prefers-reduced-motion` (the `#pricing` anchor
+animates 5,631px, the canonical vestibular trigger); the home link regained hover feedback,
+lost when `.mark .wm` (0,2,0) began out-specifying `a:hover` (0,1,1); A bare text node was also added between the
+wordmark and kicker; that one is belt-and-braces rather than a fix, because `.mark` is
+`display:flex` and every real engine already spaces the contributions of blockified
+children — the run-together accessible name it guards against occurs only for genuinely
+inline children, and in jsdom.
+
+The review separately verified clean, and these are recorded so they are not re-litigated:
+41 contrast pairs with none below threshold (tightest 4.86), no focus indicator removed
+anywhere, both footer social links correctly labelled, and no further unintended specificity
+collisions across a 143-rule sweep.
+
+### Docs — the Escape order is two rungs, not the bundle README's three
+
+Follow-on to #789, which corrected five comments that described a stack M5 refuses. Two more listed
+the Escape order as `search → a stacked sheet → the popup`, and both were left there deliberately at
+the time on the reading that a *precedence* list is not a claim about simultaneity. Overruled by the
+owner, and the narrower reading is the better one: three rungs where only two can ever be occupied
+invites exactly the misreading the five fixed comments had already made.
+
+- `WindowFirstShell`'s `stackedOverPopup` docblock said it twice — once as "search, then a sheet
+  stacked over the popup, then the popup itself (plan-matrix §6 M2.5, and the bundle README's own
+  ordering)", once as a closing restatement.
+- `WindowSheetDialog`'s `closeOnEscape` said "search → a stacked sheet → this".
+
+Both now read as "the layer above, then the popup", with the two upper rungs named as
+**alternatives**: since M5 every route into search is refused while anything is stacked over the
+popup, so the rung above is search *or* a sheet and never both (plan-matrix §4 A22). The historical
+narrative in the shell's docblock is untouched — search's rung really was dormant through M2 and
+went live at M3, and that is still why the ordering exists at all.
+
+⚠️ The bundle README's three-rung order is now contradicted in three places rather than one
+(`LocationFourDaySheet` got the same treatment in #789). That is deliberate: the README is a design
+input, the guards are the shipped behaviour, and plan-matrix §4 A22 is where M5 recorded the
+divergence.
+
+Swept the rest of the frontend for the pattern; there were exactly two copies and no others.
+`WindowSpotSheet` and `WindowPickDialog` — the two sibling stacked layers — already phrase it
+generically ("declines the key while something sits over it"), which stays correct at any depth and
+needed no change.
+
+Comment-only; no behaviour changed and no prop moved.
+
+### Docs — waiting for a deferred effect is now a named test class
+
+`docs/engineering/frontend-test-standards.md` gains **Waiting for a deferred effect (a frame, not a
+tick)**. Several behaviours here are deliberately deferred by one animation frame — `useDialogFocus`
+moves focus on a frame so Safari cannot silently drop it — and how a test waits for that frame
+decides what its failures look like. The section records the three forms already live in the suite:
+`await waitFor` under real timers (`BottomSheet`, `Modal`), `act(() => vi.advanceTimersByTime(n))`
+under fake ones (`WindowFirstShellSheet`'s `settle()`, itself found by a mutation sweep), and the
+deliberate synchronous-rAF substitution used where an *ordering* claim is the point and no wait can
+express it. It also records the forced double-frame variant, which is what lets `Modal`'s
+stacked-focus test see a second frame a `waitFor` would have been satisfied by. A matching
+"What NOT to do" bullet states the rule about asserting inside the callback directly.
+
+That Vitest's fake timers fake `requestAnimationFrame` was verified by probe rather than assumed.
+
+Three claims in the first draft were caught by adversarial review and corrected rather than shipped:
+that `WindowFirstShell`'s handoffs defer "on the same reasoning" as `useDialogFocus` (they defer for
+their own, different reason — the element may be rendering for the first time on that commit), a
+substitution-site list that missed `locationSheetShell.test.jsx` because its spy wraps across two
+lines, and two figures for one experiment.
+
+### Docs — the plan-matrix design bundle's keyboard spec now matches what shipped
+
+Closes the loop on #789 and #790, which corrected seven source comments that described a
+three-layer dialog stack M5 refuses. Those comments cited "the bundle README's stated order", and
+the citation was accurate: `docs/design/plan-matrix/README.md` really did say
+
+> `Esc` closes search → then the location sheet → then the window popup, in that order
+
+leaving the handoff spec asserting a stack the code contradicts in three files. The README is the
+pixel-level spec the whole M1–M5 series was built against, so a reader who reaches for it as the
+authority found the code looking wrong rather than the doc being superseded.
+
+The Keyboard paragraph now states shipped behaviour, and an **Adaptation (M5)** paragraph beside it
+records what the handoff asked for, why it changed (a Tab walk out of the topmost sheet reached the
+masthead's search button on press 17 — the only route into a third layer, and one that bypassed the
+guard `/` had carried since M3; and it rendered wrong, since every dialog is `fixed inset-0 z-50`,
+so paint order is DOM order) and where the ruling lives (plan-matrix §4 A22). Rewriting the line
+without that note would have destroyed the record of a deliberate divergence, which is the thing
+that section of the plan exists to hold.
+
+Three other clauses in the same sentence were checked against the code rather than assumed, and two
+were also overstated: `/` opens search from the **Plan tab**, not "from anywhere" (it is refused off
+that tab, inside a text field, under a foreign dialog, and while the shell is disabled by a dead
+backend), and `← →` step between windows only while a popup is open **and nothing is over it**.
+`↑ ↓` and `Enter` were correct as written and are unchanged.
+
+Scope: the keyboard/dismissal claim only. The other 300 lines of that spec were not audited, and no
+other design bundle carries this sentence — checked across all seven `docs/design/*/README.md`.
+Documentation only; no code, and the source comments already agree with the corrected text.
+
+### Fixed — acknowledgements credited a deleted dependency and misdescribed solar-utils
+
+`react-leaflet-cluster` was removed from the product on 2026-09-04, the day before this
+revamp, and is not in `frontend/package.json`. The acknowledgements page still credited
+it — carried through the rewrite verbatim, so it became wrong between the two versions.
+
+`solar-utils` was listed as *v1.2.0 … Published on GitHub Packages*. Both halves were
+wrong: `backend/pom.xml` pins 2.1.0 and resolves it from JitPack. The repository element
+that declares it is `<id>github</id>` with a `jitpack.io` URL, which is the trap that
+makes this an easy thing to get wrong twice.
+
+### Fixed — two components claimed an accessibility defect that no browser has
+
+`WindowFirstComingUpHandoff` and `WindowComingUpEntry` each documented their bare `{' '}` text-node
+separators as fixing a real, user-facing run-together accessible name — the handoff row's doc going
+as far as "it bit this row for real until a screen-reader-name test caught it". No browser
+measurement supports that, and the claim had already begun to spread: it was cited as precedent for
+adding the same separators to a third component, where they would likewise have done nothing.
+
+Every engine inserts a space between **block-level** accessible-name contributions, and a flex or
+grid item is blockified. Both components blockify everything that carries text — `.wf-cu-handoff`,
+`.wf-cu-handoff-summary`, `.wf-cu-ttl` and `.wf-facts` are `flex`; `.wf-facts > span` and
+`.wf-cu-coin-line` are `inline-flex`; `.wf-cu-prose` is `block` — so there is no genuinely inline
+sibling pair in either one.
+
+Measured by removing each separator individually from the components' real rendered DOM, against
+the real stylesheet: **5 sites in the handoff row and 17 in the entry card, none load-bearing, in
+Chromium, WebKit and Firefox.** Each run carried a planted inline pair in the same DOM as a
+positive control, and Chromium's native accessibility tree (CDP) was used to confirm the result
+independently of Playwright's own name computation.
+
+⚠️ `inline-flex` is not the exception it looks like — it is inline-*level*, but its contents are
+blockified and the engines space it like a block. The run-together defect needs a genuinely inline
+box with inline content.
+
+**The separators stay.** They cost nothing, they state the intent in the DOM rather than leaving it
+to CSS, and they become load-bearing the moment one of those containers stops being flex. Only the
+claims about them changed.
+
+The instrument is the real lesson, and it is now named at each site: jsdom's
+`dom-accessibility-api` — what Vitest and Testing Library's `name` option compute with — glues
+*any* adjacent elements, so a test asserting a spaced name is asserting the polyfill's rule rather
+than a browser's. The test that pins the handoff row now says so, and says that a failure there
+means "the separators went away", not "accessibility broke in production".
+
+### Docs — doors from Plan to Map: the closing sweep
+
+Phase D6 of `docs/engineering/plan-to-map-doors-plan.md`, the series' last phase. §0 flips to
+COMPLETE with the phase log's commit column filled in against `origin/main`'s tail (D1 `dffd764a`
+#762, D2 `399a7e36` #763, D3 `f52a6013` #764, D4 `a4964ed8` #765, D5 dropped unbuilt); §4's twelve
+disagreements-on-purpose were re-checked against the tree and every cross-reference still resolves,
+so nothing needed renumbering; §6's open items are reframed as the list that survives the series
+(the three owner decisions stay DECIDED, untouched); §7's verify matrix states what each check
+actually ran and measured rather than only how it would be measured; §8 gains a PR-number column;
+§9 gains a "how to run" note for the D4 Playwright sweep, which stays in the tree as a regression
+check and stays out of CI.
+
+CLAUDE.md's Map tab (v2) bullet gains the three-part handover (`App.openMapTabFromPlan` on the
+existing `mapTabHandoff`/`tabRequest` nonce channel, one nonce-keyed door effect in `MapView`,
+`MapBreadcrumb` mounted above the frame with its carrying clause and app-wide `clear`) and the
+`driveMinutesFor`/overlay-fetch split; the Plan tab bullet's dialog-stack paragraph gains the two
+doors beside the settings cog as routes that close every Plan dialog before they leave.
+`map-tab-v2-plan.md` §6's O-6 records that the location sheet footer has moved off the overlay
+while every other producer stays. O-18 was REWRITTEN rather than appended to: this sweep was
+drafted against D4 on 2026-09-04, and #774 closed O-18 the other way the following day —
+`Four days here ›` opens the sheet over the map. The draft had read the doors series' Q2 as a
+general precedent for landing on the destination tab plain, which that closure falsifies; the
+entry now records why the two routes differ, using Q2's own rule — the destination decides — so
+the pair does not read as an inconsistency for a later pass to harmonise. CLAUDE.md's handover
+sentence took the same correction: it describes the `source: 'plan'` door and now says so,
+because #774's `inPlace` door rides the same channel carrying no lens fields and no tab request.
+
+Adversarial review (3 read-only lenses — truth against the tree, plan self-consistency, CLAUDE.md
+conventions): truth and conventions raised zero charges, every code claim re-verified by file:line
+citation. Consistency found one real defect, upheld by a dedicated refuter — §7 row 3's Phase
+column named only D1, though its own "How" text cites a browser check D3 actually ran, breaking the
+convention row 1 already established — fixed to `D1 (unit), D3 (browser)`. A second charge (O-D2
+filed under a header now saying every item "survives" as open, while O-D2's own text says "Closed
+with Q2") was refuted: §6 already mixes DECIDED and closed entries into an "OPEN items" list
+throughout, unchanged by this phase.
+
 ## [v2.20.3] - 2026-09-05
 
 ### Added — the app answers for the notch, the sensor housing and the home indicator
