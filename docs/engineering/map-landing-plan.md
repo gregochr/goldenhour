@@ -1031,7 +1031,7 @@ will otherwise re-discover and file as new.
 | R2 | One region name clips at **320px** in the region panel | L6 | Same cause, same cure — R1 and R2 close together or not at all. |
 | R3 | The drilldown overlaps `.wf-map-chrome-bl` (the Legend chip) at **≤430px** | L5, re-measured L6 | The panel is 1150 and the chrome 1100, so it paints *over* rather than being covered — ordinary behaviour for an open panel, and the chip is reachable the moment it closes. |
 | R4 | `5 ★` carries a 5px flex gap between the number and the glyph | L6 | `.wf-win-panel-best` is `inline-flex; gap: 5px` and the window panel shares it, so fixing one level only would make the two disagree. Pre-existing to L6. |
-| R5 | The label-placement obstacle grew **334→504px** with the control, and three panels joined it | L2, L4–L6; **re-measured 2026-09-07** | **Measured — the widening's licence holds; the PANELS are a new residual (R7).** §4 #31 licensed the previous widening by measuring that no label moved, at two views, and that was never re-run at 504px nor after L4–L6 seeded three panels. It has now been re-run against the real placer, over an 8-cell sweep of 8 measured frames; instrument at `scripts/measurements/label-obstacle/`, findings in §4b.1. The widening costs at worst **7** collateral drops across 210 comparable state-pairs — roughly a quarter of what the panels cost, so it is the cheap change #31 took it for, but it is **not free** and #31's "identical" holds only at the opening framing. ⚠️ It is also not the same change on every frame: `max-width` clamps the control, so production's change was `334 → 504` on the wide frames and `334 → 480` on the 788px one, and each is now compared against its own measured control. Only the phone is excluded, because below 640px the bound is released entirely. ⚠️ And "every position" was never tested — the durable claim is the placed **set**. |
+| R5 | The label-placement obstacle grew **334→504px** with the control, and three panels joined it | L2, L4–L6; **re-measured 2026-09-07** | **Measured — the widening's licence holds; the PANELS are a new residual (R7).** §4 #31 licensed the previous widening by measuring that no label moved, at two views, and that was never re-run at 504px nor after L4–L6 seeded three panels. It has now been re-run against the real placer, over a 16-cell sweep of 8 measured frames; instrument at `scripts/measurements/label-obstacle/`, findings in §4b.1. The widening costs at worst **7** collateral drops across 210 comparable state-pairs — roughly a quarter of what the panels cost, so it is the cheap change #31 took it for, but it is **not free** away from the opening framing, where #31's "identical" does hold in full. ⚠️ It is also not the same change on every frame: `max-width` clamps the control, so production's change was `334 → 504` on the wide frames and `334 → 480` on the 788px one, and each is now compared against its own measured control. Only the phone is excluded, because below 640px the bound is released entirely. |
 | R6 | Both drilldown panels answer `Escape` behind a foreign modal | L6 | ✅ **CLOSED 2026-09-07**, and it was never only the two panels — eight Escape rules and the pointer channel now read one predicate. §4 #37 carries the fix, the rejected prop design and the two wrong counts. |
 | R7 | ⚠️ **Seeding the drilldown panels as label obstacles drops labels that had clear air** | raised 2026-09-07 by R5's re-measurement | Up to **25 / 28 / 29** collateral drops per 280 state-pairs for `wf-land` / `wf-win-panel` / `wf-reg-panel`, and **36** for a production-shaped nine-region window panel — real destinations among them (`Mallyan Spout`, `Aira Force`, `Ashness Bridge`). ⚠️ Some sit within a few px of the panel edge; 8–15 per worst cell are more than 30px into open map, which is the unambiguous half. Inherent to greedy placement around a large obstacle, and it worsens with contention, so it is a genuine cost rather than a bug with a line to fix. §4b.1 Result 2 has the numbers. ⚠️ **Two cures are already ruled out by measurement.** A retry pass after the greedy one recovers **nothing, by construction** — `placeLabelPass` appends each accepted box to `boxes`, so the set only grows, and `placeWithNudges` rejects on any overlap; an item that failed against an earlier set must fail against every later superset of it. That is a proof rather than a sample, and driving it anyway over 840 states recovered **0 of 7,081** drops. And *not* seeding the panels is worse: it puts labels under an opaque plate, the defect that put them in `OBSTACLE_SELECTOR` at L5. A third option does exist and is not obviously wrong — place without the panel, then cull whatever it covers, which is collateral-free by construction — but it loses on the same measurement: seeding **relocates** roughly twenty times more labels than it costs, and those relocations are labels kept rather than dropped. A real cure is re-ordered or non-greedy assignment, which is a phase. |
 
@@ -1127,12 +1127,23 @@ released entirely, so the box is frame-driven at 374px and there is no widening 
 - **The phone is excluded, not passing.** Below 640px `index.css` releases the bound entirely
   (`left: 8px; right: 8px; max-width: none`), so the box is a full-width 374px bar and *neither*
   334 nor 504 renders there. Any claim of identity "on all four viewports" is false by construction.
-- **"Every position" is not what was tested — then or now.** At the tab's own `fitBounds` opening
-  framing the placed **set** is identical at all twelve comparable states, and fully identical
-  (positions included) at **eight**; at the other four one chip changes position by a `MAP_NUDGES`
-  rung, in some cases with a `mapDxOffsets` step as well — a relocation to the other side of its own
-  anchor rather than a nudge. The set is the durable claim; "and every position"
-  is not.
+- **At the tab's own opening framing, the widening changes nothing at all** — the placed set *and*
+  every position, on all six comparable frames. That is §4 #31's own claim, and it survives.
+
+  ⚠️ **Getting that answer took three corrections, and two earlier cuts of this section reported
+  "one chip moves" purely as an artefact of them.** The camera is Leaflet's: it centres on the
+  **unprojection of the projected midpoint**, not the mean of the latitude extrema; with
+  `zoomSnap: 0` the fit zoom is **continuous**, so a 0.01-step search tested a camera up to half a
+  step away; and the bounds are **padded** — `WindowFirstMapPane` imports `latLngBounds` from
+  `utils/heatGeometry.js`, not from Leaflet, and that helper's `(spots, padDeg)` signature expands
+  latitude by 0.12° and longitude by 0.204° through `bbox`. ⚠️ An earlier revision of this section
+  asserted the opposite of that last one — that `FRAME_PAD_DEG` was inert — by reading Leaflet's
+  `latLngBounds` signature without checking which `latLngBounds` the file imports. It was false, and
+  it is the "grep the file you cite before you cite it" failure this project has recorded before.
+
+  Only the **28px** padding arm is measured, because it is the only reachable one: `openingBounds`
+  is non-null whenever a field exists at all, and where it is null `heatOn` is false and `MapLabels`
+  is not mounted.
 
   ⚠️ That camera is Leaflet's, not an approximation of it, and two separate corrections were needed
   to make it so. `fitBounds` centres on the **unprojection of the projected midpoint**, not on the
@@ -1216,16 +1227,6 @@ attribution is exactly the fabricated-citation failure this project has recorded
 above is emitted by `analyse.mjs` §4 with its population printed beside it.
 
 ---
-
-⚠️ **Incidental finding, and it is an app bug rather than a harness one.**
-`WindowFirstMapPane` builds the opening bounds as `latLngBounds(framed, FRAME_PAD_DEG)`, intending
-0.12° of breathing room around the planning area. Leaflet reads that second argument as `corner2`,
-and a bare number there resolves through `toLatLngBounds(0.12)` to an *empty* `LatLngBounds` whose
-`extend` returns early — so **`FRAME_PAD_DEG` expands nothing**, and the tab opens on the roster's
-raw extrema. The harness therefore fits the raw extrema too, because that is what production does.
-The padding is one argument-position away from working (`latLngBounds(framed).pad(FRAME_PAD_DEG)`),
-but changing it moves the opening camera on every viewport, so it is recorded here rather than
-fixed in a measurement PR — and this section's Result 1 would need re-running with it.
 
 **Stated limitations.** Six `OBSTACLE_SELECTOR` entries are never seeded — `wf-win-menu`,
 `wf-jump-menu`, `wf-filters-panel`, `wf-legend-panel`, `colour-scale-notice`,

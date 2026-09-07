@@ -172,19 +172,45 @@ export function pointToLatLng(x, y, zoom) {
 }
 
 /**
- * The camera `fitBounds` actually produces for these bounds at this zoom.
+ * Production's own opening bounds — the PADDED ones.
+ *
+ * ⚠️ `WindowFirstMapPane` does not use Leaflet's `latLngBounds`. It imports a local helper from
+ * `utils/heatGeometry.js` whose signature is `(spots, padDeg)` and which calls `bbox`, expanding
+ * latitude by `padDeg` and longitude by `padDeg * 1.7` — the 1.7 because a degree of longitude is
+ * about 0.6 of a degree of latitude on screen at UK latitudes. With `FRAME_PAD_DEG = 0.12` that is
+ * ±0.12° lat and ±0.204° lon.
+ *
+ * ⚠️ An earlier cut of this harness fitted the RAW extrema and recorded, in the plan, an
+ * "incidental finding" that `FRAME_PAD_DEG` was inert — reasoning from Leaflet's `latLngBounds`
+ * signature without checking which `latLngBounds` the file imports. That was wrong, and it is the
+ * "grep the file you cite before you cite it" failure this project has recorded before. The
+ * padding is real; the harness now applies it.
+ */
+export const FRAME_PAD_DEG = 0.12;
+export const LON_PAD_FACTOR = 1.7;
+
+export function openingBounds(spots, padDeg = FRAME_PAD_DEG) {
+  const lat = spots.map((s) => s.lat);
+  const lon = spots.map((s) => s.lng);
+  return {
+    south: Math.min(...lat) - padDeg,
+    north: Math.max(...lat) + padDeg,
+    west: Math.min(...lon) - padDeg * LON_PAD_FACTOR,
+    east: Math.max(...lon) + padDeg * LON_PAD_FACTOR,
+  };
+}
+
+/**
+ * The camera `fitBounds` actually produces for those bounds at this zoom.
  *
  * ⚠️ Leaflet centres on the **unprojection of the projected midpoint**
  * (`Map._getBoundsCenterZoom`: `unproject(swPoint.add(nePoint).divideBy(2))`), NOT on the
- * arithmetic mean of the latitude extrema. Mercator is non-linear in latitude, so the two differ —
- * by a few pixels for this roster, which is enough to move an edge-sensitive placement. An earlier
- * cut averaged lat/lon and so tested a camera the app never uses.
+ * arithmetic mean of the latitude extrema. Mercator is non-linear in latitude, so the two differ.
  */
-export function fitBoundsCentre(spots, zoom) {
-  const lat = spots.map((s) => s.lat);
-  const lon = spots.map((s) => s.lng);
-  const sw = latLngToPoint(Math.min(...lat), Math.min(...lon), zoom);
-  const ne = latLngToPoint(Math.max(...lat), Math.max(...lon), zoom);
+export function fitBoundsCentre(spots, zoom, padDeg = FRAME_PAD_DEG) {
+  const b = openingBounds(spots, padDeg);
+  const sw = latLngToPoint(b.south, b.west, zoom);
+  const ne = latLngToPoint(b.north, b.east, zoom);
   const c = pointToLatLng((sw.x + ne.x) / 2, (sw.y + ne.y) / 2, zoom);
   return { name: 'fitBounds', lat: c.lat, lon: c.lon };
 }

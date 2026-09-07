@@ -17,7 +17,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   ALWAYS_ON, FRONTEND, HERE, ZOOM_GRIDS, centresFor, fitBoundsCentre, latLngToPoint, loadRoster,
-  projector, spotsFrom,
+  openingBounds, projector, spotsFrom,
 } from './lib.mjs';
 
 const {
@@ -241,26 +241,23 @@ function classify(a, b, fromRects, toRects) {
  * is several pixels, which is material to the edge-sensitive collisions this harness exists for.
  * For EPSG3857 `getScaleZoom(scale, z0) = z0 + log2(scale)`, so it closes in one expression.
  *
- * ⚠️ The bounds are the WHOLE roster's, which is the no-postcode case. Production narrows them
+ * ⚠️ The bounds are the WHOLE roster's, PADDED as production pads them (`openingBounds`).
+ * That is the no-postcode case. Production narrows them
  * through `scopeSpots(heatSpots, reachById, origin)`, so a reader with saved drive times or an away
  * origin opens on a different camera — but with no postcode `reachById` is empty, every region
  * counts as in-area, and `framed` is the whole catalogue (`WindowFirstMapPane`'s own comment says
  * so). Since this harness excludes the home marker and the reach rings anyway, that is the
  * configuration it is measuring throughout; §4b.1's Result 1 says so.
  *
- * ⚠️ And they are the roster's RAW extrema, deliberately. `WindowFirstMapPane` calls
- * `latLngBounds(framed, FRAME_PAD_DEG)` — but Leaflet reads that second argument as `corner2`, and
- * a bare number there resolves to an empty `LatLngBounds` whose `extend` is a no-op. `FRAME_PAD_DEG`
- * therefore expands nothing in production, so fitting the raw extrema is what the app does. That is
- * an app bug rather than a harness one (see §4b.1's incidental finding); if it is ever fixed, this
- * function must start padding too.
+ * ⚠️ And they are PADDED, as production pads them — see `openingBounds` in `lib.mjs` for why that
+ * is `heatGeometry`'s helper rather than Leaflet's, and for the false claim an earlier cut made
+ * about it.
  */
 function fitZoom(w, h, pad) {
-  const lat = SPOTS.map((s) => s.lat);
-  const lon = SPOTS.map((s) => s.lng);
+  const b = openingBounds(SPOTS);
   const z0 = 10;
-  const nw = latLngToPoint(Math.max(...lat), Math.min(...lon), z0);
-  const se = latLngToPoint(Math.min(...lat), Math.max(...lon), z0);
+  const nw = latLngToPoint(b.north, b.west, z0);
+  const se = latLngToPoint(b.south, b.east, z0);
   const scale = Math.min((w - 2 * pad) / Math.abs(se.x - nw.x), (h - 2 * pad) / Math.abs(se.y - nw.y));
   return z0 + Math.log2(scale);
 }
@@ -272,7 +269,11 @@ console.log('   `MapContainer` reads `bounds` once at construction and fits the 
 for (const fk of FRAMES) {
   const { width: w, height: h } = frameOf(fk);
   const cfg = configsFor(fk);
-  const zooms = [fitZoom(w, h, 60), fitZoom(w, h, 28)];
+  // ⚠️ 28px ONLY. `openingBounds` is non-null whenever a field exists at all, and with a non-empty
+  // roster it always does — so `boundsOptions` takes the 28px branch. The 60px branch is the
+  // no-bounds fallback, and there `heatOn` is false, so `MapLabels` is not even mounted. Measuring
+  // both doubled six reachable frames into twelve states, half of which this flow cannot produce.
+  const zooms = [fitZoom(w, h, 28)];
   const comparable = wideningOn(fk);
   for (const zoom of zooms) {
     const { items } = itemsFor(fk, fitBoundsCentre(SPOTS, zoom), zoom);
