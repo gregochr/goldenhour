@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
+import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 import { VERDICT_LABEL, eventWord } from '../../utils/windowFirstCards.js';
 import { confidenceTreatment } from '../../utils/confidenceUtils.js';
@@ -74,6 +75,19 @@ export default function MapWindowPanel({
 
   function onKeyDown(e) {
     if (e.key !== 'Escape') return;
+    // ⚠️ **STAND DOWN while a dialog from OUTSIDE the map pane is over it**, and do it BEFORE
+    // `preventDefault` so the layer above still receives the press. `MapView`'s pane-level handler
+    // has carried this rule since L3 and this one did not, which is the whole of
+    // `map-landing-plan.md` §4 #37: both handlers run on one press (neither calls
+    // `stopPropagation`), so with the four-day sheet open the pane's stood down correctly and
+    // THIS one operated the panel behind it.
+    //
+    // ⚠️ It consults `foreignModalOver`, the module-scope predicate in `MapView` — not a local
+    // re-derivation. That helper's own doc says it was extracted "because two Escape rules consult
+    // it and they must never disagree"; there are four now, and the two that did not read it were
+    // the two that got this wrong. A copy here would be the fifth rule O-20 warns against; reading
+    // the same predicate, against the same pane root, is the opposite of one.
+    if (foreignModalOverPaneOf(rootRef.current)) return;
     e.preventDefault();
     onClose();
   }

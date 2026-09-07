@@ -39,6 +39,7 @@ import { latLngBounds } from '../utils/heatGeometry.js';
 import { buildJumpRows, regionBestRatingFor, buildNightRegionBest } from '../utils/regionsJump.js';
 import { landingCardModel } from '../utils/mapLanding.js';
 import MapLandingCard from './map/MapLandingCard.jsx';
+import { foreignModalOver } from '../utils/mapForeignModal.js';
 import MapWindowPanel from './map/MapWindowPanel.jsx';
 import {
   buildPanelRegionRows, buildRegionLocationRows, windowPanelNote, REGION_PANEL_LOCATIONS,
@@ -95,25 +96,6 @@ function paneIsOffScreen(paneRoot) {
   return !paneRoot || !paneRoot.isConnected || Boolean(paneRoot.closest('[hidden]'));
 }
 
-/**
- * Whether a dialog from OUTSIDE this map pane is currently over it — the four-day sheet the
- * callout opens, `UserSettingsModal`, a search overlay.
- *
- * <p>Extracted to module scope because two Escape rules consult it and they must never disagree:
- * {@code handleMapPaneKeyDown} (menus, then the selection) and the landing card's own document
- * listener. A key pressed while a modal is up must not operate the page behind it, and one of the
- * two quietly not applying that rule would be the O-20 defect L3 fixed, re-entered from the card.
- *
- * <p>Containment, not "is any modal open": a dialog this pane renders INLINE is its own business.
- * See {@code handleMapPaneKeyDown}'s own block for the whole finding.
- *
- * @param {?Element} paneRoot this pane's root node
- * @returns {boolean}
- */
-function foreignModalOver(paneRoot) {
-  return Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]'))
-    .some((node) => !paneRoot || !paneRoot.contains(node));
-}
 
 /**
  * The value stamped under {@link LANDING_SEEN_KEY} for a given forecast run — the whole of the

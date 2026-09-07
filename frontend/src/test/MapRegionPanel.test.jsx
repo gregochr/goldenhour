@@ -7,7 +7,7 @@
  * things the component itself owns: back, close, the two actions, and the full-name rule.
  */
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 import MapRegionPanel from '../components/map/MapRegionPanel.jsx';
 import { rampHex } from '../utils/scoreRamp.js';
@@ -45,10 +45,31 @@ function renderPanel(props = {}) {
     onBack: vi.fn(), onClose: vi.fn(), onZoomToRegion: vi.fn(), onOpenLocationSheet: vi.fn(),
   };
   const result = render(
-    <MapRegionPanel row={ROW} region={REGION} locations={LOCATIONS} {...handlers} {...props} />,
+    <MapRegionPanel
+      row={ROW}
+      region={REGION}
+      locations={LOCATIONS}
+      {...handlers}
+      {...props}
+    />,
   );
   return { ...result, ...handlers };
 }
+
+let foreignModal = null;
+afterEach(() => {
+  // Torn down here, not on the last line of a test: an assertion that threw first would leave an
+  // `[aria-modal]` in the body and stand every later Escape case in this file down silently.
+  foreignModal?.remove();
+  foreignModal = null;
+});
+
+const plantForeignModal = () => {
+  foreignModal = document.createElement('div');
+  foreignModal.setAttribute('role', 'dialog');
+  foreignModal.setAttribute('aria-modal', 'true');
+  document.body.appendChild(foreignModal);
+};
 
 describe('MapRegionPanel — the header', () => {
   it('names the region, the window it is about and its pick', () => {
@@ -287,6 +308,46 @@ describe('MapRegionPanel — back, close and the outside press', () => {
 
     expect(onBack).toHaveBeenCalledTimes(1);
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  /**
+   * ⚠️ The defect `map-landing-plan.md` §4 #37 recorded and O-20 carried: with the four-day sheet
+   * open over the map, one `Escape` reaching this panel operated it BEHIND the sheet.
+   *
+   * <p>Both handlers run on one press — neither calls {@code stopPropagation} — so `MapView`'s
+   * pane-level rule stood down correctly while this one did not, and this one acted. The fix is not
+   * a new guard: it reads the same {@code foreignModalOver} predicate, against the same pane root,
+   * that the pane handler and the landing card's document listener already read.
+   */
+  it('⚠️ Escape stands down while a dialog from outside the pane is over it', () => {
+    const handlers = renderPanel();
+    plantForeignModal();
+
+    fireEvent.keyDown(screen.getByTestId('wf-reg-panel'), { key: 'Escape' });
+
+    expect(handlers.onBack, 'the panel must not act behind a modal').not.toHaveBeenCalled();
+    expect(handlers.onClose).not.toHaveBeenCalled();
+  });
+
+  it('and leaves the press for the layer above rather than consuming it', () => {
+    // The stand-down returns BEFORE `preventDefault`. If it did not, the sheet over this panel
+    // would get a press already marked handled and the reader would need a second Escape to close
+    // the thing they are actually looking at.
+    renderPanel();
+    plantForeignModal();
+
+    const event = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    screen.getByTestId('wf-reg-panel').dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it('and acts as before once nothing is over the pane', () => {
+    const handlers = renderPanel();
+
+    fireEvent.keyDown(screen.getByTestId('wf-reg-panel'), { key: 'Escape' });
+
+    expect(handlers.onBack).toHaveBeenCalledTimes(1);
   });
 
   it('the close control closes the whole drilldown, and says so', () => {

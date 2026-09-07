@@ -859,8 +859,8 @@ should challenge these **in review**, not silently "fix" them in code.
    occur. ⚠️ **If these ever become separate PRs, amend L5's commit instead.** The same edit removed
    the entry's promise of "an em dash" on night rows, which §4 #27 had already established cannot
    render.
-37. **Both panels' own `Escape` handlers operate behind a foreign modal, and L7 records rather than
-   fixes it.** `MapView.handleMapPaneKeyDown` stands down while a foreign `[role="dialog"][aria-modal]`
+37. **Both panels' own `Escape` handlers operated behind a foreign modal. ⚠️ FIXED 2026-09-07 —
+   this entry is kept as the record of the defect and of the two designs that did not work.** `MapView.handleMapPaneKeyDown` stands down while a foreign `[role="dialog"][aria-modal]`
    is open — its own doc calls the rule absolute — but `MapWindowPanel` and `MapRegionPanel` each
    carry a subtree `onKeyDown` that does not, and theirs fires first. So with the four-day sheet open
    over the map, one `Escape` reaching a panel steps it back or closes it *behind* the sheet.
@@ -880,6 +880,37 @@ should challenge these **in review**, not silently "fix" them in code.
    the reader came from, and the pane's region branch does not. Deleting it would reinstate the
    `<body>`-focus defect this increment fixed four times. A fact-check lens caught the claim.
    Recorded on O-20 as well, so it is found from either end.
+   ⚠️ **THE FIX, 2026-09-07, and the two designs that did not survive it.** `foreignModalOver` moved
+   from `MapView`'s module scope into `utils/mapForeignModal.js` — the panels cannot import it from
+   `MapView` without a cycle — and both panels now consult that one predicate. That is the opposite
+   of the fifth per-route guard O-20 warned against: the helper's own doc already said it was
+   extracted "because two Escape rules consult it and they must never disagree", and the two rules
+   that did not read it were exactly the two that got this wrong.
+
+   **Design 1, rejected: a required `foreignModalOver` prop from `MapView`.** Mutation testing
+   killed it. With either mount unwired, the prop was `undefined`, `foreignModalOver()` threw inside
+   the event handler, the handler died *before* acting, and the panel stayed open — so every wiring
+   test still passed, asserting the right outcome for the wrong reason. Vitest's own
+   "Unhandled Errors … might cause false positive tests" was the tell. A crash is also a worse
+   product failure than the bug it guards.
+
+   **Design 2, shipped: each panel resolves its own pane** with `closest('.wf-map-tab')`, the node
+   `mapPaneRef` points at. No prop, no wiring to forget, no crash mode; an unresolvable pane stands
+   down, because not locating your own container is not evidence that nothing is over you.
+
+   ⚠️ **A fixture derived from the thing it tests proves nothing**, and the first
+   `mapForeignModal.test.js` did exactly that: it built its pane element from
+   `MAP_PANE_SELECTOR.replace('.', '')`, so a mutated selector moved the fixture with it and the
+   mutant survived all 225 tests. The class is a literal now, with `MAP_PANE_SELECTOR`'s value
+   asserted separately. Five mutants, all killed: the stand-down dropped from each panel, the
+   `preventDefault` moved above it, and the selector broken.
+
+   ⚠️ **Only the panels' arm of O-20 is closed.** Tab-out onto the pane behind a sheet, and the
+   phone `BottomSheet` painting over one, are untouched; the shell-root `inert` follow-on remains
+   their cure. And the reason deletion was never the cheap way out still stands: `MapRegionPanel`'s
+   handler is not redundant with the pane's, because its `onBack` also carries the return-focus
+   target.
+
 38. **The pill's verdict is gated on `served`, not on `kind` — a cross-phase defect the per-phase
    reviews could not see, found by the cross-vendor (Codex) review on [#792].** `buildEvVerdicts` was
    written at L1; `served` was added to the EV row at L4. Nothing re-read the older function, so it

@@ -69,9 +69,19 @@ for that guard to find. ⚠️ **That stand-down is on the PANE handler, and the
 increment's two drilldown panels each carry their own subtree `onKeyDown` that does not have it**
 — theirs fires first, so an `Escape` reaching a panel operates it behind the sheet. Reachable only
 by Tabbing out of the non-trapping modal onto the pill (every route into the sheet closes the
-drilldown on the way in), and left unfixed on `map-tab-v2-plan.md` O-20's stated posture that the
-cure is the shell-root `inert` follow-on rather than a further per-route guard —
-`map-landing-plan.md` §4 #37 records it and why the obvious shortcut is unavailable.
+drilldown on the way in). ⚠️ **FIXED 2026-09-07** — and not by the per-route guard O-20 warned
+against. `foreignModalOver` moved out of `MapView`'s module scope into
+`utils/mapForeignModal.js` (the panels cannot import it from `MapView` without a cycle) and both
+panels now consult that one predicate, so all four of this tab's Escape rules read the same test
+instead of three copies and two omissions. Each panel resolves its own pane with
+`closest('.wf-map-tab')` rather than taking it as a prop: the first cut DID thread a required prop,
+and mutation testing killed that design — with either mount unwired the predicate threw inside the
+handler, the handler died before acting, the panel stayed open, and every wiring test passed for the
+wrong reason. ⚠️ **This closes only the panels' arm of O-20.** Its other consequences — Tab-out onto
+the pane behind a sheet, and the phone `BottomSheet` that paints over one — are untouched, and the
+shell-root `inert` follow-on is still their cure. `map-landing-plan.md` §4 #37 records why deleting
+the panels' handlers was never the cheap way out: `MapRegionPanel`'s is not redundant with the
+pane's, because its `onBack` also carries the return-focus target.
 It is deliberately **not** a focus trap; `useDialogFocus` records why containment is refused
 app-wide, and Tab still leaves the topmost dialog and cycles to the rest of the page.
 `docs/engineering/plan-matrix-plan.md` is the port plan and its §4 records every place the design

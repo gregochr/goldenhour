@@ -1164,10 +1164,15 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   double-answer this item already records for a phone `BottomSheet`, from a third direction, and it
   is likewise unreachable without first Tabbing out of a modal — every route into the sheet closes
   the drilldown on the way in, so a panel is only behind it if it was opened afterwards. Recorded
-  rather than fixed for the reason above: the fix is the shell-root follow-on, not a fifth per-route
-  guard. ⚠️ And the obvious shortcut is unavailable: `MapRegionPanel`'s handler is NOT redundant with
-  the pane's, because its `onBack` also carries the return-focus target (`map-landing-plan.md`
-  §4 #37).
+  ⚠️ **FIXED 2026-09-07, and not with a fifth guard.** `foreignModalOver` moved to
+  `utils/mapForeignModal.js` and both panels consult it, so this tab's four Escape rules read one
+  predicate rather than three copies and two omissions; each panel resolves its own pane with
+  `closest('.wf-map-tab')`, so there is no prop to forget. The obvious shortcut stayed unavailable
+  throughout — `MapRegionPanel`'s handler is NOT redundant with the pane's, because its `onBack`
+  also carries the return-focus target (`map-landing-plan.md` §4 #37, which records the rejected
+  prop design and the five mutants). ⚠️ **The rest of O-20 is untouched**: the Tab-out and the phone
+  `BottomSheet` cases above still want the shell-root `inert` follow-on, and this item stays open
+  for them.
 - **O-19** Whether the reason button should keep the spec's whole-prose target (a 399-character
   accessible name) or move to caption-as-button with a four-word one (§4 #26).
 - **O-16** The exit for §4 #15 / CLAUDE.md's Backend-heavy fifth class: a served, RATED
