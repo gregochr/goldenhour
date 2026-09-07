@@ -1006,7 +1006,7 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     untestable and that only SET identity was durable; that was an artefact of an unpadded camera
     and a quantised fit zoom, and the corrected run finds set *and* positions identical — see the
     passage below, which this must not be allowed to contradict again. ⚠️ And the licence is **for this obstacle only**: the same measurement
-    found the three panels genuinely dropping labels that had clear air (up to 38 per 280 states for
+    found the three panels genuinely dropping labels that had clear air (up to 39 per 280 states for
     a production-shaped window panel), recorded as `map-landing-plan.md` residual **R7**.
     The prototype gives this control no width at all —
     `#wnow{gap:9px;padding:6px 10px;min-height:36px}` over a `.pill` with `white-space:nowrap`, no

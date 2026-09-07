@@ -280,9 +280,15 @@ function AlwaysOnChrome() {
           <div className="leaflet-bar map-home-control leaflet-control">
             <button type="button" title="Centre on home">&#8962;</button>
           </div>
+          {/* ⚠️ The attribution's CONTENT, not a stand-in — it is the widest thing in this corner
+              and `index.css` records its rect spanning the full frame width on a phone, so a short
+              placeholder undersizes the obstacle badly. Leaflet's default `prefix` plus the base
+              `TileLayer`'s own `attribution` string (MapView.jsx), joined by Leaflet's ` | `. The
+              reference layer carries no attribution of its own. An earlier cut stopped after
+              "© OpenStreetMap" and produced a 128px corner where production is far wider. */}
           <div className="leaflet-control-attribution leaflet-control">
-            <a href="https://leafletjs.com">Leaflet</a>
-            {' | © OpenStreetMap'}
+            <a href="https://leafletjs.com" title="A JavaScript library for interactive maps">Leaflet</a>
+            {' | Tiles © Esri — Esri, HERE, Garmin, © OpenStreetMap contributors, GIS User Community'}
           </div>
         </div>
       </div>
