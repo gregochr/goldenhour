@@ -77,7 +77,7 @@ const LABEL_PANE_Z = 650;
  *
  * <p>⚠️ <b>A fifth entry deserves a run of the harness rather than an argument</b>
  * (`scripts/measurements/label-obstacle/`) — and read that section's FINDINGS rather than quoting
- * its counts. Those counts moved on all seven of this PR's review rounds, every time because the
+ * its counts. Those counts moved on all eight of this PR's review rounds, every time because the
  * instrument got more faithful, never because this code changed.
  */
 const OBSTACLE_SELECTOR = [

@@ -63,7 +63,7 @@ Every drop is classified:
   closing a panel does not itself trigger one (see `MapLabels.jsx`), so the measured "after" is what
   a reader sees on their next pan or zoom, not immediately.
 
-## ⚠️ Two traps this harness has already fallen into
+## ⚠️ Three traps this harness has already fallen into
 
 1. **Tailwind silently not running.** Vite looks for a PostCSS config beside its `root`, which here
    is `harness/`. Without `css: { postcss: FRONTEND }` the page renders with a different font stack
@@ -74,6 +74,20 @@ Every drop is classified:
 2. **The seed script's heredoc opener ends `|| true`**, which splits on `|` into a phantom anchor.
    The roster came out 220 across 5 regions instead of 210 across 4. `lib.mjs` drops the opener line
    explicitly; a run prints the roster size it loaded so this cannot pass unnoticed again.
+3. **⚠️ Hand-modelled map chrome, which undersized one obstacle SIX times in a row — always in the
+   same direction.** Leaflet's bottom-right corner was reproduced as markup and got smaller every
+   time a fidelity bug was found: an attribution string truncated at "© OpenStreetMap"; a control
+   tree not nested under `.leaflet-container`, which supplies the production font and the
+   `.leaflet-container .leaflet-control-attribution { margin: 0 }` rule; Leaflet's inline
+   Ukrainian-flag SVG (1em wide whenever `Browser.inlineSvg`, true in this Chromium) omitted; and
+   the zoom control left at Leaflet's default `topleft` when `MapView` **moves it to `bottomright`**
+   — 86px of height, on its own, and every intermediate number looked plausible. `main.jsx` now
+   mounts a real `MapContainer` and `measure.mjs` reads `.leaflet-bottom.leaflet-right`, the same
+   selector the app's own CSS uses. **The rule: do not model a third party's chrome — mount it.**
+   The bias is not a coincidence either. Every omission removes content, so every mistake makes the
+   obstacle smaller, and a smaller obstacle always argues *it fits* — the conclusion the
+   measurement exists to test. When an instrument's errors all point one way, that direction is the
+   one to distrust.
 
 ## ⚠️ It is coupled to the app, on purpose, and nothing tells you when that breaks
 

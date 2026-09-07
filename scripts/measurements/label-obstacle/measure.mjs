@@ -180,7 +180,12 @@ for (const vp of FRAMES) {
       }));
       const obstacles = {};
       for (const t of testids) {
-        const el = document.querySelector(`[data-testid="${t}"]`);
+        // ⚠️ `r5-leaflet-corner` is not a testid — it is Leaflet's own corner, selected by the
+        // SAME selector the host uses (`LEAFLET_CORNER_SELECTOR`), because the harness now mounts
+        // a real map rather than reproducing one.
+        const el = t === 'r5-leaflet-corner'
+          ? document.querySelector('.leaflet-bottom.leaflet-right')
+          : document.querySelector(`[data-testid="${t}"]`);
         if (!el) continue;
         const r = el.getBoundingClientRect();
         obstacles[t] = {

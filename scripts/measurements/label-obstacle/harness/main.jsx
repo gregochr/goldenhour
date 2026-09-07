@@ -10,7 +10,7 @@
  *
  * `measure.mjs` injects `window.__R5_ROSTER__` and `window.__R5_SURFACE__` before this module runs.
  */
-import { StrictMode } from 'react';
+import React, { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 // ⚠️ BOTH, and `fonts.js` is not optional. `index.css` declares the font FAMILIES but carries no
 // `@font-face` at all — the self-hosted faces are registered by `fonts.js`, which the app's real
@@ -26,6 +26,8 @@ import MapLandingCard from '../../../../frontend/src/components/map/MapLandingCa
 import MapWindowPanel from '../../../../frontend/src/components/map/MapWindowPanel.jsx';
 import MapRegionPanel from '../../../../frontend/src/components/map/MapRegionPanel.jsx';
 import WindowControl from '../../../../frontend/src/components/map/WindowControl.jsx';
+import { MapContainer, TileLayer, useMap } from 'react-leaflet';
+import L from 'leaflet';
 import TideWave from '../../../../frontend/src/components/map/TideWave.jsx';
 import RegionsJump from '../../../../frontend/src/components/map/RegionsJump.jsx';
 import FiltersPopover from '../../../../frontend/src/components/map/FiltersPopover.jsx';
@@ -36,10 +38,53 @@ import { LOCATION_TYPE_META, DISPLAY_TYPES } from '../../../../frontend/src/util
 import { rampGradientCss } from '../../../../frontend/src/utils/scoreRamp.js';
 
 const MAP_FILTER_CHIPS = DISPLAY_TYPES.map((type) => [type, LOCATION_TYPE_META[type]]);
+
+/**
+ * The map tab's bottom-right corner, built the way `MapView` builds it.
+ *
+ * ⚠️ **THREE controls live there, not one**, and the order is the order they are added:
+ * Leaflet's own attribution (created by the `attributionControl` construction option), then
+ * `CentreOnHomeControl`'s `⌂`, then the ZOOM control — which `MapView` MOVES from Leaflet's
+ * default `topleft` with `map.zoomControl.setPosition('bottomright')`
+ * (`ZoomControlPositioner`, mounted under `!overlayMode`). Leaving zoom at its default cost this
+ * corner 86px of height (151 → 65) and read as a plausible measurement, which is the SIXTH time
+ * hand-modelled map chrome has undersized this obstacle in exactly one direction. The button's
+ * inner `<span aria-hidden>` is copied too: `.map-home-control button` sizes from its content.
+ */
+function BottomRightCorner() {
+  const map = useMap();
+  React.useEffect(() => {
+    if (!map) return undefined;
+    const el = document.createElement('div');
+    el.className = 'leaflet-bar map-home-control';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.title = 'Reset to My area';
+    btn.setAttribute('aria-label', 'Reset to My area');
+    const glyph = document.createElement('span');
+    glyph.setAttribute('aria-hidden', 'true');
+    glyph.textContent = '\u2302';
+    btn.appendChild(glyph);
+    el.appendChild(btn);
+    const control = new L.Control({ position: 'bottomright' });
+    control.onAdd = () => el;
+    control.addTo(map);
+    // AFTER the home control, matching the JSX child order the app mounts them in.
+    map.zoomControl?.setPosition?.('bottomright');
+    return () => control.remove();
+  }, [map]);
+  return null;
+}
 import { rampHex } from '../../../../frontend/src/utils/scoreRamp.js';
 
 const roster = window.__R5_ROSTER__ || [];
 const spots = window.__R5_SPOTS__ || [];
+
+/** The roster's own bounds, so the real map opens where the measurement's cameras look. */
+const mapBounds = spots.length > 0
+  ? [[Math.min(...spots.map((s) => s.lat)), Math.min(...spots.map((s) => s.lng))],
+    [Math.max(...spots.map((s) => s.lat)), Math.max(...spots.map((s) => s.lng))]]
+  : [[54, -3], [56, -1]];
 
 const EV_ROWS = [
   {
@@ -251,47 +296,34 @@ function AlwaysOnChrome() {
         ★ PhotoCast-scored locations shown
       </div>
 
-      {/* ⚠️ Leaflet's OWN bottom-right corner — the second obstacle root. `MapLabels` seeds this
-          separately (`LEAFLET_CORNER_SELECTOR`, queried from the map container rather than its
-          parent), and the harness omitted it entirely until a review pointed it out: every
-          comparison was running with less competition than production.
+      {/* ⚠️ A REAL Leaflet map, not a reproduction of one.
+          `MapLabels` seeds Leaflet's bottom-right corner from a second root, and three successive
+          attempts to hand-build that corner were each wrong in the same direction — too small, so
+          biased toward "it fits": the attribution stopped at "© OpenStreetMap"; then it was not
+          nested under `.leaflet-container`, which supplies the production font and zeroes the
+          control's margin; then it omitted the inline Ukrainian-flag SVG Leaflet's own prefix
+          carries whenever `Browser.inlineSvg` is true, as it is in this Chromium.
 
-          Markup copied from what actually renders: Leaflet's `Control.Zoom._createButton` emits
-          `<a class="leaflet-control-zoom-in" href="#" title="Zoom in"><span aria-hidden>+</span></a>`
-          inside `.leaflet-control-zoom.leaflet-bar.leaflet-control`, and `CentreOnHomeControl`
-          builds `div.leaflet-bar.map-home-control` (MapView.jsx) into which it portals its button.
-          Both are sized by this app's own rules in index.css, which is why they must be real class
-          names rather than a stand-in box.
-
-          ⚠️ Visible on the three larger frames only: `@media (max-width: 639px)` sets
-          `display: none` on both controls, so on the phone this corner holds the attribution
-          alone. That is a real difference, not a harness simplification — the measurement reads
-          whatever the CSS produces at each width. */}
-      <div className="leaflet-control-container">
-        <div className="leaflet-bottom leaflet-right" data-testid="r5-leaflet-corner">
-          <div className="leaflet-control-zoom leaflet-bar leaflet-control">
-            <a className="leaflet-control-zoom-in" href="#" title="Zoom in" role="button">
-              <span aria-hidden="true">+</span>
-            </a>
-            <a className="leaflet-control-zoom-out" href="#" title="Zoom out" role="button">
-              <span aria-hidden="true">&#x2212;</span>
-            </a>
-          </div>
-          <div className="leaflet-bar map-home-control leaflet-control">
-            <button type="button" title="Centre on home">&#8962;</button>
-          </div>
-          {/* ⚠️ The attribution's CONTENT, not a stand-in — it is the widest thing in this corner
-              and `index.css` records its rect spanning the full frame width on a phone, so a short
-              placeholder undersizes the obstacle badly. Leaflet's default `prefix` plus the base
-              `TileLayer`'s own `attribution` string (MapView.jsx), joined by Leaflet's ` | `. The
-              reference layer carries no attribution of its own. An earlier cut stopped after
-              "© OpenStreetMap" and produced a 128px corner where production is far wider. */}
-          <div className="leaflet-control-attribution leaflet-control">
-            <a href="https://leafletjs.com" title="A JavaScript library for interactive maps">Leaflet</a>
-            {' | Tiles © Esri — Esri, HERE, Garmin, © OpenStreetMap contributors, GIS User Community'}
-          </div>
-        </div>
-      </div>
+          Mounting the real thing ends that class of error rather than patching its instances.
+          `MapContainer` builds the container, the zoom control and the attribution control itself,
+          with Leaflet's own prefix; the `TileLayer` contributes the app's Esri attribution string
+          verbatim; and the home control is added through the same `L.Control` API `MapView` uses,
+          with the same class names, rather than as markup. No tiles are needed — the controls
+          render regardless, and it is only their rects this measures. */}
+      <MapContainer
+        bounds={mapBounds}
+        boundsOptions={{ padding: [28, 28] }}
+        zoomControl
+        zoomSnap={0}
+        attributionControl
+        style={{ position: 'absolute', inset: 0, background: 'transparent' }}
+      >
+        <TileLayer
+          url="https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}"
+          attribution="Tiles &copy; Esri &mdash; Esri, HERE, Garmin, &copy; OpenStreetMap contributors, GIS User Community"
+        />
+        <BottomRightCorner />
+      </MapContainer>
 
       <div data-testid="wf-map-counts-footer" className="wf-map-counts-footer">
         <span>

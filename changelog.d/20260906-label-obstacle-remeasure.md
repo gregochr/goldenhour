@@ -26,7 +26,7 @@ because it puts labels under an opaque plate. Recorded as a residual with the nu
 ⚠️ **The instrument is committed this time**, at `scripts/measurements/label-obstacle/`, which is the
 actual fix for what created this residual: a licence granted by a measurement nobody could repeat.
 Its README carries the traps it fell into. And the write-up leads with its findings rather than its
-counts, deliberately — those counts moved on every one of seven review rounds, each time because the
+counts, deliberately — those counts moved on every one of eight review rounds, each time because the
 instrument became more faithful and never because the app changed. Re-run it rather than cite them.
 
 No behaviour change.
