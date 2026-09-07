@@ -7,9 +7,11 @@ drilldown's two panels) joined the obstacle list. Neither change re-ran the meas
 licence had been spent at sizes nobody had checked.
 
 It has now been re-run against the real placer, with real label boxes measured in headless Chromium
-off the built stylesheet. **The licence holds, and holds exactly where it was claimed**: at the tab's
-own opening framing the widening changes nothing at all — the placed set and every label's position,
-at every comparable state. Two qualifications the original entry did not carry are now recorded: it
+off the built stylesheet. **The licence holds where it was claimed**: over the six opening states the
+instrument runs — the 28px camera, whole-roster, no saved postcode, no selection — the widening
+changes nothing at all, the placed set and every label's position. Six states, not the opening flow:
+saved reach, an away origin, a selection, the home marker, the reach rings and the 60px fallback are
+untested and therefore unclaimed. Two qualifications the original entry did not carry are now recorded: it
 is not one change (a `max-width` clamp makes it 334→504 on wide frames and 334→480 on a narrower
 one, and below 640px there is no widening to license at all), and away from that framing it is cheap
 but not free.

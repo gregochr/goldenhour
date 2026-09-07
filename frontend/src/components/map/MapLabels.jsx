@@ -68,8 +68,10 @@ const LABEL_PANE_Z = 650;
  * <p><b>What the panels actually cost</b> (`map-landing-plan.md` §4b.1, residual R7). Seeding a
  * panel does not merely hide the labels beneath it: the greedy pass reshuffles around it and drops
  * labels that had clear air elsewhere on the map, real destinations among them. It gets worse the
- * busier the map is, and worse again with a production-shaped region count, so the dev seed
- * understates it. Still better than not seeding them — that puts labels under an opaque plate — and
+ * busier the map is, and worse again with a taller panel — though that is a panel-height effect
+ * measured against one roster, NOT a claim that production costs more overall (the dev seed is also
+ * denser in chips, which pulls the other way). Still better than not seeding them — that puts
+ * labels under an opaque plate — and
  * the obvious cure is a proven no-op: `placeLabelPass` only grows its `boxes` list, so a retry pass
  * after the greedy one recovers nothing by construction.
  *

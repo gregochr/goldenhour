@@ -60,8 +60,9 @@ const REGION_NAMES = [...new Set(roster.map((r) => r.region))];
 
 /**
  * ⚠️ `MapWindowPanel` renders ONE ROW PER IN-SCOPE REGION, uncapped, so its height is a function of
- * the roster — and the dev seed has only four regions. Measuring at four understates the obstacle
- * against any real roster. `__R5_REGIONS__` lets `measure.mjs` measure the panel at a
+ * the roster — and the dev seed has only four regions. Measuring at four measures a shorter
+ * obstacle than a nine-region roster draws; whether a real roster costs more OVERALL is a different
+ * question this harness does not answer (its chip density pulls the other way). `__R5_REGIONS__` lets `measure.mjs` measure the panel at a
  * production-shaped count as well; the extra rows are synthetic names of a representative length.
  */
 const PANEL_REGION_COUNT = window.__R5_REGIONS__ || REGION_NAMES.length;

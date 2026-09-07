@@ -1037,10 +1037,14 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
     label set and every label's position were **identical** before and after — the band is only
     36px tall, so widening it rarely exhausts a location's candidates. ⚠️ **"Two views" is
     load-bearing and was under-stated here.** A 16-cell re-measurement (`map-landing-plan.md`
-    §4b.1) confirms the placed SET is identical at the tab's own opening framing on every
-    comparable frame — but one chip changes position at four of those states, and across the wider
-    sweep the widening does lose labels that had clear air (at worst 7 in 210 state-pairs). The
-    durable claim is the set at the opening framing, not every position everywhere. The stability
+    §4b.1) confirms that over the six opening states it runs — the 28px camera, whole-roster
+    no-postcode fixture, no selection — the widening changes nothing at all: the placed set AND
+    every label's position. ⚠️ Six states, not the opening flow: saved reach, an away origin, a
+    selection, the home marker, the reach rings and the 60px fallback are untested and unclaimed.
+    Away from that framing the widening does lose labels that had clear air. ⚠️ An earlier revision
+    of this passage reported one chip moving at four states and limited the licence to SET identity;
+    that was an artefact of an unpadded camera and a quantised fit zoom, both since corrected.
+    The stability
     cuts the other way too, and in the same direction as the fix: a variable obstacle made labels appear and
     disappear as the reader stepped, which is the flicker the steppers were doing.
     Adversarial review also removed a `min-width: 0` from `.wf-win-label` that the first cut added
