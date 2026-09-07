@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>R5</title>
+<style>
+html,body{margin:0;height:100%}
+/* What App.jsx's own flex-column recast supplies around the shell (WindowFirstShell.jsx:393):
+   every ancestor down to `.wf-body.wf-body--map` is `flex: 1; min-height: 0`. Reproduced here so
+   the map frame has a real height and the panels' `max-height: 100%` resolves against it. */
+#root{height:100vh;display:flex;flex-direction:column}
+#root > .wf-shell{flex:1;min-height:0;display:flex;flex-direction:column}
+#root > .wf-shell > .wf-body--map{flex:1;min-height:0}
+/* Every label is measured exactly as the real layer measures it: absolutely positioned inside the
+   label layer (so shrink-to-fit), read via offsetWidth/offsetHeight. Stacked at the origin and
+   hidden — position and visibility do not affect an element's own box. */
+#r5-chips{position:absolute;top:0;left:0;visibility:hidden;width:0;height:0}
+#r5-chips > *{position:absolute!important;left:0;top:0;transform:none!important}
+</style></head>
+<body><div id="root"></div><script type="module" src="/main.jsx"></script></body></html>
