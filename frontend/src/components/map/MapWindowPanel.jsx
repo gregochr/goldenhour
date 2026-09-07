@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
+import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
 import { VERDICT_LABEL, eventWord } from '../../utils/windowFirstCards.js';
 import { confidenceTreatment } from '../../utils/confidenceUtils.js';
@@ -74,6 +75,19 @@ export default function MapWindowPanel({
 
   function onKeyDown(e) {
     if (e.key !== 'Escape') return;
+    // ⚠️ **STAND DOWN while a dialog from OUTSIDE the map pane is over it**, and do it BEFORE
+    // `preventDefault` so the layer above still receives the press. `MapView`'s pane-level handler
+    // has carried this rule since L3 and this one did not, which is the whole of
+    // `map-landing-plan.md` §4 #37: both handlers run on one press (neither calls
+    // `stopPropagation`), so with the four-day sheet open the pane's stood down correctly and
+    // THIS one operated the panel behind it.
+    //
+    // ⚠️ It consults the shared predicate in `utils/mapForeignModal.js` — not a local
+    // re-derivation. Eight Escape rules on this tab read it, plus the pointer channel in
+    // `useOutsideDismiss`; a copy here would be a ninth thing to keep in step, where reading the one
+    // predicate is the opposite of that. `foreignModalOverPaneOf` resolves this pane with
+    // `closest(MAP_PANE_SELECTOR)` — the same node `MapView`'s own rules pass.
+    if (foreignModalOverPaneOf(rootRef.current)) return;
     e.preventDefault();
     onClose();
   }

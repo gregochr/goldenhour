@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
+import { foreignModalOverPaneOf } from '../../utils/mapForeignModal.js';
 import { rampHex } from '../../utils/scoreRamp.js';
 import { calDow } from '../../utils/windowFirstStrip.js';
 import { VERDICT_LABEL, badgeChannel } from '../../utils/windowFirstCards.js';
@@ -143,6 +144,14 @@ export default function WindowControl({
   }
 
   function onKeyDown(e) {
+    // ⚠️ Stand down entirely while a dialog from OUTSIDE the map pane is over it — the same
+    // predicate `MapView`'s pane handler, the landing card's listener and the drilldown's two
+    // panels read. Without it this operates the map BEHIND an open sheet: `map-landing-plan.md`
+    // §4 #37 recorded that for the two panels, and an accessibility lens then found this control
+    // is on the very route that reaches them — a keyboard reader gets here by Tabbing out of the
+    // non-trapping sheet onto the pill, so the drilldown cannot be opened behind a sheet without
+    // opening THIS first.
+    if (foreignModalOverPaneOf(rootRef.current)) return;
     if (e.key === 'ArrowLeft') {
       e.preventDefault();
       step(-1);

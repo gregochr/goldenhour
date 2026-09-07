@@ -39,6 +39,7 @@ import { latLngBounds } from '../utils/heatGeometry.js';
 import { buildJumpRows, regionBestRatingFor, buildNightRegionBest } from '../utils/regionsJump.js';
 import { landingCardModel } from '../utils/mapLanding.js';
 import MapLandingCard from './map/MapLandingCard.jsx';
+import { foreignModalOver } from '../utils/mapForeignModal.js';
 import MapWindowPanel from './map/MapWindowPanel.jsx';
 import {
   buildPanelRegionRows, buildRegionLocationRows, windowPanelNote, REGION_PANEL_LOCATIONS,
@@ -95,25 +96,6 @@ function paneIsOffScreen(paneRoot) {
   return !paneRoot || !paneRoot.isConnected || Boolean(paneRoot.closest('[hidden]'));
 }
 
-/**
- * Whether a dialog from OUTSIDE this map pane is currently over it — the four-day sheet the
- * callout opens, `UserSettingsModal`, a search overlay.
- *
- * <p>Extracted to module scope because two Escape rules consult it and they must never disagree:
- * {@code handleMapPaneKeyDown} (menus, then the selection) and the landing card's own document
- * listener. A key pressed while a modal is up must not operate the page behind it, and one of the
- * two quietly not applying that rule would be the O-20 defect L3 fixed, re-entered from the card.
- *
- * <p>Containment, not "is any modal open": a dialog this pane renders INLINE is its own business.
- * See {@code handleMapPaneKeyDown}'s own block for the whole finding.
- *
- * @param {?Element} paneRoot this pane's root node
- * @returns {boolean}
- */
-function foreignModalOver(paneRoot) {
-  return Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]'))
-    .some((node) => !paneRoot || !paneRoot.contains(node));
-}
 
 /**
  * The value stamped under {@link LANDING_SEEN_KEY} for a given forecast run — the whole of the
@@ -3566,11 +3548,23 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   return (
     <div
       ref={mapPaneRef}
-      // `wf-map-tab` is a pure CSS scoping hook (map-tab-v2-plan.md §3 P12) — the phone media
+      // ⚠️ `wf-map-tab` IS NO LONGER A PURE CSS HOOK, and this comment said it was until the §4 #37
+      // fix. It is `MAP_PANE_SELECTOR` (`utils/mapForeignModal.js`): every Escape rule on this tab,
+      // and `useOutsideDismiss`, resolve this pane by `closest('.wf-map-tab')` from their own root.
+      // Moving the class to an inner wrapper for a CSS reason — which the paragraph below actively
+      // invites — makes `closest` return null in all of them, and their fallback is to stand down
+      // for ANY modal anywhere: the one state where the pane and panel handlers disagree.
+      // `mapForeignModal.test.js` pins the class ONTO THIS ELEMENT, not merely the constant's value.
+      // Its original job stands too — the phone media
       // query needs to hide Leaflet's OWN zoom control (a real `.leaflet-control-zoom` DOM node
       // this component never renders itself, so there is no React-owned element to gate) on the
       // TAB only, never the overlay, whose own mount never carries this class.
       className={overlayMode ? 'flex flex-col' : 'flex flex-col flex-1 min-h-0 wf-map-tab'}
+      // Present on the TAB only, like the class and the handler beside it — the overlay is not a
+      // pane any of this reasons about. It exists so a test can pin that `MAP_PANE_SELECTOR`'s
+      // class sits on THIS element, the one carrying `mapPaneRef` and the pane's key handler,
+      // rather than merely existing somewhere in the tree.
+      data-testid={overlayMode ? undefined : 'wf-map-pane'}
       onKeyDown={overlayMode ? undefined : handleMapPaneKeyDown}
     >
       {overlayMode && (

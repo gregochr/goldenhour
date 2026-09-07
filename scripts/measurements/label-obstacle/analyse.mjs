@@ -221,23 +221,30 @@ function classify(a, b, fromRects, toRects) {
   return out;
 }
 
-/** Leaflet's `getBoundsZoom` for the roster's bounds in a `w`x`h` frame with `pad` px of padding. */
+/**
+ * Leaflet's `getBoundsZoom` for the roster's bounds in a `w`x`h` frame with `pad` px of padding.
+ *
+ * ⚠️ CONTINUOUS, not stepped. With `zoomSnap: 0` — which the tab sets — `getBoundsZoom` skips its
+ * `if (snap)` branch entirely and returns the raw `getScaleZoom(scale)`. An earlier cut searched a
+ * 0.01 grid and so tested a camera up to half a step from production's; across a 500px offset that
+ * is several pixels, which is material to the edge-sensitive collisions this harness exists for.
+ * For EPSG3857 `getScaleZoom(scale, z0) = z0 + log2(scale)`, so it closes in one expression.
+ *
+ * ⚠️ The bounds are the roster's raw extrema, deliberately. `WindowFirstMapPane` calls
+ * `latLngBounds(framed, FRAME_PAD_DEG)` — but Leaflet reads that second argument as `corner2`, and
+ * a bare number there resolves to an empty `LatLngBounds` whose `extend` is a no-op. `FRAME_PAD_DEG`
+ * therefore expands nothing in production, so fitting the raw extrema is what the app does. That is
+ * an app bug rather than a harness one (see §4b.1's incidental finding); if it is ever fixed, this
+ * function must start padding too.
+ */
 function fitZoom(w, h, pad) {
   const lat = SPOTS.map((s) => s.lat);
   const lon = SPOTS.map((s) => s.lng);
-  const bb = {
-    n: Math.max(...lat), s: Math.min(...lat), e: Math.max(...lon), w: Math.min(...lon),
-  };
-  let best = 0;
-  for (let z = 0; z <= 20; z += 0.01) {
-    // Unrounded on purpose: this is a span, and `getBoundsZoom` compares the projected extent
-    // before any of Leaflet's pixel rounding applies.
-    const a = latLngToPoint(bb.n, bb.w, z);
-    const b = latLngToPoint(bb.s, bb.e, z);
-    if (Math.abs(b.x - a.x) <= w - 2 * pad && Math.abs(b.y - a.y) <= h - 2 * pad) best = z;
-    else break;
-  }
-  return Number(best.toFixed(2));
+  const z0 = 10;
+  const nw = latLngToPoint(Math.max(...lat), Math.min(...lon), z0);
+  const se = latLngToPoint(Math.min(...lat), Math.max(...lon), z0);
+  const scale = Math.min((w - 2 * pad) / Math.abs(se.x - nw.x), (h - 2 * pad) / Math.abs(se.y - nw.y));
+  return z0 + Math.log2(scale);
 }
 
 // ── 1. The tab's own opening framing ─────────────────────────────────────────────────────────────
@@ -261,7 +268,7 @@ for (const fk of FRAMES) {
         : `334→${Math.round(comparable)} CHANGED`)
       : '334→? n/a (phone: the bound is released; the box is a full-width bar)';
     console.log(
-      `   ${fk.padEnd(17)} z${String(zoom).padEnd(5)} ${String(items.length).padStart(2)} offered  `
+      `   ${fk.padEnd(17)} z${zoom.toFixed(3).padEnd(7)} ${String(items.length).padStart(2)} offered  `
       + Object.entries(counts).map(([n, c]) => `${n}=${c}`).join(' ') + `   ${widthLine}`,
     );
   }

@@ -859,16 +859,17 @@ should challenge these **in review**, not silently "fix" them in code.
    occur. ⚠️ **If these ever become separate PRs, amend L5's commit instead.** The same edit removed
    the entry's promise of "an em dash" on night rows, which §4 #27 had already established cannot
    render.
-37. **Both panels' own `Escape` handlers operate behind a foreign modal, and L7 records rather than
-   fixes it.** `MapView.handleMapPaneKeyDown` stands down while a foreign `[role="dialog"][aria-modal]`
+37. **Both panels' own `Escape` handlers operated behind a foreign modal. ⚠️ FIXED 2026-09-07 —
+   this entry is kept as the record of the defect, of the one design that did not work, and of the two counts that were wrong.** `MapView.handleMapPaneKeyDown` stands down while a foreign `[role="dialog"][aria-modal]`
    is open — its own doc calls the rule absolute — but `MapWindowPanel` and `MapRegionPanel` each
-   carry a subtree `onKeyDown` that does not, and theirs fires first. So with the four-day sheet open
-   over the map, one `Escape` reaching a panel steps it back or closes it *behind* the sheet.
+   carried a subtree `onKeyDown` that did not, and theirs fired first. So with the four-day sheet
+   open over the map, one `Escape` reaching a panel stepped it back or closed it *behind* the sheet.
    Measured by a review lens at both levels. ⚠️ **The state needs a precondition worth stating**: every
    route into the sheet closes the drilldown on the way (`handleOpenLocationSheet`'s
    `if (windowPanelOpen) setOpenMapMenu(null)`), so a panel can only be *behind* the sheet if it was
-   opened after it — by Tabbing out of a non-trapping modal onto the pill. ⚠️ **Not fixed, on
-   `map-tab-v2-plan.md` O-20's own stated posture**: it is unreachable without that Tab-out, it is the
+   opened after it — by Tabbing out of a non-trapping modal onto the pill. ⚠️ **That posture was held until 2026-09-07 and is now SUPERSEDED** — it framed the fix as "two
+   more per-route guards", and what shipped is the opposite: one shared predicate that all eight of
+   the tab's Escape rules read. The reasoning below was sound as far as it went, and it under-counted: it is unreachable without that Tab-out, it is the
    third direction the same double-answer already arrives from (the phone `BottomSheet` case is
    recorded there), and O-20 says in as many words that the fix is the shell-root `inert` follow-on
    rather than a further per-route guard — which two more guards here would be. ⚠️ **The tempting
@@ -880,6 +881,47 @@ should challenge these **in review**, not silently "fix" them in code.
    the reader came from, and the pane's region branch does not. Deleting it would reinstate the
    `<body>`-focus defect this increment fixed four times. A fact-check lens caught the claim.
    Recorded on O-20 as well, so it is found from either end.
+   ⚠️ **THE FIX, 2026-09-07 — one design rejected, two counts corrected.** `foreignModalOver` moved
+   from `MapView`'s module scope into `utils/mapForeignModal.js` — the panels cannot import it from
+   `MapView` without a cycle — and **all eight** of this tab's Escape rules consult it, plus the
+   POINTER channel in `useOutsideDismiss`. ⚠️ **The first cut fixed only the two panels and wrote
+   "four rules" into six files.** Two review lenses counted eight independently, and one showed
+   `WindowControl` sits on the very route that reaches the panels — the reader Tabs out of the sheet
+   onto the pill — so two-of-eight left the defect live one control earlier. `useOutsideDismiss` was
+   the same defect on the POINTER: a press inside the sheet dismissed these surfaces invisibly
+   behind it. That is the opposite
+   of the fifth per-route guard O-20 warned against — nine surfaces reading one predicate, not nine
+   copies of one rule. ⚠️ **An earlier wording of this paragraph quoted the predicate's old doc as
+   saying it was extracted "because two Escape rules consult it and they must never disagree". That
+   sentence lived in the `MapView` JSDoc THIS WORK DELETED**, so the quotation cited a source it had
+   removed, and a review lens found it — the same defect L3's review recorded when a quotation was
+   attributed to a plan section that never contained it. The intent behind it was real and is now
+   stated plainly in `utils/mapForeignModal.js` instead, with the true count.
+
+   **Design 1, rejected: a required `foreignModalOver` prop from `MapView`.** Mutation testing
+   killed it. With either mount unwired, the prop was `undefined`, `foreignModalOver()` threw inside
+   the event handler, the handler died *before* acting, and the panel stayed open — so every wiring
+   test still passed, asserting the right outcome for the wrong reason. Vitest's own
+   "Unhandled Errors … might cause false positive tests" was the tell. A crash is also a worse
+   product failure than the bug it guards.
+
+   **Design 2, shipped: each panel resolves its own pane** with `closest('.wf-map-tab')`, the node
+   `mapPaneRef` points at. No prop, no wiring to forget, no crash mode; an unresolvable pane stands
+   down, because not locating your own container is not evidence that nothing is over you.
+
+   ⚠️ **A fixture derived from the thing it tests proves nothing**, and the first
+   `mapForeignModal.test.js` did exactly that: it built its pane element from
+   `MAP_PANE_SELECTOR.replace('.', '')`, so a mutated selector moved the fixture with it and the
+   mutant survived all 225 tests. The class is a literal now, with `MAP_PANE_SELECTOR`'s value
+   asserted separately. Five mutants, all killed: the stand-down dropped from each panel, the
+   `preventDefault` moved above it, and the selector broken.
+
+   ⚠️ **Only the panels' arm of O-20 is closed.** Tab-out onto the pane behind a sheet, and the
+   phone `BottomSheet` painting over one, are untouched; the shell-root `inert` follow-on remains
+   their cure. And the reason deletion was never the cheap way out still stands: `MapRegionPanel`'s
+   handler is not redundant with the pane's, because its `onBack` also carries the return-focus
+   target.
+
 38. **The pill's verdict is gated on `served`, not on `kind` — a cross-phase defect the per-phase
    reviews could not see, found by the cross-vendor (Codex) review on [#792].** `buildEvVerdicts` was
    written at L1; `served` was added to the EV row at L4. Nothing re-read the older function, so it
@@ -990,7 +1032,7 @@ will otherwise re-discover and file as new.
 | R3 | The drilldown overlaps `.wf-map-chrome-bl` (the Legend chip) at **≤430px** | L5, re-measured L6 | The panel is 1150 and the chrome 1100, so it paints *over* rather than being covered — ordinary behaviour for an open panel, and the chip is reachable the moment it closes. |
 | R4 | `5 ★` carries a 5px flex gap between the number and the glyph | L6 | `.wf-win-panel-best` is `inline-flex; gap: 5px` and the window panel shares it, so fixing one level only would make the two disagree. Pre-existing to L6. |
 | R5 | The label-placement obstacle grew **334→504px** with the control, and three panels joined it | L2, L4–L6; **re-measured 2026-09-07** | **Measured — the widening's licence holds; the PANELS are a new residual (R7).** §4 #31 licensed the previous widening by measuring that no label moved, at two views, and that was never re-run at 504px nor after L4–L6 seeded three panels. It has now been re-run against the real placer, over an 8-cell sweep of 8 measured frames; instrument at `scripts/measurements/label-obstacle/`, findings in §4b.1. The widening costs at worst **4** collateral drops across 210 comparable state-pairs — roughly a sixth of what the panels cost, so it is the cheap change #31 took it for, but it is **not free** and #31's "identical" holds only at the opening framing. ⚠️ It is also not the same change on every frame: `max-width` clamps the control, so production's change was `334 → 504` on the wide frames and `334 → 480` on the 788px one, and each is now compared against its own measured control. Only the phone is excluded, because below 640px the bound is released entirely. ⚠️ And "every position" was never tested — the durable claim is the placed **set**. |
-| R6 | Both drilldown panels answer `Escape` behind a foreign modal | L6 | §4 #37 in full. Left on `map-tab-v2-plan.md` O-20's stated posture; the obvious shortcut is unavailable. |
+| R6 | Both drilldown panels answer `Escape` behind a foreign modal | L6 | ✅ **CLOSED 2026-09-07**, and it was never only the two panels — eight Escape rules and the pointer channel now read one predicate. §4 #37 carries the fix, the rejected prop design and the two wrong counts. |
 | R7 | ⚠️ **Seeding the drilldown panels as label obstacles drops labels that had clear air** | raised 2026-09-07 by R5's re-measurement | Up to **20 / 25 / 23** collateral drops per 280 state-pairs for `wf-land` / `wf-win-panel` / `wf-reg-panel`, and **29** for a production-shaped nine-region window panel — real destinations among them (`Robin Hood's Bay`, `Mallyan Spout`, `Buttermere`, `Whitby Abbey`, `Ashness Bridge`). ⚠️ Many sit within a few px of the panel edge; 0–11 per worst cell are more than 30px into open map, which is the unambiguous half. Inherent to greedy placement around a large obstacle, and it worsens with contention, so it is a genuine cost rather than a bug with a line to fix. §4b.1 Result 2 has the numbers. ⚠️ **Two cures are already ruled out by measurement.** A retry pass after the greedy one recovers **nothing, by construction** — `placeLabelPass` appends each accepted box to `boxes`, so the set only grows, and `placeWithNudges` rejects on any overlap; an item that failed against an earlier set must fail against every later superset of it. That is a proof rather than a sample, and driving it anyway over 840 states recovered **0 of 7,081** drops. And *not* seeding the panels is worse: it puts labels under an opaque plate, the defect that put them in `OBSTACLE_SELECTOR` at L5. A third option does exist and is not obviously wrong — place without the panel, then cull whatever it covers, which is collateral-free by construction — but it loses on the same measurement: seeding **relocates** roughly twenty times more labels than it costs, and those relocations are labels kept rather than dropped. A real cure is re-ordered or non-greedy assignment, which is a phase. |
 
 #### §4b.1 — R5 re-measured: the label-obstacle licence at 504px, and the three panels
@@ -1022,8 +1064,10 @@ Chromium against the **built** stylesheet with the real components mounted insid
 wrong the first time. The axes: {zoom grid a, zoom grid b} × {five fixed pans, five density-picked
 centres} × {no selection, a selection}; the frames: each of four viewports measured at BOTH heights
 — full, and minus a 175px shell for the masthead and tab strip. Every panel pair is 280 state-pairs
-per cell; the widening pair is 140, because only frames whose *measured* control is actually 504px
-can host it.
+per cell; the widening pair is **210**, because the phone's frame hosts no widening at all (below
+640px the bound is released, so the control is frame-driven) while the other six frames each
+compare 334 against **their own measured control** — 504px on the wide ones, 480px on the 788px
+one, where `max-width: calc(100% - 308px)` bites.
 
 ⚠️ Each axis exists because it was found to be load-bearing rather than chosen for symmetry.
 Density-picked centres, because the fixed pans leave the frame nearly empty and a greedy-reshuffle
@@ -1072,19 +1116,21 @@ released entirely, so the box is frame-driven at 374px and there is no widening 
   334 nor 504 renders there. Any claim of identity "on all four viewports" is false by construction.
 - **"Every position" is not what was tested — then or now.** At the tab's own `fitBounds` opening
   framing the placed **set** is identical at all twelve comparable states, and fully identical
-  (positions included) at **nine**; at the other three one chip changes position, in each case by a
-  `MAP_NUDGES` rung and in two of them by a `mapDxOffsets` step as well — a relocation to the other
-  side of its own anchor rather than a nudge. The set is the durable claim; "and every position"
+  (positions included) at **eight**; at the other four one chip changes position by a `MAP_NUDGES`
+  rung, in some cases with a `mapDxOffsets` step as well — a relocation to the other side of its own
+  anchor rather than a nudge. The set is the durable claim; "and every position"
   is not.
 
-  ⚠️ That camera is Leaflet's, not an approximation of it. `fitBounds` centres on the
-  **unprojection of the projected midpoint**, not on the mean of the latitude extrema — Mercator is
-  non-linear in latitude, and an earlier cut's arithmetic midpoint shifted every anchor by up to
-  4px, which is more than enough to move an edge-sensitive placement.
+  ⚠️ That camera is Leaflet's, not an approximation of it, and two separate corrections were needed
+  to make it so. `fitBounds` centres on the **unprojection of the projected midpoint**, not on the
+  mean of the latitude extrema — Mercator is non-linear in latitude, and an earlier cut's arithmetic
+  midpoint shifted every anchor by up to 4px. And with `zoomSnap: 0` the fit zoom is **continuous**:
+  `getBoundsZoom` skips its snapping branch entirely, so a search over a 0.01 grid tested a camera
+  up to half a step away from the one the tab actually opens on.
 
 ##### Result 2 — ⚠️ the three panels DO drop labels that had clear air, and this is the finding
 
-This is the opposite of what the first attempt reported. Worst case per panel, over 140 state-pairs
+This is the opposite of what the first attempt reported. Worst case per panel, over 280 state-pairs
 each, taken across the 8 axis cells:
 
 | obstacle seeded | worst collateral, per 280 state-pairs | distinct labels | of those, >30px clear | named among them |
@@ -1157,6 +1203,16 @@ attribution is exactly the fabricated-citation failure this project has recorded
 above is emitted by `analyse.mjs` §4 with its population printed beside it.
 
 ---
+
+⚠️ **Incidental finding, and it is an app bug rather than a harness one.**
+`WindowFirstMapPane` builds the opening bounds as `latLngBounds(framed, FRAME_PAD_DEG)`, intending
+0.12° of breathing room around the planning area. Leaflet reads that second argument as `corner2`,
+and a bare number there resolves through `toLatLngBounds(0.12)` to an *empty* `LatLngBounds` whose
+`extend` returns early — so **`FRAME_PAD_DEG` expands nothing**, and the tab opens on the roster's
+raw extrema. The harness therefore fits the raw extrema too, because that is what production does.
+The padding is one argument-position away from working (`latLngBounds(framed).pad(FRAME_PAD_DEG)`),
+but changing it moves the opening camera on every viewport, so it is recorded here rather than
+fixed in a measurement PR — and this section's Result 1 would need re-running with it.
 
 **Stated limitations.** Six `OBSTACLE_SELECTOR` entries are never seeded — `wf-win-menu`,
 `wf-jump-menu`, `wf-filters-panel`, `wf-legend-panel`, `colour-scale-notice`,
