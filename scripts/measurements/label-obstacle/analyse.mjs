@@ -491,7 +491,8 @@ console.log('\n══ 6. The two cures R7 rules out ══\n');
   let recovered = 0;
   let seededPlaced = 0;
   let culledPlaced = 0;
-  let relocated = 0;
+  let rescued = 0;
+  let churned = 0;
   let cullCollateral = 0;
   for (const fk of FRAMES) {
     const v = boxes.viewports[fk].surfaces;
@@ -534,9 +535,14 @@ console.log('\n══ 6. The two cures R7 rules out ══\n');
           for (const [, b] of bare) if (!hits(b, panelRect)) kept += 1;
           seededPlaced += placed.size;
           culledPlaced += kept;
+          // ⚠️ A relocation only counts as a WIN if the label would otherwise have been under the
+          // panel. An earlier cut counted every position change, which folds in labels that were
+          // clear in both arms and merely shifted — churn, not a benefit of seeding — and so
+          // inflated the case for seeding. Split three ways instead.
           for (const [k, b] of placed) {
             const before = bare.get(k);
-            if (before && (before.x !== b.x || before.y !== b.y)) relocated += 1;
+            if (!before || (before.x === b.x && before.y === b.y)) continue;
+            if (hits(before, panelRect)) rescued += 1; else churned += 1;
           }
           for (const [k, b] of bare) {
             if (placed.has(k) || hits(b, panelRect)) continue;
@@ -550,7 +556,10 @@ console.log('\n══ 6. The two cures R7 rules out ══\n');
   console.log(`   (a) retry after the greedy pass: ${recovered} of ${dropped} drops recovered`);
   console.log('       → nothing, and by construction: `boxes` only grows, `placeWithNudges` rejects');
   console.log('         on any overlap, so a drop must fail against every later superset.\n');
-  console.log(`   (b) place-then-cull vs seeding: ${culledPlaced} labels kept vs ${seededPlaced} when seeded`);
-  console.log(`       collateral it avoids: ${cullCollateral}   labels seeding RELOCATES instead: ${relocated}`);
-  console.log(`       → seeding relocates ${(relocated / Math.max(1, cullCollateral)).toFixed(1)}x more labels than culling avoids losing.`);
+  console.log(`   (b) place-then-cull vs seeding: ${culledPlaced} labels placed vs ${seededPlaced} when seeded`);
+  console.log(`       seeding RESCUES ${rescued} label(s) that culling would simply lose (their`);
+  console.log('           un-seeded position is under the panel; seeding moves them into the clear)');
+  console.log(`       seeding COSTS ${cullCollateral} label(s) that culling would keep (the collateral)`);
+  console.log(`       churn — moved but clear in both arms, neither a gain nor a loss: ${churned}`);
+  console.log(`       → net ${seededPlaced - culledPlaced >= 0 ? '+' : ''}${seededPlaced - culledPlaced} labels in favour of seeding.`);
 }
