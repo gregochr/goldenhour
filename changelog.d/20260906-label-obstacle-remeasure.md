@@ -9,15 +9,15 @@ licence had been spent at sizes nobody had checked.
 It has now been re-run against the real placer, with the real label boxes measured in headless
 Chromium off the built stylesheet, over every combination of camera, selection and frame height.
 **The widening is the cheap change it was taken for** — going from 334px to 504px costs at worst
-four labels that had clear air across 210 states, roughly a sixth of what the panels cost — but
+seven labels that had clear air across 210 states, roughly a quarter of what the panels cost — but
 it is not free, and the original entry's "identical" holds only at the framing the tab opens on. Two
 of its qualifications do not survive and are now recorded: the phone was never a passing viewport,
 because below 640px neither width renders; and "every label's position" overstates what is testable,
 since a chip can step a nudge rung without anything being lost.
 
 **The three drilldown panels are a different matter, and this is the new finding.** Seeding them as
-obstacles drops labels that had clear air — up to twenty, twenty-five and twenty-three per 280 map
-states, and twenty-nine for a window panel sized to a realistic region count, with real destinations
+obstacles drops labels that had clear air — up to twenty-five, twenty-eight and twenty-nine per 280 map
+states, and thirty-six for a window panel sized to a realistic region count, with real destinations
 among them. It gets worse the busier the map is. That is a genuine cost rather than a defect with a
 line to fix — not seeding them is worse, since it puts labels under an opaque panel — so it is
 recorded as a residual with numbers attached rather than quietly absorbed.

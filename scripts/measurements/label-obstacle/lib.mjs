@@ -66,7 +66,7 @@ export function hash(s) {
   return (x >>> 0) / 2 ** 32;
 }
 
-export function spotsFrom(roster) {
+export function spotsFrom(roster, { driveTimes = false } = {}) {
   return roster.map((r) => ({
     name: r.name,
     lat: r.lat,
@@ -74,7 +74,14 @@ export function spotsFrom(roster) {
     rid: r.region,
     rating: 1 + Math.floor(hash(`${r.name}|rating`) * 5),
     onTheLight: hash(`${r.name}|tide`) < 0.18,
-    driveMinutes: Math.round(20 + hash(`${r.name}|drive`) * 160),
+    // ⚠️ NULL by default, because this harness measures the no-postcode reader throughout — it
+    // excludes the home marker and the reach rings, and the opening camera it fits is the unscoped
+    // one that reader gets. For them `reachById` is empty and `driveMinutesFor` returns null, so a
+    // synthetic figure here would be the wrong configuration: `chipCandidates` uses drive minutes
+    // as its third sort key, after rating and tide, and can therefore reorder the greedy pass.
+    // An earlier cut assigned every spot a finite minute count and still described the result as
+    // the no-postcode case — the camera matched that reader and the drive times did not.
+    driveMinutes: driveTimes ? Math.round(20 + hash(`${r.name}|drive`) * 160) : null,
   }));
 }
 

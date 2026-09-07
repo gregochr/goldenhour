@@ -32,8 +32,19 @@ const boxes = JSON.parse(readFileSync(resolve(HERE, 'out/boxes.json'), 'utf8'));
  */
 const FRAMES = Object.keys(boxes.viewports);
 const frameOf = (k) => boxes.viewports[k].surfaces.none.frame;
-const SPOTS = spotsFrom(loadRoster());
-const CENTRES = centresFor(SPOTS);
+const ROSTER = loadRoster();
+/**
+ * Two rosters, differing only in whether a drive time exists.
+ *
+ * ⚠️ A free parameter until a review found it. `chipCandidates` sorts on rating, then tide, then
+ * DRIVE — so whether drive minutes exist reorders the greedy pass and moves every count. A reader
+ * with no postcode has none (`reachById` empty, `driveMinutesFor` returns null); one with a
+ * postcode has them for the measured locations. Rather than pick, the sweep runs both and reports
+ * the worst, which is how every other free parameter here is handled.
+ */
+const SPOTS_BY_DRIVE = { none: spotsFrom(ROSTER), some: spotsFrom(ROSTER, { driveTimes: true }) };
+let SPOTS = SPOTS_BY_DRIVE.none;
+const CENTRES = centresFor(SPOTS);   // geometry only — identical for both rosters
 
 /**
  * ⚠️ The 334px arm is SYNTHETIC — it overrides the measured width to recreate a size the CSS no
@@ -294,9 +305,11 @@ const PAIRS = [
  * anything that does not is reported as sensitive, with the worst case named.
  */
 const AXES = [];
-for (const grid of Object.keys(ZOOM_GRIDS)) {
-  for (const centres of ['pans', 'dense']) {
-    for (const selected of [false, true]) AXES.push({ grid, centres, selected });
+for (const drive of ['none', 'some']) {
+  for (const grid of Object.keys(ZOOM_GRIDS)) {
+    for (const centres of ['pans', 'dense']) {
+      for (const selected of [false, true]) AXES.push({ drive, grid, centres, selected });
+    }
   }
 }
 
@@ -306,7 +319,8 @@ const worst = {};
 for (const [from, to] of PAIRS) worst[`${from} → ${to}`] = { collateral: -1 };
 
 for (const axis of AXES) {
-  const label = `${axis.centres.padEnd(5)} sel:${axis.selected ? 'y' : 'n'}`;
+  const label = `drv:${axis.drive.padEnd(4)} z${axis.grid} ${axis.centres.padEnd(5)} sel:${axis.selected ? 'y' : 'n'}`;
+  SPOTS = SPOTS_BY_DRIVE[axis.drive];
   for (const [from, to] of PAIRS) {
     const key = `${from} → ${to}`;
     const t = {
@@ -371,6 +385,8 @@ for (const [pair, t] of Object.entries(worst)) {
 
 // ── 3. Magnitude ─────────────────────────────────────────────────────────────────────────────────
 console.log('\n══ 3. Magnitude — how much of the placed set each panel removes ══\n');
+// ⚠️ Pin the roster, for the same reason section 4 does: the sweep reassigns `SPOTS` per axis.
+SPOTS = SPOTS_BY_DRIVE.none;
 for (const fk of FRAMES) {
   const cfg = configsFor(fk);
   const { width: w, height: h } = frameOf(fk);
@@ -400,6 +416,9 @@ for (const fk of FRAMES) {
  */
 console.log('\n══ 4. Escape ladder — anchors inside the seeded top-left obstacle ══\n');
 {
+  // ⚠️ Pin the roster. The sweep above reassigns `SPOTS` per axis, so inheriting it here would
+  // report against whichever drive-time arm happened to run last.
+  SPOTS = SPOTS_BY_DRIVE.none;
   let total = 0;
   let escaped = 0;
   for (const fk of FRAMES) {

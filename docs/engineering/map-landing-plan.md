@@ -1031,9 +1031,9 @@ will otherwise re-discover and file as new.
 | R2 | One region name clips at **320px** in the region panel | L6 | Same cause, same cure — R1 and R2 close together or not at all. |
 | R3 | The drilldown overlaps `.wf-map-chrome-bl` (the Legend chip) at **≤430px** | L5, re-measured L6 | The panel is 1150 and the chrome 1100, so it paints *over* rather than being covered — ordinary behaviour for an open panel, and the chip is reachable the moment it closes. |
 | R4 | `5 ★` carries a 5px flex gap between the number and the glyph | L6 | `.wf-win-panel-best` is `inline-flex; gap: 5px` and the window panel shares it, so fixing one level only would make the two disagree. Pre-existing to L6. |
-| R5 | The label-placement obstacle grew **334→504px** with the control, and three panels joined it | L2, L4–L6; **re-measured 2026-09-07** | **Measured — the widening's licence holds; the PANELS are a new residual (R7).** §4 #31 licensed the previous widening by measuring that no label moved, at two views, and that was never re-run at 504px nor after L4–L6 seeded three panels. It has now been re-run against the real placer, over an 8-cell sweep of 8 measured frames; instrument at `scripts/measurements/label-obstacle/`, findings in §4b.1. The widening costs at worst **4** collateral drops across 210 comparable state-pairs — roughly a sixth of what the panels cost, so it is the cheap change #31 took it for, but it is **not free** and #31's "identical" holds only at the opening framing. ⚠️ It is also not the same change on every frame: `max-width` clamps the control, so production's change was `334 → 504` on the wide frames and `334 → 480` on the 788px one, and each is now compared against its own measured control. Only the phone is excluded, because below 640px the bound is released entirely. ⚠️ And "every position" was never tested — the durable claim is the placed **set**. |
+| R5 | The label-placement obstacle grew **334→504px** with the control, and three panels joined it | L2, L4–L6; **re-measured 2026-09-07** | **Measured — the widening's licence holds; the PANELS are a new residual (R7).** §4 #31 licensed the previous widening by measuring that no label moved, at two views, and that was never re-run at 504px nor after L4–L6 seeded three panels. It has now been re-run against the real placer, over an 8-cell sweep of 8 measured frames; instrument at `scripts/measurements/label-obstacle/`, findings in §4b.1. The widening costs at worst **7** collateral drops across 210 comparable state-pairs — roughly a quarter of what the panels cost, so it is the cheap change #31 took it for, but it is **not free** and #31's "identical" holds only at the opening framing. ⚠️ It is also not the same change on every frame: `max-width` clamps the control, so production's change was `334 → 504` on the wide frames and `334 → 480` on the 788px one, and each is now compared against its own measured control. Only the phone is excluded, because below 640px the bound is released entirely. ⚠️ And "every position" was never tested — the durable claim is the placed **set**. |
 | R6 | Both drilldown panels answer `Escape` behind a foreign modal | L6 | ✅ **CLOSED 2026-09-07**, and it was never only the two panels — eight Escape rules and the pointer channel now read one predicate. §4 #37 carries the fix, the rejected prop design and the two wrong counts. |
-| R7 | ⚠️ **Seeding the drilldown panels as label obstacles drops labels that had clear air** | raised 2026-09-07 by R5's re-measurement | Up to **20 / 25 / 23** collateral drops per 280 state-pairs for `wf-land` / `wf-win-panel` / `wf-reg-panel`, and **29** for a production-shaped nine-region window panel — real destinations among them (`Robin Hood's Bay`, `Mallyan Spout`, `Buttermere`, `Whitby Abbey`, `Ashness Bridge`). ⚠️ Many sit within a few px of the panel edge; 0–11 per worst cell are more than 30px into open map, which is the unambiguous half. Inherent to greedy placement around a large obstacle, and it worsens with contention, so it is a genuine cost rather than a bug with a line to fix. §4b.1 Result 2 has the numbers. ⚠️ **Two cures are already ruled out by measurement.** A retry pass after the greedy one recovers **nothing, by construction** — `placeLabelPass` appends each accepted box to `boxes`, so the set only grows, and `placeWithNudges` rejects on any overlap; an item that failed against an earlier set must fail against every later superset of it. That is a proof rather than a sample, and driving it anyway over 840 states recovered **0 of 7,081** drops. And *not* seeding the panels is worse: it puts labels under an opaque plate, the defect that put them in `OBSTACLE_SELECTOR` at L5. A third option does exist and is not obviously wrong — place without the panel, then cull whatever it covers, which is collateral-free by construction — but it loses on the same measurement: seeding **relocates** roughly twenty times more labels than it costs, and those relocations are labels kept rather than dropped. A real cure is re-ordered or non-greedy assignment, which is a phase. |
+| R7 | ⚠️ **Seeding the drilldown panels as label obstacles drops labels that had clear air** | raised 2026-09-07 by R5's re-measurement | Up to **25 / 28 / 29** collateral drops per 280 state-pairs for `wf-land` / `wf-win-panel` / `wf-reg-panel`, and **36** for a production-shaped nine-region window panel — real destinations among them (`Mallyan Spout`, `Aira Force`, `Ashness Bridge`). ⚠️ Some sit within a few px of the panel edge; 8–15 per worst cell are more than 30px into open map, which is the unambiguous half. Inherent to greedy placement around a large obstacle, and it worsens with contention, so it is a genuine cost rather than a bug with a line to fix. §4b.1 Result 2 has the numbers. ⚠️ **Two cures are already ruled out by measurement.** A retry pass after the greedy one recovers **nothing, by construction** — `placeLabelPass` appends each accepted box to `boxes`, so the set only grows, and `placeWithNudges` rejects on any overlap; an item that failed against an earlier set must fail against every later superset of it. That is a proof rather than a sample, and driving it anyway over 840 states recovered **0 of 7,081** drops. And *not* seeding the panels is worse: it puts labels under an opaque plate, the defect that put them in `OBSTACLE_SELECTOR` at L5. A third option does exist and is not obviously wrong — place without the panel, then cull whatever it covers, which is collateral-free by construction — but it loses on the same measurement: seeding **relocates** roughly twenty times more labels than it costs, and those relocations are labels kept rather than dropped. A real cure is re-ordered or non-greedy assignment, which is a phase. |
 
 #### §4b.1 — R5 re-measured: the label-obstacle licence at 504px, and the three panels
 
@@ -1060,9 +1060,9 @@ Chromium against the **built** stylesheet with the real components mounted insid
 `scripts/dev-seed-locations.sh` — 21 anchors plus its deterministic 189-point `--dense` scatter,
 210 locations across 4 regions.
 
-⚠️ **The sweep is 8 axis cells over 8 measured frames**, because a single configuration is what went
-wrong the first time. The axes: {zoom grid a, zoom grid b} × {five fixed pans, five density-picked
-centres} × {no selection, a selection}; the frames: each of four viewports measured at BOTH heights
+⚠️ **The sweep is 16 axis cells over 8 measured frames**, because a single configuration is what went
+wrong the first time. The axes: {no drive times, drive times} × {zoom grid a, zoom grid b} × {five fixed
+pans, five density-picked centres} × {no selection, a selection}; the frames: each of four viewports measured at BOTH heights
 — full, and minus a 175px shell for the masthead and tab strip. Every panel pair is 280 state-pairs
 per cell; the widening pair is **210**, because the phone's frame hosts no widening at all (below
 640px the bound is released, so the control is frame-driven) while the other six frames each
@@ -1074,7 +1074,11 @@ Density-picked centres, because the fixed pans leave the frame nearly empty and 
 loss needs contention. **Two zoom grids**, because the tab sets `zoomSnap: 0` — every fractional
 zoom is reachable, so one grid is a free parameter rather than a sample, and a review found that
 shifting it by ~0.3 changed the widening's worst count. A selection axis, because `selectedName`
-moves a chip to the front of the priority order and reorders the whole arbitration.
+moves a chip to the front of the priority order and reorders the whole arbitration. And a **drive-
+time axis**, because `chipCandidates` sorts on rating, then tide, then drive — so whether drive
+minutes exist at all reorders the greedy pass. A reader with no postcode has none; one with a
+postcode has them. Every worst case below falls in the no-drive-time arm, which is also the reader
+the rest of the harness models.
 
 ⚠️ **The frame is not the viewport, and every height is measured rather than derived.** `App.jsx`
 pads `<main>` by `sm:px-4` at ≥640px and `WindowFirstShell` caps the pane at `WRAP_MAX_WIDTH`
@@ -1106,8 +1110,8 @@ whole measurement runs in, since it excludes the home marker and the reach rings
 unmeasured-and-therefore-in, and `framed` is the whole catalogue", which is what the harness fits.
 The tally below covers that case only.
 
-The widening costs at worst **4** collateral drops across 210 comparable state-pairs — roughly a
-sixth of what the panels cost, so it is the cheap change §4 #31 took it for. ⚠️ But it is **not
+The widening costs at worst **7** collateral drops across 210 comparable state-pairs — roughly a
+quarter of what the panels cost, so it is the cheap change §4 #31 took it for. ⚠️ But it is **not
 free**, and #31's "identical" is true only of the opening framing.
 
 ⚠️ **The widening is not the same change on every frame**, and two earlier cuts got this wrong in
@@ -1140,14 +1144,14 @@ released entirely, so the box is frame-driven at 374px and there is no widening 
 ##### Result 2 — ⚠️ the three panels DO drop labels that had clear air, and this is the finding
 
 This is the opposite of what the first attempt reported. Worst case per panel, over 280 state-pairs
-each, taken across the 8 axis cells:
+each, taken across the 16 axis cells:
 
 | obstacle seeded | worst collateral, per 280 state-pairs | distinct labels | of those, >30px clear | named among them |
 |---|---|---|---|---|
-| `wf-land` (376×271) | **20** | 16 | 0 | `Buttermere`, `Ashness Bridge` |
-| `wf-win-panel` (504×307, four regions) | **25** | 19 | 4 | `Mallyan Spout`, `Robin Hood's Bay`, `Ashness Bridge` |
-| `wf-win-panel` (504×567, nine regions) | **29** | 19 | 8 | `Mallyan Spout`, `Robin Hood's Bay` |
-| `wf-reg-panel` (504×412) | **23** | 18 | 11 | `Mallyan Spout`, `Robin Hood's Bay` |
+| `wf-land` (376×271) | **25** | 19 | 8 | `Aira Force`, `Ashness Bridge` |
+| `wf-win-panel` (504×307, four regions) | **28** | 17 | 14 | `Mallyan Spout` |
+| `wf-win-panel` (504×567, nine regions) | **36** | 20 | 12 | `Mallyan Spout`, `Ashness Bridge` |
+| `wf-reg-panel` (504×412) | **29** | 17 | 15 | `Mallyan Spout` |
 
 ⚠️ **The clearance column is the honest qualifier.** Many of these labels sat within a few pixels of
 the panel's edge — still a genuine loss, but a much weaker example than one 30px or more into open
@@ -1174,8 +1178,8 @@ air *beside* a panel scored as covered.
 
 ##### Result 4 — magnitude
 
-Against the current-width baseline the panels take the placed set down **14.1–62.7%** (`wf-land`),
-**25.2–70.1%** (`wf-win-panel`) and **32.8–87.3%** (`wf-reg-panel`), the largest figures being the
+Against the current-width baseline the panels take the placed set down **15.5–65.6%** (`wf-land`),
+**27.1–73.3%** (`wf-win-panel`) and **34.7–88.5%** (`wf-reg-panel`), the largest figures being the
 phone's on the shorter frame. ⚠️ At the phone's own opening framing on that frame, `wf-reg-panel`
 and a nine-region `wf-win-panel` each leave **no labels at all**.
 
@@ -1187,8 +1191,8 @@ means the labels stay missing after the panel closes, until they move the map.
 
 ⚠️ **The rule the first attempt recorded here was false, and backwards.** It said an obstacle that
 swallows a label's anchor cannot be escaped, and that height rather than width spends the budget.
-Measured against the real ladder, **49 of 120** labels whose anchor sits inside the padded control
-box are placed anyway — about **41%**. (`analyse.mjs` §4 emits this with its population: every measured
+Measured against the real ladder, **52 of 133** labels whose anchor sits inside the padded control
+box are placed anyway — about **39%**. (`analyse.mjs` §4 emits this with its population: every measured
 frame × zoom grid a × the five fixed pans. The rate is population-sensitive — denser cameras give a
 higher one — but "about half escape" holds across all of them.)
 
