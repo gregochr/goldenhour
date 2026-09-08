@@ -103,6 +103,18 @@ for solar by construction — a served window is never past and the filler branc
 today-forward. One earlier review lens had flagged this route and framed it as a *ratings* concern,
 which the rating gate does cover; that it also made the row dead was missed.
 
+⚠️ **And a second Codex pass found the clamp defeated by its own exemption.** The never-past
+exemption for the aurora night matched on the date's VALUE, not the selection's provenance — and in
+the small hours those coincide: `currentNightDate` is yesterday until dawn, so a reader who picked
+yesterday evening's ordinary SUNSET and left the tab open across UK midnight had a stale *solar*
+`selectedDate` exactly equal to the night in progress, and it was exempted. The map then held a day
+that was over, which with the solar-row gate live is a persistent "No forecast" blank rather than a
+merely stale screen — the exact failure the clamp exists to prevent, re-entered through its own
+escape hatch. `selectedDateIsNight` now rides beside the date, written by the one call site that
+makes a night selection (`kind: 'aurora'`) through a single `selectDate` setter so the two cannot
+drift. ⚠️ Mutation testing then caught the sequel: a flag that is only ever *set* lets a solar pick
+made after the banner inherit the licence, so the licence is per-pick and the setter clears it.
+
 One scope correction came out of the same pass. `solarRowPredicate` documents itself as solar-only —
 `served` holds no night keys — but `isStandDownLocation` early-returns for AURORA alone, so an astro
 night was reaching it and being judged by the *solar* domain. It could only suppress, never invent,

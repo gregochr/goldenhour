@@ -288,16 +288,36 @@ describe('resolveMapDate', () => {
     // YESTERDAY's date, and `App.handleAuroraViewOnMap` sets it deliberately so the viewline lands
     // on the night the banner is about. The first cut of the never-past clamp refused it and
     // silently undid that fix; `MapView`'s auto-jump cannot recover it.
-    it('is honoured as an explicit choice even though it is yesterday', () => {
-      expect(call({ selectedDate: YESTERDAY, nightDate: YESTERDAY })).toBe(YESTERDAY);
+    it('is honoured when the selection NAMED a night, even though it is yesterday', () => {
+      expect(call({ selectedDate: YESTERDAY, selectedIsNight: true, nightDate: YESTERDAY }))
+        .toBe(YESTERDAY);
     });
 
-    it('does not license any OTHER past date', () => {
-      expect(call({ selectedDate: TWO_DAYS_AGO, nightDate: YESTERDAY })).toBe(TODAY);
+    // ⚠️ The exemption keys on PROVENANCE, never on the value — the second defect Codex found.
+    it('is REFUSED for a solar selection that merely lands on the same date', () => {
+      // The overnight case, and it is not a corner: a reader picks yesterday evening's SUNSET and
+      // leaves the tab open past UK midnight. `currentNightDate` is still yesterday until dawn, so
+      // the stale solar pick equals it exactly. Matching on value held the map on a day that was
+      // over — and with the solar-row gate live that is a persistent "No forecast" blank.
+      expect(call({ selectedDate: YESTERDAY, selectedIsNight: false, nightDate: YESTERDAY }))
+        .toBe(TODAY);
+    });
+
+    it('defaults to refusing when provenance was never supplied', () => {
+      // Every caller that is not the aurora route omits the flag; the safe answer must be the
+      // default rather than something each of them has to remember.
+      expect(call({ selectedDate: YESTERDAY, nightDate: YESTERDAY })).toBe(TODAY);
+    });
+
+    it('does not license any OTHER past date, even for a night selection', () => {
+      expect(call({ selectedDate: TWO_DAYS_AGO, selectedIsNight: true, nightDate: YESTERDAY }))
+        .toBe(TODAY);
     });
 
     it('must still be in the forecast domain', () => {
-      expect(call({ selectedDate: YESTERDAY, nightDate: YESTERDAY, allDates: [TODAY] })).toBe(TODAY);
+      expect(call({
+        selectedDate: YESTERDAY, selectedIsNight: true, nightDate: YESTERDAY, allDates: [TODAY],
+      })).toBe(TODAY);
     });
 
     it('is NOT an escape hatch for the auto-selection — that is a calendar answer', () => {

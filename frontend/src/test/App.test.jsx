@@ -314,6 +314,49 @@ describe('App — panes handed to WindowFirstShell', () => {
 
       expect(mapPaneProps.last.selectedDate).toBe(YESTERDAY);
     });
+
+    it('does NOT let a stale solar pick borrow the night licence (Codex, #803)', async () => {
+      // ⚠️ The overnight case. The aurora status names yesterday as the night in progress — true
+      // before dawn — and the reader's own selection is yesterday too, but made from the MAP as an
+      // ordinary solar date. Keying the exemption on the value alone exempted it, holding the tab
+      // on a day that was over until the backend advanced `currentNightDate`; with the solar-row
+      // gate live that is a persistent "No forecast" blank, i.e. this clamp defeated by its own
+      // exemption. Provenance is what tells the two selections apart.
+      getAuroraStatus.mockResolvedValue({
+        level: 'MODERATE', kpIndex: 6, currentNightDate: YESTERDAY, simulated: false,
+      });
+      fetchForecasts.mockResolvedValue(pastAndFutureForecasts());
+      renderApp();
+      await openMapTab();
+
+      // The pane's own `onSelectDate` — the solar route, which carries no night provenance.
+      await act(async () => { mapPaneProps.last.onSelectDate(YESTERDAY); });
+
+      expect(mapPaneProps.last.selectedDate).not.toBe(YESTERDAY);
+      expect(mapPaneProps.last.selectedDate >= ukDateStr()).toBe(true);
+    });
+
+    it('clears the night licence on the NEXT selection — it is per-pick, not sticky', async () => {
+      // ⚠️ The same defect one step later in the sequence, and mutation testing is what surfaced
+      // it: a flag that is only ever set (never cleared) lets an ordinary solar pick made AFTER
+      // the banner borrow the licence the banner earned. The pair is written through one setter
+      // precisely so the flag cannot outlive the date it describes.
+      getAuroraStatus.mockResolvedValue({
+        level: 'MODERATE', kpIndex: 6, currentNightDate: YESTERDAY, simulated: false,
+      });
+      fetchForecasts.mockResolvedValue(pastAndFutureForecasts());
+      renderApp();
+      await openMapTab();
+
+      // 1. The banner's night selection is honoured.
+      const banner = await screen.findByTestId('aurora-banner');
+      await act(async () => { fireEvent.click(banner); });
+      expect(mapPaneProps.last.selectedDate).toBe(YESTERDAY);
+
+      // 2. A subsequent SOLAR pick of the same date must not inherit it.
+      await act(async () => { mapPaneProps.last.onSelectDate(YESTERDAY); });
+      expect(mapPaneProps.last.selectedDate).not.toBe(YESTERDAY);
+    });
   });
 
   it('hands the Operations pane to an admin', async () => {

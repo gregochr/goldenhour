@@ -249,16 +249,27 @@ export function resolveAuroraNight(auroraStatus, now = new Date()) {
  * a today with no forecast rows shows an honest empty window rather than a confident wrong one.
  * ⚠️ The true claim is that nothing REQUIRES membership, not that nothing indexes by it.
  *
- * <p>⚠️ <b>{@code nightDate} is the one date a reader may deliberately choose that is "past", and
- * refusing it is a regression this function shipped once.</b> A night runs dusk-to-dawn, so which
- * night you are in is not a calendar question — between UK midnight and dawn the night in progress
- * is YESTERDAY's date, and {@code App.handleAuroraViewOnMap} sets it on purpose so the aurora
- * viewline (gated on {@code nightDate === auroraNight}) lands on the night the banner is about.
- * That fix has its own review history and its own comment in {@code App}; the clamp below undid it
- * silently for up to seven hours a night in midwinter, and {@code MapView}'s auto-jump cannot
- * recover it (it latches before forwarding, and is gated on STORED results a live alert does not
- * imply). An explicit choice of the night in progress is therefore always honoured. It is scoped to
- * {@code selectedDate}: the auto-selection is a calendar answer and has no business naming a night.
+ * <p>⚠️ <b>A NIGHT selection is the one "past" date a reader may deliberately choose, and refusing
+ * it is a regression this function shipped once.</b> A night runs dusk-to-dawn, so which night you
+ * are in is not a calendar question — between UK midnight and dawn the night in progress is
+ * YESTERDAY's date, and {@code App.handleAuroraViewOnMap} sets it on purpose so the aurora viewline
+ * (gated on {@code nightDate === auroraNight}) lands on the night the banner is about. That fix has
+ * its own review history and its own comment in {@code App}; the clamp below undid it silently for
+ * up to seven hours a night in midwinter, and {@code MapView}'s auto-jump cannot recover it (it
+ * latches before forwarding, and is gated on STORED results a live alert does not imply). It is
+ * scoped to {@code selectedDate}: the auto-selection is a calendar answer and has no business
+ * naming a night.
+ *
+ * <p>⚠️ <b>The exemption keys on the selection's PROVENANCE, not on its value, and the difference
+ * is a defect this shipped once too</b> (Codex, #803). Matching {@code selectedDate === nightDate}
+ * alone exempts any selection that merely happens to land on that date — and in the small hours it
+ * always does: a reader who picked yesterday evening's ordinary SUNSET and left the tab open across
+ * UK midnight has a stale solar {@code selectedDate} exactly equal to the night in progress. The
+ * map then stayed on a day that was over until the backend advanced {@code currentNightDate} at
+ * dawn, and with the solar-row gate live that is a persistent "No forecast" blank rather than a
+ * merely stale screen — the very failure this clamp exists to prevent, re-entered through its own
+ * exemption. {@code selectedIsNight} is set by the ONE call site that makes a night selection, so a
+ * solar date can never borrow the licence.
  *
  * <p><b>{@code null} only for a genuinely empty list</b>, where {@code App} does not mount the Map
  * pane at all — returning a date there would be inventing a domain out of nothing.
@@ -268,20 +279,24 @@ export function resolveAuroraNight(auroraStatus, now = new Date()) {
  *
  * @param {object} args
  * @param {?string} args.selectedDate the date the reader explicitly chose, if any
+ * @param {boolean} [args.selectedIsNight] whether that choice NAMED A NIGHT (the aurora banner's
+ *   route) rather than a calendar day — never inferred from the value
  * @param {?string} args.autoDate {@code computeAutoSelection}'s date, if any
  * @param {string[]} args.allDates every date the forecast endpoint returned, sorted
  * @param {string} args.todayStr the UK civil today ({@link ukDateStr})
  * @param {?string} [args.nightDate] the night in progress ({@link resolveAuroraNight}) — the one
- *   "past" date an explicit choice may legitimately name
+ *   "past" date an explicit NIGHT choice may legitimately name
  * @returns {?string}
  */
-export function resolveMapDate({ selectedDate, autoDate, allDates, todayStr, nightDate = null }) {
+export function resolveMapDate({
+  selectedDate, selectedIsNight = false, autoDate, allDates, todayStr, nightDate = null,
+}) {
   const dates = Array.isArray(allDates) ? allDates : [];
   const notPast = (d) => d >= todayStr;
-  const usable = (d, allowNight = false) => Boolean(d)
-    && (notPast(d) || (allowNight && d === nightDate))
+  const usable = (d, isNight = false) => Boolean(d)
+    && (notPast(d) || (isNight && d === nightDate))
     && dates.includes(d);
-  if (usable(selectedDate, true)) return selectedDate;
+  if (usable(selectedDate, selectedIsNight)) return selectedDate;
   if (usable(autoDate)) return autoDate;
   return dates.find(notPast) ?? (dates.length > 0 ? todayStr : null);
 }
