@@ -16,7 +16,9 @@
 process.env.TZ = 'Europe/London';
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { ukDateStr, ukDateStrOffset, ukDayOffset, ukHour, resolveAuroraNight } from '../utils/mapDates.js';
+import {
+  ukDateStr, ukDateStrOffset, ukDayOffset, ukHour, resolveAuroraNight, resolveMapDate,
+} from '../utils/mapDates.js';
 
 /** The hour after UK midnight in BST — UTC still says the 13th, the UK says the 14th. */
 const BST_SMALL_HOURS = '2026-08-13T23:30:00Z';
@@ -235,5 +237,162 @@ describe('resolveAuroraNight', () => {
     freeze(BST_SMALL_HOURS);
 
     expect(resolveAuroraNight(null)).not.toBe('2026-08-13');
+  });
+});
+
+/**
+ * `resolveMapDate` — which date the map is showing.
+ *
+ * <p>Every case turns on one rule: a date already over is never the answer, on ANY branch. The
+ * shape this replaced put that rule on the LAST branch only, which is what made it nearly
+ * unreachable — the two preferred branches were guarded by a bare membership test that a past date
+ * passes, and `GET /api/forecast` serves `today-2` onward. Reached, it put a stale run's stars on a
+ * map whose own window control said "No forecast" (2026-09-07).
+ */
+describe('resolveMapDate', () => {
+  const TWO_DAYS_AGO = '2026-08-12';
+  const YESTERDAY = '2026-08-13';
+  const TODAY = '2026-08-14';
+  const TOMORROW = '2026-08-15';
+
+  const call = (over = {}) => resolveMapDate({
+    selectedDate: null, autoDate: null, allDates: [YESTERDAY, TODAY, TOMORROW], todayStr: TODAY,
+    ...over,
+  });
+
+  describe('the reader\'s own choice', () => {
+    it('wins when it is today-forward and in the domain', () => {
+      expect(call({ selectedDate: TOMORROW })).toBe(TOMORROW);
+    });
+
+    it('is REFUSED when it has gone past — a choice made yesterday is not a choice for today', () => {
+      // The tab left open overnight: `selectedDate` is still yesterday and passes the membership
+      // test the old shape relied on. Falls through to today-forward instead.
+      expect(call({ selectedDate: YESTERDAY })).toBe(TODAY);
+    });
+
+    it('is refused when it is not in the forecast domain at all', () => {
+      expect(call({ selectedDate: '2026-08-20' })).toBe(TODAY);
+    });
+
+    it('is honoured ON the boundary — today is not "past"', () => {
+      // ⚠️ The threshold's own edge, and the auto-selection is set to something ELSE so the
+      // assertion can only pass through the selected branch. With `>` instead of `>=` the reader's
+      // explicit choice of today loses to the auto-selection, which no test caught until this one.
+      expect(call({ selectedDate: TODAY, autoDate: TOMORROW })).toBe(TODAY);
+    });
+  });
+
+  describe('the night in progress', () => {
+    // ⚠️ A night runs dusk-to-dawn, so between UK midnight and dawn the night in progress is
+    // YESTERDAY's date, and `App.handleAuroraViewOnMap` sets it deliberately so the viewline lands
+    // on the night the banner is about. The first cut of the never-past clamp refused it and
+    // silently undid that fix; `MapView`'s auto-jump cannot recover it.
+    it('is honoured when the selection NAMED a night, even though it is yesterday', () => {
+      expect(call({ selectedDate: YESTERDAY, selectedIsNight: true, nightDate: YESTERDAY }))
+        .toBe(YESTERDAY);
+    });
+
+    // ⚠️ The exemption keys on PROVENANCE, never on the value — the second defect Codex found.
+    it('is REFUSED for a solar selection that merely lands on the same date', () => {
+      // The overnight case, and it is not a corner: a reader picks yesterday evening's SUNSET and
+      // leaves the tab open past UK midnight. `currentNightDate` is still yesterday until dawn, so
+      // the stale solar pick equals it exactly. Matching on value held the map on a day that was
+      // over — and with the solar-row gate live that is a persistent "No forecast" blank.
+      expect(call({ selectedDate: YESTERDAY, selectedIsNight: false, nightDate: YESTERDAY }))
+        .toBe(TODAY);
+    });
+
+    it('defaults to refusing when provenance was never supplied', () => {
+      // Every caller that is not the aurora route omits the flag; the safe answer must be the
+      // default rather than something each of them has to remember.
+      expect(call({ selectedDate: YESTERDAY, nightDate: YESTERDAY })).toBe(TODAY);
+    });
+
+    it('does not license any OTHER past date, even for a night selection', () => {
+      expect(call({ selectedDate: TWO_DAYS_AGO, selectedIsNight: true, nightDate: YESTERDAY }))
+        .toBe(TODAY);
+    });
+
+    it('must still be in the forecast domain', () => {
+      expect(call({
+        selectedDate: YESTERDAY, selectedIsNight: true, nightDate: YESTERDAY, allDates: [TODAY],
+      })).toBe(TODAY);
+    });
+
+    it('is NOT an escape hatch for the auto-selection — that is a calendar answer', () => {
+      // Scoped to the explicit choice on purpose: `computeAutoSelection` names a solar event on a
+      // calendar day and has no business naming a night.
+      expect(call({ autoDate: YESTERDAY, nightDate: YESTERDAY })).toBe(TODAY);
+    });
+  });
+
+  describe('the auto-selection', () => {
+    it('wins over the fallback when it is today-forward and in the domain', () => {
+      expect(call({ autoDate: TOMORROW })).toBe(TOMORROW);
+    });
+
+    it('is REFUSED when it has gone past — it is frozen at mount, so this is the common route', () => {
+      // ⚠️ The reachable one. `computeAutoSelection` reads the clock inside a memo keyed on the
+      // location roster, and `useForecasts` fetches once on mount — so across UK midnight this
+      // holds yesterday's answer for the rest of the session and never self-corrects.
+      expect(call({ autoDate: YESTERDAY })).toBe(TODAY);
+    });
+
+    it('loses to a usable explicit choice', () => {
+      expect(call({ selectedDate: TOMORROW, autoDate: TODAY })).toBe(TOMORROW);
+    });
+
+    it('is consulted when the explicit choice is the stale one', () => {
+      expect(call({ selectedDate: YESTERDAY, autoDate: TOMORROW })).toBe(TOMORROW);
+    });
+  });
+
+  describe('the fallback', () => {
+    it('takes today when the forecast covers it', () => {
+      expect(call()).toBe(TODAY);
+    });
+
+    it('takes the nearest FUTURE date when today itself is missing', () => {
+      expect(call({ allDates: [YESTERDAY, TOMORROW] })).toBe(TOMORROW);
+    });
+
+    it('never returns a past date, even when every date it was given is past', () => {
+      // Exactly the list a reader gets on a day nothing ran. The old fallback returned YESTERDAY.
+      const chosen = call({ allDates: [TWO_DAYS_AGO, YESTERDAY] });
+      expect(chosen).toBe(TODAY);
+      expect(chosen).not.toBe(YESTERDAY);
+    });
+
+    it('falls back to today even when the only date is a single past one', () => {
+      expect(call({ allDates: [YESTERDAY] })).toBe(TODAY);
+    });
+
+    it('is null for an empty list — a domain is not invented out of nothing', () => {
+      // `App` withholds the Map pane entirely on an empty list; returning a date would let a
+      // caller mount a map over no forecast domain at all.
+      expect(call({ allDates: [] })).toBeNull();
+      expect(call({ allDates: undefined })).toBeNull();
+    });
+
+    it('is null, not undefined, on an empty list with a stale choice standing', () => {
+      // The JSDoc promises `?string`; `MapView`'s `if (!date …)` early return tolerates either,
+      // so only a test keeps the contract honest.
+      expect(call({ allDates: [], selectedDate: YESTERDAY, autoDate: YESTERDAY })).toBeNull();
+    });
+  });
+
+  it('reads today off the UK calendar when App supplies it — the two must agree', () => {
+    // Not a restatement of `ukDateStr`'s own tests: it pins that a caller passing the UK civil
+    // date gets that same string back, so the map cannot open on a date the masthead disagrees
+    // with in the BST small hours.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(BST_SMALL_HOURS));
+    const uk = ukDateStr();
+    expect(uk).toBe('2026-08-14');
+    expect(resolveMapDate({
+      selectedDate: null, autoDate: null, allDates: ['2026-08-12', '2026-08-13'], todayStr: uk,
+    })).toBe('2026-08-14');
+    vi.useRealTimers();
   });
 });

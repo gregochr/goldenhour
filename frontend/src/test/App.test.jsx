@@ -1,10 +1,10 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
 import App from '../App.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import * as scoreRamp from '../utils/scoreRamp.js';
-import { ukDateStrOffset } from '../utils/mapDates.js';
+import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 
 /**
  * The first App wiring test. App.jsx is the composition root — every prop the Plan shell
@@ -42,6 +42,17 @@ vi.mock('../api/settingsApi.js', () => ({
   refreshDriveTimes: vi.fn(),
 }));
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn() }));
+// The Map pane, stubbed so the date `App` resolves for it can be read. Every other test in this
+// file asserts only that the Map TAB exists, which is `WindowFirstShell`'s doing off a non-null
+// `mapPane` — so a stub pane leaves them all untouched.
+const mapPaneProps = { last: null };
+vi.mock('../components/WindowFirstMapPane.jsx', () => ({
+  default: (props) => {
+    mapPaneProps.last = props;
+    return <div data-testid="map-pane-stub" />;
+  },
+}));
+vi.mock('../hooks/useAuroraViewline.js', () => ({ useAuroraViewline: () => ({ viewline: null }) }));
 vi.mock('../api/auroraApi.js', () => ({ getAuroraStatus: vi.fn() }));
 vi.mock('../api/nlcApi.js', () => ({ getNlcSighting: vi.fn() }));
 vi.mock('../api/astroApi.js', () => ({ getAstroConditions: vi.fn() }));
@@ -133,6 +144,7 @@ beforeEach(() => {
   getReach.mockReset().mockResolvedValue([]);
   getDriveTimes.mockReset().mockResolvedValue({});
   fetchTravelDayRanges.mockReset().mockResolvedValue([]);
+  mapPaneProps.last = null;
   getAuroraStatus.mockReset().mockResolvedValue(null);
   getNlcSighting.mockReset().mockResolvedValue(null);
   getAstroConditions.mockReset().mockResolvedValue(null);
@@ -243,6 +255,127 @@ describe('App — panes handed to WindowFirstShell', () => {
     expect(screen.queryByRole('tab', { name: 'Map' })).toBeNull();
     // The arm itself is intact — the missing tab is a withheld pane, not a broken shell.
     expect(screen.getByRole('tab', { name: 'Plan' })).toBeInTheDocument();
+  });
+
+  /**
+   * Which DATE the Map pane is handed — `resolveMapDate`'s wiring, as opposed to its rule.
+   *
+   * <p>The rule has its own unit tests in `mapDates.test.js`. What only an App-level test can pin
+   * is that the three inputs actually reach it, and one of them is easy to drop: the night in
+   * progress. ⚠️ A night runs dusk-to-dawn, so between UK midnight and dawn it is YESTERDAY's date
+   * — the one "past" date `App` sets deliberately (`handleAuroraViewOnMap`, so the aurora viewline
+   * lands on the night the banner is about). The never-past clamp refused it in its first cut and
+   * silently undid that fix; nothing in the suite noticed, because the overlay reads its own
+   * `mapOverlay.date` and only the full Map tab falls through to `effectiveDate`.
+   */
+  describe('the date handed to the Map pane', () => {
+    const YESTERDAY = ukDateStrOffset(-1);
+
+    /** Rows on YESTERDAY as well, so the night is inside the forecast domain. */
+    const pastAndFutureForecasts = () => [
+      ...FORECASTS,
+      ...LOCATION_META.flatMap((m) => ['SUNRISE', 'SUNSET'].map((t) => ({
+        ...forecastRow(m, t), targetDate: YESTERDAY,
+      }))),
+    ];
+
+    /** The shell mounts a pane on first selection, so the tab has to be opened to read its props. */
+    const openMapTab = async () => {
+      const tab = await screen.findByRole('tab', { name: 'Map' });
+      await act(async () => { fireEvent.click(tab); });
+      return screen.findByTestId('map-pane-stub');
+    };
+
+    it('defaults to a today-forward date, never a past one', async () => {
+      fetchForecasts.mockResolvedValue(pastAndFutureForecasts());
+      renderApp();
+      await openMapTab();
+
+      expect(mapPaneProps.last.dates).toContain(YESTERDAY);
+      expect(mapPaneProps.last.selectedDate).not.toBe(YESTERDAY);
+      expect(mapPaneProps.last.selectedDate >= ukDateStr()).toBe(true);
+    });
+
+    it('honours the NIGHT in progress when the aurora banner asks for it', async () => {
+      // A live alert whose night is yesterday — the small-hours case. The banner's "view on map"
+      // sets it as the selected date; `App` must hand that through rather than clamp it away.
+      getAuroraStatus.mockResolvedValue({
+        level: 'MODERATE', kpIndex: 6, currentNightDate: YESTERDAY, simulated: false,
+      });
+      fetchForecasts.mockResolvedValue(pastAndFutureForecasts());
+      renderApp();
+      await openMapTab();
+      expect(mapPaneProps.last.selectedDate).not.toBe(YESTERDAY);
+
+      // The banner's whole body is the activation surface (a click handler + `tabIndex`, not a
+      // nested button), so the click goes on the banner element itself.
+      const banner = await screen.findByTestId('aurora-banner');
+      await act(async () => { fireEvent.click(banner); });
+
+      expect(mapPaneProps.last.selectedDate).toBe(YESTERDAY);
+    });
+
+    it('does NOT let a stale solar pick borrow the night licence (Codex, #803)', async () => {
+      // ⚠️ The overnight case. The aurora status names yesterday as the night in progress — true
+      // before dawn — and the reader's own selection is yesterday too, but made from the MAP as an
+      // ordinary solar date. Keying the exemption on the value alone exempted it, holding the tab
+      // on a day that was over until the backend advanced `currentNightDate`; with the solar-row
+      // gate live that is a persistent "No forecast" blank, i.e. this clamp defeated by its own
+      // exemption. Provenance is what tells the two selections apart.
+      getAuroraStatus.mockResolvedValue({
+        level: 'MODERATE', kpIndex: 6, currentNightDate: YESTERDAY, simulated: false,
+      });
+      fetchForecasts.mockResolvedValue(pastAndFutureForecasts());
+      renderApp();
+      await openMapTab();
+
+      // The pane's own `onSelectDate` — the solar route, which carries no night provenance.
+      await act(async () => { mapPaneProps.last.onSelectDate(YESTERDAY); });
+
+      expect(mapPaneProps.last.selectedDate).not.toBe(YESTERDAY);
+      expect(mapPaneProps.last.selectedDate >= ukDateStr()).toBe(true);
+    });
+
+    it('clears the night licence on the NEXT selection — it is per-pick, not sticky', async () => {
+      // ⚠️ The same defect one step later in the sequence, and mutation testing is what surfaced
+      // it: a flag that is only ever set (never cleared) lets an ordinary solar pick made AFTER
+      // the banner borrow the licence the banner earned. The pair is written through one setter
+      // precisely so the flag cannot outlive the date it describes.
+      getAuroraStatus.mockResolvedValue({
+        level: 'MODERATE', kpIndex: 6, currentNightDate: YESTERDAY, simulated: false,
+      });
+      fetchForecasts.mockResolvedValue(pastAndFutureForecasts());
+      renderApp();
+      await openMapTab();
+
+      // 1. The banner's night selection is honoured.
+      const banner = await screen.findByTestId('aurora-banner');
+      await act(async () => { fireEvent.click(banner); });
+      expect(mapPaneProps.last.selectedDate).toBe(YESTERDAY);
+
+      // 2. A subsequent SOLAR pick of the same date must not inherit it.
+      await act(async () => { mapPaneProps.last.onSelectDate(YESTERDAY); });
+      expect(mapPaneProps.last.selectedDate).not.toBe(YESTERDAY);
+    });
+
+    it('accepts a night the pane asks for with provenance, whatever asked for it', async () => {
+      // ⚠️ End-to-end for the pane's OTHER `onSelectDate` call site — the aurora auto-jump, which
+      // lands on the night in progress when the current date has no results. `MapView`'s own test
+      // pins that it passes `{ isNight: true }`; this pins that doing so is enough to make the jump
+      // actually land, rather than being refused as a past solar date and silently latched off.
+      // Driven through the prop rather than the effect, so it covers any caller that supplies
+      // provenance — the assertion is about `App`'s side of the contract.
+      getAuroraStatus.mockResolvedValue({
+        level: 'MODERATE', kpIndex: 6, currentNightDate: YESTERDAY, simulated: false,
+      });
+      fetchForecasts.mockResolvedValue(pastAndFutureForecasts());
+      renderApp();
+      await openMapTab();
+      expect(mapPaneProps.last.selectedDate).not.toBe(YESTERDAY);
+
+      await act(async () => { mapPaneProps.last.onSelectDate(YESTERDAY, { isNight: true }); });
+      expect(mapPaneProps.last.selectedDate).toBe(YESTERDAY);
+    });
   });
 
   it('hands the Operations pane to an admin', async () => {

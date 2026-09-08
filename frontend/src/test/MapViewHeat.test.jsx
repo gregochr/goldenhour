@@ -702,19 +702,33 @@ describe('MapView heat — which window the field paints', () => {
     const onSelectDate = vi.fn();
     await renderMap({ heat: heatProp(), onSelectDate });
     pickWindow(`${TOMORROW}:SUNRISE`);
-    expect(onSelectDate).toHaveBeenCalledWith(TOMORROW);
+    // The second argument is the row's PROVENANCE — see the same-day test below for why the
+    // callback grew one.
+    expect(onSelectDate).toHaveBeenCalledWith(TOMORROW, { isNight: false });
   });
 
-  it('moves the map’s EVENT when the window is on the day already shown', async () => {
-    // Sunrise→sunset within one day is the commonest use of the control and takes the
-    // `row.date !== date` guard's false arm inside `selectEvRow` — so `setEventType` is the only
-    // thing that can answer it, and dropping that line leaves the date handler's test still green.
+  it('moves the map’s EVENT, and NOT its date, when the window is on the day already shown', async () => {
+    // Sunrise→sunset within one day is the commonest use of the control, and the claim here is
+    // that the EVENT answers it while the DATE stays put.
+    //
+    // ⚠️ This used to assert `onSelectDate` was not called AT ALL, and that was a proxy for the
+    // real claim rather than the claim itself. `selectEvRow` deliberately stopped skipping the
+    // callback on an unchanged date (Codex, #803): the call now carries the row's provenance as
+    // well as its date, and staying silent meant `App` never learned that picking TONIGHT's aurora
+    // row — where the date matches by construction, because the map already sits on today — had
+    // named a night. At UK midnight the never-past clamp then saw an unflagged past date and
+    // advanced the map off the night still in progress. So the parent is now always told; what
+    // must not happen is the DATE moving, which is what this asserts.
     const onSelectDate = vi.fn();
     await renderMap({ heat: heatProp(), onSelectDate });
     pickWindow(`${TODAY}:SUNRISE`);
-    expect(onSelectDate).not.toHaveBeenCalled();
+    expect(onSelectDate).toHaveBeenCalledWith(TODAY, { isNight: false });
+    expect(onSelectDate).toHaveBeenCalledTimes(1);
+    // The day on screen is unchanged — the whole point, and the half the old assertion protected.
+    expect(onSelectDate).not.toHaveBeenCalledWith(TOMORROW, expect.anything());
     // Day-only form again — `WINDOWS[0].label` is "This morning sunrise", kind-chip dedup strips
-    // the trailing "sunrise".
+    // the trailing "sunrise". Together with the point set below this is what pins `setEventType`
+    // as the thing that actually answered the pick, which no assertion on the date handler can do.
     expect(screen.getByTestId('wf-win-pill')).toHaveTextContent('This morning');
     expect(heatLayerProps.last.points.map((p) => p.name)).toEqual(['Bamburgh']);
   });

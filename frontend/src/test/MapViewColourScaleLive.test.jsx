@@ -118,6 +118,7 @@ describe('MapView repaints when the live colour scale changes', () => {
       <MapView
         locations={[makeLocation(name, 54.8)]}
         date={TODAY}
+        forecastDates={[TODAY]}
         autoEventType={null}
         mapColourScale="verdict"
       />,
@@ -131,6 +132,7 @@ describe('MapView repaints when the live colour scale changes', () => {
       <MapView
         locations={[makeLocation(name, 54.8)]}
         date={TODAY}
+        forecastDates={[TODAY]}
         autoEventType={null}
         mapColourScale="temp"
       />,
@@ -192,6 +194,7 @@ describe('MapView\'s Stage 7 "colours changed" notice', () => {
       <MapView
         locations={[makeLocation(name, 54.8)]}
         date={TODAY}
+        forecastDates={[TODAY]}
         autoEventType={null}
         colourScaleDefaulted
       />,
@@ -209,6 +212,7 @@ describe('MapView\'s Stage 7 "colours changed" notice', () => {
       <MapView
         locations={[makeLocation(name, 54.8)]}
         date={TODAY}
+        forecastDates={[TODAY]}
         autoEventType={null}
         colourScaleDefaulted={false}
       />,
@@ -226,6 +230,7 @@ describe('MapView\'s Stage 7 "colours changed" notice', () => {
       <MapView
         locations={[makeLocation(name, 54.8)]}
         date={TODAY}
+        forecastDates={[TODAY]}
         autoEventType={null}
         colourScaleDefaulted
       />,
@@ -240,6 +245,7 @@ describe('MapView\'s Stage 7 "colours changed" notice', () => {
       <MapView
         locations={[makeLocation(name, 54.8)]}
         date={TODAY}
+        forecastDates={[TODAY]}
         autoEventType={null}
         colourScaleDefaulted
       />,
@@ -274,6 +280,7 @@ describe('MapView\'s Stage 7 "colours changed" notice', () => {
       <MapView
         locations={[makeLocation(name, 54.8)]}
         date={TODAY}
+        forecastDates={[TODAY]}
         autoEventType={null}
         colourScaleDefaulted
       />,
@@ -289,6 +296,7 @@ describe('MapView\'s Stage 7 "colours changed" notice', () => {
       <MapView
         locations={[makeLocation(name, 54.8)]}
         date={TODAY}
+        forecastDates={[TODAY]}
         autoEventType={null}
         colourScaleDefaulted
       />,

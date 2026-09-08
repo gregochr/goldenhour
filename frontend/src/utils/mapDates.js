@@ -12,6 +12,8 @@
  *       {@link ukDateStr}. {@link ukHour}.</li>
  *   <li><b>Which night are we in?</b> — <em>not</em> a calendar question, and no timezone answers
  *       it. {@link resolveAuroraNight}.</li>
+ *   <li><b>Which date is the map showing?</b> — a question about the forecast domain, and one
+ *       whose wrong answer is worse than none. {@link resolveMapDate}.</li>
  * </ul>
  */
 
@@ -212,4 +214,89 @@ export function ukDayOffset(dateStr, now = new Date()) {
  */
 export function resolveAuroraNight(auroraStatus, now = new Date()) {
   return auroraStatus?.currentNightDate ?? ukDateStr(now);
+}
+
+/**
+ * Which date the map shows — the reader's own choice, else the auto-selection, else the first
+ * forecast date at or after today.
+ *
+ * <p>⚠️ <b>Never a date in the PAST, on ANY of the three branches.</b> The rule used to live on the
+ * last branch alone, as an inline {@code ?? allDates[allDates.length - 1]}, and being last is what
+ * made it nearly unreachable. `GET /api/forecast` serves {@code today-2} onward, so a past date
+ * passes the {@code allDates.includes(...)} membership test the other two branches were guarded by,
+ * and both of those are preferred over the fallback. Two reachable routes:
+ *
+ * <ul>
+ *   <li><b>The auto-selection is frozen at mount.</b> {@code computeAutoSelection} reads the clock
+ *       inside a memo keyed on the location roster, and {@code useForecasts} fetches once on mount
+ *       with no interval and no focus listener — so a tab left open across UK midnight keeps
+ *       yesterday's answer for the whole session, and it never self-corrects.</li>
+ *   <li><b>A chosen date goes stale the same way</b>, for a reader who picked one and left the tab
+ *       open.</li>
+ * </ul>
+ *
+ * <p>What that produced, reported from production on 2026-09-07 by the fallback's own route: the
+ * Map tab on a day already over, every label chip carrying a stale run's 4★ over a footer reading
+ * <em>133 of 253 shown · 130 rated</em>, while the window control said "No forecast", the field
+ * painted nothing and the colour key was withheld. {@code mapEvents.solarRowPredicate} is the other
+ * half of that fix — it stops any rating answering for a window with no row, wherever the date came
+ * from. This half is why the map does not land on such a window in the first place; without it that
+ * gate turns a confidently-wrong screen into a permanently blank one on the two routes above.
+ *
+ * <p><b>{@code todayStr} need not be in {@code allDates}.</b> Every consumer indexes it tolerantly —
+ * {@code forecastsByDate.get(date)}, the briefing score lookup and the window join all degrade to a
+ * miss — and the briefing's own served windows still give the control rows to browse, so landing on
+ * a today with no forecast rows shows an honest empty window rather than a confident wrong one.
+ * ⚠️ The true claim is that nothing REQUIRES membership, not that nothing indexes by it.
+ *
+ * <p>⚠️ <b>A NIGHT selection is the one "past" date a reader may deliberately choose, and refusing
+ * it is a regression this function shipped once.</b> A night runs dusk-to-dawn, so which night you
+ * are in is not a calendar question — between UK midnight and dawn the night in progress is
+ * YESTERDAY's date, and {@code App.handleAuroraViewOnMap} sets it on purpose so the aurora viewline
+ * (gated on {@code nightDate === auroraNight}) lands on the night the banner is about. That fix has
+ * its own review history and its own comment in {@code App}; the clamp below undid it silently for
+ * up to seven hours a night in midwinter, and {@code MapView}'s auto-jump cannot recover it (it
+ * latches before forwarding, and is gated on STORED results a live alert does not imply). It is
+ * scoped to {@code selectedDate}: the auto-selection is a calendar answer and has no business
+ * naming a night.
+ *
+ * <p>⚠️ <b>The exemption keys on the selection's PROVENANCE, not on its value, and the difference
+ * is a defect this shipped once too</b> (Codex, #803). Matching {@code selectedDate === nightDate}
+ * alone exempts any selection that merely happens to land on that date — and in the small hours it
+ * always does: a reader who picked yesterday evening's ordinary SUNSET and left the tab open across
+ * UK midnight has a stale solar {@code selectedDate} exactly equal to the night in progress. The
+ * map then stayed on a day that was over until the backend advanced {@code currentNightDate} at
+ * dawn, and with the solar-row gate live that is a persistent "No forecast" blank rather than a
+ * merely stale screen — the very failure this clamp exists to prevent, re-entered through its own
+ * exemption. {@code selectedIsNight} is set by the ONE call site that makes a night selection, so a
+ * solar date can never borrow the licence.
+ *
+ * <p><b>{@code null} only for a genuinely empty list</b>, where {@code App} does not mount the Map
+ * pane at all — returning a date there would be inventing a domain out of nothing.
+ *
+ * <p>{@code allDates} is expected sorted ascending, as {@code App} builds it; the today-forward pick
+ * is a {@code find}, not a scan for the minimum.
+ *
+ * @param {object} args
+ * @param {?string} args.selectedDate the date the reader explicitly chose, if any
+ * @param {boolean} [args.selectedIsNight] whether that choice NAMED A NIGHT (the aurora banner's
+ *   route) rather than a calendar day — never inferred from the value
+ * @param {?string} args.autoDate {@code computeAutoSelection}'s date, if any
+ * @param {string[]} args.allDates every date the forecast endpoint returned, sorted
+ * @param {string} args.todayStr the UK civil today ({@link ukDateStr})
+ * @param {?string} [args.nightDate] the night in progress ({@link resolveAuroraNight}) — the one
+ *   "past" date an explicit NIGHT choice may legitimately name
+ * @returns {?string}
+ */
+export function resolveMapDate({
+  selectedDate, selectedIsNight = false, autoDate, allDates, todayStr, nightDate = null,
+}) {
+  const dates = Array.isArray(allDates) ? allDates : [];
+  const notPast = (d) => d >= todayStr;
+  const usable = (d, isNight = false) => Boolean(d)
+    && (notPast(d) || (isNight && d === nightDate))
+    && dates.includes(d);
+  if (usable(selectedDate, selectedIsNight)) return selectedDate;
+  if (usable(autoDate)) return autoDate;
+  return dates.find(notPast) ?? (dates.length > 0 ? todayStr : null);
 }

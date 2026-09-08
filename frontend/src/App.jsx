@@ -14,7 +14,7 @@ import { setMode, getMode, resolveMode } from './utils/scoreRamp.js';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { AuroraStatusProvider } from './context/AuroraStatusContext.jsx';
 import { useAuroraStatus } from './hooks/useAuroraStatus.js';
-import { ukDateStr, ukDateStrOffset, resolveAuroraNight } from './utils/mapDates.js';
+import { ukDateStr, ukDateStrOffset, resolveAuroraNight, resolveMapDate } from './utils/mapDates.js';
 import { useForecasts } from './hooks/useForecasts.js';
 import { useHealthStatus } from './hooks/useHealthStatus.js';
 import { useRunNotifications } from './hooks/useRunNotifications.js';
@@ -205,6 +205,26 @@ function AppInner() {
   useEffect(() => { loadHomeCoords(); }, [loadHomeCoords]);
 
   const [selectedDate, setSelectedDate] = useState(null);
+  /**
+   * Whether {@code selectedDate} NAMES A NIGHT — the aurora banner's route — rather than a calendar
+   * day. Carried beside the date because `resolveMapDate`'s never-past exemption keys on the
+   * selection's provenance and must never infer it from the value: in the small hours the night in
+   * progress IS yesterday's date, so a stale solar pick from last evening equals it exactly, and
+   * matching on value alone let that stale pick hold the map on a day that was over (Codex, #803).
+   *
+   * ⚠️ Written only through {@code selectDate} below, never with a bare `setSelectedDate`, so the
+   * flag cannot drift from the date it describes.
+   */
+  const [selectedDateIsNight, setSelectedDateIsNight] = useState(false);
+  /**
+   * The one writer for the pair above. {@code isNight} defaults false, so every route that is not
+   * explicitly a night selection — a Plan door, a grid cell, the Map tab's own `onSelectDate` —
+   * gets the safe answer without having to know this rule exists.
+   */
+  const selectDate = useCallback((date, { isNight = false } = {}) => {
+    setSelectedDate(date);
+    setSelectedDateIsNight(isNight);
+  }, []);
 
 
   const sortedLocations = useMemo(
@@ -246,13 +266,22 @@ function AppInner() {
   const { status: auroraStatus } = useAuroraStatus();
   const auroraNightStr = resolveAuroraNight(auroraStatus);
 
-  const defaultDate = allDates.find((d) => d >= todayStr) ?? allDates[allDates.length - 1] ?? null;
-  const autoDate = autoSelection?.date ?? null;
-  const effectiveDate = (selectedDate && allDates.includes(selectedDate))
-    ? selectedDate
-    : (autoDate && allDates.includes(autoDate))
-      ? autoDate
-      : defaultDate;
+  // ⚠️ Never a PAST date on ANY branch — `resolveMapDate` owns the whole precedence and records
+  // what the old shape cost, the same way `normalizeMapTrigger` owns the handoff branch selection
+  // below rather than sitting inline here. It replaced a three-branch expression whose "not past"
+  // rule sat on the LAST branch only, guarded on the other two by a bare `allDates.includes(...)`
+  // that a past date passes — and `autoDate` is frozen at mount, so a tab left open across UK
+  // midnight took the stale branch every time and never reached the rule.
+  const effectiveDate = resolveMapDate({
+    selectedDate,
+    selectedIsNight: selectedDateIsNight,
+    autoDate: autoSelection?.date ?? null,
+    allDates,
+    todayStr,
+    // The one "past" date an explicit choice may name — see `handleAuroraViewOnMap` below, which
+    // sets it deliberately, and `resolveMapDate`'s own note on the regression this prevents.
+    nightDate: auroraNightStr,
+  });
 
   /**
    * Called from any Plan-tab recommendation (Best Bet, Hot Topic, region row, grid cell, strip
@@ -269,7 +298,9 @@ function AppInner() {
     const overlay = buildMapOverlay(trigger, {
       locations: visibleLocations, briefingScores, todayStr, tomorrowStr, nonce,
     });
-    if (trigger.date) setSelectedDate(trigger.date);
+    // `kind: 'aurora'` is the only night-naming trigger `normalizeMapTrigger` produces — see
+    // `selectedDateIsNight` above for why the flag rides along rather than being inferred later.
+    if (trigger.date) selectDate(trigger.date, { isNight: trigger.kind === 'aurora' });
     setMapOverlay({ ...overlay, nonce, date: trigger.date });
   };
 
@@ -387,7 +418,7 @@ function AppInner() {
    * that is already OVER the map, and it takes the other branch below for the reasons stated there.
    */
   const openMapTabFromPlan = (door) => {
-    setSelectedDate(door.date);
+    selectDate(door.date);
     if (door.inPlace) {
       // ⚠️ The reader is ALREADY on the Map tab — the four-day sheet was opened over it by the
       // callout's `Four days here ›` peek, and this is its footer's `Show on map → <window>`. A
@@ -619,7 +650,7 @@ function AppInner() {
                     locations={visibleLocations}
                     dates={allDates}
                     selectedDate={effectiveDate}
-                    onSelectDate={setSelectedDate}
+                    onSelectDate={selectDate}
                     // Without this the pane's event type is whatever it derived at mount — and
                     // because this pane is never unmounted, opening the map at dawn and returning
                     // after sunset would still show the morning's event.

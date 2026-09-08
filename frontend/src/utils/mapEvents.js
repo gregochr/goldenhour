@@ -321,6 +321,100 @@ export function solarHorizonDates({ solarWindows = [], forecastDates = [], today
 }
 
 /**
+ * Whether the EV list carries a SOLAR row for one (date, targetType) — <b>the</b> rule, called
+ * once by {@link buildMapEvents} for each of a date's two solar events and once per lookup by
+ * {@link solarRowPredicate}, so the two can never answer differently.
+ *
+ * <p>A served window is a row unconditionally: the briefing only ever renders current/future
+ * events, so its presence is already evidence the date belongs on screen. A D-13 filler row
+ * additionally requires {@code date >= todayStr} — see the call site's own comment for the
+ * just-after-midnight case that gate exists for.
+ *
+ * @param {*} servedWindow the served window for this (date, targetType), if any
+ * @param {boolean} inForecastDomain whether `GET /api/forecast` returned this date
+ * @param {string} date
+ * @param {string} todayStr the caller's UK-civil today
+ * @returns {boolean}
+ */
+function hasSolarRow(servedWindow, inForecastDomain, date, todayStr) {
+  return Boolean(servedWindow) || (inForecastDomain && date >= todayStr);
+}
+
+/**
+ * A reusable {@code (date, targetType) => boolean} answering "does the EV list have a solar row
+ * for this window", over a prebuilt index of the same inputs {@link buildMapEvents} takes.
+ *
+ * <p><b>Why this is exported rather than reasoned about at the call site.</b> A window with no EV
+ * row is not a window the reader can be shown an answer for: {@code WindowControl} says
+ * <em>"No forecast"</em>, the heat field paints nothing, the legend key is withheld and
+ * {@code MapCallout} refuses to mount. But {@code MapView}'s rating accessor reads two indexes
+ * keyed by an arbitrary {@code date} — the briefing score index and each location's
+ * {@code forecastsByDate} — and both legitimately carry rows for dates the EV list excludes
+ * (`GET /api/forecast` serves {@code today-2} onward, and `GET /api/briefing/evaluate/scores`
+ * the same). Left ungated, the star chips were the only thing on the tab still answering for a
+ * window every other surface had gone quiet about, and they answered with whatever run last
+ * scored that date. Observed in production on 2026-09-07: a map with no field, no colour key and
+ * a pill reading "No forecast", captioned <em>133 of 253 shown · 130 rated</em>, every chip
+ * carrying a 4★ from a run two days old.
+ *
+ * <p>The predicate is built once per input change and closed over two {@code Set}s, because its
+ * caller asks it per location — a few hundred times per render.
+ *
+ * <p>⚠️ <b>An EMPTY domain answers {@code true}, because unknown is not "no".</b> With neither
+ * input supplied this function has been told nothing about which SOLAR windows exist, and a
+ * predicate with no evidence must not suppress. The state it exists for is the opposite one: a
+ * list that HAS rows, none of them this window — the same distinction {@code WindowControl} draws
+ * for itself between an empty list ("Genuinely nothing to show", where it renders no pill at all)
+ * and {@code !active}. Suppressing on an empty domain would instead blank every rating on any
+ * mount not handed the two props, which is a different and much larger behaviour change.
+ *
+ * <p>⚠️ Do not read the empty case as "therefore the EV list is empty too". {@link buildMapEvents}
+ * also emits NIGHT rows from the astro/aurora available-date lists, which arrive on their own
+ * fetches and owe nothing to either input here — so an empty solar domain does not imply an empty
+ * control. The clause's safety rests on the two production mounts named below, not on that.
+ *
+ * <p>⚠️ It <b>never fires on the Map tab</b> — that tab is gated on {@code allDates.length > 0}
+ * and {@code WindowFirstMapPane} always forwards that list — so it is not the part doing the work
+ * there. It DOES fire on every Plan-tab overlay render, since that mount is handed neither
+ * {@code heat} nor {@code forecastDates} by design; but the overlay is separately and
+ * deliberately exempted by its caller, on the ground that it builds no EV list at all. Do not
+ * collapse the two: this clause reads an absent input honestly, while the caller's exemption
+ * states the actual reason — and a later change that hands the overlay a domain must not be able
+ * to blank it.
+ *
+ * <p>⚠️ <b>Solar only — {@code served} holds no night keys</b>, so a night {@code targetType} could
+ * only ever reach the domain arm: a night judged by the solar domain. Rather than ask every caller
+ * to remember that, {@code MapView} enforces the scope at its own boundary and answers {@code true}
+ * for any non-solar event before reaching this function at all.
+ *
+ * <p>⚠️ <b>Nothing here protects the night paths, and one of them has the same defect.</b> Astro
+ * scores and STORED aurora results are fetched per {@code nightDate}, so they answer for the night
+ * on screen. But the aurora branch falls back to {@code auroraScores}, fetched by
+ * {@code getAuroraLocations()} — <b>no date parameter at all</b>, gated only on a live alert level
+ * — so on an alert night that cache can answer for a night the reader is not looking at. That is
+ * this same class of defect, pre-existing, unaddressed here, and named so the "solar only" scope
+ * above is not mistaken for a claim that the night paths are clean.
+ *
+ * @param {object} args
+ * @param {Array<{date: string, targetType: string}>} [args.solarWindows] served solar windows
+ *   (`heat.windows`)
+ * @param {string[]} [args.forecastDates] every date `GET /api/forecast` returned
+ * @param {string} args.todayStr the UK civil today
+ * @returns {(date: string, targetType: string) => boolean}
+ */
+export function solarRowPredicate({ solarWindows = [], forecastDates = [], todayStr }) {
+  const served = new Set();
+  for (const w of solarWindows) {
+    if (w?.date && w?.targetType) served.add(`${w.date}:${w.targetType}`);
+  }
+  const domain = new Set(forecastDates);
+  const domainKnown = served.size > 0 || domain.size > 0;
+  return (date, targetType) => !domainKnown || hasSolarRow(
+    served.has(`${date}:${targetType}`), domain.has(date), date, todayStr,
+  );
+}
+
+/**
  * Builds the Map tab's single chronological EV list.
  *
  * @param {object} args
@@ -400,11 +494,11 @@ export function buildMapEvents({
     // (`YYYY-MM-DD`) string comparison sorts correctly with no parsing. A SERVED window is never
     // gated by this: the briefing only ever renders current/future events, so `served.X` being
     // present is already evidence the date belongs on screen regardless of this check.
-    if (served.SUNRISE || (inForecastDomain && date >= todayStr)) {
+    if (hasSolarRow(served.SUNRISE, inForecastDomain, date, todayStr)) {
       const sunriseInDomain = inForecastDomain || Boolean(served.SUNRISE);
       rows.push(solarRow(date, 'SUNRISE', served.SUNRISE, todayStr, tomorrowStr, sunriseInDomain));
     }
-    if (served.SUNSET || (inForecastDomain && date >= todayStr)) {
+    if (hasSolarRow(served.SUNSET, inForecastDomain, date, todayStr)) {
       const sunsetInDomain = inForecastDomain || Boolean(served.SUNSET);
       rows.push(solarRow(date, 'SUNSET', served.SUNSET, todayStr, tomorrowStr, sunsetInDomain));
     }

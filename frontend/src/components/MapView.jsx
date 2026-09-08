@@ -31,7 +31,7 @@ import MapLegendPanel from './map/MapLegendPanel.jsx';
 import RegionsJump from './map/RegionsJump.jsx';
 import MapBreadcrumb from './map/MapBreadcrumb.jsx';
 import { fadeAt } from '../utils/heatHandover.js';
-import { buildMapEvents, findEvIndex, solarHorizonDates, EVENT_KIND } from '../utils/mapEvents.js';
+import { buildMapEvents, findEvIndex, solarHorizonDates, solarRowPredicate, EVENT_KIND } from '../utils/mapEvents.js';
 import { buildEvVerdicts, regionNamesOf } from '../utils/mapVerdict.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { GLANCE_MINUTES } from '../utils/planningArea.js';
@@ -1905,6 +1905,23 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }, [eventType, nightDate]);
 
   /**
+   * This render's UK civil today — <b>one</b> clock reading, shared by the three things on this tab
+   * that compare a date against "now": the horizon bound, the rating gate's predicate, and the EV
+   * list itself.
+   *
+   * <p>A plain per-render const, deliberately: it must track the wall clock, and it is what makes
+   * the two memos below bust exactly when the date rolls and not otherwise. Three independent
+   * {@code ukDateStr()} calls could not disagree WITHIN a render — but two of them sat behind memos
+   * keyed on other things, so across UK midnight they could and did disagree with the third.
+   *
+   * <p>Not every date read on this tab: {@code tomorrowStr} beside the EV build is still its own
+   * {@code ukDateStrOffset(1)} call, and {@code astroConfidenceScalar} its own {@code ukDateStr()}.
+   * Both feed labels and a haze scalar rather than deciding whether a row or a rating exists, so
+   * neither is on this rule's path — named here so the omission reads as a bound, not an oversight.
+   */
+  const mapTodayStr = ukDateStr();
+
+  /**
    * The multi-date astro/aurora fetch, for the window control's dropdown — map-tab-v2-plan.md
    * §3 P6. `utils/mapEvents.js` states each night's best achievable score ("choosing a window is
    * then an informed act rather than a guess", README), which needs every available night's
@@ -1928,8 +1945,31 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * `nightDate`-keyed single-night effects above; only the unbounded PREVIEW fetch is capped.
    */
   const horizonDates = useMemo(() => solarHorizonDates({
-    solarWindows: heat?.windows || [], forecastDates, todayStr: ukDateStr(),
-  }), [heat, forecastDates]);
+    solarWindows: heat?.windows || [], forecastDates, todayStr: mapTodayStr,
+  }), [heat, forecastDates, mapTodayStr]);
+  /**
+   * "Does the EV list have a row for this window" — the one predicate every per-window rating read
+   * below is gated on (`utils/mapEvents.js`'s `solarRowPredicate`, which is the SAME rule
+   * {@code buildMapEvents} applies when it decides whether to emit the row at all, rather than a
+   * second copy of it here).
+   *
+   * <p>Memoised rather than rebuilt per render — unlike {@code mapEvents} below, whose cost is one
+   * pass over a few tens of rows, this is asked once per location on each of five separate passes
+   * ({@code hasStandDown}, {@code hasUnrated}, {@code visibleLocations}, {@code scopedRatedCount},
+   * {@code labelSpots}), and a new identity every render would additionally re-run all five of
+   * those memos and churn the marker identities `react-leaflet` is keyed on.
+   *
+   * <p>⚠️ <b>{@code mapTodayStr} is a dependency, and leaving it out is a real defect rather than
+   * a tidiness point</b> (adversarial review). {@code buildMapEvents} reads the clock fresh on
+   * every render, so across UK midnight a memo keyed only on {@code [heat, forecastDates]} would
+   * hold YESTERDAY's "today" while the EV list had already moved on — the pill would say "No
+   * forecast" for the window on screen while this predicate went on permitting its ratings, which
+   * is precisely the bug the gate exists to close, reopened for as long as it took the next
+   * briefing poll to land. Being a string, it busts the memo only when the date actually rolls.
+   */
+  const solarRowExists = useMemo(() => solarRowPredicate({
+    solarWindows: heat?.windows || [], forecastDates, todayStr: mapTodayStr,
+  }), [heat, forecastDates, mapTodayStr]);
   const boundedAstroAvailableDates = useMemo(
     () => astroAvailableDates.filter((d) => horizonDates.includes(d)),
     [astroAvailableDates, horizonDates],
@@ -2272,8 +2312,49 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // Reproduced in a browser, not theorised.
     auroraNightRequested.current = true;
     if (date === auroraNight || auroraAvailableDates.includes(date)) return;
-    onSelectDate(auroraNight);
+    // ⚠️ `{ isNight: true }` unconditionally — `auroraNight` IS a night by construction, and after
+    // UK midnight it is yesterday's date. Without the flag `resolveMapDate` reads it as a stale
+    // solar date and refuses it, so the jump lands nowhere; and because the latch above is set
+    // BEFORE this line, it never retries. That left the aurora tab opening on a date with no
+    // results — the paid run looking empty on entry — for the whole small-hours window this jump
+    // exists to serve. Found by Codex on #803, the second of the TWO `onSelectDate` call sites in
+    // this file to need provenance; if a third is ever added it needs it too.
+    onSelectDate(auroraNight, { isNight: true });
   }, [isAuroraMode, auroraAvailableDates, auroraNight, date, onSelectDate, localNightDate]);
+
+  /**
+   * Whether a SOLAR read of the two per-window indexes below is answering for a window that is
+   * actually on this tab — {@code solarRowExists}, plus the overlay's own exemption.
+   *
+   * <p>⚠️ <b>The overlay is exempt, and the exemption states the reason rather than relying on an
+   * accident.</b> It builds no EV list at all ({@code mapEvents} is {@code overlayMode ? [] : ...})
+   * and inherits its window from the Plan card that opened it, so there is nothing there for a
+   * rating to contradict. Today it is ALSO covered by the predicate's empty-domain fail-open, since
+   * {@code App} hands that mount neither {@code heat} nor {@code forecastDates} — but that is a
+   * fact about its current props, not about what it is, and a later change handing it a domain for
+   * some unrelated reason would otherwise blank the whole frozen surface.
+   *
+   * <p>⚠️ <b>Not "has this window passed".</b> A row the `‹ ›` steppers can still walk into — one
+   * the briefing has retired while the map's own forecast domain keeps it — has a row, and its
+   * rating is the real answer for it. The question is whether the row exists, which is the same
+   * question {@code MapCallout}'s own {@code activeMapEvent} gate asks.
+   *
+   * <p>⚠️ <b>Solar-only, enforced HERE rather than trusted at each call site.</b> The rating
+   * accessor returns before the gate for ASTRO and AURORA, but the stand-down accessor early-returns
+   * for AURORA alone — so an astro night reached {@code solarRowExists(date, 'ASTRO')}, a key
+   * {@code served} can never hold, leaving a night judged by the SOLAR domain arm. It could only
+   * suppress, never invent, and the slot it suppressed was already that day's sunset triage; but
+   * {@code solarRowPredicate} documents itself as solar-only, and a category error that reads as
+   * deliberate is worse than one that reads as a bug. Answering {@code true} for any non-solar
+   * event makes the scope true at the boundary instead of asking every caller to remember it —
+   * and leaves the night paths exactly as they were, which is the smaller change.
+   */
+  const solarWindowOnScreen = useCallback(
+    () => overlayMode
+      || (eventType !== 'SUNRISE' && eventType !== 'SUNSET')
+      || solarRowExists(date, eventType),
+    [overlayMode, solarRowExists, date, eventType],
+  );
 
   /** True when this location's forecast for the current event was triaged (stand-down). */
   const isStandDownLocation = useCallback((loc) => {
@@ -2281,12 +2362,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     const types = loc.locationType ?? [];
     const isPureWildlife = types.length > 0 && types.every((t) => t === 'WILDLIFE');
     if (isPureWildlife) return false;
+    // Same gate as the rating below, and for the same reason: "this window was triaged" is a
+    // claim about a window, so a window the EV list has no row for has no triage to report
+    // either. Without it a stand-down pin outlived the forecast whose stars had gone.
+    if (!solarWindowOnScreen()) return false;
     const briefingScore = lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType);
     const dayData = loc.forecastsByDate.get(date);
     const solarType = eventType === 'SUNRISE' ? 'sunrise' : 'sunset';
     const forecast = dayData?.[solarType];
     return resolveStandDown(briefingScore, forecast);
-  }, [eventType, date, briefingScoreIndex]);
+  }, [eventType, date, briefingScoreIndex, solarWindowOnScreen]);
 
   /** Get the forecast rating for a location on the current date/event. */
   const getRatingForLocation = useCallback((loc) => {
@@ -2299,14 +2384,25 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     if (eventType === 'ASTRO') {
       return astroScores[loc.name]?.stars ?? null;
     }
-    // Mirror the marker render's precedence (line ~901): briefing score wins, then
-    // forecast row. Without this, locations rated only via cached_evaluation render a
-    // medallion but get hidden by the star-threshold filter.
+    // ⚠️ Nothing to answer for a window this tab has no row for — see `solarWindowOnScreen` and
+    // `utils/mapEvents.js`'s `solarRowPredicate`. Both indexes below are keyed by an arbitrary
+    // `date` and both legitimately carry rows the EV list excludes, so without this the star
+    // chips, the pins, the rating floor and the counts footer all went on answering for a window
+    // the pill had already called "No forecast" — with whatever run last scored that date.
+    if (!solarWindowOnScreen()) return null;
+    // Briefing score wins, then the forecast row. Since the marker layer now reads THIS accessor
+    // rather than repeating the precedence (see its own note), this is the only copy of it — the
+    // comment here used to point at a "line ~901" that has since become an unrelated control.
+    // Without the fallback, locations rated only via cached_evaluation render a medallion but get
+    // hidden by the star-threshold filter.
     const briefingScore = lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType);
     const dayData = loc.forecastsByDate.get(date);
     const forecast = eventType === 'SUNRISE' ? dayData?.sunrise : dayData?.sunset;
     return briefingScore?.rating ?? forecast?.rating ?? null;
-  }, [eventType, date, briefingScoreIndex, storedAuroraResults, auroraScores, astroScores]);
+  }, [
+    eventType, date, briefingScoreIndex, storedAuroraResults, auroraScores, astroScores,
+    solarWindowOnScreen,
+  ]);
 
   /**
    * This window's tide-alignment fact for a location (bundle rev 2's tide-chip tweak) — null
@@ -2314,11 +2410,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * or sunset, never a night. Reads `date`/`eventType` exactly like `getRatingForLocation` above
    * (not `activeMapEvent`, computed further down this component), so the two can never disagree
    * about which window they are both answering for.
+   *
+   * <p>⚠️ <b>Including the window gate, which is what keeps that last sentence true.</b> Adding
+   * {@code solarWindowOnScreen()} to the rating accessor alone would have broken the invariant
+   * this block claims: {@code labelSpots} reads BOTH, and its selected-location push force-renders
+   * a chip for a location the rating filter has dropped — so the wave glyph, the ", tide on the
+   * light" in that chip's accessible name and the tooltip's third line could all still describe a
+   * window the tab had just said it has no forecast for. "The water lands on the light" is a claim
+   * about a window exactly as much as a star or a stand-down is (adversarial review).
    */
   const getTideOnLightForLocation = useCallback((loc) => {
     if (eventType !== 'SUNRISE' && eventType !== 'SUNSET') return null;
+    if (!solarWindowOnScreen()) return null;
     return lookupForWindow(tideAlignmentIndex, loc.id, loc.name, date, eventType);
-  }, [eventType, date, tideAlignmentIndex]);
+  }, [eventType, date, tideAlignmentIndex, solarWindowOnScreen]);
 
   // Filter logic: type filters and rating filters are both AND-ed.
   // Within each filter group, any match passes (OR).
@@ -2797,7 +2902,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const mapEvents = overlayMode ? [] : buildMapEvents({
     solarWindows: heat?.windows || [],
     forecastDates,
-    todayStr: ukDateStr(),
+    todayStr: mapTodayStr,
     tomorrowStr: ukDateStrOffset(1),
     astroAvailableDates,
     astroConditionsByDate,
@@ -3320,15 +3425,42 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // Every served/D-13 solar row happens to carry `inForecastDomain: true` by construction, so
     // this reads identically to the old `row.kind === 'solar'` shortcut in practice — but it is no
     // longer a SEPARATE claim that could silently drift from the EV list's own domain test.
-    if (row.inForecastDomain) {
+    //
+    // ⚠️ <b>AND today-forward, because the parent's acceptance rule is what this test mirrors.</b>
+    // `localNightDate` exists for "a night row whose date `App` would reject", and `App` now
+    // rejects a PAST date as well as one outside the domain (`utils/mapDates.resolveMapDate`).
+    // Night rows carry no today-forward clip — `buildMapEvents` deliberately keeps every stored
+    // night — and `GET /api/forecast` serves `today-2` onward, so last night's astro row is both
+    // offered AND `inForecastDomain`. Forwarding it cleared `localNightDate` and then had the
+    // forward refused, leaving a row that could be selected and went nowhere: a control that opens
+    // onto nothing. Keeping it local instead lands the astro/aurora fetches and the viewline gate
+    // on the right night, which is the only thing a night row needs the date for. Found by Codex
+    // on #803; the clamp that made it reachable is in the same PR.
+    //
+    // Inert for solar by construction: a served window is never past (the briefing retires elapsed
+    // ones) and the D-13 filler branch already requires `date >= todayStr`, so this narrows nothing
+    // that was reachable — it is one uniform rule rather than a night-only special case.
+    if (row.inForecastDomain && row.date >= mapTodayStr) {
       setLocalNightDate(null);
       if (row.date !== date) {
         // Recorded so the `[date]` invalidation effect above can tell this forward apart from an
         // externally-driven `date` change (adversarial review, BLOCKING) — set immediately before
         // the call, never after, since the parent may (in a real app) re-render synchronously.
+        // ⚠️ Still guarded on the date actually MOVING, unlike the call below: a ref left pointing
+        // at a value `date` never took would make a later external change TO that value look like
+        // an echo of this forward, which is the hazard that comment describes.
         forwardedDateRef.current = row.date;
-        onSelectDate?.(row.date);
       }
+      // ⚠️ Called even when the date is UNCHANGED, and that is the whole point (Codex, #803).
+      // This call now carries the row's PROVENANCE as well as its date, so "the parent already has
+      // this date" stopped being a reason to stay silent. Picking tonight's aurora row is the
+      // common case where they match — the map already sits on today — so the skip meant `App`
+      // never learned the selection named a NIGHT. Come UK midnight, `resolveMapDate` saw an
+      // unflagged, now-past date, refused it, and advanced the map to tomorrow while the night the
+      // reader was watching ran on until dawn. It also leaves the flag correct in the other
+      // direction: a SOLAR row picked on the date a night row already occupied clears it, so the
+      // night licence stays per-pick rather than sticking to whatever came after it.
+      onSelectDate?.(row.date, { isNight: row.kind !== EVENT_KIND.SOLAR });
     } else {
       setLocalNightDate(row.date);
     }
@@ -4164,18 +4296,34 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               const { forecast, hourlyData, isPureWildlife, isWaterfall } = getContentProps(loc);
               const locAuroraScore = isAuroraMode ? (auroraScores[loc.name] ?? null) : null;
               // Look up briefing evaluation score for this location (if any)
-              const briefingScore = !isAuroraMode ? lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType) : null;
+              // ⚠️ Gated, and read through the SHARED accessors rather than re-derived here.
+              // This block used to carry its own copy of the briefing-then-forecast precedence and
+              // its own `resolveStandDown` call, so the window gate above reached the chips, the
+              // pins, the rating floor and the counts footer but not these medallions. Normally
+              // invisible — `MapHeatLayer` pins the marker panes to opacity 0 — but that layer
+              // mounts only on `heatOffered`, so with no field at all (an empty roster join) the
+              // medallions are the tab's ONLY location vocabulary, and an admin with the `?`
+              // unknown lens on could see them still wearing a window's stars after every other
+              // surface had disowned it. Two review lenses found it independently.
+              const briefingScore = (!isAuroraMode && solarWindowOnScreen())
+                ? lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType) : null;
               const markerRating = isAuroraMode
                 ? (locAuroraScore?.stars ?? null)
-                : (briefingScore?.rating ?? forecast?.rating ?? null);
-              const markerFiery = (!isAuroraMode && role !== 'LITE_USER')
+                : getRatingForLocation(loc);
+              // ⚠️ The gate belongs on BOTH sources, not just `briefingScore`. These fall back to
+              // `forecast`, which is read straight off `forecastsByDate` by date — so gating only
+              // the briefing half left the medallion's arcs drawing a window's fiery/golden
+              // potential after its star had gone (mutation-checked: that half-fix survived).
+              const markerDetail = !isAuroraMode && role !== 'LITE_USER' && solarWindowOnScreen();
+              const markerFiery = markerDetail
                 ? (briefingScore?.fierySkyPotential ?? forecast?.fierySkyPotential ?? null)
                 : null;
-              const markerGolden = (!isAuroraMode && role !== 'LITE_USER')
+              const markerGolden = markerDetail
                 ? (briefingScore?.goldenHourPotential ?? forecast?.goldenHourPotential ?? null)
                 : null;
-              const isStandDown = !isAuroraMode && !isPureWildlife
-                && resolveStandDown(briefingScore, forecast);
+              // `isStandDownLocation` already carries the aurora and pure-wildlife guards this
+              // line used to repeat, plus the window gate they lacked.
+              const isStandDown = isStandDownLocation(loc);
               // Drill-down emphasis is overlay-only: `emphasiseLocationName` is set solely by
               // the Plan-tab map overlay, never by the Map tab (which passes the same handoff
               // for its escape-hatch landing and must keep every pin equal).
@@ -4709,7 +4857,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               </div>
             )}
 
-            {!isAuroraMode && !isAstroMode && briefingScores.size > 0 && (() => {
+            {/* ⚠️ Gated on {@code solarWindowOnScreen()} as well as on the score map. This chip
+                reads `briefingScores` by `|date|eventType|` — the SAME index the rating accessor
+                does, carrying rows for windows the EV list excludes — so left ungated it went on
+                asserting "scored locations shown" over the map the gate had just emptied. It is
+                the fixed defect one chip over, and it is visible in the production capture that
+                reported it. The OVERLAY's own copy above is deliberately NOT gated: the predicate
+                exempts `overlayMode` outright, so a guard there would be dead code wearing a
+                comment that claims otherwise. */}
+            {!isAuroraMode && !isAstroMode && briefingScores.size > 0 && solarWindowOnScreen() && (() => {
               const suffix = `|${date}|${eventType}|`;
               for (const key of briefingScores.keys()) {
                 if (key.includes(suffix)) {
@@ -4836,6 +4992,16 @@ MapView.propTypes = {
    * is entered, and — since map-tab-v2-plan.md §3 P6 — by the window control whenever a picked EV
    * row's date is in {@code forecastDates}; the parent stays the owner of the date and may ignore
    * one not on the strip.
+   */
+  /**
+   * Asks the parent to adopt a date: {@code (date, { isNight }) => void}.
+   *
+   * <p>⚠️ <b>The second argument is the selection's PROVENANCE and is not optional in practice.</b>
+   * `App` clamps a past date away unless the selection NAMED A NIGHT, and it cannot infer that from
+   * the value — in the small hours the night in progress and a stale solar pick are the same
+   * string. This file has exactly TWO call sites (the aurora auto-jump and {@code selectEvRow});
+   * both pass it, both are pinned by test, and a third must do the same. Omitting it is silent:
+   * the date is simply refused and the map stays where it was.
    */
   onSelectDate: PropTypes.func,
   /**

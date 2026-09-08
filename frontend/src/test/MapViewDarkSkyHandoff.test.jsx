@@ -112,7 +112,7 @@ const visibleCount = () => screen.queryAllByTestId('marker').length;
 
 describe('MapView — the dark-sky handoff (D8, plan §6b)', () => {
   it('with no handoff, every location is visible regardless of Bortle class', () => {
-    render(<MapView locations={LOCATIONS} date={TODAY} autoEventType={null} />);
+    render(<MapView locations={LOCATIONS} date={TODAY} forecastDates={[TODAY]} autoEventType={null} />);
     expect(visibleCount()).toBe(3);
   });
 
@@ -121,6 +121,7 @@ describe('MapView — the dark-sky handoff (D8, plan §6b)', () => {
       <MapView
         locations={LOCATIONS}
         date={TODAY}
+        forecastDates={[TODAY]}
         autoEventType={null}
         handoffDarkSky
         handoffNonce={1}
@@ -140,6 +141,7 @@ describe('MapView — the dark-sky handoff (D8, plan §6b)', () => {
       <MapView
         locations={LOCATIONS}
         date={TODAY}
+        forecastDates={[TODAY]}
         autoEventType={null}
         handoffDarkSky
         handoffNonce={1}
@@ -167,6 +169,7 @@ describe('MapView — the dark-sky handoff (D8, plan §6b)', () => {
       <MapView
         locations={LOCATIONS}
         date={TODAY}
+        forecastDates={[TODAY]}
         autoEventType={null}
         handoffFilterAction="SEASCAPE"
         handoffDarkSky={false}
@@ -185,7 +188,7 @@ describe('MapView — the dark-sky handoff (D8, plan §6b)', () => {
   it('an UNRELATED handoff (handoffDarkSky omitted, not false) never clears a manually-set '
       + 'filter — found by adversarial review: handoffNonce is one counter shared by every map '
       + 'handoff in the app, not just coming-up ones', () => {
-    const { rerender } = render(<MapView locations={LOCATIONS} date={TODAY} autoEventType={null} />);
+    const { rerender } = render(<MapView locations={LOCATIONS} date={TODAY} forecastDates={[TODAY]} autoEventType={null} />);
     // No handoff here, so nothing has opened the popover yet — open it manually before reaching
     // its dark-sky toggle (map-tab-v2-plan.md §3 P7 moved it off the tab's old always-rendered
     // drawer).

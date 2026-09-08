@@ -9,7 +9,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
-  buildMapEvents, findEvIndex, nightLabel, EVENT_KIND, solarHorizonDates,
+  buildMapEvents, findEvIndex, nightLabel, EVENT_KIND, solarHorizonDates, solarRowPredicate,
 } from '../utils/mapEvents.js';
 import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 
@@ -721,3 +721,96 @@ describe('solarHorizonDates', () => {
   });
 });
 
+
+/**
+ * `solarRowPredicate` — the reusable half of the rule `buildMapEvents` applies when it decides
+ * whether to emit a solar row at all.
+ *
+ * <p>The agreement suite is the important one: `MapView` gates every per-window rating read on
+ * this predicate precisely so the star chips cannot answer for a window the pill has just called
+ * "No forecast", and that guarantee is worth exactly as much as the two staying identical. Each
+ * case is therefore driven through BOTH functions from one set of inputs, so a fixture cannot
+ * pre-satisfy its own predicate.
+ */
+describe('solarRowPredicate', () => {
+  const YESTERDAY = '2026-09-01';
+  const DAY_AFTER = '2026-09-04';
+
+  /** Every (date, targetType) `buildMapEvents` actually emitted a solar row for. */
+  function emittedSolarKeys(args) {
+    return new Set(
+      buildMapEvents({ ...baseArgs(), ...args })
+        .filter((r) => r.kind === EVENT_KIND.SOLAR)
+        .map((r) => `${r.date}:${r.eventType}`),
+    );
+  }
+
+  it.each([
+    ['a served window', { solarWindows: [solarWindow(TODAY, 'SUNSET')] }],
+    ['a forecast date, today-forward', { forecastDates: [TODAY, TOMORROW] }],
+    ['a forecast date in the PAST', { forecastDates: [YESTERDAY, TODAY] }],
+    ['a served window on a date outside the forecast domain', {
+      solarWindows: [solarWindow(DAY_AFTER, 'SUNRISE')], forecastDates: [TODAY],
+    }],
+    ['both, overlapping', {
+      solarWindows: [solarWindow(TODAY, 'SUNSET'), solarWindow(TOMORROW, 'SUNRISE')],
+      forecastDates: [YESTERDAY, TODAY, TOMORROW],
+    }],
+  ])('agrees with buildMapEvents for %s', (_label, args) => {
+    const emitted = emittedSolarKeys(args);
+    const predicate = solarRowPredicate({ ...args, todayStr: TODAY });
+    // Probed over a window wider than any fixture's own inputs, so a date neither side was told
+    // about is asserted on too.
+    for (const date of [YESTERDAY, TODAY, TOMORROW, DAY_AFTER]) {
+      for (const targetType of ['SUNRISE', 'SUNSET']) {
+        expect(
+          predicate(date, targetType),
+          `${date}:${targetType}`,
+        ).toBe(emitted.has(`${date}:${targetType}`));
+      }
+    }
+  });
+
+  it('is false for a PAST date the forecast endpoint still serves — the reported defect', () => {
+    // `GET /api/forecast` serves `today-2` onward, so `forecastDates` legitimately carries dates
+    // `buildMapEvents` clips away. That gap is what let a stale run's stars survive on the map.
+    const predicate = solarRowPredicate({
+      forecastDates: [YESTERDAY, TODAY], todayStr: TODAY,
+    });
+    expect(predicate(YESTERDAY, 'SUNSET')).toBe(false);
+    expect(predicate(TODAY, 'SUNSET')).toBe(true);
+  });
+
+  it('is true for an ELAPSED window that still has a row — never a "has it passed" test', () => {
+    // Today's sunrise after sunrise: the briefing retires it, but D-13 keeps it in the map's own
+    // domain and the `‹` stepper walks straight into it. Its rating is the real answer for it.
+    const predicate = solarRowPredicate({ forecastDates: [TODAY], todayStr: TODAY });
+    expect(predicate(TODAY, 'SUNRISE')).toBe(true);
+  });
+
+  it('distinguishes the two events of one date', () => {
+    const predicate = solarRowPredicate({
+      solarWindows: [solarWindow(DAY_AFTER, 'SUNSET')], forecastDates: [], todayStr: TODAY,
+    });
+    expect(predicate(DAY_AFTER, 'SUNSET')).toBe(true);
+    expect(predicate(DAY_AFTER, 'SUNRISE')).toBe(false);
+  });
+
+  it('answers TRUE for everything when it has no domain at all — unknown is not "no"', () => {
+    // An empty EV list draws no pill, so there is no second surface for a rating to contradict.
+    // Suppressing here would blank every rating on a mount that has not been handed the props.
+    const predicate = solarRowPredicate({ todayStr: TODAY });
+    expect(predicate(YESTERDAY, 'SUNSET')).toBe(true);
+    expect(predicate(DAY_AFTER, 'SUNRISE')).toBe(true);
+  });
+
+  it('starts gating as soon as EITHER input is non-empty', () => {
+    // The fail-open is keyed on having nothing at all, never on one of the two being absent —
+    // otherwise a pane that has its forecast domain but not yet its briefing would go ungated.
+    expect(solarRowPredicate({ forecastDates: [TODAY], todayStr: TODAY })(YESTERDAY, 'SUNSET'))
+      .toBe(false);
+    expect(
+      solarRowPredicate({ solarWindows: [solarWindow(TODAY, 'SUNSET')], todayStr: TODAY })(YESTERDAY, 'SUNSET'),
+    ).toBe(false);
+  });
+});
