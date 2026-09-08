@@ -2312,7 +2312,14 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // Reproduced in a browser, not theorised.
     auroraNightRequested.current = true;
     if (date === auroraNight || auroraAvailableDates.includes(date)) return;
-    onSelectDate(auroraNight);
+    // ⚠️ `{ isNight: true }` unconditionally — `auroraNight` IS a night by construction, and after
+    // UK midnight it is yesterday's date. Without the flag `resolveMapDate` reads it as a stale
+    // solar date and refuses it, so the jump lands nowhere; and because the latch above is set
+    // BEFORE this line, it never retries. That left the aurora tab opening on a date with no
+    // results — the paid run looking empty on entry — for the whole small-hours window this jump
+    // exists to serve. Found by Codex on #803, the second of the TWO `onSelectDate` call sites in
+    // this file to need provenance; if a third is ever added it needs it too.
+    onSelectDate(auroraNight, { isNight: true });
   }, [isAuroraMode, auroraAvailableDates, auroraNight, date, onSelectDate, localNightDate]);
 
   /**
@@ -4985,6 +4992,16 @@ MapView.propTypes = {
    * is entered, and — since map-tab-v2-plan.md §3 P6 — by the window control whenever a picked EV
    * row's date is in {@code forecastDates}; the parent stays the owner of the date and may ignore
    * one not on the strip.
+   */
+  /**
+   * Asks the parent to adopt a date: {@code (date, { isNight }) => void}.
+   *
+   * <p>⚠️ <b>The second argument is the selection's PROVENANCE and is not optional in practice.</b>
+   * `App` clamps a past date away unless the selection NAMED A NIGHT, and it cannot infer that from
+   * the value — in the small hours the night in progress and a stale solar pick are the same
+   * string. This file has exactly TWO call sites (the aurora auto-jump and {@code selectEvRow});
+   * both pass it, both are pinned by test, and a third must do the same. Omitting it is silent:
+   * the date is simply refused and the map stays where it was.
    */
   onSelectDate: PropTypes.func,
   /**

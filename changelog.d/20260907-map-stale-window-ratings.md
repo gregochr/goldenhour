@@ -126,6 +126,14 @@ already occupied clears it. ⚠️ Two `MapViewHeat` tests asserted the old sile
 claim that silence stood for (the EVENT moves, the DATE does not), and both were re-checked against
 a date-move mutant and a dropped `setEventType` to confirm they still guard what they used to.
 
+⚠️ **A fourth pass found the other `onSelectDate` call site.** The aurora auto-jump — which lands
+the map on the night in progress when the current date has no stored results — asked with a bare
+date, so after UK midnight the clamp refused the (past) night and the jump landed nowhere; the
+latch is set BEFORE the call, so it never retried. That is the "paid run looks empty on entry"
+symptom the auto-jump exists to prevent, re-created by the clamp shipped alongside it. There are
+exactly **two** call sites in `MapView` and both now carry provenance; the prop's own PropTypes
+comment says so, because this was the third defect in a row caused by one of them forgetting.
+
 One scope correction came out of the same pass. `solarRowPredicate` documents itself as solar-only —
 `served` holds no night keys — but `isStandDownLocation` early-returns for AURORA alone, so an astro
 night was reaching it and being judged by the *solar* domain. It could only suppress, never invent,

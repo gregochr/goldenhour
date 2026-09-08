@@ -256,14 +256,20 @@ describe('MapView aurora night date selection', () => {
     localStorage.clear();
   });
 
-  it('asks for the night in progress when the selected date has no aurora results', async () => {
+  it('asks for the night in progress, AS A NIGHT, when the selected date has no aurora results', async () => {
     // The headline defect: a forecast run at 02:00 stores under the 13th, the map opens on the
     // 14th, and the run the user paid for appears to have produced nothing.
+    //
+    // ⚠️ The provenance is half the assertion, not decoration (Codex, #803). `THE_NIGHT` is
+    // yesterday at this frozen clock, and `App`'s never-past clamp refuses a past date unless the
+    // selection NAMED a night. Asking with a bare date left the jump landing nowhere — and the
+    // latch is set BEFORE the call, so it never retries: the exact "paid run looks empty" symptom
+    // this test was written for, re-created by the clamp that shipped alongside it.
     const onSelectDate = vi.fn();
     const rendered = await renderMap({ date: THE_CALENDAR_DAY, onSelectDate });
     await enterAuroraMode(rendered);
 
-    await waitFor(() => expect(onSelectDate).toHaveBeenCalledWith(THE_NIGHT));
+    await waitFor(() => expect(onSelectDate).toHaveBeenCalledWith(THE_NIGHT, { isNight: true }));
   });
 
   it('leaves the date alone when it already has aurora results', async () => {

@@ -357,6 +357,25 @@ describe('App — panes handed to WindowFirstShell', () => {
       await act(async () => { mapPaneProps.last.onSelectDate(YESTERDAY); });
       expect(mapPaneProps.last.selectedDate).not.toBe(YESTERDAY);
     });
+
+    it('accepts a night the pane asks for with provenance, whatever asked for it', async () => {
+      // ⚠️ End-to-end for the pane's OTHER `onSelectDate` call site — the aurora auto-jump, which
+      // lands on the night in progress when the current date has no results. `MapView`'s own test
+      // pins that it passes `{ isNight: true }`; this pins that doing so is enough to make the jump
+      // actually land, rather than being refused as a past solar date and silently latched off.
+      // Driven through the prop rather than the effect, so it covers any caller that supplies
+      // provenance — the assertion is about `App`'s side of the contract.
+      getAuroraStatus.mockResolvedValue({
+        level: 'MODERATE', kpIndex: 6, currentNightDate: YESTERDAY, simulated: false,
+      });
+      fetchForecasts.mockResolvedValue(pastAndFutureForecasts());
+      renderApp();
+      await openMapTab();
+      expect(mapPaneProps.last.selectedDate).not.toBe(YESTERDAY);
+
+      await act(async () => { mapPaneProps.last.onSelectDate(YESTERDAY, { isNight: true }); });
+      expect(mapPaneProps.last.selectedDate).toBe(YESTERDAY);
+    });
   });
 
   it('hands the Operations pane to an admin', async () => {
