@@ -58,7 +58,7 @@ On phone the lens stacks into two labelled rows, each segmented control `flex: 1
 1. **Messages** (`#msgs`, empty by default) — origin/lens conflicts. See Interactions.
 2. **Section head:** `THE DAYS AHEAD` (mono 9.5px 600 `.1em` uppercase `--ink-3`) + 1px flexible rule + count `204 rated locations · 51 named` (mono 10px, hidden on phone). When the origin is a region the head reads `THE DAYS AHEAD · THE LAKE DISTRICT`.
 3. **The matrix** — see below.
-4. **Legend footer:** a 60×6px gradient bar `linear-gradient(90deg,#C8452F,#E0A542 52%,#8AAE72)` + `poor → worth it` + `later days render hazier — lower confidence` + right-aligned `Tap a window for its regions, tide and locations` (mono 10px `--ink-3`; the right-hand hint is desktop-only).
+4. **Legend footer:** a 60×6px gradient bar + `poor → worth it` + `later days look hazier — lower confidence` + right-aligned `Colour shows the whole forecast — the cards allow for your drive` (mono 10px `--ink-3`; the right-hand clause is desktop-only). A fourth clause, `unshaded — not scored`, shows only while a hatched plate is on screen and is deliberately NOT desktop-gated — the phone is where that misreading was reported. The bar was handed over as a fixed `linear-gradient(90deg,#C8452F,#E0A542 52%,#8AAE72)` and is now `rampGradientCss()`, sampled from whichever ramp is active — see the ramp adaptation under Design tokens.
 5. **Change line:** `Since your last look 52m ago · Thursday sunset ▲0.5 in Northumberland & Tyneside · …` — the two windows that actually moved, named, with the region that moved them. Mono 10px, window names in `--ink-2` 600.
 6. **Beyond line** (only when planning from home and something is out of range): `Beyond 3h and not in the field: Highlands & Skye — search to plan from one →`, mono 10px `rgba(242,231,211,.34)`, link in `--tide`.
 
@@ -80,12 +80,12 @@ Phone transposes the same markup with `grid-template-columns: repeat(2, 1fr)` an
 1. **Sun row** (`min-height 19px`): the word `SUNRISE` or `SUNSET`, mono 9px 600 `.09em` `--ink-3` (`--home` when this card's popup is open). Deliberately a word, not an arrow — a down arrow for sunset reads as a falling forecast.
 2. **Canvas** — the heat field. `width: 100%`, `radius 5px`, `background #13100e`. Height = card width × `clamp(HeatField.aspect(fit), 0.78, 1.0)`. Drawn at `cardWidth − 12` px, measured **per card** because a solo phone card spans the full row.
 3. **Value grid** (`.pls`): `grid-template-columns: auto 1fr`, `gap 4px 6px`, rows `min-height 20px`. Four rows, so every card's rows land on the same baselines:
-   - time (mono 12px 600 `--ink-2`) | **verdict word**, right-aligned, mono 11px 600 — `Worth it` `#A8C795`, `Maybe` `#EFC377`, `Poor` `#E58C7A`
+   - time (mono 12px 600 `--ink-2`) | **verdict word**, right-aligned, mono 11px 600 — `Worth it` `#A8C795`, `Maybe` `#EFC377`, `Poor` `#E58C7A`, plus a fourth the handoff has no equivalent for — `Not scored`, for a window the batch never rated
    - `SPREAD` (mono 8.5px 600 `.1em` uppercase `--ink-3`) | a 5-bar histogram, bars 5px wide in a 14px box, one bar per star band 1★→5★, height proportional to count (min 2px), each bar filled with that band's ramp colour at `.92` alpha, empty bands `rgba(242,231,211,.13)`. `title` gives exact counts. A lone spike on the right reads *one good spot, drive to it*; a right-weighted block reads *the whole area is on*.
    - rating (mono 12px 600, in that rating's ramp colour) | **the best location you could actually reach**, mono 11px 600 `--ink`, right-aligned, `line-height 1.3`, wrapping to two lines rather than ellipsing. `title` carries region · drive · leave-by. When nothing is in reach: label `Best`, value `nothing in reach` in `--ink-3` 400.
    - topics row, spanning both columns (`min-height 21px`, reserved even when empty so a topic-free card doesn't shorten its neighbours): every topic on that night, named in full, flex-wrapped `gap 4px 9px`, right-aligned, rarest first. Each is a glyph + short name, mono 10.5px 600 in the topic's own colour. Nothing is collapsed behind a `+2` and nothing depends on hover.
 4. **Verdict tint** on the whole card, not a chip: `.vg` `linear-gradient(rgba(138,174,114,.12), …)` over `--panel`; `.vm` `rgba(224,165,66,.1)`; `.vp` `rgba(200,69,47,.09)`. Hover deepens to `.17 / .15 / .14` over `--surface`. Low enough that it never competes with the field inside it.
-5. **The pick rides the border** as a fieldset legend: `.hc.best` gets `border-color #8AAE72` + `inset 0 0 0 1px rgba(138,174,114,.45)`; `.hc.also` gets `border-color rgba(138,174,114,.5)`. The label sits *in* the border line — `position: absolute; top: -8px; right: 13px; padding: 0 7px; background: inherit`, mono 10px 700 `.13em` uppercase, `line-height 16px`; `BEST BET` `#B6D49F`, `ALSO GOOD` `#8CA87A` 600. This keeps the verdict word in the same column on all six cards.
+5. **The pick rides the border** as a fieldset legend: `.hc.best` gets `border-color #8AAE72` + `inset 0 0 0 1px rgba(138,174,114,.45)`; `.hc.also` gets `border-color rgba(138,174,114,.5)`. The label sits *in* the border line — `position: absolute; top: -8px; right: 13px; padding: 0 7px; background: inherit`, mono 10px 700 `.13em` uppercase, `line-height 16px`; `BEST BET`, and `ALSO GOOD` at 600. This keeps the verdict word in the same column on all six cards. **The two lifted greens handed over for these labels are not what ships**: `#B6D49F` and `#8CA87A` appear nowhere in the frontend, and the legend reads `--color-badge-go` (`#A8C795`, the same green the `Worth it` verdict word uses) and `--color-verdict-go` (`#8AAE72`). Unlike the sibling substitution at `index.css:3037`, which states its reason, this pair has none recorded anywhere — so whether to restore the handoff's greens is an open question, not a settled adaptation.
 6. Open state (`.hc.on`): `border-color rgba(201,162,75,.62)`, `rgba(201,162,75,.11)` wash, no shadow, and the sun word / time go `--home`.
 
 **Exactly one card is `BEST BET` and one is `ALSO GOOD`** — top and runner-up by the best regional average in the window, and the runner-up is suppressed if it grades Poor. A recommendation that fires on half the week is not a recommendation. `ALSO GOOD` landing on a `Maybe` card is expected and fine.
@@ -116,7 +116,7 @@ Opens over the plan; the plan does not move. Scrim `rgba(8,6,5,.74)`. Card: `pos
 - **Topic rows** (only when the night has topics): `border 1px var(--border)` + `border-left 2px` in the topic colour, `background color-mix(in oklch, var(--tc) 6%, transparent)`, `radius 8px`, `padding 7px 11px`, `gap 10px`. Glyph 13px, name 12px 600, a 14px circled `i` whose `title` is the science note, the detail line mono 10.5px `--ink-2` (truncating), and a right-aligned scope note mono 9.5px `--ink-3` — `coastal regions · 4 in scope`.
 - **Tide row** (coastal windows only): `grid auto auto 1fr`, `gap 12px`, `border rgba(111,168,176,.28)` + `border-left 2px var(--tide)`, `background rgba(111,168,176,.055)`. Key `≈ TIDE` mono 10px 600 uppercase `#9CCBD1`; a 104×24 SVG sparkline (`--tide` stroke 1.5) with a dashed `--marginal` marker line and 2.4r dot at the window time; then three facts, mono 10.5px, with the significant words in `--ink` 600. Sparkline hidden on phone.
 - **Ranked locations** — a horizontal snap strip, cards `flex 0 0 calc((100% - 24px)/3.5)` desktop, `/2.6` iPad, `76%` phone. `border 1px var(--border)`, `radius 8px`, `padding 9px 10px`, `min-height 118px`, hover `translateY(-2px)`. Name 12.5px 600; rating chip in the ramp colour (`bg` at `.17`, ring at `.4`); region and `🚗 1h 18min · 46 mi` mono 10px `--ink-3`; `↰ leave 19:46` mono 10.5px with the time in `#EBD9A8` 600; footer `◉ Four days here →` turning `--tide` on hover. Sorted by rating then drive time, capped at 8.
-- **Footer** (`border-top`, `rgba(0,0,0,.22)`, mono 10.5px `--ink-3`): `Ranked by rating, then drive time.` + an active-filter chip (`rgba(201,162,75,.1)`, ring `rgba(201,162,75,.28)`, `#EBD9A8`) + right-aligned `See all 33 →` in `--tide`.
+- **Footer** (`border-top`, `rgba(0,0,0,.22)`, mono 10.5px `--ink-3`): `Ranked by rating, then drive time.` + an active-filter chip (`rgba(201,162,75,.1)`, ring `rgba(201,162,75,.28)`, `#EBD9A8`) + right-aligned `See all →` in `--tide` — the count is dropped, because it is already printed 8px to its left.
 
 ### 3. Location sheet — four days here (`screens/11-location-four-days.png`)
 
@@ -135,11 +135,11 @@ Triggered by the origin button or `/`. The masthead's tick line is replaced by t
 Three result kinds, in this order, each under a mono 9px uppercase section title with a lighter hint clause:
 - **Windows** — "opens it". Matches day and time-of-day words (`thursday sunset`, `tomorrow dawn`, `fri`, `21`).
 - **Regions** — "re-points the plan and the heat". Selecting one **sets the origin**.
-- **Locations** — "four-day view". Capped at 5.
+- **Locations** — "four-day view". Capped at 8 — `MAX_RESULTS_PER_GROUP`, one cap shared by all three groups; the handoff set 5 for this group alone.
 
-Row (`.res`): `grid auto 1fr auto auto`, `gap 11px`, `padding 8px 10px`, `radius 8px`. Glyph (`◇` location, `◎` region in `--home`, `◷` window in `--tide`); name 13.5px 600 with the matched span in `<mark>` (`rgba(201,162,75,.28)` / `#F6E9C8`); sub-line mono 10px `--ink-3` (region, drive time, and `outside your plan` in `--marginal` where relevant); then the best figure (mono 12px 600 over a 10.5px caption); then an action chip in `--tide` — `4 DAYS` / `PLAN FROM HERE` / `PLANNING NOW` / `OPEN WINDOW` (hidden on phone). Selected/hover: `rgba(201,162,75,.1)` with `rgba(201,162,75,.32)` border.
+Row (`.res`): `grid auto 1fr auto auto`, `gap 11px`, `padding 8px 10px`, `radius 8px`. Glyph (`◇` location, `◎` region in `--home`, `◷` window in `--tide`); name 13.5px 600 with the matched span in `<mark>` (`rgba(201,162,75,.28)` / `#F6E9C8`); sub-line mono 10px `--ink-3` (region, drive time, and `outside your plan` in `--marginal` where relevant); then the best figure (mono 12px 600 over a 10.5px caption); then an action chip in `--tide`, uppercased in CSS — `Next few days` / `Plan from here` / `Planning now` / `Open` (hidden on phone). The first and last are adaptations: the handoff read `4 DAYS`, and the sheet it opens derives and prints its own span (three days whenever today still has both its windows ahead), so a fixed `4` would sit beside the same number measured — `plan-matrix-plan.md` §4 A23, whose own wording this line supersedes. Selected/hover: `rgba(201,162,75,.1)` with `rgba(201,162,75,.32)` border.
 
-Empty query shows three windows and three recent locations. No match shows `Nothing called "xyz"` plus two suggestions. Footer strip: `↑↓ move · enter open`.
+Empty query shows three windows and three recent locations. No match shows `Nothing called "xyz"` plus two suggestions. Footer strip: `↑↓ move · ↵ open · esc close`.
 
 Matching is accent- and punctuation-insensitive, expands `&` to `and`, folds `saint` to `st`, and scores prefix matches highest — `st marys`, `stmarys` and `bait island` (an alias) all find St Mary's Lighthouse.
 
@@ -147,7 +147,7 @@ Matching is accent- and punctuation-insensitive, expands `&` to `and`, folds `sa
 
 ## Interactions & behaviour
 
-**Origin.** The single most important behaviour. `setOrigin(o)` clears the region filter, the open location, and the search, sets reach to `2h 30` at home / `1h 30` away, and re-renders everything. Consequences, all derived rather than special-cased:
+**Origin.** The single most important behaviour. `setOrigin(o)` clears the region filter, the open location, and the search, sets reach to `1h 30` away (`AWAY_TIER_ID`) and to the day-derived default at home — `45 min` on a weekday, `2h 30` at the weekend, rather than the handoff's flat `2h 30` (plan §2.5: a pure function of the date, so it needs no storage, no column and no owner) — and re-renders everything. Consequences, all derived rather than special-cased:
 - Every heat field refits to the new scope's bounding box (`HeatField.bbox(spots, pad)`), so all seven maps zoom together.
 - Drive times switch from `min` (from home) to `lmin` (from the region's local base), which re-ranks every list and recomputes every leave-by.
 - Best bet and also-good recompute, and can move to a different window.
@@ -227,6 +227,8 @@ HeatField.ramp(score) / rgb(c, a) / clamp(v, a, b) / fit(cv, w, h) / radiusFor(m
 
 `opts`: `{ grid, radius, blur, line, conf, focus, fit }`. Spatial bucketing is what makes 200+ locations viable — do not replace it with a naive per-pixel loop over all points.
 
+**Adaptation.** The kernel was ported close to as-is, but the single `heat-field.js` became **three** modules, so the public surface above is not where six of those functions live: `bbox`, `latLngBounds`, `aspect` and `clamp` are in `utils/heatGeometry.js`, and `ramp`/`rgb` in `utils/scoreRamp.js` (see the ramp adaptation under Design tokens); `utils/heatField.js` keeps `field`, `paint`, `drawGeo`, `drawTiles`, `proj`, `centroid`, `fit`, `load` and `radiusFor`, and adds `land()` and `kmPerPx()`. `opts` has grown past the seven listed — `alpha`, `bloom`, `bloomBlur`, `clipSoft`, `clipDy` and `opacity` all reach the kernel, from the heat-field series that added the bloom, the land clip and the coastline stroke. The bucketing is intact.
+
 Values this design passes in:
 - Thumbnails: `{ grid: 4, radius: max(10, cardW × 0.155), blur: 2.4, line: 0.5, conf: CONF[i], fit }`
 - Popup field: `{ grid: 6, radius: max(20, boxW × 0.072), blur: 3.6, line: 0.85, focus, conf, fit }`
@@ -254,9 +256,9 @@ One gotcha preserved in a comment there: the bounding box must be a corner `Mult
 --coral         #E8593F     brand kicker
 ```
 
-Text on tinted grounds uses lifted variants of the grade colours, not the tokens themselves: `#A8C795` (good), `#EFC377` (marginal), `#E58C7A` (poor), `#B6D49F` / `#8CA87A` (best bet / also good), `#EBD9A8` (gold-on-dark), `#9CCBD1` (tide-on-dark), `#F9F1E2` (wordmark).
+Text on tinted grounds uses lifted variants of the grade colours, not the tokens themselves: `#A8C795` (good), `#EFC377` (marginal), `#E58C7A` (poor), `#B6D49F` / `#8CA87A` (best bet / also good — **not shipped**; see the pick legend in view 1), `#EBD9A8` (gold-on-dark), `#9CCBD1` (tide-on-dark), `#F9F1E2` (wordmark).
 
-**Score ramp** — the single source of truth for what a rating looks like, interpolated linearly between stops (in `heat-field.js`):
+**Score ramp** — interpolated linearly between stops. As handed over this was the single source of truth for what a rating looks like, and it still describes one ramp exactly:
 
 ```
 1★  rgb(176, 58, 42)
@@ -265,6 +267,8 @@ Text on tinted grounds uses lifted variants of the grade colours, not the tokens
 4★  rgb(176,190,116)
 5★  rgb(138,174,114)
 ```
+
+**Adaptation (heat-scale unification, 2026-08-26).** There are now **two** ramps, and this is no longer the default one. The stops above ship verbatim as `STOPS_VERDICT` in `utils/scoreRamp.js`; beside them sits an eight-stop `STOPS_TEMP` (cold blue at 1★ through gold to hot orange-red at 5★, its uneven spacing load-bearing) from the `docs/design/temperature-scale` handoff. Which ramp is active is a per-reader setting (`mapColourScale`, V147) resolved by `resolveMode`, and `DEFAULT_MODE` is `'temp'` — so a reader who has never chosen sees the ramp this document does not describe. The mode is module-global precisely so the field, the markers and the legend cannot disagree about what a colour means. This landed after M5, which is why `plan-matrix-plan.md` §4 does not carry it.
 
 **Type.** IBM Plex Sans (400/500/600/700) for UI; IBM Plex Mono (400/500/600) for every number, time, label and key — anything tabular or coded; Newsreader (400/500/600 + italic) for prose only (region narrative, location reasoning, lead paragraphs). The wordmark is Newsreader 600.
 
