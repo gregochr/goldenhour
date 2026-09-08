@@ -591,6 +591,52 @@ describe('MapView aurora night — a PAST night row inside the forecast domain (
     await waitFor(() => expect(getAuroraForecastResults).toHaveBeenCalledWith(PAST_NIGHT));
   });
 
+  it('reports night provenance even when the date is UNCHANGED (Codex, #803)', async () => {
+    // ⚠️ The common case, and the one the old `row.date !== date` skip silently dropped: the map
+    // already sits on today, and the reader picks TONIGHT. `App` therefore never learned the
+    // selection named a night — so at UK midnight `resolveMapDate` saw an unflagged, now-past date
+    // and advanced the map to tomorrow, while the night runs on until dawn.
+    const TONIGHT = TODAY_DATE;
+    availableDatesRef.current = [TONIGHT];
+    const onSelectDate = vi.fn();
+    await renderMap({
+      date: TONIGHT, // already the row's own date — nothing for the forward to change
+      forecastDates: [TONIGHT],
+      locations: makeLocations([TONIGHT]),
+      onSelectDate,
+    });
+
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-win-pill')); });
+    const row = screen.getAllByTestId('wf-win-row')
+      .find((r) => r.getAttribute('data-ev-id') === `aur:${TONIGHT}:AURORA`);
+    expect(row?.getAttribute('data-ev-id')).toBe(`aur:${TONIGHT}:AURORA`);
+    await act(async () => { fireEvent.click(row); });
+
+    expect(onSelectDate).toHaveBeenCalledWith(TONIGHT, { isNight: true });
+  });
+
+  it('reports SOLAR provenance on the same date, so the night licence cannot stick', async () => {
+    // The other direction: picking a solar row for a date a night row already occupied must clear
+    // the flag rather than leave the night's licence attached to a calendar day.
+    const TONIGHT = TODAY_DATE;
+    availableDatesRef.current = [TONIGHT];
+    const onSelectDate = vi.fn();
+    await renderMap({
+      date: TONIGHT,
+      forecastDates: [TONIGHT],
+      locations: makeLocations([TONIGHT]),
+      onSelectDate,
+    });
+
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-win-pill')); });
+    const solar = screen.getAllByTestId('wf-win-row')
+      .find((r) => r.getAttribute('data-ev-id') === `solar:${TONIGHT}:SUNSET`);
+    expect(solar?.getAttribute('data-ev-id')).toBe(`solar:${TONIGHT}:SUNSET`);
+    await act(async () => { fireEvent.click(solar); });
+
+    expect(onSelectDate).toHaveBeenCalledWith(TONIGHT, { isNight: false });
+  });
+
   it('still forwards a night row that is in the domain AND today-forward', async () => {
     // The control: the clause added for the case above must not swallow the ordinary forward.
     const FUTURE_NIGHT = '2026-08-16';
@@ -609,7 +655,7 @@ describe('MapView aurora night — a PAST night row inside the forecast domain (
     expect(row?.getAttribute('data-ev-id')).toBe(`aur:${FUTURE_NIGHT}:AURORA`);
     await act(async () => { fireEvent.click(row); });
 
-    expect(onSelectDate).toHaveBeenCalledWith(FUTURE_NIGHT);
+    expect(onSelectDate).toHaveBeenCalledWith(FUTURE_NIGHT, { isNight: true });
   });
 });
 

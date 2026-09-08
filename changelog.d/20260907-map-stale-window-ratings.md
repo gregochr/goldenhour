@@ -115,6 +115,17 @@ makes a night selection (`kind: 'aurora'`) through a single `selectDate` setter 
 drift. ⚠️ Mutation testing then caught the sequel: a flag that is only ever *set* lets a solar pick
 made after the banner inherit the licence, so the licence is per-pick and the setter clears it.
 
+⚠️ **A third pass found the provenance never reaching the parent on the route that needs it most.**
+`selectEvRow` skipped `onSelectDate` entirely when the row's date already matched the map's — which
+is the common case for picking TONIGHT, since the map already sits on today — so `App` never learned
+the selection had named a night, and at UK midnight the clamp advanced the map off a night still in
+progress. The callback now carries the row's kind and is called even on an unchanged date: the call
+means more than "adopt this date" now, so "the parent already has it" stopped being a reason to stay
+silent. That also settles the flag in the other direction — a solar row picked on a date a night row
+already occupied clears it. ⚠️ Two `MapViewHeat` tests asserted the old silence; they now assert the
+claim that silence stood for (the EVENT moves, the DATE does not), and both were re-checked against
+a date-move mutant and a dropped `setEventType` to confirm they still guard what they used to.
+
 One scope correction came out of the same pass. `solarRowPredicate` documents itself as solar-only —
 `served` holds no night keys — but `isStandDownLocation` early-returns for AURORA alone, so an astro
 night was reaching it and being judged by the *solar* domain. It could only suppress, never invent,

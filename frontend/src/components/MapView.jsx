@@ -3439,9 +3439,21 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
         // Recorded so the `[date]` invalidation effect above can tell this forward apart from an
         // externally-driven `date` change (adversarial review, BLOCKING) — set immediately before
         // the call, never after, since the parent may (in a real app) re-render synchronously.
+        // ⚠️ Still guarded on the date actually MOVING, unlike the call below: a ref left pointing
+        // at a value `date` never took would make a later external change TO that value look like
+        // an echo of this forward, which is the hazard that comment describes.
         forwardedDateRef.current = row.date;
-        onSelectDate?.(row.date);
       }
+      // ⚠️ Called even when the date is UNCHANGED, and that is the whole point (Codex, #803).
+      // This call now carries the row's PROVENANCE as well as its date, so "the parent already has
+      // this date" stopped being a reason to stay silent. Picking tonight's aurora row is the
+      // common case where they match — the map already sits on today — so the skip meant `App`
+      // never learned the selection named a NIGHT. Come UK midnight, `resolveMapDate` saw an
+      // unflagged, now-past date, refused it, and advanced the map to tomorrow while the night the
+      // reader was watching ran on until dawn. It also leaves the flag correct in the other
+      // direction: a SOLAR row picked on the date a night row already occupied clears it, so the
+      // night licence stays per-pick rather than sticking to whatever came after it.
+      onSelectDate?.(row.date, { isNight: row.kind !== EVENT_KIND.SOLAR });
     } else {
       setLocalNightDate(row.date);
     }
