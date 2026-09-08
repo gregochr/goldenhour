@@ -530,6 +530,89 @@ describe('MapView aurora night — the KEPT-LOCAL branch via the real window con
   });
 });
 
+/**
+ * The kept-local branch's SECOND trigger — a night row whose date is IN `forecastDates` but has
+ * already gone past.
+ *
+ * <p>⚠️ This is a regression PR #803 introduced and Codex caught. `buildMapEvents` deliberately
+ * clips no night row to today-forward (only the D-13 solar filler is clipped) and is handed the
+ * RAW available-date lists, while `GET /api/forecast` serves `today-2` onward — so last night's
+ * aurora row is both offered in the dropdown AND `inForecastDomain`. The forward branch therefore
+ * fired: it cleared `localNightDate` and asked the parent to adopt a past date, which
+ * `resolveMapDate`'s never-past clamp then refused. The row could be selected and went nowhere.
+ *
+ * <p>The pane's forwardability test mirrors the parent's ACCEPTANCE rule — that is what
+ * `localNightDate` is for — so it had to gain the same clause. Kept local, the night's own content
+ * is fetched and the viewline gate lands on it, which is all a night row needs the date for.
+ */
+describe('MapView aurora night — a PAST night row inside the forecast domain (Codex, #803)', () => {
+  /** Yesterday relative to the frozen clock, and deliberately a MEMBER of `forecastDates`. */
+  const PAST_NIGHT = '2026-08-13';
+  const TODAY_DATE = '2026-08-14';
+
+  beforeEach(() => {
+    localStorage.clear();
+    mockUseAuth.mockReturnValue({ role: 'ADMIN' });
+    // The latch stays inert: `resolveAuroraNight` falls back to the UK calendar date, which is not
+    // in `availableDatesRef`, so the auto-jump returns early on every render.
+    auroraStatusRef.current = null;
+    availableDatesRef.current = [PAST_NIGHT];
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(`${TODAY_DATE}T12:00:00Z`));
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    localStorage.clear();
+  });
+
+  it('keeps it local rather than forwarding a date the parent would refuse', async () => {
+    const onSelectDate = vi.fn();
+    getAuroraForecastResults.mockClear();
+    await renderMap({
+      date: TODAY_DATE,
+      // ⚠️ PAST_NIGHT IS in the domain — that is the whole point. `today-2` onward is what the
+      // forecast endpoint serves, so this is the ordinary production shape, not a contrived one.
+      forecastDates: [PAST_NIGHT, TODAY_DATE],
+      locations: makeLocations([PAST_NIGHT, TODAY_DATE]),
+      onSelectDate,
+    });
+
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-win-pill')); });
+    const row = screen.getAllByTestId('wf-win-row')
+      .find((r) => r.getAttribute('data-ev-id') === `aur:${PAST_NIGHT}:AURORA`);
+    // The row is offered — `buildMapEvents` keeps every stored night on purpose.
+    expect(row?.getAttribute('data-ev-id')).toBe(`aur:${PAST_NIGHT}:AURORA`);
+    await act(async () => { fireEvent.click(row); });
+
+    // (a) Never forwarded: the parent's clamp would refuse it, so asking is what stranded it.
+    expect(onSelectDate).not.toHaveBeenCalled();
+    // (b) And the selection actually took — that night's own content is fetched, which is only
+    // possible if `nightDate` resolved to the kept-local override rather than staying on `date`.
+    await waitFor(() => expect(getAuroraForecastResults).toHaveBeenCalledWith(PAST_NIGHT));
+  });
+
+  it('still forwards a night row that is in the domain AND today-forward', async () => {
+    // The control: the clause added for the case above must not swallow the ordinary forward.
+    const FUTURE_NIGHT = '2026-08-16';
+    availableDatesRef.current = [FUTURE_NIGHT];
+    const onSelectDate = vi.fn();
+    await renderMap({
+      date: TODAY_DATE,
+      forecastDates: [TODAY_DATE, FUTURE_NIGHT],
+      locations: makeLocations([TODAY_DATE, FUTURE_NIGHT]),
+      onSelectDate,
+    });
+
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-win-pill')); });
+    const row = screen.getAllByTestId('wf-win-row')
+      .find((r) => r.getAttribute('data-ev-id') === `aur:${FUTURE_NIGHT}:AURORA`);
+    expect(row?.getAttribute('data-ev-id')).toBe(`aur:${FUTURE_NIGHT}:AURORA`);
+    await act(async () => { fireEvent.click(row); });
+
+    expect(onSelectDate).toHaveBeenCalledWith(FUTURE_NIGHT);
+  });
+});
+
 describe('MapView aurora night — a night row must not blank the solar windows\' verdicts', () => {
   /**
    * ⚠️ **The regression this pins is one an adversarial review found in L1 and no test caught.**

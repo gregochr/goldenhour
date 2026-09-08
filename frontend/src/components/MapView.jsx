@@ -3418,7 +3418,22 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     // Every served/D-13 solar row happens to carry `inForecastDomain: true` by construction, so
     // this reads identically to the old `row.kind === 'solar'` shortcut in practice — but it is no
     // longer a SEPARATE claim that could silently drift from the EV list's own domain test.
-    if (row.inForecastDomain) {
+    //
+    // ⚠️ <b>AND today-forward, because the parent's acceptance rule is what this test mirrors.</b>
+    // `localNightDate` exists for "a night row whose date `App` would reject", and `App` now
+    // rejects a PAST date as well as one outside the domain (`utils/mapDates.resolveMapDate`).
+    // Night rows carry no today-forward clip — `buildMapEvents` deliberately keeps every stored
+    // night — and `GET /api/forecast` serves `today-2` onward, so last night's astro row is both
+    // offered AND `inForecastDomain`. Forwarding it cleared `localNightDate` and then had the
+    // forward refused, leaving a row that could be selected and went nowhere: a control that opens
+    // onto nothing. Keeping it local instead lands the astro/aurora fetches and the viewline gate
+    // on the right night, which is the only thing a night row needs the date for. Found by Codex
+    // on #803; the clamp that made it reachable is in the same PR.
+    //
+    // Inert for solar by construction: a served window is never past (the briefing retires elapsed
+    // ones) and the D-13 filler branch already requires `date >= todayStr`, so this narrows nothing
+    // that was reachable — it is one uniform rule rather than a night-only special case.
+    if (row.inForecastDomain && row.date >= mapTodayStr) {
       setLocalNightDate(null);
       if (row.date !== date) {
         // Recorded so the `[date]` invalidation effect above can tell this forward apart from an

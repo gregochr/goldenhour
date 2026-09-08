@@ -89,6 +89,20 @@ Four `MapView` test files were mounting the tab with a `date` but no `forecastDa
 the tab's only production caller cannot produce. They now pass one, so they exercise the gated path
 rather than the empty-domain fail-open.
 
+⚠️ **Codex found one more instance of the aurora class, in the same clamp.** `buildMapEvents`
+deliberately clips no NIGHT row to today-forward (only the D-13 solar filler is clipped) and is
+handed the raw available-date lists, while `GET /api/forecast` serves `today-2` onward — so last
+night's astro/aurora row is both offered in the window control AND `inForecastDomain`. Selecting it
+therefore took `selectEvRow`'s forward branch, which cleared `localNightDate` and asked `App` to
+adopt a past date; the clamp refused, and the row became one that could be selected and went
+nowhere — a control that opens onto nothing, reachable daily since astro conditions are written
+nightly. The pane's forwardability test mirrors the parent's *acceptance* rule (that is what
+`localNightDate` is for), so it gained the same today-forward clause: the night is kept local, and
+its own fetches and the viewline gate land on it, which is all a night row needs the date for. Inert
+for solar by construction — a served window is never past and the filler branch already requires
+today-forward. One earlier review lens had flagged this route and framed it as a *ratings* concern,
+which the rating gate does cover; that it also made the row dead was missed.
+
 One scope correction came out of the same pass. `solarRowPredicate` documents itself as solar-only —
 `served` holds no night keys — but `isStandDownLocation` early-returns for AURORA alone, so an astro
 night was reaching it and being judged by the *solar* domain. It could only suppress, never invent,
