@@ -1,5 +1,12 @@
 # Handover: reconstruct the trend peak from the Open-Meteo forecast archive
 
+**Status: UNEXECUTED, re-verified 2026-09-08** — nothing on main implements it (no
+`trend_peak_recon` table, no reconstruction endpoints; the `OpenMeteoArchiveClient` that
+does exist serves cloud verification, not this). Its precondition is met: the prompt-change
+session committed 2026-08-18 (v2.18.11). F6 in `cloud-approach-veto-fix.md` §4 is the
+forward-looking sibling (persist the peak from now on); this plan recovers the historical
+peaks the cap-2-on-high-peak sizing cut needs.
+
 Self-contained implementation plan. Backend-only. Adds ONE new archive client call family, ONE
 new table, and two admin endpoints. **Does not touch** `cloud_verification` (its self-healing
 rule would re-verify all 29k rows if any observation were added there — that is the landmine this

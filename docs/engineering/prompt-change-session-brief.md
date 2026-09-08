@@ -1,5 +1,8 @@
 # Session brief: the two prompt changes (veto demotion + blanket rewording)
 
+**Status: the session ran 2026-08-18 and both changes SHIPPED in v2.18.11.** Kept as the record
+of the brief that session started from.
+
 Kickoff brief for the supervised prompt-change session. Written 2026-08-17 by the session that
 ran the measurement program; the user starts the implementing session (Opus, ultracode) with a
 prompt pointing here.

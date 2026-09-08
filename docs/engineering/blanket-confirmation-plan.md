@@ -1,8 +1,11 @@
 # Plan: stop the far-solar reading confirming a blanket
 
-**Status: PROPOSED, GATED on the blanket-precision cut. Not a handover task.** Like the veto
-demotion, this moves prompt-regression assertions (user-owned) and shares its two stop-points;
-per the demotion plan's §6, both changes execute in one supervised session.
+**Status: SHIPPED 2026-08-18 in v2.18.11**, alongside the veto demotion in the single supervised
+session the two plans required. The gate fired: the blanket-precision cut measured **53.6%** of
+promptable blanket calls over an observed-open corridor, double the pre-registered 25% threshold
+(veto doc §9, "The triage cut"). Kept as the record. Original framing: like the veto demotion,
+this moves prompt-regression assertions (user-owned) and shares its two stop-points; per the
+demotion plan's §6, both changes execute in one supervised session.
 
 ## 1. The evidence (veto doc §9, strip split, 2026-08-17)
 

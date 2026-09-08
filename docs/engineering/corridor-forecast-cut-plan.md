@@ -1,5 +1,8 @@
 # Handover: forecast-conditioned corridor buckets on the cloud-verification report
 
+**Status: SHIPPED as #522 (the `fcst*` buckets). Kept as the record of the task's scope and
+reasoning.**
+
 Self-contained implementation plan. Backend-only, read-side only: no migration, no new sampling,
 no scoring change. Sibling of the `&midCanvas` re-cut that landed as PR #512 — same shape, same
 files, same conventions.

@@ -1,5 +1,9 @@
 # Handover: underTriageCut variants for the veto and blocked families
 
+**Status: SHIPPED as #529. Kept as the record of the task's scope and reasoning.** Its results —
+the re-attribution that overturned the anti-selection headline — are recorded in the veto doc's
+§9, "The triage cut".
+
 Self-contained implementation plan. Backend-only, read-side only: no migration, no new sampling,
 no scoring change. Fifth and final recut (#512, #522, #525, #528) — same file, same conventions,
 same guardrails. **This is the last measurement before the supervised prompt-change session; do

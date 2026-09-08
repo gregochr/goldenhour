@@ -1,8 +1,11 @@
 # Plan: demote the cloud-approach veto from absolute ceiling to bounded penalty
 
-**Status: PROPOSED — awaiting user go/no-go. Not a handover task.** This change moves
-prompt-regression assertions, which are user-owned, so it carries two hard stop-points (§5) and
-should be executed by a session the user is supervising.
+**Status: SHIPPED 2026-08-18 in v2.18.11**, in the supervised session this plan asked for, with
+one amendment found by that session's adversarial review (`golden_hour` carries the approach
+penalty too — see "The demotion's acceptance bar, and its one amendment" in
+`cloud-approach-veto-fix.md` §4). Kept as the record of the change's scope and stop-points.
+Original framing: this change moves prompt-regression assertions, which are user-owned, so it
+carried two hard stop-points (§5) and had to be executed by a session the user was supervising.
 
 ## 1. The change
 

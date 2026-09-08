@@ -3,7 +3,9 @@
 **Status:** F1 and F4 implemented 2026-07-25 (#294). **F2 attempted and REJECTED** — refuted by the
 Copt Hill ground-truth fixture. **F3 REJECTED** — adversarially reviewed, would introduce two new
 degeneracies. **D6 (silent half-veto) found and FIXED.** **D7 MEASURED and ANSWERED** — the cap is
-not the broken half; the ceiling is (§9). D8 and F5 outstanding. See §4.
+not the broken half; the ceiling is (§9). **The §9-justified prompt changes SHIPPED 2026-08-18
+(v2.18.11)** — the veto demoted to a bounded penalty, and the far reading stripped of
+blanket-confirming force; that change set raised F6 and F7 (§4). D8 and F5 outstanding. See §4.
 
 ⚠️ **`actual_outcome` is empty — zero rows, ever.** Aesthetic validation therefore still does not
 exist. But the reanalysis verification this paragraph used to wait on **has now landed and
@@ -589,7 +591,8 @@ bucket), where the offset cancels.
   penalty. Not removal — Copt Hill 2026-03-11 remains a real wasted trip the signals caught — and
   **not** F2's exemption-on-clear-horizon, which stays rejected: the demotion is unconditional,
   not keyed to the reading Copt Hill proved misleading. Prompt-regression assertions will move
-  (user-owned); the sky-rating eval harness must be re-baselined.
+  (user-owned); the sky-rating eval harness must be re-baselined. *(Shipped 2026-08-18 in
+v2.18.11 — see the demotion sections of §4.)*
 
 ### Cone structure — SHELVED
 

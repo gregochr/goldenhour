@@ -1,5 +1,7 @@
 # Handover: measure the EXTENSIVE BLANKET label's precision
 
+**Status: SHIPPED as #528. Kept as the record of the task's scope and reasoning.**
+
 Self-contained implementation plan. Backend-only, read-side only: no migration, no new sampling,
 no scoring change. Fourth of the recut family (#512 `&midCanvas`, #522 `fcst*`, #525 strip split)
 — same file, same conventions, same guardrails.
