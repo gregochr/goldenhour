@@ -3095,6 +3095,42 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const unscoredLineShown = windowUnscored && (isAstroMode || activeMapEvent != null);
 
   /**
+   * "No forecast to show." — the Map tab's own empty state, in the Plan screen's exact words
+   * (`WindowFirstShell`'s `window-first-pane-empty`). One vocabulary across both tabs.
+   *
+   * <p><b>Why the tab needs it at all.</b> With no EV row for the window on screen there is nothing
+   * to draw: no field, no chips, no pins, no colour key, and — since #803 — no ratings either.
+   * Until now the only thing accounting for that was the window pill reading "No forecast", and in
+   * the state where the EV list is EMPTY there is not even a pill, because {@code WindowControl}
+   * returns null outright rather than render a control with nothing behind it. So on the day
+   * nothing has been forecast, the tab said nothing whatsoever.
+   *
+   * <p>⚠️ <b>It supersedes the "second voice" reasoning rather than ignoring it.</b>
+   * {@code unscoredLineShown}'s own note argues this surface should stay quiet when the pill
+   * already speaks — and that was right when the same screen still had pins on it, so the pill only
+   * had to explain a missing FIELD. It now has to explain an empty map. The two lines stay mutually
+   * exclusive (below), so a reader never gets both.
+   *
+   * <p>⚠️ <b>Not gated on {@code heatOn}</b>, unlike {@code windowUnscored}: Pins mode is exactly
+   * as blank, and the ramp key's "only in heat view" reasoning does not transfer to a sentence that
+   * explains the absence rather than a gradient.
+   *
+   * <p>⚠️ <b>Mutually exclusive with {@code unscoredLineShown}</b>, which is not belt-and-braces:
+   * ASTRO is deliberately exempt from that line's row gate (a catalogue with no astro conditions
+   * has no astro EV row, yet its unscored state is a real claim about the forecast), so without
+   * this clause astro mode would print both sentences at once.
+   *
+   * <p>⚠️ <b>Tab-only scoping lives at the RENDER SITE, not here</b> — the line sits in the tab arm
+   * of the chrome's `overlayMode ?` ternary, which the overlay never reaches. An `!overlayMode`
+   * term in this expression read like a guard and was one mutation testing could not kill, because
+   * the render site already made it unreachable; this file's own rule is that a filter must be
+   * load-bearing rather than belt-and-braces. (The overlay would have no use for it regardless: it
+   * inherits its window from the card that opened it and mounts no window control, so it has no
+   * "which window" state to be empty about.)
+   */
+  const noForecastLineShown = activeMapEvent == null && !unscoredLineShown;
+
+  /**
    * The Regions jump list (map-tab-v2-plan.md §3 P11, `docs/design/map-tab-v2/README.md` §2).
    *
    * <p><b>The drive map is EITHER the away region-base matrix OR the per-user home reach, never
@@ -4725,6 +4761,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                   {unscoredLineShown && (
                     <div data-testid="wf-map-heat-unscored" className="wf-map-key">
                       This event is not scored yet
+                    </div>
+                  )}
+                  {/* The tab's empty state, in the Plan screen's own words — see
+                      `noForecastLineShown` for why the pill alone stopped being enough. */}
+                  {noForecastLineShown && (
+                    <div data-testid="wf-map-no-forecast" className="wf-map-key">
+                      No forecast to show.
                     </div>
                   )}
                   {heatOn && !windowUnscored && (
