@@ -501,6 +501,81 @@ describe('a window the EV list has no row for', () => {
     }
   });
 
+  it('says "No forecast to show." when the EV list has rows but none for this window', async () => {
+    // The state the production report was in: a pill reading "No forecast" over a map with
+    // nothing on it. The pill is a corner chip; the body had no account of itself at all.
+    await renderMap({
+      locations: makeLocations(YESTERDAY),
+      date: YESTERDAY,
+      forecastDates: [YESTERDAY],
+      heat,
+    });
+
+    expect(screen.getByTestId('wf-win-no-match')).toHaveTextContent('No forecast');
+    expect(screen.getByTestId('wf-map-no-forecast')).toHaveTextContent('No forecast to show.');
+  });
+
+  it('says it in PINS view too — the map is exactly as empty there', async () => {
+    // ⚠️ `windowUnscored` is `heatOn`-gated because a colour key explains a gradient. A sentence
+    // explaining an absence is not a key, so that reasoning does not transfer.
+    await renderMap({
+      locations: makeLocations(YESTERDAY),
+      date: YESTERDAY,
+      forecastDates: [YESTERDAY],
+      heat,
+    });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Pins/i })); });
+
+    expect(screen.getByTestId('wf-map-no-forecast')).toBeInTheDocument();
+  });
+
+  it('says it when there is no window control AT ALL — the day nothing was forecast', async () => {
+    // `WindowControl` returns null on an empty EV list rather than render a control with nothing
+    // behind it, so this state had no pill AND no message: the tab said nothing whatsoever.
+    await renderMap({
+      locations: makeLocations(YESTERDAY),
+      date: YESTERDAY,
+      forecastDates: [YESTERDAY],
+      heat: { ...heat, windows: [] },
+    });
+
+    expect(screen.queryByTestId('wf-win-pill')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wf-map-no-forecast')).toHaveTextContent('No forecast to show.');
+  });
+
+  it('stays silent when a window IS on screen — one voice, not two', async () => {
+    // A served window with nothing rated is a different and more precise claim, and the existing
+    // line already makes it. Printing both would be the "second voice" the older derivation
+    // guards against; that argument still holds wherever a window actually exists.
+    await renderMap({
+      locations: makeLocations(TODAY),
+      date: TODAY,
+      forecastDates: [TODAY],
+      heat,
+    });
+
+    expect(screen.queryByTestId('wf-map-no-forecast')).not.toBeInTheDocument();
+    expect(screen.getByTestId('wf-map-heat-unscored')).toBeInTheDocument();
+  });
+
+  it('defers to the unscored line in ASTRO mode, which has no row but a real claim', async () => {
+    // ⚠️ The one overlap, and it is why the two lines are mutually exclusive rather than each
+    // gated on its own condition. A catalogue with no astro conditions carries no astro EV row, so
+    // `activeMapEvent` is null here — but astro's unscored state is derived from its own point set,
+    // which IS a statement about the forecast rather than about the camera, and that line is
+    // deliberately exempt from the row gate. Without the exclusion both sentences would print.
+    await renderMap({
+      locations: makeLocations(TODAY),
+      date: TODAY,
+      forecastDates: [TODAY],
+      heat,
+      autoEventType: 'ASTRO',
+    });
+
+    expect(screen.getByTestId('wf-map-heat-unscored')).toBeInTheDocument();
+    expect(screen.queryByTestId('wf-map-no-forecast')).not.toBeInTheDocument();
+  });
+
   it('leaves the frozen Plan-tab overlay alone — it builds no EV list to be judged against', async () => {
     // The overlay is `overlayMode ? [] : buildMapEvents(...)`: it has no EV list, no window
     // control and no pill, and inherits its window from the Plan card that opened it. There is
@@ -521,6 +596,13 @@ describe('a window the EV list has no row for', () => {
 
     expect(screen.queryByTestId('wf-map-counts-footer')).not.toBeInTheDocument();
     expect(markerCount()).toBe(2);
+    // ...and no empty-state line either. ⚠️ This assertion is STRUCTURAL rather than load-bearing,
+    // and mutation testing is what established that: rendering the line in the overlay arm too
+    // changes nothing observable, because that arm's whole chrome block is `heatOffered`-gated and
+    // the overlay is deliberately handed no `heat` at all. Kept as documentation of the intent —
+    // the overlay inherits its window from the card that opened it and has no "which window" state
+    // to be empty about — and as a tripwire if the overlay is ever given a field.
+    expect(screen.queryByTestId('wf-map-no-forecast')).not.toBeInTheDocument();
   });
 
   it('reports no STAND-DOWN either — a triage verdict is a claim about a window too', async () => {
