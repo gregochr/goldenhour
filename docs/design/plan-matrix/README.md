@@ -26,9 +26,9 @@ This replaces an earlier version that showed the same six windows as a list of e
 
 ### 1. Plan tab (`screens/01-desktop-plan-top.png`, `02-desktop-matrix.png`, `05-ipad-plan.png`, `07-phone-plan.png`)
 
-Vertical stack inside a scroll container: masthead (sticky) → tab bar → lens bar (sticky) → body.
+Vertical stack inside a scroll container: masthead → tab bar → lens bar (sticky) → body.
 
-**Masthead.** Sticky, `z-index 45`. Background `linear-gradient(180deg,#241B16,#1B1411)`, `border-bottom 1px var(--border)`, padding `14px 22px 0` (iPad `13px 20px 0`, phone `9px 14px 0`).
+**Masthead.** `z-index 45`, as a stacking context rather than a stick. Background `linear-gradient(180deg,#241B16,#1B1411)`, `border-bottom 1px var(--border)`, padding `14px 22px 0` (iPad `13px 20px 0`, phone `9px 14px 0`).
 
 - Wordmark "PhotoCast": Newsreader 600, 26px / iPad 23px / phone 19px, `letter-spacing -.022em`, `#F9F1E2`. Kicker "FIELD GUIDE TO LIGHT": mono 9px, `.2em`, uppercase, `--coral`. Both sit right of a 25px left pad holding a film-perforation spine — `repeating-linear-gradient(180deg, var(--border-light) 0 7px, transparent 7px 15px)`, 11px wide, `border-right 1px var(--border)`. Phone: 19px pad, 8px spine.
 - Right cluster: status chip ("UP" + 6px `--go` dot with `0 0 6px` glow, version in `--ink-3`, hidden on phone), 15px circle cog, "Sign out" button (11.5px, hidden on phone).
@@ -41,7 +41,9 @@ Vertical stack inside a scroll container: masthead (sticky) → tab bar → lens
 
 **Tab bar.** `Plan · Coming up · Map`, plus `Operations` pushed right (hidden on phone). Tabs: 12.5px 500, `padding 8px 14px`, `radius 8px 8px 0 0`, `background var(--panel)`, no bottom border. Active: `background var(--surface)`, 600, `box-shadow inset 0 2px 0 var(--home)`. Followed by a 1px `--border` rule.
 
-**Lens bar.** Sticky at `top: var(--mastH)` (measured from the masthead at runtime), `z-index 30`, `background var(--surface)`, `padding 10px 22px`, `border-bottom 1px`. Gains `box-shadow 0 12px 26px rgba(0,0,0,.5)` and `border-bottom-color var(--border-light)` once stuck (driven by an IntersectionObserver on a 1px sentinel above it).
+**Lens bar.** Sticky at `top: var(--safe-t)`, `z-index 20`, `background var(--surface)`, `padding 10px 22px`, `border-bottom 1px`. Gains `box-shadow 0 12px 26px rgba(0,0,0,.5)` and `border-bottom-color var(--border-light)` once stuck (driven by an IntersectionObserver on a 1px sentinel above it).
+
+**Adaptation (2026-09-05, owner decision).** The masthead is **not** sticky and the lens bar no longer hangs off it. M3 added `position: sticky; top: 0; z-index: 45` to the masthead and every downstream note was written against that intent — the bar resting on the masthead's bottom edge, A14's dropdown "anchored under the masthead", `--wf-mast-h` as the height of pinned chrome. None of it happened: a sticky element cannot leave its own containing block, and this one's holds only the masthead, the tab bar and the tab rule, so the band pinned for ~46px and was then carried off the top of the viewport (measured in Chromium at 1280x800). The rule was removed rather than repaired, the lens bar anchors itself, and its `z-index` is 20. Its `top` is `var(--safe-t)` and not the literal `0` — identical wherever the safe-area inset is zero, which is everywhere except an iOS device with the status-bar opt-in, and the rule carries its own warning against collapsing the two. The stated cost is that the tick line scrolls away from a reader halfway down the matrix, which is exactly what M3 wanted to prevent. `z-index 45` survives on the masthead as a stacking context.
 
 Two controls only:
 - **How far to travel** (label changes to `Drive from <base>` when away): segmented `45 min · 1h 30 · 2h 30 · Any`.
@@ -60,11 +62,11 @@ On phone the lens stacks into two labelled rows, each segmented control `flex: 1
 3. **The matrix** — see below.
 4. **Legend footer:** a 60×6px gradient bar + `poor → worth it` + `later days look hazier — lower confidence` + right-aligned `Colour shows the whole forecast — the cards allow for your drive` (mono 10px `--ink-3`; the right-hand clause is desktop-only). A fourth clause, `unshaded — not scored`, shows only while a hatched plate is on screen and is deliberately NOT desktop-gated — the phone is where that misreading was reported. The bar was handed over as a fixed `linear-gradient(90deg,#C8452F,#E0A542 52%,#8AAE72)` and is now `rampGradientCss()`, sampled from whichever ramp is active — see the ramp adaptation under Design tokens.
 5. **Change line:** `Since your last look 52m ago · Thursday sunset ▲0.5 in Northumberland & Tyneside · …` — the two windows that actually moved, named, with the region that moved them. Mono 10px, window names in `--ink-2` 600.
-6. **Beyond line** (only when planning from home and something is out of range): `Beyond 3h and not in the field: Highlands & Skye — search to plan from one →`, mono 10px `rgba(242,231,211,.34)`, link in `--tide`.
+6. **Beyond line** (only when planning from home and something is out of range; the handoff's `rgba(242,231,211,.34)` is **not** shipped and should not be — measured at 2.75:1 on `--bg`, a 1.4.3 failure on 10px text, against 7.06:1 for the `--ink-2` the code uses): `Beyond 3h and not in the field: Highlands & Skye — search to plan from one →`, mono 10px, link in `--tide`.
 
 #### The matrix (`.hstrip`)
 
-`display: grid`, `grid-template-columns: repeat(var(--dc), 1fr)` where `--dc` is the number of distinct days in the forecast (4 in the fixture), `gap: 7px 8px`. Children are **explicitly placed** (`grid-column: var(--c); grid-row: var(--r)`) rather than flowed: row 1 is the day headers, row 2 sunrise, row 3 sunset. Placement is derived from the data — group windows by `dow + dn`, one column per day — so a seven-day forecast gives seven columns with no layout change.
+`display: grid`, `grid-template-columns: repeat(var(--dc, 4), minmax(0, 1fr))` where `--dc` is the number of distinct days in the forecast (4 in the fixture), `gap: 7px 8px`. The `minmax(0, …)` is load-bearing rather than pedantry, and the rule states its own reason: the grid holds `white-space: nowrap` topic labels and a nowrap time/verdict row, so a bare `1fr` keeps `min-width: auto` and lets a long topic name set a floor the column cannot shrink below. Children are **explicitly placed** (`grid-column: var(--c); grid-row: var(--r)`) rather than flowed: row 1 is the day headers, row 2 sunrise, row 3 sunset. Placement is derived from the data — group windows by `dow + dn`, one column per day — so a seven-day forecast gives seven columns with no layout change.
 
 Phone transposes the same markup with `grid-template-columns: repeat(2, 1fr)` and `grid-column/row: auto`, with day headers spanning `1 / -1`; a day holding only one window gets the full row width (`.hc.solo`) and the empty cell is `display: none` — a phone has no width to spend on a hole.
 
@@ -120,7 +122,9 @@ Opens over the plan; the plan does not move. Scrim `rgba(8,6,5,.74)`. Card: `pos
 
 ### 3. Location sheet — four days here (`screens/11-location-four-days.png`)
 
-Opens over everything (`z-index 70` vs the window popup's 60), so a chip on the map or a card in the strip opens it without closing the popup underneath. Card `width min(680px, 100% - 36px)`, `top 20px`; full-screen on phone.
+Opens over the window popup, so a chip on the map or a card in the strip opens it without closing the popup underneath. Card `width min(680px, 100% - 36px)`, `top 20px`; full-screen on phone.
+
+**Adaptation.** There is no 70-over-60 layering: every dialog on this tab is one shared `Modal` at `fixed inset-0 z-50`, so the layers are separated by DOM order, not by `z-index`. That is not a detail — it is the mechanism behind the M5 stacking fix recorded under Interactions, where a third layer painted *underneath* the sheet that opened it precisely because equal `z-index` makes paint order document order.
 
 Header: back chevron, name 16.5px 700, meta line mono 10.5px `--ink-3` (`region · 22 min from Keswick`, plus an `outside your plan` badge in `--marginal` when the location isn't in scope), `esc` button right. Then a lead block (`linear-gradient(180deg, rgba(201,162,75,.06), transparent)`): kicker `THE NEXT FOUR DAYS HERE · 1 OF 6 WINDOWS AT 4★+` mono 9px uppercase, then Newsreader 14px / 1.55.
 
@@ -277,6 +281,8 @@ Text on tinted grounds uses lifted variants of the grade colours, not the tokens
 **Radii.** 2 (light rule) · 4 (kbd chip) · 5 (calendar tile, canvas, chips) · 6–7 (small buttons, date boxes) · 8 (segmented, region cards, spot cards) · 9 (window cards, empty cells, map box, search field) · 10–11 (event rows, message blocks) · 13 (popup) · 999 (badges).
 
 **Spacing.** 2/3/4/5/6/7/8/9/10/11/12/13/14/15/16/18/20/22 px. Grid gaps 6–8. Body gutter 22px desktop and iPad, 14px phone.
+
+**Adaptation (2026-09-09).** The gutter above is now what ships: the arm had carried the window-first bundle's 18px, and a pixel audit found that plan-matrix and the four bundles after it all specify 22px, so the code moved rather than this document. The reproducible form of that count is about gutter-SHAPED paddings, not raw occurrences: no `<n>px 22px` padding appears anywhere in window-first and no `<n>px 18px` one appears in the five later bundles. Raw substring counts do not reproduce it and should not be quoted — window-first does contain `22px`, in a margin, a gap and a button height, and `318px` contains `18px`. The three gutter-bearing paddings moved with it (masthead `16px`->`14px`, lens bar `11px`->`10px` and off a literal onto the shared token, body `14px`->`13px`). ⚠️ **The iPad column of this spec has no implementation**: the arm has two breakpoints, desktop and phone at 639px, so the iPad values given throughout (`13px 20px 0`, gutter 20px, and the rest) resolve to the desktop ones. That is a structural gap rather than a value drift, and it is not decided.
 
 **Shadows.** `0 12px 26px rgba(0,0,0,.5)` stuck lens · `0 26px 60px rgba(0,0,0,.66)` dropdown · `0 30px 80px rgba(0,0,0,.72)` popup · device bezels are prototype-only.
 

@@ -719,9 +719,21 @@
    literal 18px; at the phone boundary all seven change together to 14px, which is the value
    `.wf-lens` already uses below and therefore this arm's own established number rather than an
    import. Declaring it once means the phone rule cannot move half the chrome and leave the rest —
-   the specific failure a property-by-property migration invites. */
+   the specific failure a property-by-property migration invites.
+
+   ⚠️ **18px was the WINDOW-FIRST bundle's gutter, and it outlived that bundle.** The 2026-09-09
+   pixel audit of `docs/design/plan-matrix/README.md` compared the two values across every bundle
+   in `docs/design/`, counting GUTTER-SHAPED paddings rather than raw occurrences: no `<n>px 22px`
+   padding appears anywhere in window-first, and no `<n>px 18px` one appears in plan-matrix,
+   field-geography, coming-up, matrix-axis or map-tab-v2. So 22 is not one bundle's preference to
+   be weighed against this arm's habit — it is the design's current gutter, agreed by the five
+   bundles that came after the one this number came from, and the arm was simply never moved.
+   (Raw substring counts do NOT reproduce that and must not be quoted for it — window-first does
+   contain `22px`, in a margin, a gap and a button height, and `318px` contains `18px`. An
+   adversarial fact-check killed the raw-count version of this note.) The phone value stays 14px,
+   which every bundle still agrees on. */
 .wf-shell {
-  --wf-gutter: 18px;
+  --wf-gutter: 22px;
   /* What every focusable thing on the Plan pane reserves against the sticky chrome, declared once
      so the literals it replaced cannot drift from what they describe.
 
@@ -769,7 +781,7 @@
    empty state, supplies more). Putting it back here double-spaces the band under whichever row is
    showing, which is the failure mode the design's own `16px 28px 0` is written to avoid. */
 .wf-mast {
-  padding: 16px var(--wf-gutter) 0;
+  padding: 14px var(--wf-gutter) 0;
   background: linear-gradient(180deg, #241B16 0%, #1B1411 100%);
   /* ⚠️ NOT STICKY, AND IT NEVER ACTUALLY WAS. M3 added `position: sticky; top: 0; z-index: 45` here
      and every comment downstream was written against that intent — the bar resting on the
@@ -1153,7 +1165,7 @@
    difference here would make the frame appear to move on a tab change; one class is what makes
    that structurally impossible rather than a comment asking two files to stay in step. */
 .wf-body {
-  padding: 14px var(--wf-gutter) 20px;
+  padding: 13px var(--wf-gutter) 20px;
   /* Reaches only the Plan pane, which is the flex one; the Coming-up panel is a block, where `gap`
      has nothing to space. No `:not()` needed to say so. */
   gap: 10px;
@@ -2857,7 +2869,11 @@ button.wf-hc.also.on:hover {
   align-items: center;
   /* Row gap first: the bar wraps now, so a wrapped row needs air above it. */
   gap: 7px 8px;
-  padding: 11px 18px;
+  /* ⚠️ The token, NOT a literal — this rule carried a hard-coded `18px` while its own phone
+     override below already read `var(--wf-gutter)`, so the desktop bar and every other element on
+     the row were one edit away from disagreeing. That is exactly the "move half the chrome and
+     leave the rest" failure the token's own declaration warns about, and it had already happened. */
+  padding: 10px var(--wf-gutter);
   background: var(--color-plex-surface);
   border-bottom: 1px solid var(--color-plex-border);
   /* ⚠️ WRAPS, and never scrolls — P15c reversed P14's `nowrap` + `overflow-x: auto` here, so read
@@ -3018,7 +3034,11 @@ button.wf-hc.also.on:hover {
    reach chip a different colour from the bar chip it inherits its value FROM — the one pairing the
    mock's rule was invented to keep apart. One `on` state, everywhere. */
 .wf-seg-btn.on {
-  background: rgba(201, 162, 75, 0.18);
+  /* .15 is the plan-matrix bundle's value; this had drifted to .18. Scoped to the PLAN lens bar —
+     `.wf-filters-seg-btn.on` below keeps .18, because the Map tab's filters answer to
+     `docs/design/map-tab-v2`, not to this spec. Measured after the change: the composite over
+     `.wf-seg`'s panel is ~9.7:1 against the active text, so the drop moves contrast the safe way. */
+  background: rgba(201, 162, 75, 0.15);
   color: var(--color-segment-active);
   font-weight: 600;
 }

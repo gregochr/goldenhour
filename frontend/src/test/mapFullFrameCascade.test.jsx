@@ -111,7 +111,7 @@ function extractMediaInner(innerNeedle) {
 }
 
 /**
- * `var(--wf-gutter)` substituted for its own real value (18px, `.wf-shell`'s own declaration) —
+ * `var(--wf-gutter)` substituted for its own real value, READ OUT OF THE SAME STYLESHEET —
  * NOT a simplification of what is under test. jsdom's `cssstyle` cannot parse a `var()` token
  * inside a shorthand `padding` value at all (verified directly: `padding: 14px var(--x) 20px`
  * computes to `0` on every side, as if the whole declaration were invalid) — so injecting the
@@ -122,8 +122,30 @@ function extractMediaInner(innerNeedle) {
  * changes is making the shorthand parseable at all, which is what lets jsdom run the cascade
  * contest instead of silently skipping every side of it.
  */
+/**
+ * ⚠️ DERIVED, never a literal. This read `'18px'` hard-coded, described in the comment above as
+ * "`.wf-shell`'s own declaration" — and when that declaration moved to 22px the substitution went
+ * on resolving to a value the real cascade could no longer produce, while the comment went on
+ * asserting it was the live one. Found by an adversarial review of the commit that moved it.
+ *
+ * ⚠️ <b>What this does NOT do, stated so the next reader does not over-trust it: it does not pin
+ * the gutter.</b> The substituted value and the assertions below both derive from this one
+ * constant, so they move together by construction — mutation-tested, and forcing this back to the
+ * stale `'18px'` still passes 4/4. That is not a flaw to fix here: the value is scaffolding, and
+ * this file's subject is the SPECIFICITY CONTEST (does the compound selector beat the phone rule),
+ * which is value-agnostic on purpose. What deriving buys is narrower and worth having anyway — the
+ * substitution now tracks the stylesheet instead of a frozen copy of it, and the comment above is
+ * true again. If the gutter itself ever needs a guard, it needs its own assertion against
+ * `.wf-shell`, not a tightening of this one.
+ */
+const DECLARED_GUTTER = (() => {
+  const m = REAL_CSS.match(/--wf-gutter:\s*([0-9.]+px)/);
+  if (!m) throw new Error('No `--wf-gutter` declaration found in index.css');
+  return m[1];
+})();
+
 function withLiteralGutter(css) {
-  return css.replaceAll('var(--wf-gutter)', '18px');
+  return css.replaceAll('var(--wf-gutter)', DECLARED_GUTTER);
 }
 
 let styleEl;
@@ -169,16 +191,20 @@ describe('.wf-body.wf-body--map beats the phone media query\'s plain .wf-body (m
     const el = document.createElement('div');
     el.className = 'wf-body';
     document.body.appendChild(el);
-    // 12px 18px 18px — the phone override, correctly beating the desktop rule by SOURCE ORDER
-    // alone (equal specificity, later declaration wins) once the map-tab class is not present to
-    // out-specify it. This is the control: it proves the phone rule is a live, winning competitor
-    // in this cascade — so the FIRST test's `padding: 0px` is the compound selector's specificity
-    // actually beating it, not the phone rule being silently absent either way.
+    // `12px <gutter> 18px` — the phone override, correctly beating the desktop rule by SOURCE
+    // ORDER alone (equal specificity, later declaration wins) once the map-tab class is not
+    // present to out-specify it. This is the control: it proves the phone rule is a live, winning
+    // competitor in this cascade — so the FIRST test's `padding: 0px` is the compound selector's
+    // specificity actually beating it, not the phone rule being silently absent either way.
+    //
+    // The horizontal value is `DECLARED_GUTTER` rather than a literal, for the reason that
+    // constant records. Only the two vertical values are literals, because they are this rule's
+    // own and are not carried by the token.
     const { paddingTop, paddingRight, paddingBottom, paddingLeft } = getComputedStyle(el);
     expect(paddingTop).toBe('12px');
-    expect(paddingRight).toBe('18px');
+    expect(paddingRight).toBe(DECLARED_GUTTER);
     expect(paddingBottom).toBe('18px');
-    expect(paddingLeft).toBe('18px');
+    expect(paddingLeft).toBe(DECLARED_GUTTER);
     el.remove();
   });
 });
