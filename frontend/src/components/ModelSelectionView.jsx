@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAvailableModels, setActiveModel, setExtendedThinking, updateOptimisationStrategy } from '../api/modelsApi.js';
 import { fetchLocations } from '../api/forecastApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -15,6 +15,9 @@ const CONFIG_TABS = [
   { key: 'BATCH_NEAR_TERM', label: 'Batch Near-Term', tip: 'Claude model for overnight near-term batch runs (T+0, T+1). High-confidence forecasts evaluated every night.', adminOnly: true },
   { key: 'BATCH_FAR_TERM', label: 'Batch Far-Term', tip: 'Claude model for overnight far-term batch runs (T+2, T+3). Only evaluated when weather is settled.', adminOnly: true },
 ];
+
+/** How long a transient success banner stays on screen before it clears itself. */
+const SUCCESS_BANNER_MS = 3000;
 
 /** Returns true if the given tab key is a batch tab. */
 const isBatchTab = (key) => key === 'BATCH_NEAR_TERM' || key === 'BATCH_FAR_TERM';
@@ -164,6 +167,43 @@ export default function ModelSelectionView() {
   const [switching, setSwitching] = useState(false);
   const [activeTab, setActiveTab] = useState('VERY_SHORT_TERM');
   const [locationCount, setLocationCount] = useState(0);
+  const successTimer = useRef(null);
+  const mounted = useRef(true);
+
+  /**
+   * Shows a success banner that clears itself after {@link SUCCESS_BANNER_MS}.
+   *
+   * <p>⚠️ The timer is owned by a ref and cancelled on unmount, because the bare
+   * {@code setTimeout(() => setSuccess(null), 3000)} this replaced outlived the component: the
+   * callback ran against a torn-down tree and React's {@code dispatchSetState} read a {@code window}
+   * that no longer existed. Vitest fails a run that records an unhandled error while still
+   * reporting every test as passing, so the suite can go red on a change that touches nothing here
+   * — observed once in six full-suite runs, so intermittently rather than every time.
+   *
+   * <p>⚠️ **An unmount cleanup alone does NOT close this**, which is how the first cut of the fix
+   * still leaked. Every caller arms the timer *after* awaiting a network call, so unmounting during
+   * that await runs the cleanup while the ref is still null — it cancels nothing — and the resolved
+   * handler then arms a fresh timer with no owner left to cancel it. `ManageView` renders this
+   * behind {@code activeTab === 'models'}, so switching tab mid-request is the ordinary way to get
+   * there. The {@code mounted} guard, not the cleanup, is what makes that case safe.
+   *
+   * <p>It also cancels a PENDING timer — three quick toggles used to schedule three timers, and the
+   * first to fire wiped the newest message early.
+   */
+  const flashSuccess = useCallback((message) => {
+    if (!mounted.current) return;
+    setSuccess(message);
+    if (successTimer.current) clearTimeout(successTimer.current);
+    successTimer.current = setTimeout(() => setSuccess(null), SUCCESS_BANNER_MS);
+  }, []);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      if (successTimer.current) clearTimeout(successTimer.current);
+    };
+  }, []);
 
   useEffect(() => {
     async function fetchModels() {
@@ -202,8 +242,7 @@ export default function ModelSelectionView() {
       const result = await setActiveModel(runType, model);
       setConfigs((prev) => ({ ...prev, [runType]: result.active }));
       const tabLabel = CONFIG_TABS.find((t) => t.key === runType)?.label || runType;
-      setSuccess(`${tabLabel} model switched to ${MODEL_INFO[result.active]?.name || result.active}`);
-      setTimeout(() => setSuccess(null), 3000);
+      flashSuccess(`${tabLabel} model switched to ${MODEL_INFO[result.active]?.name || result.active}`);
     } catch (err) {
       setError(`Failed to switch model for ${runType}`);
       console.error(err);
@@ -229,8 +268,7 @@ export default function ModelSelectionView() {
         return updated;
       });
       const info = STRATEGY_INFO[strategyType];
-      setSuccess(`${info?.label || strategyType} ${newEnabled ? 'enabled' : 'disabled'}`);
-      setTimeout(() => setSuccess(null), 3000);
+      flashSuccess(`${info?.label || strategyType} ${newEnabled ? 'enabled' : 'disabled'}`);
     } catch (err) {
       const msg = err.response?.data?.message || err.response?.data || `Failed to update ${strategyType}`;
       setError(typeof msg === 'string' ? msg : `Failed to update ${strategyType}`);
@@ -264,8 +302,7 @@ export default function ModelSelectionView() {
       setSuccess(null);
       await setExtendedThinking(runType, next);
       setExtendedThinkingConfig((prev) => ({ ...prev, [runType]: next }));
-      setSuccess(`Extended thinking ${next ? 'enabled' : 'disabled'} for Briefing`);
-      setTimeout(() => setSuccess(null), 3000);
+      flashSuccess(`Extended thinking ${next ? 'enabled' : 'disabled'} for Briefing`);
     } catch (err) {
       setError('Failed to update extended thinking setting');
       console.error(err);

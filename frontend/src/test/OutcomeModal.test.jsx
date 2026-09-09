@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import OutcomeModal from '../components/OutcomeModal.jsx';
 
@@ -127,6 +127,111 @@ describe('OutcomeModal', () => {
       expect(screen.getByTestId('outcome-saved-message')).toBeInTheDocument();
       expect(screen.getByText('Outcome saved')).toBeInTheDocument();
     });
+  });
+
+  /**
+   * Settles the save action without letting WALL-CLOCK time pass.
+   *
+   * <p>⚠️ These tests deliberately do NOT use `shouldAdvanceTime`. It ties the fake clock to real
+   * time, and the hand-off timer is armed the moment `recordOutcome` resolves — so any real time
+   * spent in a `waitFor` poll before the test reaches `unmount()` burns the 1.5s window itself. The
+   * suite's own budget is 4s per `waitFor` and this repo has measured multi-second waits under CPU
+   * starvation, so that gap is a documented flake shape here rather than a theoretical one.
+   * Pumping with a zero advance flushes the action's microtasks and moves the clock not at all.
+   */
+  async function settleSave() {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  }
+
+  /**
+   * ⚠️ The hand-off to {@code onSaved} is on a 1.5s timer that used to fire whether or not the
+   * dialog was still mounted. Two limits on what this test claims, both established by review:
+   * nothing in the app renders {@code OutcomeModal} (outcome recording has been API-only since
+   * 2026-02-27), so this is a latent defect rather than one a reader can reach; and {@code onSaved}
+   * is a caller-supplied function — here a mock — so firing it late reads no {@code window} and
+   * throws nothing. The measured vitest-5 unhandled error came from `ModelSelectionView`'s
+   * {@code setSuccess}, not from this file.
+   */
+  it('does not hand off to onSaved when it unmounts inside the confirmation window', async () => {
+    vi.useFakeTimers();
+    try {
+      const onSaved = vi.fn();
+      recordOutcome.mockResolvedValue({});
+      const { unmount } = renderModal({ onSaved });
+
+      fireEvent.click(screen.getByTestId('outcome-submit'));
+      await settleSave();
+      expect(screen.getByTestId('outcome-saved-message')).toBeInTheDocument();
+
+      // Positive control: a timer really is pending, so a green result below cannot come from a
+      // component that never scheduled the hand-off at all.
+      expect(vi.getTimerCount()).toBeGreaterThan(0);
+      expect(onSaved).not.toHaveBeenCalled();
+
+      unmount();
+      await vi.advanceTimersByTimeAsync(3000);
+
+      expect(onSaved).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * ⚠️ The companion hole: the timer is armed after {@code recordOutcome} resolves, so unmounting
+   * while the save is still in flight — Cancel stays enabled during {@code isPending}, and the
+   * backdrop closes too — leaves the cleanup nothing to cancel and lets the continuation arm an
+   * unowned timer. Caught by the {@code mounted} guard, not by the cleanup.
+   */
+  it('does not arm the hand-off when the save settles after it unmounts', async () => {
+    vi.useFakeTimers();
+    try {
+      const onSaved = vi.fn();
+      recordOutcome.mockReturnValue(new Promise((resolve) => {
+        releasePendingSave = () => resolve({});
+      }));
+      const { unmount } = renderModal({ onSaved });
+
+      fireEvent.click(screen.getByTestId('outcome-submit'));
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      unmount();
+      await act(async () => {
+        releasePendingSave();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      await vi.advanceTimersByTimeAsync(3000);
+      expect(onSaved).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('holds the hand-off until the confirmation window elapses, then calls onSaved once', async () => {
+    vi.useFakeTimers();
+    try {
+      const onSaved = vi.fn();
+      recordOutcome.mockResolvedValue({});
+      renderModal({ onSaved });
+
+      fireEvent.click(screen.getByTestId('outcome-submit'));
+      await settleSave();
+
+      // Below the threshold as well as at it — otherwise shortening the delay (1500 → 500) would
+      // snatch the confirmation away early with every assertion here still passing.
+      await vi.advanceTimersByTimeAsync(1499);
+      expect(onSaved).not.toHaveBeenCalled();
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(onSaved).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('renders as a dialog with aria-modal', () => {

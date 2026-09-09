@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import ModelSelectionView from '../components/ModelSelectionView.jsx';
 
 // Mock the API modules
@@ -76,6 +76,164 @@ describe('ModelSelectionView', () => {
     useAuth.mockReturnValue({ isAdmin: true });
     getAvailableModels.mockResolvedValue(MOCK_DATA);
     fetchLocations.mockResolvedValue(MOCK_LOCATIONS);
+  });
+
+  describe('the transient success banner', () => {
+    /** Toggles a strategy and waits for the banner its handler shows. */
+    async function toggleAndAwaitBanner() {
+      updateOptimisationStrategy.mockResolvedValue({
+        strategyType: 'FORCE_IMMINENT',
+        enabled: true,
+        paramValue: null,
+      });
+      const view = render(<ModelSelectionView />);
+      await waitFor(() => {
+        expect(screen.getByTestId('strategy-toggle-FORCE_IMMINENT')).toBeInTheDocument();
+      });
+      fireEvent.click(screen.getByTestId('strategy-toggle-FORCE_IMMINENT'));
+      await screen.findByText('Always Evaluate Today enabled');
+      return view;
+    }
+
+    /** Flushes pending promises without moving the fake clock at all. */
+    async function pump() {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+    }
+
+    /**
+     * ⚠️ Frozen clock, NOT `shouldAdvanceTime`. That option ties the fake clock to real time, so the
+     * wall time spent getting the banner on screen comes straight out of the 3s window being
+     * measured — with it, the "still showing at 2999ms" assertion below fails outright, because the
+     * banner has already been dismissed by elapsed real time. Pumping with a zero advance settles
+     * the mount fetches and the toggle's PUT while the clock stays exactly where it is.
+     */
+    it('holds the banner until the dismiss delay elapses, then clears it', async () => {
+      vi.useFakeTimers();
+      try {
+        updateOptimisationStrategy.mockResolvedValue({
+          strategyType: 'FORCE_IMMINENT',
+          enabled: true,
+          paramValue: null,
+        });
+        render(<ModelSelectionView />);
+        await pump();
+
+        fireEvent.click(screen.getByTestId('strategy-toggle-FORCE_IMMINENT'));
+        await pump();
+        expect(screen.getByText('Always Evaluate Today enabled')).toBeInTheDocument();
+
+        // Just short of the delay it must still be up: without this the constant is pinned only
+        // from above, and shortening it (3000 → 500) would flash the message past unnoticed with
+        // every assertion here still green.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2999);
+        });
+        expect(screen.getByText('Always Evaluate Today enabled')).toBeInTheDocument();
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1);
+        });
+        expect(screen.queryByText('Always Evaluate Today enabled')).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    /**
+     * ⚠️ The regression this file had no cover for. The banner's auto-dismiss used to be a bare
+     * `setTimeout(() => setSuccess(null), 3000)`, so unmounting inside that window left the callback
+     * to run against a torn-down tree — `window is not defined` out of React's `dispatchSetState`.
+     * Vitest 5 fails the whole run on that while still reporting every test as passing, so it went
+     * unnoticed under vitest 4 and only surfaced as an intermittent red build.
+     *
+     * Asserted by tracking every timer scheduled at the banner delay and requiring each to be
+     * cleared BY THE UNMOUNT — the spy sees `globalThis.setTimeout`, so it has no caller
+     * attribution and the `ms === 3000` filter is what narrows it to this component's one timer
+     * (`ModelSelectionView` schedules no other). `cleared` is snapshotted immediately before
+     * unmounting, because asserting against the whole run would also accept a component that
+     * cleared its timer at some earlier moment and left nothing pending at unmount at all.
+     */
+    /**
+     * ⚠️ The hole the FIRST cut of this fix still had, and the reason an unmount cleanup is not on
+     * its own enough. Every caller arms the banner timer *after* awaiting a network call, so a tab
+     * change mid-request (`ManageView` renders this behind `activeTab === 'models'`, unmounting it
+     * synchronously) runs the cleanup while the ref is still null — cancelling nothing — and the
+     * resolved handler then arms a timer with no owner left to cancel it. Only the `mounted` guard
+     * closes this; a test that unmounts AFTER the request settles cannot see it.
+     */
+    it('does not arm a dismiss timer when the request settles after it unmounts', async () => {
+      const realSetTimeout = globalThis.setTimeout;
+      const scheduledAfterUnmount = [];
+      let unmounted = false;
+      let releaseRequest;
+
+      updateOptimisationStrategy.mockReturnValue(new Promise((resolve) => {
+        releaseRequest = () => resolve({
+          strategyType: 'FORCE_IMMINENT',
+          enabled: true,
+          paramValue: null,
+        });
+      }));
+
+      const setSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn, ms, ...rest) => {
+        const id = realSetTimeout(fn, ms, ...rest);
+        if (ms === 3000 && unmounted) scheduledAfterUnmount.push(id);
+        return id;
+      });
+
+      try {
+        const { unmount } = render(<ModelSelectionView />);
+        await waitFor(() => {
+          expect(screen.getByTestId('strategy-toggle-FORCE_IMMINENT')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByTestId('strategy-toggle-FORCE_IMMINENT'));
+        unmount();
+        unmounted = true;
+
+        await act(async () => {
+          releaseRequest();
+          await Promise.resolve();
+        });
+
+        expect(scheduledAfterUnmount).toEqual([]);
+      } finally {
+        setSpy.mockRestore();
+      }
+    });
+
+    it('cancels its pending dismiss timer when it unmounts', async () => {
+      const realSetTimeout = globalThis.setTimeout;
+      const realClearTimeout = globalThis.clearTimeout;
+      const scheduled = [];
+      const cleared = [];
+
+      const setSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn, ms, ...rest) => {
+        const id = realSetTimeout(fn, ms, ...rest);
+        if (ms === 3000) scheduled.push(id);
+        return id;
+      });
+      const clearSpy = vi.spyOn(globalThis, 'clearTimeout').mockImplementation((id) => {
+        cleared.push(id);
+        return realClearTimeout(id);
+      });
+
+      try {
+        const { unmount } = await toggleAndAwaitBanner();
+        expect(scheduled.length).toBeGreaterThan(0);
+
+        const clearedBeforeUnmount = cleared.length;
+        unmount();
+
+        const clearedByUnmount = cleared.slice(clearedBeforeUnmount);
+        expect(clearedByUnmount).toEqual(expect.arrayContaining(scheduled));
+      } finally {
+        setSpy.mockRestore();
+        clearSpy.mockRestore();
+      }
+    });
   });
 
   it('renders model cards and strategy toggles', async () => {
