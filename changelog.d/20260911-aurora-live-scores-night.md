@@ -16,8 +16,16 @@ to, through a source with no date to check. Recorded as a known open item in #80
 One named predicate, `liveAuroraOnScreen` (`nightDate === auroraNight`), now gates every read of the
 live cache, and the aurora viewline — the same live NOAA state, which was already gated on exactly
 this comparison — reads it too, so the scores and the viewline cannot come to disagree about which
-night is live. On any other night the medallions show that night's own **stored** stars, and the card
-and the popup's live section are withheld.
+night is live. On any other night the medallions and the overlay's popup show that night's own
+**stored** result, and the card is withheld.
+
+⚠️ **The first cut withheld the popup's score instead, and Codex caught it.** `MarkerPopupContent`
+reads a null aurora score as "Not suitable for aurora photography", so on a non-live night a
+medallion wearing that night's stored 4★ opened a popup denying the night outright — swapping wrong
+data for a false negative. The popup now takes exactly the answer the medallion does, so the two
+agree on every night. The stored record carries no `cloudPercent`, which the popup's PropTypes marked
+required despite never rendering it; that contract was relaxed — a documentation fix only, since
+React 19 does not run propTypes at runtime (measured: an omitted required prop warns nothing).
 
 ⚠️ **Tonight is untouched at every reader.** Where the night on screen *is* the night in progress,
 each reader keeps the precedence it had — the rating stored-first, the medallions and popups

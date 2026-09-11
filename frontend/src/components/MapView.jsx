@@ -1489,6 +1489,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * spellings of one rule is how the scores and the viewline would come to disagree about which
    * night is "live".
    *
+   * <p>⚠️ <b>On any other night a reader shows that night's STORED result, never nothing.</b> The
+   * first cut withheld the overlay popup's aurora score on a non-live night, and `MarkerPopupContent`
+   * reads a null aurora score as "Not suitable for aurora photography" — so a medallion wearing that
+   * night's stored 4★ opened a popup denying the night outright. Replacing tonight's data with a
+   * false negative is not a fix (Codex, #814). The popup now takes the same answer the medallion
+   * does: live on tonight, that night's own stored result otherwise.
+   *
    * <p>⚠️ <b>Tonight is untouched at every reader.</b> Where the night on screen IS the night in
    * progress, each reader keeps the precedence it had — the rating accessor stored-first, the
    * medallions and popups live-only. That those differ on tonight is pre-existing and is a separate
@@ -4464,7 +4471,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                           tideFetchedAt={tideFetchedAt[loc.name] ?? null}
                           onTideClassification={(cls) => setTideClassifications((prev) => ({ ...prev, [loc.name]: cls }))}
                           tideClassification={tideClassifications[loc.name] ?? null}
-                          auroraScore={liveAuroraOnScreen ? (auroraScores[loc.name] ?? null) : null}
+                          auroraScore={liveAuroraOnScreen ? (auroraScores[loc.name] ?? null) : (storedAuroraResults[loc.name] ?? null)}
                           isAuroraMode={isAuroraMode}
                           astroScore={astroScores[loc.name] ?? null}
                           isAstroMode={isAstroMode}
@@ -5053,7 +5060,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 tideFetchedAt={tideFetchedAt[loc.name] ?? null}
                 onTideClassification={(cls) => setTideClassifications((prev) => ({ ...prev, [loc.name]: cls }))}
                 tideClassification={tideClassifications[loc.name] ?? null}
-                auroraScore={liveAuroraOnScreen ? (auroraScores[loc.name] ?? null) : null}
+                auroraScore={liveAuroraOnScreen ? (auroraScores[loc.name] ?? null) : (storedAuroraResults[loc.name] ?? null)}
                 isAuroraMode={isAuroraMode}
                 astroScore={astroScores[loc.name] ?? null}
                 isAstroMode={isAstroMode}

@@ -821,6 +821,46 @@ describe('MarkerPopupContent', () => {
       renderPopup({ role: 'PRO_USER', forecast: null, auroraScore: MODERATE_SCORE });
       expect(screen.queryByTestId('aurora-score-section')).not.toBeInTheDocument();
     });
+
+    /**
+     * A STORED forecast result (`AuroraForecastResultDto`) — the shape `MapView` now hands this
+     * popup on any night other than the one in progress (#814). It carries no `cloudPercent`, and a
+     * stored result for a quiet night may carry no `alertLevel` either.
+     *
+     * ⚠️ Why these exist: `MapView` first passed `null` on such a night, and a null aurora score is
+     * read here as "Not suitable for aurora photography" — so a medallion wearing that night's
+     * stored 4★ opened a popup denying the night outright. These pin that the stored shape renders
+     * as a score rather than falling into that branch.
+     */
+    const STORED_RESULT = {
+      locationName: 'Test Location',
+      stars: 4,
+      alertLevel: 'MINOR',
+      summary: 'Clear to the north',
+      detail: 'Cloud: ✓ Clear\nMoon: ✓ below horizon',
+      triaged: false,
+    };
+
+    it('renders a STORED result\'s stars, not "Not suitable" — despite having no cloudPercent', () => {
+      renderPopup({ role: 'PRO_USER', isAuroraMode: true, auroraScore: STORED_RESULT });
+      expect(screen.getByTestId('aurora-score-stars')).toHaveTextContent('★★★★☆');
+      expect(screen.queryByTestId('aurora-not-eligible')).not.toBeInTheDocument();
+    });
+
+    it('renders a stored result with NO alertLevel — a quiet night — without falling over', () => {
+      renderPopup({
+        role: 'PRO_USER', isAuroraMode: true, auroraScore: { ...STORED_RESULT, alertLevel: null },
+      });
+      expect(screen.getByTestId('aurora-score-stars')).toHaveTextContent('★★★★☆');
+      expect(screen.queryByTestId('aurora-not-eligible')).not.toBeInTheDocument();
+    });
+
+    it('control: a genuinely null score in aurora mode still reads "Not suitable"', () => {
+      // The branch the defect fell into is real and correct for its own case — a location with no
+      // score at all. The fix is to stop handing it null when a score exists, not to remove it.
+      renderPopup({ role: 'PRO_USER', isAuroraMode: true, auroraScore: null });
+      expect(screen.getByTestId('aurora-not-eligible')).toHaveTextContent('Not suitable for aurora photography');
+    });
   });
 
   describe('empty state enrichment', () => {

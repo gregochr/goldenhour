@@ -205,19 +205,27 @@ describe('the overlay\'s aurora popup', () => {
     await waitFor(() => expect(popupAuroraScores.some((s) => s?.stars === 5)).toBe(true));
   });
 
-  it('is handed NOTHING live on another night — never tonight\'s narrative', async () => {
-    // ⚠️ That night HAS a stored run, and that is the precondition rather than a detail. The popup
-    // renders only inside a VISIBLE marker; with nothing rated for the night there is no marker,
-    // so no popup, so "handed nothing live" was true whatever the gate did — the first cut passed
-    // with the gate deleted. A stored 4 puts a marker on the map, and its popup must still not
-    // carry tonight's live 5.
+  it('is handed THAT night\'s stored result on another night — not tonight\'s, and not nothing', async () => {
+    // ⚠️ This test asserted `null` here in its first form, and that encoded the defect Codex then
+    // found (#814). `MarkerPopupContent` reads a null aurora score as "Not suitable for aurora
+    // photography", so withholding tonight's live score swapped wrong data for a false NEGATIVE —
+    // a medallion wearing that night's stored 4★ opened a popup denying the night outright. The
+    // claim that matters is that the popup and the medallion it opens from agree.
+    //
+    // That night HAS a stored run, which is also the precondition: a popup renders only inside a
+    // visible marker, and with nothing rated there is no marker to host one.
     getAuroraForecastResults.mockImplementation((night) => Promise.resolve(
-      night === ANOTHER_NIGHT ? [{ locationName: LOC, stars: 4 }] : [],
+      night === ANOTHER_NIGHT ? [{ locationName: LOC, stars: 4, alertLevel: 'MINOR' }] : [],
     ));
     await renderOn(ANOTHER_NIGHT, { overlayMode: true });
     // The precondition, asserted: a popup really was rendered and handed something.
     await waitFor(() => expect(popupAuroraScores.length).toBeGreaterThan(0));
-    expect(popupAuroraScores.every((s) => s == null)).toBe(true);
+    // It carries THAT night's stored 4 — the same figure the medallion shows...
+    expect(popupAuroraScores.some((sc) => sc?.stars === 4)).toBe(true);
+    // ...never tonight's live 5...
+    expect(popupAuroraScores.some((sc) => sc?.stars === 5)).toBe(false);
+    // ...and never nothing, which the popup would render as "Not suitable".
+    expect(popupAuroraScores.every((sc) => sc != null)).toBe(true);
   });
 });
 
