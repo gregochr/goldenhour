@@ -33,9 +33,15 @@ no-op.
 
 **User-visible fix.** Three quick toggles used to leave three independent timers, so the first to
 fire wiped the newest message early. Each new message now re-runs the effect, whose cleanup cancels
-the previous timer, so every message gets its full three seconds.
+the previous timer. That includes a repeat of the *identical* message — enabling the same strategy
+on a second config tab, whose text does not name the run type — because each of the three handlers
+that shows a message clears `success` before its await, which makes that null load-bearing rather
+than cosmetic. The one case
+left as it was: two requests for the same thing in flight at once (a double-click, since the toggles
+stay enabled mid-request) produce two identical responses, so the banner clears on the first one's
+timer — exactly as before.
 
-**Scope — two components examined and deliberately left alone, one found and deferred:**
+**Scope — three components examined and deliberately left alone, one found and deferred:**
 
 - `OutcomeModal`'s `setTimeout(onSaved, 1500)` is **unchanged**. An earlier cut of this PR "fixed"
   it and was wrong to: nothing renders `OutcomeModal` (outcome recording has been API-only since
@@ -52,8 +58,12 @@ the previous timer, so every message gets its full three seconds.
 - `WindowComingUpConditions.scrollToEntry`'s timer removes a CSS class from a captured node,
   touches no React state, and has no component lifecycle to clean up from.
 
-**Four tests, and the implementation was mutated five ways to prove they bite**: dropping the
-cleanup, shortening the delay, emptying the deps, dropping the null guard, and — the one that
-matters — moving the timer back into the handlers, which three separate tests reject. They run on a
-frozen fake clock rather than `shouldAdvanceTime`, which charges real `waitFor` time against the
-very window under test.
+**Five tests, and the implementation was mutated six ways.** Five are killed: dropping the
+cleanup, shortening the delay, emptying the deps, deleting the load-bearing `setSuccess(null)`, and
+— the one that matters — moving the timer back into the handlers, which four separate tests reject.
+The sixth, dropping the effect's `!success` guard, **survives, correctly**: it only adds an idle
+timer that sets null to null, so it is an equivalent mutant. An earlier version of the unmount test
+"killed" it by demanding the unmount clear every timer ever scheduled rather than the pending one —
+an over-specified assertion claiming a catch that changed nothing observable; it now checks only the
+pending timer. The tests run on a frozen fake clock rather than `shouldAdvanceTime`, which charges
+real `waitFor` time against the very window under test.

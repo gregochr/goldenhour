@@ -87,10 +87,7 @@ describe('ModelSelectionView', () => {
         paramValue: null,
       });
       const view = render(<ModelSelectionView />);
-      await waitFor(() => {
-        expect(screen.getByTestId('strategy-toggle-FORCE_IMMINENT')).toBeInTheDocument();
-      });
-      fireEvent.click(screen.getByTestId('strategy-toggle-FORCE_IMMINENT'));
+      fireEvent.click(await screen.findByTestId('strategy-toggle-FORCE_IMMINENT'));
       await screen.findByText('Always Evaluate Today enabled');
       return view;
     }
@@ -185,6 +182,55 @@ describe('ModelSelectionView', () => {
     });
 
     /**
+     * ⚠️ The case that makes each handler's `setSuccess(null)` load-bearing. The effect re-runs
+     * only when `success` CHANGES, and the strategy message does not name its run type — so
+     * enabling the same strategy on a second config tab produces the identical string. Without the
+     * null committed between them the second `setSuccess` is a no-op, the effect never re-runs, and
+     * the second message dies on the FIRST one's timer. The config tab switch does not touch
+     * `success` (it only calls `setActiveTab`), so the banner genuinely survives into the second
+     * toggle and this measures the null, not the tab change.
+     */
+    it('gives a repeated identical message a fresh window', async () => {
+      vi.useFakeTimers();
+      try {
+        updateOptimisationStrategy.mockResolvedValue({
+          strategyType: 'FORCE_IMMINENT',
+          enabled: true,
+          paramValue: null,
+        });
+        render(<ModelSelectionView />);
+        await pump();
+
+        fireEvent.click(screen.getByTestId('strategy-toggle-FORCE_IMMINENT'));
+        await pump();
+        expect(screen.getByText('Always Evaluate Today enabled')).toBeInTheDocument();
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2000);
+        });
+        fireEvent.click(screen.getByTestId('config-tab-LONG_TERM'));
+        fireEvent.click(screen.getByTestId('strategy-toggle-FORCE_IMMINENT'));
+        await pump();
+        expect(updateOptimisationStrategy).toHaveBeenLastCalledWith(
+          'LONG_TERM', 'FORCE_IMMINENT', true, null
+        );
+
+        // 3.5s in: past the first message's deadline, inside the repeat's own window.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1500);
+        });
+        expect(screen.getByText('Always Evaluate Today enabled')).toBeInTheDocument();
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1500);
+        });
+        expect(screen.queryByText('Always Evaluate Today enabled')).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    /**
      * ⚠️ The regression guard against moving the dismiss back into the handlers. They arm nothing
      * until *after* their network await, so a tab change mid-request (`ManageView` renders this
      * behind `activeTab === 'models'`, unmounting it synchronously) happens before any timer
@@ -215,11 +261,7 @@ describe('ModelSelectionView', () => {
 
       try {
         const { unmount } = render(<ModelSelectionView />);
-        await waitFor(() => {
-          expect(screen.getByTestId('strategy-toggle-FORCE_IMMINENT')).toBeInTheDocument();
-        });
-
-        fireEvent.click(screen.getByTestId('strategy-toggle-FORCE_IMMINENT'));
+        fireEvent.click(await screen.findByTestId('strategy-toggle-FORCE_IMMINENT'));
         // The request must genuinely be in flight, or a toggle that never reached the handler
         // would leave nothing to arm and pass this test for the wrong reason.
         expect(updateOptimisationStrategy).toHaveBeenCalledTimes(1);
@@ -244,12 +286,17 @@ describe('ModelSelectionView', () => {
      * Vitest fails a run on an unhandled error while still reporting every test as passing; it
      * surfaced once in six full-suite runs as an intermittent red build.
      *
-     * Asserted by tracking every timer scheduled at the banner delay and requiring each to be
-     * cleared BY THE UNMOUNT — the spy sees `globalThis.setTimeout`, so it has no caller
-     * attribution and the `ms === 3000` filter is what narrows it to this component's one timer
-     * (`ModelSelectionView` schedules no other). `cleared` is snapshotted immediately before
-     * unmounting, because asserting against the whole run would also accept a component that
-     * cleared its timer at some earlier moment and left nothing pending at unmount at all.
+     * Asserted by requiring the PENDING banner timer — the last one scheduled at the banner delay —
+     * to be cleared BY THE UNMOUNT. The spy sees `globalThis.setTimeout`, so it has no caller
+     * attribution, and the `ms === 3000` filter is what narrows it to this component's timers.
+     * `cleared` is snapshotted immediately before unmounting, because asserting against the whole
+     * run would also accept a component that cleared its timer at some earlier moment and left
+     * nothing pending at unmount at all.
+     *
+     * ⚠️ Only the pending timer, not every timer ever scheduled. An earlier version demanded all of
+     * them, which rejected a behaviourally identical implementation whose only difference was an
+     * idle timer the effect had already cleared — an over-specified test "catching" a mutant that
+     * changes nothing observable.
      */
     it('cancels its pending dismiss timer when it unmounts', async () => {
       const realSetTimeout = globalThis.setTimeout;
@@ -275,7 +322,7 @@ describe('ModelSelectionView', () => {
         unmount();
 
         const clearedByUnmount = cleared.slice(clearedBeforeUnmount);
-        expect(clearedByUnmount).toEqual(expect.arrayContaining(scheduled));
+        expect(clearedByUnmount).toContain(scheduled.at(-1));
       } finally {
         setSpy.mockRestore();
         clearSpy.mockRestore();

@@ -185,9 +185,17 @@ export default function ModelSelectionView() {
    * never runs after unmount, and a {@code setSuccess} on an unmounted component is a no-op — so
    * no {@code isMounted} guard is needed either.
    *
-   * <p>Every handler clears {@code success} before its await, so each new message re-runs this
-   * effect and gets a full window: three quick toggles used to leave three independent timers,
-   * and the first to fire wiped the newest message early.
+   * <p>⚠️ The three handlers that show a message each clear {@code success} before their await,
+   * and that null is load-bearing: the effect re-runs only when {@code success} changes, and the
+   * strategy message does not name its run type, so enabling the same strategy on a second config
+   * tab produces an identical string. The null committed in between is what makes that repeat
+   * re-run the effect and get its own window; three quick toggles used to leave three independent
+   * timers, the first of which wiped the newest message early.
+   *
+   * <p>One case it does not cover: two requests for the same thing in flight at once (a
+   * double-click — the toggles stay enabled mid-request). Both responses carry the same string, so
+   * the second {@code setSuccess} is a no-op and the banner clears on the first response's timer,
+   * exactly as it did before this change.
    */
   useEffect(() => {
     if (!success) return undefined;
