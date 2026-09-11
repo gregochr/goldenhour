@@ -1465,6 +1465,44 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // Falls back to the local calendar date when status is absent (LITE, failed fetch, or a backend
   // older than the field), which is the behaviour this replaced.
   const auroraNight = resolveAuroraNight(auroraStatus);
+  /**
+   * Whether the LIVE aurora state answers for the night on screen — the night in progress, and no
+   * other.
+   *
+   * <p>Two aurora sources feed this tab and they are not the same kind of thing.
+   * {@code storedAuroraResults} is fetched per {@code nightDate} from `GET /api/aurora/forecast/
+   * results`, so it always describes the night being looked at. {@code auroraScores} is fetched by
+   * `getAuroraLocations()` — <b>no date parameter at all</b> — gated only on the live alert level:
+   * it is the NOAA-triggered state for the night in progress. Read unconditionally, it answered for
+   * whichever night was on screen: browse to a future night with no stored run, and the chips, the
+   * medallions, the "🏆 best location" card and the overlay's aurora popup all carried TONIGHT's
+   * live stars and narrative as though they were that night's. The same class of defect as #803's
+   * stale-window ratings — a rating answering for a window it does not belong to — through a source
+   * with no date to check.
+   *
+   * <p>{@code nightDate}, not {@code date}, for the reason the viewline gate below records: they
+   * only diverge when the window control has kept a night row local, and in exactly that case a
+   * raw {@code date} compare would withhold the live state on the night the reader just picked.
+   *
+   * <p>⚠️ <b>The viewline reads THIS predicate too, and that is the point of naming it.</b> The
+   * viewline is the same live NOAA state and was already gated on exactly this comparison; two
+   * spellings of one rule is how the scores and the viewline would come to disagree about which
+   * night is "live".
+   *
+   * <p>⚠️ <b>On any other night a reader shows that night's STORED result, never nothing.</b> The
+   * first cut withheld the overlay popup's aurora score on a non-live night, and `MarkerPopupContent`
+   * reads a null aurora score as "Not suitable for aurora photography" — so a medallion wearing that
+   * night's stored 4★ opened a popup denying the night outright. Replacing tonight's data with a
+   * false negative is not a fix (Codex, #814). The popup now takes the same answer the medallion
+   * does: live on tonight, that night's own stored result otherwise.
+   *
+   * <p>⚠️ <b>Tonight is untouched at every reader.</b> Where the night on screen IS the night in
+   * progress, each reader keeps the precedence it had — the rating accessor stored-first, the
+   * medallions and popups live-only. That those differ on tonight is pre-existing and is a separate
+   * question (which source is authoritative while both exist); this change only stops the live
+   * cache answering for a night it was never about.
+   */
+  const liveAuroraOnScreen = nightDate === auroraNight;
   const viewlineEnabled = role !== 'LITE_USER' && auroraStatus != null
     && ALERT_WORTHY_LEVELS.has(auroraStatus.level);
   const [viewlineUpsellDismissed, setViewlineUpsellDismissed] = useState(false);
@@ -1863,20 +1901,32 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // Fetch stored aurora results when in Aurora mode and the selected NIGHT changes — `nightDate`,
   // not `date`: they diverge only when the window control's EV-ownership rule has kept a night
   // row local because its date is not in `forecastDates` (map-tab-v2-plan.md §3 P6).
+  //
+  // ⚠️ Keyed to the night it was asked for, in both directions (Codex, #814). These results answer
+  // for ONE night, and since the live-state gate (`liveAuroraOnScreen`) the medallions and the
+  // overlay popup read them on every non-live night — so a result standing in for the wrong night
+  // is the exact defect that gate exists to stop. Two ways it could:
+  //   - A STALE WINDOW. Switch night A → B and, until B's request resolves, the results on hand are
+  //     still A's. Hence the clear on EVERY change, before the new request is made.
+  //   - A LATE RESPONSE. With no cancellation, A's request finishing after B's wrote A's stars in as
+  //     B's, and they stayed there until the next selection. Hence `cancelled`, which drops any
+  //     response whose night is no longer the one on screen.
+  // The same fetch-cancel shape this file's multi-date astro/aurora preview effects already use.
   useEffect(() => {
-    if (eventType !== 'AURORA' || !nightDate) {
-      (async () => setStoredAuroraResults({}))();
-      return;
-    }
+    (async () => setStoredAuroraResults({}))();
+    if (eventType !== 'AURORA' || !nightDate) return undefined;
+    let cancelled = false;
     getAuroraForecastResults(nightDate)
       .then((results) => {
+        if (cancelled) return;
         const byName = {};
         results.forEach((r) => { byName[r.locationName] = r; });
         setStoredAuroraResults(byName);
       })
       .catch(() => {
-        setStoredAuroraResults({});
+        if (!cancelled) setStoredAuroraResults({});
       });
+    return () => { cancelled = true; };
   }, [eventType, nightDate]);
 
   // Fetch available dates for astro conditions (available to everyone).
@@ -2376,9 +2426,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /** Get the forecast rating for a location on the current date/event. */
   const getRatingForLocation = useCallback((loc) => {
     if (eventType === 'AURORA') {
-      // Prefer stored DB results; fall back to live state cache for tonight
+      // Prefer stored DB results; fall back to the live state cache — but ONLY for the night in
+      // progress, which is the only night that cache has ever described (see `liveAuroraOnScreen`).
       return storedAuroraResults[loc.name]?.stars
-        ?? auroraScores[loc.name]?.stars
+        ?? (liveAuroraOnScreen ? auroraScores[loc.name]?.stars : null)
         ?? null;
     }
     if (eventType === 'ASTRO') {
@@ -2401,7 +2452,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     return briefingScore?.rating ?? forecast?.rating ?? null;
   }, [
     eventType, date, briefingScoreIndex, storedAuroraResults, auroraScores, astroScores,
-    solarWindowOnScreen,
+    solarWindowOnScreen, liveAuroraOnScreen,
   ]);
 
   /**
@@ -2690,16 +2741,18 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       : null
   ), [emphasiseLocationName, visibleLocations]);
 
-  // Best aurora location — highest-starred entry from current aurora scores.
+  // Best aurora location — highest-starred entry from the LIVE aurora scores, so only while the
+  // night on screen is the night in progress. The card names a place and a star count and offers to
+  // centre the map on it: on any other night it was naming tonight's best as that night's.
   const bestAuroraLocation = useMemo(() => {
-    if (!isAuroraMode) return null;
+    if (!isAuroraMode || !liveAuroraOnScreen) return null;
     const entries = Object.values(auroraScores);
     if (entries.length === 0) return null;
     const best = entries.reduce((b, curr) => (curr.stars > b.stars ? curr : b), entries[0]);
     // When every location scored 1 star (all overcast / triage-rejected), don't highlight one
     if (best.stars <= 1) return null;
     return best;
-  }, [isAuroraMode, auroraScores]);
+  }, [isAuroraMode, auroraScores, liveAuroraOnScreen]);
 
   if (!date || locations.length === 0) {
     return (
@@ -4293,7 +4346,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               when the EV-ownership rule kept the row local (`localNightDate`), and in exactly that
               case a raw `date` compare would have hidden the viewline on the night the reader had
               just picked. */}
-          {viewlineEnabled && eventType === 'AURORA' && nightDate === auroraNight && (
+          {viewlineEnabled && eventType === 'AURORA' && liveAuroraOnScreen && (
             <AuroraViewlineOverlay viewline={viewline} forecastKp={auroraStatus?.forecastKp} />
           )}
 
@@ -4330,7 +4383,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           <>
             {visibleLocations.map((loc) => {
               const { forecast, hourlyData, isPureWildlife, isWaterfall } = getContentProps(loc);
-              const locAuroraScore = isAuroraMode ? (auroraScores[loc.name] ?? null) : null;
               // Look up briefing evaluation score for this location (if any)
               // ⚠️ Gated, and read through the SHARED accessors rather than re-derived here.
               // This block used to carry its own copy of the briefing-then-forecast precedence and
@@ -4343,8 +4395,16 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               // surface had disowned it. Two review lenses found it independently.
               const briefingScore = (!isAuroraMode && solarWindowOnScreen())
                 ? lookupBriefingScore(briefingScoreIndex, loc.name, date, eventType) : null;
+              // Aurora: tonight's live stars exactly as before; on any other night, that night's
+              // own STORED stars rather than tonight's live ones (see `liveAuroraOnScreen`).
+              // ⚠️ ONE gate, here. A second one on a `locAuroraScore` temporary above was dead —
+              // it was only ever read inside this same `liveAuroraOnScreen ?` branch, so removing
+              // it changed nothing and mutation testing could not kill it. Inlined rather than kept,
+              // since a guard that cannot fire reads as protection it does not give.
               const markerRating = isAuroraMode
-                ? (locAuroraScore?.stars ?? null)
+                ? (liveAuroraOnScreen
+                  ? (auroraScores[loc.name]?.stars ?? null)
+                  : (storedAuroraResults[loc.name]?.stars ?? null))
                 : getRatingForLocation(loc);
               // ⚠️ The gate belongs on BOTH sources, not just `briefingScore`. These fall back to
               // `forecast`, which is read straight off `forecastsByDate` by date — so gating only
@@ -4423,7 +4483,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                           tideFetchedAt={tideFetchedAt[loc.name] ?? null}
                           onTideClassification={(cls) => setTideClassifications((prev) => ({ ...prev, [loc.name]: cls }))}
                           tideClassification={tideClassifications[loc.name] ?? null}
-                          auroraScore={auroraScores[loc.name] ?? null}
+                          auroraScore={liveAuroraOnScreen ? (auroraScores[loc.name] ?? null) : (storedAuroraResults[loc.name] ?? null)}
                           isAuroraMode={isAuroraMode}
                           astroScore={astroScores[loc.name] ?? null}
                           isAstroMode={isAstroMode}
@@ -5012,7 +5072,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 tideFetchedAt={tideFetchedAt[loc.name] ?? null}
                 onTideClassification={(cls) => setTideClassifications((prev) => ({ ...prev, [loc.name]: cls }))}
                 tideClassification={tideClassifications[loc.name] ?? null}
-                auroraScore={auroraScores[loc.name] ?? null}
+                auroraScore={liveAuroraOnScreen ? (auroraScores[loc.name] ?? null) : (storedAuroraResults[loc.name] ?? null)}
                 isAuroraMode={isAuroraMode}
                 astroScore={astroScores[loc.name] ?? null}
                 isAstroMode={isAstroMode}

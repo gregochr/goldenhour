@@ -1217,10 +1217,19 @@ MarkerPopupContent.propTypes = {
     isKing: PropTypes.bool.isRequired,
     nearSolarEvent: PropTypes.bool.isRequired,
   })),
+  // Two sources feed this: the LIVE score for the night in progress, and the STORED forecast result
+  // (`AuroraForecastResultDto`) for any other night. The stored record carries no `cloudPercent`,
+  // and nothing in this component renders it — so "required" was a contract on a field nobody
+  // reads, which became false the moment the second source arrived. `alertLevel` is optional for
+  // the same reason: a stored result for a quiet night may carry none, and the only reader is a
+  // `=== 'STRONG'` colour test that is already null-safe.
+  // ⚠️ A DOCUMENTED-contract correction only. React 19 does not run propTypes at runtime (measured:
+  // an omitted required prop produces no warning), so this changes no behaviour and no test can
+  // observe it. The behaviour fix is `MapView` passing the stored result at all.
   auroraScore: PropTypes.shape({
     stars: PropTypes.number.isRequired,
-    alertLevel: PropTypes.string.isRequired,
-    cloudPercent: PropTypes.number.isRequired,
+    alertLevel: PropTypes.string,
+    cloudPercent: PropTypes.number,
     summary: PropTypes.string,
     detail: PropTypes.string,
   }),
