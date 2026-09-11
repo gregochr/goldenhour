@@ -370,9 +370,9 @@ describe('SchedulerView — the Run Now confirmation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     // ⚠️ `clearAllMocks` does not empty a `mockReturnValueOnce` queue, and a queued Once outranks
-    // the default below. A test that fails before consuming its deferred calls would hand its
-    // never-settling promise to the NEXT test's click — measured: under a mutant that disables the
-    // button mid-call, the double-click tests' leftover call failed the unrelated error test.
+    // both the default below and a test's own `mockRejectedValue`. A test that fails before
+    // consuming a deferred call would hand it to the NEXT test's click — measured once, when a
+    // leftover call reached the unrelated error test as a success instead of its rejection.
     // `mockReset` empties the queue.
     triggerJob.mockReset();
     fetchSchedulerJobs.mockResolvedValue(MOCK_JOBS);
@@ -507,90 +507,67 @@ describe('SchedulerView — the Run Now confirmation', () => {
   });
 
   /**
-   * ⚠️ The overwrite leak. The button is disabled only once a call resolves, so two quick clicks
-   * send two calls. The old handler stored each response's timer in one `timerRefs.current[jobKey]`
-   * slot without clearing the previous id, orphaning the first: the unmount cleanup could only
-   * ever cancel the second. Both responses land while the first confirmation is still showing, so
-   * nothing may survive the unmount.
+   * ⚠️ One click, one run. The button used to disable itself only once the call RESOLVED, so the
+   * second press of a double-click landed on an enabled button and sent a second
+   * `POST .../trigger` — and the backend's `triggerNow` queues an immediate run per call, so a
+   * briefing or a tide refresh ran twice. It is now disabled from the click until the call
+   * settles, still reading "Run Now" (the confirmation must not claim a run before the server has
+   * accepted it).
+   *
+   * The `toBeDisabled()` before the second press is what carries this test. A browser never
+   * dispatches the user's click to a disabled button; jsdom does, and it is React's own filter on a
+   * disabled button's `onClick` that drops it here, so the second press cannot fail where the
+   * disabled assertion passed. It stays to pin the count a double-click must produce. `act` flushes
+   * every lane, so this cannot tell an ordinary `setPending` from one moved into a transition — the
+   * component's doc comment carries that rule.
    */
-  it('leaves no orphaned timer when a double-click sends two trigger calls', async () => {
+  it('sends no second trigger call when Run Now is pressed again while the first is in flight', async () => {
     vi.useFakeTimers();
     try {
-      const releaseFirst = deferTrigger();
-      const releaseSecond = deferTrigger();
-      const { unmount } = render(<SchedulerView />);
+      const release = deferTrigger();
+      render(<SchedulerView />);
       await pump();
 
       fireEvent.click(runNowButton('Run Now'));
-      fireEvent.click(runNowButton('Run Now'));
-      expect(triggerJob).toHaveBeenCalledTimes(2);
+      expect(triggerJob).toHaveBeenCalledTimes(1);
+      expect(runNowButton('Run Now')).toBeDisabled();
 
-      releaseFirst();
+      fireEvent.click(runNowButton('Run Now'));
       await pump();
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(500);
-      });
-      releaseSecond();
+      expect(triggerJob).toHaveBeenCalledTimes(1);
+      // Still in flight: nothing has resolved it, so nothing may have confirmed it.
+      expect(runNowButton('Run Now')).toBeDisabled();
+
+      release();
       await pump();
       expect(runNowButton('Triggered ✓')).toBeDisabled();
-
-      unmount();
-      expect(vi.getTimerCount(), OUTLIVED).toBe(0);
+      expect(triggerJob).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
   });
 
   /**
-   * What the double-click cost a reader, not just the clock. Not the orphan of the test above —
-   * that was the FIRST response's timer, which fired on time and ended the confirmation. The
-   * damage came from the SECOND response's timer: nothing cancelled it, so it was still pending
-   * when the button re-enabled, and a fresh Run Now pressed in that gap had its confirmation wiped
-   * by it, well short of its own window.
-   *
-   * Timeline: responses at 0 and 500ms; the confirmation clears at 2000ms; a new trigger lands at
-   * 2100ms and must hold until 4100ms. The old code's second timer fired at 2500ms.
+   * The in-flight guard must not become a one-shot. The error test below pins that a failed call
+   * leaves the button ENABLED; this pins that pressing it then actually sends. A guard that latched
+   * per mount (a ref set on the first press, beside `pending`) passes every other test in this file
+   * while leaving the error banner asking for a retry the button silently swallows.
    */
-  it('gives a fresh trigger its full window after a double-click', async () => {
+  it('sends the retry after a failed trigger call', async () => {
     vi.useFakeTimers();
     try {
-      const releaseFirst = deferTrigger();
-      const releaseSecond = deferTrigger();
+      triggerJob.mockRejectedValueOnce(new Error('Network error'));
       render(<SchedulerView />);
       await pump();
 
       fireEvent.click(runNowButton('Run Now'));
-      fireEvent.click(runNowButton('Run Now'));
-      releaseFirst();
       await pump();
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(500);
-      });
-      releaseSecond();
-      await pump();
+      expect(screen.getByText('Failed to trigger tide_refresh')).toBeInTheDocument();
 
-      // 2000ms: the first confirmation's window is over. It is timed from the FIRST response — the
-      // second lands while it is already showing and does not restart it — and that is the
-      // behaviour this scenario needs: the 2000–2500ms gap the old second timer fired into exists
-      // only under it. A fix that restarted the window per response would fail here, at this line,
-      // rather than at the assertion this test is named for.
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1500);
-      });
-      expect(runNowButton('Run Now')).toBeEnabled();
-
-      // 2100ms: a fresh trigger, which resolves immediately (the default mock).
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(100);
-      });
+      // The retry resolves (the default mock).
       fireEvent.click(runNowButton('Run Now'));
       await pump();
-      expect(triggerJob).toHaveBeenCalledTimes(3);
-
-      // 4099ms: past where the old second timer fired, inside the new window.
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(1999);
-      });
+      expect(triggerJob).toHaveBeenCalledTimes(2);
       expect(runNowButton('Triggered ✓')).toBeDisabled();
     } finally {
       vi.useRealTimers();

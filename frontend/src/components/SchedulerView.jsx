@@ -168,12 +168,19 @@ function formatStatus(status) {
  * {@code setTriggered} on an unmounted component is a no-op, so no {@code isMounted} guard is
  * needed either.
  *
- * <p>It also closes the double-click leak. The button is disabled only once a call resolves, so two
- * quick clicks send two calls; each response used to arm a timer into one shared slot without
- * clearing the previous id. The first response's timer ended the confirmation, the second's was
- * left pending past it, and a fresh Run Now pressed in that gap was wiped by it early. Here the
- * second response sets {@code triggered} to the value it already holds, so the effect's deps
- * compare equal, it does not re-run, and there is only ever one timer per button.
+ * <p>⚠️ The button is disabled from the click until the call settles ({@code pending}), not only
+ * once it resolves. It used to be the latter, so a double-click sent two
+ * {@code POST .../trigger} calls — and {@code DynamicSchedulerService.triggerNow} queues an
+ * immediate run for each, so one double-click ran a briefing or a tide refresh twice. React flushes
+ * a click's state update before the next input event is dispatched, and a disabled button receives
+ * no click, so a press while the call is in flight never reaches the handler. Keep
+ * {@code setPending(true)} an ordinary update: moved into a transition it could lose that race.
+ *
+ * <p>This guards only this button's own round trip. {@code triggerNow} returns as soon as the run
+ * is queued, so a press after the confirmation clears, a second tab, a remount mid-call, or a retry
+ * after a failed response the server had in fact acted on can still queue another run while the
+ * first may be going. Whether a job refuses an overlapping run is up to its target: the batch
+ * submissions and the cloud-verification backfill already do, the briefing and tide refresh do not.
  *
  * @param {object} props
  * @param {string} props.jobKey - the job this button triggers
@@ -182,6 +189,7 @@ function formatStatus(status) {
  */
 function RunNowButton({ jobKey, disabled, onError }) {
   const [triggered, setTriggered] = useState(false);
+  const [pending, setPending] = useState(false);
 
   useEffect(() => {
     if (!triggered) return undefined;
@@ -190,11 +198,14 @@ function RunNowButton({ jobKey, disabled, onError }) {
   }, [triggered]);
 
   const handleTrigger = async () => {
+    setPending(true);
     try {
       await triggerJob(jobKey);
       setTriggered(true);
     } catch {
       onError(`Failed to trigger ${jobKey}`);
+    } finally {
+      setPending(false);
     }
   };
 
@@ -202,7 +213,7 @@ function RunNowButton({ jobKey, disabled, onError }) {
     <button
       onClick={handleTrigger}
       className="text-xs text-plex-gold hover:text-plex-gold/80 border border-plex-gold/30 rounded px-2 py-0.5"
-      disabled={disabled || triggered}
+      disabled={disabled || pending || triggered}
       data-testid={`trigger-btn-${jobKey}`}
     >
       {triggered ? 'Triggered ✓' : 'Run Now'}
