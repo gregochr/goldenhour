@@ -67,22 +67,47 @@ public class ForecastController {
     private static final Logger LOG = LoggerFactory.getLogger(ForecastController.class);
 
     /**
-     * How many past days the list endpoint returns, alongside the forward horizon.
+     * How many past days the list endpoint returns, alongside the forward horizon — anchored on the
+     * UK civil date (see {@link ForecastHorizon}).
      *
-     * <p>Was 7, added by f58621f0 together with the DateStrip's dimmed past chips. Reduced to 2
-     * because the payload is cached client-side for instant paint and the past half of it was the
-     * larger half: past days are fully dense (every one was scored when it was T+0, and
-     * WILDLIFE/WATERFALL locations carry ~16 HOURLY rows each per day) while T+4/T+5 are never
-     * batch-evaluated. The strip keeps two dimmed chips instead of seven.
+     * <p>⚠️ <b>Shared.</b> {@link BriefingEvaluationController} reuses this constant for
+     * {@code GET /api/briefing/evaluate/scores}, so changing it moves both endpoints' windows.
      *
-     * <p><b>Not zero, for a timezone reason.</b> {@code computeAutoSelection} picks the initial
-     * date from the browser's <em>local</em> date, while this window is anchored on the UK civil
-     * date (see {@link ForecastHorizon}). West of the UK the local date can be a day behind, so
-     * auto-selection legitimately asks for what this endpoint calls T-1; if that date is absent
-     * the selection silently degrades to a fallback. Two days covers that with room to spare.
+     * <p>Was 7, added by f58621f0 together with the DateStrip's dimmed past chips (the DateStrip
+     * has since been retired). Reduced to 2 because the payload is cached client-side for instant
+     * paint and the past half of it was the larger half: past days are fully dense (every one was
+     * scored when it was T+0, and WILDLIFE/WATERFALL locations carry ~16 HOURLY rows each per day)
+     * while T+4 and beyond are never batch-evaluated.
      *
-     * <p>Anything older belongs in {@code GET /api/forecast/history}, which takes explicit
-     * from/to dates and is unaffected by this bound.
+     * <p><b>Not zero, for two reasons the frontend depends on</b> — neither visible from here:
+     *
+     * <ul>
+     *   <li><b>The aurora night in progress.</b> A night runs dusk to dawn, so before dawn it is
+     *       YESTERDAY's date. The frontend's {@code mapDates.resolveMapDate}, which picks the Map
+     *       tab's date, honours a selection naming that night — set by the aurora banner, and by the
+     *       tab's own auto-jump to a night with a stored run — only if the date is in the set this
+     *       endpoint returns. At zero T-1 would never be served, and the exemption would refuse the
+     *       night silently: no error, the tab just falls through to today, taking its aurora
+     *       viewline off the night the alert is about. (The banner's own overlay reads its date
+     *       directly and would be unaffected; it is the Map tab that depends on this.)</li>
+     *   <li><b>The day nothing has been forecast.</b> With no rows from today forward, the past rows
+     *       are what keep the client's date set non-empty — and the frontend offers the Map tab only
+     *       while that set is non-empty. At zero, on exactly that day, the Map tab is withheld
+     *       outright instead of opening onto its "No forecast to show." empty state. A consequence
+     *       worth knowing rather than a reason the value was chosen.</li>
+     * </ul>
+     *
+     * <p><b>Both need one day, not two</b>: the night in progress began at most yesterday. The
+     * second day is margin carried over from the reason this javadoc used to give — that
+     * {@code computeAutoSelection} picked the browser's <em>local</em> date, so a reader west of the
+     * UK could legitimately ask for T-1. That stopped being true when it moved to the UK calendar
+     * ({@code ukDateStr}); both sides of the comparison are now {@code Europe/London}. No current
+     * frontend reader reaches a date older than the night in progress, since the map refuses any
+     * other past date outright. Reducing this to 1 would therefore be a payload decision rather
+     * than a correctness one.
+     *
+     * <p>Anything older belongs in {@code GET /api/forecast/history}, the ADMIN-only backtesting
+     * endpoint, which takes explicit from/to dates and is unaffected by this bound.
      */
     static final int PAST_WINDOW_DAYS = 2;
 
