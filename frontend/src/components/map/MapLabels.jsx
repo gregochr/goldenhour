@@ -85,6 +85,12 @@ const OBSTACLE_SELECTOR = [
   '[data-testid="wf-map-chrome-tr"]',
   '[data-testid="wf-map-chrome-bl"]',
   '[data-testid="wf-map-counts-footer"]',
+  // The empty state's CHIP, centred in the map body — never its `inset: 0` wrapper, which would
+  // seed the whole frame and drop every label. Present in the DOM only while the map has no
+  // forecast for the window on screen, i.e. only while the rating gate has already removed every
+  // rated chip, so on any populated map this entry matches nothing and costs the placer nothing.
+  // Measured before seeding: a region name overlapped it by 311px², its bottom edge under the chip.
+  '[data-testid="wf-map-no-forecast"]',
   '[data-testid="wf-win-menu"]',
   '[data-testid="wf-jump-menu"]',
   '[data-testid="wf-filters-panel"]',

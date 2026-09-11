@@ -4614,6 +4614,20 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 bottom-left (P10 — hidden in Pins mode, shares its corner with the LITE
                 viewline-upsell chip, which never coexists with it); scored-locations chip
                 bottom-right; counts footer bottom-centre. */}
+            {/* The tab's empty state, CENTRE-BODY (owner call) — see `noForecastLineShown` for
+                why the pill alone stopped being enough, and `.wf-map-empty` for why it sits on
+                this rung of the z-ladder and cannot swallow a map gesture. It began in the
+                top-right key slot beside "This event is not scored yet"; on a map that is
+                genuinely blank the corner is not where the eye goes, which is the whole reason
+                this surface has to speak at all. */}
+            {noForecastLineShown && (
+              <div className="wf-map-empty">
+                <div data-testid="wf-map-no-forecast" className="wf-map-key">
+                  No forecast to show.
+                </div>
+              </div>
+            )}
+
             <div className="wf-map-chrome-tl" data-testid="wf-map-chrome-tl">
               {windowControl}
             </div>
@@ -4761,13 +4775,6 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                   {unscoredLineShown && (
                     <div data-testid="wf-map-heat-unscored" className="wf-map-key">
                       This event is not scored yet
-                    </div>
-                  )}
-                  {/* The tab's empty state, in the Plan screen's own words — see
-                      `noForecastLineShown` for why the pill alone stopped being enough. */}
-                  {noForecastLineShown && (
-                    <div data-testid="wf-map-no-forecast" className="wf-map-key">
-                      No forecast to show.
                     </div>
                   )}
                   {heatOn && !windowUnscored && (
