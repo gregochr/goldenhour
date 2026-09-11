@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { getAvailableModels, setActiveModel, setExtendedThinking, updateOptimisationStrategy } from '../api/modelsApi.js';
 import { fetchLocations } from '../api/forecastApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -167,43 +167,33 @@ export default function ModelSelectionView() {
   const [switching, setSwitching] = useState(false);
   const [activeTab, setActiveTab] = useState('VERY_SHORT_TERM');
   const [locationCount, setLocationCount] = useState(0);
-  const successTimer = useRef(null);
-  const mounted = useRef(true);
 
   /**
-   * Shows a success banner that clears itself after {@link SUCCESS_BANNER_MS}.
+   * Clears the success banner {@link SUCCESS_BANNER_MS} after it appears.
    *
-   * <p>⚠️ The timer is owned by a ref and cancelled on unmount, because the bare
-   * {@code setTimeout(() => setSuccess(null), 3000)} this replaced outlived the component: the
-   * callback ran against a torn-down tree and React's {@code dispatchSetState} read a {@code window}
-   * that no longer existed. Vitest fails a run that records an unhandled error while still
-   * reporting every test as passing, so the suite can go red on a change that touches nothing here
-   * — observed once in six full-suite runs, so intermittently rather than every time.
+   * <p>⚠️ The dismiss is an effect keyed on {@code success}, the idiom {@code App.jsx}'s run banner
+   * and {@code RegisterPage}'s cooldown already use, and not a {@code setTimeout} armed by the
+   * handlers. Those were bare calls placed *after* each handler's network await, so the callback
+   * outlived the component: it ran against a torn-down tree and React's {@code dispatchSetState}
+   * read a {@code window} that no longer existed. Vitest fails a run that records an unhandled
+   * error while still reporting every test as passing — observed once in six full-suite runs.
    *
-   * <p>⚠️ **An unmount cleanup alone does NOT close this**, which is how the first cut of the fix
-   * still leaked. Every caller arms the timer *after* awaiting a network call, so unmounting during
-   * that await runs the cleanup while the ref is still null — it cancels nothing — and the resolved
-   * handler then arms a fresh timer with no owner left to cancel it. `ManageView` renders this
-   * behind {@code activeTab === 'models'}, so switching tab mid-request is the ordinary way to get
-   * there. The {@code mounted} guard, not the cleanup, is what makes that case safe.
+   * <p>⚠️ Do not move the timer back into the handlers, even with a cleanup. An unmount cleanup
+   * cannot cancel a timer that does not exist yet: `ManageView` renders this behind
+   * {@code activeTab === 'models'}, so switching tab mid-request unmounts it before the await
+   * resolves, and the handler then arms a timer nothing owns. An effect has no such window — it
+   * never runs after unmount, and a {@code setSuccess} on an unmounted component is a no-op — so
+   * no {@code isMounted} guard is needed either.
    *
-   * <p>It also cancels a PENDING timer — three quick toggles used to schedule three timers, and the
-   * first to fire wiped the newest message early.
+   * <p>Every handler clears {@code success} before its await, so each new message re-runs this
+   * effect and gets a full window: three quick toggles used to leave three independent timers,
+   * and the first to fire wiped the newest message early.
    */
-  const flashSuccess = useCallback((message) => {
-    if (!mounted.current) return;
-    setSuccess(message);
-    if (successTimer.current) clearTimeout(successTimer.current);
-    successTimer.current = setTimeout(() => setSuccess(null), SUCCESS_BANNER_MS);
-  }, []);
-
   useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-      if (successTimer.current) clearTimeout(successTimer.current);
-    };
-  }, []);
+    if (!success) return undefined;
+    const timer = setTimeout(() => setSuccess(null), SUCCESS_BANNER_MS);
+    return () => clearTimeout(timer);
+  }, [success]);
 
   useEffect(() => {
     async function fetchModels() {
@@ -242,7 +232,7 @@ export default function ModelSelectionView() {
       const result = await setActiveModel(runType, model);
       setConfigs((prev) => ({ ...prev, [runType]: result.active }));
       const tabLabel = CONFIG_TABS.find((t) => t.key === runType)?.label || runType;
-      flashSuccess(`${tabLabel} model switched to ${MODEL_INFO[result.active]?.name || result.active}`);
+      setSuccess(`${tabLabel} model switched to ${MODEL_INFO[result.active]?.name || result.active}`);
     } catch (err) {
       setError(`Failed to switch model for ${runType}`);
       console.error(err);
@@ -268,7 +258,7 @@ export default function ModelSelectionView() {
         return updated;
       });
       const info = STRATEGY_INFO[strategyType];
-      flashSuccess(`${info?.label || strategyType} ${newEnabled ? 'enabled' : 'disabled'}`);
+      setSuccess(`${info?.label || strategyType} ${newEnabled ? 'enabled' : 'disabled'}`);
     } catch (err) {
       const msg = err.response?.data?.message || err.response?.data || `Failed to update ${strategyType}`;
       setError(typeof msg === 'string' ? msg : `Failed to update ${strategyType}`);
@@ -302,7 +292,7 @@ export default function ModelSelectionView() {
       setSuccess(null);
       await setExtendedThinking(runType, next);
       setExtendedThinkingConfig((prev) => ({ ...prev, [runType]: next }));
-      flashSuccess(`Extended thinking ${next ? 'enabled' : 'disabled'} for Briefing`);
+      setSuccess(`Extended thinking ${next ? 'enabled' : 'disabled'} for Briefing`);
     } catch (err) {
       setError('Failed to update extended thinking setting');
       console.error(err);

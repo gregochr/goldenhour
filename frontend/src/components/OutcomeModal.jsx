@@ -1,10 +1,7 @@
-import React, { useActionState, useEffect, useRef, useState } from 'react';
+import React, { useActionState, useState } from 'react';
 import PropTypes from 'prop-types';
 import { recordOutcome } from '../api/forecastApi.js';
 import Modal from './shared/Modal.jsx';
-
-/** How long the "saved" confirmation shows before the dialog hands back to its opener. */
-const SAVED_HANDOFF_MS = 1500;
 
 /**
  * Modal dialog for recording an actual observed sunrise/sunset outcome.
@@ -32,34 +29,6 @@ export default function OutcomeModal({
   const [goldenHourActual, setGoldenHourActual] = useState('');
   const [notes, setNotes] = useState('');
   const [saved, setSaved] = useState(false);
-  const savedTimer = useRef(null);
-  const mounted = useRef(true);
-
-  /**
-   * Cancels the pending hand-off if the dialog goes away first, and refuses to arm one at all once
-   * it has.
-   *
-   * <p>⚠️ The guard carries this, not the cleanup. The timer is armed *after* {@code recordOutcome}
-   * resolves, so unmounting while the save is in flight — Cancel stays enabled during
-   * {@code isPending}, and the backdrop closes too — runs the cleanup against a still-null ref and
-   * the continuation then arms a timer nothing owns. That is the same fire-after-teardown class the
-   * change set out to remove — though not the same symptom: {@code onSaved} is caller-supplied, so
-   * firing it late reads no {@code window} and throws nothing. The measured unhandled error came
-   * from {@code ModelSelectionView}'s {@code setSuccess}, never from here.
-   *
-   * <p>⚠️ This component has **no production render site** — outcome recording has been API-only
-   * since 2026-02-27 (see CLAUDE.md and {@code v1-retirement-plan.md} §8), and the only
-   * {@code onSaved} that has ever run is a test double. So the defect fixed here is latent, and
-   * whether a manual Close inside the confirmation window should still notify the opener is an open
-   * product question for whoever gives this component a caller — deliberately not decided here.
-   */
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-      if (savedTimer.current) clearTimeout(savedTimer.current);
-    };
-  }, []);
 
   const [saveError, submitAction, isPending] = useActionState(async () => {
     try {
@@ -75,9 +44,7 @@ export default function OutcomeModal({
         notes,
       });
       setSaved(true);
-      if (mounted.current) {
-        savedTimer.current = setTimeout(onSaved, SAVED_HANDOFF_MS);
-      }
+      setTimeout(onSaved, 1500);
       return null;
     } catch (err) {
       return err.response?.data?.message || err.message || 'Failed to save outcome.';

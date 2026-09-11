@@ -142,26 +142,56 @@ describe('ModelSelectionView', () => {
     });
 
     /**
-     * ⚠️ The regression this file had no cover for. The banner's auto-dismiss used to be a bare
-     * `setTimeout(() => setSuccess(null), 3000)`, so unmounting inside that window left the callback
-     * to run against a torn-down tree — `window is not defined` out of React's `dispatchSetState`.
-     * Vitest 5 fails the whole run on that while still reporting every test as passing, so it went
-     * unnoticed under vitest 4 and only surfaced as an intermittent red build.
-     *
-     * Asserted by tracking every timer scheduled at the banner delay and requiring each to be
-     * cleared BY THE UNMOUNT — the spy sees `globalThis.setTimeout`, so it has no caller
-     * attribution and the `ms === 3000` filter is what narrows it to this component's one timer
-     * (`ModelSelectionView` schedules no other). `cleared` is snapshotted immediately before
-     * unmounting, because asserting against the whole run would also accept a component that
-     * cleared its timer at some earlier moment and left nothing pending at unmount at all.
+     * A newer message gets its own full window. The handlers used to arm an independent 3s timer
+     * each, so a second toggle 2s after the first had its message wiped 1s later by the FIRST
+     * timer. Keying the dismiss on `success` means a new message re-runs the effect, whose cleanup
+     * cancels the old timer — so at 3.5s, past the first message's deadline, the second must still
+     * be showing.
      */
+    it('gives a newer message its full window rather than inheriting the older deadline', async () => {
+      vi.useFakeTimers();
+      try {
+        updateOptimisationStrategy
+          .mockResolvedValueOnce({ strategyType: 'FORCE_IMMINENT', enabled: true, paramValue: null })
+          .mockResolvedValueOnce({ strategyType: 'FORCE_STALE', enabled: true, paramValue: null });
+        render(<ModelSelectionView />);
+        await pump();
+
+        fireEvent.click(screen.getByTestId('strategy-toggle-FORCE_IMMINENT'));
+        await pump();
+        expect(screen.getByText('Always Evaluate Today enabled')).toBeInTheDocument();
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2000);
+        });
+        fireEvent.click(screen.getByTestId('strategy-toggle-FORCE_STALE'));
+        await pump();
+        expect(screen.getByText('Re-evaluate Stale Data enabled')).toBeInTheDocument();
+
+        // 3.5s in: the first message's deadline has passed, the second's has not.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1500);
+        });
+        expect(screen.getByText('Re-evaluate Stale Data enabled')).toBeInTheDocument();
+
+        // 5s in: now the second message's own window has elapsed.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1500);
+        });
+        expect(screen.queryByText('Re-evaluate Stale Data enabled')).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     /**
-     * ⚠️ The hole the FIRST cut of this fix still had, and the reason an unmount cleanup is not on
-     * its own enough. Every caller arms the banner timer *after* awaiting a network call, so a tab
-     * change mid-request (`ManageView` renders this behind `activeTab === 'models'`, unmounting it
-     * synchronously) runs the cleanup while the ref is still null — cancelling nothing — and the
-     * resolved handler then arms a timer with no owner left to cancel it. Only the `mounted` guard
-     * closes this; a test that unmounts AFTER the request settles cannot see it.
+     * ⚠️ The regression guard against moving the dismiss back into the handlers. They arm nothing
+     * until *after* their network await, so a tab change mid-request (`ManageView` renders this
+     * behind `activeTab === 'models'`, unmounting it synchronously) happens before any timer
+     * exists — an unmount cleanup has nothing to cancel, and a handler-armed timer would then be
+     * created with no owner. The effect idiom has no such window, because an effect never runs
+     * after unmount. The first cut of this fix armed in the handler behind a cleanup and leaked
+     * exactly here; a test that unmounts AFTER the request settles cannot see it.
      */
     it('does not arm a dismiss timer when the request settles after it unmounts', async () => {
       const realSetTimeout = globalThis.setTimeout;
@@ -190,6 +220,9 @@ describe('ModelSelectionView', () => {
         });
 
         fireEvent.click(screen.getByTestId('strategy-toggle-FORCE_IMMINENT'));
+        // The request must genuinely be in flight, or a toggle that never reached the handler
+        // would leave nothing to arm and pass this test for the wrong reason.
+        expect(updateOptimisationStrategy).toHaveBeenCalledTimes(1);
         unmount();
         unmounted = true;
 
@@ -204,6 +237,20 @@ describe('ModelSelectionView', () => {
       }
     });
 
+    /**
+     * ⚠️ The regression this file had no cover for. The banner's auto-dismiss used to be a bare
+     * `setTimeout(() => setSuccess(null), 3000)`, so unmounting inside that window left the callback
+     * to run against a torn-down tree — `window is not defined` out of React's `dispatchSetState`.
+     * Vitest fails a run on an unhandled error while still reporting every test as passing; it
+     * surfaced once in six full-suite runs as an intermittent red build.
+     *
+     * Asserted by tracking every timer scheduled at the banner delay and requiring each to be
+     * cleared BY THE UNMOUNT — the spy sees `globalThis.setTimeout`, so it has no caller
+     * attribution and the `ms === 3000` filter is what narrows it to this component's one timer
+     * (`ModelSelectionView` schedules no other). `cleared` is snapshotted immediately before
+     * unmounting, because asserting against the whole run would also accept a component that
+     * cleared its timer at some earlier moment and left nothing pending at unmount at all.
+     */
     it('cancels its pending dismiss timer when it unmounts', async () => {
       const realSetTimeout = globalThis.setTimeout;
       const realClearTimeout = globalThis.clearTimeout;
