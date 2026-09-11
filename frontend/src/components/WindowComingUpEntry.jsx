@@ -49,23 +49,24 @@ import { entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
  * whitespace-only text between tags rather than collapsing it to a space, so they are what keeps
  * the phrases apart in that one computed name.
  *
- * <p><b>⚠️ As this card is currently styled those separators change nothing in a browser</b> —
- * this doc used to assert the name "runs every phrase together", and no browser measurement
- * supports that. Every engine spaces BLOCK-LEVEL name contributions, and a flex or grid item is
- * blockified; this card's CSS blockifies everything that carries text ({@code .wf-cu-ttl} and
- * {@code .wf-facts} are {@code flex}, {@code .wf-facts > span} and {@code .wf-cu-coin-line} are
- * {@code inline-flex}, {@code .wf-cu-prose} is {@code block}). Measured 2026-09-05: all
- * seventeen text nodes were removed one at a time from this component's real rendered DOM,
- * against the real stylesheet, and the computed name was unchanged in Chromium, WebKit and
- * Firefox — a planted inline pair in the same DOM confirmed the measurement could still detect
- * gluing, and Chromium's native accessibility tree agreed with the cross-engine result.
+ * <p><b>⚠️ Every separator this file renders is inert in a browser</b> — this doc used to assert
+ * the name "runs every phrase together", and no browser measurement supports that. Nothing this
+ * component places side by side is plain inline content. The sections are block-level boxes
+ * ({@code .wf-cu-ttl} and {@code .wf-facts} are {@code flex} containers; {@code .wf-cu-prose},
+ * {@code .wf-cu-coin} and {@code .wf-cu-threshold} are {@code block}) or an atomic inline
+ * ({@code .wf-cu-action} is {@code inline-flex}); inside them the pieces are flex items (the title
+ * row's spans, each fact, each fact's segments) or atomic inlines (each {@code inline-flex}
+ * {@code .wf-cu-coin-line}). Every engine spaces all of these itself. Measured 2026-09-05, and again 2026-09-11 across every state this
+ * component's tests render, in Chromium, WebKit and Firefox. The rule, the method and why the
+ * suite reads it differently are in {@code WindowFirstComingUpHandoff}'s class doc.
  *
- * <p>Note {@code inline-flex} is <b>not</b> the exception it looks like: it is inline-LEVEL, but
- * its contents are blockified, and the engines space it like a block. The run-together defect
- * needs a genuinely inline box with inline content. {@code jsdom}'s
- * {@code dom-accessibility-api} glues <i>any</i> adjacent elements regardless, so a test here
- * asserting a spaced name is asserting the polyfill's rule, not a browser's. Keep the separators:
- * they cost nothing and become load-bearing the moment one of these containers stops being flex.
+ * <p><b>⚠️ One separator inside the card IS load-bearing, and it is not in this file.</b>
+ * {@code ComingUpTideSparkline}'s label sets a {@code <b>} and a {@code <span>} side by side as
+ * plain inline content, so without its {@code {' '}} the card's name reads "5.2 m+1.9 vs avg".
+ * This doc previously said the card's CSS blockifies everything that carries text — true only of
+ * an entry with no tide chart; the measurement behind it used a fixture with {@code tide: null}.
+ * Keep every separator: they cost nothing, and the inert ones become load-bearing the moment
+ * anything beside them becomes plain inline content.
  *
  * <h2>The coincidence card renders alongside prose, not instead of it — a corrected first attempt
  * (D10, plan §6b)</h2>
@@ -139,12 +140,11 @@ export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) 
   };
 
   // Every top-level section is separated by a bare `{' '}` text-node sibling rather than relying
-  // on flex `gap` to imply one, since the accessible-name algorithm reads the DOM and not rendered
-  // layout, and JSX drops whitespace-only text between tags rather than collapsing it to a space.
-  // ⚠️ Defensive, not load-bearing as this card is styled: the engines already space block-level
-  // contributions and this card's CSS blockifies every text-carrying element, so removing any of
-  // these changes nothing in Chromium, WebKit or Firefox (measured — see the class doc). They earn
-  // their keep only if one of those containers stops being flex.
+  // on flex `gap` to imply one — JSX drops whitespace-only text between tags, and jsdom (which
+  // computes no layout, so every section reads as inline to it) needs a real text node to see a
+  // boundary. ⚠️ Defensive, not load-bearing in a browser: every top-level section is a
+  // block-level box or an atomic inline, and the engines space both themselves (measured — see
+  // the class doc). They earn their keep if one of them ever becomes plain inline content.
   const cardBody = (
     <>
       <div className="wf-cu-ttl">

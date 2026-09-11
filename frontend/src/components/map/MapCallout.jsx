@@ -505,13 +505,17 @@ export default function MapCallout({
                 place, whatever an earlier draft of this comment claimed, and a speech-input user
                 still has the visible "Four days here" inside it (2.5.3).
 
-                ⚠️ The `{' '}` is load-bearing and must stay a BARE TEXT NODE. accname trims each
-                element's own contribution before joining with nothing, and the caption between
-                these two is `aria-hidden`, so without it the summary's final word and the place ran
-                together into one spoken token ("…underneath it.Bamburgh"). A CSS `gap` or a
-                pseudo-element `::before` cannot do this — neither is in the accessibility tree —
-                and JSX drops a whitespace-only line between two tags rather than collapsing it to a
-                space, so it has to be written as an explicit expression. */}
+                ⚠️ The `{' '}` is defensive, not load-bearing in a browser. "…underneath it.Bamburgh"
+                is jsdom's reading: it computes no layout — it does not blockify an absolutely
+                positioned element, with or without a stylesheet — so the sr-only span is plain
+                `display: inline` to it and the two runs join across the `aria-hidden` caption. In a
+                browser `.sr-only` is `position: absolute`, which blockifies it, and every engine
+                spaces it from the prose on its own (measured 2026-09-11). Keep it as a bare text
+                node anyway — it states the boundary in the DOM and jsdom's reading needs it; JSX
+                drops a whitespace-only line between two tags, so it has to be an explicit
+                expression. (A flex `gap` would not reach the name; a `::before` WOULD — generated
+                content is in the accessible name, a bare-space `content` included. This comment
+                used to say neither could. See `WindowFirstComingUpHandoff`'s class doc.) */}
             {' '}
             <span className="sr-only">{`${location.name} — four days here`}</span>
           </button>

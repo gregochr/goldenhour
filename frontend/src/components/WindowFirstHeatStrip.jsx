@@ -951,14 +951,17 @@ export default function WindowFirstHeatStrip({
             the visible verdict word, the visible best-reach words and the visible pick words
             verbatim.
 
-            The alternative — name-from-contents over the visible spans — does not survive
-            contact with a browser. `.wf-hc` and `.wf-hc-pls` are flex and grid containers, and
-            CSS Flexbox §4 says a contiguous child text run of only white space "is not rendered
-            (just as if its text nodes were `display: none`)"; AccName then excludes it. So the
-            separators an earlier cut relied on contributed nothing outside jsdom, where
-            `css: false` leaves every span `display: inline` and the literal text nodes ARE the
-            only spaces. The test passed and the browser would have announced
-            "Tonight Sunset21:11Worth it". */}
+            Why not name-from-contents over the visible spans? Not because a browser would glue
+            them: this comment used to say it would announce "Tonight Sunset21:11Worth it", and it
+            does not. Half of that reasoning holds — `.wf-hc` and `.wf-hc-pls` are flex and grid
+            containers, whose whitespace-only text runs are not rendered (Flexbox §4, Grid §6), so
+            the separators an earlier cut relied on were inert outside jsdom (which computes no
+            layout, so every span reads as `display: inline` there). But every engine spaces flex
+            and grid items itself: measured 2026-09-11, the visible spans — which carry no
+            separators at all — read "SUNSET 21:11 Worth it Spread Best nothing in reach" in
+            Chromium, WebKit and Firefox once un-hidden. That reading is the real
+            case for the sentence below — it has no day word, no pauses, a stray `Spread` chart
+            label and a shouted `SUNSET`, where the sentence gets all four right. */}
         <span id={nameId} className="sr-only">{accessibleName}</span>
         {/* The WORD, not an arrow — the design's own call, and it is right: a down arrow for
             sunset reads as a falling forecast. The glyph it replaces was P2's. */}
