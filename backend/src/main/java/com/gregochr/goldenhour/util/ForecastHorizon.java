@@ -35,7 +35,8 @@ import java.time.temporal.ChronoUnit;
  * the two calendars differ, a day whose events are all over. A half-converted engine was worse than
  * an unconverted one, so everything that hands that engine a "today" moved in the same commit:
  * {@code ForecastCommandFactory} (the default range), {@code OptimisationSkipEvaluator}
- * (FORCE_IMMINENT's same-day test and NEXT_EVENT_ONLY's search window), {@code ForecastController}
+ * (FORCE_IMMINENT's same-day test and NEXT_EVENT_ONLY's search window — since deleted along with
+ * the strategies it evaluated, none of which could act; V153), {@code ForecastController}
  * (the {@code POST /run} default date, and the {@code GET} serve window that has to agree with what
  * the engine now forecasts) and {@code BriefingEvaluationController} (the sibling serve window,
  * which shares two constants with that one and so has to share its anchor). See
@@ -44,10 +45,6 @@ import java.time.temporal.ChronoUnit;
  * <p><b>What is deliberately still UTC — enumerated, because "everything routes through here" is
  * exactly the kind of claim that rots.</b>
  * <ul>
- *   <li>{@code OptimisationSkipEvaluator}'s FORCE_STALE, alone in that class. It measures the date
- *       of a <em>stored UTC instant</em> against today, and what matters is that both sides share a
- *       calendar: on a UK "today", an evaluation written at 23:30 UTC on a BST evening would be
- *       called stale half an hour later.</li>
  *   <li>{@code PromptTestService.resolveDates} — the admin prompt-test harness. Its range would
  *       belong here, but the same class decides which target types a date still has via
  *       {@code resolveTargetTypesForDate}, whose day comes from a caller-supplied UTC instant.

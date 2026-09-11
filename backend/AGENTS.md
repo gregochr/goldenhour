@@ -40,7 +40,7 @@ Checkstyle and SpotBugs gate those in CI.
    derivation routes through `util/ForecastHorizon` with an injected `Clock`.
    "Today" is the **Europe/London** civil date; `now` comparisons against solar
    event times stay **UTC**. `ForecastHorizon`'s javadoc enumerates the sites
-   deliberately still on UTC (e.g. FORCE_STALE, `PromptTestService.resolveDates`)
+   deliberately still on UTC (e.g. `PromptTestService.resolveDates`)
    and a separate list of known-unfixed ones. A mixed-calendar file is not
    automatically wrong — check the javadoc lists before flagging. Aurora night
    selection uses an **instant** (`now.isBefore(dawn)`), not a calendar date, and
@@ -100,9 +100,13 @@ Checkstyle and SpotBugs gate those in CI.
    strategies ignore the date range. `AlmanacSource` is the whole-range
    contract.
 
-10. **Optimisation-strategy `shouldSkip` is guarded by `!triggeredManually` and
-    all sync-engine call sites pass manual=true.** Known, documented; don't
-    re-report as dead code without checking the memory note first.
+10. **Only two optimisation strategies exist, and both reach only hand-started
+    runs.** `SENTINEL_SAMPLING` and `TIDE_ALIGNMENT` act on the synchronous engine
+    (the admin `POST /api/forecast/run*` endpoints); the batch pipeline reads
+    neither. The six skip strategies that sat behind `!triggeredManually` were
+    retired in V153 along with `OptimisationSkipEvaluator` — don't report the
+    survivors as dead, and don't reintroduce a type without a path that evaluates
+    it.
 
 ### Bugs that were fixed and must not come back
 

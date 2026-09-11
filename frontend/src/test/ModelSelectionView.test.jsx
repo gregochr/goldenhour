@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import ModelSelectionView from '../components/ModelSelectionView.jsx';
 
 // Mock the API modules
@@ -39,33 +39,22 @@ const MOCK_DATA = {
     BATCH_NEAR_TERM: 'SONNET',
     BATCH_FAR_TERM: 'HAIKU',
   },
+  // The two strategies that survived V153. Laid out so each test has what it needs: both OFF on
+  // the default tab (so toggling produces an "enabled" message), both ON with an UNSET sentinel
+  // parameter on SHORT_TERM (so the parameter fallback is visible), and a stored parameter plus a
+  // mixed ON/OFF pair on LONG_TERM.
   optimisationStrategies: {
     VERY_SHORT_TERM: [
-      { strategyType: 'SKIP_LOW_RATED', enabled: true, paramValue: 3 },
-
-      { strategyType: 'SKIP_EXISTING', enabled: false, paramValue: null },
-      { strategyType: 'FORCE_IMMINENT', enabled: false, paramValue: null },
-      { strategyType: 'FORCE_STALE', enabled: false, paramValue: null },
-      { strategyType: 'EVALUATE_ALL', enabled: false, paramValue: null },
-      { strategyType: 'NEXT_EVENT_ONLY', enabled: false, paramValue: null },
+      { strategyType: 'SENTINEL_SAMPLING', enabled: false, paramValue: 2 },
+      { strategyType: 'TIDE_ALIGNMENT', enabled: false, paramValue: null },
     ],
     SHORT_TERM: [
-      { strategyType: 'SKIP_LOW_RATED', enabled: false, paramValue: 3 },
-
-      { strategyType: 'SKIP_EXISTING', enabled: false, paramValue: null },
-      { strategyType: 'FORCE_IMMINENT', enabled: false, paramValue: null },
-      { strategyType: 'FORCE_STALE', enabled: false, paramValue: null },
-      { strategyType: 'EVALUATE_ALL', enabled: false, paramValue: null },
-      { strategyType: 'NEXT_EVENT_ONLY', enabled: false, paramValue: null },
+      { strategyType: 'SENTINEL_SAMPLING', enabled: true, paramValue: null },
+      { strategyType: 'TIDE_ALIGNMENT', enabled: true, paramValue: null },
     ],
     LONG_TERM: [
-      { strategyType: 'SKIP_LOW_RATED', enabled: false, paramValue: 3 },
-
-      { strategyType: 'SKIP_EXISTING', enabled: true, paramValue: null },
-      { strategyType: 'FORCE_IMMINENT', enabled: false, paramValue: null },
-      { strategyType: 'FORCE_STALE', enabled: false, paramValue: null },
-      { strategyType: 'EVALUATE_ALL', enabled: false, paramValue: null },
-      { strategyType: 'NEXT_EVENT_ONLY', enabled: false, paramValue: null },
+      { strategyType: 'SENTINEL_SAMPLING', enabled: true, paramValue: 4 },
+      { strategyType: 'TIDE_ALIGNMENT', enabled: false, paramValue: null },
     ],
   },
 };
@@ -73,6 +62,9 @@ const MOCK_DATA = {
 describe('ModelSelectionView', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // clearAllMocks leaves mockResolvedValueOnce queues in place, so a test that fails mid-way
+    // would hand its unconsumed responses to the next test's first toggle.
+    updateOptimisationStrategy.mockReset();
     useAuth.mockReturnValue({ isAdmin: true });
     getAvailableModels.mockResolvedValue(MOCK_DATA);
     fetchLocations.mockResolvedValue(MOCK_LOCATIONS);
@@ -82,13 +74,13 @@ describe('ModelSelectionView', () => {
     /** Toggles a strategy and waits for the banner its handler shows. */
     async function toggleAndAwaitBanner() {
       updateOptimisationStrategy.mockResolvedValue({
-        strategyType: 'FORCE_IMMINENT',
+        strategyType: 'TIDE_ALIGNMENT',
         enabled: true,
         paramValue: null,
       });
       const view = render(<ModelSelectionView />);
-      fireEvent.click(await screen.findByTestId('strategy-toggle-FORCE_IMMINENT'));
-      await screen.findByText('Always Evaluate Today enabled');
+      fireEvent.click(await screen.findByTestId('strategy-toggle-TIDE_ALIGNMENT'));
+      await screen.findByText('Tide Triage enabled');
       return view;
     }
 
@@ -110,16 +102,16 @@ describe('ModelSelectionView', () => {
       vi.useFakeTimers();
       try {
         updateOptimisationStrategy.mockResolvedValue({
-          strategyType: 'FORCE_IMMINENT',
+          strategyType: 'TIDE_ALIGNMENT',
           enabled: true,
           paramValue: null,
         });
         render(<ModelSelectionView />);
         await pump();
 
-        fireEvent.click(screen.getByTestId('strategy-toggle-FORCE_IMMINENT'));
+        fireEvent.click(screen.getByTestId('strategy-toggle-TIDE_ALIGNMENT'));
         await pump();
-        expect(screen.getByText('Always Evaluate Today enabled')).toBeInTheDocument();
+        expect(screen.getByText('Tide Triage enabled')).toBeInTheDocument();
 
         // Just short of the delay it must still be up: without this the constant is pinned only
         // from above, and shortening it (3000 → 500) would flash the message past unnoticed with
@@ -127,12 +119,12 @@ describe('ModelSelectionView', () => {
         await act(async () => {
           await vi.advanceTimersByTimeAsync(2999);
         });
-        expect(screen.getByText('Always Evaluate Today enabled')).toBeInTheDocument();
+        expect(screen.getByText('Tide Triage enabled')).toBeInTheDocument();
 
         await act(async () => {
           await vi.advanceTimersByTimeAsync(1);
         });
-        expect(screen.queryByText('Always Evaluate Today enabled')).not.toBeInTheDocument();
+        expect(screen.queryByText('Tide Triage enabled')).not.toBeInTheDocument();
       } finally {
         vi.useRealTimers();
       }
@@ -149,33 +141,33 @@ describe('ModelSelectionView', () => {
       vi.useFakeTimers();
       try {
         updateOptimisationStrategy
-          .mockResolvedValueOnce({ strategyType: 'FORCE_IMMINENT', enabled: true, paramValue: null })
-          .mockResolvedValueOnce({ strategyType: 'FORCE_STALE', enabled: true, paramValue: null });
+          .mockResolvedValueOnce({ strategyType: 'TIDE_ALIGNMENT', enabled: true, paramValue: null })
+          .mockResolvedValueOnce({ strategyType: 'SENTINEL_SAMPLING', enabled: true, paramValue: 2 });
         render(<ModelSelectionView />);
         await pump();
 
-        fireEvent.click(screen.getByTestId('strategy-toggle-FORCE_IMMINENT'));
+        fireEvent.click(screen.getByTestId('strategy-toggle-TIDE_ALIGNMENT'));
         await pump();
-        expect(screen.getByText('Always Evaluate Today enabled')).toBeInTheDocument();
+        expect(screen.getByText('Tide Triage enabled')).toBeInTheDocument();
 
         await act(async () => {
           await vi.advanceTimersByTimeAsync(2000);
         });
-        fireEvent.click(screen.getByTestId('strategy-toggle-FORCE_STALE'));
+        fireEvent.click(screen.getByTestId('strategy-toggle-SENTINEL_SAMPLING'));
         await pump();
-        expect(screen.getByText('Re-evaluate Stale Data enabled')).toBeInTheDocument();
+        expect(screen.getByText('Sentinel Sampling enabled')).toBeInTheDocument();
 
         // 3.5s in: the first message's deadline has passed, the second's has not.
         await act(async () => {
           await vi.advanceTimersByTimeAsync(1500);
         });
-        expect(screen.getByText('Re-evaluate Stale Data enabled')).toBeInTheDocument();
+        expect(screen.getByText('Sentinel Sampling enabled')).toBeInTheDocument();
 
         // 5s in: now the second message's own window has elapsed.
         await act(async () => {
           await vi.advanceTimersByTimeAsync(1500);
         });
-        expect(screen.queryByText('Re-evaluate Stale Data enabled')).not.toBeInTheDocument();
+        expect(screen.queryByText('Sentinel Sampling enabled')).not.toBeInTheDocument();
       } finally {
         vi.useRealTimers();
       }
@@ -194,37 +186,37 @@ describe('ModelSelectionView', () => {
       vi.useFakeTimers();
       try {
         updateOptimisationStrategy.mockResolvedValue({
-          strategyType: 'FORCE_IMMINENT',
+          strategyType: 'TIDE_ALIGNMENT',
           enabled: true,
           paramValue: null,
         });
         render(<ModelSelectionView />);
         await pump();
 
-        fireEvent.click(screen.getByTestId('strategy-toggle-FORCE_IMMINENT'));
+        fireEvent.click(screen.getByTestId('strategy-toggle-TIDE_ALIGNMENT'));
         await pump();
-        expect(screen.getByText('Always Evaluate Today enabled')).toBeInTheDocument();
+        expect(screen.getByText('Tide Triage enabled')).toBeInTheDocument();
 
         await act(async () => {
           await vi.advanceTimersByTimeAsync(2000);
         });
         fireEvent.click(screen.getByTestId('config-tab-LONG_TERM'));
-        fireEvent.click(screen.getByTestId('strategy-toggle-FORCE_IMMINENT'));
+        fireEvent.click(screen.getByTestId('strategy-toggle-TIDE_ALIGNMENT'));
         await pump();
         expect(updateOptimisationStrategy).toHaveBeenLastCalledWith(
-          'LONG_TERM', 'FORCE_IMMINENT', true, null
+          'LONG_TERM', 'TIDE_ALIGNMENT', true, null
         );
 
         // 3.5s in: past the first message's deadline, inside the repeat's own window.
         await act(async () => {
           await vi.advanceTimersByTimeAsync(1500);
         });
-        expect(screen.getByText('Always Evaluate Today enabled')).toBeInTheDocument();
+        expect(screen.getByText('Tide Triage enabled')).toBeInTheDocument();
 
         await act(async () => {
           await vi.advanceTimersByTimeAsync(1500);
         });
-        expect(screen.queryByText('Always Evaluate Today enabled')).not.toBeInTheDocument();
+        expect(screen.queryByText('Tide Triage enabled')).not.toBeInTheDocument();
       } finally {
         vi.useRealTimers();
       }
@@ -247,7 +239,7 @@ describe('ModelSelectionView', () => {
 
       updateOptimisationStrategy.mockReturnValue(new Promise((resolve) => {
         releaseRequest = () => resolve({
-          strategyType: 'FORCE_IMMINENT',
+          strategyType: 'TIDE_ALIGNMENT',
           enabled: true,
           paramValue: null,
         });
@@ -261,7 +253,7 @@ describe('ModelSelectionView', () => {
 
       try {
         const { unmount } = render(<ModelSelectionView />);
-        fireEvent.click(await screen.findByTestId('strategy-toggle-FORCE_IMMINENT'));
+        fireEvent.click(await screen.findByTestId('strategy-toggle-TIDE_ALIGNMENT'));
         // The request must genuinely be in flight, or a toggle that never reached the handler
         // would leave nothing to arm and pass this test for the wrong reason.
         expect(updateOptimisationStrategy).toHaveBeenCalledTimes(1);
@@ -356,72 +348,139 @@ describe('ModelSelectionView', () => {
     expect(screen.getByTestId('config-tab-AURORA_EVALUATION')).toBeInTheDocument();
   });
 
-  it('shows strategy toggle buttons', async () => {
+  it('shows a toggle for each of the two strategies that can act', async () => {
     render(<ModelSelectionView />);
 
-    await waitFor(() => {
-      expect(screen.getByTestId('strategy-toggle-SKIP_LOW_RATED')).toBeInTheDocument();
-    });
-
-    expect(screen.getByTestId('strategy-toggle-SKIP_EXISTING')).toBeInTheDocument();
-    expect(screen.getByTestId('strategy-toggle-EVALUATE_ALL')).toBeInTheDocument();
+    expect(await screen.findByTestId('strategy-toggle-SENTINEL_SAMPLING')).toBeInTheDocument();
+    expect(screen.getByTestId('strategy-toggle-TIDE_ALIGNMENT')).toBeInTheDocument();
   });
 
-  it('shows ON for enabled strategies', async () => {
+  /**
+   * During rollout the frontend can meet a backend, or a row, that still names a retired type. The
+   * panel must render nothing for it rather than an unlabelled row with a toggle that does nothing.
+   */
+  it('renders nothing for a strategy type it does not know', async () => {
+    getAvailableModels.mockResolvedValue({
+      ...MOCK_DATA,
+      optimisationStrategies: {
+        ...MOCK_DATA.optimisationStrategies,
+        VERY_SHORT_TERM: [
+          ...MOCK_DATA.optimisationStrategies.VERY_SHORT_TERM,
+          { strategyType: 'EVALUATE_ALL', enabled: true, paramValue: null },
+        ],
+      },
+    });
     render(<ModelSelectionView />);
 
-    await waitFor(() => {
-      expect(screen.getByTestId('strategy-toggle-SKIP_LOW_RATED')).toHaveTextContent('ON');
-    });
-
-    expect(screen.getByTestId('strategy-toggle-SKIP_EXISTING')).toHaveTextContent('OFF');
+    await screen.findByTestId('strategy-toggle-TIDE_ALIGNMENT');
+    expect(screen.queryByTestId('strategy-row-EVALUATE_ALL')).not.toBeInTheDocument();
   });
 
-  it('shows conflict text for mutually exclusive strategies', async () => {
+  it("reports each toggle's stored state through aria-pressed, and shows ON or OFF", async () => {
     render(<ModelSelectionView />);
 
-    await waitFor(() => {
-      expect(screen.getByTestId('strategy-row-SKIP_EXISTING')).toBeInTheDocument();
-    });
+    fireEvent.click(await screen.findByTestId('config-tab-LONG_TERM'));
 
-    // SKIP_EXISTING should show conflict because SKIP_LOW_RATED is ON
-    const skipExistingRow = screen.getByTestId('strategy-row-SKIP_EXISTING');
-    expect(skipExistingRow).toHaveTextContent('Conflicts with');
+    const sentinel = screen.getByRole('button', { name: 'Sentinel Sampling' });
+    const tide = screen.getByRole('button', { name: 'Tide Triage' });
+    expect(sentinel).toHaveAttribute('aria-pressed', 'true');
+    expect(sentinel).toHaveTextContent('ON');
+    expect(tide).toHaveAttribute('aria-pressed', 'false');
+    expect(tide).toHaveTextContent('OFF');
   });
 
-  it('calls API when strategy is toggled', async () => {
+  /**
+   * The panel is headed "Cost Optimisation", which on its own implies it steers every run. It does
+   * not: both strategies reach only runs started by hand, and the scheduled batches read neither.
+   * The note names the real controls — an earlier cut said "runs started from Operations", which
+   * both included batch buttons that ignore these and left out Run Forecast on a map location,
+   * which uses them.
+   */
+  it('names the hand-started runs these apply to, and the batches they do not', async () => {
+    render(<ModelSelectionView />);
+
+    const note = await screen.findByTestId('strategy-scope-note');
+    expect(note).toHaveTextContent('Applies only to forecast runs started by hand');
+    expect(note).toHaveTextContent('Run Forecast on a map location');
+    expect(note).toHaveTextContent('Scheduled batches, overnight and intraday, ignore these');
+    expect(note).not.toHaveTextContent('Operations');
+  });
+
+  /**
+   * A screen reader used to hear only "ON, button" or "OFF, button" — nothing saying which strategy,
+   * and nothing of the scope caveat. Each toggle now carries its strategy's name, its state, and the
+   * scope note as its description.
+   */
+  it("gives each toggle its strategy's name and the scope note as its description", async () => {
+    render(<ModelSelectionView />);
+
+    const tide = await screen.findByRole('button', { name: 'Tide Triage' });
+    expect(tide).toHaveAccessibleDescription(/Applies only to forecast runs started by hand/);
+    expect(screen.getByRole('button', { name: 'Sentinel Sampling' }))
+      .toHaveAccessibleDescription(/Scheduled batches, overnight and intraday, ignore these/);
+  });
+
+  /**
+   * The tide strategy was labelled "Weather/Tide Triage", described as applying four checks, and said
+   * to give a slot "a canned 1★ result". Weather triage runs whether it is on or off, the switch only
+   * adds the tide check, and a tide-triaged slot is stood down with no rating at all.
+   */
+  it('labels the tide strategy as tide-only and describes what it really does', async () => {
+    render(<ModelSelectionView />);
+
+    const row = await screen.findByTestId('strategy-row-TIDE_ALIGNMENT');
+    expect(row).toHaveTextContent('Tide Triage');
+    expect(row).not.toHaveTextContent('Weather/Tide');
+
+    fireEvent.click(within(row).getByRole('button', { name: 'More info' }));
+    const help = await screen.findByTestId('infotip-popover');
+    expect(help).toHaveTextContent('Weather triage (cloud, rain, visibility) runs whether this is on or off');
+    expect(help).toHaveTextContent('stood down without a Claude call');
+    expect(help).not.toHaveTextContent('Four checks');
+    expect(help).not.toHaveTextContent('1★');
+  });
+
+  it('calls the API when a strategy is toggled', async () => {
     updateOptimisationStrategy.mockResolvedValue({
-      strategyType: 'FORCE_IMMINENT',
+      strategyType: 'TIDE_ALIGNMENT',
       enabled: true,
       paramValue: null,
     });
-
     render(<ModelSelectionView />);
 
-    await waitFor(() => {
-      expect(screen.getByTestId('strategy-toggle-FORCE_IMMINENT')).toBeInTheDocument();
-    });
-
-    fireEvent.click(screen.getByTestId('strategy-toggle-FORCE_IMMINENT'));
+    fireEvent.click(await screen.findByTestId('strategy-toggle-TIDE_ALIGNMENT'));
 
     await waitFor(() => {
       expect(updateOptimisationStrategy).toHaveBeenCalledWith(
-        'VERY_SHORT_TERM', 'FORCE_IMMINENT', true, null
+        'VERY_SHORT_TERM', 'TIDE_ALIGNMENT', true, null
       );
     });
   });
 
-  it('shows parameter buttons for SKIP_LOW_RATED when enabled', async () => {
+  it('shows the sentinel threshold buttons, highlighting the stored value', async () => {
     render(<ModelSelectionView />);
 
-    await waitFor(() => {
-      expect(screen.getByTestId('param-SKIP_LOW_RATED-3')).toBeInTheDocument();
-    });
+    fireEvent.click(await screen.findByTestId('config-tab-LONG_TERM'));
 
-    // Should show all 5 parameter buttons
     for (let i = 1; i <= 5; i++) {
-      expect(screen.getByTestId(`param-SKIP_LOW_RATED-${i}`)).toBeInTheDocument();
+      expect(screen.getByTestId(`param-SENTINEL_SAMPLING-${i}`)).toBeInTheDocument();
     }
+    expect(screen.getByTestId('param-SENTINEL_SAMPLING-4')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('param-SENTINEL_SAMPLING-3')).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  /**
+   * With no stored value the buttons used to fall back to 3 — Skip Low-Rated's default. The
+   * sentinel's is 2 (the backend's DEFAULT_SENTINEL_RATING_THRESHOLD), so the panel highlighted a
+   * threshold the run was not using.
+   */
+  it("falls back to the sentinel's own default of 2 when no threshold is stored", async () => {
+    render(<ModelSelectionView />);
+
+    fireEvent.click(await screen.findByTestId('config-tab-SHORT_TERM'));
+
+    expect(screen.getByTestId('param-SENTINEL_SAMPLING-2')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('param-SENTINEL_SAMPLING-3')).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('shows error on API failure', async () => {

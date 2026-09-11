@@ -54,9 +54,9 @@ export async function setExtendedThinking(runType, enabled) {
  * Toggle an optimisation strategy for a specific run type (admin only).
  *
  * @param {string} runType - run type (VERY_SHORT_TERM, SHORT_TERM, LONG_TERM)
- * @param {string} strategyType - strategy name (SKIP_LOW_RATED, SKIP_EXISTING, etc.)
+ * @param {string} strategyType - strategy name (SENTINEL_SAMPLING or TIDE_ALIGNMENT)
  * @param {boolean} enabled - whether to enable or disable
- * @param {number|null} paramValue - optional integer parameter (e.g. min rating threshold)
+ * @param {number|null} paramValue - optional integer parameter (the sentinel's max skip threshold)
  * @returns {Promise<{runType: string, strategyType: string, enabled: boolean, paramValue: *}>}
  */
 export async function updateOptimisationStrategy(runType, strategyType, enabled, paramValue = null) {

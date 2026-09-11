@@ -109,11 +109,12 @@ class JobRunServiceTest {
             ArgumentCaptor<JobRunEntity> captor = ArgumentCaptor.forClass(JobRunEntity.class);
             when(jobRunRepository.save(captor.capture())).thenAnswer(inv -> inv.getArgument(0));
 
-            jobRunService.startRun(RunType.SHORT_TERM, false, EvaluationModel.SONNET, "SKIP_LOW_RATED,FORCE_IMMINENT");
+            jobRunService.startRun(RunType.SHORT_TERM, false, EvaluationModel.SONNET,
+                    "SENTINEL_SAMPLING(2),TIDE_ALIGNMENT");
 
             JobRunEntity saved = captor.getValue();
             assertThat(saved.getAppVersion()).isEqualTo("v2.8.19");
-            assertThat(saved.getActiveStrategies()).isEqualTo("SKIP_LOW_RATED,FORCE_IMMINENT");
+            assertThat(saved.getActiveStrategies()).isEqualTo("SENTINEL_SAMPLING(2),TIDE_ALIGNMENT");
         }
 
         @Test

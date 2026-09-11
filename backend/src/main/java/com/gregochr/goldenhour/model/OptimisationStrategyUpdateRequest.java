@@ -9,7 +9,7 @@ import com.gregochr.goldenhour.entity.RunType;
  * @param runType      the run type to update
  * @param strategyType the strategy to toggle
  * @param enabled      whether the strategy should be enabled
- * @param paramValue   optional integer parameter (e.g. min rating threshold), nullable
+ * @param paramValue   optional integer parameter (the sentinel threshold), nullable
  */
 public record OptimisationStrategyUpdateRequest(
         RunType runType,

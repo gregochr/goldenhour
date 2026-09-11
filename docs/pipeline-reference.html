@@ -883,19 +883,13 @@ Examples: "High cirrus canvas — good colour potential",
         </div>
         <div class="subsection-body">
           <div class="subsection-content">
-            <p>Applied during task filtering (before phases). Checked by <code>OptimisationSkipEvaluator</code> in this order (short-circuits on match):</p>
+            <p><em>Section revised 2026-09-11 (V153).</em> Two strategies, toggleable per forecast run type on the Run Config screen. <strong>Both reach only hand-started runs</strong> &mdash; the synchronous engine, via the five <code>ForecastController</code> endpoints that reach it (Very-Short-Term, Short-Term and Long-Term on Job Runs, and Run Forecast on a map location). Scheduled batches, overnight and intraday, read neither: their <code>fetchWeatherAndTriage</code> calls pass <code>tideAlignmentEnabled = false</code>, and they have no sentinel phase. A hand-started run's rows are still served by <code>GET /api/forecast</code>.</p>
             <table>
-              <tr><th>#</th><th>Strategy</th><th>Behaviour</th></tr>
-              <tr><td>1</td><td><code>EVALUATE_ALL</code></td><td>Never skip (overrides all)</td></tr>
-              <tr><td>2</td><td><code>FORCE_IMMINENT</code></td><td>Don't skip if target is today</td></tr>
-              <tr><td>3</td><td><code>FORCE_STALE</code></td><td>Don't skip if last eval before today</td></tr>
-              <tr><td>4</td><td><code>SKIP_EXISTING</code></td><td>Skip if any eval exists for slot</td></tr>
-              <tr><td>5</td><td><code>SKIP_LOW_RATED</code></td><td>Skip if prior rating &lt; param (default 3)</td></tr>
-              <tr><td>6</td><td><code>NEXT_EVENT_ONLY</code></td><td>Skip if closer solar event exists</td></tr>
-              <tr><td>7</td><td><code>SENTINEL_SAMPLING</code></td><td>Region-grouped sentinel evaluation (Phase 2)</td></tr>
-              <tr><td>8</td><td><code>TIDE_ALIGNMENT</code></td><td>Skip SEASCAPE locations with misaligned tide</td></tr>
+              <tr><th>Strategy</th><th>Behaviour</th></tr>
+              <tr><td><code>SENTINEL_SAMPLING</code></td><td>Region-grouped sentinel evaluation; skip the rest of a region if every sentinel rates at or below the threshold (default 2)</td></tr>
+              <tr><td><code>TIDE_ALIGNMENT</code></td><td>Adds the tide check to triage for SEASCAPE locations with tide preferences, standing a slot down without a Claude call. Weather triage runs whether it is on or off; a location with no tide data or no preferences skips the check</td></tr>
             </table>
-            <p>Strategies are toggleable per run type via Admin UI. Mutual exclusion validation prevents conflicting combinations.</p>
+            <p>Six more &mdash; <code>EVALUATE_ALL</code>, <code>FORCE_IMMINENT</code>, <code>FORCE_STALE</code>, <code>SKIP_EXISTING</code>, <code>SKIP_LOW_RATED</code>, <code>NEXT_EVENT_ONLY</code> &mdash; and the never-built <code>BATCH_API</code> were retired in V153. The six were checked only by <code>OptimisationSkipEvaluator</code>. They acted on hand-started runs at first; v2.7.2 (2026-04-06) put that call behind <code>!triggeredManually</code>, and since every caller passes <code>manual = true</code> (the engine's scheduled triggers were retired on 2026-02-27, before they existed) none could act after that. The evaluator and the mutual-exclusion rules were removed with them.</p>
           </div>
         </div>
       </div>

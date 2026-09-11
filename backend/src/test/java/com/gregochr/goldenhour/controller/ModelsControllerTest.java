@@ -17,7 +17,9 @@ import java.util.Map;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -264,13 +266,13 @@ class ModelsControllerTest extends AbstractControllerTest {
         String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
         var updated = OptimisationStrategyEntity.builder()
                 .runType(RunType.VERY_SHORT_TERM)
-                .strategyType(OptimisationStrategyType.SKIP_LOW_RATED)
+                .strategyType(OptimisationStrategyType.SENTINEL_SAMPLING)
                 .enabled(true)
                 .paramValue(4)
                 .updatedAt(LocalDateTime.now())
                 .build();
         when(optimisationStrategyService.updateStrategy(
-                eq(RunType.VERY_SHORT_TERM), eq(OptimisationStrategyType.SKIP_LOW_RATED),
+                eq(RunType.VERY_SHORT_TERM), eq(OptimisationStrategyType.SENTINEL_SAMPLING),
                 eq(true), eq(4)))
                 .thenReturn(updated);
 
@@ -278,11 +280,11 @@ class ModelsControllerTest extends AbstractControllerTest {
                 .header("Authorization", "Bearer " + adminToken)
                 .contentType("application/json")
                 .content("{\"runType\":\"VERY_SHORT_TERM\","
-                        + "\"strategyType\":\"SKIP_LOW_RATED\","
+                        + "\"strategyType\":\"SENTINEL_SAMPLING\","
                         + "\"enabled\":true,\"paramValue\":4}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.runType").value("VERY_SHORT_TERM"))
-                .andExpect(jsonPath("$.strategyType").value("SKIP_LOW_RATED"))
+                .andExpect(jsonPath("$.strategyType").value("SENTINEL_SAMPLING"))
                 .andExpect(jsonPath("$.enabled").value(true))
                 .andExpect(jsonPath("$.paramValue").value(4));
     }
@@ -295,7 +297,7 @@ class ModelsControllerTest extends AbstractControllerTest {
         mockMvc.perform(put("/api/models/optimisation")
                 .header("Authorization", "Bearer " + userToken)
                 .contentType("application/json")
-                .content("{\"runType\":\"SHORT_TERM\",\"strategyType\":\"SKIP_LOW_RATED\",\"enabled\":true}"))
+                .content("{\"runType\":\"SHORT_TERM\",\"strategyType\":\"TIDE_ALIGNMENT\",\"enabled\":true}"))
                 .andExpect(status().isForbidden());
     }
 
@@ -304,22 +306,41 @@ class ModelsControllerTest extends AbstractControllerTest {
     void updateOptimisation_noToken_unauthorized() throws Exception {
         mockMvc.perform(put("/api/models/optimisation")
                 .contentType("application/json")
-                .content("{\"runType\":\"SHORT_TERM\",\"strategyType\":\"SKIP_LOW_RATED\",\"enabled\":true}"))
+                .content("{\"runType\":\"SHORT_TERM\",\"strategyType\":\"TIDE_ALIGNMENT\",\"enabled\":true}"))
                 .andExpect(status().isUnauthorized());
     }
 
     @Test
-    @DisplayName("PUT /api/models/optimisation with conflict returns 400")
-    void updateOptimisation_conflict_returnsBadRequest() throws Exception {
+    @DisplayName("PUT /api/models/optimisation for a row that does not exist returns 400")
+    void updateOptimisation_notFound_returnsBadRequest() throws Exception {
         String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
         when(optimisationStrategyService.updateStrategy(any(), any(), eq(true), any()))
-                .thenThrow(new IllegalArgumentException("EVALUATE_ALL conflicts with skip strategies"));
+                .thenThrow(new IllegalArgumentException("Strategy not found: SHORT_TERM/TIDE_ALIGNMENT"));
+
+        mockMvc.perform(put("/api/models/optimisation")
+                .header("Authorization", "Bearer " + adminToken)
+                .contentType("application/json")
+                .content("{\"runType\":\"SHORT_TERM\",\"strategyType\":\"TIDE_ALIGNMENT\",\"enabled\":true}"))
+                .andExpect(status().isBadRequest());
+    }
+
+    /**
+     * A client still sending one of the types V153 retired — a stale bundle, a bookmarked request —
+     * must get a 400, not a 500, and must never reach the service. The type no longer exists in the
+     * enum, so the request fails at deserialisation.
+     */
+    @Test
+    @DisplayName("PUT /api/models/optimisation naming a retired strategy type returns 400")
+    void updateOptimisation_retiredType_returnsBadRequest() throws Exception {
+        String adminToken = jwtService.generateAccessToken("admin", UserRole.ADMIN);
 
         mockMvc.perform(put("/api/models/optimisation")
                 .header("Authorization", "Bearer " + adminToken)
                 .contentType("application/json")
                 .content("{\"runType\":\"SHORT_TERM\",\"strategyType\":\"EVALUATE_ALL\",\"enabled\":true}"))
                 .andExpect(status().isBadRequest());
+
+        verify(optimisationStrategyService, never()).updateStrategy(any(), any(), anyBoolean(), any());
     }
 
     // ── Extended thinking endpoint ──

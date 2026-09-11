@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MissingServletRequestParameterException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -69,6 +70,28 @@ public class GlobalExceptionHandler {
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public ErrorResponse handleBadRequest(IllegalArgumentException ex) {
         return new ErrorResponse(ex.getMessage());
+    }
+
+    /**
+     * Maps {@link HttpMessageNotReadableException} to HTTP 400.
+     *
+     * <p>A request body that cannot be read — malformed JSON, or an enum value the server no longer
+     * recognises — is the caller's error. Without this handler the catch-all below intercepts it and
+     * returns 500, the same gap {@link #handleMissingParam} closed for missing parameters. V153 made
+     * it reachable a new way: retiring six optimisation strategy types means a stale client naming
+     * one now sends a body that cannot be deserialised.
+     *
+     * <p>⚠️ The message is generic on purpose, and nothing is logged. Jackson's own message names
+     * internal types and echoes caller-supplied values, so returning it would leak the one and
+     * logging it would write the other into the logs unsanitised.
+     *
+     * @param ex the exception
+     * @return a 400 response with a fixed message
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleUnreadableBody(HttpMessageNotReadableException ex) {
+        return new ErrorResponse("Request body could not be read");
     }
 
     /**
