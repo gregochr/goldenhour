@@ -66,7 +66,7 @@ export default function BottomSheet({
       {/* Backdrop */}
       <div
         data-testid="bottom-sheet-overlay"
-        className="fixed inset-0 bg-black/50"
+        className="app-scrim fixed inset-0"
         style={{ zIndex: 9999 }}
         role="button"
         tabIndex={-1}
