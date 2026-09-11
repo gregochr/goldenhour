@@ -1938,20 +1938,31 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
   // Fetch astro condition scores when in Astro mode and the selected NIGHT changes — see the
   // aurora fetch above for why this is `nightDate` rather than `date`.
+  //
+  // ⚠️ Keyed to the night it was asked for, in both directions — the aurora fetch above's two
+  // failure modes, which this effect shared line for line until it took the same fix. These scores
+  // answer for ONE night, and every astro reader takes them as the night on screen's: the rating
+  // accessor and everything drawn from it, the astro heat points, and both overlay popups. So:
+  //   - A STALE WINDOW. Switch night A → B and, until B's request resolves, the scores on hand are
+  //     still A's. Hence the clear on EVERY change, before the new request is made.
+  //   - A LATE RESPONSE. With no cancellation, A's request finishing after B's wrote A's stars in as
+  //     B's, and they stayed there until the next selection. Hence `cancelled`, which drops any
+  //     response — or failure — whose night is no longer the one on screen.
   useEffect(() => {
-    if (eventType !== 'ASTRO' || !nightDate) {
-      (async () => setAstroScores({}))();
-      return;
-    }
+    (async () => setAstroScores({}))();
+    if (eventType !== 'ASTRO' || !nightDate) return undefined;
+    let cancelled = false;
     getAstroConditions(nightDate)
       .then((results) => {
+        if (cancelled) return;
         const byName = {};
         results.forEach((r) => { byName[r.locationName] = r; });
         setAstroScores(byName);
       })
       .catch(() => {
-        setAstroScores({});
+        if (!cancelled) setAstroScores({});
       });
+    return () => { cancelled = true; };
   }, [eventType, nightDate]);
 
   /**
