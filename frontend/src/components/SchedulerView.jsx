@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import PropTypes from 'prop-types';
 import {
   fetchSchedulerJobs,
   updateJobSchedule,
@@ -155,6 +156,78 @@ function formatStatus(status) {
 }
 
 /**
+ * One job's "Run Now" button, which owns its own "Triggered ✓" confirmation.
+ *
+ * <p>⚠️ The dismiss is an effect keyed on {@code triggered}, the idiom {@code RegisterPage}'s
+ * cooldown and {@code ModelSelectionView}'s success banner already use, and
+ * not a {@code setTimeout} armed by the click handler. The handler used to arm it *after* awaiting
+ * {@code triggerJob}, and {@code ManageView} renders this screen behind
+ * {@code activeTab === 'scheduler'} — so switching tab mid-request unmounted it before any timer
+ * existed, the unmount cleanup had nothing to cancel, and the continuation then armed a timer
+ * nothing owned. An effect has no such window: it never runs after unmount, and a
+ * {@code setTriggered} on an unmounted component is a no-op, so no {@code isMounted} guard is
+ * needed either.
+ *
+ * <p>⚠️ The button is disabled from the click until the call settles ({@code pending}), not only
+ * once it resolves. It used to be the latter, so a double-click sent two
+ * {@code POST .../trigger} calls — and {@code DynamicSchedulerService.triggerNow} queues an
+ * immediate run for each, so one double-click ran a briefing or a tide refresh twice. React flushes
+ * a click's state update before the next input event is dispatched, and a disabled button receives
+ * no click, so a press while the call is in flight never reaches the handler. Keep
+ * {@code setPending(true)} an ordinary update: moved into a transition it could lose that race.
+ *
+ * <p>This guards only this button's own round trip. {@code triggerNow} returns as soon as the run
+ * is queued, so a press after the confirmation clears, a second tab, a remount mid-call, or a retry
+ * after a failed response the server had in fact acted on can still queue another run while the
+ * first may be going. Whether a job refuses an overlapping run is up to its target: the batch
+ * submissions and the cloud-verification backfill already do, the briefing and tide refresh do not.
+ *
+ * @param {object} props
+ * @param {string} props.jobKey - the job this button triggers
+ * @param {boolean} props.disabled - true when the job cannot be triggered at all
+ * @param {Function} props.onError - receives the message to show when the trigger call fails
+ */
+function RunNowButton({ jobKey, disabled, onError }) {
+  const [triggered, setTriggered] = useState(false);
+  const [pending, setPending] = useState(false);
+
+  useEffect(() => {
+    if (!triggered) return undefined;
+    const timer = setTimeout(() => setTriggered(false), TRIGGER_CONFIRM_MS);
+    return () => clearTimeout(timer);
+  }, [triggered]);
+
+  const handleTrigger = async () => {
+    setPending(true);
+    try {
+      await triggerJob(jobKey);
+      setTriggered(true);
+    } catch {
+      onError(`Failed to trigger ${jobKey}`);
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <button
+      onClick={handleTrigger}
+      className="text-xs text-plex-gold hover:text-plex-gold/80 border border-plex-gold/30 rounded px-2 py-0.5"
+      disabled={disabled || pending || triggered}
+      data-testid={`trigger-btn-${jobKey}`}
+    >
+      {triggered ? 'Triggered ✓' : 'Run Now'}
+    </button>
+  );
+}
+
+RunNowButton.propTypes = {
+  jobKey: PropTypes.string.isRequired,
+  disabled: PropTypes.bool.isRequired,
+  onError: PropTypes.func.isRequired,
+};
+
+/**
  * Admin view for managing dynamically scheduled jobs.
  * Shows a card per job with status, schedule, last/next fire times, and controls.
  */
@@ -164,8 +237,6 @@ export default function SchedulerView() {
   const [error, setError] = useState(null);
   const [editingJob, setEditingJob] = useState(null);
   const [editValue, setEditValue] = useState('');
-  const [triggeredJobs, setTriggeredJobs] = useState({});
-  const timerRefs = useRef({});
 
   const loadJobs = useCallback(async () => {
     try {
@@ -184,11 +255,7 @@ export default function SchedulerView() {
       await loadJobs();
     })();
     const interval = setInterval(loadJobs, POLL_INTERVAL_MS);
-    const timers = timerRefs.current;
-    return () => {
-      clearInterval(interval);
-      Object.values(timers).forEach(clearTimeout);
-    };
+    return () => clearInterval(interval);
   }, [loadJobs]);
 
   const handlePause = async (jobKey) => {
@@ -206,18 +273,6 @@ export default function SchedulerView() {
       await loadJobs();
     } catch {
       setError(`Failed to resume ${jobKey}`);
-    }
-  };
-
-  const handleTrigger = async (jobKey) => {
-    try {
-      await triggerJob(jobKey);
-      setTriggeredJobs((prev) => ({ ...prev, [jobKey]: true }));
-      timerRefs.current[jobKey] = setTimeout(() => {
-        setTriggeredJobs((prev) => ({ ...prev, [jobKey]: false }));
-      }, TRIGGER_CONFIRM_MS);
-    } catch {
-      setError(`Failed to trigger ${jobKey}`);
     }
   };
 
@@ -389,14 +444,11 @@ export default function SchedulerView() {
                 </button>
               )}
 
-              <button
-                onClick={() => handleTrigger(job.jobKey)}
-                className="text-xs text-plex-gold hover:text-plex-gold/80 border border-plex-gold/30 rounded px-2 py-0.5"
-                disabled={isDisabled(job.status) || triggeredJobs[job.jobKey]}
-                data-testid={`trigger-btn-${job.jobKey}`}
-              >
-                {triggeredJobs[job.jobKey] ? 'Triggered \u2713' : 'Run Now'}
-              </button>
+              <RunNowButton
+                jobKey={job.jobKey}
+                disabled={isDisabled(job.status)}
+                onError={setError}
+              />
             </div>
           </div>
         </div>

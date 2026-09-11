@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import SchedulerView from '../components/SchedulerView.jsx';
 
 vi.mock('../api/schedulerApi', () => ({
@@ -347,6 +347,265 @@ describe('SchedulerView', () => {
     });
 
     vi.useRealTimers();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The "Triggered ✓" confirmation — who owns its dismiss timer
+//
+// ⚠️ Frozen fake clock, NOT `shouldAdvanceTime`. That option ties the fake clock to real time, so
+// the wall time spent getting the confirmation on screen comes straight out of the 2s window being
+// measured. Pumping with a zero advance settles the mount fetch and the trigger call while the
+// clock stays exactly where it is. Every fake-clock test restores real timers in a `finally`, so an
+// assertion that throws cannot leave the next test on a frozen clock.
+//
+// The `vi.getTimerCount()).toBe(0)` assertions count EVERYTHING on the fake clock, the poll
+// interval included — which the unmount clears, so zero means nothing outlived the screen. A
+// failure there can therefore also mean the interval's cleanup went missing; the message says so.
+// ---------------------------------------------------------------------------
+describe('SchedulerView — the Run Now confirmation', () => {
+  /** Resolvers handed out by `deferTrigger` that the test has not released yet. */
+  let unreleased = [];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // ⚠️ `clearAllMocks` does not empty a `mockReturnValueOnce` queue, and a queued Once outranks
+    // both the default below and a test's own `mockRejectedValue`. A test that fails before
+    // consuming a deferred call would hand it to the NEXT test's click — measured once, when a
+    // leftover call reached the unrelated error test as a success instead of its rejection.
+    // `mockReset` empties the queue.
+    triggerJob.mockReset();
+    fetchSchedulerJobs.mockResolvedValue(MOCK_JOBS);
+    triggerJob.mockResolvedValue({ status: 'triggered' });
+  });
+
+  afterEach(() => {
+    // The net for a test that throws before releasing its calls: a promise left pending is a
+    // pending async continuation, and nothing in this file should outlive its own test.
+    unreleased.forEach((release) => release());
+    unreleased = [];
+  });
+
+  /** Flushes pending promises without moving the fake clock at all. */
+  async function pump() {
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  }
+
+  /** The tide_refresh card's trigger button, found through its role and accessible name. */
+  function runNowButton(name) {
+    return within(screen.getByTestId('scheduler-job-tide_refresh')).getByRole('button', { name });
+  }
+
+  /**
+   * Hands the test the resolver for one trigger call, so the call is genuinely in flight until the
+   * test says otherwise — and so it always settles. A promise that never settles poisons later
+   * tests (frontend-test-standards.md, "What NOT to do").
+   */
+  function deferTrigger() {
+    let release;
+    triggerJob.mockReturnValueOnce(new Promise((resolve) => {
+      release = () => resolve({ status: 'triggered' });
+    }));
+    unreleased.push(release);
+    return () => release();
+  }
+
+  /** The message every "nothing left on the clock" assertion carries. */
+  const OUTLIVED = 'a timer outlived the screen (a dismiss timer, or the poll interval)';
+
+  it('holds the confirmation until TRIGGER_CONFIRM_MS elapses, then restores Run Now', async () => {
+    vi.useFakeTimers();
+    try {
+      render(<SchedulerView />);
+      await pump();
+
+      fireEvent.click(runNowButton('Run Now'));
+      await pump();
+      expect(triggerJob).toHaveBeenCalledWith('tide_refresh');
+      expect(runNowButton('Triggered ✓')).toBeDisabled();
+
+      // Just short of the delay it must still be up: without this the constant is pinned only
+      // from above, and shortening it would flash the confirmation past with every other
+      // assertion here still green.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1999);
+      });
+      expect(runNowButton('Triggered ✓')).toBeDisabled();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(runNowButton('Run Now')).toBeEnabled();
+      expect(
+        within(screen.getByTestId('scheduler-job-tide_refresh')).queryByRole('button', {
+          name: 'Triggered ✓',
+        }),
+      ).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * ⚠️ The arm-after-await hole. `ManageView` renders this screen behind
+   * `activeTab === 'scheduler'`, so switching tab while `triggerJob` is in flight unmounts it
+   * before any dismiss timer exists. The old handler armed its timer AFTER the await, so an unmount
+   * cleanup had nothing to cancel and the continuation then armed a timer nothing owned — in jsdom
+   * its callback can fire after teardown, an unhandled error vitest fails the run on while every
+   * test reports passing. A test that unmounts after the call settles cannot see this.
+   *
+   * The poll interval is cleared by the unmount, so after the call settles nothing at all may be
+   * pending on the clock.
+   */
+  it('arms no timer when the trigger call settles after the screen unmounts', async () => {
+    vi.useFakeTimers();
+    try {
+      const release = deferTrigger();
+      const { unmount } = render(<SchedulerView />);
+      await pump();
+
+      fireEvent.click(runNowButton('Run Now'));
+      // The call must genuinely be in flight, or the unmount below proves nothing.
+      expect(triggerJob).toHaveBeenCalledTimes(1);
+
+      unmount();
+      release();
+      await pump();
+
+      expect(vi.getTimerCount(), OUTLIVED).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * The ordinary path out: the confirmation is showing and the reader changes tab. The dismiss
+   * timer is pending at that moment, and the unmount must cancel it rather than leave it to fire
+   * against a torn-down tree.
+   */
+  it('cancels the pending dismiss timer when the screen unmounts mid-confirmation', async () => {
+    vi.useFakeTimers();
+    try {
+      const { unmount } = render(<SchedulerView />);
+      await pump();
+
+      fireEvent.click(runNowButton('Run Now'));
+      await pump();
+      expect(runNowButton('Triggered ✓')).toBeDisabled();
+      // The dismiss timer must actually be pending, beside the poll interval, or the zero below
+      // would also pass for a component that never armed one. Not `toBe(2)`: an idle timer the
+      // other card may hold is harmless and must not fail this.
+      expect(vi.getTimerCount()).toBeGreaterThan(1);
+
+      unmount();
+      expect(vi.getTimerCount(), OUTLIVED).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * ⚠️ One click, one run. The button used to disable itself only once the call RESOLVED, so the
+   * second press of a double-click landed on an enabled button and sent a second
+   * `POST .../trigger` — and the backend's `triggerNow` queues an immediate run per call, so a
+   * briefing or a tide refresh ran twice. It is now disabled from the click until the call
+   * settles, still reading "Run Now" (the confirmation must not claim a run before the server has
+   * accepted it).
+   *
+   * The `toBeDisabled()` before the second press is what carries this test. A browser never
+   * dispatches the user's click to a disabled button; jsdom does, and it is React's own filter on a
+   * disabled button's `onClick` that drops it here, so the second press cannot fail where the
+   * disabled assertion passed. It stays to pin the count a double-click must produce. `act` flushes
+   * every lane, so this cannot tell an ordinary `setPending` from one moved into a transition — the
+   * component's doc comment carries that rule.
+   */
+  it('sends no second trigger call when Run Now is pressed again while the first is in flight', async () => {
+    vi.useFakeTimers();
+    try {
+      const release = deferTrigger();
+      render(<SchedulerView />);
+      await pump();
+
+      fireEvent.click(runNowButton('Run Now'));
+      expect(triggerJob).toHaveBeenCalledTimes(1);
+      expect(runNowButton('Run Now')).toBeDisabled();
+
+      fireEvent.click(runNowButton('Run Now'));
+      await pump();
+      expect(triggerJob).toHaveBeenCalledTimes(1);
+      // Still in flight: nothing has resolved it, so nothing may have confirmed it.
+      expect(runNowButton('Run Now')).toBeDisabled();
+
+      release();
+      await pump();
+      expect(runNowButton('Triggered ✓')).toBeDisabled();
+      expect(triggerJob).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  /**
+   * The in-flight guard must not become a one-shot. The error test below pins that a failed call
+   * leaves the button ENABLED; this pins that pressing it then actually sends. A guard that latched
+   * per mount (a ref set on the first press, beside `pending`) passes every other test in this file
+   * while leaving the error banner asking for a retry the button silently swallows.
+   */
+  it('sends the retry after a failed trigger call', async () => {
+    vi.useFakeTimers();
+    try {
+      triggerJob.mockRejectedValueOnce(new Error('Network error'));
+      render(<SchedulerView />);
+      await pump();
+
+      fireEvent.click(runNowButton('Run Now'));
+      await pump();
+      expect(screen.getByText('Failed to trigger tide_refresh')).toBeInTheDocument();
+
+      // The retry resolves (the default mock).
+      fireEvent.click(runNowButton('Run Now'));
+      await pump();
+      expect(triggerJob).toHaveBeenCalledTimes(2);
+      expect(runNowButton('Triggered ✓')).toBeDisabled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reports a failed trigger in the error banner, never as a confirmation', async () => {
+    triggerJob.mockRejectedValue(new Error('Network error'));
+    render(<SchedulerView />);
+
+    await screen.findByTestId('scheduler-job-tide_refresh');
+    fireEvent.click(runNowButton('Run Now'));
+
+    expect(await screen.findByText('Failed to trigger tide_refresh')).toBeInTheDocument();
+    expect(runNowButton('Run Now')).toBeEnabled();
+  });
+
+  /**
+   * The confirmation moved from one parent map keyed by job into per-card state, so this pins
+   * that it is still PER JOB: lifting it back to a single flag, or keying the cards by index,
+   * would light every card's button at once.
+   */
+  it('confirms only the job that was triggered', async () => {
+    vi.useFakeTimers();
+    try {
+      render(<SchedulerView />);
+      await pump();
+
+      fireEvent.click(runNowButton('Run Now'));
+      await pump();
+      expect(runNowButton('Triggered ✓')).toBeDisabled();
+
+      const other = within(screen.getByTestId('scheduler-job-aurora_polling'));
+      expect(other.getByRole('button', { name: 'Run Now' })).toBeEnabled();
+      expect(other.queryByRole('button', { name: 'Triggered ✓' })).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
