@@ -5,6 +5,575 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+## [v2.20.5] - 2026-09-11
+
+### Fixed — the Plan search row's selected fill now takes the design's gold
+
+Closes the last two values the plan-matrix pixel audit left open. One changed; one was a deliberate
+departure the audit had misread; and one change the spec asks for is refused on measurement.
+
+**Changed: the search row's selected fill.** `.wf-search-row.on` was a one-off
+`rgba(230,180,90,.10)` matching no token. It is now the bundle's `rgba(201,162,75,.1)` — which is
+`--color-home`, the app's "selection, yours" colour, and so the semantically right one for a
+selected row.
+
+**Refused: the spec's border on that row.** The bundle pairs the fill with a 1px border at
+`rgba(201,162,75,.32)`, which measures **1.88:1** — under 1.4.11's 3:1, on the one channel a reader
+has when the cursor moves without focus moving. The row keeps its 2px inset rule at **13.98:1**
+instead. That rule reads `var(--color-plex-gold)`, and ⚠️ that token is **bone** (`#F2E7D3`), not
+gold, despite its name.
+
+⚠️ **Every figure above was first measured against the wrong ground and corrected by review.** They
+were computed against `--color-plex-panel`; `.wf-search-panel` paints `--color-plex-surface`, and
+that is what the row sits on. No conclusion flipped — the rule was 14.45:1 against the panel and is
+13.98:1 on the real ground — but the wrong label had gone into both `index.css` and the spec. The
+same review found a *pre-existing* claim two lines up, "a gold wash at 0.10 measures 2.6:1", that
+reproduces on no ground here: 0.10 is ~1.2:1, and 2.6:1 is what a wash near 0.40 measures. It had
+become visible only because the corrected figure now sits beneath it, so it is annotated rather
+than left to argue with the new one.
+
+**Not changed, and not drift: the origin chip's away tint.** The spec asks for `--tide`
+(`rgba(111,168,176,.09)` / `.4`); the code uses `#8FB6D9` blue, and `index.css` has said why since
+P7 — tide is this app's channel for an objective tide fact, and an origin names a place, not a
+quality, so reusing it would make a planning control read as a tide claim. Re-measured on the
+masthead's own ground at 8.54:1 for the text and 4.77:1 for the border. The pixel audit had counted
+this as an unimplemented value because it searched for the literal instead of reading the rule.
+The spec now records the departure and its reason.
+
+Verified in real headless Chromium: the selected row computes to `rgba(201, 162, 75, 0.1)` with the
+bone inset rule unchanged.
+
+### Changed — every dialog in the app now dims the page with the design's scrim
+
+`Modal` and `BottomSheet` — the app's two dialog primitives — both drew their backdrop with a
+Tailwind default nobody chose: `bg-black/60` and `bg-black/50`, so they already disagreed with each
+other. Both now use one class, `.app-scrim`, at `rgba(8, 6, 5, 0.74)`.
+
+That value is not one tab's preference. Every bundle in `docs/design/` from heat-map onward that
+draws a dialog specifies it exactly, on its `.scrim{position:absolute;inset:0}` — heat-map,
+plan-matrix, coming-up, field-geography, matrix-axis, map-tab-v2 and map-landing — and window-first
+carries the near-identical `.72`. ⚠️ **Only with the qualifier "that draws a dialog".** The first
+cut of this change said "every bundle from heat-map onward", and a fact-check found
+`temperature-scale` has no scrim at all — it is a colour-ramp handoff with no dialog in it.
+
+**This is app-wide by design, and it was a decision rather than a side effect.** It restyles
+settings, confirmations, the Operations dialogs and the Map tab's phone sheets, not only the Plan
+tab's. It was raised as a blast-radius question first and taken deliberately. `BottomSheet` was
+added when an adversarial review pointed out that changing `Modal` alone would have *widened* the
+gap between the two scrims — a warm 0.74 beside a cool black 0.50 — while the new comment claimed a
+single settled value. `map-tab-v2`, which governs `BottomSheet`'s phone uses, defines no separate,
+lighter scrim for them. `MapOverlay` keeps its own inline `rgba(8,6,5,.72)` with a blur — the
+window-first value, on a separate surface.
+
+Warmer and denser than both defaults, so the page behind a dialog is darker and anything drawn on
+top of it gains contrast. One named class rather than two inlined values, so a later bundle that
+wants a different scrim changes it in one place and knows it is changing all of them. Unlayered
+CSS, which beats Tailwind's layered utilities regardless of specificity, so a future `bg-*` on the
+backdrop cannot quietly override it.
+
+Verified in real headless Chromium: both backdrops compute to `rgba(8, 6, 5, 0.74)` and keep their
+own positioning (`absolute` for `Modal`, `fixed` for `BottomSheet`); the retired class name
+resolves to transparent, so nothing still leans on it. No test pinned either old class — every
+backdrop test targets a `data-testid`. ⚠️ What was not seen: an *opened* dialog. The login form
+carries a Cloudflare Turnstile challenge, so a fresh browser context cannot sign in, and that was
+not worked around — the computed values were read on the unauthenticated page, where the global
+stylesheet is already loaded.
+
+### Changed — the Map tab's "No forecast to show." moves to the centre of the map
+
+The empty-state line added in #807 sat in the top-right key slot beside "This event is not scored
+yet". On a map that is genuinely blank — no field, no chips, no pins, and often no window control to
+speak for itself — the corner is not where the eye goes, which is the whole reason the surface has to
+say anything. It now sits centred in the map body (owner call).
+
+It is a full-bleed `inset: 0` overlay across the entire map, which makes two things load-bearing:
+
+- **It must never swallow a pan.** ⚠️ The first cut set `pointer-events: none` on the wrapper and a
+  comment claimed the chip "inherits it". Measured in a browser it did not: the chip reuses
+  `.wf-map-key` for its look, and `.wf-map-key` deliberately sets `pointer-events: auto` — correct
+  in its home, where the toolbar is click-through and its controls must stay clickable. Borrowing the
+  class borrowed that override. `elementFromPoint` at the chip's centre returned the chip rather than
+  the map: a 138×25 dead zone dead-centre on the one screen whose only remaining job is being panned
+  away from. The fix is a scoped `.wf-map-empty .wf-map-key { pointer-events: none }` — two classes
+  against one, so it wins without `!important`, and the toolbar's keys keep their `auto`. A new
+  cascade test pins the winner and a control proves the scoping; a green suite, clean lint and a
+  successful build had all passed over it.
+- **It sits on an existing rung of the z-ladder**, 1000: above Leaflet (panes ≤700, controls 800),
+  below the landing card (1050) and the chrome corners (1100), so a panel or popover always covers it
+  rather than the reverse. All of them share the `map-container` stacking context, so these values
+  genuinely compete — pinned alongside the rest of the ladder.
+
+⚠️ **Centring it put it where the label placer did not know to look.** `MapLabels` places region
+names and chips greedily around seeded obstacles, and a centred label paints over that layer.
+Measured before seeding: a region name overlapped it by **311 px²**, its bottom edge under the chip.
+The chip (never its `inset: 0` wrapper, which would seed the whole frame and drop every label) now
+joins `OBSTACLE_SELECTOR` in both `MapLabels` and `PinsLayer`; after seeding the overlap is zero and
+no label was dropped. The placer's own doc warns that a new obstacle "is not free — measure it",
+because seeding reshuffles the greedy pass on a busy map. That cost cannot occur here: the selector
+is a live DOM query, and the chip exists only while the rating gate has already removed every rated
+chip — pinned by the existing test that the line is absent whenever a window is on screen.
+
+⚠️ A comment edit mid-change also closed a CSS comment early, turning the paragraph after it into a
+bogus selector that silently swallowed the whole `.wf-map-empty` rule. Lint and build both passed;
+the chip was measured sitting full-width *below* the map before the stray `*/` was found.
+
+### Fixed — the Models screen's success banner no longer outlives the screen
+
+`ModelSelectionView`'s success banner cleared itself with bare `setTimeout(() => setSuccess(null),
+3000)` calls placed after each handler's network await, so the callback ran whether or not the
+component was still mounted. The dismiss is now an effect keyed on `success` — the idiom
+`App.jsx`'s run banner and `RegisterPage`'s cooldown already use.
+
+**Found by measurement, not by reading.** The vitest 4 → 5 bump (#799) merged with every check
+green. A paired flakiness check afterwards — six full-suite runs on each major, same machine, same
+load, back to back — turned up one vitest 5 run that exited **1 while reporting `5533 passed,
+0 failed`**. The cause was `ModelSelectionView.jsx:233`: the dismiss timer firing after its test's
+jsdom was gone, so React's `dispatchSetState` read a `window` that no longer existed. Vitest fails a
+run with unhandled errors (`_checkUnhandledErrors` sets `process.exitCode` unless
+`dangerouslyIgnoreUnhandledErrors`).
+
+⚠️ **Stated as frequency, not as a capability difference.** The error did not reproduce in 6 vitest
+4 runs and appeared in 1 of 6 vitest 5 runs. That gate is long-standing rather than new in 5, and
+1-in-6 against 0-in-6 is not a significant difference, so the honest claim is that a **latent bug
+here was observed once** — not that vitest 5 is more failure-prone.
+
+⚠️ **The exit code and the summary disagreed**, which is the part worth remembering: anything
+reading "0 failed" out of the output rather than `$?` would have called that run green. This repo
+already learned that on Maven; it now applies to the frontend job.
+
+**Why an effect, and not a timer in the handler with a cleanup — which is what the first cut did,
+and it still leaked.** The handlers arm nothing until after their network await, and `ManageView`
+renders this screen behind `activeTab === 'models'`, so switching tab mid-request unmounts it before
+any timer exists: an unmount cleanup has nothing to cancel, and the handler then arms a timer with
+no owner. Review caught that, and the first repair — an `isMounted` ref guard — was itself caught
+as introducing a pattern React's docs discourage and that no other file in this repo uses. An effect
+has no window to guard: it never runs after unmount, and `setSuccess` on an unmounted component is a
+no-op.
+
+**User-visible fix.** Three quick toggles used to leave three independent timers, so the first to
+fire wiped the newest message early. Each new message now re-runs the effect, whose cleanup cancels
+the previous timer. That includes a repeat of the *identical* message — enabling the same strategy
+on a second config tab, whose text does not name the run type — because each of the three handlers
+that shows a message clears `success` before its await, which makes that null load-bearing rather
+than cosmetic. The one case
+left as it was: two requests for the same thing in flight at once (a double-click, since the toggles
+stay enabled mid-request) produce two identical responses, so the banner clears on the first one's
+timer — exactly as before.
+
+**Scope — three components examined and deliberately left alone, one found and deferred:**
+
+- `OutcomeModal`'s `setTimeout(onSaved, 1500)` is **unchanged**. An earlier cut of this PR "fixed"
+  it and was wrong to: nothing renders `OutcomeModal` (outcome recording has been API-only since
+  2026-02-27), `onSaved` is a parent callback and the parent outlives the modal, and firing it
+  honours the prop's own contract — "called after a successful save". Cancelling it on unmount
+  silently decided a product question for a component with no caller.
+- `PlanErrorBoundary`'s only `setTimeout` is a word in a doc comment.
+- ⚠️ `SchedulerView.handleTrigger` **does** have this defect — it arms `timerRefs.current[jobKey]`
+  after `await triggerJob(...)`, its cleanup clears only timers that already exist, and `ManageView`
+  renders it behind `activeTab === 'scheduler'`. It is left for its own change. The survey that
+  first listed suspects compared `setTimeout` and `clearTimeout` counts per file, and this file has
+  a cleanup, so it passed that test while carrying the same hole — a count is not evidence a timer
+  is owned.
+- `WindowComingUpConditions.scrollToEntry`'s timer removes a CSS class from a captured node,
+  touches no React state, and has no component lifecycle to clean up from.
+
+**Five tests, and the implementation was mutated six ways.** Five are killed: dropping the
+cleanup, shortening the delay, emptying the deps, deleting the load-bearing `setSuccess(null)`, and
+— the one that matters — moving the timer back into the handlers, which four separate tests reject.
+The sixth, dropping the effect's `!success` guard, **survives, correctly**: it only adds an idle
+timer that sets null to null, so it is an equivalent mutant. An earlier version of the unmount test
+"killed" it by demanding the unmount clear every timer ever scheduled rather than the pending one —
+an over-specified assertion claiming a catch that changed nothing observable; it now checks only the
+pending timer. The tests run on a frozen fake clock rather than `shouldAdvanceTime`, which charges
+real `waitFor` time against the very window under test.
+
+### Docs — the plan-matrix spec's chrome and layering claims now match what ships
+
+Three claims from the same audit, corrected in `docs/design/plan-matrix/README.md` because the code
+is right and the spec was stale.
+
+**The masthead is not sticky, and never was.** M3 added `position: sticky; top: 0; z-index: 45` and
+every downstream note was written against that intent — the lens bar resting on the masthead's
+bottom edge, A14's dropdown "anchored under the masthead", `--wf-mast-h` as the height of pinned
+chrome. A sticky element cannot leave its containing block, and this one's holds only the masthead,
+the tab bar and the tab rule, so the band pinned for ~46px and was then carried off the top. The
+rule was removed 2026-09-05 by owner decision; the lens bar anchors at `top: 0` itself at
+`z-index: 20`, not the spec's 30. `z-index: 45` survives on the masthead as a stacking context.
+
+**There is no 70-over-60 layering.** Every dialog is one shared `Modal` at `fixed inset-0 z-50`, so
+the layers are separated by DOM order. That is the mechanism behind the M5 stacking fix already
+recorded two sections away — a third layer painted *underneath* the sheet that opened it precisely
+because equal `z-index` makes paint order document order. The spec had been explaining the symptom
+while still asserting the model that contradicts its cause.
+
+**Two spec values are wrong and stay unimplemented.** The beyond line's `rgba(242,231,211,.34)`
+measures **2.75:1** on `--bg` — a 1.4.3 failure on 10px text — against 7.06:1 for the `--ink-2` the
+code uses; the spec now records the measurement rather than the value. And the matrix grid's
+`repeat(var(--dc), 1fr)` is shipped as `repeat(var(--dc, 4), minmax(0, 1fr))`, because a bare `1fr`
+keeps `min-width: auto` and a grid item holding a canvas cannot shrink below its 300px intrinsic
+width — reverting it would overflow the column at narrow widths.
+
+⚠️ **The iPad column of that spec has no implementation at all.** The arm has two breakpoints,
+desktop and phone at 639px, so every iPad value in the document (`13px 20px 0`, a 20px gutter, and
+the rest) resolves to the desktop one. A structural gap, not a value drift, and not decided here.
+
+### Fixed — the Plan arm's gutter had been the old bundle's 18px since window-first
+
+The pixel half of the plan-matrix spec audit (the behavioural half was #804). `--wf-gutter` was
+18px; the plan-matrix bundle asks for 22px, and so do the four bundles after it. Counted across
+`docs/design/` by gutter-SHAPED padding rather than raw occurrence: no `<n>px 22px` padding appears
+anywhere in window-first, and no `<n>px 18px` one appears in plan-matrix, field-geography,
+coming-up, matrix-axis or map-tab-v2. So 22 is not one bundle's preference against this arm's habit
+— it is the design's current gutter, and the arm was never moved when the design was.
+
+⚠️ Quote that claim in its gutter-shaped form only. An adversarial fact-check killed the raw-count
+version this entry first carried ("18px seventeen times, 22px never"): window-first does contain
+`22px` — in a margin, a gap and a button height — and a naive substring count also scores `318px`
+as a hit. The qualitative claim survived scrutiny; the tidy numbers did not.
+
+Changed with it, all from the same spec: the masthead's vertical padding 16px → 14px, the body's
+14px → 13px, and the lens bar's 11px → 10px. The lens bar also carried a hard-coded `18px` while
+its own phone override already read `var(--wf-gutter)`, so the desktop bar and the rest of the row
+were one edit from disagreeing — the exact "move half the chrome and leave the rest" failure the
+token's declaration warns about, already half-happened. It now reads the token. The Plan lens bar's
+active segment goes from `rgba(201,162,75,.18)` to the bundle's `.15`; the Map tab's filter chips
+keep `.18`, because they answer to `map-tab-v2`, not to this spec.
+
+⚠️ **The phone is untouched.** The 639px media query sets the token to 14px, which every bundle
+still agrees on, and that path was measured unchanged.
+
+**Verified in a browser, because `css: false` means the suite cannot see any of this.** Computed at
+1280×860: gutter 22px, masthead `14px 22px 0px`, lens `10px 22px` (sticky, `z-index: 20`), body
+`13px 22px 20px`, active segment `rgba(201, 162, 75, 0.15)`. Zero horizontal overflow at 1440, 1280,
+1100, 900, 760 and 390. At 390 the gutter falls back to 14px as designed. `--wf-lens-reserve` (58px)
+still clears the bar, and with more slack than before — the bar lost 2px, so the margin went from
+4.5px to 6.5px.
+
+**One test was passing for the wrong reason and is fixed here too.**
+`mapFullFrameCascade.test.jsx` substitutes `var(--wf-gutter)` for a literal before handing the real
+rules to jsdom (whose `cssstyle` cannot parse a `var()` inside a shorthand `padding` at all). That
+literal was hard-coded `'18px'` and documented as "`.wf-shell`'s own declaration" — so once the
+declaration moved, the test went on proving its specificity contest against a value the real
+cascade can no longer produce, and stayed green because it is internally self-consistent. It now
+reads the declared value out of the same stylesheet, so the substitution tracks the stylesheet
+instead of a frozen copy and the comment is true again.
+
+⚠️ **That fix is narrower than it first looked, and mutation testing is what said so.** Forcing the
+derivation back to the stale `'18px'` still passes 4 of 4: the substituted value and the assertions
+both come from the one constant, so they move together by construction. The test does not pin the
+gutter and never did — its subject is the specificity contest, which is value-agnostic on purpose.
+The comment now says that outright, so the next reader does not mistake it for a guard on the
+number. A real guard would need its own assertion against `.wf-shell`.
+
+⚠️ **What the browser could NOT show**: the local H2 database has no evaluation data, so no matrix
+cards, popup or location sheet rendered. The chrome this change touches was verified; the surfaces
+it sits around were not.
+
+### Added — the Map tab says "No forecast to show." instead of going silent
+
+On a day nothing has been forecast, the Map tab could render a completely empty map with no account
+of itself. The window pill was the only thing that ever explained an unforecast window — and where
+the EV list is empty (no briefing cached, no future forecast dates) `WindowControl` returns null
+outright rather than draw a control with nothing behind it, so there was no pill either. Field,
+chips, pins, colour key and — since the stale-window fix — ratings were all correctly withheld, and
+nothing said why.
+
+The line is the Plan screen's exact wording (`WindowFirstShell`'s `window-first-pane-empty`), so the
+two tabs share one vocabulary for the same state, and it sits in the tab's existing `wf-map-key`
+slot beside its sibling "This event is not scored yet".
+
+⚠️ **It supersedes the "second voice" rule rather than ignoring it.** `unscoredLineShown`'s own
+derivation argues this surface should stay quiet whenever the pill already speaks. That was right
+when the same screen still had pins on it and the pill only had to explain a missing *field*; it now
+has to explain an empty map. The two lines are mutually exclusive, so a reader never gets both —
+and that exclusion is load-bearing rather than tidy: ASTRO is deliberately exempt from the unscored
+line's row gate (a catalogue with no astro conditions has no astro EV row, yet its unscored state is
+a real claim about the forecast), so without it astro mode would print both sentences at once.
+
+⚠️ Not gated on `heatOn`, unlike `windowUnscored`: Pins mode is exactly as blank, and the colour
+key's "only in heat view" reasoning does not transfer to a sentence explaining an absence rather
+than a gradient.
+
+Tab-only scoping lives at the render site — the line sits in the tab arm of the chrome's
+`overlayMode ?` ternary. ⚠️ An `!overlayMode` term in the derivation read like a guard and was one
+mutation testing could not kill, because the render site already made it unreachable; it was removed
+rather than kept, since this file's rule is that a filter must be load-bearing.
+
+Verified in a running app against an all-past forecast domain with no briefing: the line renders in
+the key slot at 6.89:1 contrast, nothing paints over it, the colour key is withheld and the unscored
+line stays absent.
+
+### Docs — the plan-matrix design spec audited against the code, and both sides corrected
+
+Follow-on to #789/#790/#791, which corrected the one keyboard sentence in
+`docs/design/plan-matrix/README.md`. This audits the rest of that 307-line handoff. Ten claims had
+drifted; none was already covered by `plan-matrix-plan.md` §4's A1–A26, which is the filter a
+divergence has to survive to count as a finding here.
+
+**The one that matters.** The spec calls its five-stop ramp "the single source of truth for what a
+rating looks like". There are now **two** ramps: those stops ship verbatim as `STOPS_VERDICT`, and
+an eight-stop `STOPS_TEMP` sits beside them; the choice is a per-reader setting (`mapColourScale`,
+V147) and `DEFAULT_MODE` is `'temp'`, so a reader who has never chosen sees the ramp the spec does
+not describe. The matrix legend's hard-coded gradient is `rampGradientCss()` for the same reason.
+The heat-scale unification landed 2026-08-26, five days after M5, which is why §4 could not have
+carried it.
+
+**Also corrected in the spec**: search caps locations at 8, not 5 (`MAX_RESULTS_PER_GROUP`, one cap
+across all three groups); the legend footer's right-hand clause is different copy entirely, and has
+a fourth conditional clause the spec has no equivalent for; the kernel became three modules, so six
+of the fifteen functions in its "public surface" block live in `heatGeometry.js` or `scoreRamp.js`
+and `opts` has grown past the seven listed; the verdict vocabulary has a fourth word (`Not scored`);
+the home reach default is day-derived, not a flat `2h 30`; `See all N →` drops its count; the search
+footer gained `esc close`; and the window result chip reads `Open`.
+
+**§4 A23 was stale too, which is the finding worth keeping.** That row recorded the location chip as
+`Windows here` against the bundle's `4 DAYS`. The code has read `Next few days` since the row was
+written — the *reasoning* survived into `planSearch.js`'s comment verbatim while the string moved on
+— so a reader checking the chip against the plan found neither the bundle's answer nor the code's.
+An adaptation record can rot exactly like the thing it adapts, and this one rotted in the gap
+between a rule and its wording.
+
+⚠️ **One finding is left open rather than fixed, because it is a code question.** The pick legend's
+two lifted greens are not what ships: `#B6D49F` and `#8CA87A` appear nowhere in the frontend, and
+the legend reads `--color-badge-go` (`#A8C795`) and `--color-verdict-go` (`#8AAE72`). The spec now
+records the substitution and marks it open. Unlike the sibling case at `index.css:3037`, which
+states its reason inline, this pair has none recorded anywhere — so whether to restore the handoff's
+greens is a decision, not a doc fix.
+
+Scope stated plainly: roughly two-thirds of that spec by volume is pixel values, and the audit
+covered the token palette and about a dozen structural numbers rather than the ~200 individual CSS
+declarations. The screenshots and the prototype JS were not opened, and anything visible only in a
+running app — hover states, the sticky-lens shadow, transitions — is unverified. Every claim written
+into the spec by this change was checked against the code, including the two that were written
+first and verified second.
+
+### Docs — the measurement-program plans say whether they shipped
+
+Seven records of the 2026-08-13 → 2026-08-18 ERA5 measurement program landed on main carrying the
+status they were written with, and two of them were by then false: `veto-demotion-plan.md` and
+`blanket-confirmation-plan.md` both read **"PROPOSED — awaiting user go/no-go"** for changes that
+shipped on 2026-08-18 in v2.18.11. A reader arriving at either plan would have concluded the veto
+demotion was still an open question, which is the opposite of the truth — and the veto doc itself
+mentioned v2.18.11 nowhere at all.
+
+Both now record what happened, keeping their original framing beneath it: the demotion shipped with
+one amendment its supervised session's adversarial review found (`golden_hour` carries the approach
+penalty too), and the blanket rewording shipped alongside it because its gate fired — the
+blanket-precision cut measured 53.6% of promptable blanket calls over an observed-open corridor,
+double the pre-registered 25% threshold. Four sibling recut plans gain the status line they never
+had (#522, #528, #529, and the session brief), the veto doc gains two pointers to the release that
+carried its §9 conclusions, and `trend-peak-reconstruction-plan.md` is marked unexecuted with its
+precondition now met — re-verified against main rather than copied forward.
+
+Recovered from a local-only branch that predates `changelog.d/`; the rest of that branch was
+already on main, and where main had moved further — the cross-vendor physics corrections of
+2026-08-27 — main's version stands.
+
+### Changed — O-20's cure is costed, and what `inert` can actually be tested for
+
+`map-tab-v2-plan.md` O-20 names "shell-root `inert` while any dialog is open" as its cure in one
+line. `docs/engineering/o20-shell-inert-plan.md` costs it: the three remaining arms, the ruling's
+prerequisites (larger than first rendered — `MapOverlay` and `BottomSheet` sit outside the shell
+root too, not just `UserSettingsModal`), and four options with the decision put to the owner.
+
+⚠️ **Two corrections this document makes to its own first draft, both found by review.** It claimed
+the jsdom `inert` no-op as a new finding; `useDialogFocus`'s ruling and `map-tab-v2-plan.md` item 21
+both already recorded it, the second in the very document being costed. And it argued from "the cure
+cannot be protected by CI", which is false: this repo has **already shipped** an `inert` guard —
+`MapHeatLayer` marks Leaflet's marker panes inert — pinned in the ordinary suite by asserting the
+attribute lands and is removed, under a comment saying non-focusability itself is browser-only. What
+survives is narrower and still worth stating: CI can see that the attribute is applied and cleaned
+up; it cannot see the property the guard exists for.
+
+### Fixed — the map no longer shows a stale run's stars for a window it has no forecast for
+
+Reported from production on 2026-09-07, on a day no forecast had been generated. The Map tab opened
+on a **date already past**, every label chip carrying a `4★`, over a counts footer reading
+*133 of 253 shown · 130 rated* and a "★ PhotoCast-scored locations shown" badge — while the window
+control beside them said **"No forecast"** with both steppers disabled and the map behind them was
+blank.
+
+Both halves were working as written, which is why it went unnoticed. `App`'s date resolution fell
+through to `allDates[allDates.length - 1]` when nothing in the forecast domain was today-or-later —
+reachable *only* in the "nothing ran" state, and there it returned the most recent date that had
+been *scored*. Every surface that knows what a window is then went correctly quiet:
+`WindowControl` found no matching EV row, `heatWindow` resolved to null so the field painted
+nothing, the colour key was withheld, and `MapCallout` refused to mount — it is already gated on
+`activeMapEvent`.
+
+The ratings were the channel that never asked. `getRatingForLocation` reads two indexes keyed by an
+arbitrary date — the briefing score index and each location's `forecastsByDate` — and both
+legitimately carry rows the EV list excludes, since `GET /api/forecast` serves `today-2` onward. So
+the stars, the pins, the 3★ rating floor and the "N rated" count all went on answering for a window
+every other surface had gone silent about, with whatever run last scored that date.
+
+Two fixes:
+
+- **`mapDates.resolveMapDate`** — the map never *shows* a day that is over, on any branch except
+  the one that is not a calendar question at all. The
+  three-branch precedence moved out of `App` into one named function, because the "not past" rule
+  used to sit on the last branch only and being last is what made it nearly unreachable: the two
+  preferred branches were guarded by a bare `allDates.includes(...)`, which a past date passes.
+  ⚠️ The auto-selection is **frozen at mount** (its clock is read inside a memo keyed on the
+  location roster, and `useForecasts` fetches once with no interval and no focus listener), so a tab
+  left open across UK midnight took that stale branch every time and never self-corrected — a route
+  the fallback fix alone would not have closed, and one the rating gate would otherwise have turned
+  from a confidently-wrong screen into a permanently blank one. ⚠️ One "past" date is legitimate and
+  the first cut of the clamp refused it: a night runs dusk-to-dawn, so between UK midnight and dawn
+  the night in progress is *yesterday's* date, and `handleAuroraViewOnMap` sets it deliberately so
+  the aurora viewline lands on the night the banner is about. That fix has its own review history
+  and its own comment in `App`; the clamp undid it silently for up to seven hours a night in
+  midwinter, and `MapView`'s auto-jump cannot recover it. An explicit choice of the night in
+  progress is now always honoured — scoped to the explicit choice, since the auto-selection is a
+  calendar answer and has no business naming a night.
+- **`mapEvents.solarRowPredicate`** — no rating may answer for a window the tab has no row for. It
+  is the *same* rule `buildMapEvents` applies when deciding whether to emit the row, factored out
+  rather than mirrored, and pinned by an agreement suite driving both functions from one input set.
+  Every per-window claim on the tab now reads it: the rating and stand-down accessors, the
+  tide-on-the-light fact, the scored-locations badge, and the medallion layer's own rating, arcs and
+  stand-down glyph — that last block carried a private copy of the briefing-then-forecast precedence
+  and now reuses the shared accessors instead.
+
+⚠️ Two things it deliberately does **not** do. It is not a "has this window passed" test: a window
+the briefing has retired while the map's own forecast domain still carries it keeps its rating,
+because the rating is the real answer for it. And the frozen Plan-tab overlay is exempt — it builds
+no EV list, so there is nothing there for a rating to contradict; the exemption is written on that
+ground rather than on the fact that the overlay currently happens to be handed no forecast domain.
+(The overlay does change in one way this fix did not set out to make: sharing `App`'s date, it now
+opens on today rather than on the last scored past date when a trigger carries no date of its own.)
+
+⚠️ Also unaddressed, and named so the scope is not mistaken for a clean bill: the aurora branch
+falls back to `auroraScores`, fetched with **no date parameter at all** and gated only on a live
+alert level, so it can still answer for a night the reader is not looking at. Same class of defect,
+pre-existing, a different fix.
+
+**Verified against a running app, not only in jsdom.** With the local forecast domain doctored to
+hold yesterday alone — the production state — `main` draws `Bamburgh Beach 5★`, `Derwentwater 5★`,
+`Dunstanburgh Castle 4★`, `Wastwater 4★` over a blank map, footer *5 of 21 shown · 4 rated*, badge
+present. On the same data the fix draws one chip (`Wallington Woods`, a woodland site with no sky
+rating by design and therefore correctly starless), footer *1 of 21 shown · 0 rated*, no badge, and
+the window control sitting on today. ⚠️ Worth watching: the resulting screen is quiet. With no
+briefing at all the window control does not render either (`WindowControl` returns null on an empty
+list), so a reader gets a near-empty map whose only account of itself is the absence. That
+suppression rule was calibrated when the same screen still had pins on it; whether it now needs a
+sentence is a product call, not a bug.
+
+Twenty-two mutants, all killed — but six of them survived a first pass, and each was a test passing
+for the wrong reason. The overlay's exemption was proven by a mount carrying no forecast domain, so
+the predicate's empty-domain fail-open answered instead and deleting the exemption changed nothing.
+The UK-midnight test rebuilt its props as fresh literals in the rerender, which busts a
+`[heat, forecastDates]` memo by itself. The stand-down gate had no observable until the assertion
+moved onto the admin toggle's disabled state, and the medallion's none until `markerLabelAndColour`
+became a spy. The gate never had to consult `eventType` at all, because every case was decided at
+date granularity — a hardcoded `'SUNSET'`, and the whole predicate replaced by `date >= today`, both
+passed the entire suite until a case was added where one event of a date has a row and the other
+does not. And `App`'s own wiring was unpinned: the rule had unit tests, but dropping `nightDate:`
+from the call site left them all green. ⚠️ The mutation *run* itself lied once before any of that: a
+multi-file vitest filter silently matched nothing and every mutant "passed" in silence, so the whole
+sweep was re-run gated on the process exit code rather than on a grep of its output.
+
+Four `MapView` test files were mounting the tab with a `date` but no `forecastDates`, a combination
+the tab's only production caller cannot produce. They now pass one, so they exercise the gated path
+rather than the empty-domain fail-open.
+
+⚠️ **Codex found one more instance of the aurora class, in the same clamp.** `buildMapEvents`
+deliberately clips no NIGHT row to today-forward (only the D-13 solar filler is clipped) and is
+handed the raw available-date lists, while `GET /api/forecast` serves `today-2` onward — so last
+night's astro/aurora row is both offered in the window control AND `inForecastDomain`. Selecting it
+therefore took `selectEvRow`'s forward branch, which cleared `localNightDate` and asked `App` to
+adopt a past date; the clamp refused, and the row became one that could be selected and went
+nowhere — a control that opens onto nothing, reachable daily since astro conditions are written
+nightly. The pane's forwardability test mirrors the parent's *acceptance* rule (that is what
+`localNightDate` is for), so it gained the same today-forward clause: the night is kept local, and
+its own fetches and the viewline gate land on it, which is all a night row needs the date for. Inert
+for solar by construction — a served window is never past and the filler branch already requires
+today-forward. One earlier review lens had flagged this route and framed it as a *ratings* concern,
+which the rating gate does cover; that it also made the row dead was missed.
+
+⚠️ **And a second Codex pass found the clamp defeated by its own exemption.** The never-past
+exemption for the aurora night matched on the date's VALUE, not the selection's provenance — and in
+the small hours those coincide: `currentNightDate` is yesterday until dawn, so a reader who picked
+yesterday evening's ordinary SUNSET and left the tab open across UK midnight had a stale *solar*
+`selectedDate` exactly equal to the night in progress, and it was exempted. The map then held a day
+that was over, which with the solar-row gate live is a persistent "No forecast" blank rather than a
+merely stale screen — the exact failure the clamp exists to prevent, re-entered through its own
+escape hatch. `selectedDateIsNight` now rides beside the date, written by the one call site that
+makes a night selection (`kind: 'aurora'`) through a single `selectDate` setter so the two cannot
+drift. ⚠️ Mutation testing then caught the sequel: a flag that is only ever *set* lets a solar pick
+made after the banner inherit the licence, so the licence is per-pick and the setter clears it.
+
+⚠️ **A third pass found the provenance never reaching the parent on the route that needs it most.**
+`selectEvRow` skipped `onSelectDate` entirely when the row's date already matched the map's — which
+is the common case for picking TONIGHT, since the map already sits on today — so `App` never learned
+the selection had named a night, and at UK midnight the clamp advanced the map off a night still in
+progress. The callback now carries the row's kind and is called even on an unchanged date: the call
+means more than "adopt this date" now, so "the parent already has it" stopped being a reason to stay
+silent. That also settles the flag in the other direction — a solar row picked on a date a night row
+already occupied clears it. ⚠️ Two `MapViewHeat` tests asserted the old silence; they now assert the
+claim that silence stood for (the EVENT moves, the DATE does not), and both were re-checked against
+a date-move mutant and a dropped `setEventType` to confirm they still guard what they used to.
+
+⚠️ **A fourth pass found the other `onSelectDate` call site.** The aurora auto-jump — which lands
+the map on the night in progress when the current date has no stored results — asked with a bare
+date, so after UK midnight the clamp refused the (past) night and the jump landed nowhere; the
+latch is set BEFORE the call, so it never retried. That is the "paid run looks empty on entry"
+symptom the auto-jump exists to prevent, re-created by the clamp shipped alongside it. There are
+exactly **two** call sites in `MapView` and both now carry provenance; the prop's own PropTypes
+comment says so, because this was the third defect in a row caused by one of them forgetting.
+
+One scope correction came out of the same pass. `solarRowPredicate` documents itself as solar-only —
+`served` holds no night keys — but `isStandDownLocation` early-returns for AURORA alone, so an astro
+night was reaching it and being judged by the *solar* domain. It could only suppress, never invent,
+and the slot it suppressed was already that day's sunset triage; but a category error that reads as
+deliberate is worse than one that reads as a bug, so the scope is now enforced at `MapView`'s own
+boundary and the night paths are left exactly as they were.
+
+### Fixed — closing a dialog no longer pulls a reader out of the panel they moved to
+
+`useDialogFocus` restores focus to the control that opened a dialog. It did so unconditionally,
+which is right when the reader closed the dialog from inside it and wrong when they had moved on:
+with the four-day sheet open over the map, Tab out onto the pane, open the drilldown, press
+`Escape` — the sheet closes, the drilldown correctly survives (#794), and the restore then pulled
+focus out of the still-open panel onto the callout beneath it.
+
+The fix is `Modal`'s own uncover-restore guard, mirrored: don't restore when focus is somewhere
+real, on the reasoning `Modal` already states — *a reader who Tabbed out into the page while the top
+layer was up has chosen where they are, and yanking them back is worse than leaving them*. This hook
+refuses containment app-wide, so Tabbing out is supported; a restore that fires regardless takes
+back with one hand what that refusal grants with the other.
+
+⚠️ **Notably NOT the `inert` follow-on that `map-tab-v2-plan.md` O-20 named as this arm's cure.**
+`Modal` already carried the guard. `docs/engineering/o20-shell-inert-plan.md` costs the `inert`
+route and records why it is a poor fit regardless: it is a **silent no-op in this project's jsdom**
+(measured — focus still reaches a button inside an `inert` div), so a test of it passes whether the
+guard exists or not, and Playwright, which would see it, does not run in CI.
+
+⚠️ The risk was the mirror-image defect the map-landing increment fixed five times — if focus were
+still inside the closing dialog, the guard would skip the restore and strand the reader on `<body>`.
+Measured in **both** environments rather than reasoned, because focus/blur timing is where this
+project has been burned by the jsdom/browser difference before: detaching a focused node, or a
+subtree containing focus, puts `activeElement` on `<body>` first, in jsdom and in Chromium alike.
+
+⚠️ **The first cut of this guard shipped a regression on the Plan tab, found by review and fixed
+here.** "Focus is somewhere real" is not the same as "focus is somewhere coherent". `Modal`'s guard
+governs a dialog that stays OPEN; this cleanup governs one being DESTROYED, and on a stacked route
+that also changes which layer claims modality. Measured: Plan popup open, `/` opens search (the
+popup goes `stacked`/`inert`), Tab out onto the page, `Escape` — search closes, the popup re-claims
+`aria-modal`, and both guards stood down, leaving the reader outside a dialog AT is told to treat
+everything outside of as unavailable. The guard now restores when the reader is stranded outside a
+layer still claiming modality, and stands down only when nothing claims it or they are inside the
+thing that does. Arm C is unaffected: the map drilldown's panels carry no `aria-modal`, so nothing
+claims modality when the sheet closes over them.
+
+`useDialogFocus` had **no test file at all**; it has one now — ten cases, six mutants killed across
+two rounds, including one that reintroduces the regression above. ⚠️ The two map integration cases
+also assert `document.activeElement` now, but they do NOT cover this guard and an earlier wording of
+this entry implied they did: measured, both pass with the guard removed, because their foreign modal
+is a planted `div` and no consumer of the hook unmounts on that press. ⚠️ An earlier wording said "fourteen
+consumers": that was `grep -rl`, which counts files mentioning the hook. There are **four** call
+sites (`Modal`, `BottomSheet`, `MapOverlay`, `RegionsJump`); the blast radius is wider than four
+because most dialogs reach it through the first two, but the list of callers is not.
+
 ## [v2.20.4] - 2026-09-07
 
 ### Fixed — Escape no longer operates the map drilldown behind an open dialog
