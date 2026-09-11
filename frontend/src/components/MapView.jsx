@@ -1901,20 +1901,32 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // Fetch stored aurora results when in Aurora mode and the selected NIGHT changes — `nightDate`,
   // not `date`: they diverge only when the window control's EV-ownership rule has kept a night
   // row local because its date is not in `forecastDates` (map-tab-v2-plan.md §3 P6).
+  //
+  // ⚠️ Keyed to the night it was asked for, in both directions (Codex, #814). These results answer
+  // for ONE night, and since the live-state gate (`liveAuroraOnScreen`) the medallions and the
+  // overlay popup read them on every non-live night — so a result standing in for the wrong night
+  // is the exact defect that gate exists to stop. Two ways it could:
+  //   - A STALE WINDOW. Switch night A → B and, until B's request resolves, the results on hand are
+  //     still A's. Hence the clear on EVERY change, before the new request is made.
+  //   - A LATE RESPONSE. With no cancellation, A's request finishing after B's wrote A's stars in as
+  //     B's, and they stayed there until the next selection. Hence `cancelled`, which drops any
+  //     response whose night is no longer the one on screen.
+  // The same fetch-cancel shape this file's multi-date astro/aurora preview effects already use.
   useEffect(() => {
-    if (eventType !== 'AURORA' || !nightDate) {
-      (async () => setStoredAuroraResults({}))();
-      return;
-    }
+    (async () => setStoredAuroraResults({}))();
+    if (eventType !== 'AURORA' || !nightDate) return undefined;
+    let cancelled = false;
     getAuroraForecastResults(nightDate)
       .then((results) => {
+        if (cancelled) return;
         const byName = {};
         results.forEach((r) => { byName[r.locationName] = r; });
         setStoredAuroraResults(byName);
       })
       .catch(() => {
-        setStoredAuroraResults({});
+        if (!cancelled) setStoredAuroraResults({});
       });
+    return () => { cancelled = true; };
   }, [eventType, nightDate]);
 
   // Fetch available dates for astro conditions (available to everyone).

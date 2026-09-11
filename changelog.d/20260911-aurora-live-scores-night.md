@@ -27,6 +27,23 @@ agree on every night. The stored record carries no `cloudPercent`, which the pop
 required despite never rendering it; that contract was relaxed — a documentation fix only, since
 React 19 does not run propTypes at runtime (measured: an omitted required prop warns nothing).
 
+⚠️ **And a second Codex pass found stored results could answer for the wrong night too.** The
+stored-results fetch had no cancellation and never cleared on a night change, so two things could
+put one night's stars on another: a **stale window** (switch A → B and, until B's request resolved,
+A's results were still on hand) and a **late response** (A's request finishing after B's wrote A's
+stars in as B's, where they stayed until the next selection). Both predate this change, but it newly
+surfaced them — the medallions and popup now read stored results on every non-live night. The effect
+now clears on every change and drops any response whose night is no longer on screen, the same
+fetch-cancel shape the file's multi-date preview effects already use. Each half is pinned by its own
+test and fails on its own when reverted. ⚠️ The stale-window test's first form asserted on
+`markerLabelAndColour` and passed with the fix deleted: `makeMarkerIcon`'s module-level cache is keyed
+on the rating, so night B showing A's stale 4 reused A's cached icon and the spy was never called. It
+asserts the marker **count** instead, which that cache cannot fool.
+
+⚠️ **The astro twin is NOT fixed here.** The single-night astro fetch is structurally identical and
+has the same race. It is outside this change's scope — nothing here touches the astro path — and is
+named so it reads as a known open item rather than something overlooked.
+
 ⚠️ **Tonight is untouched at every reader.** Where the night on screen *is* the night in progress,
 each reader keeps the precedence it had — the rating stored-first, the medallions and popups
 live-only. That those differ on tonight is pre-existing and a separate question (which source is

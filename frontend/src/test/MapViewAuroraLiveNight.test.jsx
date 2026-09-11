@@ -276,3 +276,84 @@ describe('the night on screen is `nightDate`, not `date`', () => {
     expect(screen.queryByTestId('aurora-viewline-overlay')).not.toBeInTheDocument();
   });
 });
+
+describe('stored results answer for the night they were fetched for (Codex, #814)', () => {
+  const NIGHT_A = '2026-08-16';
+  const NIGHT_B = '2026-08-17';
+
+  /** A promise this test resolves by hand, so it — not the scheduler — decides which lands first. */
+  function deferred() {
+    let resolve;
+    const promise = new Promise((r) => { resolve = r; });
+    return { promise, resolve };
+  }
+
+  async function renderNight(night) {
+    let result;
+    await act(async () => {
+      result = render(
+        <MapView locations={locations()} date={night} autoEventType={null} handoffEventType="AURORA" />,
+      );
+    });
+    return result;
+  }
+
+  const rerenderNight = async (result, night) => {
+    await act(async () => {
+      result.rerender(
+        <MapView locations={locations()} date={night} autoEventType={null} handoffEventType="AURORA" />,
+      );
+    });
+  };
+
+  it('drops a LATE response for a night the reader has already left', async () => {
+    // ⚠️ The out-of-order case. Night A's request is still in flight when the reader moves to B,
+    // and A's finishes LAST. Without cancellation it wrote A's stars in as B's, and they stayed.
+    const a = deferred();
+    getAuroraForecastResults.mockImplementation((night) => (
+      night === NIGHT_A ? a.promise : Promise.resolve([{ locationName: LOC, stars: 3 }])
+    ));
+    const result = await renderNight(NIGHT_A);
+    await rerenderNight(result, NIGHT_B);
+    // B's own 3 is on screen.
+    await waitFor(() => expect(markerLabelAndColour.mock.calls.some((c) => c[0] === 3)).toBe(true));
+
+    markerLabelAndColour.mockClear();
+    // Now A's stale response lands — after B's.
+    await act(async () => { a.resolve([{ locationName: LOC, stars: 4 }]); await Promise.resolve(); });
+
+    expect(markerLabelAndColour.mock.calls.some((c) => c[0] === 4)).toBe(false);
+    expect(screen.queryAllByTestId('marker')).toHaveLength(1);
+  });
+
+  it('does not let the previous night\'s results stand in while the new night loads', async () => {
+    // ⚠️ The stale-window case. A has resolved; the reader moves to B, whose request has NOT yet
+    // resolved. Without the clear-on-change, A's results were still on hand and answered for B.
+    const b = deferred();
+    getAuroraForecastResults.mockImplementation((night) => (
+      night === NIGHT_A ? Promise.resolve([{ locationName: LOC, stars: 4 }]) : b.promise
+    ));
+    const result = await renderNight(NIGHT_A);
+    await waitFor(() => expect(markerLabelAndColour.mock.calls.some((c) => c[0] === 4)).toBe(true));
+
+    // Night A's own 4 above is legitimate; only calls made AFTER the move to B count against it.
+    markerLabelAndColour.mockClear();
+    await rerenderNight(result, NIGHT_B);
+    await act(async () => { await Promise.resolve(); });
+    // B is loading, so NOTHING is rated for it yet — and nothing may be drawn.
+    //
+    // ⚠️ Asserted on the marker COUNT, not on `markerLabelAndColour`, and that is not a stylistic
+    // choice. The first form of this test asked "was the spy called with a 4?" and passed with the
+    // clear-on-change deleted: `makeMarkerIcon`'s cache is module-level and keyed on the rating
+    // among other things, so night B showing A's stale 4 hit the SAME cache entry A had built — the
+    // icon was reused, the spy never called, and the stale data sat on screen invisible to the
+    // assertion. The count cannot be fooled that way: fixed, B has nothing rated (0 drawn); broken,
+    // A's 4 stands in and clears the floor (1 drawn).
+    expect(screen.queryAllByTestId('marker')).toHaveLength(0);
+
+    // ...and once B's own answer lands, that is what shows.
+    await act(async () => { b.resolve([{ locationName: LOC, stars: 2 }]); await Promise.resolve(); });
+    // 2 is below the default 3★ floor, so B's location is correctly not drawn — and still never 4.
+    expect(markerLabelAndColour.mock.calls.some((c) => c[0] === 4)).toBe(false);
+  });
+});
