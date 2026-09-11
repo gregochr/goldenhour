@@ -2124,8 +2124,39 @@ button.wf-hc.on:hover {
   line-height: 16px;
   white-space: nowrap;
 }
-.wf-hc-lg[data-pick="best"] { color: var(--color-badge-go); }
-.wf-hc-lg[data-pick="also"] { color: var(--color-verdict-go); font-weight: 600; }
+/* The handoff's own two inks, restored (2026-09-11) — `#B6D49F`, and `#8CA87A` at 600, which every
+   bundle from plan-matrix through map-tab-v2 THAT DRAWS THE PLAN CARD specifies for this legend
+   (`.lg.wb` / `.lg.wa`). temperature-scale falls inside that range and draws no card, so "every
+   bundle" would be false without the qualifier. This had shipped as `--color-badge-go` (#A8C795)
+   and `--color-verdict-go` (#8AAE72) with no reason recorded; the pixel audit marked it open and
+   the owner chose the handoff.
+
+   ⚠️ What it COSTS, stated rather than left to be found:
+   · BEST BET used to match PIXEL FOR PIXEL across four surfaces — this legend, the popup's pick
+     badge (`.wf-wsh-pick`), `WindowPickDialog`'s kind label and the Map medallion all read
+     `#A8C795`. This moves the legend alone, so BEST now differs from the other three. The handoff
+     does the same (its popup badge is `#A8C795`), so this reproduces the design rather than
+     drifting from it — but it breaks a match the code had.
+   · ALSO GOOD was never one colour and still is not: its popup badge and pick dialog use
+     `--color-badge-also` (#B3BEEA, BLUE), so it reads green here and blue one click on — before
+     this change as well as after.
+   · It reintroduces, on a sibling surface, a shade this file has turned down once:
+     `.wf-seg-rating .wf-seg-btn.on` declines the handoff's `#B5CFA3` as "a difference nobody can
+     see", and `#B6D49F` is 6.5 RGB units from it.
+
+   Measured on the grounds a pick can actually occupy — the legend inherits the card's verdict tint
+   (rest, hover, and the open state), and ALSO never lands on a Poor card because the runner-up is
+   suppressed there:
+     BEST  #B6D49F  7.84–10.07:1   UP on every ground from 6.84–8.79 (the green it replaces)
+     ALSO  #8CA87A  4.86–5.66:1    ⚠️ DOWN on every ground from 5.09–5.93: the margin over 1.4.3's
+                                   4.5:1 shrinks from 0.59 to 0.36, at a hovered Worth-it card.
+                                   Still AA, but the thinnest it has been.
+   And the two picks sit further APART, 1.34:1 -> 1.61:1 — the property the medallion's note below
+   guards. Colour alone still cannot reach 3:1 between them; the weight (700 vs 600) and the words
+   themselves carry the rest, as they always have. Literals rather than a token, because a token
+   would couple this legend to the three surfaces it now deliberately differs from. */
+.wf-hc-lg[data-pick="best"] { color: #B6D49F; }
+.wf-hc-lg[data-pick="also"] { color: #8CA87A; font-weight: 600; }
 /* ⚠️ EACH PICK NEEDS ITS OWN `:hover` ARM, and the reason is arithmetic. `button.wf-hc:hover` above
    is (0,2,1) — two classes and a pseudo-class — where `.wf-hc.best` is (0,2,0), so without these the
    pointer landing on the one card the forecast recommends flipped its green border to the ordinary
@@ -3863,11 +3894,18 @@ button.wf-hc.also.on:hover {
   white-space: nowrap;
 }
 /* ⚠️ The two picks are separated on TWO axes, ink AND weight, which is the whole of the precedent
-   this deviation cites. `.wf-hc-lg` reads `[data-pick="best"] { color: --color-badge-go }` and
-   `[data-pick="also"] { color: --color-verdict-go; font-weight: 600 }`; L2's first cut copied the
-   inks and dropped the weight, leaving the pair 1.34:1 apart in colour — measured — on two adjacent
-   rows of one dropdown, and on the phone, where the words are withdrawn, ◎ versus ○ was carrying the
-   entire distinction. WCAG 1.4.11 asks 3:1 between adjacent meaningful graphics.
+   this deviation cites. When this was written `.wf-hc-lg` read `[data-pick="best"] { color:
+   --color-badge-go }` and `[data-pick="also"] { color: --color-verdict-go; font-weight: 600 }`; L2's
+   first cut copied the inks and dropped the weight, leaving the pair 1.34:1 apart in colour —
+   measured — on two adjacent rows of one dropdown, and on the phone, where the words are withdrawn,
+   ◎ versus ○ was carrying the entire distinction. WCAG 1.4.11 asks 3:1 between adjacent meaningful
+   graphics.
+
+   ⚠️ `.wf-hc-lg` no longer reads those inks (2026-09-11: it took the plan-matrix handoff's
+   `#B6D49F`/`#8CA87A`). This medallion deliberately did NOT follow: map-landing, the bundle that
+   governs it, specifies `#A8C795` for BEST BET, which is `--color-badge-go` exactly. So the two
+   surfaces now differ by design, each on its own spec — the precedent this note cites is the
+   two-axis RULE, and that still holds; only the values it quoted moved.
 
    ⚠️ The RING is a `--color-verdict-*` on both, never a `--color-badge-*`. The badge family is the
    lifted TEXT variant and this file states the rule outright ("Never use a `--color-badge-*` as a
