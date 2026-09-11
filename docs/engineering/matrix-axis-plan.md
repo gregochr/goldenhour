@@ -1,6 +1,10 @@
 # Plan — naming the matrix axis (design bundle `design_handoff_matrix_axis`)
 
-**Status: planned, not started.** Two phases, one PR each, implemented by Claude Sonnet sessions.
+**Status: COMPLETE — both phases merged 2026-08-30**, the day this plan landed (#707): Phase 1, the
+sunrise/sunset card chips, as #708 (`37cc964f`); Phase 2, the row rails and sticky headings, as
+#710 (`e540680d`). ⚠️ This line read "planned, not started" until 2026-09-11 — twelve days after
+both phases shipped — so treat what follows as the record of what was planned and built, not as
+work outstanding. Two phases, one PR each, implemented by Claude Sonnet sessions.
 Every decision an implementer would otherwise have to make is made in this document; where a value
 must be measured rather than chosen, the step says so and says with what instrument. **This plan
 was adversarially reviewed before landing** (five prosecutor lenses — sticky/CSS mechanics,
