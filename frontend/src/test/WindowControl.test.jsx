@@ -73,11 +73,14 @@ describe('WindowControl — the pill', () => {
     // the clipped text has. Asserted through the role+name a user agent actually computes rather
     // than the flattened text content, which would pass without the accessible name existing.
     //
-    // ⚠️ The name computes as the RUN-TOGETHER "SunsetTonight19:45" (measured): accname trims each
-    // element's own contribution before concatenating, so three sibling spans join with no
-    // separator — hence `\s*`, not `\s+`, which is what a naive reading of the rendered text would
-    // have written. The caret is absent from it, which is the `aria-hidden="true"` on that span
-    // doing its job.
+    // ⚠️ `\s*`, not `\s+` or an exact string, and deliberately: this suite and a browser can
+    // disagree about spacing. When this test was written the pill had no separator text nodes and
+    // jsdom read "SunsetTonight19:45" — not because accname trims (there was no whitespace to trim)
+    // but because jsdom computes no layout: it never blockifies a flex item, so the spans read as
+    // `display: inline` to it (with or without a stylesheet) and the polyfill adds no space. Every
+    // browser spaced them anyway, `.wf-win-pill` being `display: flex`. The pill has since gained bare `{' '}` separators, so jsdom reads it spaced
+    // too; `\s*` holds under either reading. The caret is absent from it, which is the
+    // `aria-hidden="true"` on that span doing its job.
     renderControl();
     expect(screen.getByRole('button', { name: /Sunset\s*Tonight\s*19:45/ })).toBe(
       screen.getByTestId('wf-win-pill'),
@@ -712,11 +715,15 @@ describe('WindowControl — the verdict cell, medallion and ticks (map-landing-p
 
   describe('accessible names — the standards require these for every changed control', () => {
     it('names the pill with its verdict and region, with real word breaks', () => {
-      // ⚠️ accname TRIMS each element's contribution before concatenating, so sibling spans join
-      // with nothing between them. Measured before the fix, this name read
-      // "20:28Also goodWorth iteverywhere in your area". The bare `{' '}` text nodes are what stop
-      // it — and they must be, because with the stylesheet loaded the name reads correctly only as
-      // a side effect of `display: inline-flex`, which the phone rule already changes.
+      // ⚠️ Name the instrument. Without the bare `{' '}` text nodes this name reads
+      // "20:28Also goodWorth iteverywhere in your area" HERE — in jsdom, which computes no layout
+      // and so reads every span as `display: inline`. A browser never reads it that way:
+      // `.wf-win-pill` is `display: flex` at every width, so its children are blockified flex items
+      // that every engine spaces itself, at 1280px and 375px alike (measured 2026-09-11; the
+      // breakpoint rules inside the pill hide or reposition parts of it but never change the pill's
+      // own display). So this test guards the separators being present, which jsdom's reading
+      // needs; a failure means they went away, not that a screen-reader user would hear the glued
+      // string.
       const events = [{ ...EVENTS[0], pickKind: 'also' }, EVENTS[1], EVENTS[2]];
       render(
         <WindowControl

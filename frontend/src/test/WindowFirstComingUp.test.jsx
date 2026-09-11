@@ -436,12 +436,15 @@ describe('WindowFirstComingUp — the handoff row (plan D14)', () => {
     // `WindowFirstComingUpHandoff` itself through the ROLE this pane renders it with, so a future
     // edit to either file cannot silently drop the separators.
     //
-    // ⚠️ Name the instrument: that glued reading is what jsdom's `dom-accessibility-api` computes,
-    // NOT what a browser announces. Chromium, WebKit and Firefox all space block-level
-    // contributions, and `.wf-cu-handoff` is `display: flex`, so removing these text nodes changes
-    // nothing a real screen reader is handed (measured 2026-09-05 — see the component's class
-    // doc). This test therefore guards the DOM's stated intent, not a user-facing regression;
-    // treat a failure here as "the separators went away", not as "a11y broke in production".
+    // ⚠️ Name the instrument: that glued reading is what jsdom's `dom-accessibility-api` computes
+    // here, NOT what a browser announces. The polyfill applies the browsers' own rule, but to
+    // jsdom's `display`, and jsdom computes no layout: it never blockifies a flex item (and this
+    // suite loads no stylesheet anyway), so every span is `display: inline` to it. In Chromium,
+    // WebKit and Firefox `.wf-cu-handoff` is
+    // `display: flex`, so removing these text nodes changes nothing a real screen reader is handed
+    // (measured — see the component's class doc). This test therefore guards the DOM's stated
+    // intent, not a user-facing regression; treat a failure here as "the separators went away",
+    // not as "a11y broke in production".
     renderPane({
       hotTopics: [
         { type: 'DUST', label: 'Saharan dust', date: TODAY },

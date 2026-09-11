@@ -974,16 +974,17 @@ export default function WindowRowFieldMap({
                   >
                     <i className="wf-mchip-m" aria-hidden="true" />
                     <b className="wf-mchip-n">{chip.locationName}</b>
-                    {/* ⚠️ A BARE TEXT NODE, and the placement is the whole of it — name-from-contents
-                        TRIMS each element's own contribution, so a space inside the `<b>` above or at
-                        the head of the `<em>` below is thrown away and the name computes as
-                        `Bamburgh4 stars`. Measured three ways against `dom-accessibility-api`, which
-                        is what the suite's role queries use. JSX strips whitespace-only lines between
-                        children, so this cannot be left implicit either: without it the name depended
-                        on whether the engine inserts a space for flex-blockified children, an
-                        assumption about two engines this project has already been bitten by (M4: an
-                        `aria-hidden` span between two text nodes produced `Show on mapTonight
-                        Sunset`). Same rule, same fix, as `LocationFourDaySheet`'s date box. */}
+                    {/* ⚠️ A BARE TEXT NODE, and the placement is the whole of it — for the suite.
+                        `dom-accessibility-api`, which the suite's role queries use, TRIMS each
+                        element's own contribution, so a space inside the `<b>` above or at the head
+                        of the `<em>` below is thrown away there and the name computes as
+                        `Bamburgh4 stars` (measured three ways). Browsers neither trim nor need it:
+                        `.wf-mchip` is `inline-flex`, so these are flex items every engine spaces
+                        itself (measured 2026-09-11). JSX strips whitespace-only lines between
+                        children, so it has to be explicit. M4 — an `aria-hidden` span between two
+                        text runs producing `Show on mapTonight Sunset` — was a different shape:
+                        plain inline content, which does glue in browsers too
+                        (`LocationFourDaySheet`'s map button records it). */}
                     {' '}
                     {chip.rating != null && (
                       // ⚠️ `spotBadgeStyle`, not the raw ramp as ink. Measured on this chip's own

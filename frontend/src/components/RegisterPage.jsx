@@ -269,6 +269,10 @@ export default function RegisterPage({ verifyToken = null, onBackToLogin }) {
                 disabled={loading}
                 className="mt-0.5 accent-plex-gold"
               />
+              {/* All three `{' '}`s in this span are LOAD-BEARING in a browser: the text and both
+                  links are plain inline content, so removing any one glues two words in the
+                  checkbox's accessible name — measured for one ("…Conditions andPrivacy Policy",
+                  2026-09-11), and the same rule covers the other two. */}
               <span>
                 I agree to the{' '}
                 <a href="https://photocast.online/terms.html" target="_blank" rel="noopener noreferrer" className="text-plex-gold hover:underline">

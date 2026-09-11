@@ -443,7 +443,8 @@ export default function LocationFourDaySheet({
                     // spans, so `textContent` is byte-identical to a plain join — which is why the
                     // tests read the same line either way, and why no `aria-hidden`/`sr-only`
                     // shadow pair is needed here (this is browsed content, not an accessible name,
-                    // so the accname trimming rule this arm keeps hitting does not apply).
+                    // so the polyfill's per-element whitespace trimming — which this arm's jsdom tests
+                    // keep hitting, and which browsers do not do — has nothing to act on here).
                     <p data-testid="location-sheet-light" className="wf-loc-light font-mono">
                       {row.light.map((w, i) => (
                         <React.Fragment key={w.label}>
@@ -528,9 +529,10 @@ export default function LocationFourDaySheet({
               onClick={() => onShowOnMap(handoff.date, handoff.targetType, sheet.name)}
             >
               {/* ⚠️ ONE text node, with only the `◍` hidden — the separator stays inside it. Hiding
-                  the arrow as well split the label into two ADJACENT text nodes with no element
-                  boundary between them, and the name-from-contents algorithm trims each part and
-                  joins with nothing: the name computed as "Show on mapTomorrow Sunrise", one
+                  the arrow as well split the label into two ADJACENT text runs with only a hidden
+                  element between them, and in this button's inline content two such runs join once
+                  it drops out — a shape measured to glue in Chromium, WebKit and Firefox alike, not
+                  a jsdom artefact: the name computed as "Show on mapTomorrow Sunrise", one
                   mangled token, and it is the only thing a speech-input user has to say (2.5.3).
                   The glyph worth hiding is the bullseye, which VoiceOver reads aloud as a word in
                   the middle of the name — the call `◎ best here` already makes one band up. An

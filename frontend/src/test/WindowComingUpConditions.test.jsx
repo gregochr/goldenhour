@@ -231,6 +231,15 @@ describe('WindowComingUpConditions — the strip', () => {
 
   it('the condition row\'s accessible name keeps a word boundary between every cell — no two '
       + 'phrases glued together for lack of a real text-node separator', () => {
+    // ⚠️ Name the instrument. This is jsdom, which computes no layout — it never blockifies a grid
+    // or flex item, and this suite loads no stylesheet anyway — so every span reads as
+    // `display: inline` and EVERY boundary below needs its text node to pass here. In a browser
+    // only one of them does: "Coastal tides deterministic" — a text run beside a plain inline span
+    // — glues without its separator in Chromium, WebKit and Firefox alike. Every other boundary
+    // here the engines space themselves: measured 2026-09-11 for the separators between elements,
+    // and by the same rule for the one a text node follows (`peak` / date), which sits inside the
+    // `inline-flex` `.wf-cond-peak`. The rule is in `WindowFirstComingUpHandoff`'s class doc. So
+    // this pins one user-facing boundary and several that exist for jsdom's reading.
     render(<WindowComingUpConditions conditions={[condition()]} onGoToPlan={vi.fn()} />);
 
     const row = screen.getByRole('button', {
