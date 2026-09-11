@@ -12,12 +12,18 @@ it could reasonably have set the value to 0.
 backend.** The aurora night in progress is *yesterday's* date before dawn, and #803's
 `resolveMapDate` honours a selection naming that night only if the date is in the set this endpoint
 returns — so at zero the Map tab would silently fall through to today and lose its aurora viewline on
-the night the alert is about. And on a day nothing has been forecast, the past rows are what keep the
-client's date set non-empty, which is what keeps the Map tab reachable at all rather than withheld.
-The javadoc now records both, and that each needs only one day: the night in progress began at most
-yesterday, and a trace of every frontend reader of a served date found none reaching further back.
-The second day is margin inherited from the old reason, so reducing it is a payload decision rather
-than a correctness one. It also records that `BriefingEvaluationController` shares the constant, so
-changing it moves both endpoints, and that `/history` is the ADMIN-only backtesting endpoint.
+the night the alert is about. And during a forecast outage, the past rows are what keep the client's
+date set non-empty, which is what keeps the Map tab reachable at all rather than withheld.
+
+⚠️ **The two need different depths, and the first cut of this javadoc said they didn't.** The aurora
+night needs exactly one day — the night in progress began at most yesterday. The outage case scales:
+the Map tab stays reachable for exactly `PAST_WINDOW_DAYS` days after the last forecast date passes,
+so each past day buys a reader who has been away one more day of the empty state instead of a missing
+tab. The first revision claimed both needed one day and called a reduction to 1 "a payload decision
+rather than a correctness one"; Codex caught it on #816 before it merged, pointing out that
+`allDates.length` is itself a reader that depends on the second day in a multi-day gap. The javadoc
+now says reducing the value is **not** correctness-neutral. It also records that
+`BriefingEvaluationController` shares the constant, so changing it moves both endpoints, and that
+`/history` is the ADMIN-only backtesting endpoint.
 
 No value changed.

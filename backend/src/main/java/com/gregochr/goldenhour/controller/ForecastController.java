@@ -90,21 +90,27 @@ public class ForecastController {
      *       night silently: no error, the tab just falls through to today, taking its aurora
      *       viewline off the night the alert is about. (The banner's own overlay reads its date
      *       directly and would be unaffected; it is the Map tab that depends on this.)</li>
-     *   <li><b>The day nothing has been forecast.</b> With no rows from today forward, the past rows
-     *       are what keep the client's date set non-empty — and the frontend offers the Map tab only
-     *       while that set is non-empty. At zero, on exactly that day, the Map tab is withheld
-     *       outright instead of opening onto its "No forecast to show." empty state. A consequence
-     *       worth knowing rather than a reason the value was chosen.</li>
+     *   <li><b>A forecast outage.</b> With no rows from today forward, the past rows are what keep
+     *       the client's date set non-empty — and the frontend offers the Map tab only while that set
+     *       is non-empty. Once it empties, the Map tab is withheld outright instead of opening onto
+     *       its "No forecast to show." empty state.</li>
      * </ul>
      *
-     * <p><b>Both need one day, not two</b>: the night in progress began at most yesterday. The
-     * second day is margin carried over from the reason this javadoc used to give — that
+     * <p>⚠️ <b>The two need different depths, and only the first is fixed.</b> The aurora night needs
+     * exactly one day: the night in progress began at most yesterday. The outage case
+     * <b>scales</b>. The most recent row the client can hold is the last date any run forecast, so
+     * the Map tab stays reachable for exactly this many days after that date passes — each past day
+     * buys one more. A reader who has been away gets the empty state rather than a missing tab for
+     * that long; at 1 they would lose it a day sooner. So <b>reducing this is
+     * not correctness-neutral</b>, whatever the payload saving: it shortens how long an outage can
+     * run before the tab disappears. (An earlier revision of this comment claimed both reasons need
+     * one day and called a reduction "a payload decision rather than a correctness one" — true of
+     * the aurora case, false of this one, and caught in review before it merged.)
+     *
+     * <p>The reason this javadoc used to give for "not zero" is gone: it said
      * {@code computeAutoSelection} picked the browser's <em>local</em> date, so a reader west of the
      * UK could legitimately ask for T-1. That stopped being true when it moved to the UK calendar
-     * ({@code ukDateStr}); both sides of the comparison are now {@code Europe/London}. No current
-     * frontend reader reaches a date older than the night in progress, since the map refuses any
-     * other past date outright. Reducing this to 1 would therefore be a payload decision rather
-     * than a correctness one.
+     * ({@code ukDateStr}); both sides of that comparison are now {@code Europe/London}.
      *
      * <p>Anything older belongs in {@code GET /api/forecast/history}, the ADMIN-only backtesting
      * endpoint, which takes explicit from/to dates and is unaffected by this bound.
