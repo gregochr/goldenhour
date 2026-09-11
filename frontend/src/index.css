@@ -4870,6 +4870,46 @@ button.wf-hc.also.on:hover {
    turns on the thing it explains. On the TAB (map-tab-v2-plan.md §3 P7) every corner is spoken
    for: the LITE viewline chip bottom-left, the counts footer bottom-centre, the scored-locations
    chip bottom-right, Leaflet's attribution tucked under it. */
+/* The Map tab's empty state, centred in the map body rather than tucked in the key slot
+   top-right (owner call). On a map that is genuinely blank — no field, no chips, no pins, and no
+   window control to speak for itself — the corner is not where the eye goes, which is the whole
+   reason the surface has to say anything.
+
+   ⚠️ `pointer-events: none` is load-bearing, not tidiness. This is a full-bleed `inset: 0` box
+   laid over the entire map; without it the label's own wrapper would swallow every drag, click and
+   scroll on the pane beneath it, so a reader could not pan away from the empty view it is
+   explaining.
+
+   ⚠️ **And the chip needs its OWN `none` — it does not inherit one.** The chip reuses `.wf-map-key`
+   for its look, and `.wf-map-key` deliberately sets `pointer-events: auto`: in its home, the
+   toolbar is click-through and its controls must stay clickable. Borrowing the class borrowed that
+   assumption. The first cut of this rule said "the inner chip inherits it"; measured in a browser,
+   the chip computed `auto` and `elementFromPoint` at its centre returned the chip rather than the
+   map — a 138×25 dead zone dead-centre on the one screen whose only remaining job is being panned
+   away from. The override below is two classes against `.wf-map-key`'s one, so it wins on
+   specificity without `!important`, and it is scoped to this context so the toolbar keeps its own
+   `auto`.
+
+   ⚠️ The z-index is a rung on an EXISTING ladder, not a number picked to win. Leaflet's panes top
+   out at 700 and its controls at 800; the landing card sits at 1050 and the chrome corners at
+   1100. 1000 therefore paints above the map and below both — so a panel, a popover or the landing
+   card always covers this, never the reverse. It shares the `map-container` stacking context
+   (that box carries an inline `z-index: 0`) with all of them, so these values genuinely compete —
+   `map-landing-plan.md` records three separate occasions where a declared z-index turned out NOT
+   to be a ladder position because the element sat in a nested stacking context of its own. */
+.wf-map-empty {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 1000;
+}
+.wf-map-empty .wf-map-key {
+  pointer-events: none;
+}
+
 .wf-map-key {
   display: flex;
   align-items: center;
