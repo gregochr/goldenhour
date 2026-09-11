@@ -16,6 +16,9 @@ const CONFIG_TABS = [
   { key: 'BATCH_FAR_TERM', label: 'Batch Far-Term', tip: 'Claude model for overnight far-term batch runs (T+2, T+3). Only evaluated when weather is settled.', adminOnly: true },
 ];
 
+/** How long a transient success banner stays on screen before it clears itself. */
+const SUCCESS_BANNER_MS = 3000;
+
 /** Returns true if the given tab key is a batch tab. */
 const isBatchTab = (key) => key === 'BATCH_NEAR_TERM' || key === 'BATCH_FAR_TERM';
 
@@ -165,6 +168,41 @@ export default function ModelSelectionView() {
   const [activeTab, setActiveTab] = useState('VERY_SHORT_TERM');
   const [locationCount, setLocationCount] = useState(0);
 
+  /**
+   * Clears the success banner {@link SUCCESS_BANNER_MS} after it appears.
+   *
+   * <p>⚠️ The dismiss is an effect keyed on {@code success}, the idiom {@code App.jsx}'s run banner
+   * and {@code RegisterPage}'s cooldown already use, and not a {@code setTimeout} armed by the
+   * handlers. Those were bare calls placed *after* each handler's network await, so the callback
+   * outlived the component: it ran against a torn-down tree and React's {@code dispatchSetState}
+   * read a {@code window} that no longer existed. Vitest fails a run that records an unhandled
+   * error while still reporting every test as passing — observed once in six full-suite runs.
+   *
+   * <p>⚠️ Do not move the timer back into the handlers, even with a cleanup. An unmount cleanup
+   * cannot cancel a timer that does not exist yet: `ManageView` renders this behind
+   * {@code activeTab === 'models'}, so switching tab mid-request unmounts it before the await
+   * resolves, and the handler then arms a timer nothing owns. An effect has no such window — it
+   * never runs after unmount, and a {@code setSuccess} on an unmounted component is a no-op — so
+   * no {@code isMounted} guard is needed either.
+   *
+   * <p>⚠️ The three handlers that show a message each clear {@code success} before their await,
+   * and that null is load-bearing: the effect re-runs only when {@code success} changes, and the
+   * strategy message does not name its run type, so enabling the same strategy on a second config
+   * tab produces an identical string. The null committed in between is what makes that repeat
+   * re-run the effect and get its own window; three quick toggles used to leave three independent
+   * timers, the first of which wiped the newest message early.
+   *
+   * <p>One case it does not cover: two requests for the same thing in flight at once (a
+   * double-click — the toggles stay enabled mid-request). Both responses carry the same string, so
+   * the second {@code setSuccess} is a no-op and the banner clears on the first response's timer,
+   * exactly as it did before this change.
+   */
+  useEffect(() => {
+    if (!success) return undefined;
+    const timer = setTimeout(() => setSuccess(null), SUCCESS_BANNER_MS);
+    return () => clearTimeout(timer);
+  }, [success]);
+
   useEffect(() => {
     async function fetchModels() {
       try {
@@ -203,7 +241,6 @@ export default function ModelSelectionView() {
       setConfigs((prev) => ({ ...prev, [runType]: result.active }));
       const tabLabel = CONFIG_TABS.find((t) => t.key === runType)?.label || runType;
       setSuccess(`${tabLabel} model switched to ${MODEL_INFO[result.active]?.name || result.active}`);
-      setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
       setError(`Failed to switch model for ${runType}`);
       console.error(err);
@@ -230,7 +267,6 @@ export default function ModelSelectionView() {
       });
       const info = STRATEGY_INFO[strategyType];
       setSuccess(`${info?.label || strategyType} ${newEnabled ? 'enabled' : 'disabled'}`);
-      setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
       const msg = err.response?.data?.message || err.response?.data || `Failed to update ${strategyType}`;
       setError(typeof msg === 'string' ? msg : `Failed to update ${strategyType}`);
@@ -265,7 +301,6 @@ export default function ModelSelectionView() {
       await setExtendedThinking(runType, next);
       setExtendedThinkingConfig((prev) => ({ ...prev, [runType]: next }));
       setSuccess(`Extended thinking ${next ? 'enabled' : 'disabled'} for Briefing`);
-      setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
       setError('Failed to update extended thinking setting');
       console.error(err);

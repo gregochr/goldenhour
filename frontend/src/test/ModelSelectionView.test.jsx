@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import ModelSelectionView from '../components/ModelSelectionView.jsx';
 
 // Mock the API modules
@@ -76,6 +76,258 @@ describe('ModelSelectionView', () => {
     useAuth.mockReturnValue({ isAdmin: true });
     getAvailableModels.mockResolvedValue(MOCK_DATA);
     fetchLocations.mockResolvedValue(MOCK_LOCATIONS);
+  });
+
+  describe('the transient success banner', () => {
+    /** Toggles a strategy and waits for the banner its handler shows. */
+    async function toggleAndAwaitBanner() {
+      updateOptimisationStrategy.mockResolvedValue({
+        strategyType: 'FORCE_IMMINENT',
+        enabled: true,
+        paramValue: null,
+      });
+      const view = render(<ModelSelectionView />);
+      fireEvent.click(await screen.findByTestId('strategy-toggle-FORCE_IMMINENT'));
+      await screen.findByText('Always Evaluate Today enabled');
+      return view;
+    }
+
+    /** Flushes pending promises without moving the fake clock at all. */
+    async function pump() {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(0);
+      });
+    }
+
+    /**
+     * ⚠️ Frozen clock, NOT `shouldAdvanceTime`. That option ties the fake clock to real time, so the
+     * wall time spent getting the banner on screen comes straight out of the 3s window being
+     * measured — with it, the "still showing at 2999ms" assertion below fails outright, because the
+     * banner has already been dismissed by elapsed real time. Pumping with a zero advance settles
+     * the mount fetches and the toggle's PUT while the clock stays exactly where it is.
+     */
+    it('holds the banner until the dismiss delay elapses, then clears it', async () => {
+      vi.useFakeTimers();
+      try {
+        updateOptimisationStrategy.mockResolvedValue({
+          strategyType: 'FORCE_IMMINENT',
+          enabled: true,
+          paramValue: null,
+        });
+        render(<ModelSelectionView />);
+        await pump();
+
+        fireEvent.click(screen.getByTestId('strategy-toggle-FORCE_IMMINENT'));
+        await pump();
+        expect(screen.getByText('Always Evaluate Today enabled')).toBeInTheDocument();
+
+        // Just short of the delay it must still be up: without this the constant is pinned only
+        // from above, and shortening it (3000 → 500) would flash the message past unnoticed with
+        // every assertion here still green.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2999);
+        });
+        expect(screen.getByText('Always Evaluate Today enabled')).toBeInTheDocument();
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1);
+        });
+        expect(screen.queryByText('Always Evaluate Today enabled')).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    /**
+     * A newer message gets its own full window. The handlers used to arm an independent 3s timer
+     * each, so a second toggle 2s after the first had its message wiped 1s later by the FIRST
+     * timer. Keying the dismiss on `success` means a new message re-runs the effect, whose cleanup
+     * cancels the old timer — so at 3.5s, past the first message's deadline, the second must still
+     * be showing.
+     */
+    it('gives a newer message its full window rather than inheriting the older deadline', async () => {
+      vi.useFakeTimers();
+      try {
+        updateOptimisationStrategy
+          .mockResolvedValueOnce({ strategyType: 'FORCE_IMMINENT', enabled: true, paramValue: null })
+          .mockResolvedValueOnce({ strategyType: 'FORCE_STALE', enabled: true, paramValue: null });
+        render(<ModelSelectionView />);
+        await pump();
+
+        fireEvent.click(screen.getByTestId('strategy-toggle-FORCE_IMMINENT'));
+        await pump();
+        expect(screen.getByText('Always Evaluate Today enabled')).toBeInTheDocument();
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2000);
+        });
+        fireEvent.click(screen.getByTestId('strategy-toggle-FORCE_STALE'));
+        await pump();
+        expect(screen.getByText('Re-evaluate Stale Data enabled')).toBeInTheDocument();
+
+        // 3.5s in: the first message's deadline has passed, the second's has not.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1500);
+        });
+        expect(screen.getByText('Re-evaluate Stale Data enabled')).toBeInTheDocument();
+
+        // 5s in: now the second message's own window has elapsed.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1500);
+        });
+        expect(screen.queryByText('Re-evaluate Stale Data enabled')).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    /**
+     * ⚠️ The case that makes each handler's `setSuccess(null)` load-bearing. The effect re-runs
+     * only when `success` CHANGES, and the strategy message does not name its run type — so
+     * enabling the same strategy on a second config tab produces the identical string. Without the
+     * null committed between them the second `setSuccess` is a no-op, the effect never re-runs, and
+     * the second message dies on the FIRST one's timer. The config tab switch does not touch
+     * `success` (it only calls `setActiveTab`), so the banner genuinely survives into the second
+     * toggle and this measures the null, not the tab change.
+     */
+    it('gives a repeated identical message a fresh window', async () => {
+      vi.useFakeTimers();
+      try {
+        updateOptimisationStrategy.mockResolvedValue({
+          strategyType: 'FORCE_IMMINENT',
+          enabled: true,
+          paramValue: null,
+        });
+        render(<ModelSelectionView />);
+        await pump();
+
+        fireEvent.click(screen.getByTestId('strategy-toggle-FORCE_IMMINENT'));
+        await pump();
+        expect(screen.getByText('Always Evaluate Today enabled')).toBeInTheDocument();
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(2000);
+        });
+        fireEvent.click(screen.getByTestId('config-tab-LONG_TERM'));
+        fireEvent.click(screen.getByTestId('strategy-toggle-FORCE_IMMINENT'));
+        await pump();
+        expect(updateOptimisationStrategy).toHaveBeenLastCalledWith(
+          'LONG_TERM', 'FORCE_IMMINENT', true, null
+        );
+
+        // 3.5s in: past the first message's deadline, inside the repeat's own window.
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1500);
+        });
+        expect(screen.getByText('Always Evaluate Today enabled')).toBeInTheDocument();
+
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(1500);
+        });
+        expect(screen.queryByText('Always Evaluate Today enabled')).not.toBeInTheDocument();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    /**
+     * ⚠️ The regression guard against moving the dismiss back into the handlers. They arm nothing
+     * until *after* their network await, so a tab change mid-request (`ManageView` renders this
+     * behind `activeTab === 'models'`, unmounting it synchronously) happens before any timer
+     * exists — an unmount cleanup has nothing to cancel, and a handler-armed timer would then be
+     * created with no owner. The effect idiom has no such window, because an effect never runs
+     * after unmount. The first cut of this fix armed in the handler behind a cleanup and leaked
+     * exactly here; a test that unmounts AFTER the request settles cannot see it.
+     */
+    it('does not arm a dismiss timer when the request settles after it unmounts', async () => {
+      const realSetTimeout = globalThis.setTimeout;
+      const scheduledAfterUnmount = [];
+      let unmounted = false;
+      let releaseRequest;
+
+      updateOptimisationStrategy.mockReturnValue(new Promise((resolve) => {
+        releaseRequest = () => resolve({
+          strategyType: 'FORCE_IMMINENT',
+          enabled: true,
+          paramValue: null,
+        });
+      }));
+
+      const setSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn, ms, ...rest) => {
+        const id = realSetTimeout(fn, ms, ...rest);
+        if (ms === 3000 && unmounted) scheduledAfterUnmount.push(id);
+        return id;
+      });
+
+      try {
+        const { unmount } = render(<ModelSelectionView />);
+        fireEvent.click(await screen.findByTestId('strategy-toggle-FORCE_IMMINENT'));
+        // The request must genuinely be in flight, or a toggle that never reached the handler
+        // would leave nothing to arm and pass this test for the wrong reason.
+        expect(updateOptimisationStrategy).toHaveBeenCalledTimes(1);
+        unmount();
+        unmounted = true;
+
+        await act(async () => {
+          releaseRequest();
+          await Promise.resolve();
+        });
+
+        expect(scheduledAfterUnmount).toEqual([]);
+      } finally {
+        setSpy.mockRestore();
+      }
+    });
+
+    /**
+     * ⚠️ The regression this file had no cover for. The banner's auto-dismiss used to be a bare
+     * `setTimeout(() => setSuccess(null), 3000)`, so unmounting inside that window left the callback
+     * to run against a torn-down tree — `window is not defined` out of React's `dispatchSetState`.
+     * Vitest fails a run on an unhandled error while still reporting every test as passing; it
+     * surfaced once in six full-suite runs as an intermittent red build.
+     *
+     * Asserted by requiring the PENDING banner timer — the last one scheduled at the banner delay —
+     * to be cleared BY THE UNMOUNT. The spy sees `globalThis.setTimeout`, so it has no caller
+     * attribution, and the `ms === 3000` filter is what narrows it to this component's timers.
+     * `cleared` is snapshotted immediately before unmounting, because asserting against the whole
+     * run would also accept a component that cleared its timer at some earlier moment and left
+     * nothing pending at unmount at all.
+     *
+     * ⚠️ Only the pending timer, not every timer ever scheduled. An earlier version demanded all of
+     * them, which rejected a behaviourally identical implementation whose only difference was an
+     * idle timer the effect had already cleared — an over-specified test "catching" a mutant that
+     * changes nothing observable.
+     */
+    it('cancels its pending dismiss timer when it unmounts', async () => {
+      const realSetTimeout = globalThis.setTimeout;
+      const realClearTimeout = globalThis.clearTimeout;
+      const scheduled = [];
+      const cleared = [];
+
+      const setSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn, ms, ...rest) => {
+        const id = realSetTimeout(fn, ms, ...rest);
+        if (ms === 3000) scheduled.push(id);
+        return id;
+      });
+      const clearSpy = vi.spyOn(globalThis, 'clearTimeout').mockImplementation((id) => {
+        cleared.push(id);
+        return realClearTimeout(id);
+      });
+
+      try {
+        const { unmount } = await toggleAndAwaitBanner();
+        expect(scheduled.length).toBeGreaterThan(0);
+
+        const clearedBeforeUnmount = cleared.length;
+        unmount();
+
+        const clearedByUnmount = cleared.slice(clearedBeforeUnmount);
+        expect(clearedByUnmount).toContain(scheduled.at(-1));
+      } finally {
+        setSpy.mockRestore();
+        clearSpy.mockRestore();
+      }
+    });
   });
 
   it('renders model cards and strategy toggles', async () => {
