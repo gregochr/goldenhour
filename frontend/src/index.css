@@ -336,6 +336,26 @@
    summed. `p-4` was the gutter before this and stays exactly that wherever the inset is smaller —
    adding the two instead would push a dialog 16px further from an edge it was already clear of, on
    the one device class with the least room to give. */
+/* The dialog scrim — ONE value for both of this app's dialog primitives, `Modal` and
+   `BottomSheet`. Both used Tailwind defaults nobody chose (`bg-black/60` and `bg-black/50`, so the two
+   already disagreed with each other). Every bundle in `docs/design/` from heat-map onward that draws
+   a dialog specifies this exact colour on its `.scrim{position:absolute;inset:0}` — heat-map,
+   plan-matrix, coming-up, field-geography, matrix-axis, map-tab-v2 and map-landing — and window-first
+   carries the near-identical `.72`. (temperature-scale draws no dialog, so it has no scrim to
+   disagree with — "every bundle" would be false without that qualifier.) map-tab-v2 is the bundle
+   that governs `BottomSheet`'s phone uses, and it defines no separate, lighter scrim for them: this
+   is the only one it has.
+
+   ⚠️ SHARED: it restyles every dialog in the app — settings, confirmations, Operations, and the Map
+   tab's phone sheets — not only the Plan tab's. That was put to the owner as a decision before it
+   was made, and it is why this is one named class rather than a value inlined twice: a later bundle
+   that wants a different scrim changes it here and knows it is changing all of them. Warmer and
+   denser than both defaults, which darkens the page behind a dialog and so raises the contrast of
+   anything drawn on top of it. `MapOverlay` keeps its own inline `rgba(8,6,5,.72)` with a blur —
+   the window-first value, on a separate surface. */
+.app-scrim {
+  background: rgba(8, 6, 5, 0.74);
+}
 .app-safe-modal {
   padding-top: max(1rem, var(--safe-t));
   padding-right: max(1rem, var(--safe-r));
@@ -8041,10 +8061,25 @@ button.wf-cond-oc:focus-visible {
    on. `aria-selected` carries it for assistive tech. */
 /* ⚠️ The background was `--color-plex-surface-light` on `--color-plex-surface`: 1.075:1, which is
    invisible — so the "two channels" the comment above claims were one, and the gold rule was doing
-   all of it. A gold wash at 0.10 measures 2.6:1 against the panel and reads as a highlight at a
-   glance; with the 2px rule beside it the state has a real second channel. */
+   all of it. With the 2px rule beside a gold wash the state has a real second channel.
+   (⚠️ This note used to add that "a gold wash at 0.10 measures 2.6:1 against the panel". It does
+   not, on any ground here: 0.10 is ~1.2:1, and 2.6:1 is what a wash near 0.40 measures. The wash is
+   a hint, not a boundary — the rule is what carries the state, and the figures below say so.) */
+/* ⚠️ The FILL now takes the plan-matrix bundle's gold — `rgba(201,162,75,.1)`, which is
+   `--color-home`, the app's "selection, yours" colour and so the semantically right one for a
+   selected row. It was a one-off `rgba(230,180,90,.10)` that matched no token. Measured on the
+   ground the row actually sits on — `.wf-search-panel`'s `--color-plex-surface` (#221A15), not the
+   panel — 1.18:1 against the old 1.22:1: a wash either way, so nothing was lost.
+
+   ⚠️ The RULE deliberately does NOT follow the bundle. The spec asks for a 1px border at
+   `rgba(201,162,75,.32)`, which measures **1.88:1** on that surface — under 1.4.11's 3:1, and
+   this rule is the second channel the note above exists for: the cursor moves without focus moving,
+   so a reader who cannot see the wash has only this to go on. The shipped rule is
+   `var(--color-plex-gold)` at full strength, and that token is BONE (`#F2E7D3`), not gold, despite
+   its name — **13.98:1**. Following the spec here would take the channel from 13.98:1 to 1.88:1.
+   It stays `inset` for the reason below. */
 .wf-search-row.on {
-  background: rgba(230, 180, 90, 0.10);
+  background: rgba(201, 162, 75, 0.1);
   box-shadow: inset 2px 0 0 var(--color-plex-gold);
 }
 /* `inset`, because `.wf-search-list` scrolls and an outline drawn outside the border box is

@@ -306,7 +306,7 @@ export default function Modal({
       }}
     >
       <div
-        className="absolute inset-0 bg-black/60"
+        className="app-scrim absolute inset-0"
         role="presentation"
         onClick={onClose}
         data-testid={testId ? `${testId}-backdrop` : undefined}
