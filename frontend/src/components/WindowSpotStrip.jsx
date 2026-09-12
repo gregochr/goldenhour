@@ -74,7 +74,8 @@ function useStripEdges(ref, spotCount) {
  *
  * <h2>Three and a half cards, and the half one is the affordance</h2>
  *
- * <p>Geometry comes from the spec: `x proximity` snapping, 3.5 cards across, 72% width on phone.
+ * <p>Geometry comes from the spec: `x proximity` snapping, 3.5 cards across on desktop, 2.6 on the
+ * iPad band (640–1023px), 72% width on phone.
  * The technique is a hidden native scrollbar, and padding on the scroller so `overflow-x: auto`
  * (which computes `overflow-y` to auto, clipping both axes) cannot eat a focused card's ring. See
  * `.wf-strip` in `index.css` for why that padding is taken out of the wrapper's inset rather than
