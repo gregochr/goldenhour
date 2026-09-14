@@ -408,3 +408,37 @@ Vitest's "might've caused" hedge — but the *failure* is a timeout, and a bare 
 symptom the previous section spent a whole investigation decoding. Raising `testTimeout` to 20000 ms
 made this form four times slower to diagnose than when it was written, which is what prompted the
 rewrite.
+
+---
+
+## A late response is only "dropped" once it has landed
+
+A test that says a superseded answer was ignored — a request resolving after a newer one, or after
+the selection it answered for has moved on — means something only once that answer's handler has
+actually run and its update has committed. Until then, an answer that simply has not landed *yet*
+looks exactly like one that was dropped, and the test passes with the guard it exists for deleted.
+Four fetch races on the map have been pinned this way (`MapViewAstroNightFetch`,
+`MapViewAuroraLiveNight`, `MapViewAuroraLiveFetch`, `useAuroraViewline`), and each rule below comes
+from one of them: a test that passed, or would have passed, with the behaviour it names broken.
+
+- **Settle the hand-held request inside an AWAITED `act`** — `await act(async () => { d.resolve(x); })`.
+  An awaited `act` keeps flushing, a macrotask at a time, until nothing is left, so the component's
+  `.then` — and a `.catch` a link further down the chain — has run and committed before the test
+  resumes. ⚠️ **The `await` is the load-bearing part, not the async callback.** Measured with each
+  file's guard deleted: an un-awaited `act(() => …)` let the late test pass in all four files — and
+  in `MapViewAuroraLiveFetch` an un-awaited async callback did too — while `await act(() => …)`, a
+  plain callback awaited, failed it in each of the three files where it was tried.
+- **Route the positive control through the same settle helper where the scenario allows.** An
+  out-of-order test whose control is "the newer answer is drawn" fails *at the control* when the
+  helper is wrong; a negative whose control was asserted before the late settle cannot notice.
+- **Give the `.catch` its own late-FAILURE test.** A late-response test never reaches it, which is how
+  #814's `.catch` guard shipped with nothing that failed when it was deleted. Mutation-check the
+  `.then` guard, the `.catch` guard and the cleanup one at a time.
+- **On the map, count markers — never `markerLabelAndColour` calls.** `makeMarkerIcon`'s cache is
+  module-level and keyed on the rating among other things, so a stale rating matching one already
+  drawn reuses that icon and never reaches the spy. #814's first stale-window test passed with its
+  fix deleted for exactly that reason.
+- **When the claim is "never offered", assert every render, not only the last.** `rerender` flushes
+  effects inside `act`, so `result.current` shows only the state after them: a value handed out by
+  the render that made a change — before an effect could clear it — is visible only to a log written
+  from inside the render (`useAuroraViewline.test.js`'s `renderLogged`).
