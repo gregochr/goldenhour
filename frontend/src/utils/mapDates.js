@@ -12,6 +12,8 @@
  *       {@link ukDateStr}. {@link ukHour}.</li>
  *   <li><b>Which night are we in?</b> — <em>not</em> a calendar question, and no timezone answers
  *       it. {@link resolveAuroraNight}.</li>
+ *   <li><b>Is this night over?</b> — the same question asked of any night, and answered from the
+ *       one above. {@link isNightOver}.</li>
  *   <li><b>Which date is the map showing?</b> — a question about the forecast domain, and one
  *       whose wrong answer is worse than none. {@link resolveMapDate}.</li>
  * </ul>
@@ -203,10 +205,16 @@ export function ukDayOffset(dateStr, now = new Date()) {
  * duplicating solar geometry in the browser is how the two halves drift apart, and this rule
  * already has one home.
  *
- * <p>Falls back to the UK calendar date when the field is absent — a LITE user (status is null), a
- * failed fetch, or a backend deployed before the field existed. A calendar date is the wrong answer
- * for a night, but it is the same wrong answer the map gave before the field existed, so the
- * degrade is "no worse than before" rather than a guess.
+ * <p>Falls back to the UK calendar date when there is no status to read — a LITE user (the endpoint
+ * is PRO/ADMIN-only, so status is null), a FIRST fetch that failed, or a backend deployed before the
+ * field existed. A calendar date is the wrong answer for a night, but for the viewline and the
+ * auto-jump it is the same wrong answer the map gave before the field existed, so there the degrade
+ * is "no worse than before" rather than a guess. ⚠️ Not so for the Map tab's night list, which
+ * {@link isNightOver} clips on this value — see that function for what LITE loses.
+ *
+ * <p>⚠️ A fetch that fails AFTER one succeeded is a different case: the status provider keeps the
+ * last status, so this returns that status's night, however old it has become.
+ * {@link isNightOver} believes it only as yesterday for that reason.
  *
  * @param {object|null} auroraStatus - the shared aurora status payload, or null
  * @param {Date} [now]               - the instant behind the fallback; injectable for tests
@@ -214,6 +222,43 @@ export function ukDayOffset(dateStr, now = new Date()) {
  */
 export function resolveAuroraNight(auroraStatus, now = new Date()) {
   return auroraStatus?.currentNightDate ?? ukDateStr(now);
+}
+
+/**
+ * Whether the night named {@code date} is over — its dark window, dusk on {@code date} to dawn the
+ * morning after, is behind us.
+ *
+ * <p><b>One answer, read on both sides of the Map tab's date handoff.</b> {@link resolveMapDate} asks
+ * it of a date the reader chose AS a night. {@code mapEvents} asks it of every stored night before
+ * offering a row for it, and again — through {@code isForwardableRow} — of a picked night row before
+ * handing its date to {@code App}. So the pane hands over exactly the nights {@code App} will take
+ * and keeps every other row local, which is what stops #803's "row that goes nowhere". That defect
+ * was the pane's forwarding test lacking the parent's then-new today-forward clause, at a time when
+ * the list clipped no night at all, so the guard is the forwarding rule and not the list.
+ *
+ * <p>Every date from today on names a night still ahead or under way, and anything before yesterday
+ * names one that has ended. Yesterday is the one date the calendar cannot settle: between UK
+ * midnight and dawn its night is still running, and {@code nightDate} — the backend's night in
+ * progress, via {@link resolveAuroraNight} — is what says so. ⚠️ <b>It is believed only when it is
+ * yesterday.</b> The backend names today or yesterday and nothing else, but the status provider keeps
+ * the last status when a later fetch fails, so a stale value can name an older night — which,
+ * believed, came back to the head of the Map tab's list.
+ *
+ * <p>⚠️ <b>With no {@code nightDate} this is the calendar answer, and for the night list that is a
+ * real loss, not a neutral degrade.</b> LITE gets no aurora status, so yesterday's night counts as
+ * over from UK midnight rather than dawn: a LITE reader can no longer reach the astro night still
+ * running over them, which the unclipped list used to offer. The owner accepted that on 2026-09-14
+ * (map-tab-v2-plan.md §5 D-14); the exit is a night-in-progress signal LITE can read (§6 O-21).
+ *
+ * @param {string} date the night, named by the date its dusk falls on (YYYY-MM-DD)
+ * @param {object} args
+ * @param {string} args.todayStr the UK civil today ({@link ukDateStr})
+ * @param {?string} [args.nightDate] the night in progress ({@link resolveAuroraNight}), if known
+ * @returns {boolean}
+ */
+export function isNightOver(date, { todayStr, nightDate = null }) {
+  if (!(date < todayStr)) return false;
+  return date !== nightDate || date !== fromUtcNoon(utcNoon(todayStr, -1));
 }
 
 /**
@@ -268,8 +313,9 @@ export function resolveAuroraNight(auroraStatus, now = new Date()) {
  * map then stayed on a day that was over until the backend advanced {@code currentNightDate} at
  * dawn, and with the solar-row gate live that is a persistent "No forecast" blank rather than a
  * merely stale screen — the very failure this clamp exists to prevent, re-entered through its own
- * exemption. {@code selectedIsNight} is set by the ONE call site that makes a night selection, so a
- * solar date can never borrow the licence.
+ * exemption. {@code selectedIsNight} is set true only by the routes that name a night — the aurora
+ * trigger, and {@code MapView}'s night-row picks and aurora auto-jump — so a solar date can never
+ * borrow the licence.
  *
  * <p><b>{@code null} only for a genuinely empty list</b>, where {@code App} does not mount the Map
  * pane at all — returning a date there would be inventing a domain out of nothing.
@@ -293,8 +339,12 @@ export function resolveMapDate({
 }) {
   const dates = Array.isArray(allDates) ? allDates : [];
   const notPast = (d) => d >= todayStr;
+  // A night choice is judged by the one answer to "is this night over" (`isNightOver`) that the Map
+  // tab's forwarding rule also reads (`mapEvents.isForwardableRow`), so the pane hands over only
+  // nights this function will take. The LIST may still offer one it would refuse — the night on
+  // screen once it ends — and the forwarding rule keeps that one local.
   const usable = (d, isNight = false) => Boolean(d)
-    && (notPast(d) || (isNight && d === nightDate))
+    && (isNight ? !isNightOver(d, { todayStr, nightDate }) : notPast(d))
     && dates.includes(d);
   if (usable(selectedDate, selectedIsNight)) return selectedDate;
   if (usable(autoDate)) return autoDate;

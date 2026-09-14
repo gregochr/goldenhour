@@ -178,7 +178,9 @@ the night at the cost of **zero new requests**. The rejected options, and why:
 
 **The scope is aurora mode only, and that was a product decision, not an implementation limit.** The
 colour map keeps its calendar default, because at 02:00 a landscape photographer wants the coming
-sunrise, not last night's sunset. Three paths were changed and one deliberately was not:
+sunrise, not last night's sunset. (⚠️ D-14, 2026-09-14, widened what reads the field: the Map tab's
+window list uses it to decide whether yesterday's astro and aurora nights are still on — see the
+degrade note below.) Three paths were changed and one deliberately was not:
 
 - `MapView` requests the aurora night when aurora mode is entered, via a new optional `onSelectDate`
   prop — the same setter `DateStrip` already drives, so the strip follows the jump instead of
@@ -210,6 +212,14 @@ the year.
 absent — a LITE user (status is null), a failed fetch, or a browser on a cached bundle against an
 older backend. That fallback *is* the old behaviour, so the degrade is "no worse than before" rather
 than a guess, and it is a named test.
+
+⚠️ **Since 2026-09-14 that holds only for the paths this note changed.** The Map tab's window list
+now drops nights that are over by the same answer (`map-tab-v2-plan.md` §5 D-14), and there the
+calendar fallback is a real loss: a LITE reader can no longer reach the astro night still running
+over them between UK midnight and dawn, which the old unclipped list offered. The owner accepted it;
+the exit is a night-in-progress signal LITE can read (§6 O-21). And "a failed fetch" means a *first*
+one: after a success the status provider keeps the last status on failure, so the value can go stale
+rather than fall back — which is why `mapDates.isNightOver` believes it only as yesterday.
 
 **What was checked and left alone.** `useForecasts.js` (a 7-day backward outcomes window, where a
 one-day edge is immaterial and the question is a different one), `JobRunsMetricsView`,

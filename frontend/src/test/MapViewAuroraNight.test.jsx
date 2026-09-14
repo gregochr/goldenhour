@@ -29,7 +29,7 @@ process.env.TZ = 'Europe/London';
 
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, act, waitFor, fireEvent } from '@testing-library/react';
+import { render, screen, act, waitFor, fireEvent, within } from '@testing-library/react';
 
 // ── Leaflet / react-leaflet stubs ────────────────────────────────────────────
 
@@ -129,7 +129,7 @@ vi.mock('../components/markerUtils.js', () => ({
 import MapView from '../components/MapView.jsx';
 import { buildRegionVerdictIndex } from '../utils/mapVerdict.js';
 import { getAuroraForecastResults } from '../api/auroraApi.js';
-import { ukDateStrOffset } from '../utils/mapDates.js';
+import { resolveMapDate, ukDateStrOffset } from '../utils/mapDates.js';
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 
@@ -448,8 +448,15 @@ describe('MapView aurora night — bounding the multi-date preview fetch (PR #73
  * claim about row-selection.
  */
 describe('MapView aurora night — the KEPT-LOCAL branch via the real window control (adversarial review, BLOCKING #2)', () => {
-  /** Has stored aurora results, but is deliberately NOT one of `forecastDates` below. */
-  const KEPT_LOCAL_NIGHT = '2026-08-10';
+  /**
+   * Has stored aurora results, but is deliberately NOT one of `forecastDates` below.
+   *
+   * <p>⚠️ A night AHEAD of the frozen clock, and it has to be. This was `2026-08-10`, four nights
+   * past, until D-14 (map-tab-v2-plan.md §5) stopped offering any night that is over — the row this
+   * block clicks would no longer exist. A night beyond the forecast's own dates is also the honest
+   * shape of this branch: the astro/aurora rows can outrun `GET /api/forecast`'s range.
+   */
+  const KEPT_LOCAL_NIGHT = '2026-08-17';
   const START_DATE = THE_CALENDAR_DAY;
 
   beforeEach(() => {
@@ -507,7 +514,10 @@ describe('MapView aurora night — the KEPT-LOCAL branch via the real window con
     // render also flips `isAuroraMode` to true → the auto-jump effect, reading the RAW `date`
     // prop (untouched by a kept-local pick), sees its own three conditions all satisfied and
     // calls `onSelectDate(auroraNight)` regardless of what the reader just chose.
-    const AUTOJUMP_NIGHT = '2026-08-05';
+    // The real night in progress at this frozen clock, not an arbitrary date: since D-14 the
+    // backend's `currentNightDate` also decides which past night the list may still offer, so a
+    // value it could never send would make this fixture describe a list production cannot produce.
+    const AUTOJUMP_NIGHT = THE_NIGHT;
     auroraStatusRef.current = { level: 'MODERATE', kpIndex: 5.0, currentNightDate: AUTOJUMP_NIGHT };
     // Both nights have results: AUTOJUMP_NIGHT so the latch's "nothing to land on yet" guard does
     // NOT block it (the whole point is proving suppression happens for a DIFFERENT reason), and
@@ -530,26 +540,33 @@ describe('MapView aurora night — the KEPT-LOCAL branch via the real window con
     // `onSelectDate(AUTOJUMP_NIGHT)`, which is exactly the stomp PR #731 review found.
     expect(onSelectDate).not.toHaveBeenCalled();
     // And the reader's own pick is still what is showing, never silently replaced by the night
-    // the auto-jump would have preferred.
+    // the auto-jump would have preferred. ⚠️ Read off the PILL, not off which dates were fetched: it
+    // used to assert AUTOJUMP_NIGHT was never fetched, but since D-14 the preview fetch covers the
+    // night in progress on purpose (its row must carry a best), so that fetch proves nothing now.
+    // KEPT_LOCAL_NIGHT, 2026-08-17, is a Monday.
     await waitFor(() => expect(getAuroraForecastResults).toHaveBeenCalledWith(KEPT_LOCAL_NIGHT));
-    expect(getAuroraForecastResults).not.toHaveBeenCalledWith(AUTOJUMP_NIGHT);
+    expect(screen.getByRole('button', { name: /Monday night/ })).toHaveAttribute('aria-haspopup', 'listbox');
   });
 });
 
 /**
- * The kept-local branch's SECOND trigger — a night row whose date is IN `forecastDates` but has
- * already gone past.
+ * The kept-local branch's SECOND trigger — a night row whose date is IN `forecastDates` but whose
+ * night `App` would refuse.
  *
- * <p>⚠️ This is a regression PR #803 introduced and Codex caught. `buildMapEvents` deliberately
- * clips no night row to today-forward (only the D-13 solar filler is clipped) and is handed the
- * RAW available-date lists, while `GET /api/forecast` serves `today-2` onward — so last night's
- * aurora row is both offered in the dropdown AND `inForecastDomain`. The forward branch therefore
- * fired: it cleared `localNightDate` and asked the parent to adopt a past date, which
- * `resolveMapDate`'s never-past clamp then refused. The row could be selected and went nowhere.
+ * <p>⚠️ This is a regression PR #803 introduced and Codex caught. `buildMapEvents` then clipped no
+ * night row at all and was handed the RAW available-date lists, while `GET /api/forecast` serves
+ * `today-2` onward — so last night's aurora row was both offered in the dropdown AND
+ * `inForecastDomain`. The forward branch therefore fired: it cleared `localNightDate` and asked the
+ * parent to adopt a past date, which `resolveMapDate`'s never-past clamp then refused. The row
+ * could be selected and went nowhere.
  *
  * <p>The pane's forwardability test mirrors the parent's ACCEPTANCE rule — that is what
- * `localNightDate` is for — so it had to gain the same clause. Kept local, the night's own content
- * is fetched and the viewline gate lands on it, which is all a night row needs the date for.
+ * `localNightDate` is for — and since D-14 (map-tab-v2-plan.md §5) it is that rule exactly:
+ * `mapEvents.isForwardableRow` reads the same `mapDates.isNightOver` `resolveMapDate` does. The first
+ * two cases are its two sides. Each computes `App`'s answer IN the test, from `resolveMapDate` on the
+ * same inputs, so the premise cannot go stale unnoticed — it did once: when D-14 first moved the
+ * opening case into the small hours, its comment went on saying `App` would refuse a night `App` in
+ * fact accepts.
  */
 describe('MapView aurora night — a PAST night row inside the forecast domain (Codex, #803)', () => {
   /** Yesterday relative to the frozen clock, and deliberately a MEMBER of `forecastDates`. */
@@ -571,30 +588,75 @@ describe('MapView aurora night — a PAST night row inside the forecast domain (
     localStorage.clear();
   });
 
-  it('keeps it local rather than forwarding a date the parent would refuse', async () => {
+  it('FORWARDS the night in progress, as a night — App takes a past date that names one', async () => {
+    // 02:00 UK on TODAY_DATE, and the backend names PAST_NIGHT as the night in progress: the only
+    // state in which D-14 lets a past-dated night be offered for its own sake. ACTIVE_STATUS's own
+    // `currentNightDate` is THE_NIGHT, which is PAST_NIGHT.
+    auroraStatusRef.current = ACTIVE_STATUS;
+    vi.setSystemTime(new Date(SMALL_HOURS));
     const onSelectDate = vi.fn();
-    getAuroraForecastResults.mockClear();
+    const forecastDates = [PAST_NIGHT, TODAY_DATE];
     await renderMap({
       date: TODAY_DATE,
       // ⚠️ PAST_NIGHT IS in the domain — that is the whole point. `today-2` onward is what the
       // forecast endpoint serves, so this is the ordinary production shape, not a contrived one.
-      forecastDates: [PAST_NIGHT, TODAY_DATE],
-      locations: makeLocations([PAST_NIGHT, TODAY_DATE]),
+      forecastDates,
+      locations: makeLocations(forecastDates),
       onSelectDate,
     });
 
     await act(async () => { fireEvent.click(screen.getByTestId('wf-win-pill')); });
     const row = screen.getAllByTestId('wf-win-row')
       .find((r) => r.getAttribute('data-ev-id') === `aur:${PAST_NIGHT}:AURORA`);
-    // The row is offered — `buildMapEvents` keeps every stored night on purpose.
+    // The row is offered — the night in progress is not over, even though its date is.
     expect(row?.getAttribute('data-ev-id')).toBe(`aur:${PAST_NIGHT}:AURORA`);
     await act(async () => { fireEvent.click(row); });
 
-    // (a) Never forwarded: the parent's clamp would refuse it, so asking is what stranded it.
+    // The premise, computed rather than asserted in prose: App's own clamp takes this pair.
+    expect(resolveMapDate({
+      selectedDate: PAST_NIGHT, selectedIsNight: true, autoDate: null, allDates: forecastDates,
+      todayStr: TODAY_DATE, nightDate: PAST_NIGHT,
+    })).toBe(PAST_NIGHT);
+    // So the pick is handed over, flagged as a night. ⚠️ The FIRST call is the pick's own. This
+    // harness's parent never feeds the date back, so the aurora auto-jump then sees a map still on
+    // TODAY_DATE and asks for the same night a second time; in the app, the pick has already moved
+    // the date and the jump stays quiet.
+    expect(onSelectDate).toHaveBeenNthCalledWith(1, PAST_NIGHT, { isNight: true });
+  });
+
+  it('keeps an ENDED night local when it is picked again — App would refuse it (#803\'s shape)', async () => {
+    // The night the parent holds (after a forward, or the aurora banner's route) is PAST_NIGHT, and
+    // then dawn passes before the parent re-clamps. D-14 keeps that ended night's row, because the
+    // map is still painting it — and a row App would refuse is exactly what #803 stranded.
+    auroraStatusRef.current = ACTIVE_STATUS;
+    vi.setSystemTime(new Date(SMALL_HOURS));
+    availableDatesRef.current = [PAST_NIGHT, TODAY_DATE];
+    const onSelectDate = vi.fn();
+    const forecastDates = [PAST_NIGHT, TODAY_DATE];
+    const rendered = await renderMap({
+      date: PAST_NIGHT, forecastDates, locations: makeLocations(forecastDates), onSelectDate,
+    });
+    await enterAuroraMode(rendered);
+
+    auroraStatusRef.current = { ...ACTIVE_STATUS, currentNightDate: TODAY_DATE };
+    vi.setSystemTime(new Date(`${TODAY_DATE}T06:00:00Z`)); // 07:00 BST — past dawn
+    await rendered.withProps({ handoffEventType: 'AURORA', resizeNonce: 1 });
+
+    await act(async () => { fireEvent.click(screen.getByTestId('wf-win-pill')); });
+    const row = screen.getAllByTestId('wf-win-row')
+      .find((r) => r.getAttribute('data-ev-id') === `aur:${PAST_NIGHT}:AURORA`);
+    expect(row?.getAttribute('data-ev-id')).toBe(`aur:${PAST_NIGHT}:AURORA`);
+    await act(async () => { fireEvent.click(row); });
+
+    // The premise, computed: after dawn App's clamp refuses this night even flagged as one.
+    expect(resolveMapDate({
+      selectedDate: PAST_NIGHT, selectedIsNight: true, autoDate: null, allDates: forecastDates,
+      todayStr: TODAY_DATE, nightDate: TODAY_DATE,
+    })).not.toBe(PAST_NIGHT);
+    // So the pick is never handed over — asking is what stranded it on #803 — and the map stays on
+    // the night: the pill still names it.
     expect(onSelectDate).not.toHaveBeenCalled();
-    // (b) And the selection actually took — that night's own content is fetched, which is only
-    // possible if `nightDate` resolved to the kept-local override rather than staying on `date`.
-    await waitFor(() => expect(getAuroraForecastResults).toHaveBeenCalledWith(PAST_NIGHT));
+    expect(screen.getByRole('button', { name: /Thursday night/ })).toHaveAttribute('aria-haspopup', 'listbox');
   });
 
   it('reports night provenance even when the date is UNCHANGED (Codex, #803)', async () => {
@@ -674,8 +736,15 @@ describe('MapView aurora night — a night row must not blank the solar windows\
    * on a night row is exactly when both neighbours are solar and both stepper ticks should be lit.
    * Which regions are in the reader's scope is a fact about geography; it has nothing to do with
    * which layer is currently painted.
+   *
+   * <p>⚠️ Re-anchored for D-14 (map-tab-v2-plan.md §5). This used a night four days past, which
+   * sorted BEFORE the calendar day's solar rows and so could only ever light the `›` tick. A night
+   * that is over is no longer a row, so the fixture now uses TONIGHT — the calendar day's own night,
+   * sorting after its sunset — with tomorrow's sunrise served behind it. That brackets the aurora row
+   * with a solar window on both sides: the two-tick case the old fixture could not build.
    */
-  const NIGHT = '2026-08-10';
+  const NIGHT = THE_CALENDAR_DAY;
+  const NEXT_DAY = '2026-08-15';
 
   beforeEach(() => {
     localStorage.clear();
@@ -694,10 +763,10 @@ describe('MapView aurora night — a night row must not blank the solar windows\
     const region = {
       regionName: 'North East', meanRating: 4.2, displayVerdict: 'WORTH_IT', slots: [{ canopy: false }],
     };
-    const days = [{
-      date: THE_CALENDAR_DAY,
+    const days = [THE_CALENDAR_DAY, NEXT_DAY].map((date) => ({
+      date,
       eventSummaries: ['SUNRISE', 'SUNSET'].map((targetType) => ({ targetType, regions: [region] })),
-    }];
+    }));
 
     // A minimal heat prop: the verdict's scope is read off the spot pool, so without one there are
     // no regions in scope and the assertion below would pass for the wrong reason.
@@ -710,11 +779,13 @@ describe('MapView aurora night — a night row must not blank the solar windows\
     // asserted verdicts on windows the briefing never served — the exact defect the cross-vendor
     // review found on #792 (§4 #38). The test's own claim is sound and unchanged; its fixture was
     // demonstrating the bug it now guards against. Serving them makes the ticks legitimate.
-    const windows = ['SUNRISE', 'SUNSET'].map((targetType) => ({
-      key: `${THE_CALENDAR_DAY}:${targetType}`,
-      date: THE_CALENDAR_DAY,
+    const windows = [
+      [THE_CALENDAR_DAY, 'SUNRISE'], [THE_CALENDAR_DAY, 'SUNSET'], [NEXT_DAY, 'SUNRISE'],
+    ].map(([date, targetType]) => ({
+      key: `${date}:${targetType}`,
+      date,
       targetType,
-      label: `${targetType === 'SUNRISE' ? 'Sunrise' : 'Sunset'} ${THE_CALENDAR_DAY}`,
+      label: `${targetType === 'SUNRISE' ? 'Sunrise' : 'Sunset'} ${date}`,
       time: targetType === 'SUNRISE' ? '05:34' : '20:31',
       bestRating: 4,
       conf: 1,
@@ -722,7 +793,7 @@ describe('MapView aurora night — a night row must not blank the solar windows\
 
     await renderMap({
       date: THE_CALENDAR_DAY,
-      forecastDates: [THE_CALENDAR_DAY],
+      forecastDates: [THE_CALENDAR_DAY, NEXT_DAY],
       heat: {
         enabled: true, hasHome: true, spots, areaSpots: spots, pointsByKey: new Map(), windows,
       },
@@ -732,7 +803,7 @@ describe('MapView aurora night — a night row must not blank the solar windows\
     await act(async () => { fireEvent.click(screen.getByTestId('wf-win-pill')); });
     const auroraRow = screen.getAllByTestId('wf-win-row')
       .find((r) => r.getAttribute('data-ev-id') === `aur:${NIGHT}:AURORA`);
-    expect(auroraRow).toBeTruthy();
+    expect(auroraRow?.getAttribute('data-ev-id')).toBe(`aur:${NIGHT}:AURORA`);
     await act(async () => { fireEvent.click(auroraRow); });
 
     // The night row itself states no verdict — §6 Q1, and it has no per-region rollup to state one
@@ -742,16 +813,13 @@ describe('MapView aurora night — a night row must not blank the solar windows\
     // But the SOLAR neighbours still have theirs, which is what the ticks are for. Route the scope
     // back through `heatOffered` and this array is empty.
     //
-    // ⚠️ **Exactly one, on the NEXT stepper** — asserted precisely rather than as "more than zero",
-    // which is the banned assert-existence form and hid what this fixture can actually produce. The
-    // EV list is chronological and this night (2026-08-10) sorts BEFORE the calendar day's two solar
-    // rows, so it is index 0: `atStart` suppresses the `‹` tick by design and only `›` can be lit.
-    // The scenario where both neighbours are solar needs a night bracketed by solar rows, which this
-    // harness cannot build — its solar rows are D-13 fillers and those exist only from today
-    // forward. `WindowControl.test.jsx` covers the two-neighbour case directly.
-    const ticks = screen.getAllByTestId('wf-win-tick');
-    expect(ticks).toHaveLength(1);
-    expect(ticks[0]).toHaveAttribute('data-tier', 'WORTH_IT');
-    expect(screen.getByTestId('wf-win-next')).toContainElement(ticks[0]);
+    // ⚠️ **Exactly two, one on EACH stepper** — asserted precisely rather than as "more than zero",
+    // which is the banned assert-existence form. Tonight sorts after the calendar day's sunset and
+    // before tomorrow's sunrise, so both neighbours are served solar windows and both ticks are lit.
+    const prevTick = within(screen.getByTestId('wf-win-prev')).getByTestId('wf-win-tick');
+    const nextTick = within(screen.getByTestId('wf-win-next')).getByTestId('wf-win-tick');
+    expect(screen.getAllByTestId('wf-win-tick')).toHaveLength(2);
+    expect(prevTick).toHaveAttribute('data-tier', 'WORTH_IT');
+    expect(nextTick).toHaveAttribute('data-tier', 'WORTH_IT');
   });
 });

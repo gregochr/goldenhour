@@ -297,7 +297,9 @@ pills, and the in-map select — on the tab only.
   endpoint's T..T+5 — the pane's DateStrip javadoc defends the strip on exactly this ground, and
   the EV list must not silently shrink the browsable horizon. Later-day solar rows render
   unscored/dim (no roster best, field in its no-data state) rather than not existing.
-  Night rows sort after their day's sunset. Per-event best: **solar rows read the served
+  Night rows sort after their day's sunset, and a night that is over is not a row at all unless the
+  map is already showing it (D-14, decided after the series shipped). Per-event best: **solar rows
+  read the served
   `bestRating` — never a client max** (client aggregation is not licensed; the served figure
   exists and a client max risks disagreeing with it). Only astro/aurora night rows, where no
   roster best is served, take a client max over served stars — a named member of the licensed
@@ -1098,6 +1100,27 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   briefing's rendered ~3 days appear as unscored/dim solar rows (§3 P6). The alternative —
   deliberately retiring T+3..T+5 browsing — is the owner's to take (O-14), and would need the
   pane javadoc's horizon rationale rebutted here.
+- **D-14** (owner, 2026-09-14, after the series) A night row is offered only while its night is not
+  over: tonight and later, plus the night in progress — yesterday's date between UK midnight and
+  dawn, named by the backend's `currentNightDate` and believed only as yesterday, since a status kept
+  past a failed fetch can name an older night. Both available-date endpoints answer with every night
+  ever stored and nothing prunes either table, so P6 as built opened the list on that whole history:
+  bare weekday labels with no month, a "—" best, and a `‹` that walked back into it. The past-dated
+  rows D-14 keeps are in the preview fetch too, so they carry a best and a time.
+  `mapDates.isNightOver` is the one answer to "is this night over": `resolveMapDate` reads it for a
+  night the reader chose, and `mapEvents.isForwardableRow` for which picked rows are handed to `App` —
+  exactly the ones `App` will take. So the night in progress is forwarded, and like any other night it
+  ends at dawn through `App`'s clamp (under the calendar test it replaced, a pick at 00:01 stayed on
+  screen past dawn where the same night picked at 23:59 moved on). One exception offers a row `App`
+  would refuse: the night the map is already showing keeps its row after it ends, until the map
+  leaves it, so the pill never says "No forecast" over stars still on the map. For a night `App`
+  holds that is a bridge — one render at dawn for PRO/ADMIN, until `App`'s next render after UK
+  midnight for LITE (about 30 seconds) — and it outlasts that only for a night kept local; re-picking
+  it keeps it local. **What it costs, accepted by the owner:** LITE loses the astro night in progress
+  from UK midnight to dawn — the unclipped list offered it — because LITE cannot read aurora status
+  (exit: O-21); and astro rows are written only by hand-started colour runs, so on a day past the last
+  run's horizon the tab offers no astro row at all (O-22). Code comments that called the unclipped
+  list deliberate were describing the code, not citing a decision — none existed until this one.
 
 ## §6 Owner decisions / OPEN items (nothing below blocks P1–P4)
 
@@ -1119,6 +1142,10 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   own window with the location's callout up. Every other producer (`WindowPickDialog`'s two
   actions, `HeatmapGrid`, `WindowComingUpEntry`, `SlotLocationName`, `WindowFirstRegionalPanel`, the
   aurora banner) still opens the overlay — this is a step towards convergence, not its completion.
+  ⚠️ Since D-14 the overlay's Astro/Aurora pills (`MapView`'s `astroAvailable`/`auroraAvailable`,
+  fed to its `ForecastTypeSelector`) still read the raw available-dates lists — any night ever
+  stored — so the overlay can offer astro on a day the tab has no astro row. Recorded for convergence
+  rather than gated: gating it would be an overlay diff, which §2 treats as a review finding.
 - **O-7** Admin single-slot "Run Forecast" from the map surface.
 - **O-8** `regionId` on briefing region rollups (kills the name-keyed join class).
 - **O-9** Aurora nightly scheduling (today: manually triggered — `POST /api/aurora/forecast/run`,
@@ -1257,6 +1284,20 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
 - **O-17** — bundle rev 2's width note (the map keeps the masthead's 1080px column rather than
   full-bleed): **DECIDED 2026-09-03**, owner chose the column; implemented as its own change (see
   the width PR), not in this PR.
+- **O-21** A night-in-progress signal LITE can read — the exit for D-14's accepted LITE loss. LITE
+  gets no `GET /api/aurora/status` (PRO/ADMIN at class level), so `resolveAuroraNight` falls back to
+  the calendar and the Map tab drops the astro night still running over a LITE reader at UK midnight
+  rather than dawn. `currentNightDate` is astronomy, not premium data: serving it on a payload every
+  role reads (the astro available-dates response, or a small endpoint of its own) and letting
+  `resolveAuroraNight` fall back to it before the calendar would give every role the same answer and
+  keep the list and `resolveMapDate` on one rule. Considered in D-14's review and not taken: judging an
+  astro night by its rows' served `nightEnd` instead, since `currentNightDate`'s own javadoc forbids
+  deciding the night in progress by any other means.
+- **O-22** A scheduled astro producer — O-9's twin. `astro_conditions` is written only as a side
+  effect of hand-started synchronous colour runs (`ForecastCommandExecutor`); no job writes it. Since
+  D-14 hides nights that are over, a day past the last such run's horizon has no astro row on the tab,
+  and the tab has no other way into astro mode. Astro is template-scored, so a nightly job would cost
+  no Claude calls. How often production actually goes without a recent run is unmeasured.
 
 ## §7 Phase → session map
 

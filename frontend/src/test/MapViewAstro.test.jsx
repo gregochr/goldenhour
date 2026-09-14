@@ -63,7 +63,15 @@ vi.mock('../hooks/useAuroraViewline.js', () => ({
 // `vi.mock` factories are hoisted above every other statement in the file, so `TODAY` (below,
 // as an ordinary `const`) is not yet initialised when these run — `vi.hoisted` is what makes a
 // value available to a factory at all.
-const { TODAY } = vi.hoisted(() => ({ TODAY: new Date().toLocaleDateString('en-CA') }));
+//
+// ⚠️ A fixed date, with the clock pinned to it in every `beforeEach` below. It used to be
+// `new Date().toLocaleDateString('en-CA')`: the wall clock, read on the RUNNER's calendar (UTC,
+// `src/test/setup.js`), while `MapView` judges every row against the UK one. In the hour after UK
+// midnight under BST those name different days, and TODAY is then yesterday to the map. Measured at
+// that hour (2026-09-14): three of this file's nine tests already failed, because D-13's solar filler
+// rows are clipped to the UK today and the list is empty until the night dates arrive; and D-14
+// (map-tab-v2-plan.md §5), which offers a night only while it is not over, made it four.
+const { TODAY } = vi.hoisted(() => ({ TODAY: '2026-09-02' }));
 
 vi.mock('../api/auroraApi.js', () => ({
   getAuroraLocations: vi.fn().mockResolvedValue([]),
@@ -174,12 +182,19 @@ function openFilters() {
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
+/** Midday on TODAY — after its sunrise, so the map opens on the sunset window. */
+const pinClock = () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
+};
+
 describe('MapView dark sky chip', () => {
   beforeEach(() => {
     localStorage.clear();
     mockUseAuth.mockReturnValue({ role: 'ADMIN' });
+    pinClock();
   });
-  afterEach(() => { localStorage.clear(); });
+  afterEach(() => { vi.useRealTimers(); localStorage.clear(); });
 
   it('darkSky_chip_label_is_Dark_sky', () => {
     renderMap();
@@ -255,8 +270,9 @@ describe('MapView astro mode filtering', () => {
   beforeEach(() => {
     localStorage.clear();
     mockUseAuth.mockReturnValue({ role: 'ADMIN' });
+    pinClock();
   });
-  afterEach(() => { localStorage.clear(); });
+  afterEach(() => { vi.useRealTimers(); localStorage.clear(); });
 
   it('astro_mode_filters_to_bortle_locations_only', async () => {
     renderMap();

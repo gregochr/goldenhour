@@ -6,6 +6,7 @@ import { calDow } from '../../utils/windowFirstStrip.js';
 import { VERDICT_LABEL, badgeChannel } from '../../utils/windowFirstCards.js';
 import { verdictRegionLabel } from '../../utils/mapVerdict.js';
 import { useOutsideDismiss } from '../../hooks/useOutsideDismiss.js';
+import { useRowFocusRescue } from '../../hooks/useRowFocusRescue.js';
 
 /**
  * The Map tab's single chronological window control — map-tab-v2-plan.md §3 P6,
@@ -116,6 +117,14 @@ export default function WindowControl({
   // panels, so they cannot drift apart. No `enabled` gate here: this dropdown is not a
   // `BottomSheet` on any viewport, so it is never portalled outside `rootRef`.
   useOutsideDismiss({ open, rootRef, onDismiss: () => setOpen(false) });
+
+  // A row can leave this open menu with nobody pressing anything — the EV list is rebuilt against
+  // the clock, so last night's rows go at dawn (D-14) and yesterday's filler solar rows at UK
+  // midnight. The pill is where focus goes if the row holding it does; see the hook for why it only
+  // ever acts on that transition.
+  const rowFocus = useRowFocusRescue({
+    active: open, rowIds: events.map((row) => row.id), fallbackRef: pillRef,
+  });
 
   /** Grouped by date, in the list's own order — the list is already chronological. */
   const groups = useMemo(() => {
@@ -330,7 +339,15 @@ export default function WindowControl({
               is pre-existing, and it is left alone rather than quietly rolled into a landing-card
               commit; but it is the same class of problem, and this note must not be read as saying
               it was handled. */}
-          <div role="listbox" id="wf-win-listbox" data-testid="wf-win-listbox" aria-label="Choose an event">
+          <div
+            role="listbox"
+            id="wf-win-listbox"
+            data-testid="wf-win-listbox"
+            aria-label="Choose an event"
+            onFocus={rowFocus.onFocus}
+            onBlur={rowFocus.onBlur}
+            onPointerDown={rowFocus.onPointerDown}
+          >
             {groups.map((group) => (
               <div key={group.date}>
                 <div data-testid="wf-win-day" className="wf-win-day">
