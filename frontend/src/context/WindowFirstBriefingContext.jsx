@@ -162,6 +162,17 @@ function selectUpcomingEvents(briefing) {
  *       poison the SWR entry.</li>
  * </ul>
  *
+ * <p><b>Its two polled fetches apply their answers in the order they were asked for, not the
+ * order they land.</b> A poll and a focus, or two focuses, can have two requests out at once, and
+ * two requests finish in whatever order their server work does — the briefing is assembled at
+ * serve time — so the older one can land second. Publishing whatever landed last put an older
+ * briefing back on every card — and into the SWR cache, where the next cold start painted it
+ * first — and older ratings back under the heat field. So each fetch numbers its requests and
+ * drops an answer older than the one already applied (the refs below). It composes with the last
+ * two rules above rather than replacing either: the generation is still taken before the await,
+ * and a null is still ignored — which also means a null moves nothing, so it cannot block an older
+ * real briefing that lands after it.
+ *
  * <h2>What it deliberately does not fetch</h2>
  *
  * <p>The briefing, the travel-day ranges, and the batch evaluation scores. Drive times stay behind
@@ -256,6 +267,30 @@ export function WindowFirstBriefingProvider({
    */
   const [comingUpLastSeenDate, setComingUpLastSeenDateState] = useState(undefined);
   const intervalRef = useRef(null);
+  // The two polled fetches' request numbering (class comment): per fetch, how many requests have
+  // been made, and the number of the newest one whose answer has been applied.
+  //
+  // Two pairs, not one: the briefing and the ratings go out together on every refresh and land in
+  // either order, so one shared count would drop a briefing because the ratings asked for
+  // alongside it happened to land first. Refs, so the numbering belongs to the provider rather
+  // than to one run of the effect — StrictMode runs it twice on mount, and the second run makes
+  // its own requests while the first run's are still out.
+  //
+  // Deliberately not `useComingUpFeed`'s shape, where only the most recently MADE request may
+  // write: under that rule an older answer landing while a newer request is out is dropped even if
+  // the newer one then fails. Here only an APPLIED answer moves the mark, so a failed request
+  // blocks nothing — and neither does a null briefing or an empty ratings response, since neither
+  // is applied either.
+  //
+  // Nor an effect-cleanup `cancelled` flag: every poll and focus request is made inside ONE run of
+  // the fetch effect, and no cleanup runs between them, so a flag cannot tell an older poll from a
+  // newer one. A flag fits the other shape — one request per run of its effect, where a changed
+  // dependency changes the question and the older answer is simply superseded — which is the shape
+  // of the reach and settings fetches further down, keyed on `homeSettingsVersion`.
+  const briefingRequestedRef = useRef(0);
+  const briefingAppliedRef = useRef(0);
+  const scoresRequestedRef = useRef(0);
+  const scoresAppliedRef = useRef(0);
 
   /**
    * The batch ratings, refreshed on the SAME beat as the briefing.
@@ -281,14 +316,22 @@ export function WindowFirstBriefingProvider({
    * <p>An empty or failed response leaves the previous rows in place — same rule as
    * {@code fetchBriefing}'s catch: a dropped request is not evidence that the ratings went away,
    * and blanking the field on one would be a worse lie than a slightly stale one.
+   *
+   * <p>Applied in the order they were asked for (class comment), on a numbering of its own. An
+   * empty response is not applied to the rows, so it moves no mark either: an older answer with
+   * rows, landing after it, is still the freshest set of rows there is.
    */
   const fetchScores = useCallback(() => {
+    scoresRequestedRef.current += 1;
+    const request = scoresRequestedRef.current;
     getAllEvaluationScores()
       .then((views) => {
-        // Before the early return: a response carrying no rows is still an ANSWER, and it is the
+        // Before the early returns: a response carrying no rows is still an ANSWER, and it is the
         // one case where every window genuinely is unscored.
         setScoresLoaded(true);
         if (!views || views.length === 0) return;
+        if (request < scoresAppliedRef.current) return; // newer rows are already on screen
+        scoresAppliedRef.current = request;
         setScoreRows(views);
         const next = new Map();
         for (const v of views) {
@@ -310,9 +353,15 @@ export function WindowFirstBriefingProvider({
 
   const fetchBriefing = useCallback(async () => {
     const gen = cacheGeneration(); // BEFORE the await — see the logout race in the class comment
+    briefingRequestedRef.current += 1;
+    const request = briefingRequestedRef.current;
     try {
       const data = await getDailyBriefing();
       if (data) {
+        // Older than the briefing already applied: dropped WHOLE, the cache write with it — or the
+        // stale briefing would outlive this page as the next cold start's first paint.
+        if (request < briefingAppliedRef.current) return;
+        briefingAppliedRef.current = request;
         setBriefing(data);
         writeSwrCache(briefingCacheKey, data, gen);
       }
