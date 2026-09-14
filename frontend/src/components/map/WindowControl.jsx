@@ -306,6 +306,10 @@ export default function WindowControl({
               <span className="wf-win-landing-txt">
                 <span aria-hidden="true">&#8634;{' '}</span>
                 Back to
+                {/* ⚠️ LOAD-BEARING in a browser, unlike the pill's separators: "Back to" and the
+                    label are two text runs in one line of inline content, so without this the
+                    row's accessible name reads "Back toThis morning — sunrise or sunset?"
+                    (measured 2026-09-14, confirmed against Chromium's native tree). */}
                 {' '}
                 {landingLabel}
               </span>

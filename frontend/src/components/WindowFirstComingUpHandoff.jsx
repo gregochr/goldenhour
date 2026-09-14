@@ -27,13 +27,17 @@ import { buildHandoff } from '../utils/comingUpHandoff.js';
  *
  * <h2>The rule — every separator in this codebase follows it, and the other comments point here</h2>
  *
- * <p>Measured 2026-09-11 in Chromium, WebKit and Firefox at 1280px and 375px, by removing
- * separators one at a time from DOMs captured from the components' own tests, against the real
- * stylesheet (every run carrying a positive control that had to glue), with no disagreement between
- * engines or widths. Two kinds of separator were not measured: any in a state no test renders, and
- * any followed directly by text, which the capture could not isolate (the two merge when the DOM
- * is re-parsed). Review found one of the second kind — `MapBreadcrumb`'s window label — and the
- * rule below predicts it correctly.
+ * <p>Measured 2026-09-11, then again 2026-09-14 with a rebuilt harness: every separator in the DOMs
+ * the test suite renders (4,167 across 921 distinct DOMs, captured at the end of each test and after
+ * every `fireEvent`) was removed one at a time against the production-built stylesheet, at widths
+ * chosen from its own breakpoints, with positive and negative controls in every run. Names were read
+ * two ways: by Playwright's accessible-name algorithm over each of Chromium's, WebKit's and
+ * Firefox's own layout and computed styles, and by Chromium's NATIVE accessibility tree — which
+ * agreed with Playwright on every one of the 4,167. (The 2026-09-11 figures were Playwright's
+ * algorithm alone, and that pass could not isolate a separator followed directly by text; the
+ * rebuilt one can, and it confirmed the rule's prediction for `MapBreadcrumb`'s window label.) Not
+ * measured: separators only in states the capture never saw — it snapshots each test's end and
+ * every `fireEvent`, not every render. Native readings exist for Chromium alone.
  *
  * <ul>
  *   <li>A separator matters <b>only between plain {@code display: inline} content</b> — inline
