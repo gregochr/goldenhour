@@ -21,7 +21,11 @@ public class AuroraProperties {
     /** Whether the aurora polling job is active. Defaults to {@code true}. */
     private boolean enabled = true;
 
-    /** Minutes between aurora polls. Defaults to 5. */
+    /**
+     * ⚠️ Not read anywhere. The poll interval is the {@code aurora_polling} row's
+     * {@code fixed_delay_ms} in {@code scheduler_job_config} (5 minutes, seeded by V68), which the
+     * Scheduler screen edits. Defaults to 5.
+     */
     private int pollIntervalMinutes = 5;
 
     /** API key for lightpollutionmap.info QueryRaster endpoint. */

@@ -1,6 +1,7 @@
 package com.gregochr.goldenhour.service.aurora;
 
 import com.gregochr.goldenhour.config.AuroraProperties;
+import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.model.TonightWindow;
 import com.gregochr.goldenhour.service.DynamicSchedulerService;
 import com.gregochr.solarutils.SolarCalculator;
@@ -13,6 +14,8 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
@@ -21,9 +24,16 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assertions.assertTimeoutPreemptively;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
@@ -33,8 +43,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 /**
- * Unit tests for {@link AuroraPollingJob}: which kind of poll runs when, the window it hands over,
- * and the guard that keeps two cycles from running at once.
+ * Unit tests for {@link AuroraPollingJob}: which kind of poll runs when, the one instant it reads,
+ * the window it hands over, and the guard that keeps two cycles from running at once.
  *
  * <p>The clock is pinned in January 2027 and the sun stubbed per date — civil dawn 08:00 and civil
  * dusk 16:00 every day, so nautical dawn is 07:25 and nautical dusk 16:35 — which keeps every instant
@@ -55,6 +65,11 @@ class AuroraPollingJobTest {
     private static final TonightWindow NIGHT_OF_14TH =
             new TonightWindow(utc("2027-01-14T16:35"), utc("2027-01-15T07:25"));
 
+    private static final AuroraPollOutcome A_DAYLIGHT_POLL = new AuroraPollOutcome(false,
+            AlertLevel.MODERATE, AuroraStateCache.Action.NOTIFY, TriggerType.FORECAST_LOOKAHEAD);
+    private static final AuroraPollOutcome A_NIGHT_POLL = new AuroraPollOutcome(true,
+            AlertLevel.MODERATE, AuroraStateCache.Action.SUPPRESS, TriggerType.FORECAST_LOOKAHEAD);
+
     @Mock
     private AuroraOrchestrator orchestrator;
     @Mock
@@ -71,21 +86,17 @@ class AuroraPollingJobTest {
     }
 
     // -------------------------------------------------------------------------
-    // executePoll — daylight runs the lookahead alone, darkness runs the night poll
+    // executePoll — daylight reads the forecast for tonight, darkness runs the night poll
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("in daylight the poll runs the lookahead alone, for tonight, at the clock's instant")
-    void executePoll_daylight_runsTheLookaheadAlone() {
+    @DisplayName("in daylight the poll runs the forecast lookahead for tonight, at the clock's instant")
+    void executePoll_daylight_runsTheForecastLookahead() {
         sunForAnEveningOn(JAN_14);
         ZonedDateTime noon = utc("2027-01-14T12:00");
-        when(orchestrator.runForecastLookahead(NIGHT_OF_14TH, noon))
-                .thenReturn(AuroraStateCache.Action.NOTIFY);
+        when(orchestrator.runForecastLookahead(NIGHT_OF_14TH, noon)).thenReturn(A_DAYLIGHT_POLL);
 
-        AuroraOrchestrator.PollOutcome outcome = jobAt(noon).executePoll();
-
-        assertThat(outcome).isEqualTo(
-                new AuroraOrchestrator.PollOutcome(AuroraStateCache.Action.NOTIFY, null));
+        assertThat(jobAt(noon).executePoll()).isSameAs(A_DAYLIGHT_POLL);
         verify(orchestrator, never()).runNightPoll(any(), any());
     }
 
@@ -94,11 +105,9 @@ class AuroraPollingJobTest {
     void executePoll_evening_runsTheNightPoll() {
         sunForAnEveningOn(JAN_14);
         ZonedDateTime evening = utc("2027-01-14T22:00");
-        AuroraOrchestrator.PollOutcome night = new AuroraOrchestrator.PollOutcome(
-                AuroraStateCache.Action.SUPPRESS, AuroraStateCache.Action.SUPPRESS);
-        when(orchestrator.runNightPoll(NIGHT_OF_14TH, evening)).thenReturn(night);
+        when(orchestrator.runNightPoll(NIGHT_OF_14TH, evening)).thenReturn(A_NIGHT_POLL);
 
-        assertThat(jobAt(evening).executePoll()).isSameAs(night);
+        assertThat(jobAt(evening).executePoll()).isSameAs(A_NIGHT_POLL);
         verify(orchestrator, never()).runForecastLookahead(any(), any());
     }
 
@@ -107,11 +116,9 @@ class AuroraPollingJobTest {
     void executePoll_smallHours_runsTheNightPollForTheNightInProgress() {
         sunForSmallHoursOn(JAN_15);
         ZonedDateTime twoAm = utc("2027-01-15T02:00");
-        AuroraOrchestrator.PollOutcome night = new AuroraOrchestrator.PollOutcome(
-                AuroraStateCache.Action.NONE, AuroraStateCache.Action.CLEAR);
-        when(orchestrator.runNightPoll(NIGHT_OF_14TH, twoAm)).thenReturn(night);
+        when(orchestrator.runNightPoll(NIGHT_OF_14TH, twoAm)).thenReturn(A_NIGHT_POLL);
 
-        assertThat(jobAt(twoAm).executePoll()).isSameAs(night);
+        assertThat(jobAt(twoAm).executePoll()).isSameAs(A_NIGHT_POLL);
     }
 
     @Test
@@ -121,10 +128,9 @@ class AuroraPollingJobTest {
         ZonedDateTime dawn = utc("2027-01-15T07:25");
         TonightWindow nightOf15th =
                 new TonightWindow(utc("2027-01-15T16:35"), utc("2027-01-16T07:25"));
-        when(orchestrator.runForecastLookahead(nightOf15th, dawn))
-                .thenReturn(AuroraStateCache.Action.NONE);
+        when(orchestrator.runForecastLookahead(nightOf15th, dawn)).thenReturn(A_DAYLIGHT_POLL);
 
-        assertThat(jobAt(dawn).executePoll().dark()).isFalse();
+        assertThat(jobAt(dawn).executePoll()).isSameAs(A_DAYLIGHT_POLL);
     }
 
     @Test
@@ -132,11 +138,9 @@ class AuroraPollingJobTest {
     void executePoll_aSecondBeforeNauticalDawn_isStillTheNight() {
         sunForSmallHoursOn(JAN_15);
         ZonedDateTime beforeDawn = utc("2027-01-15T07:24:59");
-        AuroraOrchestrator.PollOutcome night = new AuroraOrchestrator.PollOutcome(
-                AuroraStateCache.Action.NONE, AuroraStateCache.Action.NONE);
-        when(orchestrator.runNightPoll(NIGHT_OF_14TH, beforeDawn)).thenReturn(night);
+        when(orchestrator.runNightPoll(NIGHT_OF_14TH, beforeDawn)).thenReturn(A_NIGHT_POLL);
 
-        assertThat(jobAt(beforeDawn).executePoll()).isSameAs(night);
+        assertThat(jobAt(beforeDawn).executePoll()).isSameAs(A_NIGHT_POLL);
     }
 
     @Test
@@ -144,11 +148,9 @@ class AuroraPollingJobTest {
     void executePoll_atNauticalDusk_isANightPoll() {
         sunForAnEveningOn(JAN_14);
         ZonedDateTime dusk = utc("2027-01-14T16:35");
-        AuroraOrchestrator.PollOutcome night = new AuroraOrchestrator.PollOutcome(
-                AuroraStateCache.Action.NONE, AuroraStateCache.Action.NONE);
-        when(orchestrator.runNightPoll(NIGHT_OF_14TH, dusk)).thenReturn(night);
+        when(orchestrator.runNightPoll(NIGHT_OF_14TH, dusk)).thenReturn(A_NIGHT_POLL);
 
-        assertThat(jobAt(dusk).executePoll()).isSameAs(night);
+        assertThat(jobAt(dusk).executePoll()).isSameAs(A_NIGHT_POLL);
     }
 
     @Test
@@ -157,9 +159,27 @@ class AuroraPollingJobTest {
         sunForAnEveningOn(JAN_14);
         ZonedDateTime beforeDusk = utc("2027-01-14T16:34:59");
         when(orchestrator.runForecastLookahead(NIGHT_OF_14TH, beforeDusk))
-                .thenReturn(AuroraStateCache.Action.NONE);
+                .thenReturn(A_DAYLIGHT_POLL);
 
-        assertThat(jobAt(beforeDusk).executePoll().dark()).isFalse();
+        assertThat(jobAt(beforeDusk).executePoll()).isSameAs(A_DAYLIGHT_POLL);
+    }
+
+    @Test
+    @DisplayName("a poll reads the clock once: tonight, whether it has started, and the instant handed on all agree")
+    void executePoll_readsTheClockOnce() {
+        sunForAnEveningOn(JAN_14);
+        // Each read of this clock is twelve hours later than the one before: 12:00 on the 14th,
+        // then midnight. A second read anywhere in the poll would hand the orchestrator a different
+        // instant, or ask about a different night, from the one the first read chose.
+        TickingClock clock = new TickingClock(Instant.parse("2027-01-14T12:00:00Z"),
+                Duration.ofHours(12));
+        AuroraPollingJob job = new AuroraPollingJob(orchestrator, properties, solarCalculator,
+                dynamicSchedulerService, clock);
+        when(orchestrator.runForecastLookahead(NIGHT_OF_14TH, utc("2027-01-14T12:00")))
+                .thenReturn(A_DAYLIGHT_POLL);
+
+        assertThat(job.executePoll()).isSameAs(A_DAYLIGHT_POLL);
+        assertThat(clock.reads()).isEqualTo(1);
     }
 
     // -------------------------------------------------------------------------
@@ -205,9 +225,7 @@ class AuroraPollingJobTest {
         sunForAnEveningOn(JAN_14);
         ZonedDateTime evening = utc("2027-01-14T22:00");
         AuroraPollingJob job = jobAt(evening);
-        List<Optional<AuroraOrchestrator.PollOutcome>> refusals = new ArrayList<>();
-        AuroraOrchestrator.PollOutcome night = new AuroraOrchestrator.PollOutcome(
-                AuroraStateCache.Action.NONE, AuroraStateCache.Action.NONE);
+        List<Optional<AuroraPollOutcome>> refusals = new ArrayList<>();
         when(orchestrator.runNightPoll(NIGHT_OF_14TH, evening)).thenAnswer(invocation -> {
             if (refusals.isEmpty()) {
                 // Inside the running cycle. Ask twice: a refusal that released a guard it never
@@ -216,16 +234,16 @@ class AuroraPollingJobTest {
                 job.poll();
                 refusals.add(job.runCycleIfIdle());
             }
-            return night;
+            return A_NIGHT_POLL;
         });
 
-        assertThat(job.runCycleIfIdle()).contains(night);
+        assertThat(job.runCycleIfIdle()).contains(A_NIGHT_POLL);
 
         assertThat(refusals).containsExactly(Optional.empty(), Optional.empty());
         verify(orchestrator, times(1)).runNightPoll(NIGHT_OF_14TH, evening);
         assertThat(job.runCycleIfIdle())
                 .as("the guard is free again once the cycle has finished")
-                .contains(night);
+                .contains(A_NIGHT_POLL);
         verify(orchestrator, times(2)).runNightPoll(NIGHT_OF_14TH, evening);
     }
 
@@ -235,23 +253,52 @@ class AuroraPollingJobTest {
         sunForAnEveningOn(JAN_14);
         ZonedDateTime evening = utc("2027-01-14T22:00");
         AuroraPollingJob job = jobAt(evening);
-        List<Optional<AuroraOrchestrator.PollOutcome>> refusals = new ArrayList<>();
-        AuroraOrchestrator.PollOutcome night = new AuroraOrchestrator.PollOutcome(
-                AuroraStateCache.Action.NONE, AuroraStateCache.Action.NONE);
+        List<Optional<AuroraPollOutcome>> refusals = new ArrayList<>();
         when(orchestrator.runNightPoll(NIGHT_OF_14TH, evening)).thenAnswer(invocation -> {
             if (refusals.isEmpty()) {
                 refusals.add(job.runCycleIfIdle());
                 job.poll();
                 refusals.add(job.runCycleIfIdle());
             }
-            return night;
+            return A_NIGHT_POLL;
         });
 
         job.poll();
 
         assertThat(refusals).containsExactly(Optional.empty(), Optional.empty());
         verify(orchestrator, times(1)).runNightPoll(NIGHT_OF_14TH, evening);
-        assertThat(job.runCycleIfIdle()).contains(night);
+        assertThat(job.runCycleIfIdle()).contains(A_NIGHT_POLL);
+    }
+
+    @Test
+    @DisplayName("a cycle running on another thread is refused at once, not waited for")
+    void runCycleIfIdle_whileAnotherThreadRunsACycle_isRefusedAtOnce() throws Exception {
+        sunForAnEveningOn(JAN_14);
+        ZonedDateTime evening = utc("2027-01-14T22:00");
+        AuroraPollingJob job = jobAt(evening);
+        CountDownLatch inCycle = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        when(orchestrator.runNightPoll(NIGHT_OF_14TH, evening)).thenAnswer(invocation -> {
+            inCycle.countDown();
+            assertThat(release.await(10, TimeUnit.SECONDS)).isTrue();
+            return A_NIGHT_POLL;
+        });
+        ExecutorService scheduler = Executors.newSingleThreadExecutor();
+        try {
+            Future<Optional<AuroraPollOutcome>> scheduled = scheduler.submit(job::runCycleIfIdle);
+            assertThat(inCycle.await(10, TimeUnit.SECONDS)).isTrue();
+
+            // A request thread arriving mid-cycle: refused, and promptly — a lock would block here.
+            assertTimeoutPreemptively(Duration.ofSeconds(5),
+                    () -> assertThat(job.runCycleIfIdle()).isEmpty());
+
+            release.countDown();
+            assertThat(scheduled.get(10, TimeUnit.SECONDS)).contains(A_NIGHT_POLL);
+        } finally {
+            release.countDown();
+            scheduler.shutdownNow();
+        }
+        verify(orchestrator, times(1)).runNightPoll(NIGHT_OF_14TH, evening);
     }
 
     @Test
@@ -260,15 +307,13 @@ class AuroraPollingJobTest {
         sunForAnEveningOn(JAN_14);
         ZonedDateTime evening = utc("2027-01-14T22:00");
         AuroraPollingJob job = jobAt(evening);
-        AuroraOrchestrator.PollOutcome night = new AuroraOrchestrator.PollOutcome(
-                AuroraStateCache.Action.NONE, AuroraStateCache.Action.NONE);
         when(orchestrator.runNightPoll(NIGHT_OF_14TH, evening))
                 .thenThrow(new IllegalStateException("triage exploded"))
-                .thenReturn(night);
+                .thenReturn(A_NIGHT_POLL);
 
         assertThatThrownBy(job::runCycleIfIdle).hasMessage("triage exploded");
 
-        assertThat(job.runCycleIfIdle()).contains(night);
+        assertThat(job.runCycleIfIdle()).contains(A_NIGHT_POLL);
     }
 
     @Test
@@ -277,34 +322,34 @@ class AuroraPollingJobTest {
         sunForAnEveningOn(JAN_14);
         ZonedDateTime evening = utc("2027-01-14T22:00");
         AuroraPollingJob job = jobAt(evening);
-        AuroraOrchestrator.PollOutcome night = new AuroraOrchestrator.PollOutcome(
-                AuroraStateCache.Action.NONE, AuroraStateCache.Action.NONE);
         when(orchestrator.runNightPoll(NIGHT_OF_14TH, evening))
                 .thenThrow(new IllegalStateException("triage exploded"))
-                .thenReturn(night);
+                .thenReturn(A_NIGHT_POLL);
 
         assertThatThrownBy(job::poll).hasMessage("triage exploded");
 
-        assertThat(job.runCycleIfIdle()).contains(night);
+        assertThat(job.runCycleIfIdle()).contains(A_NIGHT_POLL);
     }
 
     @Test
-    @DisplayName("with aurora disabled the schedule does nothing, and takes no guard")
-    void poll_disabled_doesNothing() {
+    @DisplayName("with aurora disabled the schedule reads neither the sun nor NOAA")
+    void poll_disabled_touchesNothing() {
+        properties.setEnabled(false);
+
+        jobAt(utc("2027-01-14T22:00")).poll();
+
+        verifyNoInteractions(orchestrator, solarCalculator);
+    }
+
+    @Test
+    @DisplayName("with aurora disabled the admin route still runs a cycle, as it always has")
+    void runCycleIfIdle_disabled_stillRuns() {
         properties.setEnabled(false);
         sunForAnEveningOn(JAN_14);
         ZonedDateTime evening = utc("2027-01-14T22:00");
-        AuroraPollingJob job = jobAt(evening);
-        AuroraOrchestrator.PollOutcome night = new AuroraOrchestrator.PollOutcome(
-                AuroraStateCache.Action.NONE, AuroraStateCache.Action.NONE);
-        when(orchestrator.runNightPoll(NIGHT_OF_14TH, evening)).thenReturn(night);
+        when(orchestrator.runNightPoll(NIGHT_OF_14TH, evening)).thenReturn(A_NIGHT_POLL);
 
-        job.poll();
-        verifyNoInteractions(orchestrator, solarCalculator);
-
-        assertThat(job.runCycleIfIdle())
-                .as("the admin route ignores aurora.enabled, as it always has")
-                .contains(night);
+        assertThat(jobAt(evening).runCycleIfIdle()).contains(A_NIGHT_POLL);
     }
 
     @Test
@@ -312,9 +357,7 @@ class AuroraPollingJobTest {
     void poll_enabled_runsOneCycle() {
         sunForAnEveningOn(JAN_14);
         ZonedDateTime evening = utc("2027-01-14T22:00");
-        when(orchestrator.runNightPoll(NIGHT_OF_14TH, evening)).thenReturn(
-                new AuroraOrchestrator.PollOutcome(
-                        AuroraStateCache.Action.NONE, AuroraStateCache.Action.NONE));
+        when(orchestrator.runNightPoll(NIGHT_OF_14TH, evening)).thenReturn(A_NIGHT_POLL);
 
         jobAt(evening).poll();
 
@@ -326,9 +369,7 @@ class AuroraPollingJobTest {
     void registerJob_registersPollAsTheTarget() {
         sunForAnEveningOn(JAN_14);
         ZonedDateTime evening = utc("2027-01-14T22:00");
-        when(orchestrator.runNightPoll(NIGHT_OF_14TH, evening)).thenReturn(
-                new AuroraOrchestrator.PollOutcome(
-                        AuroraStateCache.Action.NONE, AuroraStateCache.Action.NONE));
+        when(orchestrator.runNightPoll(NIGHT_OF_14TH, evening)).thenReturn(A_NIGHT_POLL);
         AuroraPollingJob job = jobAt(evening);
 
         job.registerJob();
@@ -379,5 +420,37 @@ class AuroraPollingJobTest {
     private void civilDuskOn(LocalDate date) {
         when(solarCalculator.civilDusk(DURHAM_LAT, DURHAM_LON, date, UTC))
                 .thenReturn(LocalDateTime.of(date, LocalTime.of(16, 0)));
+    }
+
+    /** A clock that moves on by {@code step} every time it is read, and counts the reads. */
+    private static final class TickingClock extends Clock {
+
+        private final Instant start;
+        private final Duration step;
+        private final AtomicInteger reads = new AtomicInteger();
+
+        TickingClock(Instant start, Duration step) {
+            this.start = start;
+            this.step = step;
+        }
+
+        int reads() {
+            return reads.get();
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return start.plus(step.multipliedBy(reads.getAndIncrement()));
+        }
     }
 }

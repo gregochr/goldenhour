@@ -18,7 +18,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.time.ZoneId;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -40,9 +39,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 class AuroraNightRuleAgreementTest {
 
     private static final ZoneId UTC = ZoneId.of("UTC");
-    private static final double DURHAM_LAT = 54.776;
-    private static final double DURHAM_LON = -1.575;
-    private static final int NAUTICAL_BUFFER_MINUTES = 35;
 
     @Mock
     private NoaaSwpcClient noaaClient;
@@ -87,16 +83,14 @@ class AuroraNightRuleAgreementTest {
     @Test
     @DisplayName("a second either side of every nautical dawn and dusk of a year, and on each, both agree")
     void atEveryDawnAndDusk_bothNameTheSameNight() {
+        // The boundaries come from the job's own windows, not from constants redeclared here, so a
+        // change to the job's rule moves the probes with it rather than leaving them mid-window.
         for (LocalDate day = LocalDate.of(2027, 1, 1); day.getYear() == 2027; day = day.plusDays(1)) {
-            LocalDateTime dawn = sun.civilDawn(DURHAM_LAT, DURHAM_LON, day, UTC)
-                    .minusMinutes(NAUTICAL_BUFFER_MINUTES);
-            LocalDateTime dusk = sun.civilDusk(DURHAM_LAT, DURHAM_LON, day, UTC)
-                    .plusMinutes(NAUTICAL_BUFFER_MINUTES);
-            for (LocalDateTime boundary : new LocalDateTime[] {dawn, dusk}) {
-                Instant exact = boundary.atZone(UTC).toInstant();
-                assertSameNight(exact.minusSeconds(1));
-                assertSameNight(exact);
-                assertSameNight(exact.plusSeconds(1));
+            TonightWindow night = job.calculateTonightWindow(day.atTime(12, 0).atZone(UTC));
+            for (Instant boundary : new Instant[] {night.dusk().toInstant(), night.dawn().toInstant()}) {
+                assertSameNight(boundary.minusSeconds(1));
+                assertSameNight(boundary);
+                assertSameNight(boundary.plusSeconds(1));
             }
         }
     }

@@ -8,7 +8,7 @@ import com.gregochr.goldenhour.model.AuroraSimulationRequest;
 import com.gregochr.goldenhour.model.AuroraSimulationResponse;
 import com.gregochr.goldenhour.repository.LocationRepository;
 import com.gregochr.goldenhour.service.JobRunService;
-import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
+import com.gregochr.goldenhour.service.aurora.AuroraPollOutcome;
 import com.gregochr.goldenhour.service.aurora.AuroraPollingJob;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.service.aurora.BortleEnrichmentService;
@@ -105,37 +105,43 @@ public class AuroraAdminController {
     }
 
     /**
-     * Runs one aurora polling cycle now, and waits for it: the same cycle the {@code aurora_polling}
-     * schedule runs, through {@link AuroraPollingJob#runCycleIfIdle()} — the forecast lookahead in
-     * daylight, and after dark the lookahead then the real-time path over one NOAA snapshot. Scores
-     * eligible locations if the alert level warrants it.
+     * Runs one aurora polling cycle now and waits for it, on the request thread: the same cycle the
+     * {@code aurora_polling} schedule runs, through {@link AuroraPollingJob#runCycleIfIdle()}. In
+     * daylight that is the forecast for tonight; after dark, the higher of the forecast for the rest
+     * of tonight and the conditions now. It scores eligible locations if the alert level warrants it.
      *
-     * <p>It used to call the real-time path directly, from the request thread and with that path's
-     * own horizon. A manual run could therefore CLEAR a heads-up that the next scheduled poll would
-     * NOTIFY again and pay for again, and could run at the same moment as a scheduled cycle.
+     * <p>It used to call the orchestrator's real-time path directly, with that path's own six-hour
+     * horizon and no guard. So a manual run could CLEAR a heads-up that the next scheduled poll would
+     * NOTIFY again, and pay for again, and it could run at the same moment as a scheduled cycle. In
+     * daylight it no longer reaches the real-time path at all, so it cannot clear a stale alert:
+     * {@code POST /reset} does that.
      *
-     * <p>Refused with 409 while a cycle is already running from any route. Unlike the schedule, it
-     * runs whether or not {@code aurora.enabled} is set, as it always has.
+     * <p>Refused with 409 while a cycle is already running from any route. A cycle that has to score
+     * waits for triage and a Claude call, retries included. A proxy that times the request out does
+     * not stop the cycle, and a retry answers 409 until it finishes. Unlike the schedule, it runs
+     * whether or not {@code aurora.enabled} is set, as it always has.
      *
-     * @return 200 with each path's action — {@code realtime} is null in daylight, when that path does
-     *         not run — or 409 Conflict if a cycle is already running
+     * @return 200 with the level the cycle derived, the state machine's action and the signal the
+     *         level came from ({@code level} and {@code trigger} null if NOAA could not be read), or
+     *         409 Conflict if a cycle is already running
      */
     @PostMapping("/run")
     public ResponseEntity<Map<String, Object>> triggerRun() {
-        Optional<AuroraOrchestrator.PollOutcome> ran = pollingJob.runCycleIfIdle();
+        Optional<AuroraPollOutcome> ran = pollingJob.runCycleIfIdle();
         if (ran.isEmpty()) {
             LOG.warn("Admin aurora cycle refused — a cycle is already running");
             return ResponseEntity.status(HttpStatus.CONFLICT)
                     .body(Map.of("status", "An aurora cycle is already running"));
         }
-        AuroraOrchestrator.PollOutcome outcome = ran.get();
-        LOG.info("Admin triggered aurora cycle — lookahead={} realtime={}",
-                outcome.lookahead(), outcome.realtime());
+        AuroraPollOutcome outcome = ran.get();
+        LOG.info("Admin triggered aurora cycle — dark={} level={} action={} trigger={}",
+                outcome.dark(), outcome.level(), outcome.action(), outcome.trigger());
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("status", "Aurora cycle complete");
         body.put("dark", outcome.dark());
-        body.put("lookahead", outcome.lookahead().name());
-        body.put("realtime", outcome.dark() ? outcome.realtime().name() : null);
+        body.put("level", outcome.level() == null ? null : outcome.level().name());
+        body.put("action", outcome.action().name());
+        body.put("trigger", outcome.trigger() == null ? null : outcome.trigger().name());
         return ResponseEntity.ok(body);
     }
 

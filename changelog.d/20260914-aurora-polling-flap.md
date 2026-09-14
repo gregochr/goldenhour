@@ -1,45 +1,58 @@
 ### Fixed — aurora alerts no longer pay for themselves every five minutes after dark
 
-After dark, each five-minute aurora poll ran the forecast lookahead and then the real-time path
-against the one state machine, and the two read tonight differently. The lookahead took the highest
-Kp of every 3-hour block that overlapped tonight's dark window, including blocks that were already
-over, because NOAA's product keeps its observed blocks for a week. The real-time path looked only six
-hours ahead. So after a storm that peaked earlier in the night, or with a peak forecast more than six
-hours after dusk, every poll went the same way:
+After dark, each five-minute aurora poll evaluated the one state machine twice: first a forecast
+lookahead, then a real-time path. The two read tonight differently. The lookahead took the highest Kp
+of every 3-hour block that overlapped tonight's dark window, including blocks that were already over,
+because NOAA's product keeps its observed blocks for a week. The real-time path looked only six hours
+ahead of now.
 
-1. The lookahead raised MODERATE and NOTIFIED.
-2. That paid for weather triage and a synchronous Claude call, a `job_run` and an `api_call_log`
-   row, and the scores were cached.
-3. The real-time path read MINOR or QUIET and CLEARED those scores straight away.
+The flap happened whenever the lookahead reached an alert level and the real-time path did not —
+after a storm that peaked earlier in the night, or with a peak forecast more than six hours ahead.
+Every poll then went:
+
+1. The lookahead NOTIFIED.
+2. That paid for weather triage and, if any location was clear, a synchronous Claude call, with a
+   `job_run` and an `api_call_log` row.
+3. The real-time path CLEARED the scores it had just bought.
 4. The next poll started from IDLE and paid again.
 
-That is up to about twelve Claude calls an hour. Meanwhile `GET /api/aurora/status` almost never
-showed the alert, because the scores only existed for the moment between the two paths. NOTIFY never
-sent email or push; it only scores. This was confirmed in code and by a test that replays both
-nights. It has not yet been seen in the production logs.
+That is up to about twelve times an hour. Meanwhile `GET /api/aurora/status` almost never showed the
+alert. When the real-time path came out *higher*, one poll NOTIFIED twice and threw the first scoring
+away. NOTIFY never sent email or push; it only scores. This was confirmed in code and by tests that
+replay whole nights, and has not yet been seen in the production logs.
 
-**Both paths now read tonight through one figure**: the highest Kp of the blocks still ahead in
-tonight's dark window, the running one included and finished ones never. The real-time level is the
-higher of that figure and the Kp for now, mapped through the same rule, so after dark it can never
-clear what the lookahead has just raised. A heads-up for a small-hours peak now stays up through the
-evening, and is paid for once.
+**Every poll now evaluates the state machine at most once.**
 
-- **The Kp for now bridges block boundaries.** It counts the block that has just ended as well as the
-  latest published reading. A block's reading only appears after the block ends and then sits in the
-  client's 15-minute cache, so without the bridge the level dipped at the end of every storm block:
-  one poll cleared, and a later one re-alerted and paid again.
-- **One NOAA snapshot and one clock reading per poll.** The same instant decides whether it is dark,
-  which night is "tonight" and how much of it is left. At nautical dawn itself the night is now over
-  on every rule.
-- **A lowered `aurora.triggers.kp-threshold` now applies to the lookahead too.** It used to map Kp
-  through a fixed 5, so at 4.5 it would have cleared what the real-time path raised.
-- **`POST /api/aurora/admin/run` now runs the scheduled cycle itself.** It goes through the same
-  guard as the schedule and answers 409 while a cycle is running. Before, it called the real-time
-  path directly from the request thread, with that path's own horizon, and could run alongside a
-  scheduled cycle. Its response is now `{status, dark, lookahead, realtime}` rather than
-  `{status, action}`; no screen calls it.
+- **In daylight** it reads the forecast for tonight.
+- **After dark** it takes the higher of the forecast for the rest of tonight — the blocks still ahead
+  before dawn, the running one included and finished ones never — and the conditions now.
+- **The alert is attributed to the forecast**, with planning wording and tonight's window, when the
+  forecast alone reaches that level. It is real-time ("act now") only when the conditions now go
+  beyond it.
 
-`AuroraNightRuleAgreementTest` now pins the polling job's night rule to
-`AuroraForecastRunService`'s across a year of instants. That comparison could not be written while
-the job read the wall clock. `kp-clear-threshold` and `ovation-clear-threshold` are now documented as
-unread: the de-escalation hysteresis they were meant to configure has never been built.
+So a heads-up for a small-hours peak now stays up through the evening, and is paid for once.
+
+- **The Kp for now is NOAA's value for the most recently completed block.** That is its published
+  reading once it is out, and the product's value for the block until then. The level therefore
+  moves at block boundaries rather than when a reading happens to land. A reading appears only after
+  its block ends and then sits in the client's 15-minute cache, so without that stand-in the level
+  would dip at the end of an isolated storm block. The running block, whose value is a forecast, is
+  never reported as "now".
+- **One NOAA snapshot and one clock reading per poll.** The daylight poll reads the full snapshot
+  before it evaluates an alert-worthy level, so a failed fetch can no longer leave an ACTIVE alert
+  with no scores. At nautical dawn itself the night is now over, on both of the app's night rules.
+- **A lowered `aurora.triggers.kp-threshold` now applies in daylight too.** The lookahead used to map
+  Kp through a fixed 5, so at 4.5 it would have cleared what the real-time path raised.
+- **`POST /api/aurora/admin/run` now runs the scheduled cycle itself, through the same guard.** It
+  answers 409 while a cycle is running, and still runs on the request thread. Before, it called the
+  real-time path directly, with that path's own horizon and no guard, so it could clear a heads-up the
+  next poll would pay to raise again, or run alongside a scheduled cycle. In daylight it can no longer
+  clear a stale alert; `POST /api/aurora/admin/reset` does that. Its response is now
+  `{status, dark, level, action, trigger}` rather than `{status, action}`; no screen calls it.
+- **The same guard absorbs the scheduler's own overlap.** Update Schedule and Resume re-arm the job
+  with an immediate run, even while a cycle is still going.
+
+`AuroraNightRuleAgreementTest` now pins the polling job's night rule to `AuroraForecastRunService`'s
+across a year of instants. That comparison could not be written while the job read the wall clock.
+`poll-interval-minutes`, `kp-clear-threshold` and `ovation-clear-threshold` are now documented as
+unread.

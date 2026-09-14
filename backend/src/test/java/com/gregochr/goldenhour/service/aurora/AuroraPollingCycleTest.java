@@ -39,6 +39,7 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -48,11 +49,11 @@ import static org.mockito.Mockito.when;
  *
  * <p>{@code AuroraPollingJobTest} mocks the orchestrator and {@code AuroraOrchestratorTest} mocks the
  * state machine, so neither can see what one poll does to the next. That is where the flap lived.
- * After dark, a poll runs the forecast lookahead and then the real-time path against the one shared
- * state machine. The two used to read tonight differently: the lookahead kept blocks that were
- * already over, and the real-time path looked only six hours ahead. When they disagreed, a poll
- * NOTIFIED (triage, then a synchronous Claude call), then CLEARED the scores it had just paid for,
- * and the next poll started from IDLE and paid again.
+ * A night poll used to evaluate the state machine twice: a forecast lookahead that kept 3-hour blocks
+ * already over, then a real-time path that looked only six hours ahead. When the lookahead reached
+ * an alert level and the real-time path did not, a poll NOTIFIED (triage, then a synchronous Claude
+ * call), then CLEARED the scores it had just paid for, and the next poll started from IDLE and paid
+ * again. Now every poll evaluates once, and these tests replay whole nights to show it.
  *
  * <p>Only the edges are faked: NOAA, weather triage, the location roster and the Claude call. The
  * fake NOAA serves what the real client does: the Kp product with every block in it, observed,
@@ -96,12 +97,13 @@ class AuroraPollingCycleTest {
     private final LocationEntity kielder = LocationEntity.builder()
             .id(1L).name("Kielder").lat(55.23).lon(-2.58).bortleClass(2).build();
 
+    private AuroraProperties properties;
     private AuroraStateCache stateCache;
     private AuroraPollingJob job;
 
     @BeforeEach
     void setUp() {
-        AuroraProperties properties = new AuroraProperties(); // Kp 5, OVATION 20%
+        properties = new AuroraProperties(); // Kp 5, OVATION 20%
         stateCache = new AuroraStateCache();
         AuroraOrchestrator orchestrator = new AuroraOrchestrator(noaa, weatherTriage, stateCache,
                 locationRepository, properties, evaluationService, modelSelectionService, clock);
@@ -109,10 +111,8 @@ class AuroraPollingCycleTest {
                 dynamicSchedulerService, clock);
 
         // What the edges answer IF they are asked. Whether a poll asks is the behaviour under test;
-        // every test here reaches one NOTIFY that asks, so no stub goes unused.
-        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(
-                properties.getBortleThreshold().getModerate()))
-                .thenReturn(List.of(kielder));
+        // every test here reaches at least one NOTIFY that asks, so no stub goes unused. The Bortle
+        // roster is stubbed per test, at the level that test scores at.
         when(weatherTriage.triage(List.of(kielder))).thenReturn(new WeatherTriageService.TriageResult(
                 List.of(kielder), List.of(), Map.of(kielder, 10)));
         when(modelSelectionService.getActiveModel(RunType.AURORA_EVALUATION))
@@ -135,6 +135,7 @@ class AuroraPollingCycleTest {
     void stormThatEndedEarlierTonight_isNotRescoredOnEveryPoll() {
         // The storm was 15:00-18:00 (Kp 6), overlapping the first half-hour of darkness. It has been
         // quiet since: 18:00-21:00 read Kp 4, and nothing still to come tonight reaches 4.
+        kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
         clock.set("2027-01-14T22:00");
         noaa.blocks = kpProduct(2.67, Map.of(
                 "2027-01-14T15:00", 6.00,
@@ -167,6 +168,7 @@ class AuroraPollingCycleTest {
     void peakBeyondTheSixHourHorizon_keepsItsHeadsUp() {
         // 17:45, twenty minutes into the dark. Kp 5.67 is predicted for 03:00-06:00 — inside tonight,
         // but beyond the six hours the real-time path used to look. Everything nearer is under Kp 4.
+        kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
         clock.set("2027-01-14T17:45");
         noaa.blocks = kpProduct(2.33, Map.of(
                 "2027-01-14T15:00", 3.00,
@@ -178,8 +180,7 @@ class AuroraPollingCycleTest {
 
         List<AfterPoll> polls = List.of(poll(), poll());
 
-        // The lookahead raises the heads-up and pays for it once; the real-time path agrees rather
-        // than clearing it; the second poll changes nothing and costs nothing.
+        // The heads-up is raised and paid for once, and the second poll changes nothing.
         assertThat(polls).containsExactly(new AfterPoll(1, true, 1), new AfterPoll(1, true, 1));
         assertThat(claudeCalls).singleElement().satisfies(task -> {
             assertThat(task.triggerType()).isEqualTo(TriggerType.FORECAST_LOOKAHEAD);
@@ -190,6 +191,32 @@ class AuroraPollingCycleTest {
         assertThat(stateCache.getLastTriggerKp()).isEqualTo(5.67);
     }
 
+    @Test
+    @DisplayName("Kp now above everything left tonight is one STRONG real-time alert — one Claude call, not two")
+    void kpNowAboveTheForecast_paysOnce() {
+        // 22:00, the state machine IDLE (after a restart, say). 18:00-21:00 read Kp 7.33 and its
+        // reading is out; the rest of tonight is forecast Kp 5.33 at most. Two evaluations used to
+        // NOTIFY at MODERATE, score, then NOTIFY again at STRONG and score again.
+        clock.set("2027-01-14T22:00");
+        noaa.blocks = kpProduct(2.33, Map.of(
+                "2027-01-14T18:00", 7.33,
+                "2027-01-14T21:00", 5.33,
+                "2027-01-15T00:00", 5.00));
+        kielderIsEligibleAt(properties.getBortleThreshold().getStrong());
+
+        assertThat(poll()).isEqualTo(new AfterPoll(1, true, 1));
+
+        assertThat(claudeCalls).singleElement().satisfies(task -> {
+            assertThat(task.alertLevel()).isEqualTo(AlertLevel.STRONG);
+            assertThat(task.triggerType()).isEqualTo(TriggerType.REALTIME);
+        });
+        assertThat(stateCache.getLastTriggerKp()).isEqualTo(7.33);
+        // A second poll over the same data changes nothing, and no MODERATE scoring ever happened.
+        assertThat(poll()).isEqualTo(new AfterPoll(1, true, 1));
+        verify(locationRepository, never()).findByBortleClassLessThanEqualAndEnabledTrue(
+                properties.getBortleThreshold().getModerate());
+    }
+
     // -------------------------------------------------------------------------
     // Whole nights, a poll every five minutes
     // -------------------------------------------------------------------------
@@ -198,17 +225,17 @@ class AuroraPollingCycleTest {
     @DisplayName("a forecast storm: one heads-up in the morning, held all evening, cleared once after it")
     void wholeNight_forecastStorm_scoredOnceAndClearedOnce() {
         // Kp 6.33 predicted all day for 21:00-24:00; everything else Kp 2.33.
+        kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
         noaa.blocks = kpProduct(2.33, Map.of("2027-01-14T21:00", 6.33));
 
         List<Transition> transitions = pollEveryFiveMinutes("2027-01-14T09:00", "2027-01-15T11:00");
 
-        // The morning's heads-up, and one CLEAR when the storm's own reading has been superseded:
-        // 00:00-03:00's quiet reading is out at 03:20. Nothing in between, dusk included — the
-        // real-time path took over at 17:25:42 without clearing what the lookahead had raised —
-        // and nothing after, dawn included.
+        // The morning's heads-up, held through dusk at 17:25:42 and through the storm; then one CLEAR
+        // at 03:00, when the quiet 00:00-03:00 block becomes the Kp for now. Nothing after, dawn
+        // included.
         assertThat(transitions).containsExactly(
-                new Transition("2027-01-14T09:00", "lookahead", AuroraStateCache.Action.NOTIFY),
-                new Transition("2027-01-15T03:20", "real-time", AuroraStateCache.Action.CLEAR));
+                new Transition("2027-01-14T09:00", "day", AuroraStateCache.Action.NOTIFY),
+                new Transition("2027-01-15T03:00", "night", AuroraStateCache.Action.CLEAR));
         assertThat(claudeCalls).singleElement()
                 .satisfies(task -> assertThat(task.triggerType())
                         .isEqualTo(TriggerType.FORECAST_LOOKAHEAD));
@@ -219,6 +246,7 @@ class AuroraPollingCycleTest {
     void wholeNight_twoPeaksWithAQuietGap_areOneAlert() {
         // Kp 5.67 at 18:00-21:00, Kp 3 at 21:00-24:00, Kp 5.33 at 00:00-03:00. While the second peak
         // is still ahead, tonight is still worth an alert, so the gap must not clear it.
+        kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
         noaa.blocks = kpProduct(2.33, Map.of(
                 "2027-01-14T18:00", 5.67,
                 "2027-01-14T21:00", 3.00,
@@ -226,11 +254,30 @@ class AuroraPollingCycleTest {
 
         List<Transition> transitions = pollEveryFiveMinutes("2027-01-14T09:00", "2027-01-15T11:00");
 
-        // One CLEAR, at 06:20 when 03:00-06:00's quiet reading lands — still before dawn at 07:03.
+        // One CLEAR, at 06:00 when the quiet 03:00-06:00 block becomes the Kp for now — before dawn.
         assertThat(transitions).containsExactly(
-                new Transition("2027-01-14T09:00", "lookahead", AuroraStateCache.Action.NOTIFY),
-                new Transition("2027-01-15T06:20", "real-time", AuroraStateCache.Action.CLEAR));
+                new Transition("2027-01-14T09:00", "day", AuroraStateCache.Action.NOTIFY),
+                new Transition("2027-01-15T06:00", "night", AuroraStateCache.Action.CLEAR));
         assertThat(claudeCalls).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("a storm after dawn is never raised — nothing reads past tonight's dark window")
+    void wholeNight_stormAfterDawn_isNeverRaised() {
+        // Kp 7.33 at 09:00-12:00 on the 15th: two hours after dawn, and over before the next dusk.
+        // Anything reading tonight to a horizon of its own would raise it, and pay for it.
+        kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
+        noaa.blocks = kpProduct(2.33, Map.of("2027-01-15T09:00", 7.33));
+
+        List<Transition> transitions = pollEveryFiveMinutes("2027-01-14T09:00", "2027-01-15T12:00");
+
+        assertThat(transitions).isEmpty();
+        assertThat(claudeCalls).isEmpty();
+
+        // Positive control: the next night, an OVATION substorm is caught.
+        noaa.ovation = OVATION_SUBSTORM;
+        clock.set("2027-01-15T22:00");
+        assertThat(poll()).isEqualTo(new AfterPoll(1, true, 1));
     }
 
     // -------------------------------------------------------------------------
@@ -249,13 +296,19 @@ class AuroraPollingCycleTest {
     }
 
     /**
-     * A NOTIFY or a CLEAR, and the poll and path that made it.
+     * A NOTIFY or a CLEAR, and the poll that made it.
      *
      * @param at     the poll's instant, as a UTC local date-time
-     * @param path   "lookahead" or "real-time"
+     * @param kind   "day" or "night"
      * @param action NOTIFY or CLEAR
      */
-    private record Transition(String at, String path, AuroraStateCache.Action action) {
+    private record Transition(String at, String kind, AuroraStateCache.Action action) {
+    }
+
+    /** Kielder is the one location on the Bortle roster a NOTIFY at {@code bortleThreshold} reads. */
+    private void kielderIsEligibleAt(int bortleThreshold) {
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(bortleThreshold))
+                .thenReturn(List.of(kielder));
     }
 
     private AfterPoll poll() {
@@ -266,38 +319,29 @@ class AuroraPollingCycleTest {
 
     /**
      * Polls every five minutes from {@code from} until {@code until} and returns every NOTIFY and
-     * CLEAR in order. Also checks, at every poll, the property the flap broke: a poll never CLEARS
-     * what its own lookahead raised or held, and the status never shows ACTIVE without scores.
+     * CLEAR in order. At every poll it also checks the two properties the flap broke: no poll pays
+     * for more than one Claude call, and the status shows ACTIVE exactly when it has scores.
      */
     private List<Transition> pollEveryFiveMinutes(String from, String until) {
         List<Transition> transitions = new ArrayList<>();
         clock.set(from);
         while (clock.instant().isBefore(utc(until).toInstant())) {
-            AuroraOrchestrator.PollOutcome outcome = job.executePoll();
+            int callsBefore = claudeCalls.size();
+            AuroraPollOutcome outcome = job.executePoll();
             String at = LocalDateTime.ofInstant(clock.instant(), UTC).toString();
-            if (outcome.lookahead() != AuroraStateCache.Action.NONE) {
-                assertThat(outcome.realtime())
-                        .as("at %s the real-time path cleared what the lookahead had %s", at,
-                                outcome.lookahead())
-                        .isNotEqualTo(AuroraStateCache.Action.CLEAR);
-            }
+            assertThat(claudeCalls.size() - callsBefore)
+                    .as("Claude calls paid for by the poll at %s", at)
+                    .isLessThanOrEqualTo(1);
             assertThat(stateCache.getCachedScores().isEmpty())
                     .as("at %s the state is %s", at, stateCache.isActive() ? "ACTIVE" : "IDLE")
                     .isEqualTo(!stateCache.isActive());
-            noteTransition(transitions, at, "lookahead", outcome.lookahead());
-            if (outcome.dark()) {
-                noteTransition(transitions, at, "real-time", outcome.realtime());
+            if (outcome.action() == AuroraStateCache.Action.NOTIFY
+                    || outcome.action() == AuroraStateCache.Action.CLEAR) {
+                transitions.add(new Transition(at, outcome.dark() ? "night" : "day", outcome.action()));
             }
             clock.advance(POLL_INTERVAL);
         }
         return transitions;
-    }
-
-    private static void noteTransition(List<Transition> transitions, String at, String path,
-            AuroraStateCache.Action action) {
-        if (action == AuroraStateCache.Action.NOTIFY || action == AuroraStateCache.Action.CLEAR) {
-            transitions.add(new Transition(at, path, action));
-        }
     }
 
     private static ZonedDateTime utc(String localDateTime) {

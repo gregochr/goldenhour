@@ -156,7 +156,7 @@ The agreed split:
 - `AuroraOrchestrator.runForecastLookahead()` — daytime check of tonight's Kp forecast.
 - `AuroraOrchestrator.run()` — synchronous Claude call via `ClaudeAuroraInterpreter.interpret()` (no batch). Result lands in `AuroraStateCache`.
 
-> **Since 2026-09-14** a poll runs `runForecastLookahead(tonight, now)` in daylight *or* `runNightPoll(tonight, now)` after dark (the lookahead then the real-time path, over one NOAA snapshot). `run()` and `isDaylight()` are gone. The day/night decision is `now` against the dusk of the window `calculateTonightWindow(now)` returns.
+> **Since 2026-09-14** a poll runs `runForecastLookahead(tonight, now)` in daylight *or* `runNightPoll(tonight, now)` after dark, and either evaluates the state machine at most once. The night poll uses one NOAA snapshot and the higher of the forecast for the rest of tonight and the conditions now. `run()` and `isDaylight()` are gone. The day/night decision is `now` against the dusk of the window `calculateTonightWindow(now)` returns. The two paragraphs below predate Pass 3.2 and this change: real-time aurora has written `job_run` and `api_call_log` rows since Pass 3.2.
 
 The state machine in `AuroraStateCache` (IDLE → MONITORING → MODERATE/STRONG) suppresses duplicate notifications at the same level. Critically the cache is **shared** between both paths — daytime forecast NOTIFYs prevent nighttime real-time double-firing.
 

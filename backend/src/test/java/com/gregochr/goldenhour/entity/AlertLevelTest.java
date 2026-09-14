@@ -61,23 +61,17 @@ class AlertLevelTest {
         "7.0,  4.5, STRONG",
         // A threshold above 7 cannot demote STRONG, and leaves MODERATE unreachable by Kp.
         "7.0,  8.0, STRONG",
-        "6.99, 8.0, MINOR"
+        "6.99, 8.0, MINOR",
+        // A threshold below 4 makes MODERATE start there, and leaves MINOR unreachable by Kp.
+        "3.49, 3.5, QUIET",
+        "3.5,  3.5, MODERATE",
+        "3.99, 3.5, MODERATE",
+        "4.0,  3.5, MODERATE"
     })
     @DisplayName("fromKp with a configured MODERATE threshold maps Kp at and around each boundary")
     void fromKp_withModerateThreshold_mapsAtEachBoundary(double kp, double moderateKp,
             AlertLevel expected) {
         assertThat(AlertLevel.fromKp(kp, moderateKp)).isEqualTo(expected);
-    }
-
-    @Test
-    @DisplayName("fromKp at the default threshold agrees with fromKp without one, at every third of a Kp")
-    void fromKp_defaultThreshold_matchesSingleArgument() {
-        for (int thirds = 0; thirds <= 27; thirds++) {
-            double kp = thirds / 3.0;
-            assertThat(AlertLevel.fromKp(kp, AlertLevel.DEFAULT_MODERATE_KP))
-                    .as("Kp %.2f", kp)
-                    .isEqualTo(AlertLevel.fromKp(kp));
-        }
     }
 
     @Test

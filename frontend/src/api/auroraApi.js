@@ -36,8 +36,9 @@ export async function enrichBortle() {
  * Runs one aurora polling cycle now — the same cycle the schedule runs.
  * ADMIN only. Rejects with a 409 while a cycle is already running.
  *
- * @returns {Promise<object>} { status, dark, lookahead, realtime } — each path's
- *   state-machine action; `realtime` is null in daylight, when that path does not run
+ * @returns {Promise<object>} { status, dark, level, action, trigger } — the level the
+ *   cycle derived, the state machine's action, and the signal the level came from
+ *   (`level` and `trigger` are null if NOAA could not be read)
  */
 export async function triggerAuroraRun() {
   const response = await apiClient.post(`${BASE_URL}/admin/run`);

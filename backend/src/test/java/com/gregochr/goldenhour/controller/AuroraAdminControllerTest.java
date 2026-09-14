@@ -4,8 +4,9 @@ import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
-import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
+import com.gregochr.goldenhour.service.aurora.AuroraPollOutcome;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
+import com.gregochr.goldenhour.service.aurora.TriggerType;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -173,36 +174,49 @@ class AuroraAdminControllerTest extends AbstractControllerTest {
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("POST /api/aurora/admin/run after dark runs the job's cycle and reports both paths")
+    @DisplayName("POST /api/aurora/admin/run after dark runs the job's cycle and reports what it did")
     @WithMockUser(roles = {"ADMIN"})
-    void run_admin_night_reportsBothPaths() throws Exception {
-        when(pollingJob.runCycleIfIdle()).thenReturn(Optional.of(new AuroraOrchestrator.PollOutcome(
-                AuroraStateCache.Action.NOTIFY, AuroraStateCache.Action.SUPPRESS)));
+    void run_admin_night_reportsTheCycle() throws Exception {
+        when(pollingJob.runCycleIfIdle()).thenReturn(Optional.of(new AuroraPollOutcome(true,
+                AlertLevel.STRONG, AuroraStateCache.Action.NOTIFY, TriggerType.REALTIME)));
 
         mockMvc.perform(post("/api/aurora/admin/run"))
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
-                        {"status": "Aurora cycle complete", "dark": true,
-                         "lookahead": "NOTIFY", "realtime": "SUPPRESS"}
+                        {"status": "Aurora cycle complete", "dark": true, "level": "STRONG",
+                         "action": "NOTIFY", "trigger": "REALTIME"}
                         """, JsonCompareMode.STRICT));
 
         verify(pollingJob).runCycleIfIdle();
         verify(pollingJob, never()).poll();
-        verifyNoInteractions(orchestrator);
     }
 
     @Test
-    @DisplayName("POST /api/aurora/admin/run in daylight reports the lookahead and a null real-time action")
+    @DisplayName("POST /api/aurora/admin/run in daylight reports the forecast level it read")
     @WithMockUser(roles = {"ADMIN"})
-    void run_admin_daylight_reportsTheLookaheadAlone() throws Exception {
-        when(pollingJob.runCycleIfIdle()).thenReturn(Optional.of(
-                new AuroraOrchestrator.PollOutcome(AuroraStateCache.Action.NONE, null)));
+    void run_admin_daylight_reportsTheForecastLevel() throws Exception {
+        when(pollingJob.runCycleIfIdle()).thenReturn(Optional.of(new AuroraPollOutcome(false,
+                AlertLevel.MINOR, AuroraStateCache.Action.NONE, TriggerType.FORECAST_LOOKAHEAD)));
 
         mockMvc.perform(post("/api/aurora/admin/run"))
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
-                        {"status": "Aurora cycle complete", "dark": false,
-                         "lookahead": "NONE", "realtime": null}
+                        {"status": "Aurora cycle complete", "dark": false, "level": "MINOR",
+                         "action": "NONE", "trigger": "FORECAST_LOOKAHEAD"}
+                        """, JsonCompareMode.STRICT));
+    }
+
+    @Test
+    @DisplayName("POST /api/aurora/admin/run reports an unreadable NOAA as no level, not a quiet night")
+    @WithMockUser(roles = {"ADMIN"})
+    void run_admin_noaaUnavailable_reportsNoLevel() throws Exception {
+        when(pollingJob.runCycleIfIdle()).thenReturn(Optional.of(AuroraPollOutcome.noaaUnavailable(true)));
+
+        mockMvc.perform(post("/api/aurora/admin/run"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("""
+                        {"status": "Aurora cycle complete", "dark": true, "level": null,
+                         "action": "NONE", "trigger": null}
                         """, JsonCompareMode.STRICT));
     }
 

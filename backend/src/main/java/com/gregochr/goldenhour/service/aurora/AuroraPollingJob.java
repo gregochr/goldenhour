@@ -20,20 +20,19 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * Scheduled job that polls NOAA SWPC and drives the aurora alert lifecycle.
  *
- * <p>Runs on a fixed delay (the {@code aurora_polling} scheduler row, 5 minutes), so a slow poll never
- * overlaps the next scheduled one. Each poll is one of two kinds, chosen by whether tonight's dark
- * window — nautical dusk to nautical dawn at Durham — has opened yet:
+ * <p>Runs on the {@code aurora_polling} scheduler row's fixed delay (5 minutes). Each poll is one of
+ * two kinds, chosen by whether tonight's dark window (nautical dusk to nautical dawn at Durham) has
+ * opened yet, and each evaluates the state machine at most once:
  * <ol>
- *   <li><b>Daylight</b> — the forecast lookahead alone, a heads-up for tonight
+ *   <li><b>Daylight</b>: the forecast for tonight, a heads-up
  *       ({@link AuroraOrchestrator#runForecastLookahead}).</li>
- *   <li><b>Dark</b> — the lookahead and then the real-time path, over one NOAA snapshot
- *       ({@link AuroraOrchestrator#runNightPoll}). The real-time path confirms, escalates or clears
- *       the alert. It reads tonight through the lookahead's own figure, so it never clears what the
- *       lookahead would raise again on the next poll.</li>
+ *   <li><b>Dark</b>: the higher of the forecast for the rest of tonight and the conditions now, over
+ *       one NOAA snapshot ({@link AuroraOrchestrator#runNightPoll}). It raises, escalates or clears
+ *       the alert, and never drops below the forecast, so a heads-up survives the evening.</li>
  * </ol>
  *
- * <p>Every poll reads the clock once. That one instant decides which night "tonight" is, whether it
- * has started, and how much of it is left, so those questions can never be answered at different
+ * <p>The job reads its clock once per poll. That one instant decides which night "tonight" is,
+ * whether it has started, and how much of it is left, so those can never be answered at different
  * moments.
  */
 @Component
@@ -70,10 +69,16 @@ public class AuroraPollingJob {
      * {@code POST /api/aurora/admin/run} ({@link #runCycleIfIdle()}).
      *
      * <p>{@link AuroraStateCache#evaluate} is a read-check-write that assumes one writer. Two
-     * overlapping cycles both find it IDLE and both pay for a Claude call, and the admin route used to
-     * reach it from a request thread while the schedule was mid-cycle. An {@link AtomicBoolean}
-     * rather than a lock because a refusal must not wait: the schedule skips (the next poll is five
-     * minutes away) and the admin route answers 409.
+     * overlapping cycles both find it IDLE and both pay for a Claude call. Cycles could overlap: the
+     * admin route reached the state machine from a request thread whenever it was called, and the
+     * scheduler itself can start a poll while one is running — Update Schedule and Resume re-arm the
+     * job with an immediate first run, and re-arming cancels the old schedule without interrupting
+     * the cycle it is running. A refusal is a skip for the schedule (the next poll is five minutes
+     * away) and a 409 for the admin route.
+     *
+     * <p>An {@link AtomicBoolean} rather than a lock because nothing about a cycle belongs to a
+     * thread: unlike a {@code ReentrantLock}, a second attempt from the thread already running a
+     * cycle is refused like any other.
      */
     private final AtomicBoolean cycleRunning = new AtomicBoolean(false);
 
@@ -111,8 +116,9 @@ public class AuroraPollingJob {
      * already running (see {@link #cycleRunning}). A skipped poll is only logged — the next is five
      * minutes away.
      *
-     * <p>The initial 60-second delay prevents NOAA API calls immediately on startup.
-     * The fixed-delay schedule ensures the next poll does not begin until this one finishes.
+     * <p>The fixed delay keeps one scheduled run from starting before the previous one finishes.
+     * The first run is immediate: {@code DynamicSchedulerService} schedules fixed-delay jobs with no
+     * initial delay, so the {@code initial_delay_ms} the V68 seed carries is not applied.
      */
     public void poll() {
         if (!properties.isEnabled()) {
@@ -124,13 +130,14 @@ public class AuroraPollingJob {
     }
 
     /**
-     * Runs one polling cycle now unless one is already running. The admin route takes this directly,
-     * so a manual run is the scheduled cycle itself and can never read tonight differently from it.
-     * Unlike {@link #poll()} it does not consult {@code aurora.enabled}.
+     * Runs one polling cycle now, on the calling thread, unless one is already running. The admin
+     * route takes this directly, so a manual run is the scheduled cycle itself and can never read
+     * tonight differently from it. Unlike {@link #poll()} it does not consult
+     * {@code aurora.enabled}.
      *
      * @return what the cycle did, or empty if a cycle was already running
      */
-    public Optional<AuroraOrchestrator.PollOutcome> runCycleIfIdle() {
+    public Optional<AuroraPollOutcome> runCycleIfIdle() {
         if (!cycleRunning.compareAndSet(false, true)) {
             return Optional.empty();
         }
@@ -151,12 +158,11 @@ public class AuroraPollingJob {
      *
      * @return what the poll did
      */
-    AuroraOrchestrator.PollOutcome executePoll() {
+    AuroraPollOutcome executePoll() {
         ZonedDateTime now = ZonedDateTime.now(clock.withZone(UTC));
         TonightWindow tonight = calculateTonightWindow(now);
         if (now.isBefore(tonight.dusk())) {
-            return new AuroraOrchestrator.PollOutcome(
-                    orchestrator.runForecastLookahead(tonight, now), null);
+            return orchestrator.runForecastLookahead(tonight, now);
         }
         return orchestrator.runNightPoll(tonight, now);
     }

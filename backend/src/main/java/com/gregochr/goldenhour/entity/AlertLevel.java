@@ -26,7 +26,7 @@ public enum AlertLevel {
     /** Kp at and above which the level is MODERATE (G1) by default. */
     public static final double DEFAULT_MODERATE_KP = 5.0;
 
-    /** Kp at and above which the level is MINOR. */
+    /** Kp at and above which the level is at least MINOR (MODERATE, if the threshold is lower). */
     public static final double MINOR_KP = 4.0;
 
     private final int severity;

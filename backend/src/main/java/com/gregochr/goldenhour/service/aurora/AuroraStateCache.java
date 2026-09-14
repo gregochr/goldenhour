@@ -26,11 +26,16 @@ import java.util.List;
  *   <li>ACTIVE + QUIET/MINOR → {@link Action#CLEAR}, transition to IDLE</li>
  * </ul>
  *
- * <p>Thread safety: {@code volatile} fields allow the REST endpoint to read state from
- * a different thread while the polling job writes from a single background thread.
- * Compound read-check-write in {@link #evaluate(AlertLevel)} is intentionally
- * single-threaded — only a polling cycle calls it, and {@link AuroraPollingJob} never runs two
- * cycles at once, whichever route (schedule, Run Now, or the admin run endpoint) started them.
+ * <p>Thread safety: {@code volatile} fields let readers (the REST endpoints, the briefing builders)
+ * see state from their own threads. The compound read-check-write in {@link #evaluate(AlertLevel)}
+ * is single-writer: only a polling cycle calls it, and {@link AuroraPollingJob} never runs two
+ * cycles at once, whichever route started them. A cycle runs on a scheduler thread, or on the
+ * request thread for the admin run endpoint.
+ *
+ * <p>⚠️ Not every write goes through that guard. The admin {@code reset}, {@code simulate} and
+ * {@code simulate/clear} endpoints write from request threads, and the aurora batch job's result
+ * handler calls {@link #updateScores} from the batch-polling thread whatever the state. A reset that
+ * lands while a cycle is scoring leaves the machine IDLE holding that cycle's scores.
  */
 @Component
 public class AuroraStateCache {
@@ -39,7 +44,7 @@ public class AuroraStateCache {
      * Actions emitted by the state machine.
      */
     public enum Action {
-        /** New alert — score all eligible locations and notify. */
+        /** New alert, or an escalation — score all eligible locations. Sends no email or push. */
         NOTIFY,
         /** Duplicate or de-escalating alert — do nothing. */
         SUPPRESS,
@@ -90,7 +95,7 @@ public class AuroraStateCache {
     /**
      * Evaluates an incoming alert level and advances the state machine.
      *
-     * <p>This method is intended to be called only from the single polling-job thread.
+     * <p>Called only from inside a polling cycle, and {@link AuroraPollingJob} never runs two at once.
      *
      * @param incoming the latest alert level from AuroraWatch
      * @return the evaluation result containing the action and level context
@@ -142,8 +147,9 @@ public class AuroraStateCache {
     /**
      * Records which trigger path fired the last NOTIFY and the Kp value that drove it.
      *
-     * <p>For {@link TriggerType#FORECAST_LOOKAHEAD} this is the max forecast Kp tonight;
-     * for {@link TriggerType#REALTIME} this is the most recent Kp index reading.
+     * <p>For {@link TriggerType#FORECAST_LOOKAHEAD} this is the highest Kp forecast for the rest of
+     * tonight. For {@link TriggerType#REALTIME} it is the Kp for now: NOAA's value for the most
+     * recently completed 3-hour block ({@code AuroraOrchestrator.currentKp}).
      *
      * @param triggerType the path that produced the NOTIFY
      * @param kp          the Kp value that triggered the alert
@@ -154,7 +160,8 @@ public class AuroraStateCache {
     }
 
     /**
-     * Returns the trigger type of the last NOTIFY, or {@code null} when IDLE.
+     * Returns the trigger type of the last NOTIFY. {@code null} until a NOTIFY or a simulation sets
+     * it; a CLEAR does not reset it, only {@link #reset()} does.
      *
      * @return last {@link TriggerType}, or {@code null}
      */
@@ -163,7 +170,8 @@ public class AuroraStateCache {
     }
 
     /**
-     * Returns the Kp value that drove the last NOTIFY, or {@code null} when IDLE.
+     * Returns the Kp value that drove the last NOTIFY. {@code null} until a NOTIFY or a simulation
+     * sets it; a CLEAR does not reset it, only {@link #reset()} does.
      *
      * @return last trigger Kp, or {@code null}
      */
