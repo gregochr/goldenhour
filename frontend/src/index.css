@@ -9205,3 +9205,73 @@ button.wf-mchip:hover {
   .wf-wsh-b { padding: 10px 12px 12px; }
   .wf-wsh-h { padding: 10px 12px; }
 }
+
+/* ==============================================================================================
+   THE iPAD BAND — 640px to 1023px (2026-09-11).
+
+   The plan-matrix handoff specifies three tiers — desktop, iPad and phone — and until this block the
+   Plan arm had two: desktop, and phone at 639px. Every iPad value in the spec therefore resolved to
+   the desktop one. This is that third tier.
+
+   WHY 640–1023. It is not invented here: the masthead wordmark has carried a tablet tier on exactly
+   this range all along (`BrandLockup`'s `sm:`/`lg:` — Tailwind's 640px and 1024px), so this block
+   gives the rest of the Plan tab the band the wordmark already had. It sits flush against the
+   phone query (`max-width: 639px`, also `useIsMobile`) with no gap and no overlap. The handoff's
+   frames place an iPad portrait at 834px — inside the band — and its desktop frame at 1180px,
+   which is an iPad in landscape, so a landscape iPad correctly gets the desktop layout.
+
+   The values come from the PROTOTYPE's `.wrap.pad` rules, not from the README's prose, because the
+   two disagree in two places and the prototype is what renders:
+   · The README gives region cards `150px` on iPad. The prototype has two rules — `.rrail` at 150px
+     and `.wside .rrail` at 130px — and `regionRail()` is only ever called inside `.wside`, so the
+     more specific 130px is the one on screen. 150px is the rule that loses.
+   · The spot strip is `(100% - 16px) / 2.6`, not the desktop's `(100% - 24px)`: 2.6 cards show two
+     gaps where 3.5 show three. `.wf-spots`'s own note deferred exactly this ("widening it is the
+     responsive pass's call") — this is that pass.
+
+   ⚠️ ONE DELIBERATE DEPARTURE. The prototype pads the masthead `13px 20px 0` on iPad — a 20px inset
+   — but gives the tab bar, the lens bar and the body no iPad rule, so they keep 22px. In this
+   codebase the masthead and the body share one `--wf-gutter`, which exists precisely so the chrome
+   column cannot jog ("the phone rule cannot move half the chrome and leave the rest"). Following the
+   prototype would put the masthead 2px in from everything under it, on this band alone. The
+   README's own system-level statement — "Body gutter 22px desktop AND iPad" — supports keeping one
+   inset, so the masthead takes the spec's 13px top and stays on the shared gutter. One value to
+   change if the jog is wanted.
+
+   NOT HERE, AND WHY:
+   · The wordmark already has this tier (25px). Its sizes sit 2px above the spec at EVERY tier —
+     21/25/28 against 19/23/26 — which is a brand decision across all three, not an iPad gap.
+   · The tick-times gap is already right for iPad: the prototype runs 16px desktop, 12px iPad, 9px
+     phone, and this arm's `.wf-tick-times` is 12px — so it is the DESKTOP that has drifted, onto
+     the iPad value. Out of scope for an iPad change; recorded rather than fixed.
+   · The body gutter, the lens bar's padding and the popup's two-column body are the same on iPad
+     and desktop in the spec, and already correct.
+   · The popup's width: the spec's `calc(100% - 28px)` is 14px a side, and the popup's inset comes
+     from the SHARED `Modal`'s 16px gutter, not from `.wf-wsh`. What the rule actually changes on an
+     834px iPad is the 780px cap, which would otherwise engage — so it is raised, and the last 2px a
+     side is left to `Modal`, which every dialog in the app shares.
+
+   ⚠️ RAISED TO 806px, NOT LIFTED. The first cut set `max-width: none`, and measured in a real
+   `Modal` the popup then filled the viewport: 968px at 1000, 991px at 1023 — and then 780px at 1024,
+   where the desktop cap returns. Widening the window by one pixel shrank the popup by 211px. The
+   spec never drew an iPad popup wider than its own 834px frame allows (834 - 28 = 806), so that is
+   the cap: 802px at 834 (the Modal gutter takes the other 4px), 806px from ~838 up, and a 26px step
+   to 780 at the desktop edge instead of 211. The spec's value is kept where it was designed, and
+   the rule is not extrapolated to widths it was never drawn at. */
+@media (min-width: 640px) and (max-width: 1023px) {
+  .wf-mast { padding: 13px var(--wf-gutter) 0; }
+  .wf-hstrip-sp { display: none; }
+  .wf-wsh { max-width: 806px; }
+  .wf-wsh .wf-rrail { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
+  .wf-rr-all {
+    grid-column: 1 / -1;
+    min-height: 46px;
+    flex-direction: row;
+    align-items: center;
+    gap: 9px;
+    flex-wrap: wrap;
+  }
+  .wf-rr-all .wf-rr-m { margin-top: 0; margin-left: auto; }
+  .wf-prose { min-height: 112px; }
+  .wf-spots > .wf-spot { flex: 0 0 calc((100% - 16px) / 2.6); }
+}
