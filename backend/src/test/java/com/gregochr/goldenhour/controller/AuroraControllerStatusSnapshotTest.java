@@ -1,0 +1,151 @@
+package com.gregochr.goldenhour.controller;
+
+import com.gregochr.goldenhour.client.NoaaSwpcClient;
+import com.gregochr.goldenhour.entity.AlertLevel;
+import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.model.AuroraForecastScore;
+import com.gregochr.goldenhour.model.AuroraStatusResponse;
+import com.gregochr.goldenhour.model.KpReading;
+import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
+import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
+import com.gregochr.goldenhour.service.aurora.TriggerType;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+
+import java.time.Instant;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.when;
+
+/**
+ * Pins that one {@code GET /api/aurora/status} response describes one state of the aurora state
+ * machine, even when the polling job moves the machine while the request waits on NOAA.
+ *
+ * <p>Written as a plain unit test with a REAL {@link AuroraStateCache}, rather than through
+ * {@code MockMvc} and the shared context's mocked one: the transition under test is the machine's
+ * own — a CLEAR resets the level, the flag, the scores, the counts and {@code activeSince} together
+ * and leaves the trigger alone — and a mock would restate only whichever of those fields a test
+ * remembered to flip. The polling job's call is made from inside the solar-wind stub, the NOAA
+ * endpoint with the shortest cache (one minute) and so the one a status request most often waits on.
+ */
+@ExtendWith(MockitoExtension.class)
+class AuroraControllerStatusSnapshotTest {
+
+    /** When the stubbed live Kp was measured; nothing reads it but the response's {@code updatedAt}. */
+    private static final ZonedDateTime READING_TIME =
+            ZonedDateTime.of(2026, 9, 14, 13, 0, 0, 0, ZoneOffset.UTC);
+
+    @Mock
+    private NoaaSwpcClient noaaClient;
+
+    @Mock
+    private AuroraForecastRunService forecastRunService;
+
+    private AuroraStateCache stateCache;
+    private AuroraController controller;
+
+    @BeforeEach
+    void setUp() {
+        stateCache = new AuroraStateCache();
+        controller = new AuroraController(stateCache, noaaClient, forecastRunService);
+    }
+
+    @Test
+    @DisplayName("an alert that clears while the request waits on NOAA is answered as the alert throughout")
+    void clearDuringNoaaCalls_answersAsTheRunningAlert() {
+        startAlert();
+        Instant detectedAt = stateCache.getActiveSince();
+        when(noaaClient.fetchSolarWind()).thenAnswer(invocation -> {
+            stateCache.evaluate(AlertLevel.QUIET); // the polling job's CLEAR
+            return List.of();
+        });
+
+        AuroraStatusResponse status = controller.getStatus().getBody();
+
+        // Control: the CLEAR really landed during the request — without it this proves nothing.
+        assertThat(stateCache.isActive()).isFalse();
+        // One state throughout: the alert the request started under. Broken, the level said MODERATE
+        // while the flag, the counts and the detection time had already cleared.
+        assertThat(status.level()).isEqualTo(AlertLevel.MODERATE);
+        assertThat(status.active()).isTrue();
+        assertThat(status.eligibleLocations()).isEqualTo(2);
+        assertThat(status.darkSkyLocationCount()).isEqualTo(12);
+        assertThat(status.clearLocationCount()).isEqualTo(7);
+        assertThat(status.detectedAt()).isEqualTo(detectedAt);
+    }
+
+    @Test
+    @DisplayName("an alert that begins while the request waits on NOAA is answered as the quiet state throughout")
+    void notifyDuringNoaaCalls_answersAsTheQuietState() {
+        when(noaaClient.fetchSolarWind()).thenAnswer(invocation -> {
+            // The polling job's NOTIFY, and the trigger `AuroraOrchestrator.scoreAndCache` records
+            // straight after it.
+            stateCache.evaluate(AlertLevel.MODERATE);
+            stateCache.updateTrigger(TriggerType.REALTIME, 5.3);
+            return List.of();
+        });
+
+        AuroraStatusResponse status = controller.getStatus().getBody();
+
+        // Control: the NOTIFY really landed during the request.
+        assertThat(stateCache.isActive()).isTrue();
+        // One state throughout: the quiet one. Broken, QUIET came out beside an active flag, a
+        // detection time, the new trigger and a G1 storm scale derived from its Kp.
+        assertThat(status.level()).isEqualTo(AlertLevel.QUIET);
+        assertThat(status.active()).isFalse();
+        assertThat(status.detectedAt()).isNull();
+        assertThat(status.triggerType()).isNull();
+        assertThat(status.forecastKp()).isNull();
+        assertThat(status.gScale()).isNull();
+    }
+
+    @Test
+    @DisplayName("a simulation started while the request waits on NOAA is answered as the quiet state throughout")
+    void simulationStartedDuringNoaaCalls_answersAsTheQuietState() {
+        // A live Kp high enough to carry a storm scale beside a quiet machine: the real-time path
+        // that would act on it runs only at night.
+        when(noaaClient.fetchKp()).thenReturn(List.of(new KpReading(READING_TIME, 5.7)));
+        when(noaaClient.fetchSolarWind()).thenAnswer(invocation -> {
+            // An admin's POST /api/aurora/admin/simulate, which moves the machine without the FSM.
+            stateCache.activateSimulation(AlertLevel.STRONG,
+                    new AuroraStateCache.SimulatedNoaaData(7.3, 60.0, -9.5, "G3"));
+            return List.of();
+        });
+
+        AuroraStatusResponse status = controller.getStatus().getBody();
+
+        // Control: the simulation really started during the request.
+        assertThat(stateCache.isSimulated()).isTrue();
+        // One state throughout: the quiet, real one the request started under, with the live reading
+        // it went on to fetch and the storm scale a real response derives from it. Broken, that
+        // reading came out marked simulated, active, carrying the simulation's forecast trigger, and
+        // with no storm scale, because the simulated flag read late skipped its derivation.
+        assertThat(status.simulated()).isFalse();
+        assertThat(status.level()).isEqualTo(AlertLevel.QUIET);
+        assertThat(status.active()).isFalse();
+        assertThat(status.triggerType()).isNull();
+        assertThat(status.kp()).isEqualTo(5.7);
+        assertThat(status.gScale()).isEqualTo("G1");
+    }
+
+    /** An alert as the polling job leaves one after a NOTIFY: active, scored, triggered, counted. */
+    private void startAlert() {
+        stateCache.evaluate(AlertLevel.MODERATE);
+        stateCache.updateScores(List.of(score(1L, "Kielder"), score(2L, "Cheviot")));
+        stateCache.updateTrigger(TriggerType.REALTIME, 5.3);
+        stateCache.updateLocationCounts(12, 7);
+    }
+
+    private static AuroraForecastScore score(long id, String name) {
+        LocationEntity location = LocationEntity.builder()
+                .id(id).name(name).lat(55.2).lon(-2.5).bortleClass(2).build();
+        return new AuroraForecastScore(location, 4, AlertLevel.MODERATE, 20, "★★★★ summary", "detail");
+    }
+}
