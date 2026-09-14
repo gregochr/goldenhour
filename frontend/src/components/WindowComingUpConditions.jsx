@@ -94,6 +94,10 @@ export default function WindowComingUpConditions({ conditions, onGoToPlan }) {
               </span>
               <span className="wf-cond-name" data-testid="condition-name">
                 {condition.name}
+                {/* ⚠️ LOAD-BEARING in a browser, unlike this file's cell separators: the name is a
+                    text run and the cadence a plain inline span inside `.wf-cond-name`, so without
+                    this the row's name reads "Coastal tidesdeterministic…" in Chromium, WebKit and
+                    Firefox alike (measured 2026-09-11). */}
                 {' '}
                 <span className="wf-cond-kind" data-testid="condition-cadence">{condition.cadence}</span>
               </span>
@@ -186,11 +190,13 @@ function OccurrenceRow({ occurrence, onGoToPlan }) {
   const statusClass = occurrence.status === 'promoted' ? 'wf-cond-oc-up'
     : occurrence.status === 'insidePlan' ? 'wf-cond-oc-pl' : '';
 
-  // Every cell is separated by a bare `{' '}` text-node sibling — the same fix
-  // `WindowFirstComingUpHandoff`/`WindowComingUpEntry` already record: JSX drops whitespace-only
-  // text between sibling tags rather than collapsing it to a space, so without this the accessible
-  // name of the wrapping button (promoted/insidePlan rows below) would run every cell together
-  // with no word boundary.
+  // Every cell is separated by a bare `{' '}` text-node sibling — defensively. JSX drops
+  // whitespace-only text between sibling tags, and jsdom — which computes no layout, so the cells
+  // read as inline to it — needs a real text node to see the boundary. In a browser
+  // `.wf-cond-oc` is `display: grid`, so the
+  // cells are grid items every engine spaces itself: removing these changed no accessible name
+  // (measured 2026-09-11). Contrast the name/cadence separator earlier in this file, which IS
+  // load-bearing. The rule is in `WindowFirstComingUpHandoff`'s class doc.
   const cells = (
     <>
       <span className="wf-cond-od">{occurrence.dateLabel}</span>

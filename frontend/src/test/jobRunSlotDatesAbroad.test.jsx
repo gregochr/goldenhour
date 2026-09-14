@@ -371,9 +371,11 @@ describe('whether a slot has already happened', () => {
 
     await waitFor(() => expect(slotBox('Today', 'Sunrise')).toBeDisabled());
     const sunrise = slotBox('Today', 'Sunrise');
-    // Run together because the "(past)" marker is an inline sibling with no whitespace between it
-    // and the label — the gap on screen is flex `gap-1.5`, which contributes nothing to the name.
-    // Pre-existing markup, asserted as it really reads rather than as it looks.
+    // ⚠️ Run together HERE, in jsdom — not in a browser. The label is `flex`, so "🌅 Sunrise" and
+    // the "(past)" span are flex items, and Chromium, WebKit and Firefox all space those themselves:
+    // a browser reads "🌅 Sunrise (past)". jsdom computes no layout, so both read as inline to it
+    // and the polyfill joins them (see `WindowFirstComingUpHandoff`'s class doc). This asserts the
+    // suite's reading of pre-existing markup, which is what it can check — not how it really reads.
     expect(sunrise).toHaveAccessibleName('🌅 Sunrise(past)');
   });
 

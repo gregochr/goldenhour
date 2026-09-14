@@ -225,11 +225,17 @@ export default function WindowControl({
             <span className="wf-win-label">{active.dayLabel ?? active.label}</span>
             {' '}
             {active.time && <span className="wf-win-time">{active.time}</span>}
-            {/* ⚠️ The bare spaces are load-bearing, not formatting. accname TRIMS each element's own
-                contribution before concatenating, so sibling spans join with nothing between them —
-                measured, this name read "20:28Also goodWorth iteverywhere in your area". With the
-                stylesheet loaded the inline-flex boxes happen to insert spaces, which makes the name
-                a side effect of a `display` value the phone rule already proves is volatile. */}
+            {/* ⚠️ Defensive, not load-bearing in a browser. The glued reading "20:28Also goodWorth
+                iteverywhere in your area" is jsdom's: it computes no layout, so these flex items
+                read as `display: inline` to it. In a browser `.wf-win-pill` is `display: flex` at
+                every width — no media query changes it — so these are flex items, blockified
+                whatever their own display, and every engine spaces them itself: removing each of
+                these separators changed no accessible name in Chromium, WebKit or Firefox, at
+                1280px or 375px (measured 2026-09-11). The breakpoint rules that do change a
+                `display` or `position` in here (hiding the region at ≤639px and the pick at
+                ≤389px, taking the pick's words out of flow at ≤811px) leave the pill flex.
+                They stay because they state the boundary in the DOM and jsdom's reading needs
+                them. Rule and method: `WindowFirstComingUpHandoff`'s class doc. */}
             {' '}
             <Medallion kind={active.pickKind} />
             {' '}
@@ -489,8 +495,10 @@ function VerdictCell({ verdict, scopeIsArea }) {
   return (
     <span className="wf-win-verdict" data-tier={verdict.tier} data-testid="wf-win-verdict">
       <b className="wf-win-verdict-word" data-testid="wf-win-verdict-word">{VERDICT_LABEL[verdict.tier] || VERDICT_LABEL.AWAITING}</b>
-      {/* Same accname rule as the pill's own siblings: without this the word and the region read as
-          one token ("Worth iteverywhere in your area"). */}
+      {/* Defensive, like the pill's own separators: `.wf-win-verdict` is `display: inline-flex`, so
+          the word and the region are flex items and browsers space them themselves. "Worth
+          iteverywhere in your area" is jsdom's reading — it computes no layout, so they read as
+          inline to it (measured 2026-09-11; see `WindowFirstComingUpHandoff`'s class doc). */}
       {' '}
       {/* A `<span>`, not an `<em>`: `<em>` means stress emphasis, some AT announces it, and the
           stylesheet immediately sets `font-style: normal` on it — the tell that none is intended. */}

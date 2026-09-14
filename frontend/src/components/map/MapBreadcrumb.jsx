@@ -45,11 +45,23 @@ const KIND_WORD = {
  *
  * <p>`← Plan`'s arrow is `aria-hidden` (the increment's own instruction, plan task 3) — the
  * accessible name is "Plan" alone, the plain trailing text node. Every sibling run that has to read
- * as ONE space-separated sentence uses a literal `{' '}` text node between elements, never CSS
- * `gap` or a pseudo-element `content` — JSX drops a whitespace-only text node between tags rather
- * than collapsing it to a space, and accname trims each wrapped element's own leading/trailing
- * whitespace before the join (`WindowFirstComingUpHandoff.jsx`'s own note on the identical trap).
- * The `/` and `·` separators are bare text, for the same reason.
+ * as ONE space-separated sentence uses a literal `{' '}` text node between elements, and the `/`
+ * and `·` separators are bare text — both so the boundary is stated in the DOM, where jsdom (which
+ * computes no layout, so every span reads as inline to it) can see it. JSX drops a whitespace-only
+ * text node between tags, so it has to be written explicitly.
+ *
+ * <p>⚠️ <b>Most of these are defensive in a browser, and one is not.</b> The separators between the
+ * breadcrumb's own pieces sit between flex items (`.wf-map-breadcrumb` and
+ * `.wf-map-breadcrumb-carrying` are `display: flex`), which every engine spaces itself; removing
+ * them changed nothing a screen reader is given (measured 2026-09-11). The one inside
+ * `.wf-map-breadcrumb-window` — between `<b>{dayLabel}</b>` and the kind word — is
+ * <b>load-bearing</b>: those are plain inline content, so without it the text read aloud is
+ * "Tonightsunset". It changes no accessible NAME only because the `<nav>` takes its name from
+ * `aria-label`. (The audit missed it: its capture could not isolate a separator followed directly
+ * by text, which merges into that text when a DOM is re-parsed. The rule predicts it.) This note
+ * also used to say a pseudo-element could not do the job and that accname
+ * trims each element's whitespace — neither holds in a browser: generated content IS in the name,
+ * and only jsdom's polyfill trims. `WindowFirstComingUpHandoff`'s class doc has the rule.
  *
  * @param {object} props
  * @param {{region: ?string, minRating: ?number, limitMinutes: ?number}} props.carried the door's
