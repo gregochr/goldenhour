@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act, within } from '@testing-library/react';
 import JobRunsMetricsView from '../components/JobRunsMetricsView.jsx';
 
 // ── Mocks ────────────────────────────────────────────────────────────────
@@ -50,7 +50,8 @@ vi.mock('../hooks/useAuroraStatus.js', () => ({
 
 import { getRegions, submitScheduledBatch, submitJfdiBatch } from '../api/batchApi';
 import { getJobRuns, getApiCalls } from '../api/metricsApi';
-import { fetchLocations } from '../api/forecastApi';
+import { fetchLocations, refreshTideData } from '../api/forecastApi';
+import { runBriefing } from '../api/briefingApi.js';
 import { getAvailableModels } from '../api/modelsApi';
 
 const MOCK_REGIONS = [
@@ -443,5 +444,82 @@ describe('Region display in dialog', () => {
     await waitFor(() => {
       expect(getRegions).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+// ── Refused runs (409) ────────────────────────────────────────────────────
+//
+// The briefing and the tide refresh are refused by the backend while one is already running — the
+// briefing typically behind the pipeline's own build, the tide refresh behind the schedule, the
+// Scheduler's Run Now or an earlier press here. A refusal is not a failure and has nothing in the
+// logs to check, so the status line must say which it is. Each 409 test is paired with a non-409
+// one: a component that printed the "in progress" line for every error would pass the first alone.
+
+describe('Refused briefing and tide runs', () => {
+  const REFUSED = { response: { status: 409 } };
+  // The sharpest non-409 inputs: an adjacent 4xx, and a network error with no response at all
+  // (which a dropped optional chain in `err?.response?.status` would turn into a throw).
+  const BAD_REQUEST = { response: { status: 400 } };
+  const NO_RESPONSE = new Error('Network Error');
+
+  beforeEach(() => {
+    // Own setup: `clearAllMocks` keeps implementations, so a rejection set here would otherwise
+    // leak into any describe added after this one.
+    runBriefing.mockReset();
+    refreshTideData.mockReset();
+  });
+
+  /** Clicks the tide button and confirms its dialog. */
+  async function refreshTide() {
+    fireEvent.click(await screen.findByRole('button', { name: '⟳ Refresh Tide Data' }));
+    await act(async () => {
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Refresh' }));
+    });
+  }
+
+  it('says a briefing refresh is already in progress when the backend refuses one', async () => {
+    runBriefing.mockRejectedValue(REFUSED);
+    renderView();
+
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('button', { name: '⟳ Briefing' }));
+    });
+
+    expect(await screen.findByText('A briefing refresh is already in progress. Wait for it to complete.'))
+      .toBeInTheDocument();
+    expect(screen.queryByText('Briefing refresh failed. Check the logs.')).toBeNull();
+  });
+
+  it('still reports a network error on a briefing run as a failure', async () => {
+    runBriefing.mockRejectedValue(NO_RESPONSE);
+    renderView();
+
+    await act(async () => {
+      fireEvent.click(await screen.findByRole('button', { name: '⟳ Briefing' }));
+    });
+
+    expect(await screen.findByText('Briefing refresh failed. Check the logs.')).toBeInTheDocument();
+    expect(screen.queryByText(/already in progress/)).toBeNull();
+  });
+
+  it('says a tide refresh is already in progress when the backend refuses one', async () => {
+    refreshTideData.mockRejectedValue(REFUSED);
+    renderView();
+
+    await refreshTide();
+
+    expect(await screen.findByText('Refresh Tide Data: a run is already in progress. Wait for it to complete.'))
+      .toBeInTheDocument();
+    expect(screen.queryByText('Refresh Tide Data failed. Check the logs.')).toBeNull();
+  });
+
+  it('still reports a 400 on a tide refresh as a failure', async () => {
+    refreshTideData.mockRejectedValue(BAD_REQUEST);
+    renderView();
+
+    await refreshTide();
+
+    expect(await screen.findByText('Refresh Tide Data failed. Check the logs.')).toBeInTheDocument();
+    expect(screen.queryByText(/already in progress/)).toBeNull();
   });
 });

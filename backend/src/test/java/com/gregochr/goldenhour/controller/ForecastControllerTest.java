@@ -19,6 +19,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
@@ -33,6 +34,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.NoSuchElementException;
+import java.util.concurrent.Executor;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -59,6 +61,10 @@ class ForecastControllerTest extends AbstractControllerTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    @Qualifier("forecastExecutor")
+    private Executor forecastExecutor;
 
     private static final LocationEntity DURHAM = LocationEntity.builder()
             .id(1L).name("Durham UK").lat(54.7753).lon(-1.5849).build();
@@ -587,9 +593,29 @@ class ForecastControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("POST /api/forecast/run/tide as ADMIN returns 202 Accepted")
     void refreshTideData_asAdmin_returns202() throws Exception {
+        when(scheduledForecastService.startTideRefresh(forecastExecutor)).thenReturn(true);
+
         mockMvc.perform(post("/api/forecast/run/tide"))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.status").value("Tide refresh started"))
+                .andExpect(jsonPath("$.runType").value("TIDE"));
+
+        verify(scheduledForecastService).startTideRefresh(forecastExecutor);
+    }
+
+    /**
+     * A tide refresh already running — from the schedule, Run Now or an earlier press — must be
+     * reported as such, not as "started": the admin screen shows this status verbatim.
+     */
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/forecast/run/tide returns 409 while a tide refresh is already running")
+    void refreshTideData_whileRunning_returns409() throws Exception {
+        when(scheduledForecastService.startTideRefresh(forecastExecutor)).thenReturn(false);
+
+        mockMvc.perform(post("/api/forecast/run/tide"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value("A tide refresh is already running"))
                 .andExpect(jsonPath("$.runType").value("TIDE"));
     }
 

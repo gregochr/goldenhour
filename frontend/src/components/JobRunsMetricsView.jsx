@@ -383,8 +383,13 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
           if (result.jobRunId) {
             onActiveRunChange(result.jobRunId);
           }
-        } catch {
-          setRunStatus({ type: 'error', message: `${title} failed. Check the logs.` });
+        } catch (err) {
+          // 409: the run is refused because one is already going — today only the tide refresh
+          // answers this way (from any route: schedule, Run Now, or an earlier press here).
+          const msg = err?.response?.status === 409
+            ? `${title}: a run is already in progress. Wait for it to complete.`
+            : `${title} failed. Check the logs.`;
+          setRunStatus({ type: 'error', message: msg });
         } finally {
           setRunning(false);
         }
@@ -421,8 +426,13 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
       const result = await runBriefing();
       setRunStatus({ type: 'success', message: result.status || 'Briefing refreshed.' });
       loadJobRuns(0);
-    } catch {
-      setRunStatus({ type: 'error', message: 'Briefing refresh failed. Check the logs.' });
+    } catch (err) {
+      // 409: the backend refuses a second build while one is running (typically the pipeline's
+      // own) — that is not a failure, and there is nothing in the logs to check.
+      const msg = err?.response?.status === 409
+        ? 'A briefing refresh is already in progress. Wait for it to complete.'
+        : 'Briefing refresh failed. Check the logs.';
+      setRunStatus({ type: 'error', message: msg });
     } finally {
       setRunningBriefing(false);
     }

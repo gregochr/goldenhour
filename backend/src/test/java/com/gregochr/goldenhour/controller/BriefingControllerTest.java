@@ -25,6 +25,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -164,11 +165,33 @@ class BriefingControllerTest extends AbstractControllerTest {
     @WithMockUser(roles = {"ADMIN"})
     @DisplayName("POST /api/briefing/run triggers refresh and returns 200 for ADMIN")
     void runBriefing_adminTriggersRefresh() throws Exception {
+        when(briefingService.refreshBriefingIfIdle()).thenReturn(true);
+
         mockMvc.perform(post("/api/briefing/run"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("Briefing refresh complete."));
 
-        verify(briefingService).refreshBriefing();
+        verify(briefingService).refreshBriefingIfIdle();
+        // One build per press: not the refusing entry AND the waiting one after it.
+        verify(briefingService, never()).refreshBriefing();
+    }
+
+    /**
+     * ⚠️ The admin endpoint takes the REFUSING entry point. The waiting one
+     * ({@code refreshBriefing}) belongs to the pipeline alone: taken here, a press during the
+     * pipeline's build would hold the request open and then run a second full build behind it.
+     */
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("POST /api/briefing/run returns 409 while a briefing refresh is already running")
+    void runBriefing_whileRunning_returns409() throws Exception {
+        when(briefingService.refreshBriefingIfIdle()).thenReturn(false);
+
+        mockMvc.perform(post("/api/briefing/run"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value("A briefing refresh is already running."));
+
+        verify(briefingService, never()).refreshBriefing();
     }
 
     @Test

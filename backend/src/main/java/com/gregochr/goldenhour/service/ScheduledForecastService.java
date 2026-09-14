@@ -10,10 +10,14 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Scheduled job targets for the weekly tide refresh and the daily briefing (registered
- * with the {@link DynamicSchedulerService}), plus the admin-triggered tide backfill.
+ * with the {@link DynamicSchedulerService}), plus the two admin-triggered tide runs: the
+ * refresh ({@link #startTideRefresh}) and the backfill.
  *
  * <p>The synchronous forecast wrappers that used to live here (near-term, distant and
  * weather runs, plus the exchange-rate warm-up) were removed after the v2.12
@@ -35,6 +39,25 @@ public class ScheduledForecastService {
     private final JobRunService jobRunService;
     private final BriefingService briefingService;
     private final DynamicSchedulerService dynamicSchedulerService;
+
+    /**
+     * True from the moment a tide refresh is accepted until it finishes, whichever route started
+     * it: the {@code tide_refresh} schedule, the Scheduler screen's Run Now, or the admin
+     * {@code POST /api/forecast/run/tide}.
+     *
+     * <p>Two refreshes that reach a location before either has committed it both find the
+     * window uncovered, so both spend a WorldTides request on it, and each deletes and re-inserts
+     * that window in its own transaction under {@code uq_tide_extreme (location_id, event_time)}.
+     * The slower one's inserts can then collide with the rows the faster one wrote, and its run
+     * logs a failure for a location that was in fact refreshed.
+     *
+     * <p>An {@link AtomicBoolean} rather than a lock because the admin route accepts the run on
+     * the request thread and releases it on the executor's thread, and a lock is owned by the
+     * thread that took it. It covers the roster-wide refresh only: the 12-month backfill, and the
+     * single-location fetch {@code LocationService} makes when a coastal location is added or
+     * edited, are outside it.
+     */
+    private final AtomicBoolean tideRefreshRunning = new AtomicBoolean(false);
 
     /**
      * Constructs a {@code ScheduledForecastService}.
@@ -75,8 +98,57 @@ public class ScheduledForecastService {
      * {@code tide_refresh} scheduler row still said until V139: the filter below requires the
      * SEASCAPE tag as well as a non-empty tide type, so a coastal LANDSCAPE or WATERFALL
      * location is skipped.
+     *
+     * <p>Does nothing if a tide refresh is already running (see {@link #tideRefreshRunning}).
+     * This is the scheduler's target, so the refusal can only be logged: Run Now has already
+     * answered "triggered" by the time it runs.
      */
     public void refreshTideExtremes() {
+        if (!tideRefreshRunning.compareAndSet(false, true)) {
+            LOG.warn("Tide refresh already running — skipping concurrent trigger");
+            return;
+        }
+        try {
+            doRefreshTideExtremes();
+        } finally {
+            tideRefreshRunning.set(false);
+        }
+    }
+
+    /**
+     * Starts a tide refresh on {@code executor} unless one is already running — the admin
+     * {@code POST /api/forecast/run/tide} route, which answers before the refresh finishes.
+     *
+     * <p>The guard is taken here, on the caller's thread, and released by the task when it ends,
+     * so the answer this returns is the truth at the moment it is given: there is no window
+     * between "accepted" and "started" in which a second trigger could also be accepted.
+     *
+     * @param executor the executor to run the refresh on
+     * @return {@code true} if the refresh was accepted, {@code false} if one was already running
+     */
+    public boolean startTideRefresh(Executor executor) {
+        if (!tideRefreshRunning.compareAndSet(false, true)) {
+            LOG.warn("Tide refresh already running — refusing admin trigger");
+            return false;
+        }
+        try {
+            CompletableFuture.runAsync(() -> {
+                try {
+                    doRefreshTideExtremes();
+                } finally {
+                    tideRefreshRunning.set(false);
+                }
+            }, executor);
+        } catch (RuntimeException | Error e) {
+            // Rejected before it ran (or the thread could not be made), so the task's own
+            // finally never will.
+            tideRefreshRunning.set(false);
+            throw e;
+        }
+        return true;
+    }
+
+    private void doRefreshTideExtremes() {
         JobRunEntity jobRun = jobRunService.startRun(RunType.TIDE, false, null);
         List<LocationEntity> coastal = locationService.findAllEnabled().stream()
                 .filter(loc -> loc.getLocationType().contains(LocationType.SEASCAPE))
@@ -102,12 +174,17 @@ public class ScheduledForecastService {
     }
 
     /**
-     * Refreshes the daily briefing at 04:00, 14:00 and 22:00 UTC — a pre-flight check
-     * of weather and tide conditions across all enabled colour locations.
+     * The {@code daily_briefing} scheduler target — a pre-flight check of weather and tide
+     * conditions across all enabled colour locations.
+     *
+     * <p>Dormant: V103 deleted the job's row, so nothing schedules it and the Scheduler screen
+     * has no Run Now for it (the briefing is built at the tail of each pipeline cycle). It stays
+     * registered as the one-line revert path V103 describes. If that revert is ever taken, a fire
+     * that meets a build already in progress skips it rather than queuing a second one behind it.
      */
     public void refreshDailyBriefing() {
         try {
-            briefingService.refreshBriefing();
+            briefingService.refreshBriefingIfIdle();
         } catch (Exception e) {
             LOG.error("Daily briefing refresh failed: {}", e.getMessage(), e);
         }

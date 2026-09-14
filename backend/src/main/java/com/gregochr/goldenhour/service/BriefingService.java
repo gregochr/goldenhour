@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.IntStream;
 
 
@@ -108,6 +109,19 @@ public class BriefingService {
 
     private final AtomicReference<DailyBriefingResponse> cache = new AtomicReference<>();
     private final AtomicReference<DailyBriefingResponse> lastKnownGood = new AtomicReference<>();
+
+    /**
+     * Held for the whole of a briefing build, so two builds never run at once.
+     *
+     * <p>Two concurrent builds each fetch the whole roster's weather, each pay for the gloss and
+     * best-bet Claude calls, and race to write {@link #cache}, {@link #lastKnownGood} and
+     * {@code daily_briefing_cache} — last writer wins, and the last writer can be the one that
+     * started first and read older evaluations. A {@link ReentrantLock} rather than an
+     * {@code AtomicBoolean} because {@link #refreshBriefing()} must be able to <em>wait</em> for
+     * it, and rather than {@code synchronized} because a held monitor pins a virtual thread on
+     * Java 21.
+     */
+    private final ReentrantLock refreshLock = new ReentrantLock();
 
     @Autowired(required = false)
     private CircuitBreakerRegistry circuitBreakerRegistry;
@@ -340,13 +354,68 @@ public class BriefingService {
     }
 
     /**
-     * Refreshes the daily briefing by fetching live weather data for all enabled colour
+     * Refreshes the daily briefing, <b>waiting</b> for any refresh already in progress to finish
+     * first — so it always runs a build of its own, and never alongside another.
+     *
+     * <p>This is the pipeline's entry point, and it waits rather than refusing on purpose. The
+     * pipeline calls it once its cycle's batches are terminal, so its build is the first to see
+     * those results in the gloss and the best-bet picks; a refresh that started earlier may have
+     * read the evaluations from before they landed. And {@code PipelineOrchestrator} reads the
+     * cached briefing straight afterwards to persist this cycle's picks — skipping would record
+     * another build's picks against this run.
+     *
+     * <p>⚠️ The wait is as long as the running build, and nothing bounds it more tightly than
+     * the pipeline's own build is bounded: the gloss and best-bet Claude calls run under the
+     * Anthropic SDK's per-request timeout and its retries, not the 30-second REST read timeout.
+     * So in the worst case a BRIEFING phase takes two builds' time rather than one. It logs when
+     * it waits, so a phase queued behind an admin build does not read as a hung one.
+     *
+     * <p>An admin or scheduler trigger that should not queue behind a running build uses
+     * {@link #refreshBriefingIfIdle()} instead.
+     */
+    public void refreshBriefing() {
+        if (!refreshLock.tryLock()) {
+            LOG.info("Briefing refresh already running — waiting for it to finish before building");
+            refreshLock.lock();
+        }
+        try {
+            doRefreshBriefing();
+        } finally {
+            refreshLock.unlock();
+        }
+    }
+
+    /**
+     * Refreshes the daily briefing unless a refresh is already in progress, in which case it does
+     * nothing and returns {@code false}.
+     *
+     * <p>For triggers where a second build straight after the first buys nothing: the admin
+     * "Run briefing" endpoint and the scheduler's {@code daily_briefing} target. The pipeline must
+     * not use this — see {@link #refreshBriefing()}.
+     *
+     * @return {@code true} if this call ran a build, {@code false} if one was already running
+     */
+    public boolean refreshBriefingIfIdle() {
+        if (!refreshLock.tryLock()) {
+            LOG.warn("Briefing refresh already running — skipping concurrent trigger");
+            return false;
+        }
+        try {
+            doRefreshBriefing();
+            return true;
+        } finally {
+            refreshLock.unlock();
+        }
+    }
+
+    /**
+     * Builds the daily briefing by fetching live weather data for all enabled colour
      * locations across the next {@link #BRIEFING_WINDOW_DAYS} dates, rolling up by region per
-     * solar event.
+     * solar event. Callers hold {@link #refreshLock}.
      *
      * <p>Logs a {@link RunType#BRIEFING} job run for metrics tracking.
      */
-    public void refreshBriefing() {
+    private void doRefreshBriefing() {
         LOG.info("Daily briefing refresh started");
         long briefingStart = System.currentTimeMillis();
         JobRunEntity jobRun = jobRunService.startRun(RunType.BRIEFING, false, null);
