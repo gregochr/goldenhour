@@ -991,6 +991,8 @@ Examples: "High cirrus canvas — good colour potential",
               <tr><td>ACTIVE</td><td>Higher severity</td><td><strong>NOTIFY</strong> (escalation)</td><td>ACTIVE</td></tr>
               <tr><td>ACTIVE</td><td>Same / lower (&ge; MODERATE)</td><td>SUPPRESS</td><td>ACTIVE</td></tr>
               <tr><td>ACTIVE</td><td>QUIET / MINOR</td><td>CLEAR</td><td>IDLE</td></tr>
+              <tr><td>ACTIVE (simulated)</td><td>MODERATE / STRONG</td><td><strong>NOTIFY</strong> (a new, real alert; the simulation ends)</td><td>ACTIVE</td></tr>
+              <tr><td>ACTIVE (simulated)</td><td>QUIET / MINOR</td><td>CLEAR (the simulation ends)</td><td>IDLE</td></tr>
             </table>
           </div>
         </div>
@@ -1344,7 +1346,7 @@ fromKp: >= 7.0 -> STRONG, >= kp-threshold (5.0) -> MODERATE, >= 4.0 -> MINOR, el
         </div>
         <div class="subsection-body">
           <div class="subsection-content">
-            <p>All fields are <code>volatile</code> for concurrent reads from REST endpoints while the single polling-job writer thread updates state.</p>
+            <p>All fields are <code>volatile</code>, read by the REST endpoints and briefing builders without a lock. Every write holds one <code>ReentrantLock</code>: the polling job (a scheduled poll and a Scheduler Run Now can overlap), the admin run, simulate, simulate-clear and reset endpoints, and <code>AuroraResultHandler</code> on the batch path.</p>
             <table>
               <tr><th>Field</th><th>Type</th><th>Updated On</th><th>Read By</th></tr>
               <tr><td><code>state</code></td><td><code>State</code> (IDLE / ACTIVE)</td><td>FSM transitions in <code>evaluate()</code></td><td><code>isActive()</code>, status endpoint</td></tr>
@@ -1355,10 +1357,9 @@ fromKp: >= 7.0 -> STRONG, >= kp-threshold (5.0) -> MODERATE, >= 4.0 -> MINOR, el
               <tr><td><code>darkSkyLocationCount</code></td><td><code>int</code></td><td><code>updateLocationCounts()</code></td><td>Status endpoint, banner count</td></tr>
               <tr><td><code>clearLocationCount</code></td><td><code>Integer</code> (nullable)</td><td><code>updateLocationCounts()</code></td><td>Status endpoint, banner count</td></tr>
               <tr><td><code>activeSince</code></td><td><code>Instant</code></td><td>NOTIFY / escalation</td><td>Status endpoint (detection timestamp)</td></tr>
-              <tr><td><code>simulated</code></td><td><code>boolean</code></td><td><code>activateSimulation()</code></td><td>Status endpoint (SIMULATED badge)</td></tr>
-              <tr><td><code>simulatedData</code></td><td><code>SimulatedNoaaData</code></td><td><code>activateSimulation()</code></td><td>Status endpoint (fake Kp/OVATION/Bz)</td></tr>
+              <tr><td><code>simulatedData</code></td><td><code>SimulatedNoaaData</code> (nullable)</td><td><code>activateSimulation()</code>; cleared by the first real reading, a Clear or a reset</td><td>Status endpoint and forecast preview/run &mdash; non-null <em>is</em> the SIMULATED flag (fake Kp/OVATION/Bz/G-scale)</td></tr>
             </table>
-            <p>All state cleared on <code>CLEAR</code> action (incoming &lt; MODERATE) or admin <code>/api/aurora/admin/reset</code>.</p>
+            <p>All state cleared on <code>CLEAR</code> action (incoming &lt; MODERATE), on admin <code>/api/aurora/admin/reset</code>, and on <code>/api/aurora/admin/simulate/clear</code> while a simulation is running.</p>
           </div>
         </div>
       </div>

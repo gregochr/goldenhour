@@ -217,16 +217,10 @@ public class AuroraForecastRunService {
      * <p>This is cheap to produce — it reads cached NOAA forecast data and queries the
      * locations table. No Claude API calls are made.
      *
-     * @return preview of the next three nights
-     */
-    /**
-     * Returns a 3-night Kp preview (tonight, T+1, T+2) for the night selector popup.
-     *
-     * <p>This is cheap to produce — it reads cached NOAA forecast data and queries the
-     * locations table. No Claude API calls are made.
-     *
      * <p>When simulation mode is active, the simulated Kp value is substituted for all
-     * three nights so the night selector shows realistic data for an admin test run.
+     * three nights so the night selector shows realistic data for an admin test run. The
+     * simulation is read once, and its presence is the answer to "simulated?" — see
+     * {@link AuroraStateCache#getSimulatedData()}.
      *
      * @return preview of the next three nights
      */

@@ -137,10 +137,10 @@ class AuroraHotTopicStrategyTest {
     @DisplayName("an admin's aurora simulation never emits a tonight pill, real STRONG level or not")
     void detect_simulated_emitsNothing() {
         // A REAL AuroraStateCache, driven through activateSimulation() exactly as
-        // AuroraAdminController does — not a mocked isSimulated(), so this proves the gate against
-        // the actual state the FSM can be in (activateSimulation always sets ACTIVE + a real level
-        // alongside the simulation flag; a mock would let the two disagree in a way production never
-        // can, masking a gate that checked the wrong signal).
+        // AuroraAdminController does — not a mocked getSimulatedData(), so this proves the gate
+        // against the actual state the FSM can be in (activateSimulation always sets ACTIVE + a real
+        // level alongside the simulation data; a mock would let the two disagree in a way production
+        // never can, masking a gate that checked the wrong signal).
         AuroraStateCache realCache = new AuroraStateCache();
         realCache.activateSimulation(AlertLevel.STRONG,
                 new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3"));
@@ -155,7 +155,8 @@ class AuroraHotTopicStrategyTest {
     @Test
     @DisplayName("the simulated gate short-circuits before reading the level or trigger Kp")
     void detect_simulated_neverReadsLevelOrKp() {
-        when(auroraStateCache.isSimulated()).thenReturn(true);
+        when(auroraStateCache.getSimulatedData()).thenReturn(
+                new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3"));
 
         strategy.detect(TODAY, TO_DATE);
 
