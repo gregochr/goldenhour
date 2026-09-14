@@ -5831,10 +5831,18 @@ button.wf-hc.also.on:hover {
   border-radius: 999px;
   white-space: nowrap;
 }
+/* The three unscored lines may wrap, where the rated pill may not. `nowrap` is for the pill: a
+   filled capsule broken over two lines reads as two badges. These have no fill, so wrapping costs
+   nothing — and they need it. The card and its verdict row are fixed px; text enlarged on its own
+   (a minimum font size, or Firefox's Zoom Text Only) is not, and "Couldn’t load — trying again",
+   ≈207px at 11.5px, overran the phone card's 220px row from about 111% and was clipped behind the
+   body's horizontal scroll ("Not scored yet" held until ≈223%). At ordinary sizes this changes
+   nothing: the line's own max-content width still decides where the row wraps (review C4). */
 .wf-callout-verdict-score.unscored {
   background: none;
   color: var(--color-plex-text-muted);
   font-weight: 500;
+  white-space: normal;
 }
 
 /* The reason line — Newsreader italic, the app's typographic mark for generated prose

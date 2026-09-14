@@ -19,8 +19,9 @@
  * <ul>
  *   <li><b>A night-aware flag.</b> `ratingKnown` asks the source that rates the window on screen —
  *       for astro and aurora, the night's own request — and only a successful response sets it. So
- *       the headline reads "Loading…" until that answer lands, never "Not scored yet" after a
- *       failure, and "Not scored yet" only once the answer has said so.</li>
+ *       the headline reads "Loading…" until that answer lands — "Couldn't load — trying again" once
+ *       a request for it has failed — never "Not scored yet" after a failure, and "Not scored yet"
+ *       only once the answer has said so.</li>
  *   <li><b>The preview's rows in the meantime.</b> A night draws its own answer once it has landed
  *       and, until then, the window control's preview rows for it — derived at render, so a preview
  *       that lands after the step, or after the night's own request has failed, fills it in. A
@@ -30,7 +31,9 @@
  *   <li><b>The retry.</b> A failed night request is asked again — 2s, 10s, a minute, then every ten
  *       minutes, and at once when the reader comes back to the page — until it answers or the night
  *       changes; the frozen Plan-tab overlay still asks once. Walked on fake timers, to the
- *       millisecond.</li>
+ *       millisecond. And the callout says so ({@link RETRYING}) from a visit's first failure until
+ *       the night answers or the reader leaves it, since between the asks nothing is in flight to be
+ *       "Loading…" — never on another window, not even for a frame ({@link renderProbed}).</li>
  * </ul>
  *
  * <h2>How the requests are driven</h2>
@@ -264,7 +267,48 @@ async function stepTo(result, night, eventType, extra = {}) {
   await act(async () => { result.rerender(mapOn(night, eventType, extra)); });
 }
 
+/**
+ * `renderOn`, recording the callout as it stood at EVERY commit of the map — in a `React.Profiler`'s
+ * `onRender`, which React calls in the commit's layout phase: after the DOM has been written, and
+ * before any passive effect or cleanup has run. That is the frame a failure record answering for the
+ * wrong window would paint on a step React does not flush synchronously (anything but a discrete
+ * input) — and since leaving a night takes its record back in that cleanup, `act` has always run it
+ * by the time it returns, so the DOM afterwards can no longer show the leak. The profiler also sees
+ * the commits the map makes of its own accord (a handoff's event type is applied from an effect, a
+ * commit later), which a probe keyed to the parent's own renders would miss.
+ *
+ * <p>Each frame keeps the verdict row too, so a test can pick out the frames of one window by its
+ * kind word. `step` clears the record and moves the map the way `stepTo` does, keeping the profiler
+ * around the tree: a plain `stepTo` would change the root's type and remount the map, state and all.
+ */
+async function renderProbed(night, eventType, extra = {}) {
+  const frames = [];
+  const onRender = () => {
+    frames.push({
+      verdict: screen.queryByTestId('map-callout-verdict')?.textContent ?? null,
+      headline: screen.queryByTestId('map-callout-score')?.textContent ?? null,
+    });
+  };
+  const tree = (n, t, x) => <React.Profiler id="map" onRender={onRender}>{mapOn(n, t, x)}</React.Profiler>;
+  let result;
+  await act(async () => { result = render(tree(night, eventType, extra)); });
+  const step = async (to, toType, toExtra = {}) => {
+    frames.length = 0;
+    await act(async () => { result.rerender(tree(to, toType, toExtra)); });
+  };
+  return { frames, step };
+}
+
+/** Every headline in `frames` that is not `expected` — `[]` when the frames all agree. */
+const headlinesOtherThan = (frames, expected) => frames.map((f) => f.headline).filter((h) => h !== expected);
+
 const headline = () => screen.getByTestId('map-callout-score');
+/**
+ * The headline once a night's own request has failed and is being asked again — the literal words,
+ * never the component's constant, so a change to the copy has to be made here too.
+ */
+const RETRYING = 'Couldn’t load — trying again';
+
 
 beforeEach(() => {
   localStorage.clear();
@@ -326,14 +370,14 @@ describe.each(KINDS)('the callout on an $name night the preview does not ask abo
     expect(headline()).toHaveTextContent('5★');
   });
 
-  it('never reads "Not scored yet" after that request FAILS — it goes on reading "Loading…"', async () => {
+  it('never reads "Not scored yet" after that request FAILS — it says it could not load, and is trying again', async () => {
     // A failure is not evidence that nothing was rated, so the definitive claim must not follow one.
     // This test runs on real timers and does not see the request asked again; the retry block
-    // below, on fake ones, walks when it is.
+    // below, on fake ones, walks when it is — and what the headline says while it does.
     await onNightBWhileItLoads();
     await land(() => nth(kind.requests, NIGHT_B, 0).reject(new Error('night B timed out')));
     expect(headline()).not.toHaveTextContent('Not scored yet');
-    expect(headline()).toHaveTextContent('Loading…');
+    expect(headline()).toHaveTextContent(RETRYING);
   });
 
   it('shows a night\'s own answer at once on a return, while it asks again', async () => {
@@ -422,7 +466,7 @@ describe.each(KINDS)('the callout and the map on an $name night the preview DOES
   it('keeps drawing the preview rows when the night\'s own request FAILS — a dropped request does not blank the night', async () => {
     await onPreviewedNightB(B_PREVIEW);
     await land(() => nth(kind.requests, NIGHT_B, 1).reject(new Error('night B timed out')));
-    // Broken — the failure clearing the rows, as it used to — "Loading…" and nothing drawn.
+    // Broken — the failure clearing the rows, as it used to — the failure line and nothing drawn.
     expect(headline()).toHaveTextContent('5★');
     expect(screen.queryAllByTestId('marker')).toHaveLength(1);
   });
@@ -435,6 +479,17 @@ describe.each(KINDS)('the callout and the map on an $name night the preview DOES
 
     await land(() => nth(kind.requests, NIGHT_B, 1).resolve([{ locationName: 'Cheviot', stars: 4 }]));
     expect(headline()).toHaveTextContent('Not scored yet');
+  });
+
+  it('says a place the preview does not rate could not load, once the night\'s own request fails', async () => {
+    // Review T3. The preview's rows are drawn — Cheviot's pin — and say nothing of Kielder; the
+    // night's own request, the one source that could, has failed. Broken — the drawn rows hiding
+    // the failure — "Loading…" through the outage for every place the preview leaves out.
+    await onPreviewedNightB([{ locationName: 'Cheviot', stars: 4 }]);
+    expect(screen.queryAllByTestId('marker')).toHaveLength(1);
+    expect(headline()).toHaveTextContent('Loading…');
+    await land(() => nth(kind.requests, NIGHT_B, 1).reject(new Error('night B timed out')));
+    expect(headline()).toHaveTextContent(RETRYING);
   });
 
   it('skips a row with no name rather than failing the night — in the preview and in the answer', async () => {
@@ -463,8 +518,9 @@ describe.each(KINDS)('the callout and the map on an $name night the preview DOES
   it('fills the night in from a preview that lands after the night\'s own request FAILED', async () => {
     await onNightBWithThePreviewInFlight();
     await land(() => nth(kind.requests, NIGHT_B, 1).reject(new Error('night B timed out')));
-    expect(headline()).toHaveTextContent('Loading…');
+    expect(headline()).toHaveTextContent(RETRYING);
 
+    // A rating outranks the failure line: the preview's star, once it lands, is what shows.
     await land(() => {
       nth(kind.requests, NIGHT_A, 1).resolve(A_ROWS);
       nth(kind.requests, NIGHT_B, 0).resolve(B_PREVIEW);
@@ -592,6 +648,17 @@ describe.each(KINDS)('the callout strip\'s $name cells, through the map', (kind)
     expect(headline()).toHaveTextContent('Not scored yet');
   });
 
+  it('says a picked past night could not load when ITS request fails — the failure follows the night, not the date', async () => {
+    // ⚠️ The same `nightDate`/`date` split, for the failure record (review T1): the map's `date`
+    // stays on A while the past night is kept local, so a record read against `date` never matched
+    // this night's failure, and the callout went on saying "Loading…" through the outage.
+    await stripOnNightA();
+    await act(async () => { fireEvent.click(cellFor(PAST_NIGHT)); });
+    expect(headline()).toHaveTextContent('Loading…');
+    await land(() => nth(kind.requests, PAST_NIGHT, 0).reject(new Error('past night timed out')));
+    expect(headline()).toHaveTextContent(RETRYING);
+  });
+
   it('restates a picked past night\'s star in its own cell — never "—" beside the headline\'s star', async () => {
     // The preview never asks about a past night, so its cell's own source says nothing; the cell for
     // the window on screen restates the headline instead. Broken, it read "—" beside "4★".
@@ -685,7 +752,7 @@ describe.each(KINDS)('a failed $name night request is asked again', (kind) => {
 
   it('asks again two seconds after a failure — and not a millisecond sooner', async () => {
     await onNightBAfterAFailure();
-    expect(headline()).toHaveTextContent('Loading…');
+    expect(headline()).toHaveTextContent(RETRYING);
     await elapse(1999);
     expect(sentFor(kind.requests, NIGHT_B)).toBe(1);
     await elapse(1);
@@ -734,8 +801,9 @@ describe.each(KINDS)('a failed $name night request is asked again', (kind) => {
     await land(() => nth(kind.requests, NIGHT_A, 0).resolve([{ locationName: SELECTED, stars: 4 }]));
     await stepTo(result, NIGHT_B, kind.eventType);
     await land(() => nth(kind.requests, NIGHT_B, 0).resolve(null));
-    // Not an answer — so never "Not scored yet" on its strength — and asked again like any failure.
-    expect(headline()).toHaveTextContent('Loading…');
+    // Not an answer — so never "Not scored yet" on its strength — and asked again like any failure,
+    // and said to be one.
+    expect(headline()).toHaveTextContent(RETRYING);
     await elapse(2000);
     expect(sentFor(kind.requests, NIGHT_B)).toBe(2);
 
@@ -751,6 +819,143 @@ describe.each(KINDS)('a failed $name night request is asked again', (kind) => {
 
     await elapse(HOUR_MS);
     expect(sentFor(kind.requests, NIGHT_B)).toBe(2);
+  });
+
+  it('says it could not load from the first failure on — a retry waiting or one in flight, never "Loading…" again', async () => {
+    // ⚠️ The gap #829 left: between the ten-minute asks of a long outage nothing is in flight, and
+    // "Loading…" claimed a request that was not there. "Trying again" is true in both halves of the
+    // loop — a retry waiting and a retry in flight — so it must not flicker back to "Loading…" as
+    // each one goes out.
+    const result = await renderOn(NIGHT_A, kind.eventType);
+    await land(() => nth(kind.requests, NIGHT_A, 0).resolve([{ locationName: SELECTED, stars: 4 }]));
+    await stepTo(result, NIGHT_B, kind.eventType);
+    // The control: before anything has failed, the first request in flight is "Loading…".
+    expect(headline()).toHaveTextContent('Loading…');
+
+    await land(() => nth(kind.requests, NIGHT_B, 0).reject(new Error('night B timed out')));
+    expect(headline()).toHaveTextContent(RETRYING);
+    for (const [sentSoFar, wait] of [[1, 2000], [2, 10000], [3, 60000]]) {
+      await elapse(wait);
+      expect(sentFor(kind.requests, NIGHT_B)).toBe(sentSoFar + 1);
+      expect(headline()).toHaveTextContent(RETRYING); // a retry in flight
+      await land(() => nth(kind.requests, NIGHT_B, sentSoFar).reject(new Error('still down')));
+      expect(headline()).toHaveTextContent(RETRYING); // the next one waiting
+    }
+    // Five minutes into the ten-minute beat: nothing in flight — the state "Loading…" was untrue in.
+    await elapse(300000);
+    expect(sentFor(kind.requests, NIGHT_B)).toBe(4);
+    expect(headline()).toHaveTextContent(RETRYING);
+    expect(headline()).not.toHaveTextContent('Loading…');
+  });
+
+  it('speaks for its own night alone — not even for the frame before the old night\'s effect is cleaned up', async () => {
+    // ⚠️ Leaving a night takes its record back, but in that night's effect CLEANUP, which runs after
+    // the step's commit. So the step renders the new night while the old night's failure is still
+    // recorded, and only the record's night tag keeps it quiet in that frame — a frame a step React
+    // does not flush synchronously (anything but a discrete input) would paint. `act` has run the
+    // cleanup by the time it returns, so the DOM afterwards cannot show it; the probe reads the
+    // frame itself.
+    const { frames, step } = await renderProbed(NIGHT_A, kind.eventType);
+    await land(() => nth(kind.requests, NIGHT_A, 0).reject(new Error('night A timed out')));
+    // The control: A's failure is on screen.
+    expect(headline()).toHaveTextContent(RETRYING);
+
+    await step(NIGHT_B, kind.eventType);
+    expect(sentFor(kind.requests, NIGHT_B)).toBe(1);
+    // Every commit since the step, the step's own first — night B, with A's failure still on
+    // record. Broken — the record read without its night — that one said B "couldn't load" before
+    // B had asked for anything.
+    expect(frames.length).toBeGreaterThan(0);
+    expect(headlinesOtherThan(frames, 'Loading…')).toEqual([]);
+  });
+
+  it('belongs to the visit — back on a night, it reads "Loading…" whatever the request it left went on to do', async () => {
+    // ⚠️ Review B2. The line used to be taken back only by the night's own answer — but an answer
+    // that lands after the reader has left is dropped like any late response, so a night whose last
+    // request LOADED read "Couldn't load" on the return. Leaving takes the line back now.
+    const result = await onNightBAfterAFailure();
+    await elapse(2000);
+    expect(sentFor(kind.requests, NIGHT_B)).toBe(2);
+    // Leave while that retry is in flight, and let it SUCCEED behind the reader's back.
+    await stepTo(result, NIGHT_A, kind.eventType);
+    await land(() => nth(kind.requests, NIGHT_B, 1).resolve([{ locationName: SELECTED, stars: 5 }]));
+
+    await stepTo(result, NIGHT_B, kind.eventType);
+    expect(sentFor(kind.requests, NIGHT_B)).toBe(3);
+    // A fresh request is on its way and nothing on this visit has failed. Broken — the record kept
+    // across the step — "Couldn't load" for a night whose last request loaded.
+    expect(headline()).toHaveTextContent('Loading…');
+
+    // The control: a failure on THIS visit is said again.
+    await land(() => nth(kind.requests, NIGHT_B, 2).reject(new Error('down again')));
+    expect(headline()).toHaveTextContent(RETRYING);
+  });
+
+  it('lets an answer in hand outrank a failed refresh of it — "Not scored yet" stands through the failure', async () => {
+    const result = await renderOn(NIGHT_A, kind.eventType);
+    await land(() => nth(kind.requests, NIGHT_A, 0).resolve([{ locationName: 'Cheviot', stars: 4 }]));
+    expect(headline()).toHaveTextContent('Not scored yet');
+    // Away to B and straight back, before B answers: A's answer is still the one held.
+    await stepTo(result, NIGHT_B, kind.eventType);
+    await stepTo(result, NIGHT_A, kind.eventType);
+    expect(headline()).toHaveTextContent('Not scored yet');
+
+    // The refresh that went out on the return fails. It is asked again — the control that the
+    // failure landed — but a failure takes nothing away, so the answer in hand still stands.
+    await land(() => nth(kind.requests, NIGHT_A, 1).reject(new Error('night A timed out')));
+    await elapse(2000);
+    expect(sentFor(kind.requests, NIGHT_A)).toBe(3);
+    // Broken — the failure line read before the answer — "Couldn't load" over an answer in hand.
+    expect(headline()).toHaveTextContent('Not scored yet');
+  });
+
+  it('hears nothing from a night the reader has left — its late failure does not follow them back', async () => {
+    // The same guard as its answer's: a night's request is heard from only while the reader is on
+    // it. ⚠️ Read at the step's own commit: a stray record the late failure wrote would be wiped by
+    // the next step's cleanup — A's, leaving — so the DOM after `act` reads "Loading…" either way,
+    // and only the frame before that cleanup shows it (a frame a non-discrete step paints).
+    // Every step through `step`, which keeps the profiler around the tree.
+    const { frames, step } = await renderProbed(NIGHT_A, kind.eventType);
+    await land(() => nth(kind.requests, NIGHT_A, 0).resolve([{ locationName: SELECTED, stars: 4 }]));
+    await step(NIGHT_B, kind.eventType);
+    // Leave B while its request is still in flight; THEN it fails.
+    await step(NIGHT_A, kind.eventType);
+    await land(() => nth(kind.requests, NIGHT_B, 0).reject(new Error('night B timed out')));
+
+    await step(NIGHT_B, kind.eventType);
+    expect(sentFor(kind.requests, NIGHT_B)).toBe(2);
+    // Broken — the failure recorded before asking whether its night's effect had stopped — the
+    // step back to B painted "Couldn't load" before anything on this visit had failed.
+    expect(frames.length).toBeGreaterThan(0);
+    expect(headlinesOtherThan(frames, 'Loading…')).toEqual([]);
+
+    // The control: a failure on THIS visit is heard.
+    await land(() => nth(kind.requests, NIGHT_B, 1).reject(new Error('down again')));
+    expect(headline()).toHaveTextContent(RETRYING);
+  });
+
+  it('does not follow the reader to a sunrise or sunset — a solar null still reads "Loading…"', async () => {
+    // The same DATE's sunset, so the night's record matches `nightDate` on the date alone: only the
+    // event-kind arms keep it off a window whose rating the solar scores decide, and those are still
+    // out here. The solar scores fetch exposes no failure, so "Loading…" is all there is to say.
+    // ⚠️ Read frame by frame: leaving the night takes its record back in the effect cleanup, so
+    // after `act` the sunset reads "Loading…" whatever its arms say, and only the sunset's first
+    // commit — before that cleanup — shows a record read for the wrong kind. The switch lands a
+    // commit after the step (the handoff applies its event type from an effect), and the frame
+    // between is still the night, rightly failing; so the SUNSET frames are the ones judged.
+    const extra = { forecastDates: PREVIEWED, scoresKnown: false };
+    const { frames, step } = await renderProbed(NIGHT_A, kind.eventType, extra);
+    // The night's own request first, then the preview's A and B: `nth(…, NIGHT_A, 0)` is the former.
+    expect(kind.requests.map((r) => r.night)).toEqual([NIGHT_A, NIGHT_A, NIGHT_B]);
+    await land(() => nth(kind.requests, NIGHT_A, 0).reject(new Error('night A timed out')));
+    // The control: the night's failure is on screen before the switch.
+    expect(headline()).toHaveTextContent(RETRYING);
+
+    await step(NIGHT_A, 'SUNSET', extra);
+    const sunsetFrames = frames.filter((f) => f.verdict?.includes('Sunset'));
+    expect(sunsetFrames.length).toBeGreaterThan(0);
+    // Broken — the arms read the record for any kind — the sunset painted a night's "couldn't load".
+    expect(headlinesOtherThan(sunsetFrames, 'Loading…')).toEqual([]);
   });
 
   it('never asks again for a night the reader has left while its retry was waiting', async () => {
@@ -789,6 +994,16 @@ describe.each(KINDS)('a failed $name night request is asked again', (kind) => {
     expect(sentFor(kind.requests, NIGHT_B)).toBe(5);
     await land(() => nth(kind.requests, NIGHT_B, 4).resolve([{ locationName: SELECTED, stars: 5 }]));
     expect(headline()).toHaveTextContent('5★');
+  });
+
+  it('goes on saying it while an early re-ask is in flight — the reader coming back is not "Loading…" again', async () => {
+    // The timer-driven retries are walked above; the re-ask the reader's return sends at once goes
+    // out by another route (`askNowIfWaiting`), and the line must hold through it too.
+    await onNightBAfterAFailure();
+    await intoTheTenMinuteBeat();
+    await focusTheWindow();
+    expect(sentFor(kind.requests, NIGHT_B)).toBe(5);
+    expect(headline()).toHaveTextContent(RETRYING);
   });
 
   it('asks at once when the tab becomes visible again — and not while it is still hidden', async () => {
@@ -924,5 +1139,30 @@ describe('the callout on the aurora night in progress', () => {
 
     await land(() => nth(sent.aurora, NIGHT_B, 0).resolve([]));
     expect(headline()).toHaveTextContent('Not scored yet');
+  });
+
+  it('says a place the live state leaves out could not load when the STORED request fails', async () => {
+    // Review T2: the night an aurora reader is likeliest to be looking at. The live state answering
+    // for tonight is not the stored results answering, so their failure is still theirs to report.
+    // Broken — the live night hiding the failure — "Loading…" through a stored-results outage.
+    getAuroraLocations.mockResolvedValue([
+      { location: { name: 'Cheviot', lat: 55.48, lon: -2.15 }, stars: 5, summary: 'Live' },
+    ]);
+    await onLiveNightBWhileItLoads();
+    expect(headline()).toHaveTextContent('Loading…');
+    await land(() => nth(sent.aurora, NIGHT_B, 0).reject(new Error('stored results timed out')));
+    expect(headline()).toHaveTextContent(RETRYING);
+  });
+
+  it('keeps the live state\'s star for a place it rates when the STORED request fails', async () => {
+    getAuroraLocations.mockResolvedValue([
+      { location: { name: SELECTED, lat: 55.23, lon: -2.58 }, stars: 5, summary: 'Live: clear to the north' },
+    ]);
+    await onLiveNightBWhileItLoads();
+    expect(headline()).toHaveTextContent('5★');
+    await land(() => nth(sent.aurora, NIGHT_B, 0).reject(new Error('stored results timed out')));
+    // A rating outranks the failure line, and the live state's is a rating.
+    expect(headline()).toHaveTextContent('5★');
+    expect(headline()).not.toHaveTextContent('Couldn’t load');
   });
 });

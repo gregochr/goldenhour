@@ -24,6 +24,15 @@ export const CALLOUT_MARGIN = 8;
 /** The band's own floor — never narrower than this (bundle: {@code Math.max(bot, top + 90)}). */
 export const CALLOUT_MIN_BAND = 90;
 
+/**
+ * What the Map tab says of a night whose own scores request has failed and is being asked again
+ * (`MapView.jsx`'s `ratingRetrying`) — the callout's null-rating headline and Heat view's key slot
+ * both print it, so one string keeps the two from ever saying it differently. The typographic
+ * apostrophe the tab's other copy uses. "Trying again" names the retry loop, not a request: between
+ * a long outage's asks none is in flight, but the asking has not stopped.
+ */
+export const NIGHT_RETRY_LINE = 'Couldn’t load — trying again';
+
 /** How close the card's edges may sit to the top/bottom band boundary before flipping/clamping. */
 const BAND_EDGE_PAD = 8;
 

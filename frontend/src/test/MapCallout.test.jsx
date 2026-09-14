@@ -219,6 +219,73 @@ describe('MapCallout — header and verdict', () => {
     expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Loading…');
   });
 
+  it('claims no failure it was never told of — ratingRetrying defaults to false', async () => {
+    // Review T6: the default was pinned only by a comment on the test above. A caller that forgets
+    // the prop gets "Loading…", never a failure nobody reported.
+    await mount({ event: ASTRO_EVENT, rating: null, ratingKnown: false });
+    const score = screen.getByTestId('map-callout-score');
+    expect(score).toHaveTextContent('Loading…');
+    expect(score).not.toHaveTextContent('Couldn’t load');
+  });
+
+  it('says "Couldn’t load — trying again" in place of "Loading…" once the rating\'s own source has failed and is asked again', async () => {
+    // "Loading…" claims a load under way, and between a long outage's retries nothing is in flight;
+    // "trying again" claims only that the asking goes on (`MapView.jsx`'s `ratingRetrying`).
+    await mount({
+      event: ASTRO_EVENT, rating: null, ratingKnown: false, ratingRetrying: true, scoresKnown: true,
+    });
+    const score = screen.getByTestId('map-callout-score');
+    expect(score).toHaveTextContent('Couldn’t load — trying again');
+    expect(score).not.toHaveTextContent('Loading…');
+    expect(score).not.toHaveTextContent('Not scored yet');
+  });
+
+  it('lets an answer in hand outrank a failure — "Not scored yet" while ratingRetrying is also true', async () => {
+    // A night still holding its answer while a refresh of it fails: a failure takes nothing away, so
+    // the answer is what the headline says — and all it says.
+    await mount({
+      event: ASTRO_EVENT, rating: null, ratingKnown: true, ratingRetrying: true,
+    });
+    const score = screen.getByTestId('map-callout-score');
+    expect(score).toHaveTextContent('Not scored yet');
+    expect(score).not.toHaveTextContent('Couldn’t load');
+  });
+
+  it('never lets the failure line stand in for a rating it has', async () => {
+    await mount({ event: ASTRO_EVENT, rating: 4, ratingRetrying: true });
+    const score = screen.getByTestId('map-callout-score');
+    expect(score).toHaveTextContent('4★ Worth it');
+    expect(score).not.toHaveTextContent('Couldn’t load');
+  });
+
+  it('announces the failure by CHANGE — the same always-mounted status region takes the sentence when it arrives', async () => {
+    // Review C1. The line changes with no action of the reader's and the card is named by its
+    // aria-label, so without a live region a screen-reader user never hears that the night could
+    // not load. A live region announces changes, not what it is mounted with — hence the same node.
+    // By role: this card is placed (`withMeasuredCard`), so it is in the accessibility tree.
+    const props = { location: LOCATION, event: ASTRO_EVENT, rating: null, ratingKnown: false };
+    const { rerender } = await mount(props);
+    const region = screen.getByRole('status');
+    expect(region.textContent).toBe('');
+
+    await act(async () => { rerender(<MapCallout {...props} ratingRetrying />); });
+    expect(screen.getByRole('status')).toBe(region);
+    expect(region).toHaveTextContent('Couldn’t load — trying again');
+  });
+
+  it.each([
+    ['"Loading…"', { rating: null, ratingKnown: false, ratingRetrying: false }],
+    ['"Not scored yet"', { rating: null, ratingKnown: true, ratingRetrying: false }],
+    ['a star', { rating: 4, ratingKnown: true, ratingRetrying: false }],
+    ['an answer in hand through a failed refresh', { rating: null, ratingKnown: true, ratingRetrying: true }],
+    ['a preview\'s star through a failed request', { rating: 4, ratingKnown: false, ratingRetrying: true }],
+  ])('keeps the status region silent for %s — the failure line is all it ever says', async (_, props) => {
+    // Silent, and still mounted: stepping through windows must not chatter, and the region has to
+    // exist before a failure arrives for that to be announced at all.
+    await mount({ event: ASTRO_EVENT, ...props });
+    expect(screen.getByRole('status').textContent).toBe('');
+  });
+
   it('gives the verdict badge readable ink at BOTH ends of the ramp, never a fixed dark ink', async () => {
     // The temperature ramp's hot (5★) end is nearly as dark as its cold (1★/2★) end is light — a
     // hardcoded `#0F172A` passed contrast at the gold middle and failed AA at the dark-red "Poor"
@@ -643,6 +710,25 @@ describe('MapCallout — the strip\'s cell for the window on screen restates the
     expect(cells[1]).not.toHaveTextContent('—');
   });
 
+  it('reads "…" beside "Couldn’t load — trying again" too — no answer yet, and one still being asked for', async () => {
+    // A cell has room for a mark, not the words. "—" would say this place is not rated that night,
+    // which a failed request is no evidence for.
+    const astroConditionsByDate = new Map([[TODAY, [{ locationName: 'Someone Else', stars: 5 }]]]);
+    await mount({
+      event: ASTRO_EVENT,
+      rating: null,
+      ratingKnown: false,
+      ratingRetrying: true,
+      evRows,
+      astroConditionsByDate,
+      scoresKnown: true,
+    });
+    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Couldn’t load — trying again');
+    const cells = openStrip();
+    expect(cells[1]).toHaveTextContent('…');
+    expect(cells[1]).not.toHaveTextContent('—');
+  });
+
   it('shows the headline\'s own star — never the preview\'s different one', async () => {
     const astroConditionsByDate = new Map([[TODAY, [{ locationName: LOCATION.name, stars: 3 }]]]);
     await mount({ event: ASTRO_EVENT, rating: 5, evRows, astroConditionsByDate });
@@ -784,6 +870,27 @@ describe('MapCallout — anchoring lifecycle', () => {
     });
 
     expect(paintSpy.mock.calls.length).toBeGreaterThan(callsBeforeSwitch);
+  });
+
+  it.each([
+    ['a failure', { ratingRetrying: true }],
+    ['the night\'s answer, without this place', { ratingKnown: true }],
+    ['a preview\'s star arriving', { rating: 4 }],
+  ])('re-measures the anchor when the headline changes in place — %s (review B1/C5)', async (_, next) => {
+    // The same bug one level down: no new window, no new selection, but the verdict row rewritten,
+    // and the row wraps — "Couldn’t load — trying again" (≈207px) always adds a line to it. Each
+    // case moves exactly one of the three inputs, so each one's dependency is pinned on its own.
+    // Counted the same way as the test above: jsdom's faked height cannot show the box move.
+    const base = {
+      location: LOCATION, event: ASTRO_EVENT, rating: null, ratingKnown: false, ratingRetrying: false,
+    };
+    const { rerender } = await mount(base);
+    const paintSpy = vi.spyOn(currentMap, 'latLngToContainerPoint');
+    const callsBeforeChange = paintSpy.mock.calls.length;
+
+    await act(async () => { rerender(<MapCallout {...base} {...next} />); });
+
+    expect(paintSpy.mock.calls.length).toBeGreaterThan(callsBeforeChange);
   });
 });
 
