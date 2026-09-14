@@ -1,0 +1,98 @@
+### Fixed — the drive times and the tick line's home answer the newest settings request, not the last to land
+
+`WindowFirstBriefingProvider` asks `GET /api/user/settings/reach` and `GET /api/user/settings` on
+mount and again whenever `homeSettingsVersion` moves — which `App` does on every close of the
+settings dialog, saved or not — and published whichever answer landed. With two requests out at once
+(the mount's and a close's, or two closes', on a connection slow enough to outlast a trip through the
+dialog) the older one answers a question the reader may since have changed, and it was published
+anyway: landing last, it stayed until the dialog next closed or the page was reloaded; landing first,
+it stood in until the newer one arrived. Which of the two a reader met depends on the engine and on
+how long the older request stays out (below). What it put on screen is traced in the code rather than
+seen in a browser:
+
+- **Reach.** Drive times measured before the latest save came back on every spot — from the old house
+  after a move, or, from before a first postcode was saved, no figures at all, so every reach line
+  went absent again: the "setting appeared to do nothing" the counter exists to cure.
+- **The home.** From before a first postcode was saved the answer is `null`, and the tick line put
+  "Set a postcode" back in front of the reader who had just set one. The same response carries the
+  Coming up last-seen date, which went back with it whenever it had moved between the two reads — so
+  the badge could count arrivals the reader had already seen as new.
+- **A failure.** The settings fetch's `.catch` writes too, so an older request *failing* late wiped a
+  good answer back to `undefined`: the tick line lost the place (a bare "Home", or "Set a postcode"
+  while the light still held a pre-save `null`), and the Coming up badge disappeared until the next
+  settings fetch.
+
+**Which engines — measured, not assumed.** A throwaway local server sent these two paths' real
+headers (Spring Security's default `no-store`, no ETag), held a first request, and a second, sent
+later by XHR with an `Authorization` header, went to the same URL. WebKit 26.5 and Firefox 153 sent
+both at once and the second overtook the first, so there the older answer can land last and stay.
+Chromium 151 held the second request back until the first was answered, cold or warm — its HTTP
+cache lock, which the same probe also reproduced on an ETag'd path — but for 20 s at most: with the
+first held 21, 25 or 30 s, the second went to the network 20 s after it was sent and landed first,
+and the older answer landed last there too. With the cache disabled through the DevTools protocol,
+Chrome sent both at once. So in Chrome the older answer lands first and stands in for a round trip when it answers
+within 20 s of the close, and can land last after that. For the home it is narrower still: the
+dialog's own `GET /api/user/settings` queues behind any request to that URL still out, and nothing can
+be saved until it answers, so within the 20 s a pre-save home cannot be out at the close that follows
+a save. After a first postcode is saved the tick line still says "Set a postcode" until the newest
+settings request answers — nothing is cleared when the counter moves — so what this fix removes is an
+older answer reappearing, not that round trip. Playwright's engines are not an iPhone, and the
+production service worker's effect on the lock was not probed.
+
+Both effects now carry a cleanup — `let cancelled = false; … return () => { cancelled = true; }` —
+that drops the request a newer one supersedes, guarding the `.then` of each and the settings fetch's
+`.catch`. The reach fetch's `.catch` writes nothing, so there is nothing there to guard. It is the
+shape `useTodaysLight`, on the same counter, already had, and the owner's call over a request-number
+guard, which suits a poll: a poll re-asks the same question, so an older answer landing on its own is
+still the freshest there is, where here the older request may answer a question the close changed.
+Nothing is cleared when the counter moves: it moves on every close, so a clear would blank every reach
+line for a round trip each time the dialog was dismissed.
+
+⚠️ **The cleanup has a price, accepted rather than missed.** Because the counter moves on every close,
+saved or not, a superseded request is not always stale. Save a new home and close, then reopen and
+dismiss the dialog before the save's answer lands, and that correct answer is dropped: the pre-save
+state stands until the newest request answers — for reach, past it if that one fails. The unfixed
+provider applied the save's answer as it landed. A request-number guard would keep it, but would let a
+superseded answer fill in after the newest request failed, naming a home the reader has just left. The
+provider cannot tell a close that saved from one that did not; only `App` could, by moving the counter
+on a save alone, which would also give up the retry a no-op close now gives a failed boot fetch. That
+is an open owner decision; until it is taken, the price is pinned by a test.
+
+⚠️ **Not fixed here, and named so it reads as known:**
+
+- `App.loadHomeCoords` sends a third `GET /api/user/settings` on the same schedule, unguarded, and it
+  feeds the HOME marker, the reach rings, the ⌂ control's "Set your home postcode in Settings",
+  `mapReachMeasured` and the colour ramp. In the race this fixes, those can now stay on the previous
+  home — or be absent — beside the new home's name and drive times.
+- The last-seen date has a second writer: `Mark seen` and the first-open bootstrap write it through the
+  shell, and they never supersede a settings request. That request reads the row first and then, with
+  a postcode saved, waits on an uncached postcodes.io lookup, so a `Mark seen` pressed inside that wait
+  commits and echoes first, and the older date then comes back: the badge returns until the dialog
+  next closes, the page reloads or the reader presses again.
+- A reach refetch that fails after a move leaves the old home's figures standing until the dialog next
+  closes or the page reloads. Clearing instead would also blank them on every failed refetch that
+  changed nothing — a choice between wrong and unknown, left open.
+
+Pinned in a new `WindowFirstBriefingHomeSettingsFetchOrder.test.jsx`: the real provider under a probe
+of the three values these fetches write, the API modules mocked, the out-of-order answers held by
+hand, the counter bumped through `rerender` as `App` bumps it, and every late settle inside an
+awaited `act`. The tests where the two rules part company move house, Morpeth to Keswick, so each
+harm shows on screen — a first-run answer has only null figures, which every consumer draws as
+nothing. Against the unfixed provider ten of its twelve tests fail, one of them the accepted-price
+test, which the unfixed provider fails because it applied the save's answer sooner. Of the two that
+pass, the superseded reach *failure* test passes either way because the reach `.catch` writes nothing
+— it is there for a catch that one day does — and the newest-request-failure test pins the settings
+catch's existing policy (`undefined`, not the answer before). Seventeen mutants, all killed, each by
+the tests that name what it breaks: each `.then` guard, the settings `.catch` guard and each cleanup
+deleted one at a time (five); a settings guard covering only one of its two writes, in either arm
+(four); the reach `.catch` taught to clear the map without the guard (one — killed by that reach
+failure test alone, while the guarded form passes all twelve); a request-number guard in place of each
+cleanup (two — killed by exactly the tests where the two rules part company); the flag held in a ref
+reset per run (one); the settings catch emptied (one); a clear when the counter moves, in each effect
+(two); and a rule that keeps a superseded answer newer than the one on screen (one — killed by the
+accepted-price test alone). With the settle helper's `await` removed all twelve fail — each, run
+alone, at its positive control.
+
+Adversarially reviewed before landing (five lenses, eight refuters, no blockers); the review found the
+price above, the Chromium lock's 20 s limit, and the third settings reader, and they are fixed or named
+here.

@@ -190,9 +190,9 @@ function selectUpcomingEvents(briefing) {
  *
  * @param {object} props
  * @param {React.ReactNode} props.children the v2 subtree
- * @param {number} [props.homeSettingsVersion] bumped by {@code App} whenever the user saves a home
- *        postcode, a radius or a drive-time recalculation. It is the reach fetch's only
- *        invalidation signal — see the effect below.
+ * @param {number} [props.homeSettingsVersion] bumped by {@code App} on every close of the settings
+ *        dialog, saved or not. It is the only invalidation signal the reach and settings fetches
+ *        have — see the effects below.
  */
 export function WindowFirstBriefingProvider({
   children, homeSettingsVersion, locations = EMPTY_ARRAY,
@@ -397,9 +397,12 @@ export function WindowFirstBriefingProvider({
    * currently would not: `swrCache` is keyed by role, not by user, so two accounts on one device
    * share a key. It is a small payload on a page that already fetches four things; fetch it.
    *
-   * <p>A rejection is swallowed, leaving the map empty. That is the same state as a user with no
-   * home postcode, which is the normal first run — so the failure mode is a strip with no reach
-   * lines rather than a strip with none, and the footer's own sentence stops naming drive time.
+   * <p>A rejection is swallowed and writes nothing. At boot that leaves the map empty — the same
+   * state as a user with no home postcode, which is the normal first run — so the failure mode is a
+   * strip with no reach lines rather than a strip with none, and the footer's own sentence stops
+   * naming drive time. A later rejection leaves the previous answer standing (below): after a move
+   * of home, figures measured from the old one. Known, and left as it was — clearing instead would
+   * also blank the figures on every failed refetch that changed nothing.
    *
    * <p><b>{@code homeSettingsVersion}, not a bare {@code []}.</b> An empty dep list on a
    * proximity fetch has already cost this app once: a user who widened their radius saw the block
@@ -410,10 +413,42 @@ export function WindowFirstBriefingProvider({
    * watch every reach line stay absent indefinitely. The counter {@code App} already keeps for
    * exactly this is the signal; it also gives a boot-time failure a way back, which the swallowed
    * rejection above otherwise makes permanent for the session.
+   *
+   * <p><b>Only the newest request may write, so the effect's cleanup drops the one it
+   * supersedes.</b> The previous request — the mount's own, or the last close's — can still be out
+   * when the counter moves, on a connection slow enough to outlast a trip through the dialog. It
+   * answers a question the close may since have changed (drive times measured before the latest home
+   * or recalculation), so it is dropped wherever it lands, first or last. Landing last, it used to
+   * win: a first-run reader who had just saved a postcode got the pre-postcode answer back and every
+   * reach line went absent again — the "setting appeared to do nothing" this counter exists to cure.
+   *
+   * <p>⚠️ <b>That has a price, accepted rather than missed.</b> The counter moves on every close,
+   * saved or not, so a superseded request is not always stale: save a new home, close, then reopen
+   * and dismiss the dialog before the save's answer lands, and that correct answer is dropped — the
+   * old home's figures stand until the newest request answers, and past it if that one fails.
+   * Ordering by request number instead (applying anything newer than the answer on screen) would
+   * keep that answer, but would also let a superseded answer fill in after the newest one failed —
+   * the old home's figures, where nothing was on screen yet. This effect cannot tell a close that
+   * saved from one that did not; only {@code App} could, by moving the counter on a save alone.
+   *
+   * <p>⚠️ <b>Which form a reader meets depends on the engine and on how long the older request stays
+   * out</b> (measured 2026-09-14 with a local probe on these no-store headers). WebKit and Firefox
+   * send a second request to the same URL at once, and it can overtake the first. Chromium 151's HTTP
+   * cache lock holds the second back until the first is answered or the second has waited 20 s, so
+   * in Chrome the superseded answer lands FIRST and stands in for a round trip, and past 20 s it can
+   * land LAST as in the other two; with its cache disabled through the DevTools protocol, Chrome
+   * sends both at once. A race you cannot reproduce in Chrome is not a guard with nothing to do.
+   *
+   * <p>Nothing is cleared when the counter moves. It moves on every close, saved or not, so a clear
+   * would blank every reach line for a round trip each time the dialog was dismissed; the previous
+   * answer stands until the newest one replaces it. {@code useTodaysLight}, on the same counter,
+   * does the same.
    */
   useEffect(() => {
+    let cancelled = false;
     getReach()
       .then((entries) => {
+        if (cancelled) return;
         if (!entries || entries.length === 0) return;
         const next = new Map();
         for (const entry of entries) {
@@ -425,7 +460,11 @@ export function WindowFirstBriefingProvider({
         }
         setReachById(next);
       })
+      // Nothing here for the flag to guard: a failure writes nothing, so a superseded one cannot
+      // either. A catch that ever learns to clear the map needs the same check the settings fetch's
+      // catch below carries.
       .catch(() => {});
+    return () => { cancelled = true; };
   }, [homeSettingsVersion]);
 
   /**
@@ -459,10 +498,28 @@ export function WindowFirstBriefingProvider({
    * <p>Same invalidation as the reach fetch above, and for the same reason — saving a postcode
    * re-renders this provider without remounting it, so an empty dep list would leave a first-run
    * user reading "Home not set" for the rest of the session immediately after setting one.
+   *
+   * <p><b>And the same cleanup, over BOTH arms</b> — here the {@code .catch} writes as well, so it
+   * is guarded as well. Unguarded, a superseded request could undo the newest one's answer two
+   * ways. Its answer landing last put the older home back: from before a first postcode was saved
+   * that is {@code null}, and the tick line put "Set a postcode" back in front of the reader who had
+   * just set one. Its FAILURE landing last put both fields back to {@code undefined} — the tick line
+   * lost the place (a bare "Home", or "Set a postcode" while the light still held a pre-save
+   * {@code null}), and the Coming up badge disappeared until the next settings fetch: the dialog's
+   * next close, or a reload.
+   *
+   * <p>The reach fetch's price is paid here too, and in Chrome it is the only form this answer guard
+   * can take: the dialog's own {@code GET /api/user/settings} queues behind any earlier one, and no
+   * save can be made until it answers, so within the lock's 20 s no pre-save settings request can
+   * still be out at a save. What the guard drops there was superseded by a close that saved nothing —
+   * the same home, and at most an older last-seen date. The failure guard earns its place on every
+   * engine.
    */
   useEffect(() => {
+    let cancelled = false;
     getSettings()
       .then((settings) => {
+        if (cancelled) return;
         setHomePlace(settings?.homePlaceName || settings?.homePostcode || null);
         // Same response, a second field: `comingUpLastSeenDate` rides this fetch rather than one
         // of its own — one settings call, two per-user reads, matching `homePlace` immediately
@@ -471,9 +528,11 @@ export function WindowFirstBriefingProvider({
         setComingUpLastSeenDateState(settings?.comingUpLastSeenDate ?? null);
       })
       .catch(() => {
+        if (cancelled) return;
         setHomePlace(undefined);
         setComingUpLastSeenDateState(undefined);
       });
+    return () => { cancelled = true; };
   }, [homeSettingsVersion]);
 
   /**

@@ -432,7 +432,7 @@ export default function WindowFirstShell({
    * "usually" is not "always" — a skewed client clock, or a press within the last moments before
    * the UK civil day rolls over, can disagree with the server by a day, and nothing else in this
    * session re-fetches settings to notice (the settings fetch is gated on
-   * `homeSettingsVersion`, which only moves when the settings modal saves). Applying the echoed
+   * `homeSettingsVersion`, which moves only when the settings dialog closes). Applying the echoed
    * value closes that gap the instant it would otherwise open. A FAILED write is left on the
    * optimistic guess rather than rolled back: the design's own bias throughout is that silence is
    * the safe failure, and reverting to "still new" on a dropped response would flash the badge
