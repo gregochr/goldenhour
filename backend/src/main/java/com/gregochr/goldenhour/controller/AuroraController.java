@@ -71,10 +71,21 @@ public class AuroraController {
      * can wait on NOAA for as long as a cache refresh takes, and the polling job can move the state
      * machine meanwhile. The level used to be read before them and {@code active}, the counts and
      * {@code detectedAt} after, so a transition landing in between answered for two states at once:
-     * {@code MODERATE} and not active across a CLEAR, {@code QUIET} and active across a NOTIFY. The
-     * fields are still separate volatiles read one after another, so this narrows the window to
-     * those reads rather than closing it — only a single snapshot published by
-     * {@link AuroraStateCache} itself would close it.
+     * {@code MODERATE} and not active across a CLEAR, {@code QUIET} and active across a NOTIFY.
+     *
+     * <p>Before the calls rather than after them, although after would be fresher, because the
+     * frontend's {@code AuroraStatusProvider} applies answers in the order their requests were
+     * made. Read on arrival, a response's state is as old as its request; read after its NOAA wait,
+     * a slow earlier request would carry newer state than a quick later one, and be the answer the
+     * client drops.
+     *
+     * <p>Two residuals remain. The fields are separate volatiles read one after another, so a writer
+     * caught part-way through its writes can still show in one response — during an admin
+     * simulation, its level beside {@code simulated: false}, or {@code simulated: true} with no data
+     * yet. And {@code AuroraOrchestrator} writes one NOTIFY in several steps with I/O between them —
+     * the forecast lookahead records the trigger only after a NOAA fetch, and CLEAR never resets it —
+     * so the machine itself can hold a new level beside the previous alert's trigger. This read
+     * serves that faithfully; no snapshot taken here could fix it.
      *
      * @return current aurora status
      */

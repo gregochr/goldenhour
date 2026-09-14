@@ -32,8 +32,9 @@ import static org.mockito.Mockito.when;
  * {@code MockMvc} and the shared context's mocked one: the transition under test is the machine's
  * own — a CLEAR resets the level, the flag, the scores, the counts and {@code activeSince} together
  * and leaves the trigger alone — and a mock would restate only whichever of those fields a test
- * remembered to flip. The polling job's call is made from inside the solar-wind stub, the NOAA
- * endpoint with the shortest cache (one minute) and so the one a status request most often waits on.
+ * remembered to flip. Each transition is made from inside the FIRST NOAA stub, {@code fetchKp}, so
+ * any read after the calls begin sees it: the claim is "before the NOAA calls", and a read placed
+ * between two of them would pass a test that only moved the machine during the last.
  */
 @ExtendWith(MockitoExtension.class)
 class AuroraControllerStatusSnapshotTest {
@@ -62,7 +63,7 @@ class AuroraControllerStatusSnapshotTest {
     void clearDuringNoaaCalls_answersAsTheRunningAlert() {
         startAlert();
         Instant detectedAt = stateCache.getActiveSince();
-        when(noaaClient.fetchSolarWind()).thenAnswer(invocation -> {
+        when(noaaClient.fetchKp()).thenAnswer(invocation -> {
             stateCache.evaluate(AlertLevel.QUIET); // the polling job's CLEAR
             return List.of();
         });
@@ -84,9 +85,13 @@ class AuroraControllerStatusSnapshotTest {
     @Test
     @DisplayName("an alert that begins while the request waits on NOAA is answered as the quiet state throughout")
     void notifyDuringNoaaCalls_answersAsTheQuietState() {
-        when(noaaClient.fetchSolarWind()).thenAnswer(invocation -> {
+        // The machine has never alerted, as after a restart. Once one has, CLEAR leaves the last
+        // trigger in place, so in production the fields before a NOTIFY usually hold the previous
+        // alert's trigger rather than null — null is used here because it makes any leak unmissable.
+        when(noaaClient.fetchKp()).thenAnswer(invocation -> {
             // The polling job's NOTIFY, and the trigger `AuroraOrchestrator.scoreAndCache` records
-            // straight after it.
+            // after it — straight after on the real-time path (`run`), a NOAA fetch later on the
+            // forecast lookahead's.
             stateCache.evaluate(AlertLevel.MODERATE);
             stateCache.updateTrigger(TriggerType.REALTIME, 5.3);
             return List.of();
@@ -109,14 +114,13 @@ class AuroraControllerStatusSnapshotTest {
     @Test
     @DisplayName("a simulation started while the request waits on NOAA is answered as the quiet state throughout")
     void simulationStartedDuringNoaaCalls_answersAsTheQuietState() {
-        // A live Kp high enough to carry a storm scale beside a quiet machine: the real-time path
-        // that would act on it runs only at night.
-        when(noaaClient.fetchKp()).thenReturn(List.of(new KpReading(READING_TIME, 5.7)));
-        when(noaaClient.fetchSolarWind()).thenAnswer(invocation -> {
-            // An admin's POST /api/aurora/admin/simulate, which moves the machine without the FSM.
+        when(noaaClient.fetchKp()).thenAnswer(invocation -> {
+            // An admin's POST /api/aurora/admin/simulate, which moves the machine without the FSM,
+            // landing while this request fetches a live Kp high enough to carry a storm scale beside
+            // a quiet machine — the real-time path that would act on it runs only at night.
             stateCache.activateSimulation(AlertLevel.STRONG,
                     new AuroraStateCache.SimulatedNoaaData(7.3, 60.0, -9.5, "G3"));
-            return List.of();
+            return List.of(new KpReading(READING_TIME, 5.7));
         });
 
         AuroraStatusResponse status = controller.getStatus().getBody();
