@@ -17,6 +17,12 @@ export default function SlotLocationName({
 }) {
   const content = (
     <>
+      {/* ⚠️ The space inside the icon span, after the icon, is LOAD-BEARING in a browser: the span
+          is plain inline content beside the name, so without it the accessible name reads
+          "🏔️Angel of the North" (measured 2026-09-14, confirmed against Chromium's native tree).
+          Browsers keep a space inside an element's own content; only jsdom's polyfill trims it.
+          Keep `{typeIcon} </span>` on one line — JSX drops whitespace that contains a line
+          break, so moving `</span>` onto its own line would delete the space silently. */}
       {typeIcon && <span data-testid="slot-type-icon">{typeIcon} </span>}
       {name}
     </>
