@@ -129,6 +129,11 @@ beforeEach(() => {
   LOC = `Bamburgh-${nonce}`;
   localStorage.clear();
   markerLabelAndColour.mockClear();
+  // The API mocks' call history too. Several tests here wait on `toHaveBeenCalled()` as proof that
+  // their OWN fetch ran — which, uncleared, the first test's call satisfies for every test after it.
+  getAuroraLocations.mockClear();
+  getAuroraForecastResults.mockClear();
+  getAuroraForecastAvailableDates.mockClear();
   popupAuroraScores.length = 0;
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(SMALL_HOURS));
@@ -281,11 +286,20 @@ describe('stored results answer for the night they were fetched for (Codex, #814
   const NIGHT_A = '2026-08-16';
   const NIGHT_B = '2026-08-17';
 
-  /** A promise this test resolves by hand, so it — not the scheduler — decides which lands first. */
+  // No live scores in this block, so every marker it counts can only have come from a STORED result.
+  // The file-level fixture rates LOC 5★ live; that is withheld off the night in progress, but a count
+  // of one could not tell B's stored 3 from a leaked live 5, and nothing here would notice if one of
+  // these nights ever came to be read as live.
+  beforeEach(() => {
+    getAuroraLocations.mockResolvedValue([]);
+  });
+
+  /** A promise this test settles by hand, so it — not the scheduler — decides which lands first. */
   function deferred() {
     let resolve;
-    const promise = new Promise((r) => { resolve = r; });
-    return { promise, resolve };
+    let reject;
+    const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+    return { promise, resolve, reject };
   }
 
   async function renderNight(night) {
@@ -355,5 +369,33 @@ describe('stored results answer for the night they were fetched for (Codex, #814
     await act(async () => { b.resolve([{ locationName: LOC, stars: 2 }]); await Promise.resolve(); });
     // 2 is below the default 3★ floor, so B's location is correctly not drawn — and still never 4.
     expect(markerLabelAndColour.mock.calls.some((c) => c[0] === 4)).toBe(false);
+  });
+
+  it('drops a LATE failure too — a night the reader has left cannot blank the one on screen', async () => {
+    // ⚠️ The `.catch` half of the cancellation, which the late-response test above cannot reach: A's
+    // request FAILS after B's has answered. Unguarded, the failure handler cleared the results — B's
+    // — and the map showed nothing rated for a night that had a stored run, until the next selection.
+    // The guard shipped with no test at all: deleting it left this whole file green.
+    const a = deferred();
+    getAuroraForecastResults.mockImplementation((night) => (
+      night === NIGHT_A ? a.promise : Promise.resolve([{ locationName: LOC, stars: 3 }])
+    ));
+    const result = await renderNight(NIGHT_A);
+    // A's request really is in flight, and is this test's only one so far — without it the rejection
+    // below would land on nothing, and this test would pass having never reached a `.catch`.
+    expect(getAuroraForecastResults.mock.calls).toEqual([[NIGHT_A]]);
+
+    await rerenderNight(result, NIGHT_B);
+    // B's own stored 3 is on screen: one place rated (this block has no live scores — see above).
+    // Also the control that aurora mode is live.
+    expect(await screen.findAllByTestId('marker')).toHaveLength(1);
+
+    // ⚠️ An AWAITED `act`, and the `await` is load-bearing — measured: with `act(() => a.reject(...))`
+    // left un-awaited this test passes with the guard deleted, because the unguarded clear lands after
+    // `act` has returned and is never committed before the count below is read.
+    await act(async () => { a.reject(new Error('night A timed out')); });
+
+    // Still B's one. Broken, A's failure cleared B's results and nothing was drawn.
+    expect(screen.queryAllByTestId('marker')).toHaveLength(1);
   });
 });

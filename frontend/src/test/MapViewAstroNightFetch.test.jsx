@@ -101,15 +101,17 @@ function deferred() {
 }
 
 /**
- * Settles a hand-held request inside an ASYNC `act` — which is what makes a negative safe to assert.
+ * Settles a hand-held request inside an AWAITED `act` — which is what makes a negative safe to assert.
  *
- * <p>⚠️ An async `act` does not return when its callback does: React flushes, then waits a
+ * <p>⚠️ An awaited `act` does not return when its callback does: React flushes, then waits a
  * macrotask and flushes again until no update is left, so the component's `.then` — and the `.catch`
  * a link further down its chain — has run and committed by the time this returns. A late response
  * that simply had not landed YET looks exactly like one that was dropped. Measured with the effect's
- * guards deleted: through this helper each guard's own test fails, but with a synchronous
- * `act(() => settle())` both late tests passed anyway — the late write lands after `act` has
- * returned and is never committed before the assertion reads the DOM.
+ * guards deleted: through this helper each guard's own test fails, but with `act(() => settle())`
+ * left un-awaited both late tests passed anyway — the late write lands after `act` has returned and
+ * is never committed before the assertion reads the DOM. The `await` is the load-bearing part, not
+ * the async callback: `await act(() => settle())`, the same plain callback awaited, still fails the
+ * late-response test with its guard deleted (measured since; `frontend-test-standards.md`).
  */
 async function land(settle) {
   await act(async () => { settle(); });

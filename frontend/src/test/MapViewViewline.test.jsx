@@ -56,8 +56,11 @@ vi.mock('../hooks/useIsMobile.js', () => ({
 }));
 
 // Stable references — avoids infinite re-render from useEffect dependency checks.
-const { stableAuroraStatus, stableViewline } = vi.hoisted(() => ({
-  stableAuroraStatus: { level: 'MODERATE', kpIndex: 5.0 },
+const { stableAuroraStatus, stableViewline, viewlineHookCalls } = vi.hoisted(() => ({
+  // Forecast-triggered, so the wiring test below can see both the trigger and its Kp reach the
+  // viewline hook. Nothing else in this file reads either — the hook and the overlay are mocked.
+  stableAuroraStatus: { level: 'MODERATE', kpIndex: 5.0, triggerType: 'forecast', forecastKp: 6.67 },
+  viewlineHookCalls: [],
   stableViewline: {
     points: [
       { longitude: -5, latitude: 54 },
@@ -75,7 +78,12 @@ vi.mock('../hooks/useAuroraStatus.js', () => ({
 }));
 
 vi.mock('../hooks/useAuroraViewline.js', () => ({
-  useAuroraViewline: () => ({ viewline: stableViewline }),
+  // Records what it is handed. Every other consumer test mocks this hook and ignores its arguments,
+  // so what MapView passes it was pinned nowhere.
+  useAuroraViewline: (...args) => {
+    viewlineHookCalls.push(args);
+    return { viewline: stableViewline };
+  },
 }));
 
 vi.mock('../api/auroraApi.js', () => ({
@@ -243,6 +251,23 @@ describe('MapView aurora viewline event-type gating', () => {
 
     await selectEventType(rendered, 'AURORA');
     expect(screen.getByTestId('aurora-viewline-overlay')).toBeInTheDocument();
+  });
+});
+
+describe('what MapView hands the viewline hook', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    mockUseAuth.mockReturnValue({ role: 'ADMIN' });
+    viewlineHookCalls.length = 0;
+  });
+  afterEach(() => { localStorage.clear(); });
+
+  it('passes the alert\'s trigger AND its forecast Kp — the forecast line is built from that Kp', async () => {
+    await renderMap();
+    // The latest render's arguments. Without the Kp the hook cannot tell an escalated forecast
+    // alert's line from the one before it, and goes on offering the old Kp's line under an overlay
+    // label quoting the new one.
+    expect(viewlineHookCalls.at(-1)).toEqual([true, 'forecast', 6.67]);
   });
 });
 

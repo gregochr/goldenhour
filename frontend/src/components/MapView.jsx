@@ -1602,7 +1602,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // notice describing a ramp they are not looking at.
   const showColourScaleNotice = colourScaleDefaulted && getMode() === 'temp'
     && !colourScaleNoticeDismissed;
-  const { viewline } = useAuroraViewline(viewlineEnabled, auroraStatus?.triggerType);
+  // The Kp rides along because the forecast line is built from it: an escalation inside a
+  // forecast-triggered alert moves it without moving `viewlineEnabled` or the trigger, and without
+  // it the hook would go on offering the old Kp's line under an overlay label quoting the new one.
+  const { viewline } = useAuroraViewline(viewlineEnabled, auroraStatus?.triggerType, auroraStatus?.forecastKp);
   const [auroraScores, setAuroraScores] = useState({});
   const [storedAuroraResults, setStoredAuroraResults] = useState({}); // locationName → result
   const [auroraAvailableDates, setAuroraAvailableDates] = useState([]); // ISO date strings
@@ -1873,20 +1876,51 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
   // Fetch per-location aurora scores when an alert is active (MODERATE or STRONG).
   // Scores are keyed by location name for O(1) lookup in popup render.
+  //
+  // ⚠️ Only the LATEST status may write. `auroraStatus` is a fresh object on every successful
+  // 5-minute poll and every successful window focus (`AuroraStatusProvider` publishes whatever
+  // `getAuroraStatus()` answers), so this effect re-runs and re-requests on each — and with no
+  // cancellation every one of those requests could land whenever it liked:
+  //   - AFTER THE ALERT ENDED. A poll saying the alert is over clears the scores below; a request
+  //     the previous poll made, landing after that, wrote the ended alert's stars straight back into
+  //     every live reader (the rating's live fallback, the medallions, the overlay popup, the best-
+  //     location card), where they stood until the next poll or focus.
+  //   - OUT OF ORDER. Two refreshes close together each make a request, and the older one landing
+  //     last replaced the newer answer with its own.
+  // Hence `cancelled`, which drops any response whose status has since been superseded — "latest"
+  // meaning the latest status PUBLISHED, since the provider does not order its own responses.
+  //
+  // ⚠️ Deliberately NO clear before the request, unlike the stored-results fetch below, and a failed
+  // refetch keeps the last answer. That fetch answers for a night the reader selected; this is the
+  // backend's live cache, and nothing on the status marks a change in it. `detectedAt` moves on an
+  // escalation while the backend still holds the pre-escalation list (it re-scores after the
+  // NOTIFY), so a clear keyed on it would blank the map and redraw the same list; the night can roll
+  // while the backend still holds last night's, so one keyed on the night gains nothing; and one on
+  // every re-poll would blank every reader for a round trip each five minutes. Any clear also turns
+  // a place kept on the map by tonight's stored result into a denial in the overlay's popup, which
+  // reads a missing live score as "Not suitable for aurora photography" — the false negative #814
+  // refused. The residual accepted: a device that missed the gap between two alerts, and whose
+  // first refetch after it then fails, shows the earlier alert's answer until the next poll or focus.
   useEffect(() => {
     if (!auroraStatus || !ALERT_WORTHY_LEVELS.has(auroraStatus.level)) {
       (async () => setAuroraScores({}))();
-      return;
+      return undefined;
     }
+    let cancelled = false;
     getAuroraLocations({ maxBortle: 9, minStars: 1 })
       .then((scores) => {
+        if (cancelled) return;
         const byName = {};
         scores.forEach((s) => { byName[s.location.name] = s; });
         setAuroraScores(byName);
       })
       .catch(() => {
-        // Non-critical — popup will simply not show the aurora section
+        // Deliberately not a clear — see above — so there is nothing here for `cancelled` to guard.
+        // On an alert's first request nothing is held yet, and the overlay's popup reads that as
+        // "Not suitable for aurora photography": a false negative this effect cannot fix, since the
+        // popup has no "not known yet" state.
       });
+    return () => { cancelled = true; };
   }, [auroraStatus]);
 
   // Fetch available dates for stored aurora forecast results (ADMIN/PRO only).
@@ -1937,9 +1971,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   }, []);
 
   // Fetch astro condition scores when in Astro mode and the selected NIGHT changes — see the
-  // aurora fetch above for why this is `nightDate` rather than `date`.
+  // stored-aurora fetch above for why this is `nightDate` rather than `date`.
   //
-  // ⚠️ Keyed to the night it was asked for, in both directions — the aurora fetch above's two
+  // ⚠️ Keyed to the night it was asked for, in both directions — the stored-aurora fetch above's two
   // failure modes, which this effect shared line for line until it took the same fix. These scores
   // answer for ONE night, and every astro reader takes them as the night on screen's: the rating
   // accessor and everything drawn from it, the astro heat points, and both overlay popups. So:
