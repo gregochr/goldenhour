@@ -659,6 +659,44 @@ class PlanWindowProjectorTest {
         }
 
         @Test
+        @DisplayName("the two picks may name the same region — rank decides, not regional variety")
+        void picksMayNameTheSameRegion() {
+            // An owner decision, and deliberately a divergence from the design spec
+            // (map-landing-plan.md §6 Q5, §4 #2). The spec's picks carry a "both-differ" rule —
+            // Also good must differ from Best bet in BOTH window and region — whose own rationale
+            // ("two picks on the same night are one pick") argues only the window half, which
+            // ranking windows already guarantees. Q5 declined the region half after measuring it
+            // on production (scripts/measurements/pick-region-repeat/): the repeat is common, and
+            // forcing a different region would, in 8 of 10 such builds, remove Also good
+            // entirely rather than replace it.
+            //
+            // ⚠️ Dales is what gives this test teeth. It clears AlsoGoodFloor against the leader
+            // (3.6 is >= 3.0 and 0.4 behind 4.0) and differs from Lakes, so a both-differ rule
+            // would promote IT to Also good. Without it, such a rule would only turn day 1's pick
+            // into silence — and a fixture with no qualifying alternative could not tell "rank
+            // won" from "nothing else qualified".
+            DailyBriefingResponse out = projectDays(
+                    dayOf(TODAY, region("Lakes", 4, 4)),                          // 4.0
+                    dayOf(TODAY.plusDays(1), region("Lakes", 4, 4, 3)),           // 3.67
+                    dayOf(TODAY.plusDays(2), region("Dales", 4, 4, 4, 3, 3)));    // 3.6
+
+            BriefingWindow d0 = firstWindow(out, 0);
+            BriefingWindow d1 = firstWindow(out, 1);
+            BriefingWindow d2 = firstWindow(out, 2);
+            // Day 2 FIRST, on purpose: under a both-differ rule it is Dales that takes Also good,
+            // so asserting it here makes that change fail on a message naming what moved — rather
+            // than on a null dereference of day 1's vanished pick, which reads as a broken test.
+            assertThat(d2.pick())
+                    .as("a lower-ranked window must not take Also good for being a different region")
+                    .isNull();
+            assertThat(d0.pick().kind()).isEqualTo(BriefingWindow.PickKind.BEST);
+            assertThat(d0.pick().regionName()).isEqualTo("Lakes");
+            assertThat(d1.pick()).isNotNull();
+            assertThat(d1.pick().kind()).isEqualTo(BriefingWindow.PickKind.ALSO);
+            assertThat(d1.pick().regionName()).isEqualTo("Lakes");
+        }
+
+        @Test
         @DisplayName("exactly two picks, even when a third window would clear the floor")
         void onlyTwoWindowsCarryAPick() {
             // Every candidate here clears AlsoGoodFloor against the leader (5.0 vs 4.5 vs 4.5), so
