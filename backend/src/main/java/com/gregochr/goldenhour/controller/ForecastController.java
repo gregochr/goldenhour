@@ -483,17 +483,24 @@ public class ForecastController {
      * Triggers a manual refresh of tide extreme data for all coastal locations.
      * Restricted to ADMIN only.
      *
-     * <p>Delegates to {@link ScheduledForecastService#refreshTideExtremes()}, which
+     * <p>Delegates to {@link ScheduledForecastService#startTideRefresh}, which runs the same
+     * refresh as the {@code tide_refresh} schedule on {@code forecastExecutor}: it
      * fetches the forward tide window of high/low extremes from WorldTides and stores them in the
      * {@code tide_extreme} table. The run is tracked as a TIDE {@code JobRunEntity}.
      *
-     * @return 202 Accepted with status message
+     * <p>Refused with 409 while a tide refresh is already running from any route — the
+     * schedule, the Scheduler screen's Run Now, or an earlier call here.
+     *
+     * @return 202 Accepted with status message, or 409 Conflict if a refresh is already running
      */
     @PostMapping("/run/tide")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, String>> refreshTideData() {
         LOG.info("POST /api/forecast/run/tide triggered by admin");
-        CompletableFuture.runAsync(() -> scheduledForecastService.refreshTideExtremes(), forecastExecutor);
+        if (!scheduledForecastService.startTideRefresh(forecastExecutor)) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("status", "A tide refresh is already running", "runType", "TIDE"));
+        }
         return ResponseEntity.status(HttpStatus.ACCEPTED)
                 .body(Map.of("status", "Tide refresh started", "runType", "TIDE"));
     }

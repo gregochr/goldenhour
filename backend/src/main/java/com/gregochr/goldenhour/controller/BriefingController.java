@@ -7,6 +7,7 @@ import com.gregochr.goldenhour.model.DailyBriefingResponse;
 import com.gregochr.goldenhour.service.BriefingDigestService;
 import com.gregochr.goldenhour.service.BriefingModelTestService;
 import com.gregochr.goldenhour.service.BriefingService;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -94,14 +95,21 @@ public class BriefingController {
     }
 
     /**
-     * Triggers an immediate briefing refresh. Admin-only.
+     * Triggers an immediate briefing refresh and waits for it. Admin-only.
      *
-     * @return accepted status message
+     * <p>Refused with 409 while a refresh is already running — typically the pipeline's own,
+     * at the tail of a cycle. Queuing a second build behind it would only repeat the one the
+     * admin is about to get anyway.
+     *
+     * @return 200 once the refresh is complete, or 409 Conflict if one was already running
      */
     @PostMapping("/run")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<Map<String, String>> runBriefing() {
-        briefingService.refreshBriefing();
+        if (!briefingService.refreshBriefingIfIdle()) {
+            return ResponseEntity.status(HttpStatus.CONFLICT)
+                    .body(Map.of("status", "A briefing refresh is already running."));
+        }
         return ResponseEntity.ok(Map.of("status", "Briefing refresh complete."));
     }
 

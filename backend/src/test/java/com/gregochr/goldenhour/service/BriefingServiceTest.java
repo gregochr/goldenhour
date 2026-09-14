@@ -53,8 +53,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -3712,6 +3716,187 @@ class BriefingServiceTest {
             assertThat(firstNorthEast(api).meanRating()).as("the forecast is intact").isEqualTo(3.5);
             assertThat(firstNorthEast(api).meanRatingDelta()).as("only movement is lost").isNull();
             assertThat(api.previousGeneratedAt()).isNull();
+        }
+    }
+
+    /**
+     * Two briefing builds must never run at once, and the two entry points differ in what they do
+     * when they meet one: the pipeline's {@code refreshBriefing()} waits and then builds, because
+     * its build is the first to see its own cycle's batch results; the admin endpoint's
+     * {@code refreshBriefingIfIdle()} refuses.
+     *
+     * <p>The lock is owned by the thread that took it and is re-entrant, so a build cannot be
+     * held open from inside itself: each test holds one open on a real second thread, parked in
+     * {@code findAllEnabled()} — the first call after {@code startRun}, on the cheap
+     * no-colour-locations path. Every wait is bounded, so a regression fails rather than hangs.
+     */
+    @Nested
+    @DisplayName("refresh overlap guard")
+    class RefreshOverlapGuard {
+
+        private static final long WAIT_SECONDS = 5;
+
+        private final JobRunEntity briefingRun =
+                JobRunEntity.builder().id(7L).runType(RunType.BRIEFING).build();
+        private final CountDownLatch holderEntered = new CountDownLatch(1);
+        private final CountDownLatch releaseHolder = new CountDownLatch(1);
+
+        /**
+         * Parks the FIRST build inside {@code findAllEnabled()} until the test releases it; every
+         * later build passes straight through with no locations.
+         */
+        private void holdFirstBuildOpen() {
+            when(jobRunService.startRun(RunType.BRIEFING, false, null)).thenReturn(briefingRun);
+            when(locationService.findAllEnabled())
+                    .thenAnswer(inv -> {
+                        holderEntered.countDown();
+                        assertThat(releaseHolder.await(WAIT_SECONDS, TimeUnit.SECONDS))
+                                .as("the test never released the held build").isTrue();
+                        return List.of();
+                    })
+                    .thenReturn(List.of());
+        }
+
+        /** Starts {@code build} on a second thread and returns once it is parked inside. */
+        private Thread startHolder(Runnable build) throws InterruptedException {
+            Thread holder = new Thread(build, "held-briefing-build");
+            holder.start();
+            assertThat(holderEntered.await(WAIT_SECONDS, TimeUnit.SECONDS))
+                    .as("the held build never started").isTrue();
+            return holder;
+        }
+
+        /**
+         * Starts {@code refreshBriefing()} on a third thread and asserts it parks on the lock.
+         *
+         * <p>Waits for WAITING or TERMINATED, so a regression that refuses or ignores the lock
+         * (the thread simply finishes) fails fast. Then asserts only "not finished" rather than
+         * "WAITING" on a second read: a spurious unpark can make a correctly parked thread read
+         * RUNNABLE for an instant, and that would fail correct code.
+         */
+        private Thread startParkedWaiter() {
+            Thread waiter = new Thread(briefingService::refreshBriefing, "waiting-briefing-build");
+            waiter.start();
+            await().atMost(WAIT_SECONDS, TimeUnit.SECONDS).until(() ->
+                    waiter.getState() == Thread.State.WAITING
+                            || waiter.getState() == Thread.State.TERMINATED);
+            assertThat(waiter.getState()).as("the waiter did not wait for the lock")
+                    .isNotEqualTo(Thread.State.TERMINATED);
+            return waiter;
+        }
+
+        private void finish(Thread thread) throws InterruptedException {
+            thread.join(TimeUnit.SECONDS.toMillis(WAIT_SECONDS));
+            assertThat(thread.isAlive()).as(thread.getName() + " is still running").isFalse();
+        }
+
+        @Test
+        @DisplayName("refreshBriefingIfIdle() refuses while a build is running, and starts no run")
+        void ifIdle_refusesWhileABuildIsRunning() throws InterruptedException {
+            holdFirstBuildOpen();
+            Thread holder = startHolder(briefingService::refreshBriefing);
+            try {
+                assertThat(briefingService.refreshBriefingIfIdle()).isFalse();
+                verify(jobRunService, times(1)).startRun(RunType.BRIEFING, false, null);
+            } finally {
+                releaseHolder.countDown();
+                finish(holder);
+            }
+            verify(jobRunService, times(1)).completeRun(briefingRun, 0, 0);
+        }
+
+        /**
+         * ⚠️ The pipeline's entry point must WAIT, not refuse. Refusing would leave its cycle's
+         * picks unpersisted — or worse, {@code persistPicksForCycle} would read the other build's
+         * briefing and record its picks against this run. So this pins both halves: the waiter
+         * does not start while the holder runs, and it does run once the holder is done.
+         */
+        @Test
+        @DisplayName("refreshBriefing() waits for a running build, then runs its own")
+        void refreshBriefing_waitsThenBuilds() throws InterruptedException {
+            holdFirstBuildOpen();
+            Thread holder = startHolder(briefingService::refreshBriefing);
+            Thread waiter = null;
+            try {
+                waiter = startParkedWaiter();
+                verify(jobRunService, times(1)).startRun(RunType.BRIEFING, false, null);
+            } finally {
+                releaseHolder.countDown();
+                finish(holder);
+                if (waiter != null) {
+                    finish(waiter);
+                }
+            }
+            verify(jobRunService, times(2)).startRun(RunType.BRIEFING, false, null);
+            verify(jobRunService, times(2)).completeRun(briefingRun, 0, 0);
+        }
+
+        /**
+         * ⚠️ The admin entry point must actually TAKE the lock, not merely look at it. Every other
+         * test here holds the build through {@code refreshBriefing()}, so an admin entry that only
+         * checked {@code isLocked()} and then built unlocked would pass all of them — while the
+         * pipeline ran its build straight over the admin's and a second admin press was accepted.
+         */
+        @Test
+        @DisplayName("a build run through refreshBriefingIfIdle() holds the lock against both entry points")
+        void ifIdle_holdsTheLockWhileItBuilds() throws InterruptedException {
+            holdFirstBuildOpen();
+            List<Boolean> firstBuilt = new java.util.concurrent.CopyOnWriteArrayList<>();
+            Thread holder = startHolder(() -> firstBuilt.add(briefingService.refreshBriefingIfIdle()));
+            Thread waiter = null;
+            try {
+                assertThat(briefingService.refreshBriefingIfIdle()).isFalse();
+                waiter = startParkedWaiter();
+                verify(jobRunService, times(1)).startRun(RunType.BRIEFING, false, null);
+            } finally {
+                releaseHolder.countDown();
+                finish(holder);
+                if (waiter != null) {
+                    finish(waiter);
+                }
+            }
+            assertThat(firstBuilt).containsExactly(true);
+            verify(jobRunService, times(2)).startRun(RunType.BRIEFING, false, null);
+        }
+
+        @Test
+        @DisplayName("refreshBriefingIfIdle() builds and returns true when nothing is running")
+        void ifIdle_buildsWhenIdle() {
+            when(jobRunService.startRun(RunType.BRIEFING, false, null)).thenReturn(briefingRun);
+            when(locationService.findAllEnabled()).thenReturn(List.of());
+
+            assertThat(briefingService.refreshBriefingIfIdle()).isTrue();
+
+            verify(jobRunService).completeRun(briefingRun, 0, 0);
+        }
+
+        /**
+         * A build that throws must still release the lock, or the next admin press is refused
+         * and the pipeline's next briefing waits for ever.
+         *
+         * <p>⚠️ The retry runs on ANOTHER thread. The lock is re-entrant, so a retry on the
+         * thread whose build threw would acquire it even if the unlock were missing — the test
+         * would pass with the defect it names.
+         */
+        @Test
+        @DisplayName("a build that throws releases the lock for the next one")
+        void aThrowingBuildReleasesTheLock() throws InterruptedException {
+            when(jobRunService.startRun(RunType.BRIEFING, false, null)).thenReturn(briefingRun);
+            when(locationService.findAllEnabled())
+                    .thenThrow(new IllegalStateException("roster unavailable"))
+                    .thenReturn(List.of());
+
+            assertThatThrownBy(briefingService::refreshBriefing)
+                    .hasMessage("roster unavailable");
+
+            List<Boolean> retried = new java.util.concurrent.CopyOnWriteArrayList<>();
+            Thread retry = new Thread(() -> retried.add(briefingService.refreshBriefingIfIdle()),
+                    "retry-briefing-build");
+            retry.start();
+            finish(retry);
+
+            assertThat(retried).containsExactly(true);
+            verify(jobRunService, times(1)).completeRun(briefingRun, 0, 0);
         }
     }
 }
