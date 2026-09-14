@@ -510,7 +510,9 @@ export default function MapCallout({
                 positioned element, with or without a stylesheet — so the sr-only span is plain
                 `display: inline` to it and the two runs join across the `aria-hidden` caption. In a
                 browser `.sr-only` is `position: absolute`, which blockifies it, and every engine
-                spaces it from the prose on its own (measured 2026-09-11). Keep it as a bare text
+                spaces it from the prose on its own (measured 2026-09-11 by Playwright's
+                accessible-name algorithm over Chromium's, WebKit's and Firefox's layout; Chromium's
+                native accessibility tree agreed on 2026-09-14). Keep it as a bare text
                 node anyway — it states the boundary in the DOM and jsdom's reading needs it; JSX
                 drops a whitespace-only line between two tags, so it has to be an explicit
                 expression. (A flex `gap` would not reach the name; a `::before` WOULD — generated

@@ -719,9 +719,11 @@ describe('WindowControl — the verdict cell, medallion and ticks (map-landing-p
       // "20:28Also goodWorth iteverywhere in your area" HERE — in jsdom, which computes no layout
       // and so reads every span as `display: inline`. A browser never reads it that way:
       // `.wf-win-pill` is `display: flex` at every width, so its children are blockified flex items
-      // that every engine spaces itself, at 1280px and 375px alike (measured 2026-09-11; the
-      // breakpoint rules inside the pill hide or reposition parts of it but never change the pill's
-      // own display). So this test guards the separators being present, which jsdom's reading
+      // that every engine spaces itself, at 1280px and 375px alike (measured 2026-09-11 by
+      // Playwright's accessible-name algorithm over Chromium's, WebKit's and Firefox's layout;
+      // Chromium's native tree agreed on 2026-09-14, at 1400px and 375px; the breakpoint rules
+      // inside the pill hide or reposition parts of it but never change the pill's own display).
+      // So this test guards the separators being present, which jsdom's reading
       // needs; a failure means they went away, not that a screen-reader user would hear the glued
       // string.
       const events = [{ ...EVENTS[0], pickKind: 'also' }, EVENTS[1], EVENTS[2]];

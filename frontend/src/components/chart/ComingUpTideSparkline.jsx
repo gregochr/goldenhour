@@ -88,9 +88,11 @@ export default function ComingUpTideSparkline({ tide }) {
       <span className="wf-cu-spark-label" data-testid="coming-up-tide-sparkline-label">
         <b>{`${range.toFixed(1)} m`}</b>
         {/* ⚠️ LOAD-BEARING in a browser: the `<b>` and the delta `<span>` are plain inline content
-            side by side in this label, so without this the entry card's accessible name reads
-            "5.2 m+1.9 vs avg" in Chromium, WebKit and Firefox alike (measured 2026-09-11). Most
-            separators in the Coming up cards are defensive; this one is not. */}
+            side by side in this label, so without this the entry card's accessible name glues
+            them — "…5.2 m+1.9 vs avg…" (measured 2026-09-11 by Playwright's accessible-name
+            algorithm over Chromium's, WebKit's and Firefox's layout; Chromium's native
+            accessibility tree agreed on 2026-09-14). Most separators in the Coming up cards are
+            defensive; this one is not. */}
         {' '}
         <span className="wf-cu-spark-delta">
           {`${delta > 0 ? '+' : ''}${delta.toFixed(1)} vs avg`}

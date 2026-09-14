@@ -47,13 +47,16 @@ const KIND_WORD = {
  * accessible name is "Plan" alone, the plain trailing text node. Every sibling run that has to read
  * as ONE space-separated sentence uses a literal `{' '}` text node between elements, and the `/`
  * and `·` separators are bare text — both so the boundary is stated in the DOM, where jsdom (which
- * computes no layout, so every span reads as inline to it) can see it. JSX drops a whitespace-only
- * text node between tags, so it has to be written explicitly.
+ * computes no layout, so every span reads as inline to it) can see it. JSX drops whitespace-only
+ * text that contains a line break, so between tags on separate lines a space has to be written
+ * explicitly.
  *
  * <p>⚠️ <b>Most of these are defensive in a browser, and one is not.</b> The separators between the
  * breadcrumb's own pieces sit between flex items (`.wf-map-breadcrumb` and
- * `.wf-map-breadcrumb-carrying` are `display: flex`), which every engine spaces itself; removing
- * them changed nothing a screen reader is given (measured 2026-09-11). The one inside
+ * `.wf-map-breadcrumb-carrying` are `display: flex`), which every engine spaces itself: removing
+ * them changed no accessible name (measured 2026-09-11 by Playwright's accessible-name algorithm
+ * over Chromium's, WebKit's and Firefox's layout; Chromium's native accessibility tree agreed on
+ * 2026-09-14). The one inside
  * `.wf-map-breadcrumb-window` — between `<b>{dayLabel}</b>` and the kind word — is
  * <b>load-bearing</b>: those are plain inline content, so without it the text read aloud is
  * "Tonightsunset". It changes no accessible NAME only because the `<nav>` takes its name from

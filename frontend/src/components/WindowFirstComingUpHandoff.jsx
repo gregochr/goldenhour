@@ -11,9 +11,10 @@ import { buildHandoff } from '../utils/comingUpHandoff.js';
  * Enter/Space, and a role a screen reader announces without an ARIA attribute standing in for it.
  *
  * <p><b>Every sibling span is separated by a literal {@code {' '}} text node — defensively, and
- * today inertly.</b> JSX drops whitespace-only text between tags rather than collapsing it to a
- * space, and this button's accessible name is its own text content (nothing overrides it with
- * {@code aria-label}), so the separators exist to keep the phrases apart in that name.
+ * today inertly.</b> JSX drops whitespace-only text that contains a line break rather than
+ * collapsing it to a space, and this button's accessible name is its own text content (nothing
+ * overrides it with {@code aria-label}), so the separators exist to keep the phrases apart in that
+ * name.
  *
  * <p><b>⚠️ As this row is currently styled they change nothing, and the earlier claim here that
  * the defect "bit this row for real" was not supported by any browser measurement.</b> Every
@@ -21,9 +22,11 @@ import { buildHandoff } from '../utils/comingUpHandoff.js';
  * blockified — {@code .wf-cu-handoff} is {@code display: flex} and
  * {@code .wf-cu-handoff-summary} likewise, so every phrase here is already a block-level
  * contribution. Measured 2026-09-05: each of the five text nodes was removed one at a time from
- * this component's real rendered DOM, against the real stylesheet, and the computed name was
- * unchanged in Chromium, WebKit and Firefox — with a planted inline pair in the same DOM proving
- * the measurement could still detect gluing.
+ * this component's real rendered DOM, against the real stylesheet, and the name Playwright's
+ * accessible-name algorithm computed over Chromium's, WebKit's and Firefox's layout was unchanged —
+ * with a planted inline pair in the same DOM proving the measurement could still detect gluing.
+ * Chromium's native accessibility tree, read over CDP, agreed that day, and again when every
+ * separator was re-measured on 2026-09-14.
  *
  * <h2>The rule — every separator in this codebase follows it, and the other comments point here</h2>
  *
@@ -37,7 +40,10 @@ import { buildHandoff } from '../utils/comingUpHandoff.js';
  * algorithm alone, and that pass could not isolate a separator followed directly by text; the
  * rebuilt one can, and it confirmed the rule's prediction for `MapBreadcrumb`'s window label.) Not
  * measured: separators only in states the capture never saw — it snapshots each test's end and
- * every `fireEvent`, not every render. Native readings exist for Chromium alone.
+ * every `fireEvent`, not every render. Native readings exist for Chromium alone. Those runs
+ * removed separators and read names, so they bear on the first two items below — except the
+ * browse-mode clause, which no run read — and on the fifth, through the space that sits inside
+ * {@code SlotLocationName}'s icon span; the third and fourth rest on earlier targeted probes.
  *
  * <ul>
  *   <li>A separator matters <b>only between plain {@code display: inline} content</b> — inline

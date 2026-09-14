@@ -726,10 +726,11 @@ const PromptTestView = () => {
                         {inProgress ? (
                           <span className="text-amber-400 text-xs" data-testid={`run-progress-${run.id}`}>
                             {/* LOAD-BEARING: the literal space after the glyph separates two text runs in
-                                one inline span, so without it this row's accessible
-                                name reads "<glyph>2/5" - the U+27F3 glyph glued to the
-                                count (measured 2026-09-14). Keep it on one line: JSX
-                                drops whitespace that contains a line break. */}
+                                one inline span, so without it the U+27F3 glyph glues to
+                                the count inside this row's accessible name ("... <glyph>2/5
+                                ...") - measured 2026-09-14, confirmed against Chromium's
+                                native tree. Keep it on one line: JSX drops whitespace-only
+                                text that contains a line break. */}
                             {'\u27F3'} {run.succeeded + run.failed}/{run.locationsCount || '?'}
                           </span>
                         ) : (
