@@ -342,7 +342,9 @@ describe('stored results answer for the night they were fetched for (Codex, #814
 
   it('does not let the previous night\'s results stand in while the new night loads', async () => {
     // ⚠️ The stale-window case. A has resolved; the reader moves to B, whose request has NOT yet
-    // resolved. Without the clear-on-change, A's results were still on hand and answered for B.
+    // resolved. Unless the results are keyed to their night — a clear on every change when this was
+    // written, the answer's own night since the night-aware loading fix — A's were still on hand
+    // and answered for B.
     const b = deferred();
     getAuroraForecastResults.mockImplementation((night) => (
       night === NIGHT_A ? Promise.resolve([{ locationName: LOC, stars: 4 }]) : b.promise
@@ -354,7 +356,9 @@ describe('stored results answer for the night they were fetched for (Codex, #814
     markerLabelAndColour.mockClear();
     await rerenderNight(result, NIGHT_B);
     await act(async () => { await Promise.resolve(); });
-    // B is loading, so NOTHING is rated for it yet — and nothing may be drawn.
+    // Nothing from ANOTHER night may be drawn for B, and this file previews no night, so B has
+    // nothing of its own to draw yet either. (With a preview, B draws its own preview rows meanwhile
+    // — `MapViewNightScoresLoading.test.jsx`.)
     //
     // ⚠️ Asserted on the marker COUNT, not on `markerLabelAndColour`, and that is not a stylistic
     // choice. The first form of this test asked "was the spy called with a 4?" and passed with the

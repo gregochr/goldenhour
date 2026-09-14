@@ -272,6 +272,74 @@ const EMPTY_ROWS = [];
  */
 const EMPTY_DATES = [];
 
+/**
+ * One night's served rows (astro conditions or stored aurora results), keyed by location name —
+ * the shape both night readers draw from, built the same way from a night's own answer and from
+ * the window control's preview of it.
+ *
+ * <p>⚠️ Throws on a non-array, deliberately. A request's `.then` hands its body straight here, so a
+ * malformed body throws into that request's `.catch` and is handled as the failure it is — it
+ * answers nothing (see `ratingKnown`), which is how the inline loop this replaced behaved. The
+ * render-time caller, {@link nightScoresFor}, checks `Array.isArray` first, because a throw there
+ * would take the whole map down. A row with no name is skipped rather than dereferenced, the same
+ * tolerance `mapEvents.js` and `MapCallout.jsx` give these rows.
+ */
+function byLocationName(rows) {
+  const byName = {};
+  rows.forEach((r) => { if (r?.locationName != null) byName[r.locationName] = r; });
+  return byName;
+}
+
+/** One shared empty score set, so a night with nothing to draw keeps a stable identity. */
+const NO_NIGHT_ROWS = {};
+
+/**
+ * What a night reader draws for the night on screen: that night's own ANSWER once it has landed,
+ * and until then the window control's PREVIEW rows for it — or nothing.
+ *
+ * <p>Derived at render rather than written into state on each night step, and that is the design,
+ * not a shortcut. Resetting state on the step (the shape #814 and its astro twin took) left a
+ * window of a frame in which the old night's rows answered for the new one, drew nothing at all for
+ * the round trip, and could not take a preview that arrived after the step. Asked at render, the
+ * rows are this night's by construction: an answer is used only when it names this night, and a
+ * preview that lands later, or after the night's own request has failed, fills the night in on the
+ * next render. The preview is the same endpoint asked about the same night, so it cannot answer for
+ * the wrong one.
+ *
+ * @param {?string} night the night on screen when this reader's mode is active, else null
+ * @param {?{night: string, byName: object}} answer the last answer that landed for this reader
+ * @param {Map<string, Array>} preview the window control's preview, date → that night's rows
+ */
+function nightScoresFor(night, answer, preview) {
+  if (!night) return NO_NIGHT_ROWS;
+  if (answer?.night === night) return answer.byName;
+  const rows = preview.get(night);
+  return Array.isArray(rows) ? byLocationName(rows) : NO_NIGHT_ROWS;
+}
+
+/**
+ * The preview's next map from one run's results: a night that answered takes its new rows; a night
+ * whose request FAILED keeps the rows it already had, and stays out of the map if it had none.
+ *
+ * <p>⚠️ Out, never `[]`. An empty list is this endpoint's answer "nothing is rated that night", and
+ * a failed request is not evidence of that — the distinction `pendingNightRowIds` draws for the
+ * callout's strip. And a failure keeps what it had rather than throwing it away, the rule
+ * `WindowFirstBriefingContext`'s scores fetch already keeps ("a dropped request is not evidence that
+ * the ratings went away"). That matters more than it looks: the preview re-runs on every briefing
+ * beat and window focus, so most of its failures happen with good rows already on screen.
+ *
+ * @param {Map<string, Array>} prev the preview as it stood before this run
+ * @param {Array<{d: string, rows?: Array, failed?: boolean}>} results one entry per night asked for
+ */
+function mergePreviewRun(prev, results) {
+  const next = new Map();
+  for (const { d, rows, failed } of results) {
+    if (!failed) next.set(d, rows);
+    else if (prev.has(d)) next.set(d, prev.get(d));
+  }
+  return next;
+}
+
 // Override Leaflet popup width + scrolling.
 // Max-height must be less than the map container height (500px) so the popup
 // scrolls internally rather than being clipped by the container's overflow:hidden.
@@ -1607,10 +1675,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // it the hook would go on offering the old Kp's line under an overlay label quoting the new one.
   const { viewline } = useAuroraViewline(viewlineEnabled, auroraStatus?.triggerType, auroraStatus?.forecastKp);
   const [auroraScores, setAuroraScores] = useState({});
-  const [storedAuroraResults, setStoredAuroraResults] = useState({}); // locationName → result
+  // The last stored-aurora ANSWER that landed, tagged with the night it answers for —
+  // `{night, byName}`, or null before any has. Set by a successful response and by nothing else.
+  // `storedAuroraResults`, what every reader draws, is derived from it below (`nightScoresFor`).
+  const [storedAuroraAnswer, setStoredAuroraAnswer] = useState(null);
   const [auroraAvailableDates, setAuroraAvailableDates] = useState([]); // ISO date strings
-  const [astroScores, setAstroScores] = useState({}); // locationName → { stars, summary, ... }
+  // `storedAuroraAnswer`'s astro twin, from which `astroScores` is derived.
+  const [astroAnswer, setAstroAnswer] = useState(null);
   const [astroAvailableDates, setAstroAvailableDates] = useState([]); // ISO date strings
+  // The window control's multi-night preview (date → that night's served rows) — fetched and
+  // documented beside its own effects below, and declared up here because the night scores are
+  // derived from it too.
+  const [astroConditionsByDate, setAstroConditionsByDate] = useState(new Map());
+  const [auroraResultsByDate, setAuroraResultsByDate] = useState(new Map());
   const [flyTarget, setFlyTarget] = useState(null);
   const [fitBoundsTarget, setFitBoundsTarget] = useState(null);
   const [tideFetchedAt, setTideFetchedAt] = useState({});
@@ -1890,9 +1967,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // Hence `cancelled`, which drops any response whose status has since been superseded — "latest"
   // meaning the latest status PUBLISHED, since the provider does not order its own responses.
   //
-  // ⚠️ Deliberately NO clear before the request, unlike the stored-results fetch below, and a failed
-  // refetch keeps the last answer. That fetch answers for a night the reader selected; this is the
-  // backend's live cache, and nothing on the status marks a change in it. `detectedAt` moves on an
+  // ⚠️ Deliberately NO clear before the request, and a failed refetch keeps the last answer. The
+  // stored-results fetch below clears nothing either, since the night-aware loading fix, but it can
+  // stop a stale answer the moment the night changes, because its answer names the night the reader
+  // selected (`nightScoresFor`); this is the backend's live cache, and nothing on the status marks a
+  // change in it. `detectedAt` moves on an
   // escalation while the backend still holds the pre-escalation list (it re-scores after the
   // NOTIFY), so a clear keyed on it would blank the map and redraw the same list; the night can roll
   // while the backend still holds last night's, so one keyed on the night gains nothing; and one on
@@ -1941,25 +2020,26 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // overlay popup read them on every non-live night — so a result standing in for the wrong night
   // is the exact defect that gate exists to stop. Two ways it could:
   //   - A STALE WINDOW. Switch night A → B and, until B's request resolves, the results on hand are
-  //     still A's. Hence the clear on EVERY change, before the new request is made.
+  //     still A's. Hence the answer carries its night, and `storedAuroraResults` (derived below)
+  //     uses it only for that night — B draws B's own preview rows meanwhile, or nothing.
   //   - A LATE RESPONSE. With no cancellation, A's request finishing after B's wrote A's stars in as
-  //     B's, and they stayed there until the next selection. Hence `cancelled`, which drops any
-  //     response whose night is no longer the one on screen.
+  //     B's answer, replacing B's own. Hence `cancelled`, which drops any response whose night is no
+  //     longer the one on screen.
   // The same fetch-cancel shape this file's multi-date astro/aurora preview effects already use.
+  //
+  // ⚠️ A FAILURE writes nothing. A dropped request is not evidence that the ratings went away — the
+  // rule `WindowFirstBriefingContext`'s scores fetch already keeps — so the night goes on drawing
+  // its preview rows, or nothing, and stays unanswered (`ratingKnown`). The `cancelled` guard the
+  // `.catch` used to carry went with its write: there is nothing left for a late failure to write
+  // over. Nothing re-asks after a failure, either; the changelog states that as a limit.
   useEffect(() => {
-    (async () => setStoredAuroraResults({}))();
     if (eventType !== 'AURORA' || !nightDate) return undefined;
     let cancelled = false;
     getAuroraForecastResults(nightDate)
       .then((results) => {
-        if (cancelled) return;
-        const byName = {};
-        results.forEach((r) => { byName[r.locationName] = r; });
-        setStoredAuroraResults(byName);
+        if (!cancelled) setStoredAuroraAnswer({ night: nightDate, byName: byLocationName(results) });
       })
-      .catch(() => {
-        if (!cancelled) setStoredAuroraResults({});
-      });
+      .catch(() => {});
     return () => { cancelled = true; };
   }, [eventType, nightDate]);
 
@@ -1978,26 +2058,57 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // answer for ONE night, and every astro reader takes them as the night on screen's: the rating
   // accessor and everything drawn from it, the astro heat points, and both overlay popups. So:
   //   - A STALE WINDOW. Switch night A → B and, until B's request resolves, the scores on hand are
-  //     still A's. Hence the clear on EVERY change, before the new request is made.
+  //     still A's. Hence the answer carries its night, and `astroScores` (derived below) uses it
+  //     only for that night — B draws B's own preview rows meanwhile, or nothing.
   //   - A LATE RESPONSE. With no cancellation, A's request finishing after B's wrote A's stars in as
-  //     B's, and they stayed there until the next selection. Hence `cancelled`, which drops any
-  //     response — or failure — whose night is no longer the one on screen.
+  //     B's answer, replacing B's own. Hence `cancelled`, which drops any response whose night is no
+  //     longer the one on screen.
+  // And a failure writes nothing, for the reason the stored-aurora fetch above records.
   useEffect(() => {
-    (async () => setAstroScores({}))();
     if (eventType !== 'ASTRO' || !nightDate) return undefined;
     let cancelled = false;
     getAstroConditions(nightDate)
       .then((results) => {
-        if (cancelled) return;
-        const byName = {};
-        results.forEach((r) => { byName[r.locationName] = r; });
-        setAstroScores(byName);
+        if (!cancelled) setAstroAnswer({ night: nightDate, byName: byLocationName(results) });
       })
-      .catch(() => {
-        if (!cancelled) setAstroScores({});
-      });
+      .catch(() => {});
     return () => { cancelled = true; };
   }, [eventType, nightDate]);
+
+  /**
+   * What every stored-aurora and astro reader draws for the night on screen — the rating accessor
+   * and everything drawn from it, the astro heat points, the overlay popups — derived at render by
+   * {@link nightScoresFor}: the night's own answer once it has landed, and until then the window
+   * control's preview rows for that night, or nothing.
+   *
+   * <p><b>Why the preview at all.</b> Drawing nothing until the answer landed left the tab with
+   * nothing rated for one request round trip on every night step: the pins, the labels, the counts,
+   * the astro field, and a callout reading "Not scored yet" directly above a strip cell that was
+   * already showing the night's star — because the strip and the window control's `N★ best` read
+   * this same preview.
+   *
+   * <p>⚠️ <b>The preview is never a dependency of the fetch effects above, only of these memos.</b>
+   * A preview landing re-renders the night; it never re-requests it. (This was a ref read inside
+   * those effects in the first cut, and before that a {@code useEffectEvent}, which cannot work
+   * here: in react-dom 19.2.8 an Effect Event's implementation is swapped in during the commit only
+   * for a plain function-component fiber, and `React.memo(MapView)` renders as a simple-memo fiber,
+   * so the event kept its mount-time closure and never saw a preview at all.)
+   *
+   * <p>⚠️ <b>A preview row is not an answer.</b> {@code ratingKnown} reads the answer's night alone,
+   * so a place the preview does not rate reads "Loading…" until the night's own response lands,
+   * never "Not scored yet" on the preview's word.
+   *
+   * <p>Tab only in effect: the overlay never fetches a preview (see its effects), so there a night
+   * draws nothing until its answer lands, exactly as before.
+   */
+  const storedAuroraResults = useMemo(
+    () => nightScoresFor(eventType === 'AURORA' ? nightDate : null, storedAuroraAnswer, auroraResultsByDate),
+    [eventType, nightDate, storedAuroraAnswer, auroraResultsByDate],
+  );
+  const astroScores = useMemo(
+    () => nightScoresFor(eventType === 'ASTRO' ? nightDate : null, astroAnswer, astroConditionsByDate),
+    [eventType, nightDate, astroAnswer, astroConditionsByDate],
+  );
 
   /**
    * This render's UK civil today — <b>one</b> clock reading, shared by the three things on this tab
@@ -2073,38 +2184,54 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     () => auroraAvailableDates.filter((d) => horizonDates.includes(d)),
     [auroraAvailableDates, horizonDates],
   );
+  /**
+   * The nights the preview actually asks about — nothing on the overlay, the bounded list on the
+   * tab. ONE value, read by the preview effects below AND by `pendingNightRowIds`, so "which nights
+   * is the preview responsible for" is answered once: the pending set used to repeat the horizon
+   * bound while leaving the overlay gate behind, and was safe on the overlay only because that
+   * mount builds no window list (adversarial review).
+   */
+  const astroPreviewDates = overlayMode ? EMPTY_DATES : boundedAstroAvailableDates;
+  const auroraPreviewDates = overlayMode ? EMPTY_DATES : boundedAuroraAvailableDates;
 
-  const [astroConditionsByDate, setAstroConditionsByDate] = useState(new Map());
+  // (`astroConditionsByDate`/`auroraResultsByDate` are declared with the night-answer state above,
+  // because the night scores are derived from them too.)
+  //
+  // ⚠️ Each run is merged into what the preview already had (`mergePreviewRun`): a night whose
+  // request FAILED keeps its earlier rows, and one that never answered stays out of the map rather
+  // than being stored as `[]`. Every reader but `pendingNightRowIds` treats an absent night exactly
+  // as it treated `[]`: `buildMapEvents` reads `get(date) || []`, the strip and `nightScoresFor` take
+  // a non-array as nothing, and the Regions jump list finds no best either way.
   useEffect(() => {
-    if (overlayMode || boundedAstroAvailableDates.length === 0) {
+    if (astroPreviewDates.length === 0) {
       // Inline async wrapper satisfies react-hooks/set-state-in-effect while the setState still
       // applies synchronously this tick — the same idiom the aurora-availability effect above uses.
       (async () => setAstroConditionsByDate(new Map()))();
       return undefined;
     }
     let cancelled = false;
-    Promise.all(boundedAstroAvailableDates.map((d) => (
-      getAstroConditions(d).then((rows) => [d, rows]).catch(() => [d, []])
-    ))).then((pairs) => {
-      if (!cancelled) setAstroConditionsByDate(new Map(pairs));
+    Promise.all(astroPreviewDates.map((d) => (
+      getAstroConditions(d).then((rows) => ({ d, rows })).catch(() => ({ d, failed: true }))
+    ))).then((results) => {
+      if (!cancelled) setAstroConditionsByDate((prev) => mergePreviewRun(prev, results));
     });
     return () => { cancelled = true; };
-  }, [overlayMode, boundedAstroAvailableDates]);
+  }, [astroPreviewDates]);
 
-  const [auroraResultsByDate, setAuroraResultsByDate] = useState(new Map());
+  // The aurora twin, merged the same way.
   useEffect(() => {
-    if (overlayMode || boundedAuroraAvailableDates.length === 0) {
+    if (auroraPreviewDates.length === 0) {
       (async () => setAuroraResultsByDate(new Map()))();
       return undefined;
     }
     let cancelled = false;
-    Promise.all(boundedAuroraAvailableDates.map((d) => (
-      getAuroraForecastResults(d).then((rows) => [d, rows]).catch(() => [d, []])
-    ))).then((pairs) => {
-      if (!cancelled) setAuroraResultsByDate(new Map(pairs));
+    Promise.all(auroraPreviewDates.map((d) => (
+      getAuroraForecastResults(d).then((rows) => ({ d, rows })).catch(() => ({ d, failed: true }))
+    ))).then((results) => {
+      if (!cancelled) setAuroraResultsByDate((prev) => mergePreviewRun(prev, results));
     });
     return () => { cancelled = true; };
-  }, [overlayMode, boundedAuroraAvailableDates]);
+  }, [auroraPreviewDates]);
 
   const lineKm = lineKmForZoom(zoom);
 
@@ -2326,8 +2453,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * row for, so the selector's own "No forecast window" is not answered twice.
    *
    * <p>ASTRO has no {@code heatWindow} at all (no served window key), so it asks the same question
-   * of its own point set directly — an empty {@code astroHeatPoints} IS "nothing here is rated",
-   * since every entry in it was already filtered to a real score.
+   * of its own point set directly — every entry in {@code astroHeatPoints} was already filtered to
+   * a real score, so an empty set is "nothing here is rated" once the night has ANSWERED.
+   *
+   * <p>⚠️ Not before it has: while a night's own request is in flight with no preview rows to draw,
+   * or after it has failed, the set is empty for want of an answer, and this line still says "not
+   * scored" beside a callout reading "Loading…". Holding it back needs a third, loading state for
+   * the colour key this toggles against; the changelog states it as a limit.
    */
   const windowUnscored = Boolean(
     heatOn && (isAstroMode
@@ -2499,6 +2631,36 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     eventType, date, briefingScoreIndex, storedAuroraResults, auroraScores, astroScores,
     solarWindowOnScreen, liveAuroraOnScreen,
   ]);
+
+  /**
+   * Whether {@link getRatingForLocation}'s own request has actually answered for the window on
+   * screen — what decides whether the callout's null rating reads "Not scored yet" or "Loading…"
+   * (`MapCallout`'s `ratingKnown`). Branches on the same event kinds as the accessor above.
+   *
+   * <p>⚠️ <b>A night is asked about its own request, because the solar flag cannot answer for
+   * one.</b> The callout was handed {@code scoresKnown} for every window — the SOLAR scores fetch's
+   * flag — so once the solar scores had landed, an astro or aurora night step read "Not scored yet"
+   * for the whole round trip of a request still in flight, sometimes directly above a strip cell
+   * already showing that night's star. Each night kind's answer now names the night it answers for
+   * (see its state), set by a successful response and by nothing else: not by the preview's rows,
+   * which are the preview's word rather than this request's, and not by a failure, which is not
+   * evidence that nothing was rated. `nightDate`, never `date` — they part company whenever the
+   * window control keeps a night row local (a past night, say), and the answer is for the night.
+   *
+   * <p>Aurora asks the STORED request alone. On the night in progress the accessor also falls back
+   * to the live cache, which can rate a place during the round trip — and a rating needs no flag:
+   * this only decides what a null one says. (While the live fetch itself is still in flight, a place
+   * the stored run did not rate reads "Not scored yet" a moment early; the changelog states it.)
+   *
+   * <p>The last arm is the solar flag for SUNRISE and SUNSET, the only other kinds there are. A new
+   * night kind has to add its own arm here and in the accessor above, or it inherits that flag —
+   * the defect this exists to stop.
+   */
+  const ratingKnown = eventType === 'ASTRO'
+    ? astroAnswer?.night === nightDate
+    : eventType === 'AURORA'
+      ? storedAuroraAnswer?.night === nightDate
+      : scoresKnown;
 
   /**
    * This window's tide-alignment fact for a location (bundle rev 2's tide-chip tweak) — null
@@ -3010,6 +3172,27 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     formatTimeUk: formatEventTimeUk,
   });
   /**
+   * The night rows whose served rows the window control's preview has NOT answered — still in
+   * flight, or failed with nothing earlier to keep — by EV row id, for the callout's every-window
+   * strip: its cell for one of these reads "…", never the "—" that says this location is not rated
+   * that night.
+   *
+   * <p>⚠️ <b>Only nights the preview actually asks about</b> — {@code astroPreviewDates}/
+   * {@code auroraPreviewDates}, the same two lists its effects fetch, so the two cannot drift. A
+   * night outside them is never fetched by the preview, so it is never pending — marking it would
+   * leave "…" beside it for good. Its cell reads "—" unless it is the window on screen;
+   * `MapCallout`'s strip note says why.
+   *
+   * <p>A plain {@code const} below the early return, built fresh every render for the reason
+   * {@code mapEvents} above is: that list is itself new on every render.
+   */
+  const pendingNightRowIds = new Set(mapEvents
+    .filter((row) => (row.kind === EVENT_KIND.ASTRO
+      ? astroPreviewDates.includes(row.date) && !astroConditionsByDate.has(row.date)
+      : row.kind === EVENT_KIND.AURORA
+        && auroraPreviewDates.includes(row.date) && !auroraResultsByDate.has(row.date)))
+    .map((row) => row.id));
+  /**
    * The region names in scope — "My area" or "Everywhere", before every OTHER filter
    * (map-landing-plan.md §3 L1, `docs/design/map-landing/README.md` §1).
    *
@@ -3188,7 +3371,8 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * astro carries no EV row in a catalogue with no astro conditions, so {@code activeMapEvent} is
    * null there — but its {@code windowUnscored} is derived from {@code astroHeatPoints} directly,
    * which IS a statement about the forecast rather than the camera. Gating it would have silenced
-   * the one mode whose message is always earned.
+   * the one mode whose message is always earned — once the night has answered, that is; see
+   * {@code windowUnscored} for the loading case in which it is not.
    */
   const unscoredLineShown = windowUnscored && (isAstroMode || activeMapEvent != null);
 
@@ -3256,10 +3440,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * <p>Built fresh every render rather than `useMemo`'d/`useCallback`'d — the SAME choice
    * `mapEvents` above makes, and for the identical reason: every input already recomputes on its own
    * cadence, so a memo here would carry an equally long dependency list for a builder over a few
-   * rows at most. (It also could not be a hook at all in this exact spot: this component's own
-   * conditional early return sits between `mapEvents`/`activeMapEvent` above and this block, so a
-   * `useCallback`/`useMemo` placed after it would violate the Rules of Hooks on every render that
-   * takes that return — the same trap `selectMapLocation`'s own comment records a few screens down.)
+   * rows at most. (It also could not be a hook at all in this exact spot: it sits below this
+   * component's own conditional early return — `if (!date || locations.length === 0)`, which comes
+   * before `mapEvents` too — so a `useCallback`/`useMemo` placed here would violate the Rules of
+   * Hooks on every render that takes that return — the same trap `selectMapLocation`'s own comment
+   * records a few screens down. This used to say the return sat between `mapEvents` and here.)
    */
   const activeNightRows = (() => {
     if (!activeMapEvent || activeMapEvent.kind === EVENT_KIND.SOLAR) return null;
@@ -4564,10 +4749,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               tideOnLight={getTideOnLightForLocation(selectedLoc)}
               scoreIndex={scoreIndex}
               scoresKnown={scoresKnown}
+              ratingKnown={ratingKnown}
               regionGlossIndex={regionGlossIndex}
               evRows={mapEvents}
               astroConditionsByDate={astroConditionsByDate}
               auroraResultsByDate={auroraResultsByDate}
+              pendingNightRowIds={pendingNightRowIds}
               onSelectEv={selectEvRow}
               onOpenSheet={() => handleOpenLocationSheet(false)}
               onOpenInPlan={() => handleOpenLocationSheet(true)}
@@ -5299,7 +5486,8 @@ MapView.propTypes = {
   scoreIndex: PropTypes.object,
   /** Whether the ratings response `scoreIndex` is built from has actually landed — an unfetched
    * response is not evidence that nothing was rated (the same rule `scoresLoaded` states everywhere
-   * else it is read). */
+   * else it is read). It speaks for the SOLAR windows alone; a night's equivalent is derived in the
+   * component (`ratingKnown`), because this flag says nothing about an astro or aurora request. */
   scoresKnown: PropTypes.bool,
   /** From `utils/mapCallout.buildRegionGlossIndex` — the callout's reason-prose fallback. */
   regionGlossIndex: PropTypes.object,
