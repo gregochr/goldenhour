@@ -20,6 +20,15 @@ public enum AlertLevel {
     /** Kp 7+ (G3+) — strong storm, aurora likely across the UK. */
     STRONG(3, "#ff0000", "Strong storm — aurora likely across the UK");
 
+    /** Kp at and above which the level is STRONG (G3), whatever the MODERATE threshold. */
+    public static final double STRONG_KP = 7.0;
+
+    /** Kp at and above which the level is MODERATE (G1) by default. */
+    public static final double DEFAULT_MODERATE_KP = 5.0;
+
+    /** Kp at and above which the level is MINOR. */
+    public static final double MINOR_KP = 4.0;
+
     private final int severity;
     private final String hexColour;
     private final String description;
@@ -67,19 +76,37 @@ public enum AlertLevel {
     }
 
     /**
-     * Derives the alert level from a NOAA Kp index value.
+     * Derives the alert level from a NOAA Kp index value, with MODERATE at the default Kp 5.
      *
      * @param kp Kp index (0–9)
      * @return corresponding {@link AlertLevel}
      */
     public static AlertLevel fromKp(double kp) {
-        if (kp >= 7) {
+        return fromKp(kp, DEFAULT_MODERATE_KP);
+    }
+
+    /**
+     * Derives the alert level from a NOAA Kp index value with a configurable MODERATE threshold —
+     * the one rule both aurora polling paths map Kp through, given
+     * {@code aurora.triggers.kp-threshold}.
+     *
+     * <p>STRONG from Kp 7 whatever the threshold, MODERATE from {@code moderateKp}, MINOR from Kp 4,
+     * QUIET below. The result never falls as {@code kp} rises, for any threshold. That is what keeps
+     * the real-time level at or above the forecast lookahead's: the real-time path maps a Kp figure
+     * that is never lower through this same function.
+     *
+     * @param kp         Kp index (0–9)
+     * @param moderateKp Kp at and above which the level is MODERATE
+     * @return corresponding {@link AlertLevel}
+     */
+    public static AlertLevel fromKp(double kp, double moderateKp) {
+        if (kp >= STRONG_KP) {
             return STRONG;
         }
-        if (kp >= 5) {
+        if (kp >= moderateKp) {
             return MODERATE;
         }
-        if (kp >= 4) {
+        if (kp >= MINOR_KP) {
             return MINOR;
         }
         return QUIET;

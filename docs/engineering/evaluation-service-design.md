@@ -156,6 +156,8 @@ The agreed split:
 - `AuroraOrchestrator.runForecastLookahead()` — daytime check of tonight's Kp forecast.
 - `AuroraOrchestrator.run()` — synchronous Claude call via `ClaudeAuroraInterpreter.interpret()` (no batch). Result lands in `AuroraStateCache`.
 
+> **Since 2026-09-14** a poll runs `runForecastLookahead(tonight, now)` in daylight *or* `runNightPoll(tonight, now)` after dark (the lookahead then the real-time path, over one NOAA snapshot). `run()` and `isDaylight()` are gone. The day/night decision is `now` against the dusk of the window `calculateTonightWindow(now)` returns.
+
 The state machine in `AuroraStateCache` (IDLE → MONITORING → MODERATE/STRONG) suppresses duplicate notifications at the same level. Critically the cache is **shared** between both paths — daytime forecast NOTIFYs prevent nighttime real-time double-firing.
 
 **Aurora real-time has zero observability today** (Pass 1 §6) — no `job_run`, no `api_call_log`. This is a fixable side-benefit of running it through `EvaluationService.evaluateNow()` (synchronous).

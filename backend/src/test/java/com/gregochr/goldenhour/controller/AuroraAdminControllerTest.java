@@ -4,15 +4,18 @@ import com.gregochr.goldenhour.config.AuroraProperties;
 import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.JobRunEntity;
 import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.test.context.support.WithMockUser;
+import org.springframework.test.json.JsonCompareMode;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
+import java.util.Optional;
 
 import org.mockito.ArgumentCaptor;
 
@@ -21,10 +24,13 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -160,6 +166,77 @@ class AuroraAdminControllerTest extends AbstractControllerTest {
         verify(stateCache).activateSimulation(
                 eq(AlertLevel.STRONG),
                 eq(new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3")));
+    }
+
+    // -------------------------------------------------------------------------
+    // run endpoint — the scheduled cycle itself, through the job's guard
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("POST /api/aurora/admin/run after dark runs the job's cycle and reports both paths")
+    @WithMockUser(roles = {"ADMIN"})
+    void run_admin_night_reportsBothPaths() throws Exception {
+        when(pollingJob.runCycleIfIdle()).thenReturn(Optional.of(new AuroraOrchestrator.PollOutcome(
+                AuroraStateCache.Action.NOTIFY, AuroraStateCache.Action.SUPPRESS)));
+
+        mockMvc.perform(post("/api/aurora/admin/run"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("""
+                        {"status": "Aurora cycle complete", "dark": true,
+                         "lookahead": "NOTIFY", "realtime": "SUPPRESS"}
+                        """, JsonCompareMode.STRICT));
+
+        verify(pollingJob).runCycleIfIdle();
+        verify(pollingJob, never()).poll();
+        verifyNoInteractions(orchestrator);
+    }
+
+    @Test
+    @DisplayName("POST /api/aurora/admin/run in daylight reports the lookahead and a null real-time action")
+    @WithMockUser(roles = {"ADMIN"})
+    void run_admin_daylight_reportsTheLookaheadAlone() throws Exception {
+        when(pollingJob.runCycleIfIdle()).thenReturn(Optional.of(
+                new AuroraOrchestrator.PollOutcome(AuroraStateCache.Action.NONE, null)));
+
+        mockMvc.perform(post("/api/aurora/admin/run"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("""
+                        {"status": "Aurora cycle complete", "dark": false,
+                         "lookahead": "NONE", "realtime": null}
+                        """, JsonCompareMode.STRICT));
+    }
+
+    @Test
+    @DisplayName("POST /api/aurora/admin/run returns 409 while a cycle is already running")
+    @WithMockUser(roles = {"ADMIN"})
+    void run_admin_cycleAlreadyRunning_returns409() throws Exception {
+        when(pollingJob.runCycleIfIdle()).thenReturn(Optional.empty());
+
+        mockMvc.perform(post("/api/aurora/admin/run"))
+                .andExpect(status().isConflict())
+                .andExpect(content().json("""
+                        {"status": "An aurora cycle is already running"}
+                        """, JsonCompareMode.STRICT));
+    }
+
+    @Test
+    @DisplayName("POST /api/aurora/admin/run returns 403 for PRO_USER and runs nothing")
+    @WithMockUser(roles = {"PRO_USER"})
+    void run_proUser_returns403() throws Exception {
+        mockMvc.perform(post("/api/aurora/admin/run"))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(pollingJob);
+    }
+
+    @Test
+    @DisplayName("POST /api/aurora/admin/run returns 403 for LITE_USER and runs nothing")
+    @WithMockUser(roles = {"LITE_USER"})
+    void run_liteUser_returns403() throws Exception {
+        mockMvc.perform(post("/api/aurora/admin/run"))
+                .andExpect(status().isForbidden());
+
+        verifyNoInteractions(pollingJob);
     }
 
     // -------------------------------------------------------------------------

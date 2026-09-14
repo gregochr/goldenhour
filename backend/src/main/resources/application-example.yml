@@ -110,9 +110,9 @@ aurora:
   triggers:
     kp-threshold: 5.0
     ovation-probability-threshold: 20.0
-    kp-forecast-lookahead-hours: 6
-    kp-clear-threshold: 5.0
-    ovation-clear-threshold: 15.0
+    kp-forecast-lookahead-hours: 6   # aurora batch job's level check only; polling reads to dawn
+    kp-clear-threshold: 5.0          # not read — de-escalation hysteresis was never built
+    ovation-clear-threshold: 15.0    # not read — as above
   bortle-threshold:
     moderate: 4   # max Bortle class for MODERATE alerts
     strong: 5     # max Bortle class for STRONG alerts (relax threshold for bright displays)

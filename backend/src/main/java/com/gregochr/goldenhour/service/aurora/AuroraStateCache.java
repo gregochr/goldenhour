@@ -29,7 +29,8 @@ import java.util.List;
  * <p>Thread safety: {@code volatile} fields allow the REST endpoint to read state from
  * a different thread while the polling job writes from a single background thread.
  * Compound read-check-write in {@link #evaluate(AlertLevel)} is intentionally
- * single-threaded — only the polling job calls it.
+ * single-threaded — only a polling cycle calls it, and {@link AuroraPollingJob} never runs two
+ * cycles at once, whichever route (schedule, Run Now, or the admin run endpoint) started them.
  */
 @Component
 public class AuroraStateCache {

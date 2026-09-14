@@ -33,10 +33,11 @@ export async function enrichBortle() {
 }
 
 /**
- * Triggers an immediate NOAA SWPC aurora orchestration cycle.
- * ADMIN only.
+ * Runs one aurora polling cycle now — the same cycle the schedule runs.
+ * ADMIN only. Rejects with a 409 while a cycle is already running.
  *
- * @returns {Promise<object>} { status, action }
+ * @returns {Promise<object>} { status, dark, lookahead, realtime } — each path's
+ *   state-machine action; `realtime` is null in daylight, when that path does not run
  */
 export async function triggerAuroraRun() {
   const response = await apiClient.post(`${BASE_URL}/admin/run`);

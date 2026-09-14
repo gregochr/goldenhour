@@ -45,6 +45,59 @@ class AlertLevelTest {
         assertThat(AlertLevel.fromKp(kp)).isEqualTo(expected);
     }
 
+    @ParameterizedTest(name = "fromKp({0}, moderate at {1}) = {2}")
+    @CsvSource({
+        // A lower MODERATE threshold: 4.67 is MODERATE, not MINOR, and MINOR starts where it did.
+        "4.49, 4.5, MINOR",
+        "4.5,  4.5, MODERATE",
+        "4.67, 4.5, MODERATE",
+        "3.99, 4.5, QUIET",
+        // A higher one: Kp 5 and 6 stay MINOR until 6.
+        "5.99, 6.0, MINOR",
+        "6.0,  6.0, MODERATE",
+        // STRONG is fixed at 7 whatever the threshold.
+        "6.99, 6.0, MODERATE",
+        "7.0,  6.0, STRONG",
+        "7.0,  4.5, STRONG",
+        // A threshold above 7 cannot demote STRONG, and leaves MODERATE unreachable by Kp.
+        "7.0,  8.0, STRONG",
+        "6.99, 8.0, MINOR"
+    })
+    @DisplayName("fromKp with a configured MODERATE threshold maps Kp at and around each boundary")
+    void fromKp_withModerateThreshold_mapsAtEachBoundary(double kp, double moderateKp,
+            AlertLevel expected) {
+        assertThat(AlertLevel.fromKp(kp, moderateKp)).isEqualTo(expected);
+    }
+
+    @Test
+    @DisplayName("fromKp at the default threshold agrees with fromKp without one, at every third of a Kp")
+    void fromKp_defaultThreshold_matchesSingleArgument() {
+        for (int thirds = 0; thirds <= 27; thirds++) {
+            double kp = thirds / 3.0;
+            assertThat(AlertLevel.fromKp(kp, AlertLevel.DEFAULT_MODERATE_KP))
+                    .as("Kp %.2f", kp)
+                    .isEqualTo(AlertLevel.fromKp(kp));
+        }
+    }
+
+    @Test
+    @DisplayName("fromKp never falls as Kp rises, for any MODERATE threshold")
+    void fromKp_neverFallsAsKpRises() {
+        // The real-time aurora level is kept at or above the lookahead's by mapping a Kp figure that
+        // is never lower through this same function. That argument is only as good as this property.
+        for (int thresholdTenths = 30; thresholdTenths <= 90; thresholdTenths++) {
+            double moderateKp = thresholdTenths / 10.0;
+            AlertLevel previous = AlertLevel.QUIET;
+            for (int hundredths = 0; hundredths <= 900; hundredths++) {
+                AlertLevel level = AlertLevel.fromKp(hundredths / 100.0, moderateKp);
+                assertThat(level.severity())
+                        .as("Kp %.2f with MODERATE at %.1f", hundredths / 100.0, moderateKp)
+                        .isGreaterThanOrEqualTo(previous.severity());
+                previous = level;
+            }
+        }
+    }
+
     @ParameterizedTest(name = "gScaleFromKp({0}) = {1}")
     @CsvSource({
         "4.9, ",

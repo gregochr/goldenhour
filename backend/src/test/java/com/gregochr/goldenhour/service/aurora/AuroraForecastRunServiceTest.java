@@ -155,11 +155,10 @@ class AuroraForecastRunServiceTest {
     @Test
     @DisplayName("before dawn the selected night's window is the one now falls inside")
     void currentNightDate_selectsTheWindowNowIsInside() {
-        // ⚠️ This does NOT compare against AuroraPollingJob, and an earlier name and comment said
-        // it did. It cannot: calculateTonightWindow reads the system clock, so it cannot be put on
-        // this pinned instant, and comparing at wall-clock time would straddle the dawn boundary
-        // often enough to flake. What this pins is the property that makes the rule right —
-        // the selected window contains `now` — which is the same property that method satisfies.
+        // This does NOT compare against AuroraPollingJob; AuroraNightRuleAgreementTest does, now that
+        // the job's calculateTonightWindow takes its instant as an argument. What this pins is the
+        // property that makes the rule right — the selected window contains `now` — which is the
+        // same property that method satisfies.
         AuroraForecastRunService preDawn = serviceAt("2027-02-11T02:00:00Z");
         TonightWindow window = preDawn.computeWindowForDate(preDawn.currentNightDate());
 
@@ -319,11 +318,11 @@ class AuroraForecastRunServiceTest {
      * A stored result for a night well before {@link #TODAY} must carry <em>that night's own</em>
      * window — never the clock's current night. This is the exact night-vs-date trap
      * {@code docs/engineering/aurora-night-selection.md} records:
-     * {@code AuroraPollingJob.calculateTonightWindow()} takes no date and reads the clock, so
-     * reusing it here would silently pin tonight's window onto a historical row. Fixing the clock
-     * to {@link #CLOCK} (2027-02-10) and scoring a January date is what makes that mistake visible
-     * — a wall-clock-based implementation would return {@link #TODAY}'s window (20:35/03:25)
-     * regardless of which date was asked for.
+     * {@code AuroraPollingJob.calculateTonightWindow(now)} takes an instant rather than a date, so
+     * reusing it here with the current instant would silently pin tonight's window onto a
+     * historical row. Fixing the clock to {@link #CLOCK} (2027-02-10) and scoring a January date
+     * is what makes that mistake visible — a wall-clock-based implementation would return
+     * {@link #TODAY}'s window (20:35/03:25) regardless of which date was asked for.
      */
     @Test
     @DisplayName("getResultsForDate serves a PAST night's own window, not tonight's")

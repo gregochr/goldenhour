@@ -28,9 +28,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Clock;
 import java.time.Duration;
-import java.time.LocalDate;
+import java.time.Instant;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -43,35 +43,37 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Consecutive {@link AuroraPollingJob} polls driven through the REAL {@link AuroraOrchestrator} and
- * the REAL {@link AuroraStateCache}.
+ * Consecutive {@link AuroraPollingJob} polls driven through the REAL {@link AuroraOrchestrator}, the
+ * REAL {@link AuroraStateCache} and the REAL solar-utils twilight for Durham.
  *
  * <p>{@code AuroraPollingJobTest} mocks the orchestrator and {@code AuroraOrchestratorTest} mocks the
- * state machine, so neither can see what one poll does to the next. After dark, one poll runs the
- * forecast lookahead and then the real-time path against the one shared state machine, and the two
- * read tonight differently: the lookahead takes the highest Kp of every 3-hour block that overlaps
- * tonight's dark window, blocks that are already over included, while the real-time path takes the
- * latest completed Kp reading, the OVATION nowcast, and only those blocks still running or starting
- * within the next six hours. When they disagree, a poll NOTIFYs (weather triage and a synchronous
- * Claude call, which is a {@code job_run} and an {@code api_call_log} row in production), then
- * CLEARs the scores it has just paid for, so the next poll starts from IDLE and pays again.
+ * state machine, so neither can see what one poll does to the next. That is where the flap lived.
+ * After dark, a poll runs the forecast lookahead and then the real-time path against the one shared
+ * state machine. The two used to read tonight differently: the lookahead kept blocks that were
+ * already over, and the real-time path looked only six hours ahead. When they disagreed, a poll
+ * NOTIFIED (triage, then a synchronous Claude call), then CLEARED the scores it had just paid for,
+ * and the next poll started from IDLE and paid again.
  *
- * <p>Only the edges are faked: the NOAA product, weather triage, the location roster and the Claude
- * call. The sun is stubbed so that the job believes it is dark.
+ * <p>Only the edges are faked: NOAA, weather triage, the location roster and the Claude call. The
+ * fake NOAA serves what the real client does: the Kp product with every block in it, observed,
+ * estimated and predicted alike, and the published readings — a block's reading only
+ * {@link #READING_LAG} after the block ends, the way the live feed and the client's 15-minute
+ * cache deliver it.
  *
- * <p>⚠️ Times are relative to the real clock. {@code AuroraPollingJob} and
- * {@code AuroraOrchestrator.maxForecastKp} read {@code now()} directly — there is no {@link Clock}
- * seam to pin — so every fixture is anchored at {@link #now}, with at least 30 minutes between any
- * edge the code compares against (a block boundary, the six-hour horizon, dusk, dawn) and the
- * instant a poll runs.
+ * <p>Everything happens on the night of 14 January 2027, on a clock the test moves by hand.
+ * solar-utils puts Durham's nautical dusk (as the job derives it) at 17:25:42 UTC and nautical dawn
+ * at 07:03:38 UTC on the 15th.
  */
 @ExtendWith(MockitoExtension.class)
 class AuroraPollingCycleTest {
 
-    /** The job's twilight reference point (Durham; private to {@link AuroraPollingJob}). */
-    private static final double DURHAM_LAT = 54.776;
-    private static final double DURHAM_LON = -1.575;
     private static final ZoneId UTC = ZoneId.of("UTC");
+
+    /** A block's reading appears this long after the block ends: NOAA's lag plus the client cache. */
+    private static final Duration READING_LAG = Duration.ofMinutes(20);
+
+    /** The polling job's fixed delay. */
+    private static final Duration POLL_INTERVAL = Duration.ofMinutes(5);
 
     /** OVATION probability (%) at 55°N; the MODERATE trigger is 20. */
     private static final double OVATION_QUIET = 5.0;
@@ -86,31 +88,28 @@ class AuroraPollingCycleTest {
     @Mock
     private ModelSelectionService modelSelectionService;
     @Mock
-    private SolarCalculator solarCalculator;
-    @Mock
     private DynamicSchedulerService dynamicSchedulerService;
 
+    private final MovableClock clock = new MovableClock();
     private final FakeNoaa noaa = new FakeNoaa();
     private final List<EvaluationTask.Aurora> claudeCalls = new ArrayList<>();
     private final LocationEntity kielder = LocationEntity.builder()
             .id(1L).name("Kielder").lat(55.23).lon(-2.58).bortleClass(2).build();
 
-    private ZonedDateTime now;
     private AuroraStateCache stateCache;
     private AuroraPollingJob job;
 
     @BeforeEach
     void setUp() {
-        now = ZonedDateTime.now(ZoneOffset.UTC);
-        AuroraProperties properties = new AuroraProperties(); // Kp 5, OVATION 20%, 6 h horizon
+        AuroraProperties properties = new AuroraProperties(); // Kp 5, OVATION 20%
         stateCache = new AuroraStateCache();
         AuroraOrchestrator orchestrator = new AuroraOrchestrator(noaa, weatherTriage, stateCache,
-                locationRepository, properties, evaluationService, modelSelectionService,
-                Clock.systemUTC());
-        job = new AuroraPollingJob(orchestrator, properties, solarCalculator, dynamicSchedulerService);
+                locationRepository, properties, evaluationService, modelSelectionService, clock);
+        job = new AuroraPollingJob(orchestrator, properties, new SolarCalculator(),
+                dynamicSchedulerService, clock);
 
         // What the edges answer IF they are asked. Whether a poll asks is the behaviour under test;
-        // each test ends with a positive control that asks exactly once, so no stub goes unused.
+        // every test here reaches one NOTIFY that asks, so no stub goes unused.
         when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(
                 properties.getBortleThreshold().getModerate()))
                 .thenReturn(List.of(kielder));
@@ -127,23 +126,22 @@ class AuroraPollingCycleTest {
                 });
     }
 
+    // -------------------------------------------------------------------------
+    // The two nights the flap was traced on
+    // -------------------------------------------------------------------------
+
     @Test
     @DisplayName("a storm that ended earlier tonight is not re-scored on every poll")
     void stormThatEndedEarlierTonight_isNotRescoredOnEveryPoll() {
-        // 22:00 UTC on a December night: nautical dusk was at 17:00, nautical dawn is at 07:00.
-        itIsDark(Duration.ofHours(5), Duration.ofHours(9));
-        // The storm was 15:00-18:00 (observed Kp 6), overlapping the first hour of the dark window.
-        // It has been quiet since: 18:00-21:00 read Kp 4, the latest completed reading, and nothing
-        // still to come tonight reaches 4.
-        List<KpReading> readings = List.of(reading(-10, 3.33), reading(-7, 6.00), reading(-4, 4.00));
-        List<KpForecast> blocks = List.of(
-                block(-7, 6.00),   // 15-18 observed: the storm, already over
-                block(-4, 4.00),   // 18-21 observed
-                block(-1, 3.67),   // 21-24 estimated, running now
-                block(2, 3.33),    // 00-03 predicted
-                block(5, 3.00),    // 03-06 predicted
-                block(8, 2.67));   // 06-09 predicted
-        noaa.serve(product(readings, blocks, OVATION_QUIET));
+        // The storm was 15:00-18:00 (Kp 6), overlapping the first half-hour of darkness. It has been
+        // quiet since: 18:00-21:00 read Kp 4, and nothing still to come tonight reaches 4.
+        clock.set("2027-01-14T22:00");
+        noaa.blocks = kpProduct(2.67, Map.of(
+                "2027-01-14T15:00", 6.00,
+                "2027-01-14T18:00", 4.00,
+                "2027-01-14T21:00", 3.67,
+                "2027-01-15T00:00", 3.33,
+                "2027-01-15T03:00", 3.00));
 
         List<AfterPoll> polls = List.of(poll(), poll());
 
@@ -153,7 +151,7 @@ class AuroraPollingCycleTest {
         // Positive control: a fresh substorm in the OVATION nowcast is still caught, once, and worded
         // as a real-time alert. Without it, a change that stopped the pipeline scoring anything at all
         // would pass the assertion above.
-        noaa.serve(product(readings, blocks, OVATION_SUBSTORM));
+        noaa.ovation = OVATION_SUBSTORM;
         assertThat(poll()).isEqualTo(new AfterPoll(1, true, 1));
         assertThat(claudeCalls).singleElement().satisfies(task -> {
             assertThat(task.triggerType()).isEqualTo(TriggerType.REALTIME);
@@ -165,37 +163,74 @@ class AuroraPollingCycleTest {
     }
 
     @Test
-    @DisplayName("a forecast peak more than six hours after dusk is not re-scored on every poll")
-    void peakBeyondTheRealtimeHorizon_isNotRescoredOnEveryPoll() {
-        // 17:30 UTC on a December night: nautical dusk was at 17:00, nautical dawn is at 07:00.
-        itIsDark(Duration.ofMinutes(30), Duration.ofMinutes(13 * 60 + 30));
-        // Kp 5.67 is predicted for 03:00-06:00, inside tonight's window but ten hours away, beyond
-        // the real-time path's six-hour horizon. Everything nearer stays under Kp 4.
-        List<KpReading> readings = List.of(reading(-8.5, 2.33), reading(-5.5, 2.67));
-        List<KpForecast> blocks = List.of(
-                block(-2.5, 3.00),   // 15-18 estimated, running now
-                block(0.5, 3.33),    // 18-21 predicted
-                block(3.5, 3.67),    // 21-24 predicted: the last block inside the six-hour horizon
-                block(6.5, 4.33),    // 00-03 predicted
-                block(9.5, 5.67),    // 03-06 predicted: the peak
-                block(12.5, 4.67));  // 06-09 predicted, overlapping the last half-hour of the dark
-        noaa.serve(product(readings, blocks, OVATION_QUIET));
+    @DisplayName("a forecast peak ten hours after dusk keeps its heads-up, scored once, through the evening")
+    void peakBeyondTheSixHourHorizon_keepsItsHeadsUp() {
+        // 17:45, twenty minutes into the dark. Kp 5.67 is predicted for 03:00-06:00 — inside tonight,
+        // but beyond the six hours the real-time path used to look. Everything nearer is under Kp 4.
+        clock.set("2027-01-14T17:45");
+        noaa.blocks = kpProduct(2.33, Map.of(
+                "2027-01-14T15:00", 3.00,
+                "2027-01-14T18:00", 3.33,
+                "2027-01-14T21:00", 3.67,
+                "2027-01-15T00:00", 4.33,
+                "2027-01-15T03:00", 5.67,
+                "2027-01-15T06:00", 4.67));
 
-        AfterPoll first = poll();
-        AfterPoll second = poll();
+        List<AfterPoll> polls = List.of(poll(), poll());
 
-        // Whether the evening carries a heads-up for a peak this far off is an open product decision:
-        // say nothing until the real-time path sees the peak, or keep the lookahead's heads-up. Both
-        // are coherent. Paying for scores and discarding them within the same poll is not.
-        assertThat(first).isIn(new AfterPoll(0, false, 0), new AfterPoll(1, true, 1));
-        // A second poll over the same NOAA product changes nothing and costs nothing.
-        assertThat(second).isEqualTo(first);
+        // The lookahead raises the heads-up and pays for it once; the real-time path agrees rather
+        // than clearing it; the second poll changes nothing and costs nothing.
+        assertThat(polls).containsExactly(new AfterPoll(1, true, 1), new AfterPoll(1, true, 1));
+        assertThat(claudeCalls).singleElement().satisfies(task -> {
+            assertThat(task.triggerType()).isEqualTo(TriggerType.FORECAST_LOOKAHEAD);
+            assertThat(task.alertLevel()).isEqualTo(AlertLevel.MODERATE);
+            assertThat(task.tonightWindow().dusk()).isEqualTo(utc("2027-01-14T17:25:42"));
+            assertThat(task.tonightWindow().dawn()).isEqualTo(utc("2027-01-15T07:03:38"));
+        });
+        assertThat(stateCache.getLastTriggerKp()).isEqualTo(5.67);
+    }
 
-        // Positive control: a fresh substorm in the OVATION nowcast leaves the state ACTIVE and
-        // scored, whichever way the heads-up question is answered, and still for one Claude call.
-        noaa.serve(product(readings, blocks, OVATION_SUBSTORM));
-        assertThat(poll()).isEqualTo(new AfterPoll(1, true, 1));
-        verify(weatherTriage).triage(List.of(kielder));
+    // -------------------------------------------------------------------------
+    // Whole nights, a poll every five minutes
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a forecast storm: one heads-up in the morning, held all evening, cleared once after it")
+    void wholeNight_forecastStorm_scoredOnceAndClearedOnce() {
+        // Kp 6.33 predicted all day for 21:00-24:00; everything else Kp 2.33.
+        noaa.blocks = kpProduct(2.33, Map.of("2027-01-14T21:00", 6.33));
+
+        List<Transition> transitions = pollEveryFiveMinutes("2027-01-14T09:00", "2027-01-15T11:00");
+
+        // The morning's heads-up, and one CLEAR when the storm's own reading has been superseded:
+        // 00:00-03:00's quiet reading is out at 03:20. Nothing in between, dusk included — the
+        // real-time path took over at 17:25:42 without clearing what the lookahead had raised —
+        // and nothing after, dawn included.
+        assertThat(transitions).containsExactly(
+                new Transition("2027-01-14T09:00", "lookahead", AuroraStateCache.Action.NOTIFY),
+                new Transition("2027-01-15T03:20", "real-time", AuroraStateCache.Action.CLEAR));
+        assertThat(claudeCalls).singleElement()
+                .satisfies(task -> assertThat(task.triggerType())
+                        .isEqualTo(TriggerType.FORECAST_LOOKAHEAD));
+    }
+
+    @Test
+    @DisplayName("two peaks with a quiet gap are one alert: no clear in the gap, one Claude call")
+    void wholeNight_twoPeaksWithAQuietGap_areOneAlert() {
+        // Kp 5.67 at 18:00-21:00, Kp 3 at 21:00-24:00, Kp 5.33 at 00:00-03:00. While the second peak
+        // is still ahead, tonight is still worth an alert, so the gap must not clear it.
+        noaa.blocks = kpProduct(2.33, Map.of(
+                "2027-01-14T18:00", 5.67,
+                "2027-01-14T21:00", 3.00,
+                "2027-01-15T00:00", 5.33));
+
+        List<Transition> transitions = pollEveryFiveMinutes("2027-01-14T09:00", "2027-01-15T11:00");
+
+        // One CLEAR, at 06:20 when 03:00-06:00's quiet reading lands — still before dawn at 07:03.
+        assertThat(transitions).containsExactly(
+                new Transition("2027-01-14T09:00", "lookahead", AuroraStateCache.Action.NOTIFY),
+                new Transition("2027-01-15T06:20", "real-time", AuroraStateCache.Action.CLEAR));
+        assertThat(claudeCalls).hasSize(1);
     }
 
     // -------------------------------------------------------------------------
@@ -213,71 +248,132 @@ class AuroraPollingCycleTest {
     private record AfterPoll(int claudeCallsSoFar, boolean active, int cachedScores) {
     }
 
+    /**
+     * A NOTIFY or a CLEAR, and the poll and path that made it.
+     *
+     * @param at     the poll's instant, as a UTC local date-time
+     * @param path   "lookahead" or "real-time"
+     * @param action NOTIFY or CLEAR
+     */
+    private record Transition(String at, String path, AuroraStateCache.Action action) {
+    }
+
     private AfterPoll poll() {
         job.executePoll();
-        return new AfterPoll(claudeCalls.size(), stateCache.isActive(), stateCache.getCachedScores().size());
+        return new AfterPoll(claudeCalls.size(), stateCache.isActive(),
+                stateCache.getCachedScores().size());
     }
 
     /**
-     * Stubs the sun so that tonight's dark window, as the job derives it, opened {@code sinceDusk}
-     * ago and closes in {@code untilDawn}. The job asks for civil twilight and widens it by
-     * {@link AuroraPollingJob#NAUTICAL_BUFFER_MINUTES} on each side. The stubs answer for any date
-     * because the job takes its dates from the wall clock.
+     * Polls every five minutes from {@code from} until {@code until} and returns every NOTIFY and
+     * CLEAR in order. Also checks, at every poll, the property the flap broke: a poll never CLEARS
+     * what its own lookahead raised or held, and the status never shows ACTIVE without scores.
      */
-    private void itIsDark(Duration sinceDusk, Duration untilDawn) {
-        Duration buffer = Duration.ofMinutes(AuroraPollingJob.NAUTICAL_BUFFER_MINUTES);
-        when(solarCalculator.civilDusk(eq(DURHAM_LAT), eq(DURHAM_LON), any(LocalDate.class), eq(UTC)))
-                .thenReturn(now.minus(sinceDusk).minus(buffer).toLocalDateTime());
-        when(solarCalculator.civilDawn(eq(DURHAM_LAT), eq(DURHAM_LON), any(LocalDate.class), eq(UTC)))
-                .thenReturn(now.plus(untilDawn).plus(buffer).toLocalDateTime());
+    private List<Transition> pollEveryFiveMinutes(String from, String until) {
+        List<Transition> transitions = new ArrayList<>();
+        clock.set(from);
+        while (clock.instant().isBefore(utc(until).toInstant())) {
+            AuroraOrchestrator.PollOutcome outcome = job.executePoll();
+            String at = LocalDateTime.ofInstant(clock.instant(), UTC).toString();
+            if (outcome.lookahead() != AuroraStateCache.Action.NONE) {
+                assertThat(outcome.realtime())
+                        .as("at %s the real-time path cleared what the lookahead had %s", at,
+                                outcome.lookahead())
+                        .isNotEqualTo(AuroraStateCache.Action.CLEAR);
+            }
+            assertThat(stateCache.getCachedScores().isEmpty())
+                    .as("at %s the state is %s", at, stateCache.isActive() ? "ACTIVE" : "IDLE")
+                    .isEqualTo(!stateCache.isActive());
+            noteTransition(transitions, at, "lookahead", outcome.lookahead());
+            if (outcome.dark()) {
+                noteTransition(transitions, at, "real-time", outcome.realtime());
+            }
+            clock.advance(POLL_INTERVAL);
+        }
+        return transitions;
     }
 
-    private ZonedDateTime hoursFromNow(double hours) {
-        return now.plusMinutes(Math.round(hours * 60));
+    private static void noteTransition(List<Transition> transitions, String at, String path,
+            AuroraStateCache.Action action) {
+        if (action == AuroraStateCache.Action.NOTIFY || action == AuroraStateCache.Action.CLEAR) {
+            transitions.add(new Transition(at, path, action));
+        }
     }
 
-    /** A completed 3-hour Kp reading, stamped (as NOAA stamps it) with the block's start. */
-    private KpReading reading(double startHoursFromNow, double kp) {
-        return new KpReading(hoursFromNow(startHoursFromNow), kp);
-    }
-
-    /** A 3-hour block of NOAA's Kp product (observed, estimated or predicted — it keeps all three). */
-    private KpForecast block(double startHoursFromNow, double kp) {
-        ZonedDateTime from = hoursFromNow(startHoursFromNow);
-        return new KpForecast(from, from.plusHours(3), kp);
-    }
-
-    private SpaceWeatherData product(List<KpReading> readings, List<KpForecast> blocks,
-            double ovationPercent) {
-        return new SpaceWeatherData(readings, blocks, new OvationReading(now, ovationPercent, 55.0),
-                List.of(), List.of());
+    private static ZonedDateTime utc(String localDateTime) {
+        return LocalDateTime.parse(localDateTime).atZone(UTC);
     }
 
     /**
-     * Serves one NOAA product to both paths. The real client builds {@code fetchAll()} from the same
-     * cached forecast that {@code fetchKpForecast()} returns, so within a poll the lookahead and the
-     * real-time path always read the same blocks — the disagreement is in how they read them.
+     * NOAA's Kp product from midnight on the 14th to midnight on the 16th: Kp {@code background} in
+     * every 3-hour block except the ones named, by start time, in {@code named}.
      */
-    private static final class FakeNoaa extends NoaaSwpcClient {
+    private static List<KpForecast> kpProduct(double background, Map<String, Double> named) {
+        List<KpForecast> blocks = new ArrayList<>();
+        for (ZonedDateTime start = utc("2027-01-14T00:00"); start.isBefore(utc("2027-01-16T00:00"));
+                start = start.plusHours(3)) {
+            double kp = named.getOrDefault(start.toLocalDateTime().toString(), background);
+            blocks.add(new KpForecast(start, start.plusHours(3), kp));
+        }
+        return blocks;
+    }
 
-        private SpaceWeatherData product;
+    /** A clock the test moves by hand. */
+    private static final class MovableClock extends Clock {
+
+        private Instant instant = Instant.EPOCH;
+
+        void set(String utcLocalDateTime) {
+            instant = utc(utcLocalDateTime).toInstant();
+        }
+
+        void advance(Duration by) {
+            instant = instant.plus(by);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return Clock.fixed(instant, zone);
+        }
+
+        @Override
+        public Instant instant() {
+            return instant;
+        }
+    }
+
+    /**
+     * NOAA as the client serves it, on the test's clock: the whole Kp product, and the readings that
+     * would be published by now — each block's, once {@link #READING_LAG} has passed since it ended.
+     */
+    private final class FakeNoaa extends NoaaSwpcClient {
+
+        private List<KpForecast> blocks = List.of();
+        private double ovation = OVATION_QUIET;
 
         FakeNoaa() {
             super(null, new AuroraProperties(), null, Clock.systemUTC());
         }
 
-        void serve(SpaceWeatherData served) {
-            this.product = served;
-        }
-
         @Override
         public List<KpForecast> fetchKpForecast() {
-            return product.kpForecast();
+            return blocks;
         }
 
         @Override
         public SpaceWeatherData fetchAll() {
-            return product;
+            Instant now = clock.instant();
+            List<KpReading> readings = blocks.stream()
+                    .filter(block -> !block.to().plus(READING_LAG).toInstant().isAfter(now))
+                    .map(block -> new KpReading(block.from(), block.kp()))
+                    .toList();
+            return new SpaceWeatherData(readings, blocks,
+                    new OvationReading(now.atZone(UTC), ovation, 55.0), List.of(), List.of());
         }
     }
 }

@@ -54,6 +54,7 @@ import com.gregochr.goldenhour.service.batch.ForecastDispositionService;
 import com.gregochr.goldenhour.service.batch.ScheduledBatchEvaluationService;
 import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraOrchestrator;
+import com.gregochr.goldenhour.service.aurora.AuroraPollingJob;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
 import com.gregochr.goldenhour.service.aurora.BortleEnrichmentService;
 import com.gregochr.goldenhour.service.evaluation.BriefingBestBetAdvisor;
@@ -248,6 +249,9 @@ abstract class AbstractControllerTest {
 
     @MockitoBean
     protected AuroraOrchestrator orchestrator;
+
+    @MockitoBean
+    protected AuroraPollingJob pollingJob;
 
     @MockitoBean
     protected AuroraStateCache stateCache;

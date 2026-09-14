@@ -84,13 +84,23 @@ public class AuroraProperties {
         /** Minimum OVATION aurora probability (%) at ~55°N to trigger. Defaults to 20. */
         private double ovationProbabilityThreshold = 20.0;
 
-        /** Hours of Kp forecast lookahead for advance-warning trigger. Defaults to 6. */
+        /**
+         * Hours ahead the aurora batch job's alert-level check reads the Kp forecast
+         * ({@code AuroraOrchestrator.deriveAlertLevel}). The polling job does not use it: after
+         * dark its real-time path reads the forecast to tonight's dawn, the same horizon as the
+         * forecast lookahead. Defaults to 6.
+         */
         private int kpForecastLookaheadHours = 6;
 
-        /** Kp below which de-escalation toward CLEAR is considered. Defaults to 5. */
+        /**
+         * ⚠️ Not read anywhere. Meant for a de-escalation hysteresis that has never been built:
+         * an alert clears as soon as its level falls below MODERATE. Defaults to 5.
+         */
         private double kpClearThreshold = 5.0;
 
-        /** OVATION probability below which de-escalation toward CLEAR is considered. Defaults to 15. */
+        /**
+         * ⚠️ Not read anywhere, for the same reason as {@link #kpClearThreshold}. Defaults to 15.
+         */
         private double ovationClearThreshold = 15.0;
     }
 

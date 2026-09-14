@@ -26,6 +26,8 @@ The shared layer is substantial: `BatchSubmissionService`, `BatchPollingService`
 
 **Entry chain:** `AuroraPollingJob.poll()` → `AuroraOrchestrator.runForecastLookahead(window)` always, plus `AuroraOrchestrator.run()` only when below nautical twilight ([AuroraPollingJob.java:107](backend/src/main/java/com/gregochr/goldenhour/service/aurora/AuroraPollingJob.java:107)).
 
+> **Changed 2026-09-14 (the night-time polling flap).** Running both paths at night, each with its own horizon, made them disagree: every poll NOTIFIED, paid for a Claude call, then CLEARED. A poll now runs `runForecastLookahead(tonight, now)` in daylight *or* `runNightPoll(tonight, now)` after dark — the lookahead then the real-time path, over one NOAA snapshot and one instant, both reading tonight through `maxKpRestOfTonight`. `run()` is gone. The admin `POST /api/aurora/admin/run` runs the same cycle through `AuroraPollingJob.runCycleIfIdle()` and answers 409 while one is running. See `AuroraOrchestrator`'s class javadoc.
+
 **External data — NOAA SWPC only** (no Met Office; see "Stale CLAUDE.md note" below):
 - Kp index (15 min cache) — `NoaaSwpcClient.fetchKpIndex`
 - Kp forecast (15 min cache) — `fetchKpForecast`
@@ -45,7 +47,7 @@ If the JVM restarts, the state cache resets to IDLE. The polling job picks it ba
 **Does it call Claude?** Yes — but only when the FSM emits `Action.NOTIFY` (state IDLE → ACTIVE on a fresh MODERATE/STRONG alert, or ACTIVE → ACTIVE on escalation). On NOTIFY, `AuroraOrchestrator.scoreAndCache()` runs Bortle filter → weather triage → `EvaluationService.evaluateNow(EvaluationTask.Aurora, ...)` — a **synchronous** Claude call. Normal QUIET polling is pure NOAA-to-cache with no Claude expense.
 
 **Notification lifecycle**:
-- IDLE + MODERATE/STRONG → NOTIFY (fire push/email, transition to ACTIVE, score and cache locations)
+- IDLE + MODERATE/STRONG → NOTIFY (transition to ACTIVE, score and cache locations). *Corrected 2026-09-14: this said "fire push/email", which it never did — no notification service references aurora; NOTIFY only scores.*
 - ACTIVE + higher level → NOTIFY (escalation)
 - ACTIVE + same/lower alertable level → SUPPRESS (no duplicate alert)
 - ACTIVE + QUIET/MINOR → CLEAR (transition to IDLE, drop cached scores)
