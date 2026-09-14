@@ -1068,11 +1068,25 @@
 .wf-tick-group[data-away='true'] .wf-tick-caption { color: rgba(143, 182, 217, 0.66); }
 
 /* Right-aligned by `margin-left: auto` rather than by a spacer, so a wrapped row drops the whole
-   group to the next line instead of leaving a stranded gap. */
+   group to the next line instead of leaving a stranded gap.
+
+   ⚠️ 16px is the DESKTOP gap, and this rule is the one every width inherits unless overridden. The
+   PLAN-MATRIX prototype runs three: 16px desktop, 12px iPad, 9px phone. This had drifted to 12px —
+   the iPad value — so desktop was drawing iPad spacing.
+
+   ⚠️ "The prototype" needs its name, because the bundles disagree. Every bundle carries a copy of the
+   Plan-tab prototype (16/12/9), but the tabs' OWN pages — `Map Tab v2.html`, `Map Landing.html`,
+   `Coming Up.html` — specify 15px, and the map pages an 8px phone gap. This masthead is ONE component
+   on all four tabs: `map-tab-v2-plan.md` records it as "a per-tab state of `MastheadTickLine`, not a
+   fork", and the gap is not among the states it varies. So one value serves every tab. 16px is the
+   Plan tab's, and it sits 1px from the other tabs' 15px where 12px sat 3px away. Moving it to 16px alone would have silently taken the
+   iPad band up with it, because the iPad band had no rule of its own and was only correct by
+   inheriting this one; so the iPad block now states its 12px explicitly, and the phone block below
+   keeps its 9px. */
 .wf-tick-times {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
   margin-left: auto;
   font-family: var(--font-mono);
   font-size: 9px;
@@ -9280,9 +9294,13 @@ button.wf-mchip:hover {
    NOT HERE, AND WHY:
    · The wordmark already has this tier (25px). Its sizes sit 2px above the spec at EVERY tier —
      21/25/28 against 19/23/26 — which is a brand decision across all three, not an iPad gap.
-   · The tick-times gap is already right for iPad: the prototype runs 16px desktop, 12px iPad, 9px
-     phone, and this arm's `.wf-tick-times` is 12px — so it is the DESKTOP that has drifted, onto
-     the iPad value. Out of scope for an iPad change; recorded rather than fixed.
+   · The tick-times gap: the plan-matrix prototype runs 16px desktop, 12px iPad, 9px phone (the Map
+     and Coming-up tab pages say 15px; see the base `.wf-tick-times` note for why one value serves
+     every tab). When this block
+     landed the base `.wf-tick-times` was 12px — the desktop had drifted onto the iPad value — so
+     iPad was right only by inheriting it. The desktop was fixed to 16px on 2026-09-14, and this
+     block now holds iPad at 12px explicitly (the `.wf-tick-times` rule below) instead of by
+     accident.
    · The body gutter, the lens bar's padding and the popup's two-column body are the same on iPad
      and desktop in the spec, and already correct.
    · The popup's width: the spec's `calc(100% - 28px)` is 14px a side, and the popup's inset comes
@@ -9299,6 +9317,7 @@ button.wf-mchip:hover {
    the rule is not extrapolated to widths it was never drawn at. */
 @media (min-width: 640px) and (max-width: 1023px) {
   .wf-mast { padding: 13px var(--wf-gutter) 0; }
+  .wf-tick-times { gap: 12px; }
   .wf-hstrip-sp { display: none; }
   .wf-wsh { max-width: 806px; }
   .wf-wsh .wf-rrail { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); }
