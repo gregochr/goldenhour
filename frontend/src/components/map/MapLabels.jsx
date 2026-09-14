@@ -222,7 +222,16 @@ export default function MapLabels({
   const [frame, setFrame] = useState(null);
   /** {frame, placed: Map<key, box>} once the measure-then-place pass has run for THIS frame. */
   const [placement, setPlacement] = useState(null);
-  const [hover, setHover] = useState(null);
+  /**
+   * The hovered chip's NAME — never the spot object, which is resolved afresh on every render
+   * (`hover`, below). ⚠️ Storing the object was a defect: the tooltip printed that snapshot's
+   * rating beside the LIVE {@code eventLabel}, so a reader who rested the pointer on a chip and
+   * stepped the window with the keyboard read the old window's star under the new window's name —
+   * a chip that stays mounted under a still pointer gets no {@code mouseleave} to close it. And a
+   * chip that UNMOUNTED under the pointer left its tooltip hanging over nothing, since a removed
+   * node gets no {@code mouseleave} either.
+   */
+  const [hoverName, setHoverName] = useState(null);
   const [tipPos, setTipPos] = useState({ x: 0, y: 0 });
 
   const rootRef = useRef(null);
@@ -481,11 +490,42 @@ export default function MapLabels({
       y: Math.max(6, event.clientY - wrapRect.top - 10),
     });
   }, [map]);
-  const showTip = useCallback((spot, event) => {
-    setHover(spot);
+  const showTip = useCallback((name, event) => {
+    setHoverName(name);
     positionTip(event);
   }, [positionTip]);
-  const hideTip = useCallback(() => setHover(null), []);
+  const hideTip = useCallback(() => setHoverName(null), []);
+
+  /**
+   * The spot the tooltip describes, resolved from {@code hoverName} on every render: read off the
+   * LIVE pool, so every line of the card answers for the window {@code eventLabel} names — and only
+   * while this layer still mounts that name's chip ({@code frame.chips}). ⚠️ The second condition is
+   * not implied by the first: {@code chipCandidates} ranks the zoom budget by RATING, so a window
+   * step can unmount a chip whose location never left {@code spots} (as can a zoom-out). Checking
+   * the pool alone left that tooltip hanging over nothing, carrying the new window's figures. (The
+   * chips are drawn from {@code frame}, which trails a new pool by one commit, so for that commit
+   * the card can run a render ahead of the chip beneath it — never behind its own label.)
+   *
+   * <p>A hover whose chip has gone is forgotten, not merely hidden: otherwise the chip's return (a
+   * night's scores landing, a step back into the budget) would reopen the card at a pointer
+   * position the reader may long since have left. A chip that returns under the pointer reopens it
+   * through the next {@code mouseenter} the browser sends it — the ordinary path. The guarded
+   * setState below is React's "storing information from previous renders" idiom, so the component
+   * re-renders before anything commits.
+   *
+   * <p>⚠️ MOUNTED, not placed — unmounting is the one case the browser leaves to this component.
+   * Measured in headless Playwright (Chromium 151, WebKit 26.5, Firefox 153), pointer held still, on
+   * a page rendering frames: a REMOVED node gets no {@code mouseleave} in any of them, while a chip
+   * the placer hides ({@code display: none}) or moves gets one — within ~30 ms in Chromium, ~240 ms
+   * at worst in the other two — and closes through {@code hideTip}. An idle page renders no frame,
+   * and there Chromium and Firefox wait for the pointer to move, so a probe of this must keep frames
+   * running or it records a residual a live page does not have. A placement test here would add a
+   * trap and nothing else: every chip is unplaced for the measuring render's one commit.
+   */
+  const hover = (hoverName != null && frame?.chips.some(({ spot }) => spot.name === hoverName))
+    ? (spots.find((spot) => spot.name === hoverName) ?? null)
+    : null;
+  if (hoverName != null && hover == null) setHoverName(null);
 
   if (!pane || !frame) return null;
 
@@ -565,7 +605,7 @@ export default function MapLabels({
             style={styleFor(key)}
             aria-label={ariaLabel}
             onClick={() => onSelect?.(spot.name)}
-            onMouseEnter={(e) => showTip(spot, e)}
+            onMouseEnter={(e) => showTip(spot.name, e)}
             onMouseMove={positionTip}
             onMouseLeave={hideTip}
           >

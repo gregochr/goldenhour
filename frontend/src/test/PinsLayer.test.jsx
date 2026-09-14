@@ -2,7 +2,9 @@ import React from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
-import { act, fireEvent, render } from '@testing-library/react';
+import {
+  act, fireEvent, render, screen,
+} from '@testing-library/react';
 
 const setPosition = vi.fn();
 vi.mock('leaflet', () => {
@@ -360,6 +362,99 @@ describe('PinsLayer — hover tooltip parity with the P8 chip', () => {
     const pinsPane = currentMap.panes['wf-pins'];
     expect(pinsPane.contains(tip)).toBe(false);
     expect(currentMap.wrap.contains(tip)).toBe(true);
+  });
+});
+
+describe('PinsLayer — the hover tooltip answers for the window on screen, not the one it opened on', () => {
+  // The same defect `MapLabels.test.jsx`'s block of this name pins, in the same shape: the pin's
+  // hover handler stored a SNAPSHOT of the spot, so a keyboard window step under a resting pointer
+  // printed the old window's star beside the new window's name, and a pin unmounted under the
+  // pointer left its tooltip behind. Every case hovers once and then fires no mouse event at all —
+  // a pin that stays mounted gets no `mouseleave`, and neither does a removed one.
+
+  const SAT = 'Saturday night';
+  const SUN = 'Sunday night';
+
+  /** `SPOTS` as `MapView` hands them over after a window step: same places, fresh objects. */
+  const reRated = (ratings) => SPOTS.map((s) => ({ ...s, rating: ratings[s.name] ?? null }));
+
+  /** Mounts on Saturday and rests the pointer on Bamburgh's pin — the one hover every case makes. */
+  async function hoverBamburgh() {
+    currentMap = makeFullMap({ zoom: 9 });
+    const result = await mount({ eventLabel: SAT });
+    const pin = screen.getByRole('button', { name: 'Bamburgh, 5 star' });
+    fireEvent.mouseEnter(pin);
+    expect(screen.getByTestId('map-label-tip')).toHaveTextContent(`${SAT} · 5★ Worth it`);
+    return { result, pin };
+  }
+
+  /** The props a window step changes — `rerender` replaces them wholesale, so both are passed. */
+  async function showWindow(result, spots, eventLabel) {
+    await act(async () => { result.rerender(<PinsLayer spots={spots} eventLabel={eventLabel} />); });
+  }
+
+  it('reads the new window\'s star after a keyboard step, beside the new window\'s name', async () => {
+    const { result, pin } = await hoverBamburgh();
+
+    await showWindow(result, reRated({ Bamburgh: 3, Whitby: 3, Buttermere: 4 }), SUN);
+
+    // The premise: the pin under the pointer is the SAME element (keyed by name) at its own point,
+    // so the pointer never left it and no `mouseleave` is owed.
+    expect(screen.getByRole('button', { name: 'Bamburgh, 3 star' })).toBe(pin);
+    const tip = screen.getByTestId('map-label-tip');
+    expect(tip).toHaveTextContent(`${SUN} · 3★ Maybe`);
+    expect(tip).not.toHaveTextContent('5★');
+    expect(tip).not.toHaveTextContent('Worth it');
+  });
+
+  it('carries no star when the new window stood this place down — never the old window\'s', async () => {
+    const { result, pin } = await hoverBamburgh();
+
+    const sunday = reRated({ Whitby: 3, Buttermere: 4 })
+      .map((s) => (s.name === 'Bamburgh' ? { ...s, isStandDown: true } : s));
+    await showWindow(result, sunday, SUN);
+
+    expect(pin).toHaveAttribute('data-stand-down', 'true');
+    const tip = screen.getByTestId('map-label-tip');
+    expect(tip).toHaveTextContent(SUN);
+    expect(tip).not.toHaveTextContent('★');
+  });
+
+  it('closes when its location leaves the pool — the pin unmounts, and nothing else would close it', async () => {
+    const { result, pin } = await hoverBamburgh();
+
+    await showWindow(result, SPOTS.filter((s) => s.name !== 'Bamburgh'), SUN);
+
+    expect(pin).not.toBeInTheDocument();
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+  });
+
+  it('does not reopen by itself when the location comes back — the pointer may have moved on since', async () => {
+    const { result } = await hoverBamburgh();
+    await showWindow(result, SPOTS.filter((s) => s.name !== 'Bamburgh'), SUN);
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+
+    // Only a fresh `mouseenter` may reopen it — see the identical case in `MapLabels.test.jsx`.
+    await showWindow(result, SPOTS, SUN);
+
+    expect(screen.getByRole('button', { name: 'Bamburgh, 5 star' })).toBeInTheDocument();
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+  });
+
+  it('stays open through a repaint that re-projects its pin', async () => {
+    await hoverBamburgh();
+
+    await act(async () => { currentMap.fire('moveend'); });
+
+    expect(screen.getByTestId('map-label-tip')).toHaveTextContent(`${SAT} · 5★ Worth it`);
+  });
+
+  it('stays open through a fresh pool that still carries its location — it is found by name, not by object', async () => {
+    const { result } = await hoverBamburgh();
+
+    await showWindow(result, SPOTS.map((s) => ({ ...s })), SAT);
+
+    expect(screen.getByTestId('map-label-tip')).toHaveTextContent(`${SAT} · 5★ Worth it`);
   });
 });
 
