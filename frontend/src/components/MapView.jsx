@@ -318,6 +318,87 @@ function nightScoresFor(night, answer, preview) {
 }
 
 /**
+ * When a night's own request is asked again after it fails: 2s, 10s and a minute after the first
+ * three failures, for the blip that clears in seconds, and from then on every ten minutes — the same
+ * interval as the briefing's poll (`WindowFirstBriefingContext`'s `POLL_INTERVAL_MS`, which fetches
+ * the SOLAR scores again), though on this request's own timer, from its own failures — for as long
+ * as that night stays selected in this pane, which includes while the pane is hidden behind another
+ * tab (it is hidden, never unmounted). And sooner than any of these whenever the reader comes back
+ * to the page — see {@link askNightUntilAnswered}.
+ */
+const NIGHT_RETRY_DELAYS_MS = [2000, 10000, 60000];
+const NIGHT_RETRY_STEADY_MS = 10 * 60 * 1000;
+
+/**
+ * Asks for one night's own served rows, and asks again after each failure on the
+ * {@link NIGHT_RETRY_DELAYS_MS} schedule until one answers. Returns the stop function a fetch
+ * effect hands back as its cleanup.
+ *
+ * <p>Why re-ask at all: a failed request is not evidence that nothing was rated, so it leaves the
+ * night unanswered and the callout reading "Loading…" (`ratingKnown`). With nothing re-asking, that
+ * "Loading…" stood until the reader moved — a claim that something was loading when nothing was.
+ * It is not wholly cured: between the ten-minute asks of a long outage nothing is in flight, and
+ * the callout still says "Loading…" (the changelog states it; a failure wording of its own would be
+ * the cure, and a product decision).
+ *
+ * <p><b>Back on the page, a waiting retry goes at once</b> — on the window's `focus`, or its
+ * `visibilitychange` to visible — the way `createEventSource`'s `handleVisible` reconnects, and for
+ * its reason: a background tab's timers are throttled, and the briefing the reader returns to is
+ * refetched on focus, so a night still waiting out the ten-minute beat would lag everything around
+ * it. Only a WAITING retry goes early: while a request is in flight `timer` is null, so a focus
+ * never sends a second request beside the first.
+ *
+ * <p>⚠️ <b>The retry timer is armed after an await, and that is safe HERE for one reason: `stop`.</b>
+ * The hazard `SchedulerView`'s timer fix (#818 — the same hole #809 closed in `ModelSelectionView`)
+ * records is a timer armed after an await by code with no way to know its owner had gone. This one
+ * checks `stopped` before arming — and JavaScript runs the two orders one at a time: if the effect's
+ * cleanup ran first, the failure arms nothing; if the failure ran first, the timer is already in
+ * `timer` when the cleanup clears it. Either way no retry outlives the night it was asking about,
+ * and no answer lands for it: `onAnswer` is never called after `stop`, which is the same late-
+ * response guard the effects carried as `cancelled`. (A request already in flight is not aborted —
+ * nothing here can abort one — only its answer is dropped.)
+ *
+ * @param {() => Promise<Array>} request sends one request for the night
+ * @param {(results: Array) => void} onAnswer called with a successful response, never after `stop`
+ * @param {{retry?: boolean}} [options] `retry: false` asks exactly once, and listens for nothing
+ * @returns {() => void} stop
+ */
+function askNightUntilAnswered(request, onAnswer, { retry = true } = {}) {
+  let stopped = false;
+  let timer = null;
+  let failures = 0;
+  const ask = () => {
+    timer = null;
+    request()
+      .then((results) => { if (!stopped) onAnswer(results); })
+      .catch(() => {
+        if (stopped || !retry) return;
+        timer = setTimeout(ask, NIGHT_RETRY_DELAYS_MS[failures] ?? NIGHT_RETRY_STEADY_MS);
+        failures += 1;
+      });
+  };
+  const askNowIfWaiting = () => {
+    if (timer === null || document.visibilityState !== 'visible') return;
+    clearTimeout(timer);
+    ask();
+  };
+  if (retry) {
+    window.addEventListener('focus', askNowIfWaiting);
+    document.addEventListener('visibilitychange', askNowIfWaiting);
+  }
+  ask();
+  return () => {
+    stopped = true;
+    clearTimeout(timer);
+    timer = null;
+    if (retry) {
+      window.removeEventListener('focus', askNowIfWaiting);
+      document.removeEventListener('visibilitychange', askNowIfWaiting);
+    }
+  };
+}
+
+/**
  * The preview's next map from one run's results: a night that answered takes its new rows; a night
  * whose request FAILED keeps the rows it already had, and stays out of the map if it had none.
  *
@@ -2023,25 +2104,25 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   //     still A's. Hence the answer carries its night, and `storedAuroraResults` (derived below)
   //     uses it only for that night — B draws B's own preview rows meanwhile, or nothing.
   //   - A LATE RESPONSE. With no cancellation, A's request finishing after B's wrote A's stars in as
-  //     B's answer, replacing B's own. Hence `cancelled`, which drops any response whose night is no
-  //     longer the one on screen.
+  //     B's answer, replacing B's own. Hence the stop `askNightUntilAnswered` hands back as this
+  //     effect's cleanup, after which no response for that night is applied.
   // The same fetch-cancel shape this file's multi-date astro/aurora preview effects already use.
   //
   // ⚠️ A FAILURE writes nothing. A dropped request is not evidence that the ratings went away — the
   // rule `WindowFirstBriefingContext`'s scores fetch already keeps — so the night goes on drawing
-  // its preview rows, or nothing, and stays unanswered (`ratingKnown`). The `cancelled` guard the
-  // `.catch` used to carry went with its write: there is nothing left for a late failure to write
-  // over. Nothing re-asks after a failure, either; the changelog states that as a limit.
+  // its preview rows, or nothing, and stays unanswered (`ratingKnown`) while the request is asked
+  // again (`NIGHT_RETRY_DELAYS_MS`), until it answers or the night changes.
+  //
+  // ⚠️ The frozen Plan-tab overlay asks ONCE, as it always has: re-asking is a behaviour change, and
+  // that surface is frozen pending the O-6 convergence decision (map-tab-v2-plan.md §4.9).
   useEffect(() => {
     if (eventType !== 'AURORA' || !nightDate) return undefined;
-    let cancelled = false;
-    getAuroraForecastResults(nightDate)
-      .then((results) => {
-        if (!cancelled) setStoredAuroraAnswer({ night: nightDate, byName: byLocationName(results) });
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [eventType, nightDate]);
+    return askNightUntilAnswered(
+      () => getAuroraForecastResults(nightDate),
+      (results) => setStoredAuroraAnswer({ night: nightDate, byName: byLocationName(results) }),
+      { retry: !overlayMode },
+    );
+  }, [eventType, nightDate, overlayMode]);
 
   // Fetch available dates for astro conditions (available to everyone).
   useEffect(() => {
@@ -2061,19 +2142,18 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   //     still A's. Hence the answer carries its night, and `astroScores` (derived below) uses it
   //     only for that night — B draws B's own preview rows meanwhile, or nothing.
   //   - A LATE RESPONSE. With no cancellation, A's request finishing after B's wrote A's stars in as
-  //     B's answer, replacing B's own. Hence `cancelled`, which drops any response whose night is no
-  //     longer the one on screen.
-  // And a failure writes nothing, for the reason the stored-aurora fetch above records.
+  //     B's answer, replacing B's own. Hence the stop `askNightUntilAnswered` hands back as this
+  //     effect's cleanup, after which no response for that night is applied.
+  // A failure writes nothing and is asked again, and the overlay asks once — both for the reasons
+  // the stored-aurora fetch above records.
   useEffect(() => {
     if (eventType !== 'ASTRO' || !nightDate) return undefined;
-    let cancelled = false;
-    getAstroConditions(nightDate)
-      .then((results) => {
-        if (!cancelled) setAstroAnswer({ night: nightDate, byName: byLocationName(results) });
-      })
-      .catch(() => {});
-    return () => { cancelled = true; };
-  }, [eventType, nightDate]);
+    return askNightUntilAnswered(
+      () => getAstroConditions(nightDate),
+      (results) => setAstroAnswer({ night: nightDate, byName: byLocationName(results) }),
+      { retry: !overlayMode },
+    );
+  }, [eventType, nightDate, overlayMode]);
 
   /**
    * What every stored-aurora and astro reader draws for the night on screen — the rating accessor

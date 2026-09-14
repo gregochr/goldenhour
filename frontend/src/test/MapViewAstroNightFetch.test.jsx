@@ -202,11 +202,14 @@ describe('astro scores answer for the night they were fetched for', () => {
     // has answered. When this was written it was the `.catch` half of the cancellation — unguarded,
     // the failure handler cleared the scores, B's, and the map showed nothing rated for a night that
     // had a forecast, until the next selection. Since the night-aware loading fix the `.catch`
-    // writes nothing at all (a failure is not evidence that nothing was rated), so there is no guard
-    // left for this to catch deleted: it now pins that a late failure never writes over the night on
-    // screen, and an unguarded `.catch` that clears — the shape before either fix — still fails it.
-    // (A guarded clear passes here; it is `MapViewNightScoresLoading.test.jsx`'s "keeps drawing the
-    // preview rows when the night's own request FAILS" that stops one blanking the night on screen.)
+    // writes nothing (a failure is not evidence that nothing was rated): it arms a retry instead,
+    // guarded on the request's own night still being asked about. This test pins that a late failure
+    // never writes over the night on screen, and an unguarded `.catch` that clears — the shape
+    // before either fix — still fails it. It does NOT pin the retry's guard: the stray retry would
+    // sit on a real 2s timer, and this test has asserted long before it fires. That guard is
+    // `MapViewNightScoresLoading.test.jsx`'s "arms no retry for a failure that lands after the
+    // reader has left", on fake timers; and it is that file's "keeps drawing the preview rows when
+    // the night's own request FAILS" that stops a guarded clear blanking the night on screen.
     const a = deferred();
     getAstroConditions.mockImplementation((night) => (
       night === NIGHT_A ? a.promise : Promise.resolve(B_SCORES)

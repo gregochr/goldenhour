@@ -21,8 +21,8 @@ cell already showing that night's star, because the strip reads the window contr
   own request has failed, fills it in; stepping back to a night whose answer is still held shows it
   at once while the request goes out again; and no frame is left in which the old night's rows
   answer for the new one. The preview is never a dependency of the fetch, so its arrival re-renders
-  the night and never re-requests it. A failed request writes nothing, and the `.catch` lost its
-  `cancelled` guard with its write.
+  the night and never re-requests it. A failed request writes nothing: it is asked again instead
+  (below).
 - **The strip.** A night cell asks whether its own night's preview has answered
   (`pendingNightRowIds`, built from the same list of nights the preview fetches), never the solar
   flag. The note there claimed that flag could only err towards "…"; with the solar scores in and a
@@ -32,6 +32,15 @@ cell already showing that night's star, because the strip reads the window contr
 - **The preview's own failures.** Each run is merged into what the preview already had: a night
   whose request fails keeps its earlier rows, and one that never answered stays out of the map rather
   than posing as `[]`, the endpoint's own "nothing is rated".
+- **A failed night request is asked again** (`askNightUntilAnswered`, which both single-night
+  fetches share): 2s, 10s and a minute after the first three failures, then every ten minutes — the
+  same interval as the briefing's poll, though on its own timer — until it answers or the night
+  changes, including while the Map tab is hidden (its pane is never unmounted); and at once,
+  whenever a retry is waiting and the reader comes back to the page (window focus, or the tab
+  becoming visible), the way `createEventSource` reconnects. The retry timer is armed after an
+  await, which is safe here only because the effect's cleanup stops it first or clears it after —
+  `SchedulerView`'s timer fix, #818, records the version of that timer that leaked (the hole #809
+  closed in `ModelSelectionView`). The frozen Plan-tab overlay still asks once, as it always has.
 
 ⚠️ **Not `useEffectEvent`, which was the first cut.** In react-dom 19.2.8 an Effect Event's
 implementation is swapped in during the commit only for a plain function-component fiber, and
@@ -41,12 +50,13 @@ briefly replaced it.
 
 Not addressed, and stated rather than implied:
 
-- A night request that fails with no preview rows to fall back on leaves the headline on "Loading…"
-  until the reader moves: nothing re-asks — the solar scores retry on the next briefing beat, a
-  night's request does not. On astro, Heat view's "This event is not scored yet" sits beside it,
-  because that line reads the empty field; holding it back needs a third, loading state for the
-  colour key it toggles against. The same line shows while an unpreviewed night's request is in
-  flight.
+- While a night with no preview rows waits on its own request — in flight, or failed and waiting to
+  be asked again — Heat view's "This event is not scored yet" (astro only) sits beside the callout's
+  "Loading…", because that line reads the empty field; holding it back needs a third, loading state
+  for the colour key it toggles against.
+- Through a long outage the callout keeps saying "Loading…" between the ten-minute asks, when
+  nothing is in flight. A failure wording of its own ("couldn't load — trying again") would say what
+  is true; it is a product decision, and not made here.
 - A night the preview never asks about — outside its solar horizon, which includes every past night
   and, after midnight, the night still in progress — reads "—" in the strip unless it is the window
   on screen. Nothing is loading for it, so "…" would be the false claim, but "—" still claims more
@@ -60,13 +70,15 @@ Not addressed, and stated rather than implied:
   round trip, and its popups meanwhile still say "No astro conditions data for this date" or "Not
   suitable for aurora photography" — unchanged.
 
-Pinned by `MapViewNightScoresLoading.test.jsx` — 52 tests through a real `MapView` and the real
-callout, every shared rule run for astro and for aurora off one table — and by fifteen new or
-rewritten cases in `MapCallout.test.jsx`, which goes from 55 tests to 64. Thirty-three mutants were
-run one at a time — the derivation's three rules and its night key, both `cancelled` guards, both
-failure paths, the fetch-dependency rule, every arm of `ratingKnown` (a `date`-for-`nightDate` swap
-and a live-state shortcut among them), the pending set's scope, the preview's merge and failure
-handling, its overlay gate, the nameless-row guard and the callout's six rules — and all thirty-three
-are killed. Six adversarial review lenses ran on the first cut; their charges are fixed here or
-stated above, and the pull request lists the rest. Tested, not seen in a browser: the Map tab sits
-behind sign-in.
+Pinned by `MapViewNightScoresLoading.test.jsx` — 78 tests through a real `MapView` and the real
+callout, every shared rule run for astro and for aurora off one table, the retry walked on fake
+timers to the millisecond — and by fifteen new or rewritten cases in `MapCallout.test.jsx`, which
+goes from 55 tests to 64. Fifty-three mutants were run one at a time — the derivation's three rules
+and its night key, the late-answer guard and the failure path, the retry's arming, stop and
+schedule (a cap, and a failure count outliving its night, among them), the early re-ask on return
+and its listeners, both overlay gates, the fetch-dependency rule, every arm of `ratingKnown` (a
+`date`-for-`nightDate` swap and a live-state shortcut among them), the pending set's scope, the
+preview's merge and failure handling, the nameless-row guard and the callout's six rules — and all
+fifty-three are killed. Six adversarial review lenses ran on the first cut, and three more on the
+retry; their charges are fixed here or stated above, and the pull request lists the rest. Tested,
+not seen in a browser: the Map tab sits behind sign-in.

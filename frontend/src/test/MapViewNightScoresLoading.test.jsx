@@ -27,6 +27,10 @@
  *       preview row confirms nothing, and a failed request takes nothing away.</li>
  *   <li><b>The strip.</b> Its night cells ask whether their OWN night's preview has answered, never
  *       the solar flag, and its cell for the window on screen restates the headline.</li>
+ *   <li><b>The retry.</b> A failed night request is asked again — 2s, 10s, a minute, then every ten
+ *       minutes, and at once when the reader comes back to the page — until it answers or the night
+ *       changes; the frozen Plan-tab overlay still asks once. Walked on fake timers, to the
+ *       millisecond.</li>
  * </ul>
  *
  * <h2>How the requests are driven</h2>
@@ -322,11 +326,10 @@ describe.each(KINDS)('the callout on an $name night the preview does not ask abo
     expect(headline()).toHaveTextContent('5★');
   });
 
-  it('never reads "Not scored yet" after that request FAILS — and stays "Loading…", the stated limit', async () => {
-    // The rule is the negative: a failure is not evidence that nothing was rated, so the definitive
-    // claim must not follow one. The positive is a LIMIT, pinned so that it changes on purpose:
-    // nothing re-asks after a failure, so "Loading…" stands until the reader moves (the changelog
-    // states it; a retry or a failure wording of its own would change this line deliberately).
+  it('never reads "Not scored yet" after that request FAILS — it goes on reading "Loading…"', async () => {
+    // A failure is not evidence that nothing was rated, so the definitive claim must not follow one.
+    // This test runs on real timers and does not see the request asked again; the retry block
+    // below, on fake ones, walks when it is.
     await onNightBWhileItLoads();
     await land(() => nth(kind.requests, NIGHT_B, 0).reject(new Error('night B timed out')));
     expect(headline()).not.toHaveTextContent('Not scored yet');
@@ -628,6 +631,228 @@ describe.each(KINDS)('the callout strip\'s $name cells on a SUNSET callout', (ki
       nth(kind.requests, NIGHT_B, 0).resolve([{ locationName: 'Cheviot', stars: 4 }]);
     });
     expect(cellFor(NIGHT_B)).toHaveTextContent('—');
+  });
+});
+
+describe.each(KINDS)('a failed $name night request is asked again', (kind) => {
+  // No preview here, so every request is the single-night effect's own. The timers are faked so the
+  // retry schedule can be walked to the millisecond — intervals too, because `MapSizeSync` pairs a
+  // real interval with the timeout that stops it. The file-wide `Date` pin is re-applied, and the
+  // awaited `act` still settles on real macrotasks: it flushes on `setImmediate`/`MessageChannel`,
+  // which stay real.
+  beforeEach(() => {
+    kind.arrange([NIGHT_A, NIGHT_B]);
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    vi.setSystemTime(new Date(NOW));
+  });
+
+  const HOUR_MS = 60 * 60 * 1000;
+  const elapse = async (ms) => { await act(async () => { vi.advanceTimersByTime(ms); }); };
+
+  /** Opens the callout on A, lets A answer, steps to B, and fails B's own request. */
+  async function onNightBAfterAFailure() {
+    const result = await renderOn(NIGHT_A, kind.eventType);
+    await land(() => nth(kind.requests, NIGHT_A, 0).resolve([{ locationName: SELECTED, stars: 4 }]));
+    await stepTo(result, NIGHT_B, kind.eventType);
+    await land(() => nth(kind.requests, NIGHT_B, 0).reject(new Error('night B timed out')));
+    expect(sentFor(kind.requests, NIGHT_B)).toBe(1);
+    return result;
+  }
+
+  /**
+   * The trailing control for a test whose claim is "nothing was asked": back on B, fail B's newest
+   * request and see a retry follow at 2s — proof, inside the same test, that a failure here IS
+   * observed. Without it, "no retry" reads the same as "the failure never landed".
+   */
+  async function aRetryStillFollowsAFailureOnB(result) {
+    await stepTo(result, NIGHT_B, kind.eventType);
+    const newest = sentFor(kind.requests, NIGHT_B) - 1;
+    await land(() => nth(kind.requests, NIGHT_B, newest).reject(new Error('down again')));
+    await elapse(2000);
+    expect(sentFor(kind.requests, NIGHT_B)).toBe(newest + 2);
+  }
+
+  /** Fails B's retries through the quick schedule, leaving the next ask ten minutes away. */
+  async function intoTheTenMinuteBeat() {
+    for (const [sentSoFar, wait] of [[1, 2000], [2, 10000], [3, 60000]]) {
+      await elapse(wait);
+      expect(sentFor(kind.requests, NIGHT_B)).toBe(sentSoFar + 1);
+      await land(() => nth(kind.requests, NIGHT_B, sentSoFar).reject(new Error('still down')));
+    }
+  }
+
+  const focusTheWindow = async () => { await act(async () => { window.dispatchEvent(new Event('focus')); }); };
+
+  it('asks again two seconds after a failure — and not a millisecond sooner', async () => {
+    await onNightBAfterAFailure();
+    expect(headline()).toHaveTextContent('Loading…');
+    await elapse(1999);
+    expect(sentFor(kind.requests, NIGHT_B)).toBe(1);
+    await elapse(1);
+    expect(sentFor(kind.requests, NIGHT_B)).toBe(2);
+  });
+
+  it('takes a retried request\'s answer as the night\'s own — "Not scored yet" once it says so', async () => {
+    await onNightBAfterAFailure();
+    await elapse(2000);
+    await land(() => nth(kind.requests, NIGHT_B, 1).resolve([{ locationName: 'Cheviot', stars: 4 }]));
+    expect(headline()).toHaveTextContent('Not scored yet');
+  });
+
+  it('backs off — 2s, 10s, a minute — then asks every ten minutes, and goes on asking', async () => {
+    await onNightBAfterAFailure();
+    // Each pair is [requests sent so far, the wait before the next]: one millisecond short of the
+    // wait sends nothing, the wait itself sends one — which pins each delay, not merely its order.
+    for (const [sentSoFar, wait] of [[1, 2000], [2, 10000], [3, 60000], [4, 600000], [5, 600000]]) {
+      await elapse(wait - 1);
+      expect(sentFor(kind.requests, NIGHT_B)).toBe(sentSoFar);
+      await elapse(1);
+      expect(sentFor(kind.requests, NIGHT_B)).toBe(sentSoFar + 1);
+      await land(() => nth(kind.requests, NIGHT_B, sentSoFar).reject(new Error('still down')));
+    }
+    // ...and the loop's last failure arms the next beat too: a cap on the retries is caught here.
+    await elapse(599999);
+    expect(sentFor(kind.requests, NIGHT_B)).toBe(6);
+    await elapse(1);
+    expect(sentFor(kind.requests, NIGHT_B)).toBe(7);
+  });
+
+  it('starts each night\'s backoff afresh — a new night\'s first retry is at 2s, wherever the last one had got to', async () => {
+    const result = await onNightBAfterAFailure();
+    await intoTheTenMinuteBeat();
+    await stepTo(result, NIGHT_A, kind.eventType);
+    await land(() => nth(kind.requests, NIGHT_A, 1).reject(new Error('night A down too')));
+    // Broken — the failure count outliving the night it counted — A's first retry waited ten minutes.
+    await elapse(1999);
+    expect(sentFor(kind.requests, NIGHT_A)).toBe(2);
+    await elapse(1);
+    expect(sentFor(kind.requests, NIGHT_A)).toBe(3);
+  });
+
+  it('asks again after a malformed answer — a body that is not a list is the failure it looks like', async () => {
+    const result = await renderOn(NIGHT_A, kind.eventType);
+    await land(() => nth(kind.requests, NIGHT_A, 0).resolve([{ locationName: SELECTED, stars: 4 }]));
+    await stepTo(result, NIGHT_B, kind.eventType);
+    await land(() => nth(kind.requests, NIGHT_B, 0).resolve(null));
+    // Not an answer — so never "Not scored yet" on its strength — and asked again like any failure.
+    expect(headline()).toHaveTextContent('Loading…');
+    await elapse(2000);
+    expect(sentFor(kind.requests, NIGHT_B)).toBe(2);
+
+    await land(() => nth(kind.requests, NIGHT_B, 1).resolve([{ locationName: SELECTED, stars: 5 }]));
+    expect(headline()).toHaveTextContent('5★');
+  });
+
+  it('stops asking once the night has answered', async () => {
+    await onNightBAfterAFailure();
+    await elapse(2000);
+    await land(() => nth(kind.requests, NIGHT_B, 1).resolve([{ locationName: SELECTED, stars: 5 }]));
+    expect(headline()).toHaveTextContent('5★');
+
+    await elapse(HOUR_MS);
+    expect(sentFor(kind.requests, NIGHT_B)).toBe(2);
+  });
+
+  it('never asks again for a night the reader has left while its retry was waiting', async () => {
+    const result = await onNightBAfterAFailure();
+    await stepTo(result, NIGHT_A, kind.eventType);
+    // Broken — the leaving night's cleanup not clearing its timer — B was asked again at 2s, for a
+    // night nobody was looking at (once: that request's own failure finds the loop stopped).
+    await elapse(HOUR_MS);
+    expect(sentFor(kind.requests, NIGHT_B)).toBe(1);
+    await aRetryStillFollowsAFailureOnB(result);
+  });
+
+  it('arms no retry for a failure that lands after the reader has left', async () => {
+    const result = await renderOn(NIGHT_A, kind.eventType);
+    await land(() => nth(kind.requests, NIGHT_A, 0).resolve([{ locationName: SELECTED, stars: 4 }]));
+    await stepTo(result, NIGHT_B, kind.eventType);
+    // Leave B while its request is still in flight; THEN it fails.
+    await stepTo(result, NIGHT_A, kind.eventType);
+    await land(() => nth(kind.requests, NIGHT_B, 0).reject(new Error('night B timed out')));
+    // Broken — the failure arming a retry without asking whether its night's effect had been cleaned
+    // up — the cleanup had already run, so nothing was left to clear the timer it armed.
+    await elapse(HOUR_MS);
+    expect(sentFor(kind.requests, NIGHT_B)).toBe(1);
+    await aRetryStillFollowsAFailureOnB(result);
+  });
+
+  it('asks at once when the reader comes back to the window, rather than waiting out the ten-minute beat', async () => {
+    await onNightBAfterAFailure();
+    await intoTheTenMinuteBeat();
+    await elapse(60000);
+    await focusTheWindow();
+    expect(sentFor(kind.requests, NIGHT_B)).toBe(5);
+
+    // ...and the wait it cut short does not ask again at its old deadline.
+    await elapse(540000);
+    expect(sentFor(kind.requests, NIGHT_B)).toBe(5);
+    await land(() => nth(kind.requests, NIGHT_B, 4).resolve([{ locationName: SELECTED, stars: 5 }]));
+    expect(headline()).toHaveTextContent('5★');
+  });
+
+  it('asks at once when the tab becomes visible again — and not while it is still hidden', async () => {
+    await onNightBAfterAFailure();
+    // An own property shadows jsdom's getter on the prototype; deleting it restores that getter.
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' });
+    try {
+      await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+      expect(sentFor(kind.requests, NIGHT_B)).toBe(1);
+    } finally {
+      delete document.visibilityState;
+    }
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); });
+    expect(sentFor(kind.requests, NIGHT_B)).toBe(2);
+  });
+
+  it('sends no second request on a focus while the first is still in flight', async () => {
+    const result = await renderOn(NIGHT_A, kind.eventType);
+    await land(() => nth(kind.requests, NIGHT_A, 0).resolve([{ locationName: SELECTED, stars: 4 }]));
+    await stepTo(result, NIGHT_B, kind.eventType);
+    await focusTheWindow();
+    expect(sentFor(kind.requests, NIGHT_B)).toBe(1);
+
+    // The control: once B has failed and a retry IS waiting, the same focus asks at once.
+    await land(() => nth(kind.requests, NIGHT_B, 0).reject(new Error('night B timed out')));
+    await focusTheWindow();
+    expect(sentFor(kind.requests, NIGHT_B)).toBe(2);
+  });
+
+  it('asks only once on the frozen Plan-tab overlay, as it always has — and listens for nothing', async () => {
+    const added = vi.spyOn(window, 'addEventListener');
+    try {
+      await renderOn(NIGHT_A, kind.eventType, { overlayMode: true });
+      await land(() => nth(kind.requests, NIGHT_A, 0).reject(new Error('night A timed out')));
+      await focusTheWindow();
+      await elapse(HOUR_MS);
+      expect(sentFor(kind.requests, NIGHT_A)).toBe(1);
+      expect(added.mock.calls.filter(([type]) => type === 'focus')).toHaveLength(0);
+    } finally {
+      added.mockRestore();
+    }
+  });
+
+  it('removes every focus and visibility listener it adds — across night steps and when the map goes', async () => {
+    const spies = [
+      vi.spyOn(window, 'addEventListener'), vi.spyOn(window, 'removeEventListener'),
+      vi.spyOn(document, 'addEventListener'), vi.spyOn(document, 'removeEventListener'),
+    ];
+    const [winAdd, winRemove, docAdd, docRemove] = spies;
+    const handlers = (spy, type) => spy.mock.calls.filter(([t]) => t === type).map(([, fn]) => fn);
+    try {
+      const result = await renderOn(NIGHT_A, kind.eventType);
+      await stepTo(result, NIGHT_B, kind.eventType);
+      await stepTo(result, NIGHT_A, kind.eventType);
+      result.unmount();
+      // One pair per night asked about — A, then B, then A again — each added AND removed.
+      expect(handlers(winAdd, 'focus')).toHaveLength(3);
+      expect(new Set(handlers(winRemove, 'focus'))).toEqual(new Set(handlers(winAdd, 'focus')));
+      expect(handlers(docAdd, 'visibilitychange')).toHaveLength(3);
+      expect(new Set(handlers(docRemove, 'visibilitychange')))
+        .toEqual(new Set(handlers(docAdd, 'visibilitychange')));
+    } finally {
+      spies.forEach((spy) => spy.mockRestore());
+    }
   });
 });
 
