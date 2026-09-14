@@ -387,13 +387,13 @@ function hasSolarRow(servedWindow, inForecastDomain, date, todayStr) {
  * to remember that, {@code MapView} enforces the scope at its own boundary and answers {@code true}
  * for any non-solar event before reaching this function at all.
  *
- * <p>⚠️ <b>Nothing here protects the night paths, and one of them has the same defect.</b> Astro
- * scores and STORED aurora results are fetched per {@code nightDate}, so they answer for the night
- * on screen. But the aurora branch falls back to {@code auroraScores}, fetched by
- * {@code getAuroraLocations()} — <b>no date parameter at all</b>, gated only on a live alert level
- * — so on an alert night that cache can answer for a night the reader is not looking at. That is
- * this same class of defect, pre-existing, unaddressed here, and named so the "solar only" scope
- * above is not mistaken for a claim that the night paths are clean.
+ * <p>⚠️ <b>Nothing here protects the night paths.</b> Astro scores and STORED aurora results are
+ * fetched per {@code nightDate}, so they answer for the night on screen. The aurora branch also
+ * falls back to {@code auroraScores}, fetched by {@code getAuroraLocations()} — <b>no date parameter
+ * at all</b>, gated only on a live alert level — so that cache could answer for a night the reader
+ * was not looking at: this same class of defect. {@code MapView} closed it in #814 by gating every
+ * read of the cache on {@code liveAuroraOnScreen}; nothing HERE does, and it is named so the "solar
+ * only" scope above is not mistaken for a claim that this function covers the night paths.
  *
  * @param {object} args
  * @param {Array<{date: string, targetType: string}>} [args.solarWindows] served solar windows
