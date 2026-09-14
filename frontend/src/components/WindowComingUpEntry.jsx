@@ -46,8 +46,8 @@ import { entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
  * the entries that are NOT clickable. Leaving the name to compute from content is the fix (the same
  * approach {@code WindowFirstComingUpHandoff} already uses for its own button), which is why the
  * title-row spans below are interleaved with bare {@code {' '}} text-node siblings: JSX drops
- * whitespace-only text between tags rather than collapsing it to a space, so they are what keeps
- * the phrases apart in that one computed name.
+ * whitespace-only text that contains a line break rather than collapsing it to a space, so they
+ * are what keeps the phrases apart in that one computed name.
  *
  * <p><b>⚠️ Every separator this file renders is inert in a browser</b> — this doc used to assert
  * the name "runs every phrase together", and no browser measurement supports that. Nothing this
@@ -56,13 +56,16 @@ import { entryGlyph, coincidenceLineGlyph } from '../utils/comingUpGlyphs.js';
  * {@code .wf-cu-coin} and {@code .wf-cu-threshold} are {@code block}) or an atomic inline
  * ({@code .wf-cu-action} is {@code inline-flex}); inside them the pieces are flex items (the title
  * row's spans, each fact, each fact's segments) or atomic inlines (each {@code inline-flex}
- * {@code .wf-cu-coin-line}). Every engine spaces all of these itself. Measured 2026-09-05, and again 2026-09-11 across every state this
- * component's tests render, in Chromium, WebKit and Firefox. The rule, the method and why the
- * suite reads it differently are in {@code WindowFirstComingUpHandoff}'s class doc.
+ * {@code .wf-cu-coin-line}). Every engine spaces all of these itself. Measured 2026-09-05, and
+ * again 2026-09-11 across every state this component's tests render, by Playwright's
+ * accessible-name algorithm over Chromium's, WebKit's and Firefox's layout; Chromium's native
+ * accessibility tree agreed on 2026-09-05 and again on 2026-09-14. The rule, the method and why
+ * the suite reads it differently are in {@code WindowFirstComingUpHandoff}'s class doc.
  *
  * <p><b>⚠️ One separator inside the card IS load-bearing, and it is not in this file.</b>
  * {@code ComingUpTideSparkline}'s label sets a {@code <b>} and a {@code <span>} side by side as
- * plain inline content, so without its {@code {' '}} the card's name reads "5.2 m+1.9 vs avg".
+ * plain inline content, so without its {@code {' '}} the card's name glues them —
+ * "…5.2 m+1.9 vs avg…".
  * This doc previously said the card's CSS blockifies everything that carries text — true only of
  * an entry with no tide chart; the measurement behind it used a fixture with {@code tide: null}.
  * Keep every separator: they cost nothing, and the inert ones become load-bearing the moment
@@ -140,11 +143,12 @@ export default function WindowComingUpEntry({ entry, onGoToPlan, onShowOnMap }) 
   };
 
   // Every top-level section is separated by a bare `{' '}` text-node sibling rather than relying
-  // on flex `gap` to imply one — JSX drops whitespace-only text between tags, and jsdom (which
-  // computes no layout, so every section reads as inline to it) needs a real text node to see a
-  // boundary. ⚠️ Defensive, not load-bearing in a browser: every top-level section is a
-  // block-level box or an atomic inline, and the engines space both themselves (measured — see
-  // the class doc). They earn their keep if one of them ever becomes plain inline content.
+  // on flex `gap` to imply one — JSX drops whitespace-only text that contains a line break, and
+  // jsdom (which computes no layout, so every section reads as inline to it) needs a real text
+  // node to see a boundary. ⚠️ Defensive, not load-bearing in a browser: every top-level
+  // section is a block-level box or an atomic inline, and the engines space both themselves
+  // (measured — see the class doc). They earn their keep if one of them ever becomes plain
+  // inline content.
   const cardBody = (
     <>
       <div className="wf-cu-ttl">

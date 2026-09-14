@@ -63,8 +63,8 @@ describe('MapBreadcrumb — the window clause', () => {
 
   it('carries a real space at every TOP-LEVEL sibling boundary — never a bare adjacency JSX '
       + 'would collapse to nothing', () => {
-    // The exact trap this file's own doc comment names: JSX drops a whitespace-only text node
-    // between sibling tags rather than collapsing it to a space, so two siblings placed side by
+    // The exact trap this file's own doc comment names: JSX drops whitespace-only text that
+    // contains a line break rather than collapsing it to a space, so two siblings placed side by
     // side with only a newline between them in the SOURCE render with ZERO characters between
     // them in the DOM — "Plan" glued straight onto "/", and "/" glued straight onto "Tonight".
     // `toHaveTextContent` alone would not catch this: it was passing before the fix, because

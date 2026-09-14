@@ -980,11 +980,13 @@ export default function WindowRowFieldMap({
                         of the `<em>` below is thrown away there and the name computes as
                         `Bamburgh4 stars` (measured three ways). Browsers neither trim nor need it:
                         `.wf-mchip` is `inline-flex`, so these are flex items every engine spaces
-                        itself (measured 2026-09-11). JSX strips whitespace-only lines between
+                        itself (measured 2026-09-11 by Playwright's accessible-name algorithm over
+                        Chromium's, WebKit's and Firefox's layout; Chromium's native accessibility
+                        tree agreed on 2026-09-14). JSX strips whitespace-only lines between
                         children, so it has to be explicit. M4 — an `aria-hidden` span between two
                         text runs producing `Show on mapTonight Sunset` — was a different shape:
-                        plain inline content, which does glue in browsers too
-                        (`LocationFourDaySheet`'s map button records it). */}
+                        plain inline content, which glues under that same algorithm in all three
+                        engines' layout (`LocationFourDaySheet`'s map button records it). */}
                     {' '}
                     {chip.rating != null && (
                       // ⚠️ `spotBadgeStyle`, not the raw ramp as ink. Measured on this chip's own

@@ -531,9 +531,10 @@ export default function LocationFourDaySheet({
               {/* ⚠️ ONE text node, with only the `◍` hidden — the separator stays inside it. Hiding
                   the arrow as well split the label into two ADJACENT text runs with only a hidden
                   element between them, and in this button's inline content two such runs join once
-                  it drops out — a shape measured to glue in Chromium, WebKit and Firefox alike, not
-                  a jsdom artefact: the name computed as "Show on mapTomorrow Sunrise", one
-                  mangled token, and it is the only thing a speech-input user has to say (2.5.3).
+                  it drops out — a shape that glues under Playwright's accessible-name algorithm over
+                  Chromium's, WebKit's and Firefox's layout, not a jsdom artefact: the name computed
+                  as "Show on mapTomorrow Sunrise", one mangled token, and it is the only thing a
+                  speech-input user has to say (2.5.3).
                   The glyph worth hiding is the bullseye, which VoiceOver reads aloud as a word in
                   the middle of the name — the call `◎ best here` already makes one band up. An
                   arrow between two phrases is not in that class. */}

@@ -96,8 +96,9 @@ export default function WindowComingUpConditions({ conditions, onGoToPlan }) {
                 {condition.name}
                 {/* ⚠️ LOAD-BEARING in a browser, unlike this file's cell separators: the name is a
                     text run and the cadence a plain inline span inside `.wf-cond-name`, so without
-                    this the row's name reads "Coastal tidesdeterministic…" in Chromium, WebKit and
-                    Firefox alike (measured 2026-09-11). */}
+                    this the row's name reads "Coastal tidesdeterministic…" (measured 2026-09-11 by
+                    Playwright's accessible-name algorithm over Chromium's, WebKit's and Firefox's
+                    layout; Chromium's native accessibility tree agreed on 2026-09-14). */}
                 {' '}
                 <span className="wf-cond-kind" data-testid="condition-cadence">{condition.cadence}</span>
               </span>
@@ -191,12 +192,13 @@ function OccurrenceRow({ occurrence, onGoToPlan }) {
     : occurrence.status === 'insidePlan' ? 'wf-cond-oc-pl' : '';
 
   // Every cell is separated by a bare `{' '}` text-node sibling — defensively. JSX drops
-  // whitespace-only text between sibling tags, and jsdom — which computes no layout, so the cells
-  // read as inline to it — needs a real text node to see the boundary. In a browser
-  // `.wf-cond-oc` is `display: grid`, so the
-  // cells are grid items every engine spaces itself: removing these changed no accessible name
-  // (measured 2026-09-11). Contrast the name/cadence separator earlier in this file, which IS
-  // load-bearing. The rule is in `WindowFirstComingUpHandoff`'s class doc.
+  // whitespace-only text that contains a line break, and jsdom — which computes no layout, so the
+  // cells read as inline to it — needs a real text node to see the boundary. In a browser
+  // `.wf-cond-oc` is `display: grid`, so the cells are grid items every engine spaces itself:
+  // removing these changed no accessible name (measured 2026-09-11 by Playwright's
+  // accessible-name algorithm over Chromium's, WebKit's and Firefox's layout; Chromium's native
+  // accessibility tree agreed on 2026-09-14). Contrast the name/cadence separator earlier in this
+  // file, which IS load-bearing. The rule is in `WindowFirstComingUpHandoff`'s class doc.
   const cells = (
     <>
       <span className="wf-cond-od">{occurrence.dateLabel}</span>

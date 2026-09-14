@@ -430,18 +430,17 @@ describe('WindowFirstComingUp — the handoff row (plan D14)', () => {
 
   it('gives each phrase its own word boundary in the accessible name, rather than gluing them '
       + 'into one run-on string', () => {
-    // JSX drops whitespace-only text between sibling tags — it does not collapse it to a space —
-    // so without an explicit `{' '}` between every span the name this assertion computes reads
-    // "...four daysSaharan dustAurora possibleOn Plan" with no boundaries. This pins
+    // JSX drops whitespace-only text that contains a line break — it does not collapse it to a
+    // space — so without an explicit `{' '}` between every span the name this assertion
+    // computes reads "...four daysSaharan dustAurora possibleOn Plan" with no boundaries. This pins
     // `WindowFirstComingUpHandoff` itself through the ROLE this pane renders it with, so a future
     // edit to either file cannot silently drop the separators.
     //
     // ⚠️ Name the instrument: that glued reading is what jsdom's `dom-accessibility-api` computes
     // here, NOT what a browser announces. The polyfill applies the browsers' own rule, but to
     // jsdom's `display`, and jsdom computes no layout: it never blockifies a flex item (and this
-    // suite loads no stylesheet anyway), so every span is `display: inline` to it. In Chromium,
-    // WebKit and Firefox `.wf-cu-handoff` is
-    // `display: flex`, so removing these text nodes changes nothing a real screen reader is handed
+    // suite loads no stylesheet anyway), so every span is `display: inline` to it. In a browser
+    // `.wf-cu-handoff` is `display: flex`, so removing these text nodes changes no accessible name
     // (measured — see the component's class doc). This test therefore guards the DOM's stated
     // intent, not a user-facing regression; treat a failure here as "the separators went away",
     // not as "a11y broke in production".

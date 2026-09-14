@@ -4005,8 +4005,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                         emoji span is plain inline content, so without it the chip's accessible name
                         reads "🏔️Landscape" (measured 2026-09-14, confirmed against Chromium's native
                         tree; WILDLIFE's span is `inline-block`, which the engines space anyway).
-                        Keep it on one line — JSX drops whitespace that contains a line break, so
-                        reflowing `{label}` onto its own line would delete the space silently. */}
+                        Keep it on one line — JSX drops whitespace-only text that contains a line
+                        break, so reflowing `{label}` onto its own line would delete the space
+                        silently. */}
                     <span className={type === 'WILDLIFE' ? 'brightness-200 contrast-200 inline-block' : undefined} style={type === 'WILDLIFE' ? { filter: 'brightness(2) contrast(1.5)' } : undefined}>{emoji}</span> {label}
                   </button>
                 ))}

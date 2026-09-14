@@ -235,10 +235,12 @@ describe('WindowComingUpConditions — the strip', () => {
     // or flex item, and this suite loads no stylesheet anyway — so every span reads as
     // `display: inline` and EVERY boundary below needs its text node to pass here. In a browser
     // only one of them does: "Coastal tides deterministic" — a text run beside a plain inline span
-    // — glues without its separator in Chromium, WebKit and Firefox alike. Every other boundary
-    // here the engines space themselves: measured 2026-09-11 for the separators between elements,
-    // and by the same rule for the one a text node follows (`peak` / date), which sits inside the
-    // `inline-flex` `.wf-cond-peak`. The rule is in `WindowFirstComingUpHandoff`'s class doc. So
+    // — glues without its separator, by Playwright's accessible-name algorithm over Chromium's,
+    // WebKit's and Firefox's layout and in Chromium's native tree. Every other boundary
+    // here the engines space themselves: measured 2026-09-11 by Playwright's algorithm for the
+    // separators between elements, and on 2026-09-14 for the one a text node follows (`peak` /
+    // date), which sits inside the `inline-flex` `.wf-cond-peak` — all of them then confirmed
+    // against Chromium's native tree. The rule is in `WindowFirstComingUpHandoff`'s class doc. So
     // this pins one user-facing boundary and several that exist for jsdom's reading.
     render(<WindowComingUpConditions conditions={[condition()]} onGoToPlan={vi.fn()} />);
 

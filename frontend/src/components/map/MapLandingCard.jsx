@@ -109,8 +109,9 @@ export default function MapLandingCard({
             {/* The bare text nodes keep the contributions apart in the accessible name.
                 ⚠️ **They are belt-and-braces here, NOT load-bearing, and an earlier revision of this
                 comment claimed the opposite.** jsdom's polyfill trims each contribution (browsers do
-                not) — and this project measured across Chromium, WebKit and Firefox that every
-                engine inserts a space when the siblings are blockified, which a flex item is;
+                not) — and this project measured, by Playwright's accessible-name algorithm over
+                Chromium's, WebKit's and Firefox's layout and in Chromium's native accessibility
+                tree, that a space is inserted when the siblings are blockified, which a flex item is;
                 `.wf-land-row` is `display: flex`. The run-together string the old comment quoted is
                 a **jsdom** artefact, and taking it for a browser defect already cost this project a
                 whole build once. The nodes cost nothing and keep jsdom's name equal to the

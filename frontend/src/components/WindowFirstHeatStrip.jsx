@@ -957,9 +957,10 @@ export default function WindowFirstHeatStrip({
             containers, whose whitespace-only text runs are not rendered (Flexbox §4, Grid §6), so
             the separators an earlier cut relied on were inert outside jsdom (which computes no
             layout, so every span reads as `display: inline` there). But every engine spaces flex
-            and grid items itself: measured 2026-09-11, the visible spans — which carry no
-            separators at all — read "SUNSET 21:11 Worth it Spread Best nothing in reach" in
-            Chromium, WebKit and Firefox once un-hidden. That reading is the real
+            and grid items itself: measured 2026-09-11 by Playwright's accessible-name algorithm
+            over Chromium's, WebKit's and Firefox's layout, the visible spans — which carry no
+            separators at all — read "SUNSET 21:11 Worth it Spread Best nothing in reach" once
+            un-hidden. That reading is the real
             case for the sentence below — it has no day word, no pauses, a stray `Spread` chart
             label and a shouted `SUNSET`, where the sentence gets all four right. */}
         <span id={nameId} className="sr-only">{accessibleName}</span>

@@ -423,10 +423,14 @@ describe('MapRegionPanel — what it announces', () => {
     renderPanel();
 
     // ⚠️ **`5stars`, not `5 stars`, and that is a jsdom artefact — do NOT "fix" the component.**
-    // `dom-accessibility-api` GLUES adjacent sibling contributions where Chromium, WebKit and
-    // Firefox all space them; a review lens ran the discriminating control in all three engines and
-    // every one returned `5 stars`. This project has already lost a whole build to that difference,
-    // which is why the expectation is written against the harness rather than against the browser.
+    // The space is the leading one inside the `sr-only` " stars" span (the `★` between is
+    // `aria-hidden`). `dom-accessibility-api` trims each element's contribution, which browsers do
+    // not, and computes no layout, so to it the span is plain inline and the digit and word glue.
+    // A browser keeps that space — and `sr-only` is absolutely positioned, which the engines space
+    // anyway: a review lens's probe, run through Playwright's accessible-name algorithm over
+    // Chromium's, WebKit's and Firefox's layout, returned `5 stars` in every one. This project has
+    // already lost a whole build to that difference, which is why the expectation is written
+    // against the harness rather than against the browser.
     const row = screen.getAllByTestId('wf-reg-panel-row')[0];
     expect(row).toHaveAccessibleName('Ashness Bridge 1h 35min · leave 14:25 5stars');
   });
