@@ -9008,6 +9008,25 @@ button.wf-mchip:hover {
 /* The strip pads rather than margins (see `.wf-strip`), and its 10px is the fade geometry — so it
    is deliberately left alone here; the dialog's body inset simply sits outside it. */
 .wf-wsh .wf-rlab { margin: 0 0 5px; }
+/* ⚠️ 128px, and NOT the prototype's 112px — kept on purpose (2026-09-14, owner decision). The
+   prototype's rule for a rail inside the popup's side column is `.wside .rrail` at 112px, and since
+   the rail only ever renders there, that is the value on its screen; the README's 128px is the bare
+   `.rrail` rule it loses to. It was audited as drift and measured before being changed — and it is
+   not drift anyone can see:
+
+     with the field map     128px  3 × 143px   112px  3 × 143px   (identical — the popup is capped
+                                                                   at 780px, so the rail is 442px)
+     without it             128px  5 × 145px   112px  6 × 120px   (every card's `best 5★ · 10 in
+                                                                   reach` wraps to two lines, cards
+                                                                   grow from 63–76px to 90px)
+
+   The prototype only ever draws the popup WITH its map, so its 112px was designed for the case where
+   it changes nothing. This codebase also has the case the prototype never drew — the rail spanning
+   the full width while the heat catalogue is loading or has failed — and that is the only place the
+   value shows, and there 112px breaks every card's figure across two lines. So the rule keeps the
+   value that renders the designed layout identically and the undesigned one correctly. The phone
+   (two up) and iPad (130px) tiers override this rule in their own blocks, so it governs desktop
+   alone. Recorded in `docs/design/plan-matrix/README.md` beside the region-card spec. */
 .wf-wsh .wf-rrail { grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }
 /* The quiet sentence that stands in for the ranked strip when this window's pool is empty. Not
    the page-level conflict's amber: this states a fact about one window, and the plan as a whole may

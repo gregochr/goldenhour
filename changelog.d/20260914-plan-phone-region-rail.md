@@ -41,8 +41,8 @@ meet without overlapping; the All cell still spans; no margin was revived; the a
 reproduces from the rail's 6px gap; and no test pins the old line. It also re-derived the table
 above independently.
 
-**Found in passing, not fixed:** the desktop rail has the same README-versus-prototype split the
-iPad block settled. The README and the code say 128px, but the prototype's rule for the rail inside
-the popup's side column — the only place it renders — is `.wside .rrail` at **112px**, and that is
-the one on screen. So the prototype runs 112px desktop, 130px iPad, two up on phone; the code now
-matches on iPad and phone only.
+**Found in passing, and decided rather than fixed:** the desktop rail has the same README-versus-
+prototype split the iPad block settled — the prototype's rendered value is `.wside .rrail` at 112px,
+where the code has 128px. Measured before changing it, it is not a difference anyone can see in the
+layout the prototype draws, and 112px would break card text in the one it does not; the owner kept
+128px. See `20260914-plan-rail-desktop-128.md`.
