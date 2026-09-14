@@ -18,6 +18,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
@@ -66,14 +67,42 @@ public class AuroraController {
      * forecast run at 02:00 opens on the night it scored rather than on a date with no results.
      * The rule lives in {@code AuroraForecastRunService} and is read here, never re-derived.
      *
+     * <p>Every state-machine field is read once, up front, before the live NOAA calls. Those calls
+     * can wait on NOAA for as long as a cache refresh takes, and the polling job can move the state
+     * machine meanwhile. The level used to be read before them and {@code active}, the counts and
+     * {@code detectedAt} after, so a transition landing in between answered for two states at once:
+     * {@code MODERATE} and not active across a CLEAR, {@code QUIET} and active across a NOTIFY.
+     *
+     * <p>Before the calls rather than after them, although after would be fresher, because the
+     * frontend's {@code AuroraStatusProvider} applies answers in the order their requests were
+     * made. Read on arrival, a response's state is as old as its request; read after its NOAA wait,
+     * a slow earlier request would carry newer state than a quick later one, and be the answer the
+     * client drops.
+     *
+     * <p>Two residuals remain. The fields are separate volatiles read one after another, so a writer
+     * caught part-way through its writes can still show in one response — during an admin
+     * simulation, its level beside {@code simulated: false}, or {@code simulated: true} with no data
+     * yet. And {@code AuroraOrchestrator} writes one NOTIFY in several steps with I/O between them —
+     * the forecast lookahead records the trigger only after a NOAA fetch, and CLEAR never resets it —
+     * so the machine itself can hold a new level beside the previous alert's trigger. This read
+     * serves that faithfully; no snapshot taken here could fix it.
+     *
      * @return current aurora status
      */
     @GetMapping("/status")
     public ResponseEntity<AuroraStatusResponse> getStatus() {
-        AlertLevel level = stateCache.getCurrentLevel();
-        if (level == null) {
-            level = AlertLevel.QUIET;
-        }
+        AlertLevel cachedLevel = stateCache.getCurrentLevel();
+        boolean active = stateCache.isActive();
+        int eligibleLocations = stateCache.getCachedScores().size();
+        int darkSkyLocationCount = stateCache.getDarkSkyLocationCount();
+        Integer clearLocationCount = stateCache.getClearLocationCount();
+        TriggerType lastTrigger = stateCache.getLastTriggerType();
+        Double lastTriggerKp = stateCache.getLastTriggerKp();
+        Instant activeSince = stateCache.getActiveSince();
+        boolean simulated = stateCache.isSimulated();
+        AuroraStateCache.SimulatedNoaaData simData = stateCache.getSimulatedData();
+
+        AlertLevel level = cachedLevel == null ? AlertLevel.QUIET : cachedLevel;
 
         Double kp = null;
         Double ovation = null;
@@ -81,9 +110,8 @@ public class AuroraController {
         String gScale = null;
         ZonedDateTime updatedAt = null;
 
-        if (stateCache.isSimulated()) {
+        if (simulated) {
             // Return simulated NOAA values — no live API call needed
-            AuroraStateCache.SimulatedNoaaData simData = stateCache.getSimulatedData();
             kp = simData.kp();
             ovation = simData.ovationProbability();
             bz = simData.bzNanoTesla();
@@ -110,16 +138,14 @@ public class AuroraController {
             }
         }
 
-        TriggerType lastTrigger = stateCache.getLastTriggerType();
         String triggerTypeStr = lastTrigger == null ? null
                 : (lastTrigger == TriggerType.FORECAST_LOOKAHEAD ? "forecast" : "realtime");
 
-        if (!stateCache.isSimulated()) {
+        if (!simulated) {
             // Derive the storm scale from the Kp that drove the alert (the forecast trigger Kp
             // where present, else the latest live Kp), so the banner's severity index tracks
             // amber-vs-red escalation. Null below the G1 storm threshold.
-            Double severityKp = stateCache.getLastTriggerKp() != null
-                    ? stateCache.getLastTriggerKp() : kp;
+            Double severityKp = lastTriggerKp != null ? lastTriggerKp : kp;
             gScale = AlertLevel.gScaleFromKp(severityKp);
         }
 
@@ -127,19 +153,19 @@ public class AuroraController {
                 level,
                 level.hexColour(),
                 level.description(),
-                stateCache.isActive(),
-                stateCache.getCachedScores().size(),
-                stateCache.getDarkSkyLocationCount(),
-                stateCache.getClearLocationCount(),
+                active,
+                eligibleLocations,
+                darkSkyLocationCount,
+                clearLocationCount,
                 kp,
-                stateCache.getLastTriggerKp(),
+                lastTriggerKp,
                 triggerTypeStr,
                 ovation,
                 bz,
                 DATA_SOURCE,
                 updatedAt != null ? updatedAt : ZonedDateTime.now(ZoneOffset.UTC),
-                stateCache.isSimulated(),
-                stateCache.getActiveSince(),
+                simulated,
+                activeSince,
                 gScale,
                 forecastRunService.currentNightDate()));
     }
