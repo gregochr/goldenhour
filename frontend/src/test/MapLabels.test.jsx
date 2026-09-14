@@ -2,7 +2,9 @@ import React from 'react';
 import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
-import { act, fireEvent, render } from '@testing-library/react';
+import {
+  act, fireEvent, render, screen,
+} from '@testing-library/react';
 
 const setPosition = vi.fn();
 vi.mock('leaflet', () => {
@@ -640,6 +642,207 @@ describe('MapLabels — location chips: ink, click, tooltip', () => {
     expect(left).toBeCloseTo(413, 5);
     expect(left).toBeGreaterThanOrEqual(0);
     expect(left).toBeLessThanOrEqual(800);
+  });
+});
+
+describe('MapLabels — the hover tooltip answers for the window on screen, not the one it opened on', () => {
+  // The defect these pin: the chip's hover handler stored a SNAPSHOT of the spot object, and the
+  // tooltip printed that snapshot's rating beside the LIVE `eventLabel`. A reader who rested the
+  // pointer on a chip and stepped the window with the keyboard read the old window's star under
+  // the new window's name — a chip that stays mounted under a still pointer gets no `mouseleave` —
+  // and a chip that UNMOUNTED under the pointer left its tooltip hanging over nothing, since a
+  // removed node gets no `mouseleave` either. So every case hovers once and then fires NO mouse
+  // event at all: it only changes the props, as `MapView` does once a window step's figures are in
+  // (a solar step's at once; an astro night's when its request lands). That silence is the
+  // scenario, not an omission.
+
+  const SAT = 'Saturday night';
+  const SUN = 'Sunday night';
+
+  /**
+   * A map whose projection spreads its spots far enough apart that every chip is PLACED. The role
+   * queries below only find a chip the placer put on screen (an unplaced one is `display: none`) —
+   * the only kind of chip a reader can rest a pointer on.
+   */
+  function makeSpreadMap(opts = {}) {
+    const map = makeFullMap({ zoom: 13, ...opts });
+    map.latLngToContainerPoint = ([lat, lng]) => ({ x: (lng + 3.5) * 200, y: (56 - lat) * 200 });
+    return map;
+  }
+
+  /**
+   * `SPOTS` as `MapView` hands them over after a window step: the same places under the same names,
+   * as FRESH objects carrying the new window's ratings (and no tide claim unless one is given).
+   */
+  const reRated = (ratings) => SPOTS.map((s) => ({ ...s, rating: ratings[s.name] ?? null }));
+
+  /** Mounts on Saturday and rests the pointer on Bamburgh's chip — the one hover every case makes. */
+  async function hoverBamburgh(spots = SPOTS) {
+    restoreMeasure = withMeasuredLabels(50, 14);
+    currentMap = makeSpreadMap();
+    const result = await mount({ spots, eventLabel: SAT });
+    await act(async () => { runFrames(); });
+    const chip = screen.getByRole('button', { name: /^Bamburgh, 5 star/ });
+    fireEvent.mouseEnter(chip);
+    expect(screen.getByTestId('map-label-tip')).toHaveTextContent(`${SAT} · 5★ Worth it`);
+    return { result, chip };
+  }
+
+  /** The props a window step changes — `rerender` replaces them wholesale, so both are passed. */
+  async function showWindow(result, spots, eventLabel) {
+    await act(async () => { result.rerender(<MapLabels spots={spots} eventLabel={eventLabel} />); });
+  }
+
+  it('reads the new window\'s star after a keyboard step, beside the new window\'s name', async () => {
+    const { result, chip } = await hoverBamburgh();
+
+    await showWindow(result, reRated({ Bamburgh: 3, Whitby: 3, Buttermere: 4 }), SUN);
+
+    // The premise: the chip under the pointer is the SAME element (keyed by name), still placed —
+    // a role query skips a `display: none` chip — so the pointer never left it and no `mouseleave`
+    // is owed.
+    expect(screen.getByRole('button', { name: 'Bamburgh, 3 star' })).toBe(chip);
+    const tip = screen.getByTestId('map-label-tip');
+    expect(tip).toHaveTextContent(`${SUN} · 3★ Maybe`);
+    expect(tip).not.toHaveTextContent('5★');
+    expect(tip).not.toHaveTextContent('Worth it');
+  });
+
+  it('carries no star at all when the new window has none for this place — never the old window\'s', async () => {
+    const { result, chip } = await hoverBamburgh();
+
+    await showWindow(result, reRated({ Bamburgh: null, Whitby: 3, Buttermere: 4 }), SUN);
+
+    expect(screen.getByRole('button', { name: 'Bamburgh' })).toBe(chip);
+    const tip = screen.getByTestId('map-label-tip');
+    expect(tip).toHaveTextContent(SUN);
+    expect(tip).not.toHaveTextContent('★');
+  });
+
+  it('drops the tide line when the new window\'s water is not on the light', async () => {
+    const saturday = SPOTS.map((s) => (s.name === 'Bamburgh'
+      ? { ...s, onTheLight: true, nearestSolarOffsetPhrase: 'HW 19:52 · 36m before sunset' }
+      : s));
+    const { result } = await hoverBamburgh(saturday);
+    expect(screen.getByTestId('map-label-tip-tide'))
+      .toHaveTextContent('Tide lands on the light — HW 19:52 · 36m before sunset');
+
+    // Every star held where it was, so the tide claim is the only thing this step moves.
+    await showWindow(result, reRated({ Bamburgh: 5, Whitby: 3, Buttermere: 4 }), SUN);
+
+    // The card itself is still up — without this, a tooltip that vanished outright would pass the
+    // tide assertion below for the wrong reason.
+    expect(screen.getByTestId('map-label-tip')).toHaveTextContent(`${SUN} · 5★ Worth it`);
+    expect(screen.queryByTestId('map-label-tip-tide')).toBeNull();
+  });
+
+  it('closes when its location leaves the pool — the chip unmounts, and nothing else would close it', async () => {
+    const { result, chip } = await hoverBamburgh();
+
+    // e.g. the night's scores still loading, so the location drops out of the rated set.
+    await showWindow(result, SPOTS.filter((s) => s.name !== 'Bamburgh'), SUN);
+
+    expect(chip).not.toBeInTheDocument();
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+  });
+
+  it('does not reopen by itself when the location comes back — the pointer may have moved on since', async () => {
+    const { result } = await hoverBamburgh();
+    await showWindow(result, SPOTS.filter((s) => s.name !== 'Bamburgh'), SUN);
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+
+    // The scores land and the chip returns. Only a fresh `mouseenter` — the browser's report that
+    // the pointer really is on it — may reopen the card; a remembered hover would reopen it at a
+    // position the reader left while the chip was gone, over a map nobody is pointing at.
+    await showWindow(result, SPOTS, SUN);
+
+    expect(screen.getByRole('button', { name: 'Bamburgh, 5 star' })).toBeInTheDocument();
+    expect(screen.queryByTestId('map-label-tip')).toBeNull();
+  });
+
+  it('stays open through a repaint that keeps its chip', async () => {
+    await hoverBamburgh();
+
+    // A pan settling re-projects every label into a fresh frame and re-runs the placement pass.
+    await act(async () => { currentMap.fire('moveend'); });
+
+    expect(screen.getByTestId('map-label-tip')).toHaveTextContent(`${SAT} · 5★ Worth it`);
+  });
+
+  it('stays open through a fresh pool that still carries its location — it is found by name, not by object', async () => {
+    const { result } = await hoverBamburgh();
+
+    // Same window, same figures, new objects: what any `MapView` re-render that rebuilds
+    // `labelSpots` hands over.
+    await showWindow(result, SPOTS.map((s) => ({ ...s })), SAT);
+
+    expect(screen.getByTestId('map-label-tip')).toHaveTextContent(`${SAT} · 5★ Worth it`);
+  });
+
+  describe('when the chip leaves the map while its location stays in the pool', () => {
+    // `chipCandidates` draws the best place in each region plus the best `chipBudget(zoom)` in view,
+    // ranked by rating — six at county zoom (8.6). So one region of seven places draws six chips,
+    // and which six depends on the window's stars. Checking the pool alone is not enough here: the
+    // place is still in it, carrying the new window's figures, while its chip is gone.
+    const COUNTY = ['Craster', 'Seahouses', 'Alnmouth', 'Warkworth', 'Amble', 'Druridge', 'Cresswell']
+      .map((name, i) => ({
+        name, lat: 55.6, lng: -3.2 + i * 0.55, rid: 'North East', rating: 3,
+      }));
+    const rateCraster = (rating) => COUNTY.map((s) => (s.name === 'Craster' ? { ...s, rating } : s));
+
+    it('closes when a window step re-ranks the chip out of the zoom budget', async () => {
+      restoreMeasure = withMeasuredLabels(50, 14);
+      currentMap = makeSpreadMap({ zoom: 8.6 });
+      const result = await mount({ spots: rateCraster(5), eventLabel: SAT });
+      await act(async () => { runFrames(); });
+      const chip = screen.getByRole('button', { name: 'Craster, 5 star' });
+      fireEvent.mouseEnter(chip);
+      expect(screen.getByTestId('map-label-tip')).toHaveTextContent(`${SAT} · 5★ Worth it`);
+
+      // Sunday: Craster falls to 1★ below six 3★ neighbours — neither the region's best nor one of
+      // the six best in view, so it loses its chip while staying in the pool.
+      await showWindow(result, rateCraster(1), SUN);
+
+      expect(chip).not.toBeInTheDocument();
+      expect(screen.queryByTestId('map-label-tip')).toBeNull();
+    });
+
+    it('does not reopen when a step back re-ranks the chip into the budget — the pointer may have moved on since', async () => {
+      restoreMeasure = withMeasuredLabels(50, 14);
+      currentMap = makeSpreadMap({ zoom: 8.6 });
+      const result = await mount({ spots: rateCraster(5), eventLabel: SAT });
+      await act(async () => { runFrames(); });
+      fireEvent.mouseEnter(screen.getByRole('button', { name: 'Craster, 5 star' }));
+      await showWindow(result, rateCraster(1), SUN);
+      expect(screen.queryByTestId('map-label-tip')).toBeNull();
+
+      // Back to Saturday: Craster is the region's best again and its chip returns. The place never
+      // left the pool, so a hover that was only HIDDEN while the chip was gone would reopen here —
+      // at a pointer position nothing has reported since the chip unmounted.
+      await showWindow(result, rateCraster(5), SAT);
+
+      expect(screen.getByRole('button', { name: 'Craster, 5 star' })).toBeInTheDocument();
+      expect(screen.queryByTestId('map-label-tip')).toBeNull();
+    });
+
+    it('closes when a zoom-out shrinks the budget under a resting pointer', async () => {
+      restoreMeasure = withMeasuredLabels(50, 14);
+      // Street-level zoom: a budget of 54, so all seven places are chipped — Craster, at 1★, last.
+      currentMap = makeSpreadMap({ zoom: 13 });
+      await mount({ spots: rateCraster(1), eventLabel: SAT });
+      await act(async () => { runFrames(); });
+      const chip = screen.getByRole('button', { name: 'Craster, 1 star' });
+      fireEvent.mouseEnter(chip);
+      expect(screen.getByTestId('map-label-tip')).toHaveTextContent(`${SAT} · 1★ Poor`);
+
+      // A wheel zoom over the chip reaches Leaflet (`disableClickPropagation` stops clicks, not the
+      // wheel) and settles at county zoom, where only six of the seven are drawn.
+      currentMap.zoom = 8.6;
+      await act(async () => { currentMap.fire('zoomend'); });
+
+      expect(chip).not.toBeInTheDocument();
+      expect(screen.queryByTestId('map-label-tip')).toBeNull();
+    });
   });
 });
 

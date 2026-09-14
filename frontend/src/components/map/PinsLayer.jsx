@@ -170,7 +170,12 @@ export default function PinsLayer({
   const [frame, setFrame] = useState(null);
   /** {frame, placed: Map<'home', box>} once the home label's own measure-then-place pass has run. */
   const [placement, setPlacement] = useState(null);
-  const [hover, setHover] = useState(null);
+  /**
+   * The hovered pin's NAME — never the spot object, for the defect `MapLabels.jsx`'s identical
+   * state records: a stored snapshot put the previous window's star under the new window's name
+   * after a keyboard step, and outlived its own pin when the location left the pool.
+   */
+  const [hoverName, setHoverName] = useState(null);
   const [tipPos, setTipPos] = useState({ x: 0, y: 0 });
 
   const rootRef = useRef(null);
@@ -324,11 +329,17 @@ export default function PinsLayer({
       y: Math.max(6, event.clientY - wrapRect.top - 10),
     });
   }, [map]);
-  const showTip = useCallback((spot, event) => {
-    setHover(spot);
+  const showTip = useCallback((name, event) => {
+    setHoverName(name);
     positionTip(event);
   }, [positionTip]);
-  const hideTip = useCallback(() => setHover(null), []);
+  const hideTip = useCallback(() => setHoverName(null), []);
+
+  // Resolved off the LIVE pool on every render, and forgotten once its location has left it — see
+  // `MapLabels.jsx`'s `hover` for the reasoning. The pool alone decides here, where it does not
+  // there: every spot is a pin, with no budget to unmount one whose location is still in `spots`.
+  const hover = hoverName == null ? null : (spots.find((spot) => spot.name === hoverName) ?? null);
+  if (hoverName != null && hover == null) setHoverName(null);
 
   if (!pane || !frame) return null;
 
@@ -379,7 +390,7 @@ export default function PinsLayer({
               boxShadow: `0 2px 0 -1px ${darkenHex(fill, 0.5)}, 0 5px 12px rgba(0,0,0,.5)`,
             }}
             onClick={() => onSelect?.(spot.name)}
-            onMouseEnter={(e) => showTip(spot, e)}
+            onMouseEnter={(e) => showTip(spot.name, e)}
             onMouseMove={positionTip}
             onMouseLeave={hideTip}
           >
