@@ -1602,7 +1602,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // notice describing a ramp they are not looking at.
   const showColourScaleNotice = colourScaleDefaulted && getMode() === 'temp'
     && !colourScaleNoticeDismissed;
-  const { viewline } = useAuroraViewline(viewlineEnabled, auroraStatus?.triggerType);
+  // The Kp rides along because the forecast line is built from it: an escalation inside a
+  // forecast-triggered alert moves it without moving `viewlineEnabled` or the trigger, and without
+  // it the hook would go on offering the old Kp's line under an overlay label quoting the new one.
+  const { viewline } = useAuroraViewline(viewlineEnabled, auroraStatus?.triggerType, auroraStatus?.forecastKp);
   const [auroraScores, setAuroraScores] = useState({});
   const [storedAuroraResults, setStoredAuroraResults] = useState({}); // locationName → result
   const [auroraAvailableDates, setAuroraAvailableDates] = useState([]); // ISO date strings
