@@ -2563,9 +2563,13 @@ button.wf-hc.also.on:hover {
   /* The instruction goes: it is the widest clause on the label and everything on this surface is
      self-evidently tappable. */
   .wf-rlab-tail { display: none; }
-  /* Two up, with the All cell spanning — the design's phone rail. Its meta moves onto the same line
-     so the spanning cell does not cost a whole extra row of height. */
-  .wf-rrail { grid-template-columns: 1fr 1fr; }
+  /* The All cell spans the row on a phone, and its meta moves onto the same line so the spanning
+     cell does not cost a whole extra row of height.
+
+     ⚠️ The "two up" half of the design's phone rail is NOT here, and must not come back here. A
+     `.wf-rrail { grid-template-columns: 1fr 1fr }` sat on this line and never once won: the rail is
+     only ever mounted inside the popup, where `.wf-wsh .wf-rrail` (0,2,0) out-specifies it. It lives
+     in the popup's own phone block, beside `.wf-wsh-grid`. */
   .wf-rr-all {
     grid-column: 1 / -1;
     min-height: 46px;
@@ -9004,6 +9008,25 @@ button.wf-mchip:hover {
 /* The strip pads rather than margins (see `.wf-strip`), and its 10px is the fade geometry — so it
    is deliberately left alone here; the dialog's body inset simply sits outside it. */
 .wf-wsh .wf-rlab { margin: 0 0 5px; }
+/* ⚠️ 128px, and NOT the prototype's 112px — kept on purpose (2026-09-14, owner decision). The
+   prototype's rule for a rail inside the popup's side column is `.wside .rrail` at 112px, and since
+   the rail only ever renders there, that is the value on its screen; the README's 128px is the bare
+   `.rrail` rule it loses to. It was audited as drift and measured before being changed — and it is
+   not drift anyone can see:
+
+     with the field map     128px  3 × 143px   112px  3 × 143px   (identical — the popup is capped
+                                                                   at 780px, so the rail is 442px)
+     without it             128px  5 × 145px   112px  6 × 120px   (every card's `best 5★ · 10 in
+                                                                   reach` wraps to two lines, cards
+                                                                   grow from 63–76px to 90px)
+
+   The prototype only ever draws the popup WITH its map, so its 112px was designed for the case where
+   it changes nothing. This codebase also has the case the prototype never drew — the rail spanning
+   the full width while the heat catalogue is loading or has failed — and that is the only place the
+   value shows, and there 112px breaks every card's figure across two lines. So the rule keeps the
+   value that renders the designed layout identically and the undesigned one correctly. The phone
+   (two up) and iPad (130px) tiers override this rule in their own blocks, so it governs desktop
+   alone. Recorded in `docs/design/plan-matrix/README.md` beside the region-card spec. */
 .wf-wsh .wf-rrail { grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); }
 /* The quiet sentence that stands in for the ranked strip when this window's pool is empty. Not
    the page-level conflict's amber: this states a fact about one window, and the plan as a whole may
@@ -9165,6 +9188,22 @@ button.wf-mchip:hover {
      breakpoint, one set of dials. */
   .wf-wsh-grid,
   .wf-wsh-grid[data-field="true"] { grid-template-columns: 1fr; gap: 10px; }
+  /* ⚠️ The region rail's phone columns — "two up", per the design — written at THIS specificity, in
+     THIS block. The phone rule beside `.wf-rrail` used to say `1fr 1fr` and never won: it was
+     0,1,0, and `.wf-wsh .wf-rrail { minmax(128px) }` above is 0,2,0 and unscoped, so inside the
+     dialog — the only place the rail is mounted — the desktop auto-fit beat it on every phone.
+     Measured in the popup's real chain (modal root, `.wf-wsh-b`'s 12px padding, `.wf-wsh-side`):
+     2 columns at 375, 390 and 414px — correct only by accident, because the rail is too narrow for
+     a third 128px track — then 3 from 430px (an iPhone Pro Max) and 4 from ~600px to the 639px edge.
+     ⚠️ This comment's first draft said "3 columns at 390px", measured in a probe box forced to
+     398px wide; on a real 390px phone the bug does not show. The prototype had the matching rule all
+     along (`.wrap.mob .wside .rrail`); the port kept only its unscoped twin. Equal specificity and
+     later source order is what makes this one win.
+
+     The phone MARGIN rules beside `.wf-rrail` stay dead, and on purpose — see
+     `.wf-wsh .wf-rrail { margin: 0 }`: inside the dialog the body owns the inset, and reviving
+     them would indent the rail twice. Only the columns were an accident. */
+  .wf-wsh .wf-rrail { grid-template-columns: 1fr 1fr; }
   /* ⚠️ Targeted by test id, because `Modal`'s own root is where the gutter lives
      (`.app-safe-modal`) and it takes no class from its caller. A phone popup that is full-screen
      apart from a 16px frame reads as a card floating over a page the reader cannot use — the frame
