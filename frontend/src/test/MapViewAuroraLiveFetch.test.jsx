@@ -4,10 +4,10 @@
  * <h2>The defect this pins</h2>
  *
  * <p>`auroraScores` comes from `getAuroraLocations()`, fetched by an effect keyed on the shared
- * aurora status. That status is a FRESH object on every successful 5-minute poll and every
- * successful window focus — `AuroraStatusProvider` publishes whatever `getAuroraStatus()` answers —
- * so the effect re-runs and re-requests on each. With no cancellation, every one of those requests
- * could land whenever it liked:
+ * aurora status. That status is a FRESH object whenever `AuroraStatusProvider` applies an answer —
+ * every successful 5-minute poll and window focus, bar one it drops for being older than an answer
+ * already applied — so the effect re-runs and re-requests on each. With no cancellation, every one
+ * of those requests could land whenever it liked:
  *
  * <ul>
  *   <li><b>After the alert ended.</b> A poll saying the alert is over clears the scores; a request

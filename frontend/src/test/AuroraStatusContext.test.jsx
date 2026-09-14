@@ -1,18 +1,18 @@
 /**
- * `AuroraStatusProvider` — the status every reader sees answers the newest request made, whatever
- * order the answers land in.
+ * `AuroraStatusProvider` — the status every reader sees never steps back to an answer older than
+ * the one already on screen, whatever order the answers land in.
  *
  * <h2>The defect this pins</h2>
  *
  * <p>The provider asks `GET /api/aurora/status` on mount, on a five-minute poll and on every window
  * focus, and used to publish whatever answered. With two requests out at once — a poll and a focus,
- * or two focuses — the answer that LANDED last won, not the one ASKED last, and since each status
- * request can wait on live NOAA calls, the older one landing second is ordinary:
+ * or two focuses — the answer that LANDED last won, not the one ASKED last, and nothing makes the
+ * older one land first: each status request can wait on live NOAA fetches of its own.
  *
  * <ul>
  *   <li>An alert answer taken before the alert ended, landing after the all-clear, put the banner
- *       back up — and with it the viewline, whose endpoint does not check the alert state — until
- *       the next poll or focus.</li>
+ *       back up — and switched the viewline back on, whose endpoint does not check the alert
+ *       state — until the next poll or focus.</li>
  *   <li>An all-clear taken before an alert began, landing after the alert, took the banner down
  *       mid-alert, cleared the map's live scores and, with no stored run keeping aurora mode
  *       available, bounced the Map tab to Sunset.</li>
@@ -20,8 +20,9 @@
  *
  * <h2>Why the banner</h2>
  *
- * <p>`AuroraBanner` is the real consumer whose whole output is a function of the status — up for
- * MODERATE or STRONG, nothing otherwise — so whether it is up, and which alert it names, IS which
+ * <p>`AuroraBanner` is the real consumer whose output follows the status most directly: up for
+ * MODERATE or STRONG and nothing otherwise, given — as every fixture here gives it — a clear
+ * location to point at and no dismissal. So whether it is up, and which alert it names, IS which
  * answer is on screen. Its viewline hook is real too, gated on the same alert level as the map's
  * own, so a status that switches the viewline back on shows up as another `getAuroraViewline`
  * request. The API module is mocked at the boundary the frontend test standards prescribe.
@@ -40,7 +41,10 @@ import AuroraBanner from '../components/AuroraBanner.jsx';
 import { AuroraStatusProvider } from '../context/AuroraStatusContext.jsx';
 import { getAuroraStatus, getAuroraViewline, getAuroraForecastViewline } from '../api/auroraApi.js';
 
-/** The provider's poll. Not exported by it; a changed cadence fails the poll test's call count. */
+/**
+ * The provider's poll interval, which it does not export. Advancing by it fires one poll: it is how
+ * a test polls, not a pin on the cadence.
+ */
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
 
 /** A running alert, as `GET /api/aurora/status` serves one: MODERATE, the state machine ACTIVE. */
@@ -54,13 +58,14 @@ const ALERT = {
   kp: 5.3,
   forecastKp: 5.3,
   triggerType: 'realtime',
+  gScale: 'G1',
 };
 
 /**
  * The same endpoint once the alert is over: the machine drops to IDLE, which the controller serves
  * as QUIET with `active` false, and CLEAR zeroes the location counts. CLEAR resets neither
  * `triggerType` nor the trigger Kp served as `forecastKp`, so a real all-clear still carries the
- * ended alert's.
+ * ended alert's — and the `G1` the controller derives from that Kp.
  */
 const ALL_CLEAR = {
   level: 'QUIET',
@@ -72,6 +77,7 @@ const ALL_CLEAR = {
   kp: 2.7,
   forecastKp: 5.3,
   triggerType: 'realtime',
+  gScale: 'G1',
 };
 
 /** The alert escalated: STRONG, still ACTIVE, on a higher Kp — a different banner from `ALERT`. */
@@ -85,9 +91,12 @@ const ESCALATED = {
   kp: 7.0,
   forecastKp: 7.0,
   triggerType: 'realtime',
+  gScale: 'G3',
 };
 
-/** A request the test settles by hand, so the test — not the scheduler — decides which lands first. */
+/**
+ * A request the test settles by hand, so the test — not the scheduler — decides which lands first.
+ */
 function deferred() {
   let resolve;
   let reject;
@@ -138,9 +147,12 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
   // Reset, not cleared: `mockReturnValueOnce` queues survive `vi.clearAllMocks()`, so a test that
   // failed with a request still queued would hand it to the next test's mount. Each test queues
-  // every status answer it expects; one it does not expect answers `undefined` and fails the
-  // call-count preconditions below rather than landing silently.
+  // every status answer it expects. One it does not expect is refused, and a refused request writes
+  // nothing, so it can never be what satisfies a negative; the call-count preconditions catch any
+  // that come before them. (Left answering `undefined`, it would be APPLIED as the newest answer —
+  // and take the banner down, which is exactly what several negatives below assert.)
   getAuroraStatus.mockReset();
+  getAuroraStatus.mockRejectedValue(new Error('unexpected getAuroraStatus call'));
   getAuroraViewline.mockReset();
   getAuroraViewline.mockResolvedValue({ active: false });
   getAuroraForecastViewline.mockReset();
@@ -163,8 +175,10 @@ describe('AuroraStatusProvider — answers are applied in the order they were as
       .mockReturnValueOnce(focusAnswer.promise);
 
     await mount();
-    // The mount's answer is an alert, so an alert answer that gets applied is visible.
+    // Control for both negatives below: an alert answer that IS applied shows — on the banner, and
+    // as a request for the viewline.
     expect(banner()).toHaveTextContent('Moderate storm — aurora possible from northern England');
+    expect(getAuroraViewline).toHaveBeenCalledTimes(1);
 
     await poll();
     await refocus();
@@ -212,28 +226,102 @@ describe('AuroraStatusProvider — answers are applied in the order they were as
     expect(banner()).toHaveTextContent('Moderate storm — aurora possible from northern England');
   });
 
-  it('applies answers that land in the order they were asked for — each one moves the status on', async () => {
-    // The guard drops only what is OLDER than the answer on screen. An older answer landing while a
-    // newer request is still out is applied: it is the freshest status there is so far.
+  it('drops an alert that lands after a newer "no access" answer — a 401 or 403 is ordered too', async () => {
+    // `getAuroraStatus` answers null for a 401 or 403 — the account can no longer see aurora, say
+    // after a role change mid-session — and the banner has no role gate of its own, so that null is
+    // the only thing that takes it down. It is an answer, not a failure: it applies, and it moves
+    // the mark like any other.
     const earlier = deferred();
     const later = deferred();
     getAuroraStatus
-      .mockResolvedValueOnce({ ...ALL_CLEAR })
+      .mockResolvedValueOnce({ ...ALERT })
       .mockReturnValueOnce(earlier.promise)
       .mockReturnValueOnce(later.promise);
 
     await mount();
+    expect(banner()).toHaveTextContent('Moderate storm — aurora possible from northern England');
+
     await refocus();
     await refocus();
     expect(getAuroraStatus).toHaveBeenCalledTimes(3);
 
+    await land(() => later.resolve(null));
+    // Control: the newer answer, "no access", is applied — the banner comes down.
+    expect(banner()).not.toBeInTheDocument();
+
     await land(() => earlier.resolve({ ...ALERT }));
+
+    // Still down. Broken, the alert from before access was withdrawn put the banner back up.
+    expect(banner()).not.toBeInTheDocument();
+  });
+
+  it('applies answers that land in the order they were asked for — each one moves the status on', async () => {
+    // The guard drops only what is OLDER than the answer on screen. An answer landing while newer
+    // requests are still out is applied: it is the freshest status there is so far. Three are out,
+    // not two, because the mark must be the landed answer's OWN number. Set to the newest number
+    // made instead, the first answer would push it past a sibling still out and drop that one when
+    // it landed — which no race with only two requests out can show.
+    const first = deferred();
+    const second = deferred();
+    const third = deferred();
+    getAuroraStatus
+      .mockResolvedValueOnce({ ...ALL_CLEAR })
+      .mockReturnValueOnce(first.promise)
+      .mockReturnValueOnce(second.promise)
+      .mockReturnValueOnce(third.promise);
+
+    await mount();
+    await refocus();
+    await refocus();
+    await refocus();
+    expect(getAuroraStatus).toHaveBeenCalledTimes(4);
+
+    await land(() => first.resolve({ ...ALERT }));
     expect(banner()).toHaveTextContent('Moderate storm — aurora possible from northern England');
     expect(banner()).toHaveTextContent('Kp 5');
 
-    await land(() => later.resolve({ ...ESCALATED }));
+    await land(() => second.resolve({ ...ESCALATED }));
     expect(banner()).toHaveTextContent('Strong storm — aurora likely across the UK');
     expect(banner()).toHaveTextContent('Kp 7');
+
+    await land(() => third.resolve({ ...ALL_CLEAR }));
+    expect(banner()).not.toBeInTheDocument();
+  });
+
+  it('drops every answer older than the one on screen, not just the first — a drop never moves the mark', async () => {
+    // Three requests out, and the NEWEST lands first; then the two older ones, oldest first. Both
+    // are stale, and the second is the one that matters: had dropping the first lowered the mark to
+    // its own number, the second would then look newer than the mark and put the ended alert back
+    // up — the defect this provider exists to stop, arriving one answer late.
+    const oldest = deferred();
+    const middle = deferred();
+    const newest = deferred();
+    getAuroraStatus
+      .mockResolvedValueOnce({ ...ALERT })
+      .mockReturnValueOnce(oldest.promise)
+      .mockReturnValueOnce(middle.promise)
+      .mockReturnValueOnce(newest.promise);
+
+    await mount();
+    expect(banner()).toHaveTextContent('Moderate storm — aurora possible from northern England');
+
+    await refocus();
+    await refocus();
+    await refocus();
+    expect(getAuroraStatus).toHaveBeenCalledTimes(4);
+
+    await land(() => newest.resolve({ ...ALL_CLEAR }));
+    // Control: the newest answer, the all-clear, is applied — the banner comes down.
+    expect(banner()).not.toBeInTheDocument();
+
+    await land(() => oldest.resolve({ ...ALERT }));
+    expect(banner()).not.toBeInTheDocument();
+
+    await land(() => middle.resolve({ ...ESCALATED }));
+
+    // Still down. Broken, dropping the oldest answer lowered the mark, and the middle one — also
+    // taken before the all-clear — came in over it and put the banner back up.
+    expect(banner()).not.toBeInTheDocument();
   });
 
   it('still applies an older answer when the newer request fails — a failure blocks nothing', async () => {
@@ -253,7 +341,10 @@ describe('AuroraStatusProvider — answers are applied in the order they were as
     expect(getAuroraStatus).toHaveBeenCalledTimes(3);
 
     await land(() => later.reject(new Error('502 from /api/aurora/status')));
-    // Control: the failure has landed, and nothing on screen moved for it.
+    // The failure has landed — the awaited act saw to that — and moved nothing: the mount's
+    // all-clear is still on screen. This line cannot prove the landing by itself, since the banner
+    // was down before it too; the assertion below, settled through the same helper, is what fails
+    // if the helper stops flushing.
     expect(banner()).not.toBeInTheDocument();
 
     await land(() => earlier.resolve({ ...ALERT }));
@@ -281,7 +372,7 @@ describe('AuroraStatusProvider — answers are applied in the order they were as
     expect(banner()).toHaveTextContent('Moderate storm — aurora possible from northern England');
 
     // Control, settled through the same helper: the next answer still lands and applies. Without
-    // it this test could not tell a swallowed failure from a helper that never let the failure land.
+    // it, this test could not tell a swallowed failure from a helper that never let one land.
     await refocus();
     await land(() => next.resolve({ ...ESCALATED }));
     expect(banner()).toHaveTextContent('Strong storm — aurora likely across the UK');

@@ -2035,18 +2035,19 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // Fetch per-location aurora scores when an alert is active (MODERATE or STRONG).
   // Scores are keyed by location name for O(1) lookup in popup render.
   //
-  // ⚠️ Only the LATEST status may write. `auroraStatus` is a fresh object on every successful
-  // 5-minute poll and every successful window focus (`AuroraStatusProvider` publishes whatever
-  // `getAuroraStatus()` answers), so this effect re-runs and re-requests on each — and with no
-  // cancellation every one of those requests could land whenever it liked:
+  // ⚠️ Only the LATEST status may write. `auroraStatus` is a fresh object whenever the provider
+  // applies an answer — every successful 5-minute poll and window focus, bar one it drops for being
+  // older than an answer already applied — so this effect re-runs and re-requests on each, and with
+  // no cancellation every one of those requests could land whenever it liked:
   //   - AFTER THE ALERT ENDED. A poll saying the alert is over clears the scores below; a request
   //     the previous poll made, landing after that, wrote the ended alert's stars straight back into
   //     every live reader (the rating's live fallback, the medallions, the overlay popup, the best-
   //     location card), where they stood until the next poll or focus.
   //   - OUT OF ORDER. Two refreshes close together each make a request, and the older one landing
   //     last replaced the newer answer with its own.
-  // Hence `cancelled`, which drops any response whose status has since been superseded — "latest"
-  // meaning the latest status PUBLISHED, since the provider does not order its own responses.
+  // Hence `cancelled`, which drops any response whose status has since been superseded. That the
+  // provider now applies statuses in request order does not make it redundant: both cases above are
+  // races between locations requests, which no order of statuses prevents.
   //
   // ⚠️ Deliberately NO clear before the request, and a failed refetch keeps the last answer. The
   // stored-results fetch below clears nothing either, since the night-aware loading fix, but it can
