@@ -13,7 +13,7 @@ import {
   describe, it, expect, vi, beforeEach, afterEach,
 } from 'vitest';
 import {
-  act, fireEvent, render, screen,
+  act, fireEvent, render, screen, within,
 } from '@testing-library/react';
 import { buildScoreIndex } from '../utils/locationSheet.js';
 import { buildRegionGlossIndex } from '../utils/mapCallout.js';
@@ -191,15 +191,31 @@ describe('MapCallout — header and verdict', () => {
     expect(screen.getByTestId('map-callout-score')).toHaveTextContent('2★ Poor');
   });
 
-  it('shows an honest "Not scored yet" badge once the scores response has actually landed', async () => {
-    await mount({ rating: null, scoresKnown: true });
+  it('shows an honest "Not scored yet" badge once the rating\'s own source has answered', async () => {
+    // An astro night with `scoresKnown: false` on purpose — the state `MapView` produces when a
+    // night's own request has answered before the SOLAR scores have: the headline's claim follows
+    // `ratingKnown` alone, so the solar fetch cannot hold it back.
+    await mount({
+      event: ASTRO_EVENT, rating: null, ratingKnown: true, scoresKnown: false,
+    });
     expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not scored yet');
   });
 
-  it('shows "Loading…" instead — never the definitive "Not scored yet" — while scoresKnown is false', async () => {
-    // A failed or in-flight fetch is not evidence that nothing was rated (map-tab-v2-plan.md §3 P9
-    // review — `scoresKnown` was threaded to this component and never read at all).
-    await mount({ rating: null, scoresKnown: false });
+  it('shows "Loading…" — never "Not scored yet" — while the rating\'s own source has not answered, even with the solar scores landed', async () => {
+    // ⚠️ The night-step defect's exact shape. The headline used to read `scoresKnown` — the SOLAR
+    // fetch's flag — for every window, so with the solar scores in and an astro night's own request
+    // still in flight it said "Not scored yet" for the whole round trip. A failed or in-flight
+    // fetch is not evidence that nothing was rated (the P9 phase's review found `scoresKnown`
+    // threaded to this component and never read at all).
+    await mount({
+      event: ASTRO_EVENT, rating: null, ratingKnown: false, scoresKnown: true,
+    });
+    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Loading…');
+    expect(screen.getByTestId('map-callout-score')).not.toHaveTextContent('Not scored yet');
+  });
+
+  it('defaults to "Loading…" when no ratingKnown is supplied — a caller that forgets it never gets the definitive claim', async () => {
+    await mount({ rating: null, scoresKnown: true });
     expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Loading…');
   });
 
@@ -443,49 +459,93 @@ describe('MapCallout — the every-window strip', () => {
     expect(cells[2]).toHaveTextContent('5★');
   });
 
+  // ⚠️ From here to the on-screen block, every cell under test is one that is NOT the window on
+  // screen — the default mount's SUNSET_EVENT is `cells[0]`, so `cells[1]` (astro) and `cells[2]`
+  // (sunrise) read their own sources. The on-screen cell restates the headline instead, and has its
+  // own block below; asserting the source rules on it would test the wrong rule.
+
   it('reads a night row\'s SERVED star off astroConditionsByDate — never claims "unscored" for a figure already in memory', async () => {
     // `scoreIndex` never covers night rows (it is built from solar `LocationEvaluationView` rows
     // only), but the served figure is sitting in `astroConditionsByDate` one level up — the strip
-    // must read it from there rather than falling back to a blanket "unscored" (map-tab-v2-plan.md
-    // §3 P9 review — this was a confirmed defect in the first cut, not a design choice).
+    // must read it from there rather than falling back to a blanket "unscored" (a confirmed defect
+    // in the P9 phase's first cut, not a design choice).
     const astroConditionsByDate = new Map([
       [TODAY, [{ locationName: LOCATION.name, stars: 3 }, { locationName: 'Someone Else', stars: 5 }]],
     ]);
-    await mount({ event: ASTRO_EVENT, rating: 3, evRows, astroConditionsByDate, scoresKnown: true });
+    await mount({ evRows, astroConditionsByDate, scoresKnown: true });
     fireEvent.click(screen.getByTestId('map-callout-strip-toggle'));
     const cells = screen.getAllByTestId('map-callout-strip-cell');
     expect(cells[1]).toHaveTextContent('3★');
   });
 
   it('reads a night row\'s SERVED star off auroraResultsByDate the same way', async () => {
-    const aurEvRows = [{ ...ASTRO_EVENT, id: 'aur:2026-06-15:AURORA', kind: 'aur', eventType: 'AURORA' }];
+    const aurRow = { ...ASTRO_EVENT, id: 'aur:2026-06-15:AURORA', kind: 'aur', eventType: 'AURORA' };
     const auroraResultsByDate = new Map([
       [TODAY, [{ locationName: LOCATION.name, stars: 4 }]],
     ]);
-    await mount({
-      event: aurEvRows[0], rating: 4, evRows: aurEvRows, auroraResultsByDate, scoresKnown: true,
-    });
+    await mount({ evRows: [SUNSET_EVENT, aurRow], auroraResultsByDate, scoresKnown: true });
     fireEvent.click(screen.getByTestId('map-callout-strip-toggle'));
-    expect(screen.getByTestId('map-callout-strip-cell')).toHaveTextContent('4★');
+    expect(screen.getAllByTestId('map-callout-strip-cell')[1]).toHaveTextContent('4★');
   });
 
   it('shows an honestly unscored cell for a night row this location genuinely has no served row for', async () => {
     const astroConditionsByDate = new Map([[TODAY, [{ locationName: 'Someone Else', stars: 5 }]]]);
-    await mount({
-      event: ASTRO_EVENT, rating: null, evRows, astroConditionsByDate, scoresKnown: true,
-    });
+    await mount({ evRows, astroConditionsByDate, scoresKnown: true });
     fireEvent.click(screen.getByTestId('map-callout-strip-toggle'));
     const cells = screen.getAllByTestId('map-callout-strip-cell');
     expect(cells[1]).toHaveTextContent('—');
     expect(cells[1]).not.toHaveTextContent('★');
   });
 
-  it('reads "Loading…" rather than "—" for a null cell while scoresKnown is false', async () => {
-    await mount({ event: ASTRO_EVENT, rating: null, evRows, scoresKnown: false });
+  it('reads "…" rather than "—" for a null SOLAR cell while the solar scores have not landed', async () => {
+    await mount({ evRows, scoresKnown: false });
+    fireEvent.click(screen.getByTestId('map-callout-strip-toggle'));
+    const cells = screen.getAllByTestId('map-callout-strip-cell');
+    // cells[2] is the SUNRISE row, which no scoreIndex rates here.
+    expect(cells[2]).toHaveTextContent('…');
+    expect(cells[2]).not.toHaveTextContent('—');
+  });
+
+  it('reads "—" for a null SOLAR cell once the solar scores have landed', async () => {
+    await mount({ evRows, scoresKnown: true });
+    fireEvent.click(screen.getByTestId('map-callout-strip-toggle'));
+    const cells = screen.getAllByTestId('map-callout-strip-cell');
+    expect(cells[2]).toHaveTextContent('—');
+    expect(cells[2]).not.toHaveTextContent('…');
+  });
+
+  it('reads "…" for a night cell whose own night is still pending — even with the solar scores landed', async () => {
+    // ⚠️ The case the strip's old note swore could not happen: "never … claiming 'unscored' while
+    // a fetch is still in flight". A night cell read `scoresKnown` — the SOLAR fetch's flag — so
+    // with the solar scores in and the night's preview still loading, it printed "—".
+    await mount({ evRows, scoresKnown: true, pendingNightRowIds: new Set([ASTRO_EVENT.id]) });
     fireEvent.click(screen.getByTestId('map-callout-strip-toggle'));
     const cells = screen.getAllByTestId('map-callout-strip-cell');
     expect(cells[1]).toHaveTextContent('…');
     expect(cells[1]).not.toHaveTextContent('—');
+  });
+
+  it('reads "—" for a night cell once its own night has answered — whatever the solar scores are doing', async () => {
+    // The other half of that decoupling: an unanswered SOLAR fetch no longer holds a night cell at
+    // "…" once the night's own list has answered without this location.
+    const astroConditionsByDate = new Map([[TODAY, [{ locationName: 'Someone Else', stars: 5 }]]]);
+    await mount({ evRows, astroConditionsByDate, scoresKnown: false });
+    fireEvent.click(screen.getByTestId('map-callout-strip-toggle'));
+    const cells = screen.getAllByTestId('map-callout-strip-cell');
+    expect(cells[1]).toHaveTextContent('—');
+    expect(cells[1]).not.toHaveTextContent('…');
+  });
+
+  it('names its toggle and its cells as buttons, and the toggle\'s state follows the strip', async () => {
+    // The role contract, asserted through roles where the card IS placed — the integration file
+    // queries these by test id because its harness leaves the card unplaced and `visibility:
+    // hidden`, and it points here for this.
+    await mount({ evRows });
+    const toggle = screen.getByRole('button', { name: 'Every event here' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(within(screen.getByTestId('map-callout-strip')).getAllByRole('button')).toHaveLength(3);
   });
 
   it('gives Sunrise and Sunset non-colliding 3/4-letter kind badges — never both "SUN"', async () => {
@@ -554,6 +614,62 @@ describe('MapCallout — the every-window strip', () => {
       );
     });
     expect(screen.queryByTestId('map-callout-strip')).toBeNull();
+  });
+});
+
+describe('MapCallout — the strip\'s cell for the window on screen restates the headline', () => {
+  // ⚠️ One card must not print two answers for one place and one window. The headline reads the
+  // window's own request (`rating`/`ratingKnown`); every other cell reads the preview — so reading
+  // the preview for THIS cell too put "Loading…" above "—", or a star above "—", or "Not scored
+  // yet" above a stale star. Three review lenses found it independently.
+  let restore;
+  const evRows = [{ ...SUNSET_EVENT }, { ...ASTRO_EVENT }];
+  beforeEach(() => { currentMap = makeMap(); restore = withMeasuredCard(286, 260); });
+  afterEach(() => restore());
+
+  const openStrip = () => {
+    fireEvent.click(screen.getByTestId('map-callout-strip-toggle'));
+    return screen.getAllByTestId('map-callout-strip-cell');
+  };
+
+  it('reads "…" beside the headline\'s "Loading…" — never "—", though the preview has answered without this place', async () => {
+    const astroConditionsByDate = new Map([[TODAY, [{ locationName: 'Someone Else', stars: 5 }]]]);
+    await mount({
+      event: ASTRO_EVENT, rating: null, ratingKnown: false, evRows, astroConditionsByDate, scoresKnown: true,
+    });
+    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Loading…');
+    const cells = openStrip();
+    expect(cells[1]).toHaveTextContent('…');
+    expect(cells[1]).not.toHaveTextContent('—');
+  });
+
+  it('shows the headline\'s own star — never the preview\'s different one', async () => {
+    const astroConditionsByDate = new Map([[TODAY, [{ locationName: LOCATION.name, stars: 3 }]]]);
+    await mount({ event: ASTRO_EVENT, rating: 5, evRows, astroConditionsByDate });
+    const cells = openStrip();
+    expect(cells[1]).toHaveTextContent('5★');
+    expect(cells[1]).not.toHaveTextContent('3★');
+  });
+
+  it('reads "—" beside "Not scored yet" — even while the preview for that night is still pending', async () => {
+    await mount({
+      event: ASTRO_EVENT,
+      rating: null,
+      ratingKnown: true,
+      evRows,
+      pendingNightRowIds: new Set([ASTRO_EVENT.id]),
+    });
+    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Not scored yet');
+    const cells = openStrip();
+    expect(cells[1]).toHaveTextContent('—');
+    expect(cells[1]).not.toHaveTextContent('…');
+  });
+
+  it('restates a solar headline too — its star, where the score index has none for that window', async () => {
+    // No `scoreIndex`: the solar source rule alone would print "—" or "…" here, beside "4★ Worth it".
+    await mount({ evRows, rating: 4, scoresKnown: true });
+    const cells = openStrip();
+    expect(cells[0]).toHaveTextContent('4★');
   });
 });
 

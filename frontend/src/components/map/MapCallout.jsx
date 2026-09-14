@@ -63,6 +63,9 @@ const BAND_BAR_SELECTOR = [
  * identical constant/note for why this is queried separately from {@link BAND_BAR_SELECTOR}. */
 const LEAFLET_CORNER_SELECTOR = '.leaflet-bottom.leaflet-right';
 
+/** `pendingNightRowIds`' default — one shared empty set rather than a fresh one per render. */
+const NO_PENDING_ROWS = new Set();
+
 /** am / pm / night — reuses `WindowControl.jsx`'s own kind-chip class rather than minting a second
  * chip vocabulary (that file's own comment on `.wf-hc-sun`). */
 function kindClass(event) {
@@ -138,8 +141,15 @@ function kindShort(event) {
  *        per-window rating/summary join, reused rather than re-derived (plan §3 P9)
  * @param {boolean} [props.scoresKnown] whether the `scoreIndex` response has actually landed — a
  *        failed or in-flight fetch is not evidence that nothing was rated (the same rule
- *        `LocationFourDaySheet`'s `scoresKnown` states), so a null rating renders "Loading…"
- *        rather than the definitive-sounding "Not scored yet" while this is false
+ *        `LocationFourDaySheet`'s `scoresKnown` states). The strip's SOLAR cells read it — all but
+ *        the one on screen; it says nothing about a night, so neither the headline nor a night
+ *        cell does
+ * @param {boolean} [props.ratingKnown] whether `rating`'s own source has actually answered for the
+ *        active window — the SOLAR scores for a sunrise or sunset, that night's own request for an
+ *        astro or aurora night (`MapView.jsx`'s `ratingKnown`). A null rating renders "Loading…"
+ *        rather than the definitive-sounding "Not scored yet" while this is false, for the same
+ *        reason as `scoresKnown`; the strip's cell for the window on screen restates the pair.
+ *        Defaults false, the side that never claims more than it knows
  * @param {?object} [props.regionGlossIndex] from `utils/mapCallout.buildRegionGlossIndex` — the
  *        reason prose's fallback when this location's own window carries no summary
  * @param {Array<object>} [props.evRows] the full EV list, for the "every window" strip
@@ -149,6 +159,9 @@ function kindShort(event) {
  *        claiming "unscored" for a figure that already exists one level up
  * @param {?Map<string, Array<{locationName: string, stars: ?number}>>} [props.auroraResultsByDate]
  *        date → that night's served aurora rows, the aurora twin of `astroConditionsByDate`
+ * @param {Set<string>} [props.pendingNightRowIds] ids of the night EV rows whose served rows those
+ *        two maps have not answered yet — in flight, or failed (`MapView.jsx`'s own set). A night
+ *        cell for one reads "…" rather than "—"; see the strip's note
  * @param {?Function} [props.onSelectEv] `(row) => void` — switches the active window (the P6
  *        selection path, `MapView.jsx`'s `selectEvRow`)
  * @param {?Function} [props.onOpenSheet] `() => void` — the clamped prose's `Four days here ›`
@@ -165,8 +178,8 @@ function kindShort(event) {
 export default function MapCallout({
   location, rating = null, event = null, driveMinutes = null, distanceMiles = null,
   tideOnLight = null,
-  scoreIndex = null, scoresKnown = false, regionGlossIndex = null, evRows = [],
-  astroConditionsByDate = null, auroraResultsByDate = null,
+  scoreIndex = null, scoresKnown = false, ratingKnown = false, regionGlossIndex = null, evRows = [],
+  astroConditionsByDate = null, auroraResultsByDate = null, pendingNightRowIds = NO_PENDING_ROWS,
   onSelectEv = null, onOpenSheet = null, onOpenInPlan = null, onClose = null,
 }) {
   const map = useMap();
@@ -371,17 +384,47 @@ export default function MapCallout({
   // "honestly unscored" when the served figure was sitting in memory one level up the whole time).
   // A cell is genuinely unscored only when THIS location has no row in that night's served list —
   // never rated, or (aurora) too far south, or (astro) not a dark-sky location.
+  //
+  // ⚠️ And only once that list has actually ANSWERED — `rowKnown`, asked of the cell's own source.
+  // A solar cell asks `scoresKnown`, the solar fetch's flag. A night cell asks whether the preview
+  // has answered for that night (`pendingNightRowIds`), and never the solar flag: that is the SOLAR
+  // fetch's signal and says nothing about astro or aurora. The cell used to read it anyway, under a
+  // note claiming the imprecision could only err towards "…" — "never the other, unsafe direction
+  // (claiming 'unscored' while a fetch is still in flight)". It could, and did: with the solar
+  // scores landed and a night's preview still in flight, the cell printed "—". A preview request
+  // that FAILED with nothing earlier to keep stays pending too, since a failure is not evidence that
+  // nothing was rated.
+  //
+  // ⚠️ The cell for the window ON SCREEN restates the headline instead — its `rating` and
+  // `ratingKnown` — whatever kind it is. The headline reads that window's own request, the other
+  // cells read the preview, and one card must not print two answers for one place and one window:
+  // "Loading…" above "—" while the preview had answered without this place, "4★" above "—" for a
+  // night the preview never asks about but the map had fetched for itself (a past night kept local,
+  // or the aurora auto-jump's small-hours night, which is dated yesterday), or an admin re-run's
+  // "Not scored yet" above a stale preview's star. Three review lenses found it independently.
+  //
+  // ⚠️ What is left, for every OTHER cell: a night the preview never asks about — outside the solar
+  // horizon it is bounded to (`MapView.jsx`'s `astroPreviewDates`/`auroraPreviewDates`), which
+  // includes every past night and, after midnight, the night still in progress — is never pending,
+  // so its cell reads "—" whatever it holds. It used to read "…" until the solar scores landed; now
+  // it is "—" outright. That claims more than anything here knows, but nothing is loading for that
+  // night, so "…" would be the false one.
   const stripRows = (Array.isArray(evRows) ? evRows : []).map((row) => {
+    if (row.id === event.id) return { row, rowRating: rating, rowKnown: ratingKnown };
     if (row.kind === 'solar') {
       const entry = lookupForWindow(scoreIndex, location.id, location.name, row.date, row.eventType);
-      return { row, rowRating: entry?.rating ?? null };
+      return { row, rowRating: entry?.rating ?? null, rowKnown: scoresKnown };
     }
     const nightRows = row.kind === 'astro'
       ? astroConditionsByDate?.get(row.date)
       : auroraResultsByDate?.get(row.date);
     const entry = (Array.isArray(nightRows) ? nightRows : [])
       .find((r) => r?.locationName === location.name);
-    return { row, rowRating: Number.isFinite(entry?.stars) ? entry.stars : null };
+    return {
+      row,
+      rowRating: Number.isFinite(entry?.stars) ? entry.stars : null,
+      rowKnown: !pendingNightRowIds.has(row.id),
+    };
   });
 
   const subjectLabels = subjectWordsOf(location.locationType);
@@ -464,7 +507,7 @@ export default function MapCallout({
             </span>
           ) : (
             <span className="wf-callout-verdict-score unscored" data-testid="map-callout-score">
-              {scoresKnown ? 'Not scored yet' : 'Loading…'}
+              {ratingKnown ? 'Not scored yet' : 'Loading…'}
             </span>
           )}
         </div>
@@ -568,7 +611,7 @@ export default function MapCallout({
         </button>
         {stripOpen && (
           <div id="map-callout-strip" className="wf-callout-strip" data-testid="map-callout-strip">
-            {stripRows.map(({ row, rowRating }) => {
+            {stripRows.map(({ row, rowRating, rowKnown }) => {
               const rowRatingRounded = Number.isFinite(rowRating) ? Math.round(rowRating) : null;
               return (
                 <button
@@ -576,6 +619,9 @@ export default function MapCallout({
                   type="button"
                   className={`wf-callout-strip-cell${row.id === event.id ? ' on' : ''}`}
                   data-testid="map-callout-strip-cell"
+                  // The row's own id — the window control's rows carry the same attribute — so a
+                  // test can name the night it means rather than count cells or match a day word.
+                  data-ev-id={row.id}
                   // The title carries NO kind chip, so it keeps `label`'s full form — only the
                   // visible text beside the kind-short badge below switches to `dayLabel`.
                   title={row.time ? `${row.label} · ${row.time}` : row.label}
@@ -589,12 +635,9 @@ export default function MapCallout({
                       {`${rowRatingRounded}★`}
                     </span>
                   ) : (
-                    // `scoresKnown` is the SOLAR fetch's own signal (`WindowFirstBriefingContext`'s
-                    // `scoresLoaded`) and has no astro/aurora twin yet — a known imprecision rather
-                    // than a silent one: it can read "Loading…" a moment longer than a night cell
-                    // strictly needs, never the other, unsafe direction (claiming "unscored" while a
-                    // fetch is still in flight).
-                    <span className="wf-callout-strip-score unscored">{scoresKnown ? '—' : '…'}</span>
+                    // "—" or "…" by `rowKnown` — see `stripRows` above for which source each cell
+                    // asks, and for the cells whose "—" still claims more than anything here knows.
+                    <span className="wf-callout-strip-score unscored">{rowKnown ? '—' : '…'}</span>
                   )}
                 </button>
               );
@@ -659,10 +702,12 @@ MapCallout.propTypes = {
   }),
   scoreIndex: PropTypes.object,
   scoresKnown: PropTypes.bool,
+  ratingKnown: PropTypes.bool,
   regionGlossIndex: PropTypes.object,
   evRows: PropTypes.array,
   astroConditionsByDate: PropTypes.instanceOf(Map),
   auroraResultsByDate: PropTypes.instanceOf(Map),
+  pendingNightRowIds: PropTypes.instanceOf(Set),
   onSelectEv: PropTypes.func,
   onOpenSheet: PropTypes.func,
   onOpenInPlan: PropTypes.func,

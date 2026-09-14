@@ -342,7 +342,9 @@ describe('stored results answer for the night they were fetched for (Codex, #814
 
   it('does not let the previous night\'s results stand in while the new night loads', async () => {
     // ⚠️ The stale-window case. A has resolved; the reader moves to B, whose request has NOT yet
-    // resolved. Without the clear-on-change, A's results were still on hand and answered for B.
+    // resolved. Unless the results are keyed to their night — a clear on every change when this was
+    // written, the answer's own night since the night-aware loading fix — A's were still on hand
+    // and answered for B.
     const b = deferred();
     getAuroraForecastResults.mockImplementation((night) => (
       night === NIGHT_A ? Promise.resolve([{ locationName: LOC, stars: 4 }]) : b.promise
@@ -354,7 +356,9 @@ describe('stored results answer for the night they were fetched for (Codex, #814
     markerLabelAndColour.mockClear();
     await rerenderNight(result, NIGHT_B);
     await act(async () => { await Promise.resolve(); });
-    // B is loading, so NOTHING is rated for it yet — and nothing may be drawn.
+    // Nothing from ANOTHER night may be drawn for B, and this file previews no night, so B has
+    // nothing of its own to draw yet either. (With a preview, B draws its own preview rows meanwhile
+    // — `MapViewNightScoresLoading.test.jsx`.)
     //
     // ⚠️ Asserted on the marker COUNT, not on `markerLabelAndColour`, and that is not a stylistic
     // choice. The first form of this test asked "was the spy called with a 4?" and passed with the
@@ -372,10 +376,14 @@ describe('stored results answer for the night they were fetched for (Codex, #814
   });
 
   it('drops a LATE failure too — a night the reader has left cannot blank the one on screen', async () => {
-    // ⚠️ The `.catch` half of the cancellation, which the late-response test above cannot reach: A's
-    // request FAILS after B's has answered. Unguarded, the failure handler cleared the results — B's
-    // — and the map showed nothing rated for a night that had a stored run, until the next selection.
-    // The guard shipped with no test at all: deleting it left this whole file green.
+    // ⚠️ The failure path, which the late-response test above cannot reach: A's request FAILS after
+    // B's has answered. When this was written it was the `.catch` half of the cancellation —
+    // unguarded, the failure handler cleared the results, B's, and the map showed nothing rated for
+    // a night that had a stored run, until the next selection; that guard had shipped with no test
+    // at all. Since the night-aware loading fix the `.catch` writes nothing and arms a retry instead,
+    // so this now pins that a late failure never writes over the night on screen. The retry's own
+    // guard is pinned on fake timers in `MapViewNightScoresLoading.test.jsx` ("arms no retry for a
+    // failure that lands after the reader has left"), not here.
     const a = deferred();
     getAuroraForecastResults.mockImplementation((night) => (
       night === NIGHT_A ? a.promise : Promise.resolve([{ locationName: LOC, stars: 3 }])
