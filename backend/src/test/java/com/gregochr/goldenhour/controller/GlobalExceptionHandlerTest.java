@@ -17,6 +17,8 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -84,6 +86,24 @@ class GlobalExceptionHandlerTest extends AbstractControllerTest {
         mockMvc.perform(get("/api/forecast/history"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").exists());
+    }
+
+    /**
+     * An unreadable body is the caller's error, not the server's. It used to fall through to the
+     * catch-all and return 500. The body carries a distinctive token so the test can also pin that
+     * the response does not echo caller-supplied content back.
+     */
+    @Test
+    @WithMockUser(roles = {"ADMIN"})
+    @DisplayName("Unreadable request body is mapped to 400 with a fixed message that echoes nothing")
+    void handleUnreadableBody_returns400() throws Exception {
+        mockMvc.perform(put("/api/models/optimisation")
+                        .contentType("application/json")
+                        .content("{\"runType\":\"SHORT_TERM\",\"strategyType\":\"ZZ_ECHO_PROBE\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("Request body could not be read"))
+                .andExpect(content().string(org.hamcrest.Matchers.not(
+                        org.hamcrest.Matchers.containsString("ZZ_ECHO_PROBE"))));
     }
 
     @Test

@@ -69,7 +69,6 @@ public class ForecastCommandExecutor {
     private final SolarService solarService;
     private final ForecastCommandFactory commandFactory;
     private final Executor forecastExecutor;
-    private final OptimisationSkipEvaluator optimisationSkipEvaluator;
     private final OptimisationStrategyService optimisationStrategyService;
     private final RunProgressTracker progressTracker;
     private final ApplicationEventPublisher eventPublisher;
@@ -94,7 +93,6 @@ public class ForecastCommandExecutor {
      * @param solarService                the service that calculates solar event times
      * @param commandFactory              the factory for resolving evaluation models from commands
      * @param forecastExecutor            the executor used to run forecast calls in parallel
-     * @param optimisationSkipEvaluator   the evaluator for configurable skip strategies
      * @param optimisationStrategyService the service for loading active strategies
      * @param progressTracker             tracks live run progress for SSE broadcasting
      * @param eventPublisher              publishes location task state transition events
@@ -110,7 +108,7 @@ public class ForecastCommandExecutor {
     public ForecastCommandExecutor(ForecastService forecastService,
             LocationService locationService, JobRunService jobRunService,
             SolarService solarService, ForecastCommandFactory commandFactory,
-            Executor forecastExecutor, OptimisationSkipEvaluator optimisationSkipEvaluator,
+            Executor forecastExecutor,
             OptimisationStrategyService optimisationStrategyService,
             RunProgressTracker progressTracker, ApplicationEventPublisher eventPublisher,
             SentinelSelector sentinelSelector,
@@ -125,7 +123,6 @@ public class ForecastCommandExecutor {
         this.solarService = solarService;
         this.commandFactory = commandFactory;
         this.forecastExecutor = forecastExecutor;
-        this.optimisationSkipEvaluator = optimisationSkipEvaluator;
         this.optimisationStrategyService = optimisationStrategyService;
         this.progressTracker = progressTracker;
         this.eventPublisher = eventPublisher;
@@ -271,12 +268,8 @@ public class ForecastCommandExecutor {
                             targetDate.toString(), targetType.name()});
 
                     String slotKey = targetDate + "|" + targetType.name();
-                    boolean optimisationSkip = !triggeredManually
-                            && optimisationSkipEvaluator.shouldSkip(
-                                    enabledStrategies, location, targetDate, targetType);
                     if (excludedSlots.contains(slotKey)
-                            || shouldSkipEvent(targetDate, targetType, location, today, now)
-                            || optimisationSkip) {
+                            || shouldSkipEvent(targetDate, targetType, location, today, now)) {
                         skippedKeys.add(new String[]{taskKey, location.getName(),
                                 targetDate.toString(), targetType.name()});
                     } else {

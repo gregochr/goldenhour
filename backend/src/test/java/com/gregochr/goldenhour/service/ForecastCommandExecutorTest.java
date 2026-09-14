@@ -76,9 +76,6 @@ class ForecastCommandExecutorTest {
     private ForecastCommandFactory commandFactory;
 
     @Mock
-    private OptimisationSkipEvaluator optimisationSkipEvaluator;
-
-    @Mock
     private OptimisationStrategyService optimisationStrategyService;
 
     @Mock
@@ -162,7 +159,7 @@ class ForecastCommandExecutorTest {
         // Use synchronous executor
         executor = new ForecastCommandExecutor(
                 forecastService, locationService, jobRunService, solarService,
-                commandFactory, Runnable::run, optimisationSkipEvaluator,
+                commandFactory, Runnable::run,
                 optimisationStrategyService, progressTracker, eventPublisher,
                 sentinelSelector, astroConditionsService, stabilityClassifier,
                 openMeteoService, stabilitySnapshotProvider, CLOCK);
@@ -172,7 +169,6 @@ class ForecastCommandExecutorTest {
      * Stubs for the "infrastructure" layer shared by all colour execute() tests:
      * job run, prefetch, model resolution, strategy list, and solar-event guards.
      * Does NOT stub {@code findAllEnabled()} — add that inline when the command has null locations.
-     * Does NOT stub {@code shouldSkip()} — add that inline when testing skip-evaluator behaviour.
      * Does NOT stub {@code fetchWeatherAndTriage} or {@code evaluateAndPersist} —
      * call {@link #stubDefaultTriage()} when you need the pass-through default, or
      * add your own triage stub when the test controls triage outcomes directly.
@@ -708,155 +704,47 @@ class ForecastCommandExecutorTest {
                 .allMatch(pe -> "Whitley Bay".equals(pe.location().getName()));
     }
 
+    /**
+     * The regression guard for V153. Six strategies could skip a slot here through
+     * {@code OptimisationSkipEvaluator}; a {@code !triggeredManually} guard (v2.7.2) then confined that
+     * to scheduled commands, which no caller builds, so they were retired. This runs the kind of
+     * command that guard admitted, WITH a surviving strategy enabled, and requires both events to
+     * still reach triage — carrying the tide flag, so it also proves the enabled strategy got there.
+     *
+     * <p>What it catches: a skip gate that fires on a scheduled command when a strategy is enabled.
+     * What it cannot: a gate keyed on some strategy other than {@code TIDE_ALIGNMENT}. Enabling the
+     * other survivor, {@code SENTINEL_SAMPLING}, would divert both slots into the sentinel phase and
+     * test that instead — the sentinel's own tests cover it.
+     */
     @Test
-    @DisplayName("Optimisation skip produces no persistCannedResult call — no phantom DB write")
-    void execute_scheduledOptimisationSkip_persistCannedResultNeverCalled() {
-        stubExecuteDefaults();
-        stubSolarNotPast();
-        LocalDate today = today();
-        when(optimisationSkipEvaluator.shouldSkip(
-                org.mockito.ArgumentMatchers.anyList(),
-                org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
-                eq(today), eq(TargetType.SUNRISE)))
-                .thenReturn(true);
-        when(optimisationSkipEvaluator.shouldSkip(
-                org.mockito.ArgumentMatchers.anyList(),
-                org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
-                eq(today), eq(TargetType.SUNSET)))
-                .thenReturn(true);
-
-        ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, List.of(today),
-                List.of(durham()), haikuStrategy, false); // scheduled
-        executor.execute(cmd);
-
-        verify(forecastService, never())
-                .persistCannedResult(any(ForecastPreEvalResult.class),
-                        org.mockito.ArgumentMatchers.anyString(), eq(stubJobRun));
-        verify(forecastService, never())
-                .fetchWeatherAndTriage(
-                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
-                        eq(today), eq(TargetType.SUNRISE), eq(Set.of()),
-                        eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
-                        eq(stubPrefetchedWeather), eq(stubCloudCache));
-        verify(forecastService, never())
-                .fetchWeatherAndTriage(
-                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
-                        eq(today), eq(TargetType.SUNSET), eq(Set.of()),
-                        eq(EvaluationModel.HAIKU), eq(false), eq(stubJobRun),
-                        eq(stubPrefetchedWeather), eq(stubCloudCache));
-    }
-
-    // -------------------------------------------------------------------------
-    // Optimisation skip delegation
-    // -------------------------------------------------------------------------
-
-    @Test
-    @DisplayName("Scheduled run delegates skip decision to OptimisationSkipEvaluator for each event type")
-    void execute_scheduledRun_delegatesToSkipEvaluatorForEachEventType() {
+    @DisplayName("No strategy skips a slot — a scheduled command with tide triage on still triages both events")
+    void execute_scheduledRun_noStrategySkipsASlot() {
         stubExecuteDefaults();
         stubSolarNotPast();
         stubDefaultFetch();
         stubDefaultEval();
-        LocalDate today = today();
-        List<LocalDate> dates = List.of(today);
-
-        var strategies = List.of(
+        when(optimisationStrategyService.getEnabledStrategies(any())).thenReturn(List.of(
                 OptimisationStrategyEntity.builder()
-                        .strategyType(OptimisationStrategyType.SKIP_LOW_RATED)
-                        .enabled(true).paramValue(3).build());
-        when(optimisationStrategyService.getEnabledStrategies(RunType.VERY_SHORT_TERM))
-                .thenReturn(strategies);
-
-        ForecastCommand cmd = new ForecastCommand(RunType.VERY_SHORT_TERM, dates,
-                List.of(durham()), haikuStrategy, false); // scheduled — not manual
-
-        executor.execute(cmd);
-
-        verify(optimisationSkipEvaluator)
-                .shouldSkip(eq(strategies),
-                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
-                        eq(today), eq(TargetType.SUNRISE));
-        verify(optimisationSkipEvaluator)
-                .shouldSkip(eq(strategies),
-                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
-                        eq(today), eq(TargetType.SUNSET));
-    }
-
-    @Test
-    @DisplayName("Scheduled run skips evaluation when OptimisationSkipEvaluator returns true")
-    void execute_scheduledRun_skipsWhenEvaluatorSaysSkip() {
-        stubExecuteDefaults();
-        stubSolarNotPast();
+                        .strategyType(OptimisationStrategyType.TIDE_ALIGNMENT).enabled(true).build()));
         LocalDate today = today();
         List<LocalDate> dates = List.of(today);
-
-        when(optimisationSkipEvaluator.shouldSkip(
-                org.mockito.ArgumentMatchers.anyList(),
-                org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
-                eq(today), org.mockito.ArgumentMatchers.any(TargetType.class)))
-                .thenReturn(true);
-
-        ForecastCommand cmd = new ForecastCommand(RunType.VERY_SHORT_TERM, dates,
-                List.of(durham()), haikuStrategy, false); // scheduled — not manual
-
-        executor.execute(cmd);
-
-        verify(forecastService, never())
-                .fetchWeatherAndTriage(
-                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
-                        eq(today), eq(TargetType.SUNRISE), any(),
-                        eq(EvaluationModel.HAIKU), anyBoolean(), any(),
-                        eq(stubPrefetchedWeather), eq(stubCloudCache));
-        verify(forecastService, never())
-                .fetchWeatherAndTriage(
-                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
-                        eq(today), eq(TargetType.SUNSET), any(),
-                        eq(EvaluationModel.HAIKU), anyBoolean(), any(),
-                        eq(stubPrefetchedWeather), eq(stubCloudCache));
-        verify(forecastService, never()).evaluateAndPersist(any(ForecastPreEvalResult.class), any(JobRunEntity.class));
-    }
-
-    @Test
-    @DisplayName("Manual run bypasses OptimisationSkipEvaluator and always proceeds to triage")
-    void execute_manualRun_bypassesOptimisationSkipEvaluator() {
-        stubExecuteDefaults();
-        stubSolarNotPast();
-        stubDefaultFetch();
-        stubDefaultEval();
-        LocalDate today = today();
-        List<LocalDate> dates = List.of(today);
-
-        var strategies = List.of(
-                OptimisationStrategyEntity.builder()
-                        .strategyType(OptimisationStrategyType.SKIP_LOW_RATED)
-                        .enabled(true).paramValue(3).build());
-        when(optimisationStrategyService.getEnabledStrategies(RunType.SHORT_TERM))
-                .thenReturn(strategies);
 
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, dates,
-                List.of(durham()), haikuStrategy, true); // manual
+                List.of(durham()), haikuStrategy, false); // scheduled — the path the old gate guarded
 
         executor.execute(cmd);
 
-        verify(optimisationSkipEvaluator, never())
-                .shouldSkip(eq(strategies),
-                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
-                        eq(today), eq(TargetType.SUNRISE));
-        verify(optimisationSkipEvaluator, never())
-                .shouldSkip(eq(strategies),
-                        org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
-                        eq(today), eq(TargetType.SUNSET));
         verify(forecastService)
                 .fetchWeatherAndTriage(
                         org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
                         eq(today), eq(TargetType.SUNRISE), any(),
-                        eq(EvaluationModel.HAIKU), anyBoolean(), any(),
+                        eq(EvaluationModel.HAIKU), eq(true), any(),
                         eq(stubPrefetchedWeather), eq(stubCloudCache));
         verify(forecastService)
                 .fetchWeatherAndTriage(
                         org.mockito.ArgumentMatchers.argThat(loc -> loc != null && "Durham UK".equals(loc.getName())),
                         eq(today), eq(TargetType.SUNSET), any(),
-                        eq(EvaluationModel.HAIKU), anyBoolean(), any(),
+                        eq(EvaluationModel.HAIKU), eq(true), any(),
                         eq(stubPrefetchedWeather), eq(stubCloudCache));
     }
 
@@ -870,7 +758,7 @@ class ForecastCommandExecutorTest {
         LocalDate today = today();
         List<LocalDate> dates = List.of(today);
         when(optimisationStrategyService.serialiseEnabledStrategies(RunType.SHORT_TERM))
-                .thenReturn("SKIP_LOW_RATED(3),FORCE_IMMINENT");
+                .thenReturn("SENTINEL_SAMPLING(2),TIDE_ALIGNMENT");
 
         ForecastCommand cmd = new ForecastCommand(RunType.SHORT_TERM, dates,
                 List.of(durham()), haikuStrategy, true);
@@ -879,7 +767,7 @@ class ForecastCommandExecutorTest {
 
         verify(jobRunService).startRun(
                 eq(RunType.SHORT_TERM), eq(true), eq(EvaluationModel.HAIKU),
-                eq("SKIP_LOW_RATED(3),FORCE_IMMINENT"));
+                eq("SENTINEL_SAMPLING(2),TIDE_ALIGNMENT"));
     }
 
     @Test
@@ -2121,7 +2009,7 @@ class ForecastCommandExecutorTest {
         private ForecastCommandExecutor executorOn(Clock pinned) {
             return new ForecastCommandExecutor(
                     forecastService, locationService, jobRunService, solarService,
-                    commandFactory, Runnable::run, optimisationSkipEvaluator,
+                    commandFactory, Runnable::run,
                     optimisationStrategyService, progressTracker, eventPublisher,
                     sentinelSelector, astroConditionsService, stabilityClassifier,
                     openMeteoService, stabilitySnapshotProvider, pinned);

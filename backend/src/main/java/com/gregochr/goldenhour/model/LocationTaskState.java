@@ -4,7 +4,8 @@ package com.gregochr.goldenhour.model;
  * Per-location state in the forecast run finite state machine.
  *
  * <p>Normal flow: PENDING → FETCHING_WEATHER → FETCHING_CLOUD → FETCHING_TIDES → EVALUATING → COMPLETE.
- * Any phase can transition to FAILED. Tasks skipped by optimisation strategies go directly to SKIPPED.
+ * Any phase can transition to FAILED. Tasks excluded before triage — a deselected slot, or an event
+ * that has already passed — go directly to SKIPPED; sentinel sampling reaches it later, after triage.
  */
 public enum LocationTaskState {
 
@@ -29,7 +30,7 @@ public enum LocationTaskState {
     /** Failed at one of the processing phases. */
     FAILED,
 
-    /** Skipped by an optimisation strategy or sentinel early stop. */
+    /** Excluded before triage (deselected slot, event already passed), or stopped by sentinel sampling. */
     SKIPPED,
 
     /** Weather data fetched but Claude skipped due to heuristic triage. */

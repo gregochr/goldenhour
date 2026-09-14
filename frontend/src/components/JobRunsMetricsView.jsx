@@ -21,16 +21,14 @@ import { ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 import { latestSolarEventTimes, hasEventPassed } from '../utils/solarEventTimes.js';
 import { parseUtcInstant } from '../utils/conversions.js';
 
-/** Human-readable labels for optimisation strategies shown in the run confirmation dialog. */
+/**
+ * Human-readable labels for optimisation strategies shown in the run confirmation dialog — the two
+ * that can act on a run started here (V153 retired six that could not act since v2.7.2). Labels match
+ * the Run Config screen's; an unknown type falls back to its raw name below.
+ */
 const STRATEGY_LABELS = {
-  SKIP_LOW_RATED: 'Skip Low-Rated',
-  SKIP_EXISTING: 'Skip Already-Evaluated',
-  FORCE_IMMINENT: 'Always Evaluate Today',
-  FORCE_STALE: 'Re-evaluate Stale Data',
-  EVALUATE_ALL: 'Evaluate Everything',
-  NEXT_EVENT_ONLY: 'Next Event Only',
   SENTINEL_SAMPLING: 'Sentinel Sampling',
-  TIDE_ALIGNMENT: 'Weather/Tide Triage',
+  TIDE_ALIGNMENT: 'Tide Triage',
 };
 
 /** The two solar events a colour run evaluates, in the order the dialog lists them. */
@@ -839,9 +837,6 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
           {/* Slot selector — VST and ST only */}
           {confirmDialog.slots && (() => {
             const slots = confirmDialog.slots;
-            const anyDeselected = slots.some((s) => !s.selected);
-            const hasJfdi = confirmDialog.activeStrategies?.some((s) => s.type === 'FORCE_IMMINENT');
-            const hasNextEventOnly = confirmDialog.activeStrategies?.some((s) => s.type === 'NEXT_EVENT_ONLY');
             const uniqueDates = [...new Set(slots.map((s) => s.date))];
             return (
               <div data-testid="confirm-dialog-slots">
@@ -909,17 +904,6 @@ const JobRunsMetricsView = ({ activeRunId, onActiveRunChange, onActiveRunClear }
                     </div>
                   ))}
                 </div>
-                {anyDeselected && (hasJfdi || hasNextEventOnly) && (
-                  <p className="mt-2 text-xs text-amber-400" data-testid="slot-override-warning">
-                    ⚠️{' '}
-                    {hasJfdi && hasNextEventOnly
-                      ? 'JFDI and Next Event Only are'
-                      : hasJfdi
-                        ? 'JFDI (Always Evaluate Today) is'
-                        : 'Next Event Only is'}{' '}
-                    active — {hasJfdi && hasNextEventOnly ? 'they' : 'it'} will override your slot selection.
-                  </p>
-                )}
               </div>
             );
           })()}

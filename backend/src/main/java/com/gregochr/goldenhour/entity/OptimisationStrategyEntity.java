@@ -50,7 +50,7 @@ public class OptimisationStrategyEntity {
     @Column(name = "enabled", nullable = false)
     private boolean enabled;
 
-    /** Optional integer parameter (e.g. minimum star rating for SKIP_LOW_RATED). */
+    /** Optional integer parameter (the sentinel threshold for SENTINEL_SAMPLING). */
     @Column(name = "param_value")
     private Integer paramValue;
 

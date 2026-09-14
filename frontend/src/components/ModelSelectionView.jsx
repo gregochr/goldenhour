@@ -98,57 +98,32 @@ const CUSTOM_COST = {
   AURORA_EVALUATION: { callsPerRun: 35, label: '~35 locations per aurora evaluation night' },
 };
 
+/**
+ * The two strategies that can act. ⚠️ Both reach only forecast runs started by hand — the
+ * synchronous engine behind the admin `POST /api/forecast/run*` endpoints: the Very-Short-Term,
+ * Short-Term and Long-Term runs on Job Runs, and Run Forecast on a map location (which uses the
+ * Short-Term settings). Scheduled batches, overnight and intraday, read neither, and nor do the Run
+ * Scheduled Batch / Run JFDI Batch buttons. What a hand-started run writes can still reach readers:
+ * `GET /api/forecast` serves its rows until a later run replaces them.
+ *
+ * Six more used to be listed here (Skip Low-Rated, Skip Already-Evaluated, Always Evaluate Today,
+ * Re-evaluate Stale Data, Evaluate Everything, Next Event Only) and were retired in V153. They had
+ * been unable to act since v2.7.2 (2026-04-06), when a `!triggeredManually` guard stopped them
+ * skipping slots on hand-started runs — the only runs that engine still makes. Every mutual-exclusion
+ * rule went with them; the two left are independent.
+ */
 const STRATEGY_INFO = {
-  SKIP_LOW_RATED: {
-    label: 'Skip Low-Rated',
-    description: 'Skip slots where no prior evaluation exists, or the prior star rating is below the threshold. Saves cost by not re-evaluating locations with consistently poor conditions.',
-    hasParam: true,
-    paramLabel: 'Min rating',
-    paramMin: 1,
-    paramMax: 5,
-  },
-  SKIP_EXISTING: {
-    label: 'Skip Already-Evaluated',
-    description: 'Skip slots where a forecast already exists for this location, date, and time of day (sunrise or sunset). Avoids paying for a second evaluation when one already exists.',
-  },
-  FORCE_IMMINENT: {
-    label: 'Always Evaluate Today',
-    description: 'Override any skip rules for today\'s sunrise or sunset — always get a fresh evaluation for imminent events, even if an earlier run already scored them.',
-  },
-  FORCE_STALE: {
-    label: 'Re-evaluate Stale Data',
-    description: 'Override skip rules when the existing evaluation was generated before today. Ensures forecasts are refreshed with the latest weather data, even if a prior evaluation exists.',
-  },
-  EVALUATE_ALL: {
-    label: 'Evaluate Everything (JFDI)',
-    description: 'Ignore all skip logic — evaluate every slot for every location regardless of prior data. Useful for a full refresh, but maximises API cost.',
-  },
-  NEXT_EVENT_ONLY: {
-    label: 'Next Event Only',
-    description: 'Only evaluate the single nearest upcoming solar event per location. Skips all other sunrise/sunset slots. Ideal for a last-minute check before heading out.',
-  },
   SENTINEL_SAMPLING: {
     label: 'Sentinel Sampling',
-    description: 'Evaluate a handful of geographic sentinel locations per region first. If all sentinels rate at or below the threshold, skip the rest of that region with canned results. Saves cost when conditions are uniformly poor across a region.',
+    description: 'Evaluate a handful of geographic sentinel locations per region first. If all sentinels rate at or below the threshold, skip the rest of that region with canned results. Saves cost when conditions are uniformly poor across a region. Applies to forecast runs started by hand only, not to scheduled batches.',
     hasParam: true,
     paramLabel: 'Max skip threshold',
-    paramMin: 1,
-    paramMax: 5,
+    paramDefault: 2,
   },
   TIDE_ALIGNMENT: {
-    label: 'Weather/Tide Triage',
-    description: 'Phase 1 pre-Claude gate — runs before Sentinel Sampling and full evaluation, so no Claude API cost is incurred for skipped slots. Four checks are applied: (1) Solar horizon low cloud > 80% — sun is fully blocked; (2) Precipitation > 2 mm — active rain or heavy drizzle at the observer location; (3) Visibility < 5 km — fog or heavy haze; (4) Tide misalignment — for SEASCAPE locations with tide preferences, no preferred tide type (High, Mid, or Low) falls within the golden/blue hour window around the solar event. Any single failing check produces a canned 1★ result. Fail-open: missing weather or tide data always passes through to Claude.',
+    label: 'Tide Triage',
+    description: 'Adds a tide check to triage for SEASCAPE locations with tide preferences: if none of the preferred tide types (High, Mid or Low) falls within the golden/blue hour window around the solar event, the slot is stood down without a Claude call. Weather triage (cloud, rain, visibility) runs whether this is on or off. A location with no tide data or no tide preferences skips the check. Applies to forecast runs started by hand only, not to scheduled batches.',
   },
-};
-
-const CONFLICTS = {
-  EVALUATE_ALL: ['SKIP_LOW_RATED', 'SKIP_EXISTING', 'NEXT_EVENT_ONLY', 'SENTINEL_SAMPLING'],
-  SKIP_LOW_RATED: ['SKIP_EXISTING', 'EVALUATE_ALL'],
-  SKIP_EXISTING: ['SKIP_LOW_RATED', 'EVALUATE_ALL'],
-  FORCE_IMMINENT: [],
-  FORCE_STALE: [],
-  NEXT_EVENT_ONLY: ['EVALUATE_ALL'],
-  SENTINEL_SAMPLING: ['EVALUATE_ALL'],
 };
 
 /**
@@ -328,16 +303,6 @@ export default function ModelSelectionView() {
 
   const activeModelForTab = configs[activeTab] || 'HAIKU';
   const tabStrategies = strategies[activeTab] || [];
-
-  // Determine which strategies are blocked by currently-enabled ones
-  const enabledTypes = tabStrategies.filter((s) => s.enabled).map((s) => s.strategyType);
-  const getConflictReason = (strategyType) => {
-    if (enabledTypes.includes(strategyType)) return null; // already enabled, no conflict
-    const conflicts = CONFLICTS[strategyType] || [];
-    const blocking = conflicts.filter((c) => enabledTypes.includes(c));
-    if (blocking.length === 0) return null;
-    return `Conflicts with ${blocking.map((b) => STRATEGY_INFO[b]?.label || b).join(', ')}`;
-  };
 
   return (
     <div className="space-y-6">
@@ -658,14 +623,18 @@ export default function ModelSelectionView() {
       {/* Cost Optimisation Strategies */}
       {tabStrategies.length > 0 && (
         <div className="card border border-plex-border">
-          <h3 className="font-semibold text-plex-text mb-4">Cost Optimisation</h3>
+          <h3 className="font-semibold text-plex-text mb-1">Cost Optimisation</h3>
+          <p id="strategy-scope-note" className="text-xs text-plex-text-secondary mb-4" data-testid="strategy-scope-note">
+            Applies only to forecast runs started by hand: the Very-Short-Term, Short-Term and
+            Long-Term runs on Job Runs, and Run Forecast on a map location (which uses the Short-Term
+            settings). Scheduled batches, overnight and intraday, ignore these, as do the Run
+            Scheduled Batch and Run JFDI Batch buttons.
+          </p>
           <div className="space-y-3">
             {tabStrategies
               .filter((s) => STRATEGY_INFO[s.strategyType])
               .map((strategy) => {
                 const info = STRATEGY_INFO[strategy.strategyType];
-                const conflictReason = getConflictReason(strategy.strategyType);
-                const isDisabled = conflictReason !== null;
 
                 return (
                   <div
@@ -673,9 +642,7 @@ export default function ModelSelectionView() {
                     className={`flex items-center justify-between py-2 px-3 rounded-lg ${
                       strategy.enabled
                         ? 'bg-green-900/10 border border-green-800/30'
-                        : isDisabled
-                          ? 'bg-plex-surface opacity-60'
-                          : 'bg-plex-surface hover:bg-plex-surface-light'
+                        : 'bg-plex-surface hover:bg-plex-surface-light'
                     }`}
                     data-testid={`strategy-row-${strategy.strategyType}`}
                   >
@@ -686,10 +653,7 @@ export default function ModelSelectionView() {
                         </span>
                         <InfoTip text={info.description} />
                       </div>
-                      {isDisabled && (
-                        <p className="text-xs text-yellow-500 mt-1">{conflictReason}</p>
-                      )}
-                      {/* Parameter slider for SKIP_LOW_RATED */}
+                      {/* Parameter buttons — the sentinel threshold is the only one left */}
                       {info.hasParam && strategy.enabled && (
                         <div className="flex items-center gap-2 mt-2">
                           <span className="text-xs text-plex-text-secondary">{info.paramLabel}:</span>
@@ -698,8 +662,9 @@ export default function ModelSelectionView() {
                               <button
                                 key={val}
                                 onClick={() => handleParamChange(activeTab, strategy.strategyType, val)}
+                                aria-pressed={(strategy.paramValue ?? info.paramDefault) === val}
                                 className={`w-7 h-7 rounded text-xs font-medium transition-colors ${
-                                  (strategy.paramValue || 3) === val
+                                  (strategy.paramValue ?? info.paramDefault) === val
                                     ? 'bg-plex-gold text-gray-900'
                                     : 'bg-plex-surface-light text-plex-text-secondary hover:bg-plex-border'
                                 }`}
@@ -721,14 +686,14 @@ export default function ModelSelectionView() {
                           strategy.paramValue
                         )
                       }
-                      disabled={isDisabled && !strategy.enabled}
                       className={`flex-shrink-0 px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
                         strategy.enabled
                           ? 'bg-green-600/30 text-green-400 hover:bg-green-600/50'
-                          : isDisabled
-                            ? 'bg-plex-border text-plex-text-muted cursor-not-allowed'
-                            : 'bg-plex-border text-plex-text-secondary hover:bg-plex-border-light'
+                          : 'bg-plex-border text-plex-text-secondary hover:bg-plex-border-light'
                       }`}
+                      aria-label={info.label}
+                      aria-pressed={strategy.enabled}
+                      aria-describedby="strategy-scope-note"
                       data-testid={`strategy-toggle-${strategy.strategyType}`}
                     >
                       {strategy.enabled ? 'ON' : 'OFF'}
@@ -745,7 +710,7 @@ export default function ModelSelectionView() {
         <ul className="space-y-1 text-xs">
           <li>Each run type can use a different Claude model independently</li>
           <li>Use a more accurate model (Opus/Sonnet) for imminent forecasts, cheaper (Haiku) for distant ones</li>
-          <li>Cost optimisation strategies control which slots are skipped to save API costs</li>
+          <li>Cost optimisation strategies can skip slots on forecast runs started by hand; scheduled batches do not use them</li>
           <li>Wildlife-only locations automatically display weather data without AI evaluation</li>
           <li>Previous forecasts are preserved with their original model</li>
           <li>Haiku offers excellent value for most use cases</li>

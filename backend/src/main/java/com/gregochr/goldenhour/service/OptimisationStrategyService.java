@@ -20,7 +20,10 @@ import java.util.Set;
 /**
  * Service for managing configurable cost optimisation strategies per run type.
  *
- * <p>Handles CRUD, mutual exclusivity validation, and serialisation for audit logging.
+ * <p>Handles CRUD and serialisation for audit logging. The two surviving strategies are
+ * independent, so there is no mutual-exclusion rule left to enforce: this class used to carry five,
+ * and the only one involving a surviving type ({@code SENTINEL_SAMPLING} vs {@code EVALUATE_ALL})
+ * went with the retired types (V153).
  */
 @Service
 public class OptimisationStrategyService {
@@ -30,6 +33,18 @@ public class OptimisationStrategyService {
     /** Run types that support optimisation strategies (excludes WEATHER and TIDE). */
     private static final Set<RunType> FORECAST_RUN_TYPES = Set.of(
             RunType.VERY_SHORT_TERM, RunType.SHORT_TERM, RunType.LONG_TERM);
+
+    /** Sentinel threshold a fresh row starts with — production's value (V52). */
+    private static final int DEFAULT_SENTINEL_THRESHOLD = 2;
+
+    /**
+     * The strategy types V153 retired, by name — they no longer exist in the enum, so only their
+     * strings remain. Must match V153's {@code DELETE} list; see {@link #seedDefaults()} for why this
+     * is an explicit list rather than "anything the enum does not know".
+     */
+    static final List<String> RETIRED_STRATEGY_TYPES = List.of(
+            "SKIP_LOW_RATED", "SKIP_EXISTING", "FORCE_IMMINENT", "FORCE_STALE",
+            "EVALUATE_ALL", "NEXT_EVENT_ONLY", "BATCH_API");
 
     private final OptimisationStrategyRepository repository;
 
@@ -43,56 +58,49 @@ public class OptimisationStrategyService {
     }
 
     /**
-     * Seeds default strategy rows when the table is empty (local dev with Flyway disabled).
+     * Deletes rows naming a retired strategy type, then inserts any missing default row.
+     *
+     * <p>⚠️ Both halves exist for local dev, which runs no migrations (H2 with Flyway disabled). V153
+     * deletes the retired types' rows in every migrated database, but a local database built before
+     * it keeps them — and {@code strategy_type} maps through {@code @Enumerated(STRING)}, so the first
+     * read of such a row throws. That takes down the Run Config screen (which loads every row) and
+     * any manual run whose run type still has a retired type enabled — the old local seed enabled
+     * {@code SKIP_LOW_RATED} for very-short-term and {@code SKIP_EXISTING} for long-term.
+     *
+     * <p>⚠️ The delete names the retired types explicitly ({@link #RETIRED_STRATEGY_TYPES}); it never
+     * deletes "anything the enum does not know". It runs on every start in every profile, and
+     * production sets {@code validate-on-migrate: false}, so an older image redeployed against a
+     * database that has since gained a newer type would boot — and a {@code NOT IN (known)} delete
+     * would then silently and permanently remove that type's rows. With an explicit list, an unknown
+     * type fails loudly on read instead, which loses nothing.
+     *
+     * <p>Missing rows are filled per (run type, strategy), not only when the table is empty: the old
+     * seed never wrote {@code TIDE_ALIGNMENT}, so an existing local database keeps three sentinel rows
+     * and would otherwise never gain it. Defaults match production's (V52, V54): both enabled,
+     * sentinel threshold 2. On a migrated database both halves do nothing.
      */
     @PostConstruct
     void seedDefaults() {
-        if (repository.count() > 0) {
-            return;
+        int pruned = repository.deleteByStrategyTypeIn(RETIRED_STRATEGY_TYPES);
+        if (pruned > 0) {
+            LOG.info("Pruned {} optimisation strategy row(s) naming a retired type", pruned);
         }
-        LOG.info("Seeding default optimisation strategies");
         LocalDateTime now = LocalDateTime.now(ZoneOffset.UTC);
-        // UI-visible strategy types (excludes BATCH_API)
-        OptimisationStrategyType[] uiTypes = {
-                OptimisationStrategyType.SKIP_LOW_RATED,
-                OptimisationStrategyType.SKIP_EXISTING,
-                OptimisationStrategyType.FORCE_IMMINENT,
-                OptimisationStrategyType.FORCE_STALE,
-                OptimisationStrategyType.EVALUATE_ALL,
-                OptimisationStrategyType.NEXT_EVENT_ONLY,
-                OptimisationStrategyType.SENTINEL_SAMPLING
-        };
         for (RunType rt : FORECAST_RUN_TYPES) {
-            for (OptimisationStrategyType st : uiTypes) {
-                boolean enabled = isDefaultEnabled(rt, st);
-                Integer param = defaultParamValue(st);
-                repository.save(OptimisationStrategyEntity.builder()
-                        .runType(rt).strategyType(st)
-                        .enabled(enabled).paramValue(param)
-                        .updatedAt(now).build());
+            for (OptimisationStrategyType st : OptimisationStrategyType.values()) {
+                if (repository.findByRunTypeAndStrategyType(rt, st).isEmpty()) {
+                    LOG.info("Seeding default optimisation strategy {} for {}", st, rt);
+                    repository.save(OptimisationStrategyEntity.builder()
+                            .runType(rt).strategyType(st)
+                            .enabled(true).paramValue(defaultParamValue(st))
+                            .updatedAt(now).build());
+                }
             }
         }
     }
 
-    private static boolean isDefaultEnabled(RunType rt, OptimisationStrategyType st) {
-        if (st == OptimisationStrategyType.SENTINEL_SAMPLING) {
-            return true; // enabled by default for all run types
-        }
-        if (rt == RunType.VERY_SHORT_TERM) {
-            return st == OptimisationStrategyType.SKIP_LOW_RATED;
-        }
-        if (rt == RunType.LONG_TERM) {
-            return st == OptimisationStrategyType.SKIP_EXISTING;
-        }
-        return false;
-    }
-
     private static Integer defaultParamValue(OptimisationStrategyType st) {
-        return switch (st) {
-            case SKIP_LOW_RATED -> 3;
-            case SENTINEL_SAMPLING -> 2;
-            default -> null;
-        };
+        return st == OptimisationStrategyType.SENTINEL_SAMPLING ? DEFAULT_SENTINEL_THRESHOLD : null;
     }
 
     /**
@@ -119,20 +127,14 @@ public class OptimisationStrategyService {
     }
 
     /**
-     * Updates a strategy toggle with mutual exclusivity validation.
-     *
-     * <p>Mutual exclusions enforced:
-     * <ul>
-     *   <li>EVALUATE_ALL enabled → disables SKIP_LOW_RATED, SKIP_EXISTING</li>
-     *   <li>SKIP_EXISTING ↔ SKIP_LOW_RATED (cannot both be enabled)</li>
-     * </ul>
+     * Updates a strategy toggle.
      *
      * @param runType      the run type
      * @param strategyType the strategy to toggle
      * @param enabled      whether to enable or disable
-     * @param paramValue   optional integer parameter (e.g. min rating)
+     * @param paramValue   optional integer parameter (the sentinel threshold)
      * @return the updated entity
-     * @throws IllegalArgumentException if mutual exclusivity is violated or strategy not found
+     * @throws IllegalArgumentException if no row exists for that run type and strategy
      */
     public OptimisationStrategyEntity updateStrategy(RunType runType,
             OptimisationStrategyType strategyType, boolean enabled, Integer paramValue) {
@@ -140,10 +142,6 @@ public class OptimisationStrategyService {
                 .findByRunTypeAndStrategyType(runType, strategyType)
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Strategy not found: " + runType + "/" + strategyType));
-
-        if (enabled) {
-            validateMutualExclusions(runType, strategyType);
-        }
 
         entity.setEnabled(enabled);
         if (paramValue != null) {
@@ -160,7 +158,7 @@ public class OptimisationStrategyService {
     /**
      * Serialises enabled strategies for a run type into a compact audit string.
      *
-     * <p>Format example: {@code "SKIP_LOW_RATED(3),FORCE_IMMINENT"}
+     * <p>Format example: {@code "SENTINEL_SAMPLING(2),TIDE_ALIGNMENT"}
      *
      * @param runType the run type
      * @return comma-separated string of enabled strategy names with params
@@ -179,63 +177,5 @@ public class OptimisationStrategyService {
                 })
                 .reduce((a, b) -> a + "," + b)
                 .orElse("");
-    }
-
-    /**
-     * Validates that enabling a strategy does not conflict with already-enabled strategies.
-     */
-    private void validateMutualExclusions(RunType runType, OptimisationStrategyType strategyType) {
-        List<OptimisationStrategyEntity> currentlyEnabled = getEnabledStrategies(runType);
-        Set<OptimisationStrategyType> activeTypes = new java.util.HashSet<>();
-        for (OptimisationStrategyEntity e : currentlyEnabled) {
-            activeTypes.add(e.getStrategyType());
-        }
-
-        switch (strategyType) {
-            case EVALUATE_ALL -> {
-                if (activeTypes.contains(OptimisationStrategyType.SKIP_LOW_RATED)
-                        || activeTypes.contains(OptimisationStrategyType.SKIP_EXISTING)
-                        || activeTypes.contains(OptimisationStrategyType.NEXT_EVENT_ONLY)
-                        || activeTypes.contains(OptimisationStrategyType.SENTINEL_SAMPLING)) {
-                    throw new IllegalArgumentException(
-                            "EVALUATE_ALL conflicts with skip/sampling strategies. "
-                            + "Disable SKIP_LOW_RATED, SKIP_EXISTING, NEXT_EVENT_ONLY, "
-                            + "and SENTINEL_SAMPLING first.");
-                }
-            }
-            case NEXT_EVENT_ONLY -> {
-                if (activeTypes.contains(OptimisationStrategyType.EVALUATE_ALL)) {
-                    throw new IllegalArgumentException(
-                            "NEXT_EVENT_ONLY conflicts with EVALUATE_ALL. Disable EVALUATE_ALL first.");
-                }
-            }
-            case SKIP_LOW_RATED -> {
-                if (activeTypes.contains(OptimisationStrategyType.SKIP_EXISTING)) {
-                    throw new IllegalArgumentException(
-                            "SKIP_LOW_RATED conflicts with SKIP_EXISTING. Disable SKIP_EXISTING first.");
-                }
-                if (activeTypes.contains(OptimisationStrategyType.EVALUATE_ALL)) {
-                    throw new IllegalArgumentException(
-                            "SKIP_LOW_RATED conflicts with EVALUATE_ALL. Disable EVALUATE_ALL first.");
-                }
-            }
-            case SKIP_EXISTING -> {
-                if (activeTypes.contains(OptimisationStrategyType.SKIP_LOW_RATED)) {
-                    throw new IllegalArgumentException(
-                            "SKIP_EXISTING conflicts with SKIP_LOW_RATED. Disable SKIP_LOW_RATED first.");
-                }
-                if (activeTypes.contains(OptimisationStrategyType.EVALUATE_ALL)) {
-                    throw new IllegalArgumentException(
-                            "SKIP_EXISTING conflicts with EVALUATE_ALL. Disable EVALUATE_ALL first.");
-                }
-            }
-            case SENTINEL_SAMPLING -> {
-                if (activeTypes.contains(OptimisationStrategyType.EVALUATE_ALL)) {
-                    throw new IllegalArgumentException(
-                            "SENTINEL_SAMPLING conflicts with EVALUATE_ALL. Disable EVALUATE_ALL first.");
-                }
-            }
-            default -> { /* FORCE_IMMINENT, FORCE_STALE, BATCH_API are always compatible */ }
-        }
     }
 }
