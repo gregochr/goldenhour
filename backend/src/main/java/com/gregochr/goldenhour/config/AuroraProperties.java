@@ -90,9 +90,8 @@ public class AuroraProperties {
 
         /**
          * Hours ahead the aurora batch job's alert-level check reads the Kp forecast
-         * ({@code AuroraOrchestrator.deriveAlertLevel}). The polling job does not use it: after
-         * dark its real-time path reads the forecast to tonight's dawn, the same horizon as the
-         * forecast lookahead. Defaults to 6.
+         * ({@code AuroraOrchestrator.deriveAlertLevel}). The polling job does not use it: both of
+         * its polls read the forecast to tonight's dawn. Defaults to 6.
          */
         private int kpForecastLookaheadHours = 6;
 

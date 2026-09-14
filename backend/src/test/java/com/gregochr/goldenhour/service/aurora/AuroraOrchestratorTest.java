@@ -70,7 +70,7 @@ class AuroraOrchestratorTest {
     private static final TonightWindow TONIGHT =
             new TonightWindow(utc("2027-01-14T17:30"), utc("2027-01-15T07:00"));
 
-    /** What the orchestrator's own clock reads — only {@code deriveAlertLevel} (the batch) uses it. */
+    /** The orchestrator's own clock: {@code deriveAlertLevel} reads it, and a scoring dates its task. */
     private static final Instant BATCH_NOW = Instant.parse("2027-01-14T22:00:00Z");
 
     @Mock
@@ -214,8 +214,8 @@ class AuroraOrchestratorTest {
     }
 
     @Test
-    @DisplayName("until the last completed block's reading lands, the product's value for it stands in")
-    void currentKp_readingNotYetPublished_productValueStandsIn() {
+    @DisplayName("until the last completed block's reading lands, an estimate above the last reading raises it")
+    void currentKp_readingNotYetPublished_higherEstimateRaisesIt() {
         // 00:10: 21:00-24:00 ended ten minutes ago; the latest reading is still 18:00-21:00's.
         SpaceWeatherData data = snapshot(List.of(reading("2027-01-14T18:00", 3.00)),
                 List.of(block("2027-01-14T18:00", 3.00), block("2027-01-14T21:00", 6.33),
@@ -235,19 +235,21 @@ class AuroraOrchestratorTest {
     }
 
     @Test
-    @DisplayName("the Kp for now moves on at the block boundary, not when the next reading lands")
-    void currentKp_atABlockBoundary_movesToTheBlockJustEnded() {
-        // 18:00-21:00 read Kp 7 and is still the latest published reading at midnight; 21:00-24:00
-        // (Kp 3) ended exactly then and its reading is not out.
-        SpaceWeatherData data = snapshot(List.of(reading("2027-01-14T18:00", 7.00)),
-                List.of(block("2027-01-14T18:00", 7.00), block("2027-01-14T21:00", 3.00),
-                        block("2027-01-15T00:00", 3.00)),
-                0.0);
+    @DisplayName("an estimate below the last reading cannot lower the Kp for now before its own reading lands")
+    void currentKp_estimateBelowTheLastReading_cannotLowerIt() {
+        // Midnight. 18:00-21:00 read Kp 7; 21:00-24:00 has just ended, NOAA's estimate for it is 3,
+        // and its reading is not out. An estimate is revised by the reading — it may raise the figure,
+        // but only the block's own reading may lower it.
+        List<KpForecast> blocks = List.of(block("2027-01-14T18:00", 7.00),
+                block("2027-01-14T21:00", 3.00), block("2027-01-15T00:00", 3.00));
+        SpaceWeatherData readingNotOut = snapshot(List.of(reading("2027-01-14T18:00", 7.00)), blocks, 0.0);
+        SpaceWeatherData readingOut = snapshot(List.of(reading("2027-01-14T18:00", 7.00),
+                reading("2027-01-14T21:00", 3.33)), blocks, 0.0);
 
-        assertThat(AuroraOrchestrator.currentKp(data, utc("2027-01-15T00:00"))).isEqualTo(3.00);
-        assertThat(AuroraOrchestrator.currentKp(data, utc("2027-01-14T23:59")))
-                .as("a minute earlier 18:00-21:00 is still the last block completed")
-                .isEqualTo(7.00);
+        assertThat(AuroraOrchestrator.currentKp(readingNotOut, utc("2027-01-15T00:00"))).isEqualTo(7.00);
+        assertThat(AuroraOrchestrator.currentKp(readingOut, utc("2027-01-15T00:20")))
+                .as("once 21:00-24:00's own reading is out, it rules, lower or not")
+                .isEqualTo(3.33);
     }
 
     @Test
@@ -358,8 +360,9 @@ class AuroraOrchestratorTest {
     @DisplayName("Kp now above the forecast is one STRONG real-time alert, not a MODERATE one then another")
     void runNightPoll_kpNowAboveTheForecast_notifiesOnceInRealtime() {
         // IDLE at 22:00 — after a restart, say. 18:00-21:00 read Kp 7.33; the rest of tonight is
-        // forecast Kp 5.33 at most. Two evaluations used to NOTIFY at MODERATE, score, then NOTIFY
-        // again at STRONG and score again, throwing the first scoring away.
+        // forecast Kp 5.33 at most. A poll that evaluated the forecast and the conditions now
+        // separately would NOTIFY at MODERATE, score, then NOTIFY again at STRONG and score again,
+        // throwing the first scoring away. One evaluation NOTIFIES once.
         SpaceWeatherData data = snapshot(List.of(reading("2027-01-14T18:00", 7.33)),
                 List.of(block("2027-01-14T18:00", 7.33), block("2027-01-14T21:00", 5.33),
                         block("2027-01-15T00:00", 5.00)),
@@ -383,7 +386,7 @@ class AuroraOrchestratorTest {
     }
 
     @Test
-    @DisplayName("a real-time alert carries the Kp for now — the stand-in, not the older published reading")
+    @DisplayName("a real-time alert carries the Kp for now — a just-ended block's estimate above the older reading")
     void runNightPoll_realtimeTriggerKp_isTheKpForNow() {
         // 00:10: 21:00-24:00 (Kp 4.67) has just ended and its reading is not out; the latest
         // published reading is 18:00-21:00's Kp 3. An OVATION substorm makes it MODERATE.
@@ -422,7 +425,7 @@ class AuroraOrchestratorTest {
     }
 
     @Test
-    @DisplayName("just after a storm block ends the level holds on the stand-in, instead of dipping to a CLEAR")
+    @DisplayName("just after a storm block ends the level holds on its estimate, instead of dipping to a CLEAR")
     void runNightPoll_stormBlockJustEnded_holdsTheLevel() {
         // 00:10. 21:00-24:00 read Kp 6.33 and ended ten minutes ago; its reading is not out yet,
         // and nothing still to come reaches 4.
@@ -438,6 +441,28 @@ class AuroraOrchestratorTest {
 
         assertThat(outcome).isEqualTo(new AuroraPollOutcome(true, AlertLevel.MODERATE,
                 AuroraStateCache.Action.SUPPRESS, TriggerType.REALTIME));
+        verify(stateCache).evaluate(AlertLevel.MODERATE);
+        verifyNoMoreInteractions(stateCache);
+    }
+
+    @Test
+    @DisplayName("a storm NOAA under-forecast holds its level across the boundary until the reading lands")
+    void runNightPoll_underForecastStormBlock_holdsAcrossTheBoundary() {
+        // ACTIVE at MODERATE, 00:05. 18:00-21:00 read Kp 5.67. 21:00-24:00 has just ended; NOAA
+        // estimated it at 4.67 and its reading is not out. Nothing still to come reaches 4, and
+        // OVATION is quiet. Taking the estimate at its word would read MINOR — a CLEAR now, and a
+        // fresh NOTIFY, paid again, when a higher reading lands.
+        SpaceWeatherData data = snapshot(List.of(reading("2027-01-14T18:00", 5.67)),
+                List.of(block("2027-01-14T18:00", 5.67), block("2027-01-14T21:00", 4.67),
+                        block("2027-01-15T00:00", 3.67), block("2027-01-15T03:00", 3.00)),
+                12.0);
+        when(noaaClient.fetchAll()).thenReturn(data);
+        when(stateCache.evaluate(AlertLevel.MODERATE))
+                .thenReturn(evaluation(AuroraStateCache.Action.SUPPRESS, AlertLevel.MODERATE));
+
+        AuroraPollOutcome outcome = orchestrator.runNightPoll(TONIGHT, utc("2027-01-15T00:05"));
+
+        assertThat(outcome.level()).isEqualTo(AlertLevel.MODERATE);
         verify(stateCache).evaluate(AlertLevel.MODERATE);
         verifyNoMoreInteractions(stateCache);
     }
@@ -538,7 +563,7 @@ class AuroraOrchestratorTest {
 
         AuroraPollOutcome outcome = orchestrator.runNightPoll(TONIGHT, utc("2027-01-14T22:00"));
 
-        assertThat(outcome).isEqualTo(AuroraPollOutcome.noaaUnavailable(true));
+        assertThat(outcome).isEqualTo(AuroraPollOutcome.noaaReadFailed(true));
         verifyNoInteractions(stateCache);
         verify(noaaClient, never()).fetchKpForecast();
     }
@@ -563,10 +588,11 @@ class AuroraOrchestratorTest {
     }
 
     @Test
-    @DisplayName("daylight: Kp 5.67 tonight reads the snapshot first, then NOTIFIES and scores for planning")
+    @DisplayName("daylight: Kp 5.67 tonight fetches the snapshot, then NOTIFIES and scores for planning")
     void runForecastLookahead_moderateTonight_fetchesThenNotifiesAndScores() {
         SpaceWeatherData scoringData = peakInTheSmallHours(3.0);
         when(noaaClient.fetchKpForecast()).thenReturn(scoringData.kpForecast());
+        when(stateCache.wouldNotify(AlertLevel.MODERATE)).thenReturn(true);
         when(noaaClient.fetchAll()).thenReturn(scoringData);
         when(stateCache.evaluate(AlertLevel.MODERATE))
                 .thenReturn(evaluation(AuroraStateCache.Action.NOTIFY, AlertLevel.MODERATE));
@@ -578,8 +604,10 @@ class AuroraOrchestratorTest {
         assertThat(outcome).isEqualTo(new AuroraPollOutcome(false, AlertLevel.MODERATE,
                 AuroraStateCache.Action.NOTIFY, TriggerType.FORECAST_LOOKAHEAD));
         InOrder order = inOrder(noaaClient, stateCache);
+        order.verify(stateCache).wouldNotify(AlertLevel.MODERATE);
         order.verify(noaaClient).fetchAll();
         order.verify(stateCache).evaluate(AlertLevel.MODERATE);
+        verify(noaaClient).fetchAll();
         verify(stateCache).updateTrigger(TriggerType.FORECAST_LOOKAHEAD, 5.67);
         EvaluationTask.Aurora task = theClaudeTask();
         assertThat(task.triggerType()).isEqualTo(TriggerType.FORECAST_LOOKAHEAD);
@@ -589,25 +617,28 @@ class AuroraOrchestratorTest {
     }
 
     @Test
-    @DisplayName("daylight: if the snapshot cannot be read, the state machine is left alone rather than left unscored")
-    void runForecastLookahead_snapshotFetchFails_leavesTheStateMachineAlone() {
-        // It used to evaluate first: a NOTIFY moved the machine to ACTIVE, the fetch failed, nothing
-        // was scored, and every later poll SUPPRESSED — an alert with no scores until it cleared.
+    @DisplayName("daylight: a snapshot fetch that throws before a NOTIFY leaves the state machine alone")
+    void runForecastLookahead_snapshotFetchThrows_leavesTheStateMachineAlone() {
+        // It used to evaluate first: a NOTIFY moved the machine to ACTIVE, and had the fetch then
+        // thrown, nothing would be scored and every later poll would SUPPRESS.
         when(noaaClient.fetchKpForecast()).thenReturn(List.of(block("2027-01-14T21:00", 5.33)));
-        when(noaaClient.fetchAll()).thenThrow(new RuntimeException("network error"));
+        when(stateCache.wouldNotify(AlertLevel.MODERATE)).thenReturn(true);
+        when(noaaClient.fetchAll()).thenThrow(new RuntimeException("unexpected"));
 
         AuroraPollOutcome outcome =
                 orchestrator.runForecastLookahead(TONIGHT, utc("2027-01-14T12:00"));
 
-        assertThat(outcome).isEqualTo(AuroraPollOutcome.noaaUnavailable(false));
-        verifyNoInteractions(stateCache, locationRepository, evaluationService);
+        assertThat(outcome).isEqualTo(AuroraPollOutcome.noaaReadFailed(false));
+        verify(stateCache, never()).evaluate(any());
+        verifyNoInteractions(locationRepository, evaluationService);
     }
 
     @Test
-    @DisplayName("daylight: an alert already active at this level is SUPPRESSED and not re-scored")
-    void runForecastLookahead_alreadyActive_suppressesWithoutScoring() {
+    @DisplayName("daylight: an alert already active at this level is SUPPRESSED without fetching or re-scoring")
+    void runForecastLookahead_alreadyActive_suppressesWithoutFetchingOrScoring() {
+        // The full snapshot carries the ~900 KB OVATION grid; a SUPPRESS needs none of it.
         when(noaaClient.fetchKpForecast()).thenReturn(List.of(block("2027-01-14T21:00", 5.33)));
-        when(noaaClient.fetchAll()).thenReturn(afterTheStorm(0.0));
+        when(stateCache.wouldNotify(AlertLevel.MODERATE)).thenReturn(false);
         when(stateCache.evaluate(AlertLevel.MODERATE))
                 .thenReturn(evaluation(AuroraStateCache.Action.SUPPRESS, AlertLevel.MODERATE));
 
@@ -615,8 +646,30 @@ class AuroraOrchestratorTest {
                 orchestrator.runForecastLookahead(TONIGHT, utc("2027-01-14T12:00"));
 
         assertThat(outcome.action()).isEqualTo(AuroraStateCache.Action.SUPPRESS);
+        verify(noaaClient, never()).fetchAll();
         verify(stateCache, never()).updateTrigger(any(), anyDouble());
         verifyNoInteractions(locationRepository, evaluationService);
+    }
+
+    @Test
+    @DisplayName("daylight: a NOTIFY the check did not foresee still fetches its snapshot and scores")
+    void runForecastLookahead_notifyTheCheckMissed_stillScores() {
+        // Only a write outside the polling cycle (the admin reset or simulate endpoints) can move the
+        // state between the check and the evaluation. The scoring must not go without its data.
+        SpaceWeatherData scoringData = peakInTheSmallHours(3.0);
+        when(noaaClient.fetchKpForecast()).thenReturn(scoringData.kpForecast());
+        when(stateCache.wouldNotify(AlertLevel.MODERATE)).thenReturn(false);
+        when(stateCache.evaluate(AlertLevel.MODERATE))
+                .thenReturn(evaluation(AuroraStateCache.Action.NOTIFY, AlertLevel.MODERATE));
+        when(noaaClient.fetchAll()).thenReturn(scoringData);
+        scoringReturns(properties.getBortleThreshold().getModerate(), AlertLevel.MODERATE);
+
+        orchestrator.runForecastLookahead(TONIGHT, utc("2027-01-14T12:00"));
+
+        InOrder order = inOrder(noaaClient, stateCache);
+        order.verify(stateCache).evaluate(AlertLevel.MODERATE);
+        order.verify(noaaClient).fetchAll();
+        assertThat(theClaudeTask().spaceWeather()).isSameAs(scoringData);
     }
 
     @Test
@@ -639,6 +692,7 @@ class AuroraOrchestratorTest {
         SpaceWeatherData scoringData = snapshot(List.of(reading("2027-01-14T09:00", 2.00)),
                 List.of(block("2027-01-15T00:00", 8.00)), 0.0);
         when(noaaClient.fetchKpForecast()).thenReturn(scoringData.kpForecast());
+        when(stateCache.wouldNotify(AlertLevel.STRONG)).thenReturn(true);
         when(noaaClient.fetchAll()).thenReturn(scoringData);
         when(stateCache.evaluate(AlertLevel.STRONG))
                 .thenReturn(evaluation(AuroraStateCache.Action.NOTIFY, AlertLevel.STRONG));
@@ -659,12 +713,12 @@ class AuroraOrchestratorTest {
         // MODERATE: the same flap, reversed.
         properties.getTriggers().setKpThreshold(4.5);
         when(noaaClient.fetchKpForecast()).thenReturn(List.of(block("2027-01-14T21:00", 4.67)));
-        when(noaaClient.fetchAll()).thenReturn(afterTheStorm(0.0));
         when(stateCache.evaluate(AlertLevel.MODERATE))
                 .thenReturn(evaluation(AuroraStateCache.Action.SUPPRESS, AlertLevel.MODERATE));
 
         orchestrator.runForecastLookahead(TONIGHT, utc("2027-01-14T12:00"));
 
+        verify(stateCache).wouldNotify(AlertLevel.MODERATE);
         verify(stateCache).evaluate(AlertLevel.MODERATE);
         verifyNoMoreInteractions(stateCache);
     }
@@ -677,7 +731,7 @@ class AuroraOrchestratorTest {
         AuroraPollOutcome outcome =
                 orchestrator.runForecastLookahead(TONIGHT, utc("2027-01-14T12:00"));
 
-        assertThat(outcome).isEqualTo(AuroraPollOutcome.noaaUnavailable(false));
+        assertThat(outcome).isEqualTo(AuroraPollOutcome.noaaReadFailed(false));
         verifyNoInteractions(stateCache);
     }
 

@@ -14,9 +14,9 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class AuroraPollOutcomeTest {
 
     @Test
-    @DisplayName("an unreadable NOAA derives no level, attributes nothing and consults nothing")
-    void noaaUnavailable_hasNoLevelNoTriggerAndNoAction() {
-        AuroraPollOutcome outcome = AuroraPollOutcome.noaaUnavailable(true);
+    @DisplayName("a NOAA read that threw derives no level, attributes nothing and consults nothing")
+    void noaaReadFailed_hasNoLevelNoTriggerAndNoAction() {
+        AuroraPollOutcome outcome = AuroraPollOutcome.noaaReadFailed(true);
 
         assertThat(outcome.dark()).isTrue();
         assertThat(outcome.level()).isNull();

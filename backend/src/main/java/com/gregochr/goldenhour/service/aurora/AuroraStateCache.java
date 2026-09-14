@@ -115,17 +115,10 @@ public class AuroraStateCache {
             return new Evaluation(Action.NONE, null, null);
         }
 
-        // Incoming is AMBER or RED
-        if (state == State.IDLE) {
+        // Incoming is MODERATE or STRONG: a new alert from IDLE, or an escalation
+        if (wouldNotify(incoming)) {
+            AlertLevel prev = state == State.IDLE ? null : currentLevel;
             state = State.ACTIVE;
-            currentLevel = incoming;
-            activeSince = Instant.now();
-            return new Evaluation(Action.NOTIFY, incoming, null);
-        }
-
-        // ACTIVE state — check for escalation
-        if (incoming.severity() > currentLevel.severity()) {
-            AlertLevel prev = currentLevel;
             currentLevel = incoming;
             activeSince = Instant.now();
             return new Evaluation(Action.NOTIFY, incoming, prev);
@@ -133,6 +126,21 @@ public class AuroraStateCache {
 
         // Same level or de-escalation within alertable range
         return new Evaluation(Action.SUPPRESS, currentLevel, null);
+    }
+
+    /**
+     * Whether {@link #evaluate} would answer NOTIFY for {@code incoming} now, without changing any
+     * state. {@code evaluate} decides its own NOTIFY with this method, so the two cannot drift apart.
+     *
+     * <p>A daylight poll asks before evaluating, so it fetches the data a scoring needs only when a
+     * scoring is coming.
+     *
+     * @param incoming the level about to be evaluated
+     * @return {@code true} for a new alert from IDLE or an escalation above the current level
+     */
+    public boolean wouldNotify(AlertLevel incoming) {
+        return incoming.isAlertWorthy()
+                && (state == State.IDLE || incoming.severity() > currentLevel.severity());
     }
 
     /**

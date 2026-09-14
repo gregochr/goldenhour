@@ -207,10 +207,10 @@ class AuroraAdminControllerTest extends AbstractControllerTest {
     }
 
     @Test
-    @DisplayName("POST /api/aurora/admin/run reports an unreadable NOAA as no level, not a quiet night")
+    @DisplayName("POST /api/aurora/admin/run reports a NOAA read that threw as no level, not a quiet night")
     @WithMockUser(roles = {"ADMIN"})
-    void run_admin_noaaUnavailable_reportsNoLevel() throws Exception {
-        when(pollingJob.runCycleIfIdle()).thenReturn(Optional.of(AuroraPollOutcome.noaaUnavailable(true)));
+    void run_admin_noaaReadFailed_reportsNoLevel() throws Exception {
+        when(pollingJob.runCycleIfIdle()).thenReturn(Optional.of(AuroraPollOutcome.noaaReadFailed(true)));
 
         mockMvc.perform(post("/api/aurora/admin/run"))
                 .andExpect(status().isOk())

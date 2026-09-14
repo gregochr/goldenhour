@@ -231,11 +231,11 @@ class AuroraPollingCycleTest {
         List<Transition> transitions = pollEveryFiveMinutes("2027-01-14T09:00", "2027-01-15T11:00");
 
         // The morning's heads-up, held through dusk at 17:25:42 and through the storm; then one CLEAR
-        // at 03:00, when the quiet 00:00-03:00 block becomes the Kp for now. Nothing after, dawn
-        // included.
+        // at 03:20, when the quiet 00:00-03:00 block's reading is out. Until then the storm block's
+        // reading stays the Kp for now. Nothing after, dawn included.
         assertThat(transitions).containsExactly(
                 new Transition("2027-01-14T09:00", "day", AuroraStateCache.Action.NOTIFY),
-                new Transition("2027-01-15T03:00", "night", AuroraStateCache.Action.CLEAR));
+                new Transition("2027-01-15T03:20", "night", AuroraStateCache.Action.CLEAR));
         assertThat(claudeCalls).singleElement()
                 .satisfies(task -> assertThat(task.triggerType())
                         .isEqualTo(TriggerType.FORECAST_LOOKAHEAD));
@@ -254,10 +254,33 @@ class AuroraPollingCycleTest {
 
         List<Transition> transitions = pollEveryFiveMinutes("2027-01-14T09:00", "2027-01-15T11:00");
 
-        // One CLEAR, at 06:00 when the quiet 03:00-06:00 block becomes the Kp for now — before dawn.
+        // One CLEAR, at 06:20 when the quiet 03:00-06:00 block's reading is out — before dawn.
         assertThat(transitions).containsExactly(
                 new Transition("2027-01-14T09:00", "day", AuroraStateCache.Action.NOTIFY),
-                new Transition("2027-01-15T06:00", "night", AuroraStateCache.Action.CLEAR));
+                new Transition("2027-01-15T06:20", "night", AuroraStateCache.Action.CLEAR));
+        assertThat(claudeCalls).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("a block NOAA under-estimated holds the alert until its reading is out — one Claude call")
+    void wholeNight_underEstimatedBlock_holdsUntilItsReadingIsOut() {
+        // Kp 5.33 predicted for 18:00-21:00 raises the morning's heads-up. NOAA has 21:00-24:00 at
+        // Kp 4, but the storm carried on and that block is published at Kp 5.67. From midnight until
+        // the reading lands at 00:20, NOAA's figure for the block is its estimate. Letting the
+        // estimate lower the Kp for now would CLEAR at midnight and NOTIFY again, and pay again, at
+        // 00:20.
+        kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
+        noaa.blocks = kpProduct(2.33, Map.of(
+                "2027-01-14T18:00", 5.33,
+                "2027-01-14T21:00", 4.00));
+        noaa.published = Map.of("2027-01-14T21:00", 5.67);
+
+        List<Transition> transitions = pollEveryFiveMinutes("2027-01-14T09:00", "2027-01-15T11:00");
+
+        // One CLEAR, at 03:20 when the quiet 00:00-03:00 block's reading is out.
+        assertThat(transitions).containsExactly(
+                new Transition("2027-01-14T09:00", "day", AuroraStateCache.Action.NOTIFY),
+                new Transition("2027-01-15T03:20", "night", AuroraStateCache.Action.CLEAR));
         assertThat(claudeCalls).hasSize(1);
     }
 
@@ -394,10 +417,14 @@ class AuroraPollingCycleTest {
     /**
      * NOAA as the client serves it, on the test's clock: the whole Kp product, and the readings that
      * would be published by now — each block's, once {@link #READING_LAG} has passed since it ended.
+     * A block's reading is its product value unless {@link #published} gives it another, as when NOAA
+     * revises an estimate.
      */
     private final class FakeNoaa extends NoaaSwpcClient {
 
         private List<KpForecast> blocks = List.of();
+        /** Published readings that differ from the product, by block start (UTC local date-time). */
+        private Map<String, Double> published = Map.of();
         private double ovation = OVATION_QUIET;
 
         FakeNoaa() {
@@ -414,7 +441,8 @@ class AuroraPollingCycleTest {
             Instant now = clock.instant();
             List<KpReading> readings = blocks.stream()
                     .filter(block -> !block.to().plus(READING_LAG).toInstant().isAfter(now))
-                    .map(block -> new KpReading(block.from(), block.kp()))
+                    .map(block -> new KpReading(block.from(), published.getOrDefault(
+                            block.from().toLocalDateTime().toString(), block.kp())))
                     .toList();
             return new SpaceWeatherData(readings, blocks,
                     new OvationReading(now.atZone(UTC), ovation, 55.0), List.of(), List.of());

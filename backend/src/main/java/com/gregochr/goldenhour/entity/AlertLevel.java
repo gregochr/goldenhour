@@ -92,8 +92,8 @@ public enum AlertLevel {
      *
      * <p>STRONG from Kp 7 whatever the threshold, MODERATE from {@code moderateKp}, MINOR from Kp 4,
      * QUIET below. The result never falls as {@code kp} rises, for any threshold. That is what keeps
-     * the real-time level at or above the forecast lookahead's: the real-time path maps a Kp figure
-     * that is never lower through this same function.
+     * a night poll's level at or above the forecast for the rest of tonight: it maps a Kp figure that
+     * is never lower through this same function.
      *
      * @param kp         Kp index (0–9)
      * @param moderateKp Kp at and above which the level is MODERATE

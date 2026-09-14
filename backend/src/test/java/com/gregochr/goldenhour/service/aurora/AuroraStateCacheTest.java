@@ -408,6 +408,46 @@ class AuroraStateCacheTest {
     }
 
     // -------------------------------------------------------------------------
+    // wouldNotify — evaluate's NOTIFY, asked in advance
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("wouldNotify predicts evaluate's NOTIFY from every state, for every level, and changes nothing")
+    void wouldNotify_matchesEvaluate_andLeavesStateAlone() {
+        // A daylight poll asks this before evaluating, to fetch a scoring's data only when a scoring
+        // is coming. If the two ever disagree, a NOTIFY goes unscored or a SUPPRESS pays for a fetch.
+        for (AlertLevel prior : new AlertLevel[] {null, AlertLevel.MODERATE, AlertLevel.STRONG}) {
+            for (AlertLevel incoming : AlertLevel.values()) {
+                AuroraStateCache fresh = new AuroraStateCache();
+                if (prior != null) {
+                    fresh.evaluate(prior);
+                }
+                boolean activeBefore = fresh.isActive();
+                AlertLevel levelBefore = fresh.getCurrentLevel();
+
+                boolean predicted = fresh.wouldNotify(incoming);
+
+                assertThat(fresh.isActive()).as("asking changed the state").isEqualTo(activeBefore);
+                assertThat(fresh.getCurrentLevel()).as("asking changed the level").isEqualTo(levelBefore);
+                assertThat(predicted)
+                        .as("from %s, %s", prior == null ? "IDLE" : prior, incoming)
+                        .isEqualTo(fresh.evaluate(incoming).action() == AuroraStateCache.Action.NOTIFY);
+            }
+        }
+    }
+
+    @Test
+    @DisplayName("wouldNotify is true for an escalation from a simulation, like evaluate")
+    void wouldNotify_fromASimulation_matchesEvaluate() {
+        cache.activateSimulation(AlertLevel.MODERATE,
+                new AuroraStateCache.SimulatedNoaaData(5.0, 30.0, -5.0, "G1"));
+
+        assertThat(cache.wouldNotify(AlertLevel.MODERATE)).isFalse();
+        assertThat(cache.wouldNotify(AlertLevel.STRONG)).isTrue();
+        assertThat(cache.evaluate(AlertLevel.STRONG).action()).isEqualTo(AuroraStateCache.Action.NOTIFY);
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 

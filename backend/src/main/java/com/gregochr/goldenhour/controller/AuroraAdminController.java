@@ -122,8 +122,9 @@ public class AuroraAdminController {
      * whether or not {@code aurora.enabled} is set, as it always has.
      *
      * @return 200 with the level the cycle derived, the state machine's action and the signal the
-     *         level came from ({@code level} and {@code trigger} null if NOAA could not be read), or
-     *         409 Conflict if a cycle is already running
+     *         level came from, or 409 Conflict if a cycle is already running. {@code level} and
+     *         {@code trigger} are null only if reading NOAA threw; the client fails open, so an
+     *         outage reads as the last data cached, or as quiet on a cold start
      */
     @PostMapping("/run")
     public ResponseEntity<Map<String, Object>> triggerRun() {

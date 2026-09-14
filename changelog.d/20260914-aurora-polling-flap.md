@@ -17,9 +17,9 @@ Every poll then went:
 4. The next poll started from IDLE and paid again.
 
 That is up to about twelve times an hour. Meanwhile `GET /api/aurora/status` almost never showed the
-alert. When the real-time path came out *higher*, one poll NOTIFIED twice and threw the first scoring
-away. NOTIFY never sent email or push; it only scores. This was confirmed in code and by tests that
-replay whole nights, and has not yet been seen in the production logs.
+alert. When the real-time path came out *higher*, the poll that raised the alert NOTIFIED twice and
+threw the first scoring away. NOTIFY never sent email or push; it only scores. This was confirmed in
+code and by tests that replay whole nights; it has not been confirmed in the production logs.
 
 **Every poll now evaluates the state machine at most once.**
 
@@ -32,15 +32,17 @@ replay whole nights, and has not yet been seen in the production logs.
 
 So a heads-up for a small-hours peak now stays up through the evening, and is paid for once.
 
-- **The Kp for now is NOAA's value for the most recently completed block.** That is its published
-  reading once it is out, and the product's value for the block until then. The level therefore
-  moves at block boundaries rather than when a reading happens to land. A reading appears only after
-  its block ends and then sits in the client's 15-minute cache, so without that stand-in the level
-  would dip at the end of an isolated storm block. The running block, whose value is a forecast, is
-  never reported as "now".
-- **One NOAA snapshot and one clock reading per poll.** The daylight poll reads the full snapshot
-  before it evaluates an alert-worthy level, so a failed fetch can no longer leave an ACTIVE alert
-  with no scores. At nautical dawn itself the night is now over, on both of the app's night rules.
+- **The Kp for now is NOAA's figure for the most recently completed block.** Once that block's
+  reading is out, it is the reading. A reading appears only after its block ends and then sits in
+  the client's 15-minute cache, so until it lands the figure is the higher of the latest reading and
+  NOAA's estimate for the block. The estimate may raise it, never lower it. Without the estimate the
+  level would dip at the end of an isolated storm block. If it could lower the figure, a storm NOAA
+  under-estimated would CLEAR until its reading landed, then NOTIFY and pay again. The running block,
+  whose value is a forecast, is never reported as "now".
+- **One NOAA snapshot and one clock reading per poll.** The daylight poll now fetches the full
+  snapshot before the state machine moves, and still only when it is about to NOTIFY
+  (`AuroraStateCache.wouldNotify`), so a fetch that throws can no longer leave an ACTIVE alert with
+  no scores. At nautical dawn itself the night is now over, on both of the app's night rules.
 - **A lowered `aurora.triggers.kp-threshold` now applies in daylight too.** The lookahead used to map
   Kp through a fixed 5, so at 4.5 it would have cleared what the real-time path raised.
 - **`POST /api/aurora/admin/run` now runs the scheduled cycle itself, through the same guard.** It

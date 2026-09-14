@@ -43,15 +43,16 @@ import java.util.Optional;
  * </ul>
  *
  * <p>⚠️ <b>One evaluation per poll, and one reading of tonight.</b> Until 2026-09-14 a night poll
- * evaluated the state machine twice: a forecast lookahead that kept 3-hour blocks already over, then
- * a real-time path that looked only six hours ahead. When the lookahead reached an alert level and
- * the real-time path did not, every poll NOTIFIED, paid for triage and a Claude call, then CLEARED
- * the scores it had just bought, and the next poll started from IDLE and paid again. When the
- * real-time path came out higher, one poll NOTIFIED twice and threw the first scoring away. Now the
- * forecast term is {@link #maxKpRestOfTonight} everywhere, a night poll's level is never below it
- * (so the evening keeps a heads-up for a small-hours peak), and nothing evaluates twice. Do not
- * split the night poll back into two evaluations, and do not give anything its own horizon.
- * {@code AuroraPollingCycleTest} replays whole nights.
+ * could evaluate the state machine twice: a forecast lookahead that counted 3-hour blocks already
+ * over, then a real-time path that looked only six hours ahead. When the lookahead reached an alert
+ * level and the real-time path did not, every poll NOTIFIED, paid for triage and (with a clear
+ * location) a Claude call, then CLEARED the scores it had just bought, and the next poll started
+ * from IDLE and paid again. From IDLE, a real-time level above an alert-worthy lookahead's NOTIFIED
+ * twice in one poll. Now both polls read the forecast through {@link #maxKpRestOfTonight}, a night
+ * poll's level is never below it (so the evening keeps a heads-up for a small-hours peak), and
+ * nothing evaluates twice. Do not split the night poll back into two evaluations, and do not give
+ * either poll a horizon of its own — {@link #deriveAlertLevel}, the paused batch job's rule, is the
+ * one deliberate exception. {@code AuroraPollingCycleTest} replays whole nights.
  *
  * <p>On any NOTIFY the pipeline filters locations by Bortle class, triages them by cloud cover, calls
  * Claude once for all viable locations, gives overcast-rejected locations 1★, and caches everything
@@ -113,12 +114,13 @@ public class AuroraOrchestrator {
      *
      * <p>Reads NOAA's Kp forecast and takes {@link #maxKpRestOfTonight}. Below MODERATE it leaves the
      * state machine alone, so a daylight poll only ever raises an alert, never clears one. At MODERATE
-     * or above it reads the full NOAA snapshot <em>before</em> evaluating, so a NOTIFY always has the
-     * data to score with, then evaluates once and on NOTIFY scores with
-     * {@link TriggerType#FORECAST_LOOKAHEAD}, so Claude writes for planning.
+     * or above it evaluates once, and on NOTIFY scores with {@link TriggerType#FORECAST_LOOKAHEAD}, so
+     * Claude writes for planning. The full NOAA snapshot a scoring needs (the ~900 KB OVATION grid
+     * among it) is fetched only when {@link AuroraStateCache#wouldNotify} says a scoring is coming,
+     * and before the state machine moves, never on a SUPPRESS.
      *
-     * <p>Package-private: {@link AuroraPollingJob#runCycleIfIdle()} is the only way in, so that no two
-     * cycles can evaluate the state machine at once.
+     * <p>Package-private, so nothing outside the aurora package can reach it; inside, only
+     * {@link AuroraPollingJob}'s guarded cycle calls it, so no two cycles evaluate at once.
      *
      * @param tonight tonight's dark window, from nautical dusk to nautical dawn
      * @param now     the instant of this poll
@@ -131,7 +133,7 @@ public class AuroraOrchestrator {
         } catch (Exception e) {
             LOG.warn("NOAA Kp forecast fetch failed — skipping forecast lookahead: {}",
                     e.getMessage());
-            return AuroraPollOutcome.noaaUnavailable(false);
+            return AuroraPollOutcome.noaaReadFailed(false);
         }
 
         double restOfTonight = maxKpRestOfTonight(forecast, tonight, now);
@@ -143,19 +145,24 @@ public class AuroraOrchestrator {
                     TriggerType.FORECAST_LOOKAHEAD);
         }
 
-        SpaceWeatherData snapshot;
-        try {
-            snapshot = noaaClient.fetchAll();
-        } catch (Exception e) {
-            LOG.warn("NOAA fetch failed — skipping forecast lookahead: {}", e.getMessage());
-            return AuroraPollOutcome.noaaUnavailable(false);
+        SpaceWeatherData snapshot = null;
+        if (stateCache.wouldNotify(level)) {
+            try {
+                snapshot = noaaClient.fetchAll();
+            } catch (Exception e) {
+                LOG.warn("NOAA fetch failed — skipping forecast lookahead: {}", e.getMessage());
+                return AuroraPollOutcome.noaaReadFailed(false);
+            }
         }
 
         AuroraStateCache.Evaluation eval = stateCache.evaluate(level);
         LOG.info("Forecast lookahead: maxKp={} level={} action={}", restOfTonight, level,
                 eval.action());
         if (eval.action() == AuroraStateCache.Action.NOTIFY) {
-            scoreAndCache(level, snapshot, TriggerType.FORECAST_LOOKAHEAD, tonight, restOfTonight);
+            // No snapshot here only if a write outside the polling cycle (the admin reset or
+            // simulate endpoints) moved the state between the check and the evaluation.
+            SpaceWeatherData scoringData = snapshot != null ? snapshot : noaaClient.fetchAll();
+            scoreAndCache(level, scoringData, TriggerType.FORECAST_LOOKAHEAD, tonight, restOfTonight);
         }
         return new AuroraPollOutcome(false, level, eval.action(), TriggerType.FORECAST_LOOKAHEAD);
     }
@@ -168,9 +175,9 @@ public class AuroraOrchestrator {
      * writes for planning about tonight's window. Only when the conditions now go beyond the forecast
      * is it {@link TriggerType#REALTIME}, and Claude writes for acting now.
      *
-     * <p>A failed snapshot fetch skips the poll. {@link NoaaSwpcClient} fails open (an outage serves
-     * the last cached data, or empty data), so that is a guard against the unexpected rather than
-     * the outage path.
+     * <p>A snapshot fetch that throws skips the poll. {@link NoaaSwpcClient} fails open, so that is a
+     * guard against the unexpected, not the outage path: in an outage the client serves the last data
+     * it cached, or empty data on a cold start, and the poll evaluates that — on empty data, as quiet.
      *
      * <p>Package-private for the same reason as {@link #runForecastLookahead}.
      *
@@ -184,7 +191,7 @@ public class AuroraOrchestrator {
             snapshot = noaaClient.fetchAll();
         } catch (Exception e) {
             LOG.warn("NOAA fetch failed — skipping aurora cycle: {}", e.getMessage());
-            return AuroraPollOutcome.noaaUnavailable(true);
+            return AuroraPollOutcome.noaaReadFailed(true);
         }
 
         double restOfTonight = maxKpRestOfTonight(snapshot.kpForecast(), tonight, now);
@@ -215,9 +222,10 @@ public class AuroraOrchestrator {
      * highest forecast Kp starting within the next {@code aurora.triggers.kp-forecast-lookahead-hours},
      * and the OVATION nowcast — read at this orchestrator's clock. It keeps that fixed horizon because
      * the batch runs on a cron with no dark window of its own, so it can disagree with the polling
-     * rule about blocks after dawn. It never reaches the state machine's {@code evaluate}, but its
-     * results do reach the cached scores: {@code AuroraResultHandler} writes them whatever the state
-     * machine's state. The job is seeded PAUSED; un-pausing it would need that reconciled.
+     * rule about blocks after dawn. It never reaches the state machine's {@code evaluate}, but the
+     * batch it gates does reach the cached scores: {@code AuroraResultHandler} writes the batch's
+     * results whatever the state machine's state. The job is seeded PAUSED; un-pausing it would need
+     * that reconciled.
      *
      * @param data live NOAA SWPC data
      * @return the derived {@link AlertLevel}
@@ -290,16 +298,19 @@ public class AuroraOrchestrator {
     }
 
     /**
-     * The Kp for now: NOAA's value for the most recently completed 3-hour block. That is its
-     * published reading once it is out, and the Kp product's value for the block until then.
+     * The Kp for now: NOAA's figure for the most recently completed 3-hour block. Once that block's
+     * reading is published, it is the reading. Until then it is the higher of the latest published
+     * reading (the block before, as a rule) and the Kp product's value for the block.
      *
-     * <p>⚠️ <b>The stand-in is what keeps this continuous.</b> A block's reading is published only
-     * after the block ends, and the client caches readings for 15 minutes, so for a poll or more
-     * after every block boundary the latest reading still describes the block before. The product
-     * has a row for every block, past ones included, so its value for the block that has just ended
-     * stands in until that block's own reading lands. Without it the level would dip at the end of
-     * an isolated storm block: one poll would CLEAR, and a later one would NOTIFY again, and pay
-     * again, when the reading landed.
+     * <p>⚠️ <b>The product's value may raise the Kp for now, never lower it.</b> A block's reading is
+     * published only after the block ends, and the client caches readings for 15 minutes, so for a
+     * poll or more after every boundary the latest reading still describes the block before. The
+     * product has a row for every block, but for the block that has just ended that row is NOAA's
+     * estimate, and the reading can revise it (09:00-12:00 on 2026-09-14 ran estimated at 3.0 and
+     * was published at 2.0). Letting the estimate raise the figure keeps the level up when an
+     * isolated storm block ends before its reading is out. Letting it lower the figure would drop a
+     * storm NOAA under-forecast for those minutes: one poll would CLEAR, and a later one would NOTIFY
+     * again, and pay again, when the reading landed. Only the block's own reading can lower it.
      *
      * <p>The block still running is not "now": its value is NOAA's estimate or prediction, and it
      * already counts in {@link #maxKpRestOfTonight}. With no completed block in the product at all,
@@ -310,19 +321,20 @@ public class AuroraOrchestrator {
      * @return the Kp for now, or 0 if NOAA gave nothing
      */
     static double currentKp(SpaceWeatherData data, ZonedDateTime now) {
+        double latestReading = latestKp(data);
         Optional<KpForecast> lastCompleted = data.kpForecast().stream()
                 .filter(f -> !f.to().isAfter(now)
                         && f.to().plus(Duration.between(f.from(), f.to())).isAfter(now))
                 .max(Comparator.comparing(KpForecast::to));
         if (lastCompleted.isEmpty()) {
-            return latestKp(data);
+            return latestReading;
         }
         KpForecast block = lastCompleted.get();
         return data.recentKp().stream()
                 .filter(reading -> reading.timestamp().isEqual(block.from()))
                 .reduce((earlier, later) -> later)
                 .map(KpReading::kp)
-                .orElse(block.kp());
+                .orElseGet(() -> Math.max(latestReading, block.kp()));
     }
 
     private AlertLevel raisedByOvation(SpaceWeatherData data, AlertLevel byKp) {

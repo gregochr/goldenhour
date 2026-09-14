@@ -38,7 +38,8 @@ export async function enrichBortle() {
  *
  * @returns {Promise<object>} { status, dark, level, action, trigger } — the level the
  *   cycle derived, the state machine's action, and the signal the level came from
- *   (`level` and `trigger` are null if NOAA could not be read)
+ *   (`level` and `trigger` are null only if reading NOAA threw; an outage usually
+ *   reads as the last data cached, or as quiet)
  */
 export async function triggerAuroraRun() {
   const response = await apiClient.post(`${BASE_URL}/admin/run`);
