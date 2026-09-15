@@ -724,6 +724,12 @@ three surfaces). Browser-verify the strip and panels (desktop + 390px).
   `homeCoords`/`mapColourScale`) — do not extend it, and do not prop-drill. Expose a
   `setComingUpLastSeenAt` beside `setOrigin` for Mark seen's optimistic clear —
   `homeSettingsVersion` only bumps when the settings modal closes and cannot serve it.
+  ⚠️ **Superseded 2026-09-15 (PR #842):** the page now reads `GET /api/user/settings` once, in
+  `App`'s `useReaderSettings`, which hands `comingUpLastSeenDate` and `setComingUpLastSeenAt` to the
+  provider as props. The provider's read and `App`'s became one because two reads of one endpoint
+  split the tick line's home from the map's. The bootstrap still fires only on `null`; the settings
+  dialog's read now fills the date only while it is unknown, so a read made before `Mark seen`
+  landed cannot bring an older date, and the badge, back.
 - **Derivation** per D3/D12: `isNew` by ISO-date string compare; badge from new `ALMANAC` entries
   clearing the served `bands` (lower-inclusive). **Census first** (D4): a synthetic-year fixture
   counts announced/interrupt arrivals across the assembled feed; set the shipped band edges from

@@ -23,9 +23,14 @@ const ROLE_LABELS = {
 const DEFAULT_RADIUS_MILES = 22;
 
 export default function UserSettingsModal({
-  onClose, onDriveTimesRefreshed, focusField = null,
+  onClose, onDriveTimesRefreshed, startSettingsRead, onHomeSaved, onDriveTimesRecalculated,
+  onColourSaved, focusField = null,
 }) {
   const [settings, setSettings] = useState(null);
+  // The read on opening starts through the newest callback without the read re-running when the
+  // callback's identity changes — it is made once, from a mount effect.
+  const startSettingsReadRef = useRef(startSettingsRead);
+  useEffect(() => { startSettingsReadRef.current = startSettingsRead; }, [startSettingsRead]);
   // Focused once settings have loaded, not on mount: the input is disabled for a LITE user and
   // the section only becomes meaningful with the payload in hand.
   const postcodeRef = useRef(null);
@@ -41,7 +46,7 @@ export default function UserSettingsModal({
   const [radiusError, setRadiusError] = useState(false);
   const [radiusChosen, setRadiusChosen] = useState(false);
   // `resolveMode(undefined)` — i.e. `DEFAULT_MODE` — until settings load, for the same reason
-  // `App.jsx`'s `mapColourScale` state seeds from `getMode()`: before the fetch resolves, "not
+  // `useReaderSettings`' `mapColourScale` state seeds from `getMode()`: before the fetch resolves, "not
   // loaded yet" and "loaded and genuinely never chosen" read the same way, and both now mean
   // `'temp'`. Calling through `resolveMode` rather than hardcoding the literal is what keeps this
   // radio and the map it sits beside from ever being seeded to two different defaults again.
@@ -64,6 +69,9 @@ export default function UserSettingsModal({
   const [now, setNow] = useState(null);
 
   const fetchSettings = useCallback(async () => {
+    // Numbered by the page as it is ASKED, so an answer that lands after a newer one — this
+    // dialog closed before it answered, then reopened and saved in — is dropped there.
+    const report = startSettingsReadRef.current?.();
     try {
       const data = await getSettings();
       setSettings(data);
@@ -78,6 +86,10 @@ export default function UserSettingsModal({
       if (data.driveTimesCalculatedAt && data.homePostcode) {
         setDriveTimesPostcode(data.homePostcode);
       }
+      // A fresh read of the server, and how a home or its drive times changed elsewhere reach the
+      // page. Nothing in THIS opening of the dialog can be saved until it has landed — the form is
+      // not drawn before — but a save from an earlier opening can be, which is why it is numbered.
+      report?.(data);
     } catch {
       // Settings fetch failed — modal will show skeleton state
     } finally {
@@ -132,8 +144,14 @@ export default function UserSettingsModal({
       // deciding what the default means.
       const updated = await saveHome(lookupResult.postcode, lookupResult.latitude,
         lookupResult.longitude, radiusChosen ? radius : null);
-      setSettings(updated);
+      // The save does not geocode, so its response names no place; the lookup it saved does, from
+      // the same postcodes.io answer the settings read would give.
+      const saved = { ...updated, homePlaceName: updated?.homePlaceName ?? lookupResult.placeName ?? null };
+      setSettings(saved);
       setLookupResult(null);
+      // Reported from here, not from the close: this continuation runs even if the dialog was
+      // closed while the save was in flight, so a save that lands late still reaches the page.
+      onHomeSaved?.(saved);
     } catch {
       // Save failed — leave lookup result visible for retry
     } finally {
@@ -177,9 +195,10 @@ export default function UserSettingsModal({
    * Persists the map colour preferences. Both fields are sent together — the endpoint has no
    * partial-update idiom, unlike `saveHome`'s radius, because nothing else shares this request.
    *
-   * <p>Does not call `scoreRamp.setMode` itself. `App.jsx`'s `loadHomeCoords` re-fetches settings
-   * and wires `setMode` from the result when this modal closes — the one place the loaded setting
-   * reaches the ramp, so Plan and Map can never disagree.
+   * <p>Does not call `scoreRamp.setMode` itself. It reports the saved scale (`onColourSaved`), from
+   * the save's own response, and `App`'s `useReaderSettings` wires `setMode` from it — the one place
+   * a settings answer reaches the ramp, so Plan and Map can never disagree. Nothing is read again
+   * after the save, so there is no second request to fail and leave the ramp on the old scale.
    */
   const handleMapColourChange = async (nextScale) => {
     setMapColourScale(nextScale);
@@ -189,6 +208,10 @@ export default function UserSettingsModal({
       const updated = await saveMapColourPreferences(nextScale);
       setSettings((prev) => ({ ...prev, ...updated, homePlaceName: updated?.homePlaceName
         ?? prev?.homePlaceName }));
+      // From the save's own continuation, as a saved home is: a save that lands after the dialog
+      // has closed still reports. Only the scale — the response's home fields are left out, so a
+      // colour save can never stand in for an answer about the home.
+      onColourSaved?.(updated?.mapColourScale ?? nextScale);
     } catch {
       setColourError(true);
     } finally {
@@ -206,6 +229,9 @@ export default function UserSettingsModal({
       setSettings((prev) => prev ? { ...prev, driveTimesCalculatedAt: result.calculatedAt } : prev);
       setDriveTimesPostcode(settings?.homePostcode ?? null);
       onDriveTimesRefreshed?.();
+      // The stamp alone. The server measured from the home it has stored, and `settings` here is
+      // this render's copy, which a postcode save landing under the spinner has already overtaken.
+      onDriveTimesRecalculated?.(result.calculatedAt);
     } catch (err) {
       const status = err?.response?.status;
       if (status === 429) {
@@ -361,10 +387,11 @@ export default function UserSettingsModal({
                 </div>
               )}
 
-              {/* Local radius — directly beneath the postcode it is measured from, and still Pro:
-                  it frames the map's "centre on home" control (App.jsx), which shows the area this
-                  user calls local. It carries its own greying now that the section around it is
-                  open, per the role-gating pattern. */}
+              {/* Local radius — directly beneath the postcode it is measured from, and still Pro.
+                  Nothing on the page reads it now: the map's ⌂ used to frame this radius, until
+                  map-tab-v2 P11 made the ⌂ a scope reset; the server's Close to home endpoint
+                  still does. It carries its own greying now that the section around it is open,
+                  per the role-gating pattern. */}
               <div
                 className={`mt-4${!isPro ? ' opacity-45 pointer-events-none' : ''}`}
                 data-testid="settings-local-radius"
@@ -514,6 +541,26 @@ export default function UserSettingsModal({
 UserSettingsModal.propTypes = {
   onClose: PropTypes.func.isRequired,
   onDriveTimesRefreshed: PropTypes.func,
+  /**
+   * Called as the dialog's own read of `GET /api/user/settings` starts, once per opening; it
+   * returns the function the read's answer is reported through when it lands. `App`'s
+   * `useReaderSettings` numbers the read by when it was asked and drops its answer if a newer one
+   * has been applied by then; otherwise a home, or its drive times, changed elsewhere — on another
+   * device, by the nightly drive-time job, or by a save whose response was lost — reach the page
+   * here, and only a real change moves anything.
+   */
+  startSettingsRead: PropTypes.func,
+  /**
+   * Called with the settings a successful postcode save leaves — its response, carrying the
+   * lookup's place name the save itself does not resolve. Not on a close, a failed save, a radius
+   * save (which nothing on the page reads) or a colour save. `useReaderSettings` compares it with
+   * its record, so re-saving the same postcode moves nothing.
+   */
+  onHomeSaved: PropTypes.func,
+  /** Called with a successful drive-time recalculation's new stamp, and at no other time. */
+  onDriveTimesRecalculated: PropTypes.func,
+  /** Called with the saved scale, from a successful map-colour save's own response, and at no other time. */
+  onColourSaved: PropTypes.func,
   /** Field to focus once settings load — `'postcode'`, or null to open normally. */
   focusField: PropTypes.oneOf(['postcode']),
 };

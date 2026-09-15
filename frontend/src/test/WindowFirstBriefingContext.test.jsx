@@ -1008,74 +1008,62 @@ describe('WindowFirstBriefingProvider', () => {
     });
   });
 
-  describe('the home the reach figures are measured from', () => {
-    it('prefers the resolved place name, which is what the design\'s slot reads', async () => {
+  describe('the home the reach figures are measured from — handed down from App\'s record', () => {
+    // The provider used to read `GET /api/user/settings` for this itself, beside App's own read of
+    // the same endpoint for the map's home. Both now come from `useReaderSettings`, App's one record
+    // of the reader's settings (`App.test.jsx`); the provider passes them through.
+
+    it('passes the home it is handed through, with all three states intact', async () => {
+      // `undefined` is "not known" and `null` is "no postcode": the tick line tells a reader with
+      // null to set one, which an unanswered read is no evidence for.
       getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
-      getSettings.mockResolvedValue({ homePostcode: 'NE61 1AA', homePlaceName: 'Morpeth' });
-      renderProvider();
-
-      await act(async () => {});
-      expect(screen.getByTestId('home-place')).toHaveTextContent('Morpeth');
-    });
-
-    it('falls back to the postcode when the lookup resolved no place name', async () => {
-      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
-      getSettings.mockResolvedValue({ homePostcode: 'NE61 1AA', homePlaceName: null });
-      renderProvider();
-
-      await act(async () => {});
-      expect(screen.getByTestId('home-place')).toHaveTextContent('NE61 1AA');
-    });
-
-    it('says "no home" only on a response that actually said so', async () => {
-      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
-      getSettings.mockResolvedValue({ homePostcode: null, homePlaceName: null });
-      renderProvider();
-
-      await act(async () => {});
-      expect(screen.getByTestId('home-place')).toHaveTextContent('null');
-    });
-
-    it('stays unknown when the settings request fails, rather than claiming no home', async () => {
-      // Plan §2.5 refuses a second source of truth for this, so a dropped request has no other
-      // answer to fall back on — and "Home not set" shown to a user who set one is a false claim
-      // where silence costs nothing.
-      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
-      getSettings.mockRejectedValue(new Error('nope'));
-      renderProvider();
-
+      const { rerender } = render(<WindowFirstBriefingProvider><Consumer /></WindowFirstBriefingProvider>);
       await act(async () => {});
       expect(screen.getByTestId('home-place')).toHaveTextContent('unknown');
-    });
 
-    it('never rides the briefing payload, which is ETag-revalidated', async () => {
-      // Plan §2.2. The postcode is per-user data and the briefing body is persisted to a browser
-      // HTTP cache JavaScript cannot evict on logout.
-      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
-      getSettings.mockResolvedValue({ homePostcode: 'NE61 1AA', homePlaceName: 'Morpeth' });
-      renderProvider();
-
-      await act(async () => {});
-      expect(getSettings).toHaveBeenCalledTimes(1);
-      expect(localStorage.getItem(storageKey(CACHE_KEY))).not.toMatch(/Morpeth|NE61/);
-    });
-
-    it('refetches when the user saves a home, without a page reload', async () => {
-      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
-      getSettings.mockResolvedValue({ homePostcode: null, homePlaceName: null });
-      const { rerender } = render(
-        <WindowFirstBriefingProvider homeSettingsVersion={0}><Consumer /></WindowFirstBriefingProvider>,
-      );
-      await act(async () => {});
+      rerender(<WindowFirstBriefingProvider homePlace={null}><Consumer /></WindowFirstBriefingProvider>);
       expect(screen.getByTestId('home-place')).toHaveTextContent('null');
 
-      getSettings.mockResolvedValue({ homePostcode: 'NE61 1AA', homePlaceName: 'Morpeth' });
-      rerender(
-        <WindowFirstBriefingProvider homeSettingsVersion={1}><Consumer /></WindowFirstBriefingProvider>,
+      rerender(<WindowFirstBriefingProvider homePlace="Morpeth"><Consumer /></WindowFirstBriefingProvider>);
+      expect(screen.getByTestId('home-place')).toHaveTextContent('Morpeth');
+    });
+
+    it('passes the Coming up latch through, and hands its writes back to the record', async () => {
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
+      const setComingUpLastSeenAt = vi.fn();
+      // What the shell's `Mark seen` does with the context: reads the latch, writes a date back.
+      function LatchConsumer() {
+        const { comingUpLastSeenDate, setComingUpLastSeenAt: markSeen } = useWindowFirstBriefing();
+        return (
+          <button type="button" onClick={() => markSeen('2026-09-15')}>
+            {`seen ${comingUpLastSeenDate}`}
+          </button>
+        );
+      }
+      render(
+        <WindowFirstBriefingProvider
+          comingUpLastSeenDate="2026-09-10"
+          setComingUpLastSeenAt={setComingUpLastSeenAt}
+        >
+          <LatchConsumer />
+        </WindowFirstBriefingProvider>,
       );
       await act(async () => {});
 
-      expect(screen.getByTestId('home-place')).toHaveTextContent('Morpeth');
+      fireEvent.click(screen.getByRole('button', { name: 'seen 2026-09-10' }));
+      expect(setComingUpLastSeenAt).toHaveBeenCalledWith('2026-09-15');
+    });
+
+    it('reads no settings of its own, and never puts the home on the briefing payload', async () => {
+      // Plan §2.2. The home is per-user data and the briefing body is persisted to a browser HTTP
+      // cache JavaScript cannot evict on logout.
+      getDailyBriefing.mockResolvedValue(payloadFor(TODAY));
+      render(<WindowFirstBriefingProvider homePlace="Morpeth"><Consumer /></WindowFirstBriefingProvider>);
+
+      await act(async () => {});
+      expect(screen.getByTestId('home-place')).toHaveTextContent('Morpeth'); // control
+      expect(getSettings).not.toHaveBeenCalled();
+      expect(localStorage.getItem(storageKey(CACHE_KEY))).not.toMatch(/Morpeth/);
     });
   });
 

@@ -9,8 +9,6 @@ import AuroraBanner from './components/AuroraBanner.jsx';
 import NlcSightingBanner from './components/NlcSightingBanner.jsx';
 import HealthIndicator from './components/HealthIndicator.jsx';
 import UserSettingsModal from './components/UserSettingsModal.jsx';
-import { getSettings } from './api/settingsApi.js';
-import { setMode, getMode, resolveMode } from './utils/scoreRamp.js';
 import { AuthProvider, useAuth } from './context/AuthContext.jsx';
 import { AuroraStatusProvider } from './context/AuroraStatusContext.jsx';
 import { useAuroraStatus } from './hooks/useAuroraStatus.js';
@@ -20,6 +18,7 @@ import { useHealthStatus } from './hooks/useHealthStatus.js';
 import { useRunNotifications } from './hooks/useRunNotifications.js';
 import useAfterFirstPaint from './hooks/useAfterFirstPaint.js';
 import useTodaysLight from './hooks/useTodaysLight.js';
+import useReaderSettings from './hooks/useReaderSettings.js';
 import WindowFirstShell from './components/WindowFirstShell.jsx';
 import PlanErrorBoundary from './components/PlanErrorBoundary.jsx';
 import { WindowFirstBriefingProvider } from './context/WindowFirstBriefingContext.jsx';
@@ -147,62 +146,32 @@ function AppInner() {
   const [seasonalFeatures, setSeasonalFeatures] = useState([]);
   const handleSeasonalFeaturesChange = useCallback((features) => setSeasonalFeatures(features), []);
 
-  /**
-   * Home coordinates resolved from the user's saved postcode — the same pipeline that already
-   * backs the per-location drive times, reused to gate the Plan tab's "Close to home" block by
-   * distance. No new setting and no new endpoint: null simply means no postcode is saved yet, and
-   * the block hides itself. Re-read when the settings modal closes, so adding or moving a home
-   * postcode takes effect without a page reload.
-   */
-  const [homeCoords, setHomeCoords] = useState(null);
-  // The active scoreRamp mode, mirrored into state and handed to the Map pane as a genuine prop.
-  // `MapView` is `React.memo`'d and this pane's mount is never unmounted, so a mode switch made
-  // in Settings needs a real prop change to reach an already-alive instance — `setMode` alone only
-  // updates module state nothing here is subscribed to. Read back via `getMode()` rather than
-  // duplicating its 'temp'-or-'verdict' resolution rule.
-  const [mapColourScale, setMapColourScale] = useState(getMode());
-  // Whether the loaded `mapColourScale` was raw-null — never explicitly chosen, so this reader's
-  // map just changed colour under them rather than reflecting a preference they picked themselves.
-  // The one thing the Map tab's one-time notice needs and `mapColourScale` above cannot answer:
-  // that mirrors the RESOLVED mode, and null resolves to the same `'temp'` an explicit choice does.
-  const [colourScaleDefaulted, setColourScaleDefaulted] = useState(false);
   // Non-null when the settings dialog was opened to land on a particular field — currently only
   // the map control's "you have no postcode" branch, which exists to point at exactly that input.
   const [settingsFocus, setSettingsFocus] = useState(null);
-  // Bumped when the settings modal closes, so Close to home refetches after a postcode or radius
-  // change. A counter rather than the values themselves: the panel depends on server-side state
-  // this component never sees.
-  const [homeSettingsVersion, setHomeSettingsVersion] = useState(0);
+  /**
+   * The one record of the reader's own settings: the home — for the tick line (through the Plan
+   * provider), the map's HOME marker, reach rings and ⌂ control, and the Plan tab's home dot — the
+   * Coming up last-seen date, and the map-colour preference, which the hook hands to `scoreRamp`.
+   * Read once on mount and kept current by the settings dialog's own answers, never by a read of
+   * its own. With it, the two counters the reads derived from the home key on: each moves only
+   * when an answer changes what it counts — the home, or its drive times — so the reads keyed on
+   * them can drop a request a newer move supersedes. A counter rather than the values themselves:
+   * its readers depend on server-side state this component never sees. See the hook.
+   */
+  const {
+    homePlace, homeCoords, comingUpLastSeenDate, setComingUpLastSeenDate,
+    homeSettingsVersion, driveTimesVersion, mapColourScale, colourScaleDefaulted,
+    startSettingsRead, homeSaved, driveTimesRecalculated, colourSaved,
+  } = useReaderSettings();
   /**
    * Today's light at the reader's home, for the window-first masthead's light rule.
    *
-   * <p>Resolved here rather than inside the shell so the shell stays a render layer.
-   * `homeSettingsVersion` is the same counter Close to home already refetches on, so saving a
-   * postcode lights the rule without a reload.
+   * <p>Resolved here rather than inside the shell so the shell stays a render layer. Keyed on the
+   * home counter alone — a drive-time recalculation cannot change the light — so saving a postcode
+   * lights the rule without a reload.
    */
   const todaysLight = useTodaysLight(homeSettingsVersion);
-
-  const loadHomeCoords = useCallback(() => {
-    getSettings()
-      .then((s) => {
-        setHomeCoords(
-          s?.homeLatitude != null && s?.homeLongitude != null
-            ? { lat: s.homeLatitude, lon: s.homeLongitude }
-            : null,
-        );
-        // The one place the loaded preference reaches the ramp, so Plan and Map can never
-        // disagree about what a colour means (heat-scale-unification-plan.md, rule 1).
-        // `resolveMode` — not a raw pass to `setMode` — is what makes a never-chosen `null`
-        // resolve to `DEFAULT_MODE` rather than to `setMode`'s own `'verdict'` fallback.
-        setMode(resolveMode(s?.mapColourScale));
-        // Mirrored into state so the Map pane's `React.memo` actually sees the change — see the
-        // declaration above.
-        setMapColourScale(getMode());
-        setColourScaleDefaulted(s?.mapColourScale == null);
-      })
-      .catch(() => { /* settings are optional — the block just stays hidden */ });
-  }, []);
-  useEffect(() => { loadHomeCoords(); }, [loadHomeCoords]);
 
   const [selectedDate, setSelectedDate] = useState(null);
   /**
@@ -596,6 +565,10 @@ function AppInner() {
               join once for the strip, the row maps and the Map tab rather than three times. */}
           <WindowFirstBriefingProvider
             homeSettingsVersion={homeSettingsVersion}
+            driveTimesVersion={driveTimesVersion}
+            homePlace={homePlace}
+            comingUpLastSeenDate={comingUpLastSeenDate}
+            setComingUpLastSeenAt={setComingUpLastSeenDate}
             locations={visibleLocations}
           >
             <WindowFirstShell
@@ -722,12 +695,16 @@ function AppInner() {
           onClose={() => {
             setShowSettings(false);
             setSettingsFocus(null);
-            loadHomeCoords();
-            // Close to home is derived from the home postcode AND the local radius, both editable
-            // in this modal, so bump a version the panel can depend on. Without it a widened
-            // radius appeared to do nothing until a full page reload.
-            setHomeSettingsVersion((v) => v + 1);
           }}
+          // After mount the page hears of changes to the reader's home and colour only from the
+          // dialog's answers — its own read on opening, a saved home, a recalculation, a saved
+          // colour — and nothing moves on a close. Each save reports from its own continuation,
+          // so one still in flight when the dialog closes reports when it lands. See
+          // `useReaderSettings`.
+          startSettingsRead={startSettingsRead}
+          onHomeSaved={homeSaved}
+          onDriveTimesRecalculated={driveTimesRecalculated}
+          onColourSaved={colourSaved}
           onDriveTimesRefreshed={refresh}
         />
       )}

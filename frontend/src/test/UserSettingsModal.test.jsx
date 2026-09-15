@@ -1,6 +1,8 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import {
+  act, render, screen, fireEvent, waitFor,
+} from '@testing-library/react';
 import UserSettingsModal from '../components/UserSettingsModal.jsx';
 
 vi.mock('../api/settingsApi', () => ({
@@ -40,6 +42,22 @@ const LITE_WITH_HOME = {
   homePostcode: 'SW1A 1AA',
   homePlaceName: 'Westminster',
 };
+
+/** A request the test settles by hand, so a negative can wait for it to have landed. */
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+
+/**
+ * Settles a hand-held save inside an AWAITED act, so its continuation — the only place the
+ * dialog reports a save — has run before a "not reported" assertion reads the spy.
+ */
+async function land(settle) {
+  await act(async () => { settle(); });
+}
 
 function renderModal(props = {}) {
   const onClose = vi.fn();
@@ -559,5 +577,364 @@ describe('UserSettingsModal', () => {
     fireEvent.click(screen.getByTestId('settings-map-colour-temp'));
 
     await waitFor(() => expect(screen.getByTestId('settings-colour-error')).toBeInTheDocument());
+  });
+
+  // ---------------------------------------------------------------------------
+  // The dialog's answers: how the page hears of the reader's settings after mount
+  //
+  // `App`'s `useReaderSettings` reads the settings once, on mount, and after that takes what this
+  // dialog reports: its own read on opening (`startSettingsRead`, which numbers the read as it is
+  // asked and returns what its answer is reported through), a saved postcode (`onHomeSaved`), a
+  // recalculation's new stamp (`onDriveTimesRecalculated`) and a saved colour (`onColourSaved`). It
+  // compares each with its record and moves a counter only on a real change. So each report must
+  // carry the server's answer, arrive when that answer lands rather than when a button is pressed,
+  // and not arrive at all for a close or a failed save.
+  // ---------------------------------------------------------------------------
+
+  const LOOKUP_MORPETH = {
+    postcode: 'NE61 1AA', placeName: 'Morpeth', latitude: 55.17, longitude: -1.69,
+  };
+  /** A saved home with coordinates, which the radius slider needs before it will save. */
+  const PRO_WITH_COORDS = {
+    ...PRO_SETTINGS, homeLatitude: 55.95, homeLongitude: -3.19, localRadiusMiles: 22,
+  };
+
+  /** Renders the dialog with every report spied on; `reportRead` is what the read reports through. */
+  function renderReporting() {
+    const reportRead = vi.fn();
+    const startSettingsRead = vi.fn(() => reportRead);
+    const onHomeSaved = vi.fn();
+    const onDriveTimesRecalculated = vi.fn();
+    const onColourSaved = vi.fn();
+    return {
+      ...renderModal({
+        startSettingsRead, onHomeSaved, onDriveTimesRecalculated, onColourSaved,
+      }),
+      startSettingsRead,
+      reportRead,
+      onHomeSaved,
+      onDriveTimesRecalculated,
+      onColourSaved,
+    };
+  }
+
+  /** Looks a postcode up and presses Save — the dialog's one home-save path. */
+  async function saveNewPostcode() {
+    fireEvent.change(await screen.findByTestId('settings-postcode-input'), {
+      target: { value: LOOKUP_MORPETH.postcode },
+    });
+    fireEvent.click(screen.getByTestId('settings-lookup-btn'));
+    fireEvent.click(await screen.findByTestId('settings-save-home-btn'));
+  }
+
+  describe('startSettingsRead — the dialog\'s own read', () => {
+    beforeEach(() => {
+      getSettings.mockReset();
+    });
+
+    it('starts its read as it is asked, and reports what it read once it lands', async () => {
+      // Started before the answer, so the page can number the read by when it was ASKED.
+      const read = deferred();
+      getSettings.mockReturnValue(read.promise);
+      const { startSettingsRead, reportRead } = renderReporting();
+      expect(startSettingsRead).toHaveBeenCalledTimes(1);
+      expect(reportRead).not.toHaveBeenCalled();
+
+      await land(() => read.resolve(PRO_SETTINGS));
+
+      // Control: the form is drawn from it.
+      expect(screen.getByTestId('settings-home-current')).toHaveTextContent('Edinburgh');
+      expect(reportRead).toHaveBeenCalledTimes(1);
+      expect(reportRead).toHaveBeenCalledWith(PRO_SETTINGS);
+      expect(startSettingsRead).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not report a read that failed — a failure is no news of the settings', async () => {
+      const read = deferred();
+      getSettings.mockReturnValue(read.promise);
+      const { reportRead } = renderReporting();
+
+      await land(() => read.reject(new Error('502')));
+
+      expect(screen.getByText('Failed to load settings.')).toBeInTheDocument(); // control
+      expect(reportRead).not.toHaveBeenCalled();
+    });
+
+    it('reads once however often the callback changes', async () => {
+      // The read is made once, from a mount effect. Keyed on the callback, it would read again on
+      // every re-render that handed a fresh one — each read a new, and newer, answer to the page.
+      const read = deferred();
+      getSettings.mockReturnValue(read.promise);
+      const report = vi.fn();
+      const first = vi.fn(() => report);
+      const second = vi.fn(() => vi.fn());
+      const { rerender } = render(<UserSettingsModal onClose={vi.fn()} startSettingsRead={first} />);
+      rerender(<UserSettingsModal onClose={vi.fn()} startSettingsRead={second} />);
+
+      await land(() => read.resolve(PRO_SETTINGS));
+
+      expect(getSettings).toHaveBeenCalledTimes(1);
+      expect(first).toHaveBeenCalledTimes(1);
+      expect(second).not.toHaveBeenCalled();
+      expect(report).toHaveBeenCalledWith(PRO_SETTINGS);
+    });
+  });
+
+  describe('onHomeSaved — the settings a successful save leaves', () => {
+    beforeEach(() => {
+      // Reset, not cleared: an implementation from another describe must not answer here.
+      getSettings.mockReset().mockResolvedValue(PRO_SETTINGS);
+      lookupPostcode.mockReset().mockResolvedValue(LOOKUP_MORPETH);
+      saveHome.mockReset();
+      refreshDriveTimes.mockReset();
+      saveMapColourPreferences.mockReset();
+    });
+
+    it('reports a saved postcode once — when the save lands, not when Save is pressed', async () => {
+      const save = deferred();
+      saveHome.mockReturnValue(save.promise);
+      const { onHomeSaved } = renderReporting();
+
+      await saveNewPostcode();
+      expect(onHomeSaved).not.toHaveBeenCalled();
+
+      await land(() => save.resolve({
+        ...PRO_SETTINGS, homePostcode: 'NE61 1AA', homeLatitude: 55.17, homeLongitude: -1.69,
+        homePlaceName: null,
+      }));
+
+      expect(onHomeSaved).toHaveBeenCalledTimes(1);
+      expect(onHomeSaved).toHaveBeenCalledWith(expect.objectContaining({
+        homePostcode: 'NE61 1AA', homeLatitude: 55.17, homeLongitude: -1.69,
+      }));
+    });
+
+    it('names the saved home from the lookup, since the save itself does not geocode', async () => {
+      // Without it the page's tick line, and this dialog, read the bare postcode.
+      const save = deferred();
+      saveHome.mockReturnValue(save.promise);
+      const { onHomeSaved } = renderReporting();
+
+      await saveNewPostcode();
+      await land(() => save.resolve({
+        ...PRO_SETTINGS, homePostcode: 'NE61 1AA', homeLatitude: 55.17, homeLongitude: -1.69,
+        homePlaceName: null,
+      }));
+
+      expect(onHomeSaved).toHaveBeenCalledWith(expect.objectContaining({ homePlaceName: 'Morpeth' }));
+      expect(screen.getByTestId('settings-home-current')).toHaveTextContent('Morpeth');
+    });
+
+    it('does not report a recalculation — that is a new stamp, not a home', async () => {
+      // Reported as the dialog's copy of the home, it put back a home a save landing under the
+      // spinner had just replaced.
+      const recalc = deferred();
+      refreshDriveTimes.mockReturnValue(recalc.promise);
+      const { onHomeSaved, onDriveTimesRecalculated } = renderReporting();
+
+      fireEvent.click(await screen.findByTestId('settings-refresh-drive-btn'));
+      await land(() => recalc.resolve({ locationsUpdated: 12, calculatedAt: '2026-04-02T10:00:00Z' }));
+
+      expect(onDriveTimesRecalculated).toHaveBeenCalledTimes(1); // control: it landed and reported
+      expect(onHomeSaved).not.toHaveBeenCalled();
+    });
+
+    it('does not report a close — closing changes nothing', async () => {
+      const { onClose, onHomeSaved } = renderReporting();
+      await screen.findByTestId('settings-postcode-input');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(onHomeSaved).not.toHaveBeenCalled();
+    });
+
+    it('does not report a radius save — nothing on the page reads the radius', async () => {
+      getSettings.mockResolvedValue(PRO_WITH_COORDS);
+      const save = deferred();
+      saveHome.mockReturnValue(save.promise);
+      const { onHomeSaved } = renderReporting();
+
+      fireEvent.mouseUp(await screen.findByTestId('settings-radius-slider'), { target: { value: '30' } });
+      // The radius save really went out — without that this passes for a radius never committed.
+      expect(saveHome).toHaveBeenCalledWith('EH1 1BB', 55.95, -3.19, 30);
+      expect(screen.getByTestId('settings-radius-status')).toHaveTextContent('Saving…');
+
+      await land(() => save.resolve({ ...PRO_WITH_COORDS, localRadiusMiles: 30 }));
+
+      // Control: the save landed — its "Saving…" is gone.
+      expect(screen.getByTestId('settings-radius-status').textContent).toBe('');
+      expect(onHomeSaved).not.toHaveBeenCalled();
+    });
+
+    it('does not report a colour save — that reaches the page as a colour alone', async () => {
+      const save = deferred();
+      saveMapColourPreferences.mockReturnValue(save.promise);
+      const { onHomeSaved, onColourSaved } = renderReporting();
+
+      fireEvent.click(await screen.findByTestId('settings-map-colour-verdict'));
+      await land(() => save.resolve({ ...PRO_SETTINGS, mapColourScale: 'verdict' }));
+
+      expect(onColourSaved).toHaveBeenCalledTimes(1); // control: it landed and reported
+      expect(onHomeSaved).not.toHaveBeenCalled();
+    });
+
+    it('does not report a postcode save that failed — nothing changed', async () => {
+      const save = deferred();
+      saveHome.mockReturnValue(save.promise);
+      const { onHomeSaved } = renderReporting();
+
+      await saveNewPostcode();
+      expect(screen.getByTestId('settings-save-home-btn')).toHaveTextContent('Saving…');
+      await land(() => save.reject(new Error('502')));
+
+      // Control: the failure landed — the button is back from "Saving…" for a retry.
+      expect(screen.getByTestId('settings-save-home-btn')).toHaveTextContent('Save');
+      expect(screen.getByTestId('settings-save-home-btn')).not.toHaveTextContent('Saving');
+      expect(onHomeSaved).not.toHaveBeenCalled();
+    });
+
+    it('still reports a postcode save that lands after the dialog has closed', async () => {
+      // Why the dialog reports from the save and not from the close: the reader can close it while
+      // the save is still out, and the save's continuation outlives the dialog.
+      const save = deferred();
+      saveHome.mockReturnValue(save.promise);
+      const { onHomeSaved, unmount } = renderReporting();
+
+      await saveNewPostcode();
+      unmount();
+      expect(onHomeSaved).not.toHaveBeenCalled();
+
+      await land(() => save.resolve({
+        ...PRO_SETTINGS, homePostcode: 'NE61 1AA', homeLatitude: 55.17, homeLongitude: -1.69,
+      }));
+
+      expect(onHomeSaved).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('onDriveTimesRecalculated — a recalculation\'s new stamp', () => {
+    beforeEach(() => {
+      getSettings.mockReset().mockResolvedValue(PRO_SETTINGS);
+      lookupPostcode.mockReset().mockResolvedValue(LOOKUP_MORPETH);
+      saveHome.mockReset();
+      refreshDriveTimes.mockReset();
+    });
+
+    it('reports the new stamp once — when the recalculation lands, not when it is pressed', async () => {
+      const recalc = deferred();
+      refreshDriveTimes.mockReturnValue(recalc.promise);
+      const { onDriveTimesRecalculated } = renderReporting();
+
+      fireEvent.click(await screen.findByTestId('settings-refresh-drive-btn'));
+      expect(onDriveTimesRecalculated).not.toHaveBeenCalled();
+
+      await land(() => recalc.resolve({ locationsUpdated: 12, calculatedAt: '2026-04-02T10:00:00Z' }));
+
+      expect(screen.getByText(/12 locations updated/)).toBeInTheDocument(); // control
+      expect(onDriveTimesRecalculated).toHaveBeenCalledTimes(1);
+      expect(onDriveTimesRecalculated).toHaveBeenCalledWith('2026-04-02T10:00:00Z');
+    });
+
+    it('does not report a recalculation that failed — nothing changed', async () => {
+      const recalc = deferred();
+      refreshDriveTimes.mockReturnValue(recalc.promise);
+      const { onDriveTimesRecalculated } = renderReporting();
+
+      fireEvent.click(await screen.findByTestId('settings-refresh-drive-btn'));
+      await land(() => recalc.reject({ response: { status: 500 } }));
+
+      expect(screen.getByText('Something went wrong — please try again.')).toBeInTheDocument();
+      expect(onDriveTimesRecalculated).not.toHaveBeenCalled();
+    });
+
+    it('does not report a postcode save — a move is not a recalculation', async () => {
+      const save = deferred();
+      saveHome.mockReturnValue(save.promise);
+      const { onDriveTimesRecalculated, onHomeSaved } = renderReporting();
+
+      await saveNewPostcode();
+      await land(() => save.resolve({
+        ...PRO_SETTINGS, homePostcode: 'NE61 1AA', homeLatitude: 55.17, homeLongitude: -1.69,
+      }));
+
+      expect(onHomeSaved).toHaveBeenCalledTimes(1); // control: the save landed and reported
+      expect(onDriveTimesRecalculated).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('onColourSaved — the saved scale, from the save\'s own response', () => {
+    beforeEach(() => {
+      getSettings.mockReset().mockResolvedValue({ ...PRO_SETTINGS, mapColourScale: 'temp' });
+      saveMapColourPreferences.mockReset();
+      saveHome.mockReset();
+      lookupPostcode.mockReset().mockResolvedValue(LOOKUP_MORPETH);
+    });
+
+    it('reports the saved scale once — when the save lands, not on the click', async () => {
+      const save = deferred();
+      saveMapColourPreferences.mockReturnValue(save.promise);
+      const { onColourSaved } = renderReporting();
+
+      fireEvent.click(await screen.findByTestId('settings-map-colour-verdict'));
+      expect(onColourSaved).not.toHaveBeenCalled();
+
+      await land(() => save.resolve({ ...PRO_SETTINGS, mapColourScale: 'verdict' }));
+
+      expect(onColourSaved).toHaveBeenCalledTimes(1);
+      expect(onColourSaved).toHaveBeenCalledWith('verdict');
+    });
+
+    it('does not report a colour save that failed — nothing changed', async () => {
+      const save = deferred();
+      saveMapColourPreferences.mockReturnValue(save.promise);
+      const { onColourSaved } = renderReporting();
+
+      fireEvent.click(await screen.findByTestId('settings-map-colour-verdict'));
+      await land(() => save.reject(new Error('502')));
+
+      // The failure landed: the dialog says so.
+      expect(screen.getByTestId('settings-colour-error')).toBeInTheDocument();
+      expect(onColourSaved).not.toHaveBeenCalled();
+    });
+
+    it('does not report a close', async () => {
+      const { onClose, onColourSaved } = renderReporting();
+      await screen.findByTestId('settings-map-colour-verdict');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+
+      expect(onClose).toHaveBeenCalledTimes(1);
+      expect(onColourSaved).not.toHaveBeenCalled();
+    });
+
+    it('does not report a postcode save — a home is not a colour answer', async () => {
+      const save = deferred();
+      saveHome.mockReturnValue(save.promise);
+      const { onColourSaved, onHomeSaved } = renderReporting();
+
+      await saveNewPostcode();
+      await land(() => save.resolve({
+        ...PRO_SETTINGS, homePostcode: 'NE61 1AA', homeLatitude: 55.17, homeLongitude: -1.69,
+        mapColourScale: 'verdict',
+      }));
+
+      expect(onHomeSaved).toHaveBeenCalledTimes(1); // control: the save landed and reported
+      expect(onColourSaved).not.toHaveBeenCalled();
+    });
+
+    it('still reports a colour save that lands after the dialog has closed', async () => {
+      const save = deferred();
+      saveMapColourPreferences.mockReturnValue(save.promise);
+      const { onColourSaved, unmount } = renderReporting();
+
+      fireEvent.click(await screen.findByTestId('settings-map-colour-verdict'));
+      unmount();
+      expect(onColourSaved).not.toHaveBeenCalled();
+
+      await land(() => save.resolve({ ...PRO_SETTINGS, mapColourScale: 'verdict' }));
+
+      expect(onColourSaved).toHaveBeenCalledTimes(1);
+    });
   });
 });

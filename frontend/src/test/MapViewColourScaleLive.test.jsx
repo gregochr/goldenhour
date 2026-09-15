@@ -16,7 +16,7 @@
  * `mapColourScale` is a genuine prop whose CHANGING VALUE — not its content, which is deliberately
  * never read — is enough to break `React.memo`'s shallow prop compare and let a re-render happen
  * at all. A caller must still flip the real ramp via `scoreRamp.setMode()` (as `App.jsx`'s
- * `loadHomeCoords` does) alongside passing a new `mapColourScale` value; the prop only unblocks
+ * `useReaderSettings` does) alongside passing a new `mapColourScale` value; the prop only unblocks
  * the render, it does not itself select a colour.
  */
 import React from 'react';
@@ -109,7 +109,7 @@ afterEach(() => {
 
 describe('MapView repaints when the live colour scale changes', () => {
   it('a mapColourScale prop change on an already-mounted, memoised MapView produces a fresh, differently-coloured icon', () => {
-    // Mirrors what App.jsx's loadHomeCoords actually does: flip the real ramp AND pass a new
+    // Mirrors what App.jsx's useReaderSettings actually does: flip the real ramp AND pass a new
     // mapColourScale value together. The prop's own content is never read (see MapView's own
     // comment) — only ITS CHANGE matters, to break React.memo's shallow prop compare.
     setMode('verdict');

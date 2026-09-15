@@ -2,9 +2,12 @@
  * Tests for the map's "centre on home" control.
  *
  * It is a real Leaflet control rather than a chip floated over the map, so the stub below is a
- * working miniature of `L.Control`: `addTo` calls `onAdd` and appends the returned element to a
- * corner container, exactly as Leaflet does. That is what lets these tests assert the thing the
- * user actually gets — a button in the top-left stack — rather than a React element in isolation.
+ * working miniature of `L.Control` as Leaflet 1.9.4 has it (`node_modules/leaflet/src/control/
+ * Control.js`): `addTo` removes the control first, calls `onAdd`, and puts a bottom-corner control
+ * BEFORE the corner's first child. The map stub's zoom control moves itself into the same corner the
+ * way `ZoomControlPositioner`'s `setPosition` does, after the ⌂ is added. That is what lets these
+ * tests assert the thing the user actually gets — a button under the zoom bar in the bottom-right
+ * corner — rather than a React element in isolation.
  */
 import React from 'react';
 import {
@@ -25,15 +28,25 @@ vi.mock('leaflet', () => {
     constructor(options = {}) { this.options = options; }
 
     addTo(map) {
+      this.remove();
+      this._map = map;
       this._container = this.onAdd(map);
       this._container.classList.add('leaflet-control');
-      map._corner.appendChild(this._container);
+      // One container per corner, as Leaflet keeps them (`map._controlCorners`).
+      const corner = map._controlCorners[this.options.position];
+      if (String(this.options.position).startsWith('bottom')) {
+        corner.insertBefore(this._container, corner.firstChild);
+      } else {
+        corner.appendChild(this._container);
+      }
       return this;
     }
 
     remove() {
+      if (!this._map) return this;
       removedControls.push(this);
       this._container?.remove();
+      this._map = null;
       return this;
     }
   }
@@ -49,9 +62,12 @@ vi.mock('leaflet', () => {
 
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
 
-// The corner container the stubbed Control appends into. Attached to the document so the portal's
-// button is findable by the usual queries.
+// Leaflet's four corner containers — `corner` is the bottom-right one, where the ⌂ and the zoom
+// bar belong — and the zoom bar, which moves itself there. Attached to the document so the
+// portal's button is findable by the usual queries.
+let corners;
 let corner;
+let zoomBar;
 // One map instance per test, not one per render: react-leaflet's `useMap` returns a stable
 // instance, and a fresh object each call would re-run every effect keyed on it — which would let
 // this suite pass while the real component added and removed its control on every render.
@@ -151,9 +167,15 @@ beforeEach(() => {
   flyTo.mockClear();
   auroraStatus = null;
   removedControls.length = 0;
-  corner = document.createElement('div');
-  corner.className = 'leaflet-top leaflet-left';
-  document.body.appendChild(corner);
+  corners = Object.fromEntries(['topleft', 'topright', 'bottomleft', 'bottomright'].map((pos) => {
+    const el = document.createElement('div');
+    el.dataset.corner = pos;
+    document.body.appendChild(el);
+    return [pos, el];
+  }));
+  corner = corners.bottomright;
+  zoomBar = document.createElement('div');
+  zoomBar.className = 'leaflet-control-zoom leaflet-bar leaflet-control';
   mapStub = {
     eachLayer: () => {},
     getContainer: () => ({ clientHeight: 500 }),
@@ -164,41 +186,51 @@ beforeEach(() => {
     getMaxZoom: () => 19,
     flyTo,
     fitBounds: vi.fn(),
-    _corner: corner,
+    // `ZoomControlPositioner`'s `setPosition(...)`: Leaflet re-adds the zoom control to that
+    // corner, before its first child at the bottom — after the ⌂ is already there, so above it.
+    zoomControl: {
+      setPosition: (pos) => {
+        const target = corners[pos];
+        if (pos.startsWith('bottom')) target.insertBefore(zoomBar, target.firstChild);
+        else target.appendChild(zoomBar);
+      },
+    },
+    _controlCorners: corners,
   };
 });
 
 afterEach(() => {
   vi.useRealTimers();
-  corner.remove();
+  Object.values(corners).forEach((el) => el.remove());
   localStorage.clear();
 });
 
+// One array for every render, so a `rerender` changes only the props a test names.
+const LOCATIONS = [{
+  name: 'Loc0',
+  lat: 55,
+  lon: -1.7,
+  locationType: ['LANDSCAPE'],
+  forecastsByDate: new Map([[TODAY, {
+    sunset: { rating: 4, solarEventTime: `${TODAY}T16:12:00` },
+    sunrise: { rating: 4, solarEventTime: `${TODAY}T08:24:00` },
+  }]]),
+}];
+
+function mapElement(overrides = {}) {
+  return <MapView locations={LOCATIONS} date={TODAY} autoEventType={null} {...overrides} />;
+}
+
 /** Synchronous — no `heat` prop, nothing lazy to await. Used by every test that predates P11. */
 function renderMap(overrides = {}) {
-  return render(
-    <MapView
-      locations={[{
-        name: 'Loc0',
-        lat: 55,
-        lon: -1.7,
-        locationType: ['LANDSCAPE'],
-        forecastsByDate: new Map([[TODAY, {
-          sunset: { rating: 4, solarEventTime: `${TODAY}T16:12:00` },
-          sunrise: { rating: 4, solarEventTime: `${TODAY}T08:24:00` },
-        }]]),
-      }]}
-      date={TODAY}
-      autoEventType={null}
-      {...overrides}
-    />,
-  );
+  return render(mapElement(overrides));
 }
 
 /**
  * Async — for `⌂`'s own tests below, which pass a `heat` prop and so make `heatOffered` true: that
  * lazily loads `MapHeatLayer` (mocked above) via `Suspense`, and the resolution needs an `act`
- * boundary the same way `MapViewHeat.test.jsx`'s own `renderMap` provides one.
+ * boundary the same way `MapViewHeat.test.jsx`'s own `renderMap` provides one. The unknown-home
+ * tests use it without `heat`, for the same boundary round `MapView`'s mount-time fetches.
  */
 async function renderHeatMap(overrides = {}) {
   let result;
@@ -214,7 +246,7 @@ function openFilters() {
 }
 
 describe('centre on home', () => {
-  it('mounts as its own control in the top-left stack, not inside the zoom bar', () => {
+  it('mounts as its own control in the bottom-right corner, under the zoom bar, not inside it', () => {
     renderMap({ homeCoords: HOME });
 
     const button = screen.getByTestId('centre-on-home');
@@ -222,11 +254,11 @@ describe('centre on home', () => {
     // fixed once on `MastheadTickLine`'s origin control (adversarial review + live browser finding):
     // the name must describe what a click NOW does (reset scope to My area and refit).
     expect(button).toHaveAccessibleName('Reset to My area');
-    // Its own container, in the corner Leaflet stacks controls into.
+    // Its own container, in the corner Leaflet stacks controls into, below the zoom bar.
     const container = button.closest('.map-home-control');
     expect(container).not.toBeNull();
     expect(container.classList.contains('leaflet-control')).toBe(true);
-    expect(container.parentElement).toBe(corner);
+    expect([...corner.children]).toEqual([zoomBar, container]);
   });
 
   // ⚠️ map-tab-v2-plan.md §3 P11 retired the radius-framed `flyTo` this control used to perform on
@@ -261,6 +293,44 @@ describe('centre on home', () => {
     expect(flyTo).not.toHaveBeenCalled();
   });
 
+  it('makes no claim while the home is not known — an empty container, not a prompt', async () => {
+    // `undefined` is "not answered yet, or the read failed and the settings dialog has not answered
+    // since" (`useReaderSettings`): no evidence that no postcode is saved, so no "Set your home
+    // postcode" either. The container stays in its place under the zoom bar, EMPTY — which is what
+    // `index.css` keeps the box of without painting it (`mapHomeControlCascade.test.jsx`).
+    await renderHeatMap(); // no homeCoords: not known
+
+    expect(screen.queryByTestId('centre-on-home')).not.toBeInTheDocument();
+    const container = corner.querySelector('.map-home-control');
+    expect(container).toBeEmptyDOMElement();
+    expect([...corner.children]).toEqual([zoomBar, container]);
+  });
+
+  it('comes and goes with the answer, on the one container under the zoom bar — never re-added', async () => {
+    // Leaflet puts a re-added bottom-corner control above the zoom bar (it removes it, then inserts
+    // it before the corner's first child), so the answer fills and empties the node that was mounted.
+    const { rerender } = await renderHeatMap(); // not known
+    const answered = (overrides) => act(async () => { rerender(mapElement(overrides)); });
+    const container = corner.querySelector('.map-home-control');
+    expect(container).toBeEmptyDOMElement();
+
+    await answered({ homeCoords: HOME });
+    expect(container).not.toBeEmptyDOMElement();
+    expect(screen.getByTestId('centre-on-home')).toHaveAccessibleName('Reset to My area');
+    expect([...corner.children]).toEqual([zoomBar, container]);
+
+    await answered({ homeCoords: null });
+    expect(screen.getByTestId('centre-on-home'))
+      .toHaveAccessibleName('Set your home postcode in Settings');
+
+    await answered({}); // not known again
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByTestId('centre-on-home')).not.toBeInTheDocument();
+
+    expect([...corner.children]).toEqual([zoomBar, container]);
+    expect(removedControls.length).toBe(0);
+  });
+
   it('is absent from the Plan tab overlay, which is already framed on its spot', () => {
     renderMap({ homeCoords: HOME, overlayMode: true });
 
@@ -269,12 +339,12 @@ describe('centre on home', () => {
 
   it('takes its control off the map on unmount', () => {
     const { unmount } = renderMap({ homeCoords: HOME });
-    expect(corner.children.length).toBe(1);
+    expect(corner.querySelectorAll('.map-home-control')).toHaveLength(1);
 
     unmount();
 
     expect(removedControls.length).toBe(1);
-    expect(corner.children.length).toBe(0);
+    expect(corner.querySelectorAll('.map-home-control')).toHaveLength(0);
   });
 });
 

@@ -1,6 +1,8 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
+import {
+  act, render, screen, waitFor, fireEvent, within,
+} from '@testing-library/react';
 import App from '../App.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import * as scoreRamp from '../utils/scoreRamp.js';
@@ -40,6 +42,8 @@ vi.mock('../api/settingsApi.js', () => ({
   lookupPostcode: vi.fn(),
   saveHome: vi.fn(),
   refreshDriveTimes: vi.fn(),
+  saveMapColourPreferences: vi.fn(),
+  markComingUpSeen: vi.fn(),
 }));
 vi.mock('../api/travelDayApi.js', () => ({ fetchTravelDayRanges: vi.fn() }));
 // The Map pane, stubbed so the date `App` resolves for it can be read. Every other test in this
@@ -74,7 +78,10 @@ vi.mock('../api/authApi.js', () => ({
 import { fetchForecasts, fetchLocations, fetchAllOutcomes } from '../api/forecastApi.js';
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
-import { getSettings, getReach, getDriveTimes } from '../api/settingsApi.js';
+import {
+  getSettings, getReach, getDriveTimes, lookupPostcode, saveHome, saveMapColourPreferences,
+  refreshDriveTimes, markComingUpSeen,
+} from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { getAuroraStatus } from '../api/auroraApi.js';
 import { getNlcSighting } from '../api/nlcApi.js';
@@ -179,9 +186,9 @@ describe('App — the Plan shell', () => {
     const { providerSpy } = renderApp();
 
     // The spy is a passthrough on mount (see the harness above), so this is the one test that
-    // stops it being one. App's next re-render — `loadHomeCoords` resolving is enough — hits the
-    // throwing implementation, and the boundary wrapping the PROVIDER (not just the shell, §4.1)
-    // is what is expected to catch it.
+    // stops it being one. App's next re-render — its own settings read resolving is enough — hits
+    // the throwing implementation, and the boundary wrapping the PROVIDER (not just the shell,
+    // §4.1) is what is expected to catch it.
     providerSpy.mockImplementation(() => { throw new Error('boom'); });
 
     expect(await screen.findByRole('alert')).toBeInTheDocument();
@@ -221,9 +228,620 @@ describe('App — WindowFirstBriefingProvider wiring', () => {
     expect(lastProps.locations[0]).toEqual(expect.objectContaining({
       id: 7, lat: 55.608, lon: -1.719, regionName: 'Northumberland', bortleClass: 4,
     }));
-    // The reach fetch's only invalidation signal: without it, a first-run user who saves a home
+    // The reach fetch's two invalidation signals: without them, a first-run user who saves a home
     // postcode watches every reach line stay absent until a full reload.
     expect(lastProps.homeSettingsVersion).toBe(0);
+    expect(lastProps.driveTimesVersion).toBe(0);
+  });
+});
+
+// ── The reader's settings: one read on mount, then the dialog's answers ──────
+//
+// `useReaderSettings` reads `GET /api/user/settings` once, on mount, and after that takes the
+// settings dialog's own answers — its read on opening, a saved home's response, a recalculation, a
+// saved colour — never a read of its own. It hands one record to the Plan provider (the tick line's
+// home, the Coming up latch) and to the Map pane (the HOME marker, rings and ⌂), and moves the two
+// counters the provider's reach fetch and the masthead's light key on only when an answer changes
+// what they count. These drive the real dialog and the real provider — the provider's props read
+// through the passthrough spy, the Map pane's through its stub — and count the requests each read
+// makes: `getSettings` (App's mount read and the dialog's own), `getReach` (the provider's) and
+// `getTodaysLight` (the masthead's). Every answer a negative names is settled inside an awaited
+// `act`, and each negative stands beside a control showing the answer did land.
+
+/** A request the test settles by hand, so the test — not the scheduler — decides when it lands. */
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((res, rej) => { resolve = res; reject = rej; });
+  return { promise, resolve, reject };
+}
+
+/** Settles a hand-held request inside an AWAITED act, so everything it causes has committed. */
+async function land(settle) {
+  await act(async () => { settle(); });
+}
+
+/** One reader's settings, before and after moving from Morpeth to Keswick. */
+const SETTINGS_MORPETH = {
+  role: 'PRO_USER', homePostcode: 'NE61 1AA', homePlaceName: 'Morpeth',
+  homeLatitude: 55.17, homeLongitude: -1.69, driveTimesCalculatedAt: '2026-09-01T10:00:00Z',
+  mapColourScale: 'temp', comingUpLastSeenDate: '2026-09-10',
+};
+const SETTINGS_KESWICK = {
+  role: 'PRO_USER', homePostcode: 'CA12 5JR', homePlaceName: 'Keswick',
+  homeLatitude: 54.6, homeLongitude: -3.13, driveTimesCalculatedAt: null,
+  mapColourScale: 'temp', comingUpLastSeenDate: '2026-09-10',
+};
+const SETTINGS_NO_HOME = {
+  role: 'PRO_USER', homePostcode: null, homePlaceName: null, homeLatitude: null,
+  homeLongitude: null, driveTimesCalculatedAt: null, mapColourScale: 'temp',
+  comingUpLastSeenDate: '2026-09-10',
+};
+const LOOKUP_MORPETH = {
+  postcode: 'NE61 1AA', placeName: 'Morpeth', latitude: 55.17, longitude: -1.69,
+};
+const LOOKUP_KESWICK = {
+  postcode: 'CA12 5JR', placeName: 'Keswick', latitude: 54.6, longitude: -3.13,
+};
+/** What `PUT /api/user/settings/home` answers for the move to Keswick: no place name — it does not geocode. */
+const SAVED_KESWICK = { ...SETTINGS_KESWICK, homePlaceName: null };
+
+/** Opens the settings dialog from the masthead cog and waits for its own settings fetch. */
+async function openSettings() {
+  fireEvent.click(await screen.findByRole('button', { name: 'Settings' }));
+  await screen.findByTestId('settings-postcode-input');
+  return screen.getByTestId('settings-modal');
+}
+
+/** Opens the settings dialog and returns it while its own read is still out — its form not yet drawn. */
+async function openSettingsStillLoading() {
+  fireEvent.click(await screen.findByRole('button', { name: 'Settings' }));
+  const dialog = await screen.findByTestId('settings-modal');
+  expect(within(dialog).queryByTestId('settings-postcode-input')).toBeNull();
+  return dialog;
+}
+
+/** The × in the dialog's header — its only control named "Close". */
+function closeSettings(dialog) {
+  fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+}
+
+/** The shell mounts a pane on first selection, so the Map tab is opened to read its props. */
+async function openMapPane() {
+  const tab = await screen.findByRole('tab', { name: 'Map' });
+  await act(async () => { fireEvent.click(tab); });
+  await screen.findByTestId('map-pane-stub');
+}
+
+/** Looks a postcode up in the open dialog and presses Save. */
+async function saveHomeIn(dialog, postcode) {
+  fireEvent.change(within(dialog).getByTestId('settings-postcode-input'), { target: { value: postcode } });
+  fireEvent.click(within(dialog).getByTestId('settings-lookup-btn'));
+  fireEvent.click(await within(dialog).findByTestId('settings-save-home-btn'));
+}
+
+/** The props the provider was last rendered with. */
+const providerProps = (providerSpy) => providerSpy.mock.calls.at(-1)[0];
+
+/** Waits for the reads the page makes on mount: the provider's reach and the masthead's light. */
+async function mountReadsSettled() {
+  await waitFor(() => expect(getReach).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(getTodaysLight).toHaveBeenCalledTimes(1));
+}
+
+describe('App — the reader\'s settings: one read on mount, then the dialog\'s answers', () => {
+  beforeEach(() => {
+    lookupPostcode.mockReset().mockResolvedValue(LOOKUP_MORPETH);
+  });
+
+  it('reads them once and hands one home to both the provider and the Map pane', async () => {
+    getSettings.mockResolvedValue(SETTINGS_MORPETH);
+    const { providerSpy } = renderApp();
+    await openMapPane();
+
+    await waitFor(() => expect(providerProps(providerSpy).homePlace).toBe('Morpeth'));
+    expect(mapPaneProps.last.homeCoords).toEqual({ lat: 55.17, lon: -1.69 });
+    expect(providerProps(providerSpy).comingUpLastSeenDate).toBe('2026-09-10');
+    // One read. The provider used to make a second, of the same endpoint, for the tick line — and
+    // either failing alone split the tick line's home from the map's.
+    expect(getSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it('names the home by its postcode when no place name resolved', async () => {
+    // The design's slot reads `Home · <place>`; a failed geocode must not blank it.
+    getSettings.mockResolvedValue({ ...SETTINGS_MORPETH, homePlaceName: null });
+    const { providerSpy } = renderApp();
+
+    await waitFor(() => expect(providerProps(providerSpy).homePlace).toBe('NE61 1AA'));
+  });
+
+  it('hands an unknown home down as unknown until the read answers — never as "no postcode"', async () => {
+    const mountRead = deferred();
+    getSettings.mockReturnValue(mountRead.promise);
+    const { providerSpy } = renderApp();
+    await openMapPane();
+
+    // `undefined`, not null: the ⌂ answers null with "Set your home postcode", which an unanswered
+    // read is no evidence for.
+    expect(mapPaneProps.last.homeCoords).toBeUndefined();
+    expect(providerProps(providerSpy).homePlace).toBeUndefined();
+
+    await land(() => mountRead.resolve(SETTINGS_NO_HOME));
+
+    expect(mapPaneProps.last.homeCoords).toBeNull();
+    expect(providerProps(providerSpy).homePlace).toBeNull();
+  });
+
+  it('takes a saved postcode from the save\'s own response, named from the lookup — and reads nothing after it', async () => {
+    getSettings.mockResolvedValue(SETTINGS_NO_HOME);
+    const save = deferred();
+    saveHome.mockReset().mockReturnValue(save.promise);
+    const { providerSpy } = renderApp();
+    await openMapPane();
+    await mountReadsSettled();
+
+    const dialog = await openSettings();
+    await saveHomeIn(dialog, 'NE61 1AA');
+    const readsBeforeTheSave = getSettings.mock.calls.length; // App's, and the dialog's own
+    // Nothing moves on the press: the page follows the save's answer, not the click.
+    expect(providerProps(providerSpy).homeSettingsVersion).toBe(0);
+
+    // A save does not geocode: its response names no place.
+    await land(() => save.resolve({
+      ...SETTINGS_MORPETH, homePlaceName: null, driveTimesCalculatedAt: null,
+    }));
+
+    expect(providerProps(providerSpy).homePlace).toBe('Morpeth');
+    expect(mapPaneProps.last.homeCoords).toEqual({ lat: 55.17, lon: -1.69 });
+    // A real change: the home counter moved once, and reach and the light were asked again ...
+    expect(providerProps(providerSpy).homeSettingsVersion).toBe(1);
+    expect(getReach).toHaveBeenCalledTimes(2);
+    expect(getTodaysLight).toHaveBeenCalledTimes(2);
+    // ... but the settings were not: the save's own response is the answer, so there is no
+    // follow-up read to fail and empty the home — or unmount the ⌂ that had opened the dialog.
+    expect(getSettings).toHaveBeenCalledTimes(readsBeforeTheSave);
+  });
+
+  it('moves nothing when the same postcode is saved again', async () => {
+    getSettings.mockResolvedValue(SETTINGS_MORPETH);
+    const save = deferred();
+    saveHome.mockReset().mockReturnValue(save.promise);
+    const { providerSpy } = renderApp();
+    await screen.findByTestId('window-first-pane-empty');
+    await mountReadsSettled();
+
+    const dialog = await openSettings();
+    await saveHomeIn(dialog, 'NE61 1AA');
+    await land(() => save.resolve({ ...SETTINGS_MORPETH, homePlaceName: null }));
+
+    // Control: the save landed — the dialog shows the saved home again, not the lookup.
+    expect(within(dialog).getByTestId('settings-home-current')).toHaveTextContent('Morpeth');
+    // Broken, a re-save moved the counter: reach and the light were asked again for nothing, and
+    // a correct answer still out would have been dropped.
+    expect(providerProps(providerSpy).homeSettingsVersion).toBe(0);
+    expect(getReach).toHaveBeenCalledTimes(1);
+    expect(getTodaysLight).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks for reach again after a recalculation, and not for the light', async () => {
+    getSettings.mockResolvedValue({ ...SETTINGS_MORPETH, driveTimesCalculatedAt: null });
+    const recalc = deferred();
+    refreshDriveTimes.mockReset().mockReturnValue(recalc.promise);
+    const { providerSpy } = renderApp();
+    await openMapPane();
+    await mountReadsSettled();
+    const homeBefore = mapPaneProps.last.homeCoords;
+
+    const dialog = await openSettings();
+    fireEvent.click(within(dialog).getByTestId('settings-refresh-drive-btn'));
+    await land(() => recalc.resolve({ locationsUpdated: 12, calculatedAt: '2026-09-15T10:00:00Z' }));
+
+    expect(screen.getByText(/12 locations updated/)).toBeInTheDocument(); // control: it landed
+    expect(providerProps(providerSpy).driveTimesVersion).toBe(1);
+    expect(getReach).toHaveBeenCalledTimes(2);
+    // The light cannot change with a recalculation, so it was not asked again.
+    expect(providerProps(providerSpy).homeSettingsVersion).toBe(0);
+    expect(getTodaysLight).toHaveBeenCalledTimes(1);
+    // The same object, not an equal one: the map is `React.memo`'d and its label and pin layers
+    // repaint on this object's identity.
+    expect(mapPaneProps.last.homeCoords).toBe(homeBefore);
+  });
+
+  it('does not take a recalculation for a move — a save that lands under its spinner stands', async () => {
+    // A recalculation changes the drive times and nothing else. Reported as the dialog's copy of
+    // the home, it put back a home the reader had just moved away from, when a postcode save was
+    // still out as they pressed Refresh.
+    getSettings.mockResolvedValue({ ...SETTINGS_MORPETH, driveTimesCalculatedAt: null });
+    lookupPostcode.mockResolvedValue(LOOKUP_KESWICK);
+    const save = deferred();
+    saveHome.mockReset().mockReturnValue(save.promise);
+    const recalc = deferred();
+    refreshDriveTimes.mockReset().mockReturnValue(recalc.promise);
+    const { providerSpy } = renderApp();
+    await openMapPane();
+    await mountReadsSettled();
+
+    const dialog = await openSettings();
+    await saveHomeIn(dialog, 'CA12 5JR'); // still out ...
+    fireEvent.click(within(dialog).getByTestId('settings-refresh-drive-btn')); // ... as Refresh is pressed
+
+    await land(() => save.resolve(SAVED_KESWICK));
+    expect(providerProps(providerSpy).homePlace).toBe('Keswick'); // control: the move landed
+    await land(() => recalc.resolve({ locationsUpdated: 12, calculatedAt: '2026-09-15T10:00:00Z' }));
+
+    expect(screen.getByText(/12 locations updated/)).toBeInTheDocument(); // control: it landed
+    expect(providerProps(providerSpy).homePlace).toBe('Keswick');
+    expect(mapPaneProps.last.homeCoords).toEqual({ lat: 54.6, lon: -3.13 });
+    expect(providerProps(providerSpy).homeSettingsVersion).toBe(1);
+  });
+
+  it('does not take one drive-time stamp, read back at the database\'s precision, for a change', async () => {
+    // The server hands a recalculation's stamp back from its clock (nanoseconds on Linux) and
+    // stores it to the microsecond, so every later answer spells the same instant differently.
+    getSettings
+      .mockResolvedValueOnce({ ...SETTINGS_MORPETH, driveTimesCalculatedAt: null })
+      .mockResolvedValueOnce({ ...SETTINGS_MORPETH, driveTimesCalculatedAt: null })
+      .mockResolvedValueOnce({ ...SETTINGS_MORPETH, driveTimesCalculatedAt: '2026-09-15T10:00:12.123457Z' });
+    const recalc = deferred();
+    refreshDriveTimes.mockReset().mockReturnValue(recalc.promise);
+    const { providerSpy } = renderApp();
+    await screen.findByTestId('window-first-pane-empty');
+    await mountReadsSettled();
+
+    const dialog = await openSettings();
+    fireEvent.click(within(dialog).getByTestId('settings-refresh-drive-btn'));
+    await land(() => recalc.resolve({ locationsUpdated: 12, calculatedAt: '2026-09-15T10:00:12.123456789Z' }));
+    expect(getReach).toHaveBeenCalledTimes(2); // control: the recalculation moved the counter
+    fireEvent.click(screen.getByTestId('settings-refresh-dismiss')); // "Back to settings"
+    closeSettings(screen.getByTestId('settings-modal'));
+    await waitFor(() => expect(screen.queryByTestId('settings-modal')).toBeNull());
+
+    const reopened = await openSettings(); // the stored stamp, microseconds
+    expect(within(reopened).getByTestId('settings-drive-calc-time')).toBeInTheDocument(); // control
+    await act(async () => {});
+
+    // Broken, the reopening moved the drive-time counter and asked for reach a third time.
+    expect(providerProps(providerSpy).driveTimesVersion).toBe(1);
+    expect(getReach).toHaveBeenCalledTimes(2);
+  });
+
+  it('picks up a home changed elsewhere when the dialog opens, and asks for reach and the light again', async () => {
+    getSettings
+      .mockResolvedValueOnce(SETTINGS_MORPETH) // App's mount read
+      .mockResolvedValueOnce(SETTINGS_KESWICK); // the dialog's own: moved on another device
+    const { providerSpy } = renderApp();
+    await openMapPane();
+    await mountReadsSettled();
+    expect(providerProps(providerSpy).homePlace).toBe('Morpeth');
+
+    await openSettings();
+
+    expect(providerProps(providerSpy).homePlace).toBe('Keswick');
+    expect(mapPaneProps.last.homeCoords).toEqual({ lat: 54.6, lon: -3.13 });
+    await waitFor(() => expect(getReach).toHaveBeenCalledTimes(2));
+    expect(getTodaysLight).toHaveBeenCalledTimes(2);
+  });
+
+  it('hands the map a home that moved in longitude alone', async () => {
+    // The coordinates object is memoised on both coordinates, so a home re-geocoded due east or
+    // west must still move the map's marker and rings.
+    getSettings
+      .mockResolvedValueOnce(SETTINGS_MORPETH) // App's mount read
+      .mockResolvedValueOnce({ ...SETTINGS_MORPETH, homeLongitude: -1.7 }); // the dialog's own
+    const { providerSpy } = renderApp();
+    await openMapPane();
+    await mountReadsSettled();
+    expect(mapPaneProps.last.homeCoords).toEqual({ lat: 55.17, lon: -1.69 });
+
+    await openSettings();
+
+    expect(providerProps(providerSpy).homeSettingsVersion).toBe(1); // control: the move counted
+    expect(mapPaneProps.last.homeCoords).toEqual({ lat: 55.17, lon: -1.7 });
+  });
+
+  it('moves nothing when the dialog opens on the same settings, or closes', async () => {
+    getSettings.mockResolvedValue(SETTINGS_MORPETH);
+    const { providerSpy } = renderApp();
+    await screen.findByTestId('window-first-pane-empty');
+    await mountReadsSettled();
+
+    const dialog = await openSettings();
+    // Control: the dialog's own read landed.
+    expect(within(dialog).getByTestId('settings-home-current')).toHaveTextContent('Morpeth');
+    closeSettings(dialog);
+    await waitFor(() => expect(screen.queryByTestId('settings-modal')).toBeNull());
+    await act(async () => {});
+
+    expect(providerProps(providerSpy).homeSettingsVersion).toBe(0);
+    expect(providerProps(providerSpy).driveTimesVersion).toBe(0);
+    expect(getReach).toHaveBeenCalledTimes(1);
+    expect(getTodaysLight).toHaveBeenCalledTimes(1);
+    // The close reads nothing: App's mount read and the dialog's own, and no more.
+    expect(getSettings).toHaveBeenCalledTimes(2);
+  });
+
+  it('picks up a change on every opening of the dialog, not just the first', async () => {
+    // The dialog is mounted afresh each time it opens, and each opening reads the server.
+    getSettings
+      .mockResolvedValueOnce(SETTINGS_MORPETH) // App's mount read
+      .mockResolvedValueOnce(SETTINGS_MORPETH) // the first opening: nothing changed
+      .mockResolvedValueOnce(SETTINGS_KESWICK); // the second: moved on another device since
+    const { providerSpy } = renderApp();
+    await screen.findByTestId('window-first-pane-empty');
+    await mountReadsSettled();
+
+    closeSettings(await openSettings());
+    await waitFor(() => expect(screen.queryByTestId('settings-modal')).toBeNull());
+    expect(providerProps(providerSpy).homePlace).toBe('Morpeth');
+
+    await openSettings();
+
+    expect(providerProps(providerSpy).homePlace).toBe('Keswick');
+  });
+
+  it('drops the read of a dialog closed before it answered, once a newer answer has landed', async () => {
+    // A slow read — the server geocodes the postcode on every GET — outlives the dialog that made
+    // it. Closed and reopened, the dialog reads again, and a save made there is newer than it.
+    const firstRead = deferred();
+    getSettings
+      .mockResolvedValueOnce(SETTINGS_MORPETH) // App's mount read
+      .mockReturnValueOnce(firstRead.promise) // the first opening's, slow
+      .mockResolvedValueOnce(SETTINGS_MORPETH); // the second opening's
+    lookupPostcode.mockResolvedValue(LOOKUP_KESWICK);
+    const save = deferred();
+    saveHome.mockReset().mockReturnValue(save.promise);
+    const { providerSpy } = renderApp();
+    await openMapPane();
+    await mountReadsSettled();
+
+    closeSettings(await openSettingsStillLoading());
+    await waitFor(() => expect(screen.queryByTestId('settings-modal')).toBeNull());
+    const dialog = await openSettings();
+    await saveHomeIn(dialog, 'CA12 5JR');
+    await land(() => save.resolve(SAVED_KESWICK));
+    expect(providerProps(providerSpy).homePlace).toBe('Keswick'); // control: the save landed
+
+    await land(() => firstRead.resolve(SETTINGS_MORPETH));
+
+    // Broken, the older read put Morpeth back on the tick line and the map, and moved the home
+    // counter again, so reach and the light answered for Keswick under Morpeth's name.
+    expect(providerProps(providerSpy).homePlace).toBe('Keswick');
+    expect(mapPaneProps.last.homeCoords).toEqual({ lat: 54.6, lon: -3.13 });
+    expect(providerProps(providerSpy).homeSettingsVersion).toBe(1);
+  });
+
+  it('drops the read of a dialog reopened while a save was out, once the save has landed', async () => {
+    // The second route to the same harm: the save is still out when the reader closes the dialog
+    // and opens it again, and the server answers the new dialog's read before the save commits.
+    const reopenedRead = deferred();
+    getSettings
+      .mockResolvedValueOnce(SETTINGS_MORPETH) // App's mount read
+      .mockResolvedValueOnce(SETTINGS_MORPETH) // the first opening's
+      .mockReturnValueOnce(reopenedRead.promise); // the reopened dialog's
+    lookupPostcode.mockResolvedValue(LOOKUP_KESWICK);
+    const save = deferred();
+    saveHome.mockReset().mockReturnValue(save.promise);
+    const { providerSpy } = renderApp();
+    await openMapPane();
+    await mountReadsSettled();
+
+    const dialog = await openSettings();
+    await saveHomeIn(dialog, 'CA12 5JR');
+    closeSettings(dialog);
+    await waitFor(() => expect(screen.queryByTestId('settings-modal')).toBeNull());
+    await openSettingsStillLoading();
+
+    await land(() => save.resolve(SAVED_KESWICK));
+    expect(providerProps(providerSpy).homePlace).toBe('Keswick'); // control: the save landed
+    await land(() => reopenedRead.resolve(SETTINGS_MORPETH)); // answered before the save committed
+
+    expect(providerProps(providerSpy).homePlace).toBe('Keswick');
+    expect(mapPaneProps.last.homeCoords).toEqual({ lat: 54.6, lon: -3.13 });
+    expect(providerProps(providerSpy).homeSettingsVersion).toBe(1);
+  });
+
+  it('drops the read of a dialog reopened while a colour save was out, once the save has landed', async () => {
+    // The colour's own route to the same harm: the reader picks a scale, closes the dialog and
+    // opens it again before the save lands, and the server answers the new read first.
+    const reopenedRead = deferred();
+    getSettings
+      .mockResolvedValueOnce(SETTINGS_MORPETH) // App's mount read
+      .mockResolvedValueOnce(SETTINGS_MORPETH) // the first opening's
+      .mockReturnValueOnce(reopenedRead.promise); // the reopened dialog's
+    const colourSave = deferred();
+    saveMapColourPreferences.mockReset().mockReturnValue(colourSave.promise);
+    const setModeSpy = vi.spyOn(scoreRamp, 'setMode');
+    renderApp();
+    await openMapPane();
+    await mountReadsSettled();
+
+    const dialog = await openSettings();
+    fireEvent.click(within(dialog).getByTestId('settings-map-colour-verdict'));
+    closeSettings(dialog);
+    await waitFor(() => expect(screen.queryByTestId('settings-modal')).toBeNull());
+    await openSettingsStillLoading();
+
+    await land(() => colourSave.resolve({ ...SETTINGS_MORPETH, mapColourScale: 'verdict' }));
+    expect(mapPaneProps.last.mapColourScale).toBe('verdict'); // control: the save landed
+    // Answered before the save committed, so it still carries the old scale.
+    await land(() => reopenedRead.resolve(SETTINGS_MORPETH));
+
+    // Broken, the older read put the old ramp back on every surface while the server held Verdict.
+    expect(setModeSpy).toHaveBeenLastCalledWith('verdict');
+    expect(mapPaneProps.last.mapColourScale).toBe('verdict');
+  });
+
+  it('drops the older of two dialogs\' reads when the newer has already answered', async () => {
+    // Between reads, the newest ASKED wins, whichever lands last: a remote change the newer read
+    // found must not be put back by one that set out before it.
+    const firstRead = deferred();
+    getSettings
+      .mockResolvedValueOnce(SETTINGS_MORPETH) // App's mount read
+      .mockReturnValueOnce(firstRead.promise) // the first opening's, slow
+      .mockResolvedValueOnce(SETTINGS_KESWICK); // the second's: moved on another device
+    const { providerSpy } = renderApp();
+    await screen.findByTestId('window-first-pane-empty');
+    await mountReadsSettled();
+
+    closeSettings(await openSettingsStillLoading());
+    await waitFor(() => expect(screen.queryByTestId('settings-modal')).toBeNull());
+    await openSettings();
+    expect(providerProps(providerSpy).homePlace).toBe('Keswick'); // control: the newer read landed
+
+    await land(() => firstRead.resolve(SETTINGS_MORPETH));
+
+    expect(providerProps(providerSpy).homePlace).toBe('Keswick');
+  });
+
+  it('takes a saved colour from the save\'s own response, and reads nothing after it', async () => {
+    // Never chosen: the ramp's one-time "colours changed" notice is owed to this reader.
+    getSettings.mockResolvedValue({ ...SETTINGS_MORPETH, mapColourScale: null });
+    const colourSave = deferred();
+    saveMapColourPreferences.mockReset().mockReturnValue(colourSave.promise);
+    const setModeSpy = vi.spyOn(scoreRamp, 'setMode');
+    const { providerSpy } = renderApp();
+    await openMapPane();
+    await mountReadsSettled();
+    expect(mapPaneProps.last.colourScaleDefaulted).toBe(true);
+
+    const dialog = await openSettings();
+    const readsBeforeTheSave = getSettings.mock.calls.length;
+    fireEvent.click(within(dialog).getByTestId('settings-map-colour-verdict'));
+    // Nothing reaches the ramp on the click: it follows the saved preference, not the radio.
+    expect(setModeSpy).not.toHaveBeenCalledWith('verdict');
+
+    await land(() => colourSave.resolve({ ...SETTINGS_MORPETH, mapColourScale: 'verdict' }));
+
+    expect(setModeSpy).toHaveBeenLastCalledWith('verdict');
+    expect(mapPaneProps.last.mapColourScale).toBe('verdict');
+    expect(mapPaneProps.last.colourScaleDefaulted).toBe(false);
+    // No read after the save, so nothing that could fail and leave the ramp on the old scale ...
+    expect(getSettings).toHaveBeenCalledTimes(readsBeforeTheSave);
+    // ... and nothing asked of the home.
+    expect(providerProps(providerSpy).homeSettingsVersion).toBe(0);
+    expect(getReach).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets the mount read land after the dialog has answered without changing anything', async () => {
+    const mountRead = deferred();
+    getSettings
+      .mockReturnValueOnce(mountRead.promise) // App's mount read, slow
+      .mockResolvedValueOnce({ // the dialog's own, made later
+        ...SETTINGS_KESWICK, mapColourScale: 'verdict', comingUpLastSeenDate: '2026-09-12',
+      });
+    const setModeSpy = vi.spyOn(scoreRamp, 'setMode');
+    const { providerSpy } = renderApp();
+    await openMapPane();
+
+    await openSettings();
+    // Control: the dialog's answer is on the page.
+    expect(providerProps(providerSpy).homePlace).toBe('Keswick');
+
+    await land(() => mountRead.resolve(SETTINGS_MORPETH)); // older: made before the dialog opened
+
+    // Broken, the older read put Morpeth back on the tick line and the map, the old ramp back on
+    // every surface, and an older last-seen date back on the badge.
+    expect(providerProps(providerSpy).homePlace).toBe('Keswick');
+    expect(mapPaneProps.last.homeCoords).toEqual({ lat: 54.6, lon: -3.13 });
+    expect(setModeSpy).toHaveBeenLastCalledWith('verdict');
+    expect(providerProps(providerSpy).comingUpLastSeenDate).toBe('2026-09-12');
+  });
+
+  it('leaves the home unknown after a failed read, and opening the dialog retries what keys on it', async () => {
+    const mountRead = deferred();
+    getSettings
+      .mockReturnValueOnce(mountRead.promise)
+      .mockResolvedValueOnce(SETTINGS_MORPETH);
+    const setModeSpy = vi.spyOn(scoreRamp, 'setMode');
+    const { providerSpy } = renderApp();
+    await openMapPane();
+    await mountReadsSettled();
+
+    await land(() => mountRead.reject(new Error('502 from /api/user/settings')));
+
+    // Not known — and not "no postcode": nothing on the page may tell this reader to set one.
+    expect(providerProps(providerSpy).homePlace).toBeUndefined();
+    expect(mapPaneProps.last.homeCoords).toBeUndefined();
+    // Nor a colour: the ramp keeps the default it started with, and no "colours changed" notice
+    // is owed to a reader nobody has heard from.
+    expect(setModeSpy).not.toHaveBeenCalled();
+    expect(mapPaneProps.last.colourScaleDefaulted).toBe(false);
+
+    await openSettings();
+
+    expect(providerProps(providerSpy).homePlace).toBe('Morpeth');
+    expect(mapPaneProps.last.homeCoords).toEqual({ lat: 55.17, lon: -1.69 });
+    // An answer while nothing was on record counts as a change: reach and the light are asked
+    // again, in case the page-load failure was theirs too.
+    await waitFor(() => expect(getReach).toHaveBeenCalledTimes(2));
+    expect(getTodaysLight).toHaveBeenCalledTimes(2);
+  });
+
+  it('fills an unknown last-seen date from the dialog\'s read', async () => {
+    getSettings
+      .mockRejectedValueOnce(new Error('502 from /api/user/settings'))
+      .mockResolvedValueOnce({ ...SETTINGS_MORPETH, comingUpLastSeenDate: '2026-09-12' });
+    const { providerSpy } = renderApp();
+    await screen.findByTestId('window-first-pane-empty');
+    await act(async () => {});
+    expect(providerProps(providerSpy).comingUpLastSeenDate).toBeUndefined();
+
+    await openSettings();
+
+    expect(providerProps(providerSpy).comingUpLastSeenDate).toBe('2026-09-12');
+  });
+
+  it('never moves a known last-seen date from the dialog\'s read', async () => {
+    // The Coming up tab's own writes own the date once it is known; a read made before a `Mark
+    // seen` landed must not put the older day back and bring the badge back with it.
+    getSettings
+      .mockResolvedValueOnce(SETTINGS_MORPETH) // '2026-09-10'
+      .mockResolvedValueOnce({ ...SETTINGS_MORPETH, comingUpLastSeenDate: '2026-09-01' });
+    const { providerSpy } = renderApp();
+    await waitFor(() => expect(providerProps(providerSpy).comingUpLastSeenDate).toBe('2026-09-10'));
+
+    const dialog = await openSettings();
+    // Control: the dialog's read landed.
+    expect(within(dialog).getByTestId('settings-home-current')).toHaveTextContent('Morpeth');
+
+    expect(providerProps(providerSpy).comingUpLastSeenDate).toBe('2026-09-10');
+  });
+
+  it('hands the Coming up tab\'s own write back to the record', async () => {
+    // The bootstrap write on a first visit: `null` is "never seen", and the write's echo is the
+    // date the provider must carry from then on.
+    getSettings.mockResolvedValue({ ...SETTINGS_MORPETH, comingUpLastSeenDate: null });
+    // Not today's date: the shell falls back to today when the echo carries none, so a date that
+    // could be today could not tell the echo from the fallback.
+    markComingUpSeen.mockReset().mockResolvedValue({ comingUpLastSeenDate: '2026-09-02' });
+    const { providerSpy } = renderApp();
+    await waitFor(() => expect(providerProps(providerSpy).comingUpLastSeenDate).toBeNull());
+
+    await act(async () => { fireEvent.click(await screen.findByRole('tab', { name: 'Coming up' })); });
+
+    await waitFor(() => expect(providerProps(providerSpy).comingUpLastSeenDate).toBe('2026-09-02'));
+    expect(markComingUpSeen).toHaveBeenCalledTimes(1);
+  });
+
+  it('drops the first of a StrictMode remount\'s two mount reads', async () => {
+    // A development-only double mount: the second run's read is the newer, whichever lands last.
+    const first = deferred();
+    const second = deferred();
+    getSettings.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    localStorage.setItem('goldenhour_token', 'test-token');
+    localStorage.setItem('goldenhour_role', 'PRO_USER');
+    const providerSpy = vi.spyOn(briefingContext, 'WindowFirstBriefingProvider');
+    render(<React.StrictMode><App /></React.StrictMode>);
+    await screen.findByTestId('window-first-pane-empty');
+    expect(getSettings).toHaveBeenCalledTimes(2);
+
+    await land(() => second.resolve(SETTINGS_KESWICK));
+    // Control: the second run's read applies.
+    expect(providerProps(providerSpy).homePlace).toBe('Keswick');
+
+    await land(() => first.resolve(SETTINGS_MORPETH));
+
+    expect(providerProps(providerSpy).homePlace).toBe('Keswick');
   });
 });
 
@@ -562,7 +1180,7 @@ describe('App — suppresses the app-wide footer on the Map tab (adversarial rev
 
 // ── The map colour preference reaches scoreRamp ──────────────────────────────
 //
-// loadHomeCoords is the one place App wires the loaded setting into scoreRamp.setMode, so Plan
+// `useReaderSettings` is the one place App wires a settings answer into scoreRamp.setMode, so Plan
 // and Map can never disagree about what a colour means (heat-scale-unification-plan.md, rule 1).
 
 describe('App — wires the loaded map colour preference into scoreRamp', () => {
