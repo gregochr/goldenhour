@@ -23,6 +23,8 @@ import java.time.ZonedDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -129,6 +131,37 @@ class AuroraHotTopicStrategyTest {
         List<HotTopic> topics = strategy.detect(TODAY, TO_DATE);
 
         assertThat(topics.stream().filter(t -> t.date().equals(TODAY)).toList()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("an admin's aurora simulation never emits a tonight pill, real STRONG level or not")
+    void detect_simulated_emitsNothing() {
+        // A REAL AuroraStateCache, driven through activateSimulation() exactly as
+        // AuroraAdminController does — not a mocked isSimulated(), so this proves the gate against
+        // the actual state the FSM can be in (activateSimulation always sets ACTIVE + a real level
+        // alongside the simulation flag; a mock would let the two disagree in a way production never
+        // can, masking a gate that checked the wrong signal).
+        AuroraStateCache realCache = new AuroraStateCache();
+        realCache.activateSimulation(AlertLevel.STRONG,
+                new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3"));
+        AuroraHotTopicStrategy simStrategy = new AuroraHotTopicStrategy(
+                realCache, noaaSwpcClient, locationRepository, auroraSummaryBuilder);
+
+        List<HotTopic> topics = simStrategy.detect(TODAY, TO_DATE);
+
+        assertThat(topics.stream().filter(t -> t.date().equals(TODAY)).toList()).isEmpty();
+    }
+
+    @Test
+    @DisplayName("the simulated gate short-circuits before reading the level or trigger Kp")
+    void detect_simulated_neverReadsLevelOrKp() {
+        when(auroraStateCache.isSimulated()).thenReturn(true);
+
+        strategy.detect(TODAY, TO_DATE);
+
+        verify(auroraStateCache, never()).getCurrentLevel();
+        verify(auroraStateCache, never()).getLastTriggerKp();
+        verifyNoInteractions(auroraSummaryBuilder);
     }
 
     @Test

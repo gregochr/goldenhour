@@ -406,12 +406,14 @@ public class TopicDailyLogJob {
     /**
      * Only regions with a stored result for the night get a row — most nights carry none at all
      * (the table is written only on a manual admin trigger), and "no row" must read as unmeasured,
-     * never as a false presence.
+     * never as a false presence. The repository call already excludes {@code simulated} rows for
+     * the same reason: an admin's fake-Kp test run must not log a false AURORA presence for a
+     * night nothing real was ever measured on.
      */
     private void logAurora(LocalDate date) {
         try {
-            List<AuroraForecastResultEntity> rows =
-                    auroraForecastResultRepository.findByForecastDateFetchingLocation(date);
+            List<AuroraForecastResultEntity> rows = auroraForecastResultRepository
+                    .findByForecastDateAndSimulatedFalseFetchingLocation(date);
             Map<Long, Reading> byRegion = new LinkedHashMap<>();
 
             for (AuroraForecastResultEntity row : rows) {

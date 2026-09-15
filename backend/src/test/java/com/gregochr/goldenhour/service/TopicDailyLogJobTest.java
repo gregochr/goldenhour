@@ -113,7 +113,7 @@ class TopicDailyLogJobTest {
                 .thenReturn(List.of());
         lenient().when(survivorAtmosphereRepository.findInDateRange(any(), any())).thenReturn(List.of());
         lenient().when(locationRepository.findCoastalLocations()).thenReturn(List.of());
-        lenient().when(auroraForecastResultRepository.findByForecastDateFetchingLocation(any()))
+        lenient().when(auroraForecastResultRepository.findByForecastDateAndSimulatedFalseFetchingLocation(any()))
                 .thenReturn(List.of());
         lenient().when(nlcClarityService.isNlcSeason(any())).thenReturn(false);
         lenient().when(regionService.findAll()).thenReturn(List.of());
@@ -503,7 +503,7 @@ class TopicDailyLogJobTest {
         LocationEntity location = locationWithRegion(10L, region);
         AuroraForecastResultEntity result = AuroraForecastResultEntity.builder()
                 .location(location).forecastDate(YESTERDAY).alertLevel("MODERATE").stars(4).build();
-        when(auroraForecastResultRepository.findByForecastDateFetchingLocation(YESTERDAY))
+        when(auroraForecastResultRepository.findByForecastDateAndSimulatedFalseFetchingLocation(YESTERDAY))
                 .thenReturn(List.of(result));
 
         job.runScheduled();
@@ -522,7 +522,7 @@ class TopicDailyLogJobTest {
         LocationEntity location = locationWithRegion(10L, region);
         AuroraForecastResultEntity result = AuroraForecastResultEntity.builder()
                 .location(location).forecastDate(YESTERDAY).alertLevel("QUIET").stars(1).build();
-        when(auroraForecastResultRepository.findByForecastDateFetchingLocation(YESTERDAY))
+        when(auroraForecastResultRepository.findByForecastDateAndSimulatedFalseFetchingLocation(YESTERDAY))
                 .thenReturn(List.of(result));
 
         job.runScheduled();
@@ -537,7 +537,7 @@ class TopicDailyLogJobTest {
         LocationEntity location = locationWithRegion(10L, region);
         AuroraForecastResultEntity result = AuroraForecastResultEntity.builder()
                 .location(location).forecastDate(YESTERDAY).alertLevel("NOT_A_LEVEL").stars(1).build();
-        when(auroraForecastResultRepository.findByForecastDateFetchingLocation(YESTERDAY))
+        when(auroraForecastResultRepository.findByForecastDateAndSimulatedFalseFetchingLocation(YESTERDAY))
                 .thenReturn(List.of(result));
 
         job.runScheduled();

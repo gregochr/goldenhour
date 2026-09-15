@@ -172,11 +172,17 @@ public final class BriefingRollupBuilder {
         // unlocked volatiles (see its class javadoc), so a CLEAR — a real alert ending, or an
         // admin's reset — landing during the isTravelDay DB round trip below would otherwise null
         // the level between this check and the point where it is written into the rollup.
+        //
+        // isSimulated() is snapshotted here too and gates first: an admin's aurora simulation is
+        // for admin UI testing only and must never feed the best-bet advisor's Claude prompt as if
+        // it were a real alert.
+        boolean auroraSimulated = auroraStateCache.isSimulated();
         AlertLevel auroraLevel = auroraStateCache.getCurrentLevel();
         Double auroraTriggerKp = auroraStateCache.getLastTriggerKp();
         int auroraDarkSkyCount = auroraStateCache.getDarkSkyLocationCount();
         Integer auroraClearCount = auroraStateCache.getClearLocationCount();
         if (auroraStateCache.isActive()
+                && !auroraSimulated
                 && auroraLevel != null
                 && auroraLevel.isAlertWorthy()
                 && !travelDayService.isTravelDay(today)) {

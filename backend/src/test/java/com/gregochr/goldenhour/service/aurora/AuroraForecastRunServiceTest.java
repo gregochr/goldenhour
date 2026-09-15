@@ -343,7 +343,7 @@ class AuroraForecastRunServiceTest {
                 .alertLevel("MINOR")
                 .maxKp(4.0)
                 .build();
-        when(resultRepository.findByForecastDate(pastNight)).thenReturn(List.of(entity));
+        when(resultRepository.findByForecastDateAndSimulatedFalse(pastNight)).thenReturn(List.of(entity));
 
         List<AuroraForecastResultDto> dtos = service.getResultsForDate(pastNight);
 
@@ -373,7 +373,7 @@ class AuroraForecastRunServiceTest {
                 .alertLevel("MODERATE")
                 .maxKp(6.0)
                 .build();
-        when(resultRepository.findByForecastDate(TODAY)).thenReturn(List.of(entity));
+        when(resultRepository.findByForecastDateAndSimulatedFalse(TODAY)).thenReturn(List.of(entity));
 
         TonightWindow expected = service.computeWindowForDate(TODAY);
         List<AuroraForecastResultDto> dtos = service.getResultsForDate(TODAY);
@@ -605,6 +605,10 @@ class AuroraForecastRunServiceTest {
                 .filter(e -> !e.isTriaged()).findFirst().orElseThrow();
         assertThat(claude.getSource()).isEqualTo("claude");
         assertThat(claude.getStars()).isEqualTo(3);
+
+        // A real (non-simulated) run must never mark its rows simulated — the class-level default
+        // stub (stateCache.isSimulated() -> false) drives this, matching every other test here.
+        assertThat(saved).allMatch(e -> !e.isSimulated());
     }
 
     @Test
@@ -832,6 +836,49 @@ class AuroraForecastRunServiceTest {
         assertThat(response.nights().get(0).status()).isEqualTo("scored");
         // Should NOT have called noaaClient.fetchAll() — uses simulated data instead
         verify(noaaClient, never()).fetchAll();
+    }
+
+    @Test
+    @DisplayName("runForecast marks every persisted row simulated when a REAL AuroraStateCache "
+            + "is mid-simulation")
+    void runForecast_simulated_marksPersistedResultsAsSimulated() {
+        // A real cache driven through activateSimulation(), not a mocked isSimulated() — proves the
+        // marker is set from the state activateSimulation actually puts the machine in, not from an
+        // answer a mock could give independently of it. Without this marker, a Claude call made
+        // against fake Kp/storm data would persist identically to a real run and be served to every
+        // PRO/ADMIN user on the map as if it were real.
+        AuroraStateCache realCache = new AuroraStateCache();
+        realCache.activateSimulation(AlertLevel.STRONG,
+                new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3"));
+        AuroraForecastRunService simService = new AuroraForecastRunService(noaaClient, weatherTriage,
+                claudeInterpreter, locationRepository, resultRepository, properties, solarCalculator,
+                realCache, resultWriter, CLOCK);
+
+        LocationEntity viableLoc = LocationEntity.builder()
+                .id(1L).name("Clear Sky").lat(55.0).lon(-1.5).bortleClass(3).build();
+        LocationEntity triageLoc = LocationEntity.builder()
+                .id(2L).name("Overcast Bay").lat(54.0).lon(-2.0).bortleClass(2).build();
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
+                .thenReturn(List.of(viableLoc, triageLoc));
+        when(weatherTriage.triage(any())).thenReturn(
+                new WeatherTriageService.TriageResult(
+                        List.of(viableLoc), List.of(triageLoc),
+                        Map.of(viableLoc, 20, triageLoc, 95)));
+        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any()))
+                .thenReturn(List.of(new AuroraForecastScore(viableLoc, 4, AlertLevel.STRONG, 20,
+                        "Strong conditions", "✓ Geomagnetic: STRONG")));
+
+        simService.runForecast(new AuroraForecastRunRequest(List.of(TODAY)));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<AuroraForecastResultEntity>> savedCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(resultWriter).replaceNightResults(eq(TODAY), savedCaptor.capture());
+        List<AuroraForecastResultEntity> saved = savedCaptor.getValue();
+        // One triage-template row (Overcast Bay) and one Claude-scored row (Clear Sky) — both
+        // branches of the entity-building code must carry the marker, not just one.
+        assertThat(saved).hasSize(2);
+        assertThat(saved).allMatch(AuroraForecastResultEntity::isSimulated);
     }
 
     // -------------------------------------------------------------------------

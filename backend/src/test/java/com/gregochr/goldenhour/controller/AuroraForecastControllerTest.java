@@ -49,9 +49,28 @@ class AuroraForecastControllerTest extends AbstractControllerTest {
     }
 
     @Test
+    @DisplayName("GET /preview returns 403 for PRO_USER — ADMIN-only, the only caller is the "
+            + "Admin-only night selector modal")
+    @WithMockUser(roles = "PRO_USER")
+    void preview_proUser_returns403() throws Exception {
+        mockMvc.perform(get("/api/aurora/forecast/preview"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     @DisplayName("POST /run returns 403 for LITE_USER")
     @WithMockUser(roles = "LITE_USER")
     void run_liteUser_returns403() throws Exception {
+        mockMvc.perform(post("/api/aurora/forecast/run")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"nights\":[\"2026-03-21\"]}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("POST /run returns 403 for PRO_USER — ADMIN-only, this spends real Claude cost")
+    @WithMockUser(roles = "PRO_USER")
+    void run_proUser_returns403() throws Exception {
         mockMvc.perform(post("/api/aurora/forecast/run")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"nights\":[\"2026-03-21\"]}"))
@@ -95,17 +114,6 @@ class AuroraForecastControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.nights[2].gScale").doesNotExist());
     }
 
-    @Test
-    @DisplayName("GET /preview returns 200 for PRO_USER")
-    @WithMockUser(roles = "PRO_USER")
-    void preview_proUser_returns200() throws Exception {
-        when(forecastRunService.getPreview()).thenReturn(
-                new AuroraForecastPreview(List.of(), false));
-
-        mockMvc.perform(get("/api/aurora/forecast/preview"))
-                .andExpect(status().isOk());
-    }
-
     // -------------------------------------------------------------------------
     // POST /run
     // -------------------------------------------------------------------------
@@ -132,22 +140,21 @@ class AuroraForecastControllerTest extends AbstractControllerTest {
                 .andExpect(jsonPath("$.nights[0].locationsTriaged").value(5));
     }
 
-    @Test
-    @DisplayName("POST /run returns 200 for PRO_USER")
-    @WithMockUser(roles = "PRO_USER")
-    void run_proUser_returns200() throws Exception {
-        when(forecastRunService.runForecast(any())).thenReturn(
-                new AuroraForecastRunResponse(List.of(), 0, "~$0.00"));
-
-        mockMvc.perform(post("/api/aurora/forecast/run")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"nights\":[]}"))
-                .andExpect(status().isOk());
-    }
-
     // -------------------------------------------------------------------------
     // GET /results
     // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("GET /results returns 200 for PRO_USER — unlike /preview and /run, this read path "
+            + "is unchanged")
+    @WithMockUser(roles = "PRO_USER")
+    void results_proUser_returns200() throws Exception {
+        when(forecastRunService.getResultsForDate(any())).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/aurora/forecast/results")
+                        .param("date", "2026-03-21"))
+                .andExpect(status().isOk());
+    }
 
     @Test
     @DisplayName("GET /results returns scored locations for a given date")
@@ -205,5 +212,16 @@ class AuroraForecastControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0]").value("2026-03-21"))
                 .andExpect(jsonPath("$[1]").value("2026-03-22"));
+    }
+
+    @Test
+    @DisplayName("GET /results/available-dates returns 200 for PRO_USER — unlike /preview and /run, "
+            + "this read path is unchanged")
+    @WithMockUser(roles = "PRO_USER")
+    void availableDates_proUser_returns200() throws Exception {
+        when(forecastRunService.getAvailableDates()).thenReturn(List.of());
+
+        mockMvc.perform(get("/api/aurora/forecast/results/available-dates"))
+                .andExpect(status().isOk());
     }
 }
