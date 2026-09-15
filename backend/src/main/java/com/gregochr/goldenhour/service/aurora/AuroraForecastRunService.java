@@ -198,10 +198,14 @@ public class AuroraForecastRunService {
      * @return preview of the next three nights
      */
     public AuroraForecastPreview getPreview() {
-        boolean isSimulated = stateCache.isSimulated();
+        // One read of getSimulatedData(), not isSimulated() followed by a second, separate read of
+        // getSimulatedData(): between the two, an admin's CLEAR/reset can null the data out from
+        // under a flag that already read true, and .kp() below would NPE on the stale flag's say-so.
+        AuroraStateCache.SimulatedNoaaData simData = stateCache.getSimulatedData();
+        boolean isSimulated = simData != null;
         List<KpForecast> kpForecast;
         if (isSimulated) {
-            kpForecast = buildSimulatedKpForecast(stateCache.getSimulatedData().kp());
+            kpForecast = buildSimulatedKpForecast(simData.kp());
         } else {
             kpForecast = noaaClient.fetchKpForecast();
         }
@@ -260,9 +264,13 @@ public class AuroraForecastRunService {
             return new AuroraForecastRunResponse(List.of(), 0, "~$0.00");
         }
 
-        boolean simulated = stateCache.isSimulated();
+        // One read of getSimulatedData(), not isSimulated() followed by a second, separate read of
+        // getSimulatedData(): between the two, an admin's CLEAR/reset can null the data out from
+        // under a flag that already read true, and buildSimulatedSpaceWeather would NPE on it.
+        AuroraStateCache.SimulatedNoaaData simData = stateCache.getSimulatedData();
+        boolean simulated = simData != null;
         SpaceWeatherData spaceWeather = simulated
-                ? buildSimulatedSpaceWeather(stateCache.getSimulatedData())
+                ? buildSimulatedSpaceWeather(simData)
                 : noaaClient.fetchAll();
         List<KpForecast> kpForecast = spaceWeather.kpForecast();
         // Must be the same selection the preview offered, and for a second reason: it decides

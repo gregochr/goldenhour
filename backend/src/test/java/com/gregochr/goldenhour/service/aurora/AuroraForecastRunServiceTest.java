@@ -86,14 +86,15 @@ class AuroraForecastRunServiceTest {
         service = new AuroraForecastRunService(noaaClient, weatherTriage,
                 claudeInterpreter, locationRepository, resultRepository, properties, solarCalculator,
                 stateCache, resultWriter, CLOCK);
-        // Exactly three lenient stubs, and only because the class mixes pure-function tests with
-        // pipeline tests. isSimulated() is unused by the pure calculators (gScaleFromKp,
-        // maxKpInWindow, buildDateLabel) and by runForecast_emptyRequest_returnsEmpty, and it is
-        // re-stubbed to true by the two simulation tests. The civil dusk/dawn pair is consumed only
-        // by the code paths that resolve a dark window — computeWindowForDate, getPreview* and every
-        // runForecast* case — never by the calculators. Everything stubbed inside a test method is
-        // strict; there is no class-level leniency here.
-        lenient().when(stateCache.isSimulated()).thenReturn(false);
+        // Exactly two lenient stubs, and only because the class mixes pure-function tests with
+        // pipeline tests. The civil dusk/dawn pair is consumed only by the code paths that resolve a
+        // dark window — computeWindowForDate, getPreview* and every runForecast* case — never by the
+        // calculators (gScaleFromKp, maxKpInWindow, buildDateLabel). No default stub for
+        // getSimulatedData() is needed: production reads it once and derives "simulated" from
+        // != null (never a separate isSimulated() call, which used to leave a gap for an admin's
+        // CLEAR/reset to null the data out from under an already-true flag), and Mockito's own
+        // default answer for an unstubbed method — null — already means "not simulated". Everything
+        // stubbed inside a test method is strict; there is no class-level leniency here.
 
         ZoneId utc = ZoneId.of("UTC");
         // Answers per requested date rather than returning one fixed pair. That matters now:
@@ -606,8 +607,9 @@ class AuroraForecastRunServiceTest {
         assertThat(claude.getSource()).isEqualTo("claude");
         assertThat(claude.getStars()).isEqualTo(3);
 
-        // A real (non-simulated) run must never mark its rows simulated — the class-level default
-        // stub (stateCache.isSimulated() -> false) drives this, matching every other test here.
+        // A real (non-simulated) run must never mark its rows simulated — stateCache.
+        // getSimulatedData() is unstubbed here, defaulting to null, matching every other
+        // non-simulation test in this class.
         assertThat(saved).allMatch(e -> !e.isSimulated());
     }
 
@@ -777,11 +779,10 @@ class AuroraForecastRunServiceTest {
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("getPreview uses simulated Kp when stateCache.isSimulated() is true")
+    @DisplayName("getPreview uses simulated Kp when stateCache.getSimulatedData() is non-null")
     void getPreview_simulated_usesSimulatedKp() {
         AuroraStateCache.SimulatedNoaaData simData =
                 new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3");
-        when(stateCache.isSimulated()).thenReturn(true);
         when(stateCache.getSimulatedData()).thenReturn(simData);
         when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
                 .thenReturn(List.of());
@@ -807,13 +808,11 @@ class AuroraForecastRunServiceTest {
     }
 
     @Test
-    @DisplayName("runForecast uses simulated SpaceWeatherData when simulation is active")
+    @DisplayName("runForecast uses simulated SpaceWeatherData when getSimulatedData() is non-null")
     void runForecast_simulated_usesSimulatedSpaceWeather() {
         AuroraStateCache.SimulatedNoaaData simData =
                 new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3");
-        when(stateCache.isSimulated()).thenReturn(true);
         when(stateCache.getSimulatedData()).thenReturn(simData);
-
 
         LocationEntity loc = LocationEntity.builder()
                 .id(1L).name("Sim Location").lat(55.0).lon(-1.5).bortleClass(3).build();
