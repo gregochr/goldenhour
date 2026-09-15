@@ -57,6 +57,19 @@ synchronously — but the button sits *above* the component's `loading ?` gate, 
 from the first paint and the wait was satisfied before any data arrived. It passed on a quiet
 machine and failed roughly one full-suite run in six. Wait for the thing the response renders.
 
+**And a commit is not its effects.** A `findBy*` resolves on the commit that renders what it waited
+for — but outside `act` (a resolved request, a timer), React leaves that commit's `useEffect`s to a
+later scheduler task, always yielding first because every commit requests a paint. Testing Library
+resumes on a real `setTimeout(0)` that races that task, so anything an effect does — arm a timer,
+subscribe, start a fetch — may not have happened yet, and the assertion passes on a quiet machine
+and fails under load. `ModelSelectionView.test.jsx` waited for its success banner, then counted the
+banner's dismiss timer, and read zero in 41 of 2,700 repetitions under CPU load. Assert an effect's
+work only after settling inside an awaited `act`. On a frozen fake clock that is the only wait there
+is: a `findBy*` hangs there rather than races, because the `setTimeout(0)` that ends every Testing
+Library wait is frozen too (it advances fake timers itself only under Jest) — which is why a file
+on `vi.useFakeTimers()` without `shouldAdvanceTime` settles with an awaited `act`, as that file's
+`pump()` does.
+
 **And never put the click inside the wait.** `waitFor` re-runs its callback every ~50ms, so a
 `fireEvent.click` in there re-fires on every poll: a failing assertion on an expand/collapse toggle
 collapses and re-expands the row twenty times a second instead of failing. That is a hang dressed as
