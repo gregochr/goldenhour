@@ -37,3 +37,17 @@ header said "ADMIN for writes", true of every write under `/api/aurora/admin/*` 
 night) that a PRO account reaches without ADMIN. The header now reads "PRO/ADMIN; admin paths
 ADMIN-only", scoped to the path rather than to read/write, and the blockquote says why the old
 shorthand didn't hold.
+
+⚠️ **The polling-scope fix above was superseded by a real code change before this PR landed.**
+While this branch was open, #849 (`fix(aurora): every poll evaluates the alert state machine at most
+once`) refactored `AuroraPollingJob` itself — the old two-path `isDaylight()` structure this entry's
+first fix describes is gone; every poll now evaluates the state machine exactly once, choosing a
+daylight or a dark path from one clock read. #849 rewrote the exact same "Aurora photography" bullet
+with a fuller, code-verified account of the new behaviour, so merging main took that side of the
+conflict wholesale rather than reconciling wording about superseded code — this fix's own contribution
+to that one bullet did not survive to the merged CLAUDE.md. The API-section conflict merged both
+sides: this branch's per-endpoint annotations (`viewline/forecast`, `forecast/preview`,
+`admin/simulate`, and the still-true `simulate/clear`-equals-`reset()` note above) plus #849's
+`/admin/run` correction (it now runs through the same guarded `runCycleIfIdle()` cycle as the
+schedule, 409 while one is running, with a richer response body) — verified independently against
+`origin/main`'s actual source rather than trusted from either diff.
