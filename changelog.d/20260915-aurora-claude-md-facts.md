@@ -51,3 +51,21 @@ sides: this branch's per-endpoint annotations (`viewline/forecast`, `forecast/pr
 `/admin/run` correction (it now runs through the same guarded `runCycleIfIdle()` cycle as the
 schedule, 409 while one is running, with a richer response body) — verified independently against
 `origin/main`'s actual source rather than trusted from either diff.
+
+⚠️ **A second merge conflict, same shape, landed within the hour.** #847
+(`fix(aurora): isolate an admin's simulation from real users`) tightened
+`POST /api/aurora/forecast/run` and `GET /api/aurora/forecast/preview` from `PRO_USER/ADMIN` to
+`ADMIN` — a real, independently-verified role-gate change (`AuroraForecastController`'s two methods
+now carry their own `@PreAuthorize("hasRole('ADMIN')")`, confirmed by reading the class on
+`origin/main` directly) — and rewrote the same Aurora API line and blockquote again. This made this
+PR's own "`forecast/run` is the one Aurora write a PRO account can reach without ADMIN" sentence false
+the moment #847 merged; a peer session (`vigilant-leavitt-fed9d0-0d`, working on #849) had already
+flagged this exact eventuality as a pure FYI two hours earlier, logged in the
+`aurora-claude-md-facts-pr` project memory rather than acted on early, since #847 hadn't merged yet
+and pre-editing for unmerged code is the mistake the note above already describes once. Resolution
+merged #847's corrected role gates and its new blockquote (simulation-isolation fix, V154 migration,
+`AuroraForecastModal`'s Admin-only mount point — spot-checked against `frontend/src/components/` before
+accepting) with this branch's still-accurate per-endpoint detail that #847's rewrite had dropped:
+`viewline/forecast`'s Kp-to-latitude explanation, `forecast/preview`'s "no Claude call" note, and the
+`simulate/clear`-equals-`reset()` finding (re-verified against `origin/main`'s `AuroraStateCache.java`
+and `AuroraAdminController.java` — both unchanged by #847, so the alias claim still holds).
