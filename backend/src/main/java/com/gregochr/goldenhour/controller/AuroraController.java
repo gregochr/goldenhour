@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
@@ -109,8 +110,15 @@ public class AuroraController {
         AuroraStateCache.SimulatedNoaaData simData = stateCache.getSimulatedData();
         // The night too, and from one call, so its date and end come from one read of the clock and
         // name the same night. Null only from a stubbed service; relayed as-is, never replaced with a
-        // calendar date.
+        // calendar date — and checked once, since a second check of the same value is one SpotBugs
+        // rejects as redundant.
         CurrentNight night = forecastRunService.currentNight();
+        LocalDate nightDate = null;
+        Instant nightEndsAt = null;
+        if (night != null) {
+            nightDate = night.date();
+            nightEndsAt = night.endsAt();
+        }
 
         AlertLevel level = cachedLevel == null ? AlertLevel.QUIET : cachedLevel;
 
@@ -177,8 +185,8 @@ public class AuroraController {
                 simulated,
                 activeSince,
                 gScale,
-                night == null ? null : night.date(),
-                night == null ? null : night.endsAt()));
+                nightDate,
+                nightEndsAt));
     }
 
     /**
