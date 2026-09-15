@@ -168,10 +168,46 @@ const PinsLayer = lazy(() => import('./map/PinsLayer.jsx'));
 
 /**
  * The selection callout (map-tab-v2-plan.md §3 P9) — a plain static import, unlike the layers
- * above: it imports no `d3-geo`-carrying module (`utils/mapCallout.js`, `utils/locationSheet.js`,
- * `utils/scoreRamp.js`, `utils/locationTypes.js` are all leaf modules), so there is no weight to
- * keep off the Plan overlay's network in the first place, and a `lazy()` boundary here would only
- * add a Suspense flash the instant a reader selects a location.
+ * above, and unlike them for a narrower reason than this comment used to claim.
+ *
+ * <p>⚠️ **This comment was false, and it is worth recording exactly how.** It used to say
+ * `MapCallout` "imports no `d3-geo`-carrying module", naming `utils/mapCallout.js`,
+ * `utils/locationSheet.js`, `utils/scoreRamp.js`, `utils/locationTypes.js` as its leaf-module
+ * imports. But `MapCallout.jsx` also imported {@code verdictWord} from `utils/mapLabels.js` —
+ * NOT a leaf module: it statically imports {@code centroid} from `utils/heatField.js`, which
+ * statically imports `d3-geo` and `topojson-client`. "MapCallout only uses `verdictWord`, and
+ * `verdictWord` never touches `centroid`" is true and beside the point — a source-level `import`
+ * names a MODULE, not the one export a caller happens to read, and Rollup's chunk-splitting did
+ * not cleanly separate the two. Measured on the pre-fix build: {@code regionLabelItems}/
+ * {@code hottestRegion} — dead code on this reachable path, `MapCallout` calls neither — were
+ * duplicated straight into the eager `MapView` chunk alongside {@code verdictWord}, and that
+ * chunk carried a static `import` of a shared chunk (Rollup named it after one of the small
+ * modules folded into it, not a stable identifier) holding {@code centroid}, the heat-field
+ * canvas kernel and topojson's feature decoder — which itself statically imported the
+ * `d3-geo`/`d3-array` bundle. Net effect: the Map tab AND the Plan-tab overlay (which mounts
+ * `MapView` before a reader has chosen Heat or Pins, or opened the callout at all) were both
+ * eagerly loading the full closure of `MapView` at 18 chunks / 842,323 bytes raw — including the
+ * `geo` chunk and that merged chunk, ~32.3 KB raw / ~12.75 KB gzip between them — exactly the
+ * weight the `lazy()` boundaries above exist to keep off that network path.
+ *
+ * <p>Fixed by extracting {@code verdictWord} — the whole small pure function, with its two
+ * threshold constants — out of `mapLabels.js` into its own leaf, `utils/verdictWord.js`, with
+ * nothing else in it for a future addition to accidentally import `heatField.js` next to.
+ * `MapCallout.jsx` now imports directly from there; `mapLabels.js` re-exports the same three
+ * bindings (pinned by a test) so `MapLabels.jsx`/`PinsLayer.jsx` need no change. Verified two ways
+ * rather than reasoned: `MapCallout.jsx`'s full SOURCE-level transitive import closure (21 files)
+ * no longer reaches `mapLabels.js`, `heatField.js`, `d3-geo` or `topojson-client` at all — this is
+ * a structural absence of the edge, not Rollup tree-shaking one away, so there is nothing left for
+ * a bundler change to un-shake — and the BUILT `MapView` chunk's own transitive closure dropped to
+ * 17 chunks / 809,126 bytes raw, with neither the `geo` chunk nor any heat-field/topojson code
+ * present in it.
+ *
+ * <p>`MapCallout`'s real leaf-module imports today: `utils/mapCallout.js`,
+ * `utils/verdictWord.js`, `utils/scoreRamp.js`, `utils/locationSheet.js`,
+ * `utils/locationTypes.js`, `utils/windowFirstSpots.js` (plus the sibling `TideWave.jsx` and the
+ * `useIsMobile` hook) — none of which reach `heatField.js`, `d3-geo` or `topojson-client`, so
+ * there genuinely is no weight to keep off the Plan overlay's network, and a `lazy()` boundary
+ * here would only add a Suspense flash the instant a reader selects a location.
  */
 
 /**
