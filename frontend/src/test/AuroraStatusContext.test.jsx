@@ -39,6 +39,8 @@ vi.mock('../api/auroraApi.js', () => ({
 
 import AuroraBanner from '../components/AuroraBanner.jsx';
 import { AuroraStatusProvider } from '../context/AuroraStatusContext.jsx';
+import { useAuroraStatus } from '../hooks/useAuroraStatus.js';
+import { resolveAuroraNight } from '../utils/mapDates.js';
 import { getAuroraStatus, getAuroraViewline, getAuroraForecastViewline } from '../api/auroraApi.js';
 
 /**
@@ -401,5 +403,123 @@ describe('AuroraStatusProvider — answers are applied in the order they were as
     await land(() => firstRun.resolve({ ...ALL_CLEAR }));
 
     expect(banner()).toHaveTextContent('Moderate storm — aurora possible from northern England');
+  });
+});
+
+/**
+ * The night in progress as `App` and `MapView` both read it — the real status hook under the real
+ * resolver. A stand-in for those two because the claim here is WHEN they are asked, not what they
+ * draw; `MapViewPastNights.test.jsx` covers what the map draws once asked.
+ */
+function NightInProgress() {
+  const { status } = useAuroraStatus();
+  return <output data-testid="night-in-progress">{resolveAuroraNight(status)}</output>;
+}
+
+describe('AuroraStatusProvider — the page re-reads the night in progress when that night ends', () => {
+  /** 02:00 BST on Friday, when the status is taken. */
+  const TAKEN_AT = '2026-08-14T01:00:00Z';
+  /**
+   * Nautical dawn, 04:07:30 BST, where Thursday's night ends. Off the whole-minute grid the provider
+   * looks on — first at 02:00:00, then every minute — on purpose: its last look before the end then
+   * finds thirty seconds left and has to wait them out. A provider that re-rendered on any look
+   * within a minute of the end would do so while the night still stood, and never look again.
+   */
+  const NIGHT_ENDS_AT = '2026-08-14T03:07:30Z';
+  const THURSDAY_NIGHT = { ...ALL_CLEAR, currentNightDate: '2026-08-13', currentNightEndsAt: NIGHT_ENDS_AT };
+
+  const night = () => screen.getByTestId('night-in-progress');
+  /**
+   * The promise under test — "within a minute of waking" — written out rather than read from the
+   * provider, so that loosening the provider's look interval fails here instead of moving the test.
+   */
+  const A_MINUTE = 60 * 1000;
+
+  beforeEach(() => {
+    // The timeout the provider arms and the clock that it and the resolver read, besides the poll.
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'Date'] });
+    vi.setSystemTime(new Date(TAKEN_AT));
+  });
+
+  it('re-renders at the night\'s end with every poll since failing — the night moves on with no new status', async () => {
+    // Codex, on #841, one layer down. `resolveAuroraNight` stops believing a status at the end of its
+    // night, but it answers only when something renders, and with the polls failing nothing had to:
+    // a failed poll changes no state, and the memoised map re-reads the night only when something
+    // re-renders it. So its list could go on offering Thursday until the reader touched something.
+    getAuroraStatus
+      .mockRejectedValue(new Error('502 from /api/aurora/status'))
+      .mockResolvedValueOnce({ ...THURSDAY_NIGHT });
+
+    await act(async () => {
+      render(<AuroraStatusProvider><NightInProgress /></AuroraStatusProvider>);
+    });
+    expect(night()).toHaveTextContent('2026-08-13');
+
+    // A second short of the end, with every poll on the way failed: still Thursday's — the failures
+    // took nothing away. The control for the next step; the resolver's own boundary is pinned in
+    // `mapDates.test.js`.
+    const untilJustBefore = Date.parse(NIGHT_ENDS_AT) - Date.parse(TAKEN_AT) - 1000;
+    await act(async () => { vi.advanceTimersByTime(untilJustBefore); });
+    expect(getAuroraStatus).toHaveBeenCalledTimes(1 + Math.floor(untilJustBefore / POLL_INTERVAL_MS));
+    expect(night()).toHaveTextContent('2026-08-13');
+
+    await act(async () => { vi.advanceTimersByTime(1000); });
+
+    // Friday's: Thursday's night is over, though no status has landed since 02:00.
+    expect(night()).toHaveTextContent('2026-08-14');
+  });
+
+  it('re-reads the night within a minute of waking from a sleep that spanned its end', async () => {
+    // Browser timers count on a clock that stops while the device sleeps, so one timer armed at 02:00
+    // for a 04:07 dawn fires two hours after the lid opens again — and with the polls failing, nothing
+    // else re-renders the map meanwhile. So the provider looks at the wall clock at least once a
+    // minute. `vi.setSystemTime` moves the wall clock without firing a timer, which is what a sleep
+    // does. The sleep starts after the wait has re-armed, so the cap is held on the re-arm as well as
+    // on the first look.
+    getAuroraStatus
+      .mockRejectedValue(new Error('502 from /api/aurora/status'))
+      .mockResolvedValueOnce({ ...THURSDAY_NIGHT });
+
+    await act(async () => {
+      render(<AuroraStatusProvider><NightInProgress /></AuroraStatusProvider>);
+    });
+    await act(async () => { vi.advanceTimersByTime(A_MINUTE * 1.5); });
+    expect(night()).toHaveTextContent('2026-08-13');
+
+    vi.setSystemTime(new Date('2026-08-14T07:00:00Z')); // the lid opens at 08:00 BST
+    // Control: nothing has rendered since — the sleep alone moves nothing on screen.
+    expect(night()).toHaveTextContent('2026-08-13');
+
+    await act(async () => { vi.advanceTimersByTime(A_MINUTE); });
+
+    expect(night()).toHaveTextContent('2026-08-14');
+  });
+
+  it('re-reads the night even when it ends between the render and the provider\'s first look', async () => {
+    // The consumers read the clock when they render; the provider's effect runs after they commit.
+    // A night ending in that gap left the effect finding its end already past — which it took to mean
+    // the render had seen it, so it armed nothing and the page believed the ended night until
+    // something else rendered. Modelled by moving the clock to the end from inside the render that
+    // first reads the status.
+    function NightInProgressAsDawnBreaks() {
+      const { status } = useAuroraStatus();
+      const nightNow = resolveAuroraNight(status);
+      // eslint-disable-next-line react-hooks/purity -- impure on purpose: dawn arrives mid-commit
+      if (status && Date.now() < Date.parse(NIGHT_ENDS_AT)) vi.setSystemTime(new Date(NIGHT_ENDS_AT));
+      return <output data-testid="night-in-progress">{nightNow}</output>;
+    }
+    getAuroraStatus
+      .mockRejectedValue(new Error('502 from /api/aurora/status'))
+      .mockResolvedValueOnce({ ...THURSDAY_NIGHT });
+
+    await act(async () => {
+      render(<AuroraStatusProvider><NightInProgressAsDawnBreaks /></AuroraStatusProvider>);
+    });
+    // Control: the render that read the status did so before the end, and believed Thursday.
+    expect(night()).toHaveTextContent('2026-08-13');
+
+    await act(async () => { vi.advanceTimersByTime(0); });
+
+    expect(night()).toHaveTextContent('2026-08-14');
   });
 });

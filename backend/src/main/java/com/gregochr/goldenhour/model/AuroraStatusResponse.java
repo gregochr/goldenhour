@@ -52,8 +52,13 @@ import java.time.ZonedDateTime;
  *                           <em>yesterday</em>, and that is the date aurora results for the night in
  *                           progress are stored under. Carried here so the map can default to the
  *                           night the user just ran instead of deriving a calendar date of its own;
- *                           see {@code AuroraForecastRunService.currentNightDate()}, which owns the
+ *                           see {@code AuroraForecastRunService.currentNight()}, which owns the
  *                           rule and is the only place it lives
+ * @param currentNightEndsAt the instant that night stops being the current one — the nautical dawn
+ *                           closing its window — taken from the same read of the clock as
+ *                           {@code currentNightDate}. The client keeps its last status when a later
+ *                           fetch fails, so a status can outlive its night; this is how the map
+ *                           knows when {@code currentNightDate} has stopped being true
  */
 public record AuroraStatusResponse(
         AlertLevel level,
@@ -73,5 +78,6 @@ public record AuroraStatusResponse(
         boolean simulated,
         Instant detectedAt,
         String gScale,
-        LocalDate currentNightDate) {
+        LocalDate currentNightDate,
+        Instant currentNightEndsAt) {
 }
