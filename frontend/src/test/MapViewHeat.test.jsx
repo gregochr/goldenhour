@@ -3258,4 +3258,17 @@ describe('MapView heat — the key slot while an astro night\'s own request fail
     // precedence, as the slot has no order of its own — "Couldn't load" over that answer.
     expect(slot()).toHaveTextContent('This event is not scored yet');
   });
+
+  it('announces the key slot\'s failure line through the tab\'s status region — no place need be picked', async () => {
+    // Nothing is selected in this file's renders, so no callout: the slot is the only surface saying
+    // it, and the tab's region (Codex, #848 — mounted with the tab, not with a selection) carries it.
+    await renderMap({ heat: heatProp(), handoffEventType: 'ASTRO' });
+    expect(screen.queryByTestId('map-callout')).toBeNull();
+    const region = screen.getByTestId('map-status');
+    expect(region.textContent).toBe('');
+
+    await land(() => requests[0].reject(new Error('astro conditions down')));
+    expect(slot()).toHaveTextContent('Couldn’t load — trying again');
+    expect(region).toHaveTextContent('Couldn’t load — trying again');
+  });
 });

@@ -3544,6 +3544,24 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const unscoredLineText = ratingRetrying ? NIGHT_RETRY_LINE : 'This event is not scored yet';
 
   /**
+   * What the tab's status region says: {@code NIGHT_RETRY_LINE} whenever the tab is SHOWING it — in
+   * the callout (a selected place with no rating, on a night whose own request has failed) or in
+   * Heat view's key slot ({@code unscoredLineText}) — and nothing otherwise (review C1).
+   *
+   * <p>⚠️ <b>Owned here, not by the callout</b> (Codex, #848). A live region announces a CHANGE, and
+   * only one it was already in the tree for. The callout mounts when a place is selected, so in the
+   * commonest order — the night fails, then the reader picks a place — a region inside the callout
+   * arrived already holding the sentence, and said nothing. Mounted with the tab, this one is there
+   * before either, and the pick is the change it announces. Silent for everything else: "Loading…",
+   * "Not scored yet" and the stars are on screen to be read, and announcing them would chatter on
+   * every step through the windows.
+   */
+  const statusLine = ratingRetrying && (
+    unscoredLineShown
+    || (selectedLoc != null && activeMapEvent != null && getRatingForLocation(selectedLoc) == null)
+  ) ? NIGHT_RETRY_LINE : '';
+
+  /**
    * "No forecast to show." — the Map tab's own empty state, in the Plan screen's exact words
    * (`WindowFirstShell`'s `window-first-pane-empty`). One vocabulary across both tabs.
    *
@@ -5071,6 +5089,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           </>
         ) : (
           <>
+            {/* The tab's one status region — see `statusLine`. ALWAYS mounted with the tab and
+                empty unless the failure line is on screen, so the change that puts it there is
+                announced, whichever surface shows it and whenever the place is picked. */}
+            <span className="sr-only" role="status" data-testid="map-status">{statusLine}</span>
             {/* ── Full-frame map chrome (map-tab-v2-plan.md §3 P7/P10/P11) ──
                 Every corner is claimed exactly once, per the plan's z-ladder (index.css): chrome
                 1100, menus 1500 (a menu must beat every other chip so its own dropdown/panel is

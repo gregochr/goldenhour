@@ -958,6 +958,54 @@ describe.each(KINDS)('a failed $name night request is asked again', (kind) => {
     expect(headlinesOtherThan(sunsetFrames, 'Loading…')).toEqual([]);
   });
 
+  it('announces the failure the callout shows, when it comes while a place is picked', async () => {
+    await renderOn(NIGHT_A, kind.eventType);
+    const region = screen.getByTestId('map-status');
+    expect(region).toHaveAttribute('role', 'status');
+    // "Loading…" is on screen to be read, not announced: stepping through windows must not chatter.
+    expect(headline()).toHaveTextContent('Loading…');
+    expect(region.textContent).toBe('');
+
+    await land(() => nth(kind.requests, NIGHT_A, 0).reject(new Error('night A timed out')));
+    expect(region).toHaveTextContent(RETRYING);
+  });
+
+  it('announces a failure that came before any place was picked, when the reader picks one — the region was there first', async () => {
+    // ⚠️ Codex, #848: the commonest order — the night fails, THEN a place is picked. A region inside
+    // the callout was mounted by that pick already holding the sentence, and a live region announces
+    // changes, not what it is mounted with. The tab owns the region, so it is the same node before
+    // and after the pick, and the pick is the change it announces.
+    const result = await renderOn(NIGHT_A, kind.eventType, { handoffLocationName: null });
+    expect(screen.queryByTestId('map-callout')).toBeNull();
+    const region = screen.getByTestId('map-status');
+    await land(() => nth(kind.requests, NIGHT_A, 0).reject(new Error('night A timed out')));
+    // Nothing on screen says it yet — no callout, and this harness paints no field — so nor does it.
+    expect(region.textContent).toBe('');
+
+    await stepTo(result, NIGHT_A, kind.eventType, { handoffLocationName: SELECTED, handoffNonce: 2 });
+    expect(headline()).toHaveTextContent(RETRYING);
+    expect(screen.getByTestId('map-status')).toBe(region);
+    expect(region).toHaveTextContent(RETRYING);
+  });
+
+  it('stays silent for a place whose star is on screen, though the night\'s own request failed', async () => {
+    // The preview drew the night and rates the picked place, so the headline shows its star and the
+    // failure line is nowhere on screen: nothing for the region to announce.
+    await renderOn(NIGHT_A, kind.eventType, { forecastDates: PREVIEWED });
+    expect(kind.requests.map((r) => r.night)).toEqual([NIGHT_A, NIGHT_A, NIGHT_B]);
+    // The preview lands a RUN at once, so B's request is settled too, or A's rows never apply.
+    await land(() => {
+      nth(kind.requests, NIGHT_A, 1).resolve([{ locationName: SELECTED, stars: 4 }]);
+      nth(kind.requests, NIGHT_B, 0).resolve([]);
+      nth(kind.requests, NIGHT_A, 0).reject(new Error('night A timed out'));
+    });
+    expect(headline()).toHaveTextContent('4★');
+    // The control that the failure did land: it was asked again at 2s.
+    await elapse(2000);
+    expect(sentFor(kind.requests, NIGHT_A)).toBe(3);
+    expect(screen.getByTestId('map-status').textContent).toBe('');
+  });
+
   it('never asks again for a night the reader has left while its retry was waiting', async () => {
     const result = await onNightBAfterAFailure();
     await stepTo(result, NIGHT_A, kind.eventType);

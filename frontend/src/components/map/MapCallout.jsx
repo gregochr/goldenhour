@@ -154,9 +154,9 @@ function kindShort(event) {
  *        asked again (`MapView.jsx`'s `ratingRetrying`, true only for an astro or aurora night). A
  *        null rating then renders {@code NIGHT_RETRY_LINE} ("Couldn’t load — trying again") in
  *        place of "Loading…", which between a long outage's retries claimed a load in progress when
- *        nothing was in flight — and a status region announces it, since nothing else would. Read
- *        only while `ratingKnown` is false: an answer in hand outranks a failed refresh of it.
- *        Defaults false
+ *        nothing was in flight. (It is announced by `MapView`'s status region, not by this card —
+ *        see the note where the verdict row ends.) Read only while `ratingKnown` is false: an
+ *        answer in hand outranks a failed refresh of it. Defaults false
  * @param {?object} [props.regionGlossIndex] from `utils/mapCallout.buildRegionGlossIndex` — the
  *        reason prose's fallback when this location's own window carries no summary
  * @param {Array<object>} [props.evRows] the full EV list, for the "every window" strip
@@ -423,8 +423,8 @@ export default function MapCallout({
   // "Not scored yet" above a stale preview's star. Three review lenses found it independently.
   // Its "…" restates both of the headline's still-to-come lines, "Loading…" and "Couldn’t load —
   // trying again" alike: a cell has room for a mark, not the words, and either way no answer has
-  // come and one is still being asked for. (The failure is announced by the card's status region,
-  // below the headline, rather than left to this cell.)
+  // come and one is still being asked for. (The failure is announced by `MapView`'s status region,
+  // rather than left to this cell.)
   //
   // ⚠️ What is left, for every OTHER cell: a night the preview never asks about — outside the solar
   // horizon it is bounded to (`MapView.jsx`'s `astroPreviewDates`/`auroraPreviewDates`), which
@@ -538,15 +538,10 @@ export default function MapCallout({
             </span>
           )}
         </div>
-        {/* The failure, announced — and only the failure (review C1). The headline changes with no
-            action of the reader's, and nothing else would tell a screen-reader user that this
-            night's scores could not load: the card is named by its `aria-label`, and the strip's
-            cell says "…". ALWAYS mounted and otherwise empty, because a live region announces a
-            change and has to be in the tree before the sentence arrives; "Loading…", "Not scored
-            yet" and the stars stay out of it, so stepping through windows does not chatter. */}
-        <span className="sr-only" role="status" data-testid="map-callout-status">
-          {ratingRounded == null && !ratingKnown && ratingRetrying ? NIGHT_RETRY_LINE : ''}
-        </span>
+        {/* ⚠️ No status region here, deliberately: the failure line is announced by `MapView`'s
+            own (`statusLine`). A region inside this card would be mounted by the selection, so a
+            night that failed before a place was picked arrived in it already announced-to-nobody —
+            live regions announce changes, not what they are mounted with (Codex, #848). */}
 
         {/* Increment §1 — the clamped prose IS the route, not a dead end.
             ⚠️ THE CLAMP LIVES ON THE INNER SPAN, never on the button. `-webkit-line-clamp` requires

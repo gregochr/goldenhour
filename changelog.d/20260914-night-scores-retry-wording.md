@@ -24,9 +24,12 @@ does not flicker back to "Loading…" as each retry goes out.
   aurora state — shows as before; so does a night's answer still in hand through a failed refresh,
   "Not scored yet" included, because a failure takes nothing away. The strip's cell for the window
   on screen reads "…" for both still-to-come lines, never "—".
-- **Heard, not only seen.** A status region in the callout announces the failure — and only the
-  failure, so stepping between windows does not chatter. It is always mounted, since a live region
-  announces a change and has to exist before the sentence arrives.
+- **Heard, not only seen.** A status region, mounted with the tab, announces the failure line
+  whenever it is on screen — in the callout or in the key slot — and nothing else, so stepping
+  between windows does not chatter. It sat in the callout at first, where the selection mounted it:
+  a night that failed before a place was picked arrived there already holding the sentence, and a
+  live region announces changes, not what it is mounted with — so in the commonest order a
+  screen-reader user heard nothing (Codex).
 - **The card follows its headline.** The callout re-measures and re-places itself when its headline
   changes in place — a night's answer landing, or its request failing — not only on a new window or
   selection. The failure line (≈207px) can never share the verdict row with the kind chip, so it
@@ -54,19 +57,21 @@ Not addressed, and stated rather than implied:
 - The widths above are reasoned from the stylesheet (IBM Plex Mono at 11.5px, a 0.6em advance) and
   not measured in a browser: the Map tab sits behind sign-in.
 
-Pinned by twenty new tests in `MapViewNightScoresLoading.test.jsx` (78 → 98), through a real
+Pinned by twenty-six new tests in `MapViewNightScoresLoading.test.jsx` (78 → 104), through a real
 `MapView` and the real callout, every shared rule run for astro and for aurora: the line walked
-through the backoff into the ten-minute beat on fake timers, and the three rules that live only in
-the frame before a cleanup runs — whose night the record speaks for, a left night's late failure,
-and a night's record on a sunrise or sunset — read commit by commit through a `React.Profiler`,
-since `act` has run the cleanup by the time it returns. Fourteen more in `MapCallout.test.jsx`
-(64 → 78), the precedence, the status region and the re-measure among them; two in
+through the backoff into the ten-minute beat on fake timers; the status region, including the order
+Codex found; and the three rules that live only in the frame before a cleanup runs — whose night the
+record speaks for, a left night's late failure, and a night's record on a sunrise or sunset — read
+commit by commit through a `React.Profiler`, since `act` has run the cleanup by the time it returns.
+Nine more in `MapCallout.test.jsx` (64 → 73), the precedence and the re-measure among them; three in
 `MapViewHeat.test.jsx` for the key slot; two in a new `mapCalloutVerdictWrap.test.js` for the
 stylesheet. Four existing assertions that read "Loading…" straight after a failure now read the new
-line. Sixty-six mutants were run one at a time: every new rule; the four gaps a reviewer found by
+line. Sixty-eight mutants were run one at a time: every new rule; the four gaps a reviewer found by
 reasoning — a record keyed to `date`, the live aurora night, drawn rows hiding a failure — which
-survived the first cut and are killed now; and the 27 older mutants on code this touched. Sixty-five
-are killed, each by the test written for it and none by a timeout. The survivor keeps a repeating
+survived the first cut and are killed now; the 27 older mutants on code this touched; and the status
+region's six, run after it moved out of the callout (the other 62 ran just before that move, which
+touched neither their code nor the tests that kill them). Sixty-seven are killed, each by the test
+written for it and none by a timeout. The survivor keeps a repeating
 failure's record the same object; without it each failed retry re-renders the map once more, which
 nothing on screen shows. Three read-only review lenses ran on the first cut — runtime, test quality,
 and copy, accessibility and docs — and every charge is fixed above or answered: a copy lens asked for

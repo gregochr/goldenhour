@@ -258,32 +258,14 @@ describe('MapCallout — header and verdict', () => {
     expect(score).not.toHaveTextContent('Couldn’t load');
   });
 
-  it('announces the failure by CHANGE — the same always-mounted status region takes the sentence when it arrives', async () => {
-    // Review C1. The line changes with no action of the reader's and the card is named by its
-    // aria-label, so without a live region a screen-reader user never hears that the night could
-    // not load. A live region announces changes, not what it is mounted with — hence the same node.
-    // By role: this card is placed (`withMeasuredCard`), so it is in the accessibility tree.
-    const props = { location: LOCATION, event: ASTRO_EVENT, rating: null, ratingKnown: false };
-    const { rerender } = await mount(props);
-    const region = screen.getByRole('status');
-    expect(region.textContent).toBe('');
-
-    await act(async () => { rerender(<MapCallout {...props} ratingRetrying />); });
-    expect(screen.getByRole('status')).toBe(region);
-    expect(region).toHaveTextContent('Couldn’t load — trying again');
-  });
-
-  it.each([
-    ['"Loading…"', { rating: null, ratingKnown: false, ratingRetrying: false }],
-    ['"Not scored yet"', { rating: null, ratingKnown: true, ratingRetrying: false }],
-    ['a star', { rating: 4, ratingKnown: true, ratingRetrying: false }],
-    ['an answer in hand through a failed refresh', { rating: null, ratingKnown: true, ratingRetrying: true }],
-    ['a preview\'s star through a failed request', { rating: 4, ratingKnown: false, ratingRetrying: true }],
-  ])('keeps the status region silent for %s — the failure line is all it ever says', async (_, props) => {
-    // Silent, and still mounted: stepping through windows must not chatter, and the region has to
-    // exist before a failure arrives for that to be announced at all.
-    await mount({ event: ASTRO_EVENT, ...props });
-    expect(screen.getByRole('status').textContent).toBe('');
+  it('mounts no status region of its own — the tab\'s is the one that announces the failure', async () => {
+    // Codex, #848: a region in this card is mounted by the selection, so a night that failed before
+    // a place was picked arrived in it already holding the sentence, and live regions announce
+    // changes. `MapView` owns the one region (`MapViewNightScoresLoading.test.jsx` pins it); a second
+    // here would announce the same failure twice. By role: this card is placed, so it is in the tree.
+    await mount({ event: ASTRO_EVENT, rating: null, ratingKnown: false, ratingRetrying: true });
+    expect(screen.getByTestId('map-callout-score')).toHaveTextContent('Couldn’t load — trying again');
+    expect(screen.queryByRole('status')).toBeNull();
   });
 
   it('gives the verdict badge readable ink at BOTH ends of the ramp, never a fixed dark ink', async () => {
