@@ -398,13 +398,13 @@ export function WindowFirstBriefingProvider({
    * currently would not: `swrCache` is keyed by role, not by user, so two accounts on one device
    * share a key. It is a small payload on a page that already fetches four things; fetch it.
    *
-   * <p>A rejection is swallowed and writes nothing. At boot that leaves the map empty — the same
-   * state as a user with no home postcode, which is the normal first run — so the failure mode is a
-   * strip with no reach lines rather than a strip with none, and the footer's own sentence stops
-   * naming drive time. A later rejection leaves the previous answer standing (below): after a move
-   * of home, figures measured from the old one. Known, and left as it was. Now that the counter
-   * moves only on a save, every refetch follows a real change — which is the case for clearing
-   * instead, and an open decision rather than one this effect takes.
+   * <p>A rejection empties the map — the same state as a user with no home postcode, which is the
+   * normal first run — so the failure mode is a strip with no reach lines rather than a strip with
+   * none, and the footer's own sentence stops naming drive time. <b>Emptied, not kept</b>: the
+   * counter moves only on a save, so every refetch follows a real change, and the answer standing
+   * from before it measures a journey the save has changed — after a move, from the old house. An
+   * empty map claims nothing; the old figures would claim a drive and a leave-by time the reader no
+   * longer has. (An owner decision, taken 2026-09-15; it had kept them.)
    *
    * <p><b>{@code homeSettingsVersion}, not a bare {@code []}.</b> An empty dep list on a
    * proximity fetch has already cost this app once: a user who widened their radius saw the block
@@ -442,11 +442,11 @@ export function WindowFirstBriefingProvider({
    * land LAST as in the other two; with its cache disabled through the DevTools protocol, Chrome
    * sends both at once. A race you cannot reproduce in Chrome is not a guard with nothing to do.
    *
-   * <p>Nothing is cleared when the counter moves: the previous answer stands until the newest one
-   * replaces it, as {@code useTodaysLight} does on the same counter. Every move is a real change
-   * now, so that answer is stale by then; the move happens while the dialog is still open, so the
-   * newest answer has usually landed before the reader is looking again. Whether to clear instead
-   * is the same open decision as a failed refetch's, above.
+   * <p>Nothing is cleared when the counter merely moves: the previous answer stands until the
+   * newest one replaces it — or fails, which empties the map (above). The move happens while the
+   * dialog is still open, so the newest answer has usually landed before the reader is looking
+   * again, and a clear on the move itself would blank every reach line for that round trip to no
+   * purpose.
    */
   useEffect(() => {
     let cancelled = false;
@@ -464,10 +464,12 @@ export function WindowFirstBriefingProvider({
         }
         setReachById(next);
       })
-      // Nothing here for the flag to guard: a failure writes nothing, so a superseded one cannot
-      // either. A catch that ever learns to clear the map needs the same check the settings fetch's
-      // catch below carries.
-      .catch(() => {});
+      // Guarded like the answer: a SUPERSEDED request's failure must not empty a map the newest
+      // request has already filled.
+      .catch(() => {
+        if (cancelled) return;
+        setReachById(EMPTY_REACH);
+      });
     return () => { cancelled = true; };
   }, [homeSettingsVersion]);
 

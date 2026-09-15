@@ -42,7 +42,8 @@ engines are not an iPhone, and the production service worker's effect on the loc
 
 Both effects now carry a cleanup — `let cancelled = false; … return () => { cancelled = true; }` —
 that drops the request a newer one supersedes, guarding the `.then` of each and the settings fetch's
-`.catch`. The reach fetch's `.catch` writes nothing, so there is nothing there to guard. It is the
+`.catch`. The reach fetch's `.catch` wrote nothing, so there was nothing there to guard — until a
+companion change made a failed refetch empty the map, guarded the same way. It is the
 shape `useTodaysLight`, on the same counter, already had, and the owner's call over a request-number
 guard, which suits a poll: a poll re-asks the same question, so an older answer landing on its own is
 still the freshest there is, where here the older request answers a question a save has changed.
@@ -63,16 +64,17 @@ endpoint — the HOME marker, the reach rings, the ⌂ control and the colour ra
 unguarded, and after this fix could leave the map on the previous home beside the new home's name
 and drive times; a second companion change gives it the same guard.
 
-⚠️ **Not fixed here, and named so it reads as known:**
+⚠️ **Not fixed here, and named so it reads as known:** the last-seen date has a second writer.
+`Mark seen` and the first-open bootstrap write it through the shell, and they never supersede a
+settings request. That request reads the row first and then, with a postcode saved, waits on an
+uncached postcodes.io lookup, so a `Mark seen` pressed inside that wait commits and echoes first, and
+the older date then comes back: the badge returns until the next home save, a reload or the reader
+presses again.
 
-- The last-seen date has a second writer: `Mark seen` and the first-open bootstrap write it through the
-  shell, and they never supersede a settings request. That request reads the row first and then, with
-  a postcode saved, waits on an uncached postcodes.io lookup, so a `Mark seen` pressed inside that wait
-  commits and echoes first, and the older date then comes back: the badge returns until the next home
-  save, a reload or the reader presses again.
-- A reach refetch that fails after a move leaves the old home's figures standing until the next home
-  save or a reload. Now that the counter moves only on a save, every refetch follows a real change —
-  the case for clearing instead, a choice between wrong and unknown that is left open.
+A reach refetch that failed after a move left the old home's figures standing until the next home
+save or a reload. Now that the counter moves only on a save, every refetch follows a real change —
+the case for clearing instead. This entry left that choice between wrong and unknown open; the owner
+chose unknown, and a companion change empties the map.
 
 Pinned in a new `WindowFirstBriefingHomeSettingsFetchOrder.test.jsx`: the real provider under a probe
 of the three values these fetches write, the API modules mocked, the out-of-order answers held by
@@ -82,7 +84,8 @@ harm shows on screen — a first-run answer has only null figures, which every c
 nothing. Against the unfixed provider ten of its twelve tests fail, one of them the remaining-price
 test, which the unfixed provider fails because it applied the save's answer sooner. Of the two that
 pass, the superseded reach *failure* test passes either way because the reach `.catch` writes nothing
-— it is there for a catch that one day does — and the newest-request-failure test pins the settings
+— it is there for a catch that one day does, which the companion change that empties the map makes
+load-bearing — and the newest-request-failure test pins the settings
 catch's existing policy (`undefined`, not the answer before). Seventeen mutants, all killed, each by
 the tests that name what it breaks: each `.then` guard, the settings `.catch` guard and each cleanup
 deleted one at a time (five); a settings guard covering only one of its two writes, in either arm

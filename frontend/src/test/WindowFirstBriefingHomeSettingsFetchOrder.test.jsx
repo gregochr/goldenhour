@@ -37,9 +37,13 @@
  * follows a save that changed the home, so the older one answers a question that has since changed
  * — it is superseded outright, and dropped wherever it lands. The two rules part company wherever the
  * superseded request settles while nothing newer than it has been applied: its answer landing FIRST,
- * its answer landing after the newest request FAILED, and — for the settings fetch, whose `.catch`
- * writes — its failure landing first. A guard that drops only what is older than the applied answer
- * lets all three through; each has a test here.
+ * its answer landing after the newest request FAILED, and — since both fetches' `.catch` write —
+ * its failure landing first. A guard that drops only what is older than the applied answer lets all
+ * three through; each has a test here, for each fetch.
+ *
+ * <p>Both `.catch`es empty what they write rather than keep the answer from before: the settings
+ * fetch always has, and the reach fetch does since an owner decision on 2026-09-15 (it used to keep
+ * the old figures — after a move, the old house's drive times).
  *
  * <p>⚠️ Dropping is only right while every move of the counter is a real change, and it was not
  * always: the counter used to move on every close of the dialog, saved or not, so a close that saved
@@ -304,11 +308,10 @@ describe('WindowFirstBriefingProvider — reach answers the newest request, not 
   });
 
   it('does not let a superseded answer stand in when the newest request fails', async () => {
-    // The second place the two rules part company. The newest request failing applies nothing, so a
-    // number guard would take the superseded answer that lands after it — the old house's drive
-    // times, filling in for the new one's. With nothing on screen before, the map stays unknown
-    // rather than wrong; with an earlier answer on screen it keeps that one (the provider's note on
-    // a failed refetch, an open decision).
+    // The second place the two rules part company. The newest request failing leaves the map empty,
+    // so a number guard would take the superseded answer that lands after it — the old house's
+    // drive times, filling in for the new one's. Empty is the right answer here whether or not
+    // anything was on screen before (the next test).
     const mountAnswer = deferred();
     const moveAnswer = deferred();
     const recalcAnswer = deferred();
@@ -336,12 +339,68 @@ describe('WindowFirstBriefingProvider — reach answers the newest request, not 
     expect(screen.getByTestId('reach')).toHaveTextContent(reachShown(REACH_FROM_KESWICK));
   });
 
+  it('empties the map when the NEWEST request fails, even over an answer on screen', async () => {
+    // A failed refetch empties rather than keeps (an owner decision, 2026-09-15): the counter moves
+    // only on a save, so the figures on screen measure a journey the save has changed — after a
+    // move, from the old house. Empty claims no drive; they would claim one the reader no longer
+    // has.
+    const moveAnswer = deferred();
+    const recalcAnswer = deferred();
+    getReach
+      .mockResolvedValueOnce(REACH_FROM_MORPETH)
+      .mockReturnValueOnce(moveAnswer.promise)
+      .mockReturnValueOnce(recalcAnswer.promise);
+
+    const result = await mountAt(0);
+    expect(screen.getByTestId('reach')).toHaveTextContent(reachShown(REACH_FROM_MORPETH));
+    await homeSaved(result, 1); // the reader moved from Morpeth to Keswick
+    expect(getReach).toHaveBeenCalledTimes(2);
+
+    await land(() => moveAnswer.reject(new Error('502 from /api/user/settings/reach')));
+
+    // Empty. It used to keep Morpeth's drive times and leave-by lines beside the tick line's
+    // Keswick.
+    expect(screen.getByTestId('reach')).toHaveTextContent('none');
+
+    // Control, settled through the same helper: the next save's answer fills the map again.
+    await homeSaved(result, 2); // recalculated the drive times
+    await land(() => recalcAnswer.resolve(REACH_FROM_KESWICK));
+    expect(screen.getByTestId('reach')).toHaveTextContent(reachShown(REACH_FROM_KESWICK));
+  });
+
+  it('keeps the answer on screen when a superseded request FAILS first — only the newest failure empties', async () => {
+    // The third place the rules part company, now that this `.catch` writes. The move's request is
+    // superseded by the recalculation's while both are out; its failure is not the newest request
+    // failing, so the mount's figures stand until the newest settles — nothing is cleared when the
+    // counter merely moves. A number guard, with nothing newer applied yet, would let it empty the
+    // map.
+    const moveAnswer = deferred();
+    const recalcAnswer = deferred();
+    getReach
+      .mockResolvedValueOnce(REACH_FROM_MORPETH)
+      .mockReturnValueOnce(moveAnswer.promise)
+      .mockReturnValueOnce(recalcAnswer.promise);
+
+    const result = await mountAt(0);
+    await homeSaved(result, 1); // moved to Keswick
+    await homeSaved(result, 2); // recalculated the drive times from it
+    expect(getReach).toHaveBeenCalledTimes(3);
+
+    await land(() => moveAnswer.reject(new Error('Network Error')));
+
+    // Unchanged. Broken, the map went empty while the newest request was still on its way.
+    expect(screen.getByTestId('reach')).toHaveTextContent(reachShown(REACH_FROM_MORPETH));
+
+    // Control, settled through the same helper: the newest answer lands and applies.
+    await land(() => recalcAnswer.resolve(REACH_FROM_KESWICK));
+    expect(screen.getByTestId('reach')).toHaveTextContent(reachShown(REACH_FROM_KESWICK));
+  });
+
   it('keeps the newest answer when a superseded request FAILS after it', async () => {
-    // ⚠️ Passes with or without the cleanup today, and that is stated rather than hidden: this
-    // fetch's `.catch` writes nothing, so a late failure has nothing to undo. It is here for the
-    // change that makes the catch write — clearing the map when a refetch after a home move fails
-    // is a plausible one — which without the settings fetch's guard would let a superseded failure
-    // wipe the newest answer. Mutation-checked against exactly that catch.
+    // The guard on the `.catch` is load-bearing now that it writes: a failed refetch empties the
+    // map, so without the guard a superseded failure landing after the newest answer would wipe it.
+    // (Before the catch wrote, this passed with or without the cleanup; it was kept for this
+    // change.)
     const mountAnswer = deferred();
     const saveAnswer = deferred();
     getReach
@@ -504,8 +563,8 @@ describe('WindowFirstBriefingProvider — the home answers the newest request, n
   it('leaves the home unknown when the NEWEST request fails, even over an answer on screen', async () => {
     // The catch body's own policy, which no guard test reaches: a failed request is no evidence the
     // home is unchanged — the save may have moved it — so both fields go to `undefined`, as they
-    // always have, rather than keeping the answer before. (The reach catch keeps its figures
-    // instead; which is right there is an open decision, so that one is deliberately not pinned.)
+    // always have, rather than keeping the answer before. (The reach catch now empties its map the
+    // same way — an owner decision, 2026-09-15 — pinned in the reach block above.)
     const saveAnswer = deferred();
     getSettings
       .mockResolvedValueOnce(SETTINGS_MORPETH)

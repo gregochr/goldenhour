@@ -170,6 +170,24 @@ describe('WindowFirstMapPane', () => {
       expect(MapStub.lastProps.handoffNonce).toBeNull();
     });
 
+    it('hands the home down as given — unknown stays unknown, never "no postcode"', () => {
+      // `undefined` is "the settings read has not answered, or failed"; `null` is "no postcode
+      // saved", which `MapView`'s ⌂ answers with a prompt to set one. A `= null` default here would
+      // make every unanswered read that claim (`useHomeAndMapColour`'s three states).
+      const home = { lat: 55.17, lon: -1.69 };
+      const { rerender } = renderPane();
+      expect(MapStub.lastProps.homeCoords).toBeUndefined();
+
+      const pane = (homeCoords) => (
+        <WindowFirstMapPane locations={[]} dates={DATES} selectedDate={DATES[0]}
+          onSelectDate={vi.fn()} homeCoords={homeCoords} />
+      );
+      rerender(pane(null));
+      expect(MapStub.lastProps.homeCoords).toBeNull();
+      rerender(pane(home));
+      expect(MapStub.lastProps.homeCoords).toBe(home);
+    });
+
     it('forwards a darkSky handoff (D8, plan §6b) — the Coming up dark-sky-spots action', () => {
       renderPane({ handoff: { darkSky: true, nonce: 3 } });
       expect(MapStub.lastProps.handoffDarkSky).toBe(true);

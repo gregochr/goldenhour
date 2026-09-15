@@ -2653,6 +2653,14 @@ button.wf-hc.also.on:hover {
   background: rgba(20, 15, 12, 0.86);
   overflow: hidden;
 }
+/* Nothing to say yet. While the home is not known (`undefined` — the settings read unanswered or
+   failed, which is not "no postcode") and no origin is in force, `CentreOnHomeControl` renders
+   nothing into its container. The container stays attached — Leaflet puts a re-added bottom-corner
+   control ABOVE the zoom bar — so it is hidden while empty, or its border, ground and margins would
+   paint a blank box. Same three classes as the rule above, for the same reason. */
+.leaflet-control.leaflet-bar.map-home-control:empty {
+  display: none;
+}
 .map-home-control button {
   display: flex;
   align-items: center;

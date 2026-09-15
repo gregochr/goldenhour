@@ -6,12 +6,17 @@
  * older answer landing last could leave the marker and rings on the old home beside the tick line's
  * new one (the Plan provider's reads are guarded; this one was not). It now asks again only on a
  * home save or a colour save, and drops any answer a newer save has superseded, wherever it lands.
- * The same two places the effect cleanup parts company with a request-number guard are pinned here
- * as they are for the provider: a superseded answer landing FIRST, and one landing after the newest
- * request FAILED.
+ * The places the effect cleanup parts company with a request-number guard are pinned here as they
+ * are for the provider: a superseded answer landing FIRST, one landing after the newest request
+ * FAILED, and — now that the `.catch` writes — a superseded failure landing first.
  *
- * <p>A probe renders the hook's three values, as `useTodaysLight.test.jsx` does for its hook; the
- * ramp itself is `scoreRamp`'s live module state, read through `getMode()` and reset per test.
+ * <p>A failed read after a home save empties the home back to unknown (an owner decision,
+ * 2026-09-15) — and `undefined` must stay distinct from `null` all the way down, because the map's
+ * ⌂ control answers `null` with a prompt to set a postcode.
+ *
+ * <p>A probe renders the hook's three values, as `useTodaysLight.test.jsx` does for its hook, with
+ * the home's three states told apart; the ramp itself is `scoreRamp`'s live module state, read
+ * through `getMode()` and reset per test.
  */
 import React from 'react';
 import {
@@ -27,6 +32,8 @@ import { getSettings } from '../api/settingsApi.js';
 /** `GET /api/user/settings` for one reader before and after moving house, with a colour chosen. */
 const SETTINGS_MORPETH = { homeLatitude: 55.17, homeLongitude: -1.69, mapColourScale: 'verdict' };
 const SETTINGS_KESWICK = { homeLatitude: 54.6, homeLongitude: -3.13, mapColourScale: 'verdict' };
+/** The same reader before saving any postcode — the server's own "no home". */
+const SETTINGS_NO_HOME = { homeLatitude: null, homeLongitude: null, mapColourScale: 'verdict' };
 
 /** A request the test settles by hand, so the test — not the scheduler — decides which lands first. */
 function deferred() {
@@ -46,13 +53,20 @@ async function land(settle) {
   await act(async () => { settle(); });
 }
 
+/** The home's three states, as the probe prints them: not known, no postcode, or the home. */
+const homeState = (coords) => {
+  if (coords === undefined) return 'unknown';
+  if (coords === null) return 'none';
+  return `${coords.lat},${coords.lon}`;
+};
+
 function Probe({ homeVersion, colourVersion }) {
   const { homeCoords, mapColourScale, colourScaleDefaulted } = useHomeAndMapColour(
     homeVersion, colourVersion,
   );
   return (
     <div>
-      <span data-testid="home">{homeCoords ? `${homeCoords.lat},${homeCoords.lon}` : 'none'}</span>
+      <span data-testid="home">{homeState(homeCoords)}</span>
       <span data-testid="scale">{mapColourScale}</span>
       <span data-testid="defaulted">{String(colourScaleDefaulted)}</span>
     </div>
@@ -130,7 +144,7 @@ describe('useHomeAndMapColour — the home the map draws', () => {
 
     await land(() => mountAnswer.resolve(SETTINGS_MORPETH));
     // Nothing applied. Broken, the marker sat on Morpeth until Keswick's answer arrived.
-    expect(home()).toBe('none');
+    expect(home()).toBe('unknown');
 
     // Control, settled through the same helper: the newest answer still lands and applies.
     await land(() => moveAnswer.resolve(SETTINGS_KESWICK));
@@ -153,12 +167,12 @@ describe('useHomeAndMapColour — the home the map draws', () => {
     expect(getSettings).toHaveBeenCalledTimes(2);
 
     await land(() => moveAnswer.reject(new Error('502 from /api/user/settings')));
-    expect(home()).toBe('none');
+    expect(home()).toBe('unknown');
 
     await land(() => mountAnswer.resolve(SETTINGS_MORPETH));
 
-    // Still nothing. Broken, the marker sat on the house the reader had just moved away from.
-    expect(home()).toBe('none');
+    // Still not known. Broken, the marker sat on the house the reader had just moved away from.
+    expect(home()).toBe('unknown');
 
     // Control, settled through the same helper: the next save's answer lands and applies.
     await saved(result, 2);
@@ -176,6 +190,150 @@ describe('useHomeAndMapColour — the home the map draws', () => {
 
     expect(getSettings).toHaveBeenCalledTimes(1);
     expect(home()).toBe(coordsOf(SETTINGS_MORPETH));
+  });
+});
+
+describe('useHomeAndMapColour — not known is not "no postcode", and a failed read says so', () => {
+  it('is not known until the first answer lands — and "no postcode" only when the server says so', async () => {
+    const mountAnswer = deferred();
+    getSettings.mockReturnValueOnce(mountAnswer.promise);
+
+    await mountAt(0);
+    // Not `none`: the ⌂ answers that with "Set your home postcode", which it used to say to every
+    // reader for the length of every page load.
+    expect(home()).toBe('unknown');
+
+    await land(() => mountAnswer.resolve(SETTINGS_NO_HOME));
+    expect(home()).toBe('none');
+  });
+
+  it('empties the home when the read after a home save fails — the marker does not stay on the old house', async () => {
+    // A failed read is no evidence the home is where it was: the save may have moved it. An owner
+    // decision, 2026-09-15 — it used to keep the answer from before.
+    const moveAnswer = deferred();
+    const recalcAnswer = deferred();
+    getSettings
+      .mockResolvedValueOnce(SETTINGS_MORPETH)
+      .mockReturnValueOnce(moveAnswer.promise)
+      .mockReturnValueOnce(recalcAnswer.promise);
+
+    const result = await mountAt(0);
+    expect(home()).toBe(coordsOf(SETTINGS_MORPETH));
+    await saved(result, 1); // moved to Keswick
+    // Nothing is cleared when the counter moves: until the read settles, Morpeth stands.
+    expect(home()).toBe(coordsOf(SETTINGS_MORPETH));
+
+    await land(() => moveAnswer.reject(new Error('502 from /api/user/settings')));
+
+    // Not known — and not `none`, which would have the ⌂ ask for a postcode. It used to keep
+    // Morpeth: the marker and rings on the house the reader had just left.
+    expect(home()).toBe('unknown');
+
+    // Control, settled through the same helper: the next save's answer draws the home again.
+    await saved(result, 2); // recalculated the drive times
+    await land(() => recalcAnswer.resolve(SETTINGS_KESWICK));
+    expect(home()).toBe(coordsOf(SETTINGS_KESWICK));
+  });
+
+  it('keeps the home the newest read drew when a superseded read FAILS after it', async () => {
+    // The guard on the `.catch`, load-bearing now that it writes.
+    const mountAnswer = deferred();
+    const moveAnswer = deferred();
+    getSettings
+      .mockReturnValueOnce(mountAnswer.promise)
+      .mockReturnValueOnce(moveAnswer.promise);
+
+    const result = await mountAt(0);
+    await saved(result, 1); // moved from Morpeth to Keswick
+    expect(getSettings).toHaveBeenCalledTimes(2);
+
+    await land(() => moveAnswer.resolve(SETTINGS_KESWICK));
+    // Control: the newest answer is applied.
+    expect(home()).toBe(coordsOf(SETTINGS_KESWICK));
+
+    await land(() => mountAnswer.reject(new Error('Network Error')));
+
+    // Still Keswick. Unguarded, the superseded failure emptied it — marker, rings and ⌂ gone.
+    expect(home()).toBe(coordsOf(SETTINGS_KESWICK));
+  });
+
+  it('keeps the home on screen when a superseded read FAILS first — only the newest failure empties', async () => {
+    // Where the cleanup and a request-number guard part company for the `.catch`: with nothing
+    // newer applied, a number guard would let the move's failure empty the home while the
+    // recalculation's read, the newest, is still out.
+    const moveAnswer = deferred();
+    const recalcAnswer = deferred();
+    getSettings
+      .mockResolvedValueOnce(SETTINGS_MORPETH)
+      .mockReturnValueOnce(moveAnswer.promise)
+      .mockReturnValueOnce(recalcAnswer.promise);
+
+    const result = await mountAt(0);
+    await saved(result, 1); // moved to Keswick
+    await saved(result, 2); // recalculated the drive times from it
+    expect(getSettings).toHaveBeenCalledTimes(3);
+
+    await land(() => moveAnswer.reject(new Error('Network Error')));
+
+    // Unchanged. Broken, the home went to unknown while the newest read was on its way.
+    expect(home()).toBe(coordsOf(SETTINGS_MORPETH));
+
+    // Control, settled through the same helper: the newest answer lands and applies.
+    await land(() => recalcAnswer.resolve(SETTINGS_KESWICK));
+    expect(home()).toBe(coordsOf(SETTINGS_KESWICK));
+  });
+
+  it('leaves the home — and the colour — where they were when a COLOUR save\'s read fails', async () => {
+    // A colour save asks about a home that has not changed since the answer on screen, and the
+    // provider asks nothing on one: emptying the map's home would drop the marker, the rings and
+    // the ⌂ beside a tick line still naming it.
+    const colourAnswer = deferred();
+    const moveAnswer = deferred();
+    getSettings
+      .mockResolvedValueOnce(SETTINGS_MORPETH) // chose 'verdict' earlier; the default is 'temp'
+      .mockReturnValueOnce(colourAnswer.promise)
+      .mockReturnValueOnce(moveAnswer.promise);
+
+    const result = await mountAt(0, 0);
+    expect(home()).toBe(coordsOf(SETTINGS_MORPETH));
+    expect(getMode()).toBe('verdict');
+
+    await saved(result, 0, 1); // a colour save; the home did not move
+    await land(() => colourAnswer.reject(new Error('502 from /api/user/settings')));
+
+    expect(home()).toBe(coordsOf(SETTINGS_MORPETH));
+    // The ramp keeps the last loaded choice rather than falling back to the default.
+    expect(getMode()).toBe('verdict');
+    expect(screen.getByTestId('scale')).toHaveTextContent('verdict');
+
+    // Control, settled through the same helper: a HOME save's failed read does empty it.
+    await saved(result, 1, 1); // moved to Keswick
+    await land(() => moveAnswer.reject(new Error('502 from /api/user/settings')));
+    expect(home()).toBe('unknown');
+    expect(getMode()).toBe('verdict');
+  });
+
+  it('empties the home when a colour save\'s read fails after a home save nothing has answered yet', async () => {
+    // The rule is "has the home been saved since the answer on screen", not "which counter moved
+    // last": the colour save superseded the move's read, so its own read was the only one left that
+    // could say where the reader lives now — and it failed.
+    const moveAnswer = deferred();
+    const colourAnswer = deferred();
+    getSettings
+      .mockResolvedValueOnce(SETTINGS_MORPETH)
+      .mockReturnValueOnce(moveAnswer.promise)
+      .mockReturnValueOnce(colourAnswer.promise);
+
+    const result = await mountAt(0, 0);
+    await saved(result, 1, 0); // moved to Keswick
+    await saved(result, 1, 1); // and chose a colour before the move's read answered
+    expect(getSettings).toHaveBeenCalledTimes(3);
+
+    await land(() => colourAnswer.reject(new Error('502 from /api/user/settings')));
+
+    // Not known. Keyed on the last counter to move, it kept Morpeth — the house the reader had
+    // left.
+    expect(home()).toBe('unknown');
   });
 });
 

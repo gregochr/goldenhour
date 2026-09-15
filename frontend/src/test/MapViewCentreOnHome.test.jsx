@@ -174,31 +174,32 @@ afterEach(() => {
   localStorage.clear();
 });
 
+// One array for every render, so a `rerender` changes only the props a test names.
+const LOCATIONS = [{
+  name: 'Loc0',
+  lat: 55,
+  lon: -1.7,
+  locationType: ['LANDSCAPE'],
+  forecastsByDate: new Map([[TODAY, {
+    sunset: { rating: 4, solarEventTime: `${TODAY}T16:12:00` },
+    sunrise: { rating: 4, solarEventTime: `${TODAY}T08:24:00` },
+  }]]),
+}];
+
+function mapElement(overrides = {}) {
+  return <MapView locations={LOCATIONS} date={TODAY} autoEventType={null} {...overrides} />;
+}
+
 /** Synchronous — no `heat` prop, nothing lazy to await. Used by every test that predates P11. */
 function renderMap(overrides = {}) {
-  return render(
-    <MapView
-      locations={[{
-        name: 'Loc0',
-        lat: 55,
-        lon: -1.7,
-        locationType: ['LANDSCAPE'],
-        forecastsByDate: new Map([[TODAY, {
-          sunset: { rating: 4, solarEventTime: `${TODAY}T16:12:00` },
-          sunrise: { rating: 4, solarEventTime: `${TODAY}T08:24:00` },
-        }]]),
-      }]}
-      date={TODAY}
-      autoEventType={null}
-      {...overrides}
-    />,
-  );
+  return render(mapElement(overrides));
 }
 
 /**
  * Async — for `⌂`'s own tests below, which pass a `heat` prop and so make `heatOffered` true: that
  * lazily loads `MapHeatLayer` (mocked above) via `Suspense`, and the resolution needs an `act`
- * boundary the same way `MapViewHeat.test.jsx`'s own `renderMap` provides one.
+ * boundary the same way `MapViewHeat.test.jsx`'s own `renderMap` provides one. The unknown-home
+ * tests use it without `heat`, for the same boundary round `MapView`'s mount-time fetches.
  */
 async function renderHeatMap(overrides = {}) {
   let result;
@@ -259,6 +260,46 @@ describe('centre on home', () => {
 
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
     expect(flyTo).not.toHaveBeenCalled();
+  });
+
+  it('makes no claim while the home is not known — an empty container, not a prompt', async () => {
+    // `undefined` is "not answered yet, or the read after a home save failed"
+    // (`useHomeAndMapColour`): no evidence that no postcode is saved, so no "Set your home postcode"
+    // either. The container stays in the corner, EMPTY — which is what `index.css` hides it on
+    // (`mapHomeControlCascade.test.jsx`), since the bar's border and ground are the container's.
+    const onOpenSettings = vi.fn();
+    await renderHeatMap({ onOpenSettings }); // no homeCoords: not known
+
+    expect(screen.queryByTestId('centre-on-home')).not.toBeInTheDocument();
+    expect(corner.children.length).toBe(1);
+    expect(corner.firstChild).toHaveClass('map-home-control');
+    expect(corner.firstChild).toBeEmptyDOMElement();
+    expect(onOpenSettings).not.toHaveBeenCalled();
+  });
+
+  it('comes and goes with the answer, on the one container — never taken off and re-added', async () => {
+    // Re-adding a bottom-corner control would put it above the zoom bar (Leaflet inserts bottom
+    // controls first), so the answer fills and empties the node that was mounted.
+    const { rerender } = await renderHeatMap(); // not known
+    const answered = (overrides) => act(async () => { rerender(mapElement(overrides)); });
+    const container = corner.firstChild;
+    expect(container).toBeEmptyDOMElement();
+
+    await answered({ homeCoords: HOME });
+    expect(container).not.toBeEmptyDOMElement();
+    expect(screen.getByTestId('centre-on-home')).toHaveAccessibleName('Reset to My area');
+
+    await answered({ homeCoords: null });
+    expect(screen.getByTestId('centre-on-home'))
+      .toHaveAccessibleName('Set your home postcode in Settings');
+
+    await answered({}); // the newest read failed: not known again
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByTestId('centre-on-home')).not.toBeInTheDocument();
+
+    expect(corner.children.length).toBe(1);
+    expect(corner.firstChild).toBe(container);
+    expect(removedControls.length).toBe(0);
   });
 
   it('is absent from the Plan tab overlay, which is already framed on its spot', () => {

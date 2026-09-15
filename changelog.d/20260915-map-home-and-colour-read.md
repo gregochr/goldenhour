@@ -18,9 +18,10 @@ lands after the dialog closes still reports. The new ramp arrives when the save 
 the dialog closes, and a colour save moves nothing the provider keys on.
 
 The price is the one the counter change already took: a read that failed at page load is retried by
-the next save or a reload, no longer by closing the dialog. A failure still writes nothing — the
-settings are optional here — so after a move whose re-read fails, the marker stays on the old home,
-the same open decision as the reach figures'.
+the next save or a reload, no longer by closing the dialog. A failure wrote nothing here, so after a
+move whose re-read failed the marker stayed on the old home — the same open decision as the reach
+figures', since taken: a companion change empties both, and keeps "not known" apart from "no
+postcode" all the way to the ⌂ control.
 
 Pinned in `useHomeAndMapColour.test.jsx` — six tests: the mount's answer landing after a home save's,
 a superseded answer landing first, a superseded answer after the newest failed, no re-read on a

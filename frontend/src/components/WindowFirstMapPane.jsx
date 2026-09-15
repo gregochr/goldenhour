@@ -96,7 +96,8 @@ const FRAME_PAD_DEG = 0.12;
  * @param {Map}      [props.briefingScores]
  * @param {Function} [props.onForecastRun]
  * @param {Array}    [props.seasonalFeatures]
- * @param {object}   [props.homeCoords]
+ * @param {object}   [props.homeCoords]    the home; null with no postcode, `undefined` while not
+ *                                         known — no default, see its PropTypes note
  * @param {'temp'|'verdict'} [props.mapColourScale] the active scoreRamp mode, forwarded to
  *                                         `MapView` so a live switch reaches this pane's
  *                                         never-unmounted instance
@@ -118,7 +119,7 @@ const FRAME_PAD_DEG = 0.12;
 export default function WindowFirstMapPane({
   locations, dates, selectedDate, onSelectDate, handoff = null, autoEventType = null,
   briefingScores = new Map(),
-  onForecastRun = null, seasonalFeatures = [], homeCoords = null,
+  onForecastRun = null, seasonalFeatures = [], homeCoords,
   mapColourScale = null, colourScaleDefaulted = false, onOpenSettings = null,
   onOpenLocationSheet = null, onReturnToPlan = null,
 }) {
@@ -481,6 +482,11 @@ WindowFirstMapPane.propTypes = {
   briefingScores: PropTypes.instanceOf(Map),
   onForecastRun: PropTypes.func,
   seasonalFeatures: PropTypes.array,
+  /**
+   * The home: an object, `null` when no postcode is saved, or `undefined` while that is not known
+   * (not answered yet, or the read failed). Deliberately no default — a `= null` would turn
+   * "unknown" into "no postcode", and the ⌂ control answers that with a prompt to set one.
+   */
   homeCoords: PropTypes.object,
   /** The active `scoreRamp` mode — forwarded to `MapView` so its `React.memo` sees a live switch. */
   mapColourScale: PropTypes.oneOf(['temp', 'verdict']),

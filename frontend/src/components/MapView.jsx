@@ -1034,6 +1034,16 @@ const COMPACT_LABEL_WIDTH = '78px';
  * than disappearing: a control that is absent explains nothing, and this one's whole job when unset
  * is to say where the missing setting lives. Clicking it opens Settings on the postcode field.
  *
+ * <p><b>"No postcode" is {@code null}, and only {@code null}.</b> {@code undefined} means the home
+ * is not known — `App`'s settings read has not answered yet, or its read after a home save failed
+ * (`useHomeAndMapColour`) — and that is no evidence the reader has not saved one, so with no origin
+ * in force the control makes no claim at all: it renders nothing, and its empty container is
+ * hidden by `index.css`, border and ground with it, until an answer arrives. The prompt used to
+ * show for the length of every page load, and for good after a failed read. Nothing on the way
+ * down may default the prop to {@code null} — `WindowFirstMapPane` and `MapView` both take it bare
+ * for that reason. Under an origin the control is actionable either way (below), so an unknown
+ * home changes nothing there.
+ *
  * <p><b>O-D5 (D1, plan-to-map-doors-plan.md §3/§6):</b> unlike the HOME marker and the reach rings,
  * this control deliberately keeps reading the RAW {@code homeCoords} prop, never the origin-gated
  * {@code homeGeo} `MapView` derives for the drawn geography — but it also takes `origin` directly,
@@ -1050,8 +1060,9 @@ const COMPACT_LABEL_WIDTH = '78px';
  * rather than left as a known gap.
  *
  * @param {Object}    props
- * @param {?Object}   props.homeCoords  `{ lat, lon }`, or null when no postcode is saved — the RAW
- *        value, not gated on origin (see O-D5 above)
+ * @param {?Object}   [props.homeCoords]  `{ lat, lon }`, null when no postcode is saved, or
+ *        `undefined` while that is not known (see above) — the RAW value, not gated on origin (see
+ *        O-D5 above). Deliberately no default.
  * @param {?Object}   props.origin `{id, name, baseName}` of the origin in force, or null at home —
  *        makes the control actionable while away even with no home coordinate (see O-D5 above)
  * @param {?Function} props.onResetScope resets scope to My area and refits (animate:false) — called
@@ -1060,7 +1071,7 @@ const COMPACT_LABEL_WIDTH = '78px';
  * @param {?Function} props.onOpenSettings opens the settings dialog focused on the postcode field
  */
 function CentreOnHomeControl({
-  homeCoords = null, origin = null, onResetScope = null, onOpenSettings = null,
+  homeCoords, origin = null, onResetScope = null, onOpenSettings = null,
 }) {
   const map = useMap();
   // The container is made once, in a state initialiser rather than in the effect, so it exists on
@@ -1087,7 +1098,13 @@ function CentreOnHomeControl({
     return () => control.remove();
   }, [container, map]);
 
-  if (!container) return null;
+  // Home not known and no origin to reset to: no claim either way (see the doc above). The portal
+  // renders nothing, and `index.css` hides the container while it is `:empty` — the bar's border,
+  // ground and margins are the container's, so an empty one would paint a blank box. It stays
+  // attached rather than being taken off and re-added: Leaflet puts a re-added bottom-corner
+  // control ABOVE the zoom bar, not below it.
+  const unknown = homeCoords === undefined && !origin;
+  if (!container || unknown) return null;
 
   const hasHome = homeCoords?.lat != null && homeCoords?.lon != null;
   // O-D5 (D1): actionable while EITHER a home coordinate exists OR an origin is in force — never
@@ -1253,7 +1270,7 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  * overlay never passes one (it is frozen and has no origin concept). Gates home geography — see
  * `homeGeo` below.
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, origin = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords, origin = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -5525,10 +5542,12 @@ MapView.propTypes = {
     beyondRegionNames: PropTypes.arrayOf(PropTypes.string),
   }),
   /**
-   * `{ lat, lon }` of the user's saved home postcode, or null when none is saved. The RAW value —
-   * `MapView` derives its own origin-gated `homeGeo` from this for the drawn home geography (D1);
-   * this prop itself is untouched by origin, and `CentreOnHomeControl` deliberately keeps reading
-   * it directly (see that component's own O-D5 doc note).
+   * `{ lat, lon }` of the user's saved home postcode, null when none is saved, or `undefined` while
+   * that is not known — which draws the same nothing but must not reach `CentreOnHomeControl` as
+   * null, whose prompt to set a postcode is a claim an unanswered read is no evidence for (hence no
+   * default here). The RAW value — `MapView` derives its own origin-gated `homeGeo` from this for
+   * the drawn home geography (D1); this prop itself is untouched by origin, and
+   * `CentreOnHomeControl` deliberately keeps reading it directly (see its own O-D5 doc note).
    */
   homeCoords: PropTypes.shape({ lat: PropTypes.number, lon: PropTypes.number }),
   /**
