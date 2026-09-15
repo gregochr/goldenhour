@@ -67,8 +67,10 @@ So a heads-up for a small-hours peak now stays up through the evening, and is pa
 - **`POST /api/aurora/admin/run` now runs the scheduled cycle itself, through the same guard.** It
   answers 409 while a cycle is running, and still runs on the request thread. Before, it called the
   real-time path directly, with that path's own horizon and no guard, so it could clear a heads-up the
-  next poll would pay to raise again, or run alongside a scheduled cycle. In daylight it can no longer
-  clear a stale alert; `POST /api/aurora/admin/reset` does that. Its response is now
+  next poll would pay to raise again, or run alongside a scheduled cycle. In daylight it no longer
+  ends an alert on its own reading: the one exception is the first cycle after a night that ended on
+  a hold, which makes that deferred CLEAR. `POST /api/aurora/admin/reset` clears anything else. Its
+  response is now
   `{status, dark, level, action, trigger, held}` rather than `{status, action}`, where `held` says a
   night poll held the alert, so its level below MODERATE and action NONE do not read as a quiet
   night. No screen calls it.

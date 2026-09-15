@@ -140,19 +140,19 @@ public class AuroraOrchestrator {
      * <p>Reads NOAA's Kp forecast and takes {@link #maxKpRestOfTonight}. Below MODERATE it leaves the
      * state machine alone, so a daylight poll never ends an alert on its own reading of tonight. At
      * MODERATE or above it evaluates once, and on NOTIFY scores with
-     * {@link TriggerType#FORECAST_LOOKAHEAD}, so Claude writes for planning.
+     * {@link TriggerType#FORECAST_LOOKAHEAD}, so Claude writes for planning. The full NOAA snapshot a
+     * scoring needs is fetched only when {@link AuroraStateCache#wouldNotify} says a scoring is
+     * coming, and before the state machine moves, so a held heads-up does not refetch it every poll
+     * (fetching it may download the ~900 KB OVATION grid, which the client caches for five minutes).
+     * Only an admin reset or simulation landing between the check and the evaluation can make the
+     * check wrong: a NOTIFY it missed still fetches, after the state has moved, and a SUPPRESS it did
+     * not foresee has fetched for nothing.
      *
      * <p>⚠️ One exception: if the night ended while a night poll was holding an alert for a reading
      * ({@link #runNightPoll}), this poll makes the CLEAR the night deferred instead, and reads nothing.
      * After dawn no poll acts on the Kp for now, so the reading could decide nothing, and no other
-     * poll would ever end that alert. It is this poll's one evaluation; tonight's forecast is read by
-     * the next. The full NOAA snapshot a scoring needs is fetched only when
-     * {@link AuroraStateCache#wouldNotify} says a scoring is coming, and before the state machine
-     * moves, so a held heads-up does not refetch it every poll (fetching it may download the ~900 KB
-     * OVATION grid, which the client caches for five minutes). Only an admin reset or simulation
-     * landing between the check and the evaluation can make the check wrong: a NOTIFY it missed
-     * still fetches, after the state has moved, and a SUPPRESS it did not foresee has fetched for
-     * nothing.
+     * poll would end that alert before the next dusk. It is this poll's one evaluation; tonight's
+     * forecast is read by the next.
      *
      * <p>Package-private, so nothing outside the aurora package can reach it; inside, only
      * {@link AuroraPollingJob}'s guarded cycle calls it, so no two cycles evaluate at once.

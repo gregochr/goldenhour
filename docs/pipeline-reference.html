@@ -1045,12 +1045,12 @@ fromKp: >= 7.0 -> STRONG, >= kp-threshold (5.0) -> MODERATE, >= 4.0 -> MINOR, el
             <h4>Other Conservatism</h4>
             <table>
               <tr><th>Safeguard</th><th>Detail</th></tr>
-              <tr><td>Viewline probability threshold</td><td>5% (lowered from 10%, which put the viewline north of Edinburgh on a Kp 6 night that was visible from Northumberland; see <code>NoaaSwpcClient.VIEWLINE_THRESHOLD</code>). The one setting here tuned toward sensitivity rather than caution</td></tr>
+              <tr><td>Viewline probability threshold</td><td>5% (lowered from 10%, which put the viewline north of Edinburgh on a Kp 6 night that was visible from Northumberland; see <code>NoaaSwpcClient.VIEWLINE_THRESHOLD</code>). One of the settings here tuned toward sensitivity rather than caution (the dual-signal trigger is another)</td></tr>
               <tr><td>OVATION target latitude</td><td>55&deg;N (realistic UK latitude)</td></tr>
               <tr><td>Cloud overcast threshold</td><td>75% total cloud</td></tr>
               <tr><td>Dual-signal alert trigger</td><td>After dark, Kp and OVATION are both read every poll, and either alone raises MODERATE, so this adds sensitivity rather than guarding against a single-signal false alarm. A daylight poll reads only the Kp forecast</td></tr>
               <tr><td>Clearing</td><td>Both signals must drop below their triggers, and a night poll does not clear on the just-ended block's estimate while its reading is due (up to an hour; if dawn comes first, the first daylight poll clears). No hysteresis: <code>kp-clear-threshold</code> / <code>ovation-clear-threshold</code> are unread, so a signal hovering at its trigger can still flap</td></tr>
-              <tr><td>Daylight polls</td><td>Read only the forecast for tonight, and never end an alert on it; the first one after dawn only makes a CLEAR a night poll deferred while holding</td></tr>
+              <tr><td>Daylight polls</td><td>Read only the forecast for tonight, and never end an alert on it; the first one after dawn, if the night ended while holding an alert, makes that deferred CLEAR instead and reads nothing</td></tr>
               <tr><td>Nautical twilight buffer</td><td>&plusmn;35 min approximation for &minus;12&deg; sun elevation</td></tr>
               <tr><td>Bortle filtering</td><td>MODERATE: &le;4, STRONG: &le;5 (excludes light-polluted sites)</td></tr>
               <tr><td>NOAA fail-open cache</td><td>Retains previous cached value on API failure</td></tr>

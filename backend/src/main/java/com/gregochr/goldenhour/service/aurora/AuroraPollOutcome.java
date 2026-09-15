@@ -11,7 +11,9 @@ import java.util.Objects;
  *                the forecast for tonight alone, a night poll the forecast and the conditions now
  * @param level   the level the poll derived, or {@code null} when reading NOAA threw and nothing was
  *                derived. That is an unexpected error, not an outage: the client fails open, so in
- *                an outage a poll evaluates the last data cached, or empty data read as quiet
+ *                an outage a poll evaluates the last data cached, or empty data read as quiet. The
+ *                first daylight poll after a night that ended on a hold reads nothing and carries that
+ *                night poll's held level and trigger, beside the CLEAR it makes
  * @param action  the state machine's action; NONE when it was not consulted (a NOAA read that threw,
  *                a daylight forecast below MODERATE, or a night poll holding an alert)
  * @param trigger which signal the level comes from: {@link TriggerType#FORECAST_LOOKAHEAD} when the

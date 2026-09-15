@@ -25,7 +25,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * opened yet, and each evaluates the state machine at most once:
  * <ol>
  *   <li><b>Daylight</b>: the forecast for tonight, a heads-up
- *       ({@link AuroraOrchestrator#runForecastLookahead}).</li>
+ *       ({@link AuroraOrchestrator#runForecastLookahead}) — except that the first daylight poll after
+ *       a night that ended while an alert was held for its reading makes the CLEAR that night
+ *       deferred instead.</li>
  *   <li><b>Dark</b>: the higher of the forecast for the rest of tonight and the conditions now, over
  *       one NOAA snapshot ({@link AuroraOrchestrator#runNightPoll}). It raises, escalates or clears
  *       the alert, and never drops below the forecast, so a heads-up survives the evening.</li>

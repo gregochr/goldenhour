@@ -636,8 +636,8 @@ class AuroraOrchestratorTest {
     void aHoldPendingAtDawn_isEndedByTheFirstDaylightPoll() {
         // A real state machine, ACTIVE at MODERATE. At 06:25 the quiet 03:00-06:00 estimate is held,
         // its reading due. Dawn is 06:30; after it no poll acts on the Kp for now, so the reading
-        // could decide nothing, and no other poll would ever end the alert. The first daylight poll
-        // makes the CLEAR the night deferred, as that poll's one evaluation, without reading NOAA.
+        // could decide nothing, and no other poll would end the alert before the next dusk. The first
+        // daylight poll makes the CLEAR the night deferred, as its one evaluation, without reading NOAA.
         when(noaaClient.fetchAll()).thenReturn(snapshot(List.of(reading("2027-01-15T00:00", 5.33)),
                 List.of(block("2027-01-15T00:00", 5.33), block("2027-01-15T03:00", 2.67),
                         block("2027-01-15T06:00", 2.33)),
@@ -656,12 +656,39 @@ class AuroraOrchestratorTest {
         assertThat(atDawn).isEqualTo(new AuroraPollOutcome(false, AlertLevel.QUIET,
                 AuroraStateCache.Action.CLEAR, TriggerType.FORECAST_LOOKAHEAD));
         assertThat(machine.isActive()).isFalse();
-        verify(noaaClient, never()).fetchKpForecast();
+        // The only NOAA read is the night poll's snapshot: the settle reads nothing.
+        verify(noaaClient).fetchAll();
+        verifyNoMoreInteractions(noaaClient);
 
         // Settled once: the next daylight poll reads tonight's forecast as usual.
         when(noaaClient.fetchKpForecast()).thenReturn(List.of(block("2027-01-15T21:00", 2.33)));
         withMachine.runForecastLookahead(nextNight, utc("2027-01-15T06:40"));
         verify(noaaClient).fetchKpForecast();
+    }
+
+    @Test
+    @DisplayName("a pending hold over a machine an admin reset settles to NONE, clearing nothing")
+    void aHoldPendingOverAReset_settlesToNone() {
+        // The hold is the orchestrator's, not the state machine's, so an admin reset between the
+        // hold and dawn does not drop it. The settle then finds the machine IDLE and NONE is all it
+        // reports — though it still spends that poll's one evaluation (a named follow-up).
+        when(noaaClient.fetchAll()).thenReturn(snapshot(List.of(reading("2027-01-15T00:00", 5.33)),
+                List.of(block("2027-01-15T00:00", 5.33), block("2027-01-15T03:00", 2.67),
+                        block("2027-01-15T06:00", 2.33)),
+                5.0));
+        AuroraStateCache machine = new AuroraStateCache();
+        machine.evaluate(AlertLevel.MODERATE);
+        AuroraOrchestrator withMachine = orchestratorOver(machine);
+        TonightWindow tonight = new TonightWindow(utc("2027-01-14T17:30"), utc("2027-01-15T06:30"));
+
+        assertThat(withMachine.runNightPoll(tonight, utc("2027-01-15T06:25")).held()).isTrue();
+        machine.reset();
+        AuroraPollOutcome atDawn = withMachine.runForecastLookahead(
+                new TonightWindow(utc("2027-01-15T17:30"), utc("2027-01-16T06:30")), utc("2027-01-15T06:35"));
+
+        assertThat(atDawn).isEqualTo(new AuroraPollOutcome(false, AlertLevel.QUIET,
+                AuroraStateCache.Action.NONE, TriggerType.FORECAST_LOOKAHEAD));
+        assertThat(machine.isActive()).isFalse();
     }
 
     @Test

@@ -405,6 +405,49 @@ class AuroraPollingCycleTest {
     }
 
     @Test
+    @DisplayName("a reading that lands after dawn decides nothing: the held alert is still ended at dawn")
+    void readingLandingAfterDawn_decidesNothing() {
+        // The February night, but 03:00-06:00 is published at Kp 5.33 — at 06:20, after dawn
+        // (06:18:54). The night is over, and no daylight poll acts on the Kp for now, so the settle
+        // makes the CLEAR the night deferred without reading NOAA. Compare the January night where
+        // the higher reading lands before dawn and keeps the alert.
+        kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
+        noaa.blocks = kpProductFrom("2027-02-13", 2.33, Map.of(
+                "2027-02-14T00:00", 5.67,
+                "2027-02-14T03:00", 3.00));
+        noaa.published = Map.of("2027-02-14T03:00", 5.33);
+
+        List<Transition> transitions = pollEveryFiveMinutes("2027-02-13T09:00", "2027-02-14T11:00");
+
+        assertThat(transitions).containsExactly(
+                new Transition("2027-02-13T09:00", "day", AuroraStateCache.Action.NOTIFY),
+                new Transition("2027-02-14T06:20", "day", AuroraStateCache.Action.CLEAR));
+        assertThat(claudeCalls).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("the dawn settle takes one poll, then the next night's heads-up is raised and paid for")
+    void dawnSettle_thenTheNextNightsHeadsUp() {
+        // The February night again, with the next night (14-15 February) forecast at Kp 5.33 for
+        // 21:00-24:00. The 06:20 daylight poll spends its one evaluation on the deferred CLEAR; the
+        // 06:25 poll reads tonight's forecast and raises its heads-up, scored for that night.
+        kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
+        noaa.blocks = kpProductFrom("2027-02-13", 2.33, Map.of(
+                "2027-02-14T00:00", 5.67,
+                "2027-02-14T03:00", 3.00,
+                "2027-02-14T21:00", 5.33));
+
+        List<Transition> transitions = pollEveryFiveMinutes("2027-02-13T09:00", "2027-02-14T11:00");
+
+        assertThat(transitions).containsExactly(
+                new Transition("2027-02-13T09:00", "day", AuroraStateCache.Action.NOTIFY),
+                new Transition("2027-02-14T06:20", "day", AuroraStateCache.Action.CLEAR),
+                new Transition("2027-02-14T06:25", "day", AuroraStateCache.Action.NOTIFY));
+        assertThat(claudeCalls).hasSize(2);
+        assertThat(claudeCalls.get(1).tonightWindow().dusk()).isAfter(utc("2027-02-14T18:00"));
+    }
+
+    @Test
     @DisplayName("off the boundary grid, a hold that meets dawn is still ended by the first daylight poll")
     void holdAtDawnOffTheBoundaryGrid_isEndedByTheFirstDaylightPoll() {
         // The two-peaks night, polled at :04, :09 and so on, since a production poll's phase is

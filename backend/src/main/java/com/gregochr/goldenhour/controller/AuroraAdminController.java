@@ -109,12 +109,15 @@ public class AuroraAdminController {
      * {@code aurora_polling} schedule runs, through {@link AuroraPollingJob#runCycleIfIdle()}. In
      * daylight that is the forecast for tonight; after dark, the higher of the forecast for the rest
      * of tonight and the conditions now. It scores eligible locations if the alert level warrants it.
+     * One daylight run is different: the first after a night that ended while an alert was held for
+     * its reading makes the CLEAR that night deferred, reading nothing, and reports the night's held
+     * level and trigger with {@code dark: false}.
      *
      * <p>It used to call the orchestrator's real-time path directly, with that path's own six-hour
      * horizon and no guard. So a manual run could CLEAR a heads-up that the next scheduled poll would
      * NOTIFY again, and pay for again, and it could run at the same moment as a scheduled cycle. In
-     * daylight it no longer reaches the real-time path at all, so it cannot clear a stale alert:
-     * {@code POST /reset} does that.
+     * daylight it no longer reaches the real-time path at all, so apart from that one deferred CLEAR
+     * it cannot clear a stale alert: {@code POST /reset} does that.
      *
      * <p>Refused with 409 while a cycle is already running from any route. A cycle that has to score
      * waits for triage and a Claude call, retries included. A proxy that times the request out does
