@@ -173,7 +173,7 @@ describe('WindowFirstMapPane', () => {
     it('hands the home down as given — unknown stays unknown, never "no postcode"', () => {
       // `undefined` is "the settings read has not answered, or failed"; `null` is "no postcode
       // saved", which `MapView`'s ⌂ answers with a prompt to set one. A `= null` default here would
-      // make every unanswered read that claim (`useHomeAndMapColour`'s three states).
+      // make every unanswered read that claim (`useReaderSettings`' three states).
       const home = { lat: 55.17, lon: -1.69 };
       const { rerender } = renderPane();
       expect(MapStub.lastProps.homeCoords).toBeUndefined();

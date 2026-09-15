@@ -18,7 +18,7 @@ import { useHealthStatus } from './hooks/useHealthStatus.js';
 import { useRunNotifications } from './hooks/useRunNotifications.js';
 import useAfterFirstPaint from './hooks/useAfterFirstPaint.js';
 import useTodaysLight from './hooks/useTodaysLight.js';
-import useHomeAndMapColour from './hooks/useHomeAndMapColour.js';
+import useReaderSettings from './hooks/useReaderSettings.js';
 import WindowFirstShell from './components/WindowFirstShell.jsx';
 import PlanErrorBoundary from './components/PlanErrorBoundary.jsx';
 import { WindowFirstBriefingProvider } from './context/WindowFirstBriefingContext.jsx';
@@ -149,33 +149,29 @@ function AppInner() {
   // Non-null when the settings dialog was opened to land on a particular field — currently only
   // the map control's "you have no postcode" branch, which exists to point at exactly that input.
   const [settingsFocus, setSettingsFocus] = useState(null);
-  // Bumped each time the settings dialog saves a change to the home — a new postcode, or a
-  // drive-time recalculation — and never on a close alone. Everything keyed on it (the Plan
-  // provider's reach and settings fetches, the masthead's light) drops the request a newer bump
-  // supersedes, which is only right while every bump is a real change: when a close that saved
-  // nothing bumped it too, that close superseded a save's own, correct answer. A counter rather
-  // than the values themselves: its readers depend on server-side state this component never sees.
-  const [homeSettingsVersion, setHomeSettingsVersion] = useState(0);
+  /**
+   * The one record of the reader's own settings: the home — for the tick line (through the Plan
+   * provider), the map's HOME marker, reach rings and ⌂ control, and the Plan tab's home dot — the
+   * Coming up last-seen date, and the map-colour preference, which the hook hands to `scoreRamp`.
+   * Read once on mount and kept current by the settings dialog's own answers, never by a read of
+   * its own. With it, the two counters the reads derived from the home key on: each moves only
+   * when an answer changes what it counts — the home, or its drive times — so the reads keyed on
+   * them can drop a request a newer move supersedes. A counter rather than the values themselves:
+   * its readers depend on server-side state this component never sees. See the hook.
+   */
+  const {
+    homePlace, homeCoords, comingUpLastSeenDate, setComingUpLastSeenDate,
+    homeSettingsVersion, driveTimesVersion, mapColourScale, colourScaleDefaulted,
+    settingsRead, homeSaved, colourSaved,
+  } = useReaderSettings();
   /**
    * Today's light at the reader's home, for the window-first masthead's light rule.
    *
-   * <p>Resolved here rather than inside the shell so the shell stays a render layer.
-   * `homeSettingsVersion` is the counter the Plan provider's reach and settings fetches refetch on
-   * too, so saving a postcode lights the rule without a reload.
+   * <p>Resolved here rather than inside the shell so the shell stays a render layer. Keyed on the
+   * home counter alone — a drive-time recalculation cannot change the light — so saving a postcode
+   * lights the rule without a reload.
    */
   const todaysLight = useTodaysLight(homeSettingsVersion);
-  // Bumped each time the settings dialog saves a map-colour choice — the ramp's own counter, apart
-  // from the home one so a colour change asks nothing of the fetches that key on the home.
-  const [mapColourVersion, setMapColourVersion] = useState(0);
-  /**
-   * The home's coordinates, for the map's HOME marker, reach rings and ⌂ control, and the
-   * map-colour preference, which the hook hands to `scoreRamp` — asked again on a home or a
-   * colour save and never on a close alone. See the hook for why that is also what makes its
-   * superseded answers safe to drop.
-   */
-  const { homeCoords, mapColourScale, colourScaleDefaulted } = useHomeAndMapColour(
-    homeSettingsVersion, mapColourVersion,
-  );
 
   const [selectedDate, setSelectedDate] = useState(null);
   /**
@@ -569,6 +565,10 @@ function AppInner() {
               join once for the strip, the row maps and the Map tab rather than three times. */}
           <WindowFirstBriefingProvider
             homeSettingsVersion={homeSettingsVersion}
+            driveTimesVersion={driveTimesVersion}
+            homePlace={homePlace}
+            comingUpLastSeenDate={comingUpLastSeenDate}
+            setComingUpLastSeenAt={setComingUpLastSeenDate}
             locations={visibleLocations}
           >
             <WindowFirstShell
@@ -696,11 +696,13 @@ function AppInner() {
             setShowSettings(false);
             setSettingsFocus(null);
           }}
-          // Both counters move on the save itself, never on the close: see their declarations. The
-          // dialog reports from each save's own continuation, so a save still in flight when the
-          // dialog closes moves its counter when it lands.
-          onHomeChanged={() => setHomeSettingsVersion((v) => v + 1)}
-          onMapColourChanged={() => setMapColourVersion((v) => v + 1)}
+          // The dialog's answers are the page's only news of the reader's settings after mount —
+          // its own read on opening, a saved home, a recalculation, a saved colour — and nothing
+          // moves on a close. Each save reports from its own continuation, so one still in flight
+          // when the dialog closes reports when it lands. See `useReaderSettings`.
+          onSettingsRead={settingsRead}
+          onHomeSaved={homeSaved}
+          onColourSaved={colourSaved}
           onDriveTimesRefreshed={refresh}
         />
       )}

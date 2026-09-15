@@ -2635,17 +2635,18 @@ button.wf-hc.also.on:hover {
 }
 
 /* ── "Centre on home" map control ──
-   Its own container in the top-left stack, directly under the zoom box. `.leaflet-bar` gives it
-   Leaflet's own control shadow, and Leaflet's corner container handles the stacking, which is why
-   nothing here hardcodes a distance from the top of the map. The 8px gap is what makes it read as
-   a separate action rather than a third zoom step.
+   Its own container in Leaflet's bottom-right corner, under the zoom bar (`ZoomControlPositioner`
+   moves both there, map-tab-v2-plan.md §3 P7). `.leaflet-bar` gives it Leaflet's own control
+   shadow, and Leaflet's corner container handles the stacking, which is why nothing here hardcodes
+   a distance from the edge of the map. Its 8px top margin, beside the zoom bar's own 10px bottom
+   margin (floated controls' margins do not collapse), is the gap that makes it read as a separate
+   action rather than a third zoom step.
 
    Three classes on purpose. `leaflet/dist/leaflet.css` is imported from MapView.jsx and so lands
-   AFTER this file in the bundle, and two of its rules are two-class selectors that would otherwise
-   win on source order alone: `.leaflet-touch .leaflet-bar` (a 2px black border) and
-   `.leaflet-top .leaflet-control` (a 10px stack margin). Both classes are already on the element,
-   so naming them here is a specificity bump, not a new coupling — and it is what `!important`
-   would otherwise be doing three times over. */
+   AFTER this file in the bundle, and `.leaflet-touch .leaflet-bar` (a 2px black border) is a
+   two-class selector that would otherwise win on source order alone. Both classes are already on
+   the element, so naming them here is a specificity bump, not a new coupling — and it is what
+   `!important` would otherwise be doing. */
 .leaflet-control.leaflet-bar.map-home-control {
   margin-top: 8px;
   border: 1px solid var(--color-plex-border);
@@ -2655,12 +2656,19 @@ button.wf-hc.also.on:hover {
 }
 /* Nothing to say yet. While the home is not known (`undefined` — the settings read unanswered or
    failed, which is not "no postcode") and no origin is in force, `CentreOnHomeControl` renders
-   nothing into its container. The container stays attached — Leaflet puts a re-added bottom-corner
-   control ABOVE the zoom bar — so it is hidden while empty, or its border, ground and margins would
-   paint a blank box. Same three classes as the rule above, for the same reason. */
+   nothing into its container. The empty container keeps the box its button gives it — the
+   button's 32×30 plus the 1px border, under the preflight's border-box — and paints nothing.
+   Collapsed, it dropped the zoom bar 50px and raised it again when the ⌂ came back, putting the ⌂
+   where "−" had just been, and left anything that had measured the corner wrong. `visibility:
+   hidden` is not hit-tested, so a press there reaches the map, and no `display` is declared, so
+   the phone rule further down still hides the control outright. Named with the same three classes
+   as the rule above so the two read as one. */
 .leaflet-control.leaflet-bar.map-home-control:empty {
-  display: none;
+  visibility: hidden;
+  min-width: 34px;
+  min-height: 32px;
 }
+/* 32×30: the `:empty` rule above keeps a box this size plus the border — change the two together. */
 .map-home-control button {
   display: flex;
   align-items: center;

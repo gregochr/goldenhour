@@ -4,7 +4,7 @@ import React, {
 import PropTypes from 'prop-types';
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
-import { getReach, getSettings } from '../api/settingsApi.js';
+import { getReach } from '../api/settingsApi.js';
 import { fetchRegionDriveTimes, fetchRegions } from '../api/regionApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -67,6 +67,8 @@ const EMPTY_REGION_SERIES = new Map();
  */
 const EMPTY_REGIONS = [];
 const EMPTY_MATRIX = {};
+/** A stable do-nothing setter, for a provider rendered without the reader's settings (tests). */
+const NOOP = () => {};
 
 const WindowFirstBriefingContext = createContext({
   briefing: null,
@@ -190,13 +192,23 @@ function selectUpcomingEvents(briefing) {
  *
  * @param {object} props
  * @param {React.ReactNode} props.children the v2 subtree
- * @param {number} [props.homeSettingsVersion] bumped by {@code App} each time the settings dialog
- *        saves a change to the home — a new postcode, or a drive-time recalculation — and never on
- *        a close alone. It is the only invalidation signal the reach and settings fetches have —
- *        see the effects below.
+ * @param {number} [props.homeSettingsVersion] moved by {@code App}'s `useReaderSettings` when the
+ *        home on record changes — a saved postcode, or a change the settings dialog's read finds
+ *        — and at no other time. With {@code driveTimesVersion}, the reach fetch's only
+ *        invalidation signal; see that effect below.
+ * @param {number} [props.driveTimesVersion] moved by the same hook when the drive-time stamp on
+ *        record changes — a recalculation, or a change the dialog's read finds.
+ * @param {(?string|undefined)} [props.homePlace] the home's place name, or its postcode, for the
+ *        tick line; null when none is saved, undefined while that is not known. From
+ *        `useReaderSettings`, the one record of the reader's settings — the map reads the same.
+ * @param {(?string|undefined)} [props.comingUpLastSeenDate] the Coming up badge's latch, from
+ *        the same record; see the context value's own note.
+ * @param {Function} [props.setComingUpLastSeenAt] writes that latch — the bootstrap write's and
+ *        `Mark seen`'s route back to the record.
  */
 export function WindowFirstBriefingProvider({
-  children, homeSettingsVersion, locations = EMPTY_ARRAY,
+  children, homeSettingsVersion, driveTimesVersion, homePlace, comingUpLastSeenDate,
+  setComingUpLastSeenAt = NOOP, locations = EMPTY_ARRAY,
 }) {
   const { role } = useAuth();
   const briefingCacheKey = `briefing:${role || 'anon'}`;
@@ -252,21 +264,17 @@ export function WindowFirstBriefingProvider({
    * other surface in the app already assumes.
    */
   const [origin, setOriginState] = useState(null);
-  // Three states, not two: `undefined` is "not answered yet or the request failed", and it renders
-  // NOTHING. Collapsing it onto null would tell a user who has a home postcode that they have not
-  // set one, on nothing more than a dropped request — plan §2.5 forbids a second source of truth
-  // for exactly this reason, and a wrong answer is worse than silence.
-  const [homePlace, setHomePlace] = useState(undefined);
-  /**
-   * The "Coming up" badge's per-user latch (plan D3/P5) — the Europe/London civil date the caller
-   * last opened that tab, ISO `YYYY-MM-DD`, or {@code null} once settled with no date on record.
-   *
-   * <p>Same three-state shape as {@code homePlace} and for the identical reason: {@code undefined}
-   * is "not answered yet or the request failed", which must render as no badge and no bootstrap
-   * write rather than a false "never seen" — a dropped settings request must not fire the
-   * once-only bootstrap PUT a second time.
-   */
-  const [comingUpLastSeenDate, setComingUpLastSeenDateState] = useState(undefined);
+  // `homePlace` and `comingUpLastSeenDate` arrive as props, from `App`'s one record of the reader's
+  // settings (`useReaderSettings`); this provider used to read `GET /api/user/settings` for them
+  // itself, beside a second read of the same endpoint for the map's home. Both keep three states,
+  // not two: `undefined` is "not known", and it renders NOTHING. Collapsing it onto null would tell
+  // a user who has a home postcode that they have not set one, on nothing more than a dropped
+  // request — plan §2.5 forbids a second source of truth for exactly this reason, and a wrong
+  // answer is worse than silence. For the Coming up badge's latch (plan D3/P5) — the Europe/London
+  // civil date the caller last opened that tab, ISO `YYYY-MM-DD`, or null once settled with no date
+  // on record — `undefined` must render as no badge and no bootstrap write rather than a false
+  // "never seen": a dropped settings request must not fire the once-only bootstrap PUT a second
+  // time.
   const intervalRef = useRef(null);
   // The two polled fetches' request numbering (class comment): per fetch, how many requests have
   // been made, and the number of the newest one whose answer has been applied.
@@ -287,7 +295,7 @@ export function WindowFirstBriefingProvider({
   // the fetch effect, and no cleanup runs between them, so a flag cannot tell an older poll from a
   // newer one. A flag fits the other shape — one request per run of its effect, where a changed
   // dependency changes the question and the older answer is simply superseded — which is the shape
-  // of the reach and settings fetches further down, keyed on `homeSettingsVersion`.
+  // of the reach fetch further down, keyed on the home and drive-time counters.
   const briefingRequestedRef = useRef(0);
   const briefingAppliedRef = useRef(0);
   const scoresRequestedRef = useRef(0);
@@ -401,38 +409,43 @@ export function WindowFirstBriefingProvider({
    * <p>A rejection empties the map — the same state as a user with no home postcode, which is the
    * normal first run — so the failure mode is a strip with no reach lines rather than a strip with
    * none, and the footer's own sentence stops naming drive time. <b>Emptied, not kept</b>: the
-   * counter moves only on a save, so every refetch follows a real change, and the answer standing
-   * from before it measures a journey the save has changed — after a move, from the old house. An
+   * counters move only on a real change, so every refetch follows one, and the answer standing
+   * from before it measures a journey that has changed — after a move, from the old house. An
    * empty map claims nothing; the old figures would claim a drive and a leave-by time the reader no
-   * longer has. (An owner decision, taken 2026-09-15; it had kept them.)
+   * longer has. (An owner decision, taken 2026-09-15; it had kept them.) On the Map tab an empty map
+   * is the same state a successful move gives until a recalculation, since a move clears the stored
+   * drive times: "My area" widens to the whole catalogue and its scope row goes.
    *
-   * <p><b>{@code homeSettingsVersion}, not a bare {@code []}.</b> An empty dep list on a
-   * proximity fetch has already cost this app once: a user who widened their radius saw the block
-   * keep its old contents until a full reload, so the setting appeared to do nothing. The shape
-   * here is worse, because the provider is mounted for the whole life of the Plan tab and
-   * {@code UserSettingsModal} is its SIBLING in {@code App} — so saving a postcode re-renders but
-   * never remounts, and the first-run user who sets one would
-   * watch every reach line stay absent indefinitely. The counter {@code App} already keeps for
-   * exactly this is the signal. It is also a boot-time failure's only way back short of a reload,
-   * and since it moves only on a save (below), that failure now waits for the next one.
+   * <p><b>The two counters, not a bare {@code []}.</b> An empty dep list on a proximity fetch has
+   * already cost this app once: a user who widened their radius saw the block keep its old contents
+   * until a full reload, so the setting appeared to do nothing. The shape here is worse, because
+   * the provider is mounted for the whole life of the Plan tab and {@code UserSettingsModal} is its
+   * SIBLING in {@code App} — so saving a postcode re-renders but never remounts, and the first-run
+   * user who sets one would watch every reach line stay absent indefinitely. `App`'s
+   * `useReaderSettings` moves {@code homeSettingsVersion} when the home on record changes and
+   * {@code driveTimesVersion} when its drive-time stamp does, from the settings dialog's answers — a
+   * saved postcode, a recalculation, or the dialog's own read finding either changed elsewhere. So
+   * opening the dialog is also a boot-time failure's way back: an answer while nothing was on record
+   * counts as a change.
    *
    * <p><b>Only the newest request may write, so the effect's cleanup drops the one it
-   * supersedes.</b> The previous request — the mount's own, or the last save's — can still be out
-   * when the counter moves: a postcode saved soon after the page loads, or drive times recalculated
-   * soon after a new postcode, on a slow connection. It answers a question the save has since
-   * changed (drive times measured before the latest home or recalculation), so it is dropped
-   * wherever it lands, first or last. Landing last, it used to win: a first-run reader who had just
-   * saved a postcode got the pre-postcode answer back and every reach line went absent again — the
-   * "setting appeared to do nothing" this counter exists to cure.
+   * supersedes.</b> The previous request — the mount's own, or the last change's — can still be out
+   * when a counter moves: a postcode saved soon after the page loads, or drive times recalculated
+   * soon after a new postcode, on a slow connection. It answers a question that has since changed
+   * (drive times measured before the latest home or recalculation), so it is dropped wherever it
+   * lands, first or last. Landing last, it used to win: a first-run reader who had just saved a
+   * postcode got the pre-postcode answer back and every reach line went absent again — the "setting
+   * appeared to do nothing" these counters exist to cure.
    *
-   * <p>⚠️ <b>The counter moves only on a save, and that is what makes dropping right.</b> It used to
-   * move on every close of the dialog, saved or not, so a superseded request was not always stale:
-   * save a new home, close, then reopen and dismiss the dialog before the save's answer landed, and
-   * that correct answer was dropped — the old home's figures stood until the newest request
-   * answered. Ordering by request number would have kept it, but would also let a superseded answer
-   * fill in after the newest one failed — the old home's figures, where nothing was on screen yet.
-   * Moving the counter only on a save removes the case instead: for this fetch every move changes
-   * the answer, since a new postcode and a recalculation both change the figures.
+   * <p>⚠️ <b>The counters move only on a real change, and that is what makes dropping right.</b>
+   * The one counter this effect had used to move on every close of the dialog, saved or not, so a
+   * superseded request was not always stale: save a new home, close, then reopen and dismiss the
+   * dialog before the save's answer landed, and that correct answer was dropped — the old home's
+   * figures stood until the newest request answered. Ordering by request number would have kept it,
+   * but would also let a superseded answer fill in after the newest one failed — the old home's
+   * figures, where nothing was on screen yet. A counter that moves only when the home or its drive
+   * times change removes the case instead: `useReaderSettings` compares each answer with the record,
+   * by the server's own `originMoved` test, so re-saving the same postcode moves nothing.
    *
    * <p>⚠️ <b>Which form a reader meets depends on the engine and on how long the older request stays
    * out</b> (measured 2026-09-14 with a local probe on these no-store headers). WebKit and Firefox
@@ -442,8 +455,8 @@ export function WindowFirstBriefingProvider({
    * land LAST as in the other two; with its cache disabled through the DevTools protocol, Chrome
    * sends both at once. A race you cannot reproduce in Chrome is not a guard with nothing to do.
    *
-   * <p>Nothing is cleared when the counter merely moves: the previous answer stands until the
-   * newest one replaces it — or fails, which empties the map (above). The move happens while the
+   * <p>Nothing is cleared when a counter merely moves: the previous answer stands until the newest
+   * one replaces it — or fails, which empties the map (above). The move usually happens while the
    * dialog is still open, so the newest answer has usually landed before the reader is looking
    * again, and a clear on the move itself would blank every reach line for that round trip to no
    * purpose.
@@ -471,7 +484,7 @@ export function WindowFirstBriefingProvider({
         setReachById(EMPTY_REACH);
       });
     return () => { cancelled = true; };
-  }, [homeSettingsVersion]);
+  }, [homeSettingsVersion, driveTimesVersion]);
 
   /**
    * The regions and the shared region-base drive-time matrix — the origin's two inputs.
@@ -490,66 +503,6 @@ export function WindowFirstBriefingProvider({
   useEffect(() => {
     fetchRegions().then((rows) => setRegions(rows || EMPTY_REGIONS)).catch(() => {});
     fetchRegionDriveTimes().then((rows) => setRegionMatrix(rows || EMPTY_MATRIX)).catch(() => {});
-  }, []);
-
-  /**
-   * The user's home, for the tick line's origin button and its empty-state prompt.
-   *
-   * <p>Plan §2.5 is explicit that this must not be a new flag or a 204 on the reach endpoint:
-   * {@code GET /api/user/settings} already carries {@code homePostcode} and
-   * {@code driveTimesCalculatedAt}, and a second source of truth can disagree with the first. So
-   * the same response the settings modal reads answers it, and the place name is preferred over the
-   * postcode because the design's slot reads {@code Home · <place>}.
-   *
-   * <p>Same invalidation as the reach fetch above, and for the same reason — saving a postcode
-   * re-renders this provider without remounting it, so an empty dep list would leave a first-run
-   * user reading "Home not set" for the rest of the session immediately after setting one.
-   *
-   * <p><b>And the same cleanup, over BOTH arms</b> — here the {@code .catch} writes as well, so it
-   * is guarded as well. Unguarded, a superseded request could undo the newest one's answer two
-   * ways. Its answer landing last put the older home back: from before a first postcode was saved
-   * that is {@code null}, and the tick line put "Set a postcode" back in front of the reader who had
-   * just set one. Its FAILURE landing last put both fields back to {@code undefined} — the tick line
-   * lost the place (a bare "Home", or "Set a postcode" while the light still held a pre-save
-   * {@code null}), and the Coming up badge disappeared until the next settings fetch.
-   *
-   * <p>One narrow case is left, because a drive-time recalculation moves the counter too and does
-   * not change this answer: if one completes while the postcode save's own settings request is still
-   * out, that correct answer is dropped and the pre-save home stands until the recalculation's
-   * request answers — a round trip, and only on a connection slow enough for the save's request to
-   * outlast a server-side recalculation. A counter per question would close it; a test pins it
-   * instead, so closing it is a decision.
-   */
-  useEffect(() => {
-    let cancelled = false;
-    getSettings()
-      .then((settings) => {
-        if (cancelled) return;
-        setHomePlace(settings?.homePlaceName || settings?.homePostcode || null);
-        // Same response, a second field: `comingUpLastSeenDate` rides this fetch rather than one
-        // of its own — one settings call, two per-user reads, matching `homePlace` immediately
-        // above. `?? null`, not `|| null`: an empty string is not a possible date, but writing the
-        // fallback the same way keeps the two lines visibly parallel.
-        setComingUpLastSeenDateState(settings?.comingUpLastSeenDate ?? null);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setHomePlace(undefined);
-        setComingUpLastSeenDateState(undefined);
-      });
-    return () => { cancelled = true; };
-  }, [homeSettingsVersion]);
-
-  /**
-   * Sets the Coming-up last-seen date directly — no transform, unlike {@code setOrigin}.
-   *
-   * <p>Two callers: the bootstrap write's response (plan D3's null→set transition) and `Mark
-   * seen`'s optimistic clear, both of which already hold the exact ISO date string to publish
-   * (the reader's own `todayStr`, or the value the settings PUT just echoed back) — there is
-   * nothing here for this setter to derive.
-   */
-  const setComingUpLastSeenAt = useCallback((date) => {
-    setComingUpLastSeenDateState(date);
   }, []);
 
   /**
@@ -805,6 +758,18 @@ export function WindowFirstBriefingProvider({
 WindowFirstBriefingProvider.propTypes = {
   children: PropTypes.node,
   homeSettingsVersion: PropTypes.number,
+  driveTimesVersion: PropTypes.number,
+  /** Three states: a name, null for no postcode, undefined for not known — see the note above. */
+  homePlace: PropTypes.string,
+  comingUpLastSeenDate: PropTypes.string,
+  /**
+   * Sets the Coming-up last-seen date directly — no transform, unlike {@code setOrigin}. Two
+   * callers: the bootstrap write's response (plan D3's null→set transition) and `Mark seen`'s
+   * optimistic clear, both of which already hold the exact ISO date string to publish (the
+   * reader's own `todayStr`, or the value the settings PUT just echoed back) — there is nothing
+   * for the setter to derive.
+   */
+  setComingUpLastSeenAt: PropTypes.func,
   /**
    * The enabled roster — the ONLY payload carrying coordinates (plan §3), and the reason this
    * provider needs a prop at all. Optional: the arm renders without it, minus the heat field.

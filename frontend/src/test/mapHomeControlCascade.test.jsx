@@ -4,9 +4,10 @@
  * <p>While the home is not known (`undefined`: the settings read unanswered or failed, which is not
  * "no postcode") and no origin is in force, `CentreOnHomeControl` renders nothing into its Leaflet
  * container. The container stays attached — Leaflet puts a re-added bottom-corner control above the
- * zoom bar — and its border, ground and margins are its own, so it has to be hidden while empty or
- * it paints a blank box in the corner. `MapViewCentreOnHome.test.jsx` pins that it is empty; this
- * file pins that empty is hidden.
+ * zoom bar — and keeps its box without painting it. Its border and ground are its own, so painted
+ * empty it is a blank box in the corner; collapsed, it dropped the zoom bar above it 50px and raised
+ * it again when the ⌂ came back, putting the ⌂ where "−" had just been.
+ * `MapViewCentreOnHome.test.jsx` pins that it is empty; this file pins what empty computes.
  *
  * <p>jsdom lays nothing out but does resolve the cascade, so this injects slices of `index.css` and
  * of Leaflet's own sheet, in bundle order (Leaflet's is imported from `MapView.jsx` and lands
@@ -53,8 +54,8 @@ function sliceRules(path, needle) {
 let styleEl;
 beforeAll(() => {
   const app = sliceRules(APP_CSS, '.map-home-control');
-  // Leaflet's container rules must be in the slice: they are the ones that could otherwise decide
-  // the container's display, and leaving them out would let the hide pass against nothing.
+  // Leaflet's container rules go in too, in bundle order. None sets `display` or `visibility` on the
+  // container today; included so one that ever did would be weighed here rather than missed.
   const leaflet = ['.leaflet-control', '.leaflet-bar']
     .map((n) => sliceRules(LEAFLET_CSS, n))
     .join('\n');
@@ -69,9 +70,9 @@ afterAll(() => styleEl?.remove());
 
 /**
  * Mounts the container where Leaflet puts it — the bottom-right corner of a touch map — with the
- * classes it carries once added, and returns its computed display.
+ * classes it carries once added, and returns its computed style.
  */
-function displayOf(fill) {
+function styleOf(fill) {
   const map = document.createElement('div');
   map.className = 'leaflet-container leaflet-touch';
   const corner = document.createElement('div');
@@ -82,18 +83,30 @@ function displayOf(fill) {
   corner.appendChild(container);
   map.appendChild(corner);
   document.body.appendChild(map);
-  const { display } = getComputedStyle(container);
+  const { display, visibility, minWidth, minHeight } = getComputedStyle(container);
   map.remove();
-  return display;
+  return { display, visibility, minWidth, minHeight };
 }
 
-describe('the ⌂ control hides itself while it has nothing to say', () => {
-  it('an EMPTY container is not displayed — no blank box in the corner', () => {
-    expect(displayOf(() => {})).toBe('none');
+describe('the ⌂ control paints nothing while it has nothing to say, and keeps its place', () => {
+  it('an EMPTY container paints nothing — no blank box in the corner', () => {
+    expect(styleOf(() => {}).visibility).toBe('hidden');
   });
 
-  it('control: with its button in it, the same container is displayed', () => {
+  it('an EMPTY container keeps its box, so the zoom bar above it never moves', () => {
+    const style = styleOf(() => {});
+
+    expect(style.display).not.toBe('none');
+    // The button's 32×30 plus the container's 1px border, under the preflight's border-box.
+    expect(style.minWidth).toBe('34px');
+    expect(style.minHeight).toBe('32px');
+  });
+
+  it('control: with its button in it, the same container is painted', () => {
     // What tells a rule scoped to emptiness from one that hid the control outright.
-    expect(displayOf((c) => c.appendChild(document.createElement('button')))).not.toBe('none');
+    const style = styleOf((c) => c.appendChild(document.createElement('button')));
+
+    expect(style.visibility).not.toBe('hidden');
+    expect(style.display).not.toBe('none');
   });
 });

@@ -1,33 +1,34 @@
-### Changed — the Plan tab refetches your home and drive times when you save them, not every time the settings dialog closes
+### Changed — reach and the light are asked again only when your home or its drive times change, not on every close of the settings dialog
 
-`App` moved `homeSettingsVersion` — the counter behind the Plan provider's reach and settings fetches
-and the masthead's light — on every close of the settings dialog, saved or not. Those fetches now drop
-any request a newer move supersedes (the companion fix to their fetch order), which is only right
-while every move is a real change. Under the old rule a reader who saved a postcode, then reopened and
-dismissed the dialog before the save's answer landed, had that correct answer thrown away: the
-pre-save state stood until the dismissal's own request answered — longest in Chrome, where requests to
-one URL queue behind each other. The adversarial review of the fetch-order fix found it.
+`App` moved `homeSettingsVersion` — the counter behind the Plan provider's reach fetch and the
+masthead's light — on every close of the settings dialog, saved or not, and re-read the reader's
+settings each time. With the reach fetch now dropping any request a newer move supersedes (the
+companion fetch-order fix), a move that is not a real change throws away a correct answer: a reader
+who saved a postcode, then reopened and dismissed the dialog before the save's answer landed, had it
+dropped, and the pre-save state stood until the dismissal's own request answered — longest in
+Chrome, where requests to one URL queue behind each other. The adversarial review of the fetch-order
+fix found it.
 
-The dialog now reports a home change itself (`onHomeChanged`), after a successful new postcode or
-drive-time recalculation, and `App` moves the counter on that alone — not on a close, and not on a
-radius or map-colour save, which nothing keyed on the counter reads. The report comes from the save's
-own continuation rather than from the close, so a save still in flight when the reader closes the
-dialog moves the counter when it lands; a counter moved at the close would have asked again before
-the save had landed.
+There are two counters now, and `App`'s record of the reader's settings (`useReaderSettings`, a
+companion entry) moves each only when an answer from the settings dialog changes what it counts:
+`homeSettingsVersion` when the home's postcode or coordinates differ from the record — the exact test
+the server's `originMoved` makes — and `driveTimesVersion` when the drive-time stamp does. Reach keys
+on both, the light on the first. So:
 
-The price, taken knowingly: a close no longer retries a reach or settings request that failed at page
-load — the next save or a reload does. And one narrow case remains: a recalculation moves the counter
-too and does not change the settings answer, so a recalculation that completes while the postcode
-save's own settings request is still out drops that correct answer for a round trip. A counter per
-question would close it; a test pins it instead.
+- re-saving the same postcode moves neither — it used to move the counter like any save;
+- a recalculation asks for reach again, and not for the light, which it cannot change;
+- a close moves nothing;
+- a home changed elsewhere moves them when the dialog's own read finds it (the record entry).
 
-Pinned in `UserSettingsModal.test.jsx` — a postcode save and a recalculation each report once, when
-they land and not when pressed; a close, a radius save, a colour save and each kind of failed save do
-not; a save that lands after the dialog has closed still does — and in `App.test.jsx` through the real
-dialog and the real provider: a close with nothing saved moves nothing and the provider does not ask
-again, and a saved postcode moves the counter once, when the save lands, with the close after it adding
-nothing. Every save and failure a negative names is held by hand and settled inside an awaited `act`,
-so "not reported" is read only after the save has landed. Ten mutants, all killed, each by the tests
-that name what it breaks — among them the close bumping again, the prop left unwired, a report on the
-click instead of the landing, a report from a failed save, and a "don't call back after unmount" guard,
-which only the late-save test catches.
+The price, taken knowingly: a close no longer retries a reach or light request that failed at page
+load; the next real change or a reload does. Opening the dialog retries them only when the page has
+no record of the settings at all — its own read then counts as a change. A re-saved postcode, which
+used to be an accidental retry, no longer is.
+
+Pinned in `useReaderSettings.test.jsx` — eleven tests on the record's own rules, among them a
+re-saved postcode keeping the record object itself, a moved postcode and moved coordinates each
+counting on their own, a new stamp moving only the drive-time counter, and two moves in a row
+counting as two — in `App.test.jsx`, through the real dialog and the real provider, where a re-save
+asks for nothing, a recalculation asks for reach and not the light, and a close asks for nothing;
+and in `UserSettingsModal.test.jsx`, where each report arrives once, when its save lands, and not
+for a close, a radius save or a failed save.

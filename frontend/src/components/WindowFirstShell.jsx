@@ -286,7 +286,10 @@ const panelDomId = (id) => `window-first-panel-${id}`;
  * @param {function} [props.onSetPostcode] opens settings on the home-postcode field, for the
  *        band's nudge. Defaults to {@code onOpenSettings}, so the nudge can never be a dead end.
  * @param {?object} [props.homeCoords] {@code {lat, lon}}, or null with no postcode saved — reused
- *        by the heat strip's home marker and (at G3) the popup field's reach rings.
+ *        by the heat strip's home marker and (at G3) the popup field's reach rings. `App` hands
+ *        `undefined` while the home is not known, and the default folds that into null here, which
+ *        is safe only because every Plan surface draws a home and none prompts for one — the map's
+ *        ⌂ does, which is why `WindowFirstMapPane` and `MapView` take the prop bare.
  */
 export default function WindowFirstShell({
   onOpenSettings, onSignOut, contentDisabled, onShowOnMap, onEvaluationScoresChange,
@@ -431,10 +434,9 @@ export default function WindowFirstShell({
    * civil date and will usually already match what the server's clock resolves "now" to, but
    * "usually" is not "always" — a skewed client clock, or a press within the last moments before
    * the UK civil day rolls over, can disagree with the server by a day, and nothing else in this
-   * session re-fetches settings to notice (the settings fetch is gated on
-   * `homeSettingsVersion`, which moves only when the settings dialog saves a change to the home).
-   * Applying the echoed value closes that gap the instant it would otherwise open. A FAILED write
-   * is left on the
+   * session re-fetches settings to notice (`App`'s `useReaderSettings` reads them once, on mount,
+   * and the settings dialog's own read never overwrites a known date). Applying the echoed value
+   * closes that gap the instant it would otherwise open. A FAILED write is left on the
    * optimistic guess rather than rolled back: the design's own bias throughout is that silence is
    * the safe failure, and reverting to "still new" on a dropped response would flash the badge
    * back on for no reason a reader could see.

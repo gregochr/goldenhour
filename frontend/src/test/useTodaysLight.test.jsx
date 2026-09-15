@@ -94,8 +94,9 @@ describe('useTodaysLight', () => {
   });
 
   it('refetches when the home settings change, so a new postcode lights the rule', async () => {
-    // The counter is the one App already bumps when the settings modal closes. Without this the
-    // reader would follow the nudge, save a postcode, and watch the rule stay dim until a reload.
+    // The counter is the one App bumps when the settings dialog saves a change to the home. Without
+    // this the reader would follow the nudge, save a postcode, and watch the rule stay dim until a
+    // reload.
     getTodaysLight.mockResolvedValue(null);
     const { rerender } = render(<Probe settingsVersion={0} />);
     await waitFor(() => expect(state()).toBe('no-home'));

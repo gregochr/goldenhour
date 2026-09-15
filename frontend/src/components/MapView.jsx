@@ -1035,14 +1035,14 @@ const COMPACT_LABEL_WIDTH = '78px';
  * is to say where the missing setting lives. Clicking it opens Settings on the postcode field.
  *
  * <p><b>"No postcode" is {@code null}, and only {@code null}.</b> {@code undefined} means the home
- * is not known — `App`'s settings read has not answered yet, or its read after a home save failed
- * (`useHomeAndMapColour`) — and that is no evidence the reader has not saved one, so with no origin
- * in force the control makes no claim at all: it renders nothing, and its empty container is
- * hidden by `index.css`, border and ground with it, until an answer arrives. The prompt used to
- * show for the length of every page load, and for good after a failed read. Nothing on the way
- * down may default the prop to {@code null} — `WindowFirstMapPane` and `MapView` both take it bare
- * for that reason. Under an origin the control is actionable either way (below), so an unknown
- * home changes nothing there.
+ * is not known — `App`'s one read of the settings has not answered yet, or it failed and the
+ * settings dialog has not answered since (`useReaderSettings`) — and that is no evidence the reader
+ * has not saved one, so with no origin in force the control makes no claim at all: it renders
+ * nothing, and `index.css` keeps its empty container's box without painting it, until an answer
+ * arrives. The prompt used to show to a reader who reached the Map tab before the read answered,
+ * and for good after a read that failed. Nothing on the way down may default the prop to
+ * {@code null} — `WindowFirstMapPane` and `MapView` both take it bare for that reason. Under an
+ * origin the control is actionable either way (below), so an unknown home changes nothing there.
  *
  * <p><b>O-D5 (D1, plan-to-map-doors-plan.md §3/§6):</b> unlike the HOME marker and the reach rings,
  * this control deliberately keeps reading the RAW {@code homeCoords} prop, never the origin-gated
@@ -1099,10 +1099,11 @@ function CentreOnHomeControl({
   }, [container, map]);
 
   // Home not known and no origin to reset to: no claim either way (see the doc above). The portal
-  // renders nothing, and `index.css` hides the container while it is `:empty` — the bar's border,
-  // ground and margins are the container's, so an empty one would paint a blank box. It stays
-  // attached rather than being taken off and re-added: Leaflet puts a re-added bottom-corner
-  // control ABOVE the zoom bar, not below it.
+  // renders nothing, and `index.css` keeps the `:empty` container's box without painting it, so the
+  // zoom bar above it never moves and a press there reaches the map: collapsed, the bar dropped
+  // 50px and rose again when the ⌂ came back, putting the ⌂ where "−" had just been. It stays
+  // attached rather than being taken off and re-added for the same reason: Leaflet puts a re-added
+  // bottom-corner control ABOVE the zoom bar, not below it.
   const unknown = homeCoords === undefined && !origin;
   if (!container || unknown) return null;
 
@@ -1275,7 +1276,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
   // in its normal prop set changes when only the colour preference does. `mapColourScale` exists
-  // for exactly that: a caller that re-resolves the setting (`App.jsx`'s `useHomeAndMapColour`) hands
+  // for exactly that: a caller that re-resolves the setting (`App.jsx`'s `useReaderSettings`) hands
   // down a genuinely new value, which is what breaks `React.memo`'s shallow prop compare and lets
   // this render run at all. Its own VALUE is deliberately never consulted below — every actual
   // colour read (`rampHex`, and `getMode()` in `makeMarkerIcon`'s cache key) goes straight to
