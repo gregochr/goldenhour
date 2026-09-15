@@ -8,7 +8,7 @@ import {
   anchorCallout, calloutBand, calloutFacts, filterCalloutTopics, isCoastalTidalLocation,
   regionGlossFor,
 } from '../../utils/mapCallout.js';
-import { verdictWord } from '../../utils/mapLabels.js';
+import { verdictWord } from '../../utils/verdictWord.js';
 import { rampHex, rampRgb, rgb } from '../../utils/scoreRamp.js';
 import { eventInstantOf, lookupForWindow } from '../../utils/locationSheet.js';
 import { subjectWordsOf } from '../../utils/locationTypes.js';
@@ -348,8 +348,8 @@ export default function MapCallout({
   const rampFillHex = ratingRounded != null ? rampHex(ratingRounded) : null;
   const rampInk = rampFillHex != null ? readableInkOn(rampFillHex) : null;
   // The badge's number and its word must agree, so both read the ROUNDED value — a fractional
-  // rating never reaches this catalogue in practice (`utils/mapLabels.js`'s own note), but rounding
-  // before classifying is what keeps "4★ Maybe" from ever being printable if one ever did.
+  // rating never reaches this catalogue in practice (`utils/verdictWord.js`'s own note), but
+  // rounding before classifying is what keeps "4★ Maybe" from ever being printable if one ever did.
   const word = verdictWord(ratingRounded);
   // The kind chip beside this already reads SUNRISE/SUNSET — `dayLabel`, never `event.label`
   // (kind-chip dedup). Falls back to `label` for a caller that predates the field (e.g. a fixture
