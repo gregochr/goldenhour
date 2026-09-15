@@ -139,21 +139,19 @@ public class AuroraForecastRunService {
      * so the answer is the same on either calendar.
      *
      * <p>Deliberately the same rule, in the same shape, as
-     * {@code AuroraPollingJob.calculateTonightWindow()} — which has always been right.
+     * {@code AuroraPollingJob.calculateTonightWindow(now)} — which has always been right.
      *
-     * <p>⚠️ <b>That agreement is by construction and review, not pinned by a test</b>, and the
-     * reason is worth knowing before someone tries: {@code calculateTonightWindow} reads the system
-     * clock directly, so it cannot be put on the same pinned instant as this method. Comparing them
-     * at wall-clock time would be a real assertion but a flaky one — two separate reads of "now"
-     * can straddle the dawn boundary. Give that method a {@code Clock} and the comparison becomes
-     * both possible and worth writing.
+     * <p>That agreement is pinned by {@code AuroraNightRuleAgreementTest}, which puts both on the
+     * same instants through the real solar-utils calculator: every 97 minutes of a year, and a
+     * second either side of every nautical dawn and dusk. It could not be written while the polling
+     * job read the wall clock itself. It now takes its instant as an argument, so both answer for
+     * the moment they are handed.
      *
-     * <p>Until then the two rules can drift, and on <em>four independently declared constants</em>:
-     * {@link #DURHAM_LAT}, {@link #DURHAM_LON} and {@link #NAUTICAL_BUFFER_MINUTES} each have a
-     * twin in {@code AuroraPollingJob} (and the latitude pair has two more, in
-     * {@code ClaudeAuroraInterpreter} and {@code BriefingAuroraSummaryBuilder}). Change 35 to 30 in
-     * one and nothing goes red. If you change the buffer, the zone or the comparison in one, change
-     * it in the other.
+     * <p>The rules are still declared twice: {@link #DURHAM_LAT}, {@link #DURHAM_LON} and
+     * {@link #NAUTICAL_BUFFER_MINUTES} each have a twin in {@code AuroraPollingJob}. Change 35 to 30
+     * in one and that test goes red. The latitude pair's two further copies, in
+     * {@code ClaudeAuroraInterpreter} and {@code BriefingAuroraSummaryBuilder}, are outside it. If
+     * you change the buffer, the zone or the comparison in one, change it in the other.
      *
      * <p><b>Public because the map needs the same answer.</b> {@code GET /api/aurora/status}
      * carries this date so the frontend can default to the night in progress rather than to a
@@ -621,9 +619,10 @@ public class AuroraForecastRunService {
      *
      * <p>{@code nightStart}/{@code nightEnd} are derived per this result's own
      * {@link AuroraForecastResultEntity#getForecastDate()} via {@link #computeWindowForDate},
-     * never {@code AuroraPollingJob.calculateTonightWindow()} — that method takes no date and
-     * reads the clock, so it would pin <em>tonight's</em> window onto a result for any other
-     * date. A stored result for a past or future night must carry that night's own window.
+     * never {@code AuroraPollingJob.calculateTonightWindow(now)} — that method answers for an
+     * instant, not a date, and handed the current one it would pin <em>tonight's</em> window onto a
+     * result for any other date. A stored result for a past or future night must carry that night's
+     * own window.
      *
      * @param entity the stored aurora result
      * @return the DTO with all location fields inlined

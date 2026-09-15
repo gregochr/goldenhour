@@ -75,6 +75,8 @@ This is the critical scoping deliverable. The pass migrates every row in this ta
 | 17 | `POST /api/model-test/run`, `run-location`, `rerun`, `rerun-determinism` | `ModelTestController.*` | `ModelTestService.executeRun` → OLD `evaluationService.evaluateWithDetails(..., null)` | **OLD service, decorator NOT wired** (jobRun=null) | **OUT OF SCOPE** | very rare | Returns `EvaluationDetail` carrying prompt+raw response for A/B/C comparison. New `EvaluationService` returns `EvaluationResult.Scored(SunsetEvaluation)` — strictly less data. Migrating requires extending `EvaluationResult` payload — violates "no new abstractions". Today silently bypasses `api_call_log` (jobRun=null). |
 | 18 | `POST /api/prompt-test/run`, `replay` | `PromptTestController.*` | `PromptTestService.executeRun` → OLD `evaluationService.evaluateWithDetails(..., null)` | **OLD service, decorator NOT wired** (jobRun=null) | **OUT OF SCOPE** | very rare | Same pattern as #17. Stores prompt+raw response for replay. Same out-of-scope reasoning. |
 
+> **Since 2026-09-14 (row 10):** `POST /api/aurora/admin/run` no longer calls `AuroraOrchestrator.run`, which is gone. It runs the scheduled polling cycle through `AuroraPollingJob.runCycleIfIdle()`, answering 409 while one is running, and the Claude call is still `evaluateNow`.
+
 ### Side-effect of migrating endpoint #1–5: SSE drill-down rides along
 
 `BriefingEvaluationService.evaluateRegion` (the SSE endpoint at `/api/briefing/evaluate` — `BriefingEvaluationController:73`) calls `evaluateSingleLocation(...)` per location at `BriefingEvaluationService:218`. `evaluateSingleLocation` at line 596 calls **`forecastService.evaluateAndPersist(preEval, jobRun)`** — the same method we're migrating for endpoints 1–5.

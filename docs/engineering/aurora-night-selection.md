@@ -120,6 +120,11 @@ two solar calculations, and the `now.isBefore(dawn)` **instant** test makes the 
 is why that method is correct on either calendar and this one is not. That is the pattern to copy,
 and it is where the `TonightWindow` that `AuroraOrchestrator` merely carries comes from.
 
+> **Since the polling-flap fix (2026-09-14)** the method is `calculateTonightWindow(now)`: the job
+> reads its injected `Clock` once per poll and hands the instant in, and derives the date from that
+> instant rather than from `LocalDate.now(utc)`. The rule is unchanged, and the instant still makes
+> the choice.
+
 So the work is to make `AuroraForecastRunService` consume a window the way the orchestrator does,
 rather than deriving nights from a date of its own — plus the triage switch above.
 
@@ -367,6 +372,12 @@ not a night-selection one. Note it is arithmetic rather than a tested property: 
 `DURHAM_LAT`, `DURHAM_LON`, `NAUTICAL_BUFFER_MINUTES` here and their twins in `AuroraPollingJob`
 (the latitude pair has two further copies in `ClaudeAuroraInterpreter` and
 `BriefingAuroraSummaryBuilder`). Change 35 to 30 in one and nothing goes red.
+
+> **Partly closed by the polling-flap fix (2026-09-14).** Once `AuroraPollingJob` took its instant
+> as an argument, `AuroraNightRuleAgreementTest` could put both rules on the same instants through
+> the real solar-utils calculator: every 97 minutes of a year, and a second either side of every
+> nautical dawn and dusk. Change 35 to 30 in either class now and it goes red. The constants are
+> still declared twice, and the two further latitude copies are still outside any test.
 
 ## What was done in the preceding change, and why not this
 
