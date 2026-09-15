@@ -55,7 +55,8 @@ import static org.mockito.Mockito.when;
  * who the alert is attributed to, and the pipeline a NOTIFY drives.
  *
  * <p>The state machine is a mock here, so these tests pin what each poll asks of it — above all,
- * that it is asked once. What that does over consecutive polls against the real one is
+ * that it is asked once — except in the few tests whose subject is the state a poll leaves it in,
+ * which use a real one. What polls do over whole nights against the real one is
  * {@code AuroraPollingCycleTest}'s job.
  *
  * <p>All instants are in January 2027, and the clock is pinned there, so nothing depends on the day
@@ -315,9 +316,10 @@ class AuroraOrchestratorTest {
     @DisplayName("with no row for the block just ended, the Kp for now falls back to the latest reading")
     void currentKp_productGapForTheBlockJustEnded_isTheLatestReading() {
         // 22:00. The product has no row for 18:00-21:00, the block that has just ended. 15:00-18:00
-        // ended four hours ago, too long ago to stand for "now", so the latest reading does.
+        // ended four hours ago, too long ago to stand for "now", so the latest reading does — the
+        // latest, not the highest.
         SpaceWeatherData data = snapshot(
-                List.of(reading("2027-01-14T15:00", 3.00), reading("2027-01-14T18:00", 4.33)),
+                List.of(reading("2027-01-14T15:00", 5.00), reading("2027-01-14T18:00", 4.33)),
                 List.of(block("2027-01-14T15:00", 3.00), block("2027-01-14T21:00", 3.67)), 0.0);
 
         assertThat(AuroraOrchestrator.currentKp(data, utc("2027-01-14T22:00"))).isEqualTo(4.33);
@@ -630,41 +632,60 @@ class AuroraOrchestratorTest {
     }
 
     @Test
-    @DisplayName("within an hour of dawn nothing is held: the estimate ends the alert before daylight")
-    void runNightPoll_withinAnHourOfDawn_endsTheAlertOnTheEstimate() {
-        // A real state machine, ACTIVE at MODERATE, at 06:05. 03:00-06:00 has just ended, NOAA
-        // estimates it quiet, and its reading is due. With dawn at 07:30 the poll holds; with dawn at
-        // 06:30 a hold could meet it — after dawn no poll reads that reading and none clears an
-        // alert — so the poll ends the alert on the estimate.
-        SpaceWeatherData data = snapshot(List.of(reading("2027-01-15T00:00", 5.33)),
+    @DisplayName("a hold the night leaves pending is ended by the first daylight poll, which reads nothing")
+    void aHoldPendingAtDawn_isEndedByTheFirstDaylightPoll() {
+        // A real state machine, ACTIVE at MODERATE. At 06:25 the quiet 03:00-06:00 estimate is held,
+        // its reading due. Dawn is 06:30; after it no poll acts on the Kp for now, so the reading
+        // could decide nothing, and no other poll would ever end the alert. The first daylight poll
+        // makes the CLEAR the night deferred, as that poll's one evaluation, without reading NOAA.
+        when(noaaClient.fetchAll()).thenReturn(snapshot(List.of(reading("2027-01-15T00:00", 5.33)),
                 List.of(block("2027-01-15T00:00", 5.33), block("2027-01-15T03:00", 2.67),
                         block("2027-01-15T06:00", 2.33)),
-                5.0);
-        when(noaaClient.fetchAll()).thenReturn(data);
+                5.0));
+        AuroraStateCache machine = new AuroraStateCache();
+        machine.evaluate(AlertLevel.MODERATE);
+        AuroraOrchestrator withMachine = orchestratorOver(machine);
+        TonightWindow tonight = new TonightWindow(utc("2027-01-14T17:30"), utc("2027-01-15T06:30"));
+        TonightWindow nextNight = new TonightWindow(utc("2027-01-15T17:30"), utc("2027-01-16T06:30"));
 
-        TonightWindow dawnAt0730 = new TonightWindow(utc("2027-01-14T17:30"), utc("2027-01-15T07:30"));
-        TonightWindow dawnAt0630 = new TonightWindow(utc("2027-01-14T17:30"), utc("2027-01-15T06:30"));
+        AuroraPollOutcome atNight = withMachine.runNightPoll(tonight, utc("2027-01-15T06:25"));
+        AuroraPollOutcome atDawn = withMachine.runForecastLookahead(nextNight, utc("2027-01-15T06:35"));
 
-        AuroraStateCache farFromDawn = new AuroraStateCache();
-        farFromDawn.evaluate(AlertLevel.MODERATE);
-        AuroraPollOutcome held =
-                orchestratorOver(farFromDawn).runNightPoll(dawnAt0730, utc("2027-01-15T06:05"));
-        assertThat(held.held()).isTrue();
-        assertThat(farFromDawn.isActive()).isTrue();
-
-        AuroraStateCache nearDawn = new AuroraStateCache();
-        nearDawn.evaluate(AlertLevel.MODERATE);
-        AuroraPollOutcome cleared =
-                orchestratorOver(nearDawn).runNightPoll(dawnAt0630, utc("2027-01-15T06:05"));
-        assertThat(cleared.action()).isEqualTo(AuroraStateCache.Action.CLEAR);
-        assertThat(nearDawn.isActive()).isFalse();
+        assertThat(atNight).isEqualTo(
+                AuroraPollOutcome.held(AlertLevel.QUIET, TriggerType.FORECAST_LOOKAHEAD));
+        assertThat(atDawn).isEqualTo(new AuroraPollOutcome(false, AlertLevel.QUIET,
+                AuroraStateCache.Action.CLEAR, TriggerType.FORECAST_LOOKAHEAD));
+        assertThat(machine.isActive()).isFalse();
+        verify(noaaClient, never()).fetchKpForecast();
     }
 
     @Test
-    @DisplayName("a hold started now must end before dawn: more than an hour of the night must be left")
-    void holdEndsBeforeDawn_whileMoreThanAnHourIsLeft() {
-        assertThat(AuroraOrchestrator.holdEndsBeforeDawn(TONIGHT, utc("2027-01-15T05:59:59"))).isTrue();
-        assertThat(AuroraOrchestrator.holdEndsBeforeDawn(TONIGHT, utc("2027-01-15T06:00"))).isFalse();
+    @DisplayName("a hold that a later night poll settles leaves the daylight poll nothing to end")
+    void aHoldSettledBeforeDawn_leavesTheDaylightPollItsOwnWork() {
+        // A real state machine, ACTIVE at MODERATE. At 00:05 the quiet estimate is held; at 00:20
+        // 21:00-24:00's reading lands at Kp 5.33 and the alert stands. By morning nothing is pending,
+        // so the daylight poll reads tonight's forecast as usual — and, being daylight, ends nothing.
+        List<KpForecast> blocks = List.of(block("2027-01-14T18:00", 5.67),
+                block("2027-01-14T21:00", 4.67), block("2027-01-15T00:00", 3.67),
+                block("2027-01-15T03:00", 3.00));
+        when(noaaClient.fetchAll()).thenReturn(
+                snapshot(List.of(reading("2027-01-14T18:00", 5.67)), blocks, 12.0),
+                snapshot(List.of(reading("2027-01-14T18:00", 5.67), reading("2027-01-14T21:00", 5.33)),
+                        blocks, 12.0));
+        when(noaaClient.fetchKpForecast()).thenReturn(List.of(block("2027-01-15T21:00", 2.33)));
+        AuroraStateCache machine = new AuroraStateCache();
+        machine.evaluate(AlertLevel.MODERATE);
+        AuroraOrchestrator withMachine = orchestratorOver(machine);
+
+        assertThat(withMachine.runNightPoll(TONIGHT, utc("2027-01-15T00:05")).held()).isTrue();
+        assertThat(withMachine.runNightPoll(TONIGHT, utc("2027-01-15T00:20")).action())
+                .isEqualTo(AuroraStateCache.Action.SUPPRESS);
+        AuroraPollOutcome morning = withMachine.runForecastLookahead(
+                new TonightWindow(utc("2027-01-15T17:30"), utc("2027-01-16T07:00")), utc("2027-01-15T08:00"));
+
+        assertThat(morning.action()).isEqualTo(AuroraStateCache.Action.NONE);
+        assertThat(machine.isActive()).isTrue();
+        verify(noaaClient).fetchKpForecast();
     }
 
     @Test

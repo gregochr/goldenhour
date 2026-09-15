@@ -38,16 +38,17 @@ So a heads-up for a small-hours peak now stays up through the evening, and is pa
   block ends and then sits in the client's 15-minute cache, so without the estimate the level would
   dip at the end of an isolated storm block. The running block, whose value is a forecast, is never
   reported as "now".
-- **The estimate for the block just ended does not end an alert while its reading is due.** An
-  estimate can be revised when its reading is published (the 09:00-12:00 block on 2026-09-14 was
-  estimated at Kp 3 and published at 2). So for up to an hour after a block ends, while its reading
-  is not out, a night poll that would CLEAR holds the alert instead, whatever raised it. Otherwise a
-  block NOAA under-estimated would CLEAR at the boundary, then NOTIFY and pay again when its reading
-  landed. The hold has three limits, all deliberate:
+- **A night poll does not end an alert on the estimate for the block just ended while that block's
+  reading is due.** An estimate can be revised when its reading is published (the 09:00-12:00 block
+  on 2026-09-14 was estimated at Kp 3 and published at 2). So for up to an hour after a block ends,
+  while its reading is not out, a night poll that would CLEAR holds the alert instead, whatever
+  raised it. Otherwise a block NOAA under-estimated would CLEAR at the boundary, then NOTIFY and pay
+  again when its reading landed. The hold has three limits, all deliberate:
   - A reading more than an hour late means a late or stale feed, and the estimate ends the alert.
-  - No poll within that hour of dawn holds. After dawn no poll reads the reading and none clears an
-    alert, so a hold there would leave the night's alert and scores standing until the next dusk.
-    Near dawn, as before, a reading that lands higher before daylight buys the alert again.
+  - A hold lasts no longer than the night. If dawn comes first, the first daylight poll makes the
+    CLEAR the night deferred, as its one evaluation, reading nothing. After dawn no poll acts on the
+    Kp for now, so the reading could decide nothing, and no daylight poll ends an alert on its own
+    reading of tonight, so otherwise the night's alert and scores would stand until the next dusk.
   - It covers only the block that has ended. An alert that falls mid-block, on NOAA's low estimate
     for the block still running, is still cleared, and bought again if that block is published
     higher.

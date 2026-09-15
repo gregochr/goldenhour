@@ -936,7 +936,7 @@ Examples: "High cirrus canvas — good colour potential",
     <span class="section-num">5</span>
     <div class="section-title-block">
       <h2>Aurora Pipeline</h2>
-      <p class="section-summary">NOAA SWPC polling every 5 min + Met Office scraping hourly. At most one evaluation per poll: the forecast for tonight by day; after dark, the higher of the forecast for the rest of tonight and the conditions now. State machine (IDLE&harr;ACTIVE) with escalation. Single Claude Haiku call for all viable locations. Conservative: Kp latitude hard caps, lenient cloud triage. Kp and OVATION are both read every poll, and either raises an alert on its own.</p>
+      <p class="section-summary">NOAA SWPC polling every 5 min + Met Office scraping hourly. At most one evaluation per poll: the forecast for tonight by day; after dark, the higher of the forecast for the rest of tonight and the conditions now. State machine (IDLE&harr;ACTIVE) with escalation. Single Claude Haiku call for all viable locations. Conservative: Kp latitude hard caps, lenient cloud triage. After dark Kp and OVATION are both read every poll and either raises an alert on its own; a daylight poll reads only the Kp forecast.</p>
     </div>
     <span class="chevron">&#9654;</span>
   </div>
@@ -1015,7 +1015,7 @@ night poll:    level = fromKp(max(kpNow, restOfTonight)),
                raised to MODERATE when ovation% >= 20%
 
 fromKp: >= 7.0 -> STRONG, >= kp-threshold (5.0) -> MODERATE, >= 4.0 -> MINOR, else QUIET</code></pre>
-            <p>While the last completed block's reading is still due (up to an hour after the block ends), a night poll that would CLEAR holds instead, so that block's estimate cannot end an alert in that hour. No poll within an hour of dawn holds, because no daylight poll would end what it held, and the hold does not cover the block still running. <code>deriveAlertLevel()</code> is now only the (seeded PAUSED) aurora batch job's rule: <code>max(latest reading, forecast starting within 6 h)</code>, raised by OVATION.</p>
+            <p>While the last completed block's reading is still due (up to an hour after the block ends), a night poll that would CLEAR holds instead, so a night poll does not end an alert on that block's estimate. If dawn comes first, the first daylight poll makes the CLEAR the night deferred; and the hold does not cover the block still running. <code>deriveAlertLevel()</code> is now only the (seeded PAUSED) aurora batch job's rule: <code>max(latest reading, forecast starting within 6 h)</code>, raised by OVATION.</p>
           </div>
         </div>
       </div>
@@ -1045,12 +1045,12 @@ fromKp: >= 7.0 -> STRONG, >= kp-threshold (5.0) -> MODERATE, >= 4.0 -> MINOR, el
             <h4>Other Conservatism</h4>
             <table>
               <tr><th>Safeguard</th><th>Detail</th></tr>
-              <tr><td>Viewline probability threshold</td><td>5% (lowered from 10%, which put the viewline north of Edinburgh on a Kp 6 night that was visible from Northumberland; see <code>NoaaSwpcClient.VIEWLINE_THRESHOLD</code>)</td></tr>
+              <tr><td>Viewline probability threshold</td><td>5% (lowered from 10%, which put the viewline north of Edinburgh on a Kp 6 night that was visible from Northumberland; see <code>NoaaSwpcClient.VIEWLINE_THRESHOLD</code>). The one setting here tuned toward sensitivity rather than caution</td></tr>
               <tr><td>OVATION target latitude</td><td>55&deg;N (realistic UK latitude)</td></tr>
               <tr><td>Cloud overcast threshold</td><td>75% total cloud</td></tr>
-              <tr><td>Dual-signal alert trigger</td><td>Kp and OVATION are both read every poll; either alone raises MODERATE, so this adds sensitivity rather than guarding against a single-signal false alarm</td></tr>
-              <tr><td>Clearing</td><td>Both signals must drop below their triggers, and not on the just-ended block's estimate while its reading is due (for up to an hour; within an hour of dawn the estimate can clear, since no daylight poll would). No hysteresis: <code>kp-clear-threshold</code> / <code>ovation-clear-threshold</code> are unread, so a signal hovering at its trigger can still flap</td></tr>
-              <tr><td>Daylight polls</td><td>Read only the forecast for tonight, and never clear an alert</td></tr>
+              <tr><td>Dual-signal alert trigger</td><td>After dark, Kp and OVATION are both read every poll, and either alone raises MODERATE, so this adds sensitivity rather than guarding against a single-signal false alarm. A daylight poll reads only the Kp forecast</td></tr>
+              <tr><td>Clearing</td><td>Both signals must drop below their triggers, and a night poll does not clear on the just-ended block's estimate while its reading is due (up to an hour; if dawn comes first, the first daylight poll clears). No hysteresis: <code>kp-clear-threshold</code> / <code>ovation-clear-threshold</code> are unread, so a signal hovering at its trigger can still flap</td></tr>
+              <tr><td>Daylight polls</td><td>Read only the forecast for tonight, and never end an alert on it; the first one after dawn only makes a CLEAR a night poll deferred while holding</td></tr>
               <tr><td>Nautical twilight buffer</td><td>&plusmn;35 min approximation for &minus;12&deg; sun elevation</td></tr>
               <tr><td>Bortle filtering</td><td>MODERATE: &le;4, STRONG: &le;5 (excludes light-polluted sites)</td></tr>
               <tr><td>NOAA fail-open cache</td><td>Retains previous cached value on API failure</td></tr>

@@ -54,12 +54,13 @@ import java.util.Optional;
  * either poll a horizon of its own — {@link #deriveAlertLevel}, the paused batch job's rule, is the
  * one deliberate exception. {@code AuroraPollingCycleTest} replays whole nights.
  *
- * <p>⚠️ <b>The estimate for the block just ended does not end an alert while its reading is
- * due.</b> For a poll or more after each 3-hour boundary the Kp for now is NOAA's estimate for that
- * block ({@link #currentKp}), and an estimate can be revised up when the block's reading is
- * published. A night poll that would CLEAR while that reading is still due holds instead
+ * <p>⚠️ <b>A night poll does not end an alert on the estimate for the block just ended while that
+ * block's reading is due.</b> For a poll or more after each 3-hour boundary the Kp for now is NOAA's
+ * estimate for that block ({@link #currentKp}), and an estimate can be revised up when the block's
+ * reading is published. A night poll that would CLEAR while that reading is still due holds instead
  * ({@link #readingDue}), so a block NOAA under-estimated is not cleared and then paid for again when
- * its reading lands. The hold has limits, set out on {@link #runNightPoll}.
+ * its reading lands. If the night ends while an alert is held, the first daylight poll makes the
+ * CLEAR the night deferred. The hold's limits are set out on {@link #runNightPoll}.
  *
  * <p>On any NOTIFY the pipeline filters locations by Bortle class, triages them by cloud cover, calls
  * Claude once for all viable locations, gives overcast-rejected locations 1★, and caches everything
@@ -87,6 +88,14 @@ public class AuroraOrchestrator {
     private final EvaluationService evaluationService;
     private final ModelSelectionService modelSelectionService;
     private final Clock clock;
+
+    /**
+     * The hold the last night poll made, or {@code null} once a night poll has evaluated. Set only by
+     * a night poll that holds, cleared by any night poll that evaluates, and read by the first
+     * daylight poll: if the night ended while an alert was held, that poll makes the CLEAR the night
+     * deferred. Only a polling cycle touches it, and no two cycles run at once.
+     */
+    private volatile AuroraPollOutcome pendingHold;
 
     /**
      * Constructs the orchestrator with all required dependencies.
@@ -129,9 +138,15 @@ public class AuroraOrchestrator {
      * Daylight poll: the forecast for tonight.
      *
      * <p>Reads NOAA's Kp forecast and takes {@link #maxKpRestOfTonight}. Below MODERATE it leaves the
-     * state machine alone, so a daylight poll only ever raises an alert, never clears one. At MODERATE
-     * or above it evaluates once, and on NOTIFY scores with {@link TriggerType#FORECAST_LOOKAHEAD}, so
-     * Claude writes for planning. The full NOAA snapshot a scoring needs is fetched only when
+     * state machine alone, so a daylight poll never ends an alert on its own reading of tonight. At
+     * MODERATE or above it evaluates once, and on NOTIFY scores with
+     * {@link TriggerType#FORECAST_LOOKAHEAD}, so Claude writes for planning.
+     *
+     * <p>⚠️ One exception: if the night ended while a night poll was holding an alert for a reading
+     * ({@link #runNightPoll}), this poll makes the CLEAR the night deferred instead, and reads nothing.
+     * After dawn no poll acts on the Kp for now, so the reading could decide nothing, and no other
+     * poll would ever end that alert. It is this poll's one evaluation; tonight's forecast is read by
+     * the next. The full NOAA snapshot a scoring needs is fetched only when
      * {@link AuroraStateCache#wouldNotify} says a scoring is coming, and before the state machine
      * moves, so a held heads-up does not refetch it every poll (fetching it may download the ~900 KB
      * OVATION grid, which the client caches for five minutes). Only an admin reset or simulation
@@ -147,6 +162,15 @@ public class AuroraOrchestrator {
      * @return what the poll did
      */
     AuroraPollOutcome runForecastLookahead(TonightWindow tonight, ZonedDateTime now) {
+        AuroraPollOutcome deferred = pendingHold;
+        if (deferred != null) {
+            pendingHold = null;
+            AuroraStateCache.Evaluation eval = stateCache.evaluate(deferred.level());
+            LOG.info("Night ended with an alert held for its reading: level={} action={}",
+                    deferred.level(), eval.action());
+            return new AuroraPollOutcome(false, deferred.level(), eval.action(), deferred.trigger());
+        }
+
         List<KpForecast> forecast;
         try {
             forecast = noaaClient.fetchKpForecast();
@@ -206,22 +230,19 @@ public class AuroraOrchestrator {
      * writes for planning about tonight's window. Only when the conditions now go beyond the forecast
      * is it {@link TriggerType#REALTIME}, and Claude writes for acting now.
      *
-     * <p>⚠️ <b>The estimate for the block just ended does not end an alert while its reading is
-     * due.</b> While that reading is still due ({@link #readingDue}), a poll whose level would CLEAR
-     * the alert holds it instead: it leaves the state machine alone
+     * <p>⚠️ <b>It does not end an alert on the estimate for the block just ended while that block's
+     * reading is due.</b> While that reading is still due ({@link #readingDue}), a poll whose level
+     * would CLEAR the alert holds it instead: it leaves the state machine alone
      * ({@link AuroraPollOutcome#held(AlertLevel, TriggerType)}), and the reading decides once it
-     * lands. Until then the Kp for now is NOAA's estimate, and an
-     * estimate can be revised up: a block NOAA under-estimated would CLEAR at the block boundary, then
-     * NOTIFY and pay again when its reading landed. The hold keeps whatever raised the alert, OVATION
-     * included. Its limits:
+     * lands. Until then the Kp for now is NOAA's estimate, and an estimate can be revised up: a block
+     * NOAA under-estimated would CLEAR at the block boundary, then NOTIFY and pay again when its
+     * reading landed. The hold keeps whatever raised the alert, OVATION included. Its limits:
      * <ul>
      *   <li>It lasts at most {@link #READING_EXPECTED_WITHIN} after the block ends. A reading later
      *       than that means a late or stale feed, and the estimate ends the alert.</li>
-     *   <li>No poll within {@link #READING_EXPECTED_WITHIN} of dawn holds
-     *       ({@link #holdEndsBeforeDawn}). After dawn a reading reaches no poll that could act on it,
-     *       and no poll clears an alert in daylight, so a hold that met dawn would leave the night's
-     *       alert and scores standing through the next day. There, as before, a reading that lands
-     *       higher before dawn buys the alert again.</li>
+     *   <li>It lasts no longer than the night. If dawn comes first, the first daylight poll makes the
+     *       CLEAR the night deferred ({@link #runForecastLookahead}): after dawn no poll acts on the
+     *       Kp for now, so the reading could decide nothing.</li>
      *   <li>It covers only the block that has ended. NOAA's estimate for the block still running
      *       counts in the forecast for the rest of tonight, and an alert that falls while that
      *       estimate is low is cleared, and bought again if the block is published higher.</li>
@@ -252,14 +273,15 @@ public class AuroraOrchestrator {
         boolean forecastReachesIt = levelForKp(restOfTonight) == level;
         TriggerType trigger = forecastReachesIt ? TriggerType.FORECAST_LOOKAHEAD : TriggerType.REALTIME;
 
-        if (readingDue(snapshot, now) && holdEndsBeforeDawn(tonight, now)
-                && stateCache.wouldClear(level)) {
+        if (readingDue(snapshot, now) && stateCache.wouldClear(level)) {
             LOG.info("Aurora night poll: level={} from {} (rest of tonight Kp {}, Kp now {}) — alert "
                     + "held until the last block's reading is published", level, trigger, restOfTonight,
                     kpNow);
-            return AuroraPollOutcome.held(level, trigger);
+            pendingHold = AuroraPollOutcome.held(level, trigger);
+            return pendingHold;
         }
 
+        pendingHold = null;
         AuroraStateCache.Evaluation eval = stateCache.evaluate(level);
         LOG.info("Aurora night poll: level={} from {} (rest of tonight Kp {}, Kp now {}) action={}",
                 level, trigger, restOfTonight, kpNow, eval.action());
@@ -377,7 +399,9 @@ public class AuroraOrchestrator {
      *
      * <p>The block still running is not "now": its value is NOAA's estimate or prediction, and it
      * already counts in {@link #maxKpRestOfTonight}. With no row for a block completed within the
-     * last block's length (no product, or a gap in it), this is the latest published reading.
+     * last block's length (no product, or a gap in it), this is the latest published reading — which,
+     * until the missing block's own reading is out, is an older block's, and with no row nothing is
+     * held for it either. A gap in NOAA's product is rare.
      *
      * @param data the poll's NOAA snapshot
      * @param now  the instant of the poll
@@ -406,19 +430,6 @@ public class AuroraOrchestrator {
                 .filter(block -> block.to().plus(READING_EXPECTED_WITHIN).isAfter(now))
                 .filter(block -> publishedReading(data, block).isEmpty())
                 .isPresent();
-    }
-
-    /**
-     * Whether a hold started now is sure to end before dawn: more than
-     * {@link #READING_EXPECTED_WITHIN}, the longest a hold lasts, is left of tonight. Within that of
-     * dawn a night poll does not hold, so every alert the night means to end is ended by a night poll.
-     *
-     * @param tonight tonight's dark window
-     * @param now     the instant of the poll
-     * @return {@code true} while a hold started now would end before dawn
-     */
-    static boolean holdEndsBeforeDawn(TonightWindow tonight, ZonedDateTime now) {
-        return now.plus(READING_EXPECTED_WITHIN).isBefore(tonight.dawn());
     }
 
     /**

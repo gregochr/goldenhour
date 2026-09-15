@@ -122,7 +122,10 @@ public class AuroraStateCache {
     public Evaluation evaluate(AlertLevel incoming) {
         // Every branch is decided from one read of the state and one of the level. Reading the state
         // again later would let a reset landing mid-evaluation turn an escalation into the IDLE
-        // branch, which writes ACTIVE, and the reset's null level would then land on top of it.
+        // branch, which writes ACTIVE, and the reset's null level would then land on top of it. The
+        // two reads are still separate: a reset between them can hand this ACTIVE with no level, and
+        // an alert-worthy level then throws, as it always has. Only serialising the admin writes
+        // with a cycle closes that (see the class javadoc).
         State from = state;
         AlertLevel current = currentLevel;
         if (clears(from, incoming)) {

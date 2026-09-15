@@ -62,9 +62,10 @@ import static org.mockito.Mockito.when;
  * cache deliver it. A test can publish a reading that revises NOAA's estimate, or stop the readings
  * feed, which the client then serves from its cache.
  *
- * <p>Everything happens on the night of 14 January 2027, on a clock the test moves by hand.
- * solar-utils puts Durham's nautical dusk (as the job derives it) at 17:25:42 UTC and nautical dawn
- * at 07:03:38 UTC on the 15th.
+ * <p>Most tests replay the night of 14 January 2027, on a clock the test moves by hand. solar-utils
+ * puts Durham's nautical dusk (as the job derives it) at 17:25:42 UTC and nautical dawn at 07:03:38
+ * UTC on the 15th. One replays 13-14 February 2027 (dusk 18:20:07, dawn 06:18:54), whose dawn comes
+ * before the 03:00-06:00 block's reading.
  */
 @ExtendWith(MockitoExtension.class)
 class AuroraPollingCycleTest {
@@ -262,12 +263,11 @@ class AuroraPollingCycleTest {
 
         List<Transition> transitions = pollEveryFiveMinutes("2027-01-14T09:00", "2027-01-15T11:00");
 
-        // One CLEAR, before dawn. At 06:00 the quiet 03:00-06:00 estimate is held, its reading due at
-        // 06:20; from 06:05 less than an hour of the night is left (dawn is 07:03:38), a hold could
-        // meet dawn, and the estimate ends the alert.
+        // One CLEAR, at 06:20 when the quiet 03:00-06:00 block's reading is out — before dawn. From
+        // 06:00 the quiet estimate is held.
         assertThat(transitions).containsExactly(
                 new Transition("2027-01-14T09:00", "day", AuroraStateCache.Action.NOTIFY),
-                new Transition("2027-01-15T06:05", "night", AuroraStateCache.Action.CLEAR));
+                new Transition("2027-01-15T06:20", "night", AuroraStateCache.Action.CLEAR));
         assertThat(claudeCalls).hasSize(1);
     }
 
@@ -369,22 +369,23 @@ class AuroraPollingCycleTest {
 
         assertThat(evening).containsExactly(
                 new Transition("2027-01-14T09:00", "day", AuroraStateCache.Action.NOTIFY));
-        // The CLEAR comes at 06:05: within an hour of dawn (07:03:38) nothing is held.
+        // The CLEAR comes at 06:20, when the quiet 03:00-06:00 block's reading is out.
         assertThat(overnight).containsExactly(
                 new Transition("2027-01-15T00:00", "night", AuroraStateCache.Action.NOTIFY),
-                new Transition("2027-01-15T06:05", "night", AuroraStateCache.Action.CLEAR));
+                new Transition("2027-01-15T06:20", "night", AuroraStateCache.Action.CLEAR));
         assertThat(claudeCalls).extracting(EvaluationTask.Aurora::alertLevel)
                 .containsExactly(AlertLevel.MODERATE, AlertLevel.STRONG);
     }
 
     @Test
-    @DisplayName("an alert ending at the last boundary before dawn ends before daylight, not at the next dusk")
-    void alertEndingJustBeforeDawn_endsBeforeDaylight() {
+    @DisplayName("an alert held when dawn comes is ended by the first daylight poll, not left to the next dusk")
+    void alertHeldAtDawn_isEndedByTheFirstDaylightPoll() {
         // 13-14 February 2027: dusk 18:20:07, dawn 06:18:54. Kp 5.67 at 00:00-03:00 raises the
-        // morning's heads-up; 03:00-06:00 is estimated quiet, and its reading is due at 06:20 — after
-        // dawn. A hold at 06:00 would wait for a reading no night poll will see, and no poll clears an
-        // alert in daylight, so last night's alert and scores would stand until the next dusk. Within
-        // an hour of dawn nothing is held, and the 06:00 estimate ends the alert.
+        // morning's heads-up; 03:00-06:00 is estimated quiet, and its reading is due at 06:20, after
+        // dawn. The 06:00-06:15 polls hold for it. After dawn no poll acts on the Kp for now and no
+        // daylight poll ends an alert on its own, so the first daylight poll, at 06:20, makes the
+        // CLEAR the night deferred. Left alone, last night's alert and scores would stand until the
+        // next dusk.
         kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
         noaa.blocks = kpProductFrom("2027-02-13", 2.33, Map.of(
                 "2027-02-14T00:00", 5.67,
@@ -394,8 +395,57 @@ class AuroraPollingCycleTest {
 
         assertThat(transitions).containsExactly(
                 new Transition("2027-02-13T09:00", "day", AuroraStateCache.Action.NOTIFY),
-                new Transition("2027-02-14T06:00", "night", AuroraStateCache.Action.CLEAR));
+                new Transition("2027-02-14T06:20", "day", AuroraStateCache.Action.CLEAR));
         assertThat(stateCache.isActive()).isFalse();
+        // The premise: the job's dark window for this night, as the heads-up was scored with it.
+        assertThat(claudeCalls).singleElement().satisfies(task -> {
+            assertThat(task.tonightWindow().dusk()).isEqualTo(utc("2027-02-13T18:20:07"));
+            assertThat(task.tonightWindow().dawn()).isEqualTo(utc("2027-02-14T06:18:54"));
+        });
+    }
+
+    @Test
+    @DisplayName("off the boundary grid, a hold that meets dawn is still ended by the first daylight poll")
+    void holdAtDawnOffTheBoundaryGrid_isEndedByTheFirstDaylightPoll() {
+        // The two-peaks night, polled at :04, :09 and so on, since a production poll's phase is
+        // arbitrary, with the readings feed stopped once 00:00-03:00's reading is out at 03:20. From
+        // 06:04 the quiet 03:00-06:00 estimate is held for a reading that never comes, until the
+        // hold's hour runs out at 07:00. The 06:59 poll still holds, and the next, at 07:04, is after
+        // dawn (07:03:38). A hold bounded only by its own hour would leave the alert standing all day.
+        kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
+        noaa.blocks = kpProduct(2.33, Map.of(
+                "2027-01-14T18:00", 5.67,
+                "2027-01-14T21:00", 3.00,
+                "2027-01-15T00:00", 5.33));
+        noaa.readingsStopAt = utc("2027-01-15T03:25").toInstant();
+
+        List<Transition> transitions = pollEveryFiveMinutes("2027-01-14T09:04", "2027-01-15T11:00");
+
+        assertThat(transitions).containsExactly(
+                new Transition("2027-01-14T09:04", "day", AuroraStateCache.Action.NOTIFY),
+                new Transition("2027-01-15T07:04", "day", AuroraStateCache.Action.CLEAR));
+        assertThat(stateCache.isActive()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a block published higher just before dawn keeps the alert it held, paid for once")
+    void blockPublishedHigherBeforeDawn_keepsTheHeldAlert() {
+        // The two-peaks night, but 03:00-06:00, estimated quiet, is published at Kp 5.33 at 06:20,
+        // before dawn. The 06:00-06:15 polls hold; the reading keeps the alert, and nothing is paid
+        // twice. The alert then stands through the day, as any alert standing at dawn does.
+        kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
+        noaa.blocks = kpProduct(2.33, Map.of(
+                "2027-01-14T18:00", 5.67,
+                "2027-01-14T21:00", 3.00,
+                "2027-01-15T00:00", 5.33));
+        noaa.published = Map.of("2027-01-15T03:00", 5.33);
+
+        List<Transition> transitions = pollEveryFiveMinutes("2027-01-14T09:00", "2027-01-15T11:00");
+
+        assertThat(transitions).containsExactly(
+                new Transition("2027-01-14T09:00", "day", AuroraStateCache.Action.NOTIFY));
+        assertThat(claudeCalls).hasSize(1);
+        assertThat(stateCache.isActive()).isTrue();
     }
 
     @Test
