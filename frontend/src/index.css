@@ -2635,8 +2635,9 @@ button.wf-hc.also.on:hover {
 }
 
 /* ── "Centre on home" map control ──
-   Its own container in Leaflet's bottom-right corner, under the zoom bar (`ZoomControlPositioner`
-   moves both there, map-tab-v2-plan.md §3 P7). `.leaflet-bar` gives it Leaflet's own control
+   Its own container in Leaflet's bottom-right corner, under the zoom bar, which
+   `ZoomControlPositioner` moves there after the ⌂ has added itself (map-tab-v2-plan.md §3 P7).
+   `.leaflet-bar` gives it Leaflet's own control
    shadow, and Leaflet's corner container handles the stacking, which is why nothing here hardcodes
    a distance from the edge of the map. Its 8px top margin, beside the zoom bar's own 10px bottom
    margin (floated controls' margins do not collapse), is the gap that makes it read as a separate
@@ -2656,8 +2657,10 @@ button.wf-hc.also.on:hover {
 }
 /* Nothing to say yet. While the home is not known (`undefined` — the settings read unanswered or
    failed, which is not "no postcode") and no origin is in force, `CentreOnHomeControl` renders
-   nothing into its container. The empty container keeps the box its button gives it — the
-   button's 32×30 plus the 1px border, under the preflight's border-box — and paints nothing.
+   nothing into its container. The empty container keeps the box its button gives it and paints
+   nothing: its content is sized like the button (32×30, as a content box) and the same 1px
+   border goes round it, so the two boxes match by construction — even where WebKit snaps that
+   border to a device pixel at a fractional zoom, which a fixed 34×32 border box did not follow.
    Collapsed, it dropped the zoom bar 50px and raised it again when the ⌂ came back, putting the ⌂
    where "−" had just been, and left anything that had measured the corner wrong. `visibility:
    hidden` is not hit-tested, so a press there reaches the map, and no `display` is declared, so
@@ -2665,10 +2668,11 @@ button.wf-hc.also.on:hover {
    as the rule above so the two read as one. */
 .leaflet-control.leaflet-bar.map-home-control:empty {
   visibility: hidden;
-  min-width: 34px;
-  min-height: 32px;
+  box-sizing: content-box;
+  min-width: 32px;
+  min-height: 30px;
 }
-/* 32×30: the `:empty` rule above keeps a box this size plus the border — change the two together. */
+/* 32×30: the `:empty` rule above keeps a content box this size — change the two together. */
 .map-home-control button {
   display: flex;
   align-items: center;

@@ -10,13 +10,11 @@ import { ukDateStr } from '../utils/mapDates.js';
  * `useReaderSettings` moves its home counter when a saved postcode, or the settings dialog's own
  * read, changes the home on record, so the rule lights up without a reload; a drive-time
  * recalculation, which cannot change the light, moves a separate counter. And the UK civil day
- * turning over: this is a planning
- * dashboard, a tab left open
- * from one evening to the next morning is an ordinary way to use it, and a mount-only fetch left
- * yesterday's gradient and yesterday's clock times on screen under a label that names only the
- * postcode — nothing on the band carries a date, so there was no way to tell. Checked when the tab
- * comes back to the foreground and only when the date has actually changed, which keeps the "no
- * polling" the design asks for.
+ * turning over: this is a planning dashboard, a tab left open from one evening to the next morning
+ * is an ordinary way to use it, and a mount-only fetch left yesterday's gradient and yesterday's
+ * clock times on screen under a label that names only the postcode — nothing on the band carries a
+ * date, so there was no way to tell. Checked when the tab comes back to the foreground and only
+ * when the date has actually changed, which keeps the "no polling" the design asks for.
  *
  * <p><b>Three states in one value.</b> `undefined` when there is no answer — not asked yet, or asked
  * and the request failed; `null` once the server has answered that there is no home saved; the day's

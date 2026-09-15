@@ -202,7 +202,7 @@ function selectUpcomingEvents(briefing) {
  *        tick line; null when none is saved, undefined while that is not known. From
  *        `useReaderSettings`, the one record of the reader's settings — the map reads the same.
  * @param {(?string|undefined)} [props.comingUpLastSeenDate] the Coming up badge's latch, from
- *        the same record; see the context value's own note.
+ *        the same record; see the note on these props at the top of the provider body.
  * @param {Function} [props.setComingUpLastSeenAt] writes that latch — the bootstrap write's and
  *        `Mark seen`'s route back to the record.
  */
@@ -424,9 +424,10 @@ export function WindowFirstBriefingProvider({
    * user who sets one would watch every reach line stay absent indefinitely. `App`'s
    * `useReaderSettings` moves {@code homeSettingsVersion} when the home on record changes and
    * {@code driveTimesVersion} when its drive-time stamp does, from the settings dialog's answers — a
-   * saved postcode, a recalculation, or the dialog's own read finding either changed elsewhere. So
-   * opening the dialog is also a boot-time failure's way back: an answer while nothing was on record
-   * counts as a change.
+   * saved postcode, a recalculation, or the dialog's own read finding either changed elsewhere.
+   * Opening the dialog retries a reach request that failed at page load only when the page's
+   * settings read failed too — an answer while nothing was on record counts as a change; a reach
+   * failure on its own waits for a real change or a reload.
    *
    * <p><b>Only the newest request may write, so the effect's cleanup drops the one it
    * supersedes.</b> The previous request — the mount's own, or the last change's — can still be out

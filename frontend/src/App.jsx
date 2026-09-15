@@ -162,7 +162,7 @@ function AppInner() {
   const {
     homePlace, homeCoords, comingUpLastSeenDate, setComingUpLastSeenDate,
     homeSettingsVersion, driveTimesVersion, mapColourScale, colourScaleDefaulted,
-    settingsRead, homeSaved, colourSaved,
+    startSettingsRead, homeSaved, driveTimesRecalculated, colourSaved,
   } = useReaderSettings();
   /**
    * Today's light at the reader's home, for the window-first masthead's light rule.
@@ -696,12 +696,14 @@ function AppInner() {
             setShowSettings(false);
             setSettingsFocus(null);
           }}
-          // The dialog's answers are the page's only news of the reader's settings after mount —
-          // its own read on opening, a saved home, a recalculation, a saved colour — and nothing
-          // moves on a close. Each save reports from its own continuation, so one still in flight
-          // when the dialog closes reports when it lands. See `useReaderSettings`.
-          onSettingsRead={settingsRead}
+          // After mount the page hears of changes to the reader's home and colour only from the
+          // dialog's answers — its own read on opening, a saved home, a recalculation, a saved
+          // colour — and nothing moves on a close. Each save reports from its own continuation,
+          // so one still in flight when the dialog closes reports when it lands. See
+          // `useReaderSettings`.
+          startSettingsRead={startSettingsRead}
           onHomeSaved={homeSaved}
+          onDriveTimesRecalculated={driveTimesRecalculated}
           onColourSaved={colourSaved}
           onDriveTimesRefreshed={refresh}
         />

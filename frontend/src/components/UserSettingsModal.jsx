@@ -23,13 +23,14 @@ const ROLE_LABELS = {
 const DEFAULT_RADIUS_MILES = 22;
 
 export default function UserSettingsModal({
-  onClose, onDriveTimesRefreshed, onSettingsRead, onHomeSaved, onColourSaved, focusField = null,
+  onClose, onDriveTimesRefreshed, startSettingsRead, onHomeSaved, onDriveTimesRecalculated,
+  onColourSaved, focusField = null,
 }) {
   const [settings, setSettings] = useState(null);
-  // The read on opening reports through the newest callback without the read re-running when the
+  // The read on opening starts through the newest callback without the read re-running when the
   // callback's identity changes — it is made once, from a mount effect.
-  const onSettingsReadRef = useRef(onSettingsRead);
-  useEffect(() => { onSettingsReadRef.current = onSettingsRead; }, [onSettingsRead]);
+  const startSettingsReadRef = useRef(startSettingsRead);
+  useEffect(() => { startSettingsReadRef.current = startSettingsRead; }, [startSettingsRead]);
   // Focused once settings have loaded, not on mount: the input is disabled for a LITE user and
   // the section only becomes meaningful with the payload in hand.
   const postcodeRef = useRef(null);
@@ -68,6 +69,9 @@ export default function UserSettingsModal({
   const [now, setNow] = useState(null);
 
   const fetchSettings = useCallback(async () => {
+    // Numbered by the page as it is ASKED, so an answer that lands after a newer one — this
+    // dialog closed before it answered, then reopened and saved in — is dropped there.
+    const report = startSettingsReadRef.current?.();
     try {
       const data = await getSettings();
       setSettings(data);
@@ -82,10 +86,10 @@ export default function UserSettingsModal({
       if (data.driveTimesCalculatedAt && data.homePostcode) {
         setDriveTimesPostcode(data.homePostcode);
       }
-      // A fresh read of the server: the page takes it as its newest news of the reader's settings,
-      // which is how a home changed elsewhere reaches it. Nothing in the dialog can be saved until
-      // this read has landed — the form is not drawn before — so no save of its own is newer.
-      onSettingsReadRef.current?.(data);
+      // A fresh read of the server, and how a home or its drive times changed elsewhere reach the
+      // page. Nothing in THIS opening of the dialog can be saved until it has landed — the form is
+      // not drawn before — but a save from an earlier opening can be, which is why it is numbered.
+      report?.(data);
     } catch {
       // Settings fetch failed — modal will show skeleton state
     } finally {
@@ -225,9 +229,9 @@ export default function UserSettingsModal({
       setSettings((prev) => prev ? { ...prev, driveTimesCalculatedAt: result.calculatedAt } : prev);
       setDriveTimesPostcode(settings?.homePostcode ?? null);
       onDriveTimesRefreshed?.();
-      // The same home with a new drive-time stamp. The spinner holds the dialog while this runs, so
-      // `settings` is still the record the recalculation was made from.
-      if (settings) onHomeSaved?.({ ...settings, driveTimesCalculatedAt: result.calculatedAt });
+      // The stamp alone. The server measured from the home it has stored, and `settings` here is
+      // this render's copy, which a postcode save landing under the spinner has already overtaken.
+      onDriveTimesRecalculated?.(result.calculatedAt);
     } catch (err) {
       const status = err?.response?.status;
       if (status === 429) {
@@ -383,10 +387,11 @@ export default function UserSettingsModal({
                 </div>
               )}
 
-              {/* Local radius — directly beneath the postcode it is measured from, and still Pro:
-                  it frames the map's "centre on home" control (App.jsx), which shows the area this
-                  user calls local. It carries its own greying now that the section around it is
-                  open, per the role-gating pattern. */}
+              {/* Local radius — directly beneath the postcode it is measured from, and still Pro.
+                  Nothing on the page reads it now: the map's ⌂ used to frame this radius, until
+                  map-tab-v2 P11 made the ⌂ a scope reset; the server's Close to home endpoint
+                  still does. It carries its own greying now that the section around it is open,
+                  per the role-gating pattern. */}
               <div
                 className={`mt-4${!isPro ? ' opacity-45 pointer-events-none' : ''}`}
                 data-testid="settings-local-radius"
@@ -537,20 +542,23 @@ UserSettingsModal.propTypes = {
   onClose: PropTypes.func.isRequired,
   onDriveTimesRefreshed: PropTypes.func,
   /**
-   * Called with the dialog's own read of `GET /api/user/settings`, once, when it lands. The page
-   * takes it as its newest news of the reader's settings — a home changed on another device, by the
-   * nightly drive-time job, or by a save whose response was lost reaches it here (`App`'s
-   * `useReaderSettings`), and only a real change moves anything.
+   * Called as the dialog's own read of `GET /api/user/settings` starts, once per opening; it
+   * returns the function the read's answer is reported through when it lands. `App`'s
+   * `useReaderSettings` numbers the read by when it was asked and drops its answer if a newer one
+   * has been applied by then; otherwise a home, or its drive times, changed elsewhere — on another
+   * device, by the nightly drive-time job, or by a save whose response was lost — reach the page
+   * here, and only a real change moves anything.
    */
-  onSettingsRead: PropTypes.func,
+  startSettingsRead: PropTypes.func,
   /**
-   * Called with the settings a successful save leaves: a saved postcode's response, carrying the
-   * lookup's place name the save itself does not resolve, or — after a drive-time recalculation —
-   * the dialog's settings with the new stamp. Not on a close, a failed save, a radius save (which
-   * nothing on the page reads) or a colour save. `useReaderSettings` compares it with its record,
-   * so re-saving the same postcode moves nothing.
+   * Called with the settings a successful postcode save leaves — its response, carrying the
+   * lookup's place name the save itself does not resolve. Not on a close, a failed save, a radius
+   * save (which nothing on the page reads) or a colour save. `useReaderSettings` compares it with
+   * its record, so re-saving the same postcode moves nothing.
    */
   onHomeSaved: PropTypes.func,
+  /** Called with a successful drive-time recalculation's new stamp, and at no other time. */
+  onDriveTimesRecalculated: PropTypes.func,
   /** Called with the saved scale, from a successful map-colour save's own response, and at no other time. */
   onColourSaved: PropTypes.func,
   /** Field to focus once settings load — `'postcode'`, or null to open normally. */

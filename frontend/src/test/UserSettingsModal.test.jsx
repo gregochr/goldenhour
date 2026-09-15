@@ -580,14 +580,15 @@ describe('UserSettingsModal', () => {
   });
 
   // ---------------------------------------------------------------------------
-  // The dialog's answers: the page's only news of the reader's settings after mount
+  // The dialog's answers: how the page hears of the reader's settings after mount
   //
   // `App`'s `useReaderSettings` reads the settings once, on mount, and after that takes what this
-  // dialog reports: its own read on opening (`onSettingsRead`), the settings a successful save
-  // leaves (`onHomeSaved` — a saved postcode, or a recalculation's new stamp) and a saved colour
-  // (`onColourSaved`). It compares each with its record and moves a counter only on a real change.
-  // So each report must carry the server's answer, arrive when that answer lands rather than when a
-  // button is pressed, and not arrive at all for a close or a failed save.
+  // dialog reports: its own read on opening (`startSettingsRead`, which numbers the read as it is
+  // asked and returns what its answer is reported through), a saved postcode (`onHomeSaved`), a
+  // recalculation's new stamp (`onDriveTimesRecalculated`) and a saved colour (`onColourSaved`). It
+  // compares each with its record and moves a counter only on a real change. So each report must
+  // carry the server's answer, arrive when that answer lands rather than when a button is pressed,
+  // and not arrive at all for a close or a failed save.
   // ---------------------------------------------------------------------------
 
   const LOOKUP_MORPETH = {
@@ -598,15 +599,21 @@ describe('UserSettingsModal', () => {
     ...PRO_SETTINGS, homeLatitude: 55.95, homeLongitude: -3.19, localRadiusMiles: 22,
   };
 
-  /** Renders the dialog with all three reports spied on. */
+  /** Renders the dialog with every report spied on; `reportRead` is what the read reports through. */
   function renderReporting() {
-    const onSettingsRead = vi.fn();
+    const reportRead = vi.fn();
+    const startSettingsRead = vi.fn(() => reportRead);
     const onHomeSaved = vi.fn();
+    const onDriveTimesRecalculated = vi.fn();
     const onColourSaved = vi.fn();
     return {
-      ...renderModal({ onSettingsRead, onHomeSaved, onColourSaved }),
-      onSettingsRead,
+      ...renderModal({
+        startSettingsRead, onHomeSaved, onDriveTimesRecalculated, onColourSaved,
+      }),
+      startSettingsRead,
+      reportRead,
       onHomeSaved,
+      onDriveTimesRecalculated,
       onColourSaved,
     };
   }
@@ -620,51 +627,56 @@ describe('UserSettingsModal', () => {
     fireEvent.click(await screen.findByTestId('settings-save-home-btn'));
   }
 
-  describe('onSettingsRead — the dialog\'s own read', () => {
+  describe('startSettingsRead — the dialog\'s own read', () => {
     beforeEach(() => {
       getSettings.mockReset();
     });
 
-    it('reports what it read, once, when the read lands', async () => {
+    it('starts its read as it is asked, and reports what it read once it lands', async () => {
+      // Started before the answer, so the page can number the read by when it was ASKED.
       const read = deferred();
       getSettings.mockReturnValue(read.promise);
-      const { onSettingsRead } = renderReporting();
-      expect(onSettingsRead).not.toHaveBeenCalled();
+      const { startSettingsRead, reportRead } = renderReporting();
+      expect(startSettingsRead).toHaveBeenCalledTimes(1);
+      expect(reportRead).not.toHaveBeenCalled();
 
       await land(() => read.resolve(PRO_SETTINGS));
 
       // Control: the form is drawn from it.
       expect(screen.getByTestId('settings-home-current')).toHaveTextContent('Edinburgh');
-      expect(onSettingsRead).toHaveBeenCalledTimes(1);
-      expect(onSettingsRead).toHaveBeenCalledWith(PRO_SETTINGS);
+      expect(reportRead).toHaveBeenCalledTimes(1);
+      expect(reportRead).toHaveBeenCalledWith(PRO_SETTINGS);
+      expect(startSettingsRead).toHaveBeenCalledTimes(1);
     });
 
     it('does not report a read that failed — a failure is no news of the settings', async () => {
       const read = deferred();
       getSettings.mockReturnValue(read.promise);
-      const { onSettingsRead } = renderReporting();
+      const { reportRead } = renderReporting();
 
       await land(() => read.reject(new Error('502')));
 
       expect(screen.getByText('Failed to load settings.')).toBeInTheDocument(); // control
-      expect(onSettingsRead).not.toHaveBeenCalled();
+      expect(reportRead).not.toHaveBeenCalled();
     });
 
-    it('reports through the newest callback, without reading again when the callback changes', async () => {
-      // The read is made once, from a mount effect. Keyed on the callback it would read again on
-      // every re-render that handed a fresh one; closed over the first, it would report to a stale one.
+    it('reads once however often the callback changes', async () => {
+      // The read is made once, from a mount effect. Keyed on the callback, it would read again on
+      // every re-render that handed a fresh one — each read a new, and newer, answer to the page.
       const read = deferred();
       getSettings.mockReturnValue(read.promise);
-      const first = vi.fn();
-      const second = vi.fn();
-      const { rerender } = render(<UserSettingsModal onClose={vi.fn()} onSettingsRead={first} />);
-      rerender(<UserSettingsModal onClose={vi.fn()} onSettingsRead={second} />);
+      const report = vi.fn();
+      const first = vi.fn(() => report);
+      const second = vi.fn(() => vi.fn());
+      const { rerender } = render(<UserSettingsModal onClose={vi.fn()} startSettingsRead={first} />);
+      rerender(<UserSettingsModal onClose={vi.fn()} startSettingsRead={second} />);
 
       await land(() => read.resolve(PRO_SETTINGS));
 
-      expect(second).toHaveBeenCalledTimes(1);
-      expect(first).not.toHaveBeenCalled();
       expect(getSettings).toHaveBeenCalledTimes(1);
+      expect(first).toHaveBeenCalledTimes(1);
+      expect(second).not.toHaveBeenCalled();
+      expect(report).toHaveBeenCalledWith(PRO_SETTINGS);
     });
   });
 
@@ -713,21 +725,18 @@ describe('UserSettingsModal', () => {
       expect(screen.getByTestId('settings-home-current')).toHaveTextContent('Morpeth');
     });
 
-    it('reports a recalculation once, when it lands, as the same home with the new stamp', async () => {
+    it('does not report a recalculation — that is a new stamp, not a home', async () => {
+      // Reported as the dialog's copy of the home, it put back a home a save landing under the
+      // spinner had just replaced.
       const recalc = deferred();
       refreshDriveTimes.mockReturnValue(recalc.promise);
-      const { onHomeSaved } = renderReporting();
+      const { onHomeSaved, onDriveTimesRecalculated } = renderReporting();
 
       fireEvent.click(await screen.findByTestId('settings-refresh-drive-btn'));
-      expect(onHomeSaved).not.toHaveBeenCalled();
-
       await land(() => recalc.resolve({ locationsUpdated: 12, calculatedAt: '2026-04-02T10:00:00Z' }));
 
-      expect(screen.getByText(/12 locations updated/)).toBeInTheDocument(); // control
-      expect(onHomeSaved).toHaveBeenCalledTimes(1);
-      expect(onHomeSaved).toHaveBeenCalledWith(expect.objectContaining({
-        homePostcode: 'EH1 1BB', driveTimesCalculatedAt: '2026-04-02T10:00:00Z',
-      }));
+      expect(onDriveTimesRecalculated).toHaveBeenCalledTimes(1); // control: it landed and reported
+      expect(onHomeSaved).not.toHaveBeenCalled();
     });
 
     it('does not report a close — closing changes nothing', async () => {
@@ -785,18 +794,6 @@ describe('UserSettingsModal', () => {
       expect(onHomeSaved).not.toHaveBeenCalled();
     });
 
-    it('does not report a recalculation that failed — nothing changed', async () => {
-      const recalc = deferred();
-      refreshDriveTimes.mockReturnValue(recalc.promise);
-      const { onHomeSaved } = renderReporting();
-
-      fireEvent.click(await screen.findByTestId('settings-refresh-drive-btn'));
-      await land(() => recalc.reject({ response: { status: 500 } }));
-
-      expect(screen.getByText('Something went wrong — please try again.')).toBeInTheDocument();
-      expect(onHomeSaved).not.toHaveBeenCalled();
-    });
-
     it('still reports a postcode save that lands after the dialog has closed', async () => {
       // Why the dialog reports from the save and not from the close: the reader can close it while
       // the save is still out, and the save's continuation outlives the dialog.
@@ -813,6 +810,56 @@ describe('UserSettingsModal', () => {
       }));
 
       expect(onHomeSaved).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('onDriveTimesRecalculated — a recalculation\'s new stamp', () => {
+    beforeEach(() => {
+      getSettings.mockReset().mockResolvedValue(PRO_SETTINGS);
+      lookupPostcode.mockReset().mockResolvedValue(LOOKUP_MORPETH);
+      saveHome.mockReset();
+      refreshDriveTimes.mockReset();
+    });
+
+    it('reports the new stamp once — when the recalculation lands, not when it is pressed', async () => {
+      const recalc = deferred();
+      refreshDriveTimes.mockReturnValue(recalc.promise);
+      const { onDriveTimesRecalculated } = renderReporting();
+
+      fireEvent.click(await screen.findByTestId('settings-refresh-drive-btn'));
+      expect(onDriveTimesRecalculated).not.toHaveBeenCalled();
+
+      await land(() => recalc.resolve({ locationsUpdated: 12, calculatedAt: '2026-04-02T10:00:00Z' }));
+
+      expect(screen.getByText(/12 locations updated/)).toBeInTheDocument(); // control
+      expect(onDriveTimesRecalculated).toHaveBeenCalledTimes(1);
+      expect(onDriveTimesRecalculated).toHaveBeenCalledWith('2026-04-02T10:00:00Z');
+    });
+
+    it('does not report a recalculation that failed — nothing changed', async () => {
+      const recalc = deferred();
+      refreshDriveTimes.mockReturnValue(recalc.promise);
+      const { onDriveTimesRecalculated } = renderReporting();
+
+      fireEvent.click(await screen.findByTestId('settings-refresh-drive-btn'));
+      await land(() => recalc.reject({ response: { status: 500 } }));
+
+      expect(screen.getByText('Something went wrong — please try again.')).toBeInTheDocument();
+      expect(onDriveTimesRecalculated).not.toHaveBeenCalled();
+    });
+
+    it('does not report a postcode save — a move is not a recalculation', async () => {
+      const save = deferred();
+      saveHome.mockReturnValue(save.promise);
+      const { onDriveTimesRecalculated, onHomeSaved } = renderReporting();
+
+      await saveNewPostcode();
+      await land(() => save.resolve({
+        ...PRO_SETTINGS, homePostcode: 'NE61 1AA', homeLatitude: 55.17, homeLongitude: -1.69,
+      }));
+
+      expect(onHomeSaved).toHaveBeenCalledTimes(1); // control: the save landed and reported
+      expect(onDriveTimesRecalculated).not.toHaveBeenCalled();
     });
   });
 

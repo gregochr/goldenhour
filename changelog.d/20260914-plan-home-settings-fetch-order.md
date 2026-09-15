@@ -43,9 +43,11 @@ entry), and the provider reads no settings of its own.
 Pinned in `WindowFirstBriefingHomeSettingsFetchOrder.test.jsx`: the real provider under a probe of
 the reach map, the API module mocked, the out-of-order answers held by hand, the home and drive-time
 counters moved through `rerender` as `App` moves them, and every late settle inside an awaited
-`act`. Ten tests: one for each place the two rules part company, the newest failure emptying an
-answer on screen, a superseded failure landing after the newest answer, a recalculation asking again
-on its own counter, no request on a re-render that moves neither, and no settings read at all. The
+`act`. Ten tests: the two late answers — the mount's landing after a saved postcode's, and a move's
+after the recalculation's — one for each place the two rules part company, the newest failure
+emptying an answer on screen, a superseded failure landing after the newest answer, a recalculation
+asking again on its own counter, no request on a re-render that moves neither, and no settings read
+at all. The
 tests where the rules part company move house, Morpeth to Keswick, so the harm shows on screen — a
 first-run answer has only null figures, which every consumer draws as nothing. Mutation-checked with
 the rest of the change (see the settings-record entry).

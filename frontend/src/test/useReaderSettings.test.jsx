@@ -34,6 +34,7 @@ const NO_HOME = {
 
 const read = (settings) => ({ type: 'read', settings });
 const answer = (settings) => ({ type: 'answer', settings });
+const recalculated = (calculatedAt) => ({ type: 'recalculated', calculatedAt });
 
 /** The record once the mount read has answered with `settings`. */
 const readOf = (settings) => recordReducer(INITIAL_RECORD, read(settings));
@@ -71,8 +72,8 @@ describe('useReaderSettings — a dialog answer moves a counter only where it di
     const after = recordReducer(record, answer({ ...MORPETH, homePlaceName: null }));
 
     expect(after.settings.homePlaceName).toBe('Morpeth');
-    expect(after.homeSettingsVersion).toBe(0);
-    expect(after.driveTimesVersion).toBe(0);
+    // Nothing else differs either, so it is the record itself: nothing re-renders.
+    expect(after).toBe(record);
   });
 
   it('takes a new place name for the same home without moving a counter', () => {
@@ -98,6 +99,13 @@ describe('useReaderSettings — a dialog answer moves a counter only where it di
 
     expect(after.homeSettingsVersion).toBe(1);
     expect(after.driveTimesVersion).toBe(0);
+  });
+
+  it('moves the home counter for a moved longitude alone', () => {
+    // The third term of the server's test. Each coordinate counts on its own.
+    const after = recordReducer(readOf(MORPETH), answer({ ...MORPETH, homeLongitude: -1.7 }));
+
+    expect(after.homeSettingsVersion).toBe(1);
   });
 
   it('does not carry the old place name to a moved home', () => {
@@ -142,11 +150,93 @@ describe('useReaderSettings — a dialog answer moves a counter only where it di
     expect(twice.settings.homePostcode).toBe('NE61 1AA');
   });
 
+  it('does not take one instant, spelled at two precisions, for a new stamp', () => {
+    // The server hands a recalculation's stamp back from its clock (nanoseconds on Linux) and
+    // stores it to the microsecond, so the next answer spells the same instant differently.
+    const record = readOf({ ...MORPETH, driveTimesCalculatedAt: '2026-09-15T10:00:12.123456789Z' });
+
+    const after = recordReducer(record, answer({
+      ...MORPETH, driveTimesCalculatedAt: '2026-09-15T10:00:12.123457Z',
+    }));
+
+    expect(after).toBe(record);
+  });
+
+  it('does not take a stamp rounded into the next millisecond for a new one', () => {
+    // Rounded to the microsecond on its way into the database, 12.123999789 is stored as 12.124:
+    // the same instant, a millisecond on at the precision the page compares.
+    const record = readOf({ ...MORPETH, driveTimesCalculatedAt: '2026-09-15T10:00:12.123999789Z' });
+
+    const after = recordReducer(record, answer({
+      ...MORPETH, driveTimesCalculatedAt: '2026-09-15T10:00:12.124Z',
+    }));
+
+    expect(after).toBe(record);
+  });
+
+  it('still takes a stamp a moment later for a new one', () => {
+    // Control for the comparisons above: it is the instant that counts, not the spelling.
+    const record = readOf({ ...MORPETH, driveTimesCalculatedAt: '2026-09-15T10:00:12.123Z' });
+
+    const after = recordReducer(record, answer({
+      ...MORPETH, driveTimesCalculatedAt: '2026-09-15T10:00:13.123Z',
+    }));
+
+    expect(after.driveTimesVersion).toBe(1);
+  });
+
+  it('counts each new stamp, not just the first', () => {
+    // Two recalculations made elsewhere, each found by an opening of the dialog.
+    const record = readOf({ ...MORPETH, driveTimesCalculatedAt: null });
+    const once = recordReducer(record, answer(MORPETH));
+    const twice = recordReducer(once, answer({
+      ...MORPETH, driveTimesCalculatedAt: '2026-09-02T10:00:00Z',
+    }));
+
+    expect(twice.driveTimesVersion).toBe(2);
+    expect(twice.homeSettingsVersion).toBe(0);
+  });
+
   it('keeps the answer\'s own fields only, whatever else a response carries', () => {
     const after = recordReducer(readOf(MORPETH), answer({
       ...KESWICK, role: 'PRO_USER', mapColourScale: 'verdict', comingUpLastSeenDate: '2026-09-10',
     }));
 
     expect(after.settings).toEqual(KESWICK);
+  });
+});
+
+describe('useReaderSettings — a recalculation', () => {
+  it('moves only the drive-time counter, and puts its stamp on the home on record', () => {
+    // It measures from the server's stored home; the dialog's copy of that home may be older.
+    const record = readOf({ ...KESWICK, driveTimesCalculatedAt: null });
+
+    const after = recordReducer(record, recalculated('2026-09-15T11:00:00Z'));
+
+    expect(after.settings).toEqual({ ...KESWICK, driveTimesCalculatedAt: '2026-09-15T11:00:00Z' });
+    expect(after.driveTimesVersion).toBe(1);
+    expect(after.homeSettingsVersion).toBe(0);
+  });
+
+  it('still moves the drive-time counter while nothing is on record', () => {
+    const after = recordReducer(INITIAL_RECORD, recalculated('2026-09-15T11:00:00Z'));
+
+    expect(after.settings).toBeUndefined();
+    expect(after.driveTimesVersion).toBe(1);
+    expect(after.homeSettingsVersion).toBe(0);
+  });
+
+  it('counts each recalculation, not just the first', () => {
+    const once = recordReducer(readOf(KESWICK), recalculated('2026-09-15T11:00:00Z'));
+    const twice = recordReducer(once, recalculated('2026-09-15T12:00:00Z'));
+
+    expect(twice.driveTimesVersion).toBe(2);
+  });
+
+  it('moves nothing for the stamp already on record, at whatever precision', () => {
+    // Only a new stamp is a change. The same instant, spelled to the nanosecond, is not one.
+    const record = readOf({ ...KESWICK, driveTimesCalculatedAt: '2026-09-15T11:00:00.123457Z' });
+
+    expect(recordReducer(record, recalculated('2026-09-15T11:00:00.123456789Z'))).toBe(record);
   });
 });

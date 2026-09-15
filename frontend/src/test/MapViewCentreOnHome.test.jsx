@@ -32,10 +32,12 @@ vi.mock('leaflet', () => {
       this._map = map;
       this._container = this.onAdd(map);
       this._container.classList.add('leaflet-control');
+      // One container per corner, as Leaflet keeps them (`map._controlCorners`).
+      const corner = map._controlCorners[this.options.position];
       if (String(this.options.position).startsWith('bottom')) {
-        map._corner.insertBefore(this._container, map._corner.firstChild);
+        corner.insertBefore(this._container, corner.firstChild);
       } else {
-        map._corner.appendChild(this._container);
+        corner.appendChild(this._container);
       }
       return this;
     }
@@ -60,8 +62,10 @@ vi.mock('leaflet', () => {
 
 vi.mock('leaflet/dist/leaflet.css', () => ({}));
 
-// The corner container the stubbed Control adds into, and Leaflet's zoom bar, which moves itself
-// there. Attached to the document so the portal's button is findable by the usual queries.
+// Leaflet's four corner containers — `corner` is the bottom-right one, where the ⌂ and the zoom
+// bar belong — and the zoom bar, which moves itself there. Attached to the document so the
+// portal's button is findable by the usual queries.
+let corners;
 let corner;
 let zoomBar;
 // One map instance per test, not one per render: react-leaflet's `useMap` returns a stable
@@ -163,9 +167,13 @@ beforeEach(() => {
   flyTo.mockClear();
   auroraStatus = null;
   removedControls.length = 0;
-  corner = document.createElement('div');
-  corner.className = 'leaflet-bottom leaflet-right';
-  document.body.appendChild(corner);
+  corners = Object.fromEntries(['topleft', 'topright', 'bottomleft', 'bottomright'].map((pos) => {
+    const el = document.createElement('div');
+    el.dataset.corner = pos;
+    document.body.appendChild(el);
+    return [pos, el];
+  }));
+  corner = corners.bottomright;
   zoomBar = document.createElement('div');
   zoomBar.className = 'leaflet-control-zoom leaflet-bar leaflet-control';
   mapStub = {
@@ -178,18 +186,22 @@ beforeEach(() => {
     getMaxZoom: () => 19,
     flyTo,
     fitBounds: vi.fn(),
-    // `ZoomControlPositioner`'s `setPosition('bottomright')`: Leaflet re-adds the zoom control to
-    // that corner, before its first child — after the ⌂ is already there, so it sits above it.
+    // `ZoomControlPositioner`'s `setPosition(...)`: Leaflet re-adds the zoom control to that
+    // corner, before its first child at the bottom — after the ⌂ is already there, so above it.
     zoomControl: {
-      setPosition: () => { corner.insertBefore(zoomBar, corner.firstChild); },
+      setPosition: (pos) => {
+        const target = corners[pos];
+        if (pos.startsWith('bottom')) target.insertBefore(zoomBar, target.firstChild);
+        else target.appendChild(zoomBar);
+      },
     },
-    _corner: corner,
+    _controlCorners: corners,
   };
 });
 
 afterEach(() => {
   vi.useRealTimers();
-  corner.remove();
+  Object.values(corners).forEach((el) => el.remove());
   localStorage.clear();
 });
 

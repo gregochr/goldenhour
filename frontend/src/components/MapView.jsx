@@ -1087,8 +1087,9 @@ const COMPACT_LABEL_WIDTH = '78px';
  * has not saved one, so with no origin in force the control makes no claim at all: it renders
  * nothing, and `index.css` keeps its empty container's box without painting it, until an answer
  * arrives. The prompt used to show to a reader who reached the Map tab before the read answered,
- * and for good after a read that failed. Nothing on the way down may default the prop to
- * {@code null} — `WindowFirstMapPane` and `MapView` both take it bare for that reason. Under an
+ * and after a read that failed, until the settings dialog was next closed or the page reloaded.
+ * Nothing on the way down may default the prop to {@code null} — `WindowFirstMapPane` and
+ * `MapView` both take it bare for that reason. Under an
  * origin the control is actionable either way (below), so an unknown home changes nothing there.
  *
  * <p><b>O-D5 (D1, plan-to-map-doors-plan.md §3/§6):</b> unlike the HOME marker and the reach rings,
