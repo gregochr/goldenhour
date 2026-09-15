@@ -8,13 +8,14 @@ import {
   anchorCallout, calloutBand, calloutFacts, filterCalloutTopics, isCoastalTidalLocation,
   regionGlossFor,
 } from '../../utils/mapCallout.js';
-import { verdictWord } from '../../utils/mapLabels.js';
+import { verdictWord } from '../../utils/verdictWord.js';
 import { rampHex, rampRgb, rgb } from '../../utils/scoreRamp.js';
 import { eventInstantOf, lookupForWindow } from '../../utils/locationSheet.js';
 import { subjectWordsOf } from '../../utils/locationTypes.js';
 import TideWave from './TideWave.jsx';
 import { readableInkOn } from '../../utils/windowFirstSpots.js';
 import { useIsMobile } from '../../hooks/useIsMobile.js';
+import { useRowFocusRescue } from '../../hooks/useRowFocusRescue.js';
 
 /** The desktop/tablet card width (README §7: "286px (266px mobile)"). */
 const CALLOUT_WIDTH = 286;
@@ -330,6 +331,17 @@ export default function MapCallout({
 
   const chromeRoot = map?.getContainer?.()?.parentElement ?? null;
 
+  // A strip cell can leave the open strip with nobody pressing anything — the EV list is rebuilt
+  // against the clock, so last night's cells go at dawn (D-14) and yesterday's filler solar cells at
+  // UK midnight. The toggle stays mounted while the strip is open, so it takes the focus a vanished
+  // cell leaves behind. Declared above the early return below, like every hook here.
+  const stripToggleRef = useRef(null);
+  const stripFocus = useRowFocusRescue({
+    active: stripOpen && Boolean(location && event && chromeRoot),
+    rowIds: (Array.isArray(evRows) ? evRows : []).map((row) => row.id),
+    fallbackRef: stripToggleRef,
+  });
+
   if (!location || !event || !chromeRoot) return null;
 
   const isMeasured = placement?.frame === frame;
@@ -348,8 +360,8 @@ export default function MapCallout({
   const rampFillHex = ratingRounded != null ? rampHex(ratingRounded) : null;
   const rampInk = rampFillHex != null ? readableInkOn(rampFillHex) : null;
   // The badge's number and its word must agree, so both read the ROUNDED value — a fractional
-  // rating never reaches this catalogue in practice (`utils/mapLabels.js`'s own note), but rounding
-  // before classifying is what keeps "4★ Maybe" from ever being printable if one ever did.
+  // rating never reaches this catalogue in practice (`utils/verdictWord.js`'s own note), but
+  // rounding before classifying is what keeps "4★ Maybe" from ever being printable if one ever did.
   const word = verdictWord(ratingRounded);
   // The kind chip beside this already reads SUNRISE/SUNSET — `dayLabel`, never `event.label`
   // (kind-chip dedup). Falls back to `label` for a caller that predates the field (e.g. a fixture
@@ -403,12 +415,14 @@ export default function MapCallout({
   // or the aurora auto-jump's small-hours night, which is dated yesterday), or an admin re-run's
   // "Not scored yet" above a stale preview's star. Three review lenses found it independently.
   //
-  // ⚠️ What is left, for every OTHER cell: a night the preview never asks about — outside the solar
-  // horizon it is bounded to (`MapView.jsx`'s `astroPreviewDates`/`auroraPreviewDates`), which
-  // includes every past night and, after midnight, the night still in progress — is never pending,
-  // so its cell reads "—" whatever it holds. It used to read "…" until the solar scores landed; now
-  // it is "—" outright. That claims more than anything here knows, but nothing is loading for that
-  // night, so "…" would be the false one.
+  // ⚠️ What is left, for every OTHER cell: a night the preview never asks about — one beyond the
+  // solar horizon `MapView.jsx`'s `astroPreviewDates`/`auroraPreviewDates` are bounded to — is never
+  // pending, so its cell reads "—" whatever it holds. It used to read "…" until the solar scores
+  // landed; now it is "—" outright. That claims more than anything here knows, but nothing is
+  // loading for that night, so "…" would be the false one. (Until D-14 this also took in every past
+  // night and, after midnight, the night still in progress. Past nights are no longer rows, and the
+  // night in progress — and an ended night still on screen — are in the preview since D-14:
+  // `mapEvents.nightPreviewDates`.)
   const stripRows = (Array.isArray(evRows) ? evRows : []).map((row) => {
     if (row.id === event.id) return { row, rowRating: rating, rowKnown: ratingKnown };
     if (row.kind === 'solar') {
@@ -599,6 +613,7 @@ export default function MapCallout({
         )}
 
         <button
+          ref={stripToggleRef}
           type="button"
           className="wf-callout-strip-toggle"
           data-testid="map-callout-strip-toggle"
@@ -610,7 +625,14 @@ export default function MapCallout({
           <span aria-hidden="true">{stripOpen ? '▴' : '▾'}</span>
         </button>
         {stripOpen && (
-          <div id="map-callout-strip" className="wf-callout-strip" data-testid="map-callout-strip">
+          <div
+            id="map-callout-strip"
+            className="wf-callout-strip"
+            data-testid="map-callout-strip"
+            onFocus={stripFocus.onFocus}
+            onBlur={stripFocus.onBlur}
+            onPointerDown={stripFocus.onPointerDown}
+          >
             {stripRows.map(({ row, rowRating, rowKnown }) => {
               const rowRatingRounded = Number.isFinite(rowRating) ? Math.round(rowRating) : null;
               return (
@@ -620,7 +642,8 @@ export default function MapCallout({
                   className={`wf-callout-strip-cell${row.id === event.id ? ' on' : ''}`}
                   data-testid="map-callout-strip-cell"
                   // The row's own id — the window control's rows carry the same attribute — so a
-                  // test can name the night it means rather than count cells or match a day word.
+                  // test can name the night it means rather than count cells or match a day word,
+                  // and so `useRowFocusRescue` can tell which cell held focus.
                   data-ev-id={row.id}
                   // The title carries NO kind chip, so it keeps `label`'s full form — only the
                   // visible text beside the kind-short badge below switches to `dayLabel`.

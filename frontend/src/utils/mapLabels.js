@@ -22,6 +22,16 @@ import { clamp } from './heatGeometry.js';
 import {
   MAP_NUDGES, mapDxOffsets, placeWithNudges,
 } from './labelPlacement.js';
+import { MAYBE_THRESHOLD, WORTH_IT_THRESHOLD, verdictWord } from './verdictWord.js';
+
+/**
+ * Re-exported for `MapLabels.jsx`/`PinsLayer.jsx`, whose existing `from '../../utils/mapLabels.js'`
+ * imports still resolve. The real module is `utils/verdictWord.js` — a leaf with no `d3-geo` import
+ * — precisely so `MapCallout.jsx` can import {@link verdictWord} directly without also reaching
+ * {@link centroid}'s `d3-geo`/`topojson-client` chain. See that file's doc for the full account of
+ * why this module was the wrong home for it.
+ */
+export { MAYBE_THRESHOLD, WORTH_IT_THRESHOLD, verdictWord };
 
 // ── Zoom thresholds (README "Zoom thresholds") ──────────────────────────────────────────────────
 
@@ -41,39 +51,6 @@ export const REGION_LABEL_MAX_ZOOM = 11.2;
  * it TO.
  */
 export const REGION_TINY_FRAME_WIDTH = 430;
-
-// ── Verdict word (README "Verdict thresholds") ──────────────────────────────────────────────────
-
-/** @see verdictWord */
-export const WORTH_IT_THRESHOLD = 3.7;
-/** @see verdictWord */
-export const MAYBE_THRESHOLD = 2.8;
-
-/**
- * A bare per-location star has no served verdict enum to read (map-tab-v2-plan.md §3 P9's own
- * callout-contents paragraph: "verdict words come from served enums where the surface has one;
- * the ≥3.7/≥2.8 client thresholds are only for surfaces with no served verdict, and the map's
- * per-location star has none — record the choice in-code"), so the hover tooltip built HERE (P8)
- * falls back to the design bundle's own client thresholds: {@code ≥3.7 Worth it},
- * {@code ≥2.8 Maybe}, else {@code Poor}. This IS that recorded in-code decision — a location star
- * is always a whole number in this catalogue, so the fractional thresholds collapse to the
- * familiar {@code ≥4}/{@code ≥3}/{@code else} bands without needing to say so twice.
- *
- * <p>⚠️ P9's callout answers the exact same question for the exact same per-location star (the
- * plan paragraph above is P9's, not P8's) and MUST import {@link WORTH_IT_THRESHOLD}/
- * {@link MAYBE_THRESHOLD}/this function from here rather than re-deriving its own copy — two
- * client thresholds for one ungoverned quantity is exactly the kind of drift a shared constant
- * exists to prevent.
- *
- * @param {?number} rating 1–5, or null/non-finite for "not scored"
- * @returns {?string} {@code 'Worth it'|'Maybe'|'Poor'}, or null when there is no rating to judge
- */
-export function verdictWord(rating) {
-  if (rating == null || !Number.isFinite(rating)) return null;
-  if (rating >= WORTH_IT_THRESHOLD) return 'Worth it';
-  if (rating >= MAYBE_THRESHOLD) return 'Maybe';
-  return 'Poor';
-}
 
 // ── Chip density (README "Density ramps with zoom") ─────────────────────────────────────────────
 

@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.model.AuroraForecastResultDto;
 import com.gregochr.goldenhour.model.AuroraForecastRunRequest;
 import com.gregochr.goldenhour.model.AuroraForecastRunResponse;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
+import com.gregochr.goldenhour.model.CurrentNight;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.model.TonightWindow;
@@ -138,9 +139,9 @@ public class AuroraForecastRunService {
      *
      * <p>⚠️ <b>No calendar fixes that</b>, which is why this is an instant test rather than a
      * timezone choice. {@code Europe/London} would be worse in BST (its date rolls at UK midnight,
-     * when the current night still has hours to run) and identical in GMT. The date read below is
-     * scaffolding for two solar calculations; {@code now.isBefore(dawn)} makes the actual decision,
-     * so the answer is the same on either calendar.
+     * when the current night still has hours to run) and identical in GMT. The date
+     * {@link #currentNight()} reads is scaffolding for the solar calculations; {@code now.isBefore(dawn)}
+     * makes the actual decision, so the answer is the same on either calendar.
      *
      * <p>Deliberately the same rule, in the same shape, as
      * {@code AuroraPollingJob.calculateTonightWindow(now)} — which has always been right.
@@ -157,25 +158,57 @@ public class AuroraForecastRunService {
      * {@code ClaudeAuroraInterpreter} and {@code BriefingAuroraSummaryBuilder}, are outside it. If
      * you change the buffer, the zone or the comparison in one, change it in the other.
      *
-     * <p><b>Public because the map needs the same answer.</b> {@code GET /api/aurora/status}
-     * carries this date so the frontend can default to the night in progress rather than to a
-     * calendar date of its own — the client half of the same defect. Read-only: the rule, its
-     * inputs and its existing callers are unchanged, and nothing outside this class may decide
-     * which night is current by any other means.
+     * <p><b>The map needs the same answer.</b> {@code GET /api/aurora/status} carries this date so
+     * the frontend can default to the night in progress rather than to a calendar date of its own —
+     * the client half of the same defect. It reads it through {@link #currentNight()}, which returns
+     * the date with the instant the night ends; this method is that date alone, for the callers in
+     * this class. Nothing outside this class may decide which night is current by any other means.
      *
      * @return the date whose dusk opened the current or next dark window
      */
     public LocalDate currentNightDate() {
+        return currentNight().date();
+    }
+
+    /**
+     * {@link #currentNightDate()}'s night, together with the instant it stops being the current one.
+     *
+     * <p>That instant is the nautical dawn closing the night's window — the same dawn
+     * {@link #computeWindowForDate} gives it — and it is exactly when {@link #currentNightDate()}
+     * starts naming the next night. Both halves come from one read of the clock, so they can never
+     * straddle dawn and describe two different nights.
+     *
+     * <p><b>Carried on {@code GET /api/aurora/status} so the map can tell when a status it still
+     * holds has stopped being true.</b> The frontend keeps the last status when a later fetch fails.
+     * Without an end, a status taken before dawn went on naming yesterday's night as the one in
+     * progress for the rest of the day.
+     *
+     * @return the current or next night, and the instant it ends
+     */
+    public CurrentNight currentNight() {
         ZoneId utc = ZoneId.of("UTC");
-        LocalDate today = LocalDate.now(clock.withZone(utc));
-        LocalDateTime now = LocalDateTime.now(clock.withZone(utc));
+        LocalDateTime now = LocalDateTime.ofInstant(clock.instant(), utc);
+        LocalDate today = now.toLocalDate();
+        LocalDateTime nauticalDawnToday = nauticalDawn(today, utc);
 
-        LocalDateTime nauticalDawnToday = solarCalculator
-                .civilDawn(DURHAM_LAT, DURHAM_LON, today, utc)
+        // Before dawn: the window that began at yesterday's dusk is still running, and this morning's
+        // dawn ends it. From dawn on, tonight's window is the current one, and tomorrow's dawn ends it.
+        return now.isBefore(nauticalDawnToday)
+                ? new CurrentNight(today.minusDays(1), nauticalDawnToday.toInstant(ZoneOffset.UTC))
+                : new CurrentNight(today, nauticalDawn(today.plusDays(1), utc).toInstant(ZoneOffset.UTC));
+    }
+
+    /**
+     * Nautical dawn on {@code date} at the reference point, as {@link #computeWindowForDate} places
+     * the end of the window named the day before.
+     *
+     * @param date the morning whose dawn to compute
+     * @param utc  the zone the solar calculation answers in
+     * @return that dawn, in UTC
+     */
+    private LocalDateTime nauticalDawn(LocalDate date, ZoneId utc) {
+        return solarCalculator.civilDawn(DURHAM_LAT, DURHAM_LON, date, utc)
                 .minusMinutes(NAUTICAL_BUFFER_MINUTES);
-
-        // Before dawn: the window that began at yesterday's dusk is still running.
-        return now.isBefore(nauticalDawnToday) ? today.minusDays(1) : today;
     }
 
     /**
@@ -453,8 +486,7 @@ public class AuroraForecastRunService {
         ZoneId utc = ZoneId.of("UTC");
         LocalDateTime dusk = solarCalculator.civilDusk(DURHAM_LAT, DURHAM_LON, date, utc)
                 .plusMinutes(NAUTICAL_BUFFER_MINUTES);
-        LocalDateTime dawn = solarCalculator.civilDawn(DURHAM_LAT, DURHAM_LON, date.plusDays(1), utc)
-                .minusMinutes(NAUTICAL_BUFFER_MINUTES);
+        LocalDateTime dawn = nauticalDawn(date.plusDays(1), utc);
         return new TonightWindow(dusk.atZone(utc), dawn.atZone(utc));
     }
 

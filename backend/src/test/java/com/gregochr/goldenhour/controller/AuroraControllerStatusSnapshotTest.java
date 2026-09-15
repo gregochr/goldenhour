@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.model.AuroraStatusResponse;
+import com.gregochr.goldenhour.model.CurrentNight;
 import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -17,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
@@ -136,6 +138,31 @@ class AuroraControllerStatusSnapshotTest {
         assertThat(status.triggerType()).isNull();
         assertThat(status.kp()).isEqualTo(5.7);
         assertThat(status.gScale()).isEqualTo("G1");
+    }
+
+    @Test
+    @DisplayName("dawn passing while the request waits on NOAA is answered as the night the request began in")
+    void dawnDuringNoaaCalls_answersWithTheNightTheRequestBeganIn() {
+        // The night is the clock's, not the machine's, but the client orders answers by when their
+        // requests were made all the same, so it must be as old as its request. Dawn passes inside
+        // the first NOAA stub: from then on the service names tonight's night, ending tomorrow.
+        CurrentNight lastNight = new CurrentNight(LocalDate.of(2026, 9, 13), Instant.parse("2026-09-14T04:58:00Z"));
+        CurrentNight tonight = new CurrentNight(LocalDate.of(2026, 9, 14), Instant.parse("2026-09-15T05:00:00Z"));
+        CurrentNight[] clock = {lastNight};
+        when(forecastRunService.currentNight()).thenAnswer(invocation -> clock[0]);
+        when(noaaClient.fetchKp()).thenAnswer(invocation -> {
+            clock[0] = tonight;
+            return List.of();
+        });
+
+        AuroraStatusResponse status = controller.getStatus().getBody();
+
+        // Control: dawn really passed during the request.
+        assertThat(clock[0]).isEqualTo(tonight);
+        // The night the request began in, date and end together. Broken — read after the NOAA
+        // calls — a request made before dawn answered for tonight.
+        assertThat(status.currentNightDate()).isEqualTo(LocalDate.of(2026, 9, 13));
+        assertThat(status.currentNightEndsAt()).isEqualTo(Instant.parse("2026-09-14T04:58:00Z"));
     }
 
     /** An alert as the polling job leaves one after a NOTIFY: active, scored, triggered, counted. */

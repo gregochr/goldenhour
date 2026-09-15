@@ -10,6 +10,7 @@ import com.gregochr.goldenhour.model.AuroraForecastResultDto;
 import com.gregochr.goldenhour.model.AuroraForecastRunRequest;
 import com.gregochr.goldenhour.model.AuroraForecastRunResponse;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
+import com.gregochr.goldenhour.model.CurrentNight;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.model.SpaceWeatherData;
 import com.gregochr.goldenhour.model.TonightWindow;
@@ -20,6 +21,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -170,6 +173,86 @@ class AuroraForecastRunServiceTest {
         // And the instant we are standing at is inside it, which is the whole claim.
         assertThat(Instant.parse("2027-02-11T02:00:00Z"))
                 .isBetween(window.dusk().toInstant(), window.dawn().toInstant());
+    }
+
+    // -------------------------------------------------------------------------
+    // currentNight — the night in progress, and the instant it stops being current
+    // -------------------------------------------------------------------------
+
+    /**
+     * Re-stubs civil dawn to move a minute a day — {@code 04:00} plus the day of the month — for the
+     * cases that pin an END. Under the class's stub every morning's dawn is 04:00, so the next
+     * morning's dawn and this morning's plus a day are one instant; real dawn at this latitude moves
+     * by up to about two minutes a day, so an end taken from the wrong morning would be off by that
+     * much and pass. Nautical dawn is 35 minutes earlier: 03:36 on the 11th, 03:37 on the 12th.
+     */
+    private void stubDawnMovingByDate() {
+        ZoneId utc = ZoneId.of("UTC");
+        lenient().when(solarCalculator.civilDawn(eq(AuroraForecastRunService.DURHAM_LAT),
+                eq(AuroraForecastRunService.DURHAM_LON), any(LocalDate.class), eq(utc)))
+                .thenAnswer(inv -> {
+                    LocalDate date = inv.getArgument(2);
+                    return LocalDateTime.of(date, java.time.LocalTime.of(4, 0).plusMinutes(date.getDayOfMonth()));
+                });
+    }
+
+    @Test
+    @DisplayName("before dawn the current night ends at this morning's dawn")
+    void currentNight_beforeDawn_endsAtThisMorningsDawn() {
+        // 02:00 on the 11th: the night of the 10th is still running, and this morning's nautical dawn
+        // ends it. A status the map took now must stop naming the 10th at 03:36.
+        stubDawnMovingByDate();
+        CurrentNight night = serviceAt("2027-02-11T02:00:00Z").currentNight();
+
+        assertThat(night.date()).isEqualTo(LocalDate.of(2027, 2, 10));
+        assertThat(night.endsAt()).isEqualTo(Instant.parse("2027-02-11T03:36:00Z"));
+    }
+
+    @Test
+    @DisplayName("from dawn on the current night is tonight's, and tomorrow's own dawn ends it")
+    void currentNight_fromDawn_endsAtTomorrowsDawn() {
+        // 03:36 exactly — the first instant of the new count. Tomorrow's dawn is 03:37, not this
+        // morning's 03:36 plus a day. And an end taken from TODAY's dawn would already have arrived:
+        // every status served then would be born expired.
+        stubDawnMovingByDate();
+        CurrentNight night = serviceAt("2027-02-11T03:36:00Z").currentNight();
+
+        assertThat(night.date()).isEqualTo(LocalDate.of(2027, 2, 11));
+        assertThat(night.endsAt()).isEqualTo(Instant.parse("2027-02-12T03:37:00Z"));
+    }
+
+    @ParameterizedTest(name = "from {0}")
+    @ValueSource(strings = {
+        "2027-02-11T00:30:00Z", "2027-02-11T03:35:59Z", "2027-02-11T09:00:00Z", "2027-02-11T23:59:59Z",
+    })
+    @DisplayName("the end is the first instant the next night is current — wherever in the day it is read")
+    void currentNight_endsAt_isWhenCurrentNightDateMovesOn(String at) {
+        // The property the map relies on: it stops believing a status at `endsAt`, so `endsAt` must
+        // be exactly when this service starts naming the next night. Earlier, and the map drops a
+        // night still running; later, and it keeps one that is over. The small hours, a second
+        // before dawn, the morning, and a second before UTC midnight — with dawn moving by the day.
+        stubDawnMovingByDate();
+        CurrentNight night = serviceAt(at).currentNight();
+
+        assertThat(serviceAt(night.endsAt().minusSeconds(1).toString()).currentNightDate())
+                .isEqualTo(night.date());
+        assertThat(serviceAt(night.endsAt().toString()).currentNightDate())
+                .isEqualTo(night.date().plusDays(1));
+    }
+
+    @ParameterizedTest(name = "from {0}")
+    @ValueSource(strings = {"2027-02-11T02:00:00Z", "2027-02-11T15:00:00Z"})
+    @DisplayName("the end is the dawn of the night's own window, as the run pipeline computes it")
+    void currentNight_endsAtItsOwnWindowsDawn(String at) {
+        // Before dawn and after it, so both branches' ends are checked against the window the run
+        // pipeline scores that night over — the map and the pipeline end a night at one instant.
+        // With dawn moving by the day, so a window that ended on the wrong morning would show.
+        stubDawnMovingByDate();
+        AuroraForecastRunService service = serviceAt(at);
+        CurrentNight night = service.currentNight();
+
+        assertThat(night.endsAt())
+                .isEqualTo(service.computeWindowForDate(night.date()).dawn().toInstant());
     }
 
     @Test

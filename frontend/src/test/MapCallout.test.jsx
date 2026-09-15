@@ -599,6 +599,44 @@ describe('MapCallout — the every-window strip', () => {
     expect(onSelectEv).toHaveBeenCalledWith(evRows[2]);
   });
 
+  /**
+   * The window menu's rescue (`hooks/useRowFocusRescue.js`), on the strip: a cell can leave the OPEN
+   * strip with nobody pressing anything — the EV list is rebuilt against the clock, so last night's
+   * cells go at dawn (D-14) — and the toggle, mounted for as long as the strip is open, takes the
+   * focus the cell leaves behind rather than letting it fall to `<body>`.
+   */
+  it('hands focus to the toggle when the focused cell leaves the open strip', async () => {
+    const { rerender } = await mount({ evRows });
+    fireEvent.click(screen.getByRole('button', { name: /Every event here/ }));
+    act(() => { screen.getAllByTestId('map-callout-strip-cell')[1].focus(); });
+
+    await act(async () => {
+      rerender(
+        <MapCallout location={LOCATION} event={SUNSET_EVENT} rating={4} evRows={[evRows[0], evRows[2]]} />,
+      );
+    });
+
+    const toggle = screen.getByRole('button', { name: /Every event here/ });
+    expect(document.activeElement).toBe(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('never takes focus from a cell that still has it', async () => {
+    const { rerender } = await mount({ evRows });
+    fireEvent.click(screen.getByRole('button', { name: /Every event here/ }));
+    const cells = screen.getAllByTestId('map-callout-strip-cell');
+    act(() => { cells[1].focus(); });
+    act(() => { cells[2].focus(); });
+
+    await act(async () => {
+      rerender(
+        <MapCallout location={LOCATION} event={SUNSET_EVENT} rating={4} evRows={[evRows[0], evRows[2]]} />,
+      );
+    });
+
+    expect(document.activeElement).toHaveAttribute('data-ev-id', evRows[2].id);
+  });
+
   it('collapses back to default the moment the selection changes to a different location', async () => {
     const { rerender } = await mount({ evRows });
     fireEvent.click(screen.getByTestId('map-callout-strip-toggle'));

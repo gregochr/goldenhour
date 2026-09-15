@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.model.AuroraStatusResponse;
 import com.gregochr.goldenhour.model.AuroraViewlineResponse;
+import com.gregochr.goldenhour.model.CurrentNight;
 import com.gregochr.goldenhour.model.KpForecast;
 import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.model.OvationReading;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
@@ -44,10 +46,10 @@ public class AuroraController {
      *
      * @param stateCache         the aurora state machine and score cache
      * @param noaaClient         NOAA SWPC client for enriching the status response
-     * @param forecastRunService consulted only for {@code currentNightDate()} — the map needs the
-     *                           same night the run pipeline uses, and this keeps that rule in the
-     *                           one class that owns it rather than reimplementing dusk/dawn
-     *                           geometry in the browser
+     * @param forecastRunService consulted only for {@code currentNight()} — the map needs the same
+     *                           night the run pipeline uses, and when it ends, and this keeps that
+     *                           rule in the one class that owns it rather than reimplementing
+     *                           dusk/dawn geometry in the browser
      */
     public AuroraController(AuroraStateCache stateCache, NoaaSwpcClient noaaClient,
             AuroraForecastRunService forecastRunService) {
@@ -65,7 +67,10 @@ public class AuroraController {
      * <p>It also carries {@code currentNightDate} — the night in progress, which between midnight
      * and dawn is <em>yesterday's</em> date. The map defaults to it in aurora mode, so that a
      * forecast run at 02:00 opens on the night it scored rather than on a date with no results.
-     * The rule lives in {@code AuroraForecastRunService} and is read here, never re-derived.
+     * The rule lives in {@code AuroraForecastRunService} and is read here, never re-derived. With it
+     * comes {@code currentNightEndsAt}, the instant that night ends, from the same read of the
+     * clock: the client keeps its last status when a later fetch fails, so it needs to know when
+     * that status's night stopped being the current one.
      *
      * <p>Every state-machine field is read once, up front, before the live NOAA calls. Those calls
      * can wait on NOAA for as long as a cache refresh takes, and the polling job can move the state
@@ -77,7 +82,9 @@ public class AuroraController {
      * frontend's {@code AuroraStatusProvider} applies answers in the order their requests were
      * made. Read on arrival, a response's state is as old as its request; read after its NOAA wait,
      * a slow earlier request would carry newer state than a quick later one, and be the answer the
-     * client drops.
+     * client drops. The night and its end are read there too, for the same reason: they depend only
+     * on the clock, but read after a NOAA wait, a request made before dawn would answer for the
+     * night after it.
      *
      * <p>Two residuals remain. The fields are separate volatiles read one after another, so a writer
      * caught part-way through its writes can still show in one response — during an admin
@@ -102,6 +109,17 @@ public class AuroraController {
         Instant activeSince = stateCache.getActiveSince();
         boolean simulated = stateCache.isSimulated();
         AuroraStateCache.SimulatedNoaaData simData = stateCache.getSimulatedData();
+        // The night too, and from one call, so its date and end come from one read of the clock and
+        // name the same night. Null only from a stubbed service; relayed as-is, never replaced with a
+        // calendar date — and checked once, since a second check of the same value is one SpotBugs
+        // rejects as redundant.
+        CurrentNight night = forecastRunService.currentNight();
+        LocalDate nightDate = null;
+        Instant nightEndsAt = null;
+        if (night != null) {
+            nightDate = night.date();
+            nightEndsAt = night.endsAt();
+        }
 
         AlertLevel level = cachedLevel == null ? AlertLevel.QUIET : cachedLevel;
 
@@ -168,7 +186,8 @@ public class AuroraController {
                 simulated,
                 activeSince,
                 gScale,
-                forecastRunService.currentNightDate()));
+                nightDate,
+                nightEndsAt));
     }
 
     /**

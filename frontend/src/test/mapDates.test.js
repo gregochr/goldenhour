@@ -17,7 +17,7 @@ process.env.TZ = 'Europe/London';
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
-  ukDateStr, ukDateStrOffset, ukDayOffset, ukHour, resolveAuroraNight, resolveMapDate,
+  ukDateStr, ukDateStrOffset, ukDayOffset, ukHour, resolveAuroraNight, resolveMapDate, isNightOver,
 } from '../utils/mapDates.js';
 
 /** The hour after UK midnight in BST — UTC still says the 13th, the UK says the 14th. */
@@ -209,6 +209,40 @@ describe('resolveAuroraNight', () => {
     expect(resolveAuroraNight({ currentNightDate: '2026-08-13' })).toBe('2026-08-13');
   });
 
+  /** A status taken at 02:00 BST on Friday: Thursday's night, ending at nautical dawn, 04:05 BST. */
+  const TAKEN_BEFORE_DAWN = { currentNightDate: '2026-08-13', currentNightEndsAt: '2026-08-14T03:05:00Z' };
+
+  it('believes a status until the end of its own night, and not from that instant on', () => {
+    // Codex, on #841: the provider keeps its last status when a later fetch fails, so at 07:00 the
+    // status taken at 02:00 is still the one in hand. Believed, it named Thursday as the night in
+    // progress all Friday. At its end the answer is the calendar's, which by then is the backend's.
+    expect(resolveAuroraNight(TAKEN_BEFORE_DAWN, new Date('2026-08-14T03:04:59Z'))).toBe('2026-08-13');
+    expect(resolveAuroraNight(TAKEN_BEFORE_DAWN, new Date('2026-08-14T03:05:00Z'))).toBe('2026-08-14');
+    expect(resolveAuroraNight(TAKEN_BEFORE_DAWN, new Date('2026-08-14T18:00:00Z'))).toBe('2026-08-14');
+  });
+
+  it('judges the end by the real clock when not handed one — as App and the map call it', () => {
+    freeze('2026-08-14T06:00:00Z');
+
+    expect(resolveAuroraNight(TAKEN_BEFORE_DAWN)).toBe('2026-08-14');
+  });
+
+  it('believes a status that carries no end, as before the field existed', () => {
+    // A backend deployed before `currentNightEndsAt`: nothing to judge by, so the pre-field answer —
+    // which `isNightOver` still believes only as yesterday (its own tests pin that bound).
+    freeze('2026-08-14T06:00:00Z');
+
+    expect(resolveAuroraNight({ currentNightDate: '2026-08-13' })).toBe('2026-08-13');
+    expect(resolveAuroraNight({ currentNightDate: '2026-08-13', currentNightEndsAt: null })).toBe('2026-08-13');
+  });
+
+  it('does not believe a status whose end it cannot read', () => {
+    freeze(BST_SMALL_HOURS);
+
+    expect(resolveAuroraNight({ currentNightDate: '2026-08-13', currentNightEndsAt: 'at dawn' }))
+      .toBe('2026-08-14');
+  });
+
   it('falls back to the UK date when there is no status at all', () => {
     // A LITE user gets null from the status endpoint, and so does a failed fetch. A calendar date is
     // the wrong answer for a night, but it is the same wrong answer the map gave before the field
@@ -237,6 +271,52 @@ describe('resolveAuroraNight', () => {
     freeze(BST_SMALL_HOURS);
 
     expect(resolveAuroraNight(null)).not.toBe('2026-08-13');
+  });
+});
+
+/**
+ * `isNightOver` — the one rule for "has this night ended", read by `resolveMapDate` for a NIGHT
+ * choice (below) and by `mapEvents.buildMapEvents` for which stored nights the Map tab offers at all
+ * (map-tab-v2-plan.md §5 D-14). Pure over ISO strings: the clock enters only through the two dates
+ * handed in, so nothing here is pinned to an instant.
+ */
+describe('isNightOver', () => {
+  const TWO_DAYS_AGO = '2026-08-12';
+  const YESTERDAY = '2026-08-13';
+  const TODAY = '2026-08-14';
+  const TOMORROW = '2026-08-15';
+
+  it('is false for tonight even in the small hours — a night named by today has not begun', () => {
+    // ⚠️ The night in progress is YESTERDAY here, so the answer cannot come from matching it: this
+    // is the `<` boundary itself, and an off-by-one `<=` fails exactly this case.
+    expect(isNightOver(TODAY, { todayStr: TODAY, nightDate: YESTERDAY })).toBe(false);
+  });
+
+  it('is false for any later night', () => {
+    expect(isNightOver(TOMORROW, { todayStr: TODAY })).toBe(false);
+  });
+
+  it('is false for yesterday while it is the night in progress — UK midnight to dawn', () => {
+    expect(isNightOver(YESTERDAY, { todayStr: TODAY, nightDate: YESTERDAY })).toBe(false);
+  });
+
+  it('is true for yesterday once the night in progress has moved on — after dawn', () => {
+    expect(isNightOver(YESTERDAY, { todayStr: TODAY, nightDate: TODAY })).toBe(true);
+  });
+
+  it('is true for yesterday when no night in progress is known — the calendar degrade LITE gets', () => {
+    expect(isNightOver(YESTERDAY, { todayStr: TODAY })).toBe(true);
+  });
+
+  it('is true for any older night while the night in progress is yesterday', () => {
+    expect(isNightOver(TWO_DAYS_AGO, { todayStr: TODAY, nightDate: YESTERDAY })).toBe(true);
+  });
+
+  it('is true for an older night even when a STALE night in progress names it', () => {
+    // The status provider keeps the last status when a later fetch fails, so `nightDate` can name a
+    // night days old. The backend only ever names today or yesterday; believed beyond that, the old
+    // night came back to the head of the Map tab's list.
+    expect(isNightOver(TWO_DAYS_AGO, { todayStr: TODAY, nightDate: TWO_DAYS_AGO })).toBe(true);
   });
 });
 
@@ -312,6 +392,18 @@ describe('resolveMapDate', () => {
     it('does not license any OTHER past date, even for a night selection', () => {
       expect(call({ selectedDate: TWO_DAYS_AGO, selectedIsNight: true, nightDate: YESTERDAY }))
         .toBe(TODAY);
+    });
+
+    it('does not license a night a STALE night in progress names — only yesterday can be one', () => {
+      // A status kept past a failed fetch can name a night days old. The choice is refused even
+      // though it matches, because the rule it shares with the Map tab's list believes the night in
+      // progress only as yesterday (`isNightOver`).
+      expect(call({
+        selectedDate: TWO_DAYS_AGO,
+        selectedIsNight: true,
+        nightDate: TWO_DAYS_AGO,
+        allDates: [TWO_DAYS_AGO, YESTERDAY, TODAY, TOMORROW],
+      })).toBe(TODAY);
     });
 
     it('must still be in the forecast domain', () => {

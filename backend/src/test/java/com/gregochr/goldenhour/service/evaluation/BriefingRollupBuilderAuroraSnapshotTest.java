@@ -6,6 +6,9 @@ import static org.mockito.Mockito.when;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gregochr.goldenhour.entity.AlertLevel;
+import com.gregochr.goldenhour.entity.LocationEntity;
+import com.gregochr.goldenhour.entity.RegionEntity;
+import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.model.RollupResult;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
@@ -66,11 +69,25 @@ class BriefingRollupBuilderAuroraSnapshotTest {
                 auroraStateCache, new AuroraRegionSelector(auroraStateCache));
     }
 
-    /** An alert as the polling job leaves one after a NOTIFY: active, triggered, counted. */
+    /**
+     * An alert as the polling job leaves one after a NOTIFY: active, triggered, counted, and
+     * scored at a location whose region {@link AuroraRegionSelector#bestAuroraRegion} can derive —
+     * without a scored location the region is null either way, and would not exercise the CLEAR's
+     * effect on it at all.
+     */
     private void startAlert() {
         auroraStateCache.evaluate(AlertLevel.MODERATE);
         auroraStateCache.updateTrigger(TriggerType.REALTIME, 5.3);
         auroraStateCache.updateLocationCounts(12, 7);
+        auroraStateCache.updateScores(List.of(score(1L, "Kielder", "Northumberland")));
+    }
+
+    private static AuroraForecastScore score(long id, String locationName, String regionName) {
+        LocationEntity location = LocationEntity.builder()
+                .id(id).name(locationName).lat(55.2).lon(-2.5).bortleClass(2)
+                .region(RegionEntity.builder().name(regionName).build())
+                .build();
+        return new AuroraForecastScore(location, 4, AlertLevel.MODERATE, 20, "★★★★ summary", "detail");
     }
 
     @Test
@@ -84,22 +101,28 @@ class BriefingRollupBuilderAuroraSnapshotTest {
 
         RollupResult result = builder.buildRollupJson(List.of(), NOW);
 
-        // Control: the CLEAR really landed inside the travel-day check, not before or after it.
+        // Control: the CLEAR really landed inside the travel-day check, not before or after it —
+        // including that it emptied the cached scores appendAuroraEvent's derived region reads.
         assertThat(auroraStateCache.isActive()).isFalse();
         assertThat(auroraStateCache.getCurrentLevel()).isNull();
         assertThat(auroraStateCache.getDarkSkyLocationCount()).isZero();
         assertThat(auroraStateCache.getClearLocationCount()).isNull();
+        assertThat(auroraStateCache.getCachedScores()).isEmpty();
 
         // One state throughout: the alert that was active when buildRollupJson decided to include
         // it. Broken, appendAuroraEvent re-read the now-null level and threw a NullPointerException
-        // instead of returning a rollup at all.
+        // instead of returning a rollup at all — and, even once that no longer throws, re-derived
+        // the region from the now-empty cached scores instead of the ones behind this decision,
+        // silently dropping a destination the advisor prompt had already earned.
         JsonNode root = mapper.readTree(result.json());
         JsonNode auroraEvent = root.get("events").get(0);
         assertThat(auroraEvent.get("alertLevel").asText()).isEqualTo("MODERATE");
         assertThat(auroraEvent.get("kp").asDouble()).isEqualTo(5.3);
         assertThat(auroraEvent.get("darkSkyLocationCount").asInt()).isEqualTo(12);
         assertThat(auroraEvent.get("clearLocationCount").asInt()).isEqualTo(7);
+        assertThat(auroraEvent.get("region").asText()).isEqualTo("Northumberland");
         assertThat(result.validEvents()).contains(DATE + "_aurora");
+        assertThat(result.validRegions()).contains("Northumberland");
     }
 
     @Test
@@ -116,5 +139,6 @@ class BriefingRollupBuilderAuroraSnapshotTest {
         assertThat(auroraEvent.get("kp").asDouble()).isEqualTo(5.3);
         assertThat(auroraEvent.get("darkSkyLocationCount").asInt()).isEqualTo(12);
         assertThat(auroraEvent.get("clearLocationCount").asInt()).isEqualTo(7);
+        assertThat(auroraEvent.get("region").asText()).isEqualTo("Northumberland");
     }
 }

@@ -44,9 +44,9 @@ const FRAME_PAD_DEG = 0.12;
  * <p>The selection itself is still <b>not</b> owned here. It is {@code App}'s existing
  * {@code selectedDate} — the single source of truth for which day the map is showing, shared with
  * the standalone Map tab so the two can never disagree about it. {@code MapView} forwards a picked
- * window's date back through {@code onSelectDate} only when that date is in {@code forecastDates};
- * a night row whose date the forecast endpoint never returned selects locally instead (plan §3 P6's
- * EV-ownership paragraph).
+ * window's date back through {@code onSelectDate} only when {@code App} will take it — the date is
+ * in {@code forecastDates} and its window or night is not over ({@code mapEvents.isForwardableRow});
+ * any other night row selects locally instead (plan §3 P6's EV-ownership paragraph).
  *
  * <h2>Leaflet has to be told the panel came back</h2>
  *

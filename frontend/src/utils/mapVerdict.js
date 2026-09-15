@@ -20,11 +20,11 @@ import { resolveRegionDisplay } from './tierUtils.js';
  * map. Since {@code displayVerdict} is never null on a served region, the fallback those thresholds
  * were meant to reconcile is unreachable anyway. See map-landing-plan.md §4 #1 and §5 D-1.
  *
- * <p>⚠️ {@code utils/mapLabels.js#verdictWord} is <b>not</b> the function to reuse here, and this
- * module deliberately does not import it. Its 3.7/2.8 constants are correct for the quantity it
- * serves — a per-location whole star, where they collapse to {@code >= 4} / {@code >= 3} and match
- * {@code DisplayVerdict.resolve}'s per-location bands exactly. A region mean is a different
- * quantity with different bands.
+ * <p>⚠️ {@code utils/verdictWord.js#verdictWord} (re-exported from `mapLabels.js` for its existing
+ * importers) is <b>not</b> the function to reuse here, and this module deliberately does not import
+ * it. Its 3.7/2.8 constants are correct for the quantity it serves — a per-location whole star,
+ * where they collapse to {@code >= 4} / {@code >= 3} and match {@code DisplayVerdict.resolve}'s
+ * per-location bands exactly. A region mean is a different quantity with different bands.
  *
  * <h2>Why the tally is computed in the browser at all</h2>
  *

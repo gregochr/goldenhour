@@ -454,6 +454,99 @@ describe('WindowControl — keyboard, scoped to this control (never document-glo
 });
 
 /**
+ * A row can leave the OPEN menu with nobody pressing anything: the EV list is rebuilt against the
+ * clock, so last night's rows go at dawn (D-14) and yesterday's filler solar rows at UK midnight.
+ * With focus on that row it fell to `<body>`, where this control's own `onKeyDown` never hears
+ * another key (`hooks/useRowFocusRescue.js`). ⚠️ The follow-up key is always fired at
+ * `document.activeElement`, never at the control: fired at the control it passes while focus is
+ * lost, which is how this class of defect has hidden before.
+ */
+describe('WindowControl — focus when a row leaves the open menu (D-14)', () => {
+  const ASTRO_ID = EVENTS[2].id;
+  const WITHOUT_ASTRO = EVENTS.filter((e) => e.id !== ASTRO_ID);
+  const option = (id) => screen.getAllByRole('option').find((o) => o.getAttribute('data-ev-id') === id);
+  const pill = () => screen.getByRole('button', { name: /Tonight/ });
+
+  it('hands focus to the pill, where Escape reaches the menu again', () => {
+    const { rerender, onSelect } = renderControl();
+    fireEvent.click(pill());
+    option(ASTRO_ID).focus();
+
+    rerender(<WindowControl events={WITHOUT_ASTRO} activeIndex={1} onSelect={onSelect} />);
+
+    expect(document.activeElement).toBe(pill());
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' });
+    expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it('steals no focus on a render that removes nothing — it acts on the removal, not on `<body>`', () => {
+    // Focus lost from a row WITHOUT a move to another element (the window blurring, say) leaves
+    // `<body>` focused with the menu open. A rule keyed on that state would move focus to the pill
+    // on the next unrelated render; this one waits for the row itself to go.
+    const { rerender, onSelect } = renderControl();
+    fireEvent.click(pill());
+    option(ASTRO_ID).focus();
+    option(ASTRO_ID).blur();
+
+    rerender(<WindowControl events={EVENTS} activeIndex={1} onSelect={onSelect} />);
+
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('never takes focus from a row that still has it', () => {
+    const { rerender, onSelect } = renderControl();
+    fireEvent.click(pill());
+    option(ASTRO_ID).focus();
+    option(EVENTS[3].id).focus();
+
+    rerender(<WindowControl events={WITHOUT_ASTRO} activeIndex={1} onSelect={onSelect} />);
+
+    expect(document.activeElement).toBe(option(EVENTS[3].id));
+  });
+
+  it('does not reach for focus the reader moved elsewhere and then dropped', () => {
+    // Tabbed from the row to the pill (a real element, so the record ends), then focus fell to
+    // `<body>` for some other reason. The row leaving later is not this control's business.
+    const { rerender, onSelect } = renderControl();
+    fireEvent.click(pill());
+    option(ASTRO_ID).focus();
+    pill().focus();
+    pill().blur();
+
+    rerender(<WindowControl events={WITHOUT_ASTRO} activeIndex={1} onSelect={onSelect} />);
+
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('does not reach for focus after a press elsewhere in the menu', () => {
+    // A press on text that cannot take focus leaves `<body>` focused with the menu open, which is
+    // ordinary — a rule keyed on that state alone would steal focus on the next unrelated render.
+    const { rerender, onSelect } = renderControl();
+    fireEvent.click(pill());
+    option(ASTRO_ID).focus();
+    fireEvent.pointerDown(screen.getAllByTestId('wf-win-day')[0]);
+    option(ASTRO_ID).blur();
+
+    rerender(<WindowControl events={WITHOUT_ASTRO} activeIndex={1} onSelect={onSelect} />);
+
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('does nothing once the menu has closed', () => {
+    // Closing the menu from a row drops focus as it always has (`selectRow`'s own note) — a
+    // separate, pre-existing residual this rescue deliberately does not widen into.
+    const { rerender, onSelect } = renderControl();
+    fireEvent.click(pill());
+    option(ASTRO_ID).focus();
+    fireEvent.keyDown(document.activeElement, { key: 'Escape' });
+
+    rerender(<WindowControl events={WITHOUT_ASTRO} activeIndex={1} onSelect={onSelect} />);
+
+    expect(document.activeElement).toBe(document.body);
+  });
+});
+
+/**
  * Controlled mode (map-tab-v2-plan.md §3 P7) — passing both `open` and `onOpenChange` puts every
  * open/close this component would otherwise apply to local state onto the caller instead, which is
  * how `MapView` gives the window control and `FiltersPopover` one shared exclusivity switch.
