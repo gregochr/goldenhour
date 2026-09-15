@@ -37,27 +37,57 @@ class AuroraForecastResultWriterTest {
     }
 
     @Test
-    @DisplayName("replaceNightResults deletes the night's rows before inserting the new ones")
-    void replaceNightResults_deletesThenSaves() {
+    @DisplayName("a real run deletes the night's rows (real and simulated alike) before inserting")
+    void replaceNightResults_real_deletesEverythingThenSaves() {
         AuroraForecastResultEntity entity = AuroraForecastResultEntity.builder()
                 .forecastDate(NIGHT)
                 .stars(4)
                 .source("claude")
                 .build();
 
-        writer.replaceNightResults(NIGHT, List.of(entity));
+        writer.replaceNightResults(NIGHT, List.of(entity), false);
 
         InOrder order = inOrder(resultRepository);
         order.verify(resultRepository).deleteByForecastDateIn(List.of(NIGHT));
         order.verify(resultRepository).saveAll(List.of(entity));
+        verify(resultRepository, never()).deleteByForecastDateAndSimulatedTrue(NIGHT);
     }
 
     @Test
-    @DisplayName("an empty list clears the night without inserting anything")
-    void replaceNightResults_emptyList_deletesOnly() {
-        writer.replaceNightResults(NIGHT, List.of());
+    @DisplayName("a real run with no results still clears the night without inserting anything")
+    void replaceNightResults_real_emptyList_deletesOnly() {
+        writer.replaceNightResults(NIGHT, List.of(), false);
 
         verify(resultRepository).deleteByForecastDateIn(List.of(NIGHT));
         verify(resultRepository, never()).saveAll(anyList());
+    }
+
+    @Test
+    @DisplayName("a simulated run deletes only that night's simulated rows before inserting — "
+            + "never the unfiltered delete that would also remove real results")
+    void replaceNightResults_simulated_deletesOnlySimulatedThenSaves() {
+        AuroraForecastResultEntity entity = AuroraForecastResultEntity.builder()
+                .forecastDate(NIGHT)
+                .stars(4)
+                .source("claude")
+                .simulated(true)
+                .build();
+
+        writer.replaceNightResults(NIGHT, List.of(entity), true);
+
+        InOrder order = inOrder(resultRepository);
+        order.verify(resultRepository).deleteByForecastDateAndSimulatedTrue(NIGHT);
+        order.verify(resultRepository).saveAll(List.of(entity));
+        verify(resultRepository, never()).deleteByForecastDateIn(anyList());
+    }
+
+    @Test
+    @DisplayName("a simulated run with no results still clears its own simulated rows only")
+    void replaceNightResults_simulated_emptyList_deletesOnlySimulated() {
+        writer.replaceNightResults(NIGHT, List.of(), true);
+
+        verify(resultRepository).deleteByForecastDateAndSimulatedTrue(NIGHT);
+        verify(resultRepository, never()).saveAll(anyList());
+        verify(resultRepository, never()).deleteByForecastDateIn(anyList());
     }
 }

@@ -19,9 +19,18 @@ import java.util.List;
  * admin's aurora simulation was active carries real weather triage and a real Claude call, but
  * fake Kp/storm data underneath it — the admin who ran it already sees the outcome in the
  * synchronous {@code POST /api/aurora/forecast/run} response, so nothing here needs to serve it
- * again. {@link #deleteByForecastDateIn} is the one exception: a re-run must clear a night's rows
- * regardless of how they were produced, real or simulated, or a stale simulated row would survive
- * a real re-run of the same night.
+ * again.
+ *
+ * <p>The two delete methods are deliberately asymmetric, and
+ * {@link com.gregochr.goldenhour.service.aurora.AuroraForecastResultWriter} picks between them by
+ * the run it is writing, never by what a night currently holds: a
+ * <b>real</b> run is authoritative for that night and calls {@link #deleteByForecastDateIn}, which
+ * clears real and simulated rows alike (an earlier admin test run must not survive a real one for
+ * the same night). A <b>simulated</b> run calls {@link #deleteByForecastDateAndSimulatedTrue}
+ * instead, touching only rows an earlier simulated run left behind — never the real, user-facing
+ * results of a night that already had a genuine forecast. Getting this backwards once made a
+ * simulated test run silently delete that night's real results and replace them with rows every
+ * read method above then hides, so the night reads as never forecast at all.
  */
 @Repository
 public interface AuroraForecastResultRepository extends JpaRepository<AuroraForecastResultEntity, Long> {
@@ -50,14 +59,24 @@ public interface AuroraForecastResultRepository extends JpaRepository<AuroraFore
             @Param("forecastDate") LocalDate forecastDate);
 
     /**
-     * Deletes all aurora forecast results for the given nights, real and simulated alike.
-     * Called before inserting new results so that a re-run for the same night replaces old data —
+     * Deletes all aurora forecast results for the given nights, real and simulated alike. Called
+     * before inserting a <b>real</b> run's results, so that run replaces old data of either kind —
      * deliberately not filtered by {@code simulated}, so a real re-run also clears out any earlier
      * simulated rows for that same night rather than leaving them alongside the new real ones.
      *
      * @param dates the nights whose results should be removed
      */
     void deleteByForecastDateIn(List<LocalDate> dates);
+
+    /**
+     * Deletes only the simulated aurora forecast results for the given night. Called before
+     * inserting a <b>simulated</b> run's results, so a repeated admin test run replaces its own
+     * earlier simulated rows without touching that night's real, user-facing results if it has
+     * any — a simulated run must never be able to delete real data.
+     *
+     * @param forecastDate the night whose simulated results should be removed
+     */
+    void deleteByForecastDateAndSimulatedTrue(LocalDate forecastDate);
 
     /**
      * Returns all distinct dates for which at least one real (non-simulated) result exists.

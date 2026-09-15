@@ -39,6 +39,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -356,7 +357,7 @@ class AuroraForecastRunServiceTest {
         assertThat(response.nights().get(0).status()).isEqualTo("window_closed");
         // Nothing written and nothing spent — note this is never(), not "written with empty":
         // clearing the night would destroy the same rows by a different route.
-        verify(resultWriter, never()).replaceNightResults(any(), any());
+        verify(resultWriter, never()).replaceNightResults(any(), any(), anyBoolean());
         verify(claudeInterpreter, never()).interpret(any(), any(), any(), any(), any(), any());
         verify(weatherTriage, never()).triage(any());
     }
@@ -675,7 +676,7 @@ class AuroraForecastRunServiceTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<AuroraForecastResultEntity>> savedCaptor =
                 ArgumentCaptor.forClass(List.class);
-        verify(resultWriter).replaceNightResults(eq(tonight), savedCaptor.capture());
+        verify(resultWriter).replaceNightResults(eq(tonight), savedCaptor.capture(), eq(false));
         List<AuroraForecastResultEntity> saved = savedCaptor.getValue();
         assertThat(saved).hasSize(2);
 
@@ -704,7 +705,7 @@ class AuroraForecastRunServiceTest {
 
         service.runForecast(new AuroraForecastRunRequest(List.of(tonight)));
 
-        verify(resultWriter).replaceNightResults(tonight, List.of());
+        verify(resultWriter).replaceNightResults(tonight, List.of(), false);
     }
 
     @Test
@@ -742,7 +743,7 @@ class AuroraForecastRunServiceTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<AuroraForecastResultEntity>> writtenCaptor =
                 ArgumentCaptor.forClass(List.class);
-        verify(resultWriter).replaceNightResults(eq(tonight), writtenCaptor.capture());
+        verify(resultWriter).replaceNightResults(eq(tonight), writtenCaptor.capture(), eq(false));
         assertThat(writtenCaptor.getValue()).hasSize(1);
         assertThat(writtenCaptor.getValue().get(0).isTriaged()).isTrue();
     }
@@ -767,7 +768,7 @@ class AuroraForecastRunServiceTest {
                 new AuroraForecastRunRequest(List.of(tonight)));
 
         assertThat(response.nights().get(0).status()).isEqualTo("no_eligible_locations");
-        verify(resultWriter).replaceNightResults(tonight, List.of());
+        verify(resultWriter).replaceNightResults(tonight, List.of(), false);
     }
 
     @Test
@@ -809,9 +810,9 @@ class AuroraForecastRunServiceTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<AuroraForecastResultEntity>> writtenCaptor =
                 ArgumentCaptor.forClass(List.class);
-        verify(resultWriter).replaceNightResults(eq(night1), writtenCaptor.capture());
+        verify(resultWriter).replaceNightResults(eq(night1), writtenCaptor.capture(), eq(false));
         assertThat(writtenCaptor.getValue()).hasSize(1);
-        verify(resultWriter, never()).replaceNightResults(eq(night2), any());
+        verify(resultWriter, never()).replaceNightResults(eq(night2), any(), anyBoolean());
     }
 
     @Test
@@ -955,7 +956,7 @@ class AuroraForecastRunServiceTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<AuroraForecastResultEntity>> savedCaptor =
                 ArgumentCaptor.forClass(List.class);
-        verify(resultWriter).replaceNightResults(eq(TODAY), savedCaptor.capture());
+        verify(resultWriter).replaceNightResults(eq(TODAY), savedCaptor.capture(), eq(true));
         List<AuroraForecastResultEntity> saved = savedCaptor.getValue();
         // One triage-template row (Overcast Bay) and one Claude-scored row (Clear Sky) — both
         // branches of the entity-building code must carry the marker, not just one.

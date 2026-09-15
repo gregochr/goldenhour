@@ -339,7 +339,7 @@ public class AuroraForecastRunService {
 
             if (maxKp < 1.0) {
                 LOG.info("Aurora forecast {}: Kp={} — no significant activity", date, maxKp);
-                resultWriter.replaceNightResults(date, List.of());
+                resultWriter.replaceNightResults(date, List.of(), simulated);
                 results.add(new AuroraForecastRunResponse.NightResult(
                         date, "no_activity", 0, 0, maxKp, "No significant geomagnetic activity"));
                 continue;
@@ -356,7 +356,7 @@ public class AuroraForecastRunService {
             if (candidates.isEmpty()) {
                 LOG.info("Aurora forecast {}: no Bortle-eligible locations (threshold={})",
                         date, bortleThreshold);
-                resultWriter.replaceNightResults(date, List.of());
+                resultWriter.replaceNightResults(date, List.of(), simulated);
                 results.add(new AuroraForecastRunResponse.NightResult(
                         date, "no_eligible_locations", 0, 0, maxKp,
                         "No dark-sky locations available (Bortle threshold = " + bortleThreshold + ")"));
@@ -429,7 +429,7 @@ public class AuroraForecastRunService {
                 }
             }
 
-            resultWriter.replaceNightResults(date, nightResults);
+            resultWriter.replaceNightResults(date, nightResults, simulated);
 
             String nightStatus = triage.viable().isEmpty() ? "all_triaged" : "scored";
             String nightSummary = buildNightSummary(claudeScores, triage.rejected().size());

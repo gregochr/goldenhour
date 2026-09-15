@@ -118,4 +118,21 @@ class AuroraForecastResultRepositoryTest {
         assertThat(repository.findByForecastDateAndSimulatedFalse(NIGHT)).isEmpty();
         assertThat(repository.findAll()).isEmpty();
     }
+
+    @Test
+    @DisplayName("deleteByForecastDateAndSimulatedTrue removes only the simulated row, leaving a "
+            + "real result for the same night untouched")
+    void deleteByForecastDateAndSimulatedTrue_leavesRealRowIntact() {
+        AuroraForecastResultEntity real = result(NIGHT, false);
+        result(NIGHT, true);
+
+        repository.deleteByForecastDateAndSimulatedTrue(NIGHT);
+
+        List<AuroraForecastResultEntity> remaining = repository.findAll();
+        assertThat(remaining).extracting(AuroraForecastResultEntity::getId)
+                .containsExactly(real.getId());
+        assertThat(repository.findByForecastDateAndSimulatedFalse(NIGHT))
+                .extracting(AuroraForecastResultEntity::getId)
+                .containsExactly(real.getId());
+    }
 }
