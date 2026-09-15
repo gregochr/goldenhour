@@ -441,10 +441,16 @@ class AuroraStateCacheTest {
             "STRONG,    MINOR,    false, true",
             "STRONG,    MODERATE, false, false",
             "STRONG,    STRONG,   false, false",
-            "SIM_MINOR, MINOR,    false, true",
-            "SIM_MINOR, MODERATE, true,  false",
+            "SIM_QUIET,    QUIET,    false, true",
+            "SIM_QUIET,    MODERATE, true,  false",
+            "SIM_MINOR,    MINOR,    false, true",
+            "SIM_MINOR,    MODERATE, true,  false",
+            "SIM_MODERATE, MODERATE, false, false",
+            "SIM_MODERATE, STRONG,   true,  false",
+            "SIM_STRONG,   STRONG,   false, false",
+            "SIM_STRONG,   MINOR,    false, true",
     })
-    @DisplayName("wouldNotify and wouldClear answer from every state for every level")
+    @DisplayName("wouldNotify and wouldClear answer from IDLE, ACTIVE and simulated states")
     void wouldNotifyAndWouldClear_truthTable(String prior, AlertLevel incoming, boolean notify,
             boolean clear) {
         AuroraStateCache machine = machineIn(prior);
@@ -460,7 +466,10 @@ class AuroraStateCacheTest {
         // scoring is coming; a night poll asks wouldClear, to hold an alert while the reading that
         // decides it is due. Were either to disagree with evaluate, a NOTIFY would fetch late or a
         // SUPPRESS pay for a fetch, and an alert would be held that should end, or end on an estimate.
-        for (String prior : new String[] {"IDLE", "MODERATE", "STRONG", "SIM_QUIET", "SIM_MINOR"}) {
+        // Simulations at every level are here on purpose: a change to how evaluate treats a simulation
+        // that forgets the predictions goes red here.
+        for (String prior : new String[] {"IDLE", "MODERATE", "STRONG",
+                "SIM_QUIET", "SIM_MINOR", "SIM_MODERATE", "SIM_STRONG"}) {
             for (AlertLevel incoming : AlertLevel.values()) {
                 AuroraStateCache machine = machineIn(prior);
                 boolean activeBefore = machine.isActive();

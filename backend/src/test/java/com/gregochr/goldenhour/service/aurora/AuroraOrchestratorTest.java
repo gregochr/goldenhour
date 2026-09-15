@@ -312,6 +312,18 @@ class AuroraOrchestratorTest {
     }
 
     @Test
+    @DisplayName("with no row for the block just ended, the Kp for now falls back to the latest reading")
+    void currentKp_productGapForTheBlockJustEnded_isTheLatestReading() {
+        // 22:00. The product has no row for 18:00-21:00, the block that has just ended. 15:00-18:00
+        // ended four hours ago, too long ago to stand for "now", so the latest reading does.
+        SpaceWeatherData data = snapshot(
+                List.of(reading("2027-01-14T15:00", 3.00), reading("2027-01-14T18:00", 4.33)),
+                List.of(block("2027-01-14T15:00", 3.00), block("2027-01-14T21:00", 3.67)), 0.0);
+
+        assertThat(AuroraOrchestrator.currentKp(data, utc("2027-01-14T22:00"))).isEqualTo(4.33);
+    }
+
+    @Test
     @DisplayName("with no completed block in the product, the latest published reading is the Kp for now")
     void currentKp_noCompletedBlock_isTheLatestReading() {
         SpaceWeatherData data = snapshot(List.of(reading("2027-01-14T15:00", 4.67)),
@@ -342,6 +354,9 @@ class AuroraOrchestratorTest {
                 reading("2027-01-14T21:00", 5.33)), blocks, 0.0);
 
         assertThat(AuroraOrchestrator.readingDue(notOut, utc("2027-01-15T00:05"))).isTrue();
+        assertThat(AuroraOrchestrator.readingDue(out, utc("2027-01-15T00:05")))
+                .as("at the same instant, a published reading is no longer due")
+                .isFalse();
         assertThat(AuroraOrchestrator.readingDue(out, utc("2027-01-15T00:20"))).isFalse();
     }
 
@@ -483,21 +498,25 @@ class AuroraOrchestratorTest {
     }
 
     @Test
-    @DisplayName("a real-time alert carries the Kp for now — a just-ended block's estimate above the older reading")
+    @DisplayName("a real-time alert carries the Kp for now — the just-ended block's estimate, not the older reading")
     void runNightPoll_realtimeTriggerKp_isTheKpForNow() {
         // 00:10: 21:00-24:00 (Kp 4.67) has just ended and its reading is not out; the latest
-        // published reading is 18:00-21:00's Kp 3. An OVATION substorm makes it MODERATE.
+        // published reading is 18:00-21:00's Kp 3. An OVATION substorm makes it MODERATE. The hold
+        // asks the state machine about the poll's level, MODERATE — never about the Kp for now's,
+        // which here is MINOR.
         SpaceWeatherData data = snapshot(List.of(reading("2027-01-14T18:00", 3.00)),
                 List.of(block("2027-01-14T18:00", 3.00), block("2027-01-14T21:00", 4.67),
                         block("2027-01-15T00:00", 3.00), block("2027-01-15T03:00", 2.67)),
                 35.0);
         when(noaaClient.fetchAll()).thenReturn(data);
+        when(stateCache.wouldClear(AlertLevel.MODERATE)).thenReturn(false);
         when(stateCache.evaluate(AlertLevel.MODERATE))
                 .thenReturn(evaluation(AuroraStateCache.Action.NOTIFY, AlertLevel.MODERATE));
         scoringReturns(properties.getBortleThreshold().getModerate(), AlertLevel.MODERATE);
 
         orchestrator.runNightPoll(TONIGHT, utc("2027-01-15T00:10"));
 
+        verify(stateCache).wouldClear(AlertLevel.MODERATE);
         verify(stateCache).updateTrigger(TriggerType.REALTIME, 4.67);
         assertThat(theClaudeTask().triggerType()).isEqualTo(TriggerType.REALTIME);
     }
@@ -522,8 +541,8 @@ class AuroraOrchestratorTest {
     }
 
     @Test
-    @DisplayName("just after a storm block ends the level holds on its estimate, instead of dipping to a CLEAR")
-    void runNightPoll_stormBlockJustEnded_holdsTheLevel() {
+    @DisplayName("just after a storm block ends its estimate keeps the level up, instead of dipping to a CLEAR")
+    void runNightPoll_stormBlockJustEnded_keepsTheLevel() {
         // 00:10. NOAA estimates 21:00-24:00, which ended ten minutes ago, at Kp 6.33; its reading is
         // not out yet, and nothing still to come reaches 4.
         SpaceWeatherData data = snapshot(List.of(reading("2027-01-14T18:00", 3.00)),
@@ -559,50 +578,93 @@ class AuroraOrchestratorTest {
 
         AuroraPollOutcome outcome = orchestrator.runNightPoll(TONIGHT, utc("2027-01-15T00:05"));
 
-        assertThat(outcome).isEqualTo(new AuroraPollOutcome(true, AlertLevel.MINOR,
-                AuroraStateCache.Action.NONE, TriggerType.REALTIME));
+        assertThat(outcome).isEqualTo(AuroraPollOutcome.held(AlertLevel.MINOR, TriggerType.REALTIME));
         verify(stateCache).wouldClear(AlertLevel.MINOR);
         verifyNoMoreInteractions(stateCache);
         verifyNoInteractions(locationRepository, weatherTriage, evaluationService);
     }
 
     @Test
-    @DisplayName("with no alert to end, a poll evaluates as usual while the reading is due")
-    void runNightPoll_readingDueWithNothingToClear_evaluates() {
-        // IDLE, 00:05, the same data as above: nothing to hold, so the state machine is asked.
-        SpaceWeatherData data = snapshot(List.of(reading("2027-01-14T18:00", 5.67)),
-                List.of(block("2027-01-14T18:00", 5.67), block("2027-01-14T21:00", 4.67),
+    @DisplayName("with no alert to end, a poll NOTIFIES as usual while the reading is due")
+    void runNightPoll_readingDueWithNothingToClear_notifies() {
+        // IDLE at 00:05, 21:00-24:00's reading not out. An OVATION substorm raises MODERATE, and
+        // a poll that held whenever a reading was due would never raise it.
+        SpaceWeatherData data = snapshot(List.of(reading("2027-01-14T18:00", 3.00)),
+                List.of(block("2027-01-14T18:00", 3.00), block("2027-01-14T21:00", 4.67),
                         block("2027-01-15T00:00", 3.67), block("2027-01-15T03:00", 3.00)),
-                12.0);
+                35.0);
         when(noaaClient.fetchAll()).thenReturn(data);
-        when(stateCache.wouldClear(AlertLevel.MINOR)).thenReturn(false);
-        when(stateCache.evaluate(AlertLevel.MINOR))
-                .thenReturn(evaluation(AuroraStateCache.Action.NONE, null));
+        when(stateCache.wouldClear(AlertLevel.MODERATE)).thenReturn(false);
+        when(stateCache.evaluate(AlertLevel.MODERATE))
+                .thenReturn(evaluation(AuroraStateCache.Action.NOTIFY, AlertLevel.MODERATE));
+        scoringReturns(properties.getBortleThreshold().getModerate(), AlertLevel.MODERATE);
 
         AuroraPollOutcome outcome = orchestrator.runNightPoll(TONIGHT, utc("2027-01-15T00:05"));
 
-        assertThat(outcome.action()).isEqualTo(AuroraStateCache.Action.NONE);
-        verify(stateCache).evaluate(AlertLevel.MINOR);
+        assertThat(outcome).isEqualTo(new AuroraPollOutcome(true, AlertLevel.MODERATE,
+                AuroraStateCache.Action.NOTIFY, TriggerType.REALTIME));
+        assertThat(theClaudeTask().alertLevel()).isEqualTo(AlertLevel.MODERATE);
     }
 
     @Test
-    @DisplayName("a reading an hour late holds nothing: the estimate clears the alert")
-    void runNightPoll_readingAnHourLate_clearsOnTheEstimate() {
-        // 01:00, ACTIVE. 21:00-24:00's reading is still missing an hour after the block ended, so
-        // the feed is late or stale, and the estimate stands.
-        SpaceWeatherData data = snapshot(List.of(reading("2027-01-14T18:00", 5.67)),
+    @DisplayName("the hold lasts until the reading is an hour late, then the estimate ends the alert")
+    void runNightPoll_readingAnHourLate_endsTheHold() {
+        // A real state machine, ACTIVE at MODERATE. 21:00-24:00's reading never comes; NOAA's
+        // estimate for it is MINOR. At 00:59 the reading is still due and the alert is held; at
+        // 01:00 it is an hour late, the feed is taken as late or stale, and the estimate ends it.
+        AuroraStateCache machine = new AuroraStateCache();
+        machine.evaluate(AlertLevel.MODERATE);
+        AuroraOrchestrator withMachine = orchestratorOver(machine);
+        when(noaaClient.fetchAll()).thenReturn(snapshot(List.of(reading("2027-01-14T18:00", 5.67)),
                 List.of(block("2027-01-14T18:00", 5.67), block("2027-01-14T21:00", 4.67),
                         block("2027-01-15T00:00", 3.67), block("2027-01-15T03:00", 3.00)),
-                12.0);
+                12.0));
+
+        AuroraPollOutcome at0059 = withMachine.runNightPoll(TONIGHT, utc("2027-01-15T00:59"));
+        assertThat(at0059.held()).isTrue();
+        assertThat(machine.isActive()).isTrue();
+
+        AuroraPollOutcome at0100 = withMachine.runNightPoll(TONIGHT, utc("2027-01-15T01:00"));
+        assertThat(at0100.action()).isEqualTo(AuroraStateCache.Action.CLEAR);
+        assertThat(machine.isActive()).isFalse();
+    }
+
+    @Test
+    @DisplayName("within an hour of dawn nothing is held: the estimate ends the alert before daylight")
+    void runNightPoll_withinAnHourOfDawn_endsTheAlertOnTheEstimate() {
+        // A real state machine, ACTIVE at MODERATE, at 06:05. 03:00-06:00 has just ended, NOAA
+        // estimates it quiet, and its reading is due. With dawn at 07:30 the poll holds; with dawn at
+        // 06:30 a hold could meet it — after dawn no poll reads that reading and none clears an
+        // alert — so the poll ends the alert on the estimate.
+        SpaceWeatherData data = snapshot(List.of(reading("2027-01-15T00:00", 5.33)),
+                List.of(block("2027-01-15T00:00", 5.33), block("2027-01-15T03:00", 2.67),
+                        block("2027-01-15T06:00", 2.33)),
+                5.0);
         when(noaaClient.fetchAll()).thenReturn(data);
-        when(stateCache.evaluate(AlertLevel.MINOR))
-                .thenReturn(evaluation(AuroraStateCache.Action.CLEAR, null));
 
-        AuroraPollOutcome outcome = orchestrator.runNightPoll(TONIGHT, utc("2027-01-15T01:00"));
+        TonightWindow dawnAt0730 = new TonightWindow(utc("2027-01-14T17:30"), utc("2027-01-15T07:30"));
+        TonightWindow dawnAt0630 = new TonightWindow(utc("2027-01-14T17:30"), utc("2027-01-15T06:30"));
 
-        assertThat(outcome.action()).isEqualTo(AuroraStateCache.Action.CLEAR);
-        verify(stateCache).evaluate(AlertLevel.MINOR);
-        verify(stateCache, never()).wouldClear(any());
+        AuroraStateCache farFromDawn = new AuroraStateCache();
+        farFromDawn.evaluate(AlertLevel.MODERATE);
+        AuroraPollOutcome held =
+                orchestratorOver(farFromDawn).runNightPoll(dawnAt0730, utc("2027-01-15T06:05"));
+        assertThat(held.held()).isTrue();
+        assertThat(farFromDawn.isActive()).isTrue();
+
+        AuroraStateCache nearDawn = new AuroraStateCache();
+        nearDawn.evaluate(AlertLevel.MODERATE);
+        AuroraPollOutcome cleared =
+                orchestratorOver(nearDawn).runNightPoll(dawnAt0630, utc("2027-01-15T06:05"));
+        assertThat(cleared.action()).isEqualTo(AuroraStateCache.Action.CLEAR);
+        assertThat(nearDawn.isActive()).isFalse();
+    }
+
+    @Test
+    @DisplayName("a hold started now must end before dawn: more than an hour of the night must be left")
+    void holdEndsBeforeDawn_whileMoreThanAnHourIsLeft() {
+        assertThat(AuroraOrchestrator.holdEndsBeforeDawn(TONIGHT, utc("2027-01-15T05:59:59"))).isTrue();
+        assertThat(AuroraOrchestrator.holdEndsBeforeDawn(TONIGHT, utc("2027-01-15T06:00"))).isFalse();
     }
 
     @Test
@@ -985,6 +1047,12 @@ class AuroraOrchestratorTest {
     private AuroraOrchestrator orchestratorWithClockAt(Instant instant) {
         return new AuroraOrchestrator(noaaClient, weatherTriage, stateCache, locationRepository,
                 properties, evaluationService, modelSelectionService, Clock.fixed(instant, UTC));
+    }
+
+    /** An orchestrator over a real state machine, for the tests whose subject is what it is left in. */
+    private AuroraOrchestrator orchestratorOver(AuroraStateCache machine) {
+        return new AuroraOrchestrator(noaaClient, weatherTriage, machine, locationRepository,
+                properties, evaluationService, modelSelectionService, Clock.fixed(BATCH_NOW, UTC));
     }
 
     private static ZonedDateTime utc(String localDateTime) {

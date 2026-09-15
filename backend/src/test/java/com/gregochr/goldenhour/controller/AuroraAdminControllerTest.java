@@ -184,7 +184,7 @@ class AuroraAdminControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
                         {"status": "Aurora cycle complete", "dark": true, "level": "STRONG",
-                         "action": "NOTIFY", "trigger": "REALTIME"}
+                         "action": "NOTIFY", "trigger": "REALTIME", "held": false}
                         """, JsonCompareMode.STRICT));
 
         verify(pollingJob).runCycleIfIdle();
@@ -202,7 +202,7 @@ class AuroraAdminControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
                         {"status": "Aurora cycle complete", "dark": false, "level": "MINOR",
-                         "action": "NONE", "trigger": "FORECAST_LOOKAHEAD"}
+                         "action": "NONE", "trigger": "FORECAST_LOOKAHEAD", "held": false}
                         """, JsonCompareMode.STRICT));
     }
 
@@ -216,7 +216,22 @@ class AuroraAdminControllerTest extends AbstractControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().json("""
                         {"status": "Aurora cycle complete", "dark": true, "level": null,
-                         "action": "NONE", "trigger": null}
+                         "action": "NONE", "trigger": null, "held": false}
+                        """, JsonCompareMode.STRICT));
+    }
+
+    @Test
+    @DisplayName("POST /api/aurora/admin/run reports a held alert as held, not as a quiet night")
+    @WithMockUser(roles = {"ADMIN"})
+    void run_admin_held_reportsTheHold() throws Exception {
+        when(pollingJob.runCycleIfIdle()).thenReturn(Optional.of(
+                AuroraPollOutcome.held(AlertLevel.MINOR, TriggerType.REALTIME)));
+
+        mockMvc.perform(post("/api/aurora/admin/run"))
+                .andExpect(status().isOk())
+                .andExpect(content().json("""
+                        {"status": "Aurora cycle complete", "dark": true, "level": "MINOR",
+                         "action": "NONE", "trigger": "REALTIME", "held": true}
                         """, JsonCompareMode.STRICT));
     }
 

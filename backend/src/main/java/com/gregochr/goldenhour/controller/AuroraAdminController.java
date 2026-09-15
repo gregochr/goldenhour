@@ -121,10 +121,12 @@ public class AuroraAdminController {
      * not stop the cycle, and a retry answers 409 until it finishes. Unlike the schedule, it runs
      * whether or not {@code aurora.enabled} is set, as it always has.
      *
-     * @return 200 with the level the cycle derived, the state machine's action and the signal the
-     *         level came from, or 409 Conflict if a cycle is already running. {@code level} and
-     *         {@code trigger} are null only if reading NOAA threw; the client fails open, so an
-     *         outage reads as the last data cached, or as quiet on a cold start
+     * @return 200 with the level the cycle derived, the state machine's action, the signal the level
+     *         came from, and whether a night poll held the active alert rather than end it on an
+     *         estimate ({@code held}: action NONE, level below MODERATE, alert still standing), or 409
+     *         Conflict if a cycle is already running. {@code level} and {@code trigger} are null only
+     *         if reading NOAA threw; the client fails open, so an outage reads as the last data
+     *         cached, or as quiet on a cold start
      */
     @PostMapping("/run")
     public ResponseEntity<Map<String, Object>> triggerRun() {
@@ -135,14 +137,15 @@ public class AuroraAdminController {
                     .body(Map.of("status", "An aurora cycle is already running"));
         }
         AuroraPollOutcome outcome = ran.get();
-        LOG.info("Admin triggered aurora cycle — dark={} level={} action={} trigger={}",
-                outcome.dark(), outcome.level(), outcome.action(), outcome.trigger());
+        LOG.info("Admin triggered aurora cycle — dark={} level={} action={} trigger={} held={}",
+                outcome.dark(), outcome.level(), outcome.action(), outcome.trigger(), outcome.held());
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("status", "Aurora cycle complete");
         body.put("dark", outcome.dark());
         body.put("level", outcome.level() == null ? null : outcome.level().name());
         body.put("action", outcome.action().name());
         body.put("trigger", outcome.trigger() == null ? null : outcome.trigger().name());
+        body.put("held", outcome.held());
         return ResponseEntity.ok(body);
     }
 

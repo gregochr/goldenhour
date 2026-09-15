@@ -120,40 +120,43 @@ public class AuroraStateCache {
      * @return the evaluation result containing the action and level context
      */
     public Evaluation evaluate(AlertLevel incoming) {
-        if (wouldClear(incoming)) {
-            AlertLevel prev = currentLevel;
+        // Every branch is decided from one read of the state and one of the level. Reading the state
+        // again later would let a reset landing mid-evaluation turn an escalation into the IDLE
+        // branch, which writes ACTIVE, and the reset's null level would then land on top of it.
+        State from = state;
+        AlertLevel current = currentLevel;
+        if (clears(from, incoming)) {
             state = State.IDLE;
             currentLevel = null;
             activeSince = null;
             cachedScores = List.of();
             darkSkyLocationCount = 0;
             clearLocationCount = null;
-            return new Evaluation(Action.CLEAR, null, prev);
+            return new Evaluation(Action.CLEAR, null, current);
         }
         if (!incoming.isAlertWorthy()) {
             return new Evaluation(Action.NONE, null, null);
         }
-        if (!wouldNotify(incoming)) {
+        if (!notifies(from, current, incoming)) {
             // Same level or de-escalation within alertable range
-            return new Evaluation(Action.SUPPRESS, currentLevel, null);
+            return new Evaluation(Action.SUPPRESS, current, null);
         }
-        if (state == State.IDLE) {
+        if (from == State.IDLE) {
             state = State.ACTIVE;
             currentLevel = incoming;
             activeSince = clock.instant();
             return new Evaluation(Action.NOTIFY, incoming, null);
         }
-        // An escalation. It writes no state, only the level, as it always has, so a reset landing
-        // mid-escalation cannot leave the machine ACTIVE without a level.
-        AlertLevel prev = currentLevel;
+        // An escalation writes currentLevel and activeSince, never state, as it always has.
         currentLevel = incoming;
         activeSince = clock.instant();
-        return new Evaluation(Action.NOTIFY, incoming, prev);
+        return new Evaluation(Action.NOTIFY, incoming, current);
     }
 
     /**
      * Whether {@link #evaluate} would answer NOTIFY for {@code incoming} now, without changing any
-     * state. {@code evaluate} decides its own NOTIFY with this method, so the two cannot drift apart.
+     * state. It asks the same question {@code evaluate} decides its NOTIFY by, so the two cannot drift
+     * apart.
      *
      * <p>A daylight poll asks before evaluating, so it fetches the data a scoring needs only when a
      * scoring is coming.
@@ -162,14 +165,13 @@ public class AuroraStateCache {
      * @return {@code true} for a new alert from IDLE or an escalation above the current level
      */
     public boolean wouldNotify(AlertLevel incoming) {
-        return incoming.isAlertWorthy()
-                && (state == State.IDLE || incoming.severity() > currentLevel.severity());
+        return notifies(state, currentLevel, incoming);
     }
 
     /**
      * Whether {@link #evaluate} would answer CLEAR for {@code incoming} now, without changing any
-     * state: an alert is active and {@code incoming} is below MODERATE. {@code evaluate} decides its
-     * own CLEAR with this method.
+     * state: an alert is active and {@code incoming} is below MODERATE. It asks the same question
+     * {@code evaluate} decides its CLEAR by.
      *
      * <p>A night poll asks before evaluating, so it can hold an alert while the reading that will
      * decide it is still due.
@@ -178,7 +180,16 @@ public class AuroraStateCache {
      * @return {@code true} when evaluating {@code incoming} would end the active alert
      */
     public boolean wouldClear(AlertLevel incoming) {
-        return !incoming.isAlertWorthy() && state == State.ACTIVE;
+        return clears(state, incoming);
+    }
+
+    private static boolean notifies(State from, AlertLevel current, AlertLevel incoming) {
+        return incoming.isAlertWorthy()
+                && (from == State.IDLE || incoming.severity() > current.severity());
+    }
+
+    private static boolean clears(State from, AlertLevel incoming) {
+        return !incoming.isAlertWorthy() && from == State.ACTIVE;
     }
 
     /**

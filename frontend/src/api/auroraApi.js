@@ -36,8 +36,9 @@ export async function enrichBortle() {
  * Runs one aurora polling cycle now — the same cycle the schedule runs.
  * ADMIN only. Rejects with a 409 while a cycle is already running.
  *
- * @returns {Promise<object>} { status, dark, level, action, trigger } — the level the
- *   cycle derived, the state machine's action, and the signal the level came from
+ * @returns {Promise<object>} { status, dark, level, action, trigger, held } — the level
+ *   the cycle derived, the state machine's action, the signal the level came from, and
+ *   whether a night poll held the active alert rather than end it on an estimate
  *   (`level` and `trigger` are null only if reading NOAA threw; an outage usually
  *   reads as the last data cached, or as quiet)
  */

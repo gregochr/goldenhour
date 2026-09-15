@@ -48,4 +48,33 @@ class AuroraPollOutcomeTest {
                 .isInstanceOf(NullPointerException.class)
                 .hasMessage("action");
     }
+
+    @Test
+    @DisplayName("a hold is a night poll that consulted nothing, at a level below MODERATE")
+    void held_isANightPollsNoneBelowModerate() {
+        AuroraPollOutcome outcome = AuroraPollOutcome.held(AlertLevel.MINOR, TriggerType.REALTIME);
+
+        assertThat(outcome).isEqualTo(new AuroraPollOutcome(true, AlertLevel.MINOR,
+                AuroraStateCache.Action.NONE, TriggerType.REALTIME, true));
+        assertThat(new AuroraPollOutcome(true, AlertLevel.MINOR, AuroraStateCache.Action.NONE,
+                TriggerType.REALTIME).held())
+                .as("the four-part outcome holds nothing")
+                .isFalse();
+    }
+
+    @Test
+    @DisplayName("a hold in daylight, with an action, at MODERATE or without a level is rejected")
+    void held_otherwise_isRejected() {
+        assertThatThrownBy(() -> new AuroraPollOutcome(false, AlertLevel.MINOR,
+                AuroraStateCache.Action.NONE, TriggerType.FORECAST_LOOKAHEAD, true))
+                .as("in daylight").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuroraPollOutcome(true, AlertLevel.MINOR,
+                AuroraStateCache.Action.SUPPRESS, TriggerType.REALTIME, true))
+                .as("with an action").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> AuroraPollOutcome.held(AlertLevel.MODERATE, TriggerType.REALTIME))
+                .as("at MODERATE").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuroraPollOutcome(true, null, AuroraStateCache.Action.NONE,
+                null, true))
+                .as("without a level").isInstanceOf(IllegalArgumentException.class);
+    }
 }

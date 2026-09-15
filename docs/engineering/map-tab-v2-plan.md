@@ -273,12 +273,13 @@ time exists anywhere**):
   stored them since V64.) DTO + service + controller tests.
 - `AuroraForecastResultDto`: serve the same two fields derived **per result date** via
   `AuroraForecastRunService.computeWindowForDate(date)` — the date-aware calculation the run was
-  scored with. Never `AuroraPollingJob.calculateTonightWindow()`: it takes no date and reads the
-  clock (since 2026-09-14 it takes an instant instead — handed noon of a row's date it would return
-  that night's window, but it is still not the calculation the run was scored with), so it
-  would pin TONIGHT's window on a T+1 or historical row — the night-vs-date trap
+  scored with. Never `AuroraPollingJob.calculateTonightWindow()`: it took no date and read the
+  clock, so it would pin TONIGHT's window on a T+1 or historical row — the night-vs-date trap
   `docs/engineering/aurora-night-selection.md` records, and `computeWindowForDate`'s own javadoc
-  warns against exactly this reuse. (Also a cross-vendor review catch on #723.)
+  warns against exactly this reuse. (Also a cross-vendor review catch on #723.) Since 2026-09-14 it
+  takes an instant instead: handed the current instant it still pins tonight's window, and handed
+  noon of a row's date it would return that night's, but it is still not the calculation the run was
+  scored with.
 - **Do not** invent night confidence or night topics (owner items, §6). The EV rows will render
   confidence via the client's existing capped-inference rule (`MAX_INFERRED_TIER` precedent —
   absent field ⇒ capped at medium, never high).

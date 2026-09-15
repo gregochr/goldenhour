@@ -38,23 +38,29 @@ So a heads-up for a small-hours peak now stays up through the evening, and is pa
   block ends and then sits in the client's 15-minute cache, so without the estimate the level would
   dip at the end of an isolated storm block. The running block, whose value is a forecast, is never
   reported as "now".
-- **An estimate never ends an alert.** An estimate can be revised when its reading is published (the
-  09:00-12:00 block on 2026-09-14 was estimated at Kp 3 and published at 2). So while the completed
-  block's reading is still due, for up to an hour after the block ends, a night poll that would
-  CLEAR holds the alert instead, whatever raised it. Otherwise a storm NOAA under-estimated would
-  CLEAR at the block boundary, then NOTIFY and pay again when its reading landed. A reading more than
-  an hour late means a late or stale feed, and the estimate stands. The hold only delays a CLEAR, but
-  an alert that would have ended at a block boundary shortly before dawn can now stand through the
-  day, as any alert standing at dawn already did: no poll clears one in daylight.
+- **The estimate for the block just ended does not end an alert while its reading is due.** An
+  estimate can be revised when its reading is published (the 09:00-12:00 block on 2026-09-14 was
+  estimated at Kp 3 and published at 2). So for up to an hour after a block ends, while its reading
+  is not out, a night poll that would CLEAR holds the alert instead, whatever raised it. Otherwise a
+  block NOAA under-estimated would CLEAR at the boundary, then NOTIFY and pay again when its reading
+  landed. The hold has three limits, all deliberate:
+  - A reading more than an hour late means a late or stale feed, and the estimate ends the alert.
+  - No poll within that hour of dawn holds. After dawn no poll reads the reading and none clears an
+    alert, so a hold there would leave the night's alert and scores standing until the next dusk.
+    Near dawn, as before, a reading that lands higher before daylight buys the alert again.
+  - It covers only the block that has ended. An alert that falls mid-block, on NOAA's low estimate
+    for the block still running, is still cleared, and bought again if that block is published
+    higher.
 - **A night poll decides on one NOAA snapshot and one clock reading.** The daylight poll now fetches
   the full snapshot before the state machine moves, and still only when it is about to NOTIFY
   (`AuroraStateCache.wouldNotify`), so an unexpected error from that fetch leaves the state machine
   untouched. The client fails open, so this guards the unexpected, not an outage. At nautical dawn
   itself the night is now over, on both of the app's night rules.
 - **The daylight poll records the trigger straight after its NOTIFY**, as the night poll always has.
-  The residual recorded under *an aurora status response no longer straddles its own NOAA calls* was a
-  new level served beside the previous alert's trigger for the length of a NOAA fetch. It now lasts a
-  few field writes, unless an admin reset or simulation lands mid-poll.
+  Part of the residual recorded under *an aurora status response no longer straddles its own NOAA
+  calls* was a new level served beside the previous alert's trigger for the length of a NOAA fetch.
+  That part now lasts a few field writes, unless an admin reset or simulation lands mid-poll. The
+  counts and scores still land after the triage and the Claude call.
 - **A lowered `aurora.triggers.kp-threshold` now applies in daylight too.** The lookahead used to map
   Kp through a fixed 5, so at 4.5 it would have cleared what the real-time path raised.
 - **`POST /api/aurora/admin/run` now runs the scheduled cycle itself, through the same guard.** It
@@ -62,7 +68,9 @@ So a heads-up for a small-hours peak now stays up through the evening, and is pa
   real-time path directly, with that path's own horizon and no guard, so it could clear a heads-up the
   next poll would pay to raise again, or run alongside a scheduled cycle. In daylight it can no longer
   clear a stale alert; `POST /api/aurora/admin/reset` does that. Its response is now
-  `{status, dark, level, action, trigger}` rather than `{status, action}`; no screen calls it.
+  `{status, dark, level, action, trigger, held}` rather than `{status, action}`, where `held` says a
+  night poll held the alert, so its level below MODERATE and action NONE do not read as a quiet
+  night. No screen calls it.
 - **The same guard absorbs the scheduler's own overlap.** Saving an edited schedule, Resume and Run
   Now on the Scheduler screen can each start a poll while one is still running; the guard skips it.
 
