@@ -657,6 +657,37 @@ class AuroraOrchestratorTest {
                 AuroraStateCache.Action.CLEAR, TriggerType.FORECAST_LOOKAHEAD));
         assertThat(machine.isActive()).isFalse();
         verify(noaaClient, never()).fetchKpForecast();
+
+        // Settled once: the next daylight poll reads tonight's forecast as usual.
+        when(noaaClient.fetchKpForecast()).thenReturn(List.of(block("2027-01-15T21:00", 2.33)));
+        withMachine.runForecastLookahead(nextNight, utc("2027-01-15T06:40"));
+        verify(noaaClient).fetchKpForecast();
+    }
+
+    @Test
+    @DisplayName("a night poll that cannot read NOAA leaves a pending hold pending")
+    void aNightReadThatThrows_keepsThePendingHold() {
+        // A real state machine, ACTIVE at MODERATE. The 06:20 poll holds; the 06:25 poll's NOAA read
+        // throws, so it decides nothing — the hold stays pending, and the first daylight poll ends it.
+        when(noaaClient.fetchAll())
+                .thenReturn(snapshot(List.of(reading("2027-01-15T00:00", 5.33)),
+                        List.of(block("2027-01-15T00:00", 5.33), block("2027-01-15T03:00", 2.67),
+                                block("2027-01-15T06:00", 2.33)),
+                        5.0))
+                .thenThrow(new RuntimeException("unexpected"));
+        AuroraStateCache machine = new AuroraStateCache();
+        machine.evaluate(AlertLevel.MODERATE);
+        AuroraOrchestrator withMachine = orchestratorOver(machine);
+        TonightWindow tonight = new TonightWindow(utc("2027-01-14T17:30"), utc("2027-01-15T06:30"));
+
+        assertThat(withMachine.runNightPoll(tonight, utc("2027-01-15T06:20")).held()).isTrue();
+        assertThat(withMachine.runNightPoll(tonight, utc("2027-01-15T06:25")))
+                .isEqualTo(AuroraPollOutcome.noaaReadFailed(true));
+        AuroraPollOutcome atDawn = withMachine.runForecastLookahead(
+                new TonightWindow(utc("2027-01-15T17:30"), utc("2027-01-16T06:30")), utc("2027-01-15T06:35"));
+
+        assertThat(atDawn.action()).isEqualTo(AuroraStateCache.Action.CLEAR);
+        assertThat(machine.isActive()).isFalse();
     }
 
     @Test
