@@ -209,6 +209,40 @@ describe('resolveAuroraNight', () => {
     expect(resolveAuroraNight({ currentNightDate: '2026-08-13' })).toBe('2026-08-13');
   });
 
+  /** A status taken at 02:00 BST on Friday: Thursday's night, ending at nautical dawn, 04:05 BST. */
+  const TAKEN_BEFORE_DAWN = { currentNightDate: '2026-08-13', currentNightEndsAt: '2026-08-14T03:05:00Z' };
+
+  it('believes a status until the end of its own night, and not from that instant on', () => {
+    // Codex, on #841: the provider keeps its last status when a later fetch fails, so at 07:00 the
+    // status taken at 02:00 is still the one in hand. Believed, it named Thursday as the night in
+    // progress all Friday. At its end the answer is the calendar's, which by then is the backend's.
+    expect(resolveAuroraNight(TAKEN_BEFORE_DAWN, new Date('2026-08-14T03:04:59Z'))).toBe('2026-08-13');
+    expect(resolveAuroraNight(TAKEN_BEFORE_DAWN, new Date('2026-08-14T03:05:00Z'))).toBe('2026-08-14');
+    expect(resolveAuroraNight(TAKEN_BEFORE_DAWN, new Date('2026-08-14T18:00:00Z'))).toBe('2026-08-14');
+  });
+
+  it('judges the end by the real clock when not handed one — as App and the map call it', () => {
+    freeze('2026-08-14T06:00:00Z');
+
+    expect(resolveAuroraNight(TAKEN_BEFORE_DAWN)).toBe('2026-08-14');
+  });
+
+  it('believes a status that carries no end, as before the field existed', () => {
+    // A backend deployed before `currentNightEndsAt`: nothing to judge by, so the pre-field answer —
+    // which `isNightOver` still believes only as yesterday (its own tests pin that bound).
+    freeze('2026-08-14T06:00:00Z');
+
+    expect(resolveAuroraNight({ currentNightDate: '2026-08-13' })).toBe('2026-08-13');
+    expect(resolveAuroraNight({ currentNightDate: '2026-08-13', currentNightEndsAt: null })).toBe('2026-08-13');
+  });
+
+  it('does not believe a status whose end it cannot read', () => {
+    freeze(BST_SMALL_HOURS);
+
+    expect(resolveAuroraNight({ currentNightDate: '2026-08-13', currentNightEndsAt: 'at dawn' }))
+      .toBe('2026-08-14');
+  });
+
   it('falls back to the UK date when there is no status at all', () => {
     // A LITE user gets null from the status endpoint, and so does a failed fetch. A calendar date is
     // the wrong answer for a night, but it is the same wrong answer the map gave before the field

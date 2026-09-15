@@ -1102,10 +1102,13 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   pane javadoc's horizon rationale rebutted here.
 - **D-14** (owner, 2026-09-14, after the series) A night row is offered only while its night is not
   over: tonight and later, plus the night in progress — yesterday's date between UK midnight and
-  dawn, named by the backend's `currentNightDate` and believed only as yesterday, since a status kept
-  past a failed fetch can name an older night. Both available-date endpoints answer with every night
-  ever stored and nothing prunes either table, so P6 as built opened the list on that whole history:
-  bare weekday labels with no month, a "—" best, and a `‹` that walked back into it. The past-dated
+  dawn, named by the backend's `currentNightDate`. A status is kept past a failed fetch, so it can
+  outlive its night: it is believed only until `currentNightEndsAt`, the instant its night ends,
+  which the backend sends with it (Codex, #841; the status provider re-renders the page once that
+  instant has passed), and a status without that field only as yesterday. Both available-date
+  endpoints answer with every night ever stored and nothing prunes either table, so P6 as built
+  opened the list on that whole history: bare weekday labels with no month, a "—" best, and a `‹`
+  that walked back into it. The past-dated
   rows D-14 keeps are in the preview fetch too, so they carry a best and a time.
   `mapDates.isNightOver` is the one answer to "is this night over": `resolveMapDate` reads it for a
   night the reader chose, and `mapEvents.isForwardableRow` for which picked rows are handed to `App` —
@@ -1290,9 +1293,12 @@ Recorded so a later reader sees decisions, not accidents (the plan-matrix §4 id
   rather than dawn. `currentNightDate` is astronomy, not premium data: serving it on a payload every
   role reads (the astro available-dates response, or a small endpoint of its own) and letting
   `resolveAuroraNight` fall back to it before the calendar would give every role the same answer and
-  keep the list and `resolveMapDate` on one rule. Considered in D-14's review and not taken: judging an
-  astro night by its rows' served `nightEnd` instead, since `currentNightDate`'s own javadoc forbids
-  deciding the night in progress by any other means.
+  keep the list and `resolveMapDate` on one rule. ⚠️ It must travel with `currentNightEndsAt`, and be
+  judged by it the way the status is: the map fetches the available-dates response once per mount,
+  so a date served there alone would name last night all day after the first dawn in a long-lived
+  tab — the defect Codex found on #841, moved to LITE. Considered in D-14's review and not taken:
+  judging an astro night by its rows' served `nightEnd` instead, since `currentNightDate`'s own
+  javadoc forbids deciding the night in progress by any other means.
 - **O-22** A scheduled astro producer — O-9's twin. `astro_conditions` is written only as a side
   effect of hand-started synchronous colour runs (`ForecastCommandExecutor`); no job writes it. Since
   D-14 hides nights that are over, a day past the last such run's horizon has no astro row on the tab,

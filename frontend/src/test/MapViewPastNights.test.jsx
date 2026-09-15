@@ -138,6 +138,8 @@ const THURSDAY_LATE = '2026-08-13T22:30:00Z';
 const FRIDAY_JUST_AFTER_MIDNIGHT = '2026-08-13T23:30:00Z';
 /** 02:00 BST on Friday — Thursday's night is still running until dawn. */
 const FRIDAY_SMALL_HOURS = '2026-08-14T01:00:00Z';
+/** 04:05 BST on Friday — nautical dawn at the backend's reference point, where Thursday's night ends. */
+const FRIDAY_DAWN = '2026-08-14T03:05:00Z';
 /** 07:00 BST on Friday — past dawn, so the backend's night in progress has moved on. */
 const FRIDAY_AFTER_DAWN = '2026-08-14T06:00:00Z';
 /** 13:00 BST on Friday. */
@@ -302,7 +304,7 @@ describe('MapView — D-14: the window list offers no night that is over', () =>
 
   it('offers the night in progress in the small hours — the one past date still on', async () => {
     vi.setSystemTime(new Date(FRIDAY_SMALL_HOURS));
-    auroraStatusRef.current = { level: 'QUIET', currentNightDate: THURSDAY };
+    auroraStatusRef.current = { level: 'QUIET', currentNightDate: THURSDAY, currentNightEndsAt: FRIDAY_DAWN };
     await renderMap(baseProps());
 
     expect(nightIdsOf(optionIds(await openWindowList()))).toEqual([
@@ -353,6 +355,21 @@ describe('MapView — D-14: the window list offers no night that is over', () =>
       `astro:${FRIDAY}:ASTRO`, `aur:${FRIDAY}:AURORA`, `astro:${SATURDAY}:ASTRO`,
     ]);
   });
+
+  it('does not believe a status past the end of its own night — the polls failing across dawn', async () => {
+    // Codex, on #841: with every fetch since failing, the status in hand at 07:00 is the one taken at
+    // 02:00, still naming Thursday as the night in progress — and yesterday is the one date
+    // `isNightOver` believes that for, so Thursday stayed in the list all Friday. The status now
+    // carries the instant its night ends. The small-hours case above, on the same status before that
+    // instant, is the control: Thursday is offered there.
+    auroraStatusRef.current = { level: 'QUIET', currentNightDate: THURSDAY, currentNightEndsAt: FRIDAY_DAWN };
+    vi.setSystemTime(new Date(FRIDAY_AFTER_DAWN));
+    await renderMap(baseProps());
+
+    expect(nightIdsOf(optionIds(await openWindowList()))).toEqual([
+      `astro:${FRIDAY}:ASTRO`, `aur:${FRIDAY}:AURORA`, `astro:${SATURDAY}:ASTRO`,
+    ]);
+  });
 });
 
 describe('MapView — D-14: how a night ends while the reader is on it', () => {
@@ -378,6 +395,29 @@ describe('MapView — D-14: how a night ends while the reader is on it', () => {
     await rerenderMap(result, props, 1, MapUnderAppClamp);
 
     // App refused the ended night and fell back to today, so the map is on Friday's aurora night.
+    expectPillNaming(/Tonight/);
+    expect(nightIdsOf(optionIds(await openWindowList()))).not.toContain(`aur:${THURSDAY}:AURORA`);
+  });
+
+  it('moves the map on at dawn even when no status lands after it — the one from 02:00 is still in hand', async () => {
+    // The same ending with every fetch since 02:00 failing, so the status in hand at 07:00 still
+    // names Thursday. App used to take it at its word and hold the map on Thursday's night all
+    // Friday. The rerender stands in for the provider's own re-render at the night's end, which
+    // `AuroraStatusContext.test.jsx` pins; this file's status hook is a stub.
+    auroraStatusRef.current = { level: 'QUIET', currentNightDate: THURSDAY, currentNightEndsAt: FRIDAY_DAWN };
+    vi.setSystemTime(new Date(FRIDAY_SMALL_HOURS));
+    const onSelectDate = vi.fn();
+    const props = baseProps({ forecastDates: [THURSDAY, FRIDAY, SATURDAY], onSelectDate });
+    delete props.date;
+    const result = await renderMap(props, MapUnderAppClamp);
+    await pick(await openWindowList(), `aur:${THURSDAY}:AURORA`);
+
+    expect(onSelectDate).toHaveBeenCalledWith(THURSDAY, { isNight: true });
+    expectPillNaming(/Thursday night/);
+
+    vi.setSystemTime(new Date(FRIDAY_AFTER_DAWN));
+    await rerenderMap(result, props, 1, MapUnderAppClamp);
+
     expectPillNaming(/Tonight/);
     expect(nightIdsOf(optionIds(await openWindowList()))).not.toContain(`aur:${THURSDAY}:AURORA`);
   });

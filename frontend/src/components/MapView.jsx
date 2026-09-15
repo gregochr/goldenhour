@@ -1615,7 +1615,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const { status: auroraStatus } = useAuroraStatus();
   // The night aurora results are keyed to — from the backend, which owns the dusk/dawn rule.
   // Falls back to the local calendar date when status is absent (LITE, failed fetch, or a backend
-  // older than the field), which is the behaviour this replaced.
+  // older than the field), which is the behaviour this replaced — and once a status the provider is
+  // still holding has passed its night's end (`currentNightEndsAt`). So at that end the live
+  // state below moves onto tonight's night, with whatever that held status says, as it does when a
+  // fresh status lands at dawn.
   const auroraNight = resolveAuroraNight(auroraStatus);
   /**
    * Whether the LIVE aurora state answers for the night on screen — the night in progress, and no

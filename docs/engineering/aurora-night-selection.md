@@ -163,7 +163,9 @@ is what was done and, as importantly, what was deliberately left alone.
 **The frontend does not derive the night; it is told.** `AuroraStatusResponse` gained a
 `currentNightDate` component, populated in `AuroraController.getStatus()` from
 `AuroraForecastRunService.currentNightDate()` — the same method, widened from package-private to
-public and otherwise untouched. `GET /api/aurora/status` was chosen over the three alternatives
+public and otherwise untouched. (Since 2026-09-14 the controller reads `currentNight()` instead: the
+same rule, returning the date with the instant its night ends — see the degrade path below.)
+`GET /api/aurora/status` was chosen over the three alternatives
 because `AuroraStatusProvider` already fetches it app-wide, so both `App.jsx` and `MapView.jsx` read
 the night at the cost of **zero new requests**. The rejected options, and why:
 
@@ -219,7 +221,14 @@ calendar fallback is a real loss: a LITE reader can no longer reach the astro ni
 over them between UK midnight and dawn, which the old unclipped list offered. The owner accepted it;
 the exit is a night-in-progress signal LITE can read (§6 O-21). And "a failed fetch" means a *first*
 one: after a success the status provider keeps the last status on failure, so the value can go stale
-rather than fall back — which is why `mapDates.isNightOver` believes it only as yesterday.
+rather than fall back. A status taken before dawn went on naming yesterday's night all day (Codex,
+#841), so the status now also carries `currentNightEndsAt` — the instant its night ends, from the
+same read of the clock as the date (`AuroraForecastRunService.currentNight()`) — and
+`resolveAuroraNight` believes the date only until then. The provider re-renders the page once the end
+has passed — at it while the device is awake, within a minute of waking if it slept through it —
+because while the polls fail the status never changes, and the memoised map would not ask again.
+`mapDates.isNightOver` still believes a night in progress only as yesterday, which is what bounds a
+payload without the field.
 
 **What was checked and left alone.** `useForecasts.js` (a 7-day backward outcomes window, where a
 one-day edge is immaterial and the question is a different one), `JobRunsMetricsView`,

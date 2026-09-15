@@ -212,16 +212,41 @@ export function ukDayOffset(dateStr, now = new Date()) {
  * is "no worse than before" rather than a guess. ⚠️ Not so for the Map tab's night list, which
  * {@link isNightOver} clips on this value — see that function for what LITE loses.
  *
- * <p>⚠️ A fetch that fails AFTER one succeeded is a different case: the status provider keeps the
- * last status, so this returns that status's night, however old it has become.
- * {@link isNightOver} believes it only as yesterday for that reason.
+ * <p>⚠️ <b>A status can outlive its night, so it carries its own end, and is believed only until
+ * then.</b> A fetch that fails AFTER one succeeded leaves the status provider holding the last
+ * status, and a status taken before dawn went on naming yesterday's night as the one in progress for
+ * the rest of the day — yesterday being the one past date {@link isNightOver} believes it for (Codex,
+ * #841). So the backend sends {@code currentNightEndsAt}, the instant its night stops being current,
+ * taken from the same read of its clock as the date. From that instant this is the calendar answer,
+ * which from dawn to the next UK midnight is the backend's own. The provider re-renders the tree once
+ * the end has passed (within a minute of waking, if the device slept through it), because while the
+ * polls fail the status never changes and the memoised map would not ask this again.
+ *
+ * <p>A payload with no end, from a backend deployed before the field, is believed as before and
+ * still bounded to yesterday by {@link isNightOver}; an end that does not parse is not believed. The
+ * comparison is against this device's clock, so a clock running fast ends the night early, and one
+ * running slow ends it late, by as much as it is off.
  *
  * @param {object|null} auroraStatus - the shared aurora status payload, or null
- * @param {Date} [now]               - the instant behind the fallback; injectable for tests
+ * @param {Date} [now]               - the instant to judge by, and behind the fallback; injectable
+ *   for tests
  * @returns {string} the current night's date as YYYY-MM-DD
  */
 export function resolveAuroraNight(auroraStatus, now = new Date()) {
-  return auroraStatus?.currentNightDate ?? ukDateStr(now);
+  const night = auroraStatus?.currentNightDate;
+  return night && isStillCurrent(auroraStatus.currentNightEndsAt, now) ? night : ukDateStr(now);
+}
+
+/**
+ * Whether a status's night is still the current one at {@code now}: before its end, or with no end to
+ * judge by. {@code Date.parse} answers NaN for an end it cannot read, which compares false.
+ *
+ * @param {?string} endsAt the status's {@code currentNightEndsAt}, an ISO instant
+ * @param {Date} now
+ * @returns {boolean}
+ */
+function isStillCurrent(endsAt, now) {
+  return endsAt == null || now.getTime() < Date.parse(endsAt);
 }
 
 /**
@@ -242,7 +267,9 @@ export function resolveAuroraNight(auroraStatus, now = new Date()) {
  * progress, via {@link resolveAuroraNight} — is what says so. ⚠️ <b>It is believed only when it is
  * yesterday.</b> The backend names today or yesterday and nothing else, but the status provider keeps
  * the last status when a later fetch fails, so a stale value can name an older night — which,
- * believed, came back to the head of the Map tab's list.
+ * believed, came back to the head of the Map tab's list. {@link resolveAuroraNight} now drops a status
+ * once its own night has ended, which covers the stale yesterday too; this bound still holds for a
+ * payload that carries no end.
  *
  * <p>⚠️ <b>With no {@code nightDate} this is the calendar answer, and for the night list that is a
  * real loss, not a neutral degrade.</b> LITE gets no aurora status, so yesterday's night counts as
