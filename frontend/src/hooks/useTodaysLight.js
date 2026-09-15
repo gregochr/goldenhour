@@ -7,8 +7,9 @@ import { ukDateStr } from '../utils/mapDates.js';
  *
  * <p>Sun times change once per day, so there is no poll. Two things move them, and both are events
  * rather than intervals. The user saving a different home postcode, which is what `settingsVersion`
- * is for — `App.jsx` already bumps a counter when the settings modal closes, so the rule lights up
- * without a reload. And the UK civil day turning over: this is a planning dashboard, a tab left open
+ * is for — `App.jsx` bumps a counter each time the settings dialog saves a change to the home, so
+ * the rule lights up without a reload. And the UK civil day turning over: this is a planning
+ * dashboard, a tab left open
  * from one evening to the next morning is an ordinary way to use it, and a mount-only fetch left
  * yesterday's gradient and yesterday's clock times on screen under a label that names only the
  * postcode — nothing on the band carries a date, so there was no way to tell. Checked when the tab

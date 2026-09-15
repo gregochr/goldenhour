@@ -169,16 +169,19 @@ function AppInner() {
   // Non-null when the settings dialog was opened to land on a particular field — currently only
   // the map control's "you have no postcode" branch, which exists to point at exactly that input.
   const [settingsFocus, setSettingsFocus] = useState(null);
-  // Bumped when the settings modal closes, so Close to home refetches after a postcode or radius
-  // change. A counter rather than the values themselves: the panel depends on server-side state
-  // this component never sees.
+  // Bumped each time the settings dialog saves a change to the home — a new postcode, or a
+  // drive-time recalculation — and never on a close alone. Everything keyed on it (the Plan
+  // provider's reach and settings fetches, the masthead's light) drops the request a newer bump
+  // supersedes, which is only right while every bump is a real change: when a close that saved
+  // nothing bumped it too, that close superseded a save's own, correct answer. A counter rather
+  // than the values themselves: its readers depend on server-side state this component never sees.
   const [homeSettingsVersion, setHomeSettingsVersion] = useState(0);
   /**
    * Today's light at the reader's home, for the window-first masthead's light rule.
    *
    * <p>Resolved here rather than inside the shell so the shell stays a render layer.
-   * `homeSettingsVersion` is the same counter Close to home already refetches on, so saving a
-   * postcode lights the rule without a reload.
+   * `homeSettingsVersion` is the counter the Plan provider's reach and settings fetches refetch on
+   * too, so saving a postcode lights the rule without a reload.
    */
   const todaysLight = useTodaysLight(homeSettingsVersion);
 
@@ -723,11 +726,11 @@ function AppInner() {
             setShowSettings(false);
             setSettingsFocus(null);
             loadHomeCoords();
-            // Close to home is derived from the home postcode AND the local radius, both editable
-            // in this modal, so bump a version the panel can depend on. Without it a widened
-            // radius appeared to do nothing until a full page reload.
-            setHomeSettingsVersion((v) => v + 1);
           }}
+          // The home counter moves on the save itself, never on the close: see its declaration.
+          // The dialog reports from the save's own continuation, so a save still in flight when the
+          // dialog closes moves the counter when it lands.
+          onHomeChanged={() => setHomeSettingsVersion((v) => v + 1)}
           onDriveTimesRefreshed={refresh}
         />
       )}

@@ -190,9 +190,10 @@ function selectUpcomingEvents(briefing) {
  *
  * @param {object} props
  * @param {React.ReactNode} props.children the v2 subtree
- * @param {number} [props.homeSettingsVersion] bumped by {@code App} on every close of the settings
- *        dialog, saved or not. It is the only invalidation signal the reach and settings fetches
- *        have — see the effects below.
+ * @param {number} [props.homeSettingsVersion] bumped by {@code App} each time the settings dialog
+ *        saves a change to the home — a new postcode, or a drive-time recalculation — and never on
+ *        a close alone. It is the only invalidation signal the reach and settings fetches have —
+ *        see the effects below.
  */
 export function WindowFirstBriefingProvider({
   children, homeSettingsVersion, locations = EMPTY_ARRAY,
@@ -401,8 +402,9 @@ export function WindowFirstBriefingProvider({
    * state as a user with no home postcode, which is the normal first run — so the failure mode is a
    * strip with no reach lines rather than a strip with none, and the footer's own sentence stops
    * naming drive time. A later rejection leaves the previous answer standing (below): after a move
-   * of home, figures measured from the old one. Known, and left as it was — clearing instead would
-   * also blank the figures on every failed refetch that changed nothing.
+   * of home, figures measured from the old one. Known, and left as it was. Now that the counter
+   * moves only on a save, every refetch follows a real change — which is the case for clearing
+   * instead, and an open decision rather than one this effect takes.
    *
    * <p><b>{@code homeSettingsVersion}, not a bare {@code []}.</b> An empty dep list on a
    * proximity fetch has already cost this app once: a user who widened their radius saw the block
@@ -411,25 +413,26 @@ export function WindowFirstBriefingProvider({
    * {@code UserSettingsModal} is its SIBLING in {@code App} — so saving a postcode re-renders but
    * never remounts, and the first-run user who sets one would
    * watch every reach line stay absent indefinitely. The counter {@code App} already keeps for
-   * exactly this is the signal; it also gives a boot-time failure a way back, which the swallowed
-   * rejection above otherwise makes permanent for the session.
+   * exactly this is the signal. It is also a boot-time failure's only way back short of a reload,
+   * and since it moves only on a save (below), that failure now waits for the next one.
    *
    * <p><b>Only the newest request may write, so the effect's cleanup drops the one it
-   * supersedes.</b> The previous request — the mount's own, or the last close's — can still be out
-   * when the counter moves, on a connection slow enough to outlast a trip through the dialog. It
-   * answers a question the close may since have changed (drive times measured before the latest home
-   * or recalculation), so it is dropped wherever it lands, first or last. Landing last, it used to
-   * win: a first-run reader who had just saved a postcode got the pre-postcode answer back and every
-   * reach line went absent again — the "setting appeared to do nothing" this counter exists to cure.
+   * supersedes.</b> The previous request — the mount's own, or the last save's — can still be out
+   * when the counter moves: a postcode saved soon after the page loads, or drive times recalculated
+   * soon after a new postcode, on a slow connection. It answers a question the save has since
+   * changed (drive times measured before the latest home or recalculation), so it is dropped
+   * wherever it lands, first or last. Landing last, it used to win: a first-run reader who had just
+   * saved a postcode got the pre-postcode answer back and every reach line went absent again — the
+   * "setting appeared to do nothing" this counter exists to cure.
    *
-   * <p>⚠️ <b>That has a price, accepted rather than missed.</b> The counter moves on every close,
-   * saved or not, so a superseded request is not always stale: save a new home, close, then reopen
-   * and dismiss the dialog before the save's answer lands, and that correct answer is dropped — the
-   * old home's figures stand until the newest request answers, and past it if that one fails.
-   * Ordering by request number instead (applying anything newer than the answer on screen) would
-   * keep that answer, but would also let a superseded answer fill in after the newest one failed —
-   * the old home's figures, where nothing was on screen yet. This effect cannot tell a close that
-   * saved from one that did not; only {@code App} could, by moving the counter on a save alone.
+   * <p>⚠️ <b>The counter moves only on a save, and that is what makes dropping right.</b> It used to
+   * move on every close of the dialog, saved or not, so a superseded request was not always stale:
+   * save a new home, close, then reopen and dismiss the dialog before the save's answer landed, and
+   * that correct answer was dropped — the old home's figures stood until the newest request
+   * answered. Ordering by request number would have kept it, but would also let a superseded answer
+   * fill in after the newest one failed — the old home's figures, where nothing was on screen yet.
+   * Moving the counter only on a save removes the case instead: for this fetch every move changes
+   * the answer, since a new postcode and a recalculation both change the figures.
    *
    * <p>⚠️ <b>Which form a reader meets depends on the engine and on how long the older request stays
    * out</b> (measured 2026-09-14 with a local probe on these no-store headers). WebKit and Firefox
@@ -439,10 +442,11 @@ export function WindowFirstBriefingProvider({
    * land LAST as in the other two; with its cache disabled through the DevTools protocol, Chrome
    * sends both at once. A race you cannot reproduce in Chrome is not a guard with nothing to do.
    *
-   * <p>Nothing is cleared when the counter moves. It moves on every close, saved or not, so a clear
-   * would blank every reach line for a round trip each time the dialog was dismissed; the previous
-   * answer stands until the newest one replaces it. {@code useTodaysLight}, on the same counter,
-   * does the same.
+   * <p>Nothing is cleared when the counter moves: the previous answer stands until the newest one
+   * replaces it, as {@code useTodaysLight} does on the same counter. Every move is a real change
+   * now, so that answer is stale by then; the move happens while the dialog is still open, so the
+   * newest answer has usually landed before the reader is looking again. Whether to clear instead
+   * is the same open decision as a failed refetch's, above.
    */
   useEffect(() => {
     let cancelled = false;
@@ -505,15 +509,14 @@ export function WindowFirstBriefingProvider({
    * that is {@code null}, and the tick line put "Set a postcode" back in front of the reader who had
    * just set one. Its FAILURE landing last put both fields back to {@code undefined} — the tick line
    * lost the place (a bare "Home", or "Set a postcode" while the light still held a pre-save
-   * {@code null}), and the Coming up badge disappeared until the next settings fetch: the dialog's
-   * next close, or a reload.
+   * {@code null}), and the Coming up badge disappeared until the next settings fetch.
    *
-   * <p>The reach fetch's price is paid here too, and in Chrome it is the only form this answer guard
-   * can take: the dialog's own {@code GET /api/user/settings} queues behind any earlier one, and no
-   * save can be made until it answers, so within the lock's 20 s no pre-save settings request can
-   * still be out at a save. What the guard drops there was superseded by a close that saved nothing —
-   * the same home, and at most an older last-seen date. The failure guard earns its place on every
-   * engine.
+   * <p>One narrow case is left, because a drive-time recalculation moves the counter too and does
+   * not change this answer: if one completes while the postcode save's own settings request is still
+   * out, that correct answer is dropped and the pre-save home stands until the recalculation's
+   * request answers — a round trip, and only on a connection slow enough for the save's request to
+   * outlast a server-side recalculation. A counter per question would close it; a test pins it
+   * instead, so closing it is a decision.
    */
   useEffect(() => {
     let cancelled = false;

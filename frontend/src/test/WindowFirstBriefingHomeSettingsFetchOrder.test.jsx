@@ -1,14 +1,14 @@
 /**
  * `WindowFirstBriefingProvider` — the reach and the home on screen answer the newest request made
- * for each, and a request the settings dialog has since superseded writes nothing, whenever it lands.
+ * for each, and a request a newer home save has superseded writes nothing, whenever it lands.
  *
  * <h2>The defect this pins</h2>
  *
  * <p>`GET /api/user/settings/reach` and `GET /api/user/settings` are each asked on mount and again
- * whenever `homeSettingsVersion` moves — which `App` does on every close of the settings dialog,
- * saved or not. Neither effect had a cleanup, so with two requests out at once (the mount's own and
- * a close's, or two closes', on a connection slow enough to outlast a trip through the dialog) the
- * one that LANDED last won, not the one ASKED last:
+ * whenever `homeSettingsVersion` moves — which `App` does each time the settings dialog saves a
+ * change to the home: a new postcode, or a drive-time recalculation. Neither effect had a cleanup,
+ * so with two requests out at once (the mount's own and a save's, or two saves' — a move, then a
+ * recalculation — on a slow connection) the one that LANDED last won, not the one ASKED last:
  *
  * <ul>
  *   <li>An older reach answer put drive times measured before the latest save back on every spot —
@@ -27,25 +27,26 @@
  * trip, and can land LAST after that — which is why the reach "lands FIRST" test is no corner case.
  * The settings fetch's are narrower in Chrome: the dialog's own `GET /api/user/settings` queues
  * behind any request to that URL still out, and nothing can be saved until it answers, so within the
- * 20 s a pre-save home cannot still be out at the close that follows a save.
+ * 20 s a pre-save home cannot still be out when a save moves the counter.
  *
- * <h2>Why the effect cleanup, what it costs, and which tests say so</h2>
+ * <h2>Why the effect cleanup, and which tests say so</h2>
  *
  * <p>This is the other shape of the race the polled briefing and ratings fetches have. A poll re-asks
  * the SAME question, so an older answer landing on its own is still the freshest there is, and the
  * right guard there drops only what is older than the answer already applied. Here a newer request
- * follows a close of the dialog, so the older one answers a question that may since have changed —
- * the owner's call was to treat it as superseded outright and drop it wherever it lands. The two
- * rules part company wherever the superseded request settles while nothing newer than it has been
- * applied: its answer landing FIRST, its answer landing after the newest request FAILED, and — for
- * the settings fetch, whose `.catch` writes — its failure landing first. A guard that drops only what
- * is older than the applied answer lets all three through; each has a test here.
+ * follows a save that changed the home, so the older one answers a question that has since changed
+ * — it is superseded outright, and dropped wherever it lands. The two rules part company wherever the
+ * superseded request settles while nothing newer than it has been applied: its answer landing FIRST,
+ * its answer landing after the newest request FAILED, and — for the settings fetch, whose `.catch`
+ * writes — its failure landing first. A guard that drops only what is older than the applied answer
+ * lets all three through; each has a test here.
  *
- * <p>⚠️ The cost is pinned too, by the test marked "the accepted price". The counter moves on every
- * close, saved or not, so a superseded request is not always stale: a close that saved nothing still
- * supersedes the save's own answer, and the pre-save state stands until the newest request answers.
- * The provider cannot tell the two closes apart; that test exists so that a change to the rule is a
- * decision rather than an accident.
+ * <p>⚠️ Dropping is only right while every move of the counter is a real change, and it was not
+ * always: the counter used to move on every close of the dialog, saved or not, so a close that saved
+ * nothing superseded a save's own correct answer. `App` now moves it on a save alone (pinned in
+ * `App.test.jsx` and `UserSettingsModal.test.jsx`). One narrow case is left, and the test marked "the
+ * remaining price" pins it: a recalculation moves the counter too and does not change the settings
+ * answer.
  *
  * <h2>Why a probe, not a real consumer</h2>
  *
@@ -98,6 +99,8 @@ const reachAnswer = (driveMinutes, distanceMiles) => [
  */
 const REACH_BEFORE_A_POSTCODE = reachAnswer(null, null);
 const REACH_FROM_MORPETH = reachAnswer(41, 19);
+/** Just after a move: the backend clears stored drive times, so only the distance is known. */
+const REACH_KESWICK_BEFORE_RECALCULATION = reachAnswer(null, 104);
 const REACH_FROM_KESWICK = reachAnswer(138, 104);
 
 /**
@@ -172,10 +175,11 @@ async function mountAt(version) {
 }
 
 /**
- * The settings dialog closes: `App` bumps the counter and re-renders the provider WITHOUT remounting
- * it — the dialog is its sibling — so both effects re-run and each asks again.
+ * The settings dialog saves a change to the home — a new postcode, or a drive-time recalculation:
+ * `App` bumps the counter and re-renders the provider WITHOUT remounting it — the dialog is its
+ * sibling — so both effects re-run and each asks again.
  */
-async function dialogClosed(result, version) {
+async function homeSaved(result, version) {
   await act(async () => { result.rerender(tree(version)); });
 }
 
@@ -222,17 +226,17 @@ describe('WindowFirstBriefingProvider — reach answers the newest request, not 
     // A first-run reader saves a postcode while the mount's request, asked before there was one, is
     // still out — and that one lands last.
     const mountAnswer = deferred();
-    const closeAnswer = deferred();
+    const saveAnswer = deferred();
     getReach
       .mockReturnValueOnce(mountAnswer.promise)
-      .mockReturnValueOnce(closeAnswer.promise);
+      .mockReturnValueOnce(saveAnswer.promise);
 
     const result = await mountAt(0);
-    await dialogClosed(result, 1);
+    await homeSaved(result, 1);
     // Both requests really are out at once — without that there is no race to lose.
     expect(getReach).toHaveBeenCalledTimes(2);
 
-    await land(() => closeAnswer.resolve(REACH_FROM_MORPETH));
+    await land(() => saveAnswer.resolve(REACH_FROM_MORPETH));
     // Control: the newest answer is applied.
     expect(screen.getByTestId('reach')).toHaveTextContent(reachShown(REACH_FROM_MORPETH));
 
@@ -243,60 +247,60 @@ describe('WindowFirstBriefingProvider — reach answers the newest request, not 
     expect(screen.getByTestId('reach')).toHaveTextContent(reachShown(REACH_FROM_MORPETH));
   });
 
-  it('drops the last close\'s answer when it lands after the next close\'s — the drive times are from the new home', async () => {
-    // The other source of a superseded request: not the mount's, but the previous close's. The
-    // reader closes the dialog, reopens it, moves home and closes it again, inside one slow round
-    // trip — and the first close's answer, still measured from the old house, lands last.
-    const firstClose = deferred();
-    const secondClose = deferred();
+  it('drops the move\'s answer when it lands after the recalculation\'s — the drive times stay recalculated', async () => {
+    // The other source of a superseded request: not the mount's, but an earlier save's. The reader
+    // moves home and at once recalculates their drive times, inside one slow round trip — and the
+    // move's answer, from before the recalculation, lands last.
+    const moveAnswer = deferred();
+    const recalcAnswer = deferred();
     getReach
       .mockResolvedValueOnce(REACH_FROM_MORPETH)
-      .mockReturnValueOnce(firstClose.promise)
-      .mockReturnValueOnce(secondClose.promise);
+      .mockReturnValueOnce(moveAnswer.promise)
+      .mockReturnValueOnce(recalcAnswer.promise);
 
     const result = await mountAt(0);
     expect(screen.getByTestId('reach')).toHaveTextContent(reachShown(REACH_FROM_MORPETH));
-    await dialogClosed(result, 1);
-    await dialogClosed(result, 2);
+    await homeSaved(result, 1); // moved to Keswick
+    await homeSaved(result, 2); // recalculated the drive times from it
     expect(getReach).toHaveBeenCalledTimes(3);
     // Nothing is cleared when the counter moves: until an answer lands, the mount's figures stand.
-    // A clear would blank every reach line for a round trip each time the dialog was dismissed.
     expect(screen.getByTestId('reach')).toHaveTextContent(reachShown(REACH_FROM_MORPETH));
 
-    await land(() => secondClose.resolve(REACH_FROM_KESWICK));
+    await land(() => recalcAnswer.resolve(REACH_FROM_KESWICK));
     // Control: the newest answer is applied.
     expect(screen.getByTestId('reach')).toHaveTextContent(reachShown(REACH_FROM_KESWICK));
 
-    await land(() => firstClose.resolve(REACH_FROM_MORPETH));
+    await land(() => moveAnswer.resolve(REACH_KESWICK_BEFORE_RECALCULATION));
 
-    // Still Keswick's. Broken, every spot's drive time — and the leave-by time a reader acts on —
-    // measured a journey from the house they had just told the app they no longer start from.
+    // Still the recalculated figures. Broken, the move's answer — distances only, no drive times —
+    // replaced them, and every drive time and leave-by line the reader had just paid a
+    // recalculation for went absent again.
     expect(screen.getByTestId('reach')).toHaveTextContent(reachShown(REACH_FROM_KESWICK));
   });
 
-  it('drops a superseded answer even when it lands FIRST — it answers a question the close has changed', async () => {
+  it('drops a superseded answer even when it lands FIRST — it answers a question the save has changed', async () => {
     // The first place the effect cleanup and a request-number guard part company, and the form
     // Chrome produces within its lock's 20 s — the dialog never asks for this URL, so nothing stops
     // a move while the mount's request is out. A number guard drops only what is older than the
     // answer already applied, so with nothing applied yet it would draw the old house's drive times
     // for as long as the newest request took.
     const mountAnswer = deferred();
-    const closeAnswer = deferred();
+    const moveAnswer = deferred();
     getReach
       .mockReturnValueOnce(mountAnswer.promise)
-      .mockReturnValueOnce(closeAnswer.promise);
+      .mockReturnValueOnce(moveAnswer.promise);
 
     const result = await mountAt(0);
-    await dialogClosed(result, 1); // the reader moved from Morpeth to Keswick
+    await homeSaved(result, 1); // the reader moved from Morpeth to Keswick
     expect(getReach).toHaveBeenCalledTimes(2);
 
     await land(() => mountAnswer.resolve(REACH_FROM_MORPETH));
-    // Nothing applied. Broken, Morpeth's drive times were drawn until Keswick's arrived.
+    // Nothing applied. Broken, Morpeth's drive times were drawn until Keswick's answer arrived.
     expect(screen.getByTestId('reach')).toHaveTextContent('none');
 
     // Control, settled through the same helper: the newest answer still lands and applies.
-    await land(() => closeAnswer.resolve(REACH_FROM_KESWICK));
-    expect(screen.getByTestId('reach')).toHaveTextContent(reachShown(REACH_FROM_KESWICK));
+    await land(() => moveAnswer.resolve(REACH_KESWICK_BEFORE_RECALCULATION));
+    expect(screen.getByTestId('reach')).toHaveTextContent(reachShown(REACH_KESWICK_BEFORE_RECALCULATION));
   });
 
   it('does not let a superseded answer stand in when the newest request fails', async () => {
@@ -304,20 +308,20 @@ describe('WindowFirstBriefingProvider — reach answers the newest request, not 
     // number guard would take the superseded answer that lands after it — the old house's drive
     // times, filling in for the new one's. With nothing on screen before, the map stays unknown
     // rather than wrong; with an earlier answer on screen it keeps that one (the provider's note on
-    // the price of the cleanup).
+    // a failed refetch, an open decision).
     const mountAnswer = deferred();
-    const closeAnswer = deferred();
-    const nextClose = deferred();
+    const moveAnswer = deferred();
+    const recalcAnswer = deferred();
     getReach
       .mockReturnValueOnce(mountAnswer.promise)
-      .mockReturnValueOnce(closeAnswer.promise)
-      .mockReturnValueOnce(nextClose.promise);
+      .mockReturnValueOnce(moveAnswer.promise)
+      .mockReturnValueOnce(recalcAnswer.promise);
 
     const result = await mountAt(0);
-    await dialogClosed(result, 1); // the reader moved from Morpeth to Keswick
+    await homeSaved(result, 1); // the reader moved from Morpeth to Keswick
     expect(getReach).toHaveBeenCalledTimes(2);
 
-    await land(() => closeAnswer.reject(new Error('502 from /api/user/settings/reach')));
+    await land(() => moveAnswer.reject(new Error('502 from /api/user/settings/reach')));
     expect(screen.getByTestId('reach')).toHaveTextContent('none');
 
     await land(() => mountAnswer.resolve(REACH_FROM_MORPETH));
@@ -325,10 +329,10 @@ describe('WindowFirstBriefingProvider — reach answers the newest request, not 
     // Still nothing. Broken, Morpeth's drive times filled in for Keswick's.
     expect(screen.getByTestId('reach')).toHaveTextContent('none');
 
-    // Control, settled through the same helper: the next close's answer lands and applies. Without
+    // Control, settled through the same helper: the next save's answer lands and applies. Without
     // it this test could not tell a dropped answer from a helper that never let one land.
-    await dialogClosed(result, 2);
-    await land(() => nextClose.resolve(REACH_FROM_KESWICK));
+    await homeSaved(result, 2); // recalculated the drive times
+    await land(() => recalcAnswer.resolve(REACH_FROM_KESWICK));
     expect(screen.getByTestId('reach')).toHaveTextContent(reachShown(REACH_FROM_KESWICK));
   });
 
@@ -339,16 +343,16 @@ describe('WindowFirstBriefingProvider — reach answers the newest request, not 
     // is a plausible one — which without the settings fetch's guard would let a superseded failure
     // wipe the newest answer. Mutation-checked against exactly that catch.
     const mountAnswer = deferred();
-    const closeAnswer = deferred();
+    const saveAnswer = deferred();
     getReach
       .mockReturnValueOnce(mountAnswer.promise)
-      .mockReturnValueOnce(closeAnswer.promise);
+      .mockReturnValueOnce(saveAnswer.promise);
 
     const result = await mountAt(0);
-    await dialogClosed(result, 1);
+    await homeSaved(result, 1);
     expect(getReach).toHaveBeenCalledTimes(2);
 
-    await land(() => closeAnswer.resolve(REACH_FROM_MORPETH));
+    await land(() => saveAnswer.resolve(REACH_FROM_MORPETH));
     // Control: the newest answer is applied.
     expect(screen.getByTestId('reach')).toHaveTextContent(reachShown(REACH_FROM_MORPETH));
 
@@ -366,16 +370,16 @@ describe('WindowFirstBriefingProvider — the home answers the newest request, n
 
   it('drops the mount\'s answer when it lands after a saved postcode\'s — the reader is not asked to set one', async () => {
     const mountAnswer = deferred();
-    const closeAnswer = deferred();
+    const saveAnswer = deferred();
     getSettings
       .mockReturnValueOnce(mountAnswer.promise)
-      .mockReturnValueOnce(closeAnswer.promise);
+      .mockReturnValueOnce(saveAnswer.promise);
 
     const result = await mountAt(0);
-    await dialogClosed(result, 1);
+    await homeSaved(result, 1);
     expect(getSettings).toHaveBeenCalledTimes(2);
 
-    await land(() => closeAnswer.resolve(SETTINGS_MORPETH));
+    await land(() => saveAnswer.resolve(SETTINGS_MORPETH));
     // Control: the newest answer is applied, both fields.
     expect(homeShown()).toEqual(homeOf(SETTINGS_MORPETH));
 
@@ -392,20 +396,20 @@ describe('WindowFirstBriefingProvider — the home answers the newest request, n
     // `undefined` to both fields, so unguarded a superseded failure wiped a good answer back to
     // unknown — a bare "Home" on the tick line where it had just said "Home · Morpeth" (or "Set a
     // postcode", while the light still held a pre-save `null`), and no Coming up badge until the
-    // dialog next closed.
+    // next settings fetch.
     const mountAnswer = deferred();
-    const closeAnswer = deferred();
+    const saveAnswer = deferred();
     getSettings
       .mockReturnValueOnce(mountAnswer.promise)
-      .mockReturnValueOnce(closeAnswer.promise);
+      .mockReturnValueOnce(saveAnswer.promise);
 
     const result = await mountAt(0);
-    await dialogClosed(result, 1);
+    await homeSaved(result, 1);
     // The mount's request really is in flight — without it the rejection below would land on
     // nothing, and this test would pass having never reached a `.catch`.
     expect(getSettings).toHaveBeenCalledTimes(2);
 
-    await land(() => closeAnswer.resolve(SETTINGS_MORPETH));
+    await land(() => saveAnswer.resolve(SETTINGS_MORPETH));
     // Control: the newest answer is applied.
     expect(homeShown()).toEqual(homeOf(SETTINGS_MORPETH));
 
@@ -419,40 +423,40 @@ describe('WindowFirstBriefingProvider — the home answers the newest request, n
     // The same `.catch`, landing first. The superseded request is newer than the answer on screen —
     // the mount's — so a guard that drops only what is older than the applied answer would let this
     // failure clear it. The mount's answer stands until the newest replaces it.
-    const firstClose = deferred();
-    const secondClose = deferred();
+    const moveAnswer = deferred();
+    const recalcAnswer = deferred();
     getSettings
       .mockResolvedValueOnce(SETTINGS_MORPETH)
-      .mockReturnValueOnce(firstClose.promise)
-      .mockReturnValueOnce(secondClose.promise);
+      .mockReturnValueOnce(moveAnswer.promise)
+      .mockReturnValueOnce(recalcAnswer.promise);
 
     const result = await mountAt(0);
     expect(homeShown()).toEqual(homeOf(SETTINGS_MORPETH));
-    await dialogClosed(result, 1);
-    await dialogClosed(result, 2);
+    await homeSaved(result, 1); // moved to Keswick
+    await homeSaved(result, 2); // recalculated the drive times from it
     expect(getSettings).toHaveBeenCalledTimes(3);
 
-    await land(() => firstClose.reject(new Error('Network Error')));
+    await land(() => moveAnswer.reject(new Error('Network Error')));
 
     // Still Morpeth's. Broken, both fields went to `unknown` for as long as the newest request took.
     expect(homeShown()).toEqual(homeOf(SETTINGS_MORPETH));
 
     // Control, settled through the same helper: the newest answer lands and applies.
-    await land(() => secondClose.resolve(SETTINGS_KESWICK));
+    await land(() => recalcAnswer.resolve(SETTINGS_KESWICK));
     expect(homeShown()).toEqual(homeOf(SETTINGS_KESWICK));
   });
 
-  it('drops a superseded answer even when it lands FIRST — it answers a question the close has changed', async () => {
+  it('drops a superseded answer even when it lands FIRST — it answers a question the save has changed', async () => {
     // The WebKit and Firefox form; Chrome reaches it only past its lock's 20 s, since the dialog
     // cannot save while an older request to this URL is out.
     const mountAnswer = deferred();
-    const closeAnswer = deferred();
+    const moveAnswer = deferred();
     getSettings
       .mockReturnValueOnce(mountAnswer.promise)
-      .mockReturnValueOnce(closeAnswer.promise);
+      .mockReturnValueOnce(moveAnswer.promise);
 
     const result = await mountAt(0);
-    await dialogClosed(result, 1); // the reader moved from Morpeth to Keswick
+    await homeSaved(result, 1); // the reader moved from Morpeth to Keswick
     expect(getSettings).toHaveBeenCalledTimes(2);
 
     await land(() => mountAnswer.resolve(SETTINGS_MORPETH));
@@ -461,7 +465,7 @@ describe('WindowFirstBriefingProvider — the home answers the newest request, n
     expect(homeShown()).toEqual(UNKNOWN);
 
     // Control, settled through the same helper: the newest answer still lands and applies.
-    await land(() => closeAnswer.resolve(SETTINGS_KESWICK));
+    await land(() => moveAnswer.resolve(SETTINGS_KESWICK));
     expect(homeShown()).toEqual(homeOf(SETTINGS_KESWICK));
   });
 
@@ -471,18 +475,18 @@ describe('WindowFirstBriefingProvider — the home answers the newest request, n
     // name a home the reader has just left. A number guard would apply that answer, landing after
     // the failure.
     const mountAnswer = deferred();
-    const closeAnswer = deferred();
-    const nextClose = deferred();
+    const moveAnswer = deferred();
+    const recalcAnswer = deferred();
     getSettings
       .mockReturnValueOnce(mountAnswer.promise)
-      .mockReturnValueOnce(closeAnswer.promise)
-      .mockReturnValueOnce(nextClose.promise);
+      .mockReturnValueOnce(moveAnswer.promise)
+      .mockReturnValueOnce(recalcAnswer.promise);
 
     const result = await mountAt(0);
-    await dialogClosed(result, 1); // the reader moved from Morpeth to Keswick
+    await homeSaved(result, 1); // the reader moved from Morpeth to Keswick
     expect(getSettings).toHaveBeenCalledTimes(2);
 
-    await land(() => closeAnswer.reject(new Error('502 from /api/user/settings')));
+    await land(() => moveAnswer.reject(new Error('502 from /api/user/settings')));
     expect(homeShown()).toEqual(UNKNOWN);
 
     await land(() => mountAnswer.resolve(SETTINGS_MORPETH));
@@ -491,63 +495,62 @@ describe('WindowFirstBriefingProvider — the home answers the newest request, n
     // just moved to Keswick, on nothing more than a superseded answer.
     expect(homeShown()).toEqual(UNKNOWN);
 
-    // Control, settled through the same helper: the next close's answer lands and applies.
-    await dialogClosed(result, 2);
-    await land(() => nextClose.resolve(SETTINGS_KESWICK));
+    // Control, settled through the same helper: the next save's answer lands and applies.
+    await homeSaved(result, 2); // recalculated the drive times
+    await land(() => recalcAnswer.resolve(SETTINGS_KESWICK));
     expect(homeShown()).toEqual(homeOf(SETTINGS_KESWICK));
   });
 
   it('leaves the home unknown when the NEWEST request fails, even over an answer on screen', async () => {
     // The catch body's own policy, which no guard test reaches: a failed request is no evidence the
-    // home is unchanged — the close may have moved it — so both fields go to `undefined`, as they
+    // home is unchanged — the save may have moved it — so both fields go to `undefined`, as they
     // always have, rather than keeping the answer before. (The reach catch keeps its figures
     // instead; which is right there is an open decision, so that one is deliberately not pinned.)
-    const closeAnswer = deferred();
+    const saveAnswer = deferred();
     getSettings
       .mockResolvedValueOnce(SETTINGS_MORPETH)
-      .mockReturnValueOnce(closeAnswer.promise);
+      .mockReturnValueOnce(saveAnswer.promise);
 
     const result = await mountAt(0);
     expect(homeShown()).toEqual(homeOf(SETTINGS_MORPETH));
-    await dialogClosed(result, 1);
+    await homeSaved(result, 1);
     expect(getSettings).toHaveBeenCalledTimes(2);
-    // Nothing is cleared when the counter moves: until the close's request settles, the mount's
+    // Nothing is cleared when the counter moves: until the save's request settles, the mount's
     // answer stands.
     expect(homeShown()).toEqual(homeOf(SETTINGS_MORPETH));
 
-    await land(() => closeAnswer.reject(new Error('502 from /api/user/settings')));
+    await land(() => saveAnswer.reject(new Error('502 from /api/user/settings')));
 
     expect(homeShown()).toEqual(UNKNOWN);
   });
 
-  it('⚠️ the accepted price: a close that saved nothing still supersedes the save\'s own answer', async () => {
-    // The owner's design, pinned so that changing it is a decision: the counter moves on every
-    // close, saved or not, and the cleanup cannot tell the two apart. A first-run reader saves a
-    // postcode and closes, then reopens the dialog and dismisses it — the "Set a postcode" nudge is
-    // still up, so it looks as though the save did not take — and the save's own answer, landing
-    // first, is dropped. The no-home state stands until the dismissal's request answers. A
-    // request-number guard, or a rule that keeps a superseded answer newer than the one on screen,
-    // would show Morpeth a round trip sooner, and fails here.
+  it('⚠️ the remaining price: a drive-time recalculation supersedes the postcode save\'s own settings answer', async () => {
+    // A recalculation moves the counter too, and does not change this answer. So when one completes
+    // while the postcode save's settings request is still out, that correct answer is dropped and
+    // the pre-save state stands until the recalculation's request answers. Narrow — the save's
+    // request has to outlast a server-side recalculation — and closable only with a counter per
+    // question. Pinned so that closing it is a decision: so is a rule that keeps a superseded answer
+    // newer than the one on screen, which would show Morpeth a round trip sooner and fails here.
     const saveAnswer = deferred();
-    const dismissAnswer = deferred();
+    const recalcAnswer = deferred();
     getSettings
       .mockResolvedValueOnce(SETTINGS_NO_HOME)
       .mockReturnValueOnce(saveAnswer.promise)
-      .mockReturnValueOnce(dismissAnswer.promise);
+      .mockReturnValueOnce(recalcAnswer.promise);
 
     const result = await mountAt(0);
     expect(homeShown()).toEqual(homeOf(SETTINGS_NO_HOME));
-    await dialogClosed(result, 1); // saved Morpeth
-    await dialogClosed(result, 2); // reopened and dismissed, nothing saved
+    await homeSaved(result, 1); // saved Morpeth
+    await homeSaved(result, 2); // recalculated the drive times from it
     expect(getSettings).toHaveBeenCalledTimes(3);
 
     await land(() => saveAnswer.resolve(SETTINGS_MORPETH));
     // Dropped, though it was right: still the no-home answer the mount applied.
     expect(homeShown()).toEqual(homeOf(SETTINGS_NO_HOME));
 
-    // Control, settled through the same helper: the dismissal's own request carries the same saved
-    // home, and applies.
-    await land(() => dismissAnswer.resolve(SETTINGS_MORPETH));
+    // Control, settled through the same helper: the recalculation's request carries the same home,
+    // and applies.
+    await land(() => recalcAnswer.resolve(SETTINGS_MORPETH));
     expect(homeShown()).toEqual(homeOf(SETTINGS_MORPETH));
   });
 });

@@ -23,7 +23,7 @@ const ROLE_LABELS = {
 const DEFAULT_RADIUS_MILES = 22;
 
 export default function UserSettingsModal({
-  onClose, onDriveTimesRefreshed, focusField = null,
+  onClose, onDriveTimesRefreshed, onHomeChanged, focusField = null,
 }) {
   const [settings, setSettings] = useState(null);
   // Focused once settings have loaded, not on mount: the input is disabled for a LITE user and
@@ -134,6 +134,9 @@ export default function UserSettingsModal({
         lookupResult.longitude, radiusChosen ? radius : null);
       setSettings(updated);
       setLookupResult(null);
+      // Reported from here, not from the close: this continuation runs even if the dialog was
+      // closed while the save was in flight, so a save that lands late still moves the home counter.
+      onHomeChanged?.();
     } catch {
       // Save failed — leave lookup result visible for retry
     } finally {
@@ -206,6 +209,7 @@ export default function UserSettingsModal({
       setSettings((prev) => prev ? { ...prev, driveTimesCalculatedAt: result.calculatedAt } : prev);
       setDriveTimesPostcode(settings?.homePostcode ?? null);
       onDriveTimesRefreshed?.();
+      onHomeChanged?.();
     } catch (err) {
       const status = err?.response?.status;
       if (status === 429) {
@@ -514,6 +518,14 @@ export default function UserSettingsModal({
 UserSettingsModal.propTypes = {
   onClose: PropTypes.func.isRequired,
   onDriveTimesRefreshed: PropTypes.func,
+  /**
+   * Called after each save that changes what the Plan tab fetches about the reader's home — a new
+   * postcode, or a drive-time recalculation — and at no other time: not on a close, and not on a
+   * radius or map-colour save, which nothing keyed on the home counter reads. `App` moves that
+   * counter here; the fetches keyed on it drop any request a newer move supersedes, which is only
+   * right while every move is a real change.
+   */
+  onHomeChanged: PropTypes.func,
   /** Field to focus once settings load — `'postcode'`, or null to open normally. */
   focusField: PropTypes.oneOf(['postcode']),
 };

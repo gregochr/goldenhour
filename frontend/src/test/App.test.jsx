@@ -1,6 +1,8 @@
 import React from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, waitFor, fireEvent } from '@testing-library/react';
+import {
+  act, render, screen, waitFor, fireEvent, within,
+} from '@testing-library/react';
 import App from '../App.jsx';
 import * as briefingContext from '../context/WindowFirstBriefingContext.jsx';
 import * as scoreRamp from '../utils/scoreRamp.js';
@@ -74,7 +76,9 @@ vi.mock('../api/authApi.js', () => ({
 import { fetchForecasts, fetchLocations, fetchAllOutcomes } from '../api/forecastApi.js';
 import { getDailyBriefing } from '../api/briefingApi.js';
 import { getAllEvaluationScores } from '../api/briefingEvaluationApi.js';
-import { getSettings, getReach, getDriveTimes } from '../api/settingsApi.js';
+import {
+  getSettings, getReach, getDriveTimes, lookupPostcode, saveHome,
+} from '../api/settingsApi.js';
 import { fetchTravelDayRanges } from '../api/travelDayApi.js';
 import { getAuroraStatus } from '../api/auroraApi.js';
 import { getNlcSighting } from '../api/nlcApi.js';
@@ -224,6 +228,85 @@ describe('App — WindowFirstBriefingProvider wiring', () => {
     // The reach fetch's only invalidation signal: without it, a first-run user who saves a home
     // postcode watches every reach line stay absent until a full reload.
     expect(lastProps.homeSettingsVersion).toBe(0);
+  });
+});
+
+// ── The home settings counter ────────────────────────────────────────────────
+//
+// `homeSettingsVersion` moves when the settings dialog SAVES a change to the home, never on a close
+// alone. The provider's reach and settings fetches drop any request a newer move supersedes, so a
+// move that is not a real change throws away a correct answer: when every close moved it, saving a
+// postcode and then dismissing the dialog again before the save's answer landed dropped that answer.
+// These drive the real dialog and read the provider's props through the passthrough spy, and count
+// `getReach` — the provider is its only caller — to see whether the provider asked again.
+
+describe('App — the home settings counter moves on a save, never on a close', () => {
+  /** Opens the settings dialog from the masthead cog and waits for its own settings fetch. */
+  async function openSettings() {
+    fireEvent.click(await screen.findByRole('button', { name: 'Settings' }));
+    await screen.findByTestId('settings-postcode-input');
+    return screen.getByTestId('settings-modal');
+  }
+
+  /** The × in the dialog's header — its only control named "Close". */
+  function closeSettings(dialog) {
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Close' }));
+  }
+
+  const counter = (providerSpy) => providerSpy.mock.calls.at(-1)[0].homeSettingsVersion;
+
+  beforeEach(() => {
+    getSettings.mockResolvedValue({ role: 'PRO_USER', homePostcode: null, homePlaceName: null });
+    lookupPostcode.mockReset().mockResolvedValue({
+      postcode: 'NE61 1AA', placeName: 'Morpeth', latitude: 55.17, longitude: -1.69,
+    });
+    saveHome.mockReset().mockResolvedValue({
+      role: 'PRO_USER', homePostcode: 'NE61 1AA', homePlaceName: 'Morpeth',
+    });
+  });
+
+  it('leaves the counter where it is when the dialog closes with nothing saved', async () => {
+    const { providerSpy } = renderApp();
+    await screen.findByTestId('window-first-pane-empty');
+    // Control: the provider's mount request, the one reach request there should be.
+    await waitFor(() => expect(getReach).toHaveBeenCalledTimes(1));
+
+    closeSettings(await openSettings());
+    await waitFor(() => expect(screen.queryByTestId('settings-modal')).toBeNull());
+
+    expect(counter(providerSpy)).toBe(0);
+    // Broken, the close moved the counter and the provider asked again.
+    expect(getReach).toHaveBeenCalledTimes(1);
+  });
+
+  it('moves the counter once for a saved postcode, and not again when the dialog then closes', async () => {
+    let settleSave;
+    saveHome.mockReturnValue(new Promise((resolve) => { settleSave = resolve; }));
+    const { providerSpy } = renderApp();
+    await screen.findByTestId('window-first-pane-empty');
+    await waitFor(() => expect(getReach).toHaveBeenCalledTimes(1));
+
+    const dialog = await openSettings();
+    fireEvent.change(within(dialog).getByTestId('settings-postcode-input'), { target: { value: 'NE61 1AA' } });
+    fireEvent.click(within(dialog).getByTestId('settings-lookup-btn'));
+    fireEvent.click(await within(dialog).findByTestId('settings-save-home-btn'));
+    // Pressing Save moves nothing: the counter follows the save's answer, not the click.
+    expect(counter(providerSpy)).toBe(0);
+
+    // Settled inside an awaited act, so the provider's refetch has run before the count is read.
+    await act(async () => {
+      settleSave({ role: 'PRO_USER', homePostcode: 'NE61 1AA', homePlaceName: 'Morpeth' });
+    });
+
+    // The save moved it, with the dialog still open: the provider asks for the new home's reach.
+    expect(counter(providerSpy)).toBe(1);
+    expect(getReach).toHaveBeenCalledTimes(2);
+
+    closeSettings(dialog);
+    await waitFor(() => expect(screen.queryByTestId('settings-modal')).toBeNull());
+
+    expect(counter(providerSpy)).toBe(1);
+    expect(getReach).toHaveBeenCalledTimes(2);
   });
 });
 
