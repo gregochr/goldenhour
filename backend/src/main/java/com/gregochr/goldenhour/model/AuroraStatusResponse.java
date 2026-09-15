@@ -24,12 +24,15 @@ import java.time.ZonedDateTime;
  * @param clearLocationCount   number of dark sky locations that passed cloud triage (clear skies),
  *                             or {@code null} if the triage has not yet run
  * @param kp                 most recent real-time Kp index value, or {@code null} if unavailable
- * @param forecastKp         the Kp value that triggered the current alert (forecast max Kp
- *                           for lookahead alerts, latest Kp for real-time alerts), or
- *                           {@code null} if the state machine is IDLE
- * @param triggerType        {@code "forecast"} when the alert was raised by the daytime forecast
- *                           lookahead path, {@code "realtime"} when raised by the night-time
- *                           real-time path, or {@code null} when IDLE
+ * @param forecastKp         the Kp value that drove the last NOTIFY: the highest Kp forecast for
+ *                           the rest of tonight for a forecast alert, the Kp for now (NOAA's value
+ *                           for the most recently completed 3-hour block) for a real-time one.
+ *                           {@code null} until a NOTIFY or a simulation sets it. ⚠️ A CLEAR does
+ *                           not reset it, so read it together with {@code active}
+ * @param triggerType        {@code "forecast"} when the last NOTIFY's level came from the forecast
+ *                           for tonight, {@code "realtime"} when only the conditions now reached it
+ *                           (after dark). {@code null} until a NOTIFY or a simulation sets it, and,
+ *                           like {@code forecastKp}, not reset by a CLEAR
  * @param ovationProbability OVATION aurora probability at 55°N, or {@code null} if unavailable
  * @param bzNanoTesla        most recent solar wind Bz component in nanoTesla (negative = favourable
  *                           southward field coupling energy into Earth's magnetosphere), or
@@ -49,8 +52,13 @@ import java.time.ZonedDateTime;
  *                           <em>yesterday</em>, and that is the date aurora results for the night in
  *                           progress are stored under. Carried here so the map can default to the
  *                           night the user just ran instead of deriving a calendar date of its own;
- *                           see {@code AuroraForecastRunService.currentNightDate()}, which owns the
+ *                           see {@code AuroraForecastRunService.currentNight()}, which owns the
  *                           rule and is the only place it lives
+ * @param currentNightEndsAt the instant that night stops being the current one — the nautical dawn
+ *                           closing its window — taken from the same read of the clock as
+ *                           {@code currentNightDate}. The client keeps its last status when a later
+ *                           fetch fails, so a status can outlive its night; this is how the map
+ *                           knows when {@code currentNightDate} has stopped being true
  */
 public record AuroraStatusResponse(
         AlertLevel level,
@@ -70,5 +78,6 @@ public record AuroraStatusResponse(
         boolean simulated,
         Instant detectedAt,
         String gScale,
-        LocalDate currentNightDate) {
+        LocalDate currentNightDate,
+        Instant currentNightEndsAt) {
 }

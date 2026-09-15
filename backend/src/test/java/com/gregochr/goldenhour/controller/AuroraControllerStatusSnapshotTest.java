@@ -5,6 +5,7 @@ import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.LocationEntity;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
 import com.gregochr.goldenhour.model.AuroraStatusResponse;
+import com.gregochr.goldenhour.model.CurrentNight;
 import com.gregochr.goldenhour.model.KpReading;
 import com.gregochr.goldenhour.service.aurora.AuroraForecastRunService;
 import com.gregochr.goldenhour.service.aurora.AuroraStateCache;
@@ -17,6 +18,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
 import java.util.List;
@@ -90,8 +92,7 @@ class AuroraControllerStatusSnapshotTest {
         // alert's trigger rather than null — null is used here because it makes any leak unmissable.
         when(noaaClient.fetchKp()).thenAnswer(invocation -> {
             // The polling job's NOTIFY, and the trigger `AuroraOrchestrator.scoreAndCache` records
-            // after it — straight after on the real-time path (`run`), a NOAA fetch later on the
-            // forecast lookahead's.
+            // straight after it on either poll (a daylight poll fetches its snapshot first).
             stateCache.evaluate(AlertLevel.MODERATE);
             stateCache.updateTrigger(TriggerType.REALTIME, 5.3);
             return List.of();
@@ -117,7 +118,7 @@ class AuroraControllerStatusSnapshotTest {
         when(noaaClient.fetchKp()).thenAnswer(invocation -> {
             // An admin's POST /api/aurora/admin/simulate, which moves the machine without the FSM,
             // landing while this request fetches a live Kp high enough to carry a storm scale beside
-            // a quiet machine — the real-time path that would act on it runs only at night.
+            // a quiet machine — only a night poll reads the Kp for now and would act on it.
             stateCache.activateSimulation(AlertLevel.STRONG,
                     new AuroraStateCache.SimulatedNoaaData(7.3, 60.0, -9.5, "G3"));
             return List.of(new KpReading(READING_TIME, 5.7));
@@ -137,6 +138,31 @@ class AuroraControllerStatusSnapshotTest {
         assertThat(status.triggerType()).isNull();
         assertThat(status.kp()).isEqualTo(5.7);
         assertThat(status.gScale()).isEqualTo("G1");
+    }
+
+    @Test
+    @DisplayName("dawn passing while the request waits on NOAA is answered as the night the request began in")
+    void dawnDuringNoaaCalls_answersWithTheNightTheRequestBeganIn() {
+        // The night is the clock's, not the machine's, but the client orders answers by when their
+        // requests were made all the same, so it must be as old as its request. Dawn passes inside
+        // the first NOAA stub: from then on the service names tonight's night, ending tomorrow.
+        CurrentNight lastNight = new CurrentNight(LocalDate.of(2026, 9, 13), Instant.parse("2026-09-14T04:58:00Z"));
+        CurrentNight tonight = new CurrentNight(LocalDate.of(2026, 9, 14), Instant.parse("2026-09-15T05:00:00Z"));
+        CurrentNight[] clock = {lastNight};
+        when(forecastRunService.currentNight()).thenAnswer(invocation -> clock[0]);
+        when(noaaClient.fetchKp()).thenAnswer(invocation -> {
+            clock[0] = tonight;
+            return List.of();
+        });
+
+        AuroraStatusResponse status = controller.getStatus().getBody();
+
+        // Control: dawn really passed during the request.
+        assertThat(clock[0]).isEqualTo(tonight);
+        // The night the request began in, date and end together. Broken — read after the NOAA
+        // calls — a request made before dawn answered for tonight.
+        assertThat(status.currentNightDate()).isEqualTo(LocalDate.of(2026, 9, 13));
+        assertThat(status.currentNightEndsAt()).isEqualTo(Instant.parse("2026-09-14T04:58:00Z"));
     }
 
     /** An alert as the polling job leaves one after a NOTIFY: active, scored, triggered, counted. */

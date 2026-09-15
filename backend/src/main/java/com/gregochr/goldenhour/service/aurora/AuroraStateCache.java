@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 
@@ -26,10 +27,16 @@ import java.util.List;
  *   <li>ACTIVE + QUIET/MINOR → {@link Action#CLEAR}, transition to IDLE</li>
  * </ul>
  *
- * <p>Thread safety: {@code volatile} fields allow the REST endpoint to read state from
- * a different thread while the polling job writes from a single background thread.
- * Compound read-check-write in {@link #evaluate(AlertLevel)} is intentionally
- * single-threaded — only the polling job calls it.
+ * <p>Thread safety: {@code volatile} fields let readers (the REST endpoints, the briefing builders)
+ * see state from their own threads. The compound read-check-write in {@link #evaluate(AlertLevel)}
+ * is single-writer: only a polling cycle calls it, and {@link AuroraPollingJob} never runs two
+ * cycles at once, whichever route started them. A cycle runs on a scheduler thread, or on the
+ * request thread for the admin run endpoint.
+ *
+ * <p>⚠️ Not every write goes through that guard. The admin {@code reset}, {@code simulate} and
+ * {@code simulate/clear} endpoints write from request threads, and the aurora batch job's result
+ * handler calls {@link #updateScores} from the batch-polling thread whatever the state. A reset that
+ * lands while a cycle is scoring leaves the machine IDLE holding that cycle's scores.
  */
 @Component
 public class AuroraStateCache {
@@ -38,7 +45,7 @@ public class AuroraStateCache {
      * Actions emitted by the state machine.
      */
     public enum Action {
-        /** New alert — score all eligible locations and notify. */
+        /** New alert, or an escalation — score all eligible locations. Sends no email or push. */
         NOTIFY,
         /** Duplicate or de-escalating alert — do nothing. */
         SUPPRESS,
@@ -86,47 +93,106 @@ public class AuroraStateCache {
     private volatile boolean simulated = false;
     private volatile SimulatedNoaaData simulatedData = null;
 
+    private final Clock clock;
+
+    /**
+     * Constructs the state machine, IDLE, on the system clock.
+     */
+    public AuroraStateCache() {
+        this(Clock.systemUTC());
+    }
+
+    /**
+     * Constructs the state machine, IDLE, stamping {@link #getActiveSince()} from {@code clock}.
+     *
+     * @param clock supplies the instant an alert becomes active or escalates
+     */
+    AuroraStateCache(Clock clock) {
+        this.clock = clock;
+    }
+
     /**
      * Evaluates an incoming alert level and advances the state machine.
      *
-     * <p>This method is intended to be called only from the single polling-job thread.
+     * <p>Called only from inside a polling cycle, and {@link AuroraPollingJob} never runs two at once.
      *
      * @param incoming the latest alert level from AuroraWatch
      * @return the evaluation result containing the action and level context
      */
     public Evaluation evaluate(AlertLevel incoming) {
+        // Every branch is decided from one read of the state and one of the level. Reading the state
+        // again later would let a reset landing mid-evaluation turn an escalation into the IDLE
+        // branch, which writes ACTIVE, and the reset's null level would then land on top of it. The
+        // two reads are still separate: a reset between them can hand this ACTIVE with no level, and
+        // an alert-worthy level then throws, as it always has. Only serialising the admin writes
+        // with a cycle closes that (see the class javadoc).
+        State from = state;
+        AlertLevel current = currentLevel;
+        if (clears(from, incoming)) {
+            state = State.IDLE;
+            currentLevel = null;
+            activeSince = null;
+            cachedScores = List.of();
+            darkSkyLocationCount = 0;
+            clearLocationCount = null;
+            return new Evaluation(Action.CLEAR, null, current);
+        }
         if (!incoming.isAlertWorthy()) {
-            if (state == State.ACTIVE) {
-                AlertLevel prev = currentLevel;
-                state = State.IDLE;
-                currentLevel = null;
-                activeSince = null;
-                cachedScores = List.of();
-                darkSkyLocationCount = 0;
-                clearLocationCount = null;
-                return new Evaluation(Action.CLEAR, null, prev);
-            }
             return new Evaluation(Action.NONE, null, null);
         }
-
-        // Incoming is AMBER or RED
-        if (state == State.IDLE) {
+        if (!notifies(from, current, incoming)) {
+            // Same level or de-escalation within alertable range
+            return new Evaluation(Action.SUPPRESS, current, null);
+        }
+        if (from == State.IDLE) {
             state = State.ACTIVE;
             currentLevel = incoming;
-            activeSince = Instant.now();
+            activeSince = clock.instant();
             return new Evaluation(Action.NOTIFY, incoming, null);
         }
+        // An escalation writes currentLevel and activeSince, never state, as it always has.
+        currentLevel = incoming;
+        activeSince = clock.instant();
+        return new Evaluation(Action.NOTIFY, incoming, current);
+    }
 
-        // ACTIVE state — check for escalation
-        if (incoming.severity() > currentLevel.severity()) {
-            AlertLevel prev = currentLevel;
-            currentLevel = incoming;
-            activeSince = Instant.now();
-            return new Evaluation(Action.NOTIFY, incoming, prev);
-        }
+    /**
+     * Whether {@link #evaluate} would answer NOTIFY for {@code incoming} now, without changing any
+     * state. It asks the same question {@code evaluate} decides its NOTIFY by, so the two cannot drift
+     * apart.
+     *
+     * <p>A daylight poll asks before evaluating, so it fetches the data a scoring needs only when a
+     * scoring is coming.
+     *
+     * @param incoming the level about to be evaluated
+     * @return {@code true} for a new alert from IDLE or an escalation above the current level
+     */
+    public boolean wouldNotify(AlertLevel incoming) {
+        return notifies(state, currentLevel, incoming);
+    }
 
-        // Same level or de-escalation within alertable range
-        return new Evaluation(Action.SUPPRESS, currentLevel, null);
+    /**
+     * Whether {@link #evaluate} would answer CLEAR for {@code incoming} now, without changing any
+     * state: an alert is active and {@code incoming} is below MODERATE. It asks the same question
+     * {@code evaluate} decides its CLEAR by.
+     *
+     * <p>A night poll asks before evaluating, so it can hold an alert while the reading that will
+     * decide it is still due.
+     *
+     * @param incoming the level about to be evaluated
+     * @return {@code true} when evaluating {@code incoming} would end the active alert
+     */
+    public boolean wouldClear(AlertLevel incoming) {
+        return clears(state, incoming);
+    }
+
+    private static boolean notifies(State from, AlertLevel current, AlertLevel incoming) {
+        return incoming.isAlertWorthy()
+                && (from == State.IDLE || incoming.severity() > current.severity());
+    }
+
+    private static boolean clears(State from, AlertLevel incoming) {
+        return !incoming.isAlertWorthy() && from == State.ACTIVE;
     }
 
     /**
@@ -141,8 +207,9 @@ public class AuroraStateCache {
     /**
      * Records which trigger path fired the last NOTIFY and the Kp value that drove it.
      *
-     * <p>For {@link TriggerType#FORECAST_LOOKAHEAD} this is the max forecast Kp tonight;
-     * for {@link TriggerType#REALTIME} this is the most recent Kp index reading.
+     * <p>For {@link TriggerType#FORECAST_LOOKAHEAD} this is the highest Kp forecast for the rest of
+     * tonight. For {@link TriggerType#REALTIME} it is the Kp for now: NOAA's value for the most
+     * recently completed 3-hour block ({@code AuroraOrchestrator.currentKp}).
      *
      * @param triggerType the path that produced the NOTIFY
      * @param kp          the Kp value that triggered the alert
@@ -153,7 +220,8 @@ public class AuroraStateCache {
     }
 
     /**
-     * Returns the trigger type of the last NOTIFY, or {@code null} when IDLE.
+     * Returns the trigger type of the last NOTIFY. {@code null} until a NOTIFY or a simulation sets
+     * it; a CLEAR does not reset it, only {@link #reset()} does.
      *
      * @return last {@link TriggerType}, or {@code null}
      */
@@ -162,7 +230,8 @@ public class AuroraStateCache {
     }
 
     /**
-     * Returns the Kp value that drove the last NOTIFY, or {@code null} when IDLE.
+     * Returns the Kp value that drove the last NOTIFY. {@code null} until a NOTIFY or a simulation
+     * sets it; a CLEAR does not reset it, only {@link #reset()} does.
      *
      * @return last trigger Kp, or {@code null}
      */
@@ -257,7 +326,7 @@ public class AuroraStateCache {
     public void activateSimulation(AlertLevel level, SimulatedNoaaData data) {
         state = State.ACTIVE;
         currentLevel = level;
-        activeSince = Instant.now();
+        activeSince = clock.instant();
         cachedScores = List.of();
         lastTriggerType = TriggerType.FORECAST_LOOKAHEAD;
         lastTriggerKp = data.kp();

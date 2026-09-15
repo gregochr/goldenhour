@@ -126,11 +126,16 @@ const NIGHT_A = '2026-08-16';
 const NIGHT_B = '2026-08-17';
 const NIGHT_C = '2026-08-18';
 /**
- * A night already had — stored, so it is a row in the window list, but never one the preview asks
- * about, because the preview's horizon runs from today forward. Picking it keeps it LOCAL: the
- * window control cannot forward a past date, so `nightDate` moves and `date` does not.
+ * A night stored BEYOND the forecast's dates — a row in the window list, since it is not over, but
+ * never one the preview asks about, because the preview is bounded to the solar horizon. Picking it
+ * keeps it LOCAL: the forecast never returned its date, so the window control cannot forward it, and
+ * `nightDate` moves while `date` does not.
+ *
+ * <p>⚠️ This was a PAST night (`2026-08-10`) until D-14 (map-tab-v2-plan.md §5): a night that is
+ * over is no longer a row at all, and the night in progress is now IN the preview, so a night beyond
+ * the horizon is the one case left that this constant exists to name.
  */
-const PAST_NIGHT = '2026-08-10';
+const BEYOND_NIGHT = '2026-08-20';
 /**
  * The night the live aurora state describes — neither A nor B, so the live cache answers for
  * neither and every aurora rating below is the stored request's alone (see `liveAuroraOnScreen`).
@@ -542,12 +547,12 @@ describe.each(KINDS)('the callout and the map on an $name night the preview DOES
 });
 
 describe.each(KINDS)('the callout strip\'s $name cells, through the map', (kind) => {
-  beforeEach(() => { kind.arrange([PAST_NIGHT, NIGHT_A, NIGHT_B, NIGHT_C]); });
+  beforeEach(() => { kind.arrange([NIGHT_A, NIGHT_B, NIGHT_C, BEYOND_NIGHT]); });
 
   /** Opens the callout on night A with A, B and C previewed, A answered, and the strip expanded. */
   async function stripOnNightA() {
     const result = await renderOn(NIGHT_A, kind.eventType, { forecastDates: STRIP_PREVIEWED });
-    // PAST_NIGHT is a row in the window list but outside the preview's horizon, so nothing sends a
+    // BEYOND_NIGHT is a row in the window list but outside the preview's horizon, so nothing sends a
     // request for it: A's own, then the preview's A, B and C.
     expect(kind.requests.map((r) => r.night)).toEqual([NIGHT_A, NIGHT_A, NIGHT_B, NIGHT_C]);
     await land(() => nth(kind.requests, NIGHT_A, 0).resolve(A_ROWS));
@@ -621,7 +626,7 @@ describe.each(KINDS)('the callout strip\'s $name cells, through the map', (kind)
     expect(cellFor(NIGHT_B)).toHaveTextContent('4★');
   });
 
-  it('keeps "—" for a night the preview never asks about — a past one — rather than "…" for good', async () => {
+  it('keeps "—" for a night the preview never asks about — one beyond the horizon — rather than "…" for good', async () => {
     // Pins the stated limit, not an oversight: nothing is loading for this night, so "…" would be
     // the false claim. Broken — pending read as "not in the map" alone — this cell said "…" forever.
     await stripOnNightA();
@@ -630,43 +635,46 @@ describe.each(KINDS)('the callout strip\'s $name cells, through the map', (kind)
       nth(kind.requests, NIGHT_B, 0).resolve(B_PREVIEW);
       nth(kind.requests, NIGHT_C, 0).resolve([]);
     });
-    expect(cellFor(PAST_NIGHT)).toHaveTextContent('—');
-    expect(cellFor(PAST_NIGHT)).not.toHaveTextContent('…');
+    expect(cellFor(BEYOND_NIGHT)).toHaveTextContent('—');
+    expect(cellFor(BEYOND_NIGHT)).not.toHaveTextContent('…');
   });
 
-  it('asks for a past night\'s own answer when it is picked, and the callout follows THAT night', async () => {
-    // ⚠️ The one route on which `nightDate` and `date` part company. A past night cannot be
-    // forwarded, so picking its cell keeps it local: the night moves and the map's `date` stays on
-    // A. Every other test here moves both together, so a flag or a draw keyed on `date` passed them
-    // all; here it would say "Loading…" for good, or draw A's rows as the past night's.
+  it('asks for a beyond-horizon night\'s own answer when it is picked, and the callout follows THAT night', async () => {
+    // ⚠️ The one route on which `nightDate` and `date` part company. A night outside the forecast's
+    // dates cannot be forwarded, so picking its cell keeps it local: the night moves and the map's
+    // `date` stays on A. Every other test here moves both together, so a flag or a draw keyed on
+    // `date` passed them all; here it would say "Loading…" for good, or draw A's rows as that night's.
     await stripOnNightA();
-    await act(async () => { fireEvent.click(cellFor(PAST_NIGHT)); });
-    expect(sentFor(kind.requests, PAST_NIGHT)).toBe(1);
+    await act(async () => { fireEvent.click(cellFor(BEYOND_NIGHT)); });
+    expect(sentFor(kind.requests, BEYOND_NIGHT)).toBe(1);
     expect(headline()).toHaveTextContent('Loading…');
 
-    await land(() => nth(kind.requests, PAST_NIGHT, 0).resolve([{ locationName: 'Cheviot', stars: 4 }]));
+    await land(() => nth(kind.requests, BEYOND_NIGHT, 0).resolve([{ locationName: 'Cheviot', stars: 4 }]));
     expect(headline()).toHaveTextContent('Not scored yet');
   });
 
-  it('says a picked past night could not load when ITS request fails — the failure follows the night, not the date', async () => {
+  it('says a picked beyond-horizon night could not load when ITS request fails — the failure follows the night, not the date', async () => {
     // ⚠️ The same `nightDate`/`date` split, for the failure record (review T1): the map's `date`
-    // stays on A while the past night is kept local, so a record read against `date` never matched
-    // this night's failure, and the callout went on saying "Loading…" through the outage.
+    // stays on A while the beyond-horizon night is kept local, so a record read against `date` never
+    // matched this night's failure, and the callout went on saying "Loading…" through the outage.
+    // (Written against a PAST night; D-14, #841, stopped offering past nights, and this is the
+    // route on which the two dates still part company.)
     await stripOnNightA();
-    await act(async () => { fireEvent.click(cellFor(PAST_NIGHT)); });
+    await act(async () => { fireEvent.click(cellFor(BEYOND_NIGHT)); });
     expect(headline()).toHaveTextContent('Loading…');
-    await land(() => nth(kind.requests, PAST_NIGHT, 0).reject(new Error('past night timed out')));
+    await land(() => nth(kind.requests, BEYOND_NIGHT, 0).reject(new Error('beyond-horizon night timed out')));
     expect(headline()).toHaveTextContent(RETRYING);
   });
 
-  it('restates a picked past night\'s star in its own cell — never "—" beside the headline\'s star', async () => {
-    // The preview never asks about a past night, so its cell's own source says nothing; the cell for
-    // the window on screen restates the headline instead. Broken, it read "—" beside "4★".
+  it('restates a picked beyond-horizon night\'s star in its own cell — never "—" beside the headline\'s star', async () => {
+    // The preview never asks about a night beyond its horizon, so that cell's own source says
+    // nothing; the cell for the window on screen restates the headline instead. Broken, it read "—"
+    // beside "4★".
     await stripOnNightA();
-    await act(async () => { fireEvent.click(cellFor(PAST_NIGHT)); });
-    await land(() => nth(kind.requests, PAST_NIGHT, 0).resolve([{ locationName: SELECTED, stars: 4 }]));
+    await act(async () => { fireEvent.click(cellFor(BEYOND_NIGHT)); });
+    await land(() => nth(kind.requests, BEYOND_NIGHT, 0).resolve([{ locationName: SELECTED, stars: 4 }]));
     expect(headline()).toHaveTextContent('4★');
-    expect(cellFor(PAST_NIGHT)).toHaveTextContent('4★');
+    expect(cellFor(BEYOND_NIGHT)).toHaveTextContent('4★');
   });
 });
 

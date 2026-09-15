@@ -20,7 +20,7 @@ import { fitBoundsKey } from '../utils/fitBoundsKey.js';
 import { buildBriefingScoreIndex, lookupBriefingScore } from '../utils/briefingScoreIndex.js';
 import { lookupForWindow } from '../utils/locationSheet.js';
 import { resolveStandDown } from '../utils/standDown.js';
-import { resolveAuroraNight, ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
+import { isNightOver, resolveAuroraNight, ukDateStr, ukDateStrOffset } from '../utils/mapDates.js';
 import { LOCATION_TYPE_META, DISPLAY_TYPES, locationTypeLabel } from '../utils/locationTypes.js';
 import AuroraViewlineOverlay from './AuroraViewlineOverlay.jsx';
 import { rampHex, rampGradientCss, getMode } from '../utils/scoreRamp.js';
@@ -31,7 +31,10 @@ import MapLegendPanel from './map/MapLegendPanel.jsx';
 import RegionsJump from './map/RegionsJump.jsx';
 import MapBreadcrumb from './map/MapBreadcrumb.jsx';
 import { fadeAt } from '../utils/heatHandover.js';
-import { buildMapEvents, findEvIndex, solarHorizonDates, solarRowPredicate, EVENT_KIND } from '../utils/mapEvents.js';
+import {
+  buildMapEvents, findEvIndex, isForwardableRow, nightPreviewDates, solarHorizonDates, solarRowPredicate,
+  EVENT_KIND,
+} from '../utils/mapEvents.js';
 import { buildEvVerdicts, regionNamesOf } from '../utils/mapVerdict.js';
 import { confidenceScalar, daysOut, resolveConfidence } from '../utils/confidenceUtils.js';
 import { GLANCE_MINUTES } from '../utils/planningArea.js';
@@ -169,10 +172,46 @@ const PinsLayer = lazy(() => import('./map/PinsLayer.jsx'));
 
 /**
  * The selection callout (map-tab-v2-plan.md §3 P9) — a plain static import, unlike the layers
- * above: it imports no `d3-geo`-carrying module (`utils/mapCallout.js`, `utils/locationSheet.js`,
- * `utils/scoreRamp.js`, `utils/locationTypes.js` are all leaf modules), so there is no weight to
- * keep off the Plan overlay's network in the first place, and a `lazy()` boundary here would only
- * add a Suspense flash the instant a reader selects a location.
+ * above, and unlike them for a narrower reason than this comment used to claim.
+ *
+ * <p>⚠️ **This comment was false, and it is worth recording exactly how.** It used to say
+ * `MapCallout` "imports no `d3-geo`-carrying module", naming `utils/mapCallout.js`,
+ * `utils/locationSheet.js`, `utils/scoreRamp.js`, `utils/locationTypes.js` as its leaf-module
+ * imports. But `MapCallout.jsx` also imported {@code verdictWord} from `utils/mapLabels.js` —
+ * NOT a leaf module: it statically imports {@code centroid} from `utils/heatField.js`, which
+ * statically imports `d3-geo` and `topojson-client`. "MapCallout only uses `verdictWord`, and
+ * `verdictWord` never touches `centroid`" is true and beside the point — a source-level `import`
+ * names a MODULE, not the one export a caller happens to read, and Rollup's chunk-splitting did
+ * not cleanly separate the two. Measured on the pre-fix build: {@code regionLabelItems}/
+ * {@code hottestRegion} — dead code on this reachable path, `MapCallout` calls neither — were
+ * duplicated straight into the eager `MapView` chunk alongside {@code verdictWord}, and that
+ * chunk carried a static `import` of a shared chunk (Rollup named it after one of the small
+ * modules folded into it, not a stable identifier) holding {@code centroid}, the heat-field
+ * canvas kernel and topojson's feature decoder — which itself statically imported the
+ * `d3-geo`/`d3-array` bundle. Net effect: the Map tab AND the Plan-tab overlay (which mounts
+ * `MapView` before a reader has chosen Heat or Pins, or opened the callout at all) were both
+ * eagerly loading the full closure of `MapView` at 18 chunks / 842,323 bytes raw — including the
+ * `geo` chunk and that merged chunk, ~32.3 KB raw / ~12.75 KB gzip between them — exactly the
+ * weight the `lazy()` boundaries above exist to keep off that network path.
+ *
+ * <p>Fixed by extracting {@code verdictWord} — the whole small pure function, with its two
+ * threshold constants — out of `mapLabels.js` into its own leaf, `utils/verdictWord.js`, with
+ * nothing else in it for a future addition to accidentally import `heatField.js` next to.
+ * `MapCallout.jsx` now imports directly from there; `mapLabels.js` re-exports the same three
+ * bindings (pinned by a test) so `MapLabels.jsx`/`PinsLayer.jsx` need no change. Verified two ways
+ * rather than reasoned: `MapCallout.jsx`'s full SOURCE-level transitive import closure (21 files)
+ * no longer reaches `mapLabels.js`, `heatField.js`, `d3-geo` or `topojson-client` at all — this is
+ * a structural absence of the edge, not Rollup tree-shaking one away, so there is nothing left for
+ * a bundler change to un-shake — and the BUILT `MapView` chunk's own transitive closure dropped to
+ * 17 chunks / 809,126 bytes raw, with neither the `geo` chunk nor any heat-field/topojson code
+ * present in it.
+ *
+ * <p>`MapCallout`'s real leaf-module imports today: `utils/mapCallout.js`,
+ * `utils/verdictWord.js`, `utils/scoreRamp.js`, `utils/locationSheet.js`,
+ * `utils/locationTypes.js`, `utils/windowFirstSpots.js` (plus the sibling `TideWave.jsx` and the
+ * `useIsMobile` hook) — none of which reach `heatField.js`, `d3-geo` or `topojson-client`, so
+ * there genuinely is no weight to keep off the Plan overlay's network, and a `lazy()` boundary
+ * here would only add a Suspense flash the instant a reader selects a location.
  */
 
 /**
@@ -1283,11 +1322,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const [eventType, setEventType] = useState(() => getNextEventType(locations, date));
   /**
    * The EV-ownership forwarding rule's local half (map-tab-v2-plan.md §3 P6). A night (astro or
-   * aurora) EV row whose date is not in `forecastDates` cannot be forwarded through `onSelectDate`
-   * — `App`'s `effectiveDate` guard would reject it outright (`App.jsx`'s `allDates.includes`
-   * check) — so this pane keeps it locally instead. Cleared the moment a forwardable row (any
-   * solar row, or a night row whose date IS in `forecastDates`) is picked, so a stale override
-   * cannot survive past the selection that would have superseded it.
+   * aurora) EV row `App` would reject cannot be forwarded through `onSelectDate` — one whose date is
+   * not in `forecastDates` (`App`'s `allDates.includes` check), or whose night is over (the ended
+   * night D-14 keeps on screen) — so this pane keeps it locally instead
+   * (`utils/mapEvents.isForwardableRow`). Cleared the moment a forwardable row is picked, so a stale
+   * override cannot survive past the selection that would have superseded it.
    */
   const [localNightDate, setLocalNightDate] = useState(null);
   /**
@@ -1620,7 +1659,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const { status: auroraStatus } = useAuroraStatus();
   // The night aurora results are keyed to — from the backend, which owns the dusk/dawn rule.
   // Falls back to the local calendar date when status is absent (LITE, failed fetch, or a backend
-  // older than the field), which is the behaviour this replaced.
+  // older than the field), which is the behaviour this replaced — and once a status the provider is
+  // still holding has passed its night's end (`currentNightEndsAt`). So at that end the live
+  // state below moves onto tonight's night, with whatever that held status says, as it does when a
+  // fresh status lands at dawn.
   const auroraNight = resolveAuroraNight(auroraStatus);
   /**
    * Whether the LIVE aurora state answers for the night on screen — the night in progress, and no
@@ -2267,10 +2309,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * out to hundreds of concurrent requests. `solarHorizonDates` is the SAME domain
    * `buildMapEvents` derives its D-13 filler rows from (briefing dates + forecast dates, UK-civil
    * today-forward), so intersecting against it caps the fan-out at the horizon's own size
-   * (naturally ≤ about a week) with no new backend endpoint needed this phase. A night outside the
-   * horizon still gets a real EV row — this bound has no effect on `buildMapEvents` itself — and,
-   * once actually SELECTED, still gets its own dedicated fetch regardless of range through the
-   * `nightDate`-keyed single-night effects above; only the unbounded PREVIEW fetch is capped.
+   * (naturally ≤ about a week) with no new backend endpoint needed this phase. The two past-dated
+   * nights D-14 still offers are added on top (see the bounded memos below), which is at most one
+   * more fetch per kind. A night beyond the horizon that is not over still gets a real EV row —
+   * this bound has no effect on `buildMapEvents` itself, whose own clip is D-14's
+   * (`utils/mapEvents.js`) — and, once actually SELECTED, still gets its own dedicated fetch
+   * regardless of range through the `nightDate`-keyed single-night effects above; only the PREVIEW
+   * fetch is capped, so such a row reads "—" in the list.
    */
   const horizonDates = useMemo(() => solarHorizonDates({
     solarWindows: heat?.windows || [], forecastDates, todayStr: mapTodayStr,
@@ -2298,14 +2343,27 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   const solarRowExists = useMemo(() => solarRowPredicate({
     solarWindows: heat?.windows || [], forecastDates, todayStr: mapTodayStr,
   }), [heat, forecastDates, mapTodayStr]);
-  const boundedAstroAvailableDates = useMemo(
-    () => astroAvailableDates.filter((d) => horizonDates.includes(d)),
-    [astroAvailableDates, horizonDates],
-  );
-  const boundedAuroraAvailableDates = useMemo(
-    () => auroraAvailableDates.filter((d) => horizonDates.includes(d)),
-    [auroraAvailableDates, horizonDates],
-  );
+  /**
+   * The horizon above starts at today, so it cannot hold the two past-dated nights D-14 still
+   * offers as rows — the night in progress, and the night on screen once it has ended.
+   * `mapEvents.nightPreviewDates` adds them, by the list's own rule; its doc says why the rows need
+   * it.
+   *
+   * <p>⚠️ The on-screen night enters as a DERIVED key — its date only while it is over, else null —
+   * never as raw `nightDate`. The preview effects below re-fetch their whole set whenever these memos
+   * return a new array, so a `nightDate` dependency would re-fan-out on every step between two nights
+   * that are not over. This one changes only when the ended night on screen does.
+   */
+  const endedNightOnScreen = isNightOver(nightDate, { todayStr: mapTodayStr, nightDate: auroraNight })
+    ? nightDate : null;
+  const endedAstroNight = eventType === 'ASTRO' ? endedNightOnScreen : null;
+  const endedAuroraNight = eventType === 'AURORA' ? endedNightOnScreen : null;
+  const boundedAstroAvailableDates = useMemo(() => nightPreviewDates('ASTRO', astroAvailableDates, {
+    horizonDates, todayStr: mapTodayStr, currentNightDate: auroraNight, endedNightOnScreen: endedAstroNight,
+  }), [astroAvailableDates, horizonDates, mapTodayStr, auroraNight, endedAstroNight]);
+  const boundedAuroraAvailableDates = useMemo(() => nightPreviewDates('AURORA', auroraAvailableDates, {
+    horizonDates, todayStr: mapTodayStr, currentNightDate: auroraNight, endedNightOnScreen: endedAuroraNight,
+  }), [auroraAvailableDates, horizonDates, mapTodayStr, auroraNight, endedAuroraNight]);
   /**
    * The nights the preview actually asks about — nothing on the overlay, the bounded list on the
    * tab. ONE value, read by the preview effects below AND by `pendingNightRowIds`, so "which nights
@@ -3322,6 +3380,13 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     forecastDates,
     todayStr: mapTodayStr,
     tomorrowStr: ukDateStrOffset(1),
+    // D-14 (`utils/mapEvents.js`'s module doc): only nights not yet over become rows. The night in
+    // progress is `auroraNight`, the SAME value `App` hands `resolveMapDate`, so the two agree on
+    // which nights are over; and the night on screen keeps its row once it ends, so the pill never
+    // reads "No forecast" over stars this map is still painting for it. That exception is a row
+    // `App` would refuse, which is why `selectEvRow` forwards only `isForwardableRow` rows.
+    currentNightDate: auroraNight,
+    nightOnScreen: (isAstroMode || isAuroraMode) ? { eventType, date: nightDate } : null,
     astroAvailableDates,
     astroConditionsByDate,
     auroraAvailableDates,
@@ -3905,11 +3970,12 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   /**
    * Picking a row from the window control — map-tab-v2-plan.md §3 P6's EV-ownership paragraph.
    *
-   * <p><b>`onSelectDate` is forwarded only when the row's own date is one the forecast endpoint
-   * actually returned</b> (`forecastDates`, D-13's own domain). `App`'s `effectiveDate` guard
-   * rejects any date not in its `allDates` outright, so forwarding one App will not accept would
-   * silently do nothing there while this component moved on regardless — the two would then show
-   * different nights with nothing telling either of them so. A night row whose date fails that
+   * <p><b>`onSelectDate` is forwarded only for a row `App` will accept</b>
+   * (`utils/mapEvents.isForwardableRow`): its date must be one the forecast endpoint actually
+   * returned (`forecastDates`, D-13's own domain) and must not be over — by the calendar for a solar
+   * row, by the night test for a night row. `App`'s `effectiveDate` guard rejects anything else, so
+   * forwarding it would silently do nothing there while this component moved on regardless — the two
+   * would then show different nights with nothing telling either of them so. A row that fails the
    * test keeps `localNightDate` instead, which every reader above that needs "the current night"
    * (the astro/aurora fetch effects, the aurora viewline gate, `getContentProps`) already consults
    * through {@code nightDate} rather than the raw prop.
@@ -3931,27 +3997,25 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
       clearMapFilter('mapFilterMinStars');
       clearMapFilter('mapFilterShowStandDown');
     }
-    // `row.inForecastDomain` — the SAME fact `utils/mapEvents.js` already computed when it built
-    // this row, gated symmetrically for solar and night rows alike (adversarial review, minor #7).
-    // Every served/D-13 solar row happens to carry `inForecastDomain: true` by construction, so
-    // this reads identically to the old `row.kind === 'solar'` shortcut in practice — but it is no
-    // longer a SEPARATE claim that could silently drift from the EV list's own domain test.
+    // ⚠️ <b>`App`'s own acceptance rule, stated on the row — never a looser one.</b>
+    // `localNightDate` exists for "a row whose date `App` would reject", and `App` rejects a date
+    // outside the domain and one that is over (`utils/mapDates.resolveMapDate`). Forwarding a row
+    // `App` refuses is the defect Codex found on #803: the pane's test lacked the parent's then-new
+    // today-forward clause, so last night's astro row (offered, since the list then clipped no night,
+    // and `inForecastDomain`, since `GET /api/forecast` serves `today-2` onward) cleared
+    // `localNightDate`, had its forward refused, and went nowhere — a control that opens onto nothing.
     //
-    // ⚠️ <b>AND today-forward, because the parent's acceptance rule is what this test mirrors.</b>
-    // `localNightDate` exists for "a night row whose date `App` would reject", and `App` now
-    // rejects a PAST date as well as one outside the domain (`utils/mapDates.resolveMapDate`).
-    // Night rows carry no today-forward clip — `buildMapEvents` deliberately keeps every stored
-    // night — and `GET /api/forecast` serves `today-2` onward, so last night's astro row is both
-    // offered AND `inForecastDomain`. Forwarding it cleared `localNightDate` and then had the
-    // forward refused, leaving a row that could be selected and went nowhere: a control that opens
-    // onto nothing. Keeping it local instead lands the astro/aurora fetches and the viewline gate
-    // on the right night, which is the only thing a night row needs the date for. Found by Codex
-    // on #803; the clamp that made it reachable is in the same PR.
+    // Two rows are still offered that `App` would refuse, and this keeps both local: a night beyond
+    // the forecast's own dates, and the night on screen once it has ended (D-14's exception). The
+    // night in progress, yesterday's date until dawn, is forwarded — `App` takes it as a night — so
+    // it ends at dawn through `App`'s clamp like any other forwarded night. D-14 made that so: under
+    // the calendar test this line used to be, a pick of it at 00:01 stayed on screen, ended, where the
+    // same night picked at 23:59 moved on.
     //
     // Inert for solar by construction: a served window is never past (the briefing retires elapsed
-    // ones) and the D-13 filler branch already requires `date >= todayStr`, so this narrows nothing
-    // that was reachable — it is one uniform rule rather than a night-only special case.
-    if (row.inForecastDomain && row.date >= mapTodayStr) {
+    // ones) and the D-13 filler branch already requires `date >= todayStr`, so the solar arm narrows
+    // nothing that was reachable.
+    if (isForwardableRow(row, { todayStr: mapTodayStr, currentNightDate: auroraNight })) {
       setLocalNightDate(null);
       if (row.date !== date) {
         // Recorded so the `[date]` invalidation effect above can tell this forward apart from an

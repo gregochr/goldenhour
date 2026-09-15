@@ -4,6 +4,15 @@ import { getAuroraStatus } from '../api/auroraApi.js';
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
+/**
+ * The longest the provider waits for a night's end before looking at the wall clock again. Browser
+ * timers count on a clock that stops while the device sleeps, so one timer set for dawn can fire
+ * hours after a laptop lid opens again; looking once a minute bounds that to a minute of waking. It
+ * also keeps every delay far below the 2³¹−1 ms a timer can hold — a longer one fires at once, which
+ * a device clock months behind the backend's would otherwise hit.
+ */
+const NIGHT_END_RECHECK_MS = 60 * 1000;
+
 const AuroraStatusContext = createContext({ status: null, loading: false });
 
 /**
@@ -46,6 +55,32 @@ export function AuroraStatusProvider({ children }) {
   // then need a per-run `cancelled` as well, as `useAuroraViewline` has.
   const requestedRef = useRef(0);
   const appliedRef = useRef(0);
+
+  // A status answers for the night in progress only until its `currentNightEndsAt`
+  // (`mapDates.resolveAuroraNight`), and while the polls are failing nothing is sure to ask again at
+  // that instant: a failed poll changes no state, and `MapView` is memoised, so its night list
+  // re-reads the night only when something re-renders it. So the provider re-renders once the end has
+  // passed, and every consumer with it — App's date clamp and the map's night list re-read the night
+  // in the same commit, as they do when a fresh status lands.
+  const [, setNightEnded] = useState(0);
+  const nightEndsAt = status?.currentNightEndsAt ?? null;
+  useEffect(() => {
+    const end = Date.parse(nightEndsAt);
+    if (Number.isNaN(end)) return undefined; // no end, or one that does not parse
+    let timer;
+    // It looks at the wall clock at least once a minute rather than trusting one long timer, which a
+    // sleeping device leaves hours late (`NIGHT_END_RECHECK_MS`), and re-renders on the first look
+    // that finds the end passed. The first look is immediate, even for an end that already looks
+    // past: the consumers read the clock when they rendered, before this effect, so the end may have
+    // passed in between, and one extra render settles it.
+    const look = () => {
+      const remaining = end - Date.now();
+      if (remaining > 0) timer = setTimeout(look, Math.min(remaining, NIGHT_END_RECHECK_MS));
+      else setNightEnded((n) => n + 1);
+    };
+    timer = setTimeout(look, 0);
+    return () => clearTimeout(timer);
+  }, [nightEndsAt]);
 
   useEffect(() => {
     async function fetchStatus() {

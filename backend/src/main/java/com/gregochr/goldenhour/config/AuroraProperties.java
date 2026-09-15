@@ -21,7 +21,11 @@ public class AuroraProperties {
     /** Whether the aurora polling job is active. Defaults to {@code true}. */
     private boolean enabled = true;
 
-    /** Minutes between aurora polls. Defaults to 5. */
+    /**
+     * ⚠️ Not read anywhere. The poll interval is the {@code aurora_polling} row's
+     * {@code fixed_delay_ms} in {@code scheduler_job_config} (5 minutes, seeded by V68), which the
+     * Scheduler screen edits. Defaults to 5.
+     */
     private int pollIntervalMinutes = 5;
 
     /** API key for lightpollutionmap.info QueryRaster endpoint. */
@@ -84,13 +88,24 @@ public class AuroraProperties {
         /** Minimum OVATION aurora probability (%) at ~55°N to trigger. Defaults to 20. */
         private double ovationProbabilityThreshold = 20.0;
 
-        /** Hours of Kp forecast lookahead for advance-warning trigger. Defaults to 6. */
+        /**
+         * Hours ahead the aurora batch job's alert-level check reads the Kp forecast
+         * ({@code AuroraOrchestrator.deriveAlertLevel}). The polling job does not use it: both of
+         * its polls read the forecast to tonight's dawn. Defaults to 6.
+         */
         private int kpForecastLookaheadHours = 6;
 
-        /** Kp below which de-escalation toward CLEAR is considered. Defaults to 5. */
+        /**
+         * ⚠️ Not read anywhere. Meant for a de-escalation hysteresis that has never been built: a
+         * night poll clears an alert as soon as its level falls below MODERATE, unless the last
+         * completed block's reading is still due (for up to an hour after the block ends).
+         * Defaults to 5.
+         */
         private double kpClearThreshold = 5.0;
 
-        /** OVATION probability below which de-escalation toward CLEAR is considered. Defaults to 15. */
+        /**
+         * ⚠️ Not read anywhere, for the same reason as {@link #kpClearThreshold}. Defaults to 15.
+         */
         private double ovationClearThreshold = 15.0;
     }
 

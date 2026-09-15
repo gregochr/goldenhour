@@ -479,6 +479,12 @@ describe('MapView — a deliberate selection outranks the pool\'s own filters (P
     // `getRatingForLocation`'s ASTRO branch returns null, and the default filter (showUnrated
     // false) would drop a null-rated, non-wildlife location from `visibleLocations` outright.
     astroAvailableDatesResponse = [TODAY];
+    // ⚠️ Pinned to TODAY, because the astro row this test switches to exists only while its night is
+    // not over (D-14, map-tab-v2-plan.md §5). TODAY is a fixed January date: against the real wall
+    // clock it has been over since then, and this test passed only because night rows used to carry
+    // no clip at all — the wall clock was in the fixture without anyone having put it there.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
     await renderMap();
     await selectTheSpot();
     expect(screen.getByTestId('probe-callout-name')).toHaveTextContent('Bamburgh-0');
