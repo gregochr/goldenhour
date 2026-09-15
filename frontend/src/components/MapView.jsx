@@ -3626,7 +3626,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * failure while the reader was on another tab filled the region outside the accessibility tree;
    * coming back only removes `hidden`, and a region revealed already full announces nothing. Empty
    * while hidden, it fills on the return — a change, announced — and a failure on another tab is
-   * not read out on that tab.
+   * not read out on that tab. {@code paneVisible} is the pane's answer, and it covers more than the
+   * panel: the document's visibility (a background browser tab — Codex's post-merge review of #848)
+   * and the window's focus (another app in front), since through both the panel keeps its box and
+   * the screen reader is presenting something else. ⚠️ Not this file's {@code paneIsOffScreen},
+   * which asks only whether the pane's panel is laid out, for focus and Escape handling.
    */
   const statusLine = paneVisible && ratingRetrying && (
     unscoredLineShown
@@ -5650,10 +5654,13 @@ MapView.propTypes = {
    */
   resizeNonce: PropTypes.number,
   /**
-   * Whether this map is on screen — false while the Map pane's panel is hidden between visits (the
-   * pane reads it off its ResizeObserver's zero box). Gates the status region (`statusLine`), so a
-   * failure while the reader is on another tab is announced when they come back, not into a hidden
-   * panel. Default true: every other mount is on screen whenever it is mounted.
+   * Whether this map is on screen for the reader — false while the Map pane's panel is hidden
+   * between visits (the pane reads it off its ResizeObserver's zero box), while the document is
+   * hidden (a background browser tab), or while the window is not focused (another app in front) —
+   * the pane's `useSyncExternalStore` on `visibilitychange`, `focus` and `blur`. Gates the status
+   * region (`statusLine`), so a failure while the reader is elsewhere is announced when they come
+   * back rather than to nobody. Default true for the one other mount, the frozen Plan-tab overlay,
+   * which renders no status region, so there is nothing there for it to gate.
    */
   paneVisible: PropTypes.bool,
   /**

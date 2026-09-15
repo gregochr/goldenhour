@@ -94,7 +94,20 @@ beforeEach(() => {
   MapStub.renders = 0;
   delete global.ResizeObserver;
   triggerResize = () => {};
+  // jsdom's document never has focus; the reader's page does. The pane counts itself on screen only
+  // while it does (`isPageInFront`), so every test starts from the page a reader is looking at.
+  vi.spyOn(document, 'hasFocus').mockReturnValue(true);
 });
+
+/**
+ * jsdom lays nothing out, so every `getBoundingClientRect` is 0×0 — which the component reads as
+ * "hidden". Tests that mean "the box is real" have to say so.
+ */
+const withBox = (w = 800, h = 500) => {
+  const pane = screen.getByTestId('window-first-map-pane');
+  vi.spyOn(pane, 'getBoundingClientRect').mockReturnValue({ width: w, height: h });
+  return pane;
+};
 afterEach(() => { delete global.ResizeObserver; vi.restoreAllMocks(); });
 
 describe('WindowFirstMapPane', () => {
@@ -278,16 +291,6 @@ describe('WindowFirstMapPane', () => {
   });
 
   describe('telling Leaflet its box moved', () => {
-    /**
-     * jsdom lays nothing out, so every `getBoundingClientRect` is 0×0 — which the component now
-     * reads as "hidden" and ignores. Tests that mean "the box is real" have to say so.
-     */
-    const withBox = (w = 800, h = 500) => {
-      const pane = screen.getByTestId('window-first-map-pane');
-      vi.spyOn(pane, 'getBoundingClientRect').mockReturnValue({ width: w, height: h });
-      return pane;
-    };
-
     it('observes its own wrapper and bumps the nonce when the box changes', () => {
       // The shell hides a deselected panel with `display: none` rather than unmounting it, so a
       // viewport change while the reader is on another tab — a phone rotating — leaves Leaflet
@@ -325,22 +328,6 @@ describe('WindowFirstMapPane', () => {
       expect(MapStub.lastProps.resizeNonce).toBe(before + 1);
     });
 
-    it('tells the map whether it is on screen, off the same box — false while hidden, true again on the return', () => {
-      // Codex, #848: `MapView` gates its status region on this, so a failure while the reader is on
-      // another tab is announced when they come back rather than into a hidden panel. The hide's
-      // 0×0 box — the one the nonce ignores — is exactly the observation that says so.
-      installResizeObserver();
-      renderPane();
-      expect(MapStub.lastProps.paneVisible).toBe(true);
-      const pane = screen.getByTestId('window-first-map-pane');
-      const rect = vi.spyOn(pane, 'getBoundingClientRect').mockReturnValue({ width: 0, height: 0 });
-      triggerResize();
-      expect(MapStub.lastProps.paneVisible).toBe(false);
-      rect.mockReturnValue({ width: 800, height: 500 });
-      triggerResize();
-      expect(MapStub.lastProps.paneVisible).toBe(true);
-    });
-
     it('disconnects the observer when the pane goes away', () => {
       // The pane DOES unmount on logout (`App` swaps the whole tree for the login page) — so the
       // cleanup is load-bearing rather than tidy.
@@ -358,7 +345,8 @@ describe('WindowFirstMapPane', () => {
       renderPane();
       expect(screen.getByTestId('stub-map')).toBeInTheDocument();
       expect(MapStub.lastProps.resizeNonce).toBe(0);
-      // ...and counts as on screen, which it is whenever it is mounted without one.
+      // ...and counts its panel as shown, with no observer to say otherwise — so, the page being in
+      // front, it is on screen.
       expect(MapStub.lastProps.paneVisible).toBe(true);
     });
 
@@ -367,6 +355,152 @@ describe('WindowFirstMapPane', () => {
       // after the first resize would leave the very first reveal — the common case — unhandled.
       renderPane();
       expect(typeof MapStub.lastProps.resizeNonce).toBe('number');
+    });
+  });
+
+  describe('being on screen for the reader — the panel, the document and the window\'s focus', () => {
+    // `MapView` gates its status region on `paneVisible`: a live region announces a change, so it has
+    // to be empty whenever the reader cannot perceive it and fill when they can. Each layer that can
+    // hide the pane from the reader is pinned alone AND against the others — one flag that every
+    // layer wrote to, the last write winning, passed every single-layer test (review Q1). The page is
+    // faked through spies on jsdom's own getters (`useTodaysLight.test.jsx`'s way), both
+    // `visibilityState` and `hidden` so no reading of it sees an impossible document; the file's
+    // `vi.restoreAllMocks()` undoes them even when an assertion throws.
+    let visibility;
+    let hidden;
+    beforeEach(() => {
+      visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible');
+      hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(false);
+    });
+    const setDocument = (state) => { visibility.mockReturnValue(state); hidden.mockReturnValue(state !== 'visible'); };
+    const setFocus = (focused) => { vi.mocked(document.hasFocus).mockReturnValue(focused); };
+    const fire = (target, type) => act(() => { target.dispatchEvent(new Event(type)); });
+    const onScreen = () => MapStub.lastProps.paneVisible;
+
+    it('is off screen while its panel is hidden — the 0×0 box the nonce ignores — and on screen again on the return', () => {
+      // Codex, #848: kept mounted under a `hidden` panel, a failure behind another app tab filled the
+      // region outside the accessibility tree, and the return announced nothing.
+      installResizeObserver();
+      renderPane();
+      expect(onScreen()).toBe(true);
+      const rect = vi.spyOn(screen.getByTestId('window-first-map-pane'), 'getBoundingClientRect')
+        .mockReturnValue({ width: 0, height: 0 });
+      triggerResize();
+      expect(onScreen()).toBe(false);
+      rect.mockReturnValue({ width: 800, height: 500 });
+      triggerResize();
+      expect(onScreen()).toBe(true);
+    });
+
+    it('is off screen while the document is hidden — a background browser tab — and on screen again on the return', () => {
+      // Codex's post-merge review of #848: the panel keeps its box then, so the box alone said "on
+      // screen", and the region filled while the screen reader was presenting another tab.
+      renderPane();
+      expect(onScreen()).toBe(true);
+      setDocument('hidden');
+      fire(document, 'visibilitychange');
+      expect(onScreen()).toBe(false);
+      setDocument('visible');
+      fire(document, 'visibilitychange');
+      expect(onScreen()).toBe(true);
+    });
+
+    it('is off screen while the window is not focused — another app in front of a visible window — and on screen again when it returns', () => {
+      // Review R2: side by side, or on a second monitor, `visibilityState` stays 'visible' while the
+      // screen reader presents the other app — and the return fires `focus`, not `visibilitychange`.
+      renderPane();
+      expect(onScreen()).toBe(true);
+      setFocus(false);
+      fire(window, 'blur');
+      expect(document.visibilityState).toBe('visible');
+      expect(onScreen()).toBe(false);
+      setFocus(true);
+      fire(window, 'focus');
+      expect(onScreen()).toBe(true);
+    });
+
+    it('stays off screen while its panel is hidden, whatever the page does — the panel\'s own return brings it back', () => {
+      installResizeObserver();
+      renderPane();
+      const rect = vi.spyOn(screen.getByTestId('window-first-map-pane'), 'getBoundingClientRect')
+        .mockReturnValue({ width: 0, height: 0 });
+      triggerResize();
+      expect(onScreen()).toBe(false);
+      // The reader, still on the Plan tab, visits another browser tab and comes back.
+      setDocument('hidden');
+      fire(document, 'visibilitychange');
+      setDocument('visible');
+      fire(document, 'visibilitychange');
+      // Broken — one flag both layers write — the page's return said "on screen" with the Map panel
+      // still hidden, and a failure there filled the region unannounced: #848's defect, back.
+      expect(onScreen()).toBe(false);
+      rect.mockReturnValue({ width: 800, height: 500 });
+      triggerResize();
+      expect(onScreen()).toBe(true);
+    });
+
+    it('stays off screen while the page is not in front, whatever the box does — the reader\'s return brings it back', () => {
+      installResizeObserver();
+      renderPane();
+      withBox();
+      setDocument('hidden');
+      fire(document, 'visibilitychange');
+      expect(onScreen()).toBe(false);
+      // A resize while away — a phone rotating in a background tab — reports a real box.
+      triggerResize();
+      // Broken — one flag both layers write — the box said "on screen" with the page still hidden.
+      expect(onScreen()).toBe(false);
+      setDocument('visible');
+      fire(document, 'visibilitychange');
+      expect(onScreen()).toBe(true);
+    });
+
+    it.each([
+      ['a hidden document', () => setDocument('hidden')],
+      ['an unfocused window', () => setFocus(false)],
+    ])('starts off screen when mounted into %s, and comes on screen when the reader arrives', (_, away) => {
+      // A map first mounted with the reader elsewhere must not count as on screen until they arrive,
+      // or a failure before then fills the region unannounced.
+      away();
+      renderPane();
+      expect(onScreen()).toBe(false);
+      setDocument('visible');
+      setFocus(true);
+      fire(document, 'visibilitychange');
+      fire(window, 'focus');
+      expect(onScreen()).toBe(true);
+    });
+
+    it('reads the page again once it has subscribed — a change between the render and the subscription is not lost', () => {
+      // Review R3: this pane is `lazy()` behind a Suspense fallback whose commit React can hold back,
+      // so a tab switch can land after the render has read the page and before any listener exists.
+      // Simulated by the page going away just as the pane's subscription is added (the stub has
+      // rendered by then): no event reaches the new listener.
+      const realAdd = document.addEventListener.bind(document);
+      vi.spyOn(document, 'addEventListener').mockImplementation((type, listener, options) => {
+        if (type === 'visibilitychange' && MapStub.renders > 0) setDocument('hidden');
+        return realAdd(type, listener, options);
+      });
+      renderPane();
+      // Broken — the page read once at render, a listener added after — this still said "on screen".
+      expect(onScreen()).toBe(false);
+    });
+
+    it('stops listening when the pane goes away — every listener it added, removed with the same arguments', () => {
+      // The pane unmounts on logout; a listener left behind would set state on a component that is
+      // gone, for the rest of the page's life. Whole argument lists, options included: a capture flag
+      // on one side only would leave the listener attached.
+      const docAdd = vi.spyOn(document, 'addEventListener');
+      const docRemove = vi.spyOn(document, 'removeEventListener');
+      const winAdd = vi.spyOn(window, 'addEventListener');
+      const winRemove = vi.spyOn(window, 'removeEventListener');
+      const calls = (spy, types) => spy.mock.calls.filter(([type]) => types.includes(type));
+      const { unmount } = renderPane();
+      expect(calls(docAdd, ['visibilitychange'])).toHaveLength(1);
+      expect(calls(winAdd, ['focus', 'blur'])).toHaveLength(2);
+      unmount();
+      expect(calls(docRemove, ['visibilitychange'])).toEqual(calls(docAdd, ['visibilitychange']));
+      expect(calls(winRemove, ['focus', 'blur'])).toEqual(calls(winAdd, ['focus', 'blur']));
     });
   });
 });
