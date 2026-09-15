@@ -71,19 +71,6 @@ describe('ModelSelectionView', () => {
   });
 
   describe('the transient success banner', () => {
-    /** Toggles a strategy and waits for the banner its handler shows. */
-    async function toggleAndAwaitBanner() {
-      updateOptimisationStrategy.mockResolvedValue({
-        strategyType: 'TIDE_ALIGNMENT',
-        enabled: true,
-        paramValue: null,
-      });
-      const view = render(<ModelSelectionView />);
-      fireEvent.click(await screen.findByTestId('strategy-toggle-TIDE_ALIGNMENT'));
-      await screen.findByText('Tide Triage enabled');
-      return view;
-    }
-
     /** Flushes pending promises without moving the fake clock at all. */
     async function pump() {
       await act(async () => {
@@ -288,26 +275,55 @@ describe('ModelSelectionView', () => {
      * ⚠️ Only the pending timer, not every timer ever scheduled. An earlier version demanded all of
      * them, which rejected a behaviourally identical implementation whose only difference was an
      * idle timer the effect had already cleared — an over-specified test "catching" a mutant that
-     * changes nothing observable.
+     * changes nothing observable. What IS demanded is that nothing is left pending AFTER the
+     * unmount: the dismiss is the only timer this tree arms, so a zero count means nothing the
+     * component armed can fire into a torn-down tree — a replacement armed at some other delay
+     * included, which the `ms === 3000` filter cannot see.
+     *
+     * ⚠️ On the fake clock and settled by `pump()`, like the first three tests in this block —
+     * never a `findBy*` for the banner, which raced on real timers and would hang on this frozen
+     * clock (Testing Library ends every wait on a `setTimeout(0)`, and here that is frozen too).
+     * The race: the banner is on screen one scheduler task before its timer exists. Outside `act`,
+     * the commit a resolved request makes leaves its passive effects to a later task, and React
+     * always yields between the two because every commit requests a paint. A `findByText` is
+     * satisfied by the commit, and Testing Library then resumes on a real `setTimeout(0)` that
+     * races React's next `setImmediate` slice. If Node's millisecond clock ticked over before the
+     * event loop came back round — heavy load makes that likely — the timer won, and the test read
+     * an empty `scheduled`: `expected 0 to be greater than 0`, in 41 of 2,700 repetitions under CPU
+     * load and 20 of 20 with that tick forced. An awaited `act` keeps flushing until React's queue
+     * is empty, passive effects included, so nothing here depends on which macrotask wins — and on
+     * a frozen clock the 3s dismiss cannot fire before the unmount, however slow the run.
      */
     it('cancels its pending dismiss timer when it unmounts', async () => {
-      const realSetTimeout = globalThis.setTimeout;
-      const realClearTimeout = globalThis.clearTimeout;
+      vi.useFakeTimers();
+      // Taken after the clock is installed, so the spies wrap the fake functions the effect calls.
+      const fakeSetTimeout = globalThis.setTimeout;
+      const fakeClearTimeout = globalThis.clearTimeout;
       const scheduled = [];
       const cleared = [];
 
       const setSpy = vi.spyOn(globalThis, 'setTimeout').mockImplementation((fn, ms, ...rest) => {
-        const id = realSetTimeout(fn, ms, ...rest);
+        const id = fakeSetTimeout(fn, ms, ...rest);
         if (ms === 3000) scheduled.push(id);
         return id;
       });
       const clearSpy = vi.spyOn(globalThis, 'clearTimeout').mockImplementation((id) => {
         cleared.push(id);
-        return realClearTimeout(id);
+        return fakeClearTimeout(id);
       });
 
       try {
-        const { unmount } = await toggleAndAwaitBanner();
+        updateOptimisationStrategy.mockResolvedValue({
+          strategyType: 'TIDE_ALIGNMENT',
+          enabled: true,
+          paramValue: null,
+        });
+        const { unmount } = render(<ModelSelectionView />);
+        await pump();
+
+        fireEvent.click(screen.getByTestId('strategy-toggle-TIDE_ALIGNMENT'));
+        await pump();
+        expect(screen.getByText('Tide Triage enabled')).toBeInTheDocument();
         expect(scheduled.length).toBeGreaterThan(0);
 
         const clearedBeforeUnmount = cleared.length;
@@ -315,9 +331,13 @@ describe('ModelSelectionView', () => {
 
         const clearedByUnmount = cleared.slice(clearedBeforeUnmount);
         expect(clearedByUnmount).toContain(scheduled.at(-1));
+        expect(vi.getTimerCount()).toBe(0);
       } finally {
+        // Spies off BEFORE the clock: restored after it, they would put the fake `setTimeout` back
+        // on the global once the clock itself is gone.
         setSpy.mockRestore();
         clearSpy.mockRestore();
+        vi.useRealTimers();
       }
     });
   });
