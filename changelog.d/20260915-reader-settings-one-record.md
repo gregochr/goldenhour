@@ -58,5 +58,29 @@ failed save. In `WindowFirstBriefingContext.test.jsx`, three on the provider's p
 `MapViewCentreOnHome.test.jsx` now stubs Leaflet as 1.9.4 behaves — a re-added bottom-corner control
 goes above the zoom bar — and `mapHomeControlCascade.test.jsx` resolves the kept box against slices
 of the real stylesheets. Every answer a negative names is settled inside an awaited `act` beside a
-control showing it landed. Eighteen mutants so far — the record's rules and the hook — all killed,
-each by the tests that name what it breaks.
+control showing it landed.
+
+Fifty-four mutants, all killed, each by the tests that name what it breaks, and none by a file that
+failed to load:
+- **the record's rules (ten)** — an answer with nothing on record not counting as a change; the
+  postcode or the latitude left out of the comparison; the place name not carried for the same home,
+  or carried to a moved one; the stamp never a change, or not one from nothing; a new record for an
+  identical answer; a counter set rather than counted; the mount read moving the counters;
+- **the hook (ten)** — the mount read not superseded by the dialog, or without its cleanup; the
+  dialog's read overwriting a known last-seen date, not filling an unknown one, or not reaching the
+  ramp; a saved colour not reaching it; the defaulted flag stuck at false; no postcode fallback for
+  the place; an unknown home handed down as null; a failed mount read recorded as no home;
+- **the dialog (ten)** — its read unreported, reported to the first callback it saw, or through a ref
+  never updated; a saved home not named from the lookup, or reported on the press; a recalculation
+  unreported, or reported without its stamp; a saved colour unreported, or reported as a home too; a
+  radius save reported;
+- **the provider (seven)** — reach not keyed on the drive-time counter; its catch unguarded or
+  writing nothing; its answer unguarded; no cleanup; the home, or the latch setter, it is handed
+  dropped;
+- **`App` (eight)** — the light keyed on the drive-time counter; the provider not handed the
+  drive-time counter, the home or the latch setter; the pane handed null for an unknown home; each of
+  the dialog's three reports left unwired;
+- **the ⌂ (nine)** — a `= null` default in the control, in `MapView` or in the pane; unknown ignoring
+  an origin; the button rendered while unknown; null treated as unknown; the control re-added when the
+  home becomes known (caught only once the Leaflet stub behaved like 1.9.4); the empty box painted, or
+  collapsed.
