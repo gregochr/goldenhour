@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.ForecastStability;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingDay;
@@ -166,12 +167,22 @@ public final class BriefingRollupBuilder {
             }
         }
 
+        // Snapshot every aurora field appendAuroraEvent needs ONCE, up front, and pass them down
+        // rather than letting it read auroraStateCache directly. Its getters are independent
+        // unlocked volatiles (see its class javadoc), so a CLEAR — a real alert ending, or an
+        // admin's reset — landing during the isTravelDay DB round trip below would otherwise null
+        // the level between this check and the point where it is written into the rollup.
+        AlertLevel auroraLevel = auroraStateCache.getCurrentLevel();
+        Double auroraTriggerKp = auroraStateCache.getLastTriggerKp();
+        int auroraDarkSkyCount = auroraStateCache.getDarkSkyLocationCount();
+        Integer auroraClearCount = auroraStateCache.getClearLocationCount();
         if (auroraStateCache.isActive()
-                && auroraStateCache.getCurrentLevel() != null
-                && auroraStateCache.getCurrentLevel().isAlertWorthy()
+                && auroraLevel != null
+                && auroraLevel.isAlertWorthy()
                 && !travelDayService.isTravelDay(today)) {
             String auroraEventId = today + "_aurora";
-            String auroraRegion = appendAuroraEvent(eventsNode, auroraEventId);
+            String auroraRegion = appendAuroraEvent(eventsNode, auroraEventId,
+                    auroraLevel, auroraTriggerKp, auroraDarkSkyCount, auroraClearCount);
             validEvents.add(auroraEventId);
             // The data-derived aurora region (when one exists) becomes a valid region for the
             // night so a pick referencing it passes validation, and an improvised one does not.
@@ -545,17 +556,21 @@ public final class BriefingRollupBuilder {
         return candidate.ordinal() > current.ordinal();
     }
 
-    private String appendAuroraEvent(ArrayNode eventsNode, String eventId) {
+    /**
+     * Writes the aurora event node from an already-captured snapshot of the alert state, never
+     * from a fresh {@code auroraStateCache} read — see the snapshot comment at the call site in
+     * {@link #buildRollupJson}. {@code level} is guaranteed non-null by that caller's check.
+     */
+    private String appendAuroraEvent(ArrayNode eventsNode, String eventId, AlertLevel level,
+            Double triggerKp, int darkSkyLocationCount, Integer clearLocationCount) {
         ObjectNode auroraNode = eventsNode.addObject();
         auroraNode.put("event", eventId);
-        auroraNode.put("alertLevel", auroraStateCache.getCurrentLevel().name());
-        Double kp = auroraStateCache.getLastTriggerKp();
-        if (kp != null) {
-            auroraNode.put("kp", kp);
+        auroraNode.put("alertLevel", level.name());
+        if (triggerKp != null) {
+            auroraNode.put("kp", triggerKp);
         }
-        auroraNode.put("darkSkyLocationCount", auroraStateCache.getDarkSkyLocationCount());
-        Integer clearCount = auroraStateCache.getClearLocationCount();
-        auroraNode.put("clearLocationCount", clearCount != null ? clearCount : 0);
+        auroraNode.put("darkSkyLocationCount", darkSkyLocationCount);
+        auroraNode.put("clearLocationCount", clearLocationCount != null ? clearLocationCount : 0);
         String region = auroraRegionSelector.bestAuroraRegion();
         if (region != null) {
             auroraNode.put("region", region);
