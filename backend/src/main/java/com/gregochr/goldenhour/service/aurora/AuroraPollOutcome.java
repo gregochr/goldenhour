@@ -13,7 +13,8 @@ import java.util.Objects;
  *                derived. That is an unexpected error, not an outage: the client fails open, so in
  *                an outage a poll evaluates the last data cached, or empty data read as quiet
  * @param action  the state machine's action; NONE when it was not consulted (a NOAA read that threw,
- *                or a daylight forecast below MODERATE)
+ *                a daylight forecast below MODERATE, or a night poll holding an alert while the
+ *                reading that will decide it is still due)
  * @param trigger which signal the level comes from: {@link TriggerType#FORECAST_LOOKAHEAD} when the
  *                forecast for the rest of tonight reaches it, {@link TriggerType#REALTIME} when only
  *                the conditions now do; {@code null} when there is no level

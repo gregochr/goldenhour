@@ -936,7 +936,7 @@ Examples: "High cirrus canvas — good colour potential",
     <span class="section-num">5</span>
     <div class="section-title-block">
       <h2>Aurora Pipeline</h2>
-      <p class="section-summary">NOAA SWPC polling every 5 min + Met Office scraping hourly. Dual-path: forecast lookahead (any time) + real-time (night only). State machine (IDLE&harr;ACTIVE) with escalation/de-escalation. Single Claude Haiku call for all viable locations. Conservative: Kp latitude hard caps, dual-signal alert logic, lenient cloud triage.</p>
+      <p class="section-summary">NOAA SWPC polling every 5 min + Met Office scraping hourly. One evaluation per poll: the forecast for tonight by day; after dark, the higher of the forecast for the rest of tonight and the conditions now. State machine (IDLE&harr;ACTIVE) with escalation. Single Claude Haiku call for all viable locations. Conservative: Kp latitude hard caps, dual-signal alert logic, lenient cloud triage.</p>
     </div>
     <span class="chevron">&#9654;</span>
   </div>
@@ -1004,13 +1004,18 @@ Examples: "High cirrus canvas — good colour potential",
         </div>
         <div class="subsection-body">
           <div class="subsection-content">
-            <p><code>AuroraOrchestrator.deriveAlertLevel()</code> uses dual-signal logic:</p>
-            <pre><code>effectiveKp = max(currentKp, maxForecastKp_6h_ahead)
+            <p>Each poll evaluates the state machine at most once (<code>AuroraOrchestrator</code>, since 2026-09-14):</p>
+            <pre><code>restOfTonight = highest Kp of the blocks still ahead in tonight's dark window
+                (the running block included, ended blocks never)
+kpNow         = the last completed block's published reading,
+                or NOAA's estimate for it until the reading is out
 
-if effectiveKp >= 7.0 -> STRONG
-if effectiveKp >= 5.0 OR ovation% >= 20% -> MODERATE
-if effectiveKp >= 4.0 -> MINOR
-else -> QUIET</code></pre>
+daylight poll: level = fromKp(restOfTonight)     -- below MODERATE, not evaluated
+night poll:    level = fromKp(max(kpNow, restOfTonight)),
+               raised to MODERATE when ovation% >= 20%
+
+fromKp: >= 7.0 -> STRONG, >= kp-threshold (5.0) -> MODERATE, >= 4.0 -> MINOR, else QUIET</code></pre>
+            <p>While the last completed block's reading is still due (up to an hour after the block ends), a night poll that would CLEAR holds instead: an estimate never ends an alert. <code>deriveAlertLevel()</code> is now only the (paused) aurora batch job's rule: <code>max(latest reading, forecast starting within 6 h)</code>, raised by OVATION.</p>
           </div>
         </div>
       </div>
@@ -1044,8 +1049,8 @@ else -> QUIET</code></pre>
               <tr><td>OVATION target latitude</td><td>55&deg;N (realistic UK latitude)</td></tr>
               <tr><td>Cloud overcast threshold</td><td>75% total cloud</td></tr>
               <tr><td>Dual-signal alert trigger</td><td>Both Kp AND OVATION considered; avoids single-point false alarms</td></tr>
-              <tr><td>Dual-signal de-escalation</td><td>Both signals must drop to clear (prevents alert flapping)</td></tr>
-              <tr><td>Daylight gate</td><td>Real-time path skipped during daytime (saves tokens)</td></tr>
+              <tr><td>Clearing</td><td>Both signals must drop below their triggers, and never on an estimate while its block's reading is due. No hysteresis: <code>kp-clear-threshold</code> / <code>ovation-clear-threshold</code> are unread, so a signal hovering at its trigger can still flap</td></tr>
+              <tr><td>Daylight polls</td><td>Read only the forecast for tonight, and never clear an alert</td></tr>
               <tr><td>Nautical twilight buffer</td><td>&plusmn;35 min approximation for &minus;12&deg; sun elevation</td></tr>
               <tr><td>Bortle filtering</td><td>MODERATE: &le;4, STRONG: &le;5 (excludes light-polluted sites)</td></tr>
               <tr><td>NOAA fail-open cache</td><td>Retains previous cached value on API failure</td></tr>
@@ -1059,17 +1064,17 @@ else -> QUIET</code></pre>
       <!-- Dual Polling Paths -->
       <div class="subsection" data-key="s5e">
         <div class="subsection-header" onclick="toggle(this)">
-          <h3>Dual Polling Paths</h3>
+          <h3>Polls: Daylight and Night</h3>
           <span class="chevron">&#9654;</span>
         </div>
         <div class="subsection-body">
           <div class="subsection-content">
             <table>
-              <tr><th>Path</th><th>Runs When</th><th>Data Source</th><th>Triggers Claude?</th><th>Tone</th></tr>
-              <tr><td>Forecast Lookahead</td><td>Any time (day or night)</td><td>NOAA 3-day Kp forecast for tonight's dark window</td><td>Yes (on NOTIFY)</td><td>Planning: "forecast tonight", "plan your evening"</td></tr>
-              <tr><td>Real-Time</td><td>After nautical twilight only</td><td>Live Kp, OVATION, Bz, alerts</td><td>Yes (on NOTIFY)</td><td>Urgent: "happening now", "get out there"</td></tr>
+              <tr><th>Poll</th><th>Runs When</th><th>Data Source</th><th>Triggers Claude?</th><th>Tone</th></tr>
+              <tr><td>Daylight (<code>runForecastLookahead</code>)</td><td>Before tonight's nautical dusk</td><td>NOAA Kp forecast for tonight's dark window; the full snapshot only before a NOTIFY</td><td>Yes (on NOTIFY)</td><td>Planning: "forecast tonight", "plan your evening"</td></tr>
+              <tr><td>Night (<code>runNightPoll</code>)</td><td>From dusk to nautical dawn</td><td>One snapshot: forecast for the rest of tonight, Kp for now, OVATION, Bz, alerts</td><td>Yes (on NOTIFY)</td><td>Planning when the forecast alone reaches the level; urgent ("happening now") only when the conditions now go beyond it</td></tr>
             </table>
-            <p>Both paths feed the same FSM. A daytime forecast NOTIFY suppresses an evening real-time NOTIFY at the same level, but escalation (higher severity) triggers a second NOTIFY correctly.</p>
+            <p>Each poll evaluates the one FSM at most once, so a daytime heads-up is held through the evening at the same level and paid for once; escalation (higher severity) re-scores. Until 2026-09-14 a night poll could run two paths with two horizons, and when they disagreed every poll NOTIFIED, paid, then CLEARED.</p>
           </div>
         </div>
       </div>

@@ -274,7 +274,8 @@ time exists anywhere**):
 - `AuroraForecastResultDto`: serve the same two fields derived **per result date** via
   `AuroraForecastRunService.computeWindowForDate(date)` — the date-aware calculation the run was
   scored with. Never `AuroraPollingJob.calculateTonightWindow()`: it takes no date and reads the
-  clock (since 2026-09-14 it takes the poll's instant instead, which is no better for this), so it
+  clock (since 2026-09-14 it takes an instant instead — handed noon of a row's date it would return
+  that night's window, but it is still not the calculation the run was scored with), so it
   would pin TONIGHT's window on a T+1 or historical row — the night-vs-date trap
   `docs/engineering/aurora-night-selection.md` records, and `computeWindowForDate`'s own javadoc
   warns against exactly this reuse. (Also a cross-vendor review catch on #723.)

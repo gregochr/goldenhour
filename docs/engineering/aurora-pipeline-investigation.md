@@ -24,7 +24,7 @@ The shared layer is substantial: `BatchSubmissionService`, `BatchPollingService`
 
 **Job:** `aurora_polling` (V68, FIXED_DELAY 5 min, initial 60 s — *not* "~30 min" as the brief stated; the seed is 300 000 ms).
 
-**Entry chain:** `AuroraPollingJob.poll()` → `AuroraOrchestrator.runForecastLookahead(window)` always, plus `AuroraOrchestrator.run()` only when below nautical twilight ([AuroraPollingJob.java:107](backend/src/main/java/com/gregochr/goldenhour/service/aurora/AuroraPollingJob.java:107)).
+**Entry chain:** `AuroraPollingJob.poll()` → `AuroraOrchestrator.runForecastLookahead(window)` always, plus `AuroraOrchestrator.run()` only when below nautical twilight ([AuroraPollingJob.java:162](backend/src/main/java/com/gregochr/goldenhour/service/aurora/AuroraPollingJob.java:162), where `executePoll` now makes the one day/night choice).
 
 > **Changed 2026-09-14 (the night-time polling flap).** At night both paths ran, each with its own horizon. Whenever the lookahead reached an alert level and the real-time path did not, every poll NOTIFIED, paid for triage (and a Claude call when a location was clear), then CLEARED. A poll now runs `runForecastLookahead(tonight, now)` in daylight *or* `runNightPoll(tonight, now)` after dark, and either evaluates the state machine at most once. The night poll reads one NOAA snapshot and evaluates the higher of the forecast for the rest of tonight (`maxKpRestOfTonight`) and the conditions now. `run()` is gone. The admin `POST /api/aurora/admin/run` runs the same cycle through `AuroraPollingJob.runCycleIfIdle()` and answers 409 while one is running. See `AuroraOrchestrator`'s class javadoc.
 

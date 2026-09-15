@@ -71,10 +71,11 @@ public class AuroraPollingJob {
      * <p>{@link AuroraStateCache#evaluate} is a read-check-write that assumes one writer. Two
      * overlapping cycles both find it IDLE and both pay for a Claude call. Cycles could overlap: the
      * admin route reached the state machine from a request thread whenever it was called, and the
-     * scheduler itself can start a poll while one is running — saving a new schedule for an active
-     * job (the Scheduler screen's Save) or resuming it re-arms the job with an immediate first run,
-     * and re-arming cancels the old schedule without interrupting the cycle it is running. A refusal
-     * is a skip for the schedule (the next poll is five minutes away) and a 409 for the admin route.
+     * scheduler itself can start a poll while one is running — Run Now starts one at once, and
+     * saving a new schedule for an active job (the Scheduler screen's Save) or resuming it re-arms
+     * the job with an immediate first run, while re-arming cancels the old schedule without
+     * interrupting the cycle it is running. A refusal is a skip for the schedule (the next poll is
+     * five minutes away) and a 409 for the admin route.
      *
      * <p>An {@link AtomicBoolean} rather than a lock because nothing about a cycle belongs to a
      * thread: unlike a {@code ReentrantLock}, a second attempt from the thread already running a

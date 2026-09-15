@@ -77,8 +77,9 @@ class AlertLevelTest {
     @Test
     @DisplayName("fromKp never falls as Kp rises, for any MODERATE threshold")
     void fromKp_neverFallsAsKpRises() {
-        // The real-time aurora level is kept at or above the lookahead's by mapping a Kp figure that
-        // is never lower through this same function. That argument is only as good as this property.
+        // A night poll's level is kept at or above the rest-of-tonight forecast's by mapping a Kp
+        // figure that is never lower through this same function. That argument is only as good as
+        // this property.
         for (int thresholdTenths = 30; thresholdTenths <= 90; thresholdTenths++) {
             double moderateKp = thresholdTenths / 10.0;
             AlertLevel previous = AlertLevel.QUIET;

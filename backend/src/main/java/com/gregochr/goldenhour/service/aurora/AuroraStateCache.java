@@ -4,6 +4,7 @@ import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.model.AuroraForecastScore;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 
@@ -92,6 +93,24 @@ public class AuroraStateCache {
     private volatile boolean simulated = false;
     private volatile SimulatedNoaaData simulatedData = null;
 
+    private final Clock clock;
+
+    /**
+     * Constructs the state machine, IDLE, on the system clock.
+     */
+    public AuroraStateCache() {
+        this(Clock.systemUTC());
+    }
+
+    /**
+     * Constructs the state machine, IDLE, stamping {@link #getActiveSince()} from {@code clock}.
+     *
+     * @param clock supplies the instant an alert becomes active or escalates
+     */
+    AuroraStateCache(Clock clock) {
+        this.clock = clock;
+    }
+
     /**
      * Evaluates an incoming alert level and advances the state machine.
      *
@@ -101,31 +120,35 @@ public class AuroraStateCache {
      * @return the evaluation result containing the action and level context
      */
     public Evaluation evaluate(AlertLevel incoming) {
+        if (wouldClear(incoming)) {
+            AlertLevel prev = currentLevel;
+            state = State.IDLE;
+            currentLevel = null;
+            activeSince = null;
+            cachedScores = List.of();
+            darkSkyLocationCount = 0;
+            clearLocationCount = null;
+            return new Evaluation(Action.CLEAR, null, prev);
+        }
         if (!incoming.isAlertWorthy()) {
-            if (state == State.ACTIVE) {
-                AlertLevel prev = currentLevel;
-                state = State.IDLE;
-                currentLevel = null;
-                activeSince = null;
-                cachedScores = List.of();
-                darkSkyLocationCount = 0;
-                clearLocationCount = null;
-                return new Evaluation(Action.CLEAR, null, prev);
-            }
             return new Evaluation(Action.NONE, null, null);
         }
-
-        // Incoming is MODERATE or STRONG: a new alert from IDLE, or an escalation
-        if (wouldNotify(incoming)) {
-            AlertLevel prev = state == State.IDLE ? null : currentLevel;
+        if (!wouldNotify(incoming)) {
+            // Same level or de-escalation within alertable range
+            return new Evaluation(Action.SUPPRESS, currentLevel, null);
+        }
+        if (state == State.IDLE) {
             state = State.ACTIVE;
             currentLevel = incoming;
-            activeSince = Instant.now();
-            return new Evaluation(Action.NOTIFY, incoming, prev);
+            activeSince = clock.instant();
+            return new Evaluation(Action.NOTIFY, incoming, null);
         }
-
-        // Same level or de-escalation within alertable range
-        return new Evaluation(Action.SUPPRESS, currentLevel, null);
+        // An escalation. It writes no state, only the level, as it always has, so a reset landing
+        // mid-escalation cannot leave the machine ACTIVE without a level.
+        AlertLevel prev = currentLevel;
+        currentLevel = incoming;
+        activeSince = clock.instant();
+        return new Evaluation(Action.NOTIFY, incoming, prev);
     }
 
     /**
@@ -141,6 +164,21 @@ public class AuroraStateCache {
     public boolean wouldNotify(AlertLevel incoming) {
         return incoming.isAlertWorthy()
                 && (state == State.IDLE || incoming.severity() > currentLevel.severity());
+    }
+
+    /**
+     * Whether {@link #evaluate} would answer CLEAR for {@code incoming} now, without changing any
+     * state: an alert is active and {@code incoming} is below MODERATE. {@code evaluate} decides its
+     * own CLEAR with this method.
+     *
+     * <p>A night poll asks before evaluating, so it can hold an alert while the reading that will
+     * decide it is still due.
+     *
+     * @param incoming the level about to be evaluated
+     * @return {@code true} when evaluating {@code incoming} would end the active alert
+     */
+    public boolean wouldClear(AlertLevel incoming) {
+        return !incoming.isAlertWorthy() && state == State.ACTIVE;
     }
 
     /**
@@ -274,7 +312,7 @@ public class AuroraStateCache {
     public void activateSimulation(AlertLevel level, SimulatedNoaaData data) {
         state = State.ACTIVE;
         currentLevel = level;
-        activeSince = Instant.now();
+        activeSince = clock.instant();
         cachedScores = List.of();
         lastTriggerType = TriggerType.FORECAST_LOOKAHEAD;
         lastTriggerKp = data.kp();

@@ -59,7 +59,8 @@ import static org.mockito.Mockito.when;
  * fake NOAA serves what the real client does: the Kp product with every block in it, observed,
  * estimated and predicted alike, and the published readings — a block's reading only
  * {@link #READING_LAG} after the block ends, the way the live feed and the client's 15-minute
- * cache deliver it.
+ * cache deliver it. A test can publish a reading that revises NOAA's estimate, or stop the readings
+ * feed, which the client then serves from its cache.
  *
  * <p>Everything happens on the night of 14 January 2027, on a clock the test moves by hand.
  * solar-utils puts Durham's nautical dusk (as the job derives it) at 17:25:42 UTC and nautical dawn
@@ -167,7 +168,8 @@ class AuroraPollingCycleTest {
     @DisplayName("a forecast peak ten hours after dusk keeps its heads-up, scored once, through the evening")
     void peakBeyondTheSixHourHorizon_keepsItsHeadsUp() {
         // 17:45, twenty minutes into the dark. Kp 5.67 is predicted for 03:00-06:00 — inside tonight,
-        // but beyond the six hours the real-time path used to look. Everything nearer is under Kp 4.
+        // but beyond the six hours the real-time path used to look. Everything that path read, the
+        // blocks starting by 23:45, is under Kp 4.
         kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
         clock.set("2027-01-14T17:45");
         noaa.blocks = kpProduct(2.33, Map.of(
@@ -195,8 +197,9 @@ class AuroraPollingCycleTest {
     @DisplayName("Kp now above everything left tonight is one STRONG real-time alert — one Claude call, not two")
     void kpNowAboveTheForecast_paysOnce() {
         // 22:00, the state machine IDLE (after a restart, say). 18:00-21:00 read Kp 7.33 and its
-        // reading is out; the rest of tonight is forecast Kp 5.33 at most. Two evaluations used to
-        // NOTIFY at MODERATE, score, then NOTIFY again at STRONG and score again.
+        // reading is out; the rest of tonight is forecast Kp 5.33 at most. A poll that evaluated the
+        // rest-of-tonight forecast and the conditions now separately would NOTIFY at MODERATE, score,
+        // then NOTIFY again at STRONG and score again.
         clock.set("2027-01-14T22:00");
         noaa.blocks = kpProduct(2.33, Map.of(
                 "2027-01-14T18:00", 7.33,
@@ -231,8 +234,8 @@ class AuroraPollingCycleTest {
         List<Transition> transitions = pollEveryFiveMinutes("2027-01-14T09:00", "2027-01-15T11:00");
 
         // The morning's heads-up, held through dusk at 17:25:42 and through the storm; then one CLEAR
-        // at 03:20, when the quiet 00:00-03:00 block's reading is out. Until then the storm block's
-        // reading stays the Kp for now. Nothing after, dawn included.
+        // at 03:20, when the quiet 00:00-03:00 block's reading is out. From 03:00 the level is quiet
+        // on NOAA's estimate, and an estimate does not end an alert. Nothing after, dawn included.
         assertThat(transitions).containsExactly(
                 new Transition("2027-01-14T09:00", "day", AuroraStateCache.Action.NOTIFY),
                 new Transition("2027-01-15T03:20", "night", AuroraStateCache.Action.CLEAR));
@@ -266,9 +269,8 @@ class AuroraPollingCycleTest {
     void wholeNight_underEstimatedBlock_holdsUntilItsReadingIsOut() {
         // Kp 5.33 predicted for 18:00-21:00 raises the morning's heads-up. NOAA has 21:00-24:00 at
         // Kp 4, but the storm carried on and that block is published at Kp 5.67. From midnight until
-        // the reading lands at 00:20, NOAA's figure for the block is its estimate. Letting the
-        // estimate lower the Kp for now would CLEAR at midnight and NOTIFY again, and pay again, at
-        // 00:20.
+        // the reading lands at 00:20, NOAA's figure for the block is its estimate, which reads MINOR.
+        // Ending the alert on it would CLEAR at midnight and NOTIFY again, and pay again, at 00:20.
         kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
         noaa.blocks = kpProduct(2.33, Map.of(
                 "2027-01-14T18:00", 5.33,
@@ -282,6 +284,118 @@ class AuroraPollingCycleTest {
                 new Transition("2027-01-14T09:00", "day", AuroraStateCache.Action.NOTIFY),
                 new Transition("2027-01-15T03:20", "night", AuroraStateCache.Action.CLEAR));
         assertThat(claudeCalls).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("an alert OVATION raised is held, not cleared and re-bought, while a low estimate's reading is due")
+    void ovationAlert_underEstimatedBlock_isHeldUntilItsReadingIsOut() {
+        // IDLE at 23:00, when an OVATION substorm (35%) raises MODERATE on its own: 18:00-21:00 read
+        // Kp 3, and NOAA estimates the running 21:00-24:00 block at 4.67. At midnight OVATION falls
+        // quiet just as 21:00-24:00 ends, and its reading, due at 00:20, will be 5.33. On the estimate
+        // alone the level is MINOR: a CLEAR at midnight, and a second NOTIFY, paid, at 00:20.
+        // Whatever raised the alert, an estimate does not end it.
+        kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
+        noaa.blocks = kpProduct(2.33, Map.of(
+                "2027-01-14T18:00", 3.00,
+                "2027-01-14T21:00", 4.67));
+        noaa.published = Map.of("2027-01-14T21:00", 5.33);
+        noaa.ovation = OVATION_SUBSTORM;
+
+        List<Transition> substorm = pollEveryFiveMinutes("2027-01-14T23:00", "2027-01-15T00:00");
+        noaa.ovation = OVATION_QUIET;
+        List<Transition> afterIt = pollEveryFiveMinutes("2027-01-15T00:00", "2027-01-15T11:00");
+
+        assertThat(substorm).containsExactly(
+                new Transition("2027-01-14T23:00", "night", AuroraStateCache.Action.NOTIFY));
+        // One CLEAR, at 03:20 when the quiet 00:00-03:00 block's reading is out.
+        assertThat(afterIt).containsExactly(
+                new Transition("2027-01-15T03:20", "night", AuroraStateCache.Action.CLEAR));
+        assertThat(claudeCalls).singleElement()
+                .satisfies(task -> assertThat(task.triggerType()).isEqualTo(TriggerType.REALTIME));
+    }
+
+    @Test
+    @DisplayName("a restart just after a block boundary does not pay for the block before's storm")
+    void restartJustAfterABoundary_doesNotPayForTheBlockBefore() {
+        // Back up at 18:05, IDLE. 12:00-15:00 read Kp 5.67. 15:00-18:00 ended five minutes ago; NOAA
+        // estimates it at 3.33, and its reading, 3.33 too, lands at 18:20. A reading three hours old
+        // is not "now": raising an alert on it would pay for a scoring that 15:00-18:00's own reading
+        // clears a quarter of an hour later.
+        noaa.blocks = kpProduct(2.33, Map.of(
+                "2027-01-14T12:00", 5.67,
+                "2027-01-14T15:00", 3.33));
+
+        List<Transition> transitions = pollEveryFiveMinutes("2027-01-14T18:05", "2027-01-14T21:00");
+
+        assertThat(transitions).isEmpty();
+        assertThat(claudeCalls).isEmpty();
+
+        // Positive control: a fresh substorm at 21:00 is still caught, once.
+        kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
+        noaa.ovation = OVATION_SUBSTORM;
+        assertThat(poll()).isEqualTo(new AfterPoll(1, true, 1));
+    }
+
+    // -------------------------------------------------------------------------
+    // A readings feed that stops — the client keeps serving what it last fetched
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a readings feed that stops after a daytime storm raises nothing that night")
+    void readingsFeedStopsAfterAStorm_raisesNothing() {
+        // 09:00-12:00 read Kp 6.33, published at 12:20, and then the readings feed stopped. The Kp
+        // product carries on, quiet. Holding that last reading as "now" would raise an alert at dusk
+        // on a storm that ended at noon, and hold it all night.
+        noaa.blocks = kpProduct(2.33, Map.of("2027-01-14T09:00", 6.33));
+        noaa.readingsStopAt = utc("2027-01-14T12:30").toInstant();
+
+        List<Transition> transitions = pollEveryFiveMinutes("2027-01-14T09:00", "2027-01-15T11:00");
+
+        assertThat(transitions).isEmpty();
+        assertThat(claudeCalls).isEmpty();
+
+        // Positive control: the next night, an OVATION substorm is caught.
+        kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
+        noaa.ovation = OVATION_SUBSTORM;
+        clock.set("2027-01-15T22:00");
+        assertThat(poll()).isEqualTo(new AfterPoll(1, true, 1));
+    }
+
+    @Test
+    @DisplayName("a readings feed that stops during an alert holds it at most an hour past the boundary")
+    void readingsFeedStopsDuringAnAlert_holdsAtMostAnHour() {
+        // Kp 6.33 predicted for 21:00-24:00 raises the morning's heads-up; the readings feed stops
+        // after 18:00-21:00's lands at 21:20. From 03:00 the level is quiet on NOAA's estimate for
+        // 00:00-03:00, and the hold waits for a reading that never comes. At 04:00 it is an hour
+        // overdue, the feed is taken as stale, and the estimate ends the alert.
+        kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
+        noaa.blocks = kpProduct(2.33, Map.of("2027-01-14T21:00", 6.33));
+        noaa.readingsStopAt = utc("2027-01-14T21:30").toInstant();
+
+        List<Transition> transitions = pollEveryFiveMinutes("2027-01-14T09:00", "2027-01-15T11:00");
+
+        assertThat(transitions).containsExactly(
+                new Transition("2027-01-14T09:00", "day", AuroraStateCache.Action.NOTIFY),
+                new Transition("2027-01-15T04:00", "night", AuroraStateCache.Action.CLEAR));
+        assertThat(claudeCalls).hasSize(1);
+    }
+
+    // -------------------------------------------------------------------------
+    // The daylight poll's snapshot
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("a heads-up held all day reads the full snapshot once, for its one scoring")
+    void daylightHeadsUp_readsTheSnapshotOnce() {
+        kielderIsEligibleAt(properties.getBortleThreshold().getModerate());
+        noaa.blocks = kpProduct(2.33, Map.of("2027-01-14T21:00", 6.33));
+
+        // Every poll from 09:00 to 17:25 is before dusk (17:25:42).
+        List<Transition> transitions = pollEveryFiveMinutes("2027-01-14T09:00", "2027-01-14T17:30");
+
+        assertThat(transitions).containsExactly(
+                new Transition("2027-01-14T09:00", "day", AuroraStateCache.Action.NOTIFY));
+        assertThat(noaa.fetchAllCalls).isEqualTo(1);
     }
 
     @Test
@@ -418,14 +532,19 @@ class AuroraPollingCycleTest {
      * NOAA as the client serves it, on the test's clock: the whole Kp product, and the readings that
      * would be published by now — each block's, once {@link #READING_LAG} has passed since it ended.
      * A block's reading is its product value unless {@link #published} gives it another, as when NOAA
-     * revises an estimate.
+     * revises an estimate. From {@link #readingsStopAt} the readings feed stops, and the client keeps
+     * serving what it had fetched by then, as it does through an outage.
      */
     private final class FakeNoaa extends NoaaSwpcClient {
 
         private List<KpForecast> blocks = List.of();
         /** Published readings that differ from the product, by block start (UTC local date-time). */
         private Map<String, Double> published = Map.of();
+        /** When the readings feed stops, or {@code null} while it keeps publishing. */
+        private Instant readingsStopAt;
         private double ovation = OVATION_QUIET;
+        /** How many full snapshots have been read. */
+        private int fetchAllCalls;
 
         FakeNoaa() {
             super(null, new AuroraProperties(), null, Clock.systemUTC());
@@ -438,9 +557,12 @@ class AuroraPollingCycleTest {
 
         @Override
         public SpaceWeatherData fetchAll() {
+            fetchAllCalls++;
             Instant now = clock.instant();
+            Instant readingsAsOf = readingsStopAt != null && readingsStopAt.isBefore(now)
+                    ? readingsStopAt : now;
             List<KpReading> readings = blocks.stream()
-                    .filter(block -> !block.to().plus(READING_LAG).toInstant().isAfter(now))
+                    .filter(block -> !block.to().plus(READING_LAG).toInstant().isAfter(readingsAsOf))
                     .map(block -> new KpReading(block.from(), published.getOrDefault(
                             block.from().toLocalDateTime().toString(), block.kp())))
                     .toList();

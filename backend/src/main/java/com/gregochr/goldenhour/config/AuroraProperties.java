@@ -96,8 +96,10 @@ public class AuroraProperties {
         private int kpForecastLookaheadHours = 6;
 
         /**
-         * ⚠️ Not read anywhere. Meant for a de-escalation hysteresis that has never been built:
-         * an alert clears as soon as its level falls below MODERATE. Defaults to 5.
+         * ⚠️ Not read anywhere. Meant for a de-escalation hysteresis that has never been built: a
+         * night poll clears an alert as soon as its level falls below MODERATE, unless the last
+         * completed block's reading is still due (for up to an hour after the block ends).
+         * Defaults to 5.
          */
         private double kpClearThreshold = 5.0;
 
