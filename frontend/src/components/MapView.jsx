@@ -1261,7 +1261,7 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  * overlay never passes one (it is frozen and has no origin concept). Gates home geography — see
  * `homeGeo` below.
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, origin = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -3555,8 +3555,15 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * before either, and the pick is the change it announces. Silent for everything else: "Loading…",
    * "Not scored yet" and the stars are on screen to be read, and announcing them would chatter on
    * every step through the windows.
+   *
+   * <p>⚠️ <b>And only while the pane is on screen</b> ({@code paneVisible} — Codex, #848, again). The
+   * shell keeps this map mounted under a `hidden` tab panel, and it goes on retrying there, so a
+   * failure while the reader was on another tab filled the region outside the accessibility tree;
+   * coming back only removes `hidden`, and a region revealed already full announces nothing. Empty
+   * while hidden, it fills on the return — a change, announced — and a failure on another tab is
+   * not read out on that tab.
    */
-  const statusLine = ratingRetrying && (
+  const statusLine = paneVisible && ratingRetrying && (
     unscoredLineShown
     || (selectedLoc != null && activeMapEvent != null && getRatingForLocation(selectedLoc) == null)
   ) ? NIGHT_RETRY_LINE : '';
@@ -5578,6 +5585,13 @@ MapView.propTypes = {
    * looking — currently the Map pane, whose panel is `display: none` between visits.
    */
   resizeNonce: PropTypes.number,
+  /**
+   * Whether this map is on screen — false while the Map pane's panel is hidden between visits (the
+   * pane reads it off its ResizeObserver's zero box). Gates the status region (`statusLine`), so a
+   * failure while the reader is on another tab is announced when they come back, not into a hidden
+   * panel. Default true: every other mount is on screen whenever it is mounted.
+   */
+  paneVisible: PropTypes.bool,
   /**
    * The heat field's opt-in. Default `null` — the Plan overlay passes nothing, deliberately: it
    * opens focused on one spot from a card that has already answered the question, and a field and

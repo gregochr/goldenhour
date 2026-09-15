@@ -125,6 +125,17 @@ export default function WindowFirstMapPane({
   const wrapRef = useRef(null);
   const [resizeNonce, setResizeNonce] = useState(0);
   /**
+   * Whether this pane is on screen — false while the shell hides its panel, read off the same
+   * observation as `resizeNonce` (the hide reports a 0×0 box). `MapView` gates its status region on
+   * it (Codex, #848): kept mounted under a `hidden` panel, the map went on retrying a failed night,
+   * and a failure while the reader was on another tab filled the region outside the accessibility
+   * tree — so coming back, which only removes `hidden`, announced nothing. Empty while hidden, the
+   * region fills on the return instead, and that is a change it announces; the observer reports the
+   * reveal only once the panel is laid out, so the region is back in the tree before it fills.
+   * Starts true: the shell mounts this pane's contents only when its tab is first selected.
+   */
+  const [paneVisible, setPaneVisible] = useState(true);
+  /**
    * Warms the four-day sheet's lazy chunk, the Map-tab twin of `WindowFirstShell`'s own
    * {@code warmStackedChunks} (which the PLAN routes get for free, since every one of them is
    * reachable only from an already-open window popup).
@@ -376,9 +387,14 @@ export default function WindowFirstMapPane({
     // container makes Leaflet cache that size and prune its tiles, so the map the reader comes back
     // to is blank until the next tick corrects it. Ignoring the hide leaves Leaflet's state intact,
     // and the reveal is then a genuine no-op when nothing actually moved.
+    //
+    // The same zero box is also what `paneVisible` reads, for the map's status region: see its
+    // declaration.
     const ro = new ResizeObserver(() => {
       const { width, height } = el.getBoundingClientRect();
-      if (width === 0 && height === 0) return;
+      const shown = !(width === 0 && height === 0);
+      setPaneVisible(shown);
+      if (!shown) return;
       setResizeNonce((n) => n + 1);
     });
     ro.observe(el);
@@ -434,6 +450,7 @@ export default function WindowFirstMapPane({
         colourScaleDefaulted={colourScaleDefaulted}
         onOpenSettings={onOpenSettings}
         resizeNonce={resizeNonce}
+        paneVisible={paneVisible}
         heat={heat}
         scoreIndex={scoreIndex}
         scoresKnown={scoresLoaded}

@@ -29,7 +29,11 @@ does not flicker back to "Loading…" as each retry goes out.
   between windows does not chatter. It sat in the callout at first, where the selection mounted it:
   a night that failed before a place was picked arrived there already holding the sentence, and a
   live region announces changes, not what it is mounted with — so in the commonest order a
-  screen-reader user heard nothing (Codex).
+  screen-reader user heard nothing (Codex). For the same reason it speaks only while the Map pane is
+  on screen: the shell keeps the map mounted under a hidden tab panel, where it goes on retrying, and
+  a failure there filled the region outside the accessibility tree, to be revealed already full —
+  unannounced — on the return. Now it fills on the return instead (the pane reports the reveal from
+  the ResizeObserver it already had), and a failure on another tab is not read out on that tab.
 - **The card follows its headline.** The callout re-measures and re-places itself when its headline
   changes in place — a night's answer landing, or its request failing — not only on a new window or
   selection. The failure line (≈207px) can never share the verdict row with the kind chip, so it
@@ -66,12 +70,13 @@ commit by commit through a `React.Profiler`, since `act` has run the cleanup by 
 Nine more in `MapCallout.test.jsx` (64 → 73), the precedence and the re-measure among them; three in
 `MapViewHeat.test.jsx` for the key slot; two in a new `mapCalloutVerdictWrap.test.js` for the
 stylesheet. Four existing assertions that read "Loading…" straight after a failure now read the new
-line. Sixty-eight mutants were run one at a time: every new rule; the four gaps a reviewer found by
+line. Seventy-four mutants were run one at a time: every new rule; the four gaps a reviewer found by
 reasoning — a record keyed to `date`, the live aurora night, drawn rows hiding a failure — which
-survived the first cut and are killed now; the 27 older mutants on code this touched; and the status
-region's six, run after it moved out of the callout (the other 62 ran just before that move, which
-touched neither their code nor the tests that kill them). Sixty-seven are killed, each by the test
-written for it and none by a timeout. The survivor keeps a repeating
+survived the first cut and are killed now; the 27 older mutants on code this touched; the status
+region's six, run after it moved out of the callout; and six more on the pane's visibility, run
+after that (the other 62 ran before either move, which touched neither their code nor the tests that
+kill them). Seventy-three are killed, each by the test written for it and none by a timeout. The
+survivor keeps a repeating
 failure's record the same object; without it each failed retry re-renders the map once more, which
 nothing on screen shows. Three read-only review lenses ran on the first cut — runtime, test quality,
 and copy, accessibility and docs — and every charge is fixed above or answered: a copy lens asked for

@@ -988,6 +988,27 @@ describe.each(KINDS)('a failed $name night request is asked again', (kind) => {
     expect(region).toHaveTextContent(RETRYING);
   });
 
+  it('speaks only while the pane is on screen — a failure behind another tab is announced on the return', async () => {
+    // ⚠️ Codex, #848, second round: the shell keeps this map mounted under a hidden tab panel, where
+    // it goes on retrying. A failure there filled the region outside the accessibility tree, and
+    // coming back — which only removes `hidden` — announced nothing. Empty while hidden, the region
+    // fills on the return, and that change is what is announced; it empties again on leaving, so
+    // the next return is a change too.
+    const result = await renderOn(NIGHT_A, kind.eventType, { paneVisible: false });
+    const region = screen.getByTestId('map-status');
+    await land(() => nth(kind.requests, NIGHT_A, 0).reject(new Error('night A timed out')));
+    // The failure is on the card behind the hidden panel; the region holds it back.
+    expect(headline()).toHaveTextContent(RETRYING);
+    expect(region.textContent).toBe('');
+
+    await stepTo(result, NIGHT_A, kind.eventType, { paneVisible: true });
+    expect(screen.getByTestId('map-status')).toBe(region);
+    expect(region).toHaveTextContent(RETRYING);
+
+    await stepTo(result, NIGHT_A, kind.eventType, { paneVisible: false });
+    expect(region.textContent).toBe('');
+  });
+
   it('stays silent for a place whose star is on screen, though the night\'s own request failed', async () => {
     // The preview drew the night and rates the picked place, so the headline shows its star and the
     // failure line is nowhere on screen: nothing for the region to announce.
