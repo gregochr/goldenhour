@@ -47,7 +47,11 @@ import java.util.stream.Collectors;
  * (for tonight only), calling Claude once per viable night, and storing results to the database.
  *
  * <p>Stored results persist across restarts and are independent of the live alert state machine.
- * They power the Aurora map mode for any date on the date strip.
+ * They power the Aurora map mode for any date on the date strip — except a night run while
+ * {@link AuroraStateCache#isSimulated()} was true, which is written with {@code simulated = true}
+ * and never read back by {@link #getResultsForDate} or {@link #getAvailableDates}: the admin who
+ * ran it already sees the outcome in this method's own synchronous response, and nobody else
+ * should see fake-Kp scores presented as a real forecast.
  */
 @Service
 public class AuroraForecastRunService {
@@ -227,10 +231,14 @@ public class AuroraForecastRunService {
      * @return preview of the next three nights
      */
     public AuroraForecastPreview getPreview() {
-        boolean isSimulated = stateCache.isSimulated();
+        // One read of getSimulatedData(), not isSimulated() followed by a second, separate read of
+        // getSimulatedData(): between the two, an admin's CLEAR/reset can null the data out from
+        // under a flag that already read true, and .kp() below would NPE on the stale flag's say-so.
+        AuroraStateCache.SimulatedNoaaData simData = stateCache.getSimulatedData();
+        boolean isSimulated = simData != null;
         List<KpForecast> kpForecast;
         if (isSimulated) {
-            kpForecast = buildSimulatedKpForecast(stateCache.getSimulatedData().kp());
+            kpForecast = buildSimulatedKpForecast(simData.kp());
         } else {
             kpForecast = noaaClient.fetchKpForecast();
         }
@@ -289,8 +297,13 @@ public class AuroraForecastRunService {
             return new AuroraForecastRunResponse(List.of(), 0, "~$0.00");
         }
 
-        SpaceWeatherData spaceWeather = stateCache.isSimulated()
-                ? buildSimulatedSpaceWeather(stateCache.getSimulatedData())
+        // One read of getSimulatedData(), not isSimulated() followed by a second, separate read of
+        // getSimulatedData(): between the two, an admin's CLEAR/reset can null the data out from
+        // under a flag that already read true, and buildSimulatedSpaceWeather would NPE on it.
+        AuroraStateCache.SimulatedNoaaData simData = stateCache.getSimulatedData();
+        boolean simulated = simData != null;
+        SpaceWeatherData spaceWeather = simulated
+                ? buildSimulatedSpaceWeather(simData)
                 : noaaClient.fetchAll();
         List<KpForecast> kpForecast = spaceWeather.kpForecast();
         // Must be the same selection the preview offered, and for a second reason: it decides
@@ -326,7 +339,7 @@ public class AuroraForecastRunService {
 
             if (maxKp < 1.0) {
                 LOG.info("Aurora forecast {}: Kp={} — no significant activity", date, maxKp);
-                resultWriter.replaceNightResults(date, List.of());
+                resultWriter.replaceNightResults(date, List.of(), simulated);
                 results.add(new AuroraForecastRunResponse.NightResult(
                         date, "no_activity", 0, 0, maxKp, "No significant geomagnetic activity"));
                 continue;
@@ -343,7 +356,7 @@ public class AuroraForecastRunService {
             if (candidates.isEmpty()) {
                 LOG.info("Aurora forecast {}: no Bortle-eligible locations (threshold={})",
                         date, bortleThreshold);
-                resultWriter.replaceNightResults(date, List.of());
+                resultWriter.replaceNightResults(date, List.of(), simulated);
                 results.add(new AuroraForecastRunResponse.NightResult(
                         date, "no_eligible_locations", 0, 0, maxKp,
                         "No dark-sky locations available (Bortle threshold = " + bortleThreshold + ")"));
@@ -384,6 +397,7 @@ public class AuroraForecastRunService {
                         .source("triage_template")
                         .alertLevel(level.name())
                         .maxKp(maxKp)
+                        .simulated(simulated)
                         .build());
             }
 
@@ -410,11 +424,12 @@ public class AuroraForecastRunService {
                             .source("claude")
                             .alertLevel(level.name())
                             .maxKp(maxKp)
+                            .simulated(simulated)
                             .build());
                 }
             }
 
-            resultWriter.replaceNightResults(date, nightResults);
+            resultWriter.replaceNightResults(date, nightResults, simulated);
 
             String nightStatus = triage.viable().isEmpty() ? "all_triaged" : "scored";
             String nightSummary = buildNightSummary(claudeScores, triage.rejected().size());
@@ -438,18 +453,18 @@ public class AuroraForecastRunService {
      * @return list of DTOs, one per location scored or triaged
      */
     public List<AuroraForecastResultDto> getResultsForDate(LocalDate date) {
-        return resultRepository.findByForecastDate(date).stream()
+        return resultRepository.findByForecastDateAndSimulatedFalse(date).stream()
                 .map(this::toDto)
                 .collect(Collectors.toList());
     }
 
     /**
-     * Returns all distinct dates for which aurora forecast results exist.
+     * Returns all distinct dates for which real (non-simulated) aurora forecast results exist.
      *
      * @return sorted list of ISO date strings
      */
     public List<String> getAvailableDates() {
-        return resultRepository.findDistinctForecastDates().stream()
+        return resultRepository.findDistinctForecastDatesExcludingSimulated().stream()
                 .map(LocalDate::toString)
                 .collect(Collectors.toList());
     }

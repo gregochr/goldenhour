@@ -6,6 +6,7 @@ import static org.mockito.Mockito.when;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gregochr.goldenhour.entity.AlertLevel;
 import com.gregochr.goldenhour.entity.TargetType;
 import com.gregochr.goldenhour.model.BriefingDay;
 import com.gregochr.goldenhour.model.BriefingEvaluationResult;
@@ -13,6 +14,7 @@ import com.gregochr.goldenhour.model.BriefingEventSummary;
 import com.gregochr.goldenhour.model.BriefingRegion;
 import com.gregochr.goldenhour.model.BriefingSlot;
 import com.gregochr.goldenhour.model.CandidateCoverage;
+import com.gregochr.goldenhour.model.RollupResult;
 import com.gregochr.goldenhour.model.Verdict;
 import com.gregochr.goldenhour.service.BriefingEvaluationService;
 import com.gregochr.goldenhour.service.StabilitySnapshotProvider;
@@ -255,5 +257,45 @@ class BriefingRollupBuilderTest {
         assertThat(region.get("claudeRatedCount").asInt())
                 .isEqualTo(region.get("totalLocations").asInt())
                 .isEqualTo(3);
+    }
+
+    // ── Aurora event inclusion ──────────────────────────────────────────────
+    //
+    // Both tests below build their own BriefingRollupBuilder over a REAL AuroraStateCache, rather
+    // than stubbing isActive()/isSimulated()/getCurrentLevel() on the shared mock — activateSimulation
+    // always sets ACTIVE alongside the simulation flag, so a real cache proves the gate against the
+    // one combination production can actually reach, not a looser one a mock would allow.
+
+    @Test
+    @DisplayName("An active, alert-worthy aurora event is added to the rollup")
+    void anActiveAuroraAlertIsAddedToTheRollup() throws Exception {
+        given(sky("Bamburgh", 3));
+        AuroraStateCache realCache = new AuroraStateCache();
+        realCache.evaluate(AlertLevel.STRONG);
+        BriefingRollupBuilder realBuilder = new BriefingRollupBuilder(mapper,
+                Clock.fixed(NOW.toInstant(ZoneOffset.UTC), ZoneOffset.UTC),
+                travelDayService, briefingEvaluationService, stabilitySnapshotProvider,
+                realCache, auroraRegionSelector);
+
+        RollupResult result = realBuilder.buildRollupJson(days, NOW);
+
+        assertThat(result.validEvents()).contains(DATE + "_aurora");
+    }
+
+    @Test
+    @DisplayName("A simulated aurora alert never reaches the best-bet rollup, real STRONG level or not")
+    void aSimulatedAuroraAlertNeverReachesTheRollup() throws Exception {
+        given(sky("Bamburgh", 3));
+        AuroraStateCache realCache = new AuroraStateCache();
+        realCache.activateSimulation(AlertLevel.STRONG,
+                new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3"));
+        BriefingRollupBuilder simBuilder = new BriefingRollupBuilder(mapper,
+                Clock.fixed(NOW.toInstant(ZoneOffset.UTC), ZoneOffset.UTC),
+                travelDayService, briefingEvaluationService, stabilitySnapshotProvider,
+                realCache, auroraRegionSelector);
+
+        RollupResult result = simBuilder.buildRollupJson(days, NOW);
+
+        assertThat(result.validEvents()).noneMatch(e -> e.endsWith("_aurora"));
     }
 }

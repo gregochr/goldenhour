@@ -39,6 +39,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
@@ -89,14 +90,15 @@ class AuroraForecastRunServiceTest {
         service = new AuroraForecastRunService(noaaClient, weatherTriage,
                 claudeInterpreter, locationRepository, resultRepository, properties, solarCalculator,
                 stateCache, resultWriter, CLOCK);
-        // Exactly three lenient stubs, and only because the class mixes pure-function tests with
-        // pipeline tests. isSimulated() is unused by the pure calculators (gScaleFromKp,
-        // maxKpInWindow, buildDateLabel) and by runForecast_emptyRequest_returnsEmpty, and it is
-        // re-stubbed to true by the two simulation tests. The civil dusk/dawn pair is consumed only
-        // by the code paths that resolve a dark window — computeWindowForDate, getPreview* and every
-        // runForecast* case — never by the calculators. Everything stubbed inside a test method is
-        // strict; there is no class-level leniency here.
-        lenient().when(stateCache.isSimulated()).thenReturn(false);
+        // Exactly two lenient stubs, and only because the class mixes pure-function tests with
+        // pipeline tests. The civil dusk/dawn pair is consumed only by the code paths that resolve a
+        // dark window — computeWindowForDate, getPreview* and every runForecast* case — never by the
+        // calculators (gScaleFromKp, maxKpInWindow, buildDateLabel). No default stub for
+        // getSimulatedData() is needed: production reads it once and derives "simulated" from
+        // != null (never a separate isSimulated() call, which used to leave a gap for an admin's
+        // CLEAR/reset to null the data out from under an already-true flag), and Mockito's own
+        // default answer for an unstubbed method — null — already means "not simulated". Everything
+        // stubbed inside a test method is strict; there is no class-level leniency here.
 
         ZoneId utc = ZoneId.of("UTC");
         // Answers per requested date rather than returning one fixed pair. That matters now:
@@ -355,7 +357,7 @@ class AuroraForecastRunServiceTest {
         assertThat(response.nights().get(0).status()).isEqualTo("window_closed");
         // Nothing written and nothing spent — note this is never(), not "written with empty":
         // clearing the night would destroy the same rows by a different route.
-        verify(resultWriter, never()).replaceNightResults(any(), any());
+        verify(resultWriter, never()).replaceNightResults(any(), any(), anyBoolean());
         verify(claudeInterpreter, never()).interpret(any(), any(), any(), any(), any(), any());
         verify(weatherTriage, never()).triage(any());
     }
@@ -426,7 +428,7 @@ class AuroraForecastRunServiceTest {
                 .alertLevel("MINOR")
                 .maxKp(4.0)
                 .build();
-        when(resultRepository.findByForecastDate(pastNight)).thenReturn(List.of(entity));
+        when(resultRepository.findByForecastDateAndSimulatedFalse(pastNight)).thenReturn(List.of(entity));
 
         List<AuroraForecastResultDto> dtos = service.getResultsForDate(pastNight);
 
@@ -456,7 +458,7 @@ class AuroraForecastRunServiceTest {
                 .alertLevel("MODERATE")
                 .maxKp(6.0)
                 .build();
-        when(resultRepository.findByForecastDate(TODAY)).thenReturn(List.of(entity));
+        when(resultRepository.findByForecastDateAndSimulatedFalse(TODAY)).thenReturn(List.of(entity));
 
         TonightWindow expected = service.computeWindowForDate(TODAY);
         List<AuroraForecastResultDto> dtos = service.getResultsForDate(TODAY);
@@ -674,7 +676,7 @@ class AuroraForecastRunServiceTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<AuroraForecastResultEntity>> savedCaptor =
                 ArgumentCaptor.forClass(List.class);
-        verify(resultWriter).replaceNightResults(eq(tonight), savedCaptor.capture());
+        verify(resultWriter).replaceNightResults(eq(tonight), savedCaptor.capture(), eq(false));
         List<AuroraForecastResultEntity> saved = savedCaptor.getValue();
         assertThat(saved).hasSize(2);
 
@@ -688,6 +690,11 @@ class AuroraForecastRunServiceTest {
                 .filter(e -> !e.isTriaged()).findFirst().orElseThrow();
         assertThat(claude.getSource()).isEqualTo("claude");
         assertThat(claude.getStars()).isEqualTo(3);
+
+        // A real (non-simulated) run must never mark its rows simulated — stateCache.
+        // getSimulatedData() is unstubbed here, defaulting to null, matching every other
+        // non-simulation test in this class.
+        assertThat(saved).allMatch(e -> !e.isSimulated());
     }
 
     @Test
@@ -698,7 +705,7 @@ class AuroraForecastRunServiceTest {
 
         service.runForecast(new AuroraForecastRunRequest(List.of(tonight)));
 
-        verify(resultWriter).replaceNightResults(tonight, List.of());
+        verify(resultWriter).replaceNightResults(tonight, List.of(), false);
     }
 
     @Test
@@ -736,7 +743,7 @@ class AuroraForecastRunServiceTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<AuroraForecastResultEntity>> writtenCaptor =
                 ArgumentCaptor.forClass(List.class);
-        verify(resultWriter).replaceNightResults(eq(tonight), writtenCaptor.capture());
+        verify(resultWriter).replaceNightResults(eq(tonight), writtenCaptor.capture(), eq(false));
         assertThat(writtenCaptor.getValue()).hasSize(1);
         assertThat(writtenCaptor.getValue().get(0).isTriaged()).isTrue();
     }
@@ -761,7 +768,7 @@ class AuroraForecastRunServiceTest {
                 new AuroraForecastRunRequest(List.of(tonight)));
 
         assertThat(response.nights().get(0).status()).isEqualTo("no_eligible_locations");
-        verify(resultWriter).replaceNightResults(tonight, List.of());
+        verify(resultWriter).replaceNightResults(tonight, List.of(), false);
     }
 
     @Test
@@ -803,9 +810,9 @@ class AuroraForecastRunServiceTest {
         @SuppressWarnings("unchecked")
         ArgumentCaptor<List<AuroraForecastResultEntity>> writtenCaptor =
                 ArgumentCaptor.forClass(List.class);
-        verify(resultWriter).replaceNightResults(eq(night1), writtenCaptor.capture());
+        verify(resultWriter).replaceNightResults(eq(night1), writtenCaptor.capture(), eq(false));
         assertThat(writtenCaptor.getValue()).hasSize(1);
-        verify(resultWriter, never()).replaceNightResults(eq(night2), any());
+        verify(resultWriter, never()).replaceNightResults(eq(night2), any(), anyBoolean());
     }
 
     @Test
@@ -856,11 +863,10 @@ class AuroraForecastRunServiceTest {
     // -------------------------------------------------------------------------
 
     @Test
-    @DisplayName("getPreview uses simulated Kp when stateCache.isSimulated() is true")
+    @DisplayName("getPreview uses simulated Kp when stateCache.getSimulatedData() is non-null")
     void getPreview_simulated_usesSimulatedKp() {
         AuroraStateCache.SimulatedNoaaData simData =
                 new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3");
-        when(stateCache.isSimulated()).thenReturn(true);
         when(stateCache.getSimulatedData()).thenReturn(simData);
         when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
                 .thenReturn(List.of());
@@ -886,13 +892,11 @@ class AuroraForecastRunServiceTest {
     }
 
     @Test
-    @DisplayName("runForecast uses simulated SpaceWeatherData when simulation is active")
+    @DisplayName("runForecast uses simulated SpaceWeatherData when getSimulatedData() is non-null")
     void runForecast_simulated_usesSimulatedSpaceWeather() {
         AuroraStateCache.SimulatedNoaaData simData =
                 new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3");
-        when(stateCache.isSimulated()).thenReturn(true);
         when(stateCache.getSimulatedData()).thenReturn(simData);
-
 
         LocationEntity loc = LocationEntity.builder()
                 .id(1L).name("Sim Location").lat(55.0).lon(-1.5).bortleClass(3).build();
@@ -915,6 +919,49 @@ class AuroraForecastRunServiceTest {
         assertThat(response.nights().get(0).status()).isEqualTo("scored");
         // Should NOT have called noaaClient.fetchAll() — uses simulated data instead
         verify(noaaClient, never()).fetchAll();
+    }
+
+    @Test
+    @DisplayName("runForecast marks every persisted row simulated when a REAL AuroraStateCache "
+            + "is mid-simulation")
+    void runForecast_simulated_marksPersistedResultsAsSimulated() {
+        // A real cache driven through activateSimulation(), not a mocked isSimulated() — proves the
+        // marker is set from the state activateSimulation actually puts the machine in, not from an
+        // answer a mock could give independently of it. Without this marker, a Claude call made
+        // against fake Kp/storm data would persist identically to a real run and be served to every
+        // PRO/ADMIN user on the map as if it were real.
+        AuroraStateCache realCache = new AuroraStateCache();
+        realCache.activateSimulation(AlertLevel.STRONG,
+                new AuroraStateCache.SimulatedNoaaData(7.0, 45.0, -12.0, "G3"));
+        AuroraForecastRunService simService = new AuroraForecastRunService(noaaClient, weatherTriage,
+                claudeInterpreter, locationRepository, resultRepository, properties, solarCalculator,
+                realCache, resultWriter, CLOCK);
+
+        LocationEntity viableLoc = LocationEntity.builder()
+                .id(1L).name("Clear Sky").lat(55.0).lon(-1.5).bortleClass(3).build();
+        LocationEntity triageLoc = LocationEntity.builder()
+                .id(2L).name("Overcast Bay").lat(54.0).lon(-2.0).bortleClass(2).build();
+        when(locationRepository.findByBortleClassLessThanEqualAndEnabledTrue(anyInt()))
+                .thenReturn(List.of(viableLoc, triageLoc));
+        when(weatherTriage.triage(any())).thenReturn(
+                new WeatherTriageService.TriageResult(
+                        List.of(viableLoc), List.of(triageLoc),
+                        Map.of(viableLoc, 20, triageLoc, 95)));
+        when(claudeInterpreter.interpret(any(), any(), any(), any(), any(), any()))
+                .thenReturn(List.of(new AuroraForecastScore(viableLoc, 4, AlertLevel.STRONG, 20,
+                        "Strong conditions", "✓ Geomagnetic: STRONG")));
+
+        simService.runForecast(new AuroraForecastRunRequest(List.of(TODAY)));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<AuroraForecastResultEntity>> savedCaptor =
+                ArgumentCaptor.forClass(List.class);
+        verify(resultWriter).replaceNightResults(eq(TODAY), savedCaptor.capture(), eq(true));
+        List<AuroraForecastResultEntity> saved = savedCaptor.getValue();
+        // One triage-template row (Overcast Bay) and one Claude-scored row (Clear Sky) — both
+        // branches of the entity-building code must carry the marker, not just one.
+        assertThat(saved).hasSize(2);
+        assertThat(saved).allMatch(AuroraForecastResultEntity::isSimulated);
     }
 
     // -------------------------------------------------------------------------
