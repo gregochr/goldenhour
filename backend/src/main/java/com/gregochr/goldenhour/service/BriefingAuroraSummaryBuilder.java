@@ -92,7 +92,8 @@ public class BriefingAuroraSummaryBuilder {
 
     /**
      * Builds tonight's aurora summary, fetching weather from Open-Meteo if the cache is stale.
-     * Returns {@code null} when the state machine is idle (no active alert).
+     * Returns {@code null} when the state machine is idle (no active alert), and also when an
+     * admin simulation is active — this must never surface fake data as a real summary.
      *
      * @return tonight's aurora summary, or null
      */
@@ -111,7 +112,10 @@ public class BriefingAuroraSummaryBuilder {
     }
 
     private AuroraTonightSummary buildAuroraTonight(boolean allowFetch) {
-        if (!auroraStateCache.isActive()) {
+        // An admin's aurora simulation must never surface as a real tonight summary — not on the
+        // (currently write-only) briefing payload, and not to AuroraHotTopicStrategy, which reads
+        // this method's cached variant for the Plan cards' clear-location count and moon data.
+        if (!auroraStateCache.isActive() || auroraStateCache.isSimulated()) {
             return null;
         }
         try {

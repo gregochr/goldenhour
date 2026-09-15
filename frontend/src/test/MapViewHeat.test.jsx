@@ -3210,3 +3210,65 @@ describe('the landing card — once per forecast run, and dismissed only three w
     expect(screen.queryByTestId('wf-land')).toBeNull();
   });
 });
+
+describe('MapView heat — the key slot while an astro night\'s own request fails (review B3)', () => {
+  // ⚠️ The slot's "This event is not scored yet" is a claim about the forecast, and a failed request
+  // is no evidence for it: through an outage it sat beside the callout's "Couldn’t load — trying
+  // again", the two contradicting each other on one screen. The single-night request is held by
+  // hand, so the test — not the scheduler — decides when it fails and when a retry answers; and the
+  // retry timer is faked, so a retry goes only when advanced, never on its own mid-assertion.
+  let requests;
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] });
+    vi.setSystemTime(new Date(`${TODAY}T12:00:00Z`));
+    requests = [];
+    getAstroConditions.mockImplementation(() => new Promise((resolve, reject) => {
+      requests.push({ resolve, reject });
+    }));
+  });
+  // Restored to the file's default: `mockImplementation` outlives the test that installed it.
+  afterEach(() => {
+    getAstroConditions.mockReset();
+    getAstroConditions.mockResolvedValue([]);
+  });
+
+  const land = async (settle) => { await act(async () => { settle(); }); };
+  const slot = () => screen.getByTestId('wf-map-heat-unscored');
+
+  it('says the night could not load — never "not scored" — while its own request fails and is asked again', async () => {
+    await renderMap({ heat: heatProp(), handoffEventType: 'ASTRO' });
+    // The night's own request, and nothing else: no available dates, so no preview.
+    expect(requests).toHaveLength(1);
+    expect(slot()).not.toHaveTextContent('Couldn’t load');
+
+    await land(() => requests[0].reject(new Error('astro conditions down')));
+    expect(slot()).toHaveTextContent('Couldn’t load — trying again');
+    expect(slot()).not.toHaveTextContent('not scored');
+  });
+
+  it('says "not scored" once the night answers after failing — an answer outranks the failure', async () => {
+    await renderMap({ heat: heatProp(), handoffEventType: 'ASTRO' });
+    await land(() => requests[0].reject(new Error('astro conditions down')));
+    expect(slot()).toHaveTextContent('Couldn’t load — trying again');
+
+    await act(async () => { vi.advanceTimersByTime(2000); });
+    expect(requests).toHaveLength(2);
+    await land(() => requests[1].resolve([]));
+    // The night has answered: nothing here is rated. Broken — the failure read with no answer's
+    // precedence, as the slot has no order of its own — "Couldn't load" over that answer.
+    expect(slot()).toHaveTextContent('This event is not scored yet');
+  });
+
+  it('announces the key slot\'s failure line through the tab\'s status region — no place need be picked', async () => {
+    // Nothing is selected in this file's renders, so no callout: the slot is the only surface saying
+    // it, and the tab's region (Codex, #848 — mounted with the tab, not with a selection) carries it.
+    await renderMap({ heat: heatProp(), handoffEventType: 'ASTRO' });
+    expect(screen.queryByTestId('map-callout')).toBeNull();
+    const region = screen.getByTestId('map-status');
+    expect(region.textContent).toBe('');
+
+    await land(() => requests[0].reject(new Error('astro conditions down')));
+    expect(slot()).toHaveTextContent('Couldn’t load — trying again');
+    expect(region).toHaveTextContent('Couldn’t load — trying again');
+  });
+});

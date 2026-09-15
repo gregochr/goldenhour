@@ -34,7 +34,14 @@ import java.util.List;
  *       results so the frontend knows when to show the Aurora toggle.</li>
  * </ul>
  *
- * <p>All endpoints are gated to {@code ADMIN} and {@code PRO_USER} roles.
+ * <p><b>Gating is per-endpoint, not uniform.</b> {@code /preview} and {@code /run} are
+ * {@code ADMIN}-only: {@link AuroraForecastRunService} runs on demand from the Admin UI only
+ * ({@code AuroraForecastModal}, mounted inside the Operations tab), each call to {@code /run}
+ * spends real Claude cost the same way every other paid run endpoint in this app does (all of
+ * which are ADMIN-gated — see {@code ForecastController}), and it can also persist results sourced
+ * from an admin's active aurora simulation. The class-level annotation below only reaches the two
+ * read endpoints, {@code /results} and {@code /results/available-dates}, which stay open to
+ * {@code PRO_USER} — the map's normal, unprivileged read path.
  */
 @RestController
 @RequestMapping("/api/aurora/forecast")
@@ -61,9 +68,14 @@ public class AuroraForecastController {
      * No Claude API calls are made. Response is suitable for pre-populating the night checkboxes
      * with Kp expectations before the user commits to a (paid) Claude run.
      *
+     * <p>{@code ADMIN}-only, overriding the class-level gate: the only caller is the Admin-only
+     * night selector modal, and this can echo an admin's active aurora simulation back to the
+     * caller ({@link AuroraForecastPreview#simulated()}) — data a PRO_USER has no route to see.
+     *
      * @return preview of tonight, T+1, and T+2
      */
     @GetMapping("/preview")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AuroraForecastPreview> getPreview() {
         LOG.debug("Aurora forecast preview requested");
         return ResponseEntity.ok(forecastRunService.getPreview());
@@ -83,11 +95,17 @@ public class AuroraForecastController {
      *
      * <p>Results for the requested dates are replaced if the user runs the same night again.
      *
+     * <p>{@code ADMIN}-only, overriding the class-level gate: this spends real Claude API cost —
+     * the same reason every other paid forecast-run endpoint in this app is ADMIN-gated — and, when
+     * an admin's aurora simulation is active, persists results sourced from its fake Kp/storm data.
+     * Those simulated rows are excluded from every read this controller serves regardless of who
+     * calls it, so this gate's only job is stopping a non-admin from spending the Claude cost.
+     *
      * @param request the nights to forecast
      * @return per-night outcomes and cost summary
      */
     @PostMapping("/run")
-    @PreAuthorize("hasAnyRole('ADMIN', 'PRO_USER')")
+    @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<AuroraForecastRunResponse> runForecast(
             @RequestBody AuroraForecastRunRequest request) {
         LOG.info("Aurora forecast run requested for {} night(s): {}",

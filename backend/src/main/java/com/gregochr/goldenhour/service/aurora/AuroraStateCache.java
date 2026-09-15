@@ -135,6 +135,15 @@ public class AuroraStateCache {
             cachedScores = List.of();
             darkSkyLocationCount = 0;
             clearLocationCount = null;
+            // A real CLEAR ends any lingering admin simulation too — evaluate() is exclusively the
+            // real polling path (see the class javadoc), so a real reading superseding an active
+            // state means any earlier simulation the admin never explicitly cleared is now stale.
+            // Left uncleared here, a later real NOTIFY from this IDLE state would still read
+            // isSimulated() true, silently suppressing a genuine alert from every
+            // isSimulated()-gated reader (hot topics, the best-bet prompt) until an admin manually
+            // resets or clears the simulation.
+            simulated = false;
+            simulatedData = null;
             return new Evaluation(Action.CLEAR, null, current);
         }
         if (!incoming.isAlertWorthy()) {

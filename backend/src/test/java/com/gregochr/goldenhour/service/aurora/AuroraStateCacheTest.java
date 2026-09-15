@@ -500,6 +500,43 @@ class AuroraStateCacheTest {
         assertThat(cache.evaluate(AlertLevel.STRONG).action()).isEqualTo(AuroraStateCache.Action.NOTIFY);
     }
 
+    // -------------------------------------------------------------------------
+    // A real CLEAR ends a lingering simulation (an admin never called simulate/clear)
+    // -------------------------------------------------------------------------
+
+    @Test
+    @DisplayName("A real CLEAR ends a lingering admin simulation")
+    void clear_endsALingeringSimulation() {
+        cache.activateSimulation(AlertLevel.STRONG,
+                new AuroraStateCache.SimulatedNoaaData(7.0, 40.0, -8.0, "G3"));
+        assertThat(cache.isSimulated()).isTrue();
+
+        cache.evaluate(AlertLevel.QUIET); // real reading, not a simulation — CLEAR
+
+        assertThat(cache.isSimulated()).isFalse();
+        assertThat(cache.getSimulatedData()).isNull();
+    }
+
+    @Test
+    @DisplayName("A real alert after that CLEAR is never reported as simulated")
+    void notify_afterClearingALingeringSimulation_isNotSimulated() {
+        // The scenario a stale isSimulated() would otherwise hide a genuine alert behind: an admin
+        // activates a simulation and never explicitly clears it, a real quiet reading ends it, and
+        // a later real alert reactivates the machine. Without the CLEAR-branch fix, isSimulated()
+        // stayed true through both steps, so every isSimulated()-gated reader (hot topics, the
+        // best-bet prompt) would silently suppress this genuine alert.
+        cache.activateSimulation(AlertLevel.STRONG,
+                new AuroraStateCache.SimulatedNoaaData(7.0, 40.0, -8.0, "G3"));
+        cache.evaluate(AlertLevel.QUIET); // real CLEAR
+
+        AuroraStateCache.Evaluation evaluation = cache.evaluate(AlertLevel.MODERATE); // real NOTIFY
+
+        assertThat(evaluation.action()).isEqualTo(AuroraStateCache.Action.NOTIFY);
+        assertThat(evaluation.currentLevel()).isEqualTo(AlertLevel.MODERATE);
+        assertThat(cache.isSimulated()).isFalse();
+        assertThat(cache.getSimulatedData()).isNull();
+    }
+
     /**
      * A machine on this test's clock: {@code IDLE}, ACTIVE at a level ({@code MODERATE},
      * {@code STRONG}), or simulating at one ({@code SIM_QUIET}, {@code SIM_MINOR}, ...).
