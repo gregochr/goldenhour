@@ -41,6 +41,7 @@ import { GLANCE_MINUTES } from '../utils/planningArea.js';
 import { latLngBounds } from '../utils/heatGeometry.js';
 import { buildJumpRows, regionBestRatingFor, buildNightRegionBest } from '../utils/regionsJump.js';
 import { landingCardModel } from '../utils/mapLanding.js';
+import { NIGHT_RETRY_LINE } from '../utils/mapCallout.js';
 import MapLandingCard from './map/MapLandingCard.jsx';
 import { foreignModalOver } from '../utils/mapForeignModal.js';
 import MapWindowPanel from './map/MapWindowPanel.jsx';
@@ -374,11 +375,14 @@ const NIGHT_RETRY_STEADY_MS = 10 * 60 * 1000;
  * effect hands back as its cleanup.
  *
  * <p>Why re-ask at all: a failed request is not evidence that nothing was rated, so it leaves the
- * night unanswered and the callout reading "Loading…" (`ratingKnown`). With nothing re-asking, that
- * "Loading…" stood until the reader moved — a claim that something was loading when nothing was.
- * It is not wholly cured: between the ten-minute asks of a long outage nothing is in flight, and
- * the callout still says "Loading…" (the changelog states it; a failure wording of its own would be
- * the cure, and a product decision).
+ * night unanswered (`ratingKnown`). With nothing re-asking, the callout's "Loading…" stood until the
+ * reader moved — a claim that something was loading when nothing was.
+ *
+ * <p><b>And the tab says so once one has failed</b> — "Couldn’t load — trying again", from
+ * {@code onRetrying} (`ratingRetrying`), rather than "Loading…". "Loading…" claims a load under way,
+ * and between the ten-minute asks of a long outage nothing is in flight; "trying again" claims only
+ * that the asking goes on — a retry waiting or in flight — which is true while the night is on
+ * screen.
  *
  * <p><b>Back on the page, a waiting retry goes at once</b> — on the window's `focus`, or its
  * `visibilitychange` to visible — the way `createEventSource`'s `handleVisible` reconnects, and for
@@ -394,15 +398,18 @@ const NIGHT_RETRY_STEADY_MS = 10 * 60 * 1000;
  * cleanup ran first, the failure arms nothing; if the failure ran first, the timer is already in
  * `timer` when the cleanup clears it. Either way no retry outlives the night it was asking about,
  * and no answer lands for it: `onAnswer` is never called after `stop`, which is the same late-
- * response guard the effects carried as `cancelled`. (A request already in flight is not aborted —
- * nothing here can abort one — only its answer is dropped.)
+ * response guard the effects carried as `cancelled` — and nor is `onRetrying`, so a night the
+ * reader has left is heard from no more by its failure than by its answer. (A request already in
+ * flight is not aborted — nothing here can abort one — only what it says is dropped.)
  *
  * @param {() => Promise<Array>} request sends one request for the night
  * @param {(results: Array) => void} onAnswer called with a successful response, never after `stop`
- * @param {{retry?: boolean}} [options] `retry: false` asks exactly once, and listens for nothing
+ * @param {{retry?: boolean, onRetrying?: ?Function}} [options] `retry: false` asks exactly once,
+ *        and listens for nothing; `onRetrying()` is called each time a failure arms a retry — so
+ *        never after `stop`, and never with `retry: false`, where nothing is asked again
  * @returns {() => void} stop
  */
-function askNightUntilAnswered(request, onAnswer, { retry = true } = {}) {
+function askNightUntilAnswered(request, onAnswer, { retry = true, onRetrying = null } = {}) {
   let stopped = false;
   let timer = null;
   let failures = 0;
@@ -414,6 +421,7 @@ function askNightUntilAnswered(request, onAnswer, { retry = true } = {}) {
         if (stopped || !retry) return;
         timer = setTimeout(ask, NIGHT_RETRY_DELAYS_MS[failures] ?? NIGHT_RETRY_STEADY_MS);
         failures += 1;
+        onRetrying?.();
       });
   };
   const askNowIfWaiting = () => {
@@ -1292,7 +1300,7 @@ const DRAWER_EASING = 'cubic-bezier(0.2, 0.7, 0.2, 1)';
  * overlay never passes one (it is frozen and has no origin concept). Gates home geography — see
  * `homeGeo` below.
  */
-function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, origin = null, onOpenSettings = null, resizeNonce = null, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null }) {
+function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_DATES, autoEventType, handoffEventType, handoffFilterAction, handoffDarkSky = null, handoffLocationName = null, handoffRegion = null, handoffNonce = null, briefingScores = new Map(), onForecastRun, seasonalFeatures = [], focus = null, emphasiseLocationName = null, overlayMode = false, homeCoords = null, origin = null, onOpenSettings = null, resizeNonce = null, paneVisible = true, heat = null, mapColourScale = null, colourScaleDefaulted = false, scoreIndex = null, scoresKnown = false, regionGlossIndex = null, regionBestIndex = null, regionVerdictIndex = null, runId = null, tideAlignmentIndex = null, reachById = null, onOpenLocationSheet = null, planHandoff = null, onClearOrigin = null, onReturnToPlan = null }) {
   // `MapView` is `React.memo`'d, and its two long-lived mounts (the Map pane, the standalone
   // overlay) sit hidden rather than unmounted when the reader looks away — so a mode switch made
   // in Settings while this instance is already alive would otherwise never reach it: nothing else
@@ -1802,9 +1810,17 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   // `{night, byName}`, or null before any has. Set by a successful response and by nothing else.
   // `storedAuroraResults`, what every reader draws, is derived from it below (`nightScoresFor`).
   const [storedAuroraAnswer, setStoredAuroraAnswer] = useState(null);
+  // The night whose stored-aurora request has FAILED on this visit and is being asked again —
+  // `{night}`, or null. Set by a failure that arms a retry; taken back when the reader leaves the
+  // night (the fetch effect's cleanup). `ratingRetrying` reads it. Tagged with its night for the
+  // answer's reason: a step renders the new night before the old one's cleanup has run, and read
+  // untagged, the old night's failure would speak for the new one in that frame.
+  const [storedAuroraRetry, setStoredAuroraRetry] = useState(null);
   const [auroraAvailableDates, setAuroraAvailableDates] = useState([]); // ISO date strings
-  // `storedAuroraAnswer`'s astro twin, from which `astroScores` is derived.
+  // The astro twins of `storedAuroraAnswer` (from which `astroScores` is derived) and of
+  // `storedAuroraRetry`.
   const [astroAnswer, setAstroAnswer] = useState(null);
+  const [astroRetry, setAstroRetry] = useState(null);
   const [astroAvailableDates, setAstroAvailableDates] = useState([]); // ISO date strings
   // The window control's multi-night preview (date → that night's served rows) — fetched and
   // documented beside its own effects below, and declared up here because the night scores are
@@ -2151,20 +2167,36 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   //     effect's cleanup, after which no response for that night is applied.
   // The same fetch-cancel shape this file's multi-date astro/aurora preview effects already use.
   //
-  // ⚠️ A FAILURE writes nothing. A dropped request is not evidence that the ratings went away — the
-  // rule `WindowFirstBriefingContext`'s scores fetch already keeps — so the night goes on drawing
-  // its preview rows, or nothing, and stays unanswered (`ratingKnown`) while the request is asked
-  // again (`NIGHT_RETRY_DELAYS_MS`), until it answers or the night changes.
+  // ⚠️ A FAILURE writes nothing to the scores. A dropped request is not evidence that the ratings
+  // went away — the rule `WindowFirstBriefingContext`'s scores fetch already keeps — so the night
+  // goes on drawing its preview rows, or nothing, and stays unanswered (`ratingKnown`) while the
+  // request is asked again (`NIGHT_RETRY_DELAYS_MS`), until it answers or the night changes. What
+  // it does write is that it failed (`storedAuroraRetry`), so the callout can say so rather than
+  // "Loading…" — and the cleanup takes that back, so the failure line belongs to the visit. It
+  // used to be taken back only by the night's own next answer, which was false twice over (review
+  // B2/C3): an answer that lands after the reader has left is dropped by the same guard as any late
+  // response, so a night whose last request LOADED read "Couldn’t load" on the return; and one
+  // record per kind meant another night's failure overwrote it anyway. Back on a night, the fresh
+  // request reads "Loading…", which is true, until it fails in turn. Kept as the same `{night}`
+  // while failures repeat, so a retry that fails again re-renders nothing.
   //
   // ⚠️ The frozen Plan-tab overlay asks ONCE, as it always has: re-asking is a behaviour change, and
   // that surface is frozen pending the O-6 convergence decision (map-tab-v2-plan.md §4.9).
   useEffect(() => {
     if (eventType !== 'AURORA' || !nightDate) return undefined;
-    return askNightUntilAnswered(
+    const stop = askNightUntilAnswered(
       () => getAuroraForecastResults(nightDate),
       (results) => setStoredAuroraAnswer({ night: nightDate, byName: byLocationName(results) }),
-      { retry: !overlayMode },
+      {
+        retry: !overlayMode,
+        onRetrying: () => setStoredAuroraRetry((prev) => (
+          prev?.night === nightDate ? prev : { night: nightDate })),
+      },
     );
+    return () => {
+      stop();
+      setStoredAuroraRetry(null);
+    };
   }, [eventType, nightDate, overlayMode]);
 
   // Fetch available dates for astro conditions (available to everyone).
@@ -2187,15 +2219,23 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
   //   - A LATE RESPONSE. With no cancellation, A's request finishing after B's wrote A's stars in as
   //     B's answer, replacing B's own. Hence the stop `askNightUntilAnswered` hands back as this
   //     effect's cleanup, after which no response for that night is applied.
-  // A failure writes nothing and is asked again, and the overlay asks once — both for the reasons
-  // the stored-aurora fetch above records.
+  // A failure writes nothing to the scores, only that it failed — for this visit — and is asked
+  // again; and the overlay asks once — all for the reasons the stored-aurora fetch above records.
   useEffect(() => {
     if (eventType !== 'ASTRO' || !nightDate) return undefined;
-    return askNightUntilAnswered(
+    const stop = askNightUntilAnswered(
       () => getAstroConditions(nightDate),
       (results) => setAstroAnswer({ night: nightDate, byName: byLocationName(results) }),
-      { retry: !overlayMode },
+      {
+        retry: !overlayMode,
+        onRetrying: () => setAstroRetry((prev) => (
+          prev?.night === nightDate ? prev : { night: nightDate })),
+      },
     );
+    return () => {
+      stop();
+      setAstroRetry(null);
+    };
   }, [eventType, nightDate, overlayMode]);
 
   /**
@@ -2212,10 +2252,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    *
    * <p>⚠️ <b>The preview is never a dependency of the fetch effects above, only of these memos.</b>
    * A preview landing re-renders the night; it never re-requests it. (This was a ref read inside
-   * those effects in the first cut, and before that a {@code useEffectEvent}, which cannot work
-   * here: in react-dom 19.2.8 an Effect Event's implementation is swapped in during the commit only
-   * for a plain function-component fiber, and `React.memo(MapView)` renders as a simple-memo fiber,
-   * so the event kept its mount-time closure and never saw a preview at all.)
+   * those effects in the first cut, and before that a {@code useEffectEvent}, which could not work
+   * here under the react-dom of the time: 19.2.8 swapped an Effect Event's implementation in during
+   * the commit only for a plain function-component fiber, and `React.memo(MapView)` renders as a
+   * simple-memo fiber, so the event kept its mount-time closure and never saw a preview at all.
+   * 19.3.0 swaps it for memo and forwardRef fibers too; the derived shape stands on its own merits.)
    *
    * <p>⚠️ <b>A preview row is not an answer.</b> {@code ratingKnown} reads the answer's night alone,
    * so a place the preview does not rate reads "Loading…" until the night's own response lands,
@@ -2596,9 +2637,11 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * a real score, so an empty set is "nothing here is rated" once the night has ANSWERED.
    *
    * <p>⚠️ Not before it has: while a night's own request is in flight with no preview rows to draw,
-   * or after it has failed, the set is empty for want of an answer, and this line still says "not
-   * scored" beside a callout reading "Loading…". Holding it back needs a third, loading state for
-   * the colour key this toggles against; the changelog states it as a limit.
+   * the set is empty for want of an answer, and this line still says "not scored" beside a callout
+   * reading "Loading…" — holding it back needs a third, loading state for the colour key this
+   * toggles against; the changelog states it as a limit. Once that request has FAILED, the line
+   * says what the callout says instead ({@code unscoredLineText}): through an outage the two used to
+   * contradict each other outright, "not scored yet" beside "Couldn’t load — trying again".
    */
   const windowUnscored = Boolean(
     heatOn && (isAstroMode
@@ -2773,8 +2816,9 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
 
   /**
    * Whether {@link getRatingForLocation}'s own request has actually answered for the window on
-   * screen — what decides whether the callout's null rating reads "Not scored yet" or "Loading…"
-   * (`MapCallout`'s `ratingKnown`). Branches on the same event kinds as the accessor above.
+   * screen — what decides whether the callout's null rating reads "Not scored yet" or, until then,
+   * "Loading…" (`MapCallout`'s `ratingKnown`; after a failure, {@link ratingRetrying}'s wording
+   * instead). Branches on the same event kinds as the accessor above.
    *
    * <p>⚠️ <b>A night is asked about its own request, because the solar flag cannot answer for
    * one.</b> The callout was handed {@code scoresKnown} for every window — the SOLAR scores fetch's
@@ -2800,6 +2844,39 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
     : eventType === 'AURORA'
       ? storedAuroraAnswer?.night === nightDate
       : scoresKnown;
+
+  /**
+   * Whether the night on screen's own request has FAILED on this visit and is being asked again,
+   * with no answer in hand — what turns "Loading…" into {@code NIGHT_RETRY_LINE}, "Couldn’t load —
+   * trying again", in the callout's null-rating headline (`MapCallout`'s `ratingRetrying`) and in
+   * Heat view's key slot ({@code unscoredLineText}). Keyed to `nightDate` like {@link ratingKnown},
+   * off the record a failure writes as it arms a retry (`astroRetry`/`storedAuroraRetry`).
+   *
+   * <p><b>What "trying again" claims.</b> Not that a request is in flight at this instant — between
+   * the ten-minute asks of a long outage none is, which is exactly why "Loading…", a claim that a
+   * load is under way, was untrue there. It claims that the asking has not stopped: a night's fetch
+   * effect runs for as long as the night is on screen, and on the tab it asks again after every
+   * failure, and at once when the reader comes back to the page. So from a failure on, a retry is
+   * always either waiting or in flight. The frozen overlay never asks again, and never writes the
+   * record.
+   *
+   * <p><b>It belongs to the visit.</b> Leaving the night takes the record back (its fetch effect's
+   * cleanup), so a reader who comes back reads "Loading…" while the fresh request goes, until that
+   * fails in turn — whatever the request they left behind went on to do. One record per kind, but
+   * only the night on screen can hold one.
+   *
+   * <p><b>Masked by {@code ratingKnown}.</b> A night whose answer is still in hand goes on showing it
+   * through a failed refresh, because a failure takes nothing away (the scores rule above). The
+   * callout orders its lines the same way, but the key slot reads this too and orders nothing, so
+   * the answer's precedence is kept here, once, for both.
+   *
+   * <p>False for SUNRISE and SUNSET. The solar scores fetch exposes no failure — its `.catch` keeps
+   * whatever is on screen, and the briefing's poll asks again — so a solar null still reads
+   * "Loading…" until the scores land.
+   */
+  const ratingRetrying = !ratingKnown && (eventType === 'ASTRO'
+    ? astroRetry?.night === nightDate
+    : eventType === 'AURORA' && storedAuroraRetry?.night === nightDate);
 
   /**
    * This window's tide-alignment fact for a location (bundle rev 2's tide-chip tweak) — null
@@ -3521,6 +3598,40 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
    * {@code windowUnscored} for the loading case in which it is not.
    */
   const unscoredLineShown = windowUnscored && (isAstroMode || activeMapEvent != null);
+
+  /**
+   * What that line says: {@code NIGHT_RETRY_LINE} while the night on screen's own request has failed
+   * and is being asked again with no answer in hand ({@link ratingRetrying} — astro in practice,
+   * since an aurora night withholds the field), otherwise that the event is not scored. "Not scored"
+   * is a claim about the forecast, which a failed request is no evidence for, and the callout beside
+   * this says the same failure in the same words. Both render sites below read it.
+   */
+  const unscoredLineText = ratingRetrying ? NIGHT_RETRY_LINE : 'This event is not scored yet';
+
+  /**
+   * What the tab's status region says: {@code NIGHT_RETRY_LINE} whenever the tab is SHOWING it — in
+   * the callout (a selected place with no rating, on a night whose own request has failed) or in
+   * Heat view's key slot ({@code unscoredLineText}) — and nothing otherwise (review C1).
+   *
+   * <p>⚠️ <b>Owned here, not by the callout</b> (Codex, #848). A live region announces a CHANGE, and
+   * only one it was already in the tree for. The callout mounts when a place is selected, so in the
+   * commonest order — the night fails, then the reader picks a place — a region inside the callout
+   * arrived already holding the sentence, and said nothing. Mounted with the tab, this one is there
+   * before either, and the pick is the change it announces. Silent for everything else: "Loading…",
+   * "Not scored yet" and the stars are on screen to be read, and announcing them would chatter on
+   * every step through the windows.
+   *
+   * <p>⚠️ <b>And only while the pane is on screen</b> ({@code paneVisible} — Codex, #848, again). The
+   * shell keeps this map mounted under a `hidden` tab panel, and it goes on retrying there, so a
+   * failure while the reader was on another tab filled the region outside the accessibility tree;
+   * coming back only removes `hidden`, and a region revealed already full announces nothing. Empty
+   * while hidden, it fills on the return — a change, announced — and a failure on another tab is
+   * not read out on that tab.
+   */
+  const statusLine = paneVisible && ratingRetrying && (
+    unscoredLineShown
+    || (selectedLoc != null && activeMapEvent != null && getRatingForLocation(selectedLoc) == null)
+  ) ? NIGHT_RETRY_LINE : '';
 
   /**
    * "No forecast to show." — the Map tab's own empty state, in the Plan screen's exact words
@@ -4896,6 +5007,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
               scoreIndex={scoreIndex}
               scoresKnown={scoresKnown}
               ratingKnown={ratingKnown}
+              ratingRetrying={ratingRetrying}
               regionGlossIndex={regionGlossIndex}
               evRows={mapEvents}
               astroConditionsByDate={astroConditionsByDate}
@@ -4966,7 +5078,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                 </div>
                 {unscoredLineShown && (
                   <div data-testid="wf-map-heat-unscored" className="wf-map-key">
-                    This event is not scored yet
+                    {unscoredLineText}
                   </div>
                 )}
                 {heatOn && !windowUnscored && (
@@ -5048,6 +5160,10 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
           </>
         ) : (
           <>
+            {/* The tab's one status region — see `statusLine`. ALWAYS mounted with the tab and
+                empty unless the failure line is on screen, so the change that puts it there is
+                announced, whichever surface shows it and whenever the place is picked. */}
+            <span className="sr-only" role="status" data-testid="map-status">{statusLine}</span>
             {/* ── Full-frame map chrome (map-tab-v2-plan.md §3 P7/P10/P11) ──
                 Every corner is claimed exactly once, per the plan's z-ladder (index.css): chrome
                 1100, menus 1500 (a menu must beat every other chip so its own dropdown/panel is
@@ -5218,7 +5334,7 @@ function MapView({ locations, date, onSelectDate = null, forecastDates = EMPTY_D
                       beside it, for the same reason. */}
                   {unscoredLineShown && (
                     <div data-testid="wf-map-heat-unscored" className="wf-map-key">
-                      This event is not scored yet
+                      {unscoredLineText}
                     </div>
                   )}
                   {heatOn && !windowUnscored && (
@@ -5533,6 +5649,13 @@ MapView.propTypes = {
    * looking — currently the Map pane, whose panel is `display: none` between visits.
    */
   resizeNonce: PropTypes.number,
+  /**
+   * Whether this map is on screen — false while the Map pane's panel is hidden between visits (the
+   * pane reads it off its ResizeObserver's zero box). Gates the status region (`statusLine`), so a
+   * failure while the reader is on another tab is announced when they come back, not into a hidden
+   * panel. Default true: every other mount is on screen whenever it is mounted.
+   */
+  paneVisible: PropTypes.bool,
   /**
    * The heat field's opt-in. Default `null` — the Plan overlay passes nothing, deliberately: it
    * opens focused on one spot from a card that has already answered the question, and a field and
