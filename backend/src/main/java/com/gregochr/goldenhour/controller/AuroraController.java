@@ -82,10 +82,11 @@ public class AuroraController {
      * <p>Two residuals remain. The fields are separate volatiles read one after another, so a writer
      * caught part-way through its writes can still show in one response — during an admin
      * simulation, its level beside {@code simulated: false}, or {@code simulated: true} with no data
-     * yet. And {@code AuroraOrchestrator} writes one NOTIFY in several steps with I/O between them —
-     * the forecast lookahead records the trigger only after a NOAA fetch, and CLEAR never resets it —
-     * so the machine itself can hold a new level beside the previous alert's trigger. This read
-     * serves that faithfully; no snapshot taken here could fix it.
+     * yet. And {@code AuroraOrchestrator} writes one NOTIFY in several steps, and CLEAR never resets
+     * the trigger, so the machine itself can hold a new level beside the previous alert's trigger.
+     * Both polls read NOAA before the state machine moves, so that lasts a few field writes; only a
+     * daylight NOTIFY that an admin reset or simulation hid from the poll's check still fetches in
+     * between. This read serves that faithfully; no snapshot taken here could fix it.
      *
      * @return current aurora status
      */

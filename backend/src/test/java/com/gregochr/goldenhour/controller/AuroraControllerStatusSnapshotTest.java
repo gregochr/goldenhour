@@ -90,8 +90,7 @@ class AuroraControllerStatusSnapshotTest {
         // alert's trigger rather than null — null is used here because it makes any leak unmissable.
         when(noaaClient.fetchKp()).thenAnswer(invocation -> {
             // The polling job's NOTIFY, and the trigger `AuroraOrchestrator.scoreAndCache` records
-            // after it — straight after on the real-time path (`run`), a NOAA fetch later on the
-            // forecast lookahead's.
+            // straight after it on either poll (a daylight poll fetches its snapshot first).
             stateCache.evaluate(AlertLevel.MODERATE);
             stateCache.updateTrigger(TriggerType.REALTIME, 5.3);
             return List.of();
@@ -117,7 +116,7 @@ class AuroraControllerStatusSnapshotTest {
         when(noaaClient.fetchKp()).thenAnswer(invocation -> {
             // An admin's POST /api/aurora/admin/simulate, which moves the machine without the FSM,
             // landing while this request fetches a live Kp high enough to carry a storm scale beside
-            // a quiet machine — the real-time path that would act on it runs only at night.
+            // a quiet machine — only a night poll reads the Kp for now and would act on it.
             stateCache.activateSimulation(AlertLevel.STRONG,
                     new AuroraStateCache.SimulatedNoaaData(7.3, 60.0, -9.5, "G3"));
             return List.of(new KpReading(READING_TIME, 5.7));
